@@ -9,6 +9,9 @@
 #include <utility>
 #include <algorithm>
 #include <filesystem>
+#include <mutex>
+#include <source_location>
+#include <unordered_set>
 #include <cstdio>
 #include <wx/log.h>
 #include <wx/debug.h>
@@ -41,6 +44,18 @@ namespace anet::log {
 
     class Logger;
 
+    /// 出力先が所有し、Run の通知をソース位置と対象名ごとに一度だけ通す。
+    class NotificationFilter {
+    public:
+        bool Accept(const wxLogRecordInfo& info);
+    private:
+        std::mutex mutex_;
+        std::unordered_set<std::string> notified_;
+    };
+
+    /// Run を作る側が部品の構築より前に呼び、現在の出力先の通知記録を空にする。
+    void ResetNotifications();
+
     // ============================================================
     // Null Stream (無効ログ用)
     // ============================================================
@@ -68,6 +83,15 @@ namespace anet::log {
             : level_(level), fn_(fn), line_(line), func_(func)
         {
             ;
+        }
+        WxLogStream(wxLogLevel level, std::source_location source, std::string target,
+            std::string_view initial_body = {})
+            : WxLogStream(level)
+        {
+            once_ = true;
+            notification_source_ = source;
+            notification_target_ = std::move(target);
+            stream_ << initial_body;
         }
         WxLogStream(WxLogStream&&) noexcept = default;
         WxLogStream& operator=(WxLogStream&&) noexcept = default;
@@ -112,6 +136,11 @@ namespace anet::log {
             }
             msg << body;
 
+            if (once_) {
+                FlushNotificationRecord(msg.str());
+                return;
+            }
+
             switch (level_) {
             case wxLOG_Debug:   LogDebug(msg.str()); break;
             case wxLOG_Message: LogDebug("[MSG] " + msg.str()); wxLogMessage(msg.str());  break;
@@ -127,6 +156,10 @@ namespace anet::log {
         std::string_view fn_;
         int line_;
         const char* func_;
+        void FlushNotificationRecord(const std::string& message);
+        bool once_ = false;
+        std::source_location notification_source_;
+        std::string notification_target_;
     public:
         std::ostringstream stream_;
     };
@@ -194,6 +227,16 @@ namespace anet::log {
         WxLogStream info() const { return make(wxLOG_Message); }
         WxLogStream verbose() const { return make(wxLOG_Info); }
         WxLogStream warn() const { return make(wxLOG_Warning); }
+        WxLogStream info_once(std::string target = {},
+            std::source_location source = std::source_location::current()) const
+        {
+            return WxLogStream(wxLOG_Message, source, std::move(target), prefix_);
+        }
+        WxLogStream warn_once(std::string target = {},
+            std::source_location source = std::source_location::current()) const
+        {
+            return WxLogStream(wxLOG_Warning, source, std::move(target), prefix_);
+        }
         WxLogStream error() const { return make(wxLOG_Error); }
         const std::string& prefix() const { return prefix_; }
 
@@ -214,6 +257,16 @@ namespace anet::log {
     inline auto info() { return anet::log::WxLogStream(wxLOG_Message); }
     inline auto verbose() { return anet::log::WxLogStream(wxLOG_Info); }
     inline auto warn() { return anet::log::WxLogStream(wxLOG_Warning); }
+    inline auto info_once(std::string target = {},
+        std::source_location source = std::source_location::current())
+    {
+        return WxLogStream(wxLOG_Message, source, std::move(target));
+    }
+    inline auto warn_once(std::string target = {},
+        std::source_location source = std::source_location::current())
+    {
+        return WxLogStream(wxLOG_Warning, source, std::move(target));
+    }
     inline auto error() { return anet::log::WxLogStream(wxLOG_Error); }
     inline auto fatal() { return anet::log::WxLogStream(wxLOG_FatalError); }
 
@@ -248,6 +301,11 @@ namespace anet::log {
         }
 
     protected:
+        void DoLogRecord(wxLogLevel level, const wxString& message, const wxLogRecordInfo& info) override
+        {
+            if (notification_filter_.Accept(info)) wxLog::DoLogRecord(level, message, info);
+        }
+
         void DoLogTextAtLevel(wxLogLevel level, const wxString& msg) override
         {
             ANET_PROFILE_FUNC();
@@ -263,6 +321,7 @@ namespace anet::log {
             }
         }
     private:
+        NotificationFilter notification_filter_;
         FILE* m_file;
     };
 

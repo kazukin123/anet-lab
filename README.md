@@ -34,6 +34,7 @@ Windows 11 x64とNVIDIA CUDAを主な実行環境とする、個人の学習・�
 
 日本語ドキュメントの入口は[docs/design/README.jp.md](docs/design/README.jp.md)です。
 フレームワーク全体像、ユーザーガイド、開発環境、機能カテゴリ別・具象Agent別の設計ガイドを参照できます。
+実験で分かったこと（題材・機構ごとの知見）と、実装の部分ごとの成立の経緯は、[wikiの目録](docs/wiki/index.md)から引けます。
 
 | 場所 | 役割 |
 |---|---|
@@ -41,6 +42,7 @@ Windows 11 x64とNVIDIA CUDAを主な実行環境とする、個人の学習・�
 | [CONTEXT.md](CONTEXT.md) | プロジェクト内で使うドメイン用語の正本 |
 | [docs/adr/](docs/adr/) | 採用した設計判断と理由 |
 | [docs/memo/](docs/memo/) | 未実装の要求、検討中の設計、実装計画 |
+| [docs/wiki/](docs/wiki/index.md) | 実験記録・PRD・設計文書などを題材・機構、アプリケーション・機能カテゴリごとに束ねたまとめ（正本は各出典） |
 | [docs/ownership_guideline.md](docs/ownership_guideline.md) | Agent系State / Resourceの所有権規則 |
 
 現行動作の最終的な根拠はコード、設定、テストとします。

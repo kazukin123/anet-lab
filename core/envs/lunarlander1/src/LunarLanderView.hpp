@@ -67,6 +67,7 @@ public:
     void ApplyData(const LunarLanderData& data);
 protected:
     void OnPaint(wxPaintEvent& event);
+    void OnMiddleClick(wxMouseEvent& event);
 private:
     // world座標→画面座標変換
     wxPoint WorldToScreen(float wx, float wy, int width, int height) const;
@@ -81,10 +82,15 @@ private:
     void DrawLegs(wxDC& dc, int width, int height);
     void DrawThrust(wxDC& dc, int width, int height);
     void DrawWind(wxDC& dc, int width, int height);
+    void DrawMotion(wxDC& dc, int width, int height);
 private:
     // 最新のUIデータ（スナップショット）
     bool has_snapshot_ = false;
     LunarLanderData snapshot_;
+
+    // 表示の段。中クリックで 1 段ずつ足し、最後の段の次は最初へ戻る。Panel ごとに保持し、データ更新では変えない
+    enum class DrawLevel { kLander, kWind, kMotion };
+    DrawLevel draw_level_ = DrawLevel::kWind;
 
     // world座標系の範囲
     float world_min_x_ = -10.0f;

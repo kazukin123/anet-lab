@@ -4,6 +4,7 @@
 #include "anet/test_util.hpp"
 #include "metrics_logger_impl.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -12,8 +13,18 @@
 #include <sstream>
 #include <string>
 #include <wx/image.h>
+#include <wx/utils.h>
 
 namespace {
+
+class ProbeVideoLoggerProcess final : public anet::detail::VideoLoggerProcess {
+public:
+    explicit ProbeVideoLoggerProcess(int& destruction_count)
+        : destruction_count_(destruction_count) {}
+    ~ProbeVideoLoggerProcess() override { ++destruction_count_; }
+private:
+    int& destruction_count_; ///< このテスト呼び出しが所有する破棄回数を借用する。
+};
 
 class NullBackend final : public anet::IBackend {
 public:
@@ -163,6 +174,58 @@ TEST_CASE("Jsonl writer logs the first stream I/O failure only", "[metrics][io]"
     }
 }
 
+TEST_CASE("VideoLogger keeps a notified process alive until its owner deletes it", "[metrics][video][process]")
+{
+    int destruction_count = 0;
+    auto process = std::make_unique<ProbeVideoLoggerProcess>(destruction_count);
+    int exit_code = -1;
+    bool has_exit_code = false;
+    std::string stderr_text;
+
+    // 終了通知が先でも、所有者が手放すまでは状態を読み出せる。
+    process->OnTerminate(123, 7);
+    CHECK(destruction_count == 0);
+    REQUIRE(process->CopyTerminationState(123, &exit_code, &has_exit_code, &stderr_text));
+    CHECK(has_exit_code);
+    CHECK(exit_code == 7);
+    REQUIRE(process->ReleaseOwnership());
+    CHECK(destruction_count == 0);
+    process.reset();
+    CHECK(destruction_count == 1);
+}
+
+TEST_CASE("VideoLogger process deletes itself when notification follows ownership release", "[metrics][video][process]")
+{
+    int destruction_count = 0;
+    auto owner = std::make_unique<ProbeVideoLoggerProcess>(destruction_count);
+
+    // 通知前に所有者が手放した場合、通知を受けた側だけが破棄する。
+    REQUIRE_FALSE(owner->ReleaseOwnership());
+    CHECK(destruction_count == 0);
+    auto* process = owner.release();
+    process->OnTerminate(123, 0);
+    CHECK(destruction_count == 1);
+}
+
+TEST_CASE("VideoLogger process rejects termination state for a different pid", "[metrics][video][process]")
+{
+    int destruction_count = 0;
+    auto process = std::make_unique<ProbeVideoLoggerProcess>(destruction_count);
+    int exit_code = -1;
+    bool has_exit_code = false;
+    std::string stderr_text;
+
+    // 他のプロセスの通知として結果を誤認しない。
+    CHECK_FALSE(process->CopyTerminationState(123, &exit_code, &has_exit_code, &stderr_text));
+    process->OnTerminate(123, 7);
+    CHECK_FALSE(process->CopyTerminationState(999, &exit_code, &has_exit_code, &stderr_text));
+    CHECK(exit_code == -1);
+    CHECK_FALSE(has_exit_code);
+    REQUIRE(process->ReleaseOwnership());
+    process.reset();
+    CHECK(destruction_count == 1);
+}
+
 TEST_CASE("VideoLogger checks NVENC eligible video size", "[metrics][video]")
 {
     CHECK_FALSE(anet::detail::IsNvencEligibleVideoSize(128, 128));
@@ -196,6 +259,17 @@ TEST_CASE("VideoLogger resolves configured video codec", "[metrics][video]")
     auto passthrough = anet::detail::ResolveVideoCodec("mjpeg", 128, 128, "mjpeg.mkv");
     CHECK(passthrough.codec == "mjpeg");
     CHECK_FALSE(passthrough.requested_auto);
+}
+
+TEST_CASE("Pinned auto video selection preserves explicit codec requests", "[metrics][video][prd117]")
+{
+    anet::test::LogCaptureGuard logs;
+    anet::detail::VideoCodecSelection selection;
+    selection.PinSoftwareFallback();
+    CHECK(selection.Resolve("auto", 512, 512, "auto.mkv").codec == "libx264");
+    CHECK(selection.Resolve("h264_nvenc", 512, 512, "explicit.mkv").codec == "h264_nvenc");
+    CHECK(selection.Resolve("mjpeg", 128, 128, "explicit.mkv").codec == "mjpeg");
+    CHECK_THROWS(selection.Resolve("h264_nvenc", 128, 128, "invalid.mkv"));
 }
 
 TEST_CASE("VideoLogger rejects explicit NVENC for ineligible video size", "[metrics][video]")
@@ -240,13 +314,47 @@ TEST_CASE("VideoLogger writes large frames in chunks", "[metrics][video]")
 
     {
         const auto video_path = root / "large_frame.mkv";
-        anet::VideoLogger logger(video_path.string(), image.GetWidth(), image.GetHeight(), "libx264", 15);
+        anet::detail::VideoCodecSelection selection;
+        anet::VideoLogger logger(video_path.string(), image.GetWidth(), image.GetHeight(), selection, "libx264", 15);
         logger.WriteFrame(image);
         logger.WriteFrame(image);
     }
 
     std::error_code cleanup_error;
     std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("MetricsLogger pins auto video fallback only for the current Run", "[.prd117_video_fallback]")
+{
+    constexpr char kTraceEnvironment[] = "PRD117_FFMPEG_TRACE";
+    constexpr char kOutputEnvironment[] = "PRD117_VIDEO_TEST_ROOT";
+    wxString trace_path;
+    wxString root_path;
+    REQUIRE(wxGetEnv(kTraceEnvironment, &trace_path));
+    REQUIRE(wxGetEnv(kOutputEnvironment, &root_path));
+    wxImage small(128, 128);
+    small.SetRGB(wxRect(0, 0, 128, 128), 0, 0, 0);
+    wxImage large(512, 512);
+    large.SetRGB(wxRect(0, 0, 512, 512), 0, 0, 0);
+    for (int run = 0; run < 2; ++run) {
+        anet::test::LogCaptureGuard logs;
+        anet::log::ResetNotifications();
+        {
+            anet::MetricsLoggerConfig config;
+            config.run_name_tmpl = "video_fallback_" + std::to_string(run);
+            anet::MetricsLogger logger(std::make_unique<NullBackend>(), config, root_path.ToStdString(wxConvUTF8));
+            if (run == 0) logger.Log("small", 0, small);
+            logger.Log("large_first", 0, large);
+            if (run == 0) logger.Log("large_second", 0, large);
+        }
+        logs.Flush();
+        CHECK(std::ranges::count_if(logs.Records(), [](const auto& record) {
+            return record.level == wxLOG_Warning
+                && record.message.find("Retrying with libx264") != std::string::npos;
+        }) == 1);
+    }
+    CHECK(ReadTextFile(trace_path.ToStdString(wxConvUTF8)) ==
+        "libx264\nh264_nvenc\nlibx264\nlibx264\nh264_nvenc\nlibx264\n");
 }
 
 TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
@@ -262,7 +370,7 @@ TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
 
     anet::ConfigData config_data;
     config_data.Set("app.run_name", "run_{t}");
-    config_data.Set("train.num_envs", "8");
+    config_data.Set("run.train.num_envs", "8");
     config_data.Set("DefaultDQNAgent.batch_size", "128");
     anet::MetricsLogger::Instance()->Log("config_data", config_data);
 
@@ -270,8 +378,57 @@ TEST_CASE("MetricsLogger writes ConfigData text file", "[metrics][config]")
     REQUIRE(std::filesystem::exists(config_path));
     CHECK(ReadTextFile(config_path) ==
         "app.run_name = run_{t}\n"
-        "train.num_envs = 8\n"
+        "run.train.num_envs = 8\n"
         "DefaultDQNAgent.batch_size = 128\n");
+
+    anet::MetricsLogger::Reset();
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("MetricsLogger writes config resolution as JSON metadata", "[metrics][config]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "anet-core-config-resolution-test";
+    std::filesystem::remove_all(root);
+
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<anet::JsonlBackend>();
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = "config_resolution_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, root);
+
+    const anet::json resolution = {
+        { "schema_version", 1 },
+        { "selections", anet::json::array() },
+        { "references", anet::json::array() },
+    };
+    anet::MetricsLogger::Instance()->Log("config_resolution", resolution);
+    anet::MetricsLogger::Instance()->Flush();
+
+    const auto run_dir = root / "runs" / "config_resolution_test";
+    const auto artifact_path = run_dir / "json" / "config_resolution.json";
+    REQUIRE(std::filesystem::exists(artifact_path));
+    const auto artifact = anet::json::parse(ReadTextFile(artifact_path));
+    CHECK(artifact["type"] == "json");
+    CHECK(artifact["tag"] == "config_resolution");
+    CHECK(artifact["data"] == resolution);
+
+    anet::json metrics_record;
+    int resolution_record_count = 0;
+    std::istringstream metrics_stream(ReadTextFile(run_dir / "metrics.jsonl"));
+    for (std::string line; std::getline(metrics_stream, line);) {
+        const auto record = anet::json::parse(line);
+        if (record.value("tag", std::string()) == "config_resolution") {
+            metrics_record = record;
+            ++resolution_record_count;
+        }
+    }
+    REQUIRE(resolution_record_count == 1);
+    CHECK(metrics_record["type"] == "json");
+    CHECK(metrics_record["tag"] == "config_resolution");
+    CHECK(metrics_record["data"] == resolution);
+    CHECK(metrics_record.contains("timestamp"));
+    CHECK_FALSE(std::filesystem::exists(run_dir / "config" / "config_resolution.json"));
 
     anet::MetricsLogger::Reset();
     std::filesystem::remove_all(root);
@@ -319,6 +476,34 @@ TEST_CASE("MetricsLogger uses configured runs directory", "[metrics][config]")
     CHECK(std::filesystem::exists(run_dir / "metrics.jsonl"));
 
     anet::MetricsLogger::Instance()->LogScalar("test/value", 7, 1.25);
+    anet::MetricsLogger::Instance()->Flush();
+
+    anet::MetricsLogger::Reset();
+    CHECK(ContainsText(ReadTextFile(run_dir / "metrics.jsonl"), "\"tag\":\"test/value\""));
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("MetricsLogger uses UTF-8 absolute runs directory", "[metrics][config][utf8]")
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        "anet-core-utf8-absolute-runs-dir-test";
+    const auto runs_dir = root / std::filesystem::path(u8"日本語 workspace") / "runs";
+    std::filesystem::remove_all(root);
+
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<anet::JsonlBackend>();
+    anet::MetricsLoggerConfig logger_config;
+    const auto runs_dir_utf8 = runs_dir.u8string();
+    logger_config.runs_dir.assign(
+        reinterpret_cast<const char*>(runs_dir_utf8.data()), runs_dir_utf8.size());
+    logger_config.run_name_tmpl = "utf8_absolute_runs_dir_test";
+    anet::MetricsLogger::Init(std::move(backend), logger_config, root / "ignored-root");
+
+    const auto run_dir = runs_dir / "utf8_absolute_runs_dir_test";
+    CHECK(anet::MetricsLogger::Instance()->GetRunDir() == run_dir);
+    CHECK(std::filesystem::exists(run_dir / "metrics.jsonl"));
+
+    anet::MetricsLogger::Instance()->LogScalar("test/value", 9, 2.5);
     anet::MetricsLogger::Instance()->Flush();
 
     anet::MetricsLogger::Reset();

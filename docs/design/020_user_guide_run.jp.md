@@ -16,11 +16,11 @@
 
 ### 1.3 記載範囲
 
-現行の`AnetRLRunner`、`apps/runner/config`、標準GUI操作、Run成果物を扱う。
+現行の`AnetRLRunner`、`apps/runner/config`とその設定記法、標準GUI操作、Run成果物を扱う。
 新しいEnv、Agent、Observerの実装方法は対象外とし、各設計文書を参照する。
 
 > [!NOTE]
-> 本書の実行経路はWindows x64とNVIDIA CUDAを使う構成で検証済みである。CPU-only、Linux、macOS、他GPU backendは未検証であり、同じ操作結果を保証しない。
+> 本書の実行経路はWindows x64とNVIDIA CUDAを使う構成で検証済みである。CPU-onlyはLunarLanderの`LunarLander_cpu.txt`構成(初回の`_default`)だけ動作を確認している。それ以外のCPU-only構成、Linux、macOS、他GPU backendは未検証であり、同じ操作結果を保証しない。
 
 ## 2. 実行前の準備
 
@@ -32,42 +32,359 @@
 
 ### 2.2 設定ファイルの選択
 
-引数を省略したrunnerは`apps/runner/config/_main.txt`をmain configとして読む。`_main.txt`は共通設定を`$include`し、CartPole、LunarLander、DropMerge、GridMaze、ImageClsのいずれか1つを有効化する入口である。
+引数を省略したrunnerはworkspace選択ダイアログを表示し、選択したworkspaceの`config/_main.txt`からEnvを選ぶ。共通の`apps/runner/config/_main.txt`はAgent、Network、metric等だけを読み、Env選択はworkspace側へ分離される。新規workspace、および既存ディレクトリの初回選択時に不足しているworkspace configは、`apps/runner/config/_workspace_template.txt`を`config/_main.txt`へコピーして作成される。テンプレートの既定Envは`LunarLander_cpu.txt`で、`LunarLander.txt`を読み込んだうえでCPUでも軽い`run.@cpu`(QR、BF16なし)を選ぶ。GPU向けの構成は`LunarLander.txt`を直接選ぶ。
 
 ```text
-$include <common.txt>
-$include <metrics_scalar.txt>
-$include <metrics_image.txt>
-$include <agent.txt>
-$include <nn.txt>
-
-$include <LunarLander.txt>
-#$include <DropMerge.txt>
+# apps/runner/workspaces/<workspace>/config/_main.txt
+#$include <LunarLander.txt>
+$include <DropMerge.txt>
 ```
 
-1回のRunでは、意図したEnv設定だけを有効にする。各Env設定内の`app.$`、`metrics.scalar.$`などは、`>`の左から右へ設定群を重ねる。コマンドラインの`key=value`はmerge後にも再適用されるため、最終overrideとして扱われる。
+1回のRunでは、意図したEnv設定だけを有効にする。各Env設定内の`app.$`、`DefaultDQNAgent.$`、`metrics.scalar.$`などの選択チェーンと、`=`・`?=`の使い分け、コマンドライン`key=value`の効き方は[3. 設定ファイルの書き方](#3-設定ファイルの書き方)を参照する。
 
 ### 2.3 最初に確認する設定
 
 | キー | 役割 |
 |---|---|
 | `app.run_name` | Run名。`{t}`は起動時刻へ展開される |
-| `app.runs_dir` | `apps/runner`を基準とするRun出力先。既定は`runs` |
+| `app.runs_dir` | workspaceモードでは`<workspace>/runs`へRunnerが導出する。設定やCLIからの変更は禁止 |
 | `app.train_auto_start` | `true`ならGUI初期化後に学習を開始する |
+| `app.show_error_dialog` | error logに加えてモーダルダイアログを表示するか。未指定時は`true` |
+| `app.save_agent_on_close` | 終了時に`agent_close.anet`を自動保存するか。未指定時は`true`。`false`でも手動のSave Checkpointは使える |
+| `app.drain_timeout_sec` | 終了時にbackground Observerの完走を待つ全体上限秒。未指定時は3600。正整数だけを受け付ける |
 | `app.eval_panel.auto_start` | 手動EvalPanelを起動直後から動かすか |
-| `train.seed` | Runの基準seed |
-| `train.num_envs` | Train用BatchEnvのlane数 |
+| `run.seed` | Runの基準seed |
+| `run.train.num_envs` | Train用BatchEnvのlane数 |
+| `run.train.actor` | 学習Actorのカタログ名。省略時は`train` |
+| `run.eval.[tag].actor` | 評価Actorのカタログ名。省略時は評価タグ名 |
 | `agent.class_id` | 使用するAgent実装 |
-| `agent.device_type` / `agent.device_index` | AgentのCPU/CUDA device |
+| `agent.device` | Agentのdevice。既定`auto` |
 | `env.worker_type` / `env.worker_threads` | Env batchの実行方式とworker数 |
-| `train.eval_device_type` / `train.eval_device_index` | configured evalのdevice |
+| `env.device` | Envのdevice。既定`cpu` |
+| `run.eval_device` | configured evalのdevice。既定`auto` |
 | `backend.deterministic_algorithms` | 決定論的algorithmを要求するか |
 
-`agent.device_type=1`はCUDA、`0`はCPUである。EnvをCPU、AgentとEvalをCUDAに置く構成では、device転送を含めて性能を判断する。
+device指定は`auto`、`cpu`、`cuda`、`cuda:N`を受け付ける。`auto`はCUDAが利用可能ならcurrent CUDA device、そうでなければCPUを選ぶ。指定値は`config/config_data.txt`、採用値は`json/agent.json`、`json/env.json`、`json/run.json`の`effective_device`/`effective_eval_device`に記録する。EnvをCPU、AgentとEvalをCUDAに置く構成では、device転送を含めて性能を判断する。
 
-## 3. Runを開始する
+### 2.4 評価スロットの方策を選ぶ
 
-### 3.1 標準起動
+評価スロットは`<Agent>.actor.[key]`を名前で参照する。方策の種類・epsilon・network・cloneはAgentのカタログに書く。例えばDefaultDQNでonline networkをepsilon 0.1で評価する場合:
+
+```properties
+DefaultDQNAgent.actor.[explore].$ = DefaultDQNAgent.actor.[eval]
+DefaultDQNAgent.actor.[explore].policy.policy_type = EpsilonGreedy
+DefaultDQNAgent.actor.[explore].policy.epsilon.type = constant
+DefaultDQNAgent.actor.[explore].policy.epsilon = 0.1
+DefaultDQNAgent.actor.[explore].network = online
+DefaultDQNAgent.actor.[explore].clone_model = true
+run.eval.[explore].actor = explore
+run.eval.[explore].eval_batch_size = 2
+run.eval.[explore].eval_episodes = 2
+run.eval_schedule.[explore].interval = 100
+run.eval_schedule.[explore].offset = 0
+run.eval_schedule.[explore].warmup_count = 1
+run.eval_schedule.[explore].use_background = false
+run.eval_schedule.[explore].wait_on_exit = true
+metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
+```
+
+探索を定数にする場合は `policy.epsilon.type = constant` とbare値 `policy.epsilon = 0.1` を指定する。時間変化は `type = linear|cosine|cosine_restart|exponential|phased` と対応する欄で指定する。
+
+> [!NOTE]
+> 非constantを継承している場所でbare値だけを書いても、その値は評価されず保持される。constantへ切り替える場合はtypeとbare値を併記する。phase内の定数だけは `phase.[name].value` を使う。
+
+共通スロットは`eval_target`と`eval`で、それぞれtarget / onlineを参照する。metricsの既存出力タグは維持する。未定義のActor参照は起動時に失敗するが、スケジュールのない定義や`interval=0`のスロットはActorを生成しない。sharedのActorはAgentと同じdeviceを使う。MuZeroはcloneに対応せず、`clone_model=false`を指定する。
+
+## 3. 設定ファイルの書き方
+
+本章は`apps/runner/config`の設定ファイルを読み書きするために必要な記法と優先順位だけを説明する。用語の正本は[CONTEXT.md](../../CONTEXT.md)、契約の詳細とresolverの内部処理は[実行基盤と設定](100_runtime_and_configuration.jp.md)の§2.1である。
+
+### 3.1 基本ポリシー
+
+1. 設定は「ベース + 差分」で組む。共通ファイルとプロファイルがベース、`>`でつないだ選択チェーンが差分、環境別ファイルに直接書いた値が最後の個別指定になる。
+2. `X.$ = …`はその設定Xのベースを指定する。`X.key = v`はベースより強い個別指定、`X.key ?= v`はベースに負ける既定値(既定キー)である。
+3. 異なるキーの行順は結果を変えない。同じキーを2回書いたら後勝ちだが、`=`と`?=`が混在したら順序に関係なく`=`が勝つ。同じ`X.$`を書き直すとチェーンは丸ごと置き換わる。
+4. Runプロファイルとコマンドラインは通常の設定より強い。ただし効くのは指定したそのキーだけで、そのキーから継承される設定キーすべてに優先権が付くわけではない。
+5. 演算子はファイルの役割で決める。共通ファイル(`common.txt`、`agent.txt`、`nn*.txt`、`metrics_*.txt`)のベース定義は`?=`、環境別ファイル(`<Env>.txt`)は「デフォルト設定」ブロックだけ`?=`、それ以外は`=`で書く。選択宣言`.$`、Runプロファイル、CLIは常に`=`である。
+
+### 3.2 用語
+
+| 用語 | 意味 | 例 |
+|---|---|---|
+| プロファイル | `@`で始まるセグメントを持つ名前付きの設定部品。選ばれるまで値に出ない | `backend.@deterministic`、`DefaultDQNAgent.@baseline` |
+| 選択チェーン | `X.$ = A > B`の形で、各項の最終値を左から右へ差分合成してXのベースを作る指定 | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` |
+| 選択の最終値 | 選択元自身のベース・部分指定・個別指定・Run・CLIまで反映した値とキーの集合。チェーンの各項はこれを持ち込む | `@iqn`の最終値は、`@iqn`が持つ設定キーと`@iqn`自身の`.$`の結果 |
+| カタログ | `[key]`をidentityとして名前で参照される部品定義群 | `net.block.[Linear_120]`、`run.eval.[test1]`、`metrics.scalar.@baseline.[21_eval/01_target_reward]` |
+| 上書き層 | 環境別ファイルでチェーンの末尾に置く差分用の通常prefix。A1/A2/A3はAgent、E1はEnv、M1/M2はMetrics、P1はappで、番号が大きいほど一時的 | `A2.learner.per_alpha = 0.2` |
+| Runプロファイル | 1つのRunを特徴づける選択と値の組を`run.@<name>`で命名したもの。`run.$`で選ぶ | `run.@repro` |
+| 個別指定 | `=`でその設定キーに直接与える値。ベースより強い | `E1.obs_include_action = true` |
+| 既定キー | `?=`で書く既定値。その設定のベースが同じキーを供給するときだけ負ける | `AtariEnv.game ?= pong` |
+
+### 3.3 記法一覧
+
+| 記法 | 実例 | 意味 |
+|---|---|---|
+| `key = value` | `E1.obs_include_action = true` | 個別指定。ベースと既定キーより強い |
+| `key ?= value` | `AtariEnv.game ?= pong` | 既定キー。その設定の`.$`が同じキーを供給しなければ残る |
+| `Owner.@name : key = v` | `LunarLanderEnv.@trunk : wind_power = 3.0`、`DefaultDQNAgent.@qr  : quantile_mode = qr` | プロファイルの定義。境界は`:`で区切り、`.`で続けない。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う |
+| `@vars : key = v` | `@vars : max_exp_step  = 100,000,000` | 値スロット。`${@vars.max_exp_step}`で参照する |
+| `Owner.$ = A > B > C` | `DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2` | 選択チェーン。短い`@name`は`Owner.@name`を指す |
+| 完全修飾の項 | `LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1` | 書いたとおりのprefixを指す。別のownerの定義も選べる |
+| `Owner.sub.$ = …` | `run.eval.[test1].env.$ = LunarLanderEnv.@test1` | 部分選択。配下の一部だけのベース |
+| `[key].leaf`、`[key].$` | `net.block.[Linear_120].type ?= Linear`、`net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1` | カタログ項目の定義と、その項目のベース |
+| metrics定義と選択 | `metrics.scalar.@baseline : [21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval_target]`、`metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@iqn_search_p0 > M1` | tagが`[key]`のカタログ。選択はチェーン |
+| 上書き層 | `A2.learner.per_alpha = 0.2`、`app.$ = app.online > P1` | 環境別ファイルの差分。チェーンの末尾に置く |
+| `run.@name : key = v` | `run.@iqn32_stratified : A2.learner.per_alpha = 0.2` | Runプロファイルの設定キー |
+| `run.@name : Owner.$ = …` | `run.@repro : backend.$ = backend.@deterministic` | Runプロファイルによるチェーンの置き換え |
+| `run.$ = …` | `#run.$ = run.@repro`(ファイル)、`run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base`(bat・CLI) | Runの選択 |
+| `$include <file>` | `$include <common.txt>` | 取り込み。`"path"`形も使える |
+| CLI `key=value` | `E1.game=breakout`、`A3.auto_load_file=<path>` | 起動引数。指定したそのキーが最優先 |
+| `${full.key}` | `app.run_name = run_{t}_atari_${E1.game}` | 解決済みの最終値を1段だけ参照する |
+| `#`、`//` | `DropMergeEnv.grid_cols ?= 40              # グリッド列数（横方向）` | 以降はコメント |
+| `{t}` | `app.run_name ?= run_{t}` | 起動時刻へ展開される |
+
+### 3.4 各記法の詳細
+
+#### 3.4.1 設定値の代入`=`と`?=`
+
+`key = value`は個別指定、`key ?= value`は既定キーである。
+
+- 個別指定は、同じ設定の`.$`が供給する値より強い。プロファイルの中でも同じで、`X.@fast : $ = @baseline`と`X.@fast : lr = 0.01`を並べれば`@fast`は「`@baseline`の上に`lr`だけ変えたもの」になる。
+- 既定キーは、その設定の`.$`(全体・部分)が同じキーを供給すればその値に負け、供給しなければ残る。チェーンを置き換えても既定キーは消えない。
+- 同じキーを複数回書いたら、同じ演算子同士は後勝ちである。`$include`や追加ファイルをまたいでも同じ。`=`と`?=`が混在したら順序に関係なく`=`が勝ち、後から書いた既定キーが個別指定を取り消すことはない。
+- `?=`は設定キーにだけ書ける。`.$`、Runプロファイル(`run.@x : …`)、CLIに書くと読み込み時にエラーになる。
+- 落とし穴: `key ? = v`のように`?`と`=`を離すとエラーになる。プロファイルの中の`?=`はそのプロファイル自身の`.$`にだけ負け、外側の設定へは普通のベース値として届く。
+
+```properties
+backend.cudnn_benchmark ?= false                   # 既定キー
+backend.torch_num_threads ?= 1                     # 既定キー
+backend.@non-deterministic : cudnn_benchmark = true
+backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmark を供給する → true
+                                                   # torch_num_threads はベースに無い → 1 のまま
+```
+
+#### 3.4.2 プロファイル`@name`
+
+プロファイルは`Owner.@name : key = v`で定義する。境界は`:`で区切り、`.`で続けない(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（プロファイル境界）)。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う。
+
+- 定義しただけでは値に出ない。チェーンや部分選択で選ばれた分だけ最終値に入る。
+- 短い`@name`は、書いた場所(定義元)の名前空間で解決する。`Env.$ = @a`は`Env.@a`、`Env.@a : $ = @b`は`Env.@b`を指す。`Other.$ = Env.@a`のように別の場所から使っても、`@a`の中の`@b`は`Env.@b`のままである。
+- Runプロファイル内の`run.@x : Env.$ = @a`の`@a`は`Env.@a`を指す(展開先の名前空間)。
+- プロファイルは自分の`.$`を持てる(`X.@fast : $ = @baseline`)。左辺の`@`は原則1個にする。
+- `@vars`のような名前は値スロットとして使い、`${@vars.key}`で参照する。
+
+```properties
+DefaultDQNAgent.@qr  : quantile_mode = qr
+DefaultDQNAgent.@qr  : net.$ = net.@qr
+DefaultDQNAgent.@iqn : quantile_mode = iqn
+DefaultDQNAgent.@iqn : net.$ = net.@iqn
+```
+
+#### 3.4.3 選択チェーン`.$`と`>`
+
+`Owner.$ = A > B > C`と書く。項はプロファイル(`@name`、`Owner.@name`)、カタログ項目(`net.block.[X]`)、通常のprefix(`A2`、`app.online`)のどれでもよい。
+
+- 各項は自分の最終値を持ち込み、左から右へ重ねる。右の項にあるキーは右が勝ち、右に無いキーは左から残る(差分合成)。
+- 項の中の`.$`はその項のベースを作るために使われ、コピー先で再実行されない。
+- 同じ`Owner.$`をもう一度書くとチェーンは丸ごと置き換わる。`Env.$ = A2`の後に`Env.$ = A3`と書けばA3だけになる。重ねたいなら1本のチェーンに書く。
+- `.$`を持たない通常のprefix(`A3`に何も書いていなくても)は許容される。未定義の`@`プロファイルやカタログ項目を選ぶとエラーになる。
+- 選択の入れ子は深さ10まで。
+
+```properties
+DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
+```
+
+`@baseline`の上に`@iqn`の差分、`@heavy`の差分、A1(環境固有の恒久的な調整)、`@bf16`、A2(実験値)の順に重なる。A2に無いキーは左側から残る。
+
+#### 3.4.4 部分選択
+
+`Owner.sub.$ = …`は配下の一部だけのベースを指定する。配下の部分`.$`は全体の`.$`より強く、行順に依らない。プロファイル内に書いた部分`.$`はそのプロファイルの最終値の一部として外側へ届き、同じ場所にrootで書いた部分`.$`はそれより強い。
+
+```properties
+run.eval.[test1].env.$ = LunarLanderEnv.@test1
+DefaultDQNAgent.@qr : net.$ = net.@qr
+```
+
+#### 3.4.5 カタログ`[key]`
+
+`[key]`はカタログ項目のidentityである。NNブロック(`net.block.[Linear_120]`)、metrics tag(`metrics.scalar.@baseline.[21_eval/01_target_reward]`)、eval tag(`run.eval.[test1]`)が現行の例である。定義は`[key].leaf = v`、項目のベースは`[key].$ = …`で書き、項目同士の継承もチェーンで表す。未定義の項目を参照するとエラーになる。
+
+```properties
+net.block.[Linear_120].type ?= Linear
+net.block.[Linear_120].linear.out_features ?= 120
+net.block.[MLP_FC1].$ = net.block.[Linear_120] > net.block.FC1
+```
+
+#### 3.4.6 上書き層
+
+環境別ファイルで実験値や環境固有の差分を書く場所である。A1/A2/A3はAgent、E1はEnv、M1/M2はMetrics、P1はappを対象にし、番号が大きいほど一時的という運用上の名前で、resolverにとっては通常のprefixである(名前による特別扱いは無い)。チェーンの末尾に置くことで「最後に重なる差分」になる。
+
+```properties
+A2.learner.iqn.current_taus.num_taus = 32
+DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
+```
+
+落とし穴: 上書き層に書いた値も、その設定にrootで`=`と書いた個別指定には負ける。`DefaultDQNAgent.learner.iqn.current_taus.num_taus = 8`をrootに書けば、A2の32よりそちらが勝つ。
+
+#### 3.4.7 Runプロファイル`run.@name`と`run.$`
+
+`run.@name : Owner.key = v`で設定キーを、`run.@name : Owner.$ = …`でチェーンの置き換えを書き、`run.$ = run.@a > run.@b`で選ぶ。
+
+- `run.$`は通常の選択より先に展開される。項は左から右へ後勝ちで、同じキーを複数の項が書けば右の項の値になる。
+- Runプロファイルの設定キーは通常設定の`=`より強い別の段にあり、CLIにだけ負ける。Runで`Owner.$`を書けばチェーンの置き換えになる。
+- Runプロファイルの中に`?=`は書けない。別の`run.$`を供給する入れ子も禁止である。
+- ファイルでは`#run.$ = run.@repro`のようにコメントで切り替え、batやCLIでは`run.$=run.@a>run.@b`で選ぶ。seedはRunプロファイルに含めず`run.seed`で別に指定し、同じプロファイルの複数seedを比較できるようにする。
+
+```properties
+run.@repro : backend.$ = backend.@deterministic
+run.@repro : DefaultDQNAgent.$ = @baseline > @iqn > @heavy > A1 > @bf16 > A2
+run.@repro : LunarLanderEnv.$ = LunarLanderEnv.@trunk > E1
+#run.$ = run.@repro
+```
+
+#### 3.4.8 コマンドライン`key=value`
+
+書式はファイルと同じで、`E1.game=breakout`のように空白を入れずに書くか引用符で囲む。効き方は指定したキーの種類で決まる。
+
+| 指定 | 効く対象と結果 |
+|---|---|
+| `AtariEnv.game=breakout` | 実効設定キーそのもの。ファイル、継承、Runプロファイルの値に必ず勝つ |
+| `E1.game=breakout` | 上書き層E1の設定キー。`AtariEnv.$ = … > E1`のチェーンを通ってbreakoutが届くが、rootに`AtariEnv.game = pong`と個別指定があればそちらが勝つ |
+| `AtariEnv.$=AtariEnv.@classic>E1` | 選択キーだけ。チェーンを丸ごと置き換える。個別指定と既定キーは残る |
+| `run.$=run.@a>run.@b` | Runの選択そのものを置き換える |
+
+CLIに`?=`は書けない。
+
+#### 3.4.9 `$include`、`${full.key}`、コメント
+
+- `$include <name>`は、include元ファイルのディレクトリ、次にconfig search dirsの順に探す。`"path"`形も使える。深さは10まで。見つからない場合、開けない場合、ファイル名が空か括弧が閉じていない場合は起動時に停止する。エラーにあるパスを直して再実行する。
+- 起動時の重ね順(共通main config、導出した`app.runs_dir`、workspaceの`config/_main.txt`、コマンドライン)は[4.1 標準起動](#41-標準起動)を参照する。
+- `${full.key}`は、解決後の最終値を1段だけ参照する。参照先が無い、または参照先がさらに`${}`を含む場合はエラーになる。
+- `#`と`//`以降はコメント。`=`の無い行は読み飛ばす。キー内の空白は除去され、`:`は1個だけ使える。`{t}`は起動時刻へ展開される。
+
+### 3.5 優先順位のまとめ
+
+```text
+X.key ?= v              既定キー。X.$ に負ける
+ < X.$ = A > B          全体のベース(チェーン。項同士は右勝ち)
+ < X.sub.$ = C          部分のベース(全体より強い)
+ < X.key = v            個別指定
+ < run.@p : X.key = v   Run プロファイルの設定キー
+ < CLI X.key=v          そのキーだけ最優先
+```
+
+- この順位は設定(owner)ごとに再帰する。チェーンの各項は自分の順位で最終値を確定してから合成されるので、A3の中に`=`で書いた設定キーも、外側の設定Xから見ればベースである。
+- 同じキーの再指定は後勝ち、`=`と`?=`の混在は`=`、`X.$`の再指定はチェーン置換(3.1の3)。
+- RunプロファイルとCLIの最優先は指定したそのキーだけに効く(3.4.8の表)。
+
+### 3.6 どのファイルに何を書くか
+
+| ファイル | 役割 | 演算子 |
+|---|---|---|
+| `_main.txt` | 共通ファイルの`$include`一覧 | - |
+| `common.txt` | trainer、agent、env、gui、backend、appの共有既定値 | `?=`。切替用プロファイル(`backend.@deterministic`等)は`=` |
+| `agent.txt` | 各Agentの`@baseline`、切替用プロファイル(`@qr`、`@iqn`、`@bf16`等)、`<Agent>.$ = @baseline` | `@baseline`は`?=`。切替用プロファイルとチェーンは`=` |
+| `nn.txt`、`nn_cnx.txt` | 共有NN部品(`net.block.[…]`、`net.body.@…`) | `?=` |
+| `metrics_scalar.txt`、`metrics_image.txt` | metricsカタログ(`metrics.scalar.@baseline.[tag]`等) | `?=` |
+| `<Env>.txt` | Envとアルゴリズム構成: チェーン、プロファイル、上書き層、Runプロファイル、NN配線、metrics差分 | `=`。Envの「デフォルト設定」ブロックだけ`?=`。ブロック外で`?=`が必要な設定キーは理由をコメントに書く |
+| workspaceの`config/_main.txt` | 有効にする`<Env>.txt`の`$include` | - |
+| bat、CLI | `run.$`の選択と設定キーの上書き | `=` |
+
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な設定キーだけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
+
+```bash
+.\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
+```
+
+`rg`(ripgrep)がPATHに必要である。意図的に`=`で書く既定値(`DropMerge_optuna.txt`のseed等)は検査器の分類理由に登録する。
+
+### 3.7 例
+
+**backend の既定キーと切り替え**
+
+```properties
+# common.txt
+backend.cudnn_benchmark ?= false
+backend.cudnn_deterministic ?= false
+backend.deterministic_algorithms ?= true
+backend.deterministic_warn_only ?= false
+backend.@non-deterministic : cudnn_benchmark = true
+backend.@non-deterministic : cudnn_deterministic = false
+backend.@non-deterministic : deterministic_algorithms = false
+
+# LunarLander.txt
+backend.$ = backend.@non-deterministic
+run.@repro : backend.$ = backend.@deterministic
+```
+
+通常のRunでは`cudnn_benchmark`、`cudnn_deterministic`、`deterministic_algorithms`の3キーが`@non-deterministic`の値になり、`deterministic_warn_only`など残りの既定キーはそのまま残る。`run.$=run.@repro`で起動するとチェーンが`@deterministic`に置き換わるが、既定キーは影響を受けない。
+
+**DropMergeEnv のデフォルト設定とチェーン**
+
+```properties
+# DropMerge.txt
+DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1
+
+# --- DropMergeEnv デフォルト設定
+DropMergeEnv.grid_cols ?= 40              # グリッド列数（横方向）
+DropMergeEnv.grid_rows ?= 64              # グリッド行数（縦方向）
+DropMergeEnv.action_mode ?= move_fast     # move move_fast direct direct_noop
+```
+
+`grid_cols`は、`@baseline`、`@G5846`、`@heavy`、E1のうち右端で供給している項の値になる(現行では`@G5846`が58を供給する)。どの項も供給しないキーは既定キーの値のままである。
+
+**デフォルト設定ブロックの外にある`?=`**
+
+```properties
+# Atari.txt
+DefaultDQNAgent.net.branch.[value_stream].structure ?= AtariHeadFC512 > SiLU # NatureDQNのReLU選択とIQNの出力先を維持するために?=
+DefaultDQNAgent.net.branch.[adv_stream].structure ?= AtariHeadFC512 > SiLU   # NatureDQNのReLU選択とIQNの出力先を維持するために?=
+DefaultDQNAgent.net.body.output.[features] ?= main_feature # NatureDQNのReLU選択とIQNの出力先を維持するために?=
+```
+
+チェーンで`@nature`(ReLU)を選ぶ構成や、IQNの配線が`[features]`の出力先を変える構成でも既定を残すため、理由をコメントに書いて`?=`にしている。環境別ファイルで`?=`にするのはこのように理由がある設定キーだけである。
+
+**この Run だけ値を変える**
+
+```powershell
+apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-03 E1.game=breakout
+apps\runner\bin\Release\AnetRLRunner.exe --workspace atari-03 AtariEnv.game=breakout
+```
+
+`E1.game=breakout`は上書き層E1の設定キーを変え、`AtariEnv.$ = … > E1`のチェーンを通って届く。通常はこれで足りる。`AtariEnv.game=breakout`は実効設定キーそのものを指定するので、ファイルに`AtariEnv.game = pong`と個別指定があっても勝つ。繰り返し使う組み合わせはRunプロファイルにまとめて`run.$=run.@breakout`で選ぶ。
+
+```properties
+run.@breakout : E1.game = breakout
+run.@breakout : app.run_name = run_{t}_breakout
+```
+
+### 3.8 確認方法とよくあるエラー
+
+- `config/config_data.txt`は解決後の実効設定である。上書き層(`A1`〜`A3`、`E1`、`M1`/`M2`、`P1`)や選択元の通常prefix(`app.online`等)の定義も同居するが、`@`プロファイルと`.$`は含まれない。どのプロファイルが選ばれたかはこのfileからは分からない。
+- `json/config_resolution.json`は選択の記録(`selections`。`run.$`が先頭で、`key`は宣言した定義位置)、値参照(`references`)、Runプロファイルが変えた設定キー(`overrides`)を持つ。読み方は[分析ユーザーガイド](030_user_guide_analysis.jp.md)の§6.6と§6.7を参照する。
+- 演算子の書き忘れは3.6の静的検査で確認する。
+
+| メッセージの冒頭 | 原因 | 対処 |
+|---|---|---|
+| `Properties: invalid assignment operator` | `key ? = v`のように`?`と`=`が離れている、またはキーに`?`が残っている | `?=`を続けて書く |
+| `Properties: default assignment is only allowed for ordinary leaves` | `.$`やRunプロファイルに`?=`を書いた | `=`にする |
+| `ConfigManager: default assignment is not allowed on command line` | CLIに`?=`を書いた | `=`にする |
+| `ConfigResolver: material selection target not found` | 未定義の`@`プロファイルを選んだ(`material`はプロファイルを指す) | 定義元の名前空間と綴りを確認する |
+| `ConfigResolver: catalog selection target not found` | 未定義の`[key]`を選んだ | 同上 |
+| `ConfigResolver: selection self-supply detected`、`selection cycle detected` | 自分自身や自分の配下を選んでいる、または選択が循環している | チェーンの参照先を見直す |
+| `ConfigResolver: selection depth limit exceeded` | 選択の入れ子が10段を超えた | 中間のプロファイルを減らす |
+| `ConfigResolver: value reference target not found`、`chained value reference is not supported` | `${}`の参照先が無い、または参照先がさらに`${}`を含む | 参照先を最終値のキーにする |
+| `ConfigResolver: named trunk must not select another trunk` | Runプロファイルの中で`run.$`を書いた | `run.$`は起動側で1回だけ書く |
+| `Workspace config changed app.runs_dir` | workspaceの設定やCLIで`app.runs_dir`を変えた | workspaceモードでは変更しない |
+| ERROR `Properties: Failed to open include file` | `$include`先が無い、または開けない | パスとconfig search dirsを確認する |
+| `Unread config keys in` | 構築するカタログ項目に、その読み口が受け付けないキーがある | エラー内の項目名・キーと値・受け付けるキーを確認して直す。起動は停止する |
+| `Unread config keys: N. These keys were not read by any component.` | 実効設定に、どの部品も読まなかったキーがある | 続く`key = value`を確認し、綴りや設定先を直す。起動は継続する |
+
+読まれない設定キーの一覧は、画像の登録と各パネルの初期化まで終え、最初のstepを進める前に1回だけWARNで出る。0件なら出ない。未使用の共有カタログや、選択元として宣言された通常prefixなどの在庫は一覧から除かれる。意図して止めた機能は、その設定prefixと休止の理由をINFOで知らせる。通常のRunではWARN 0件を確認し、設定変更のあとに一覧が出た場合は内容を見直す。
+
+## 4. Runを開始する
+
+### 4.1 標準起動
 
 `apps/runner`から次を実行する。
 
@@ -75,108 +392,229 @@ $include <LunarLander.txt>
 10_run.bat
 ```
 
+履歴が空の初回起動では、同梱のENV別workspaceがあっても`_default`が新規名として入力済みの選択ダイアログが開く。履歴、`workspaces/`直下の全ディレクトリ一覧、任意パス参照、新規名から選択できる。過去Runだけを移動したフォルダなど`config/_main.txt`が無い既存ディレクトリも一覧に出て、選択時に不足configだけが補完される。新規名は入力中に検証され、不正理由が入力欄の下へ表示されている間はOKを選択できない。`--workspace dm_long`で相対workspaceを直接指定し、`--select-workspace`でスキップ設定に関係なくダイアログを表示できる。相対パスは`apps/runner/workspaces/`基準、絶対パスも使用できる。入力の外側空白は除去され、`#`、`//`、末尾`;`、UNC pathは拒否される。
+
 または、リポジトリルートから実行ファイルとmain configを明示する。
 
 ```powershell
 apps\runner\bin\Release\AnetRLRunner.exe `
   --config apps\runner\config\_main.txt `
   app.run_name=run_{t}_trial `
-  train.seed=12345
+  run.seed=12345
 ```
 
-起動時は概ね次の順に初期化される。
+`--config`はworkspace、履歴、`last_workspace.txt`を一切参照しない完全自己記述モードである。`--workspace`または`--select-workspace`との併用は起動エラーになる。
 
-1. main configとコマンドラインoverrideを解決する。
-2. Run directory、`metrics.jsonl`、標準出力ログを準備する。
-3. libtorch backendと登録済みEnvを初期化する。
-4. `RunManager`がEnv、Agent、Train Runner、configured Evalを構築する。
-5. Train、Eval、QValue、Logの各パネルを接続する。
-6. `RunnerThread`を開始する。`app.train_auto_start=false`の場合はpause状態で待機する。
+ウィンドウが表示されたら、Logsで起動のログを確認する。初期化中もウィンドウを移動・サイズ変更できる。初期化中はステータスバーに`Initializing run...`が表示され、終わると`Training started`（`app.train_auto_start=false`では`Run initialized`）に変わる。初期化に失敗した場合は`Run initialization failed`になる。
 
-起動に失敗した場合は、画面のエラーダイアログだけでなく、対象Runの`stderr.log`と`<run_name>.log`も確認する。
+> [!NOTE]
+> 通常の起動時は、次の順に初期化が進む。
+>
+> 1. workspaceを確定し、共通main config、導出`app.runs_dir`、workspace config、コマンドラインoverrideの順で解決する。
+> 2. Run directory、`metrics.jsonl`、標準出力ログを準備する。
+> 3. libtorch backendと登録済みEnvを初期化する。
+> 4. ウィンドウとLogsを表示し、そのあと背景で`RunManager`がEnv、Agent、Train Runner、configured Evalを構築する。
+> 5. 構築が正常に終わり、終了要求がなければ、メインスレッドで画像を登録し、Train、Eval、QValueの各パネルを接続する。
+> 6. 読まれない設定キーがあれば一覧を1回出してから、`RunnerThread`を開始する。`app.train_auto_start=false`の場合はpause状態で待機する。
+>
+> 詳細は[アプリケーションとツール](160_applications_and_tools.jp.md#51-runner起動)の「Runner起動」を参照する。
 
-### 3.2 自動停止・自動pause
+起動に失敗した場合はerror logを確認する。online構成ではログに加えてエラーダイアログを表示する。batchrun構成ではモーダル表示せず、Run directory成立前は親processのstderr、`StandardStreamLogger`開始後は対象Runの`stderr.log`、通常logger構築後は`<run_name>.log`へ記録する。fatalを処理したprocessは非ゼロで終了する。
+
+### 4.2 自動停止・自動pause
 
 `app.train_exit_step`、`app.exp_exit_step`は上限到達時にRunを終了する。`app.train_pause_step`、`app.exp_pause_step`は一度だけ自動pauseする。
-batch実験では、`app.$=app.batchrun`で低FPS表示と`exp_exit_step`をまとめて選ぶ構成が用意されている。
+batch実験では、`app.$=app.batchrun`で低FPS表示、`exp_exit_step`、`app.show_error_dialog=false`をまとめて選ぶbatchrun構成が用意されている。人が操作するonline構成は`app.$=app.online`で`app.show_error_dialog=true`を選ぶ。これらはTrain / Evalの`RunMode`とは別概念である。
 
-## 4. AP画面
+`apps/11_batch_run.bat`と`apps/12_batch_run.bat`は各Runの終了コードを記録する。失敗したRunでは`[ERROR] RUN FAILED exit_code=<code> args=<args>`を表示して後続Runを続け、全Run終了後の`pause`を経て1を返す。全Run成功時は0を返す。
 
-### 4.1 基本構成
+## 5. AP画面
+
+### 5.1 基本構成
 
 Runner画面はwxAUIのpaneで構成される。
 
-- `Train View`: Train Runnerから受け取ったEnv固有Viewを表示する。
-- `Evaluation View`: Trainとは別のEval Envを手動またはtimerで進める。初期状態では非表示である。
-- `Evaluation Q-Values`: Eval Actorの出力を表示し、Actionを手動指定できる。
-- `Logs`: 実行ログを表示し、Error、Warn、Info、Verboseを切り替える。
+画面上端には対象別の4本のツールバーがあり、右の列の上まで窓の全幅に並ぶ。各バーはgripperをドラッグしてdock、float、再dockでき、`View > Reset Layout`で上端1行の既定位置へ戻る。floatさせたバーのwindow titleにはバー名(`Run Control`、`Steps`、`Run Operations`、`Panels`)が出る。
+
+- `Run制御`: Trainのpause/resumeと、separatorを挟んでEvalのpause/resume、Evalの1 step実行を提供する。走行中のtoolは押下表示になり、iconは次の操作を表す一時停止記号へ変わる。停止中は再生記号へ戻る。非表示のEvalをresumeするか1 step実行すると`Evaluation View`も表示する。右クリックによるresumeも同じ扱いで、keyboard経路(`Space` / `Ctrl`)だけが表示と独立している。
+- `Step表示`: Trainの`exp_step`と`train_step`を表示する。
+- `Run操作`: 任意pathへのcheckpoint保存とRun folder表示を提供する。
+- `Panel表示`: `Logs`、`Train View`、`Eval View`、`Q-Values`、`Trace`の表示を切り替える。対応する`View` menuとpaneの状態に同期する。
+
+各paneのcaptionにはpinボタンがあり、押すとfloating windowになる。最後の主Viewにはpinも✕も表示されない。
+中央のViewのcaptionには`[Centre]`が付く。
+
+- `Train View`: Train RunnerのEnv固有Viewを見るときは、Panelsの`Train View`または`View > Train View`で表示する。隠すときも同じ項目かpaneの✕を使う。隠している間も学習は続く。
+- `Evaluation View`: 既定ではこのViewだけが中央に表示される。Trainとは別のEval Envを手動またはtimerで進める。両方の主Viewを表示し、一方が中央、もう一方が左右どちらかの主Viewだけの列にあるとき、ほかの縦の列を除いた幅を等分する。上下に並べ、帯の幅が中央と同じで主Viewだけの帯のときは高さを等分する。Logsや補助paneと同居する帯は等分しない。窓の縁へ落として左右の列の下まで広がる帯は等分しない。落とした直後も等分になる。中央のViewはcaptionをドラッグしても動かない。外すにはcaptionのpinボタンを押す。側面のViewはドラッグでもpinでも外せる。Trainを外すとEvalが中央に広がる。外したTrainを左の縁へ落とすと左の列に留まり、中央はEvalのまま。最後の主Viewはpinも✕も無く、移動できず、表示トグルはチェック付きで無効になる。
+- `Evaluation Q-Values`: Eval Actorの出力を表示し、Actionを手動指定できる。表はAction・Mean・Max・Min・Stdの順で、paneは表とヒートマップの入る既定の幅より狭くならない。floatした窓は、表が見える幅と1行の高さまで縮められる。ヒートマップの範囲は操作行の左端の`Reset Range`で戻す。同じ列にほかのpaneがあると行動数ぶんの高さだけを取り、ひとりの列では列いっぱいに広がる。サッシで広げた高さは閉じて開き直しても残り、`Reset Layout`で行動数ぶんに戻る。上下の帯にひとりで置いたときも、帯の高さは行動数ぶんになる。
+- `Logs`: 実行ログを表示し、Error、Warn、Info、Verboseを切り替える。起動時の表示levelは`app.log_panel.level`、操作帯のAuto-scroll・Wrap・Indentの既定は`app.log_panel.auto_scroll`・`app.log_panel.wrap`・`app.log_panel.indent`（いずれも既定`true`）で指定する。
 - `HeatMap` / `Conv2d`: `View`メニューから追加する補助pane。
 
 ![DropMergeのTrain ViewとEvaluation View](assets/020_runner_dropmerge_train_eval.png)
 
 ![LunarLanderの実行画面と可視化pane](assets/020_runner_lunarlander_visualization.png)
 
-paneを閉じたり初期化前のViewを表示した場合は、次のように描画対象が少ない状態になることがある。`View > Reset Layout`で既定配置へ戻せる。
+paneを閉じたり初期化前のViewを表示した場合は、次のように描画対象が少ない状態になることがある。Train ViewとEvaluation Viewを両方とも隠すことはできない。配置を戻すには`View > Reset Layout`を選ぶ。
 
 ![描画対象がない状態のRunner画面](assets/020_runner_empty_view.png)
 
-## 5. 操作方法
+## 6. 操作方法
 
-### 5.1 学習のpauseと再開
+### 6.1 学習のpauseと再開
 
-Train/Eval View上で左クリックするか、`Shift`を押すとTrainをpause/resumeする。`app.train_auto_start=false`で起動した場合も同じ操作で開始できる。pause時はmetrics、stdout/stderr、text logを明示的にflushする。
+Run制御ツールバーの`Train`を選ぶとTrainをpause/resumeする。Train/Eval View上の左クリックと`Shift`も同じ操作として併存する。`app.train_auto_start=false`で起動した場合も同じ操作で開始できる。pause時はmetrics、stdout/stderr、text logを明示的にflushする。Trainが停止して再開不能になった後はツールが無効になる。
 
-### 5.2 評価と画面操作
+### 6.2 評価と画面操作
 
 | 操作 | 動作 |
 |---|---|
-| 右クリック、または`Space` | EvalPanelをpause/resumeする |
+| Run制御ツールバーの`Eval` | EvalPanelをpause/resumeする。resume時にpaneが非表示なら表示する |
+| Run制御ツールバーの`Step` | Evalを1 step自動実行する。paneが非表示なら表示する |
+| 右クリック | EvalPanelをpause/resumeする。resume時にpaneが非表示なら表示する |
+| `Space` | EvalPanelをpause/resumeする。paneの表示は変えない |
 | `Ctrl` | Evalを1 step自動実行する |
-| 矢印キー | LunarLander向けに`0`から`3`のActionを指定してEvalを1 step進める |
+| 矢印キー | Live中はLunarLander向けに`0`から`3`の強制行動でEvalを1 step進める。Trace中にViewなどから転送された↑↓は表の行を移動し、←→は何もしない |
 | テンキー`0`から`9` | 同じ番号のActionを指定してEvalを1 step進める |
-| `View > Evaluation View` | Eval paneの表示を切り替える |
+| `View > Train View` | Train paneの表示を切り替える。最後の主paneは隠せない |
+| `View > Evaluation View` | Eval paneの表示を切り替える。最後の主paneは隠せない |
 | `View > Evaluation QValue View` | Q値paneの表示を切り替える |
 | `View > Log Level` | GUIへ表示するログlevelを切り替える |
-| `View > Reset Layout` | pane配置とframe sizeを既定へ戻す |
+| `View > Reset Layout` | pane配置を起動時の設定へ戻す。frameの大きさは変えない |
+| Run操作ツールバーの`Save Checkpoint` | Trainが走行中ならまずpauseし、Run directoryと`agent_<exp_step>.anet`を既定に、任意pathへAgentを保存する |
+| Run操作ツールバーの`Open Run Folder` | 現在のRun directoryをExplorerで開く |
 
-Action数はEnvごとに異なる。範囲外Actionを前提にせず、QValue paneまたはEnvのActionSpecを確認する。
+Action数はEnvごとに異なる。QValue paneまたはEnvのActionSpecで有効範囲を確認する。離散Actionの範囲外の番号を指定すると、ステータス欄に指定値と有効範囲が表示され、Evalは進まない。選択中のTrace履歴もそのまま維持される。
 
-`app.eval_panel.model_sync.mode`は手動EvalPanelがTrain modelを参照する方法を決める。`shared`はTrain modelを共有し、`frame`、`time`、`episode`は対応するintervalでclone modelを同期する。clone modelを使うmodeではEvalのresume時にも同期する。表示中のEvalが常にTrainの最新parameterと一致するとは限らないため、比較時はmodeとintervalを記録する。
+矢印・テンキー・QValueの行のクリックで強制行動を実行すると、ステータス欄0に`Forced action: 2:UP`のように番号と名前が表示される。`Ctrl`とツールバーのStepではこの通知は出ない。
 
-### 5.3 停止、保存、checkpointからの再開
+EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`run.eval.[eval_panel].actor = eval_panel`から専用Actorを参照する。DQN系はtarget netのGreedy（Rainbowはε=0）、MuZeroは温度0・探索noiseなし、ImageClsは最大スコアのActionを選ぶ。定期評価のεやUQE設定はそのまま使える。表示用の方策を変える場合は`<Agent>.actor.[eval_panel].*`を上書きし、別の評価設定を表示したい場合は`app.eval_panel.eval_config_tag`を指定する。
 
-WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止、`agent_close.anet`保存、Run出力のflush、GUI破棄の順に進む。保存中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
+`app.eval_panel.model_sync.mode`は`frame`、`time`、`episode`の周期で同期する。modelを複製するかは参照先の`<Agent>.actor.[key].clone_model`で選ぶ。sharedでも同期時に学習側countsを更新し、resume時にも同期する。表示中のEvalが常にTrainの最新parameterと一致するとは限らないため、比較時はActor名、clone設定、modeとintervalを記録する。
 
-checkpointから再開する場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。再開後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+### 6.3 表示FPSと進行状況
 
-## 6. 成果物
+起動時に表示するViewを変えるには`app.main_view`へ`train`（Trainだけ）・`eval`（Evalだけ、既定）・`both`（両方）を指定する。Runプロファイルでは`run.@trainview : app.main_view = train`のように書く。`View > Reset Layout`もこの設定へ戻る。Evalを自動で進めるかは`app.eval_panel.auto_start`で指定する。
 
-`app.runs_dir=runs`、`app.run_name=run_{t}`の場合、成果物は`apps/runner/runs/<run_name>/`へ保存される。
+`View > Train View FPS`はTrain Viewの描画頻度だけを変更する。`0 (Off)`またはTrain Viewを隠している間は描画timerを止めるが、学習は継続する。隠したままFPSを選び直した場合は、再表示するとそのFPSで描画する。`View > Eval View FPS`はEvalPanelのtimer周期を変更するため、描画だけでなくEvalの進行速度も変わる。どちらも1未満の`0.1`（10秒に1回）と`0.5`（2秒に1回）を選べる。どちらの`Config (N)`も起動時config値へ戻す項目である。これらは実行時UI操作であり、選択結果をRunのconfig dumpへ書き戻さない。
+
+`View > Eval Steps per Frame`で、自動評価の描画更新1回あたりのstep数を変更する。`1`・`2`・`4`・`10`・`20`・`50`・`100`から選ぶか、`Custom...`で現在値を初期表示した入力欄へ1〜2,147,483,647の整数を指定する。確定後は`Custom (N)...`に入力値が表示され、キャンセルでは値と選択を保持する。`Config (N)`は起動時設定へ戻す。変更は次の自動評価更新から反映され、config dumpには保存しない。変更しても一時停止やTrace表示は解除されず、手動Stepは常に1 step進む。Evaluation Traceの1x速度は、現在のFPSと現在のstep数の積に追従する。
+
+`View > Eval View FPS`または`View > Eval Steps per Frame`で値を変えると、新しいFPSとstep数をINFOログへ`Evaluation speed changed fps=<F> step_per_frame=<S>`として出す。ステータスバーにEval再開時の`Evaluation resumed fps=<F> step_per_frame=<S>`が残っている間は、その表示も新しい値に置き換わる。ほかの表示が出ている間や一時停止中は、ステータスバーを変えない。`View > Train View FPS`で値を選ぶと、選んだFPSをINFOログへ`Train view FPS changed fps=<F>`として出す（`0 (Off)`は`fps=0`）。
+
+Step表示ツールバーは`exp`と`train`のstep数を別々のread-only text欄へ表示する。値は選択してコピーでき、exp/train間は標準separatorで区切られる。status bar右側は`exp <N> steps/s    train <N> steps/s`と経過時間を表示する。SPSのEMAがまだ初期化されていない間は`-`、最初のTrain snapshotが無い間は両step欄が`-`、経過時間が`--:--:--`になる。経過時間はpause中もwall-clockとして進む。
+
+### 6.4 停止、保存、checkpointからの引き継ぎ
+
+WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain停止・join、`agent_close.anet`保存、background Observerの排水、Run出力のflush、GUI破棄の順に進む。`app.save_agent_on_close=false`のRunではこの保存だけを省き、他の順序は変わらない。保存中または排水中にprocessを強制終了するとcheckpoint、metrics、動画の末尾が不完全になる可能性があるため、windowが閉じるまで待つ。
+
+初期化中に閉じたいときもCloseを1回選び、ログの終了要求を確認してウィンドウが閉じるまで待つ。押し直す必要はない。初期化中にログオフ・シャットダウンを要求した場合も、終了するまで待つ。Windowsに終了を妨げているアプリとして表示された場合、強制終了を選ぶとRunログの末尾が欠ける場合がある。
+
+> [!NOTE]
+> 初期化中のCloseはRunManagerの構築完了後に処理し、表示用Evalの準備と学習開始は省く。保存が有効なら学習前のAgentを保存し、RunManagerを初期化できなかったRunでは保存を省く。ログオフ・シャットダウンの問い合わせでは構築が終わるまでその場で待つため、待機中は描画が止まる。起動と終了の仕組みは[アプリケーションとツール](160_applications_and_tools.jp.md#71-runner)を参照する。
+
+`run.eval_schedule.[tag].wait_on_exit`は、終了時に進行中のbackground評価を完走待ちするかを指定する。既定は`true`で、全スロットが`app.drain_timeout_sec`の単一deadlineを共有する。`false`、手動終了のCancel選択、またはdeadline超過では次のEnv Step境界で協調キャンセルする。キャンセルしたセッションはsession scalarを出さず、完了済みepisodeのtraceと`eval.[<tag>].session_cancelled` JSONを残す。
+
+手動のCloseと`File > Exit`では、Train停止・join後に待ちが必要なbackground評価が残っていれば、`Wait and close`、`Cancel and close`、`Keep running`の3択を表示する。`Keep running`は同じTrain threadを閉じる前のpause状態で再開する。`app.train_exit_step`または`app.exp_exit_step`による予算到達では質問せず、設定とdeadlineに従う。
+
+`Save Checkpoint`は押下時にTrainが走行中なら先にpauseする。これはdialog操作中にstepが進み、既定ファイル名と保存内容がずれるのを防ぐためで、保存やcancelの後もTrainは自動再開しない。再開はRun制御ツールバーの`Train`か`Shift`で行う。保存処理自体はTrain走行中でも安全である。`DefaultDQNAgent`はserialization全体をAgentのshared lockで保護し、Learner更新と排他する。保存先の権限、空き容量、file lockなどで失敗した場合は対象pathと理由をerror logへ記録し、online構成ではダイアログも表示する。これはnon-fatalで、Runとprocess終了コードには影響しない。失敗したfileは不完全な可能性があるが自動削除されないため、内容を確認してから処理する。有効なpathを選べば再度Saveできる。
+
+close時の`agent_close.anet`保存に失敗した場合も同じ表示方針で通知し、その後のlog shutdownとGUI cleanupを続行してwindowを閉じる。この場合、`agent_close.anet`は有効なcheckpointとは限らない。AgentがSaveを実装していない場合は0 byteのfileが残り、対象path付きのWARNが出る。保存できたcheckpointもAgent、Network、archive contractが一致することを確認してから引き継ぎに使う。
+
+checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。引き継ぎ後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DefaultDQNではoptimizerの学習率などは新しいRunの設定が効き、checkpointと違う値はログにINFOが出る。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+
+`run.eval_schedule.[tag].offset`（既定 0）で、評価の発火列を learn step 単位でずらす。`warmup_count`（既定 1）で、先頭から評価を走らせない発火の回数を指定する。どちらも 0 以上の整数にする。学習直後の評価が必要な評価専用 Run では、組むタグごとに `warmup_count = 0` を書く。継承した offset が不要なら `offset = 0` も書く。
+
+> [!NOTE]
+> `warmup_count` は、Learner の `update_warmup_steps`（学習を始める前に経験をためる期間）とは別で、評価の発火列の先頭から数える回数である。offset が 500、interval が 1000、warmup_count が 1 なら、刻み 1 の最初の評価は learn step 1500 になる。休止の `interval = 0` でも両方の値は検証される。
+
+### 6.5 Evaluation Traceで遷移を調べる
+
+ViewメニューのEvaluation Traceを表示すると、Evalの行動と結果が新しい順に表へ流れます。行を選ぶとEvalを一時停止し、その行の画面・Q値・開いていたConv2dの活性を表示します。paneを開く前の記録は`no data for this step`になります。
+
+上部のアイコンは、左から再生／一時停止（右三角／二本線）・停止（四角）・コマ戻し（左三角の右に縦棒）・コマ送り（縦棒の右に右三角）・速度減少（左二重三角）・速度増加（右二重三角）です。再生中の先頭ボタンは一時停止、それ以外は再生として使います。英語のツールチップでも操作を確認できます。速度は`x0.125`・`x0.25`・`x0.5`・`x1`・`x2`・`x4`・`x8`で表示します。Liveから再生すると表の下端から上へ進み、上端で止まります。Traceでは選択行から続け、上端で停止中に再生すると下端から始めます。停止または表でEscを押すとLiveへ戻ります。EvalのResume・Step（Ctrlを含む）・強制行動でもLiveへ戻ります。Liveへ戻っただけではEvalは再開しません。Traceのコマ送りは記録の選択で、EvalのStepは実際のゲームを進める操作です。
+
+Liveでコマ戻しを押すと表の上から2行目を選びます。1行だけならその行で止まります。Liveでコマ送りを押すと上端の行を選びます。Trace中はコマ送りで1行上へ、コマ戻しで1行下へ移動し、スライダーも表の下端から上端へ動きます。Trace中は操作バー全体の赤枠を目印にしてください。一時停止中も枠は残り、Liveへ戻ると消えます。
+
+列見出しをクリックすると、その列の降順に並びます。同じ見出しをもう一度クリックすると昇順になります。空欄は常に下端、同じ値はstepの降順です。現在のソート列の見出しには、降順で下向き、昇順で上向きの三角が出ます。三角の色はシステムの選択ハイライト色に従います。既定のstep列にも降順の三角が出ます。既定の新しい順へ戻すにはstep列を降順にしてください。Trace中に並べ替えても選択行は維持されます。開き直すと既定の並びへ戻ります。
+
+Trace中は、表やEnvのView・QValuePanelなどで↑↓を押して表の順に1行移動できます。Viewなどから転送された←→は何もしません。表の←→は横移動、ログ欄やスライダーの矢印はその部品の操作として使ってください。最大化でTraceが隠れていても同じです。テンキーとQValueの行のクリックは強制行動となり、Liveへ戻ります。
+
+行をダブルクリックすると、その行を選んで通知内容をログへ出します。`Trace dump step=... lane=...:`で始まるINFOの1行に列値と通知の概要、VERBOSEの1件に観測やQ値などのTensorの全要素が出ます。ログ欄で詳細を見るには`View > Log Level`をverboseにしてください。同じ行を何度でもダンプできます。
+
+列の幅は見出しと値に合わせて広がります。手動で幅を変えた列は、その表示中は自動調整されません。初期幅へ戻すにはパネルを閉じて開き直してください。この操作で履歴も空になります。パネルは操作バー全体と、左端から最初のアクション列までが収まる幅を下限にします。残りの列は横スクロールで確認してください。左端の列（既定ではstep）は横スクロールしても常に表示されます。通常・選択の配色はシステムのテーマに従い、報酬行は薄い緑、終端行は薄い橙が目印です。行を選択しても列見出しの色は変わりません。
+
+列は次の形で指定します。番号は1以上で、飛び番を許し、小さい順に左から並びます。番号は次の表の決まりで振ります。
+
+| 番号 | 分類 | 既定の列 |
+|---|---|---|
+| 100〜199 | 空き（stepより左に出したい列） | — |
+| 200〜299 | 行動と結果 | 200 step、210 ep_step、220 action、230 reward、240 decision、250 skip、260 forced |
+| 300〜349 | Env固有の主な値 | Atariは300 game_score、310 lives |
+| 350〜399 | 終わり方 | 350 done、360 trunc |
+| 400〜499 | 価値 | 400 Q_sa、410 V_s、420〜429 スキップ価値q1〜q10 |
+| 500〜599 | 優先度 | 500 prio、510 prio_pct |
+| 600〜999 | 空き（実験で足す列は900番台） | — |
+
+十の位で分類の中の順を決め、一の位は0にして、あとから差し込む余地を残します。添字で並ぶ列（スキップ価値q1〜qJ。一の位がj−1）だけは一の位を使います。decision・skip・q1〜qJは、スキップを有効にしたRunだけに出ます。
+
+```text
+app.eval_trace_panel.max_rows = 1000
+app.eval_trace_panel.pct_window = 10000
+app.eval_trace_panel.columns.[300] = $env_step game_score
+app.eval_trace_panel.columns.[310] = $env_step lives
+app.eval_trace_panel.columns.[900] = $agent_step approx_priority display:pct label:priority_pct
+```
+
+既定列は`step → ep_step → action → reward → forced → done → trunc → Q_sa → V_s → prio → prio_pct`の順です。`forced`は人が指定した行動なら1、Actorが選んだ行動なら0です。終端の打切りフラグは、取得キー`truncated`のまま見出しを`trunc`にしています。既定のQ値と状態価値の見出しは`Q_sa`／`V_s`です。取得キーは`q_sa`／`state_value`のままです。`label:`は空白なしの見出しです。数値列は`value`か`pct`、離散行動の`action`列は`value`・`name`・`value_name`を選べます。既定は数値がvalue、行動がvalue_nameです。連続行動では`action.[0]`など次元別に列を上書きし、valueを使います。
+
+学習側と同じonline networkのQで見たい場合は、次の指定を使います。
+
+```text
+DefaultDQNAgent.@baseline : actor.[eval_panel].network = online
+```
+
+FPSが0のときは再生を開始できません。再生中に0へ変更した場合も、先頭の一時停止ボタンは使えます。FPSを戻すと、再生中だった場合はその位置から続行します。パネルを閉じている間は記録を作りません。開き直すと空から始まります。他のpaneの最大化で隠れた間は記録を続けます。
+
+> [!NOTE]
+> 画面は行動の結果、Q値と活性はその行動を決めた時点です。百分位は直近の有限値の中での中央順位で、全件同値は50%です。近似優先度はn-step分の情報が揃ってから埋まります。打ち切りを含む窓と非対応Agentは空欄です。eval_panelの既定はtarget networkのQです。時点と再生の仕組みは[Applications and Tools](160_applications_and_tools.jp.md#34-evaluation-trace)を参照してください。
+
+## 7. 成果物
+
+workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runner/workspaces/dm_long/runs/<run_name>/`へ保存される。絶対パスworkspaceでも同様に、そのworkspaceの`runs/`配下へ保存される。
 
 | 成果物 | 内容 |
 |---|---|
 | `metrics.jsonl` | scalar、JSON metadata、動画metadataを追記する主メトリクス |
-| `config/config_data.txt` | includeとoverride解決後の全ConfigData |
+| `config/config_data.txt` | 解決後の実効設定。deviceの`auto`など利用者の指定値を保持し、`@`プロファイルと`.$`は含まない([3.8](#38-確認方法とよくあるエラー)) |
 | `config/*.txt`、`json/*.json` | コンポーネント別の注入済み設定・metadata dump。Envは`config/env.<Env name>.txt` |
+| `json/run.json`、`json/env.json`、`json/agent.json` | 評価・Env・Agentが採用したdeviceを`effective_eval_device` / `effective_device`に記録 |
 | `<run_name>.log` | timestampとlevelを含むrunner text log |
 | `stdout.log` / `stderr.log` | process標準出力・標準エラー |
-| `agent_close.anet` | 正常なwindow close時に保存されるAgent checkpoint |
+| `agent_close.anet` | 正常なwindow close時に保存されるAgent checkpoint。`app.save_agent_on_close=false`では作られない |
 | `videos/*.mkv` | image系Observerが生成した動画 |
 | `images/<tag>/*.png` | `app.metrics_logger.use_png_dump=true`時の個別frame |
 | `dot/**/*.dot` | GraphViz Observerの出力 |
 
 比較や再現では、手元の編集前ConfigではなくRun directory内の`config/config_data.txt`を正とする。グラフ分析は[分析ユーザーガイド](030_user_guide_analysis.jp.md)を参照する。
 
-## 7. よくある確認事項
+## 8. よくある確認事項
 
 - 起動直後にTrainが進まない: `app.train_auto_start`を確認し、左クリックまたは`Shift`でresumeする。
 - Evalが進まない: `Evaluation View`を表示し、`app.eval_panel.auto_start`または`Space`を確認する。
-- CUDA初期化に失敗する: libtorch/CUDA/driverの組み合わせ、`agent.device_type`、eval deviceを確認する。
-- 期待したEnvでない: `_main.txt`で有効なEnv includeと、Run内`config/config_data.txt`を確認する。
+- toolbarのcheck状態が操作と合わない: 最大200ms待って実状態への同期を確認する。配置が崩れた場合は`View > Reset Layout`を使う。
+- Train Viewだけ更新されない: `View > Train View FPS`が`0 (Off)`になっていないか確認する。
+- Saveに失敗する: error log（online構成ではダイアログも表示）の対象pathと失敗段階を確認する。権限、空き容量、file lockを解消するか別pathを選んで再実行する。Runは継続しているが、失敗した出力fileは不完全な可能性がある。
+- Save結果が0 byteになる: `<run_name>.log`の対象path付きWARNを確認する。利用中AgentがSaveを実装していない可能性がある。
+- Run folderが開かない: error log（online構成ではダイアログも表示）の対象pathとOS側のfolder関連付けを確認する。失敗後もRunは継続する。
+- CUDA初期化に失敗する: libtorch/CUDA/driverの組み合わせ、`agent.device`、`run.eval_device`を確認する。
+- 期待したEnvでない: 選択workspaceの`config/_main.txt`で有効なEnv includeと、Run内`config/config_data.txt`を確認する。
+- workspaceを選び直したい: `--select-workspace`で起動する。履歴は`GetAppDataDir()/history.txt`、ダイアログ選好は`prefs.txt`を削除すると個別にリセットできる。
 - Viewが空: Log paneのEnv class ID、View factory、初期化errorを確認し、`Reset Layout`も試す。
 
-## 8. 関連文書
+## 9. 関連文書
 
+- [CONTEXT.md](../../CONTEXT.md)(設定用語の正本)
+- [実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）(演算子の運用規約)
 - [分析ユーザーガイド](030_user_guide_analysis.jp.md)
 - [開発環境](040_development_environment.jp.md)
 - [実行基盤と設定](100_runtime_and_configuration.jp.md)

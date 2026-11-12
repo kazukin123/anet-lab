@@ -248,7 +248,8 @@ std::optional<std::vector<float>> BatchExperienceVectorProbe::GetVector(const Up
 
     //ANET_ASSERT(opt_vec.has_value());
     if (!opt_vec.has_value()) {
-        LOG::warn() << "BatchExperienceVectorProbe::GetVector() failed to get value." << this->GetName();
+        LOG::warn_once(GetName()) << "BatchExperienceVectorProbe::GetVector() failed to get value. name=" << GetName()
+            << " key=" << key_ << "; expected a tensor vector.";
         return std::nullopt;
     }
 

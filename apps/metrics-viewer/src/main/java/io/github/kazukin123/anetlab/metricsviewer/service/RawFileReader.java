@@ -1,6 +1,5 @@
 package io.github.kazukin123.anetlab.metricsviewer.service;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -17,6 +16,7 @@ final class RawFileReader implements SourceReader {
 	private final Path runDir;
 	private final MetricsSource source;
 	private InputStream input;
+	private final InputBuffer buffer = new InputBuffer();
 	private long consumedSourceBytes;
 	private long initialCommittedSourceOffset;
 
@@ -35,16 +35,25 @@ final class RawFileReader implements SourceReader {
 		}
 
 		// source snapshot取得後の追記は次blockへ送り、この時点の末尾だけを読む。
-		input = new BufferedInputStream(Files.newInputStream(source.path()), 64 * 1024);
+		input = Files.newInputStream(source.path());
 		input.skipNBytes(initialCommittedSourceOffset);
 		return new Preparation(preparation, true);
 	}
 
 	@Override
-	public int readByte() throws IOException {
-		final int value = input.read();
-		if (value >= 0) consumedSourceBytes++;
-		return value;
+	public int readChunk(byte[] target) throws IOException {
+		final long remaining = source.size() - consumedSourceBytes;
+		return remaining <= 0 ? -1 : input.read(target, 0, (int) Math.min(target.length, remaining));
+	}
+
+	@Override
+	public InputBuffer inputBuffer() {
+		return buffer;
+	}
+
+	@Override
+	public void advanceDecodedBytes(int count) {
+		consumedSourceBytes += count;
 	}
 
 	@Override

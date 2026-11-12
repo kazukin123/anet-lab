@@ -134,16 +134,534 @@ public:
     std::string GetTargetEnvClassId() const override { return "NameTestNativeBatchEnv"; }
 };
 
+rl::BatchState MakeEpisodeState(
+    const std::vector<bool>& done,
+    const std::vector<bool>& truncated,
+    const std::vector<bool>& episode_start);
+rl::PlainBatchStepResult MakeEpisodeStep(
+    const std::vector<float>& rewards,
+    const std::vector<bool>& done,
+    const std::vector<bool>& truncated,
+    const std::vector<bool>& continue_episode_start,
+    uint32_t n_episode_end);
+
+struct SessionStep {
+    std::vector<float> rewards;
+    std::vector<bool> done;
+    std::vector<bool> truncated;
+    std::vector<float> scores;
+};
+
+class ScriptedSessionEnv final : public rl::BatchEnvBase {
+public:
+    ScriptedSessionEnv(int num_envs, rl::EpisodeScope episode_scope, std::vector<SessionStep> steps)
+        : rl::BatchEnvBase("session", num_envs, rl::RunMode::Eval)
+        , batch_spec_{
+            .num_envs = num_envs,
+            .num_threads = 1,
+            .episode_scope = episode_scope,
+        }
+        , steps_(std::move(steps))
+    {
+    }
+
+    rl::EnvSpec GetSpec() const override { return MakeNameTestEnvSpec(); }
+    rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
+    torch::Device GetDevice() const override { return torch::Device(torch::kCPU); }
+
+    std::shared_ptr<const rl::BatchResetResult> Reset() override
+    {
+        reset_count_++;
+        return std::make_shared<rl::PlainBatchResetResult>(
+            MakeEpisodeState(
+                std::vector<bool>(static_cast<size_t>(batch_spec_.num_envs), false),
+                std::vector<bool>(static_cast<size_t>(batch_spec_.num_envs), false),
+                std::vector<bool>(static_cast<size_t>(batch_spec_.num_envs), true)),
+            std::vector<rl::AuxData>(static_cast<size_t>(batch_spec_.num_envs)));
+    }
+
+    std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo>) override
+    {
+        REQUIRE(step_index_ < steps_.size());
+        const auto& step = steps_[step_index_++];
+        current_scores_ = step.scores;
+        uint32_t completed = 0;
+        if (batch_spec_.episode_scope == rl::EpisodeScope::PER_LANE) {
+            for (size_t lane = 0; lane < step.done.size(); ++lane) {
+                if (step.done[lane] || step.truncated[lane]) completed++;
+            }
+        } else if (step.done[0] || step.truncated[0]) {
+            completed = 1;
+        }
+        std::vector<bool> episode_start(step.done.size());
+        for (size_t lane = 0; lane < step.done.size(); ++lane) {
+            episode_start[lane] = step.done[lane] || step.truncated[lane];
+        }
+        class Result final : public rl::BatchStepResult {
+        public:
+            Result(const rl::PlainBatchStepResult& source, std::vector<float> scores)
+                : BatchStepResult(source.reward, source.next_state, source.continue_state,
+                    source.n_transitions, source.n_episode_end), scores_(std::move(scores)) {}
+            std::optional<float> GetScalar(const std::string& key, int64_t lane) const override
+            {
+                if (key == "raw") return 42.0f + static_cast<float>(lane);
+                if (key != "score") return BatchStepResult::GetScalar(key, lane);
+                if (lane >= 0) return scores_.at(static_cast<size_t>(lane));
+                float sum = 0.0f;
+                for (float score : scores_) sum += score;
+                return sum / static_cast<float>(scores_.size());
+            }
+            std::vector<rl::AuxData> GetAuxDataList(int lane = -1) const override
+            { return std::vector<rl::AuxData>(lane < 0 ? static_cast<size_t>(reward.size(0)) : 1); }
+        private:
+            std::vector<float> scores_;
+        };
+        auto result = std::make_shared<Result>(MakeEpisodeStep(
+            step.rewards, step.done, step.truncated, episode_start, completed), step.scores);
+        // Step内の自動Resetで、envの今の値が結果と違うことを再現する。
+        current_scores_.assign(step.scores.size(), -1000.0f);
+        return result;
+    }
+
+    std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
+    {
+        if (key == "score") {
+            if (index < 0) {
+                if (current_scores_.empty()) return std::nullopt;
+                float sum = 0.0f;
+                for (const float score : current_scores_) sum += score;
+                return sum / static_cast<float>(current_scores_.size());
+            }
+            return current_scores_.at(static_cast<size_t>(index));
+        }
+        if (key == "raw") return 42.0f + static_cast<float>(index);
+        return std::nullopt;
+    }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override
+    {
+        return std::nullopt;
+    }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(
+        const std::string&, int64_t = -1) const override
+    {
+        return std::nullopt;
+    }
+
+    int GetResetCount() const { return reset_count_; }
+
+private:
+    rl::BatchEnvSpec batch_spec_;
+    std::vector<SessionStep> steps_;
+    size_t step_index_ = 0;
+    std::vector<float> current_scores_;
+    int reset_count_ = 0;
+};
+
+rl::BatchState MakeEpisodeState(
+    const std::vector<bool>& done,
+    const std::vector<bool>& truncated,
+    const std::vector<bool>& episode_start)
+{
+    const auto num_envs = static_cast<int64_t>(done.size());
+    auto make_bool_tensor = [](const std::vector<bool>& values) {
+        auto tensor = torch::empty(
+            { static_cast<int64_t>(values.size()) }, torch::TensorOptions().dtype(torch::kBool));
+        for (int64_t i = 0; i < static_cast<int64_t>(values.size()); ++i) {
+            tensor[i].fill_(values[static_cast<size_t>(i)]);
+        }
+        return tensor;
+    };
+    return {
+        anet::TensorDict{ { rl::ObsKeys::kVector, torch::zeros({ num_envs, 1 }) } },
+        make_bool_tensor(done),
+        make_bool_tensor(truncated),
+        make_bool_tensor(episode_start)
+    };
+}
+
+rl::PlainBatchStepResult MakeEpisodeStep(
+    const std::vector<float>& rewards,
+    const std::vector<bool>& done,
+    const std::vector<bool>& truncated,
+    const std::vector<bool>& continue_episode_start,
+    uint32_t n_episode_end)
+{
+    const auto num_envs = static_cast<int64_t>(rewards.size());
+    return {
+        torch::tensor(rewards, torch::TensorOptions().dtype(torch::kFloat32)),
+        MakeEpisodeState(done, truncated, std::vector<bool>(rewards.size(), false)),
+        MakeEpisodeState(
+            std::vector<bool>(rewards.size(), false),
+            std::vector<bool>(rewards.size(), false),
+            continue_episode_start),
+        static_cast<uint32_t>(num_envs),
+        n_episode_end,
+        std::vector<rl::AuxData>(rewards.size())
+    };
+}
+
+// Single Envの操作失敗と、自動Resetをまたぐ結果所有を公開APIで確かめる。
+class ResetProbeEnv final : public rl::SingleDiscreteEnvBase,
+    public std::enable_shared_from_this<ResetProbeEnv> {
+public:
+    ResetProbeEnv(const std::string& name, int lane, int mode, std::string failure)
+        : SingleDiscreteEnvBase(name), lane_(lane), mode_(mode), failure_(std::move(failure)) {}
+    rl::EnvSpec GetSpec() const override { return MakeNameTestEnvSpec(); }
+    class ResetResult final : public rl::SingleResetResult {
+    public:
+        ResetResult(rl::SingleState state, int lane, bool fail_aux)
+            : SingleResetResult(std::move(state)), lane_(lane), fail_aux_(fail_aux) {}
+        rl::AuxData GetAuxData() const override
+        {
+            if (fail_aux_) throw std::runtime_error("probe reset aux failure");
+            return {{ "counter", torch::tensor(0) }, { "lane", torch::tensor(lane_) }};
+        }
+    private:
+        int lane_;
+        bool fail_aux_;
+    };
+    class StepResult final : public rl::SingleStepResult {
+    public:
+        StepResult(rl::SingleState state, int counter, int lane)
+            : SingleEnvResult({{"counter", torch::tensor(counter)}, {"lane", torch::tensor(lane)}}),
+              SingleStepResult(1.0f, std::move(state)) {}
+    };
+    std::shared_ptr<const rl::SingleResetResult> Reset() override
+    {
+        if (failure_ == "peer") std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        counter_ = 0;
+        const int resets = ++reset_count_;
+        if (failure_ == "reset" || (failure_ == "ended_reset" && resets > 1))
+            throw std::runtime_error("probe reset failure");
+        const auto result = std::make_shared<ResetResult>(State(false, false, true), lane_,
+            failure_ == "reset_aux" || (failure_ == "ended_aux" && resets > 1));
+        ++completed_resets_;
+        return result;
+    }
+    std::shared_ptr<const rl::SingleStepResult> Step(int64_t) override
+    {
+        if (failure_ == "peer") std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ++counter_;
+        if (failure_ == "step") throw std::runtime_error("probe step failure");
+        const auto result = std::make_shared<StepResult>(State(mode_ == 0, mode_ == 1 && counter_ == 2, false), counter_, lane_);
+        ++completed_steps_;
+        return result;
+    }
+    std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
+    {
+        if (key == "counter") return static_cast<float>(counter_);
+        if (key == "completed_resets") return static_cast<float>(completed_resets_.load());
+        if (key == "completed_steps") return static_cast<float>(completed_steps_.load());
+        return std::nullopt;
+    }
+    std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override { return std::nullopt; }
+private:
+    rl::SingleState State(bool done, bool truncated, bool start) const
+    {
+        return { .obs = anet::TensorDict{{rl::ObsKeys::kVector, torch::tensor({static_cast<float>(counter_)})}},
+            .done = done, .truncated = truncated, .episode_start = start };
+    }
+    int lane_;
+    int mode_;
+    int counter_ = 0;
+    std::string failure_;
+    std::atomic<int> reset_count_{0};
+    std::atomic<int> completed_resets_{0};
+    std::atomic<int> completed_steps_{0};
+};
+
+class ResetProbeFactory final : public rl::SingleDiscreteEnvFactory {
+public:
+    explicit ResetProbeFactory(std::vector<int> modes, std::string failure = {})
+        : modes_(std::move(modes)), failure_(std::move(failure)) {}
+    std::string GetTargetEnvClassId() const override { return "ResetProbeEnv"; }
+    std::shared_ptr<rl::SingleDiscreteEnv> CreateSingleEnv(
+        const anet::ConfigData&, const torch::Device&, const std::string& name,
+        std::optional<anet::seed_t>, rl::RunMode, const std::string&) override
+    {
+        const int lane = next_lane_++;
+        return std::make_shared<ResetProbeEnv>(name, lane, modes_.at(lane), lane == 0 ? failure_ : (failure_.empty() ? "" : "peer"));
+    }
+private:
+    std::vector<int> modes_;
+    std::string failure_;
+    int next_lane_ = 0;
+};
+
 } // namespace
+
+TEST_CASE("BatchEnvSpec serializes episode scope", "[env][episode_scope]")
+{
+    CHECK(rl::BatchEnvSpec{ .num_envs = 2, .num_threads = 1 }.ToJson()["episode_scope"] == "per_lane");
+    CHECK(rl::BatchEnvSpec{
+        .num_envs = 2,
+        .num_threads = 1,
+        .episode_scope = rl::EpisodeScope::SHARED
+    }.ToJson()["episode_scope"] == "shared");
+}
+
+TEST_CASE("Episode structure validation distinguishes per-lane and shared groups", "[env][episode_scope]")
+{
+    NameTestBatchEnv env("episode", 2);
+    const rl::BatchEnvSpec per_lane{ .num_envs = 2, .num_threads = 1 };
+    const rl::BatchEnvSpec shared{
+        .num_envs = 2,
+        .num_threads = 1,
+        .episode_scope = rl::EpisodeScope::SHARED
+    };
+
+    auto both_flags = MakeEpisodeStep({ 1.0f, 2.0f }, { true, false }, { true, false }, { true, false }, 1);
+    CHECK(rl::ValidateEpisodeStructure(env.GetName(), per_lane, both_flags) == std::vector<int64_t>{ 0 });
+
+    auto shared_end = MakeEpisodeStep({ 1.0f, 2.0f }, { true, true }, { false, false }, { true, true }, 1);
+    CHECK(rl::ValidateEpisodeStructure(env.GetName(), shared, shared_end) == std::vector<int64_t>{ 0 });
+
+    auto both_terminal_flags = MakeEpisodeStep(
+        { 1.0f, 2.0f }, { true, true }, { true, true }, { true, true }, 1);
+    CHECK(rl::ValidateEpisodeStructure(env.GetName(), shared, both_terminal_flags)
+        == std::vector<int64_t>{ 0 });
+
+    rl::PlainBatchResetResult stale_reset(
+        MakeEpisodeState({ false, false }, { false, false }, { true, false }),
+        std::vector<rl::AuxData>(2));
+    CHECK_THROWS_WITH(
+        rl::ValidateEpisodeStructure(env.GetName(), per_lane, stale_reset),
+        Catch::Matchers::ContainsSubstring("Reset must return a fresh episode group"));
+
+    auto mismatched_mask = MakeEpisodeStep({ 1.0f, 2.0f }, { true, false }, { false, false }, { true, false }, 1);
+    CHECK_THROWS_WITH(
+        rl::ValidateEpisodeStructure(env.GetName(), shared, mismatched_mask),
+        Catch::Matchers::ContainsSubstring("mask=done"));
+
+    auto mismatched_continue = MakeEpisodeStep({ 1.0f, 2.0f }, { true, true }, { false, false }, { true, false }, 1);
+    CHECK_THROWS_WITH(
+        rl::ValidateEpisodeStructure(env.GetName(), shared, mismatched_continue),
+        Catch::Matchers::ContainsSubstring("mask=continue_state.episode_start"));
+
+    auto mismatched_per_lane_continue = MakeEpisodeStep(
+        { 1.0f, 2.0f }, { false, true }, { false, false }, { false, false }, 1);
+    CHECK_THROWS_WITH(
+        rl::ValidateEpisodeStructure(env.GetName(), per_lane, mismatched_per_lane_continue),
+        Catch::Matchers::ContainsSubstring("Episode continuation structure mismatch")
+        && Catch::Matchers::ContainsSubstring("env='episode'")
+        && Catch::Matchers::ContainsSubstring("group=1")
+        && Catch::Matchers::ContainsSubstring("lane=1")
+        && Catch::Matchers::ContainsSubstring("mask=continue_state.episode_start")
+        && Catch::Matchers::ContainsSubstring("expected=1")
+        && Catch::Matchers::ContainsSubstring("actual=0"));
+
+    auto wrong_count = MakeEpisodeStep({ 1.0f, 2.0f }, { true, true }, { false, false }, { true, true }, 2);
+    CHECK_THROWS_WITH(
+        rl::ValidateEpisodeStructure(env.GetName(), shared, wrong_count),
+        Catch::Matchers::ContainsSubstring("n_episode_end"));
+}
+
+TEST_CASE("EpisodeStatsAccumulator aggregates by episode group", "[env][episode_return]")
+{
+    rl::EpisodeStatsAccumulator per_lane({ .num_envs = 2, .num_threads = 1 });
+    auto first = MakeEpisodeStep({ 1.0f, 10.0f }, { false, false }, { false, false }, { false, false }, 0);
+    CHECK(per_lane.Add(first).empty());
+    auto second = MakeEpisodeStep({ 2.0f, 20.0f }, { true, false }, { false, false }, { true, false }, 1);
+    const auto completed = per_lane.Add(second);
+    REQUIRE(completed.size() == 1);
+    CHECK(completed[0].group_index == 0);
+    CHECK(completed[0].episode_return == 3.0f);
+    CHECK(completed[0].episode_steps == 2);
+
+    // 完了した lane は再計数し、未完了 lane は truncated まで累積を続ける。
+    auto third = MakeEpisodeStep({ 4.0f, 30.0f }, { true, false }, { false, true }, { true, true }, 2);
+    const auto next = per_lane.Add(third);
+    REQUIRE(next.size() == 2);
+    CHECK(next[0] == rl::CompletedEpisodeResult{ .group_index = 0, .episode_return = 4.0f, .episode_steps = 1 });
+    CHECK(next[1] == rl::CompletedEpisodeResult{ .group_index = 1, .episode_return = 60.0f, .episode_steps = 3 });
+    CHECK(per_lane.Add(first).empty());
+    per_lane.Reset();
+    CHECK(per_lane.Add(second)[0].episode_steps == 1);
+
+    rl::EpisodeStatsAccumulator shared({
+        .num_envs = 2,
+        .num_threads = 1,
+        .episode_scope = rl::EpisodeScope::SHARED
+    });
+    auto shared_step = MakeEpisodeStep({ 3.0f, 4.0f }, { true, true }, { false, false }, { true, true }, 1);
+    const auto shared_completed = shared.Add(shared_step);
+    REQUIRE(shared_completed.size() == 1);
+    CHECK(shared_completed[0].group_index == 0);
+    CHECK(shared_completed[0].episode_return == 7.0f);
+    CHECK(shared_completed[0].episode_steps == 1);
+    CHECK(shared.Add(first).empty());
+    const auto shared_next = shared.Add(shared_step);
+    CHECK(shared_next[0].episode_steps == 2);
+    shared.Reset();
+    CHECK(shared.Add(shared_step)[0].episode_steps == 1);
+}
+
+TEST_CASE("EvalSessionEnv dynamically grants exactly N per-lane episodes", "[env][eval_session]")
+{
+    auto inner = std::make_shared<ScriptedSessionEnv>(
+        2,
+        rl::EpisodeScope::PER_LANE,
+        std::vector<SessionStep>{
+            { { 1.0f, 10.0f }, { true, true }, { false, false }, { 2.0f, 4.0f } },
+            { { 2.0f, 20.0f }, { true, true }, { false, false }, { 6.0f, 8.0f } },
+        });
+    rl::EvalSessionEnv env(inner, 3, { "mean.score" });
+
+    CHECK_FALSE(env.GetSessionResult().has_value());
+    const auto reset = env.Reset();
+    CHECK(inner->GetResetCount() == 1);
+    CHECK_FALSE(env.GetSessionResult().has_value());
+    env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 0, 1 });
+    CHECK_FALSE(env.GetSessionResult().has_value());
+    env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
+
+    const auto result = env.GetSessionResult();
+    REQUIRE(result.has_value());
+    CHECK(result->episode_returns == std::vector<float>{ 1.0f, 10.0f, 2.0f });
+    CHECK(result->episode_steps == std::vector<int64_t>{ 1, 1, 1 });
+    CHECK(env.GetScalar("mean.score") == 4.0f);
+    CHECK(env.GetScalar("raw", 1) == 43.0f);
+
+    // 全 group が fresh なら cached continue_state を空 AuxData とともに再利用する。
+    const auto reused = env.Reset();
+    CHECK(env.LastAdoptedGroups().empty());
+    CHECK(inner->GetResetCount() == 1);
+    CHECK(reused->GetAuxDataList().size() == 2);
+    CHECK(reused->GetAuxDataList()[0].empty());
+    CHECK(torch::equal(reused->state.episode_start, torch::tensor({ true, true })));
+    CHECK_FALSE(env.GetSessionResult().has_value());
+}
+
+TEST_CASE("EvalSessionEnv supports shared episodes and resets a partially fresh batch", "[env][eval_session]")
+{
+    auto shared_inner = std::make_shared<ScriptedSessionEnv>(
+        2,
+        rl::EpisodeScope::SHARED,
+        std::vector<SessionStep>{
+            { { 1.0f, 2.0f }, { true, true }, { false, false }, { 0.25f, 0.75f } },
+            { { 3.0f, 4.0f }, { true, true }, { false, false }, { 0.5f, 1.5f } },
+        });
+    rl::EvalSessionEnv shared(shared_inner, 2, { "mean.score" });
+    shared.Reset();
+    shared.Step(nullptr);
+    CHECK(shared.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
+    shared.Step(nullptr);
+    CHECK(shared.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
+    REQUIRE(shared.GetSessionResult().has_value());
+    CHECK(shared.GetSessionResult()->episode_returns == std::vector<float>{ 3.0f, 7.0f });
+    CHECK(shared.GetSessionResult()->episode_steps == std::vector<int64_t>{ 1, 1 });
+    CHECK(shared.GetScalar("mean.score") == 0.75f);
+
+    auto partial_inner = std::make_shared<ScriptedSessionEnv>(
+        4,
+        rl::EpisodeScope::PER_LANE,
+        std::vector<SessionStep>{
+            { { 1.0f, 2.0f, 3.0f, 4.0f },
+              { true, true, false, false },
+              { false, false, false, false },
+              { 1.0f, 2.0f, 3.0f, 4.0f } },
+        });
+    rl::EvalSessionEnv partial(partial_inner, 2, {});
+    partial.Reset();
+    partial.Step(nullptr);
+    REQUIRE(partial.GetSessionResult().has_value());
+    partial.Reset();
+    CHECK(partial_inner->GetResetCount() == 2);
+}
+
+TEST_CASE("EvalSessionEnv waits for every adopted per-lane episode", "[env][eval_session]")
+{
+    auto inner = std::make_shared<ScriptedSessionEnv>(
+        4,
+        rl::EpisodeScope::PER_LANE,
+        std::vector<SessionStep>{
+            { { 1.0f, 10.0f, 100.0f, 1000.0f },
+              { true, false, true, false },
+              { false, false, false, false },
+              { 1.0f, 10.0f, 100.0f, 1000.0f } },
+            { { 2.0f, 20.0f, 200.0f, 2000.0f },
+              { false, false, false, true },
+              { false, false, false, false },
+              { 2.0f, 20.0f, 200.0f, 2000.0f } },
+            { { 3.0f, 30.0f, 300.0f, 3000.0f },
+              { false, true, false, false },
+              { false, false, false, false },
+              { 3.0f, 30.0f, 300.0f, 3000.0f } },
+            { { 1.0f, 10.0f, 100.0f, 1000.0f },
+              { true, false, true, false },
+              { false, false, false, false },
+              { 1.0f, 10.0f, 100.0f, 1000.0f } },
+            { { 2.0f, 20.0f, 200.0f, 2000.0f },
+              { false, false, false, true },
+              { false, false, false, false },
+              { 2.0f, 20.0f, 200.0f, 2000.0f } },
+            { { 3.0f, 30.0f, 300.0f, 3000.0f },
+              { false, true, false, false },
+              { false, false, false, false },
+              { 3.0f, 30.0f, 300.0f, 3000.0f } },
+        });
+    rl::EvalSessionEnv env(inner, 2, {});
+
+    env.Reset();
+    env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
+    CHECK_FALSE(env.GetSessionResult().has_value());
+    env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups().empty());
+    CHECK_FALSE(env.GetSessionResult().has_value());
+    env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 1 });
+
+    REQUIRE(env.GetSessionResult().has_value());
+    CHECK(env.GetSessionResult()->episode_returns == std::vector<float>{ 1.0f, 60.0f });
+    CHECK(env.GetSessionResult()->episode_steps == std::vector<int64_t>{ 1, 3 });
+
+    // 部分的に進んだ batch は Reset し、前セッションの steps を混ぜない。
+    env.Reset();
+    CHECK_FALSE(env.GetSessionResult().has_value());
+    env.Step(nullptr);
+    env.Step(nullptr);
+    env.Step(nullptr);
+    REQUIRE(env.GetSessionResult().has_value());
+    CHECK(env.GetSessionResult()->episode_steps == std::vector<int64_t>{ 1, 3 });
+}
+
+TEST_CASE("EvalSessionEnv keeps the N=1 single-lane trace and scalar identity", "[env][eval_session]")
+{
+    auto inner = std::make_shared<ScriptedSessionEnv>(
+        1,
+        rl::EpisodeScope::PER_LANE,
+        std::vector<SessionStep>{
+            { { 2.5f }, { true }, { false }, { 9.0f } },
+        });
+    rl::EvalSessionEnv env(inner, 1, { "score" });
+
+    const auto reset = env.Reset();
+    CHECK(inner->GetResetCount() == 1);
+    CHECK(reset->state.obs.At(rl::ObsKeys::kVector).item<float>() == 0.0f);
+
+    const auto step = env.Step(nullptr);
+    CHECK(env.LastAdoptedGroups() == std::vector<int64_t>{ 0 });
+    CHECK(step->reward.item<float>() == 2.5f);
+    CHECK(step->next_state.done.item<bool>());
+    CHECK_FALSE(step->next_state.truncated.item<bool>());
+    CHECK(step->continue_state.episode_start.item<bool>());
+    REQUIRE(env.GetSessionResult().has_value());
+    CHECK(env.GetSessionResult()->episode_returns == std::vector<float>{ 2.5f });
+    CHECK(env.GetScalar("score") == 9.0f);
+}
 
 TEST_CASE("BatchEnv exposes immutable human-readable lane names", "[env_name]")
 {
     NameTestBatchEnv env("train", 3);
 
     CHECK(env.GetName() == "train");
-    CHECK(env.GetEnvName(0) == "train[0]");
-    CHECK(env.GetEnvName(1) == "train[1]");
-    CHECK(env.GetEnvName(2) == "train[2]");
+    CHECK(env.GetEnvName(0) == "env.[train].[0]");
+    CHECK(env.GetEnvName(1) == "env.[train].[1]");
+    CHECK(env.GetEnvName(2) == "env.[train].[2]");
 
     CHECK_THROWS_WITH(env.GetEnvName(-1), Catch::Matchers::ContainsSubstring("lane_index=-1"));
     CHECK_THROWS_WITH(env.GetEnvName(3), Catch::Matchers::ContainsSubstring("lane_index=3"));
@@ -157,7 +675,7 @@ TEST_CASE("Env name and BatchEnv size fail fast when invalid", "[env_name]")
 
 TEST_CASE("Batch wrappers pass stable lane names to every single Env", "[env_name]")
 {
-    const std::vector<std::string> expected_names = { "batch[0]", "batch[1]", "batch[2]" };
+    const std::vector<std::string> expected_names = { "env.[batch].[0]", "env.[batch].[1]", "env.[batch].[2]" };
 
     auto vectorized_factory = std::make_shared<RecordingSingleEnvFactory>();
     rl::VectorizedDiscreteBatchEnv vectorized(
@@ -190,7 +708,7 @@ TEST_CASE("Batch wrappers pass stable lane names to every single Env", "[env_nam
 
 TEST_CASE("Env bases bind immutable names to protected loggers", "[env_name][logger]")
 {
-    NameTestSingleEnv single("train[2]");
+    NameTestSingleEnv single("env.[train].[2]");
     const NameTestSingleEnv& const_single = single;
     NameTestBatchEnv batch("eval", 2);
     anet::test::LogCaptureGuard logs;
@@ -201,16 +719,16 @@ TEST_CASE("Env bases bind immutable names to protected loggers", "[env_name][log
     logs.Flush();
 
     REQUIRE(logs.Records().size() == 3);
-    CHECK(logs.Records()[0].message == "train[2]: single-body");
-    CHECK(logs.Records()[1].message == "train[2]: const-body");
-    CHECK(logs.Records()[2].message == "eval: batch-body");
+    CHECK(logs.Records()[0].message == "env.[train].[2]: single-body");
+    CHECK(logs.Records()[1].message == "env.[train].[2]: const-body");
+    CHECK(logs.Records()[2].message == "env.[eval]: batch-body");
 }
 
 TEST_CASE("Env exposes its immutable injected config snapshot", "[env][config]")
 {
     anet::ConfigData injected_config;
     injected_config.Set("NameTestSingleEnv.limit_step", 123);
-    NameTestSingleEnv env("train[0]", rl::RunMode::Train, injected_config);
+    NameTestSingleEnv env("env.[train].[0]", rl::RunMode::Train, injected_config);
 
     const auto actual = env.GetConfigData();
     REQUIRE(actual.has_value());
@@ -221,16 +739,16 @@ TEST_CASE("Batch wrapper exposes children-inclusive effective config", "[env][co
 {
     anet::ConfigData config_data;
     config_data.Set("NameTestSingleEnv.limit_step", 10);
-    config_data.Set("train.eval.[eval1].env.limit_step", 20);
+    config_data.Set("run.eval.[eval1].env.limit_step", 20);
 
     auto factory = std::make_shared<RecordingSingleEnvFactory>();
     rl::VectorizedDiscreteBatchEnv env(
         config_data, factory, "eval1", 2, torch::Device(torch::kCPU), 1,
-        rl::RunMode::Eval1, "train.eval.[eval1].env");
+        rl::RunMode::Eval1, "run.eval.[eval1].env");
 
     const auto actual = env.GetConfigData();
     REQUIRE(actual.has_value());
-    CHECK(actual->Get<int>("train.eval.[eval1].env.limit_step") == 20);
+    CHECK(actual->Get<int>("run.eval.[eval1].env.limit_step") == 20);
     CHECK_FALSE(actual->Has("NameTestSingleEnv.limit_step"));
 }
 
@@ -270,4 +788,84 @@ TEST_CASE("EnvRepository dispatches a per-class native batch factory variant", "
     CHECK(env->GetBatchSpec().num_envs == 3);
     CHECK(env->GetRunMode() == rl::RunMode::Eval1);
     CHECK(rl::EnvRepository::Instance().GetSingleDiscreteEnvFactory("NameTestNativeBatchEnv") == nullptr);
+}
+
+TEST_CASE("Evaluation sessions accumulate adopted Step results after automatic reset", "[env][prd097_session_result]")
+{
+    const bool shared = GENERATE(false, true);
+    auto inner = std::make_shared<ScriptedSessionEnv>(2,
+        shared ? rl::EpisodeScope::SHARED : rl::EpisodeScope::PER_LANE,
+        std::vector<SessionStep>{{{1,2},{true,true},{false,false},{10,20}}});
+    rl::EvalSessionEnv session(inner, shared ? 1 : 2, {"mean.score"});
+    session.Reset();
+    const auto result = session.Step(std::make_shared<rl::BatchActionInfo>(torch::zeros({2}, torch::kInt64)));
+    CHECK(inner->GetScalar("score", 0) == -1000.0f);
+    REQUIRE(session.GetSessionResult().has_value());
+    CHECK(session.GetScalar("mean.score") == 15.0f);
+    CHECK(result->GetScalar("score", shared ? -1 : 0) == (shared ? 15.0f : 10.0f));
+}
+
+TEST_CASE("Single results own scalar aux and distinguish unavailable and non-scalar keys", "[env][prd097_single_result]")
+{
+    rl::SingleEnvResult result(rl::AuxData{
+        {"score", torch::tensor(7.0f)},
+        {"pending", torch::tensor(std::numeric_limits<float>::quiet_NaN())},
+        {"image", torch::zeros({2,2})}});
+    CHECK(result.GetScalar("score") == 7.0f);
+    REQUIRE(result.GetScalar("pending").has_value());
+    CHECK(std::isnan(*result.GetScalar("pending")));
+    CHECK_FALSE(result.GetScalar("image").has_value());
+    CHECK_FALSE(result.GetScalar("unknown").has_value());
+    auto copy = result.GetAuxData();
+    copy.clear();
+    CHECK(result.GetScalar("score") == 7.0f);
+}
+
+TEST_CASE("BatchEnv operation failures propagate to the caller", "[env][prd097_worker_failure]")
+{
+    const bool threaded = GENERATE(false, true);
+    const std::string failure = GENERATE("reset", "step", "ended_reset");
+    auto factory = std::make_shared<ResetProbeFactory>(std::vector<int>{0, 0}, failure);
+    std::shared_ptr<rl::BatchEnv> env;
+    if (threaded) env = std::make_shared<rl::ThreadPoolDiscreteEnv>(anet::EmptyConfigData, factory,
+        "failure-probe", 2, torch::Device(torch::kCPU), std::make_shared<anet::PinnedThreadPool>(2, "failure-probe"), 1);
+    else env = std::make_shared<rl::VectorizedDiscreteBatchEnv>(anet::EmptyConfigData, factory,
+        "failure-probe", 2, torch::Device(torch::kCPU), 1);
+    const auto action = std::make_shared<rl::BatchActionInfo>(torch::zeros({2}, torch::kInt64));
+    if (failure == "reset") {
+        CHECK_THROWS_WITH(env->Reset(), Catch::Matchers::ContainsSubstring("probe reset"));
+        if (threaded) CHECK(env->GetScalar("completed_resets", 1) == 1.0f);
+    } else {
+        env->Reset();
+        CHECK_THROWS_WITH(env->Step(action), Catch::Matchers::ContainsSubstring(failure == "step" ? "probe step" : "probe reset"));
+        if (threaded) CHECK(env->GetScalar("completed_steps", 1) == 1.0f);
+    }
+    env->Shutdown();
+}
+
+TEST_CASE("BatchEnv snapshots mixed terminal lanes and empty aux slots", "[env][prd097_result_ownership]")
+{
+    const bool threaded = GENERATE(false, true);
+    auto factory = std::make_shared<ResetProbeFactory>(std::vector<int>{0, 1, 2});
+    std::shared_ptr<rl::BatchEnv> env;
+    if (threaded) env = std::make_shared<rl::ThreadPoolDiscreteEnv>(anet::EmptyConfigData, factory,
+        "ownership-probe", 3, torch::Device(torch::kCPU), std::make_shared<anet::PinnedThreadPool>(2, "ownership-probe"), 1);
+    else env = std::make_shared<rl::VectorizedDiscreteBatchEnv>(anet::EmptyConfigData, factory,
+        "ownership-probe", 3, torch::Device(torch::kCPU), 1);
+    env->Reset();
+    const auto action = std::make_shared<rl::BatchActionInfo>(torch::zeros({3}, torch::kInt64));
+    const auto first = env->Step(action);
+    CHECK(first->n_episode_end == 1);
+    CHECK(first->GetScalar("counter", 0) == 1.0f);
+    CHECK(env->GetScalar("counter", 0) == 0.0f);
+    CHECK(first->GetAuxDataList().size() == 3);
+    CHECK(first->GetAuxDataList()[2].at("lane").item<int>() == 2);
+    const auto second = env->Step(action);
+    CHECK(second->n_episode_end == 2);
+    CHECK(second->GetScalar("truncated", 1) == 1.0f);
+    env->Reset();
+    CHECK(first->GetScalar("counter", 1) == 1.0f);
+    CHECK(second->GetScalar("counter", 1) == 2.0f);
+    CHECK(first->next_state.obs.At(rl::ObsKeys::kVector)[0].item<float>() == 1.0f);
+    env->Shutdown();
 }

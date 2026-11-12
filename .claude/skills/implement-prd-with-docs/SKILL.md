@@ -1,6 +1,6 @@
 ---
 name: implement-prd-with-docs
-description: Kick off implementation from a repo PRD file, using docs-aware grilling before saving an implementation plan. Use when the user invokes /implement-prd-with-docs with a PRD filename such as 013_sample_prefetch_10prd.md, or asks to implement a *_10prd.md file while saving a *_2ximpl.md plan.
+description: Implement a repo PRD through docs-aware questions, a saved implementation plan, self-check, and review, then report unresolved items and stop. Use when the user invokes /implement-prd-with-docs with a PRD filename such as 013_sample_prefetch_10prd.md, or asks to implement a *_10prd.md file while saving a *_2ximpl.md plan.
 ---
 
 # PRD 実装起動
@@ -16,33 +16,38 @@ description: Kick off implementation from a repo PRD file, using docs-aware gril
 PRD ファイル名だけが渡された場合は、次の意図として解釈する:
 
 1. PRD を解決して読む。
-2. コード、`CONTEXT.md`、ADR に照らして未決事項監査ゲートを通す。
-3. 実装判断を変える未解決点だけを質問する。
-4. ブロッカーが 0 になったら、合意した実装計画を次に対応する `*_2ximpl.md` として保存する。
-5. 実行が許可されている場合は、その保存済み計画から実装を開始する。
+2. PRD に暫定の印があれば、PRD のレビューを受ける。
+3. コード、`CONTEXT.md`、ADR に照らして未決事項監査ゲートを通す。
+4. 実装判断を変える未解決点だけを質問する。
+5. ブロッカーが 0 になったら、合意した実装計画を次に対応する `*_2ximpl.md` として保存する。
+6. 実行が許可されている場合は、その保存済み計画から実装を開始する。
+7. 自己点検、レビューと差し戻し対応を行い、未決を示して停止する。
 
 ## 必須参照
 
 作業前に次を読む:
 
-- [PRD-IMPLEMENTATION.md](./PRD-IMPLEMENTATION.md)
-- [grill-with-docs](../grill-with-docs/SKILL.md)
-- [CONTEXT-FORMAT.md](../grill-with-docs/CONTEXT-FORMAT.md)
-- [ADR-FORMAT.md](../grill-with-docs/ADR-FORMAT.md)
+- [PRD-IMPLEMENTATION.md](./PRD-IMPLEMENTATION.md)（「プロセス契約との対応」まで適用する）
+- [プロセス契約](../../../docs/process/protocol.md) と [レジストリ](../../../docs/process/registry.md)
+- [anet-create-prd](../anet-create-prd/SKILL.md)
+- [CONTEXT-FORMAT.md](../anet-create-prd/CONTEXT-FORMAT.md)
+- [ADR-FORMAT.md](../anet-create-prd/ADR-FORMAT.md)
 
-このスキルでは、`grill-with-docs` のドメイン用語、コード照合、`CONTEXT.md`、ADR のルールを適用する。`../grill-with-docs/` は編集しない。
+このスキルでは、`anet-create-prd` のドメイン用語、コード照合、`CONTEXT.md`、ADR のルールを適用する。`../anet-create-prd/` は編集しない。
 コード変更を伴う実装では、利用可能なら `tdd` skill も読み、`PRD-IMPLEMENTATION.md` の TDD 実装フェーズを適用する。
 
 ## ワークフロー
 
 1. `PRD-IMPLEMENTATION.md` の規則で PRD パスを解決する。
-2. PRD、現在の実装、近いテスト、設定、`CONTEXT.md`、関連 ADR を読む。
-3. `PRD-IMPLEMENTATION.md` の未決事項監査ゲートを通し、PRD の決定点を repo evidence、ユーザー判断、`2ximpl` 前提、PRD 範囲外へ分類する。
+2. PRD、現在の実装、近いテスト、設定、`CONTEXT.md`、関連 ADR を読む。PRD に暫定の印があれば、`PRD-IMPLEMENTATION.md` の「暫定の印がある PRD」に従って PRD のレビューを受ける。
+3. 未決事項監査ゲートの前に、[実装 品質確認観点](../../../docs/quality/impl.md)の「実装計画」を読み、読んだ節の名前を応答に 1 行で示す。その後、`PRD-IMPLEMENTATION.md` の未決事項監査ゲートを通し、PRD の決定点を repo evidence、ユーザー判断、`2ximpl` 前提、PRD 範囲外へ分類する。
 4. リポジトリ探索で解ける疑問は、ユーザーへ質問せず探索で解決する。
 5. 回答によって実装挙動または計画形状が変わる場合だけ、ユーザーへ一問ずつ質問する。
 6. ユーザー判断が必要なブロッカーが 0 であることと、計画に固定する前提を短く提示する。
 7. 最終計画を、解決済みの `*_2ximpl.md` ファイルへ日本語で保存する。
-8. 保存済みの `*_2ximpl.md` を実装の正本として扱う。コード変更を伴う場合は、計画内の TDD 順序に従って実装する。
+8. 保存済みの `*_2ximpl.md` を実装の正本として扱う。計画を保存したあと、TDD または編集の前に、`PRD-IMPLEMENTATION.md` の「書く前に観点を読む」に従って変更種類に応じた節を読み、読んだ節の名前を応答に 1 行で示す。コード変更を伴う場合は、計画内の TDD 順序に従って実装する。
+
+9. `PRD-IMPLEMENTATION.md` の「プロセス契約との対応」に従って自己点検、レビューと差し戻し対応、未決の提示と完了報告まで進め、停止する。
 
 ## 出力ルール
 
@@ -50,3 +55,5 @@ PRD ファイル名だけが渡された場合は、次の意図として解釈�
 - 実行時ログ、設定キー、API 名、ファイルパス、エラーメッセージは、リポジトリ既存の言語規約を保つ。
 - プランモードでは提案計画で止め、ファイル編集をしない。
 - 実行モードでは、未決事項監査ゲートを通過してから実装計画を保存し、コード変更前にその計画を正本にする。コード変更時は TDD の red-green-refactor を守る。
+
+レビューに出す前にPRDの課題（`prd`でそのPRDを指す課題）のうち今回の実装の範囲に当たる課題の対応内容へ今回の対応を追記し、完了の報告前にそれらの課題を残件無し（実装したあとも事象が残るもの、段階の途中で残りの段階を持つものは残件有り）とする。PRDの実装済みは、PRDの課題から一覧の道具が導く。状態は、計画を保存したときに同じ課題を対応中にし、解決はコミットの準備で持ちかける。工程末の4区分とこの場で直す流れはレジストリ、対応内容の追記と判定の更新はPRD-IMPLEMENTATION.mdに従う。

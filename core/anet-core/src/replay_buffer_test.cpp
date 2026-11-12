@@ -1,19 +1,24 @@
-#include "anet/catch_test.hpp"
+﻿#include "anet/catch_test.hpp"
 
 #include "anet/replay_buffer.hpp"
 #include "anet/transfer.hpp"
+#include "anet/test_util.hpp"
 #include "replay_buffer_impl.hpp"
 
 #include <torch/cuda.h>
 
 #include <atomic>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdint>
 #include <exception>
+#include <iostream>
 #include <mutex>
 #include <numeric>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <thread>
@@ -69,9 +74,12 @@ constexpr const char* kVectorKey = rl::ObsKeys::kVector;
 constexpr const char* kMaskKey = rl::ObsKeys::kActionMask;
 constexpr const char* kPolicyInfoKey = "policy_info";
 
+// γはcallerのfixtureが所有し、productionのReplayBufferConfigには渡さない。
+struct TestReplayConfig : rl::ReplayBufferConfig { float gamma = 0.99f; };
+
 struct TestBuffer {
     std::shared_ptr<rl::ReplayBuffer> rb;
-    rl::ReplayBufferConfig config;
+    TestReplayConfig config;
     int64_t num_envs;
     int64_t capacity_per_env;
 };
@@ -238,14 +246,14 @@ rl::BatchExperience MakeBatch(
     return rl::BatchExperience(state, action_info, FloatVector(rewards), next_state);
 }
 
-rl::ReplayBufferConfig MakeConfig(
+TestReplayConfig MakeConfig(
     int64_t capacity,
     int n_step = 1,
     float gamma = 0.99f,
     int stack_count = 1,
     rl::ReplaySamplerType sampler_type = rl::ReplaySamplerType::PRIORITIZED)
 {
-    rl::ReplayBufferConfig config;
+    TestReplayConfig config;
     config.capacity = capacity;
     config.n_step = n_step;
     config.gamma = gamma;
@@ -256,7 +264,7 @@ rl::ReplayBufferConfig MakeConfig(
 }
 
 TestBuffer MakeBuffer(
-    const rl::ReplayBufferConfig& config,
+    const TestReplayConfig& config,
     int64_t num_envs,
     bool include_mask = false,
     uint64_t seed = 123,
@@ -303,8 +311,8 @@ public:
 
 class ConstantInitialPriorityEstimator final : public rl::InitialPriorityEstimator {
 public:
-    explicit ConstantInitialPriorityEstimator(std::optional<float> result)
-        : result_(result)
+    explicit ConstantInitialPriorityEstimator(std::optional<float> result, std::shared_ptr<int> calls = {})
+        : result_(result), calls_(std::move(calls))
     {
     }
 
@@ -318,11 +326,13 @@ public:
 
     std::optional<float> Estimate(const rl::InitialPriorityEstimateInput&) const override
     {
+        if (calls_) ++*calls_;
         return result_;
     }
 
 private:
     std::optional<float> result_;
+    std::shared_ptr<int> calls_;
 };
 
 class RecordingPriorityStore final : public rl::ReplayPriorityStore {
@@ -419,7 +429,7 @@ public:
     {
     }
 
-    void Push(const rl::BatchExperience& batch_exp) override
+    void Push(const rl::BatchExperience& batch_exp, float gamma) override
     {
         std::lock_guard<std::mutex> lock(mutex);
         push_called_before_first_sample_finished = first_sample_started && !first_sample_finished;
@@ -432,7 +442,7 @@ public:
         cv.notify_all();
     }
 
-    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float) const override
+    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float, float gamma) const override
     {
         int call_index = 0;
         {
@@ -466,6 +476,32 @@ public:
         out_samples.n_steps = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kInt64));
         out_samples.replay_item_keys = torch::full({ minibatch_size }, call_index, torch::TensorOptions().dtype(torch::kInt64));
         out_samples.is_weights = torch::ones({ minibatch_size }, torch::TensorOptions().dtype(torch::kFloat32));
+    }
+
+    bool SampleUniqueUniform(
+        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&, float gamma) const override
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++unique_sample_count;
+        push_count_at_unique_sample = push_count;
+        out_samples.replay_item_keys = torch::full(
+            { batch_size }, 100 + push_count, torch::TensorOptions().dtype(torch::kInt64));
+        out_samples.is_weights = torch::ones(
+            { batch_size }, torch::TensorOptions().dtype(torch::kFloat32));
+        cv.notify_all();
+        return true;
+    }
+
+    rl::SamplingHistoryProbeResult ProbeSamplingHistory(
+        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const override
+    {
+        rl::SamplingHistoryProbeResult result;
+        if (request.unsampled_batch_size) {
+            rl::ExperienceSamples samples;
+            SampleUniqueUniform(samples, *request.unsampled_batch_size, *random, gamma);
+            result.unsampled = std::move(samples);
+        }
+        return result;
     }
 
     int64_t Size() const override
@@ -559,6 +595,18 @@ public:
         return push_count;
     }
 
+    int UniqueSampleCount() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return unique_sample_count;
+    }
+
+    int PushCountAtUniqueSample() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return push_count_at_unique_sample;
+    }
+
     int PushCountAtSampleStart(int sample_index) const
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -603,6 +651,8 @@ public:
     mutable std::mutex mutex;
     mutable std::condition_variable cv;
     mutable int sample_count = 0;
+    mutable int unique_sample_count = 0;
+    mutable int push_count_at_unique_sample = -1;
     mutable std::vector<int> push_count_at_sample_start;
     mutable bool first_sample_started = false;
     mutable bool release_first_sample = false;
@@ -652,7 +702,7 @@ void PushTime(
         next_done,
         next_truncated,
         episode_start,
-        include_mask));
+        include_mask), buffer.config.gamma);
 }
 
 void PushTimeWithActionInfo(
@@ -673,7 +723,7 @@ void PushTimeWithActionInfo(
         BoolValues(buffer.num_envs, false),
         episode_start,
         false,
-        action_info));
+        action_info), buffer.config.gamma);
 }
 
 rl::ExperienceSamples MakeTransferSamples()
@@ -738,6 +788,234 @@ void RequireSlotsIn(
         CAPTURE(key, slot);
         REQUIRE(std::find(allowed.begin(), allowed.end(), slot) != allowed.end());
     }
+}
+
+TEST_CASE("Replay windows stop at the next decision and return discounted transitions", "[replay_buffer][prd098]")
+{
+    const int execution = GENERATE(0, 1, 2);
+    if (execution == 2 && !torch::cuda::is_available()) return;
+    auto config = MakeConfig(32, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    config.window_rule = rl::CreateDecisionWindowRule(4);
+    auto buffer = MakeBuffer(config, 1);
+    if (execution) buffer.rb = std::make_shared<rl::PrefetchingReplayBuffer>(buffer.rb,
+        execution == 2 ? torch::Device(torch::kCUDA) : torch::Device(torch::kCPU));
+    // 同じ行動でも、3 stepごとの判断を跨いだ窓にはしない。
+    for (int t = 0; t < 12; ++t) {
+        anet::TensorDict info;
+        info.Set("decision", torch::tensor({ t % 3 == 0 }, torch::kBool));
+        buffer.rb->Push(MakeBatch({ float(t) }, { float(t + 1) }, { 1.0f },
+            { false }, { false }, { t == 0 }, false, info), buffer.config.gamma);
+    }
+    REQUIRE(buffer.rb->Size() == 8);
+    rl::ExperienceSamples samples;
+    buffer.rb->Sample(samples, 8, 0.0f, buffer.config.gamma);
+    REQUIRE(samples.window.lengths.numel() == 8);
+    for (int64_t i = 0; i < 8; ++i) {
+        const int start = static_cast<int>(samples.obs.At(kVectorKey)[i].item<float>());
+        const int length = samples.window.lengths[i].item<int>();
+        REQUIRE(samples.window.max_lengths[i].item<int>() == 3 - start % 3);
+        REQUIRE(length >= 1);
+        REQUIRE(length <= 3 - start % 3);
+        REQUIRE(samples.window.returns[i].item<float>() == Catch::Approx(2.0f * (1.0f - std::pow(0.5f, length))));
+        REQUIRE_FALSE(samples.window.terminals[i].item<bool>());
+        REQUIRE(samples.window.next_obs.At(kVectorKey)[i].item<float>() == Catch::Approx(start + length));
+    }
+    if (execution == 2) CHECK(samples.window.next_obs.device().is_cuda());
+    // Probeもwindowと同じ候補範囲を使い、通常Sampleとは独立したcaller RNGで窓を得る。
+    anet::RandomGenerator random(98);
+    const auto history = buffer.rb->ProbeSamplingHistory({.counts = true, .sampled_batch_size = 1}, &random, buffer.config.gamma);
+    CHECK(history.unsampled_count + history.sampled_count == 8);
+    REQUIRE(history.sampled);
+    REQUIRE(history.sampled->window.lengths.defined());
+    CHECK(history.sampled->window.lengths.item<int>() >= 1);
+    CHECK(history.sampled->window.next_obs.device().is_cpu());
+}
+
+TEST_CASE("Decision window margin does not delay PER initial-priority completion", "[replay_buffer][prd098]")
+{
+    // J=4のsampleableは8件だが、n_step=2の優先度は10件完成している。
+    auto config = MakeConfig(32, 2, 0.5f, 1, rl::ReplaySamplerType::PRIORITIZED);
+    config.window_rule = rl::CreateDecisionWindowRule(4);
+    config.per_initial_priority_mode = rl::ReplayInitialPriorityMode::ACTOR_APPROX;
+    const auto calls = std::make_shared<int>(0);
+    const auto buffer = MakeBuffer(config, 1, false, 98, std::make_unique<ConstantInitialPriorityEstimator>(1.0f, calls));
+    for (int step = 0; step < 12; ++step) {
+        buffer.rb->Push(MakeBatch({float(step)}, {float(step + 1)}, {1}, {false}, {false}, {step == 0}, false,
+            anet::TensorDict{{"decision", torch::tensor({step % 3 == 0}, torch::kBool)}},
+            rl::ReplayInitialPriorityHint(torch::ones({1, 1}))), buffer.config.gamma);
+    }
+    CHECK(*calls == 10);
+    CHECK(buffer.rb->Size() == 8);
+}
+
+TEST_CASE("Replay windows retain episode boundaries through ring wrap and transfer", "[replay_buffer][prd098]")
+{
+    auto config = MakeConfig(16, 2, 0.5f, 3, rl::ReplaySamplerType::UNIFORM);
+    config.window_rule = rl::CreateDecisionWindowRule(4);
+    const auto buffer = MakeBuffer(config, 1);
+    bool episode_start = true;
+    for (int t = 0; t < 60; ++t) {
+        const bool done = t % 11 == 8;
+        const bool truncated = t % 11 == 10;
+        anet::TensorDict info;
+        info.Set("decision", torch::tensor({ episode_start || t % 3 == 0 }, torch::kBool));
+        buffer.rb->Push(MakeBatch({ float(t) }, { truncated ? -float(t + 1) : float(t + 1) },
+            { float(t + 1) }, { done }, { truncated }, { episode_start }, false, info), buffer.config.gamma);
+        episode_start = done || truncated;
+    }
+    anet::RandomGenerator random(98);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, buffer.config.gamma));
+    samples = samples.To(torch::kCPU);
+    for (int64_t row = 0; row < samples.actions.size(0); ++row) {
+        const int start = static_cast<int>(samples.obs.At(kVectorKey)[row][-1].item<float>());
+        const int length = samples.window.lengths[row].item<int>();
+        int maximum = 0;
+        for (int offset = 0; offset < 4; ++offset) {
+            const int time = start + offset;
+            if (offset && time % 3 == 0) break;
+            ++maximum;
+            if (time % 11 == 8 || time % 11 == 10) break;
+        }
+        REQUIRE(samples.window.max_lengths[row].item<int>() == maximum);
+        REQUIRE(length <= maximum);
+        float expected = 0.0f;
+        for (int offset = 0; offset < length; ++offset) expected += std::pow(0.5f, offset) * (start + offset + 1);
+        REQUIRE(samples.window.returns[row].item<float>() == Catch::Approx(expected));
+        const int last = start + length - 1;
+        REQUIRE(samples.window.terminals[row].item<bool>() == (last % 11 == 8));
+        REQUIRE(samples.window.truncated[row].item<bool>() == (last % 11 == 10));
+        if (last % 11 != 8) {
+            const float next = last % 11 == 10 ? -float(last + 1) : float(last + 1);
+            REQUIRE(samples.window.next_obs.At(kVectorKey)[row][-1].item<float>() == Catch::Approx(next));
+        }
+    }
+}
+
+TEST_CASE("Replay decision windows preserve margins and sample lengths uniformly", "[replay_buffer][prd098]")
+{
+    auto config = MakeConfig(32, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    const auto ordinary = MakeBuffer(config, 1);
+    config.window_rule = rl::CreateDecisionWindowRule(4);
+    const auto windowed = MakeBuffer(config, 1);
+    for (int step = 0; step < 16; ++step) {
+        anet::TensorDict info{{"decision", torch::tensor({step == 0}, torch::kBool)}};
+        const auto batch = MakeBatch({float(step)}, {float(step + 1)}, {1.0f}, {false}, {false}, {step == 0}, false, info);
+        ordinary.rb->Push(batch, ordinary.config.gamma);
+        windowed.rb->Push(batch, windowed.config.gamma);
+    }
+    CHECK(ordinary.rb->Size() - windowed.rb->Size() == 3);
+    anet::RandomGenerator random(98);
+    std::array<int, 4> count{};
+    rl::ExperienceSamples sample;
+    for (int draw = 0; draw < 4000; ++draw) {
+        REQUIRE(windowed.rb->SampleUniqueUniform(sample, 1, random, windowed.config.gamma));
+        REQUIRE(sample.window.max_lengths.item<int>() == 4);
+        const int length = sample.window.lengths.item<int>();
+        REQUIRE(length >= 1);
+        REQUIRE(length <= 4);
+        ++count[length - 1];
+    }
+    for (const int observed : count) { CHECK(observed > 800); CHECK(observed < 1200); }
+    REQUIRE(ordinary.rb->SampleUniqueUniform(sample, 1, random, ordinary.config.gamma));
+    CHECK_FALSE(sample.window.lengths.defined());
+    config.capacity = 4;
+    CHECK_THROWS(MakeBuffer(config, 1));
+}
+
+TEST_CASE("Replay rejects action changes inside a decision window", "[replay_buffer][prd098]")
+{
+    auto config = MakeConfig(16, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    config.window_rule = rl::CreateDecisionWindowRule(3);
+    const bool continuous = GENERATE(false, true);
+    auto env = MakeEnvSpec();
+    env.action_spec.is_discrete = !continuous;
+    if (continuous) env.action_spec.dims.resize(1);
+    const auto buffer = rl::CreateReplayBuffer(config, env, 1, torch::kCPU, false, 98);
+    for (int step = 0; step < 10; ++step) {
+        auto batch = MakeBatch({float(step)}, {float(step + 1)}, {1.0f}, {false}, {false}, {step == 0}, false,
+            anet::TensorDict{{"decision", torch::tensor({step == 0}, torch::kBool)}});
+        const auto action = continuous ? torch::full({1, 1}, float(step % 2)) : torch::tensor({step % 2}, torch::kInt64);
+        batch.action = batch.action->WithAction(action);
+        buffer->Push(batch, config.gamma);
+    }
+    rl::ExperienceSamples sample;
+    anet::RandomGenerator random(98);
+    CHECK_THROWS_WITH(buffer->SampleUniqueUniform(sample, 1, random, config.gamma), Catch::Matchers::ContainsSubstring("Invalid window action"));
+}
+
+TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring wrap", "[replay_buffer][prd104][prd104-windows]")
+{
+    const bool action_change = GENERATE(false, true);
+    const bool prefetch = GENERATE(false, true);
+    auto config = MakeConfig(16, 2, 0.5f, 3, rl::ReplaySamplerType::UNIFORM);
+    config.window_rule = action_change ? rl::CreateActionChangeWindowRule(4) : rl::CreateEpisodeEndWindowRule(4);
+    auto buffer = MakeBuffer(config, 1);
+    if (prefetch) buffer.rb = std::make_shared<rl::PrefetchingReplayBuffer>(buffer.rb, torch::kCPU);
+    bool episode_start = true;
+    // 判断は毎step、行動は6stepの連続区間。終了と打ち切りを挟んでringを周回する。
+    for (int t = 0; t < 60; ++t) {
+        const bool done = t % 11 == 8, truncated = t % 11 == 10;
+        auto batch = MakeBatch({float(t)}, {truncated ? -float(t + 1) : float(t + 1)},
+            {float(t + 1)}, {done}, {truncated}, {episode_start}, false,
+            anet::TensorDict{{"decision", torch::ones({1}, torch::kBool)}});
+        batch.action = batch.action->WithAction(torch::tensor({(t / 6) % 2}, torch::kLong));
+        buffer.rb->Push(batch, config.gamma);
+        episode_start = done || truncated;
+    }
+    rl::ExperienceSamples samples;
+    anet::RandomGenerator random(104);
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, config.gamma));
+    for (int64_t row = 0; row < samples.actions.size(0); ++row) {
+        const int start = static_cast<int>(samples.obs.At(kVectorKey)[row][-1].item<float>());
+        const int length = samples.window.lengths[row].item<int>();
+        int maximum = 0;
+        for (int offset = 0; offset < 4; ++offset) {
+            const int time = start + offset;
+            if (action_change && (time / 6) % 2 != (start / 6) % 2) break;
+            ++maximum;
+            if (time % 11 == 8 || time % 11 == 10) break;
+        }
+        CHECK(samples.window.max_lengths[row].item<int>() == maximum);
+        CHECK(length >= 1);
+        CHECK(length <= maximum);
+        float expected_return = 0;
+        for (int offset = 0; offset < length; ++offset) expected_return += std::pow(0.5f, offset) * (start + offset + 1);
+        CHECK(samples.window.returns[row].item<float>() == Catch::Approx(expected_return));
+        const int last = start + length - 1;
+        CHECK(samples.window.terminals[row].item<bool>() == (last % 11 == 8));
+        CHECK(samples.window.truncated[row].item<bool>() == (last % 11 == 10));
+        if (last % 11 != 8) {
+            const float expected_next = last % 11 == 10 ? -float(last + 1) : float(last + 1);
+            CHECK(samples.window.next_obs.At(kVectorKey)[row][-1].item<float>() == Catch::Approx(expected_next));
+        }
+    }
+    // 通常のSampleも2回通し、prefetchの受け渡しが窓を運ぶことを確認する。
+    for (int sample = 0; sample < 2; ++sample) {
+        rl::ExperienceSamples actual;
+        buffer.rb->Sample(actual, 4, 0.0f, config.gamma);
+        CHECK(actual.window.lengths.numel() == 4);
+        CHECK(actual.window.lengths.ge(1).all().item<bool>());
+        CHECK(actual.window.lengths.le(actual.window.max_lengths).all().item<bool>());
+    }
+}
+
+TEST_CASE("Auxiliary window rules reject dummy slots inside a window", "[replay_buffer][prd104][prd104-windows]")
+{
+    const bool action_change = GENERATE(false, true);
+    auto config = MakeConfig(8, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    const auto make = [&](int limit) {
+        return action_change ? rl::CreateActionChangeWindowRule(limit) : rl::CreateEpisodeEndWindowRule(limit);
+    };
+    CHECK_THROWS(make(0));
+    CHECK_THROWS(make(-1));
+    rl::ReplayExperienceStorage storage(1, 8, MakeEnvSpec(), config, torch::kCPU, false);
+    const anet::TensorDict obs{{kVectorKey, torch::zeros({1})}};
+    const auto slot = storage.Push(0, obs, torch::tensor(0, torch::kLong), {}, true);
+    storage.RecordStep(0, slot, 1.0f, false, false, true);
+    // 終了の旗を付けないままdummyを置き、規則の不正データ経路を公開操作で作る。
+    storage.PushTerminalDummy(0, obs);
+    CHECK_THROWS_WITH(make(2)->GetMaxLength(storage, 0, slot), Catch::Matchers::ContainsSubstring("dummy slot"));
 }
 
 TEST_CASE("SumTree supports explicit floating-point value types", "[replay_buffer][per][precision]")
@@ -992,7 +1270,7 @@ rl::ExperienceSamples SampleOnlyIndex(const TestBuffer& buffer, int64_t target_i
     const int64_t actual_capacity = buffer.capacity_per_env * buffer.num_envs;
     for (int attempt = 0; attempt < 4096; ++attempt) {
         rl::ExperienceSamples samples;
-        buffer.rb->Sample(samples, 1, 0.4f);
+        buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
         const int64_t key = samples.replay_item_keys[0].item<int64_t>();
         if (key % actual_capacity == target_index) {
             RequireSampleIndex(samples, target_index);
@@ -1031,7 +1309,7 @@ void RequireOneStepSample(const rl::ExperienceSamples& samples, const TestBuffer
 
 TEST_CASE("ReplayBufferConfig has default values", "[replay_buffer][config]")
 {
-    rl::ReplayBufferConfig config;
+    TestReplayConfig config;
 
     REQUIRE(config.capacity == 100000);
     REQUIRE(config.sampler_type == rl::ReplaySamplerType::UNIFORM);
@@ -1040,6 +1318,21 @@ TEST_CASE("ReplayBufferConfig has default values", "[replay_buffer][config]")
     REQUIRE(config.stack_count == 1);
     REQUIRE(config.stack_keys.empty());
     REQUIRE(config.muzero.unroll_steps == 0);
+}
+
+TEST_CASE("ReplayBuffer capacity includes frame stack history margin", "[replay_buffer][config][capacity][frame_stack]")
+{
+    constexpr int n_step = 2;
+    constexpr int stack_count = 3;
+    constexpr int64_t required_capacity_per_env = n_step + 1 + (stack_count - 1);
+
+    // sample可能transitionを必ず1件持てる境界の直前は、構築時に拒否する。
+    CHECK_THROWS(MakeBuffer(
+        MakeConfig(required_capacity_per_env - 1, n_step, 0.99f, stack_count), 1));
+
+    // history marginを含む必要量を満たす境界値は、そのまま受け入れる。
+    CHECK_NOTHROW(MakeBuffer(
+        MakeConfig(required_capacity_per_env, n_step, 0.99f, stack_count), 1));
 }
 
 TEST_CASE("ReplayBuffer sampled indices are valid sampleable storage indices", "[replay_buffer][indices]")
@@ -1053,13 +1346,13 @@ TEST_CASE("ReplayBuffer sampled indices are valid sampleable storage indices", "
         num_envs);
 
     for (int64_t t = 0; t <= 5; ++t) {
-        PushTime(buffer, t);
+        PushTime(buffer, t, {}, {}, t == 0 ? BoolValues(num_envs, true) : BoolValues(num_envs, false));
     }
 
     REQUIRE(buffer.rb->Size() == 6);
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f);
+    buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f, buffer.config.gamma);
 
     RequireShape(samples.replay_item_keys, { buffer.rb->Size() });
     REQUIRE(samples.replay_item_keys.scalar_type() == torch::kInt64);
@@ -1089,6 +1382,187 @@ TEST_CASE("ReplayBuffer sampled indices are valid sampleable storage indices", "
     }
 }
 
+TEST_CASE("ReplayBuffer reads a caller-random unique uniform probe batch without replacement", "[replay_buffer][probe][unique_uniform]")
+{
+    auto buffer = MakeBuffer(
+        MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED),
+        1,
+        false,
+        777);
+    for (int64_t t = 0; t <= 6; ++t) {
+        PushTime(buffer, t, {}, {}, BoolValues(1, t == 0));
+    }
+    REQUIRE(buffer.rb->Size() == 6);
+
+    rl::ExperienceSamples samples;
+    anet::RandomGenerator probe_random(777);
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, 5, probe_random, buffer.config.gamma));
+
+    const auto keys = TensorToInt64Vector(samples.replay_item_keys);
+    CHECK(std::set<int64_t>(keys.begin(), keys.end()).size() == 5);
+    CHECK(torch::equal(samples.is_weights, torch::ones_like(samples.is_weights)));
+    CHECK(samples.replay_item_keys.device().is_cpu());
+}
+
+TEST_CASE("ReplayBuffer sampling history returns requested disjoint groups from one snapshot", "[replay_buffer][replay_fit]")
+{
+    auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 1, false, 73001);
+    for (int64_t t = 0; t <= 6; ++t) PushTime(buffer, t, {}, {}, BoolValues(1, t == 0));
+    rl::ExperienceSamples normal;
+    buffer.rb->Sample(normal, 1, 0.4f, buffer.config.gamma);
+    const auto selected_key = normal.replay_item_keys.item<int64_t>();
+    anet::RandomGenerator random(73002);
+    anet::RandomGenerator control(73002);
+
+    // 全件抽出でも群は混ぜず、通常Sampleの履歴とcaller RNGをそのまま保つ。
+    const auto result = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{
+        .counts = true, .unsampled_batch_size = 5, .sampled_batch_size = 1 }, &random, buffer.config.gamma);
+    CHECK(result.unsampled_count == 5);
+    CHECK(result.sampled_count == 1);
+    REQUIRE(result.unsampled.has_value());
+    REQUIRE(result.sampled.has_value());
+    const auto unsampled_keys = TensorToInt64Vector(result.unsampled->replay_item_keys);
+    CHECK(std::set<int64_t>(unsampled_keys.begin(), unsampled_keys.end()).size() == 5);
+    CHECK(std::ranges::find(unsampled_keys, selected_key) == unsampled_keys.end());
+    CHECK(result.sampled->replay_item_keys.item<int64_t>() == selected_key);
+    CHECK(torch::equal(result.unsampled->is_weights, torch::ones({ 5 })));
+    CHECK(random.RandUint64() == control.RandUint64());
+    const auto sampled_age = 7 - selected_key % 20;
+    CHECK(result.sampled_age_mean == Catch::Approx(static_cast<float>(sampled_age)));
+    CHECK(result.unsampled_age_mean == Catch::Approx((27.0f - sampled_age) / 5.0f));
+    const auto after = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr, buffer.config.gamma);
+    CHECK(after.unsampled_count == 5);
+    CHECK(after.sampled_count == 1);
+}
+
+TEST_CASE("ReplayBuffer history probes preserve ring generations and sample reconstruction", "[replay_buffer][replay_fit][history]")
+{
+    const int n_step = GENERATE(1, 3);
+    const int stack = GENERATE(1, 3);
+    auto buffer = MakeBuffer(MakeConfig(24, n_step, 0.5f, stack, rl::ReplaySamplerType::PRIORITIZED), 2, false, 73021);
+    anet::RandomGenerator random(73022);
+    CHECK_THROWS(buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .unsampled_batch_size = 0 }, &random, buffer.config.gamma));
+    CHECK_THROWS(buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .sampled_batch_size = 1 }, nullptr, buffer.config.gamma));
+    const auto empty = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr, buffer.config.gamma);
+    CHECK(empty.unsampled_count == 0);
+    CHECK(empty.sampled_count == 0);
+    CHECK(std::isnan(empty.unsampled_age_mean));
+    for (int64_t t = 0; t < 10; ++t) PushTime(buffer, t, {}, {}, BoolValues(2, t == 0));
+    rl::ExperienceSamples ordinary;
+    buffer.rb->Sample(ordinary, 2, 0.4f, buffer.config.gamma);
+    // 全slotを上書きした後は旧世代の抽選履歴が残らない。
+    for (int64_t t = 10; t < 30; ++t) PushTime(buffer, t);
+    const auto before = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr, buffer.config.gamma);
+    CHECK(before.sampled_count == 0);
+    CHECK(before.unsampled_count == buffer.rb->Size());
+    const auto total = buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL);
+    const auto result = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{
+        .counts = true, .unsampled_batch_size = buffer.rb->Size(), .sampled_batch_size = 1 }, &random, buffer.config.gamma);
+    REQUIRE(result.unsampled);
+    CHECK_FALSE(result.sampled);
+    rl::ExperienceSamples control;
+    REQUIRE(buffer.rb->SampleUniqueUniform(control, buffer.rb->Size(), random, buffer.config.gamma));
+    CHECK(torch::equal(result.unsampled->replay_item_keys, control.replay_item_keys));
+    CHECK(torch::equal(result.unsampled->target_returns, control.target_returns));
+    CHECK(torch::equal(result.unsampled->n_steps, control.n_steps));
+    CHECK(torch::equal(result.unsampled->obs.At(kVectorKey), control.obs.At(kVectorKey)));
+    CHECK(torch::equal(result.unsampled->next_state.next_obs.At(kVectorKey), control.next_state.next_obs.At(kVectorKey)));
+    CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL) == total);
+    const auto insufficient = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{
+        .counts = true, .unsampled_batch_size = buffer.rb->Size() + 1 }, &random, buffer.config.gamma);
+    CHECK_FALSE(insufficient.unsampled);
+    CHECK(insufficient.unsampled_count == before.unsampled_count);
+}
+
+TEST_CASE("ReplayBuffer probe does not mark samples or change PER statistics", "[replay_buffer][probe][unique_uniform][per]")
+{
+    auto buffer = MakeBuffer(
+        MakeConfig(4, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED),
+        1,
+        false,
+        4321);
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+    PushTime(buffer, 3);
+
+    const auto per_total_before = buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL);
+    const auto initial_mass_before = buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO);
+    const auto eviction_ratio_before = buffer.rb->GetScalar(
+        rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(per_total_before.has_value());
+    REQUIRE(initial_mass_before.has_value());
+    REQUIRE(eviction_ratio_before.has_value());
+
+    rl::ExperienceSamples probe;
+    anet::RandomGenerator probe_random(4321);
+    REQUIRE(buffer.rb->SampleUniqueUniform(probe, buffer.rb->Size(), probe_random, buffer.config.gamma));
+
+    CHECK(*buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL) == Catch::Approx(*per_total_before));
+    CHECK(*buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO)
+        == Catch::Approx(*initial_mass_before));
+    CHECK(std::isnan(*eviction_ratio_before));
+    CHECK(std::isnan(*buffer.rb->GetScalar(
+        rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO)));
+
+    // probe が MarkSampledOnce に触れていなければ、最古のsampleable slotは未sampleのまま追い出される。
+    PushTime(buffer, 4);
+    const auto eviction_ratio_after = buffer.rb->GetScalar(
+        rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(eviction_ratio_after.has_value());
+    CHECK(*eviction_ratio_after == Catch::Approx(1.0f));
+}
+
+TEST_CASE("ReplayBuffer caller-owned probe RNG is deterministic and isolated", "[replay_buffer][probe][unique_uniform]")
+{
+    auto make_populated = [] {
+        auto buffer = MakeBuffer(
+            MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED),
+            1,
+            false,
+            1234);
+        for (int64_t t = 0; t <= 6; ++t) PushTime(buffer, t, {}, {}, BoolValues(1, t == 0));
+        return buffer;
+    };
+    auto probed = make_populated();
+    auto probe_sequence_control = make_populated();
+    auto normal_sample_control = make_populated();
+    anet::RandomGenerator probed_random(1234);
+    anet::RandomGenerator control_random(1234);
+
+    rl::ExperienceSamples unchanged;
+    unchanged.replay_item_keys = torch::tensor({ 999 }, torch::TensorOptions().dtype(torch::kInt64));
+    CHECK_FALSE(probed.rb->SampleUniqueUniform(unchanged, 7, probed_random, probed.config.gamma));
+    CHECK(unchanged.replay_item_keys.item<int64_t>() == 999);
+
+    rl::ExperienceSamples all_items;
+    REQUIRE(probed.rb->SampleUniqueUniform(all_items, 6, probed_random, probed.config.gamma));
+    rl::ExperienceSamples probe_after_all;
+    rl::ExperienceSamples control_probe;
+    REQUIRE(probed.rb->SampleUniqueUniform(probe_after_all, 5, probed_random, probed.config.gamma));
+    REQUIRE(probe_sequence_control.rb->SampleUniqueUniform(control_probe, 5, control_random, probe_sequence_control.config.gamma));
+    CHECK(torch::equal(probe_after_all.replay_item_keys, control_probe.replay_item_keys));
+
+    // 一方の probe consumer が乱数を消費しても、別 caller 所有 RNG の系列は変わらない。
+    anet::RandomGenerator plasticity_random(11);
+    anet::RandomGenerator churn_random(22);
+    anet::RandomGenerator churn_control_random(22);
+    rl::ExperienceSamples plasticity_probe;
+    rl::ExperienceSamples churn_probe;
+    rl::ExperienceSamples churn_control_probe;
+    REQUIRE(probed.rb->SampleUniqueUniform(plasticity_probe, 5, plasticity_random, probed.config.gamma));
+    REQUIRE(probed.rb->SampleUniqueUniform(churn_probe, 5, churn_random, probed.config.gamma));
+    REQUIRE(probe_sequence_control.rb->SampleUniqueUniform(
+        churn_control_probe, 5, churn_control_random, probe_sequence_control.config.gamma));
+    CHECK(torch::equal(churn_probe.replay_item_keys, churn_control_probe.replay_item_keys));
+
+    rl::ExperienceSamples normal_after_probe;
+    rl::ExperienceSamples normal_control;
+    probed.rb->Sample(normal_after_probe, 5, 0.4f, probed.config.gamma);
+    normal_sample_control.rb->Sample(normal_control, 5, 0.4f, normal_sample_control.config.gamma);
+    CHECK(torch::equal(normal_after_probe.replay_item_keys, normal_control.replay_item_keys));
+}
+
 TEST_CASE("ReplayBuffer samples one-step transitions for each env", "[replay_buffer][basic][multi_env]")
 {
     auto buffer = MakeBuffer(MakeConfig(20), 2);
@@ -1102,7 +1576,7 @@ TEST_CASE("ReplayBuffer samples one-step transitions for each env", "[replay_buf
     RequireOneStepSample(SampleOnlyIndex(buffer, IndexOf(buffer, 1, 0)), buffer, 1, 0);
 }
 
-TEST_CASE("ReplayExperienceStorage initializes unwritten slots as episode boundaries", "[replay_buffer][storage][frame_stack]")
+TEST_CASE("ReplayExperienceStorage initializes unwritten slot metadata", "[replay_buffer][storage][frame_stack]")
 {
     constexpr int64_t num_envs = 2;
     constexpr int64_t capacity_per_env = 5;
@@ -1123,6 +1597,11 @@ TEST_CASE("ReplayExperienceStorage initializes unwritten slots as episode bounda
     REQUIRE(storage.GetTargetReturns().eq(0.0f).all().item<bool>());
     REQUIRE(storage.GetTerminals().all().item<bool>());
     REQUIRE(storage.GetActualNSteps().eq(0).all().item<bool>());
+    for (int64_t env_idx = 0; env_idx < num_envs; ++env_idx) {
+        for (int64_t physical_idx = 0; physical_idx < capacity_per_env; ++physical_idx) {
+            CHECK_FALSE(storage.IsHistoryStart(env_idx, physical_idx));
+        }
+    }
 }
 
 TEST_CASE("ReplayBuffer visualization accessors expose V1-compatible storage keys", "[replay_buffer][visualization]")
@@ -1285,6 +1764,31 @@ TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay
     RequireFlatApprox(*env0_value, { env0_priority });
 }
 
+TEST_CASE("PER falls back once when repeated rejection draws cannot select a positive priority", "[replay_buffer][per][prd117_rejection]")
+{
+    // 0は有効な明示priorityである。全slotを0にし、乱数に依存せず拒否上限へ到達させる。
+    auto config = MakeConfig(8);
+    config.per_alpha = 1.0f;
+    config.per_initial_priority = 0.0f;
+    const auto buffer = MakeBuffer(config, 1);
+    for (int64_t step = 0; step < 4; ++step) {
+        PushTime(buffer, step, {}, {}, step == 0 ? BoolValues(1, true) : std::vector<bool>{});
+    }
+    REQUIRE(buffer.rb->Size() > 0);
+    anet::test::LogCaptureGuard logs;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        rl::ExperienceSamples samples;
+        REQUIRE_NOTHROW(buffer.rb->Sample(samples, 1, 0.4f, config.gamma));
+        REQUIRE(samples.is_weights.numel() == 1);
+        CHECK(samples.is_weights.item<float>() == 1.0f);
+        CHECK(samples.replay_item_keys.numel() == 1);
+    }
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        {"PER Rejection Sampling failed", "filled=0", "requested=1"}));
+}
+
 TEST_CASE("ReplayBuffer PER initial mass ratio remains accurate with many slots", "[replay_buffer][per][precision]")
 {
     constexpr int64_t capacity = 2048;
@@ -1300,13 +1804,13 @@ TEST_CASE("ReplayBuffer PER initial mass ratio remains accurate with many slots"
     }
 
     rl::ExperienceSamples all_samples;
-    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f);
+    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f, buffer.config.gamma);
     auto all_item_keys = TensorToInt64Vector(all_samples.replay_item_keys);
     std::sort(all_item_keys.begin(), all_item_keys.end());
     all_item_keys.erase(std::unique(all_item_keys.begin(), all_item_keys.end()), all_item_keys.end());
     while (all_item_keys.size() < static_cast<size_t>(updated_count)) {
         rl::ExperienceSamples extra;
-        buffer.rb->Sample(extra, buffer.rb->Size(), 0.4f);
+        buffer.rb->Sample(extra, buffer.rb->Size(), 0.4f, buffer.config.gamma);
         auto extra_keys = TensorToInt64Vector(extra.replay_item_keys);
         all_item_keys.insert(all_item_keys.end(), extra_keys.begin(), extra_keys.end());
         std::sort(all_item_keys.begin(), all_item_keys.end());
@@ -1354,6 +1858,7 @@ TEST_CASE("Initial priority completer waits for sampleability before fixed initi
         .logical_time_idx = 0,
         .flat_slot_index = 3,
         .target_return = 4.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = false,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1395,6 +1900,7 @@ TEST_CASE("Initial priority completer applies max initialization with max source
         .logical_time_idx = 0,
         .flat_slot_index = 6,
         .target_return = 0.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = false,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1430,6 +1936,7 @@ TEST_CASE("Initial priority completer estimates a non-terminal actor priority at
         .logical_time_idx = 0,
         .flat_slot_index = 2,
         .target_return = 1.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = false,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1469,6 +1976,7 @@ TEST_CASE("Initial priority completer completes a true terminal without a bootst
         .logical_time_idx = 0,
         .flat_slot_index = 4,
         .target_return = 2.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = true,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1504,6 +2012,7 @@ TEST_CASE("Initial priority completer falls back to max for a finite truncated t
         .logical_time_idx = 0,
         .flat_slot_index = 5,
         .target_return = 2.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = false,
         .truncated = true,
         .actual_n_steps = 1,
@@ -1541,6 +2050,7 @@ TEST_CASE("Initial priority completer handles a non-finite start hint by build t
         .logical_time_idx = 0,
         .flat_slot_index = 6,
         .target_return = 2.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = true,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1579,6 +2089,7 @@ TEST_CASE("Initial priority completer handles a non-finite bootstrap hint by bui
         .logical_time_idx = 0,
         .flat_slot_index = 7,
         .target_return = 2.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = false,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1618,6 +2129,7 @@ TEST_CASE("Initial priority completer handles invalid estimator results by build
             .logical_time_idx = 0,
             .flat_slot_index = 0,
             .target_return = 1.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
             .terminal = true,
             .truncated = false,
             .actual_n_steps = 1,
@@ -1651,6 +2163,7 @@ TEST_CASE("Initial priority completer rejects a negative estimator result", "[re
         .logical_time_idx = 0,
         .flat_slot_index = 0,
         .target_return = 1.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = true,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1676,6 +2189,7 @@ TEST_CASE("Initial priority completer preserves zero as an actor initial priorit
         .logical_time_idx = 0,
         .flat_slot_index = 0,
         .target_return = 1.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = true,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1704,6 +2218,7 @@ TEST_CASE("Initial priority completer rejects a missing start hint", "[replay_bu
         .logical_time_idx = 0,
         .flat_slot_index = 0,
         .target_return = 1.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = true,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1729,6 +2244,7 @@ TEST_CASE("Initial priority completer rejects a bootstrap logical time mismatch"
         .logical_time_idx = 0,
         .flat_slot_index = 0,
         .target_return = 1.0f,
+        .discount = static_cast<float>(std::pow(config.gamma, 1)),
         .terminal = false,
         .truncated = false,
         .actual_n_steps = 1,
@@ -1738,6 +2254,54 @@ TEST_CASE("Initial priority completer rejects a bootstrap logical time mismatch"
 
     REQUIRE_THROWS(completer->CompleteReady(0, bootstrap_hint, 2, index_manager, priority_store));
     CHECK(priority_store.initial_writes.empty());
+}
+
+TEST_CASE("ValidIndexManager reuses sampleable index storage", "[replay_buffer][valid_index][prd077]")
+{
+    rl::ValidIndexManager manager(1, 8);
+    // 非空の候補列を作り、最初のTensorを保持してallocatorの偶然の再利用を防ぐ。
+    for (int64_t index = 0; index < 3; ++index) {
+        manager.MarkWritten(0, index);
+        manager.AdvanceWriteCursor(0);
+        if (index > 0) manager.MarkValid(0);
+    }
+    const auto first = manager.GetValidIndices1D(1, 0, 1);
+    REQUIRE(first.numel() > 0);
+    const auto second = manager.GetValidIndices1D(1, 0, 1);
+    CHECK(first.data_ptr<int64_t>() == second.data_ptr<int64_t>());
+}
+
+TEST_CASE("ValidIndexManager cloned indices survive subsequent enumeration", "[replay_buffer][valid_index][prd077]")
+{
+    rl::ValidIndexManager manager(1, 8);
+    // 同一状態での列挙結果と、次回呼び出しを跨ぐ所有snapshotを確認する。
+    for (int64_t index = 0; index < 3; ++index) {
+        manager.MarkWritten(0, index);
+        manager.AdvanceWriteCursor(0);
+        if (index > 0) manager.MarkValid(0);
+    }
+    const auto snapshot = manager.GetValidIndices1D(1, 0, 1).clone();
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == TensorToInt64Vector(snapshot));
+
+    // 候補数を増やしてもclone済みの内容は変わらない。旧ビューの内容は検査しない。
+    manager.MarkWritten(0, 3);
+    manager.AdvanceWriteCursor(0);
+    manager.MarkValid(0);
+    const auto next = manager.GetValidIndices1D(1, 0, 1);
+    REQUIRE(next.numel() > snapshot.numel());
+    CHECK(TensorToInt64Vector(snapshot) == std::vector<int64_t>{ 0, 1 });
+}
+
+TEST_CASE("ValidIndexManager returns an empty index tensor before any samples are ready", "[replay_buffer][valid_index][prd077]")
+{
+    // 未書き込み状態でも、呼び出し側の空集合判定に使える1D Tensorを返す。
+    const rl::ValidIndexManager manager(1, 8);
+    const auto indices = manager.GetValidIndices1D(1, 0, 1);
+    REQUIRE(indices.dim() == 1);
+    CHECK(indices.size(0) == 0);
+    CHECK(indices.numel() == 0);
+    CHECK(indices.scalar_type() == torch::kInt64);
+    CHECK(indices.device().is_cpu());
 }
 
 TEST_CASE("ValidIndexManager sampleability consumers agree before and after wrap", "[replay_buffer][sampleability][valid_index]")
@@ -1753,9 +2317,9 @@ TEST_CASE("ValidIndexManager sampleability consumers agree before and after wrap
 
     CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == std::vector<int64_t>{ 0 });
     CHECK(manager.GetSampleableCount(1, 0, 1) == 1);
-    CHECK(manager.IsLogicalSampleable(0, 0, 0, 1));
-    CHECK_FALSE(manager.IsLogicalSampleable(0, 1, 0, 1));
-    CHECK_FALSE(manager.IsOverwritingSampleable(0, 2, 1, 0, 1));
+    CHECK(manager.IsLogicalReady(0, 0, 0, 1));
+    CHECK_FALSE(manager.IsLogicalReady(0, 1, 0, 1));
+    CHECK_FALSE(manager.IsOverwritingReady(0, 2, 0, 1));
 
     // capacity到達時は、列挙中の最古slotだけが上書き対象として判定される。
     manager.MarkWritten(0, 2);
@@ -1765,8 +2329,8 @@ TEST_CASE("ValidIndexManager sampleability consumers agree before and after wrap
     manager.AdvanceWriteCursor(0);
     manager.MarkValid(0);
     CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == std::vector<int64_t>{ 0, 1, 2 });
-    CHECK(manager.IsOverwritingSampleable(0, 0, 1, 0, 1));
-    CHECK_FALSE(manager.IsOverwritingSampleable(0, 1, 1, 0, 1));
+    CHECK(manager.IsOverwritingReady(0, 0, 0, 1));
+    CHECK_FALSE(manager.IsOverwritingReady(0, 1, 0, 1));
 
     // wrap後もlogical範囲と物理index列挙を一致させる。
     manager.MarkWritten(0, 0);
@@ -1774,11 +2338,11 @@ TEST_CASE("ValidIndexManager sampleability consumers agree before and after wrap
     manager.MarkValid(0);
     CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 0, 1)) == std::vector<int64_t>{ 1, 2, 3 });
     CHECK(manager.GetSampleableCount(1, 0, 1) == 3);
-    CHECK_FALSE(manager.IsLogicalSampleable(0, 0, 0, 1));
-    CHECK(manager.IsLogicalSampleable(0, 1, 0, 1));
-    CHECK(manager.IsLogicalSampleable(0, 3, 0, 1));
-    CHECK_FALSE(manager.IsLogicalSampleable(0, 4, 0, 1));
-    CHECK(manager.IsOverwritingSampleable(0, 1, 1, 0, 1));
+    CHECK_FALSE(manager.IsLogicalReady(0, 0, 0, 1));
+    CHECK(manager.IsLogicalReady(0, 1, 0, 1));
+    CHECK(manager.IsLogicalReady(0, 3, 0, 1));
+    CHECK_FALSE(manager.IsLogicalReady(0, 4, 0, 1));
+    CHECK(manager.IsOverwritingReady(0, 1, 0, 1));
 }
 
 TEST_CASE("ValidIndexManager keeps dummy filtering outside the shared logical range", "[replay_buffer][sampleability][valid_index]")
@@ -1794,8 +2358,49 @@ TEST_CASE("ValidIndexManager keeps dummy filtering outside the shared logical ra
     // n-step=2、unroll=1ではlogical 0..3が範囲内だが、列挙だけはdummy slotを除外する。
     CHECK(TensorToInt64Vector(manager.GetValidIndices1D(1, 1, 2)) == std::vector<int64_t>{ 0, 1, 3 });
     CHECK(manager.GetSampleableCount(1, 1, 2) == 3);
-    CHECK(manager.IsLogicalSampleable(0, 2, 1, 2));
-    CHECK_FALSE(manager.IsLogicalSampleable(0, 4, 1, 2));
+    CHECK(manager.IsLogicalReady(0, 2, 1, 2));
+    CHECK_FALSE(manager.IsLogicalReady(0, 4, 1, 2));
+}
+
+TEST_CASE("ValidIndexManager applies frame stack history margin per env lane", "[replay_buffer][sampleability][valid_index][multi_env]")
+{
+    rl::ValidIndexManager manager(2, 4);
+
+    // lane 0だけをwrapさせ、logical 1..3のready rangeを作る。
+    for (int64_t logical_idx = 0; logical_idx < 5; ++logical_idx) {
+        manager.MarkWritten(0, logical_idx % 4);
+        manager.AdvanceWriteCursor(0);
+        if (logical_idx < 4) manager.MarkValid(0);
+    }
+
+    // lane 1はwrap前のlogical 0..1をready rangeにする。
+    for (int64_t logical_idx = 0; logical_idx < 3; ++logical_idx) {
+        manager.MarkWritten(1, logical_idx);
+        manager.AdvanceWriteCursor(1);
+        if (logical_idx < 2) manager.MarkValid(1);
+    }
+
+    // stack=3のmarginはwrap済みlane 0だけに適用され、lane 1の初期paddingは維持される。
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(3, 0, 1))
+        == std::vector<int64_t>{ 3, 4, 5 });
+    CHECK(manager.GetSampleableCount(3, 0, 1) == 3);
+}
+
+TEST_CASE("ValidIndexManager filters dummy slots after applying frame stack history margin", "[replay_buffer][sampleability][valid_index][dummy]")
+{
+    rl::ValidIndexManager manager(1, 6);
+    for (int64_t logical_idx = 0; logical_idx < 8; ++logical_idx) {
+        manager.MarkWritten(0, logical_idx % 6);
+        manager.AdvanceWriteCursor(0);
+        if (logical_idx < 7) manager.MarkValid(0);
+    }
+    manager.MarkDummy(0, 4);
+
+    // ready range 2..6へstack=3のmarginを適用した4..6から、dummyのlogical 4だけを除外する。
+    CHECK(manager.IsLogicalReady(0, 4, 0, 1));
+    CHECK(TensorToInt64Vector(manager.GetValidIndices1D(3, 0, 1))
+        == std::vector<int64_t>{ 0, 5 });
+    CHECK(manager.GetSampleableCount(3, 0, 1) == 2);
 }
 
 TEST_CASE("ReplayInitialPriorityHint validates and caches a packed payload", "[replay_buffer][per][actor_initial][hint]")
@@ -1849,15 +2454,15 @@ TEST_CASE("ReplayBuffer transports an opaque three-column hint until initial pri
     };
 
     buffer.rb->Push(MakeBatch(
-        { 0.0f }, { 1.0f }, { 1.0f }, { false }, { false }, { true }, false, {}, make_hint(4.0f, 5.0f)));
+        { 0.0f }, { 1.0f }, { 1.0f }, { false }, { false }, { true }, false, {}, make_hint(4.0f, 5.0f)), buffer.config.gamma);
     REQUIRE(buffer.rb->Size() == 0);
 
     buffer.rb->Push(MakeBatch(
-        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { false }, false, {}, make_hint(6.0f, 2.0f)));
+        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { false }, false, {}, make_hint(6.0f, 2.0f)), buffer.config.gamma);
     REQUIRE(buffer.rb->Size() == 1);
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f);
+    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
     REQUIRE(samples.per_priority_sources.device().is_cpu());
     REQUIRE(samples.per_priority_sources.scalar_type() == torch::kInt8);
     REQUIRE(samples.per_priority_sources[0].item<int8_t>()
@@ -1883,7 +2488,7 @@ TEST_CASE("ReplayBuffer completes a true terminal from the start hint only", "[r
     auto hint = rl::ReplayInitialPriorityHint(torch::tensor(
         { { 4.0f, 5.0f, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
-        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(hint)));
+        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(hint)), buffer.config.gamma);
     REQUIRE(buffer.rb->Size() == 0);
 
     // sampleable境界へ進める次stepのhintはbootstrapとして読まれないことも同時に確認する。
@@ -1892,11 +2497,11 @@ TEST_CASE("ReplayBuffer completes a true terminal from the start hint only", "[r
         torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
         { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { true }, false, {},
-        std::move(next_episode_hint)));
+        std::move(next_episode_hint)), buffer.config.gamma);
 
     REQUIRE(buffer.rb->Size() == 1);
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f);
+    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
     REQUIRE(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::ACTOR_INITIAL));
 }
@@ -1915,11 +2520,11 @@ TEST_CASE("ReplayBuffer uses max initial priority for a finite truncated hint", 
     auto hint = rl::ReplayInitialPriorityHint(torch::tensor(
         { { 4.0f, 5.0f, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
-        { 0.0f }, { 1.0f }, { 2.0f }, { false }, { true }, { true }, false, {}, std::move(hint)));
+        { 0.0f }, { 1.0f }, { 2.0f }, { false }, { true }, { true }, false, {}, std::move(hint)), buffer.config.gamma);
 
     REQUIRE(buffer.rb->Size() == 1);
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f);
+    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
     CHECK(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::MAX_INITIAL));
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_COUNT).value() == 1.0f);
@@ -1945,16 +2550,16 @@ TEST_CASE("ReplayBuffer validates a truncated start hint before fallback", "[rep
         { 0.0f }, { 1.0f }, { 2.0f }, { false }, { true }, { true }, false, {}, std::move(hint));
 
 #ifdef NDEBUG
-    REQUIRE_NOTHROW(buffer.rb->Push(batch));
+    REQUIRE_NOTHROW(buffer.rb->Push(batch, buffer.config.gamma));
     REQUIRE(buffer.rb->Size() == 1);
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f);
+    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
     CHECK(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::MAX_INITIAL));
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_NONFINITE_FALLBACK_COUNT).value() == 1.0f);
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_COUNT).value() == 0.0f);
 #else
-    REQUIRE_THROWS(buffer.rb->Push(batch));
+    REQUIRE_THROWS(buffer.rb->Push(batch, buffer.config.gamma));
 #endif
 }
 
@@ -1981,7 +2586,7 @@ TEST_CASE("ReplayBuffer rejects a hint batch mismatch before mutation", "[replay
         { true, true },
         false,
         {},
-        std::move(mismatched_hint))));
+        std::move(mismatched_hint)), buffer.config.gamma));
     CHECK(buffer.rb->Size() == 0);
 }
 
@@ -2073,7 +2678,7 @@ TEST_CASE("ReplayBuffer priority update validates the whole batch before mutatio
     REQUIRE_THROWS(buffer.rb->UpdatePriorities({ first_key, future_key }, { 9.0f, 4.0f }));
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f);
+    buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f, buffer.config.gamma);
     auto sources_tensor = samples.per_priority_sources.contiguous();
     auto sources = sources_tensor.accessor<int8_t, 1>();
     for (int64_t i = 0; i < samples.per_priority_sources.size(0); ++i) {
@@ -2144,11 +2749,11 @@ TEST_CASE("ReplayBuffer duplicate priority updates are last-wins with one actor 
     auto start_hint = rl::ReplayInitialPriorityHint(torch::tensor(
         { { 4.0f, 5.0f, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
-        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(start_hint)));
+        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(start_hint)), buffer.config.gamma);
     auto next_hint = rl::ReplayInitialPriorityHint(torch::tensor(
         { { 1.0f, 1.0f, 456.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
-        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { true }, false, {}, std::move(next_hint)));
+        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { true }, false, {}, std::move(next_hint)), buffer.config.gamma);
 
     const int64_t slot = IndexOf(buffer, 0, 0);
     const int64_t key = FindCurrentKey(buffer, slot);
@@ -2162,7 +2767,7 @@ TEST_CASE("ReplayBuffer duplicate priority updates are last-wins with one actor 
     CHECK(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, slot)->item<float>() == Catch::Approx(7.0f));
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f);
+    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
     CHECK(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED));
 }
@@ -2214,7 +2819,7 @@ TEST_CASE("ReplayBuffer PER samples expose initial-priority flags", "[replay_buf
     REQUIRE(buffer.rb->Size() == 1);
 
     rl::ExperienceSamples first;
-    buffer.rb->Sample(first, 1, 0.4f);
+    buffer.rb->Sample(first, 1, 0.4f, buffer.config.gamma);
     RequireShape(first.per_priority_sources, { 1 });
     CHECK(first.per_priority_sources[0].item<int8_t>()
         != static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED));
@@ -2223,7 +2828,7 @@ TEST_CASE("ReplayBuffer PER samples expose initial-priority flags", "[replay_buf
     buffer.rb->UpdatePriorities(sampled_indices, { 2.0f });
 
     rl::ExperienceSamples second;
-    buffer.rb->Sample(second, 1, 0.4f);
+    buffer.rb->Sample(second, 1, 0.4f, buffer.config.gamma);
     RequireShape(second.per_priority_sources, { 1 });
     CHECK(second.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED));
@@ -2250,7 +2855,7 @@ TEST_CASE("ReplayBuffer PER normalizes IS weights from priority probabilities", 
     bool checked_mixed_batch = false;
     for (int attempt = 0; attempt < 128 && !checked_mixed_batch; ++attempt) {
         rl::ExperienceSamples samples;
-        buffer.rb->Sample(samples, 2, 0.5f);
+        buffer.rb->Sample(samples, 2, 0.5f, buffer.config.gamma);
         RequireShape(samples.replay_item_keys, { 2 });
         RequireShape(samples.is_weights, { 2 });
 
@@ -2330,7 +2935,30 @@ TEST_CASE("ReplayBuffer PER tracks last evicted sampleable slots that were never
     CHECK(*never_sampled_eviction_ratio == Catch::Approx(1.0f).margin(1.0e-5));
 }
 
-TEST_CASE("ReplayBuffer PER visualization keys are unavailable for uniform sampling", "[replay_buffer][visualization][per]")
+TEST_CASE("ReplayBuffer PER keeps eviction statistics alive with frame stack history margin", "[replay_buffer][per][frame_stack][eviction]")
+{
+    auto buffer = MakeBuffer(MakeConfig(4, 1, 0.99f, 3), 1);
+
+    PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+    PushTime(buffer, 1);
+    PushTime(buffer, 2);
+    PushTime(buffer, 3);
+
+    // wrap前にsampleしたslotと未sampleのslotを順に追い出し、ready基準の統計を固定する。
+    SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+
+    PushTime(buffer, 4);
+    auto sampled_eviction_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(sampled_eviction_ratio.has_value());
+    CHECK(*sampled_eviction_ratio == Catch::Approx(0.0f).margin(1.0e-5));
+
+    PushTime(buffer, 5);
+    auto never_sampled_eviction_ratio = buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO);
+    REQUIRE(never_sampled_eviction_ratio.has_value());
+    CHECK(*never_sampled_eviction_ratio == Catch::Approx(1.0f).margin(1.0e-5));
+}
+
+TEST_CASE("ReplayBuffer PER scalar keys report no data for uniform sampling", "[replay_buffer][visualization][per]")
 {
     auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::UNIFORM), 1);
 
@@ -2338,9 +2966,23 @@ TEST_CASE("ReplayBuffer PER visualization keys are unavailable for uniform sampl
     PushTime(buffer, 1);
 
     REQUIRE(buffer.rb->Size() == 1);
-    REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL).has_value());
-    REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO).has_value());
-    REQUIRE_FALSE(buffer.rb->GetScalar(rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO).has_value());
+
+    // GetScalar が nullopt を返すのは未知キーのときだけ。既知の PER キーは PER 無効でも
+    // 「データなし」= NaN を返し、PER を切るためだけの metrics 定義切り替えを不要にする。
+    for (const auto* key : {
+        rl::ReplayBuffer::PER_TOTAL,
+        rl::ReplayBuffer::PER_INITIAL_MASS_RATIO,
+        rl::ReplayBuffer::PER_LAST_EVICTED_NEVER_SAMPLED_RATIO,
+        rl::ReplayBuffer::PER_ACTOR_COMPLETION_SUCCESS_RATIO,
+        rl::ReplayBuffer::PER_PRIORITY_UPDATE_STALE_DROP_COUNT }) {
+        CAPTURE(key);
+        const auto value = buffer.rb->GetScalar(key);
+        REQUIRE(value.has_value());
+        CHECK(std::isnan(*value));
+    }
+    CHECK_FALSE(buffer.rb->GetScalar("replaybuffer.per.unknown_key").has_value());
+
+    // tensor 系は従来どおり nullopt(GetScalar の契約とは別)。
     REQUIRE_FALSE(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, 0).has_value());
     REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_VALUES).has_value());
     REQUIRE_FALSE(buffer.rb->GetTensorVector(rl::ReplayBuffer::PER_DIST).has_value());
@@ -2351,7 +2993,7 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
     auto buffer = MakeBuffer(MakeConfig(32, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 2);
 
     for (int64_t t = 0; t < 10; ++t) {
-        PushTime(buffer, t);
+        PushTime(buffer, t, {}, {}, BoolValues(2, t == 0));
     }
 
     std::exception_ptr worker_error;
@@ -2359,7 +3001,7 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
         try {
             for (int i = 0; i < 100; ++i) {
                 rl::ExperienceSamples samples;
-                buffer.rb->Sample(samples, 4, 0.4f);
+                buffer.rb->Sample(samples, 4, 0.4f, buffer.config.gamma);
 
                 if (samples.replay_item_keys.sizes().vec() != std::vector<int64_t>{ 4 }) {
                     throw std::runtime_error("Unexpected sample index shape.");
@@ -2389,7 +3031,7 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
     }
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 4, 0.4f);
+    buffer.rb->Sample(samples, 4, 0.4f, buffer.config.gamma);
     RequireShape(samples.replay_item_keys, { 4 });
     RequireShape(samples.actions, { 4 });
 }
@@ -2408,7 +3050,7 @@ TEST_CASE("PrefetchingReplayBuffer samples deterministically on CPU", "[replay_b
         std::vector<int64_t> out;
         for (int i = 0; i < 4; ++i) {
             rl::ExperienceSamples samples;
-            rb->Sample(samples, 4, 0.4f);
+            rb->Sample(samples, 4, 0.4f, 0.99f);
             RequireShape(samples.replay_item_keys, { 4 });
             RequireShape(samples.actions, { 4 });
             CHECK(samples.actions.device().is_cpu());
@@ -2431,7 +3073,7 @@ TEST_CASE("PrefetchingReplayBuffer forwards ReplayBuffer accessors on CPU", "[re
     auto inner_state = std::make_shared<BlockingReplayBuffer>();
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
-    rb.Push(rl::BatchExperience{});
+    rb.Push(rl::BatchExperience{}, 0.99f);
     CHECK(inner_state->PushCount() == 1);
     CHECK(rb.Size() == inner_state->size_value);
 
@@ -2480,7 +3122,7 @@ TEST_CASE("PrefetchingReplayBuffer waits for in-flight sample before priority up
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
     rl::ExperienceSamples samples;
-    rb.Sample(samples, 1, 0.0f);
+    rb.Sample(samples, 1, 0.0f, 0.99f);
     CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
 
     inner_state->WaitForSecondSampleStarted();
@@ -2508,13 +3150,13 @@ TEST_CASE("PrefetchingReplayBuffer waits for cold sample before push", "[replay_
 
     rl::ExperienceSamples samples;
     std::thread sampler([&] {
-        rb.Sample(samples, 1, 0.0f);
+        rb.Sample(samples, 1, 0.0f, 0.99f);
     });
 
     inner_state->WaitForFirstSampleStarted();
 
     std::thread pusher([&] {
-        rb.Push(rl::BatchExperience{});
+        rb.Push(rl::BatchExperience{}, 0.99f);
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -2536,14 +3178,14 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
     rl::ExperienceSamples samples;
-    rb.Sample(samples, 1, 0.0f);
+    rb.Sample(samples, 1, 0.0f, 0.99f);
     CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
 
     inner_state->WaitForSecondSampleStarted();
 
     std::atomic<bool> push_returned = false;
     std::thread pusher([&] {
-        rb.Push(rl::BatchExperience{});
+        rb.Push(rl::BatchExperience{}, 0.99f);
         push_returned = true;
     });
 
@@ -2558,7 +3200,7 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
     inner_state->ReleaseSecondSample();
 
     rl::ExperienceSamples second_samples;
-    rb.Sample(second_samples, 1, 0.0f);
+    rb.Sample(second_samples, 1, 0.0f, 0.99f);
     CHECK(TensorToInt64Vector(second_samples.replay_item_keys) == std::vector<int64_t>{ 2 });
     inner_state->WaitForSampleCount(3);
 
@@ -2567,13 +3209,52 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
     CHECK(inner_state->PushCountAtSampleStart(3) == 1);
 }
 
+TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe without consuming the prefetched batch", "[replay_buffer][probe][prefetch]")
+{
+    const bool history = GENERATE(false, true);
+    auto inner_state = std::make_shared<BlockingReplayBuffer>();
+    rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
+
+    rl::ExperienceSamples first_samples;
+    rb.Sample(first_samples, 1, 0.0f, 0.99f);
+    CHECK(TensorToInt64Vector(first_samples.replay_item_keys) == std::vector<int64_t>{ 1 });
+    inner_state->WaitForSecondSampleStarted();
+
+    std::thread pusher([&] { rb.Push(rl::BatchExperience{}, 0.99f); });
+    pusher.join();
+    CHECK(inner_state->PushCount() == 0);
+
+    rl::ExperienceSamples probe_samples;
+    std::atomic<bool> probe_ok = false;
+    anet::RandomGenerator probe_random(2802);
+    std::thread probe([&] {
+        if (history) {
+            const auto result = rb.ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .unsampled_batch_size = 1 }, &probe_random, 0.99f);
+            probe_ok = result.unsampled.has_value();
+            if (result.unsampled) probe_samples = *result.unsampled;
+        } else probe_ok = rb.SampleUniqueUniform(probe_samples, 1, probe_random, 0.99f);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK(inner_state->UniqueSampleCount() == 0);
+
+    inner_state->ReleaseSecondSample();
+    probe.join();
+    CHECK(probe_ok.load());
+    CHECK(inner_state->PushCountAtUniqueSample() == 1);
+    CHECK(TensorToInt64Vector(probe_samples.replay_item_keys) == std::vector<int64_t>{ 101 });
+
+    rl::ExperienceSamples second_samples;
+    rb.Sample(second_samples, 1, 0.0f, 0.99f);
+    CHECK(TensorToInt64Vector(second_samples.replay_item_keys) == std::vector<int64_t>{ 2 });
+}
+
 TEST_CASE("PrefetchingReplayBuffer keeps shallow armed push alive after caller scope", "[replay_buffer][prefetch][thread]")
 {
     auto inner_state = std::make_shared<BlockingReplayBuffer>();
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
     rl::ExperienceSamples samples;
-    rb.Sample(samples, 1, 0.0f);
+    rb.Sample(samples, 1, 0.0f, 0.99f);
     CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
 
     inner_state->WaitForSecondSampleStarted();
@@ -2589,7 +3270,7 @@ TEST_CASE("PrefetchingReplayBuffer keeps shallow armed push alive after caller s
             { false });
 
         std::thread pusher([&] {
-            rb.Push(batch);
+            rb.Push(batch, 0.99f);
             push_returned = true;
         });
 
@@ -2710,28 +3391,25 @@ TEST_CASE("ReplayBuffer flushes n-step returns at done terminals", "[replay_buff
     }
 }
 
-TEST_CASE("ReplayBuffer n-step returns stop at episode_start without done", "[replay_buffer][n_step][episode_start]")
+TEST_CASE("ReplayBuffer rejects a first push without episode_start before writing",
+    "[replay_buffer][frame_stack][history_start][contract]")
 {
     constexpr int64_t num_envs = 1;
-    constexpr int n_step = 3;
-    constexpr float gamma = 0.5f;
+    auto buffer = MakeBuffer(MakeConfig(8), num_envs);
 
-    auto buffer = MakeBuffer(MakeConfig(40, n_step, gamma), num_envs);
+    // 契約違反はstorageへ触る前に検出し、同じlogical indexへ正しい入力を再試行できる。
+    CHECK_THROWS_WITH(
+        PushTime(buffer, 0),
+        Catch::Matchers::ContainsSubstring("ReplayBuffer::Push episode_start mismatch")
+            && Catch::Matchers::ContainsSubstring("lane=0")
+            && Catch::Matchers::ContainsSubstring("logical_index=0")
+            && Catch::Matchers::ContainsSubstring("expected=1")
+            && Catch::Matchers::ContainsSubstring("actual=0"));
+    CHECK(buffer.rb->Size() == 0);
 
     PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
     PushTime(buffer, 1);
-    PushTime(buffer, 2);
-    PushTime(buffer, 3, {}, {}, BoolValues(num_envs, true));
-    PushTime(buffer, 4);
-    PushTime(buffer, 5);
-
-    auto before_reset = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 1));
-    RequireSampleMeta(
-        before_reset,
-        IndexOf(buffer, 0, 1),
-        RewardValue(0, 1) + gamma * RewardValue(0, 2),
-        true,
-        2);
+    CHECK(buffer.rb->Size() == 1);
 }
 
 TEST_CASE("ReplayBuffer frame stacking keeps pre-terminal frames with n-step done flush", "[replay_buffer][frame_stack][n_step][done]")
@@ -2825,7 +3503,8 @@ TEST_CASE("ReplayBuffer frame stacking keeps truncated n-step boundary aligned",
     });
 }
 
-TEST_CASE("ReplayBuffer frame stacking and n-step next_obs survive ring wrap", "[replay_buffer][frame_stack][n_step][wrap]")
+TEST_CASE("ReplayBuffer frame stacking and n-step next_obs survive ring wrap",
+    "[replay_buffer][frame_stack][history_start][n_step][wrap]")
 {
     constexpr int64_t num_envs = 1;
     constexpr int64_t capacity = 8;
@@ -2943,7 +3622,7 @@ TEST_CASE("ReplayBuffer PER samples only safe wrapped frame-stack indices", "[re
     }
 
     rl::ExperienceSamples all_samples;
-    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f);
+    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f, buffer.config.gamma);
     auto all_item_keys = TensorToInt64Vector(all_samples.replay_item_keys);
     buffer.rb->UpdatePriorities(all_item_keys, std::vector<float>(all_item_keys.size(), 0.0f));
     REQUIRE(all_item_keys.size() >= 2);
@@ -2951,7 +3630,7 @@ TEST_CASE("ReplayBuffer PER samples only safe wrapped frame-stack indices", "[re
 
     for (int attempt = 0; attempt < 16; ++attempt) {
         rl::ExperienceSamples samples;
-        buffer.rb->Sample(samples, 1, 0.4f);
+        buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
         RequireShape(samples.replay_item_keys, { 1 });
         RequireSlotsIn(samples.replay_item_keys, buffer.capacity_per_env * buffer.num_envs, {
             IndexOf(buffer, 0, 5),
@@ -3051,7 +3730,8 @@ TEST_CASE("ReplayBuffer treats truncated transitions as bootstrapable n-step bou
     }
 }
 
-TEST_CASE("ReplayBuffer frame-stacked truncated next_obs keeps the truncation frame", "[replay_buffer][frame_stack][truncated]")
+TEST_CASE("ReplayBuffer frame-stacked truncated next_obs keeps the truncation frame",
+    "[replay_buffer][frame_stack][history_start][truncated]")
 {
     constexpr int64_t num_envs = 1;
     constexpr int stack_count = 4;
@@ -3086,33 +3766,51 @@ TEST_CASE("ReplayBuffer frame-stacked truncated next_obs keeps the truncation fr
     });
 }
 
-TEST_CASE("ReplayBuffer frame stacking starts a new stack at episode_start without done", "[replay_buffer][frame_stack][episode_start]")
+TEST_CASE("ReplayBuffer rejects episode_start transitions that disagree with the previous end",
+    "[replay_buffer][frame_stack][history_start][contract]")
 {
-    constexpr int64_t num_envs = 1;
-    constexpr int stack_count = 3;
+    SECTION("missing start after an ended episode is rejected before any lane is written") {
+        constexpr int64_t num_envs = 2;
+        auto buffer = MakeBuffer(MakeConfig(16), num_envs);
 
-    auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, stack_count), num_envs);
+        PushTime(buffer, 0, BoolValues(num_envs, false), {}, BoolValues(num_envs, true));
+        // lane 1だけを終端にし、次のbatchではlane 0を通過後にlane 1で違反させる。
+        auto next_done = BoolValues(num_envs, false);
+        next_done[1] = true;
+        auto ended = MakeBatch(
+            StateValues(num_envs, 1), StateValues(num_envs, 2), RewardValues(num_envs, 1),
+            next_done, BoolValues(num_envs, false), BoolValues(num_envs, false));
+        buffer.rb->Push(ended, buffer.config.gamma);
+        const int64_t size_before = buffer.rb->Size();
 
-    PushTime(buffer, 0, {}, {}, BoolValues(num_envs, true));
-    PushTime(buffer, 1);
-    PushTime(buffer, 2);
-    PushTime(buffer, 3, {}, {}, BoolValues(num_envs, true));
-    PushTime(buffer, 4);
+        CHECK_THROWS_WITH(
+            PushTime(buffer, 2),
+            Catch::Matchers::ContainsSubstring("lane=1")
+                && Catch::Matchers::ContainsSubstring("logical_index=2")
+                && Catch::Matchers::ContainsSubstring("expected=1")
+                && Catch::Matchers::ContainsSubstring("actual=0"));
+        CHECK(buffer.rb->Size() == size_before);
 
-    REQUIRE(buffer.rb->Size() == 4);
+        auto starts = BoolValues(num_envs, false);
+        starts[1] = true;
+        PushTime(buffer, 2, {}, {}, starts);
+        CHECK(buffer.rb->Size() == size_before + 2);
+    }
 
-    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 3));
-    RequireSampleMeta(samples, IndexOf(buffer, 0, 3), RewardValue(0, 3), false, 1);
-    RequireFlatApprox(samples.obs.At(kVectorKey)[0], {
-        StateValue(0, 3),
-        StateValue(0, 3),
-        StateValue(0, 3)
-    });
-    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], {
-        StateValue(0, 3),
-        StateValue(0, 3),
-        StateValue(0, 4)
-    });
+    SECTION("start without a preceding end is rejected") {
+        auto buffer = MakeBuffer(MakeConfig(8), 1);
+        PushTime(buffer, 0, {}, {}, BoolValues(1, true));
+        PushTime(buffer, 1);
+        const int64_t size_before = buffer.rb->Size();
+
+        CHECK_THROWS_WITH(
+            PushTime(buffer, 2, {}, {}, BoolValues(1, true)),
+            Catch::Matchers::ContainsSubstring("lane=0")
+                && Catch::Matchers::ContainsSubstring("logical_index=2")
+                && Catch::Matchers::ContainsSubstring("expected=0")
+                && Catch::Matchers::ContainsSubstring("actual=1"));
+        CHECK(buffer.rb->Size() == size_before);
+    }
 }
 
 TEST_CASE("ReplayBuffer frame stacking pads the beginning of an episode", "[replay_buffer][frame_stack][episode_boundary]")
@@ -3193,4 +3891,706 @@ TEST_CASE("ReplayBuffer stack_keys leaves non-stacked observations at latest fra
     RequireShape(samples.next_state.next_obs.At(kMaskKey), { 1, 2 });
     RequireFlatApprox(samples.obs.At(kMaskKey)[0], { StateValue(0, 2), StateValue(0, 2) + 0.25f });
     RequireFlatApprox(samples.next_state.next_obs.At(kMaskKey)[0], { StateValue(0, 3), StateValue(0, 3) + 0.25f });
+}
+
+TEST_CASE("ReplayBuffer preserves history at the first capacity boundary",
+    "[replay_buffer][frame_stack][history_start][capacity_boundary]")
+{
+    const int pushed = GENERATE(7, 8, 9);
+    CAPTURE(pushed);
+    auto buffer = MakeBuffer(MakeConfig(8, 1, 0.5f, 4, rl::ReplaySamplerType::UNIFORM), 1, false, 78001);
+    for (int step = 0; step < pushed; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+    }
+
+    const int64_t expected_size = pushed < 9 ? pushed - 1 : 4;
+    REQUIRE(buffer.rb->Size() == expected_size);
+    anet::RandomGenerator random(78002);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, expected_size, random, buffer.config.gamma));
+    const auto keys = TensorToInt64Vector(samples.replay_item_keys);
+
+    if (pushed < 9) {
+        const auto first = std::find(keys.begin(), keys.end(), int64_t{ 8 });
+        REQUIRE(first != keys.end());
+        const auto row = static_cast<int64_t>(std::distance(keys.begin(), first));
+        RequireFlatApprox(samples.obs.At(kVectorKey)[row], { 0.0f, 0.0f, 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[row], { 0.0f, 0.0f, 0.0f, 1.0f });
+    } else {
+        CHECK(std::ranges::find(keys, int64_t{ 8 }) == keys.end());
+        const auto oldest = std::find(keys.begin(), keys.end(), int64_t{ 12 });
+        REQUIRE(oldest != keys.end());
+        const auto row = static_cast<int64_t>(std::distance(keys.begin(), oldest));
+        RequireFlatApprox(samples.obs.At(kVectorKey)[row], { 1.0f, 2.0f, 3.0f, 4.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[row], { 2.0f, 3.0f, 4.0f, 5.0f });
+    }
+}
+
+TEST_CASE("ReplayBuffer preserves history around first capacity when a dummy shifts writes",
+    "[replay_buffer][frame_stack][history_start][capacity_boundary][dummy]")
+{
+    const int pushed = GENERATE(6, 7, 8);
+    CAPTURE(pushed);
+    auto buffer = MakeBuffer(MakeConfig(8, 1, 0.5f, 4, rl::ReplaySamplerType::UNIFORM), 1, false, 78003);
+
+    // step 1のtruncationがslot 2へdummyを書くため、7回の入力で容量8に到達する。
+    for (int step = 0; step < pushed; ++step) {
+        if (step == 1) {
+            PushTime(buffer, step, {}, BoolValues(1, true), BoolValues(1, false),
+                TerminalStateValues(1, step));
+        } else {
+            PushTime(buffer, step, {}, {}, BoolValues(1, step == 0 || step == 2));
+        }
+    }
+
+    // dummyの次の実観測はslot 3にあり、容量到達前後でも履歴開始を維持する。
+    // wrap直後は既存history marginがslot 3を除外するため、次のsampleable slotで同じ履歴を見る。
+    const int64_t physical_idx = pushed < 8 ? 3 : 4;
+    const int64_t input_step = pushed < 8 ? 2 : 3;
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, physical_idx));
+    RequireSampleMeta(
+        samples, IndexOf(buffer, 0, physical_idx), RewardValue(0, input_step), false, 1);
+    if (pushed < 8) {
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 2.0f, 2.0f, 2.0f, 2.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 2.0f, 2.0f, 2.0f, 3.0f });
+    } else {
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 2.0f, 2.0f, 2.0f, 3.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 2.0f, 2.0f, 3.0f, 4.0f });
+    }
+}
+
+TEST_CASE("ReplayBuffer n-step two bootstrap history does not depend on pending metadata",
+    "[replay_buffer][frame_stack][history_start][pending_metadata]")
+{
+    const int stack_count = GENERATE(2, 3);
+    CAPTURE(stack_count);
+    auto buffer = MakeBuffer(MakeConfig(16, 2, 0.5f, stack_count), 1);
+    for (int step = 0; step <= 2; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+    }
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+    REQUIRE(samples.n_steps.item<int64_t>() == 2);
+    REQUIRE_FALSE(samples.next_state.terminals.item<bool>());
+    if (stack_count == 2) {
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 1.0f, 2.0f });
+    } else {
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 0.0f, 1.0f, 2.0f });
+    }
+}
+
+TEST_CASE("ReplayBuffer ignores previous-generation normal and dummy metadata in bootstrap history",
+    "[replay_buffer][frame_stack][history_start][wrapped_metadata]")
+{
+    const bool old_slot_is_dummy = GENERATE(false, true);
+    CAPTURE(old_slot_is_dummy);
+    auto buffer = MakeBuffer(MakeConfig(8, 3, 0.5f, 4), 1);
+    for (int step = 0; step < 12; ++step) {
+        if (old_slot_is_dummy && step == 2) {
+            PushTime(buffer, step, BoolValues(1, false), BoolValues(1, true), BoolValues(1, false),
+                TerminalStateValues(1, step));
+        } else {
+            PushTime(buffer, step, {}, {}, BoolValues(1, step == 0 || (old_slot_is_dummy && step == 3)));
+        }
+    }
+
+    const int64_t physical_idx = old_slot_is_dummy ? 1 : 0;
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, physical_idx));
+    REQUIRE(samples.n_steps.item<int64_t>() == 3);
+    REQUIRE_FALSE(samples.next_state.terminals.item<bool>());
+    RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 5.0f, 6.0f, 7.0f, 8.0f });
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 8.0f, 9.0f, 10.0f, 11.0f });
+}
+
+TEST_CASE("ReplayBuffer accepts one-step done and truncated episodes with independent history starts",
+    "[replay_buffer][frame_stack][history_start][single_step_episode]")
+{
+    SECTION("done") {
+        auto buffer = MakeBuffer(MakeConfig(12, 1, 0.5f, 4), 1);
+        PushTime(buffer, 0, BoolValues(1, true), {}, BoolValues(1, true));
+        PushTime(buffer, 1, {}, {}, BoolValues(1, true));
+        PushTime(buffer, 2);
+
+        auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+        RequireSampleMeta(samples, IndexOf(buffer, 0, 0), RewardValue(0, 0), true, 1);
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f, 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], { 1.0f, 1.0f, 1.0f, 1.0f });
+    }
+
+    SECTION("truncated") {
+        auto buffer = MakeBuffer(MakeConfig(12, 1, 0.5f, 4), 1);
+        PushTime(buffer, 0, {}, BoolValues(1, true), BoolValues(1, true), TerminalStateValues(1, 0));
+        PushTime(buffer, 1, {}, {}, BoolValues(1, true));
+        PushTime(buffer, 2);
+
+        auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+        RequireSampleMeta(samples, IndexOf(buffer, 0, 0), RewardValue(0, 0), false, 1);
+        RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f, 0.0f, 0.0f });
+        RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], {
+            0.0f, 0.0f, 0.0f, TerminalStateValue(0, 0)
+        });
+    }
+}
+
+TEST_CASE("ReplayBuffer frame history is stable when later n-step metadata becomes ready",
+    "[replay_buffer][frame_stack][history_start][pending_metadata]")
+{
+    auto buffer = MakeBuffer(MakeConfig(32, 3, 0.5f, 4), 1);
+    for (int step = 0; step <= 3; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+    }
+    const auto before = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+
+    PushTime(buffer, 4);
+    PushTime(buffer, 5);
+    const auto after = SampleOnlyIndex(buffer, IndexOf(buffer, 0, 0));
+
+    CHECK(torch::equal(before.replay_item_keys, after.replay_item_keys));
+    CHECK(torch::equal(before.obs.At(kVectorKey), after.obs.At(kVectorKey)));
+    CHECK(torch::equal(before.next_state.next_obs.At(kVectorKey), after.next_state.next_obs.At(kVectorKey)));
+}
+
+namespace replay_integrity_assay {
+
+constexpr int64_t kFrameBytes = 6;
+constexpr uint64_t kFixedSeed = 20260919;
+constexpr float kGamma = 0.5f;
+
+struct Transition {
+    int64_t logical;
+    int first;
+    int last;
+    bool done_episode;
+};
+
+using History = std::vector<std::vector<Transition>>;
+
+std::array<uint8_t, kFrameBytes> Frame(int lane, int step, bool terminal_observation = false)
+{
+    // lane と時刻を別のバイトへ格納し、reset観測とtruncation観測を区別する。
+    const auto time = static_cast<uint32_t>(step);
+    return { static_cast<uint8_t>(lane), static_cast<uint8_t>(time),
+        static_cast<uint8_t>(time >> 8), static_cast<uint8_t>(time >> 16),
+        static_cast<uint8_t>(time >> 24), static_cast<uint8_t>(terminal_observation) };
+}
+
+float Reward(int lane, int step)
+{
+    return static_cast<float>((lane * 7 + step * 3) % 23 - 11) / 8.0f;
+}
+
+History MakeHistory(int lanes, int steps)
+{
+    // 正解は全入力履歴を保持する。ring、queue、productionの復元処理は使わない。
+    constexpr std::array<int, 6> lengths{ 1, 2, 3, 4, 5, 7 };
+    History history(lanes);
+    for (int lane = 0; lane < lanes; ++lane) {
+        int first = 0;
+        int episode = lane;
+        int64_t logical = 0;
+        while (first < steps) {
+            const int last = first + lengths[episode % lengths.size()] - 1;
+            const bool done = episode % 2 == 0;
+            for (int step = first; step <= last && step < steps; ++step) {
+                history[lane].push_back(Transition{
+                    .logical = logical++, .first = first, .last = last, .done_episode = done });
+                // truncationの終端観測は独立slotを占め、後続入力の位置だけを1つ進める。
+                if (step == last && !done) ++logical;
+            }
+            first = last + 1;
+            ++episode;
+        }
+    }
+    return history;
+}
+
+int64_t Cursor(const std::vector<Transition>& lane, int pushed)
+{
+    if (pushed == 0) return 0;
+    const auto& tail = lane[pushed - 1];
+    return tail.logical + 1 + (tail.last == pushed - 1 && !tail.done_episode ? 1 : 0);
+}
+
+int64_t Key(const Transition& row, int lane, int lanes, int capacity)
+{
+    // generationは初回書込みが1。時刻ではなくdummyを含む書込み位置を使う。
+    return (row.logical / capacity + 1) * (lanes * capacity)
+        + lane * capacity + row.logical % capacity;
+}
+
+std::set<int64_t> ExpectedKeys(const History& history, int pushed, int capacity, int stack, int n_step)
+{
+    // 公開契約の保持履歴と未来観測の条件を、入力レコード単位で判定する。
+    std::set<int64_t> keys;
+    const int lanes = static_cast<int>(history.size());
+    for (int lane = 0; lane < lanes; ++lane) {
+        const int64_t cursor = Cursor(history[lane], pushed);
+        for (int step = 0; step < pushed; ++step) {
+            const auto& row = history[lane][step];
+            const int actual_n = std::min(n_step, row.last - step + 1);
+            if (step + actual_n > pushed) continue;
+            if (row.logical + n_step >= cursor) continue;
+            if (cursor > capacity && row.logical - (stack - 1) < cursor - capacity) continue;
+            keys.insert(Key(row, lane, lanes, capacity));
+        }
+    }
+    return keys;
+}
+
+rl::BatchExperience Input(const History& history, int step)
+{
+    const int lanes = static_cast<int>(history.size());
+    // 各Pushが独立したTensor storageを所有し、write-behind中の入力寿命も検査する。
+    auto obs = torch::empty({ lanes, kFrameBytes }, torch::kUInt8);
+    auto next = torch::empty_like(obs);
+    std::vector<float> rewards;
+    std::vector<bool> done, truncated, starts;
+    for (int lane = 0; lane < lanes; ++lane) {
+        const auto& row = history[lane][step];
+        const bool end = step == row.last;
+        const auto frame = Frame(lane, step);
+        const auto next_frame = Frame(lane, step + 1, end);
+        std::copy(frame.begin(), frame.end(), obs.data_ptr<uint8_t>() + lane * kFrameBytes);
+        std::copy(next_frame.begin(), next_frame.end(), next.data_ptr<uint8_t>() + lane * kFrameBytes);
+        rewards.push_back(Reward(lane, step));
+        done.push_back(end && row.done_episode);
+        truncated.push_back(end && !row.done_episode);
+        starts.push_back(step == row.first);
+    }
+    return rl::BatchExperience(
+        rl::BatchState(anet::TensorDict(kVectorKey, obs), BoolTensor(BoolValues(lanes, false)),
+            BoolTensor(BoolValues(lanes, false)), BoolTensor(starts)),
+        std::make_shared<rl::BatchActionInfo>(torch::zeros({ lanes }, torch::kInt64)),
+        FloatVector(rewards),
+        rl::BatchState(anet::TensorDict(kVectorKey, next), BoolTensor(done), BoolTensor(truncated),
+            BoolTensor(BoolValues(lanes, false))));
+}
+
+void RequireFrame(const uint8_t* actual, int lane, int step, bool terminal_observation, int64_t key)
+{
+    // 通常はフレーム単位で比較し、不一致時だけバイトごとの期待値と実値を表示する。
+    const auto expected = Frame(lane, step, terminal_observation);
+    if (!std::equal(expected.begin(), expected.end(), actual)) {
+        CAPTURE(key, lane, step, terminal_observation);
+        for (int byte = 0; byte < kFrameBytes; ++byte) {
+            CAPTURE(byte);
+            REQUIRE(static_cast<int>(actual[byte]) == static_cast<int>(expected[byte]));
+        }
+    }
+}
+
+std::set<int64_t> Verify(const rl::ExperienceSamples& samples, const History& history,
+    const std::set<int64_t>& expected_keys, int pushed, int capacity, int stack, int n_step)
+{
+    // Tensorはバッチごとに一度だけ連続化し、以降はCPU配列として照合する。
+    const auto keys = samples.replay_item_keys.contiguous();
+    const int64_t count = keys.numel();
+    const auto obs = samples.obs.At(kVectorKey).contiguous();
+    const auto next = samples.next_state.next_obs.At(kVectorKey).contiguous();
+    const auto returns = samples.target_returns.contiguous();
+    const auto lengths = samples.n_steps.contiguous();
+    const auto terminals = samples.next_state.terminals.contiguous();
+    const auto actions = samples.actions.contiguous();
+    const std::vector<int64_t> shape = stack == 1
+        ? std::vector<int64_t>{ count, kFrameBytes }
+        : std::vector<int64_t>{ count, stack, kFrameBytes };
+    REQUIRE(obs.sizes().vec() == shape);
+    REQUIRE(next.sizes().vec() == shape);
+    REQUIRE(returns.numel() == count);
+    REQUIRE(lengths.numel() == count);
+    REQUIRE(terminals.numel() == count);
+    REQUIRE(actions.numel() == count);
+    const auto* frames = obs.data_ptr<uint8_t>();
+    const auto* next_frames = next.data_ptr<uint8_t>();
+    const int lanes = static_cast<int>(history.size());
+    std::set<int64_t> seen;
+    for (int64_t i = 0; i < count; ++i) {
+        const auto key = keys.data_ptr<int64_t>()[i];
+        if (!expected_keys.contains(key)) {
+            CAPTURE(pushed, i, key);
+            FAIL("Sampled key is outside the expected snapshot.");
+        }
+        const auto* latest = frames + (i * stack + stack - 1) * kFrameBytes;
+        const int lane = latest[0];
+        const uint32_t step = static_cast<uint32_t>(latest[1])
+            | (static_cast<uint32_t>(latest[2]) << 8)
+            | (static_cast<uint32_t>(latest[3]) << 16)
+            | (static_cast<uint32_t>(latest[4]) << 24);
+        if (lane >= lanes || step >= static_cast<uint32_t>(pushed)) {
+            CAPTURE(pushed, i, key, lane, step);
+            FAIL("Observation identity is outside the input history.");
+        }
+        const auto& row = history[lane][step];
+        const int first_step = static_cast<int>(step);
+        const int actual_n = std::min(n_step, row.last - first_step + 1);
+        const bool reaches_end = first_step + actual_n - 1 == row.last;
+        const bool terminal = reaches_end && row.done_episode;
+        if (key != Key(row, lane, lanes, capacity)
+            || lengths.data_ptr<int64_t>()[i] != actual_n
+            || terminals.data_ptr<bool>()[i] != terminal || actions.data_ptr<int64_t>()[i] != 0) {
+            CAPTURE(pushed, i, key, lane, step);
+            REQUIRE(key == Key(row, lane, lanes, capacity));
+            REQUIRE(lengths.data_ptr<int64_t>()[i] == actual_n);
+            REQUIRE(terminals.data_ptr<bool>()[i] == terminal);
+            REQUIRE(actions.data_ptr<int64_t>()[i] == 0);
+        }
+
+        // 報酬は元の入力列から前向きの割引和として求める。
+        double expected_return = 0.0;
+        double discount = 1.0;
+        for (int offset = 0; offset < actual_n; ++offset) {
+            expected_return += discount * Reward(lane, first_step + offset);
+            discount *= kGamma;
+        }
+        if (!(returns.data_ptr<float>()[i] == Catch::Approx(expected_return).margin(1.0e-6))) {
+            CAPTURE(pushed, i, key, lane, step);
+            REQUIRE(returns.data_ptr<float>()[i] == Catch::Approx(expected_return).margin(1.0e-6));
+        }
+        for (int frame = 0; frame < stack; ++frame) {
+            RequireFrame(frames + (i * stack + frame) * kFrameBytes, lane,
+                std::max(row.first, first_step - stack + 1 + frame), false, key);
+            // true terminalのnext_obsはbootstrapに使わないため値の保証対象外。
+            if (!terminal) {
+                const int next_step = std::max(row.first, first_step + actual_n - stack + 1 + frame);
+                RequireFrame(next_frames + (i * stack + frame) * kFrameBytes, lane, next_step,
+                    reaches_end && frame == stack - 1, key);
+            }
+        }
+        seen.insert(key);
+    }
+    return seen;
+}
+
+struct Counts {
+    int64_t snapshots = 0;
+    int64_t covered_keys = 0;
+    int64_t checked_samples = 0;
+};
+
+void Run(
+    int stack,
+    int n_step,
+    int lanes,
+    int capacity,
+    bool per,
+    bool prefetch,
+    uint64_t seed,
+    Counts& counts)
+{
+    CAPTURE(seed, stack, n_step, lanes, capacity, per, prefetch);
+    // 長時間の実行でも停止箇所を追えるよう、条件と処理境界をflushして残す。
+    std::cout << "Replay integrity case: stack=" << stack << " n_step=" << n_step
+        << " lanes=" << lanes << " lane_capacity=" << capacity
+        << " per=" << per << " prefetch=" << prefetch << " seed=" << seed << std::endl;
+    const int steps = 5 * capacity;
+    const auto history = MakeHistory(lanes, steps);
+    auto spec = MakeEnvSpec();
+    spec.state_spec.obs_spec[kVectorKey].shape = { kFrameBytes };
+    spec.state_spec.obs_spec[kVectorKey].dtype = torch::kUInt8;
+    const auto config = MakeConfig(lanes * capacity, n_step, kGamma, stack,
+        per ? rl::ReplaySamplerType::PRIORITIZED : rl::ReplaySamplerType::UNIFORM);
+    auto buffer = rl::CreateReplayBuffer(config, spec, lanes, torch::kCPU, false, seed);
+    if (prefetch) buffer = std::make_shared<rl::PrefetchingReplayBuffer>(buffer, torch::kCPU);
+
+    // 初期充填、lane 0の実slot初回wrap前後、各周回後、最終入力を検査する。
+    std::set<int> checkpoints{ n_step + 1, steps };
+    for (int pushed = 1; pushed <= steps; ++pushed) {
+        const auto before = Cursor(history[0], pushed - 1);
+        const auto after = Cursor(history[0], pushed);
+        if (before / capacity != after / capacity) {
+            checkpoints.insert(pushed);
+            if (before < capacity) {
+                checkpoints.insert(pushed - 1);
+                checkpoints.insert(pushed + 1);
+            }
+        }
+    }
+    anet::RandomGenerator probe_random(seed);
+    int previous_snapshot = 0;
+    std::set<int64_t> previous_keys;
+    for (int pushed = 1; pushed <= steps; ++pushed) {
+        buffer->Push(Input(history, pushed - 1), config.gamma);
+        if (!checkpoints.contains(pushed)) continue;
+        CAPTURE(pushed);
+        const auto expected = ExpectedKeys(history, pushed, capacity, stack, n_step);
+        REQUIRE_FALSE(expected.empty());
+        const int64_t batch_size = std::min<int64_t>(256, static_cast<int64_t>(expected.size()));
+        std::cout << "Replay integrity snapshot: pushed=" << pushed
+            << " expected=" << expected.size() << std::endl;
+
+        // 全件probeがwrite-behindの同期境界になる。SizeだけではFIFO完了を保証しない。
+        rl::ExperienceSamples samples;
+        REQUIRE(buffer->SampleUniqueUniform(samples, static_cast<int64_t>(expected.size()), probe_random, config.gamma));
+        REQUIRE(buffer->Size() == static_cast<int64_t>(expected.size()));
+        const auto probed = Verify(samples, history, expected, pushed, capacity, stack, n_step);
+        REQUIRE(probed == expected);
+        counts.checked_samples += samples.replay_item_keys.numel();
+
+        // 先読み済み1バッチは古いsnapshotで検証し、現snapshotの被覆へ混ぜない。
+        if (prefetch && previous_snapshot != 0) {
+            buffer->Sample(samples, batch_size, 0.4f, config.gamma);
+            Verify(samples, history, previous_keys, previous_snapshot, capacity, stack, n_step);
+            counts.checked_samples += samples.replay_item_keys.numel();
+        }
+        auto missing = expected;
+        const int64_t max_batches = (32 * static_cast<int64_t>(expected.size()) + batch_size - 1) / batch_size;
+        for (int64_t batch = 0; batch < max_batches && !missing.empty(); ++batch) {
+            buffer->Sample(samples, batch_size, 0.4f, config.gamma);
+            const auto seen = Verify(samples, history, expected, pushed, capacity, stack, n_step);
+            for (const auto key : seen) missing.erase(key);
+            counts.checked_samples += samples.replay_item_keys.numel();
+        }
+        INFO("Uncovered keys: " << missing.size() << "; sample batch limit: " << max_batches);
+        INFO("First uncovered key: " << (missing.empty() ? -1 : *missing.begin()));
+        REQUIRE(missing.empty());
+        ++counts.snapshots;
+        counts.covered_keys += static_cast<int64_t>(expected.size());
+        previous_keys = expected;
+        previous_snapshot = pushed;
+        std::cout << "Replay integrity snapshot complete: pushed=" << pushed << std::endl;
+    }
+    std::cout << "Replay integrity teardown begin" << std::endl;
+    buffer.reset();
+    std::cout << "Replay integrity teardown complete" << std::endl;
+}
+
+} // namespace replay_integrity_assay
+
+TEST_CASE("ReplayBuffer pads initial frame history when the ring first becomes full",
+    "[replay_buffer][frame_stack][history_start][initial_fill]")
+{
+    // 初回の満杯時点ではlogical 0はまだ有効だが、負の履歴に相当するslotも書込み済みになる。
+    // 起動時のpaddingが末尾の新しいframeへ化けないことを、公開probe経路で検査する。
+    auto buffer = MakeBuffer(MakeConfig(8, 1, 0.5f, 4, rl::ReplaySamplerType::UNIFORM),
+        1, false, replay_integrity_assay::kFixedSeed);
+    for (int step = 0; step < 8; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+    }
+    REQUIRE(buffer.rb->Size() == 7);
+    anet::RandomGenerator random(replay_integrity_assay::kFixedSeed);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, buffer.config.gamma));
+    const auto keys = TensorToInt64Vector(samples.replay_item_keys);
+    const auto first = std::find(keys.begin(), keys.end(), int64_t{ 8 });
+    REQUIRE(first != keys.end());
+    const auto row = static_cast<int64_t>(std::distance(keys.begin(), first));
+    INFO("Initial frame stack: " << samples.obs.At(kVectorKey)[row]);
+    RequireFlatApprox(samples.obs.At(kVectorKey)[row], { 0.0f, 0.0f, 0.0f, 0.0f });
+}
+
+TEST_CASE("ReplayBuffer preserves bootstrap frame history while n-step metadata is pending",
+    "[replay_buffer][frame_stack][history_start][pending_metadata]")
+{
+    for (const int n_step : { 3, 5 }) {
+        DYNAMIC_SECTION("n_step " << n_step) {
+            // wrapもepisode終端もない入力で、未確定slotを境界と誤認しないことを確認する。
+            auto buffer = MakeBuffer(MakeConfig(32, n_step, 0.5f, 4, rl::ReplaySamplerType::UNIFORM),
+                1, false, replay_integrity_assay::kFixedSeed);
+            for (int step = 0; step <= n_step; ++step) {
+                PushTime(buffer, step, {}, {}, BoolValues(1, step == 0));
+            }
+            REQUIRE(buffer.rb->Size() == 1);
+            anet::RandomGenerator random(replay_integrity_assay::kFixedSeed);
+            rl::ExperienceSamples samples;
+            REQUIRE(buffer.rb->SampleUniqueUniform(samples, 1, random, buffer.config.gamma));
+            REQUIRE(samples.n_steps.item<int64_t>() == n_step);
+            REQUIRE_FALSE(samples.next_state.terminals.item<bool>());
+            RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f, 0.0f, 0.0f });
+            INFO("Bootstrap frame stack: " << samples.next_state.next_obs.At(kVectorKey)[0]);
+            RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[0], {
+                static_cast<float>(n_step - 3), static_cast<float>(n_step - 2),
+                static_cast<float>(n_step - 1), static_cast<float>(n_step) });
+        }
+    }
+}
+
+TEST_CASE("ReplayBuffer ignores previous-generation terminal metadata in bootstrap frame history",
+    "[replay_buffer][frame_stack][history_start][pending_metadata][wrapped_metadata]")
+{
+    // 旧世代の終端slotを未確定の通常遷移で上書きし、定常的なwrap後にも検査する。
+    auto buffer = MakeBuffer(MakeConfig(8, 3, 0.5f, 4, rl::ReplaySamplerType::UNIFORM),
+        1, false, replay_integrity_assay::kFixedSeed);
+    for (int step = 0; step < 12; ++step) {
+        PushTime(buffer, step, BoolValues(1, step == 2), {}, BoolValues(1, step == 0 || step == 3));
+    }
+    anet::RandomGenerator random(replay_integrity_assay::kFixedSeed);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, buffer.config.gamma));
+    const auto keys = TensorToInt64Vector(samples.replay_item_keys);
+    const auto target = std::find(keys.begin(), keys.end(), int64_t{ 16 });
+    REQUIRE(target != keys.end());
+    const auto row = static_cast<int64_t>(std::distance(keys.begin(), target));
+    REQUIRE(samples.n_steps[row].item<int64_t>() == 3);
+    REQUIRE_FALSE(samples.next_state.terminals[row].item<bool>());
+    RequireFlatApprox(samples.obs.At(kVectorKey)[row], { 5.0f, 6.0f, 7.0f, 8.0f });
+    INFO("Bootstrap frame stack after wrap: " << samples.next_state.next_obs.At(kVectorKey)[row]);
+    RequireFlatApprox(samples.next_state.next_obs.At(kVectorKey)[row], { 8.0f, 9.0f, 10.0f, 11.0f });
+}
+
+TEST_CASE("ReplayBuffer integrity assay matches independent input histories across wraps",
+    "[.][integrity_assay]")
+{
+    // 条件を独立sectionにし、1条件の失敗後も残りを検査する。case番号で再開・再現もできる。
+    int case_index = 0;
+    for (const int stack : { 1, 2, 4 })
+        for (const int n_step : { 1, 2, 3, 5 })
+            for (const int lanes : { 1, 4, 16, 128 })
+                for (const int capacity : { 17, 31 })
+                    for (const bool per : { false, true })
+                        for (const bool prefetch : { false, true }) {
+                            const int case_number = ++case_index;
+                            DYNAMIC_SECTION("case " << case_number) {
+                                const auto started = std::chrono::steady_clock::now();
+                                const uint64_t seed = Catch::getSeed();
+                                replay_integrity_assay::Counts counts;
+                                std::cout << "Replay integrity section: case=" << case_number
+                                    << " seed=" << seed << std::endl;
+                                replay_integrity_assay::Run(
+                                    stack, n_step, lanes, capacity, per, prefetch, seed, counts);
+                                const double seconds = std::chrono::duration<double>(
+                                    std::chrono::steady_clock::now() - started).count();
+                                std::cout << "Replay integrity passed: case=" << case_number
+                                    << " seed=" << seed
+                                    << " snapshots=" << counts.snapshots << " covered_keys=" << counts.covered_keys
+                                    << " checked_samples=" << counts.checked_samples << " seconds=" << seconds << std::endl;
+                            }
+                        }
+}
+
+TEST_CASE("PRD101 scheduled gamma rebuilds sampled returns after the push boundary", "[prd101][replay_buffer]")
+{
+    auto config = MakeConfig(32, 3, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    config.recompute_returns_on_sample = true;
+    auto buffer = MakeBuffer(config, 1);
+    for (int step = 0; step < 5; ++step) {
+        buffer.rb->Push(MakeBatch({float(step)}, {float(step + 1)}, {float(step + 1)},
+            {false}, {false}, {step == 0}), 0.5f);
+    }
+    anet::RandomGenerator random(101);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, 0.9f));
+    bool found = false;
+    for (int64_t row = 0; row < samples.actions.size(0); ++row) {
+        if (samples.obs.At(kVectorKey)[row][0].item<float>() != 0.0f) continue;
+        found = true;
+        CHECK(samples.n_steps[row].item<int64_t>() == 3);
+        CHECK(samples.target_returns[row].item<float>() == Catch::Approx(1.0f + 0.9f * (2.0f + 0.9f * 3.0f)));
+    }
+    REQUIRE(found);
+}
+
+TEST_CASE("PRD101 prefetch keeps reward snapshots through wrap and episode boundaries", "[prd101][replay_buffer][prefetch]")
+{
+    const bool cuda = GENERATE(false, true);
+    const bool windows = GENERATE(false, true);
+    const int boundary = GENERATE(0, 1, 2);
+    CAPTURE(cuda, windows, boundary);
+    if (cuda && !torch::cuda::is_available()) {
+        SUCCEED("CUDA is unavailable; CPU coverage remains active.");
+        return;
+    }
+    auto config = MakeConfig(16, 3, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    config.recompute_returns_on_sample = true;
+    if (windows) config.window_rule = rl::CreateDecisionWindowRule(4);
+    auto buffer = MakeBuffer(config, 1);
+    auto replay = std::make_shared<rl::PrefetchingReplayBuffer>(buffer.rb,
+        torch::Device(cuda ? torch::kCUDA : torch::kCPU));
+    bool episode_start = true;
+    const auto push = [&](int step) {
+        const bool ended = step % 7 == 4;
+        const bool done = boundary == 1 && ended;
+        const bool truncated = boundary == 2 && ended;
+        anet::TensorDict info{{"decision", torch::tensor({episode_start || step % 3 == 0}, torch::kBool)}};
+        replay->Push(MakeBatch({float(step)}, {float(step + 1)}, {float(step + 1)},
+            {done}, {truncated}, {episode_start}, false, info), 0.5f);
+        episode_start = done || truncated;
+    };
+    for (int step = 0; step < 12; ++step) push(step);
+    rl::ExperienceSamples warm;
+    replay->Sample(warm, 4, 0.0f, 0.5f);
+    // 起動済み抽選の後に全slotを上書きし、消費側は元の報酬列だけから確定する。
+    for (int step = 12; step < 36; ++step) push(step);
+    rl::ExperienceSamples result;
+    replay->Sample(result, 4, 0.0f, 0.9f);
+    REQUIRE(result.target_returns.device().is_cuda() == cuda);
+    result = result.To(torch::kCPU, false);
+    REQUIRE(result.sampled_rewards.defined());
+    for (int64_t row = 0; row < result.actions.size(0); ++row) {
+        const int start = static_cast<int>(result.obs.At(kVectorKey)[row].flatten()[-1].item<float>());
+        REQUIRE(start < 12);
+        const auto expected = [start](int length) {
+            float value = 0;
+            for (int offset = length; offset-- > 0;) value = float(start + offset + 1) + 0.9f * value;
+            return value;
+        };
+        CHECK(result.target_returns[row].item<float>() == Catch::Approx(expected(result.n_steps[row].item<int>())));
+        if (windows) {
+            REQUIRE(result.sampled_window_rewards.defined());
+            CHECK(result.window.returns[row].item<float>() == Catch::Approx(expected(result.window.lengths[row].item<int>())));
+        }
+    }
+}
+
+TEST_CASE("PRD101 constant gamma retains saved returns without reward snapshots", "[prd101][replay_buffer]")
+{
+    auto buffer = MakeBuffer(MakeConfig(16, 3, 0.5f, 1, rl::ReplaySamplerType::UNIFORM), 1);
+    for (int step = 0; step < 5; ++step) {
+        buffer.rb->Push(MakeBatch({float(step)}, {float(step + 1)}, {float(step + 1)},
+            {false}, {false}, {step == 0}), 0.5f);
+    }
+    anet::RandomGenerator random(101);
+    rl::ExperienceSamples samples;
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, 0.9f));
+    CHECK_FALSE(samples.sampled_rewards.defined());
+    CHECK_FALSE(samples.sampled_window_rewards.defined());
+    for (int64_t row = 0; row < samples.actions.size(0); ++row) {
+        const auto start = samples.obs.At(kVectorKey)[row][0].item<float>();
+        const float expected = (start + 1.0f) + 0.5f * ((start + 2.0f) + 0.5f * (start + 3.0f));
+        CHECK(samples.target_returns[row].item<float>() == expected);
+    }
+}
+
+TEST_CASE("PRD101 sampling-history diagnostics receive their own current gamma", "[prd101][replay_buffer]")
+{
+    auto config = MakeConfig(16, 3, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    config.recompute_returns_on_sample = true;
+    auto buffer = MakeBuffer(config, 1);
+    for (int step = 0; step < 5; ++step) {
+        buffer.rb->Push(MakeBatch({float(step)}, {float(step + 1)}, {float(step + 1)},
+            {false}, {false}, {step == 0}), 0.5f);
+    }
+    anet::RandomGenerator random(101);
+    const auto result = buffer.rb->ProbeSamplingHistory({.counts = true, .unsampled_batch_size = 2}, &random, 0.7f);
+    REQUIRE(result.unsampled.has_value());
+    const auto& samples = *result.unsampled;
+    for (int64_t row = 0; row < samples.actions.size(0); ++row) {
+        const auto start = samples.obs.At(kVectorKey)[row][0].item<float>();
+        const float expected = (start + 1.0f) + 0.7f * ((start + 2.0f) + 0.7f * (start + 3.0f));
+        CHECK(samples.target_returns[row].item<float>() == Catch::Approx(expected));
+    }
+}
+
+TEST_CASE("Replay constructor requires priority store and completer together", "[prd122][replay_buffer][per]")
+{
+    // ファクトリが作らない片方だけの構成も、公開コンストラクタの境界で拒否する。
+    const bool store_present = GENERATE(false, true);
+    const bool completer_present = GENERATE(false, true);
+    const auto config = MakeConfig(8);
+    auto construct = [&] {
+        return std::make_unique<rl::DefaultReplayBuffer>(config, MakeEnvSpec(), 1,
+            nullptr, nullptr, nullptr,
+            store_present ? std::make_shared<RecordingPriorityStore>() : nullptr, nullptr,
+            completer_present ? rl::CreateInitialPriorityCompleter(config, 1, nullptr) : nullptr,
+            torch::Device(torch::kCPU), false);
+    };
+    if (store_present != completer_present) {
+        CHECK_THROWS_WITH(construct(), Catch::Matchers::ContainsSubstring("must be configured together"));
+    } else {
+        // 成立する2通りは、PER/uniformそれぞれの完全な構成をfactoryから作る。
+        const auto complete_config = MakeConfig(8, 1, 0.99f, 1,
+            store_present ? rl::ReplaySamplerType::PRIORITIZED : rl::ReplaySamplerType::UNIFORM);
+        CHECK_NOTHROW(MakeBuffer(complete_config, 1));
+    }
 }

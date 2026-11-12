@@ -51,6 +51,11 @@ class CartPoleEnvFactory : public anet::rl::SingleDiscreteEnvFactory {
 public:
     CartPoleEnvFactory();
 
+    void ValidateConfig(const anet::ConfigData& data, anet::rl::RunMode, const std::string& prefix) const override
+    {
+        (void)CartPoleEnvConfig(data, prefix);
+    }
+
     std::string GetTargetEnvClassId() const override { return "CartPoleEnv"; }
 
     std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(

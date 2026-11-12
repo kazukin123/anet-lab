@@ -142,7 +142,6 @@ namespace anet::rl::env {
         bool checkCrash() const;
         bool checkLanded() const;
 
-        anet::rl::AuxData CreateAuxData(float reward, float raw_reward) const;
     private:
         // 着陸パッドの水平区間と高さ
         struct PadInfo {
@@ -198,6 +197,10 @@ namespace anet::rl::env {
     class LunarLanderEnvFactory : public anet::rl::SingleDiscreteEnvFactory {
     public:
         LunarLanderEnvFactory() = default;
+        void ValidateConfig(const anet::ConfigData& data, anet::rl::RunMode, const std::string& prefix) const override
+        {
+            (void)LunarLanderEnvConfig(data, prefix);
+        }
 
         std::string GetTargetEnvClassId() const override { return "LunarLanderEnv"; }
 

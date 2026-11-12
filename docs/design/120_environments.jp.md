@@ -32,15 +32,19 @@ RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Rese
 
 標準Observationキーは`vector`、`grid`、`action_mask`である。`action_mask`は合法手を表すメタデータであり、通常のNetwork入力とは分けて扱う。
 
-`BatchEnvSpec`は`num_envs`と`num_threads`を持ち、batch側の並列度をAgentへ伝える。
+`BatchEnvSpec`は`num_envs`、`num_threads`、`episode_scope`を持つ。`episode_scope=PER_LANE`では各laneが一つのepisode group、`SHARED`ではbatch全体が一つのepisode groupである。JSON表記は`per_lane` / `shared`とする。
 
-### 2.2 ResetとStep
+### 2.2 Reset・Stepと結果の所有
 
 - Envは生成時に`RunMode`を固定し、`GetRunMode()`で公開する。
-- `Reset()`はepisodeを開始し、初期Stateを返す。
-- `Step(Action)`はActionを適用し、次State、Reward、終端情報を返す。
-- Train/Eval固有の乱数、augmentation、終端は生成時の`RunMode`で分ける。呼出し時に異なるmodeを渡す経路はない。
-- wrapper系BatchEnvには一部Result buffer再利用が残るため、呼び出し側が後続Stepを越えて保持する場合は各実装契約を確認する。native ImageClsはReset/Stepごとにfresh Tensorを返し、呼出し側へ所有権を渡す。
+- `Reset()`は初期Stateを返す。`Step(Action)`は遷移を進め、終端laneだけ同じ呼出し内で自動Resetする。ThreadPool版ではStepとResetを同じworkerで行う。
+- `BatchStepResult::next_state`はリセット前の遷移、`continue_state`は次の行動用の状態。継続laneでは同じ観測、終端laneではReset後の観測となる。
+- 全体Resetは全groupの`episode_start`をtrueにする。Stepはgroup内のdone/truncatedを一致させ、`n_episode_end == 完了group数`、`continue_state.episode_start == (done || truncated)`を満たす。`done && truncated`も許容する。
+- Step結果は毎回新規に生成する。単一Envの結果は、そのStepのauxと統計を所有し、自動Reset・次Step後も値を変えない。aux配列は空のlaneも含めてlane数を維持する。wrapperの全体Resetには一部Result buffer再利用が残る。
+- `SingleEnvResult::GetScalar(key)`の既定実装は所有auxのスカラーを読む。`BatchStepResult::GetScalar(key, lane)`はreward/done/truncated、wrapperはlaneの単一結果へ委譲する。nativeのSHARED Envはlane=-1でbatch値へ答える。ImageClsのrewardは有効laneの和、done/truncatedはgroupの共通終端である。
+- 既知だが未成立はNaN、未知・非スカラーはnullopt。派生鍵・引数つき鍵も結果自身が問い合わせに答え、scalarごとにaux全体を複製しない。
+- env本体の問い合わせは現在状態であり、遷移の結果を読む用途には使わない。Train/EpisodeEndの読者は通知が持つStep結果を読む。
+- Train/Eval固有の乱数、augmentation、終端は生成時の`RunMode`で分ける。
 
 ### 2.3 SingleとBatch
 
@@ -52,17 +56,17 @@ RunnerとAgentが環境固有実装へ依存せず、同じState、Action、Rese
 - `VectorizedDiscreteBatchEnv`: 呼び出しthread上で複数Envを順に実行する。
 - `ThreadPoolDiscreteEnv`: thread poolを使って複数Envを並列実行する。
 
-ImageClsは`BatchEnvBase`を直接継承するnative batch Envである。`ImageDataSource`がDatasetから固定BのTensorを生成し、single EnvのN個生成やwrapper collateを経由しない。
+ImageClsは`BatchEnvBase`を直接継承するnative batch Envである。`ImageDataSource`がDatasetから固定BのTensorを生成し、single EnvのN個生成やwrapper collateを経由しない。trainは`PER_LANE`、evalは`SHARED`であり、eval window終端時は全laneの`done`を立てて`n_episode_end=1`を返し、同じStepで返すcontinue_stateの全laneの`episode_start`を立てる。データの先読みもStep内で行い、次の行動へ先読み済み観測を渡す。
 
-ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageClsEnv.train.dataset_key`と`ImageClsEnv.train.augment.*`がTrain側、`ImageClsEnv.eval.dataset_key`と`ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating_size`がEval側である。tagなしEvalは標準Eval設定を使い、configured Evalは`train.eval.[tag].env.eval.*`で必要な項目だけをoverlayする。Factoryは両manifestをEnv構築時に検証するが、画像decodeとcache準備は選択Sourceの使用時まで遅延する。
+ImageCls設定は標準Train/Eval Sourceを必須の組として持つ。`ImageClsEnv.train.dataset_key`と`ImageClsEnv.train.augment.*`がTrain側、`ImageClsEnv.eval.dataset_key`と`ImageClsEnv.eval.eval_window.mode` / `eval_window.rotating_size`がEval側である。tagなしEvalは標準Eval設定を使い、configured Evalは`run.eval.[tag].env.eval.*`で必要な項目だけをoverlayする。Factoryは両manifestをEnv構築時に検証するが、画像decodeとcache準備は選択Sourceの使用時まで遅延する。
 
 ### 2.4 Env name
 
-`SingleDiscreteEnv`と`BatchEnv`はconstructorや状態を持たないinterfaceであり、name accessorをpure virtualで公開する。`SingleDiscreteEnvBase`と`BatchEnvBase`が人間向けのimmutableな`name`を保持し、accessorを`final override`する。`BatchEnvBase::GetName()`はbatch名を返し、`GetEnvName(lane_index)`は構築時に一度だけ生成した`<name>[0..N-1]`を返す。具象Envは対応するBaseを継承し、name accessorを独自実装しない。
+`SingleDiscreteEnv`と`BatchEnv`はconstructorや状態を持たないinterfaceであり、name accessorをpure virtualで公開する。`SingleDiscreteEnvBase`と`BatchEnvBase`が人間向けのimmutableな`name`を保持し、accessorを`final override`する。`BatchEnvBase::GetName()`はbatch名を返し、`GetEnvName(lane_index)`は構築時に一度だけ生成した`env.[<name>].[0..N-1]`を返す。具象Envは対応するBaseを継承し、name accessorを独自実装しない。
 
 nameは不透明な表示文字列であり、Env class ID、RunMode、config prefix、seed、RNG、DatasetKey、metrics tagの代替ではない。Envはnameを解析せず、nameの違いでReset、Step、Reward、終端を分岐しない。空name、非正のlane数、範囲外lane indexは`ANET_CHECK_MSG`で常時fail-fastする。
 
-両Baseはprotectedな`anet::log::Logger log`も保持し、name確定時にprefixを`<name>: `として一度だけ構築する。具象Envのactiveなtext logは`log.info()`、`log.verbose()`、`log.warn()`、`log.error()`を使用し、`GetName()`を各行で連結しない。debug logは`ANET_LOG_DEBUG_PREFIXED`を使用し、通常の`ANET_LOG_DEBUG`と同じguard・ビルド消去特性を維持する。
+両Baseはprotectedな`anet::log::Logger log`も保持し、name確定時にprefixを一度だけ構築する。single Envはlane nameをそのまま使って`<name>: `（例: `env.[train].[37]: `）、BatchEnvは`env.[<name>]: `とする。具象Envのactiveなtext logは`log.info()`、`log.verbose()`、`log.warn()`、`log.error()`を使用し、`GetName()`を各行で連結しない。debug logは`ANET_LOG_DEBUG_PREFIXED`を使用し、通常の`ANET_LOG_DEBUG`と同じguard・ビルド消去特性を維持する。
 
 ## 3. コンポーネント定義
 
@@ -99,8 +103,9 @@ nameは不透明な表示文字列であり、Env class ID、RunMode、config pr
 | CartPole | [core/envs/cartpole2](../../core/envs/cartpole2) | vector |
 | LunarLander | [core/envs/lunarlander1](../../core/envs/lunarlander1) | vector、Box2D物理状態 |
 | DropMerge | [core/envs/dropmerge1](../../core/envs/dropmerge1) | gridとvector、Box2D物理状態 |
-| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | vector中心の迷路状態 |
+| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | vector中心の迷路状態。開始からゴールへの到達可能性を保証し、解けないseedは派生seedで引き直す |
 | ImageCls | [core/envs/imagecls1](../../core/envs/imagecls1) | 画像gridと分類target |
+| Atari | [core/envs/atari1](../../core/envs/atari1) | ALE由来の単フレームuint8 grid |
 
 各Env directoryは、Env本体、factory、必要に応じてViewとtestを機能グループとしてまとめる。
 
@@ -180,17 +185,22 @@ sequenceDiagram
     R->>B: Step(action_info)
     B->>E: laneごとのActionでStep
     Note over B,E: ThreadPool実装では並列実行
-    E-->>B: SingleStepResult
-    B-->>R: Reward・終端・次Stateを集約
+    E-->>B: SingleStepResult（遷移値を所有）
+    opt 終端lane
+        B->>E: Reset()
+        E-->>B: SingleResetResult
+    end
+    B-->>R: Reward・next_state・continue_state
+    Note over R,E: 通知はStep結果を読み、次行動はcontinue_stateを使う
 ```
 
-episode終了laneのReset時期や`episode_start`の扱いはbatch wrapperとRunnerのcontractで決まる。具象Envは、自身の1 episode内の状態遷移とReward計算に集中する。
+episode終了groupのReset時期や`episode_start`の扱いはbatch wrapperとRunnerのcontractで決まる。`EpisodeStatsAccumulator`はepisode returnとepisode_stepsを`CompletedEpisodeResult`として同時に確定する。returnは`PER_LANE`ならlane別、`SHARED`なら全lane・全stepのreward合計とする。episode_stepsは終端を含む`Step()`回数で、`SHARED`でもlane数を掛けない。configured Evalの`EvalSessionEnv`は動的グラントで正確にN本を採用し、採用したStep結果のGetScalarから値を蓄積し、全groupがfreshなときだけ保存したcontinue_stateを空aux付きで次sessionのReset結果として再利用する。それ以外は全体Resetする。具象Envは、自身の1 episode内の状態遷移とReward計算に集中する。
 
 ### 6.2 構築
 
 1. `env.class_id`から`EnvRepository`がsingle/batchいずれかの具象factoryを解決する。
 2. 呼出側がBatchEnv name、RunMode、config prefixを渡し、`BatchEnvBuilder`がnum_envs、device、seed、worker設定を確定する。
-3. batch factoryならnative `BatchEnv`を直接生成する。single factoryならwrapperが`<name>[lane_index]`を完成させ、laneごとにsingle Envを生成する。
+3. batch factoryならnative `BatchEnv`を直接生成する。single factoryならwrapperが`env.[<name>].[lane_index]`を完成させ、laneごとにsingle Envを生成する。
 4. single経路はworker方式に応じてvectorizedまたはthread-pool wrapperへ格納する。native ImageClsでは同じworker設定をSource内sample処理へ適用し、decode/cache lookupからaugmentationまでを同一workで実行する。
 5. Runner構築時にEnvSpecとBatchEnvSpecをAgentへ渡す。
 
@@ -203,9 +213,8 @@ episode終了laneのReset時期や`episode_start`の扱いはbatch wrapperとRun
 | `env.class_id` | 具象Env factoryのclass ID |
 | `env.worker_type` | `AUTO`、single-thread、thread-poolの選択 |
 | `env.worker_threads` | thread-poolのworker数。負値は定義済みの自動解決方式 |
-| `env.device_type` | Envが使用するCPU/CUDA device種別 |
-| `env.device_index` | CUDA device index。負値はcurrent device |
-| `train.num_envs` | 主Train Envのbatch size |
+| `env.device` | Envが使用するdevice。`auto`、`cpu`、`cuda`、`cuda:N`を受け付け、既定は`cpu`。採用値は`json/env.json`に記録する |
+| `run.train.num_envs` | 主Train Envのbatch size |
 
 Env固有設定は各factoryが同じConfigDataから読み取る。未知のclass ID、不正なworker設定、矛盾したspecは暗黙に補正せず失敗させる。
 
@@ -221,26 +230,62 @@ Env固有設定は各factoryが同じConfigDataから読み取る。未知のcla
 - `num_envs`が小さい、またはEnv Stepが軽量な場合、thread-poolの同期costが利益を上回ることがある。
 - Box2Dや画像decodeのようにlaneごとの処理が重い場合、並列化の効果を実測する。
 - EnvのReset/Stepは主要なprofiling境界であり、worker数と`exp_step_per_sec`を併せて比較する。
+- thread-pool方式（single Envを束ねるwrapper）のworkerは、Windowsでは優先度を`BELOW_NORMAL`に下げて動かす。workerは既定で論理CPUの数−2本あり、同じ優先度だと学習側のスレッド（学習、autograd、replayの抽出、train）がコアから外され、その間GPUが遊ぶため。native ImageClsのsample workerは対象外。
 - Env deviceとAgent deviceが異なる場合は転送costが発生する。Envごとの対応deviceを設定と実装の両方で確認する。
 
+### 7.4 GridMazeの迷路生成
+
+`GridMazeEnv.seed`があればその値で固定し、未指定なら`GridMazeEnv.seed_mode = process | episode`で自動採番の単位を選ぶ（既定`process`）。0も通常の固定値で、未指定を表す値ではない。seedの共有既定は置かず、seedだけ指定すればどちらのmodeでも固定できる。`episode`はResetごとに採番する。`process`は最初の該当Env構築時に一度だけ採番し、学習・評価・GUI・同一プロセス内の別Runで入力seedを共有する。Envの破棄・再作成でも維持し、盤面と乱数器は各Envが所有する。共通入力seedを`GridMaze process seed initialized: seed=...`のINFOで1回記録する。自動採番は`run.seed`から独立している。初期化の失敗も保存し、後続の要求へ再送出する。未知modeはseed指定時でも構築前に拒否する。
+
+GridMazeはResetごとに開始からゴールへ壁・穴を避けて到達できる迷路を採用する。解けるseedでは従来のセル生成と乱数消費順を保持する。解けなければ入力seedから `splitmix64(seed + k)`（k=1..1000）で引き直し、初回と1000回の引き直しがすべて失敗したら、seed・寸法・密度・座標・上限を含むエラーで停止する。
+
+寸法は正、各座標は `-1` または軸の範囲内でなければならない。両方固定の開始とゴールの重複、およびランダム開始の候補なしはエラーにする。固定開始とランダムゴールの偶然一致は引き直す。auxの `seed` は採用した実際のseedで、設定に戻すと同じ盤面を再現できる。画面のseedは設定可能な全範囲を符号なし十進表示する。固定seedを引き直したときだけ、入力seed・回数・採用seedをINFOで通知する。GridMaze内に限定して許容する排他制御付きのプロセス共有記録により、同じ設定seedの通知は個体数によらず1回とする。自動seedでは引き直し通知を出さない。
+
+### 7.5 LunarLanderViewの表示の段
+
+LunarLanderViewは機体のまわりの矢印を3段で出す。中クリックで「機体と推力 → ＋風 → ＋運動 → 機体と推力」と1段ずつ進み、停止中も即座に再描画する。既定は「＋風」で、段はPanelごとに保持し、データ更新では変えない。左上の文字と左下の風の数値はどの段でも出す。
+
+| 段 | 足すもの | 長さ・角度 |
+|---|---|---|
+| 機体と推力 | 地形・パッド・機体・脚と、噴射中のエンジンの矢印（赤、噴射の向き） | メイン1px/N、サイド3px/N |
+| ＋風 | 横風の矢印と回転力の円弧（紫、機体が押される向き・回る向き） | 横風はサイドエンジンと同じ3px/N、回転力は60°/(N·m) |
+| ＋運動 | 速度の矢印と角速度の円弧（深緑） | いまの値のまま0.5秒進んだ量。速度の矢印の先は0.5秒後の位置、円弧は0.5秒で回る角度 |
+
+円弧は機体の真上を中点とし、正の値を反時計回りに描く。角速度の円弧は回転力の円弧の外側に置く。加速度は1 stepの行動でほぼ決まって毎回大きく変わり、約200msごとに間引かれる表示ではちらつくため出さない。
+
+### 7.6 DropMergeのNOOPへの罰
+
+`noop_penalty`は、選択された命令がその行動モードでNOOPとなる場合だけ、EnvのStepあたり1回加算する。`direct`にはNOOPがなく列0もDROPである。`direct_noop`・`move`・`move_fast`の行動0はNOOPとなる。`noop_override`でNOOPを移動へ変換しても罰を加算し、落下中などにDROPが実行されなくてもNOOPとは扱わない。Step報酬と現在のエピソード累積報酬に同じ罰を反映し、生スコアと物理遷移は変えない。
+
 ## 8. テストと拡張時の確認事項
+
+DropMergeの`[noop_penalty]`テストは、同seed・同行動列の2個体で罰だけを変え、4行動モード、NOOP変換、未実行DROP、終了stepと累積報酬、複数物理stepを比較する。関連する[PRD115検証資材](../../core/anet-core/testdata/prd115/README.md)に実行条件をまとめる。
 
 Envを追加・変更する場合は次を確認する。
 
 1. `EnvSpec`のshape、dtype、Action、Reward範囲が実データと一致する。
 2. 同じseedと設定に対する再現性contractを明確にする。
-3. Reset直後、通常Step、terminated、truncatedのState flagを検証する。
+3. Reset直後、通常Step、terminated、truncatedのnext_state/continue_stateと結果不変性を検証する。
 4. B=1と複数laneの両方でbatch wrapperが正しく集約する。
 5. `VectorizedDiscreteBatchEnv`と`ThreadPoolDiscreteEnv`で意味が変わらない。
 6. Viewを追加する場合はEnv class IDと`ViewRepository`登録を一致させる。
 7. 頻繁に呼ばれるReset/Stepへ意味のあるprofile rangeを置く。
 
+通知中のscalar・tensor、auxのlane対応、結果の不変性、Runner種別ごとの通知順序と再現性・性能の受入手順は[PRD097検証資材](../../core/anet-core/testdata/prd097/README.md)を参照する。
+
+GridMazeの盤面golden、到達可能性、座標検証、ログ件数、短いRunの全scalar一致の手順は[PRD100検証資材](../../core/anet-core/testdata/prd100/README.md)を参照する。
+
 専用testがあるEnvは次のとおりである。
 
 - [LunarLanderEnv_test.cpp](../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
+- [DropMergeEnv_test.cpp](../../core/envs/dropmerge1/src/DropMergeEnv_test.cpp)
+- [GridMazeEnv_test.cpp](../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp)
 - [ImageClsEnv_test.cpp](../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
+- [AtariEnv_test.cpp](../../core/envs/atari1/src/AtariEnv_test.cpp)
 
 single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。ImageCls testはnative batch、Dataset catalog/cache、eval window、worker方式を直接検証する。Envまたはwrapperを変更する場合は、必要なworker方式を明示して回帰testを追加する。
+
+採番単位・指定seed優先・並行初期化・構築し直し・RunManager経路・共通optional設定・設定値差分の検証手順は[PRD102検証資材](../../core/anet-core/testdata/prd102/README.md)を参照する。
 
 ## 9. 関連文書
 
@@ -250,5 +295,17 @@ single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。Im
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
 - [用語集](../../CONTEXT.md)
-- [ImageCls batch入力PRD](../memo/034_imagecls_batch_input_10prd.md)
+- [ImageCls batch入力PRD](../memo/done/034_imagecls_batch_input_10prd.md)
 - [ImageCls batch Env seam ADR](../adr/0009-imagecls-batch-env-seam.md)
+
+### 具象Envの遷移統計
+
+| Env | Step結果の鍵 | 通常Step | 終端Step | env本体 |
+|---|---|---|---|---|
+| GridMaze | reward_sum、wall_collisions | 累積速報値 | 確定値 | 未知 |
+| GridMaze | is_success、is_hole | NaN | 終端報酬から0/1 | 未知 |
+| DropMerge | ep_step、ep_max_rank、ep_mean_settle_steps、ep_max_settle_steps、ep_mean_blocked_frames、ep_max_blocked_frames、ep_same_drop_col_ratio、ep_double_suika_created、ep_double_suika_achieved、ep_blocked_run_countなど累積統計 | 現時点の累積値（未成立条件はNaN） | 確定値 | 未知 |
+| DropMerge | ep_end_fruit_count、term_reason_*、blocked_drop_on_candidate、no_drop_timeout_on_candidate、ep_terminal_blocked_frames | NaN | 確定値 | 未知 |
+| ImageCls | accuracy、epoch_count | 直近の採点windowのsnapshot（初回未確定accuracyはNaN） | window確定値 | 現在の全体値も公開 |
+
+DropMergeの統計式・浮動小数点演算順序は結果への移動前と同じ。View用auxのlast_score/last_step/last_term_reasonと報酬履歴は維持する。ImageClsの先読みはStep内で1回行い、結果は採点したwindowの値を保持する。DropMerge・LunarLanderの描画auxは遷移時点のnative値を結果が所有し、表示の要求時だけTensor化する。元envへの借用は保持しない。

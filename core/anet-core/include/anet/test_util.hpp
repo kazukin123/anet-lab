@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <exception>
 #include <initializer_list>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -228,11 +229,16 @@ namespace anet::test {
         protected:
             void DoLogRecord(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) override
             {
+                if (!notification_filter_.Accept(info)) return;
+                // 並行Envの通知も同じcaptureへ入るため、追加を直列化する。
+                std::lock_guard<std::mutex> lock(records_mutex_);
                 auto utf8 = msg.ToUTF8();
                 records_.push_back({ level, utf8.data() ? utf8.data() : "" });
             }
 
         private:
+            anet::log::NotificationFilter notification_filter_;
+            std::mutex records_mutex_;
             std::vector<CapturedLogRecord> records_;
         };
 
@@ -289,6 +295,7 @@ namespace anet::test {
         protected:
             void DoLogRecord(wxLogLevel level, const wxString& msg, const wxLogRecordInfo& info) override
             {
+                if (!notification_filter_.Accept(info)) return;
                 anet::log::LogFormatter formatter(/*enable_timestamp=*/false);
                 wxString formatted = formatter.Format(level, msg, info);
                 auto utf8 = formatted.ToUTF8();
@@ -300,6 +307,7 @@ namespace anet::test {
             }
 
         private:
+            anet::log::NotificationFilter notification_filter_;
             FILE* file_;
         };
 

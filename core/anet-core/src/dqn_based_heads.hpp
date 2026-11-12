@@ -2,7 +2,8 @@
 
 #pragma once
 
-#include "anet/nn.hpp"
+#include "nn_impl.hpp"
+#include "anet/agent.hpp"
 
 namespace anet::rl::dqn {
 
@@ -12,29 +13,51 @@ namespace anet::rl::dqn {
 
     class HeadFactoryBase : public anet::nn::NetworkHeadFactory {
     public:
-        HeadFactoryBase(int64_t action_dim, const anet::nn::WeightInitConfig& init_config);
+        HeadFactoryBase(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+            const anet::ConfigData& projection_config = anet::EmptyConfigData);
         virtual ~HeadFactoryBase() = default;
     protected:
         int64_t action_dim_;
         anet::nn::WeightInitConfig init_config_;
+        const anet::ConfigData projection_config_;
 
     };
 
     class LinearHeadFactory final : public HeadFactoryBase {
     public:
-        LinearHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config);
+        LinearHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+            const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
+    };
+
+    /// skip の射影は primary と同じ分布表現を使い、行動・継続長の軸を公開する。
+    class SkipHeadFactory final : public HeadFactoryBase {
+    public:
+        static constexpr const char* kKeyQ = "skip_q";
+        static constexpr const char* kKeyQDist = "skip_q_dist";
+
+        SkipHeadFactory(int64_t action_dim, int max_length, SkipNetworkMode network_mode,
+            std::string quantile_mode, int num_quantiles, const anet::nn::WeightInitConfig& init_config,
+            const anet::ConfigData& projection_config = anet::EmptyConfigData);
+        std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
+    private:
+        int max_length_;
+        SkipNetworkMode network_mode_;
+        std::string quantile_mode_;
+        int num_quantiles_;
     };
 
     class DuelingHeadFactory final : public HeadFactoryBase {
     public:
-        DuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config);
+        DuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+            const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
     };
 
     class QuantileHeadFactory final : public HeadFactoryBase {
     public:
-        QuantileHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config);
+        QuantileHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config,
+            const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
     private:
         int64_t num_quantiles_;
@@ -42,10 +65,25 @@ namespace anet::rl::dqn {
 
     class QuantileDuelingHeadFactory final : public HeadFactoryBase {
     public:
-        QuantileDuelingHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config);
+        QuantileDuelingHeadFactory(int64_t action_dim, int64_t num_quantiles, const anet::nn::WeightInitConfig& init_config,
+            const anet::ConfigData& projection_config = anet::EmptyConfigData);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
     private:
         int64_t num_quantiles_;
+    };
+
+    class IQNHeadFactory final : public HeadFactoryBase {
+    public:
+        IQNHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+            const anet::ConfigData& projection_config = anet::EmptyConfigData);
+        std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
+    };
+
+    class IQNDuelingHeadFactory final : public HeadFactoryBase {
+    public:
+        IQNDuelingHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
+            const anet::ConfigData& projection_config = anet::EmptyConfigData);
+        std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
     };
 
 } // namespace anet::rl::dqn

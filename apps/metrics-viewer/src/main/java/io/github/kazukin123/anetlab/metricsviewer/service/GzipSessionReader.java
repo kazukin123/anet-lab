@@ -8,7 +8,6 @@ import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.CachePreparation;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsCacheDatabase.IngestState;
 import io.github.kazukin123.anetlab.metricsviewer.infra.MetricsSource;
-import io.github.kazukin123.anetlab.metricsviewer.service.SourceReader.GzipCorruptException;
 
 /**
  * 同じgzip streamの展開済みbufferをblock間で引き継ぐreader。
@@ -31,10 +30,16 @@ final class GzipSessionReader implements SourceReader {
 	@Override
 	public Preparation prepare(MetricsCacheDatabase database) throws IOException, SQLException {
 		// 展開済みbufferを再利用できる場合だけ、converting cacheを同じ世代で継続する。
-		final CachePreparation preparation = database.prepare(
+		final boolean activeSession = sessions.hasSession(runDir, source);
+		CachePreparation preparation = database.prepare(
 				runDir,
 				source,
-				sessions.hasSession(runDir, source));
+				activeSession);
+		// 外部でDB世代が置換された場合は、旧cursorを途中DBへ接続せず最初から作り直す。
+		if (activeSession && preparation.state() == IngestState.CONVERTING
+				&& !sessions.matchesGeneration(runDir, source, preparation.generation())) {
+			preparation = database.prepare(runDir, source, false);
+		}
 		initialCommittedSourceOffset = preparation.committedOffset();
 		if (preparation.sourceUnchangedError()
 				|| preparation.state() == IngestState.READY) {
@@ -43,6 +48,9 @@ final class GzipSessionReader implements SourceReader {
 		}
 		try {
 			session = sessions.acquire(runDir, source, preparation.generation());
+		}
+		catch (GzipInputSessions.ResourceUnavailableException e) {
+			throw e;
 		} catch (IOException e) {
 			throw new GzipCorruptException(e.getMessage(), e);
 		}
@@ -50,12 +58,17 @@ final class GzipSessionReader implements SourceReader {
 	}
 
 	@Override
-	public int readByte() throws IOException {
+	public int readChunk(byte[] target) throws IOException {
 		try {
-			return session.input().read();
+			return session.input().read(target);
 		} catch (IOException e) {
 			throw new GzipCorruptException(e.getMessage(), e);
 		}
+	}
+
+	@Override
+	public InputBuffer inputBuffer() {
+		return session.buffer;
 	}
 
 	@Override

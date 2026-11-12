@@ -86,6 +86,24 @@ namespace anet {
 
     namespace detail {
 
+        class VideoLoggerProcess : public wxProcess {
+        public:
+            void OnTerminate(int pid, int status) override;
+            bool CopyTerminationState(long expected_pid, int* exit_code, bool* has_exit_code,
+                std::string* captured_stderr) const;
+            bool ReleaseOwnership();
+        private:
+            void DrainStderrLocked();
+
+            mutable std::mutex mutex_;
+            bool released_ = false;
+            bool terminated_ = false;
+            long pid_ = 0;
+            int exit_code_ = 0;
+            bool has_exit_code_ = false;
+            std::string captured_stderr_;
+        };
+
         inline constexpr int kNvencMinWidth = 160;
         inline constexpr int kNvencMinHeight = 64;
 
@@ -98,6 +116,15 @@ namespace anet {
         bool IsNvencEligibleVideoSize(int width, int height);
         VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int width, int height, const std::string& path);
 
+        /// Run内のauto選択だけに、起動失敗によるCPUへの固定を共有する。
+        class VideoCodecSelection {
+        public:
+            VideoCodecDecision Resolve(const std::string& codec, int width, int height, const std::string& path) const;
+            void PinSoftwareFallback() { software_fallback_.store(true); }
+        private:
+            std::atomic<bool> software_fallback_{false};
+        };
+
     } // namespace detail
 
     //----------------------------------------------
@@ -105,13 +132,12 @@ namespace anet {
     //----------------------------------------------
     class VideoLogger {
     public:
-        VideoLogger(const std::string& path, int width, int height, const std::string& codec = "auto", int fps = 30);
+        VideoLogger(const std::string& path, int width, int height, detail::VideoCodecSelection& selection,
+            const std::string& codec = "auto", int fps = 30);
         ~VideoLogger() { Close(); }
 
         void WriteFrame(const wxImage& img);
     private:
-        class Process;
-
         void LaunchFfmpeg(const std::string& codec);
         bool DiedAtStartup();
         void UpdateFfmpegDeathFromPidLocked();
@@ -122,8 +148,7 @@ namespace anet {
         void CloseProcessLocked();
         void Close();
     private:
-        Process* process_ = nullptr;
-        wxOutputStream* stream_ = nullptr;
+        std::unique_ptr<detail::VideoLoggerProcess> process_;
         std::mutex write_mutex_;
         std::atomic<bool> ffmpeg_dead_{ false };
         int exit_code_ = 0;
@@ -159,13 +184,21 @@ namespace anet {
         MetricsLogger(const MetricsLogger&) = delete;
         MetricsLogger& operator=(const MetricsLogger&) = delete;
 
-        inline void LogScalar(const std::string& tag, int64_t step, double value) {
+        inline void LogScalar(const std::string& tag, int64_t step, double value)
+        {
             json obj = {
                 {"type", "scalar"},
                 {"tag", tag},
                 {"step", step},
                 {"value", value}
             };
+            backend_->WriteJsonl(obj);
+        }
+
+        inline void LogTrace(const std::string& tag, int64_t step, int64_t lane, const json& data)
+        {
+            // 個体値を一行で記録する。直列化は backend が所有し、side file は作らない。
+            json obj = {{"type", "trace"}, {"tag", tag}, {"step", step}, {"lane", lane}, {"data", data}};
             backend_->WriteJsonl(obj);
         }
 
@@ -209,6 +242,7 @@ namespace anet {
 
         // 画像・動画用連番管理
         std::unordered_map<std::string, uint64_t> image_seq_;
+        detail::VideoCodecSelection video_codec_selection_;
         std::unordered_map<std::string, std::unique_ptr<VideoLogger>> video_loggers_;
     private:
         // --- Singleton管理 ---

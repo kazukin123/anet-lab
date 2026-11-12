@@ -120,3 +120,11 @@ TEST_CASE("PrepareTestArgs rejects invalid failure dialog values", "[test_util]"
         "yes",
         "Invalid ANET_TEST_FAILURE_DIALOG value");
 }
+
+TEST_CASE("anet-core-test disables MKLDNN before any test runs", "[test_util]")
+{
+    // MKLDNN を切るのは main_test.cpp の main だけで、テストの中では切らない（PRD124 D1・D5）。
+    // どのテストより先に回っても切れていることを、単独で回して確かめる。
+    // Release 版 libtorch では oneDNN の assert が出ないので、切り替えが消えたことにはこのテストで気づく。
+    CHECK_FALSE(at::globalContext().userEnabledMkldnn());
+}

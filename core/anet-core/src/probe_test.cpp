@@ -6,6 +6,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "anet/test_util.hpp"
+
 namespace {
 
 namespace rl = anet::rl;
@@ -179,6 +181,16 @@ TEST_CASE("BatchExperienceVectorProbe extracts observation columns and action au
     auto max_q_values = max_q_probe.GetVector(event);
     REQUIRE(max_q_values.has_value());
     RequireVectorApprox(*max_q_values, { 10.0f, 20.0f });
+
+    constexpr char kMissingActionKey[] = "action.missing";
+    rl::BatchExperienceVectorProbe missing(kMissingActionKey, -1);
+    anet::test::LogCaptureGuard logs;
+    CHECK_FALSE(missing.GetVector(event));
+    CHECK_FALSE(missing.GetVector(event));
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        {"BatchExperienceVectorProbe::GetVector() failed", kMissingActionKey}));
 }
 
 TEST_CASE("AgentTensorVectorProbe resolves ReplayBuffer observation subkey specs", "[probe][agent]")

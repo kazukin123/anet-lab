@@ -1,6 +1,7 @@
 ﻿// LunarLanderEnv.cpp
 
 #include "LunarLanderEnv.hpp"
+#include <array>
 #include <cmath>
 #include <algorithm>
 #include <box2d/box2d.h>
@@ -169,22 +170,31 @@ void LunarLanderEnv::ContactListener::EndContact(b2Contact* contact)
 
 class LunarLanderEnv::Result : virtual public anet::rl::SingleEnvResult {
 public:
-    Result(std::shared_ptr<const LunarLanderEnv> env, float reward, float raw_reward)
-        : env_(env), reward_(reward), raw_reward_(raw_reward) { }
-    anet::rl::AuxData GetAuxData() const override { return env_->CreateAuxData(reward_, raw_reward_); }
-
-    virtual ~Result() = default;
-protected:
-    std::shared_ptr<const LunarLanderEnv> env_;
-    float reward_;
-    float raw_reward_;
+    Result(const LunarLanderEnv& env, float reward, float raw_reward);
+    anet::rl::AuxData GetAuxData() const override;
+    ~Result() override = default;
+private:
+    // 描画値だけを所有し、元のenvやBox2Dのbodyへの借用を残さない。
+    const torch::TensorOptions float_opt_;
+    const torch::TensorOptions bool_opt_;
+    const bool has_body_;
+    bool has_joints_ = false;
+    std::array<float, 4> world_{};
+    std::array<float, 6> lander_{};
+    std::array<float, 8> legs_{};
+    std::array<float, 3> pad_{};
+    std::vector<b2Vec2> terrain_points_;
+    std::array<bool, 3> contacts_{};
+    std::array<float, 2> joint_angles_{};
+    std::array<float, 2> forces_{};
+    std::array<float, 2> rewards_{};
 };
 
 class LunarLanderEnv::ResetResult : public anet::rl::SingleResetResult, public LunarLanderEnv::Result {
 public:
     ResetResult(
         std::shared_ptr<const LunarLanderEnv> env, const anet::rl::SingleState state)
-        : Result(env, 0.0f, 0.0f), SingleResetResult(std::move(state)) { }
+        : Result(*env, 0.0f, 0.0f), SingleResetResult(std::move(state)) { }
 };
 
 class LunarLanderEnv::StepResult : public anet::rl::SingleStepResult, public LunarLanderEnv::Result {
@@ -192,7 +202,7 @@ public:
     StepResult(
         std::shared_ptr<const LunarLanderEnv> env, float reward, float raw_reward,
         anet::rl::SingleState next_state)
-        : Result(env, reward, raw_reward), SingleStepResult(reward, std::move(next_state)) { }
+        : Result(*env, reward, raw_reward), SingleStepResult(reward, std::move(next_state)) { }
 };
 
 // ===== LunarLanderEnv =====
@@ -1014,127 +1024,61 @@ LunarLanderEnv::GetTensorVector(const std::string& key, int64_t index) const
     return std::nullopt;
 }
 
-anet::rl::AuxData LunarLanderEnv::CreateAuxData(float reward, float raw_reward) const
+LunarLanderEnv::Result::Result(const LunarLanderEnv& env, float reward, float raw_reward)
+    : float_opt_(env.float_opt_), bool_opt_(env.bool_opt_), has_body_(env.lander_body_ != nullptr)
+{
+    // Stepの既存計測範囲内でnative値を固定し、描画しない遷移でTensorを生成しない。
+    if (!has_body_) return;
+    world_ = {-env.config_.world_half_width, env.config_.world_half_width,
+        env.config_.ground_y - env.config_.terrain_noise_height,
+        env.config_.ground_y + env.config_.world_height};
+    const b2Vec2 pos = env.lander_body_->GetPosition();
+    const b2Vec2 vel = env.lander_body_->GetLinearVelocity();
+    lander_ = {pos.x, pos.y, vel.x, vel.y, env.lander_body_->GetAngle(), env.lander_body_->GetAngularVelocity()};
+    const auto left = getLegSegment(env.left_leg_body_, kLegLength);
+    const auto right = getLegSegment(env.right_leg_body_, kLegLength);
+    legs_ = {left.p0.x, left.p0.y, left.p1.x, left.p1.y,
+        right.p0.x, right.p0.y, right.p1.x, right.p1.y};
+    pad_ = {env.pad_info_.x1, env.pad_info_.x2, env.pad_info_.y};
+    terrain_points_ = env.terrain_points_;
+
+    // 接触・joint・外力と報酬も同じ遷移の値とし、後続Resetから独立させる。
+    contacts_ = {env.left_leg_contact_, env.right_leg_contact_, env.body_contact_};
+    has_joints_ = env.lander_body_ && env.left_leg_body_ && env.right_leg_body_;
+    if (has_joints_) {
+        joint_angles_ = {env.left_leg_body_->GetAngle() - env.lander_body_->GetAngle(),
+            env.right_leg_body_->GetAngle() - env.lander_body_->GetAngle()};
+    }
+    forces_ = {env.last_wind_x_, env.last_wind_torque_};
+    rewards_ = {reward, raw_reward};
+}
+
+anet::rl::AuxData LunarLanderEnv::Result::GetAuxData() const
 {
     ANET_PROFILE_FUNC();
-
     anet::rl::AuxData aux;
+    if (!has_body_) return aux;
 
-    if (!lander_body_) {
-        return aux;
-    }
-
-    // --- world 定義（描画用・不変） ---
-    {
-        const float min_x = -config_.world_half_width;
-        const float max_x = +config_.world_half_width;
-        const float min_y = config_.ground_y - config_.terrain_noise_height;
-        const float max_y = config_.ground_y + config_.world_height;
-
-        aux.emplace(
-            "world",
-            torch::tensor(
-                { min_x, max_x, min_y, max_y },
-                float_opt_));
-    }
-    // --- Lander 本体 ---
-    {
-        const b2Vec2 pos = lander_body_->GetPosition();
-        const b2Vec2 vel = lander_body_->GetLinearVelocity();
-        const float angle = lander_body_->GetAngle();
-        const float angular_vel = lander_body_->GetAngularVelocity();
-
-        aux.emplace(
-            "lander",
-            torch::tensor(
-                { pos.x, pos.y, vel.x, vel.y, angle, angular_vel },
-                float_opt_));
-    }
-
-    // --- 脚セグメント ---
-    {
-        auto left = getLegSegment(left_leg_body_, kLegLength);
-        auto right = getLegSegment(right_leg_body_, kLegLength);
-
-        aux.emplace(
-            "legs",
-            torch::tensor(
-                {
-                    left.p0.x,  left.p0.y,  left.p1.x,  left.p1.y,
-                    right.p0.x, right.p0.y, right.p1.x, right.p1.y
-                },
-                float_opt_));
-    }
-
-    // --- パッド ---
-    {
-        aux.emplace(
-            "pad",
-            torch::tensor(
-                { pad_info_.x1, pad_info_.x2, pad_info_.y },
-                float_opt_));
-    }
-
-    // --- 地形（terrain polyline） ---
-    {
-        const size_t n = terrain_points_.size();
-        if (n > 0) {
-            torch::Tensor terrain = torch::empty({ static_cast<long>(n), 2 }, float_opt_);
-
-            for (size_t i = 0; i < n; ++i) {
-                terrain[i][0] = terrain_points_[i].x;
-                terrain[i][1] = terrain_points_[i].y;
-            }
-
-            aux.emplace("terrain", terrain);
+    // 表示側が要求したときだけ、結果自身が所有する値を元のshape/deviceへ変換する。
+    // 全auxはvector/matrixであり、スカラーの問い合わせ対象は持たない。
+    aux.emplace("world", torch::tensor({world_[0], world_[1], world_[2], world_[3]}, float_opt_));
+    aux.emplace("lander", torch::tensor({lander_[0], lander_[1], lander_[2], lander_[3], lander_[4], lander_[5]}, float_opt_));
+    aux.emplace("legs", torch::tensor({legs_[0], legs_[1], legs_[2], legs_[3],
+        legs_[4], legs_[5], legs_[6], legs_[7]}, float_opt_));
+    aux.emplace("pad", torch::tensor({pad_[0], pad_[1], pad_[2]}, float_opt_));
+    const size_t n = terrain_points_.size();
+    if (n > 0) {
+        auto terrain = torch::empty({static_cast<long>(n), 2}, float_opt_);
+        for (size_t i = 0; i < n; ++i) {
+            terrain[i][0] = terrain_points_[i].x;
+            terrain[i][1] = terrain_points_[i].y;
         }
+        aux.emplace("terrain", std::move(terrain));
     }
-
-    // --- 接地フラグ（物理真値） ---
-    {
-        aux.emplace(
-            "contacts",
-            torch::tensor(
-                {
-                    left_leg_contact_,
-                    right_leg_contact_,
-                    body_contact_
-                },
-                bool_opt_));
-    }
-
-    // --- joint 情報 ---
-    if (lander_body_ && left_leg_body_ && right_leg_body_) {
-        aux.emplace(
-            "joint_angle",
-            torch::tensor(
-                {
-                    left_leg_body_->GetAngle() - lander_body_->GetAngle(),
-                    right_leg_body_->GetAngle() - lander_body_->GetAngle()
-                },
-                float_opt_));
-    }
-
-    // --- 推力・風 ---
-    {
-        aux.emplace(
-            "forces",
-            torch::tensor(
-                { last_wind_x_, last_wind_torque_ },
-                float_opt_));
-    }
-
-    // --- 報酬 ---
-    {
-        aux.emplace(
-            "rewards",
-            torch::tensor(
-                { reward, raw_reward },  // RL報酬、Raw報酬
-                float_opt_));
-    }
-
-    //ANET_LOG_DEBUG("aux=" << anet::ToString(aux));
-
+    aux.emplace("contacts", torch::tensor({contacts_[0], contacts_[1], contacts_[2]}, bool_opt_));
+    if (has_joints_) aux.emplace("joint_angle", torch::tensor({joint_angles_[0], joint_angles_[1]}, float_opt_));
+    aux.emplace("forces", torch::tensor({forces_[0], forces_[1]}, float_opt_));
+    aux.emplace("rewards", torch::tensor({rewards_[0], rewards_[1]}, float_opt_));
     return aux;
 }
 

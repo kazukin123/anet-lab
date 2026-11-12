@@ -196,6 +196,9 @@ namespace anet::rl {
         int min_block_size = 40;
     };
 
+    void ValidateConv2dVisualizerConfig(const Conv2dVisualizerConfig& config,
+        const std::string& owner = "Conv2dVisualizerConfig");
+
     struct ImageProviderConfig : public anet::Config {
         std::string type;
         int image_width = -1;
@@ -214,7 +217,8 @@ namespace anet::rl {
             ;
         }
 
-        ImageProviderConfig(const anet::ConfigData& config_data, const std::string& config_prefix) : anet::Config("")
+        ImageProviderConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
+            : anet::Config(config_data, config_prefix)
         {
             ANET_READ_CONFIG(config_data, type);
             ANET_READ_CONFIG(config_data, image_width);
@@ -222,54 +226,49 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, flags);
             ANET_READ_CONFIG(config_data, interval);
 
-            if (type == kImageType_HeatMap) {
-                ANET_READ_CONFIG(config_data, heatmap.width);
-                ANET_READ_CONFIG(config_data, heatmap.height);
-                ANET_READ_CONFIG(config_data, heatmap.max_points);
+            // 項目のmodeで使わない既知フィールドも、構築時に型付きで読む。
+            ANET_READ_CONFIG(config_data, heatmap.width);
+            ANET_READ_CONFIG(config_data, heatmap.height);
+            ANET_READ_CONFIG(config_data, heatmap.max_points);
+            ANET_READ_CONFIG(config_data, heatmap.probe.x.source);
+            ANET_READ_CONFIG(config_data, heatmap.probe.x.key);
+            ANET_READ_CONFIG(config_data, heatmap.probe.x.index);
+            ANET_READ_CONFIG(config_data, heatmap.probe.y.source);
+            ANET_READ_CONFIG(config_data, heatmap.probe.y.key);
+            ANET_READ_CONFIG(config_data, heatmap.probe.y.index);
+            ANET_READ_CONFIG(config_data, heatmap.probe.value.source);
+            ANET_READ_CONFIG(config_data, heatmap.probe.value.key);
+            ANET_READ_CONFIG(config_data, heatmap.probe.value.index);
 
-                ANET_READ_CONFIG(config_data, heatmap.probe.x.source);
-                ANET_READ_CONFIG(config_data, heatmap.probe.x.key);
-                ANET_READ_CONFIG(config_data, heatmap.probe.x.index);
+            ANET_READ_CONFIG(config_data, sweep_obs.width);
+            ANET_READ_CONFIG(config_data, sweep_obs.height);
+            ANET_READ_CONFIG(config_data, sweep_obs.obs_key);
+            ANET_READ_CONFIG(config_data, sweep_obs.x_index);
+            ANET_READ_CONFIG(config_data, sweep_obs.y_index);
+            ANET_READ_CONFIG(config_data, sweep_obs.network_key);
+            ANET_READ_CONFIG(config_data, sweep_obs.output_key);
+            ANET_READ_CONFIG(config_data, sweep_obs.extractor_name);
+            ANET_READ_CONFIG(config_data, sweep_obs.extractor_index);
 
-                ANET_READ_CONFIG(config_data, heatmap.probe.y.source);
-                ANET_READ_CONFIG(config_data, heatmap.probe.y.key);
-                ANET_READ_CONFIG(config_data, heatmap.probe.y.index);
+            ANET_READ_CONFIG(config_data, histgram.bins);
+            ANET_READ_CONFIG(config_data, histgram.max_frames);
+            ANET_READ_CONFIG(config_data, histgram.frame_mode);
+            ANET_READ_CONFIG(config_data, histgram.frame_interval);
+            ANET_READ_CONFIG(config_data, histgram.alpha);
+            ANET_READ_CONFIG(config_data, histgram.probe.value.source);
+            ANET_READ_CONFIG(config_data, histgram.probe.value.key);
+            ANET_READ_CONFIG(config_data, histgram.probe.value.index);
 
-                ANET_READ_CONFIG(config_data, heatmap.probe.value.source);
-                ANET_READ_CONFIG(config_data, heatmap.probe.value.key);
-                ANET_READ_CONFIG(config_data, heatmap.probe.value.index);
-            } else if (type == kImageType_StateSweepedHeatMap) {
-                ANET_READ_CONFIG(config_data, sweep_obs.width);
-                ANET_READ_CONFIG(config_data, sweep_obs.height);
-                ANET_READ_CONFIG(config_data, sweep_obs.obs_key);
-                ANET_READ_CONFIG(config_data, sweep_obs.x_index);
-                ANET_READ_CONFIG(config_data, sweep_obs.y_index);
-                ANET_READ_CONFIG(config_data, sweep_obs.network_key);
-                ANET_READ_CONFIG(config_data, sweep_obs.output_key);
-                ANET_READ_CONFIG(config_data, sweep_obs.extractor_name);
-                ANET_READ_CONFIG(config_data, sweep_obs.extractor_index);
-            } else if (type == kImageType_TimeHistgram) {
-                ANET_READ_CONFIG(config_data, histgram.bins);
-                ANET_READ_CONFIG(config_data, histgram.max_frames);
-                ANET_READ_CONFIG(config_data, histgram.frame_mode);
-                ANET_READ_CONFIG(config_data, histgram.frame_interval);
-                //ANET_READ_CONFIG(config_data, histgram.alpha);
-                ANET_READ_CONFIG(config_data, histgram.probe.value.source);
-                ANET_READ_CONFIG(config_data, histgram.probe.value.key);
-                ANET_READ_CONFIG(config_data, histgram.probe.value.index);
-            } else if (type == kImageType_Conv2d) {
-                ANET_READ_CONFIG(config_data, conv2d.margin_x);
-                ANET_READ_CONFIG(config_data, conv2d.margin_y);
-                ANET_READ_CONFIG(config_data, conv2d.layer_margin_y);
-                ANET_READ_CONFIG(config_data, conv2d.channels_per_row);
-                ANET_READ_CONFIG(config_data, conv2d.flip_vertical);
-                ANET_READ_CONFIG(config_data, conv2d.network_key);
-                ANET_READ_CONFIG(config_data, conv2d.colormap);
-                ANET_READ_CONFIG(config_data, conv2d.scale_factor);
-                ANET_READ_CONFIG(config_data, conv2d.min_block_size);
-            }
-
-            default_prefix_ = config_prefix;
+            ANET_READ_CONFIG(config_data, conv2d.margin_x);
+            ANET_READ_CONFIG(config_data, conv2d.margin_y);
+            ANET_READ_CONFIG(config_data, conv2d.layer_margin_y);
+            ANET_READ_CONFIG(config_data, conv2d.channels_per_row);
+            ANET_READ_CONFIG(config_data, conv2d.flip_vertical);
+            ANET_READ_CONFIG(config_data, conv2d.network_key);
+            ANET_READ_CONFIG(config_data, conv2d.colormap);
+            ANET_READ_CONFIG(config_data, conv2d.scale_factor);
+            ANET_READ_CONFIG(config_data, conv2d.min_block_size);
+            ValidateConv2dVisualizerConfig(conv2d, MakeDefaultConfigKey("conv2d"));
         }
     };
 

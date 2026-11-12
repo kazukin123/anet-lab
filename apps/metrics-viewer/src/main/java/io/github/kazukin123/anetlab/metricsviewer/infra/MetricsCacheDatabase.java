@@ -27,7 +27,7 @@ public class MetricsCacheDatabase {
 
 	public static final String DATABASE_FILENAME = "metrics_cache.db";
 	public static final int APPLICATION_ID = 0x414E4554;
-	public static final int SCHEMA_VERSION = 1;
+	public static final int SCHEMA_VERSION = 2;
 
 	private static final Logger log = LoggerFactory.getLogger(MetricsCacheDatabase.class);
 	private static final Set<String> REQUIRED_TABLES = Set.of(
@@ -114,6 +114,50 @@ public class MetricsCacheDatabase {
 		}
 	}
 
+	public record CacheInspection(String reason, String generation, IngestState state, int schemaVersion,
+			boolean inputRequired) {
+	}
+
+	/** 属性変更時だけ呼ぶ軽量検査。旧版のtable・fingerprint・本文は読まない。 */
+	public CacheInspection inspect(Path runDir, MetricsSource source) throws IOException, SQLException {
+		if (!Files.isRegularFile(runDir.resolve(DATABASE_FILENAME)))
+			return new CacheInspection("cache_missing", null, IngestState.PENDING, -1, true);
+		try (ConnectionHandle handle = openRead(runDir); Statement st = handle.connection().createStatement()) {
+			final int version = queryInt(st, "PRAGMA user_version");
+			if (queryInt(st, "PRAGMA application_id") != APPLICATION_ID)
+				return new CacheInspection("application_id_mismatch", null, IngestState.PENDING, version, true);
+			if (version != SCHEMA_VERSION)
+				return new CacheInspection("schema_version_mismatch", null, IngestState.PENDING, version, true);
+			final SourceMeta.Values meta = SourceMeta.readValues(handle.connection());
+			if (!IngestState.isValidDbValue(meta.get(SourceMeta.STATE)))
+				return new CacheInspection("state_invalid", null, IngestState.PENDING, version, true);
+			final IngestState state = IngestState.fromDb(meta.get(SourceMeta.STATE));
+			final boolean unchanged = source.kind().equals(meta.get(SourceMeta.SOURCE_KIND))
+					&& source.size() == SourceMeta.parseLong(meta.get(SourceMeta.SOURCE_SIZE), -1)
+					&& source.modifiedTime() == SourceMeta.parseLong(meta.get(SourceMeta.SOURCE_MTIME), -1);
+			final boolean terminal = state == IngestState.READY || state == IngestState.ERROR;
+			String reason = null;
+			if (state == IngestState.PENDING || state == IngestState.CONVERTING)
+				reason = "incomplete_cache";
+			return new CacheInspection(reason, meta.get(SourceMeta.GENERATION), state, version,
+					!(terminal && unchanged));
+		}
+		catch (SQLException e) {
+			if (isCorrupt(e))
+				return new CacheInspection("database_corrupt", null, IngestState.PENDING, -1, true);
+			// 閉じた現行schema内のtable欠落は再構築対象。資源・接続失敗はRun停止へ伝える。
+			if (e.getMessage() != null && e.getMessage().contains("no such table"))
+				return new CacheInspection("required_table_missing", null, IngestState.PENDING, SCHEMA_VERSION, true);
+			if (e.getMessage() != null && e.getMessage().contains("no such column"))
+				return new CacheInspection("required_column_missing", null, IngestState.PENDING, SCHEMA_VERSION, true);
+			throw e;
+		}
+	}
+
+	private static boolean isCorrupt(SQLException e) {
+		return e.getErrorCode() == 11 || e.getErrorCode() == 26;
+	}
+
 	public CachePreparation prepare(Path runDir, MetricsSource source, boolean activeGzipSession)
 			throws IOException, SQLException {
 		final Path normalizedRunDir = runDir.toAbsolutePath().normalize();
@@ -122,6 +166,8 @@ public class MetricsCacheDatabase {
 
 		rwLock.writeLock().lock();
 		try {
+			if (!Files.isDirectory(normalizedRunDir) || !Files.isRegularFile(source.path()))
+				throw new java.nio.file.NoSuchFileException(normalizedRunDir.toString());
 			Files.deleteIfExists(normalizedRunDir.resolve("metrics_cache.kryo"));
 			if (Files.exists(database)) {
 				// 起動時にDB全体を走査せず、headerとschemaの軽量検査だけを行う。
@@ -130,7 +176,10 @@ public class MetricsCacheDatabase {
 					logCacheRebuild(
 							normalizedRunDir,
 							invalidReason,
-							readSourceMetaIfAvailable(database),
+							("schema_version_mismatch".equals(invalidReason)
+									|| "application_id_mismatch".equals(invalidReason))
+											? SourceMeta.Values.empty()
+											: readSourceMetaIfAvailable(database),
 							source);
 					deleteCacheFiles(database);
 				}
@@ -254,7 +303,8 @@ public class MetricsCacheDatabase {
 	}
 
 	private void initialize(Path database, MetricsSource source) throws IOException, SQLException {
-		Files.createDirectories(database.getParent());
+		if (!Files.isDirectory(database.getParent()) || !Files.isRegularFile(source.path()))
+			throw new java.nio.file.NoSuchFileException(database.getParent().toString());
 		try (Connection connection = openConnection(database, false);
 				Statement statement = connection.createStatement()) {
 			connection.setAutoCommit(false);
@@ -346,7 +396,7 @@ public class MetricsCacheDatabase {
 		}
 	}
 
-	private String checkDatabaseInvalid(Path database) {
+	private String checkDatabaseInvalid(Path database) throws SQLException {
 		try (Connection connection = openConnection(database, true);
 				Statement statement = connection.createStatement()) {
 			if (queryInt(statement, "PRAGMA application_id") != APPLICATION_ID) {
@@ -372,8 +422,11 @@ public class MetricsCacheDatabase {
 				}
 			}
 			return null;
-		} catch (Exception e) {
-			return "database_open_failed";
+		}
+		catch (SQLException e) {
+			if (isCorrupt(e))
+				return "database_corrupt";
+			throw e;
 		}
 	}
 
@@ -388,6 +441,8 @@ public class MetricsCacheDatabase {
 				} else {
 					statement.execute("PRAGMA journal_mode = WAL");
 					statement.execute("PRAGMA synchronous = NORMAL");
+					// 短いblockでもtag別のL0/LOD更新ページを保持し、既定約2MiBでのspillを抑える。
+					statement.execute("PRAGMA cache_size = -16384");
 				}
 			}
 			return connection;
@@ -420,11 +475,11 @@ public class MetricsCacheDatabase {
 			String reason,
 			SourceMeta.Values meta,
 			MetricsSource source) {
-		log.warn(
+		log.info(
 				"Rebuilding Metrics cache: run={} reason={} oldGeneration={} oldState={}"
 						+ " committedOffset={} storedSourceKind={} currentSourceKind={}"
 						+ " storedSourceBytes={} currentSourceBytes={}"
-						+ " storedSourceMtime={} currentSourceMtime={}",
+						+ " storedSourceMtime={} currentSourceMtime={} workspace={} path={}",
 				runDir.getFileName(),
 				reason,
 				meta.getOrDefault(SourceMeta.GENERATION, "unknown"),
@@ -435,19 +490,14 @@ public class MetricsCacheDatabase {
 				meta.getOrDefault(SourceMeta.SOURCE_SIZE, "unknown"),
 				source.size(),
 				meta.getOrDefault(SourceMeta.SOURCE_MTIME, "unknown"),
-				source.modifiedTime());
+				source.modifiedTime(), runDir.toAbsolutePath().normalize().getParent().getParent().getFileName(),
+				runDir.toAbsolutePath().normalize());
 	}
 
 	private static void deleteCacheFiles(Path database) throws IOException {
 		Files.deleteIfExists(database.resolveSibling(database.getFileName() + "-wal"));
 		Files.deleteIfExists(database.resolveSibling(database.getFileName() + "-shm"));
 		Files.deleteIfExists(database);
-	}
-
-	private static boolean cacheFilesExist(Path database) {
-		return Files.exists(database)
-				|| Files.exists(database.resolveSibling(database.getFileName() + "-wal"))
-				|| Files.exists(database.resolveSibling(database.getFileName() + "-shm"));
 	}
 
 	public static final class SourceMeta {

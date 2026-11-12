@@ -1,5 +1,9 @@
 ﻿#pragma once
 
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <set>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -26,18 +30,36 @@ namespace anet {
 		using MapType = anet::OrderedMap<std::string, std::string>;
     public:
         ConfigData() {}
-        ConfigData(const MapType& map) : map_(map) { }
-        ConfigData(const ConfigData& from) : map_(from.map_) { }
+        ConfigData(const MapType& map) { for (const auto& [key, value] : map) Set(key, value); }
+        ConfigData(const ConfigData& from) = default;
 
         //ConfigData Make(const std::string& sub_class_id) const;
     public:
         std::unordered_map<std::string, ConfigData> MakeSubConfigData(const std::string& prefix) const;
 		std::unordered_set<std::string> GetSubConfigTags(const std::string& prefix) const;
+        /// 元の設定の読み取り記録を引き継いで、相対キーへ値を写す。
+        void CopyValueFrom(const std::string& key, const ConfigData& source, const std::string& source_key);
+        /// 読み口が消費しなかった設定キーをキー順に返す。
+        std::vector<std::pair<std::string, std::string>> GetUnreadKeys() const;
+        /// 同じ出典を保ち、今回の読み口だけを検証する範囲を作る。
+        ConfigData CreateReadScope(const std::string& prefix = "") const;
+        /// 読まれなくても誤りでない prefix を、その設定の持ち主が宣言する。
+        void MarkInventory(const std::string& prefix, const std::vector<std::string>& excluded_prefixes = {}) const;
+        /// この範囲に読まれないキーが残っていれば、読み口の受け付けるキーとともに止める。
+        void RequireAllKeysRead(const std::string& owner) const;
         void MergeFromChecked(const ConfigData& other);
+        void OverwriteFrom(const ConfigData& other);
+        std::string ToPropertiesString() const;
+        void SaveProperties(const std::filesystem::path& path) const;
     public:
         void Set(const std::string& key, const std::string& value)
         {
-            map_.Set(key, value);
+            SetString(key, value);
+        }
+
+        void Set(const std::string& key, bool value)
+        {
+            SetString(key, value ? "true" : "false");
         }
 
         template<typename T>
@@ -45,7 +67,7 @@ namespace anet {
         {
             std::stringstream ss;
             ss << value;
-            map_.Set(key, ss.str());
+            SetString(key, ss.str());
         }
 
         template<typename T>
@@ -56,7 +78,7 @@ namespace anet {
                 if (i > 0) ss << " ";
                 ss << value[i];
             }
-            map_.Set(key, ss.str());
+            SetString(key, ss.str());
         }
 
         bool Has(const std::string& key) const
@@ -121,19 +143,39 @@ namespace anet {
     private:
         //std::vector<std::string> ResolveModule(const std::string& module) const;
     private:
+        struct ReadEntry {
+            std::atomic_bool read = false;
+            std::atomic_bool inventory = false;
+            std::vector<std::shared_ptr<ReadEntry>> sources;
+            void MarkRead();
+            void MarkInventory();
+        };
+        struct ReadScope {
+            std::mutex mutex;
+            std::set<std::string> attempted;
+        };
+        void SetString(const std::string& key, const std::string& value);
+        void MarkRead(const std::string& key) const;
         MapType map_;
+        std::unordered_map<std::string, std::shared_ptr<ReadEntry>> read_entries_;
+        std::shared_ptr<ReadScope> read_scope_;
     };
+
+    /// Run の構築を終えた呼び出し側が、未読キーを 1 件の WARN で一覧する。
+    void WarnUnreadConfigKeys(const ConfigData& config_data);
 
 	const ConfigData EmptyConfigData;
 
     struct ConfigManagerOptions {
         std::optional<std::vector<std::filesystem::path>> config_search_dirs;
+        ConfigData injected_config;
+        std::vector<std::filesystem::path> overwrite_config_paths;
     };
 
     /// Properties類似形式の設定ファイル操作クラス
     class Properties {
     public:
-        explicit Properties(const std::string& filename, ConfigManagerOptions options = {})
+        explicit Properties(const std::filesystem::path& filename, ConfigManagerOptions options = {})
             : options_(options)
         {
             Load(filename);
@@ -141,7 +183,17 @@ namespace anet {
         ConfigData ToConfigData() const {
             return configData;
         }
+        /// 解決入力の既定キーを読み取り専用で参照する。返却参照の寿命はPropertiesと同じ。
+        const std::unordered_set<std::string>& DefaultKeys() const {
+            return default_keys_;
+        }
+        const std::unordered_set<std::string>& SelectionSourcePrefixes() const {
+            return selection_source_prefixes_;
+        }
     private:
+        // 読み込み途中だけ保持し、公開ConfigDataへは渡さない。
+        std::unordered_set<std::string> default_keys_;
+        std::unordered_set<std::string> selection_source_prefixes_;
         ConfigData configData;
         ConfigManagerOptions options_;
 
@@ -165,8 +217,11 @@ namespace anet {
         anet::ConfigData GetConfigData() const { return my_config_data_; }
         anet::ConfigData GetScopedConfigData() const;
     protected:
+        /// default/overrideの完全キーを保ち、指定した項目だけを新しく検証する。
+        ConfigData MakeReadScope(const ConfigData& config_data, const std::string& key) const;
+
         template<typename T>
-        void ReadConfig(const ConfigData& config_data, const std::string& key, T& value)
+        void ReadConfig(const ConfigData& config_data, const std::string& key, T& value, bool record = true)
         {
             if constexpr (ConfigReader<T>::kEnabled) {
                 ConfigReader<T>::Read(*this, config_data, key, value);
@@ -180,19 +235,26 @@ namespace anet {
                 config_data.Read(override_config_key, value, value);
 
 			    // 取り込んだKeyとValueを保存
-                my_config_data_.Set(key, value);
-                my_config_json_[key] = value;
+                if (record) RecordConfigValue(key, value);
             }
 		}
+
+        // 読み取った値のうち、実効契約が使う欄だけを記録する。
+        template<typename T>
+        void RecordConfigValue(const std::string& key, const T& value)
+        {
+            my_config_data_.Set(key, value);
+            my_config_json_[key] = value;
+        }
 
         template<typename T>
         void ReadSubConfig(
             const ConfigData& config_data,
             const std::string& root_key,
             const std::string& sub_key,
-            T& value)
+            T& value, bool record = true)
         {
-            ReadConfig(config_data, root_key.empty() ? sub_key : root_key + "." + sub_key, value);
+            ReadConfig(config_data, root_key.empty() ? sub_key : root_key + "." + sub_key, value, record);
         }
 
         std::string MakeTaggedSubConfigKey(
@@ -236,22 +298,48 @@ namespace anet {
         anet::json my_config_json_; ///< JSONデータとして元の型情報を覚えておく
     };
 
+    /// ConfigDataで扱う設定キーの値のoptional。未指定ならDTOの初期値を保持する。
+    template<typename T>
+    struct ConfigReader<std::optional<T>> {
+        static constexpr bool kEnabled = true;
+
+        static void Read(Config& owner, const ConfigData& config_data,
+            const std::string& key, std::optional<T>& value)
+        {
+            static_assert(!ConfigReader<T>::kEnabled,
+                "Optional configuration supports native ConfigData leaf values.");
+            // 不在を記録値に変えず、既定値も無い場合は読み取り自体を省く。
+            if (!value.has_value() && !owner.HasConfigValue(config_data, key)) {
+                return;
+            }
+            // prefix順序・変換・記録は通常値の共通経路へ委譲する。
+            T parsed = value.value_or(T{});
+            owner.ReadConfig(config_data, key, parsed);
+            value = std::move(parsed);
+        }
+    };
+
     /// 設定マネージャー。コマンドラインオプションとPropertiesファイルを元にConfigDataを生成。
     class ConfigManager {
     public:
         ConfigManager(
-            const std::string& filePath,
+            const std::filesystem::path& filePath,
             const wxCmdLineParser* cmdLine = nullptr,
             ConfigManagerOptions options = {});
 
-        ConfigData GetConfigData() const { return { map_ }; }
+        ConfigData GetConfigData() const { return effective_config_; }
+        anet::json GetResolutionJson() const { return resolution_json_; }
     private:
-        void LoadFromFile(const std::string& filePath);
-        void ApplyCmdLineOverrides(const wxCmdLineParser& cmdLine);
-        void AutoMerge();
+        void LoadFromFile(const std::filesystem::path& filePath);
+        void OverwriteFromFile(const std::filesystem::path& filePath);
+        ConfigData::MapType ReadCmdLineOverrides(const wxCmdLineParser& cmdLine);
     private:
         ConfigManagerOptions options_;
         ConfigData::MapType map_;
+        ConfigData effective_config_;
+        std::unordered_set<std::string> default_keys_;
+        std::unordered_set<std::string> selection_source_prefixes_;
+        anet::json resolution_json_;
     };
 
 }

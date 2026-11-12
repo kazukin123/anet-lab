@@ -1,6 +1,7 @@
 ﻿// scaler_impl.hpp
 #pragma once
 
+#include <atomic>
 #include "anet/scaler.hpp"
 
 namespace anet::rl {
@@ -13,7 +14,7 @@ namespace anet::rl {
      * @brief 並列Welfordアルゴリズムを用いて、ストリームデータの平均と分散を逐次計算するクラス。
      * Reward Scaling (Scalar) と Observation Normalization (Vector) の両方で使用可能。
      */
-    class RunningMeanStd {
+    class RunningMeanStd : public anet::Serializable {
     public:
         /**
          * @param shape 統計を取るデータの形状。
@@ -26,6 +27,8 @@ namespace anet::rl {
         virtual ~RunningMeanStd() = default;
 
         void Reset();
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
 
         /**
          * @brief バッチデータを入力して統計情報を更新する
@@ -62,7 +65,7 @@ namespace anet::rl {
     // SingleTensorNormalizer (内部用インターフェース)
     // =============================================================
 
-    class SingleTensorNormalizer : virtual public ModuleBase {
+    class SingleTensorNormalizer : virtual public ModuleBase, public anet::Serializable {
     public:
         virtual torch::Tensor Normalize(const torch::Tensor& obs) const = 0;
         virtual torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) = 0;
@@ -77,6 +80,8 @@ namespace anet::rl {
 
     class ConstantSingleTensorNormalizer : public SingleTensorNormalizer {
     public:
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
         ConstantSingleTensorNormalizer(bool pass_through,
             const std::vector<int64_t>& shape, const std::optional<float>& clip_range,
             const std::vector<float>& fixed_mean = {}, // 空なら 0.0
@@ -111,6 +116,8 @@ namespace anet::rl {
 
     class RunningStdSingleTensorNormalizer : public SingleTensorNormalizer {
     public:
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
         RunningStdSingleTensorNormalizer(
             const std::optional<float>& clip_range,
             const std::vector<int64_t>& shape, float epsilon,
@@ -151,6 +158,8 @@ namespace anet::rl {
 
     class DictObservationNormalizer : public ObservationNormalizer, virtual public ModuleBase {
     public:
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
         DictObservationNormalizer() = default;
 
         // 初期化時にKeyごとのNormalizerを登録する
@@ -174,6 +183,7 @@ namespace anet::rl {
     public:
         ConstantRewardScaler(float scale_factor, const std::optional<float>& clip_range = std::nullopt);
         torch::Tensor Scale(const torch::Tensor& reward) override;
+        torch::Tensor ScaleWithoutUpdate(const torch::Tensor& reward) const override;
         void Reset() override {}
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -188,6 +198,7 @@ namespace anet::rl {
         RunningStdRewardScaler(const std::optional<float>& clip_range = std::nullopt, float epsilon = 1e-8f, float post_scale = 1.0f);
 
         torch::Tensor Scale(const torch::Tensor& reward) override;
+        torch::Tensor ScaleWithoutUpdate(const torch::Tensor& reward) const override;
         void Reset() override;
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -199,6 +210,7 @@ namespace anet::rl {
 
         // 統計
         RunningMeanStd stats_;
+        std::atomic<float> diagnostic_std_{1.0f}; ///< 診断は可変Tensor統計を参照せず、公開済みのstdだけを読む
         float last_clip_ratio_ = 0.0f;  ///< 直近のNormalizeでのクリップ率（メトリクス用）
     };
 

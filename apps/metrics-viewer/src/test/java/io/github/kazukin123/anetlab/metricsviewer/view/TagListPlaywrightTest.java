@@ -1,19 +1,7 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.RELOAD_NEW_TAG;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.RELOAD_OLD_TAG;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.TAG_A;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.TAG_B;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.TAG_C;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.manyTagRunsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.reloadInitialMetricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.reloadNewTagMetricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.reloadTagRunsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.splitTagMetricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.splitTagRunsJson;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,7 +17,7 @@ import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "metricsviewer.runs-dir=target/playwright-test-empty-runs")
+		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class TagListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	@Test
@@ -96,17 +84,18 @@ class TagListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		assertTrue(readTagList(page).contains(RELOAD_NEW_TAG));
 		assertTrue(isGraphTitleVisible(page, RELOAD_OLD_TAG));
 		assertTrue(isGraphTitleVisible(page, RELOAD_NEW_TAG));
+		page.waitForFunction("tag => document.getElementById(graphId(tag))?.data?.length > 0",RELOAD_NEW_TAG);
 		assertTrue(metricsRequests.size() >= 2);
-		assertTrue(metricsRequests.get(1).contains(RELOAD_OLD_TAG));
+		assertFalse(metricsRequests.get(1).contains(RELOAD_OLD_TAG));
 		assertTrue(metricsRequests.get(1).contains(RELOAD_NEW_TAG));
 	}
 
 	@Test
 	void tagListAllowsVerticalTouchScrollingOnMobile() {
 		reopenPage(new Browser.NewContextOptions()
-			.setViewportSize(390, 640)
-			.setIsMobile(true)
-			.setHasTouch(true));
+				.setViewportSize(390, 640)
+				.setIsMobile(true)
+				.setHasTouch(true));
 
 		page.route("**/api/runs.json", route -> fulfillJson(route, manyTagRunsJson(60)));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, "{\"data\":[]}"));

@@ -188,9 +188,9 @@ TEST_CASE("LunarLanderEnv behavior does not depend on its name", "[lunarlander][
 {
     const auto config = MakeConfig(/*obs_include_action=*/false, /*limit_step=*/1000);
     auto first = std::make_shared<anet::rl::env::LunarLanderEnv>(
-        config, torch::Device(torch::kCPU), "first-name[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[first-name].[0]", 123);
     auto second = std::make_shared<anet::rl::env::LunarLanderEnv>(
-        config, torch::Device(torch::kCPU), "second-name[0]", 123);
+        config, torch::Device(torch::kCPU), "env.[second-name].[0]", 123);
 
     const auto first_reset = first->Reset();
     const auto second_reset = second->Reset();
@@ -216,7 +216,7 @@ TEST_CASE("LunarLanderEnv behavior does not depend on its name", "[lunarlander][
 TEST_CASE("LunarLanderEnv action observation works through batch env prefixes", "[lunarlander][obs_include_action]")
 {
     auto config_data = MakeConfigData(/*obs_include_action=*/true, /*limit_step=*/1000);
-    config_data.Set("train.eval.[test1].env.limit_step", "1");
+    config_data.Set("run.eval.[test1].env.limit_step", "1");
 
     auto factory = std::make_shared<anet::rl::env::LunarLanderEnvFactory>();
     anet::rl::VectorizedDiscreteBatchEnv env(
@@ -227,7 +227,7 @@ TEST_CASE("LunarLanderEnv action observation works through batch env prefixes", 
         torch::Device(torch::kCPU),
         /*seed=*/1,
         anet::rl::RunMode::Train,
-        /*config_prefix=*/"train.eval.[test1].env");
+        /*config_prefix=*/"run.eval.[test1].env");
 
     const auto spec = env.GetSpec();
     const std::vector<int64_t> expected_single_shape{ 12 };
@@ -263,4 +263,26 @@ int main(int argc, char* argv[])
     Catch::Session session;
     session.configData().showDurations = Catch::ShowDurations::Always;
     return session.run(test_args.Argc(), test_args.Argv());
+}
+
+TEST_CASE("LunarLander results retain their drawing data after later Step and Reset", "[lunarlander][prd097_lunar_result]")
+{
+    auto env = MakeEnv(false);
+    env->Reset();
+    const auto first = env->Step(0);
+    const auto drawing = first->GetAuxData();
+    for (const auto& key : {"world", "lander", "legs", "pad", "terrain", "contacts", "joint_angle", "forces", "rewards"}) {
+        REQUIRE(drawing.contains(key));
+        CHECK(drawing.at(key).scalar_type() == (std::string(key) == "contacts" ? torch::kBool : torch::kFloat32));
+        CHECK_FALSE(first->GetScalar(key).has_value());
+    }
+    const auto second = env->Step(2);
+    REQUIRE_FALSE(torch::equal(drawing.at("lander"), second->GetAuxData().at("lander")));
+    const auto after_step = first->GetAuxData();
+    env->Reset();
+    const auto after_reset = first->GetAuxData();
+    for (const auto& [key, value] : drawing) {
+        CHECK(torch::equal(value, after_step.at(key)));
+        CHECK(torch::equal(value, after_reset.at(key)));
+    }
 }

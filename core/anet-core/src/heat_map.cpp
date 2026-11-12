@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <filesystem>
+#include <new>
 #include "anet/common.hpp"
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
@@ -10,6 +11,30 @@ using namespace anet;
 namespace LOG = anet::log;
 
 const unsigned char BACKGROUND_LEVEL = 10;
+
+namespace {
+
+constexpr const char* kTimeHeatMapTarget = "TimeHeatMap::RenderRaw";
+
+wxImage CreateOwnedImage(int width, int height, const char* target)
+{
+    ANET_PROFILE_FUNC();
+
+    wxImage image;
+    bool created = false;
+    try {
+        created = image.Create(width, height, false);
+    } catch (const std::bad_alloc&) {
+        // wxImageの管理情報の確保失敗も、画素領域と同じ境界で診断する。
+    }
+    if (!created) {
+        ANET_SYSTEM_ERROR("Image allocation failed: target=" << target
+            << " width=" << width << " height=" << height);
+    }
+    return image;
+}
+
+} // namespace
 
 // ============================================================
 // Util: 値 → Jet RGB
@@ -412,8 +437,8 @@ wxImage TimeHeatMap::RenderRaw() const
 		return HeatMap::RenderRaw();
 
 	if (size_ == 0) {
-		wxImage empty(1, 1);
-		empty.SetData(new unsigned char[3] {0, 0, 0});
+		wxImage empty = CreateOwnedImage(1, 1, kTimeHeatMapTarget);
+		std::fill_n(empty.GetData(), 3, 0);
 		return empty;
 	}
 
@@ -498,8 +523,7 @@ wxImage TimeHeatMap::RenderRaw() const
 		if (cnt[i] > 0) buf[i] /= cnt[i];
 
 	// --- イメージ化 ---
-	wxImage img(W, H);
-	img.SetData(new unsigned char[W * H * 3]);
+	wxImage img = CreateOwnedImage(W, H, kTimeHeatMapTarget);
 	unsigned char* data = img.GetData();
 
 	for (int y = 0; y < H; ++y) {
@@ -557,8 +581,7 @@ wxImage Histgram::RenderRaw() const
 	ANET_PROFILE_FUNC();
 
 	std::lock_guard<std::mutex> lock(mtx_);
-	wxImage img(width_, height_);
-	img.SetData(new unsigned char[width_ * height_ * 3]);
+	wxImage img = CreateOwnedImage(width_, height_, "Histgram::RenderRaw");
 	std::fill_n(img.GetData(), width_ * height_ * 3, 0);
 	int maxc = *std::max_element(counts_.begin(), counts_.end());
 	if (maxc <= 0) return img;
@@ -815,8 +838,7 @@ wxImage SweepedHeatMap::RenderRaw() const
 {
 	ANET_PROFILE_FUNC();
 
-	wxImage img(width_, height_);
-	img.SetData(new unsigned char[width_ * height_ * 3]);
+	wxImage img = CreateOwnedImage(width_, height_, "SweepedHeatMap::RenderRaw");
 	unsigned char* d = img.GetData();
 	float range = std::max(value_max_ - value_min_, 1e-6f);
 	for (int y = 0; y < height_; ++y) {

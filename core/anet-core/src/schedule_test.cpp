@@ -376,3 +376,24 @@ TEST_CASE("ProfiledValue rejects invalid bounds and nonfinite active fields", "[
     };
     CHECK_THROWS_AS(anet::ProfiledValue<double>(invalid_cycle), std::runtime_error);
 }
+
+TEST_CASE("PRD101 exponential profiles match the BTR recurrence and retain their phase endpoint", "[profiled_value][prd101]")
+{
+    anet::ProfiledValueConfig<double> exponential{
+        .type = "exponential", .start = 1.0, .end = 0.01, .time_constant = 2000000.0};
+    const anet::ProfiledValue<double> profile(exponential);
+    double discrete = 1.0, maximum_error = 0.0;
+    for (uint64_t step = 0; step <= 25000000; ++step) {
+        maximum_error = std::max(maximum_error, std::abs(profile.Evaluate(step) - discrete));
+        discrete -= (discrete - exponential.end) / exponential.time_constant;
+    }
+    CHECK(maximum_error < 1.0e-6);
+    anet::ProfiledValueConfig<double> phased{.type = "phased", .phases = {"decay"}};
+    phased.phase.Set("decay", anet::ProfiledValuePhaseConfig<double>{
+        .type = "exponential", .start = 1.0, .end = 0.0, .steps = 10, .time_constant = 10.0});
+    CHECK(anet::ProfiledValue<double>(phased).Evaluate(99) == Catch::Approx(std::exp(-1.0)));
+    for (const double invalid : {0.0, -1.0, std::numeric_limits<double>::infinity()}) {
+        exponential.time_constant = invalid;
+        CHECK_THROWS(anet::ProfiledValue<double>(exponential));
+    }
+}

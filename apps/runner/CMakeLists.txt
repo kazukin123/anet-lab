@@ -1,4 +1,4 @@
-﻿# anet-lab/apps/runner/CMakeLists.txt
+# anet-lab/apps/runner/CMakeLists.txt
 
 
 # ---------------------------------------------------------------------
@@ -14,6 +14,7 @@ project(AnetRLRunner)
 # ---------------------------------------------------------------------
 
 file(GLOB_RECURSE ANET_PRIVATE_SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.hpp")
+list(FILTER ANET_PRIVATE_SOURCES EXCLUDE REGEX "_test\\.cpp$")
 file(GLOB ANET_CONFIGS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/config/*.txt")
 
 if(WIN32)
@@ -55,6 +56,11 @@ target_link_libraries(AnetRLRunner PRIVATE
     ImageClsEnv
 )
 
+if(ANET_ATARI_ENABLED)
+    target_link_libraries(AnetRLRunner PRIVATE AtariEnv)
+    target_compile_definitions(AnetRLRunner PRIVATE ANET_HAS_ATARI)
+endif()
+
 if (WIN32)
   set_target_properties(AnetRLRunner PROPERTIES
       WIN32_EXECUTABLE TRUE
@@ -72,7 +78,6 @@ set_target_properties(AnetRLRunner PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_CURRENT_SOURCE_DIR}/bin/RelWithDebInfo
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/bin/Release
 )
-
 
 # ---------------------------------------------------------------------
 #  DLLコピー
@@ -101,21 +106,27 @@ if (MSVC)
     message(WARNING "No DLLs found in ${TORCH_DLL_DIR}")
   endif()
 
-  # --- wxWidgets DLLコピー（Configモード＝wxソースビルド時のみ） ---
-  # Moduleモード（ローカルのvcpkg toolchain）ではapplocal配備がDLLコピーを担うため対象外
-  if(TARGET wx::core)
-    get_target_property(ANET_WX_CORE_TYPE wx::core TYPE)
-    if(ANET_WX_CORE_TYPE STREQUAL "SHARED_LIBRARY")
-      add_custom_command(TARGET AnetRLRunner POST_BUILD
-          COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                  $<TARGET_FILE:wx::base>
-                  $<TARGET_FILE:wx::core>
-                  $<TARGET_FILE:wx::gl>
-                  $<TARGET_FILE:wx::aui>
-                  $<TARGET_FILE_DIR:AnetRLRunner>
-          COMMENT "Copying wxWidgets DLLs"
-      )
-    endif()
+  # --- wxWidgets DLLコピー ---
+  anet_copy_wx_dlls(AnetRLRunner)
+
+  # --- 汎用 runtime DLLコピー（third_party/runtime_dlls に置いた DLL を配備） ---
+  # 実行時ロードされる DLL（SDL2.dll 等）の置き場。詳細は third_party/runtime_dlls/README.md。
+  # DLL 追加・削除後は再 configure が必要（GLOB は configure 時評価）。
+  set(ANET_RUNTIME_DLL_DIR "${CMAKE_SOURCE_DIR}/third_party/runtime_dlls")
+  file(GLOB ANET_RUNTIME_DLLS "${ANET_RUNTIME_DLL_DIR}/*.dll")
+
+  if(ANET_RUNTIME_DLLS)
+    add_custom_command(TARGET AnetRLRunner POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${ANET_RUNTIME_DLLS}
+                $<TARGET_FILE_DIR:AnetRLRunner>
+        COMMENT "Copying runtime DLLs"
+    )
+  elseif(NOT IS_DIRECTORY "${ANET_RUNTIME_DLL_DIR}")
+    # ディレクトリごと見つからないのは配置ミス。STATUS だと埋もれるので WARNING で出す。
+    message(WARNING "Runtime DLL directory not found: ${ANET_RUNTIME_DLL_DIR}")
+  else()
+    message(STATUS "No runtime DLLs in ${ANET_RUNTIME_DLL_DIR} (skip)")
   endif()
 endif()
 
@@ -132,3 +143,16 @@ source_group("src" REGULAR_EXPRESSION "cmake_pch.*")
 if(WIN32)
     source_group("src" FILES ${ANET_WIN_SOURCES})
 endif()
+
+# 実wxWidgetの公開操作を検証する。通常の全体buildには追加しない。
+add_executable(AnetRLRunner-gui-test EXCLUDE_FROM_ALL ${ANET_PRIVATE_SOURCES} src/EvalTracePanel_test.cpp src/LogPanel_test.cpp src/RunnerApp_test.cpp src/RunnerFrame_test.cpp src/Panel_key_test.cpp src/QValuePanel_test.cpp ${ANET_WIN_SOURCES})
+get_target_property(ANET_RUNNER_TEST_LIBRARIES AnetRLRunner LINK_LIBRARIES)
+target_link_libraries(AnetRLRunner-gui-test PRIVATE ${ANET_RUNNER_TEST_LIBRARIES} catch2)
+# コンパイルPDBを本体と分け、Releaseでも他targetのPDBに依存させない。
+target_precompile_headers(AnetRLRunner-gui-test PRIVATE "src/pch.hpp")
+add_dependencies(AnetRLRunner-gui-test AnetRLRunner)
+if(ANET_ATARI_ENABLED)
+    target_compile_definitions(AnetRLRunner-gui-test PRIVATE ANET_HAS_ATARI)
+endif()
+
+set_target_properties(AnetRLRunner-gui-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:AnetRLRunner>")

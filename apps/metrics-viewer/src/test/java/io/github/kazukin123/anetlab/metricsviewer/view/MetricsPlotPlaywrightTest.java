@@ -10,10 +10,15 @@ import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlayw
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.legendStateRunsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.lodMetricsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.metricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.mixedSampleCountMetricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.mixedSampleCountRunsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.rawSeriesJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runJsonWithGeneration;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.singleBucketLodMetricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.singleSampleMetricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.singleSampleRunsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.statsWarningMetricsJson;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.statsWarningRunsJson;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -35,7 +40,7 @@ import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "metricsviewer.runs-dir=target/playwright-test-empty-runs")
+		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	@Test
@@ -52,10 +57,16 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		final List<Map<String, String>> chips = readRunChips(page);
 		assertEquals(RUN_IDS.size(), chips.size());
-		assertEquals(RUN_IDS.size(), chips.stream().map(chip -> chip.get("color")).distinct().count());
 		assertTrue(chips.stream().allMatch(chip -> chip.get("color").startsWith("rgb(")));
 
 		final String selectedRunId = readActiveRunIds(page).get(0);
+		// 未選択Runは基本色を先着順に持つので互いに異なる。選択中Runは新しく選んだRunとして
+		// palette先頭の色を取り直すため、未選択Runと同じ色になってよい。
+		assertEquals(RUN_IDS.size() - 1, chips.stream()
+				.filter(chip -> !selectedRunId.equals(chip.get("runId")))
+				.map(chip -> chip.get("color"))
+				.distinct()
+				.count());
 		final String selectedChipColor = chips.stream()
 				.filter(chip -> selectedRunId.equals(chip.get("runId")))
 				.findFirst()
@@ -152,6 +163,66 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	}
 
 	@Test
+	void singleSampleSeriesIsDrawnAsAMarkerInTheRunColor() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, singleSampleRunsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, singleSampleMetricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?singleSampleTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForDrawnMarkers(page, 1);
+
+		// 背景に紛れず、どのRunの点か読めること。
+		final String markerColor = (String) page.evaluate(
+				"getComputedStyle(document.querySelector('.scatterlayer path.point')).fill");
+		assertEquals(readRunChips(page).get(0).get("color"), markerColor);
+	}
+
+	@Test
+	void singleBucketProjectionStaysVisibleInEveryLodDisplayMode() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, singleSampleRunsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, singleBucketLodMetricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?singleBucketTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForDrawnMarkers(page, 1);
+
+		page.selectOption("#lod-display-mode", "Mean");
+		page.waitForFunction("document.querySelector('.js-plotly-plot')?.data?.[0]?.meta?.role === 'mean'");
+		waitForDrawnMarkers(page, 1);
+
+		// Bandはmin/max/meanの3 traceに分かれる。幅の無いbandは塗れないので点で残す。
+		page.selectOption("#lod-display-mode", "Band");
+		page.waitForFunction("document.querySelector('.js-plotly-plot')?.data?.length === 3");
+		waitForDrawnMarkers(page, 3);
+	}
+
+	@Test
+	void multiRunGraphDrawsMarkersOnlyForTheSingleSampleRun() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, mixedSampleCountRunsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, mixedSampleCountMetricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?mixedSampleCountTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		// Select AllのhandlerはRun一覧を描くときに結び付くので、一覧が出てから押す。
+		waitForRunRows(page, 2);
+		page.click("#btn-select-all-runs");
+		waitForDrawnMarkers(page, 1);
+
+		page.waitForFunction("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					const modes = new Map(Array.from(plot?.data ?? []).map(trace => [trace.meta.runId, trace.mode]));
+					return modes.get('run_many') === 'lines'
+						&& modes.get('run_single') === 'markers'
+						&& plot.querySelectorAll('.scatterlayer path.js-line').length === 1;
+				}
+				""");
+	}
+
+	@Test
 	void legendVisibilitySurvivesRedrawsAndResetViewShowsAllAndAutoscales() {
 		final AtomicInteger metricsRequests = new AtomicInteger();
 		page.route("**/api/runs.json", route -> fulfillJson(route, legendStateRunsJson()));
@@ -163,6 +234,8 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		page.navigate(baseUrl + "/?legendStateTest=" + System.nanoTime(),
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		// Select AllのhandlerはRun一覧を描くときに結び付くので、一覧が出てから押す。
+		waitForRunRows(page, 2);
 		page.click("#btn-select-all-runs");
 		waitForGraphCount(page, 2);
 		waitForSeriesTrace(page, TAG_A, "run_a", true);
@@ -173,17 +246,18 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		final int requestsBeforeRangeResponse = metricsRequests.get();
 		page.evaluate("""
-				() => Plotly.relayout(
-					document.getElementById(graphId('tag/a')),
-					{'xaxis.range': [0.5, 1.5]})
+				async () => {
+					await Plotly.relayout(document.getElementById(graphId('tag/a')), {'xaxis.range':[0.5,1.5]});
+					await app.requestVisibleData({force:true});
+				}
 				""");
 		waitForSeriesTrace(page, TAG_A, "run_a", false);
 		page.waitForCondition(() -> metricsRequests.get() > requestsBeforeRangeResponse);
 		waitForSeriesTrace(page, TAG_A, "run_a", false);
 
 		final int requestsBeforeReload = metricsRequests.get();
-		page.click("#btn-reload");
-		page.waitForCondition(() -> metricsRequests.get() > requestsBeforeReload);
+		page.evaluate("async () => { await app.onReload(); }");
+		assertEquals(requestsBeforeReload,metricsRequests.get());
 		waitForSeriesTrace(page, TAG_A, "run_a", false);
 
 		page.evaluate("""
@@ -216,8 +290,8 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 					})
 				])
 				""");
-		page.waitForCondition(() -> metricsRequests.get() > requestsBeforeAxes);
-		final int requestsBeforeReset = metricsRequests.get();
+		page.evaluate("async () => { await app.requestVisibleData(); }");
+		assertEquals(requestsBeforeAxes,metricsRequests.get());
 		page.evaluate("""
 				() => {
 					const main = document.getElementById('main-area');
@@ -228,8 +302,6 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				""");
 		page.click("#btn-reset-view");
 		waitForSeriesTrace(page, TAG_A, "run_a", true);
-		page.waitForCondition(() -> metricsRequests.get() >= requestsBeforeReset + 1);
-		assertEquals(requestsBeforeReset + 1, metricsRequests.get());
 		assertEquals(true, page.evaluate("""
 				() => ['tag/a', 'tag/b'].every(tagKey => {
 					const plot = document.getElementById(graphId(tagKey));
@@ -271,6 +343,8 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		page.navigate(baseUrl + "/?bandLegendStateTest=" + System.nanoTime(),
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		// Select AllのhandlerはRun一覧を描くときに結び付くので、一覧が出てから押す。
+		waitForRunRows(page, 2);
 		page.click("#btn-select-all-runs");
 		page.selectOption("#lod-display-mode", "Band");
 		page.waitForFunction("""
@@ -300,16 +374,25 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				() => {
 					const controls = document.getElementById('floating-controls');
 					const bounds = controls.getBoundingClientRect();
-					const tops = Array.from(controls.children).map(child => child.getBoundingClientRect().top);
+					const tops = Array.from(controls.children)
+						.filter(child => child.getClientRects().length > 0)
+						.map(child => child.getBoundingClientRect().top);
 					return bounds.left >= 0
 						&& bounds.right <= window.innerWidth
 						&& Math.max(...tops) - Math.min(...tops) < 1;
 				}
 				"""));
+		assertEquals(false, page.evaluate("""
+				() => document.getElementById('floating-loading-spinner').getClientRects().length > 0
+				"""));
 
 		page.click("#btn-screenshot-toggle");
 		assertEquals("none", page.evaluate("""
 				() => getComputedStyle(document.getElementById('btn-reset-view')).display
+				"""));
+		// 左パネルが消えるので、Reload中の表示は右上のスピナーが受け持つ。
+		assertEquals(true, page.evaluate("""
+				() => document.getElementById('floating-loading-spinner').getClientRects().length > 0
 				"""));
 	}
 
@@ -321,6 +404,8 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 		page.navigate(baseUrl + "/?statsWarningTest=" + System.nanoTime(),
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		// Select AllのhandlerはRun一覧を描くときに結び付くので、一覧が出てから押す。
+		waitForRunRows(page, 2);
 		page.click("#btn-select-all-runs");
 		waitForMultiRunGraph(page);
 		page.waitForFunction("document.querySelector('.graph-warning') !== null");
@@ -342,7 +427,7 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		final List<String> requests = Collections.synchronizedList(new ArrayList<>());
 		page.route("**/api/runs.json", route -> fulfillJson(
 				route,
-				"{\"runs\":[" + runJson("run_lod_ui", 31, TAG_KEY) + "]}"));
+				"{\"runs\":[" + runJson("run_lod_ui", 31000, TAG_KEY) + "]}"));
 		page.route("**/api/metrics.json", route -> {
 			requests.add(route.request().postData());
 			fulfillJson(route, lodMetricsJson());
@@ -355,7 +440,7 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		page.evaluate("""
 				() => Plotly.relayout(
 					document.querySelector('.js-plotly-plot'),
-					{'xaxis.range': [8, 12]})
+					{'xaxis.range': [8000, 12000]})
 				""");
 		page.waitForCondition(() -> requests.size() >= 2);
 
@@ -364,8 +449,10 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				.readTree(requests.get(1))
 				.path("series")
 				.get(0);
-		assertEquals(4, second.path("fromStep").asLong());
-		assertEquals(16, second.path("toStep").asLong());
+		final long width=second.path("stepBucketWidth").asLong();
+		assertTrue(width>0 && width<new com.fasterxml.jackson.databind.ObjectMapper().readTree(requests.get(0)).path("series").get(0).path("stepBucketWidth").asLong());
+		assertTrue(second.path("fromStep").asLong()<=4000 && second.path("fromStep").asLong()>4000-width);
+		assertTrue(second.path("toStep").asLong()>=16000 && second.path("toStep").asLong()<16000+width);
 	}
 
 	@Test
@@ -446,5 +533,52 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		final List<String> buttonTitles = readModeBarButtonTitles(page);
 		assertTrue(buttonTitles.contains("Autoscale"));
 		assertTrue(buttonTitles.contains("Reset axes"));
+	}
+
+	@Test
+	void plotlyModeBarStaysAboveGraphStats() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?plotlyModeBarZOrderTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		final Boolean modeBarOnTop = (Boolean) page.evaluate("""
+				() => {
+					const header = document.querySelector('.graph-header');
+					header.style.maxWidth = 'none';
+					header.style.width = '100%';
+					const button = document.querySelector('.modebar-btn');
+					const rect = button.getBoundingClientRect();
+					const hit = document.elementFromPoint(
+						rect.left + rect.width / 2, rect.top + rect.height / 2);
+					return Boolean(hit && hit.closest('.modebar'));
+				}
+				""");
+		assertTrue(modeBarOnTop);
+	}
+
+	@Test
+	void plotlyModeBarStaysBelowFloatingControls() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?plotlyModeBarFloatingTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		final Boolean floatingControlsOnTop = (Boolean) page.evaluate("""
+				() => {
+					// グラフが #floating-controls の下へ潜り込む状況を再現する
+					document.getElementById('main-area').style.paddingTop = '0px';
+					const target = document.getElementById('btn-reset-view');
+					const rect = target.getBoundingClientRect();
+					const hit = document.elementFromPoint(
+						rect.left + rect.width / 2, rect.top + rect.height / 2);
+					return Boolean(hit && hit.closest('#floating-controls'));
+				}
+				""");
+		assertTrue(floatingControlsOnTop);
 	}
 }

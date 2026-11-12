@@ -1,8 +1,11 @@
 ﻿#include "anet/catch_test.hpp"
 
 #include "anet/init.hpp"
+#include "anet/test_util.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/tensor_util.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -124,6 +127,44 @@ TEST_CASE("BackendConfig rejects invalid cuda_launch_blocking values", "[backend
     }
 }
 
+TEST_CASE("PRD070 parses device specifications and preserves current CUDA index", "[device][prd070]")
+{
+    // 値の文法とautoの選択を公開パーサ経由で確認する。
+    CHECK(anet::ParseDevice(" CPU ").str() == "cpu");
+    CHECK(anet::ParseDevice("CuDa").is_cuda());
+    CHECK(anet::ParseDevice("CuDa").index() == -1);
+    CHECK(anet::ParseDevice(" CUDA:1 ").index() == 1);
+    CHECK(anet::ParseDevice("auto").is_cuda() == torch::cuda::is_available());
+
+    for (const auto* invalid : {"", "cpu:0", "cuda:", "cuda:-1", "cuda:+1", "cuda:x", "mps"}) {
+        INFO(invalid);
+        CHECK_THROWS(anet::ParseDevice(invalid));
+    }
+}
+
+TEST_CASE("PRD070 reports every explicit CUDA key before NN initialization", "[device][prd070]")
+{
+    if (torch::cuda::is_available()) SKIP("CUDA is available");
+
+    CapturingBackend* backend_raw = nullptr;
+    InitCapturingLogger(backend_raw, "explicit_cuda_unavailable_test");
+    anet::ConfigData config_data;
+    config_data.Set("agent.device", "cuda");
+    config_data.Set("env.device", "cuda:1");
+    config_data.Set("run.eval_device", "cpu");
+    try {
+        anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
+        FAIL("Explicit CUDA must fail before NN initialization");
+    } catch (const std::exception& e) {
+        const std::string message = e.what();
+        CHECK(ContainsText(message, "agent.device"));
+        CHECK(ContainsText(message, "env.device"));
+        CHECK(ContainsText(message, "auto"));
+    }
+    CHECK(config_data.Get("agent.device") == "cuda");
+    anet::MetricsLogger::Reset();
+}
+
 TEST_CASE("InitRL applies cuda_launch_blocking off and records the effective environment", "[backend][env]")
 {
     EnvVarGuard guard(kCudaLaunchBlockingEnv);
@@ -134,7 +175,18 @@ TEST_CASE("InitRL applies cuda_launch_blocking off and records the effective env
 
     anet::ConfigData config_data;
     config_data.Set("backend.cuda_launch_blocking", "off");
-    anet::rl::InitRL(anet::rl::BackendConfig(config_data));
+    anet::test::LogCaptureGuard logs;
+    anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
+    // 1回目の上書き後に同じ不一致を作り直し、通知だけが重複しないことを確認する。
+    REQUIRE(SetEnvValue(kCudaLaunchBlockingEnv, std::string("1")) == 0);
+    anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
+    logs.Flush();
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+        {"CUDA_LAUNCH_BLOCKING overridden", "previous=1", "requested=off", "effective=0"}));
+    CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [](const auto& record) {
+        return record.level == wxLOG_Message && record.message.find("CUDA_LAUNCH_BLOCKING overridden") != std::string::npos;
+    }) == 1);
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
 
     REQUIRE(GetEnvValue(kCudaLaunchBlockingEnv).has_value());
     CHECK(*GetEnvValue(kCudaLaunchBlockingEnv) == "0");
@@ -150,10 +202,23 @@ TEST_CASE("InitRL leaves CUDA_LAUNCH_BLOCKING unchanged for inherit", "[backend]
     CapturingBackend* backend_raw = nullptr;
     InitCapturingLogger(backend_raw, "cuda_launch_blocking_inherit_test");
 
-    anet::rl::InitRL(anet::rl::BackendConfig());
+    anet::rl::InitRL(anet::rl::BackendConfig(), anet::EmptyConfigData);
 
     REQUIRE(GetEnvValue(kCudaLaunchBlockingEnv).has_value());
     CHECK(*GetEnvValue(kCudaLaunchBlockingEnv) == "1");
 
+    anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("InitRL rejects an invalid device when only that key is specified", "[prd122][prd070][device]")
+{
+    // 未指定の2キーを足さず、書かれた1キーの失敗が識別できることを確認する。
+    const auto* key = GENERATE("agent.device", "env.device", "run.eval_device");
+    CapturingBackend* backend = nullptr;
+    InitCapturingLogger(backend, "prd122_explicit_device");
+    anet::ConfigData data;
+    data.Set(key, "invalid-device");
+    CHECK_THROWS_WITH(anet::rl::InitRL(anet::rl::BackendConfig(), data),
+        Catch::Matchers::ContainsSubstring(key));
     anet::MetricsLogger::Reset();
 }

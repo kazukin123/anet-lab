@@ -1,23 +1,19 @@
 package io.github.kazukin123.anetlab.metricsviewer.view;
 
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.manyGraphMetricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.manyGraphRunsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.metricsJson;
-import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runsJson;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.BoundingBox;
 import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "metricsviewer.runs-dir=target/playwright-test-empty-runs")
+		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
 class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	@Test
@@ -76,8 +72,7 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 		waitForGraph(page);
 
-		assertEquals("Scroll Lock: OFF", page.textContent("#btn-graph-scroll-lock"));
-		assertEquals("false", page.getAttribute("#btn-graph-scroll-lock", "aria-pressed"));
+		assertEquals("Scroll Lock", page.textContent("#btn-graph-scroll-lock"));
 		assertFalse(isGraphScrollLockButtonActive(page));
 		assertTrue(isGraphScrollLockButtonVisible(page));
 		assertTrue(areFloatingControlsSideBySide(page));
@@ -88,8 +83,6 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 		setPlotlyPanMode(page);
 		waitForPlotlyDragMode(page, "pan");
 		page.click("#btn-graph-scroll-lock");
-		assertEquals("Scroll Lock: ON", page.textContent("#btn-graph-scroll-lock"));
-		assertEquals("true", page.getAttribute("#btn-graph-scroll-lock", "aria-pressed"));
 		assertTrue(isGraphScrollLockButtonActive(page));
 		waitForPlotlyDragModeFalse(page);
 		assertEquals("true", readGraphScrollLockStorage(page));
@@ -102,7 +95,7 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 		waitForPlotlyDragModeFalse(page);
 		page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 		waitForGraph(page);
-		assertEquals("Scroll Lock: ON", page.textContent("#btn-graph-scroll-lock"));
+		assertEquals("Scroll Lock", page.textContent("#btn-graph-scroll-lock"));
 		assertTrue(isGraphScrollLockButtonActive(page));
 		waitForPlotlyDragModeFalse(page);
 
@@ -137,10 +130,87 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 	}
 
 	@Test
+	void hoveringNearASingleSampleShowsItsValue() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, singleSampleRunsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, singleSampleMetricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?singleSampleHoverTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForDrawnMarkers(page, 1);
+
+		// 実際のカーソルはそのstepへ正確には重ならないので、点から数px外して動かす。
+		final BoundingBox marker = page.locator(".scatterlayer path.point").boundingBox();
+		page.mouse().move(marker.x + marker.width / 2 + 3, marker.y + marker.height / 2);
+		waitForPlotlyHoverText(page);
+
+		assertEquals("run_single", page.textContent(".hover-tip-name"));
+		assertEquals("step 0", page.textContent(".hover-tip-step"));
+	}
+
+	@Test
+	void tappingTheGraphShowsTheHoverOverlayOnTouchDevice() {
+		reopenPage(new Browser.NewContextOptions()
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?touchTapHoverTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		tapFirstTraceMiddlePoint(page);
+		waitForPlotlyHoverText(page);
+	}
+
+	@Test
+	void tappingTheGraphShowsTheHoverOverlayWhileScrollLocked() {
+		reopenPage(new Browser.NewContextOptions()
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?touchTapHoverScrollLockTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		page.click("#btn-graph-scroll-lock");
+		waitForPlotlyDragModeFalse(page);
+
+		tapFirstTraceMiddlePoint(page);
+		waitForPlotlyHoverText(page);
+	}
+
+	@Test
+	void tappingOutsideTheGraphHidesTheHoverOverlay() {
+		reopenPage(new Browser.NewContextOptions()
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?touchTapDismissTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		tapFirstTraceMiddlePoint(page);
+		waitForPlotlyHoverText(page);
+
+		final BoundingBox outside = page.locator("#side-header").boundingBox();
+		dispatchTouchTap(page, outside.x + outside.width / 2, outside.y + outside.height / 2);
+		waitForHoverOverlayHidden(page);
+	}
+
+	@Test
 	void graphScrollLockAllowsVerticalTouchScrollingOnMobileGraph() {
 		reopenPage(new Browser.NewContextOptions()
-			.setViewportSize(1280, 720)
-			.setHasTouch(true));
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
 
 		page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(5)));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, manyGraphMetricsJson(5)));
@@ -157,6 +227,72 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 			dispatchTouchSwipe(page, readFirstGraphCenterX(page), readFirstGraphCenterY(page) + 90,
 					readFirstGraphCenterY(page) - 130);
 			waitForMainAreaScrolled(page);
+			waitForPlotlyDragCoverRemoved(page);
+		}
+	}
+
+	@Test
+	void graphScrollLockLeavesTouchSwipeToNativeScrolling() {
+		reopenPage(new Browser.NewContextOptions()
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(5)));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, manyGraphMetricsJson(5)));
+
+		page.navigate(baseUrl + "/?graphScrollLockNativeTouchTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraphCount(page, 5);
+		assertTrue(isMainAreaScrollable(page));
+
+		page.click("#btn-graph-scroll-lock");
+		waitForPlotlyDragModeFalse(page);
+
+		// window の capture で最初に受け、配り終えたあとの defaultPrevented を見る。
+		// 途中の listener が stopPropagation しても、ここには必ず届く。
+		page.evaluate("""
+				() => {
+					window.__graphTouchMoves = [];
+					window.addEventListener('touchmove', event => window.__graphTouchMoves.push(event),
+							{ capture: true, passive: true });
+				}
+				""");
+		setMainAreaScrollTop(page, 0);
+		dispatchTouchSwipe(page, readFirstGraphCenterX(page), readFirstGraphCenterY(page) + 90,
+				readFirstGraphCenterY(page) - 130);
+		waitForMainAreaScrolled(page);
+
+		// 指を離したあとの慣性は browser の標準 scroll が付ける。ページが touchmove を
+		// 取り消すと標準 scroll が止まり、慣性も出ない。
+		assertTrue(((Number) page.evaluate("window.__graphTouchMoves.length")).intValue() > 0);
+		assertEquals(0, ((Number) page.evaluate(
+				"window.__graphTouchMoves.filter(event => event.defaultPrevented).length")).intValue());
+	}
+
+	@Test
+	void screenshotModeAllowsVerticalTouchScrollingOnGraph() {
+		reopenPage(new Browser.NewContextOptions()
+				.setViewportSize(1280, 720)
+				.setHasTouch(true));
+
+		page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(5)));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, manyGraphMetricsJson(5)));
+
+		page.navigate(baseUrl + "/?screenshotTouchScrollTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraphCount(page, 5);
+
+		page.click("#btn-screenshot");
+		page.waitForFunction("document.body.classList.contains('screenshot-mode')",
+				null, new Page.WaitForFunctionOptions().setTimeout(30000));
+		waitForPlotlyDragModeFalse(page);
+		assertTrue(isDocumentScrollable(page));
+
+		for (int attempt = 0; attempt < 2; attempt++) {
+			setDocumentScrollTop(page, 0);
+			dispatchTouchSwipe(page, readFirstGraphCenterX(page), readFirstGraphCenterY(page) + 90,
+					readFirstGraphCenterY(page) - 130);
+			waitForDocumentScrolled(page);
 			waitForPlotlyDragCoverRemoved(page);
 		}
 	}

@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "anet-lab 学習ステップの呼び出し順序",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      636
+    ],
+    "column_fit": "spread"
+  },
+  "participants": [
+    {
+      "id": "runner",
+      "type": "backend",
+      "label": "TrainRunner",
+      "sublabel": "SerialTrainRunner"
+    },
+    {
+      "id": "actor",
+      "type": "backend",
+      "label": "Train Actor",
+      "sublabel": "行動選択"
+    },
+    {
+      "id": "network",
+      "type": "backend",
+      "label": "Network",
+      "sublabel": "DefaultDQN"
+    },
+    {
+      "id": "env",
+      "type": "backend",
+      "label": "BatchEnv",
+      "sublabel": "CPU 実行"
+    },
+    {
+      "id": "learner",
+      "type": "backend",
+      "label": "Learner",
+      "sublabel": "DQN 更新"
+    },
+    {
+      "id": "replay",
+      "type": "database",
+      "label": "ReplayBuffer",
+      "sublabel": "lane ring"
+    },
+    {
+      "id": "notifier",
+      "type": "messagebus",
+      "label": "Notifier",
+      "sublabel": "Event 配信"
+    }
+  ],
+  "segments": [
+    {
+      "from": 148,
+      "to": 258,
+      "label": "行動選択"
+    },
+    {
+      "from": 264,
+      "to": 342,
+      "label": "環境 Step"
+    },
+    {
+      "from": 348,
+      "to": 510,
+      "label": "学習更新"
+    },
+    {
+      "from": 516,
+      "to": 566,
+      "label": "Event 通知と記録"
+    }
+  ],
+  "messages": [
+    {
+      "id": "make-action",
+      "from": "runner",
+      "to": "actor",
+      "y": 160,
+      "label": "MakeAction",
+      "variant": "emphasis"
+    },
+    {
+      "id": "actor-forward",
+      "from": "actor",
+      "to": "network",
+      "y": 188,
+      "label": "forward(obs)"
+    },
+    {
+      "id": "q-values",
+      "from": "network",
+      "to": "actor",
+      "y": 216,
+      "label": "Q 値",
+      "variant": "return"
+    },
+    {
+      "id": "action-info",
+      "from": "actor",
+      "to": "runner",
+      "y": 244,
+      "label": "BatchActionInfo",
+      "variant": "return"
+    },
+    {
+      "id": "env-step",
+      "from": "runner",
+      "to": "env",
+      "y": 272,
+      "label": "Step(action)",
+      "variant": "emphasis",
+      "note": "終端laneを同じworker内で自動Reset"
+    },
+    {
+      "id": "step-result",
+      "from": "env",
+      "to": "runner",
+      "y": 300,
+      "label": "StepResult / continue_state",
+      "variant": "return"
+    },
+    {
+      "id": "episode-end",
+      "from": "runner",
+      "to": "notifier",
+      "y": 328,
+      "label": "EpisodeEndEvent",
+      "variant": "default",
+      "note": "step_resultがリセット前の値を所有"
+    },
+    {
+      "id": "update-batch",
+      "from": "runner",
+      "to": "learner",
+      "y": 356,
+      "label": "UpdateFromBatch(Experience)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "replay-push",
+      "from": "learner",
+      "to": "replay",
+      "y": 384,
+      "label": "Push"
+    },
+    {
+      "id": "replay-sample",
+      "from": "learner",
+      "to": "replay",
+      "y": 412,
+      "label": "Sample"
+    },
+    {
+      "id": "samples",
+      "from": "replay",
+      "to": "learner",
+      "y": 440,
+      "label": "minibatch",
+      "variant": "return"
+    },
+    {
+      "id": "learn-forward",
+      "from": "learner",
+      "to": "network",
+      "y": 468,
+      "label": "loss と backward"
+    },
+    {
+      "id": "update-results",
+      "from": "learner",
+      "to": "runner",
+      "y": 496,
+      "label": "BatchUpdateResultList",
+      "variant": "return"
+    },
+    {
+      "id": "learn-event",
+      "from": "runner",
+      "to": "notifier",
+      "y": 524,
+      "label": "LearnEvent"
+    },
+    {
+      "id": "train-event",
+      "from": "runner",
+      "to": "notifier",
+      "y": 552,
+      "label": "TrainEvent",
+      "variant": "emphasis",
+      "note": "次行動はcontinue_stateを使う"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "runner",
+      "from": 154,
+      "to": 566,
+      "type": "backend"
+    },
+    {
+      "participant": "actor",
+      "from": 156,
+      "to": 250,
+      "type": "backend"
+    },
+    {
+      "participant": "network",
+      "from": 182,
+      "to": 226,
+      "type": "backend"
+    },
+    {
+      "participant": "env",
+      "from": 266,
+      "to": 310,
+      "type": "backend"
+    },
+    {
+      "participant": "learner",
+      "from": 351,
+      "to": 504,
+      "type": "backend"
+    },
+    {
+      "participant": "replay",
+      "from": 378,
+      "to": 448,
+      "type": "database"
+    },
+    {
+      "participant": "network",
+      "from": 462,
+      "to": 482,
+      "type": "backend"
+    },
+    {
+      "participant": "notifier",
+      "from": 518,
+      "to": 566,
+      "type": "messagebus"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "結果を通知で運ぶ",
+      "items": [
+        "遷移の値はStep結果のGetScalarから取得。env本体は現在状態。",
+        "逐次Runnerの経路。pipelineでは前Stepの学習待合せ後にLearn/Trainを通知。",
+        "core/anet-core/src/trainer.cpp / core/anet-core/src/env.cpp"
+      ]
+    }
+  ]
+}

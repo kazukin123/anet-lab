@@ -20,6 +20,14 @@
         "VSCMD_ARG_TGT_ARCH": "x64",
         "VSLANG": "1033",
         "DOTNET_CLI_UI_LANGUAGE": "en-US"
+      },
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "version=14.44,host=x64",
+        "strategy": "external"
       }
     },
     {
@@ -35,6 +43,14 @@
         "VSCMD_ARG_TGT_ARCH": "x64",
         "VSLANG": "1033",
         "DOTNET_CLI_UI_LANGUAGE": "en-US"
+      },
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "version=14.44,host=x64",
+        "strategy": "external"
       }
     },
     {
@@ -50,6 +66,14 @@
         "VSCMD_ARG_TGT_ARCH": "x64",
         "VSLANG": "1033",
         "DOTNET_CLI_UI_LANGUAGE": "en-US"
+      },
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "version=14.44,host=x64",
+        "strategy": "external"
       }
     }
   ],

@@ -414,22 +414,22 @@ static void FillRgbRect(unsigned char* img_data, int image_width, int x0, int y0
 	}
 }
 
-static void ValidateConv2dVisualizerConfig(const Conv2dVisualizerConfig& config)
+void anet::rl::ValidateConv2dVisualizerConfig(const Conv2dVisualizerConfig& config, const std::string& owner)
 {
 	if (config.margin_x < 0) {
-		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.margin_x: " << config.margin_x << " expected >= 0");
+		ANET_SYSTEM_ERROR("Invalid " << owner << ".margin_x: " << config.margin_x << " expected >= 0");
 	}
 	if (config.margin_y < 0) {
-		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.margin_y: " << config.margin_y << " expected >= 0");
+		ANET_SYSTEM_ERROR("Invalid " << owner << ".margin_y: " << config.margin_y << " expected >= 0");
 	}
 	if (config.layer_margin_y < -1) {
-		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.layer_margin_y: " << config.layer_margin_y << " expected >= -1");
+		ANET_SYSTEM_ERROR("Invalid " << owner << ".layer_margin_y: " << config.layer_margin_y << " expected >= -1");
 	}
 	if (config.channels_per_row <= 0) {
-		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.channels_per_row: " << config.channels_per_row << " expected > 0");
+		ANET_SYSTEM_ERROR("Invalid " << owner << ".channels_per_row: " << config.channels_per_row << " expected > 0");
 	}
 	if (config.min_block_size <= 0) {
-		ANET_SYSTEM_ERROR("Invalid Conv2dVisualizerConfig.min_block_size: " << config.min_block_size << " expected > 0");
+		ANET_SYSTEM_ERROR("Invalid " << owner << ".min_block_size: " << config.min_block_size << " expected > 0");
 	}
 }
 
@@ -668,8 +668,7 @@ void ImageProviderManager::CreateAndRegister(const std::string& tag, const Image
 {
 	// 重複チェック
 	if (registry_.find(tag) != registry_.end()) {
-		LOG::warn() << "ImageProvider tag '" << tag << "' already exists.";
-		// 上書き
+		ANET_SYSTEM_ERROR("ImageProvider tag '" << tag << "' already exists; expected a unique tag.");
 	}
 
 	//  Factoryを使って生成 (Bundleを受け取る)
@@ -690,69 +689,36 @@ void ImageProviderManager::CreateAndRegister(const std::string& tag, const Image
 	MetricsLogger::Instance()->Log(tag, config);
 }
 
-static constexpr const char* CONFIG_KEY_METRICS_IMAGE_DEFAULT_PREFIX = "metrics.image.";
-static constexpr const char* CONFIG_KEY_METRICS_IMAGE_PREFIX = "metrics.image.[";
-static constexpr const char* CONFIG_KEY_METRICS_IMAGE_SUFFIX = "]";
-
 void ImageProviderManager::CreateAndRegister(const anet::ConfigData& config_data, std::shared_ptr<Agent> agent, std::shared_ptr<const Runner> runner, const std::string& key_prefix)
 {
-	// 一つのtagが複数行にわたるので一旦tag単位でまとめる
-	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> tag_map;
-	std::unordered_map<std::string, std::string> default_map;
+    auto root_prefix = key_prefix;
+    if (root_prefix.ends_with('.')) root_prefix.pop_back();
+    const auto field_prefix = root_prefix + ".";
+    const auto item_prefix = field_prefix + "[";
 
-	auto config_map = config_data.Map();
-	for (const auto& kv : config_map) {
-		const std::string& config_key = kv.first;
-		const std::string& config_value = kv.second;
-
-		// 設定Keyからtagを抽出
-		auto config_tag = anet::ExtractBetween(config_key, CONFIG_KEY_METRICS_IMAGE_PREFIX, CONFIG_KEY_METRICS_IMAGE_SUFFIX);
-		if (config_tag.empty()) {
-			// tagがなかったらデフォルト設定判定
-			if (config_key.find(CONFIG_KEY_METRICS_IMAGE_DEFAULT_PREFIX) == 0) {
-				auto default_key = anet::RemovePrefix(config_key, CONFIG_KEY_METRICS_IMAGE_DEFAULT_PREFIX);
-				default_map[default_key] = config_value;
-			}
-			continue;
-		}
-
-		// サブキーを抽出
-		auto pos = config_key.find(CONFIG_KEY_METRICS_IMAGE_SUFFIX);
-		auto size = config_key.size();
-		if ((pos + 2) >= config_key.size()) continue;
-		auto config_sub_key = config_key.substr(pos + 2);
-		if (config_sub_key.empty()) continue;
-
-		// 集約Mapに保存
-		tag_map[config_tag][config_sub_key] = config_value;
-	}
-
-	// デフォルトConfigData
-	ConfigData default_config_data;
-	for (const auto& kv : default_map) {
-		const auto& config_sub_key = kv.first;
-		const auto& config_value = kv.second;
-		default_config_data.Set(config_sub_key, config_value);
-	}
-
-	// 取り出したConfig一式でtag単位で回す
-	for (const auto& kv : tag_map) {
-		const auto& tag = kv.first;
-		const auto& config_map = kv.second;
-
-		// デフォルトConfigDataをベースとして、対象tag分のConfigDataを作る
-		ConfigData sub_config_data = default_config_data;
-		for (const auto& kv2 : config_map) {
-			const auto& config_sub_key = kv2.first;
-			const auto& config_value = kv2.second;
-			sub_config_data.Set(config_sub_key, config_value);
-		}
-
-		// tagとConfigDataを使って生成＆登録
-		auto config_key_prefix = CONFIG_KEY_METRICS_IMAGE_PREFIX + tag + CONFIG_KEY_METRICS_IMAGE_SUFFIX;
-		ImageProviderConfig provider_config(sub_config_data, config_key_prefix);
-		this->CreateAndRegister(tag, provider_config, agent, runner);
-	}
+    // 項目が無くても共通既定を型付きで読み、描画資源は作らない。
+    const auto defaults_scope = config_data.CreateReadScope(root_prefix);
+    const ImageProviderConfig common_defaults(defaults_scope, root_prefix);
+    (void)common_defaults;
+    ConfigData defaults;
+    for (const auto& [key, value] : config_data.Map()) {
+        if (key.starts_with(field_prefix) && !key.starts_with(item_prefix)) {
+            defaults.CopyValueFrom(key.substr(field_prefix.size()), config_data, key);
+        }
+    }
+    for (const auto& [tag, item] : config_data.MakeSubConfigData(root_prefix)) {
+        auto merged = defaults;
+        merged.OverwriteFrom(item);
+        const auto prefix = item_prefix + tag + "]";
+        ConfigData full_data;
+        for (const auto& [key, value] : merged.Map()) {
+            full_data.CopyValueFrom(prefix + "." + key, merged, key);
+        }
+        const auto scope = full_data.CreateReadScope();
+        const ImageProviderConfig provider_config(scope, prefix);
+        scope.RequireAllKeysRead(prefix);
+        CreateAndRegister(tag, provider_config, agent, runner);
+    }
 }
 
 void ImageProviderManager::Remove(const std::string& tag, std::shared_ptr<Notifier> notifier)
