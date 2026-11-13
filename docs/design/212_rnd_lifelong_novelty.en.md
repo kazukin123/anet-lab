@@ -1,4 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:fb09d17dfc13a8f22db805bc4f9a32a29a7a6fe1 date:2026-11-13 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:34185200420a7fa8c8a1674a3e2f305b7dd5fb17 date:2026-11-14 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.
@@ -484,11 +484,10 @@ During warm-up or with NaN normalized error the multiplier is 1. Otherwise `clip
 |---|---|
 | RND disabled, or a cloned Actor without an estimator snapshot yet | All three NaN |
 | Nonfinite error | All three NaN for that lane; one WARN per Run includes lane and value |
-| No beta because training intake has not run | Error and normalized error; only bonus is NaN |
 | Scoring next_state with use_done_mask=true on a done lane | Error and normalized error; bonus 0 |
 | Otherwise | Error and normalized error; beta times (multiplier minus 1) |
 
-Beta is the last value used by training intake and is copied with the estimator. It is not checkpointed, so evaluation-only and freshly resumed Runs have an unavailable bonus. `intrinsic.observation=next_state` scores the resulting screen displayed in the row; `state` scores the preceding screen used to choose the action.
+Beta is initialized by evaluating its schedule at exp step 0 during Agent construction, then updated at the exp step of each training intake regardless of whether learning is enabled. It is copied with the estimator. It is not checkpointed and loading a checkpoint does not overwrite it. Evaluation-only and freshly resumed Runs also show the bonus. Immediately after a new Run starts, empty error statistics give a multiplier of 1 and a bonus of 0. `intrinsic.observation=next_state` scores the resulting screen displayed in the row; `state` scores the preceding screen used to choose the action.
 
 With a cloned Actor, values use the training predictor, statistics, and beta at the last Actor synchronization, matching the time of the network used for that row's Q values. An Actor sharing its network reads the training estimator at each step. Values are stored once when the row is created; selecting old rows does not rescore them. Without requested intrinsic keys, there is no scoring, estimator copy, follower attachment, or additional Agent lock. A closed pane suspends scoring and copying. Reopening without a snapshot performs normal Actor synchronization.
 

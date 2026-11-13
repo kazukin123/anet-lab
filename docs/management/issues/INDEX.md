@@ -14,7 +14,6 @@
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | 成果物 | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261111-72d640](issue-20261111-72d640.md) | 調査中 | 2.6 | — | 成果物 | 監査 | 324_dqn | アルゴリズム | リファクタリング | [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md) | 未確認 | DefaultDQNAgent のコンストラクタが 242 行あり、RainbowAgent が Head の選択・Actor の生成・値の振り分け・更新を写して既に 5 点で食い違っている |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
-| [issue-20261113-317d32](issue-20261113-317d32.md) | 調査中 | 1.4 | — | 成果物 | その他 | 324_dqn, 110_runner_app | アルゴリズム | 機能改善 | [PRD129](../../memo/129_eval_trace_bonus_beta_before_learning_10prd.md) | 未確認 | 評価専用の Run では Evaluation Trace の rnd_bonus 列がずっと空欄になり、内的報酬を学習の報酬の単位で読めない |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-6a32b4](issue-20261103-6a32b4.md) | 調査中 | 1.0 | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
 | [issue-20261103-23d185](issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD925](../../memo/925_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
@@ -149,7 +148,7 @@
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 | [issue-20261113-6f954f](issue-20261113-6f954f.md) | 未着手 | 0.6 | [issue-20261111-24d885](issue-20261111-24d885.md) | 成果物 | PRD | 321_agent_core, 324_dqn | アルゴリズム | リファクタリング | — | 未確認 | Learner の診断の購読が、Run で使う診断の宣言と、呼び出しごとの要求を 1 つの口で兼ねている |
 
-着手できる 128 / 待ち 16 / 保留 0 / 次版 0 / 解決 0
+着手できる 127 / 待ち 16 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 

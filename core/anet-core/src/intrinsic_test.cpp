@@ -60,6 +60,7 @@ constexpr char kInvalidConfigValue[] = "unknown";
 constexpr char kFalseConfigValue[] = "false";
 constexpr char kRndCheckpointFormat[] = "RndNoveltyEstimator-3";
 constexpr char kRndEmaCheckpointFormat[] = "RndNoveltyEstimator-4";
+constexpr char kCheckpointExtension[] = ".anet";
 constexpr char kIntrinsicPrefix[] = "DefaultDQNAgent.intrinsic";
 constexpr std::array<const char*, 13> kAllIntrinsicScalarKeys{
     kBonusMean, "intrinsic.bonus_max", kBonusMin, kBonusPosRatio,
@@ -127,6 +128,13 @@ namespace {
             anet::nn::InitNN();
         }
         ~IntrinsicMetricsScope() { anet::MetricsLogger::Reset(); }
+    };
+    struct IntrinsicCheckpointCleanup {
+        std::filesystem::path path;
+        ~IntrinsicCheckpointCleanup() {
+            std::error_code ignored;
+            std::filesystem::remove(path, ignored);
+        }
     };
 } // namespace
 
@@ -1421,10 +1429,7 @@ TEST_CASE("DQN checkpoint requires matching intrinsic presence and resumes scori
     original->CreateLearner()->UpdateFromBatch({}, IntrinsicExperience(1, false, false, true));
     const auto path = std::filesystem::temp_directory_path() / ("anet-prd116-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".anet");
-    struct RemoveCheckpoint {
-        std::filesystem::path path;
-        ~RemoveCheckpoint() { std::error_code ignored; std::filesystem::remove(path, ignored); }
-    } cleanup{.path = path};
+    IntrinsicCheckpointCleanup cleanup{.path = path};
     {
         std::ofstream stream(path, std::ios::binary);
         anet::OutputArchive archive(stream);
@@ -1551,10 +1556,7 @@ TEST_CASE("DQN intrinsic checkpoint resumes fractional credit and selected obser
     // 1.5 creditのうち1回を消費し、0.5と抽選済みの乱数状態を保存する。
     const auto path = std::filesystem::temp_directory_path() / ("anet-prd116-schedule-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".anet");
-    struct RemoveCheckpoint {
-        std::filesystem::path path;
-        ~RemoveCheckpoint() { std::error_code ignored; std::filesystem::remove(path, ignored); }
-    } cleanup{.path = path};
+    IntrinsicCheckpointCleanup cleanup{.path = path};
     {
         std::ofstream stream(path, std::ios::binary);
         anet::OutputArchive archive(stream);
@@ -1831,7 +1833,7 @@ static std::shared_ptr<anet::rl::Actor> MakeIntrinsicTraceActor(
         .env_spec = spec, .device = torch::kCPU, .seed = 42, .actor_key = kTraceActorKey});
 }
 
-TEST_CASE("DQN trace scores its Actor snapshot after synchronization", "[prd127][intrinsic]")
+TEST_CASE("DQN trace scores its Actor snapshot after synchronization", "[prd127][prd129][intrinsic]")
 {
     // 公開のAgent・Actor・step診断を通して、同期から列の読み出しまでを接続する。
     IntrinsicMetricsScope metrics;
@@ -1853,7 +1855,8 @@ TEST_CASE("DQN trace scores its Actor snapshot after synchronization", "[prd127]
     auto initial = diagnostics->Observe(experience);
     REQUIRE(initial.current->GetScalar(kStepIntrinsicError, 0));
     CHECK(std::isfinite(*initial.current->GetScalar(kStepIntrinsicError, 0)));
-    CHECK(std::isnan(*initial.current->GetScalar(kStepIntrinsicBonus, 0)));
+    CHECK(std::isnan(*initial.current->GetScalar(kStepIntrinsicNormalizedError, 0)));
+    CHECK(*initial.current->GetScalar(kStepIntrinsicBonus, 0) == 0.0f);
     agent->CreateLearner()->UpdateFromBatch({.exp_step = 2}, experience);
     actor->Sync();
     auto learned = diagnostics->Observe(experience);
@@ -1862,7 +1865,7 @@ TEST_CASE("DQN trace scores its Actor snapshot after synchronization", "[prd127]
     CHECK_FALSE(learned.current->GetScalar("intrinsic.unknown", 0));
 }
 
-TEST_CASE("Trace forwards requested intrinsic keys and Actor lifetime controls", "[prd127][intrinsic]")
+TEST_CASE("Trace forwards requested intrinsic keys and Actor lifetime controls", "[prd127][prd129][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -1888,7 +1891,7 @@ TEST_CASE("Trace forwards requested intrinsic keys and Actor lifetime controls",
         std::vector<anet::rl::AuxData>(2));
     trace.OnTrain({{experience, nullptr, {}, agent, {}}, nullptr, result, experience.action});
     REQUIRE(rows.size() == 2);
-    CHECK(std::isnan(rows[0]->values[0]));
+    CHECK(rows[0]->values[0] == 0.0f);
     CHECK(std::isfinite(rows[0]->values[1]));
     CHECK(rows[0]->values[1] == rows[0]->values[2]);
     const auto old_error = rows[0]->values[1];
@@ -2198,11 +2201,17 @@ TEST_CASE("Interleaved Trace leaves learner rewards and saved intrinsic state un
     }
 }
 
-TEST_CASE("Evaluation-only checkpoint scores errors without a training beta", "[prd127][intrinsic]")
+TEST_CASE("Checkpoint trace scores bonus before the first learning intake", "[prd127][prd129][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
+    const bool learning_enabled = GENERATE(false, true);
+    constexpr float beta = 0.3f;
+    constexpr float multiplier_max = 5.0f;
     auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.beta", beta);
     data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierClipped);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.multiplier_max", multiplier_max);
     data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
     data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
     data.Set("DefaultDQNAgent.actor.[trace].clone_model", true);
@@ -2212,17 +2221,14 @@ TEST_CASE("Evaluation-only checkpoint scores errors without a training beta", "[
             IntrinsicExperience(2.0f + step, false, false, step == 0));
     const auto path = std::filesystem::temp_directory_path() / ("anet-prd127-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".anet");
-    struct RemoveCheckpoint {
-        std::filesystem::path path;
-        ~RemoveCheckpoint() { std::error_code ignored; std::filesystem::remove(path, ignored); }
-    } cleanup{.path = path};
+    IntrinsicCheckpointCleanup cleanup{.path = path};
     {
         std::ofstream stream(path, std::ios::binary);
         anet::OutputArchive archive(stream);
         trained->Save(archive);
     }
     data.Set("DefaultDQNAgent.auto_load_file", path.string());
-    data.Set("DefaultDQNAgent.learner.enabled", false);
+    data.Set("DefaultDQNAgent.learner.enabled", learning_enabled);
     auto evaluated = MakeIntrinsicAgent(data);
     auto actor = MakeIntrinsicTraceActor(evaluated);
     auto diagnostics = evaluated->CreateStepDiagnosticsProvider({.num_lanes = 2,
@@ -2234,7 +2240,106 @@ TEST_CASE("Evaluation-only checkpoint scores errors without a training beta", "[
     REQUIRE(result.current);
     CHECK(std::isfinite(*result.current->GetScalar(kStepIntrinsicError, 0)));
     CHECK(std::isfinite(*result.current->GetScalar(kStepIntrinsicNormalizedError, 0)));
-    CHECK(std::isnan(*result.current->GetScalar(kStepIntrinsicBonus, 0)));
+    // checkpoint の読込後、学習の入口を通さずに設定の β で採点できる。
+    const auto normalized_error = *result.current->GetScalar(kStepIntrinsicNormalizedError, 0);
+    const auto bonus = *result.current->GetScalar(kStepIntrinsicBonus, 0);
+    CHECK(std::isfinite(bonus));
+    CHECK(bonus == Catch::Approx(beta * std::clamp(normalized_error, 0.0f, multiplier_max - 1.0f)));
+}
+
+TEST_CASE("Disabled learning intake advances the Trace beta schedule", "[prd129][intrinsic]")
+{
+    IntrinsicMetricsScope metrics;
+    const bool clone_model = GENERATE(false, true);
+    constexpr float kBetaStart = 0.2f;
+    constexpr float multiplier_max = 5.0f;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.obs_norm.pass_through", true);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierClipped);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.multiplier_max", multiplier_max);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    data.Set("DefaultDQNAgent.actor.[trace].clone_model", clone_model);
+    auto trained = MakeIntrinsicAgent(data);
+    for (anet::rl::step_t step = 0; step < 4; ++step)
+        trained->CreateLearner()->UpdateFromBatch({.exp_step = step * 2},
+            IntrinsicExperience(2.0f + step, false, false, step == 0));
+    const auto path = std::filesystem::temp_directory_path() / ("anet-prd129-schedule-"
+        + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + kCheckpointExtension);
+    IntrinsicCheckpointCleanup cleanup{.path = path};
+    {
+        std::ofstream stream(path, std::ios::binary);
+        anet::OutputArchive archive(stream);
+        trained->Save(archive);
+    }
+    data.Set("DefaultDQNAgent.auto_load_file", path.string());
+    data.Set("DefaultDQNAgent.learner.enabled", false);
+    data.Set("DefaultDQNAgent.intrinsic.beta.type", "linear");
+    data.Set("DefaultDQNAgent.intrinsic.beta.start", kBetaStart);
+    data.Set("DefaultDQNAgent.intrinsic.beta.end", 0.6f);
+    data.Set("DefaultDQNAgent.intrinsic.beta.steps", 10);
+    auto evaluated = MakeIntrinsicAgent(data);
+    auto actor = MakeIntrinsicTraceActor(evaluated);
+    auto diagnostics = evaluated->CreateStepDiagnosticsProvider({.num_lanes = 2,
+        .keys = {kStepIntrinsicError, kStepIntrinsicNormalizedError, kStepIntrinsicBonus}, .actor = actor});
+    auto experience = IntrinsicExperience(1000.0f, false, false, true);
+    experience.action = actor->MakeAction({}, experience.state);
+
+    // 同じ checkpoint の同じ観測を採点し、β の予定だけが進んだことを照合する。
+    for (const auto [exp_step, beta] : {std::pair{0, kBetaStart}, std::pair{5, 0.4f}}) {
+        if (exp_step != 0)
+            evaluated->CreateLearner()->UpdateFromBatch({.exp_step = static_cast<anet::rl::step_t>(exp_step)}, experience);
+        actor->Sync();
+        const auto result = diagnostics->Observe(experience);
+        REQUIRE(result.current);
+        const auto normalized_error = *result.current->GetScalar(kStepIntrinsicNormalizedError, 0);
+        REQUIRE(std::isfinite(normalized_error));
+        REQUIRE(normalized_error > 0.0f);
+        const auto bonus = *result.current->GetScalar(kStepIntrinsicBonus, 0);
+        CHECK(bonus == Catch::Approx(beta * std::clamp(normalized_error, 0.0f, multiplier_max - 1.0f)));
+    }
+}
+
+TEST_CASE("Disabled learning intake preserves all intrinsic scalar diagnostics", "[prd129][intrinsic]")
+{
+    IntrinsicMetricsScope metrics;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    auto trained = MakeIntrinsicAgent(data);
+    for (anet::rl::step_t step = 0; step < 4; ++step)
+        trained->CreateLearner()->UpdateFromBatch({.exp_step = step * 2},
+            IntrinsicExperience(2.0f + step, false, false, step == 0));
+    REQUIRE(*trained->GetScalar(kIntrinsicLearnCount) > 0.0f);
+    const auto path = std::filesystem::temp_directory_path() / ("anet-prd129-diagnostics-"
+        + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + kCheckpointExtension);
+    IntrinsicCheckpointCleanup cleanup{.path = path};
+    {
+        std::ofstream stream(path, std::ios::binary);
+        anet::OutputArchive archive(stream);
+        trained->Save(archive);
+    }
+    data.Set("DefaultDQNAgent.auto_load_file", path.string());
+    data.Set("DefaultDQNAgent.learner.enabled", false);
+    auto evaluated = MakeIntrinsicAgent(data);
+    std::array<float, kAllIntrinsicScalarKeys.size()> before;
+    for (size_t index = 0; index < kAllIntrinsicScalarKeys.size(); ++index) {
+        const auto value = evaluated->GetScalar(kAllIntrinsicScalarKeys[index]);
+        REQUIRE(value.has_value());
+        before[index] = *value;
+    }
+
+    // 公開の学習の入口を 3 回通しても、群56の全キーは読込後の値を維持する。
+    for (anet::rl::step_t step = 0; step < 3; ++step) {
+        evaluated->CreateLearner()->UpdateFromBatch({.exp_step = step * 2},
+            IntrinsicExperience(20.0f + step, false, false, step == 0));
+        for (size_t index = 0; index < kAllIntrinsicScalarKeys.size(); ++index) {
+            const auto value = evaluated->GetScalar(kAllIntrinsicScalarKeys[index]);
+            REQUIRE(value.has_value());
+            if (std::isnan(before[index])) CHECK(std::isnan(*value));
+            else CHECK(*value == before[index]);
+        }
+    }
 }
 
 TEST_CASE("Read-only nonfinite errors remain unavailable and warn once", "[prd127][intrinsic]")

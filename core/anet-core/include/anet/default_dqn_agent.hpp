@@ -727,7 +727,7 @@ namespace anet::rl::dqn {
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_ = nullptr;
         std::unique_ptr<anet::rl::intrinsic::LifelongNoveltyEstimator> lifelong_novelty_;
         std::optional<anet::ProfiledValue<float>> intrinsic_beta_;
-        std::optional<float> last_intrinsic_beta_; ///< 学習の入口が直近に評価した値。checkpointには保存しない。
+        std::optional<float> last_intrinsic_beta_; ///< 構築時は exp step 0、以後は学習の入口が直近に評価した値。checkpointには保存しない。
         float intrinsic_learn_credit_ = 0.0f; ///< facadeが更新する補助学習の未消費credit。
         int64_t intrinsic_learn_count_ = 0; ///< optimizerが実際に進んだ累計step数。
         std::optional<std::mt19937_64> intrinsic_learn_random_; ///< 有効時だけ作るlane抽選のResource。

@@ -556,13 +556,15 @@ Trace中は、表やEnvのView・QValuePanelなどで↑↓を押して表の順
 | 600〜699 | 内的報酬の誤差 | run.@rndで600 rnd_err、610 rnd_norm |
 | 700〜999 | 空き（実験で足す列は900番台） | — |
 
-`run.@rnd`を選んだRunでは、`reward`の直後の`rnd_bonus`（学習の報酬に足す単位のボーナス）と、`prio_pct`の右の`rnd_err`（RNDの誤差）・`rnd_norm`（標準化した値）を確認してください。βがまだ決まっていない評価専用・再開直後は、ボーナスが空欄になります。百分位も見るには次の列を足してください。
+`run.@rnd`を選んだRunでは、`reward`の直後の`rnd_bonus`（学習の報酬に足す単位のボーナス）と、`prio_pct`の右の`rnd_err`（RNDの誤差）・`rnd_norm`（標準化した値）を確認してください。百分位も見るには次の列を足してください。
 
 ```text
 app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct label:rnd_err_pct
 ```
 
 > [!NOTE]
+> 評価専用のRunでも、学習を始めずにボーナスを確認できます。新しいRunの起動直後とwarm-up中は、ボーナスが0になります。
+>
 > 既定のnext_stateでは行に表示する結果の画面を、state（Taiga式）では行動を決めた1つ前の画面を採点します。Actorが写しを持つ場合は最後の同期時点のpredictor・統計・βを使います。Traceを開いたときに写しが無ければ、その場でも同期します。variance_feedbackのrnd_normは分散で割るため、whitenと単位が違います。方式の違うRunどうしでは比較しないでください。
 
 十の位で分類の中の順を決め、一の位は0にして、あとから差し込む余地を残します。添字で並ぶ列（スキップ価値q1〜qJ。一の位がj−1）だけは一の位を使います。decision・skip・q1〜qJは、スキップを有効にしたRunだけに出ます。

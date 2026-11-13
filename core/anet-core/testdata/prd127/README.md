@@ -35,7 +35,7 @@ GUIの利用者操作・測定ができない環境では実施済みとせず�
 | 5 | `Trace bonus equals the reward consumed by the real learner`（3方式×state/next_state×done×mask） |
 | 6 | `Intrinsic diagnostics honor snapshot synchronization and suspension`、`Trace forwards requested intrinsic keys and Actor lifetime controls` |
 | 7 | `Intrinsic diagnostics wait only for an un-cloned requested estimator` |
-| 8 | `Evaluation-only checkpoint scores errors without a training beta` |
+| 8 | `Checkpoint trace scores bonus before the first learning intake`（PRD129で、構築時のβによるボーナスも確認） |
 | 9 | 無効・Actor欠けは同期テスト、Rainbowは `Rainbow rejects intrinsic Trace columns at the first scalar read`、非有限値は `Read-only nonfinite errors remain unavailable and warn once` |
 | 10 | `Interleaved Trace leaves learner rewards and saved intrinsic state unchanged`（3方式×Actor複製有無×state/next_state） |
 | 11 | `run_validation.py` の6条件。途中の失敗・中断は受入に数えない |

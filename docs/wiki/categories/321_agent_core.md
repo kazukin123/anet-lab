@@ -225,6 +225,7 @@
 - [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md) — PRD124: anet-core-test の開始時に MKLDNN を切り、テストの順序で oneDNN の assert が出ないようにする
 - [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md) — PRD125: DQN の学習器の 1 回の更新の進行と Munchausen の target を 1 か所に寄せる
 - [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
+- [PRD129](../../memo/129_eval_trace_bonus_beta_before_learning_10prd.md) — Evaluation Trace のボーナスの β を、学習の入口を通る前から用意する PRD
 
 ## 課題
 

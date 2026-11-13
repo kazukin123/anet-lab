@@ -266,7 +266,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) | 対応中 | 4.3 | — | 成果物 | その他 | 324_dqn, 110_runner_app | UI | 機能追加 | [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) | 残件有り | Evaluation Traceで内的報酬（RNDの新しさ）を見られない |
 | [issue-20261111-61ad60](../../management/issues/issue-20261111-61ad60.md) | 調査中 | 2.7 | — | 成果物 | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
-| [issue-20261113-317d32](../../management/issues/issue-20261113-317d32.md) | 調査中 | 1.4 | — | 成果物 | その他 | 324_dqn, 110_runner_app | アルゴリズム | 機能改善 | [PRD129](../../memo/129_eval_trace_bonus_beta_before_learning_10prd.md) | 未確認 | 評価専用の Run では Evaluation Trace の rnd_bonus 列がずっと空欄になり、内的報酬を学習の報酬の単位で読めない |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261110-3f4e63](../../management/issues/issue-20261110-3f4e63.md) | 未着手 | 4.5 | — | 成果物 | PRD | 110_runner_app | UI | 不具合 | — | 未確認 | QValuePanelで平滑化が有効なままsmooth_radiusが0以下だと、空の重みの範囲外を読む |
 | [issue-20261111-9e6e27](../../management/issues/issue-20261111-9e6e27.md) | 未着手 | 3.6 | — | 成果物 | PRD | 110_runner_app | UI | 機能改善 | — | 未確認 | 無人で走るRun（番号付きbat）でWARNに気づけない |
@@ -297,7 +296,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.0 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD957](../../memo/957_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261103-578986](../../management/issues/issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md), [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD923](../../memo/923_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 
-着手できる 26 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
+着手できる 25 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) — 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化

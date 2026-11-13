@@ -120,6 +120,8 @@ DefaultDQNAgent::DefaultDQNAgent(
             config_.intrinsic.rnd, config_.GetConfigPrefix() + ".intrinsic.rnd",
             env_spec.state_spec.obs_spec, device_, seed_maker);
         intrinsic_beta_.emplace(config_.intrinsic.beta);
+        // 学習の入口を通らない評価専用 Run にも、現在の Run の開始時点の β を用意する。
+        last_intrinsic_beta_ = intrinsic_beta_->Evaluate(0);
         intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(0.0f, std::memory_order_relaxed);
         if (!config_.learner.enabled)
             LOG::info_once() << "DefaultDQNAgent.intrinsic.enabled=true with learner.enabled=false: intrinsic scoring and training are suspended.";
@@ -848,6 +850,10 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         // RewardScaler
         auto scaled_rewards = this->reward_scaler_->Scale(batch_exp.reward);
 
+        // 学習停止中も Run の予定を進める。推定器と診断値の更新は学習有効時に限る。
+        if (lifelong_novelty_)
+            last_intrinsic_beta_ = intrinsic_beta_->Evaluate(counts.exp_step);
+
         if (lifelong_novelty_ && config_.learner.enabled) {
             ANET_PROFILE_SCOPE(intrinsic_reward);
 
@@ -855,7 +861,6 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
             const bool use_next_state = config_.intrinsic.observation == DefaultDQNAgentConfig::kIntrinsicObservationNextState;
             const auto& intrinsic_observations = use_next_state ? batch_exp.next_state.obs : batch_exp.state.obs;
             const auto alpha = lifelong_novelty_->Estimate(intrinsic_observations);
-            last_intrinsic_beta_ = intrinsic_beta_->Evaluate(counts.exp_step);
             auto bonus = *last_intrinsic_beta_ * (alpha - 1.0f);
             if (use_next_state && config_.intrinsic.use_done_mask)
                 bonus = bonus.masked_fill(batch_exp.next_state.done, 0.0f);
