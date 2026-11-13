@@ -1,13 +1,13 @@
 ---
 name: anet-improve
-description: Find the rework in the current anet-lab conversation (review findings, user corrections, redone work, misunderstandings, tool failures), classify why the current harness did not prevent each, show candidate countermeasures for the harness (AGENTS.md, docs/quality, docs/process, skills, agent definitions) as an overview followed by per-problem selection, apply the selected ones in place, self-check them, record the declined ones and the ones that need a PRD in docs/management/issues/, and stop. Use only when the user invokes /anet-improve or $anet-improve, or picks the anet-improve candidate offered in the completion report of anet-create-prd or implement-prd-with-docs.
+description: Find the rework in the current anet-lab conversation (review findings, user corrections, redone work, misunderstandings, tool failures), classify why the current harness did not prevent each, show candidate countermeasures for the harness (AGENTS.md, docs/quality, docs/process, skills, agent definitions) as an overview followed by per-problem selection, apply the selected ones in place, self-check them, record the declined ones and the ones that need a PRD in docs/management/issues/, and stop. Use only when the user invokes /anet-improve or $anet-improve, or picks the anet-improve candidate offered in the completion report of anet-create-prd or anet-impl-prd.
 ---
 
 # ANET Improve
 
 この会話で起きた手戻りを拾い、なぜ今のハーネスで防げなかったかを分けて、改善策の候補を示す。ユーザーが選んだものをその場で反映し、確かめて止まる。
 
-動くのは、ユーザーが `/anet-improve` か `$anet-improve` で呼んだときと、`anet-create-prd`・`implement-prd-with-docs` の完了報告で、この skill の候補を選んだときだけである。
+動くのは、ユーザーが `/anet-improve` か `$anet-improve` で呼んだときと、`anet-create-prd`・`anet-impl-prd` の完了報告で、この skill の候補を選んだときだけである。
 
 ハーネスは、AI エージェントが読んで従う決まりと手順である。直す先は次に限る。
 

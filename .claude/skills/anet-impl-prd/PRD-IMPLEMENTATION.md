@@ -5,14 +5,14 @@
 最短の対応呼び出しは次の形:
 
 ```text
-/implement-prd-with-docs 013_sample_prefetch_10prd.md
+/anet-impl-prd 013_sample_prefetch_10prd.md
 ```
 
 PRD ファイル名だけが渡された場合は、「この PRD を実装し、実装計画を保存し、その計画から開始する」という意味として扱う。次のような明示形も受け付ける:
 
-- `/implement-prd-with-docs docs/memo/013_sample_prefetch_10prd.md`
-- `/implement-prd-with-docs 013_sample_prefetch_10prd.md を実装してください`
-- `/implement-prd-with-docs 013_sample_prefetch_10prd.md プラン内容は20impl.mdにも保存`
+- `/anet-impl-prd docs/memo/013_sample_prefetch_10prd.md`
+- `/anet-impl-prd 013_sample_prefetch_10prd.md を実装してください`
+- `/anet-impl-prd 013_sample_prefetch_10prd.md プラン内容は20impl.mdにも保存`
 
 ## PRD 解決
 

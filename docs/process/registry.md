@@ -9,8 +9,8 @@
 | 成果物キー | 成果物名 | 成果物種別 | 入力元 | 出力先 | テンプレート | 品質確認観点 | 担当 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `prd` | PRD | 文書 | `input` | `docs/memo/{NNN}_{slug}_10prd.md` | 未整備 | `docs/quality/prd.md` | `anet-create-prd` |
-| `impl-plan` | 実装計画 | 文書 | `prd` | `docs/memo/{NNN}_{slug}_2{x}impl.md` | `.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md` の「保存する計画の形」 | `docs/quality/impl.md` | `implement-prd-with-docs` |
-| `impl` | 実装（コード、テスト、設定、設計文書・ADR・用語集の追随） | 変更 | `prd` `impl-plan` | 既存の構成に従う | — | `docs/quality/impl.md` | `implement-prd-with-docs` |
+| `impl-plan` | 実装計画 | 文書 | `prd` | `docs/memo/{NNN}_{slug}_2{x}impl.md` | `.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md` の「保存する計画の形」 | `docs/quality/impl.md` | `anet-impl-prd` |
+| `impl` | 実装（コード、テスト、設定、設計文書・ADR・用語集の追随） | 変更 | `prd` `impl-plan` | 既存の構成に従う | — | `docs/quality/impl.md` | `anet-impl-prd` |
 | `worklog` | 作業記録 | 文書 | — | 実装は `impl-plan`、PRD づくりは `prd` が兼ねる | — | — | 工程を実行する側 |
 | `issue-record` | 未決の受け皿 | 文書 | — | `docs/management/issues/`（1 課題 1 ファイル） | — | — | 工程を実行する側（ユーザーが選んだものだけ書く） |
 
@@ -48,7 +48,7 @@
 | --- | --- | --- |
 | 要件定義・PRD の作成／改訂 | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md) | PRD が設計契約も持つ。起草・自己点検・レビュー後に停止する（暫定の印が残る PRD はレビューを受けない。下の読み替え表） |
 | 設計 | 独立した工程は置かない | PRD の実装契約に含める |
-| 実装計画・実装・検証 | [implement-prd-with-docs](../../.agents/skills/implement-prd-with-docs/SKILL.md) | 保存済み計画から実装し、自己点検・レビュー後に停止する |
+| 実装計画・実装・検証 | [anet-impl-prd](../../.agents/skills/anet-impl-prd/SKILL.md) | 保存済み計画から実装し、自己点検・レビュー後に停止する |
 | コミット | [anet-prepare-commit](../../.agents/skills/anet-prepare-commit/SKILL.md)、人間 | 工程を終えた側が、完了報告で skill を実行するかを聞く（[AGENTS.md](../../AGENTS.md) の「コミットの準備を提案する」）。skill が文案を作り、選ばれたらステージする。commit と push は人間が行う |
 
 起動は Codex が `$skill名`、Claude Code が `/skill名`。工程を終えた側が、次の工程を自動起動しない。課題に対応するときは、`anet-create-prd` に issue の ID を渡して PRD を起こすか、下の「この場で直す」を使う。上流を直す必要があるときは、PRD 作成／改訂の入口を示し、既存実装への波及もユーザーに知らせる。
@@ -59,7 +59,7 @@
 
 | 成果物種別 | 生成手段 | 対象の単位と規約 |
 | --- | --- | --- |
-| 文書 | 担当の入口が Markdown を直接編集する | 今回選んだ成果物を単位とする。PRD は [memo README](../memo/README.md)、実装計画は [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) に従う |
+| 文書 | 担当の入口が Markdown を直接編集する | 今回選んだ成果物を単位とする。PRD は [memo README](../memo/README.md)、実装計画は [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) に従う |
 | 変更 | 実装の入口が既存の構成を直接編集する | 保存済み計画の behavior ごとに進める。規約は [AGENTS.md](../../AGENTS.md)、ビルドと検証は同書の「検証」「AI エージェントでのビルド注意事項」に従う。コマンドは本表に書き写さない |
 
 ## 読み替え表
@@ -68,7 +68,7 @@
 
 | 共有コアの記述 | anet での読み替え |
 |---|---|
-| 工程 Agent（要件定義・設計・実装） | 要件定義は `anet-create-prd`、実装は `implement-prd-with-docs`。設計の工程は無い |
+| 工程 Agent（要件定義・設計・実装） | 要件定義は `anet-create-prd`、実装は `anet-impl-prd`。設計の工程は無い |
 | 質疑で洗い出す不足（テンプレートの必須項目と観点） | グリルの決定木と観点。テンプレートは未整備 |
 | 主要な流れ（ユースケースの基本フロー） | PRD のゴールと受入基準 |
 | プラットフォームの標準の動き | 設計文書（1xx・2xx）、ADR、`CONTEXT.md`、`AGENTS.md` の原則 |
@@ -78,7 +78,7 @@
 | 自己点検で残った未決は、まとめて 1 問で聞く。まとめた問いから除くのは、標準で決まる事項と、主要な流れを止める事項ですでに聞いたものだけである（1 節） | `anet-create-prd` は、自己点検で見つけた目的のずれを、まとめた問いに入れず、その前に別の 1 問で聞く。選択肢は「ゴールを変える」「ずれた部分を戻す」である。主要な流れを止める事項（1.2 節）としては扱わないので、「決めずに進める」「決まるまで止める」は置かない。ゴールの変更を「推奨案で埋める」で一括に決めないためである |
 | 残る項目を推奨案とともに並べて 1 問で聞くのは、質疑を切り上げるとき（1.2 節） | `anet-create-prd` は、後で要るので同時に作るものの細部も、この形で聞く（[anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md#scope-screen) の「scope screen」）。契約は 1 問ずつ詰め、細部の往復だけをまとめるためである |
 | Step 2 の質疑（1.2 節） | 「暫定」と指示された起票では、質疑を省き、置いた既定も決めきれない点も未決表へ書く（[anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md#暫定と-plan-mode) の「暫定と Plan Mode」） |
-| Step 4・5 のレビュー（1 節） | 作業を終えた時点で暫定の印が残る PRD は、`anet-create-prd` ではレビューに出さない。PRD を使うときに受ける。再グリルで印を外すときは `anet-create-prd` の段6、印があるまま実装に入るときは [implement-prd-with-docs](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md#暫定の印がある-prd) の「暫定の印がある PRD」 |
+| Step 4・5 のレビュー（1 節） | 作業を終えた時点で暫定の印が残る PRD は、`anet-create-prd` ではレビューに出さない。PRD を使うときに受ける。再グリルで印を外すときは `anet-create-prd` の段6、印があるまま実装に入るときは [anet-impl-prd](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md#暫定の印がある-prd) の「暫定の印がある PRD」 |
 | 課題記録への起票 | `docs/management/issues/` の issue。新規か既存への追記かは `anet-create-issue` の「分け方」。工程中の未決は PRD の未決表か `/// @todo` にも置ける。工程末に issue にした件は、未決表と `/// @todo` に ID を添える（7 節の段階 3） |
 | 起票の候補の区分（新規・既存へ追記・見送り推奨。7 節） | 「この場で直す」を足した 4 区分。条件と流れは下の節による |
 | 課題の状態（6 節の「妥当性の判断を記録も確認もしない」、5 節の停止条件 8・9、1 節の再開の段落） | 解決以外の状態は、工程の出来事（グリルの開始、実装計画の保存、「この場で直す」の選択と取りやめ、停止条件 8・9 での停止と再開）に合わせて AI が書く。表は `anet-update-issue` の「工程の出来事」。解決と次版は開発者が決め、AI の判定が済みを示す課題の解決は、工程の外の `anet-prepare-commit` が持ちかける。工程の手順は、妥当性の判断を記録も確認もしないままである。1 節の再開の段落（止まったときに記録した課題を、解決にしてよいかを工程末の応答で尋ねる）は置き換えず、そのまま行う。その課題には AI の判定が付かないので、`anet-prepare-commit` の解決の候補には挙がらない |

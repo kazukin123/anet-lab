@@ -45,7 +45,7 @@ PRD に沿わない変更は、`impl` として、入力元を「なし」と書
 | 2 | production の `dynamic_cast` | 変更ファイルのうち `*.cpp` と `*.hpp`（`*_test.cpp` を除く） | `dynamic_cast` | 0 件 | 本書「C++ コード」の規約 |
 | 3 | TODO の形式 | 変更ファイルのうち `*.cpp` と `*.hpp` | `\bTODO\b`（大文字小文字を区別する） | 0 件 | 本書「コメントと TODO」の規約 |
 | 4 | 共有する契約の非依存 | `docs/process/protocol.md` と `.claude/agents/anet-review-agent.md`（変更ファイルに無くても検索する。課題の仕組みのファイルは対象外） | `rg -n -P -i 'anet(?!-[a-z0-9-]+)'` と `rg -n 'PRD'`。`anet-` で始まる skill・エージェント・アダプタの名前と作業用パスを前者のパターンで除く | どちらも 0 件 | [ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md) 先頭の注記 |
-| 5 | 実装計画の名前と場所 | `impl-plan` として渡された実装計画のファイル名。`impl-plan` を渡されたときだけ | `^\d{3}_.+_2[0-9]impl\.md$` | 一致する。同じディレクトリに、名前の `_2[0-9]impl.md` を `_10prd.md` に置き換えた PRD がある | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §実装計画ファイル解決 |
+| 5 | 実装計画の名前と場所 | `impl-plan` として渡された実装計画のファイル名。`impl-plan` を渡されたときだけ | `^\d{3}_.+_2[0-9]impl\.md$` | 一致する。同じディレクトリに、名前の `_2[0-9]impl.md` を `_10prd.md` に置き換えた PRD がある | [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §実装計画ファイル解決 |
 | 71 | 改名の旧名 | 現用の範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki の実装の地図 `docs/wiki/apps/` と `docs/wiki/categories/`）。過去の記録（`docs/experiments/`、`docs/adr/`、`docs/memo/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し（`core/anet-core/testdata/` の `run_*.txt` など））は除く。名前を変えた実装だけ | 実装計画か依頼に書いた旧 → 新の一覧の旧名のそれぞれを、固定文字列で（設定キーは `learner.alpha` のような完全なキーで） | 名前を変えた実装には旧 → 新の一覧があり、旧名がどれも 0 件 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針、本書「名前」の規約 |
 | 76 | 直訳の語の不在 | 変更ファイルの差分の追加行（項番 6 で得た差分）。コード・コメント・設計文書・実装計画を含む | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルールの表で、「検索」が「する」の行の避ける語のそれぞれを、固定文字列で | 0 件。外部からの引用と外部の固有名の中は数えない | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルール |
 
@@ -72,11 +72,11 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
-| 9 | 前提の固定 | 固定した前提と既定値が、「前提」の節に書かれている。ユーザーの判断が要る未決が残っている場合は、未決と明記されている | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §未決事項監査ゲート |
-| 10 | テスト対象の面 | テスト対象にする public interface か、設定・runner-facing の面と、優先して確かめる observable behavior が書かれている。コードを変えない計画は、TDD の対象外とする理由が書かれている | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ、§保存する計画の形 |
-| 11 | テストの順序 | テストと実装の順序が、1 つの behavior ごとに RED から GREEN まで進む形で書かれている。最初の behavior が、経路の全体を 1 つのテストで通すものである。コードを変えない計画は対象外 | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
-| 12 | PRD との一致 | 計画が、PRD の確定事項・実装の契約・受入基準に反していない。PRD に無い public interface・設定キー・挙動を足していない | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §実行ルール、[AGENTS.md](../../AGENTS.md) §基本方針 |
-| 13 | 検証の手段 | 「検証」の節に、このリポジトリで実行できるコマンドか、確かめる手順が書かれている。C++ のビルドを含む場合は、所在の節が定める形のコマンドである | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §保存する計画の形、[AGENTS.md](../../AGENTS.md) §検証 |
+| 9 | 前提の固定 | 固定した前提と既定値が、「前提」の節に書かれている。ユーザーの判断が要る未決が残っている場合は、未決と明記されている | [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §未決事項監査ゲート |
+| 10 | テスト対象の面 | テスト対象にする public interface か、設定・runner-facing の面と、優先して確かめる observable behavior が書かれている。コードを変えない計画は、TDD の対象外とする理由が書かれている | [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ、§保存する計画の形 |
+| 11 | テストの順序 | テストと実装の順序が、1 つの behavior ごとに RED から GREEN まで進む形で書かれている。最初の behavior が、経路の全体を 1 つのテストで通すものである。コードを変えない計画は対象外 | [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
+| 12 | PRD との一致 | 計画が、PRD の確定事項・実装の契約・受入基準に反していない。PRD に無い public interface・設定キー・挙動を足していない | [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §実行ルール、[AGENTS.md](../../AGENTS.md) §基本方針 |
+| 13 | 検証の手段 | 「検証」の節に、このリポジトリで実行できるコマンドか、確かめる手順が書かれている。C++ のビルドを含む場合は、所在の節が定める形のコマンドである | [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §保存する計画の形、[AGENTS.md](../../AGENTS.md) §検証 |
 
 ### PRD への適合
 
@@ -86,9 +86,9 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 | --- | --- | --- | --- |
 | 14 | 受入基準の充足 | PRD の受入基準のうち、今回の実装の範囲に当たる各項目について、それを満たす実装・テスト・検証の結果を特定できる。指定された入力・回数・観測対象・拒否条件を、テストの設定と assertion または検証結果へ照合する。関連するテストがあるだけで充足としない。満たしていない項目は、未解決か範囲外として、理由とともに実装計画か依頼に書かれている | 入力元の PRD（受入基準） |
 | 15 | 確定事項への適合 | 実装が、PRD の確定事項と実装の契約に反していない | 入力元の PRD（確定事項、実装の契約） |
-| 16 | 過剰の不在 | PRD と実装計画に無い機能・設定キー・public interface・ファイルを足していない。足した場合は、理由が実装計画に書かれている | [AGENTS.md](../../AGENTS.md) §基本方針、[PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
+| 16 | 過剰の不在 | PRD と実装計画に無い機能・設定キー・public interface・ファイルを足していない。足した場合は、理由が実装計画に書かれている | [AGENTS.md](../../AGENTS.md) §基本方針、[PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
 | 17 | 変更の範囲 | 変更ファイルが、PRD と実装計画に要る範囲に収まっている。無関係な整形・リネームと、生成物・ローカル環境のファイルの追加が無い | [AGENTS.md](../../AGENTS.md) §基本方針 |
-| 74 | 課題の対応の記録 | 入力元の PRD の課題（`prd` でその PRD を指す issue）のうち、今回の実装の範囲に当たるもの全部の対応内容に、今回の対応の行がある。各行に、その件で直したことと確かめた結果がある | [anet-create-issue](../../.agents/skills/anet-create-issue/SKILL.md) の「各項目の書き方」、[PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §実装後の自己点検とレビュー、[レジストリ](../process/registry.md) §この場で直す |
+| 74 | 課題の対応の記録 | 入力元の PRD の課題（`prd` でその PRD を指す issue）のうち、今回の実装の範囲に当たるもの全部の対応内容に、今回の対応の行がある。各行に、その件で直したことと確かめた結果がある | [anet-create-issue](../../.agents/skills/anet-create-issue/SKILL.md) の「各項目の書き方」、[PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §実装後の自己点検とレビュー、[レジストリ](../process/registry.md) §この場で直す |
 
 ### 契約の変更
 
@@ -421,8 +421,8 @@ env 別ファイル（`Atari.txt` など）の値・本数・群やキーの列�
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
-| 46 | 検証の経路 | テストが、public API・設定の読み込み・runner-facing の挙動を通して、外から観測できる挙動を確かめている。private なメソッドや内部の構造を、直接確かめていない | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
-| 47 | 計画との対応 | 実装計画の「優先 behavior」のそれぞれに、対応するテストがある。計画が指定する入力・回数・観測対象・拒否条件と、テストの設定・assertion が一致している | [PRD-IMPLEMENTATION.md](../../.agents/skills/implement-prd-with-docs/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ、§保存する計画の形 |
+| 46 | 検証の経路 | テストが、public API・設定の読み込み・runner-facing の挙動を通して、外から観測できる挙動を確かめている。private なメソッドや内部の構造を、直接確かめていない | [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ |
+| 47 | 計画との対応 | 実装計画の「優先 behavior」のそれぞれに、対応するテストがある。計画が指定する入力・回数・観測対象・拒否条件と、テストの設定・assertion が一致している | [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §TDD 実装フェーズ、§保存する計画の形 |
 | 73 | 本番設定を読むテスト | 足した・変えたテストのうち `apps/runner/config` 配下のファイルを読むものが固定しているのは、共通層の PRD が宣言した既定か、実行時に止まらない規則だけである。env 別ファイルの値・本数・列挙を等値比較していない。タグ `[shipped_config]` を持つ | 本節の規約 |
 
 ### 検証と報告

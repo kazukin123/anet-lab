@@ -1,6 +1,6 @@
 ---
-name: implement-prd-with-docs
-description: Implement a repo PRD through docs-aware questions, a saved implementation plan, self-check, and review, then report unresolved items and stop. Use when the user invokes /implement-prd-with-docs with a PRD filename such as 013_sample_prefetch_10prd.md, or asks to implement a *_10prd.md file while saving a *_2ximpl.md plan.
+name: anet-impl-prd
+description: Implement a repo PRD through docs-aware questions, a saved implementation plan, self-check, and review, then report unresolved items and stop. Use when the user invokes /anet-impl-prd with a PRD filename such as 013_sample_prefetch_10prd.md, or asks to implement a *_10prd.md file while saving a *_2ximpl.md plan.
 ---
 
 # PRD 実装起動
@@ -10,7 +10,7 @@ description: Implement a repo PRD through docs-aware questions, a saved implemen
 通常の呼び出しは次の形として扱う:
 
 ```text
-/implement-prd-with-docs 013_sample_prefetch_10prd.md
+/anet-impl-prd 013_sample_prefetch_10prd.md
 ```
 
 PRD ファイル名だけが渡された場合は、次の意図として解釈する:
