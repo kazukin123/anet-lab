@@ -93,7 +93,7 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 
 `impl-plan` か `impl` を出すときは、依頼を書く前に、差分をファイルへ書き出す。レビューエージェントは、それを読む。`prd` を出すときは、書き出さない。
 
-1. 置き場を作る。応答を保存する置き場（4 の定めによる。`.scratch/prdNNN/` か `.scratch/review/`）の下の、`diff-<YYYYMMDD-HHMM>/` にする。起動のたびに新しく作り、前の置き場を使い回さない。
+1. 置き場を作る。応答を保存する置き場（4 の定めによる。`.scratch/prdNNN/` か `.scratch/review/`）の下の、`diff-<YYYYMMDD-HHMM>/` にする（時刻の取り方は「原文を保存する」による）。起動のたびに新しく作り、前の置き場を使い回さない。
 2. Git が追跡している変更ファイルごとに、`git diff --output=<置き場>/<名前>.diff <基準コミット> -- <変更ファイル>` を実行する。`<名前>` は、変更ファイルのパスの `/` を `__` に置き換え、先頭に `__` を付けたものである（例: `docs/quality/impl.md` の差分は、`__docs__quality__impl.md.diff` に書く）。先頭に `__` を付けるのは、`.agents/` などの配下のファイルで、名前が `.` で始まらないようにするためである。`.` で始まる名前は、`ls` や `rg --files` の一覧に出ない。
 3. 依頼の変更箇所に、置き場のパスと、名前の決め方を書く。
 
@@ -125,6 +125,7 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 
 - 応答を受け取ったら、毎回、原文をそのまま保存する。置き場は、PRD に沿った作業なら `.scratch/prdNNN/`（`NNN` は、対象か入力元の PRD の番号）、PRD の無い変更なら `.scratch/review/` にする。
 - 名前は `review-<YYYYMMDD-HHMM>.md` にする。依頼を分けたときは、成果物キーを足す（`review-<YYYYMMDD-HHMM>-prd.md` など）。ユーザーが名前を示したときは、それを使う。
+- 名前の時刻は推測で書かず、保存の直前にコマンドで取る（Bash は `date +%Y%m%d-%H%M`、PowerShell は `Get-Date -Format yyyyMMdd-HHmm`）。PowerShell の `date` は、PATH によって別の命令に当たるので使わない。
 - Codex で、親のスレッドが読み取り専用のときは、保存できない。そのときは、説明のあとに原文を全文で示し、保存できなかった旨を示す。
 
 ### 説明を書く
