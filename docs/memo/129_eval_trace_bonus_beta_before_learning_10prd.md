@@ -277,7 +277,7 @@ DefaultDQN の step 診断の 3 つの鍵の値は、次の表を上から順に
 - ユーザーガイド [020](../design/020_user_guide_run.jp.md) §6.5: 「βがまだ決まっていない評価専用・再開直後は、ボーナスが空欄になります」（559 行）を、評価専用の Run でもボーナスが出ることと、起動直後と warm-up 中は 0 と出ることに改める。英訳 [020 en](../design/020_user_guide_run.en.md) の同じ文（560 行）。
 - 設計文書 [200](../design/200_dqn_agents.jp.md) §6.2: `learner.enabled=false` の段落（450 行）の、無効時も動く外側の Agent の前処理の列挙に、β の評価を足す。英訳 [200 en](../design/200_dqn_agents.en.md) の同じ段落（452 行）。
 - PRD127: 冒頭に注記を足す（D7）。本 PRD の起草で行った。
-- wiki: 地図の [324 DQN 系列](../wiki/categories/324_dqn.md) と、[内的報酬のページ](../wiki/mechanisms/intrinsic_novelty.md)（「学習の入口を通らず」の言い回し）。本 PRD の起草の書き戻しで行った。
+- wiki: トピック別まとめの [324 DQN 系列](../wiki/categories/324_dqn.md) と、[内的報酬のページ](../wiki/mechanisms/intrinsic_novelty.md)（「学習の入口を通らず」の言い回し）。本 PRD の起草の書き戻しで行った。
 - 直さないもの: 実験記録（[2026-11-08_montezuma-rnd-taiga-aligned.md](../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md) の「評価だけの Run では学習の入口を通らないので、β が無い」）、課題記録、PRD127 の本文（冒頭の注記のほか）、PRD128 の本文は、当時の記録か別の PRD なので書き換えない。PRD128 の §2.1 が数える、Agent が持つ内的報酬の状態の数は、本 PRD で変わらない（直近の β を書く時機を足すだけで、足す状態は無い）。
 
 ## 7. 成功の測り方と受入

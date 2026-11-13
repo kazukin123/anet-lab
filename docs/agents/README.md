@@ -87,12 +87,12 @@
 
 | 作業 | 読むもの | 読まなくてよいとき | 根拠 |
 |---|---|---|---|
-| PRDを起こす・改訂する | anet-create-prd、docs/quality/prd.md、wiki目録と対象の地図 | 実装だけの工程では再グリルしない | .agents/skills/anet-create-prd/SKILL.md |
+| PRDを起こす・改訂する | anet-create-prd、docs/quality/prd.md、wiki目録と対象のトピック別まとめ | 実装だけの工程では再グリルしない | .agents/skills/anet-create-prd/SKILL.md |
 | 実装を始める | PRD、保存済み2ximpl、docs/quality/impl.mdの変更種類の節 | 今回の種類に当たらない節は除く | .agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md |
 | C++を書く | impl.mdのC++・名前・コメント・計測・GetScalar・所有権・ログ・失敗 | C++を変えないとき | AGENTS.md「作業ごとに読むもの」 |
 | Python・Java・PowerShellを書く | impl.mdのコメントとTODO・ログ | 該当言語を変えないとき | AGENTS.md「作業ごとに読むもの」 |
 | 設定を書く | impl.mdの設定ファイル・名前、関連設計文書 | 設定を変えないとき | AGENTS.md「設定値の扱い」 |
-| 構造・契約を変える | 関連する設計文書・ADRとwikiの実装の地図 | バグ修正や既存PRDの実装で判断が既定のとき | AGENTS.md「ADRを読む条件」「wikiを引く条件」 |
+| 構造・契約を変える | 関連する設計文書・ADRとwikiのトピック別まとめ | バグ修正や既存PRDの実装で判断が既定のとき | AGENTS.md「ADRを読む条件」「wikiを引く条件」 |
 | 新しい名前を付ける | CONTEXT.md、impl.mdの名前 | 新しい名前を付けないとき | AGENTS.md「用語を引く条件」 |
 | 検証する | 領域の設計文書のテスト章→testdata/PRDのREADME、AGENTS.mdのMSVC手順 | 対象外の検証は理由を記録する | AGENTS.md「検証」 |
 | レビューする | anet-review→レビューエージェント、protocol.md、registry.md、対象の観点 | 対象が無いときは呼ばない | .agents/skills/anet-review/SKILL.md |

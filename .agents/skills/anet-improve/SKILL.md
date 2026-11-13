@@ -18,7 +18,7 @@ description: Find the rework in the current anet-lab conversation (review findin
 
 ## 禁止事項
 
-- ハーネスの外（wiki、`CONTEXT.md`、`docs/design/`、ADR、コード、設定）は直さない。手戻りの原因がそこにあると分かったら、報告に書く。ただし、8 の issue の一覧の作り直し（`wiki_support.py maps`）が書き換える `docs/wiki/` の地図の「課題」の区画は、issue から作る一覧として扱い、この禁止に当たらない。
+- ハーネスの外（wiki、`CONTEXT.md`、`docs/design/`、ADR、コード、設定）は直さない。手戻りの原因がそこにあると分かったら、報告に書く。ただし、8 の issue の一覧の作り直し（`wiki_support.py maps`）が書き換える `docs/wiki/` のトピック別まとめの「課題」の区画は、issue から作る一覧として扱い、この禁止に当たらない。
 - git の書き込み操作をしない。
 - 作業領域の外にある会話の履歴（会話の記録ファイル）を読まない。作業の正本ではなく、指示を取り違えるおそれがあるためである。
 - 覚えていないことを推測で埋めない。
@@ -144,7 +144,7 @@ issue に同じ問題があれば、「前回も出た」と、初出の日付�
 
 新規は kind をハーネス、phase をハーネス保守、type を機能改善、domain を開発、area を該当する key（通常 311_dev_tools）にする。本文に事象・再発した場合の影響・選んだ対策を分けて書き、WSJF の 4 つの値は課題の skill の定義で見立て、priority は中を置く。既存 issue の status と監理項目は AI の判断で変えない。
 
-repo の `.venv` から `reports/tools/wiki_support.py maps` を実行し、INDEX と地図の課題区画を作り直す。
+repo の `.venv` から `reports/tools/wiki_support.py maps` を実行し、INDEX とトピック別まとめの課題区画を作り直す。
 
 ### memory（Claude Code だけ）
 

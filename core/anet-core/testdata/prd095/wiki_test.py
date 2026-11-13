@@ -190,6 +190,49 @@ class WikiSupportTest(unittest.TestCase):
                     self.assertNotIn('[PRD'+number+']',text)
                     self.assertTrue(text.endswith('KEEP\n'))
 
+    def test_maps_count_pending_commit_only_on_pages_it_touches(self):
+        # コミットの準備が渡す予定のコミットは、触るファイルが当たるページの PRD の一覧にだけ足す。
+        spec=importlib.util.spec_from_file_location('prd095_wiki_support',HELPER)
+        helper=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            (root/'reports/tools').mkdir(parents=True)
+            shutil.copyfile(REPO/'reports/tools/categories.json',root/'reports/tools/categories.json')
+            source=root/'docs/memo/997_pending_probe_10prd.md'
+            source.parent.mkdir(parents=True)
+            source.write_text('# pending probe\n',encoding='utf-8')
+            pages=['docs/wiki/apps/110_runner_app.md','docs/wiki/categories/311_dev_tools.md']
+            for q in pages:
+                page=root/q;page.parent.mkdir(parents=True,exist_ok=True)
+                page.write_text('# map\n\n## ファイル\nold\n\n## PRD の一覧\nold\n\n'
+                                '## 課題\n<!-- issues:begin -->\nold\n<!-- issues:end -->\nKEEP\n',encoding='utf-8')
+            self.material(root,'apps/runner/src/Prd095Probe.cpp','// probe')
+            self.material(root,'apps/runner/tools/prd095_probe.py','# probe')
+            # 履歴は空。予定のコミットだけが PRD 番号を持つ。
+            def history(_root,*args):
+                return ('' if args[0]=='log' else
+                        'apps/runner/src/Prd095Probe.cpp\0apps/runner/tools/prd095_probe.py\0')
+            with patch.object(helper,'git',side_effect=history):
+                helper.regenerate_maps(root,'feat(RunnerApp): probe。 PRD997 #3',['apps\\runner\\src\\Prd095Probe.cpp'])
+            app=(root/pages[0]).read_text(encoding='utf-8')
+            tools=(root/pages[1]).read_text(encoding='utf-8')
+            self.assertIn('- [PRD997](../../memo/997_pending_probe_10prd.md) — pending probe',app)
+            self.assertNotIn('PRD997',tools)
+            # 予定を渡さなければ、履歴に無い番号は出ない。
+            with patch.object(helper,'git',side_effect=history):
+                helper.regenerate_maps(root)
+            self.assertNotIn('PRD997',(root/pages[0]).read_text(encoding='utf-8'))
+
+    def test_maps_rejects_pending_subject_without_files(self):
+        root=self.fixture()
+        for extra in (['--pending-subject','feat(DQN): x。 PRD997 #3'],['--pending-files','a.cpp']):
+            with self.subTest(extra=extra):
+                result=subprocess.run([sys.executable,'-B',str(HELPER),'maps',*extra],cwd=root,
+                                      encoding='utf-8',capture_output=True)
+                self.assertEqual(result.returncode,2)
+                self.assertIn('--pending-subject と --pending-files',result.stderr)
+
     def test_only_reports_index_is_excluded_from_materials(self):
         root=self.fixture()
         self.material(root,'reports/INDEX.md','# derived index')

@@ -12,7 +12,7 @@
 |---|---|---|---|
 | anet-housekeeping | 残トークンと残時間の予算内で、下の定常整備を自動選定して順に回す。予算は `auto` / `S` / `M` / `L` / `NN%`。Codex は残量 API が無いので予算引数が必須 | `/anet-housekeeping S dry-run`、`$anet-housekeeping M` | `reports/housekeeping/runs.jsonl` |
 | anet-stats | git 履歴とローカル Run フォルダから定点統計を再生成し、digest を追記する。分類の正本は `reports/tools/categories.json` | `/anet-stats` | `reports/stats/` |
-| anet-ingest-wiki | 正本を wiki へ取り込む。地図新設時は課題区画も生成する | `$anet-ingest-wiki` | `docs/wiki/`、INDEX |
+| anet-ingest-wiki | 正本を wiki へ取り込む。トピック別まとめの新設時は課題区画も生成する | `$anet-ingest-wiki` | `docs/wiki/`、INDEX |
 | anet-lint-wiki | 取り込み漏れ・撤回・リンク・実装済み PRD を点検し、派生一覧を再生成する | `$anet-lint-wiki max=3` | `docs/wiki/`、INDEX |
 | anet-audit | 観点 1 つ×範囲 1 つで定点監査し、指摘を issue へ記録する。既存課題は AI の判定だけを更新する | `$anet-audit lens=refactor scope=318_rl_core` | `docs/management/issues/`、INDEX、wiki の課題区画 |
 | anet-translate-docs | `docs/design/*.jp.md` を 1 本ずつ英訳して `.en.md` を隣に置く。訳元の blob hash を 1 行目に持つ | `/anet-translate-docs 010_framework_overview.jp.md` | `docs/design/*.en.md`、`reports/translate/glossary.json` |
@@ -32,7 +32,7 @@ anet-housekeeping が呼ぶ候補と対応: stats → anet-stats、wiki-lint →
 
 anet- スキル共通の約束(対象は定常整備系。anet-housekeeping と、それが呼ぶ上の候補): git の書き込み操作をしない(人が行う)、実行前の対象・順序の了承確認は anet-housekeeping が行い、了承後の各作業は質問して止まらない、出力先は各スキルが定める固定パスだけ、1 単位ごとに保存して途中終了しても成果が残る。出力は `reports/` 配下に置く(`docs/` は GitHub Pages に配信されるため)。公開が目的のもの(英訳 → `docs/design`、atlas → `docs/archify`、動線マップ → `docs/agents`、wiki → `docs/wiki`、課題 → `docs/management/issues`)だけは `docs/` 配下に置く。
 
-`wiki_support.py maps` は INDEX と地図の課題区画、ファイルと PRD 一覧を作り直す。全入力と目印を検証してから書き、区画外と wiki ログを保つ。
+`wiki_support.py maps` は INDEX とトピック別まとめの課題区画、ファイルと PRD 一覧を作り直す。全入力と目印を検証してから書き、区画外と wiki ログを保つ。
 
 ## 汎用(導入済み)
 

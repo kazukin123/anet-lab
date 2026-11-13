@@ -29,7 +29,7 @@ description: Audit one lens and one scope of anet-lab, record findings as one is
 - 挙動が変わる修正はリファクタ候補にしない。defect として扱う。
 - ADR と矛盾する提案は出さない。ADR が意図と記録している形は候補にしない。当時の前提が今は崩れていると判断した場合だけ、ADR 再訪の候補として ADR 番号と前提が崩れた根拠を書く。
 - hot path(Sample、Push、Learn、per-step 経路)や RNG 呼び出し順に触る提案は、対処方針に perf-neutral 確認と同 seed 再現性チェックを含める。
-- refactor・architecture では、地図の経緯の ADR・PRD が意図した形と「不採用」の形を候補にしない。前提が崩れた根拠がある場合だけ、出典と根拠を添えて再訪の候補にする。「先送り」「範囲外」は再開条件が揃った根拠を添えれば候補にしてよい。候補の対処方針には地図の「変えるときの条件」を引く。
+- refactor・architecture では、トピック別まとめの経緯の ADR・PRD が意図した形と「不採用」の形を候補にしない。前提が崩れた根拠がある場合だけ、出典と根拠を添えて再訪の候補にする。「先送り」「範囲外」は再開条件が揃った根拠を添えれば候補にしてよい。候補の対処方針にはトピック別まとめの「変えるときの条件」を引く。
 - wiki の書く部分は編集しない。食い違いは報告する。`wiki_support.py maps` による課題区画の再生成だけは派生一覧として扱う。
 - ホットスポット補正: `reports/stats/stats.json` の `flow.churn90` で上位のファイルは `urgency` を 1 段上げ、今後触る予定の無い場所は 1 段下げる。上げ下げの幅と、上げ下げする前の値は `anet-create-issue` の「anet での当てはめ」による。補正したときは、そのことと理由を課題の背景に書く。
 
@@ -41,14 +41,14 @@ description: Audit one lens and one scope of anet-lab, record findings as one is
 
 ## 手順
 
-1. lens と scope を確定する。観点ファイル、設計文書、必要な ADR を読む。refactor・architecture は実装の地図と、選ばなかった形・変えるときの条件も先に読む。
+1. lens と scope を確定する。観点ファイル、設計文書、必要な ADR を読む。refactor・architecture はトピック別まとめと、選ばなかった形・変えるときの条件も先に読む。
 2. コードと文書を読み取りだけで確かめる。ビルドとテストは実行しない。
 3. 範囲に area が当たる、次版・解決でない既存 issue（PRD の課題を含む）を本文まで読む。パスの範囲は本文の根拠位置でも絞る。根拠が残るなら「残件有り」、消えたなら「残件無し」、判断できなければ「判定不能」を `anet-update-issue` の「判定」で記録する。status と監理の項目は変えない。新しい根拠は本文へ追記できる。
 4. 新しい指摘は `anet-create-issue` の「分け方」で既存との重複を判定し、同じなら追記し、違えば起票する。phase は監査。type は defect→不具合、drift→不整合、refactor・architecture・test-gap→リファクタリング、process→機能改善、backlog→調査。kind は process だけハーネス、ほかは成果物。area は範囲に当たる `categories.json` の key の並びとする。domain は `anet-create-issue` の「各項目の書き方」のとおり area の先頭と本文から選ぶ（process はハーネスなので開発）。
 5. 新規は max 以内（既定 8 件）で、WSJF の大きいものから記録する。WSJF の 4 つの値と priority の置き方、本文の構成は `anet-create-issue` に従う。
-6. repo の `.venv` から `reports/tools/wiki_support.py maps` を実行して INDEX と地図の課題区画を再生成する。入力の不備で失敗したら成功扱いしない。
+6. repo の `.venv` から `reports/tools/wiki_support.py maps` を実行して INDEX とトピック別まとめの課題区画を再生成する。入力の不備で失敗したら成功扱いしない。
 7. `rotation.json` の該当 scope の日付と次の観点を更新する。
-8. 観点・範囲、読んだ地図、AI の判定別の再検証件数、新規 issue の ID と WSJF、上位 3 件の要旨、次の観点と範囲を報告する。refactor・architecture は、不採用の形を根拠なく候補にした件数と、変えるときの条件を引いた件数も示す。
+8. 観点・範囲、読んだトピック別まとめ、AI の判定別の再検証件数、新規 issue の ID と WSJF、上位 3 件の要旨、次の観点と範囲を報告する。refactor・architecture は、不採用の形を根拠なく候補にした件数と、変えるときの条件を引いた件数も示す。
 
 ## issue の品質基準
 

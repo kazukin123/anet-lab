@@ -41,4 +41,4 @@ Food-101のスクラッチ学習の到達点はResNet18ish_hr＋cosine＋Mixup/C
 - [BF16 と Head 化の PRD](../../memo/done/033_imagecls_bf16_head_10prd.md)。
 - [batch 入力の PRD](../../memo/done/034_imagecls_batch_input_10prd.md)。
 - [評価と比較の条件](../mechanisms/evaluation.md)。
-- [322 Env個別実装の実装の地図](../categories/322_env_individual.md)。
+- [322 Env個別実装のトピック別まとめ](../categories/322_env_individual.md)。

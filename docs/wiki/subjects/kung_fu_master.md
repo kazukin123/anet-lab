@@ -55,5 +55,5 @@
 - [AtariEnv のゲーム固有 RAM メトリクスは番号付き汎用キーで参照し、意味はゲーム別の RAM 定義が持つ](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md)。
 - [Atari環境](../../design/220_atari_env.jp.md) §4、[観測と可視化](../../design/140_observability.jp.md) traceチャネル。
 - [CONTEXT.md](../../../CONTEXT.md) の「近似Actor初期優先度」「raw priority」「鏡写しインスタンス」。
-- [RunnerAppの実装の地図](../apps/110_runner_app.md)。
+- [RunnerAppのトピック別まとめ](../apps/110_runner_app.md)。
 - [Evaluation Trace PRD](../../memo/done/094_evalpanel_step_history_10prd.md)、[内的報酬のPRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、[LLM ActorのPRD](../../memo/926_llm_actor_10prd.md)（提案は各PRDで扱う）。

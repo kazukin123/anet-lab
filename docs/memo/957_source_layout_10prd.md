@@ -4,7 +4,7 @@
 
 > 2026-10-24 起票。暫定の既定を置き、決めることを §8 の表に残した。グリル前で、最終簡素化パスは経ていない。行番号・行数・参照数は起票時点のもので、実装時は近傍のシンボル名・ファイル名で探し直す。
 > 起点: 2026-10-23 の会話。具象 Agent 4 つと系統ごとの共通基盤が `core/anet-core/src` に Env 以外のすべてと同居している。Env は `core/envs/<env>/` の独立ライブラリで、`Init<Env>()` を app が呼ぶ。Agent も同じ形にして責務の境界を CMake で強制したい（分散の不利より分ける利得が大きい）。wxWidgets の配置を参考に見て、ソースの root が `core/` である今の形が不自然だと気づいた。
-> 関連: [999 outside-core 拡張の配置](945_outside_core_extension_layout_10prd.md)（公開ヘッダと登録口の規約 P1〜P4。本書の段 2 は、同書 §7 で先送りした「Agent の外部登録口」「NN Head 部品の公開」の起動条件を満たす）、[999 設定ファイル配置](907_config_file_layout_10prd.md)（設定も具象 Agent 別。同じ単位）、[080 動線マップ](done/080_harness_map_10prd.md)・[095 LLM-Wiki](done/095_llm_wiki_10prd.md)（パスを持つ地図。再生成が要る）。
+> 関連: [999 outside-core 拡張の配置](945_outside_core_extension_layout_10prd.md)（公開ヘッダと登録口の規約 P1〜P4。本書の段 2 は、同書 §7 で先送りした「Agent の外部登録口」「NN Head 部品の公開」の起動条件を満たす）、[999 設定ファイル配置](907_config_file_layout_10prd.md)（設定も具象 Agent 別。同じ単位）、[080 動線マップ](done/080_harness_map_10prd.md)・[095 LLM-Wiki](done/095_llm_wiki_10prd.md)（パスを持つ動線マップとトピック別まとめ。再生成が要る）。
 
 ## 1. 目的と問題
 
@@ -109,8 +109,8 @@
 3. anet-core の公開面。具象が使う内部の 2 系統を公開ヘッダへ出す。(a) Head 部品: `nn_heads.hpp` の `NetworkHead`・`LinearHead`・`LinearHeadFactory`・`PreparedHeadExecutor` と、`nn_impl.hpp` の `ProjectionHead`・`LinearProjectionModule`・`HeadFactoryBase`・`HeadGraphVizInfo`・`GetFeature`。(b) Replay の生成: `replay_buffer_impl.hpp` の `CreateReplayBuffer`・`ReplayBufferConfig`・`PrefetchingReplayBuffer`・`CreateDecisionWindowRule`。outside-core の P1・P4 の形で、拡張点の表の行を「書ける」に変える。それ以外の内部ヘッダは触らない。
 4. 登録。各 Agent ライブラリが `anet::rl::agent::InitDefaultDQN()` 等を公開し、RunnerApp が Env と同じ並びで呼ぶ（P3）。`InitRL` から 4 行を外す。テスト実行体も必要な Init を呼ぶ。
 5. テスト。DQN 系のテストは `dqn_based`・具象のライブラリの test 実行体へ。`anet-core-test` は基盤だけ。`testdata/` は各ライブラリに置く（`src/core/testdata/prdNNN` は残す）。
-6. 段階。段 1 はトップ階層の付け替え（`core/` → `src/`、Env の数字の除去、`viewers` の移動、CMake と include path と docs の参照の一括置換、地図の再生成）。段 2 は Agent の分離（公開面 → 5 ライブラリ → Init → テスト分割）。各段で build・全テスト・4 env の checksum・リンク検査を通す。段 1 を先にするのは Agent のファイルを 2 度動かさないため（§8 D11）。
-7. 文書と地図。[010 §4.2](../design/010_framework_overview.jp.md) のコードマップ、AGENTS.md（4 か所）、CONTEXT.md（outside-core §8 の 3 の用語「公開ヘッダ」「anet-core の外」が持つパス）、Doxyfile、`.claude` の 3 skill、docs の 1,281 参照（スクリプトで置換してリンク検査）、archify の地図（anet-archify-atlas）、動線マップ（anet-harness-map）、wiki の実装地図の「ファイル」節（anet-lint-wiki）、台帳 `findings.jsonl` の 29 パス（§8 D13）、testdata の README 約 160（置換）。
+6. 段階。段 1 はトップ階層の付け替え（`core/` → `src/`、Env の数字の除去、`viewers` の移動、CMake と include path と docs の参照の一括置換、生成物 3 種の再生成）。段 2 は Agent の分離（公開面 → 5 ライブラリ → Init → テスト分割）。各段で build・全テスト・4 env の checksum・リンク検査を通す。段 1 を先にするのは Agent のファイルを 2 度動かさないため（§8 D11）。
+7. 文書と生成物。[010 §4.2](../design/010_framework_overview.jp.md) のコードマップ、AGENTS.md（4 か所）、CONTEXT.md（outside-core §8 の 3 の用語「公開ヘッダ」「anet-core の外」が持つパス）、Doxyfile、`.claude` の 3 skill、docs の 1,281 参照（スクリプトで置換してリンク検査）、archify の architecture atlas（anet-archify-atlas）、動線マップ（anet-harness-map）、wiki のトピック別まとめの「ファイル」節（anet-lint-wiki）、台帳 `findings.jsonl` の 29 パス（§8 D13）、testdata の README 約 160（置換）。
 8. 互換層は作らない。旧パスの symlink・junction・include の転送ヘッダは置かない。`git mv` で履歴を保つ。
 
 ## 5. 機構ごとの根拠
@@ -123,7 +123,7 @@
 | 公開面の切り出し 2 系統 | 具象の include を数えた結果（§2.3）。それ以外の内部ヘッダは使っていない | 2 系統だけ |
 | Init 関数 | Env の形（P3）。自己登録マクロは静的ライブラリで落ちる | Env と同じ |
 | 段 1 を先に | Agent のファイルを `core/agents/` → `src/agents/` と 2 度動かさない | 段 1 → 段 2 |
-| 互換層を置かない | 旧パスが残ると地図と検査が二重になる | 置かない |
+| 互換層を置かない | 旧パスが残ると、生成物 3 種と検査が二重になる | 置かない |
 
 ## 6. 受入基準
 
@@ -132,7 +132,7 @@
 3. CMake の依存グラフで、`anet-core` は Agent ライブラリへ link しない。Agent ライブラリは `anet-core` の公開ヘッダと自ライブラリ（dqn_based）だけを include する。公開ヘッダから内部ヘッダの include は 0（P2）。
 4. 旧パスが残らない（`core/`、`viewers/` が無い）。symlink・転送ヘッダが無い。
 5. 文書のリンク検査が 0 件。docs・AGENTS.md・CONTEXT.md・Doxyfile・`.claude`・testdata の README・台帳のパスが新しい。
-6. 地図 3 種（archify、動線マップ、wiki の実装地図）が再生成済み。
+6. 生成物 3 種（archify の architecture atlas、動線マップ、wiki のトピック別まとめ）が再生成済み。
 7. 行数の移動量（ファイルごとの前後の場所）を実装メモに記録する。
 
 ## 7. 先送りした段階と、作る条件
@@ -169,7 +169,7 @@
 
 1. 段 1 は独立で始められる。段 2 は [999 outside-core](945_outside_core_extension_layout_10prd.md) の P1〜P4 がグリルで確定してから。
 2. [999 設定ファイル配置](907_config_file_layout_10prd.md)と「具象 Agent」の単位をそろえる。順序は独立。
-3. 地図の再生成に [095](done/095_llm_wiki_10prd.md) の点検ツールと [080](done/080_harness_map_10prd.md) の skill を使う。
+3. 生成物 3 種の再生成に [095](done/095_llm_wiki_10prd.md) の点検ツールと [080](done/080_harness_map_10prd.md) の skill を使う。
 
 ## 10. 再確認ポイント
 

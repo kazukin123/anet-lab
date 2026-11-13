@@ -67,10 +67,10 @@ class IssueViewsTest(unittest.TestCase):
         return json.loads(result.stdout) if success else result.stderr
 
     def test_maps_builds_index_and_issue_section_from_issue(self):
-        # 単票から、INDEXと地図の両方への生成経路を通す。
+        # 単票から、INDEXとトピック別まとめの両方への生成経路を通す。
         issue_id = self.issue()
         self.cli()
-        # 2つの一覧への掲載と、地図の区画外の本文の保持を確かめる。
+        # 2つの一覧への掲載と、トピック別まとめの区画外の本文の保持を確かめる。
         index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
         page = (self.root/'docs/wiki/categories/311_dev_tools.md').read_text(encoding='utf-8')
         self.assertIn(issue_id,index)
@@ -91,7 +91,7 @@ class IssueViewsTest(unittest.TestCase):
         self.assertIn('| 成果物 | 監査 | 311_dev_tools | UI | 機能追加 | [PRD120](../../memo/120_probe_10prd.md) | 未確認 |',row)
 
     def test_adding_an_issue_leaves_other_rows_unchanged(self):
-        # 高い点数と低い点数の 2 件で一覧と地図を作り、その間に並ぶ課題をあとから足す。
+        # 高い点数と低い点数の 2 件で一覧とトピック別まとめを作り、その間に並ぶ課題をあとから足す。
         self.issue('000001',value=13,urgency=13,risk=13,size=3,wsjf=13.0,ai_judge='残件無し',ai_judged='2026-11-05')
         self.issue('000002',value=1,urgency=1,risk=1,size=3,wsjf=1.0,ai_judge='残件無し',ai_judged='2026-11-07')
         self.cli()
@@ -177,7 +177,7 @@ class IssueViewsTest(unittest.TestCase):
         text_memo = self.issue('000001',priority='あとで',memo='人間メモ XYZ')
         list_memo = self.issue('000002',priority=None,memo=['メモ ABC','PQR'])
         self.cli()
-        # 道具は止まらず、どちらの値も一覧と地図に出さない。
+        # 道具は止まらず、どちらの値も一覧とトピック別まとめに出さない。
         index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
         page = (self.root/'docs/wiki/categories/311_dev_tools.md').read_text(encoding='utf-8')
         for output in (index,page):
@@ -534,7 +534,7 @@ class IssueViewsTest(unittest.TestCase):
         self.assertEqual(self.stats()['process']['prd_count'],2)
 
     def test_bad_marker_in_later_page_leaves_all_outputs_unchanged(self):
-        # 先に正常な出力を作り、あとで読む地図の目印だけを壊す。
+        # 先に正常な出力を作り、あとで読むトピック別まとめの目印だけを壊す。
         self.issue()
         self.cli()
         page = self.page('categories/317_metrics')

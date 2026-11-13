@@ -192,7 +192,7 @@ def subject_prd_numbers(subject):
     return numbers
 
 
-def prd_rows(root, page, files):
+def prd_rows(root, page, files, pending=None):
     # コマンド長を抑えて履歴を読む。
     import os
     numbers = set()
@@ -200,6 +200,9 @@ def prd_rows(root, page, files):
         subjects = git(root, 'log', '--format=%s', '--', *files[offset:offset+80])
         for line in subjects.splitlines():
             numbers.update(subject_prd_numbers(line))
+    # これから作るコミットも、触るファイルがページに当たれば履歴と同じに数える。
+    if pending and pending['files'] & set(files):
+        numbers.update(subject_prd_numbers(pending['subject']))
     rows = ['点検が作り直す。手で直さない。', '']
     unresolved = []
     for number in sorted(numbers):
@@ -406,7 +409,7 @@ def issue_order(records):
 
 
 def issue_table(root, page, records, all_records=None):
-    # 同じ列とリンクの作り方をINDEXと地図で使う。
+    # 同じ列とリンクの作り方をINDEXとトピック別まとめで使う。
     # 位置の番号の列は持たない。1 件の増減や並べ替えで、ほかの行まで書き換わってコミットの差分が膨らむため。
     import os
     lines = ['| ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |',
@@ -507,9 +510,12 @@ def issue_section(text, body, path):
     return left+begin+'\n'+body+'\n'+end+right
 
 
-def regenerate_maps(root):
+def regenerate_maps(root, pending_subject=None, pending_files=()):
     # 全ページとINDEXの生成結果を揃えてから書き戻す。
+    # pending_* はコミットの準備が渡す予定のコミット。PRD の一覧の行を、原因のコミットに入れるため。
     root = Path(root).resolve()
+    pending = (dict(subject=pending_subject, files={p.replace('\\', '/') for p in pending_files})
+               if pending_subject else None)
     rules = CategoryRules(root)
     records = issue_order(issue_records(root))
     index = root/'docs/management/issues/INDEX.md'
@@ -524,7 +530,7 @@ def regenerate_maps(root):
             text = page.read_bytes().decode('utf-8')
             result = replace_section(text, 'ファイル', file_rows(root, page, files, rules,
                                                                    page.stem if folder == 'apps' else None))
-            prds, unresolved = prd_rows(root, page, files)
+            prds, unresolved = prd_rows(root, page, files, pending)
             result = replace_section(result, 'PRD の一覧', prds)
             selected = [r for r in records if page.stem in r['area'] and r['status'] not in ('次版','解決')]
             result = issue_section(result, issue_table(root,page,selected,records), page.relative_to(root))
@@ -543,11 +549,20 @@ def main():
     import argparse
     import sys
     sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description='Internal mechanical support for wiki skills')
     parser.add_argument('action', choices=['scan', 'maps'])
+    parser.add_argument('--pending-subject', help='maps: これから作るコミットの件名（コミットメッセージ案）')
+    parser.add_argument('--pending-files', nargs='+', default=[], metavar='PATH',
+                        help='maps: そのコミットの対象ファイル（repo 相対）')
     args = parser.parse_args()
+    if (args.pending_subject or args.pending_files) and (args.action != 'maps' or not args.pending_subject
+                                                         or not args.pending_files):
+        parser.error('--pending-subject と --pending-files は maps で組にして渡す')
     try:
-        print(json.dumps(scan(Path.cwd()) if args.action == 'scan' else regenerate_maps(Path.cwd()), ensure_ascii=False, indent=2))
+        print(json.dumps(scan(Path.cwd()) if args.action == 'scan'
+                         else regenerate_maps(Path.cwd(), args.pending_subject, args.pending_files),
+                         ensure_ascii=False, indent=2))
     except (ValueError, OSError) as error:
         parser.exit(1, str(error)+'\n')
 

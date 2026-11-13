@@ -13,7 +13,7 @@
 issue の一覧を、人が開いて眺め、次に何をするかを決めやすい形で見せる。
 
 - PRD114 のあと、すべての仕事（PRD の索引の issue を含む）が issue になり、件数は 100 件を超える見込みである（台帳から 44 件、直下の PRD の索引の issue 64 件、以後の工程末の分）。
-- 一覧の skill（`anet-list-issues`）は会話の中で表を出すが、開けばいつでも見られるファイルは、PRD114 の最小の一覧（`docs/management/issues/INDEX.md` と wiki の地図の「課題」の区画）だけである。
+- 一覧の skill（`anet-list-issues`）は会話の中で表を出すが、開けばいつでも見られるファイルは、PRD114 の最小の一覧（`docs/management/issues/INDEX.md` と wiki のトピック別まとめの「課題」の区画）だけである。
 - 親子（`parent`）と依存（`depends`）の関係は、表では読み取りにくい。
 - 表計算のソフトで並べ替え・絞り込み・書き込みをしながら見たい場面がある。
 
@@ -21,7 +21,7 @@ issue の一覧を、人が開いて眺め、次に何をするかを決めや�
 
 1. issue は `docs/management/issues/issue-YYYYMMDD-xxxxxx.md` に 1 課題 1 ファイルで、frontmatter に状態・監理の項目（`priority`・`depends`・`parent`・WSJF）・`area`・`type`・`ai_judge`・`docs` を持つ（PRD114 §5.1）。
 2. 一覧の skill は、依存と WSJF の順に並べ、`area`・`type` で絞り、「束ね」と「棚卸し」で提案する（PRD114 D12・§5.1）。
-3. 最小の一覧は、`reports/tools/wiki_support.py` が `INDEX.md`（一覧の skill と同じ並び）と wiki の地図の区画を作り直す（PRD114 D21）。
+3. 最小の一覧は、`reports/tools/wiki_support.py` が `INDEX.md`（一覧の skill と同じ並び）と wiki のトピック別まとめの区画を作り直す（PRD114 D21）。
 4. 課題の skill と発番は、anet の skill と文書として持つ（PRD114 D2）。
 5. `docs/` 配下は GitHub Pages に配信される（skills README の anet- スキル共通の約束）。
 
@@ -42,7 +42,7 @@ issue の一覧を、人が開いて眺め、次に何をするかを決めや�
 | D2 | 出力を作る道具は、発番と同じく Node.js で `docs/process/scripts/` に置く | 発番の道具と同じ置き場と言語に揃える（PRD114 の実装で、発番の道具が Node.js でここに置かれる） |
 | D3 | 一覧の skill に、引数「ツリー」（会話の中で文字の木を出す）と「書き出し」（道具を呼んでファイルを作る）を足す | ユーザーが「一覧の skill に機能を付ける」案を挙げた。会話の中で見る形と、開いて見るファイルの両方を、同じ入口から出す |
 | D4 | 出力は `docs/management/issues/` に置く派生物（`index.html`・`tree.md`・`issues.csv`）とし、冒頭に「道具が作り直す。手で直さない」と書く。PRD114 の `INDEX.md` は `index.html` と並べて残す | 正本（issue）の隣に置くと、リンクが短く済む |
-| D5 | wiki の地図の「課題」の区画は、PRD114 の anet 側の道具（`wiki_support.py`）のままにする | 地図は anet にしか無い |
+| D5 | wiki のトピック別まとめの「課題」の区画は、PRD114 の anet 側の道具（`wiki_support.py`）のままにする | トピック別まとめは anet にしか無い |
 
 ## 5. 実装契約
 

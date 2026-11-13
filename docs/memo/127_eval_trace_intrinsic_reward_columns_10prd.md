@@ -273,7 +273,7 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 
 ### D18. ADR は起こさない
 
-理由: 足すだけの診断で、あとから変えにくい形を含まない。部品を作るときの入力を足す D3 は、PRD938 の ADR 0072 と同じ考え方に沿う。写しの扱い（D4）は実装の規約の例外だが、戻しにくい形ではない。写す場所を学習側の公開へ移しても、鍵、値の意味、設定は変わらない。例外にした理由と変えるときの条件は、D4 と wiki の地図に残す。推定器の写しの持ち主は step 診断の部品で、Actor は写し直す時機に呼ぶだけである。Actor が forward に使う写し（ADR 0013 が Actor の所有と決めたもの）とは別で、ADR 0013 は変えない。採点の場所の判断（D1）は 924 に開いたまま残している。
+理由: 足すだけの診断で、あとから変えにくい形を含まない。部品を作るときの入力を足す D3 は、PRD938 の ADR 0072 と同じ考え方に沿う。写しの扱い（D4）は実装の規約の例外だが、戻しにくい形ではない。写す場所を学習側の公開へ移しても、鍵、値の意味、設定は変わらない。例外にした理由と変えるときの条件は、D4 と wiki のトピック別まとめに残す。推定器の写しの持ち主は step 診断の部品で、Actor は写し直す時機に呼ぶだけである。Actor が forward に使う写し（ADR 0013 が Actor の所有と決めたもの）とは別で、ADR 0013 は変えない。採点の場所の判断（D1）は 924 に開いたまま残している。
 
 ### D19. 流れをシーケンス図で設計文書に書く
 
@@ -522,7 +522,7 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 - 設計文書 [100](../design/100_runtime_and_configuration.jp.md): `Actor::Sync()` の契約を書いた段落に、同期に従うものをつなぐ口（`AttachSyncFollower`）を 1 文足す。英訳 [100 en](../design/100_runtime_and_configuration.en.md) の同じ箇所。
 - 設計文書 [160](../design/160_applications_and_tools.jp.md): `EvalTracePanel` の節に、pane を閉じている間は step 診断の部品を休ませること、開いたときに写しが無ければ EvalPanel がその場で Actor を同期することを足す（D20）。英訳 [160 en](../design/160_applications_and_tools.en.md) の同じ箇所。
 - ユーザーガイド [020](../design/020_user_guide_run.jp.md): §6.5 の列番号の表に235 `rnd_bonus`と600〜699「内的報酬の誤差」を足し、`run.@rnd` の Run で出る 3 列の読み方（どの画面の値か、値の時点、方式による単位の違い）と、百分位の列の足し方（§5.5）を書く。EvalPanel の同期を説明する箇所（`app.eval_panel.model_sync.mode`）に、内的報酬の列を宣言した Run では、Evaluation Trace を開いたときにも同期が入ることがあると足す（D20）。英訳 [020 en](../design/020_user_guide_run.en.md) の同じ箇所。
-- wiki: 地図の [324 DQN 系列](../wiki/categories/324_dqn.md)・[321 Agent 共通基盤](../wiki/categories/321_agent_core.md)・[317 可視化・メトリクス](../wiki/categories/317_metrics.md)・[318 強化学習 共通基盤](../wiki/categories/318_rl_core.md)・[RunnerApp](../wiki/apps/110_runner_app.md)、[内的報酬のページ](../wiki/mechanisms/intrinsic_novelty.md)の「関連」（起票の書き戻しで直す）。
+- wiki: トピック別まとめの [324 DQN 系列](../wiki/categories/324_dqn.md)・[321 Agent 共通基盤](../wiki/categories/321_agent_core.md)・[317 可視化・メトリクス](../wiki/categories/317_metrics.md)・[318 強化学習 共通基盤](../wiki/categories/318_rl_core.md)・[RunnerApp](../wiki/apps/110_runner_app.md)、[内的報酬のページ](../wiki/mechanisms/intrinsic_novelty.md)の「関連」（起票の書き戻しで直す）。
 - 直さないもの: `$agent_step` の既存の 3 つの鍵だけを使うテストの断定と、PRD094 の検証資材（`core/anet-core/testdata/prd094/compare_configs.py`。既定の列だけを比べる）。既定の列も既存の鍵も変えない。`StepTraceBuilder` に触れる過去の検証資材の説明（`core/anet-core/testdata/prd094/README.md`・`prd098/README.md`）は、当時の手順の記録なので書き換えない。
 - PRD116 の §1.3 の「評価での採点と診断」の行は、当時の判断として残す。診断を本 PRD で決めたことは、本 PRD の §9 と wiki に書く。
 - 実装の規約（impl.md の UI スレッドのロックの規約）は変えない。D4 が開発者の決めた例外であることを、実装計画と、実装のレビューの依頼に書く。

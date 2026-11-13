@@ -6,7 +6,7 @@
 
 - CLIはGUIによる標準開発を補い、AIエージェントのビルド・検証とCI相当の再現、問題の診断に使う（出典: [開発環境構築ガイド](../../design/040_development_environment.jp.md)、§1.1・§2.4）。
 - Optuna harnessの共通runtimeは探索、実行、集計、成果物を扱い、RunnerProcessManagerが子processの起動・timeout・中断・終了を管理する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.3・§3.3・§7.3）。
-- wikiの取り込み・点検は正本のまとめと機械的な一覧を保ち、issueの道具はINDEXと地図の課題区画を更新する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
+- wikiの取り込み・点検は正本のまとめと機械的な一覧を保ち、issueの道具はINDEXとトピック別まとめの課題区画を更新する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
 - reports/toolsの統計ツールと、各CI workflowの個別の概要・責務は、設計文書に記述なし。
 
 ## 成立の経緯
@@ -43,7 +43,7 @@
 - inspect_runによるcacheの生成・更新・修復・migration・削除 — 不採用: 読み取り専用の抽出ツールから分ける（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§10）。
 - inspect_runによるmetricの意味解釈・採否判断・Run ranking — 不採用: 分析の判断をツールへ統合しない（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§10・§11）。
 - inspect_runのraw全点の無制限出力・plot画像生成・interactive viewer — 不採用: 分析用の材料抽出と分ける（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§10）。
-- 監査の指摘の本文や対処方針を地図にも要約する — 不採用: 台帳の派生一覧と同じ正本の要約が2か所になる（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§1の非ゴール・§6）。
+- 監査の指摘の本文や対処方針をトピック別まとめにも要約する — 不採用: 台帳の派生一覧と同じ正本の要約が2か所になる（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§1の非ゴール・§6）。
 - リリースのconfigureの引数だけをpresetへ寄せる案（packageとワークフローpresetは使わない） — 不採用: 手元でリリース物を作れない（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§8）。
 - apps/runner/bin/Releaseやフォルダを丸ごとリリースのzipに包む形 — 不採用: 手元の作業ツリーでは試行用のexe、管理外のDLL、Gitが無視するruns/が混ざる（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§2の9・§8）。
 - exeのimportの表からリリースに入れるDLLを自動でたどる形 — 不採用: 実行時に読み込むDLL（third_party/runtime_dllsのSDL2など）を拾えない（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§2の6・§8）。
@@ -65,7 +65,7 @@
 - issueから起こしたPRDだけissueを残して状態を揃える — 不採用: ユーザーが起こしたPRDが仕事の一覧から欠ける（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D9・§8）。
 - 分類をscopeの先頭に機能カテゴリのkeyを書く決まりで持つ — 不採用: 自由記述の欄に機械が読む決まりを重ねるので壊れやすく、性質で絞れない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D5・§8）。
 - issueをPRDにする出口の別skillを作る、束ねる提案を持たない — 不採用: 別skillは一覧の並べ方と束ね方の写しになり、提案を持たないと既定5件の提案が無くなる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D11・D12・§8）。
-- issueのareaを1つの値にする — 不採用: 2つの機能カテゴリにまたがる課題が、主でない側の地図と絞り込みから漏れる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§6の3・§8）。
+- issueのareaを1つの値にする — 不採用: 2つの機能カテゴリにまたがる課題が、主でない側のトピック別まとめと絞り込みから漏れる（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§6の3・§8）。
 - 台帳へ積む入口専用のskill（anet-record-finding） — 不採用: anet-create-issueが持つ（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D2・§8）。
 - registry.py validateのF番号の重複検査 — 不採用: issueの番号は日付と乱数で、ブランチをまたいでも重ならない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§8）。
 - 9xxのPRDをすべて900からの連番へ振り直す — 不採用: 使われた番号を再び使い、過去の記録の番号が別のPRDを指す（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D13・§8）。
