@@ -2,8 +2,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 #include <sstream>
+#include <wx/grid.h>
+#include <wx/overlay.h>
 #include "anet/env.hpp"
 #include "anet/metrics.hpp"
 
@@ -422,6 +425,152 @@ std::shared_ptr<View> DefaultViewFactory::CreateView(
     auto view  = creator->CreateView(parent, config_data_, notifier);
 
     return view;
+}
+
+// =============================================================
+// 列見出しのドラッグによる列の移動
+// =============================================================
+
+namespace {
+    // 見出しのドラッグの途中の状態。見出しwindowへBindした処理が共有し、そのwindowと同じ寿命で持つ。
+    struct ColumnDragState {
+        int column = wxNOT_FOUND; ///< 掴んだ列の番号。掴めない位置で押したときはwxNOT_FOUND
+        int press_x = 0;          ///< 押した位置の見出しwindowのx
+        bool dragging = false;
+        int boundary = 0;         ///< 差し込む境界の表示位置。この位置にある列の前へ入れる
+        wxOverlay marker;
+    };
+}
+
+static int ColumnLeft(const wxGrid& grid, int position)
+{
+    // wxの列の右端は非公開なので、表示位置の順に公開の幅を足す。列は数十本なので毎回数える。
+    int left = 0;
+    for (int pos = 0; pos < position; ++pos) left += grid.GetColSize(grid.GetColAt(pos));
+    return left;
+}
+
+static int LabelToGridX(const wxGrid& grid, int label_x)
+{
+    // 見出しwindowは固定列の右から始まり、セルと同じだけ横にスクロールする。
+    int grid_x = 0;
+    grid.CalcUnscrolledPosition(label_x + ColumnLeft(grid, grid.GetNumberFrozenCols()), 0, &grid_x, nullptr);
+    return grid_x;
+}
+
+static int GridToLabelX(const wxGrid& grid, int grid_x)
+{
+    int label_x = 0;
+    grid.CalcScrolledPosition(grid_x, 0, &label_x, nullptr);
+    return label_x - ColumnLeft(grid, grid.GetNumberFrozenCols());
+}
+
+static int FindDraggableColumn(const wxGrid& grid, int grid_x)
+{
+    // 固定列と、wxが列幅の変更に使う境界の帯は掴ませない。
+    const int column = grid.XToCol(grid_x);
+    if (column == wxNOT_FOUND || grid.GetColPos(column) < grid.GetNumberFrozenCols()) return wxNOT_FOUND;
+    const int left = ColumnLeft(grid, grid.GetColPos(column));
+    const int edge = grid.FromDIP(WXGRID_LABEL_EDGE_ZONE);
+    if (grid_x - left < edge || left + grid.GetColSize(column) - grid_x < edge) return wxNOT_FOUND;
+    return column;
+}
+
+static int FindDropBoundary(const wxGrid& grid, int grid_x)
+{
+    // 列の中央より左ならその列の前へ入れる。固定列より前の境界は選ばない。
+    const int frozen = grid.GetNumberFrozenCols();
+    int left = ColumnLeft(grid, frozen);
+    for (int pos = frozen; pos < grid.GetNumberCols(); ++pos) {
+        const int width = grid.GetColSize(grid.GetColAt(pos));
+        if (grid_x < left + width / 2) return pos;
+        left += width;
+    }
+    return grid.GetNumberCols();
+}
+
+static void ScrollTowardPointer(wxGrid& grid, const wxWindow& label, int label_x)
+{
+    // 見出しの外へ出たら1単位ずつ送り、隠れている列の間へも落とせるようにする。端ではwxが止める。
+    int view_x = 0, view_y = 0;
+    grid.GetViewStart(&view_x, &view_y);
+    if (label_x < 0 && view_x > 0) grid.Scroll(view_x - 1, view_y);
+    else if (label_x >= label.GetClientSize().x) grid.Scroll(view_x + 1, view_y);
+}
+
+static void DrawDropMarker(wxWindow& label, ColumnDragState& state, int label_x)
+{
+    // 見出しの描画はwxに任せ、差し込む境界の縦線だけを上に重ねる。
+    wxOverlayDC dc(state.marker, &label);
+    dc.Clear();
+    dc.SetPen(wxPen(wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT), label.FromDIP(2)));
+    dc.DrawLine(label_x, 0, label_x, label.GetClientSize().y);
+}
+
+static void EndColumnDrag(wxWindow& label, ColumnDragState& state)
+{
+    // 印を消してから取り込んだマウスを返し、次の押下に備えて掴んだ列を忘れる。
+    if (state.dragging) {
+        {
+            wxOverlayDC dc(state.marker, &label);
+            dc.Clear();
+        }
+        state.marker.Reset();
+        if (label.HasCapture()) label.ReleaseMouse();
+    }
+    state.column = wxNOT_FOUND;
+    state.dragging = false;
+}
+
+void anet::rl::gui::EnableColumnDragMove(wxGrid& grid)
+{
+    // 固定していない列の見出しwindowだけで掴み、取り込んだマウスで固定列の上や窓の外まで追う。
+    // 見出しwindowはgridの子なので、Bindした処理が動く間はgridも生きている。
+    auto* label = grid.GetGridColLabelWindow();
+    auto state = std::make_shared<ColumnDragState>();
+    const auto press = [&grid, label, state](wxMouseEvent& event) {
+        EndColumnDrag(*label, *state);
+        state->column = FindDraggableColumn(grid, LabelToGridX(grid, event.GetX()));
+        state->press_x = event.GetX();
+        event.Skip();
+    };
+    label->Bind(wxEVT_LEFT_DOWN, press);
+    label->Bind(wxEVT_LEFT_DCLICK, press);
+    label->Bind(wxEVT_MOTION, [&grid, label, state](wxMouseEvent& event) {
+        if (state->column == wxNOT_FOUND || !event.LeftIsDown()) {
+            event.Skip();
+            return;
+        }
+        // 掴んでいる間の移動はwxへ渡さない。閾値まではクリックのまま、越えたらドラッグとして追う。
+        if (!state->dragging) {
+            const int threshold = std::max(1, wxSystemSettings::GetMetric(wxSYS_DRAG_X, label));
+            if (std::abs(event.GetX() - state->press_x) < threshold) return;
+            state->dragging = true;
+            if (!label->HasCapture()) label->CaptureMouse();
+        }
+        ScrollTowardPointer(grid, *label, event.GetX());
+        state->boundary = FindDropBoundary(grid, LabelToGridX(grid, event.GetX()));
+        DrawDropMarker(*label, *state, GridToLabelX(grid, ColumnLeft(grid, state->boundary)));
+    });
+    label->Bind(wxEVT_LEFT_UP, [&grid, label, state](wxMouseEvent& event) {
+        if (!state->dragging) {
+            EndColumnDrag(*label, *state);
+            event.Skip();
+            return;
+        }
+        // ドラッグを離したときは並べ替えのクリックにしない。wxの列ドラッグと同じ通知を送ってから動かす。
+        const int column = state->column;
+        const int current = grid.GetColPos(column);
+        const int position = state->boundary > current ? state->boundary - 1 : state->boundary;
+        EndColumnDrag(*label, *state);
+        if (position == current) return;
+        wxGridEvent move(grid.GetId(), wxEVT_GRID_COL_MOVE, &grid, position, column);
+        if (grid.GetEventHandler()->ProcessEvent(move) && !move.IsAllowed()) return;
+        grid.SetColPos(column, position);
+    });
+    label->Bind(wxEVT_MOUSE_CAPTURE_LOST, [label, state](wxMouseCaptureLostEvent&) {
+        EndColumnDrag(*label, *state);
+    });
 }
 
 // Evaluation Traceの表示・再生補助

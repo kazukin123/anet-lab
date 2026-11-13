@@ -69,6 +69,7 @@ private:
     void CompleteRow(const std::shared_ptr<anet::rl::StepTrace>& trace, std::span<const size_t> resolved_columns);
     void ApplyPercentiles(Row& row);
     void ApplySelection(bool force, bool ensure_visible);
+    void LimitSelectionToTraceRow();
     void RefreshCaptions(anet::rl::step_t step);
     void SyncControls();
     void UpdateIcons();

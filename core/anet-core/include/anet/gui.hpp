@@ -17,6 +17,7 @@
 #include "anet/rl.hpp"
 #include "anet/profile.hpp"
 
+class WXDLLIMPEXP_FWD_CORE wxGrid;
 namespace anet::rl { struct StepTraceColumnSpec; struct StepTrace; }
 
 namespace anet::rl::gui {
@@ -94,6 +95,14 @@ namespace anet::rl::gui {
 
     /// 最大化による一時非表示を含め、利用者が開いているpaneかを返す。
     bool IsPaneOpen(const wxAuiPaneInfo& pane, bool has_maximized_pane);
+
+    /// 列見出しのドラッグで、列の表示位置を入れ替えられるようにする。
+    /// wxの列ドラッグ（EnableDragColMove）はFreezeToの固定列と併用できないため、見出しの操作だけをここで受け持ち、
+    /// 移動はwxの表示位置（SetColPos）に任せる。固定列は動かさず、ほかの列を固定列の範囲へも入れない。
+    /// 固定列の表示位置を変えないので、wxが固定域を列番号で数える処理と表示位置が一致したまま保たれる。
+    /// 動かす前にwxEVT_GRID_COL_MOVE（GetCol=動かす列、GetRow=移動先の表示位置）を送り、vetoされたら動かさない。
+    /// 動かさずに離したクリックと列幅の境界の操作はwxの通常処理（wxEVT_GRID_COL_SORT、列幅の変更）に残す。
+    void EnableColumnDragMove(wxGrid& grid);
 
     // wxAUI レイアウト管理 Frame の共通基底クラス (制約吸収層。docs/adr/0016 参照)。
     //

@@ -194,11 +194,15 @@ void EvalTracePanel::Initialize(std::shared_ptr<RunManager> manager, std::shared
     // 行選択は標準の選択色にし、列見出しへ強調を波及させない。
     grid_->DisableOverlaySelection();
     grid_->SetRowLabelSize(0);
+    // 行の高さは外観から決め、利用者のドラッグでは変えない。
+    grid_->DisableDragRowSize();
     // 横スクロールしても、どのstepの行かが分かるよう左端の列を固定する。
     if (!columns_.empty()) {
         const bool frozen = grid_->FreezeTo(0, 1);
         ANET_CHECK_MSG(frozen, "Failed to freeze the leftmost Evaluation Trace column. columns=" << columns_.size());
     }
+    // 固定した左端の列のほかは、見出しのドラッグで表示の並びを入れ替えられる。列番号と値の対応は変わらない。
+    gui::EnableColumnDragMove(*grid_);
     // 手動で変更した列は、次に明示的に開くまで自動調整しない。
     grid_->Bind(wxEVT_GRID_COL_SIZE, [this](wxGridSizeEvent& event) {
         if (!sizing_columns_) {
@@ -230,12 +234,23 @@ void EvalTracePanel::Initialize(std::shared_ptr<RunManager> manager, std::shared
         if (!updating_controls_) SelectIndex(event.GetRow());
         event.Skip();
     });
-    grid_->Bind(wxEVT_GRID_LABEL_LEFT_CLICK, [this](wxGridEvent& event) {
+    // 範囲選択の通知は拒否できないため、Traceの1行より広がった選択を同じ処理の中で戻す。
+    const auto limit_selection = [this](wxGridRangeSelectEvent& event) {
+        if (!updating_controls_ && event.Selecting()) LimitSelectionToTraceRow();
+        event.Skip();
+    };
+    grid_->Bind(wxEVT_GRID_RANGE_SELECTING, limit_selection);
+    grid_->Bind(wxEVT_GRID_RANGE_SELECTED, limit_selection);
+    grid_->Bind(wxEVT_GRID_COL_SORT, [this](wxGridEvent& event) {
+        // 見出しを動かさずに離したときだけ並べ替え、列のドラッグと区別する。ダブルクリックは離すたびの2回になる。
         SortByColumn(event.GetCol());
+        // 印は並べ替えの状態から付け直したので、wxによる印の切替を止める。
+        event.Veto();
     });
-    grid_->Bind(wxEVT_GRID_LABEL_LEFT_DCLICK, [this](wxGridEvent& event) {
-        // nativeのダブルクリックは、最初のクリックに続く2回目の切替とする。
-        SortByColumn(event.GetCol());
+    grid_->Bind(wxEVT_GRID_COL_MOVE, [this](wxGridEvent& event) {
+        // 通知は移動の前に届くため、並びが変わった後で左端から最初の行動列までの幅を測り直す。
+        CallAfter([weak = wxWeakRef<EvalTracePanel>(this)] { if (weak) weak->UpdateMinimumSize(); });
+        event.Skip();
     });
     grid_->Bind(wxEVT_GRID_CELL_LEFT_DCLICK, [this](wxGridEvent& event) {
         DumpRow(event.GetRow());
@@ -295,6 +310,8 @@ void EvalTracePanel::ClearRows()
         grid_->ProcessTableMessage(message);
     }
     ResetSorting();
+    // 開き直しでは、利用者が動かした列の並びも設定の列番号の順へ戻す。
+    if (table_) grid_->ResetColPos();
     ResetColumnWidths();
     SyncControls();
 }
@@ -529,6 +546,26 @@ void EvalTracePanel::ApplySelection(bool force, bool ensure_visible)
     updating_controls_ = false;
 }
 
+void EvalTracePanel::LimitSelectionToTraceRow()
+{
+    // Traceの行（Liveなら無し）のほかに選ばれた行があるときだけ選び直す。解除だけの操作は戻さない。
+    std::optional<int> index;
+    if (const auto selected = player_.GetSelected()) {
+        for (size_t i = 0; i < rows_.size(); ++i)
+            if (rows_[i].trace->id == *selected) index = static_cast<int>(i);
+    }
+    const auto blocks = grid_->GetSelectedRowBlocks();
+    const bool extra = std::ranges::any_of(blocks, [&](const wxGridBlockCoords& block) {
+        return !index || block.GetTopRow() != *index || block.GetBottomRow() != *index;
+    });
+    if (!extra) return;
+    // 選び直しが同じ通知を呼んでも、自分の選択として扱って繰り返さない。
+    updating_controls_ = true;
+    grid_->ClearSelection();
+    if (index) grid_->SelectRow(*index);
+    updating_controls_ = false;
+}
+
 void EvalTracePanel::RefreshCaptions(step_t step)
 {
     ANET_PROFILE_FUNC();
@@ -622,9 +659,11 @@ void EvalTracePanel::UpdateMinimumSize()
     int prefix_width = 0;
     bool has_action = false;
     if (table_) {
-        for (size_t col = 0; col < columns_.size(); ++col) {
-            prefix_width += grid_->GetColSize(static_cast<int>(col));
-            const auto& column = columns_[col];
+        // 利用者が列を動かした後も、表示の並びの左端から数える。
+        for (int pos = 0; pos < grid_->GetNumberCols(); ++pos) {
+            const int col = grid_->GetColAt(pos);
+            prefix_width += grid_->GetColSize(col);
+            const auto& column = columns_[static_cast<size_t>(col)];
             if (column.target == "$action_info" && (column.key == "action" || column.key.starts_with("action.["))) {
                 has_action = true;
                 break;

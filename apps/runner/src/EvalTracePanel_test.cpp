@@ -267,7 +267,7 @@ TEST_CASE("Trace grid follows numeric sorting and preserves row selection and pl
     ui.Add(100);
     ui.Add(10);
     const auto header = [&](int col) {
-        wxGridEvent event(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, col);
+        wxGridEvent event(ui.grid->GetId(), wxEVT_GRID_COL_SORT, ui.grid, -1, col);
         ui.grid->GetEventHandler()->ProcessEvent(event);
     };
     wxGridEvent select(ui.grid->GetId(), wxEVT_GRID_CELL_LEFT_CLICK, ui.grid, 0, 0);
@@ -354,11 +354,11 @@ TEST_CASE("Trace header paints the current sorting direction", "[prd105][trace_u
     CHECK((unsorted != descending));
     CHECK(highlight_pixels(unsorted) == 0);
     ui.grid->SetSortingColumn(1, false);
-    wxGridEvent ascending(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 1);
+    wxGridEvent ascending(ui.grid->GetId(), wxEVT_GRID_COL_SORT, ui.grid, -1, 1);
     ui.grid->GetEventHandler()->ProcessEvent(ascending);
     CHECK(ui.grid->IsSortOrderAscending());
     CHECK((pixels() != descending));
-    wxGridEvent restored(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 1);
+    wxGridEvent restored(ui.grid->GetId(), wxEVT_GRID_COL_SORT, ui.grid, -1, 1);
     ui.grid->GetEventHandler()->ProcessEvent(restored);
     CHECK((pixels() == descending));
 }
@@ -447,14 +447,144 @@ TEST_CASE("A percentile of step sorts by its displayed value without a default s
     ui.runner->DoStep();
     ui.runner->DoStep();
     CHECK(ui.grid->GetSortingColumn() == wxNOT_FOUND);
-    wxGridEvent first(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 0);
+    wxGridEvent first(ui.grid->GetId(), wxEVT_GRID_COL_SORT, ui.grid, -1, 0);
     ui.grid->GetEventHandler()->ProcessEvent(first);
     CHECK_FALSE(ui.grid->IsSortOrderAscending());
     CHECK(ui.grid->GetCellValue(0, 0) == "83.33");
-    wxGridEvent second(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 0);
+    wxGridEvent second(ui.grid->GetId(), wxEVT_GRID_COL_SORT, ui.grid, -1, 0);
     ui.grid->GetEventHandler()->ProcessEvent(second);
     CHECK(ui.grid->IsSortOrderAscending());
     CHECK(ui.grid->GetCellValue(0, 0) == "50");
+}
+
+TEST_CASE("Trace columns move by header drag while the leftmost column stays frozen", "[trace_ui_column_move]")
+{
+    anet::ConfigData config;
+    config.Set("app.eval_trace_panel.columns.[1]", "$runner exp_step label:step");
+    config.Set("app.eval_trace_panel.columns.[2]", "$runner step_in_episode label:ep_step");
+    config.Set("app.eval_trace_panel.columns.[3]", "$action_info action");
+    config.Set("app.eval_trace_panel.columns.[4]", "$env_step reward label:r");
+    TraceUiFixture ui(config);
+    ui.frame.Show();
+    wxTheApp->Yield(true);
+    ui.Add(5);
+    REQUIRE(ui.grid->GetNumberFrozenCols() == 1);
+    int sorts = 0;
+    ui.grid->Bind(wxEVT_GRID_COL_SORT, [&](wxGridEvent& event) { ++sorts; event.Skip(); });
+    // 実際の見出しwindowへマウスの操作を送り、離したときのwxの通常処理も同じ経路で通す。
+    auto* label = ui.grid->GetGridColLabelWindow();
+    const auto mouse = [&](wxEventType type, int x, bool left_down) {
+        wxMouseEvent event(type);
+        event.SetEventObject(label);
+        event.SetPosition(wxPoint(x, label->GetClientSize().y / 2));
+        event.SetLeftDown(left_down);
+        label->GetEventHandler()->ProcessEvent(event);
+    };
+    // 見出しwindowは固定した左端の列の右から始まる。
+    const auto center = [&](int col) {
+        int left = 0;
+        for (int pos = ui.grid->GetNumberFrozenCols(); pos < ui.grid->GetColPos(col); ++pos)
+            left += ui.grid->GetColSize(ui.grid->GetColAt(pos));
+        return left + ui.grid->GetColSize(col) / 2;
+    };
+    const auto drag = [&](int col, int to) {
+        const int from = center(col);
+        mouse(wxEVT_LEFT_DOWN, from, true);
+        mouse(wxEVT_MOTION, (from + to) / 2, true);
+        mouse(wxEVT_MOTION, to, true);
+        mouse(wxEVT_LEFT_UP, to, false);
+    };
+    // 行動列より右の報酬列を広げておき、行動列の後ろへ移すと最小幅へ入ることを確かめる。
+    ui.grid->SetColSize(3, ui.panel->GetMinSize().x);
+    wxGridSizeEvent resized(ui.grid->GetId(), wxEVT_GRID_COL_SIZE, ui.grid, 3);
+    ui.grid->GetEventHandler()->ProcessEvent(resized);
+    const int minimum = ui.panel->GetMinSize().x;
+
+    // 行動列を報酬列の後ろへ移す。値は列番号のまま引け、離しても並べ替えない。
+    drag(2, center(3) + 1);
+    CHECK(ui.grid->GetColPos(2) == 3);
+    CHECK(ui.grid->GetColAt(2) == 3);
+    CHECK(ui.grid->GetColPos(0) == 0);
+    CHECK(ui.grid->GetCellValue(0, 3) == "5");
+    CHECK(ui.grid->GetSortingColumn() == 0);
+    CHECK(sorts == 0);
+    CHECK_FALSE(label->HasCapture());
+    // 最小幅は移動の後で、表示の並びの左端から行動列までを測り直す。
+    wxTheApp->ProcessPendingEvents();
+    CHECK(ui.panel->GetMinSize().x > minimum);
+    CHECK(ui.panel->GetMinSize().x >= ui.grid->GetColSize(0) + ui.grid->GetColSize(1) + ui.grid->GetColSize(3)
+        + ui.grid->GetColSize(2) + wxSystemSettings::GetMetric(wxSYS_VSCROLL_X, ui.grid));
+
+    // 固定列の上で離しても、固定列の前へは入らない。
+    drag(3, -ui.grid->FromDIP(10));
+    CHECK(ui.grid->GetColPos(3) == 1);
+    CHECK(ui.grid->GetColPos(0) == 0);
+
+    // 動かさずに離したクリックは並べ替え、ダブルクリックは離すたびの2回になる。列の並びは変えない。
+    mouse(wxEVT_LEFT_DOWN, center(1), true);
+    mouse(wxEVT_LEFT_UP, center(1), false);
+    CHECK(sorts == 1);
+    CHECK(ui.grid->GetSortingColumn() == 1);
+    const bool ascending = ui.grid->IsSortOrderAscending();
+    mouse(wxEVT_LEFT_DOWN, center(1), true);
+    mouse(wxEVT_LEFT_UP, center(1), false);
+    mouse(wxEVT_LEFT_DCLICK, center(1), true);
+    mouse(wxEVT_LEFT_UP, center(1), false);
+    CHECK(sorts == 3);
+    CHECK(ui.grid->IsSortOrderAscending() == ascending);
+    CHECK(ui.grid->GetColPos(1) == 2);
+
+    // 開き直しでは設定の列番号の順へ戻る。
+    ui.panel->SetActive(false);
+    ui.panel->SetActive(true);
+    for (int col = 0; col < ui.grid->GetNumberCols(); ++col) CHECK(ui.grid->GetColPos(col) == col);
+}
+
+TEST_CASE("Trace keeps one selected row and fixed row heights", "[trace_ui_single_row]")
+{
+    TraceUiFixture ui;
+    ui.frame.Show();
+    wxTheApp->Yield(true);
+    ui.Add(1);
+    ui.Add(2);
+    ui.Add(3);
+    CHECK_FALSE(ui.grid->CanDragRowSize(0));
+    CHECK_FALSE(ui.grid->CanDragGridRowEdges());
+    const auto selected_rows = [&] {
+        const auto rows = ui.grid->GetSelectedRows();
+        return std::vector<int>(rows.begin(), rows.end());
+    };
+    // Liveでは、全選択も選択なしへ戻す。
+    ui.grid->SelectAll();
+    CHECK(selected_rows().empty());
+    CHECK_FALSE(ui.panel->IsTraceMode());
+
+    // セルを押したまま下の行へ動かしても、押した行だけを選んだままにする。
+    auto* cells = ui.grid->GetGridWindow();
+    const int row_height = ui.grid->GetRowSize(0);
+    const auto mouse = [&](wxEventType type, int row, bool left_down) {
+        wxMouseEvent event(type);
+        event.SetEventObject(cells);
+        event.SetPosition(wxPoint(ui.grid->FromDIP(4), row * row_height + row_height / 2));
+        event.SetLeftDown(left_down);
+        cells->GetEventHandler()->ProcessEvent(event);
+    };
+    mouse(wxEVT_LEFT_DOWN, 0, true);
+    mouse(wxEVT_MOTION, 1, true);
+    mouse(wxEVT_MOTION, 2, true);
+    mouse(wxEVT_LEFT_UP, 2, false);
+    REQUIRE(ui.panel->IsTraceMode());
+    CHECK(selected_rows() == std::vector<int>{0});
+    CHECK(ui.grid->GetGridCursorRow() == 0);
+
+    // 選択を足す・広げる操作も、Traceの行へ戻す。
+    ui.grid->SelectRow(2, true);
+    CHECK(selected_rows() == std::vector<int>{0});
+    ui.grid->SelectBlock(1, 0, 2, 0, true);
+    CHECK(selected_rows() == std::vector<int>{0});
+    ui.grid->SelectAll();
+    CHECK(selected_rows() == std::vector<int>{0});
+    CHECK(ui.panel->IsTraceMode());
 }
 
 TEST_CASE("Visible Trace survives deferred frame destruction", "[prd094][trace_ui_close]")
@@ -783,11 +913,11 @@ TEST_CASE("Trace keeps the leftmost column visible while scrolling horizontally"
     };
     CHECK(ui.grid->GetSortingColumn() == 0);
     CHECK(marked_pixels() > 0);
-    wxGridEvent other(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 1);
+    wxGridEvent other(ui.grid->GetId(), wxEVT_GRID_COL_SORT, ui.grid, -1, 1);
     ui.grid->GetEventHandler()->ProcessEvent(other);
     CHECK(ui.grid->GetSortingColumn() == 1);
     CHECK(marked_pixels() == 0);
-    wxGridEvent step(ui.grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, ui.grid, -1, 0);
+    wxGridEvent step(ui.grid->GetId(), wxEVT_GRID_COL_SORT, ui.grid, -1, 0);
     ui.grid->GetEventHandler()->ProcessEvent(step);
     CHECK(ui.grid->GetSortingColumn() == 0);
     CHECK(marked_pixels() > 0);
@@ -1342,7 +1472,7 @@ TEST_CASE("Runner forwards Trace arrows without steps and reports successful for
         REQUIRE(grid->GetNumberRows() == 22);
         const auto normal_step = runner->GetCounts().exp_step;
         const auto header = [&](int column) {
-            wxGridEvent event(grid->GetId(), wxEVT_GRID_LABEL_LEFT_CLICK, grid, -1, column);
+            wxGridEvent event(grid->GetId(), wxEVT_GRID_COL_SORT, grid, -1, column);
             grid->GetEventHandler()->ProcessEvent(event);
         };
         header(1);
