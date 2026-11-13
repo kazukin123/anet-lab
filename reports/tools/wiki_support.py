@@ -247,6 +247,9 @@ def issue_records(root):
         if not isinstance(record,dict):
             raise ValueError(f'{path}: frontmatter={record!r}; expected a mapping')
         validate_issue(root,path,record)
+        # 対応内容の節（次の見出しまで）に行があるかを、状態との食い違いの検出に使う。
+        section = re.search(r'(?ms)^## 対応内容[ \t]*\r?$(.*?)(?=^## |\Z)',text[match.end():])
+        record['_progress'] = bool(section and section[1].strip())
         record['_path'] = path
         records.append(record)
     return records
@@ -468,11 +471,13 @@ def decision_sections(root, page, records):
     # 解決より前の判定は、解決を決めたときに見ていたものなので候補にしない。
     reopen = [r for r in records if r['status'] == '解決' and r['ai_judge'] == '残件有り'
               and (r.get('resolved') in (None,'') or r['ai_judged'] >= r['resolved'])]
-    def table(rows, header, values):
+    # 未着手なのに対応内容に行があるものは、行の置き場か状態が違うことが多いので、確かめる候補として出す。
+    started = [r for r in records if r['status'] == '未着手' and r.get('_progress')]
+    def table(rows, header, values, order=lambda r:(r['ai_judged'],r['id'])):
         if not rows:
             return '該当する課題はありません。'
         lines = ['| '+' | '.join(header)+' |', '|'+'---|'*len(header)]
-        for record in sorted(rows,key=lambda r:(r['ai_judged'],r['id'])):
+        for record in sorted(rows,key=order):
             target = Path(os.path.relpath(record['_path'], page.parent)).as_posix()
             cells = [f"[{record['id']}]({target})", *values(record), record['title']]
             lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
@@ -497,7 +502,10 @@ def decision_sections(root, page, records):
         table(reopen, ['ID','解決日','判定日','課題'], lambda r:[r.get('resolved') or '—',r['ai_judged']]), '',
         '## 課題の無い PRD', '',
         'docs/memo 直下の PRD のうち、どの課題の prd からも指されないもの。その PRD の仕事の課題を作るか、題材の課題の prd に書く。', '',
-        orphan_table])
+        orphan_table, '',
+        '## 対応内容のある未着手の課題', '',
+        '状態が未着手なのに、対応内容に行がある課題。行の置き場（対応でない行は anet-create-issue の「起票のあとの追記」の節へ）と状態を確かめる。開発者が未着手へ戻した課題のように、どちらも正しければそのままでよい（状態は開発者が決める）。', '',
+        table(started, ['ID','起票日','課題'], lambda r:[r['raised']], order=lambda r:r['id'])])
 
 
 def issue_section(text, body, path):

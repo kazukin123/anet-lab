@@ -1,6 +1,6 @@
 ---
 name: anet-audit
-description: Audit one lens and one scope of anet-lab, record findings as one issue per file, and update only AI judgments when rechecking existing issues. Use $anet-audit or /anet-audit, or from anet-housekeeping.
+description: Audit one lens and one scope of anet-lab, record findings as one issue per file, and, when rechecking existing issues, update only AI judgments and append new evidence to the 事象 section. Use $anet-audit or /anet-audit, or from anet-housekeeping.
 ---
 
 # ANET Audit
@@ -43,7 +43,7 @@ description: Audit one lens and one scope of anet-lab, record findings as one is
 
 1. lens と scope を確定する。観点ファイル、設計文書、必要な ADR を読む。refactor・architecture はトピック別まとめと、選ばなかった形・変えるときの条件も先に読む。
 2. コードと文書を読み取りだけで確かめる。ビルドとテストは実行しない。
-3. 範囲に area が当たる、次版・解決でない既存 issue（PRD の課題を含む）を本文まで読む。パスの範囲は本文の根拠位置でも絞る。根拠が残るなら「残件有り」、消えたなら「残件無し」、判断できなければ「判定不能」を `anet-update-issue` の「判定」で記録する。status と監理の項目は変えない。新しい根拠は本文へ追記できる。
+3. 範囲に area が当たる、次版・解決でない既存 issue（PRD の課題を含む）を本文まで読む。パスの範囲は本文の根拠位置でも絞る。根拠が残るなら「残件有り」、消えたなら「残件無し」、判断できなければ「判定不能」を `anet-update-issue` の「判定」で記録する。status と監理の項目は変えない。新しい根拠は事象へ足せる（`anet-create-issue` の「起票のあとの追記」）。
 4. 新しい指摘は `anet-create-issue` の「分け方」で既存との重複を判定し、同じなら追記し、違えば起票する。phase は監査。type は defect→不具合、drift→不整合、refactor・architecture・test-gap→リファクタリング、process→機能改善、backlog→調査。kind は process だけハーネス、ほかは成果物。area は範囲に当たる `categories.json` の key の並びとする。domain は `anet-create-issue` の「各項目の書き方」のとおり area の先頭と本文から選ぶ（process はハーネスなので開発）。
 5. 新規は max 以内（既定 8 件）で、WSJF の大きいものから記録する。WSJF の 4 つの値と priority の置き方、本文の構成は `anet-create-issue` に従う。
 6. repo の `.venv` から `reports/tools/wiki_support.py maps` を実行して INDEX とトピック別まとめの課題区画を再生成する。入力の不備で失敗したら成功扱いしない。
@@ -54,7 +54,7 @@ description: Audit one lens and one scope of anet-lab, record findings as one is
 
 - 事象にファイル・行・symbol を、影響に具体的な失敗シナリオを書く。推測だけの指摘は書かない。
 - 起票時の WSJF の 4 つの値は本文を読んで見立て、priority は中を置く。既存 issue の監理項目は AI の判断で変えない。
-- 本文の既存の事実は書き換えず、新しい根拠は日付とともに追記する。
+- 本文の既存の事実は書き換えず、新しい根拠は日付とともに事象へ足す。
 
 ## rotation.json
 

@@ -51,14 +51,14 @@ class IssueViewsTest(unittest.TestCase):
         # 課題・PRD を指す欄は、Obsidian のリンクの形で書く。
         return '[['+name+']]'
 
-    def issue(self,suffix='000001',drop=(),**changes):
+    def issue(self,suffix='000001',drop=(),body='## 背景\nfixture\n',**changes):
         data = dict(id='issue-20261103-'+suffix,title='課題 '+suffix,status='未着手',raised='2026-11-03',phase='監査',scope='test',kind='成果物',
                     area=['311_dev_tools'],type='リファクタリング',domain='開発',ai_judge='未確認',ai_judged=None,docs=[],prd=None,priority='中',depends=[],parent=None,
                     value=5,urgency=5,risk=3,size=5,wsjf=2.6,resolved=None,resolution=None,memo=None,tags=[])
         data.update(changes)
         for key in drop:
             data.pop(key)
-        self.write('docs/management/issues/'+data['id']+'.md','---\n'+yaml.safe_dump(data,allow_unicode=True,sort_keys=False)+'---\n\n## 背景\nfixture\n')
+        self.write('docs/management/issues/'+data['id']+'.md','---\n'+yaml.safe_dump(data,allow_unicode=True,sort_keys=False)+'---\n\n'+body)
         return data['id']
 
     def cli(self,action='maps',success=True):
@@ -156,6 +156,25 @@ class IssueViewsTest(unittest.TestCase):
         self.assertIn('該当する課題はありません。',self.index_section('解決待ち'))
         record = (self.root/'docs/management/issues'/(later+'.md')).read_text(encoding='utf-8')
         self.assertIn('status: 解決',record)
+
+    def test_index_lists_not_started_issues_with_lines_under_progress_record(self):
+        # 対応内容の節に行があるかと、状態の組み合わせを並べる。
+        listed = self.issue('000001',body='## 対応方針\n未定\n\n## 対応内容\n\n- 2026-11-13 PRD128 の再グリル: 材料\n')
+        empty = self.issue('000002',body='## 対応方針\n- 2026-11-13 案\n\n## 対応内容\n\n## 備考\n- 2026-11-13 状態を変更\n')
+        started = self.issue('000003',status='調査中',body='## 対応内容\n- 2026-11-13 グリルを始めた\n')
+        missing = self.issue('000004')
+        self.cli()
+        # 未着手で、対応内容の節（次の見出しまで）に行があるものだけを出す。状態は書き換えない。
+        section = self.index_section('対応内容のある未着手の課題')
+        self.assertIn(listed,section)
+        self.assertNotIn(empty,section)
+        self.assertNotIn(started,section)
+        self.assertNotIn(missing,section)
+        self.assertIn('status: 未着手',(self.root/'docs/management/issues'/(listed+'.md')).read_text(encoding='utf-8'))
+        # 行を移して節が空になれば、欄も空になる。
+        self.issue('000001',body='## 対応方針\n- 2026-11-13 PRD128 の再グリル: 材料\n\n## 対応内容\n')
+        self.cli()
+        self.assertIn('該当する課題はありません。',self.index_section('対応内容のある未着手の課題'))
 
     def test_dependency_inherits_wsjf_before_ordering_and_links_waiting_issue(self):
         # 自分の点数が低い前提と、その前提を待つ高得点の課題を用意する。
