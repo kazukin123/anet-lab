@@ -134,6 +134,8 @@
 - [PRD099](../../memo/done/099_atari_resize_mode_10prd.md) — Atari の観測の縮小方式を設定で切り替える PRD
 - [PRD100](../../memo/done/100_gridmaze_solvable_maze_10prd.md) — GridMaze の迷路を必ず解ける形にする — 解けない seed は派生 seed で決定的に引き直す PRD
 - [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md) — PRD115: 画像メモリの所有権とDropMergeのNOOP判定の修正
+- [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
+- [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) — Atari の RAM メトリクスに値の種類数とビットの変化を数える畳み方を足し、RAM 定義と縮小方式の読み取りを整理する PRD
 
 ## 課題
 

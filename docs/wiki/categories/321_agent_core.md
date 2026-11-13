@@ -206,6 +206,7 @@
 - [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md) — PRD122: 小さなリファクタリングとテストの空白をまとめて片づける
 - [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) — RND の内的報酬の尺度（誤差の統計の取り方・warm-up・平均を引かない形・終端の mask） PRD
 - [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md) — PRD124: anet-core-test の開始時に MKLDNN を切り、テストの順序で oneDNN の assert が出ないようにする
+- [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md) — PRD125: DQN の学習器の 1 回の更新の進行と Munchausen の target を 1 か所に寄せる
 
 ## 課題
 
