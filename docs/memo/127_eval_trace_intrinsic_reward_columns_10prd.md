@@ -1,6 +1,9 @@
 # Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
 
 > 2026-11-12 起票。グリルを行い（問い 9 つと細部 13 件）、別モデルの検討で出た論点を反映した。決定は §4。
+> 2026-11-12 改訂。共有乱数を使う層は推定器の写しだけでは隔離されないため、G2・D11の学習不変性を、写しを持つActorでも乱数を引く層を持たない構成に限定した（開発者の選択）。
+> 2026-11-13 改訂。受入5・10の学習報酬の照合は、偽のLearnerの受信値に加え、実際のLearnerが保存したn-step無効時の公開Replay収益でも確認できると明記した。観測する報酬の列と一致条件は変えない。
+> 2026-11-13 改訂。開発者が変更した列配置を採り、rnd_bonusをrewardの直後の235番へ移した。240番のTempoRL decisionとの重複を避ける番号は開発者が選択した。rnd_err・rnd_normは600・610番を維持する。受入12・13と検証資材を同じ配置へ合わせた。
 > 起点: 課題 [issue-20261107-1226e5](../management/issues/issue-20261107-1226e5.md)。2026-11-07 の Montezuma の RND の Run で、Train では鍵を取るのに評価（EvalPanel）では止まる場面があり、どの画面で新しさのボーナスが大きいかを Evaluation Trace で 1 step ずつ確かめたいという話が出た。同じ日に「Greedy がたどる状態のうち Train でめったに通らないものは、Q が直らずそこで止まる」という仮説が立ち、その検証にも使う。
 > 関連: [116_rnd_lifelong_novelty_10prd.md](116_rnd_lifelong_novelty_10prd.md)（RND の本体。評価での採点と診断を非ゴールにした）、[123_rnd_intrinsic_reward_scale_10prd.md](123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計と warm-up）、[924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（採点の場所と保存する報酬の問い）、[done/094_evalpanel_step_history_10prd.md](done/094_evalpanel_step_history_10prd.md)（Evaluation Trace と step 診断）、[919_eval_session_step_trace_10prd.md](919_eval_session_step_trace_10prd.md)（同じ鍵を評価 session で使う）、[938_nn_trace_capture_unification_10prd.md](938_nn_trace_capture_unification_10prd.md)（要求を引数で渡す考え方）。ほかの PRD との関係は §9。
 
@@ -21,7 +24,7 @@ RND を有効にした Run で、評価の 1 step ごとに新しさを見る手
 - **G3**: 学習中の Run でも、checkpoint を読んだ評価専用の Run でも出る（評価専用の Run で出ない値は §5.2 の表による）。
 - **G4**: 題材の課題が片付く。仮説の検証に使える状態になる。
 
-G2 は値の同一性をいう。実際の Run では、写しを取る間の待ち（§5.4）で実時間のタイミングは変わりうる。
+G2 の保証は、写しを持つ Actor では forward で乱数を引く層を持たない構成、写しを持たない Actor ではそれに加えて内部の統計を更新する層も持たない構成に限る（D11）。出荷設定はこの条件を満たす。G2 は値の同一性をいう。実際の Run では、写しを取る間の待ち（§5.4）で実時間のタイミングは変わりうる。
 
 ### 1.3 非ゴール（退けた案と、本当の制約か）
 
@@ -224,16 +227,16 @@ step 診断の部品は、その Runner の Actor の設定に従って、次の
 
 RND の Network に、forward で乱数を引く層（dropout・droppath）や内部の統計を書き換える層（BatchNorm）を入れた構成は、検出も WARN もしない。設計文書 212 に制約として書く。
 
-- 写しを持つ Actor（既定）: 乱数や統計の書き換えは写しの中だけで起き、学習は変わらない。値は学習の採点と一致しないことがある。
+- 写しを持つ Actor（既定）: BatchNorm の統計の書き換えは写しの中だけで起きる。一方、dropout・droppath の乱数は共有の乱数列を進めるため、推定器を写しても学習が変わりうる。これらの乱数を引く層を持つ構成は G2 の保証に含めない。値は学習の採点と一致しないことがある。
 - 写しを持たない Actor: 学習側の推定器を直接通すので、乱数の列や BatchNorm の統計が変わり、学習が変わる。
 
-理由: 学習の採点も同じ forward で、今も検出していない（§2.7）。出荷設定には無い。G2 は、写しを持つ Actor ではどの構成でも成り立ち、写しを持たない Actor では、これらの層を持たない構成で成り立つ。依存: D4、§2.7。
+理由: 学習の採点も同じ forward で、今も検出していない（§2.7）。出荷設定には無い。G2 は、写しを持つ Actor では乱数を引く層を持たない構成、写しを持たない Actor では乱数を引く層も内部の統計を更新する層も持たない構成で成り立つ。乱数を分離する設計は今回に含めず、共有乱数の状態の保存・復元も足さない。依存: D4、§2.7。
 
 ### D12. 列を足すプロファイルと、番号・見出し
 
-Atari・GridMaze・LunarLander の `run.@rnd` に、600 `rnd_err`、610 `rnd_norm`、620 `rnd_bonus` の 3 列を足す（§5.5）。600 番台を「内的報酬」の分類にする。RND を選ばない Run の既定の列は変えない。
+Atari・GridMaze・LunarLander の `run.@rnd` に、235 `rnd_bonus`、600 `rnd_err`、610 `rnd_norm` の 3 列を足す（§5.5）。`rnd_bonus` は230 `reward`の直後へ置き、600 番台を「内的報酬の誤差」の分類にする。RND を選ばない Run の列は変えない。
 
-理由: RND を持つ env の全部に入れる。プロファイルが列を足す形は `run.@skip` と同じである。番号の表で 600 以降が空いている（§2.8）。既定に入れたままにするかは、費用を測って確かめる（§8 の U1）。依存: §2.8。
+理由: RND を持つ env の全部に入れる。ボーナスを環境の報酬と並べて比べられる配置を、開発者が選んだ。240番はTempoRLの`decision`なので、既存列を動かさず直前へ差し込むため、番号の一の位を空ける原則の例外として235番を使う。プロファイルが列を足す形は `run.@skip` と同じであり、両方の順序で重ねても互いの列を上書きしない。誤差2列は空いている600番台を使う（§2.8）。既定に入れたままにするかは、費用を測って確かめる（§8 の U1）。依存: §2.8。
 
 ### D13. 百分位の列は既定で足さない
 
@@ -334,7 +337,7 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 
 ### 5.1 読むだけの採点
 
-推定器は、渡された観測について、次を lane ごとに返す。重み・統計・件数・診断値は変えない。
+推定器は、渡された観測について、次を lane ごとに返す。重み・統計・件数・診断値は変えない。forward 自体が乱数を引く層や内部の統計を更新する層を持つ場合の制約は D11 に従う。
 
 1. 観測を、今の観測の統計で正規化する（統計は更新しない）。
 2. target と predictor に通し、誤差を作る。勾配は使わない。
@@ -434,9 +437,9 @@ RunnerApp は、この状態を次のとおり切り替える（D20）。
 Atari.txt・GridMaze.txt・LunarLander.txt の `run.@rnd` に、次の 3 行を足す。
 
 ```text
+run.@rnd : app.eval_trace_panel.columns.[235] = $agent_step intrinsic.bonus label:rnd_bonus
 run.@rnd : app.eval_trace_panel.columns.[600] = $agent_step intrinsic.error label:rnd_err
 run.@rnd : app.eval_trace_panel.columns.[610] = $agent_step intrinsic.normalized_error label:rnd_norm
-run.@rnd : app.eval_trace_panel.columns.[620] = $agent_step intrinsic.bonus label:rnd_bonus
 ```
 
 百分位を見たいときは、利用者が次のように足す（既定には入れない。D13）。
@@ -517,7 +520,7 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 - 設計文書 [200](../design/200_dqn_agents.jp.md): §6.2 の RND の段落（読むだけの採点と、step 診断が持つ写し）、§9.1 の群 56 の段落の近くに step 診断の鍵を書く。Actor の `clone_model` を説明する箇所（同書に 2 か所）に、同期に従うもの（`ActorSyncFollower`）を network と同じ読み取りロックの中で呼ぶことと、step 診断の推定器の写しがそれに当たることを足す。英訳 [200 en](../design/200_dqn_agents.en.md) の同じ箇所。
 - 設計文書 [100](../design/100_runtime_and_configuration.jp.md): `Actor::Sync()` の契約を書いた段落に、同期に従うものをつなぐ口（`AttachSyncFollower`）を 1 文足す。英訳 [100 en](../design/100_runtime_and_configuration.en.md) の同じ箇所。
 - 設計文書 [160](../design/160_applications_and_tools.jp.md): `EvalTracePanel` の節に、pane を閉じている間は step 診断の部品を休ませること、開いたときに写しが無ければ EvalPanel がその場で Actor を同期することを足す（D20）。英訳 [160 en](../design/160_applications_and_tools.en.md) の同じ箇所。
-- ユーザーガイド [020](../design/020_user_guide_run.jp.md): §6.5 の列番号の表に 600〜699「内的報酬」を足し、`run.@rnd` の Run で出る 3 列の読み方（どの画面の値か、値の時点、方式による単位の違い）と、百分位の列の足し方（§5.5）を書く。EvalPanel の同期を説明する箇所（`app.eval_panel.model_sync.mode`）に、内的報酬の列を宣言した Run では、Evaluation Trace を開いたときにも同期が入ることがあると足す（D20）。英訳 [020 en](../design/020_user_guide_run.en.md) の同じ箇所。
+- ユーザーガイド [020](../design/020_user_guide_run.jp.md): §6.5 の列番号の表に235 `rnd_bonus`と600〜699「内的報酬の誤差」を足し、`run.@rnd` の Run で出る 3 列の読み方（どの画面の値か、値の時点、方式による単位の違い）と、百分位の列の足し方（§5.5）を書く。EvalPanel の同期を説明する箇所（`app.eval_panel.model_sync.mode`）に、内的報酬の列を宣言した Run では、Evaluation Trace を開いたときにも同期が入ることがあると足す（D20）。英訳 [020 en](../design/020_user_guide_run.en.md) の同じ箇所。
 - wiki: 地図の [324 DQN 系列](../wiki/categories/324_dqn.md)・[321 Agent 共通基盤](../wiki/categories/321_agent_core.md)・[317 可視化・メトリクス](../wiki/categories/317_metrics.md)・[318 強化学習 共通基盤](../wiki/categories/318_rl_core.md)・[RunnerApp](../wiki/apps/110_runner_app.md)、[内的報酬のページ](../wiki/mechanisms/intrinsic_novelty.md)の「関連」（起票の書き戻しで直す）。
 - 直さないもの: `$agent_step` の既存の 3 つの鍵だけを使うテストの断定と、PRD094 の検証資材（`core/anet-core/testdata/prd094/compare_configs.py`。既定の列だけを比べる）。既定の列も既存の鍵も変えない。`StepTraceBuilder` に触れる過去の検証資材の説明（`core/anet-core/testdata/prd094/README.md`・`prd098/README.md`）は、当時の手順の記録なので書き換えない。
 - PRD116 の §1.3 の「評価での採点と診断」の行は、当時の判断として残す。診断を本 PRD で決めたことは、本 PRD の §9 と wiki に書く。
@@ -533,15 +536,15 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 | 2 | 読むだけの採点の式 | 既知の統計で、誤差・標準化した値・倍率が §5.1 の 2 つの表の手計算と、浮動小数点の丸めの範囲で一致する。whiten の中心化あり・なし、`clipped`・`unclipped`、`variance_feedback` を通す。3 つの方式（whiten の `cumulative`・`ema`、`variance_feedback`）のそれぞれで、読むだけの採点の倍率が、直後にその観測 1 件を `Estimate` へ渡したときの倍率と一致する |
 | 3 | 標準化した値の NaN | §5.1 の標準化した値の表の行 1〜4 のそれぞれで NaN になり、倍率が 1 になる。warm-up 中で統計がある構成（`warmup_mode = collect_errors`）では、標準化した値が有限で、倍率が 1 になる |
 | 4 | 写しが元を変えない | 推定器の `Clone` で作った写しに `EstimateWithoutUpdate` を繰り返しても、元の推定器の `Estimate` の戻り値と `Diagnostics` の値が、写しを作らなかった場合と一致する。写しの `EstimateWithoutUpdate` の値は、写した時点の元の値と一致する |
-| 5 | step 診断の値 | §5.2 の表の行 2・5・6・7 のそれぞれで、3 つの鍵の値が表のとおりになる。行 7 の `intrinsic.bonus` は、同じ遷移 1 件を、推定器と β を写した時点の直後に学習の入口へ渡したときに報酬へ足される値（偽の Learner で受け取る）と一致する。`intrinsic.observation = state` では、行動した観測を採点した値になる |
+| 5 | step 診断の値 | §5.2 の表の行 2・5・6・7 のそれぞれで、3 つの鍵の値が表のとおりになる。行 7 の `intrinsic.bonus` は、同じ遷移 1 件を、推定器と β を写した時点の直後に学習の入口へ渡したときに報酬へ足される値（偽の Learner の受信値、または n-step 無効時の公開 Replay 収益で確認する）と一致する。`intrinsic.observation = state` では、行動した観測を採点した値になる |
 | 6 | 写しは Actor の写し直しに従う | `clone_model = true` の Actor で、内的報酬の鍵を入力に入れた step 診断を作る。(a) Actor がまだ写し直していない間は、3 つの値が NaN である（§5.2 の表の行 3）。(b) Actor を同期すると、次の `Observe` で、同期した時点の学習側の値になる。(c) そのあと学習の入口を進めて predictor を変えても、Actor が写し直すまでは、同じ観測の 3 つの値が変わらない。(d) `sync_interval` による写し直しでも、(b) と同じく、写し直した時点の値に入れ替わる。(e) step 診断の部品を破棄したあとに Actor を同期しても、エラーにならない。(f) 値が出ている状態で `Suspend` を呼び、Actor を同期せずに `Resume` を呼ぶと、偽が返り、同じ観測の 3 つの値は休ませる前と同じである。(g) `Suspend` を呼んだあと、学習の入口を進めて Actor を同期すると、`Resume` が真を返し、次の `Observe` の 3 つの値は NaN である。そのあと Actor を同期すると、同期した時点の値が入る。(h) 内的報酬の鍵を入力に入れていない step 診断、`clone_model = false` の Actor の step 診断、`intrinsic.enabled=false` の Agent の step 診断では、`Resume` が偽を返す |
 | 7 | ロックの待ち方 | 別のスレッドが Agent の書き込みロックを持っている間に、内的報酬の鍵を入力に入れた step 診断の `Observe` を呼ぶ。(a) `clone_model = true` の Actor では、Actor の同期の前でも後でも、1 秒以内に返る。同期の後なら、同期した時点の値を返す（写すのが Actor の同期の中で済んでいる）。(b) `clone_model = false` の Actor では、1 秒待っても返らず、ロックを離すと返る。(c) 内的報酬の鍵を入力に入れていない step 診断は、どちらの Actor でも 1 秒以内に返る（既存の `[diagnostic_no_wait]` も通る） |
 | 8 | 評価専用の Run | 学習した Agent の checkpoint を、`learner.enabled=false` の Agent が読む。`clone_model = true` の Actor を同期したあと、step 診断の `intrinsic.error` と `intrinsic.normalized_error` が有限で、`intrinsic.bonus` が NaN になる |
 | 9 | RND が無効、Rainbow、Actor の欠け、非有限の誤差 | §6.2 の表の行 1〜4 のそれぞれが、表のとおりになる。行 1 と行 3 の ERROR の文に、表が挙げるものが入る。行 4 の WARN は 1 回だけ出て、文に lane と値が入る |
-| 10 | Trace を挟んでも学習が変わらない | 同じ seed と設定の DefaultDQNAgent を 2 つ作り、同じ遷移の列を学習の入口へ渡す。片方だけ、毎 step、内的報酬の鍵を入力に入れた step 診断の `Observe` を呼び、途中で Actor を同期する。2 つの Agent で、偽の Learner が受け取った報酬の列と、`$agent intrinsic.*` の診断値がすべて一致する。`clone_model` が true と false の両方で確かめる |
+| 10 | Trace を挟んでも学習が変わらない | 同じ seed と設定の DefaultDQNAgent を 2 つ作り、同じ遷移の列を学習の入口へ渡す。片方だけ、毎 step、内的報酬の鍵を入力に入れた step 診断の `Observe` を呼び、途中で Actor を同期する。2 つの Agent で、Learner が受け取った報酬の列（偽の Learner の受信値、または n-step 無効時の公開 Replay 収益で確認する）と、`$agent intrinsic.*` の診断値がすべて一致する。`clone_model` が true と false の両方で確かめる |
 | 11 | Trace を使わない Run が今と同じ | 着手前に保存した実行体と、実装後の実行体に、着手前の設定の写しを渡して比べる。構成は次の 3 つで、どれも seed 1 本・決定的モードである。(a) LunarLander の既定の連鎖に `run.@rnd` を足した 100k exp step の Run。(b) 同じ連鎖に `run.@rnd` と、Atari の `run.@rnd_taiga` の 8 つの設定値を足した 100k exp step の Run。(c) `intrinsic.enabled = false` の GridMaze・LunarLander・Atari・DropMerge の既定の連鎖の Run、各 8,704 exp step（PRD123 の検証資材が RND 無効で比べた 4 本と同じ条件）。比べるのは全 scalar 点の checksum と `metrics.scalar.defs` で、除くのは時刻・資源の群だけである（実時間に依るため）。3 つとも一致する |
-| 12 | 出荷設定 | Atari・GridMaze・LunarLander の `run.@rnd` を解決すると、`app.eval_trace_panel.columns.[600]`・`[610]`・`[620]` が §5.5 の 3 行の値になる。`run.@rnd` を選ばない解決には、この 3 つの設定キーが無い。LunarLander の `run.@rnd` を解決した列の宣言で、DefaultDQN の行を 1 行作ると、3 つの鍵がエラーなく読める（`[shipped_config]`） |
-| 13 | 画面（人が確かめる） | LunarLander か Atari の `run.@rnd` の Run で Evaluation Trace を開くと、`rnd_err`・`rnd_norm`・`rnd_bonus` の 3 列が `prio_pct` の右に出る。`rnd_err` は、pane を開いた直後の最初の行から値が入る。`rnd_norm` は誤差の統計ができたあと、`rnd_bonus` は学習の入口を通ったあとに、Actor が同期した行から値が入る。学習が進んでいる Run で、View メニューか Panel ツールバーの操作で pane を閉じ、10 秒以上おいてから同じ操作で開き直しても、最初の行から 3 列に値が入る（利用者の操作から、開いたときの同期までがつながっていること）。Trace モードで過去の行を選んでも、その行の 3 列の値が変わらない。`run.@rnd` を選ばない Run では 3 列が出ない |
+| 12 | 出荷設定 | Atari・GridMaze・LunarLander の `run.@rnd` を解決すると、`app.eval_trace_panel.columns.[235]`・`[600]`・`[610]` が §5.5 の 3 行の値になる。235は230 `reward`の直後に並ぶ。`run.@rnd`単独、`run.@skip > run.@rnd`、`run.@rnd > run.@skip`で確かめ、RNDの3列以外の全キー・文字列値は着手前の同じ選択の解決と一致する。`run.@rnd`を選ばない空の選択と`run.@skip`単独では、この3つの設定キーが無く、全キー・文字列値が着手前と一致する（`verify_configuration.py`）。LunarLander の `run.@rnd` を解決した列の宣言で、DefaultDQN の行を 1 行作ると、3 つの鍵がエラーなく読める（`[shipped_config]`） |
+| 13 | 画面（人が確かめる） | LunarLander か Atari の `run.@rnd` の Run で Evaluation Trace を開くと、`rnd_bonus`が`reward`の直後、`rnd_err`・`rnd_norm`が`prio_pct`の右に出る。`rnd_err` は、pane を開いた直後の最初の行から値が入る。`rnd_norm` は誤差の統計ができたあと、`rnd_bonus` は学習の入口を通ったあとに、Actor が同期した行から値が入る。学習が進んでいる Run で、View メニューか Panel ツールバーの操作で pane を閉じ、10 秒以上おいてから同じ操作で開き直しても、最初の行から 3 列に値が入る（利用者の操作から、開いたときの同期までがつながっていること）。Trace モードで過去の行を選んでも、その行の 3 列の値が変わらない。`run.@rnd` を選ばない Run では 3 列が出ない |
 | 14 | 費用の記録（人が測る。合否なし） | Atari の実時間優先の構成に `run.@rnd` を足した Run と、さらに `run.@rnd_taiga` を足した Run のそれぞれで、Evaluation Trace を閉じた状態と、開いて EvalPanel を再生した状態を、交互に 3 巡以上測る。各状態の、学習側の 1 秒あたりの exp step の中央値、step 診断の `Observe` 1 回の時間の中央値と最大、Actor の同期 1 回のうち推定器と β を写す時間の中央値と最大を、設計文書 212 に書く。GUI を動かせない枠で実装を終えるときは、測らずに終え、本 PRD の課題に残りの作業として書く（課題の判定は「残件有り」） |
 | 15 | pane の開閉と同期 | EvalTracePanel のテストで、テスト用の step 診断と Actor を使う。pane の開閉は、`EvalTracePanel::SetActive` を直接呼んで切り替える。これは公開の口で状態を作る準備で、利用者の操作から `SetActive` までのつながり（フレームの pane の表示・非表示の処理）は、人が 13 で確かめる。(a) `SetActive` を呼ばずに `Initialize` を終えると（pane が閉じた状態）、行を作る部品を作った直後に `Suspend` が 1 回呼ばれている。(b) `SetActive(true)` で `Resume` が呼ばれ、それが真を返すときは、Actor の `Sync` がちょうど 1 回呼ばれる。偽を返すときは呼ばれない。(c) `SetActive(false)` で `Suspend` が呼ばれる |
 

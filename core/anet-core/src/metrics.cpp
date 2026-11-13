@@ -176,11 +176,16 @@ std::vector<StepTraceColumnSpec> StepTraceColumnSpec::Parse(const anet::ConfigDa
 }
 
 StepTraceBuilder::StepTraceBuilder(const anet::ConfigData& config, const EnvSpec& spec,
-    std::shared_ptr<Agent> agent, int64_t num_lanes)
+    std::shared_ptr<Agent> agent, int64_t num_lanes, std::shared_ptr<Actor> actor)
     : columns_(StepTraceColumnSpec::Parse(config, spec)), num_lanes_(num_lanes)
 {
     ANET_CHECK_MSG(num_lanes > 0, "Step trace lane count must be positive. actual=" << num_lanes);
-    diagnostics_ = agent ? agent->CreateStepDiagnosticsProvider(num_lanes) : nullptr;
+    // 列の宣言は固定なので、必要な鍵を構築時に重複なく一度だけ渡す。
+    std::set<std::string> keys;
+    for (const auto& column : columns_)
+        if (column.target == "$agent_step") keys.insert(column.key);
+    diagnostics_ = agent ? agent->CreateStepDiagnosticsProvider({.num_lanes = num_lanes,
+        .keys = {keys.begin(), keys.end()}, .actor = std::move(actor)}) : nullptr;
     lane_steps_.resize(static_cast<size_t>(num_lanes), 0);
     pending_.resize(static_cast<size_t>(num_lanes));
 }
@@ -197,6 +202,16 @@ void StepTraceBuilder::Reset()
     if (diagnostics_) diagnostics_->Reset();
     std::fill(lane_steps_.begin(), lane_steps_.end(), 0);
     for (auto& rows : pending_) rows.clear();
+}
+
+void StepTraceBuilder::Suspend()
+{
+    if (diagnostics_) diagnostics_->Suspend();
+}
+
+bool StepTraceBuilder::Resume()
+{
+    return diagnostics_ && diagnostics_->Resume();
 }
 
 void StepTraceBuilder::OnTrain(const TrainEvent& event)

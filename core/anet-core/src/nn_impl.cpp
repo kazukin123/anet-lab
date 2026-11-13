@@ -2522,7 +2522,7 @@ std::shared_ptr<Network> NetworkBuilder::BuildNetwork(
         auto t = torch::zeros(shape, options);
         dummy_input.Set(key, t);
     }
-	LOG::info() << "NetworkBuilder: input_shape=" << dummy_input.ToDefString();
+	ANET_LOG_DEBUG("NetworkBuilder: input_shape=" << dummy_input.ToDefString());
 
     // 初回ダミー実行
     // これにより、Body内の全Lazy層(Linear等)が初期化され、Head構築用の出力Shapeが確定する

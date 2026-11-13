@@ -464,6 +464,37 @@ RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付�
 
 読込ではpredictorのoptimizerの学習状態を復元したうえで、学習率・重み減衰・adam_epsを現在の設定へ合わせ、差があればRunに1回INFOで知らせる。それらを変更した再開は、同じ学習をそのまま継続する場合とは区別する。
 
+### 4.6 Evaluation Trace で読む値
+
+DefaultDQNの`run.@rnd`では、235 `rnd_bonus`、600 `rnd_err`、610 `rnd_norm`の3列を出す。鍵はそれぞれ`intrinsic.bonus`・`intrinsic.error`・`intrinsic.normalized_error`である。ボーナスは230 `reward`の直後、誤差2列は`prio_pct`の右に並ぶ。240 `decision`・250 `skip`とは重複せず、TempoRLとの併用でも各列を保つ。RND無効では既知の鍵としてNaNを返す。Rainbowはこれらの鍵を認識しない。
+
+`EstimateWithoutUpdate`は観測を現在の統計で正規化し、targetとpredictorを勾配なしで通す。誤差は特徴ごとの二乗誤差の平均である。誤差統計・観測統計・件数・集約診断と重みは更新しない。統計方式とwarm-upに従って倍率を作り、ボーナスはβ×(倍率−1)とする。
+
+| 条件（上から最初の行を適用） | 標準化した値 |
+|---|---|
+| 誤差が非有限、whitenの誤差統計が空、variance_feedbackの観測分散に0がある、または除数が0以下 | NaN |
+| whiten、中心化あり | (誤差−現在の平均)÷現在の標準偏差 |
+| whiten、中心化なし | 誤差÷現在の標準偏差 |
+| variance_feedback | 現在の誤差統計の写しに、各laneを独立に次の1件として入れたあとの(誤差−平均)÷分散 |
+
+倍率はwarm-up中か標準化した値がNaNなら1、それ以外は`clipped`で`clamp(1+標準化した値,1,multiplier_max)`、`unclipped`で`1+標準化した値`である。warm-up中でも統計があれば標準化した値は出る。variance_feedbackは分散で割るので、whitenとは単位が違い、方式の違うRunの`rnd_norm`を比較できない。
+
+| 条件（上から最初の行を適用） | 誤差・標準化した値・ボーナス |
+|---|---|
+| RND無効、または写しを持つActorで推定器の写しがまだ無い | 3つともNaN |
+| 誤差が非有限 | そのlaneの3つともNaN。laneと値付きWARNをRunに1回 |
+| 学習の入口をまだ通っておらずβが無い | 誤差と標準化した値、ボーナスだけNaN |
+| next_stateを採点しuse_done_mask=trueでdone | 誤差と標準化した値、ボーナス0 |
+| その他 | 誤差と標準化した値、β×(倍率−1) |
+
+βは学習の入口が直近に使った値で、推定器と同じ時機に写す。checkpointへ保存せず、評価専用・再開直後にはボーナスだけが未成立となる。`intrinsic.observation=next_state`なら行に表示する結果の画面、`state`なら行動を決めた1つ前の画面を採点する。
+
+Actorが写しを持つ場合、行の値は最後のActor同期時点の学習側のpredictor・統計・βによる。同じ行のQも同じ時点のnetworkを使う。写しを持たない場合はそのstepで学習側を直接読む。値は行の生成時に1回保存し、過去の行の選択で採点し直さない。内的報酬の鍵を要求しないときは採点・写し・接続・追加のAgentロックを行わない。paneを閉じた間は採点も写しも休み、開いたときに写しが無ければ通常のActor同期を行う。
+
+forwardで乱数を引くdropout・droppathは共有乱数列を進めるので、Actorが写しを持つ場合も学習不変性の保証外である。BatchNormの更新は写しの中に閉じるが、写しを持たないActorでは学習側の統計も変わる。この場合も保証外である。これらの層は検出もWARNもしない。出荷のRND構成には含まれない。
+
+受入と費用の測定手順は[PRD127検証資材](../../core/anet-core/testdata/prd127/README.md)に置く。Atariの通常RNDとTaiga式について、pane開閉各3巡以上の学習exp step/s、Observe時間、推定器とβの写し時間を測る。GUIでの測定値はまだ採取していないため、費用と既定列の採否は未確認である。
+
 ## 5. 現在の状態と限界
 
 ### 5.1 計算する場所と費用
@@ -478,7 +509,7 @@ variance_feedbackの観測統計はCPUでlane順に更新し、その結果を�
 
 Q学習の回数とは別にbatchごとに採点・補助学習するため、Qの更新間隔を大きくしてもRNDの費用が同じ比率で減るとは限らない。計測区間は抽選、正規化、入力転送、target / predictorの順伝播、誤差転送、統計、backward、optimizerのstepを区別する。
 
-`learner.enabled=false` ではRunに1回INFOを出して採点と補助学習を休止する。有効設定なら保存状態を扱うための部品は構築される。診断値の読み取りは値の受け渡し専用の仕組みを使い、画面表示のために新しい学習ロック待ちを追加しない。
+`learner.enabled=false` ではRunに1回INFOを出して採点と補助学習を休止する。有効設定なら保存状態を扱うための部品は構築される。集約診断の読み取りは値の受け渡し専用の仕組みを使う。Evaluation Traceで写しを持つActorを使うときは、定期の同期と同じロックの中で推定器とβも写すので、定期同期のロック待ちの回数は増えない。paneを開いて写しが無いときは同期が1回入り、学習の入口1回の終わりを待つ。写しを持たないActorではstepごとに待つ。これはUIスレッドの学習ロック禁止規約の、開発者が決めた例外である。Actorの同期全体を学習側が写しを公開する形へ移すときは、推定器とβも一緒に移す。
 
 ### 5.2 確認済みの範囲
 

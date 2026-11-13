@@ -55,11 +55,15 @@ namespace anet::rl::intrinsic {
             const anet::TensorSpecMap& observation_spec, const torch::Device& device,
             const anet::SeedMaker& seed_maker);
         torch::Tensor Estimate(const anet::TensorDict& observations) override;
+        LifelongNoveltyEstimateResult EstimateWithoutUpdate(const anet::TensorDict& observations) const override;
+        std::unique_ptr<LifelongNoveltyEstimator> Clone() const override;
         bool Learn(const anet::TensorDict& observations) override;
         std::map<std::string, float> Diagnostics() const override;
         int64_t Save(anet::OutputArchive& archive) const override;
         int64_t Load(anet::InputArchive& archive) override;
     private:
+        explicit RndNoveltyEstimator(const RndNoveltyEstimator& source);
+
         // 誤差だけの統計。累積は既存の計算・保存形式をそのまま使う。
         class RndErrorStatistics {
         public:
@@ -87,6 +91,7 @@ namespace anet::rl::intrinsic {
             std::pair<anet::TensorDict, torch::Tensor> NormalizeAndUpdate(
                 const anet::TensorDict& observations, float clip_range);
             torch::Tensor UpdateErrors(const torch::Tensor& errors);
+            torch::Tensor ErrorsWithoutUpdate(const torch::Tensor& errors) const;
             double ErrorMean() const { return err_m_; }
             double ErrorStd() const { return std::sqrt(err_v_); }
             int64_t Count() const { return n_; }
@@ -104,6 +109,7 @@ namespace anet::rl::intrinsic {
         const RndNoveltyEstimatorConfig config_;
         const torch::Device device_;
         std::vector<std::string> byte_observation_keys_;
+        anet::TensorSpecMap normalized_observation_spec_;
         std::shared_ptr<anet::nn::Network> target_;
         std::shared_ptr<anet::nn::Network> predictor_;
         std::unique_ptr<torch::optim::AdamW> optimizer_;

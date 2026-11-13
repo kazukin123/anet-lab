@@ -55,6 +55,8 @@ public:
 	void TogglePause();
     void PauseForTrace() { is_pause_ = true; }
     double GetPlaybackRate() const { return static_cast<double>(current_fps_) * current_step_per_frame_; }
+    // Traceの再開時にも、通常の同期と同じ処理を使う。
+    void SyncModel();
 	void DoStep();
 	void DoStep(int64_t action);
 public:	// TraceFollower
@@ -65,7 +67,6 @@ protected:
 	void OnTimer(wxTimerEvent& event);
 	void OnClose(wxCloseEvent& event);
 private:
-	void SyncModel();
 	void SyncBeforeFrame();
 	void SyncBeforeManualStep();
 	anet::rl::ControlSignal SyncAfterStep(const anet::rl::StepCounts& counts);

@@ -1,4 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:1198356aa0d760376d0fd7a486bd9e7fcdb96570 date:2026-11-12 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:fb09d17dfc13a8f22db805bc4f9a32a29a7a6fe1 date:2026-11-13 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.
@@ -465,6 +465,37 @@ Agent checkpoints containing RND append `;intrinsic` to the existing identifier.
 
 Loading restores predictor optimizer training state, then applies the current learning rate, weight decay, and adam_eps, reporting differences once per Run at INFO. Resuming with changed values therefore differs from continuing identical training.
 
+### 4.6 Values in Evaluation Trace
+
+DefaultDQN `run.@rnd` adds columns 235 `rnd_bonus`, 600 `rnd_err`, and 610 `rnd_norm`. Their keys are `intrinsic.bonus`, `intrinsic.error`, and `intrinsic.normalized_error`, respectively. Bonus immediately follows 230 `reward`; the two error columns appear to the right of `prio_pct`. These numbers do not overlap 240 `decision` or 250 `skip`, so combining RND with TempoRL preserves each column. Disabled RND recognizes these keys and returns NaN. Rainbow does not recognize them.
+
+`EstimateWithoutUpdate` normalizes observations using current statistics and runs target and predictor without gradients. Error is mean squared feature error. It does not update error or observation statistics, counts, aggregate diagnostics, or weights. It derives the multiplier using the configured statistics and warm-up; bonus is beta times (multiplier minus 1).
+
+| Condition (apply the first matching row) | Normalized error |
+|---|---|
+| Nonfinite error, empty whiten error statistics, a zero observation variance in variance_feedback, or a nonpositive divisor | NaN |
+| Whiten with centering | (error minus current mean) / current standard deviation |
+| Whiten without centering | error / current standard deviation |
+| variance_feedback | (error minus mean) / variance after independently adding each lane as the next observation to a local copy of current error statistics |
+
+During warm-up or with NaN normalized error the multiplier is 1. Otherwise `clipped` uses `clamp(1 + normalized_error, 1, multiplier_max)`, and `unclipped` uses `1 + normalized_error`. Normalized error remains available during warm-up when statistics exist. variance_feedback divides by variance, so its units differ from whiten; do not compare `rnd_norm` across statistics modes.
+
+| Condition (apply the first matching row) | Error, normalized error, and bonus |
+|---|---|
+| RND disabled, or a cloned Actor without an estimator snapshot yet | All three NaN |
+| Nonfinite error | All three NaN for that lane; one WARN per Run includes lane and value |
+| No beta because training intake has not run | Error and normalized error; only bonus is NaN |
+| Scoring next_state with use_done_mask=true on a done lane | Error and normalized error; bonus 0 |
+| Otherwise | Error and normalized error; beta times (multiplier minus 1) |
+
+Beta is the last value used by training intake and is copied with the estimator. It is not checkpointed, so evaluation-only and freshly resumed Runs have an unavailable bonus. `intrinsic.observation=next_state` scores the resulting screen displayed in the row; `state` scores the preceding screen used to choose the action.
+
+With a cloned Actor, values use the training predictor, statistics, and beta at the last Actor synchronization, matching the time of the network used for that row's Q values. An Actor sharing its network reads the training estimator at each step. Values are stored once when the row is created; selecting old rows does not rescore them. Without requested intrinsic keys, there is no scoring, estimator copy, follower attachment, or additional Agent lock. A closed pane suspends scoring and copying. Reopening without a snapshot performs normal Actor synchronization.
+
+Dropout and DropPath consume shared randomness, so configurations containing them are outside the learning-invariance guarantee even with a cloned Actor. BatchNorm updates stay in a snapshot, but alter training statistics when the Actor does not clone; that case is also outside the guarantee. These layers are neither detected nor warned about. Shipped RND networks contain none of them.
+
+See the [PRD127 validation assets](../../core/anet-core/testdata/prd127/README.md) for acceptance and measurement procedures. Measure training exp steps/s, Observe time, and estimator/beta copy time over at least three alternating open/closed cycles for Atari normal RND and Taiga-style RND. GUI measurements have not yet been collected, so overhead and the choice to keep default columns remain unverified.
+
 ## 5. Current Status and Limitations
 
 ### 5.1 Computation Placement and Cost
@@ -479,7 +510,7 @@ variance_feedback updates observation statistics on CPU in lane order, then forw
 
 Scoring and auxiliary learning occur per batch independently of Q-learning step counts, so increasing the Q-update interval need not reduce RND cost proportionally. Profiling separates sampling, normalization, input transfer, target/predictor forward, error transfer, statistics, backward, and optimizer step.
 
-With `learner.enabled=false`, scoring and auxiliary learning pause with one INFO per Run. If intrinsic reward is enabled, components still exist for persistence. Diagnostics use a value-transfer mechanism without adding a new learning-lock wait for display.
+With `learner.enabled=false`, scoring and auxiliary learning pause with one INFO per Run. If intrinsic reward is enabled, components still exist for persistence. Aggregate diagnostics use a value-transfer mechanism. With a cloned Actor, Evaluation Trace copies the estimator and beta under the existing periodic synchronization lock, without adding another periodic lock wait. Opening the pane without a snapshot adds one synchronization and can wait for one training intake. An Actor sharing its network waits at each scoring step. This is a developer-approved exception to the UI-thread training-lock rule. If Actor synchronization is moved to training-side snapshot publication, move the estimator and beta with it.
 
 ### 5.2 Verified Scope
 

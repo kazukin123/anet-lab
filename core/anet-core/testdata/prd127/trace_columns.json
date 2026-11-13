@@ -1,0 +1,5 @@
+{
+  "app.eval_trace_panel.columns.[235]": "$agent_step intrinsic.bonus label:rnd_bonus",
+  "app.eval_trace_panel.columns.[600]": "$agent_step intrinsic.error label:rnd_err",
+  "app.eval_trace_panel.columns.[610]": "$agent_step intrinsic.normalized_error label:rnd_norm"
+}

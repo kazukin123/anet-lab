@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:38cb57d10ace1bb75dde7997ada291f446be2d66 date:2026-11-11 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:24c48969fac4ff0cbcf187706efaca8115e9fe8c date:2026-11-13 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -542,19 +542,29 @@ In Trace, use ↑↓ in the table, an Env View, QValuePanel, or similar panes to
 
 Double-click a row to select it and dump its notification contents to the log. One INFO line beginning `Trace dump step=... lane=...:` contains column values and a notification summary; one VERBOSE entry contains all Tensor elements, including observations and Q values. Select verbose in `View > Log Level` to inspect the details in the log pane. The same row can be dumped repeatedly.
 
-Columns expand to fit their headers and values. Once a column is resized manually, it is no longer adjusted automatically while the panel remains open. Close and reopen the panel to restore initial widths; this also clears the history. The panel's minimum width fits the entire control bar and the columns from the left edge through the first action column. Scroll horizontally to inspect the remaining columns. Normal and selection colors follow the system theme; reward rows are marked light green and terminal rows light orange. Selecting a row does not change the column header colors.
+Columns expand to fit their headers and values. Once a column is resized manually, it is no longer adjusted automatically while the panel remains open. Close and reopen the panel to restore initial widths; this also clears the history. The panel's minimum width fits the entire control bar and the columns from the left edge through the first action column. Scroll horizontally to inspect the remaining columns. The leftmost column (step by default) stays visible while scrolling horizontally. Normal and selection colors follow the system theme; reward rows are marked light green and terminal rows light orange. Selecting a row does not change the column header colors.
 
 Specify columns as follows. Numbers must be at least 1, gaps are allowed, and columns are laid out from left to right in ascending order. Assign numbers by the following table.
 
 | Number | Category | Default columns |
 |---|---|---|
 | 100–199 | Free (columns to show left of step) | — |
-| 200–299 | Action and outcome | 200 step, 210 ep_step, 220 action, 230 reward, 240 decision, 250 skip, 260 forced |
+| 200–299 | Action and outcome | 200 step, 210 ep_step, 220 action, 230 reward, 235 rnd_bonus (run.@rnd), 240 decision, 250 skip, 260 forced |
 | 300–349 | Main environment-specific values | Atari: 300 game_score, 310 lives |
 | 350–399 | Episode end | 350 done, 360 trunc |
 | 400–499 | Values | 400 Q_sa, 410 V_s, 420–429 skip values q1–q10 |
 | 500–599 | Priority | 500 prio, 510 prio_pct |
-| 600–999 | Free (use the 900s for experimental columns) | — |
+| 600–699 | Intrinsic reward error | run.@rnd: 600 rnd_err, 610 rnd_norm |
+| 700–999 | Free (use the 900s for experimental columns) | — |
+
+For Runs with `run.@rnd`, inspect `rnd_bonus` (bonus in training-reward units) immediately after `reward`, and `rnd_err` (RND error) and `rnd_norm` (normalized error) to the right of `prio_pct`. Evaluation-only and freshly resumed Runs leave bonus blank until beta is established. Add this column to view error percentiles:
+
+```text
+app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct label:rnd_err_pct
+```
+
+> [!NOTE]
+> The default next_state scores the resulting screen displayed in the row; state (Taiga style) scores the preceding decision screen. A cloned Actor uses predictor, statistics, and beta from its last synchronization. Opening Trace also synchronizes immediately if a snapshot is missing. variance_feedback divides rnd_norm by variance, unlike whiten; do not compare it between different statistics modes.
 
 The tens digit orders columns within a category, and the ones digit stays 0 to leave room for later insertions. Only columns ordered by an index (skip values q1–qJ, with j−1 in the ones digit) use the ones digit. decision, skip, and q1–qJ appear only in Runs with skip enabled.
 

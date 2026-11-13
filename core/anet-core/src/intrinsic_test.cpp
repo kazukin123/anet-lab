@@ -2,21 +2,34 @@
 #include <array>
 #include <cmath>
 #include <sstream>
+#include <tuple>
 #include <fstream>
+#include <future>
 #include <chrono>
 #include <algorithm>
 #include <numeric>
 #include <ATen/CPUGeneratorImpl.h>
+#include <ATen/Context.h>
 #include "nn_impl.hpp"
 #include "nn_heads.hpp"
+#include "anet/env.hpp"
 #include "anet/intrinsic.hpp"
 #include "intrinsic_rnd.hpp"
 #include "anet/default_dqn_agent.hpp"
 #include "dqn_based_agent.hpp"
+#include "anet/metrics.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/observers.hpp"
 #include "anet/test_util.hpp"
 
+constexpr char kTraceActionLabel[] = "a0";
+constexpr char kTraceActorKey[] = "trace";
+constexpr char kTraceForwardKey[] = "test";
+constexpr char kStepIntrinsicError[] = "intrinsic.error";
+constexpr char kStepIntrinsicNormalizedError[] = "intrinsic.normalized_error";
+constexpr char kStepIntrinsicBonus[] = "intrinsic.bonus";
+constexpr char kLaneError[] = "error";
+constexpr char kLaneNormalizedError[] = "normalized_error";
 constexpr char kObservation[] = "obs";
 constexpr char kErrorMean[] = "error_mean";
 constexpr char kErrorStd[] = "error_std";
@@ -1602,14 +1615,15 @@ TEST_CASE("DQN intrinsic validates schedule settings only when enabled", "[prd11
 }
 
 // 公開checkpointのRND節を読む。private stateや偽推定器をテスト用に公開しない。
-static std::string IntrinsicCheckpointPayload(const anet::rl::dqn::DefaultDQNAgent& agent)
+static std::string IntrinsicCheckpointPayload(const anet::rl::dqn::DefaultDQNAgent& agent,
+    const std::string& format = kRndCheckpointFormat)
 {
     std::ostringstream saved(std::ios::binary);
     anet::OutputArchive output(saved);
     agent.Save(output);
     std::ostringstream marker(std::ios::binary);
     anet::OutputArchive marker_archive(marker);
-    marker_archive.Write(std::string(kRndCheckpointFormat));
+    marker_archive.Write(format);
     const auto bytes = saved.str();
     const auto offset = bytes.find(marker.str());
     REQUIRE(offset != std::string::npos);
@@ -1731,4 +1745,690 @@ TEST_CASE("DQN intrinsic learns complete lane groups and rejects oversize batche
         return record.message.find("exceeds num_envs=") != std::string::npos;
     });
     CHECK(warnings == 0);
+}
+
+TEST_CASE("RND read-only scoring leaves subsequent learning unchanged", "[prd127][intrinsic]")
+{
+    // 公開Factoryから読むだけの採点を挟み、学習の返値と全診断が一致することを確かめる。
+    anet::nn::InitNN();
+    auto data = RndTestConfig();
+    const auto mode = GENERATE(0, 1, 2);
+    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.warmup_steps", 0);
+    const auto create = [&] { return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123)); };
+    auto reference = create();
+    auto observed = create();
+    for (int step = 0; step < 6; ++step) {
+        const anet::TensorDict obs(kObservation, RndTestObservation().At(kObservation) * (step + 1.0f));
+        const auto score = observed->EstimateWithoutUpdate(obs);
+        REQUIRE(score.multipliers.sizes() == torch::IntArrayRef({2}));
+        REQUIRE(torch::isfinite(score.diagnostics.at(kLaneError)).all().item<bool>());
+        CHECK(torch::equal(reference->Estimate(obs), observed->Estimate(obs)));
+        CHECK(reference->Learn(obs) == observed->Learn(obs));
+        for (const auto& [key, value] : reference->Diagnostics()) {
+            const auto actual = observed->Diagnostics().at(key);
+            if (std::isnan(value)) CHECK(std::isnan(actual));
+            else CHECK(actual == value);
+        }
+    }
+}
+
+TEST_CASE("RND scoring snapshots remain independent of training", "[prd127][intrinsic]")
+{
+    // 方式ごとに公開Factoryで育て、Clone の採点と独立した補助学習を確かめる。
+    anet::nn::InitNN();
+    const auto compute_device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
+    if (compute_device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
+    const auto mode = GENERATE(0, 1, 2);
+    auto data = RndTestConfig();
+    data.Set("rnd.warmup_steps", 0);
+    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    const auto create = [&] { return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), compute_device, anet::SeedMaker(123)); };
+    auto source = create();
+    auto reference = create();
+    for (int step = 0; step < 3; ++step) {
+        const anet::TensorDict obs(kObservation, RndTestObservation().At(kObservation) * (step + 1.0f));
+        source->Estimate(obs); reference->Estimate(obs);
+        source->Learn(obs); reference->Learn(obs);
+    }
+    const auto rng_before = at::detail::getDefaultCPUGenerator().get_state().clone();
+    const auto device_rng_before = at::globalContext().defaultGenerator(compute_device).get_state().clone();
+    auto snapshot = source->Clone();
+    CHECK(torch::equal(rng_before, at::detail::getDefaultCPUGenerator().get_state()));
+    CHECK(torch::equal(device_rng_before, at::globalContext().defaultGenerator(compute_device).get_state()));
+    const auto obs = RndTestObservation();
+    const auto expected = source->EstimateWithoutUpdate(obs);
+    for (int step = 0; step < 3; ++step) {
+        const auto actual = snapshot->EstimateWithoutUpdate(obs);
+        CHECK(torch::equal(expected.multipliers, actual.multipliers));
+        for (const auto& [key, value] : expected.diagnostics)
+            CHECK(torch::allclose(value, actual.diagnostics.at(key), 0, 0, true));
+    }
+    snapshot->Estimate(obs);
+    snapshot->Learn(obs);
+    CHECK(torch::equal(source->Estimate(obs), reference->Estimate(obs)));
+    CHECK(source->Learn(obs) == reference->Learn(obs));
+    for (const auto& [key, value] : source->Diagnostics()) {
+        const auto actual = reference->Diagnostics().at(key);
+        if (std::isnan(value)) CHECK(std::isnan(actual));
+        else CHECK(actual == value);
+    }
+}
+
+static std::shared_ptr<anet::rl::Actor> MakeIntrinsicTraceActor(
+    const std::shared_ptr<anet::rl::dqn::DefaultDQNAgent>& agent, int num_lanes = 2)
+{
+    anet::rl::EnvSpec spec;
+    spec.state_spec.obs_spec = RndTestSpec();
+    spec.action_spec.is_discrete = true;
+    spec.action_spec.value_labels = {kTraceActionLabel};
+    spec.reward_range = {-1000.0f, 1000.0f};
+    return agent->CreateActor({.batch_env_spec = {.num_envs = num_lanes, .num_threads = 1},
+        .env_spec = spec, .device = torch::kCPU, .seed = 42, .actor_key = kTraceActorKey});
+}
+
+TEST_CASE("DQN trace scores its Actor snapshot after synchronization", "[prd127][intrinsic]")
+{
+    // 公開のAgent・Actor・step診断を通して、同期から列の読み出しまでを接続する。
+    IntrinsicMetricsScope metrics;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    data.Set("DefaultDQNAgent.actor.[trace].clone_model", true);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 100000);
+    auto agent = MakeIntrinsicAgent(data);
+    auto actor = MakeIntrinsicTraceActor(agent);
+    auto diagnostics = agent->CreateStepDiagnosticsProvider({.num_lanes = 2,
+        .keys = {kStepIntrinsicError, kStepIntrinsicNormalizedError, kStepIntrinsicBonus}, .actor = actor});
+    auto experience = IntrinsicExperience(2.0f, false, false, true);
+    experience.action = actor->MakeAction({}, experience.state);
+    auto before = diagnostics->Observe(experience);
+    CHECK(std::isnan(*before.current->GetScalar(kStepIntrinsicError, 0)));
+    actor->Sync();
+    auto initial = diagnostics->Observe(experience);
+    REQUIRE(initial.current->GetScalar(kStepIntrinsicError, 0));
+    CHECK(std::isfinite(*initial.current->GetScalar(kStepIntrinsicError, 0)));
+    CHECK(std::isnan(*initial.current->GetScalar(kStepIntrinsicBonus, 0)));
+    agent->CreateLearner()->UpdateFromBatch({.exp_step = 2}, experience);
+    actor->Sync();
+    auto learned = diagnostics->Observe(experience);
+    CHECK(std::isfinite(*learned.current->GetScalar(kStepIntrinsicNormalizedError, 0)));
+    CHECK(std::isfinite(*learned.current->GetScalar(kStepIntrinsicBonus, 0)));
+    CHECK_FALSE(learned.current->GetScalar("intrinsic.unknown", 0));
+}
+
+TEST_CASE("Trace forwards requested intrinsic keys and Actor lifetime controls", "[prd127][intrinsic]")
+{
+    IntrinsicMetricsScope metrics;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    data.Set("DefaultDQNAgent.actor.[trace].clone_model", true);
+    auto agent = MakeIntrinsicAgent(data);
+    auto actor = MakeIntrinsicTraceActor(agent);
+    anet::ConfigData columns;
+    columns.Set("app.eval_trace_panel.columns.[235]", "$agent_step intrinsic.bonus");
+    columns.Set("app.eval_trace_panel.columns.[600]", "$agent_step intrinsic.error");
+    columns.Set("app.eval_trace_panel.columns.[605]", "$agent_step intrinsic.error display:pct");
+    columns.Set("app.eval_trace_panel.columns.[610]", "$agent_step intrinsic.normalized_error");
+    anet::rl::StepTraceBuilder trace(columns, {}, agent, 2, actor);
+    std::vector<std::shared_ptr<anet::rl::StepTrace>> rows;
+    trace.SetHandlers([&](const auto& row, const auto&) { rows.push_back(row); }, {});
+    CHECK(trace.Resume());
+    actor->Sync();
+    auto experience = IntrinsicExperience(2.0f, false, false, true);
+    experience.action = actor->MakeAction({}, experience.state);
+    const auto result = std::make_shared<anet::rl::PlainBatchStepResult>(experience.reward,
+        experience.next_state, experience.next_state, 2, 0,
+        std::vector<anet::rl::AuxData>(2));
+    trace.OnTrain({{experience, nullptr, {}, agent, {}}, nullptr, result, experience.action});
+    REQUIRE(rows.size() == 2);
+    CHECK(std::isnan(rows[0]->values[0]));
+    CHECK(std::isfinite(rows[0]->values[1]));
+    CHECK(rows[0]->values[1] == rows[0]->values[2]);
+    const auto old_error = rows[0]->values[1];
+    trace.Suspend();
+    CHECK_FALSE(trace.Resume());
+    trace.Suspend();
+    actor->Sync();
+    CHECK(trace.Resume());
+    actor->Sync();
+    CHECK(rows[0]->values[1] == old_error);
+}
+
+TEST_CASE("RND read-only formula follows current statistics and warmup", "[prd127][intrinsic]")
+{
+    anet::nn::InitNN();
+    const auto mode = GENERATE(0, 1, 2);
+    const bool centered = GENERATE(false, true);
+    const bool clipped = GENERATE(false, true);
+    const bool warmup = GENERATE(false, true);
+    auto data = RndTestConfig();
+    data.Set("rnd.warmup_steps", warmup ? 12 : 0);
+    data.Set("rnd.multiplier_mode", clipped ? "clipped" : anet::rl::intrinsic::kMultiplierUnclipped);
+    if (warmup && mode != 2) data.Set("rnd.warmup_mode", "collect_errors");
+    if (mode != 2) data.Set("rnd.error_norm.use_centering", centered);
+    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+    const auto empty = estimator->EstimateWithoutUpdate(RndTestObservation());
+    if (mode != 2) {
+        CHECK(torch::isnan(empty.diagnostics.at(kLaneNormalizedError)).all().item<bool>());
+        CHECK(torch::equal(empty.multipliers, torch::ones({2})));
+    }
+    for (int step = 0; step < 3; ++step)
+        estimator->Estimate(anet::TensorDict(kObservation, RndTestObservation().At(kObservation) * (step + 1.0f)));
+    const auto moments = estimator->Diagnostics();
+    const auto mean = static_cast<double>(moments.at(kErrorMean));
+    const auto std = static_cast<double>(moments.at(kErrorStd));
+    const auto obs = RndTestObservation();
+    const auto result = estimator->EstimateWithoutUpdate(obs);
+    // 公開した統計から式を手計算し、各laneを次の1件としてEstimateした倍率とも比較する。
+    for (int64_t lane = 0; lane < 2; ++lane) {
+        const auto error = result.diagnostics.at(kLaneError)[lane].item<double>();
+        auto expected = (error - (centered ? mean : 0.0)) / std;
+        if (mode == 2) {
+            const auto difference = error - mean;
+            const auto next_mean = mean + difference / 7.0;
+            const auto next_variance = (std * std * 7.0 + difference * difference * 7.0 / 8.0) / 8.0;
+            expected = (error - next_mean) / next_variance;
+        }
+        CHECK(result.diagnostics.at(kLaneNormalizedError)[lane].item<float>() == Catch::Approx(expected).epsilon(1e-4));
+        const auto multiplier = warmup ? 1.0 : clipped ? std::clamp(1.0 + expected, 1.0, 5.0) : 1.0 + expected;
+        CHECK(result.multipliers[lane].item<float>() == Catch::Approx(multiplier).epsilon(1e-4));
+        auto copy = estimator->Clone();
+        const anet::TensorDict single(kObservation, obs.At(kObservation).slice(0, lane, lane + 1));
+        CHECK(result.multipliers[lane].item<float>() == Catch::Approx(copy->Estimate(single)[0].item<float>()).epsilon(1e-5));
+    }
+}
+
+TEST_CASE("Intrinsic diagnostics honor snapshot synchronization and suspension", "[prd127][intrinsic]")
+{
+    IntrinsicMetricsScope metrics;
+    const bool enabled = GENERATE(false, true);
+    const bool requested = GENERATE(false, true);
+    const bool cloned = GENERATE(false, true);
+    auto data = IntrinsicAgentData(enabled);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    data.Set("DefaultDQNAgent.actor.[trace].clone_model", cloned);
+    if (cloned) data.Set("DefaultDQNAgent.actor.[trace].sync_interval", 1);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.intrinsic.learn_ratio", 1.0f);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 100000);
+    auto agent = MakeIntrinsicAgent(data);
+    auto actor = MakeIntrinsicTraceActor(agent);
+    const std::vector<std::string> keys = requested ? std::vector<std::string>{kStepIntrinsicError}
+        : std::vector<std::string>{"q_sa"};
+    auto diagnostics = agent->CreateStepDiagnosticsProvider({.num_lanes = 2, .keys = keys, .actor = actor});
+    const bool follower = enabled && requested && cloned;
+    CHECK(diagnostics->Resume() == follower);
+    auto experience = IntrinsicExperience(2.0f, false, false, true);
+    experience.action = actor->MakeAction({}, experience.state);
+    const auto read = [&] {
+        return *diagnostics->Observe(experience).current->GetScalar(kStepIntrinsicError, 0);
+    };
+    if (!enabled || !requested || cloned) CHECK(std::isnan(read()));
+    else CHECK(std::isfinite(read()));
+    auto learner = agent->CreateLearner();
+    learner->UpdateFromBatch({.exp_step = 2}, experience);
+    actor->Sync();
+    const auto captured = read();
+    if (enabled && requested) CHECK(std::isfinite(captured));
+    else CHECK(std::isnan(captured));
+    auto changed = IntrinsicExperience(5.0f, false, false, false);
+    changed.action = experience.action;
+    learner->UpdateFromBatch({.exp_step = 4}, changed);
+    if (follower) CHECK(read() == captured);
+    // 明示Syncのあとの初回でageを合わせ、次のMakeActionで周期同期を通す。
+    actor->MakeAction({.train_step = 1, .exp_step = 4}, experience.state);
+    actor->MakeAction({.train_step = 2, .exp_step = 6}, experience.state);
+    if (enabled && requested) CHECK(read() != captured);
+    const auto before_suspend = read();
+    diagnostics->Suspend();
+    CHECK_FALSE(diagnostics->Resume());
+    if (enabled && requested) CHECK(read() == before_suspend);
+    diagnostics->Suspend();
+    actor->Sync();
+    CHECK(diagnostics->Resume() == follower);
+    if (follower) CHECK(std::isnan(read()));
+    actor->Sync();
+    if (enabled && requested) CHECK(std::isfinite(read()));
+    // 相手を所有しないActorは、部品が消えたあとの同期でも安全に進む。
+    diagnostics.reset();
+    CHECK_NOTHROW(actor->Sync());
+    if (enabled && requested) {
+        CHECK_THROWS_WITH(agent->CreateStepDiagnosticsProvider({.num_lanes = 2, .keys = keys, .actor = nullptr}),
+            Catch::Matchers::ContainsSubstring(kStepIntrinsicError) && Catch::Matchers::ContainsSubstring("Actor"));
+    } else {
+        auto absent_actor = agent->CreateStepDiagnosticsProvider({.num_lanes = 2, .keys = keys, .actor = nullptr});
+        CHECK_FALSE(absent_actor->Resume());
+        CHECK(std::isnan(*absent_actor->Observe(experience).current->GetScalar(kStepIntrinsicBonus, 0)));
+    }
+}
+
+TEST_CASE("Intrinsic diagnostics wait only for an un-cloned requested estimator", "[prd127][intrinsic]")
+{
+    class LockableAgent final : public anet::rl::dqn::DefaultDQNAgent {
+    public:
+        using DefaultDQNAgent::DefaultDQNAgent;
+        std::shared_mutex& MutexForTest() { return *mutex_; }
+    };
+    IntrinsicMetricsScope metrics;
+    const bool cloned = GENERATE(false, true);
+    const bool requested = GENERATE(false, true);
+    const bool synchronized = GENERATE(false, true);
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    data.Set("DefaultDQNAgent.actor.[trace].clone_model", cloned);
+    anet::rl::EnvSpec spec;
+    spec.state_spec.obs_spec = RndTestSpec();
+    spec.action_spec.is_discrete = true;
+    spec.action_spec.value_labels = {kTraceActionLabel};
+    spec.reward_range = {-1000.0f, 1000.0f};
+    anet::nn::NetworkConfig network;
+    network.output_keys[anet::nn::kKey_DefaultOutput] = kObservation;
+    auto agent = std::make_shared<LockableAgent>(anet::rl::dqn::DefaultDQNAgentConfig(data), network,
+        anet::rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, spec, torch::kCPU, 123);
+    auto actor = MakeIntrinsicTraceActor(agent);
+    auto provider = agent->CreateStepDiagnosticsProvider({.num_lanes = 2,
+        .keys = requested ? std::vector<std::string>{kStepIntrinsicError} : std::vector<std::string>{}, .actor = actor});
+    if (synchronized) actor->Sync();
+    auto experience = IntrinsicExperience(1.0f, false, false, true);
+    experience.action = actor->MakeAction({}, experience.state);
+    provider->Observe(experience);
+    // Tensorの初回準備を済ませ、学習側の書き込みロックだけを競合させる。
+    std::unique_lock lock(agent->MutexForTest());
+    auto observed = std::async(std::launch::async, [&] { return provider->Observe(experience); });
+    const auto status = observed.wait_for(std::chrono::seconds(1));
+    lock.unlock();
+    const auto result = observed.get();
+    CHECK(status == (!cloned && requested ? std::future_status::timeout : std::future_status::ready));
+    REQUIRE(result.current);
+    if (requested && (!cloned || synchronized))
+        CHECK(std::isfinite(*result.current->GetScalar(kStepIntrinsicError, 0)));
+    else CHECK(std::isnan(*result.current->GetScalar(kStepIntrinsicError, 0)));
+}
+
+TEST_CASE("Trace bonus equals the reward consumed by the real learner", "[prd127][intrinsic]")
+{
+    IntrinsicMetricsScope metrics;
+    const auto mode = GENERATE(0, 1, 2);
+    const bool state = GENERATE(false, true);
+    const bool done = GENERATE(false, true);
+    const bool mask = GENERATE(false, true);
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    data.Set("DefaultDQNAgent.actor.[trace].clone_model", true);
+    data.Set("DefaultDQNAgent.head.init.mode", kConstantInit);
+    data.Set("DefaultDQNAgent.head.init.constant_val", 0.0f);
+    data.Set("DefaultDQNAgent.intrinsic.beta", 0.5f);
+    data.Set("DefaultDQNAgent.intrinsic.learn_batch_size", 1);
+    data.Set("DefaultDQNAgent.intrinsic.learn_ratio", 1.0f);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
+    data.Set("DefaultDQNAgent.intrinsic.observation", state ? anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState : anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationNextState);
+    data.Set("DefaultDQNAgent.intrinsic.use_done_mask", mask);
+    if (mode == 1) data.Set("DefaultDQNAgent.intrinsic.rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("DefaultDQNAgent.intrinsic.rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("DefaultDQNAgent.learner.use_n_step", false);
+    data.Set("DefaultDQNAgent.learner.use_per", false);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 100000);
+    data.Set("DefaultDQNAgent.reward_scaler.constant_scale", 2.0f);
+    auto agent = MakeIntrinsicAgent(data, 1);
+    auto actor = MakeIntrinsicTraceActor(agent, 1);
+    auto provider = agent->CreateStepDiagnosticsProvider({.num_lanes = 1,
+        .keys = {kStepIntrinsicError, kStepIntrinsicNormalizedError, kStepIntrinsicBonus}, .actor = actor});
+    const auto make = [&](float scale, bool terminal, bool start) {
+        const auto flags = torch::zeros({1}, torch::kBool);
+        const auto obs = RndTestObservation().At(kObservation).narrow(0, 0, 1);
+        anet::rl::BatchState current(anet::TensorDict(kObservation, obs), flags, flags,
+            torch::full({1}, start, torch::kBool));
+        anet::rl::BatchState next(anet::TensorDict(kObservation, obs * scale),
+            torch::full({1}, terminal, torch::kBool), flags, flags);
+        return anet::rl::BatchExperience{current, actor->MakeAction({}, current), torch::ones({1}), next};
+    };
+    auto learner = agent->CreateLearner();
+    for (int step = 0; step < 6; ++step)
+        learner->UpdateFromBatch({.exp_step = static_cast<anet::rl::step_t>(step)}, make(step + 2.0f, true, true));
+    actor->Sync();
+    auto probe = make(100.0f, done, true);
+    const auto values = provider->Observe(probe);
+    const auto bonus = *values.current->GetScalar(kStepIntrinsicBonus, 0);
+    REQUIRE(std::isfinite(bonus));
+    if (!state && mask && done) CHECK(bonus == 0.0f);
+    learner->UpdateFromBatch({.exp_step = 6}, probe);
+    auto tail = make(200.0f, true, done);
+    tail.state.obs = probe.next_state.obs;
+    learner->UpdateFromBatch({.exp_step = 7}, tail);
+    // n_step=falseの公開Replay収益は、Learnerが受け取った各遷移の報酬そのものである。
+    // 偽のLearnerを注入せず、終端の後続を加えて非終端probeも有効な保存行として読む。
+    const auto rewards = agent->GetTensor(anet::rl::ReplayBuffer::TARGET_RETURN);
+    REQUIRE(rewards);
+    const auto flat = rewards->flatten();
+    REQUIRE(flat.numel() >= 7);
+    CHECK(flat[6].item<float>() == Catch::Approx(2.0f + bonus).epsilon(1e-5));
+}
+
+TEST_CASE("Interleaved Trace leaves learner rewards and saved intrinsic state unchanged", "[prd127][intrinsic]")
+{
+    IntrinsicMetricsScope metrics;
+    const bool cloned = GENERATE(false, true);
+    const bool state = GENERATE(false, true);
+    const auto mode = GENERATE(0, 1, 2);
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    data.Set("DefaultDQNAgent.actor.[trace].clone_model", cloned);
+    data.Set("DefaultDQNAgent.head.init.mode", kConstantInit);
+    data.Set("DefaultDQNAgent.head.init.constant_val", 0.0f);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.intrinsic.learn_ratio", 1.0f);
+    data.Set("DefaultDQNAgent.intrinsic.use_done_mask", false);
+    data.Set("DefaultDQNAgent.intrinsic.observation", state ? anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState : anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationNextState);
+    if (mode == 1) data.Set("DefaultDQNAgent.intrinsic.rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("DefaultDQNAgent.intrinsic.rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("DefaultDQNAgent.learner.use_n_step", false);
+    data.Set("DefaultDQNAgent.learner.use_per", false);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 100000);
+    auto reference = MakeIntrinsicAgent(data);
+    auto observed = MakeIntrinsicAgent(data);
+    auto actor = MakeIntrinsicTraceActor(observed);
+    auto diagnostics = observed->CreateStepDiagnosticsProvider({.num_lanes = 2,
+        .keys = {kStepIntrinsicError, kStepIntrinsicNormalizedError, kStepIntrinsicBonus}, .actor = actor});
+    auto reference_learner = reference->CreateLearner();
+    auto observed_learner = observed->CreateLearner();
+    for (int step = 0; step < 6; ++step) {
+        const anet::rl::StepCounts counts{.train_step = static_cast<anet::rl::step_t>(step),
+            .exp_step = static_cast<anet::rl::step_t>(step * 2)};
+        auto experience = IntrinsicExperience(step + 2.0f, true, false, true);
+        experience.state.obs.Set(kObservation, RndTestObservation().At(kObservation) * (step + 1.0f));
+        experience.action = actor->MakeAction(counts, experience.state);
+        if (step % 2 == 0) actor->Sync();
+        diagnostics->Observe(experience);
+        reference_learner->UpdateFromBatch(counts, experience);
+        observed_learner->UpdateFromBatch(counts, experience);
+        for (const auto* key : kAllIntrinsicScalarKeys) {
+            const auto expected = *reference->GetScalar(key);
+            const auto actual = *observed->GetScalar(key);
+            if (std::isnan(expected)) CHECK(std::isnan(actual));
+            else CHECK(actual == expected);
+        }
+        const auto expected = reference->GetTensor(anet::rl::ReplayBuffer::TARGET_RETURN);
+        const auto actual = observed->GetTensor(anet::rl::ReplayBuffer::TARGET_RETURN);
+        REQUIRE(expected.has_value() == actual.has_value());
+        if (expected) CHECK(torch::equal(*expected, *actual));
+    }
+    // 保存データの不透明なTensor archiveのバイト表現ではなく、公開Load後の継続を比較する。
+    const auto restore = [&](const auto& agent) {
+        const auto format = mode == 1 ? kRndEmaCheckpointFormat : kRndCheckpointFormat;
+        std::istringstream saved(IntrinsicCheckpointPayload(*agent, format), std::ios::binary);
+        anet::InputArchive archive(saved);
+        auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+            data, std::string(kIntrinsicPrefix) + ".rnd", RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+        estimator->Load(archive);
+        float credit;
+        std::string random_state;
+        int64_t learn_count;
+        archive.Read(credit); archive.Read(random_state); archive.Read(learn_count);
+        return std::tuple(std::move(estimator), credit, std::move(random_state), learn_count);
+    };
+    auto [expected_estimator, expected_credit, expected_random, expected_count] = restore(reference);
+    auto [actual_estimator, actual_credit, actual_random, actual_count] = restore(observed);
+    CHECK(expected_credit == actual_credit);
+    CHECK(expected_random == actual_random);
+    CHECK(expected_count == actual_count);
+    for (int step = 0; step < 4; ++step) {
+        const anet::TensorDict obs(kObservation, RndTestObservation().At(kObservation) * (-step - 1.0f));
+        CHECK(torch::equal(expected_estimator->Estimate(obs), actual_estimator->Estimate(obs)));
+        CHECK(expected_estimator->Learn(obs) == actual_estimator->Learn(obs));
+        for (const auto& [key, expected] : expected_estimator->Diagnostics()) {
+            const auto actual = actual_estimator->Diagnostics().at(key);
+            if (std::isnan(expected)) CHECK(std::isnan(actual));
+            else CHECK(actual == expected);
+        }
+    }
+}
+
+TEST_CASE("Evaluation-only checkpoint scores errors without a training beta", "[prd127][intrinsic]")
+{
+    IntrinsicMetricsScope metrics;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    data.Set("DefaultDQNAgent.actor.[trace].clone_model", true);
+    auto trained = MakeIntrinsicAgent(data);
+    for (anet::rl::step_t step = 0; step < 4; ++step)
+        trained->CreateLearner()->UpdateFromBatch({.exp_step = step * 2},
+            IntrinsicExperience(2.0f + step, false, false, step == 0));
+    const auto path = std::filesystem::temp_directory_path() / ("anet-prd127-"
+        + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".anet");
+    struct RemoveCheckpoint {
+        std::filesystem::path path;
+        ~RemoveCheckpoint() { std::error_code ignored; std::filesystem::remove(path, ignored); }
+    } cleanup{.path = path};
+    {
+        std::ofstream stream(path, std::ios::binary);
+        anet::OutputArchive archive(stream);
+        trained->Save(archive);
+    }
+    data.Set("DefaultDQNAgent.auto_load_file", path.string());
+    data.Set("DefaultDQNAgent.learner.enabled", false);
+    auto evaluated = MakeIntrinsicAgent(data);
+    auto actor = MakeIntrinsicTraceActor(evaluated);
+    auto diagnostics = evaluated->CreateStepDiagnosticsProvider({.num_lanes = 2,
+        .keys = {kStepIntrinsicError, kStepIntrinsicNormalizedError, kStepIntrinsicBonus}, .actor = actor});
+    actor->Sync();
+    auto experience = IntrinsicExperience(3.0f, false, false, true);
+    experience.action = actor->MakeAction({}, experience.state);
+    const auto result = diagnostics->Observe(experience);
+    REQUIRE(result.current);
+    CHECK(std::isfinite(*result.current->GetScalar(kStepIntrinsicError, 0)));
+    CHECK(std::isfinite(*result.current->GetScalar(kStepIntrinsicNormalizedError, 0)));
+    CHECK(std::isnan(*result.current->GetScalar(kStepIntrinsicBonus, 0)));
+}
+
+TEST_CASE("Read-only nonfinite errors remain unavailable and warn once", "[prd127][intrinsic]")
+{
+    IntrinsicMetricsScope metrics;
+    anet::test::LogCaptureGuard logs;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.obs_norm.pass_through", true);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    auto agent = MakeIntrinsicAgent(data);
+    agent->CreateLearner()->UpdateFromBatch({}, IntrinsicExperience(2.0f, false, false, true));
+    auto actor = MakeIntrinsicTraceActor(agent);
+    auto diagnostics = agent->CreateStepDiagnosticsProvider({.num_lanes = 2,
+        .keys = {kStepIntrinsicError, kStepIntrinsicNormalizedError, kStepIntrinsicBonus}, .actor = actor});
+    actor->Sync();
+    auto experience = IntrinsicExperience(2.0f, false, false, true);
+    experience.action = actor->MakeAction({}, experience.state);
+    experience.next_state.obs.At(kObservation).fill_(std::numeric_limits<float>::quiet_NaN());
+    for (int step = 0; step < 3; ++step) {
+        const auto result = diagnostics->Observe(experience);
+        for (const auto* key : {kStepIntrinsicError, kStepIntrinsicNormalizedError, kStepIntrinsicBonus})
+            CHECK(std::isnan(*result.current->GetScalar(key, 0)));
+        actor->Sync();
+    }
+    logs.Flush();
+    CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [](const auto& record) {
+        return record.level == wxLOG_Warning && record.message.find("read-only prediction_error") != std::string::npos;
+    }) == 1);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        {"read-only prediction_error", "lane=0", "value=nan"}));
+}
+
+namespace {
+    // 出荷列の$runner欄を供給する。採点・Actor・行生成は本物の公開経路を使う。
+    class IntrinsicTraceRunner final : public anet::rl::Runner {
+    public:
+        IntrinsicTraceRunner(std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Actor> actor)
+            : agent_(std::move(agent)), actor_(std::move(actor)) {}
+        anet::rl::StepCounts DoStep() override { return {}; }
+        anet::rl::StepCounts DoUpdateFrame(int, ControlFunction, ControlFunction) override { return {}; }
+        anet::rl::RunnerStatus GetStatus() const override { return anet::rl::RunnerStatus{}; }
+        void Shutdown() override {}
+        anet::rl::StepCounts GetCounts() const override { return {}; }
+        const std::string& GetName() const override { static const std::string name = "IntrinsicTraceRunner"; return name; }
+        std::shared_ptr<anet::rl::BatchEnv> GetBatchEnv() const override { return nullptr; }
+        std::shared_ptr<anet::rl::Agent> GetAgent() const override { return agent_; }
+        std::shared_ptr<anet::rl::Actor> GetActor() const override { return actor_; }
+        std::shared_ptr<anet::rl::Notifier> GetNotifier() const override { return nullptr; }
+        std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return 0.0f; }
+        std::optional<torch::Tensor> GetTensor(const std::string&, int64_t = -1) const override { return std::nullopt; }
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string&, int64_t = -1) const override { return std::nullopt; }
+    private:
+        std::shared_ptr<anet::rl::Agent> agent_;
+        std::shared_ptr<anet::rl::Actor> actor_;
+    };
+}
+
+TEST_CASE("Shipped RND profiles expose readable intrinsic Trace columns only when selected", "[prd127][shipped_config]")
+{
+    IntrinsicMetricsScope metrics;
+    constexpr char kShippedLunarConfig[] = "LunarLander";
+    anet::rl::EnvSpec trace_spec;
+    trace_spec.action_spec.is_discrete = true;
+    trace_spec.action_spec.value_labels = {kTraceActionLabel};
+    const auto root = std::filesystem::current_path() / "apps/runner/config";
+    for (const auto* env : {"Atari", "GridMaze", kShippedLunarConfig}) {
+        CAPTURE(env);
+        for (const bool selected : {false, true}) {
+            // 値や本数の写しを固定せず、選択した機能の欄がその機能の提供する鍵で読めるかを確かめる。
+            const auto path = std::filesystem::temp_directory_path() / ("anet-prd127-config-"
+                + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".txt");
+            struct RemoveInput {
+                std::filesystem::path path;
+                ~RemoveInput() { std::error_code ignored; std::filesystem::remove(path, ignored); }
+            } cleanup{.path = path};
+            {
+                std::ofstream file(path);
+                file << "$include <" << (root / "_main.txt").generic_string() << ">\n"
+                    << "$include <" << (root / (std::string(env) + ".txt")).generic_string() << ">\n"
+                    << "run.$ = " << (selected ? "run.@rnd" : "") << '\n';
+            }
+            const auto resolved = anet::ConfigManager(path).GetConfigData();
+            const auto columns = anet::rl::StepTraceColumnSpec::Parse(resolved, trace_spec);
+            const auto intrinsic = [](const auto& column) {
+                return column.target == "$agent_step" && column.key.starts_with("intrinsic.");
+            };
+            CHECK(std::any_of(columns.begin(), columns.end(), intrinsic) == selected);
+            if (!selected || std::string(env) != kShippedLunarConfig) continue;
+            auto data = IntrinsicAgentData(true);
+            data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+            data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+            auto agent = MakeIntrinsicAgent(data);
+            auto actor = MakeIntrinsicTraceActor(agent);
+            auto runner = std::make_shared<IntrinsicTraceRunner>(agent, actor);
+            anet::rl::StepTraceBuilder trace(resolved, trace_spec, agent, 2, actor);
+            int added = 0;
+            trace.SetHandlers([&](const auto& row, const auto&) {
+                ++added;
+                CHECK(row->values.size() == columns.size());
+                for (size_t index = 0; index < columns.size(); ++index)
+                    if (intrinsic(columns[index])) CHECK(row->value_ready[index]);
+            }, {});
+            actor->Sync();
+            auto experience = IntrinsicExperience(2.0f, false, false, true);
+            experience.action = actor->MakeAction({}, experience.state);
+            const auto result = std::make_shared<anet::rl::PlainBatchStepResult>(experience.reward,
+                experience.next_state, experience.next_state, 2, 0, std::vector<anet::rl::AuxData>(2));
+            CHECK_NOTHROW(trace.OnTrain({{experience, runner, {}, agent, {}}, nullptr, result, experience.action}));
+            CHECK(added == 2);
+        }
+    }
+}
+
+TEST_CASE("Read-only normalization leaves zero variances unavailable", "[prd127][intrinsic]")
+{
+    anet::nn::InitNN();
+    const auto mode = GENERATE(0, 1, 2);
+    CAPTURE(mode);
+    auto data = RndTestConfig();
+    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.head.init.mode", kConstantInit);
+    data.Set("rnd.head.init.constant_val", 0.0f);
+    data.Set("rnd.obs_norm.pass_through", true);
+    if (mode != 0) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+    const auto observation = RndTestObservation();
+    if (mode == 0) estimator->Estimate(observation);
+    if (mode != 0) {
+        // 公開保存形式から、誤差または観測の一方の分散だけが0の状態を復元する。
+        const double error = estimator->EstimateWithoutUpdate(observation).diagnostics.at(kLaneError)[0].item<float>();
+        std::stringstream saved(std::ios::in | std::ios::out | std::ios::binary);
+        anet::OutputArchive archive(saved);
+        estimator->Save(archive);
+        anet::InputArchive input(saved);
+        std::stringstream replaced(std::ios::in | std::ios::out | std::ios::binary);
+        anet::OutputArchive output(replaced);
+        std::string text;
+        for (int field = 0; field < 5; ++field) { input.Read(text); output.Write(text); }
+        int64_t count;
+        double mean, variance;
+        input.Read(count); input.Read(mean); input.Read(variance);
+        output.Write(count); output.Write(error); output.Write(mode == 1 ? 0.0 : 1.0);
+        input.Read(text); output.Write(text);
+        torch::Tensor tensor;
+        input.Read(tensor); output.Write(tensor);
+        input.Read(tensor); output.Write(mode == 2 ? torch::zeros_like(tensor) : tensor);
+        replaced << saved.rdbuf();
+        anet::InputArchive restored(replaced);
+        estimator->Load(restored);
+    }
+    const auto result = estimator->EstimateWithoutUpdate(observation);
+    CHECK(torch::isfinite(result.diagnostics.at(kLaneError)).all().item<bool>());
+    CHECK(torch::isnan(result.diagnostics.at(kLaneNormalizedError)).all().item<bool>());
+    CHECK(torch::equal(result.multipliers, torch::ones({2})));
+}
+
+TEST_CASE("Read-only multiplier preserves overflow exactly as training does", "[prd127][prd127_overflow]")
+{
+    anet::nn::InitNN();
+    const bool clipped = GENERATE(false, true);
+    auto data = RndTestConfig();
+    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.obs_norm.pass_through", true);
+    data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    data.Set("rnd.multiplier_mode", clipped ? anet::rl::intrinsic::kMultiplierClipped : anet::rl::intrinsic::kMultiplierUnclipped);
+    auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+    // 正当なEMA checkpointで、小さい正の除数を設定してfloatのoverflowを通す。
+    std::stringstream saved(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive archive(saved);
+    estimator->Save(archive);
+    anet::InputArchive input(saved);
+    std::stringstream replaced(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(replaced);
+    std::string text;
+    for (int field = 0; field < 5; ++field) { input.Read(text); output.Write(text); }
+    anet::rl::StateSpec state_spec;
+    state_spec.obs_spec = RndTestSpec();
+    auto normalizer = anet::rl::ObservationNormalizerFactory(
+        anet::rl::intrinsic::RndNoveltyEstimatorConfig(data, kRndPrefix).obs_norm).CreateObservationNormalizer(state_spec);
+    normalizer->Load(input);
+    normalizer->Save(output);
+    double moment;
+    for (int field = 0; field < 3; ++field) input.Read(moment);
+    output.Write(1.0); output.Write(0.0); output.Write(4e-76);
+    replaced << saved.rdbuf();
+    anet::InputArchive restored(replaced);
+    estimator->Load(restored);
+    auto training = estimator->Clone();
+    const anet::TensorDict observation(kObservation, RndTestObservation().At(kObservation) * 1e6f);
+    const auto result = estimator->EstimateWithoutUpdate(observation);
+    REQUIRE(torch::isinf(result.diagnostics.at(kLaneNormalizedError)).all().item<bool>());
+    CHECK(torch::equal(result.multipliers, training->Estimate(observation)));
 }

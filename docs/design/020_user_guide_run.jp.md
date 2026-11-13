@@ -548,12 +548,22 @@ Trace中は、表やEnvのView・QValuePanelなどで↑↓を押して表の順
 | 番号 | 分類 | 既定の列 |
 |---|---|---|
 | 100〜199 | 空き（stepより左に出したい列） | — |
-| 200〜299 | 行動と結果 | 200 step、210 ep_step、220 action、230 reward、240 decision、250 skip、260 forced |
+| 200〜299 | 行動と結果 | 200 step、210 ep_step、220 action、230 reward、235 rnd_bonus（run.@rnd）、240 decision、250 skip、260 forced |
 | 300〜349 | Env固有の主な値 | Atariは300 game_score、310 lives |
 | 350〜399 | 終わり方 | 350 done、360 trunc |
 | 400〜499 | 価値 | 400 Q_sa、410 V_s、420〜429 スキップ価値q1〜q10 |
 | 500〜599 | 優先度 | 500 prio、510 prio_pct |
-| 600〜999 | 空き（実験で足す列は900番台） | — |
+| 600〜699 | 内的報酬の誤差 | run.@rndで600 rnd_err、610 rnd_norm |
+| 700〜999 | 空き（実験で足す列は900番台） | — |
+
+`run.@rnd`を選んだRunでは、`reward`の直後の`rnd_bonus`（学習の報酬に足す単位のボーナス）と、`prio_pct`の右の`rnd_err`（RNDの誤差）・`rnd_norm`（標準化した値）を確認してください。βがまだ決まっていない評価専用・再開直後は、ボーナスが空欄になります。百分位も見るには次の列を足してください。
+
+```text
+app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct label:rnd_err_pct
+```
+
+> [!NOTE]
+> 既定のnext_stateでは行に表示する結果の画面を、state（Taiga式）では行動を決めた1つ前の画面を採点します。Actorが写しを持つ場合は最後の同期時点のpredictor・統計・βを使います。Traceを開いたときに写しが無ければ、その場でも同期します。variance_feedbackのrnd_normは分散で割るため、whitenと単位が違います。方式の違うRunどうしでは比較しないでください。
 
 十の位で分類の中の順を決め、一の位は0にして、あとから差し込む余地を残します。添字で並ぶ列（スキップ価値q1〜qJ。一の位がj−1）だけは一の位を使います。decision・skip・q1〜qJは、スキップを有効にしたRunだけに出ます。
 

@@ -57,11 +57,13 @@ namespace anet::rl {
         // 列indexはGetColumns()の0始まり。spanの寿命は同期通知中だけ。
         using Handler = std::function<void(const std::shared_ptr<StepTrace>&, std::span<const size_t>)>;
         StepTraceBuilder(const ConfigData& config, const EnvSpec& spec,
-            std::shared_ptr<Agent> agent, int64_t num_lanes);
+            std::shared_ptr<Agent> agent, int64_t num_lanes, std::shared_ptr<Actor> actor);
         using AddedHandler = std::function<void(const std::shared_ptr<StepTrace>&, const TrainEvent&)>;
         void SetHandlers(AddedHandler added, Handler completed);
         void OnTrain(const TrainEvent& event);
         void Reset();
+        void Suspend();
+        bool Resume();
         const std::vector<StepTraceColumnSpec>& GetColumns() const { return columns_; }
     private:
         std::vector<StepTraceColumnSpec> columns_;

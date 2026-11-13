@@ -2353,6 +2353,14 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     }
 }
 
+bool Actor::AttachSyncFollower(std::weak_ptr<ActorSyncFollower> follower)
+{
+    // source と共有するActorは同期せず、呼び出し側が直接読む契約を選ぶ。
+    if (network_ == src_network_) return false;
+    sync_followers_.push_back(std::move(follower));
+    return true;
+}
+
 void Actor::CopySourceNetwork() const
 {
     if (network_ == src_network_) {
@@ -2367,6 +2375,13 @@ void Actor::CopySourceNetwork() const
         skip_->source->CopyTo(*skip_->network);
         skip_->network->eval();
     }
+    // network と同じ時点のsourceを読ませ、寿命の切れた相手は取り除く。
+    std::erase_if(sync_followers_, [](const auto& weak) {
+        const auto follower = weak.lock();
+        if (!follower) return true;
+        follower->OnActorSync();
+        return false;
+    });
 }
 
 void Actor::UpdateSnapshot(const StepCounts& step) const

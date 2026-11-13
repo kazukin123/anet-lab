@@ -334,7 +334,7 @@ RunningStdSingleTensorNormalizer::RunningStdSingleTensorNormalizer(
     , post_process_threshold_(post_process_threshold)
     , stats_(shape, epsilon) // Vectorモードで初期化
 {
-    LOG::info() << "ObservationNormalizer initialized with. shape=" << shape_;
+    ANET_LOG_DEBUG("ObservationNormalizer initialized with. shape=" << shape_);
 }
 
 void RunningStdSingleTensorNormalizer::Reset()

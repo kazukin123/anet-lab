@@ -28,6 +28,9 @@ run.@rnd : metrics.scalar.[56_agent_in/15_target_feature_max] = $agent intrinsic
 run.@rnd : metrics.scalar.[56_agent_in/21_clip_ratio] = $agent intrinsic.clip_ratio @learn
 run.@rnd : metrics.scalar.[56_agent_in/31_predictor_loss] = $agent intrinsic.predictor_loss @learn
 run.@rnd : metrics.scalar.[56_agent_in/32_learn_count] = $agent intrinsic.learn_count @learn
+run.@rnd : app.eval_trace_panel.columns.[235] = $agent_step intrinsic.bonus label:rnd_bonus
+run.@rnd : app.eval_trace_panel.columns.[600] = $agent_step intrinsic.error label:rnd_err
+run.@rnd : app.eval_trace_panel.columns.[610] = $agent_step intrinsic.normalized_error label:rnd_norm
 
 # Taiga の観測・統計・補助学習の条件。Q 側の比較群を選んでから末尾へ足す。
 run.@rnd_taiga : DefaultDQNAgent.intrinsic.beta = 0.00005

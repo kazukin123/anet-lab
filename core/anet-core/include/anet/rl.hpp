@@ -730,6 +730,13 @@ namespace anet::rl {
         std::string actor_key;
     };
 
+    /// source を守るロックの中で、Actor の写し直しに従う。
+    class ActorSyncFollower {
+    public:
+        virtual void OnActorSync() = 0;
+        virtual ~ActorSyncFollower() = default;
+    };
+
     class Actor : public ModuleBase {
     public:
         /// @brief BatchStateから行動を生成する。
@@ -739,6 +746,9 @@ namespace anet::rl {
         /// @brief Actor固有のsourceから推論resourceを強制同期する。
         /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
         virtual void Sync() = 0;
+
+        /// 同期の相手を所有せずにつなぐ。MakeAction / Sync と並行に呼ばない。
+        virtual bool AttachSyncFollower(std::weak_ptr<ActorSyncFollower>) { return false; }
 
         /// 仮想デストラクタ
         virtual ~Actor() = default;
@@ -761,6 +771,12 @@ namespace anet::rl {
 
     struct ScalarMetricSubscription;
 
+    struct AgentStepDiagnosticsRequest {
+        int64_t num_lanes;
+        std::vector<std::string> keys;
+        std::shared_ptr<Actor> actor;
+    };
+
     struct AgentStepDiagnosticsCompletion {
         int64_t lane = 0;
         int64_t steps_back = 0;
@@ -781,6 +797,8 @@ namespace anet::rl {
     public:
         virtual AgentStepDiagnosticsResult Observe(const BatchExperience& experience) = 0;
         virtual void Reset() = 0;
+        virtual void Suspend() {}
+        virtual bool Resume() { return false; }
         virtual ~AgentStepDiagnosticsProvider() = default;
     };
 
@@ -788,7 +806,7 @@ namespace anet::rl {
     public:
         virtual std::shared_ptr<Actor> CreateActor(const ActorRequest& request) const = 0;
         virtual std::shared_ptr<Learner> CreateLearner() = 0;
-        virtual std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t num_lanes) const
+        virtual std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(const AgentStepDiagnosticsRequest& request) const
         {
             return nullptr;
         }

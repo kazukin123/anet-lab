@@ -63,8 +63,8 @@ private:
 
 class DiagnosticAgent final : public Agent {
 public:
-    std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t lanes) const override
-    { return std::make_unique<ScriptStepDiagnostics>(lanes); }
+    std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(const AgentStepDiagnosticsRequest& request) const override
+    { return std::make_unique<ScriptStepDiagnostics>(request.num_lanes); }
     std::shared_ptr<Actor> CreateActor(const ActorRequest&) const override { return nullptr; }
     std::shared_ptr<Learner> CreateLearner() override { return nullptr; }
     torch::Device GetDevice() const override { return torch::kCPU; }
@@ -92,7 +92,7 @@ TEST_CASE("Agent-step columns resolve independently through GetScalar across lan
     const std::vector<std::string> keys{"entropy", "known_nan", "late_a", "late_b", "late_a"};
     for (size_t i = 0; i < keys.size(); ++i)
         config.Set("app.eval_trace_panel.columns.[" + std::to_string(i + 1) + "]", "$agent_step " + keys[i]);
-    StepTraceBuilder builder(config, EnvSpec{}, std::make_shared<DiagnosticAgent>(), 2);
+    StepTraceBuilder builder(config, EnvSpec{}, std::make_shared<DiagnosticAgent>(), 2, nullptr);
     std::vector<std::shared_ptr<StepTrace>> rows;
     std::vector<std::pair<int64_t, std::vector<size_t>>> updates;
     builder.SetHandlers([&](const auto& row, const TrainEvent&) { rows.push_back(row); },
@@ -142,12 +142,12 @@ TEST_CASE("Diagnostic providers validate unknown keys at first read and wait onl
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.columns.[27]", "$agent_step not_provided");
     REQUIRE_NOTHROW(StepTraceColumnSpec::Parse(config, EnvSpec{}));
-    StepTraceBuilder unknown(config, EnvSpec{}, agent, 2);
+    StepTraceBuilder unknown(config, EnvSpec{}, agent, 2, nullptr);
     CHECK_THROWS_WITH(unknown.OnTrain(DiagnosticEvent(2, 0)),
         Catch::Matchers::ContainsSubstring("column=27") && Catch::Matchers::ContainsSubstring("key='not_provided'"));
 
     config.Set("app.eval_trace_panel.columns.[27]", "$agent_step known_nan");
-    StepTraceBuilder immediate(config, EnvSpec{}, agent, 2);
+    StepTraceBuilder immediate(config, EnvSpec{}, agent, 2, nullptr);
     int completed = 0;
     immediate.SetHandlers([&](const auto& row, const TrainEvent&) {
         CHECK(row->complete);
@@ -170,7 +170,7 @@ TEST_CASE("Resolved column notifications update percentile windows after display
     const std::vector<std::string> keys{"entropy", "late_a", "late_b"};
     for (size_t i = 0; i < keys.size(); ++i)
         config.Set("app.eval_trace_panel.columns.[" + std::to_string(i + 1) + "]", "$agent_step " + keys[i] + " display:pct");
-    StepTraceBuilder builder(config, EnvSpec{}, std::make_shared<DiagnosticAgent>(), 2);
+    StepTraceBuilder builder(config, EnvSpec{}, std::make_shared<DiagnosticAgent>(), 2, nullptr);
     std::vector<std::deque<float>> windows(3);
     std::optional<int64_t> displayed;
     size_t evicted_updates = 0;
@@ -208,7 +208,7 @@ TEST_CASE("Unsupported diagnostics leave arbitrary agent-step columns empty", "[
     auto result = std::make_shared<PlainBatchStepResult>(experience.reward, state, state, 1, 0,
         std::vector<AuxData>{});
     const TrainEvent event{{experience, nullptr, {.exp_step=1}, nullptr, {}}, nullptr, result, action};
-    StepTraceBuilder builder(config, spec, nullptr, 1);
+    StepTraceBuilder builder(config, spec, nullptr, 1, nullptr);
     std::shared_ptr<StepTrace> row;
     builder.SetHandlers([&](const auto& value, const TrainEvent&) { row = value; }, {});
     builder.OnTrain(event);
@@ -274,7 +274,7 @@ TEST_CASE("Step trace rejects malformed column locations before recording", "[pr
     config.Set(key, "$env_step reward");
     CHECK_THROWS(StepTraceColumnSpec::Parse(config, spec));
     anet::ConfigData empty;
-    CHECK_THROWS(StepTraceBuilder(empty, spec, nullptr, -1));
+    CHECK_THROWS(StepTraceBuilder(empty, spec, nullptr, -1, nullptr));
 }
 
 TEST_CASE("Step trace reads continuous actions and reserves transition fields", "[prd094][trace_reader]")
@@ -293,7 +293,7 @@ TEST_CASE("Step trace reads continuous actions and reserves transition fields", 
     auto result = std::make_shared<PlainBatchStepResult>(experience.reward, state, state, 1, 0,
         std::vector<AuxData>{AuxData{{"reward", torch::tensor(999.0f)}}});
     const TrainEvent event{{experience, nullptr, {.exp_step=1}, nullptr, {}}, nullptr, result, action};
-    StepTraceBuilder builder(config, spec, nullptr, 1);
+    StepTraceBuilder builder(config, spec, nullptr, 1, nullptr);
     std::shared_ptr<StepTrace> row;
     builder.SetHandlers([&](const auto& value, const TrainEvent&) { row = value; }, {});
     builder.OnTrain(event);
@@ -302,7 +302,7 @@ TEST_CASE("Step trace reads continuous actions and reserves transition fields", 
     CHECK(row->values[1] == 2.0f);
     CHECK(std::isnan(row->values[2]));
     config.Set("app.eval_trace_panel.columns.[4]", "$env_step missing");
-    StepTraceBuilder unknown(config, spec, nullptr, 1);
+    StepTraceBuilder unknown(config, spec, nullptr, 1, nullptr);
     CHECK_THROWS(unknown.OnTrain(event));
 }
 

@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:9621359eb8dd0d0e2ebadc8e806feccebb086b48 date:2026-11-12 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:c6555aa38a4a3a3dab83f5078314fdcf9dc0b445 date:2026-11-13 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -397,6 +397,8 @@ Actors using shared Networks invoke Policy under a shared lock to avoid conflict
 
 See [212 Novelty Estimation and Intrinsic Reward with RND](212_rnd_lifelong_novelty.en.md) for basic concepts, formulas and processing order, and configuration and metric examples.
 
+`EstimateWithoutUpdate` computes visualization values without moving training scoring. DefaultDQN step diagnostics score only when requested columns contain an `intrinsic.` key. With a cloned Actor, diagnostics own an estimator/beta snapshot; `ActorSyncFollower` receives the copy boundary under the same read lock as the network. With an Actor sharing its network, diagnostics lock and read training state at each step.
+
 With `intrinsic.enabled=true`, the DefaultDQN facade adds `beta(exp_step) * (alpha - 1)` under its existing write lock after external reward scaling. `intrinsic.observation=next_state` (default) scores and learns next observations, masking done bonuses only when intrinsic.use_done_mask=true (default), while retaining truncated bonuses. `state` scores and learns the raw observation at action time without masking done lanes. False retains terminal bonuses; state ignores this setting and warns once for a nondefault false value. This input is separate from the Actor's frame stack. The combined reward enters Replay; Actor, Replay schema, and Q optimizers are unchanged. With `learner.enabled=false`, it reports one INFO per Run and suspends intrinsic scoring and training.
 
 RND builds its fixed target and predictor from separate `target.net` and `predictor.net` configurations, applying `head.init.*` to their Linear Heads with a shared `output_dim`. Noncategorical uint8 inputs become float inside RND. Default `statistics_mode=whiten` uses previous observation and error statistics, updating statistics after scoring. Whiten selects error_norm.average_mode=cumulative (default) or ema with observation-count time constant error_norm.ema_steps=1,000,000. error_norm.use_centering=true (default) subtracts the mean; false divides the raw error by the same standard deviation. `variance_feedback` normalizes and clips observations sequentially by lane, feeds them back into its recurrence, and computes z using the updated error mean and variance (not standard deviation). Default `multiplier_mode=clipped` returns `clamp(1+z,1,multiplier_max)`; `unclipped` returns `1+z`, including negative values. A zero divisor or empty statistics gives one. Warm-up counts observations: the default 12,800 observations receive a multiplier of one with predictor learning under default warmup_mode=learn_predictor, excluding errors from statistics. collect_errors and variance_feedback instead collect errors and suspend learning. Zero enables learning from the first call. See document 212 for the recurrence and warm-up batch boundaries.
@@ -470,6 +472,8 @@ When `target_policy->GetRiskScoreSpec()` supplies UQE's current tau and tail-mea
 ### 6.4 DefaultDQN Train Actor Snapshots
 
 Actors with `DefaultDQNAgent.actor.[key].clone_model=true` and declared `sync_interval.*` maintain periodic private-Network snapshots. Synchronization-interval profiles advance by `exp_step`; current age is measured in `train_step`. Checks and copying occur immediately before forward in `MakeAction()`, producing the same action boundary for Serial and Pipeline Runners.
+
+During synchronization, the Actor calls `ActorSyncFollower` under the same source read lock used to copy the network. The estimator and beta snapshot owned by step diagnostics follows this notification.
 
 ```mermaid
 sequenceDiagram
@@ -545,7 +549,7 @@ See [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md) f
 | Preprocessing | RewardScaler, ObservationNormalizer, frame stack | No frame stack (device transfer only); no dedicated scaler/normalizer configuration |
 | Head/Learner | TD/QR/IQN with optional Dueling | TD/QR with optional Dueling |
 | Replay extensions | N-step, PER, prefetch, replay ratio, TBO, etc. | N-step and PER; current Config disables prefetch, TBO, and fused optimizer |
-| Actor clone | Catalog `clone_model` and optional `sync_interval.*` | Catalog `clone_model`; no periodic snapshot |
+| Actor clone | Catalog `clone_model` and optional `sync_interval.*`. Synchronized step-diagnostic snapshots update under the same lock | Catalog `clone_model`; no periodic snapshot |
 | Spatial exploration | Available per Actor | Shared-policy spatial settings available per Actor |
 | Save/load | Custom archive payload and `auto_load_file` | No custom Save/Load override |
 
@@ -562,6 +566,8 @@ See [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md) f
 | Intrinsic reward | `intrinsic.enabled`, ProfiledValue `intrinsic.beta`, `intrinsic.observation`, `intrinsic.use_done_mask`, `intrinsic.learn_ratio`, `intrinsic.learn_batch_size`, and factory-interpreted `intrinsic.rnd.*` (including target.net / predictor.net, head.init, multiplier_mode, statistics_mode, warmup_mode, error_norm, and adam_eps) |
 
 RND defaults reside in `agent.txt` `@baseline`: learning ratio 0.25, batch size 32, observation next_state, multiplier clipped, statistics whiten, and adam_eps 1e-8. Whiten warmup_mode=learn_predictor, error_norm.average_mode=cumulative, error_norm.ema_steps=1,000,000, error_norm.use_centering=true, and facade use_done_mask=true are the defaults. Atari, GridMaze, and LunarLander `run.@rnd` profiles enable it and select two Bodies and 13 group 56 metrics. Atari uses a dedicated three-layer CNN and 512-dimensional Heads, with two FC layers added only to the predictor. Atari's `run.@rnd_taiga` selects state, unclipped, variance_feedback, and one training observation per experience, among other settings. Append the profiles to the existing `run.$` chain. Disabled mode interprets no configuration keys other than enabled and creates no Networks, optimizer, or statistics. It retains known diagnostic keys and returns NaN. The public header is `intrinsic.hpp`; implementation and configuration DTOs are separated into `intrinsic_rnd.hpp/.cpp`, and DQN does not reference concrete types.
+
+Evaluation Trace step diagnostics expose `intrinsic.error`, `intrinsic.normalized_error`, and `intrinsic.bonus`, separately from group 56 aggregate diagnostics. See [212](212_rnd_lifelong_novelty.en.md#46-values-in-evaluation-trace) for timing, unavailable values, done masks, units, and stochastic-layer constraints.
 
 The authoritative definitions of all keys and defaults are `DefaultDQNAgentConfig`, `RainbowAgentConfig`, `LearnerConfig`, `ActionPolicyConfig`, and [apps/runner/config](../../apps/runner/config). Rather than duplicating the configuration list here, inspect the resolved results in the Run's `config/config_data.txt` and `config/<tag>.txt`.
 
@@ -633,6 +639,10 @@ Network SN u/v are named buffers and are saved/restored with the online/target N
 ### 9.1 Metrics
 
 Group `56_agent_in` reads `$agent intrinsic.<key> @learn`: `bonus_mean`, `bonus_max`, and `bonus_min` describe the weighted bonus after the selected masking rule; `bonus_pos_ratio` is the positive-lane fraction. `bonus_share` is `Σ|bonus| / (Σ|scaled external reward| + Σ|bonus|)` (NaN for a zero denominator), remaining within 0–1 for negative bonuses. `error_mean`/`error_std` describe the selected statistics (std is the square root of variance), and `error_step` is the current mean error. `target_feature_var` is the mean lifelong population variance across output dimensions (zero for the first observation); `target_feature_max` is the current maximum absolute output. `clip_ratio` is the fraction at the multiplier cap, or zero in unclipped mode. `predictor_loss` retains the most recent successful step's loss through intakes without learning (NaN before learning or immediately after loading). `learn_count` counts actual optimizer steps, excluding false returns during warm-up. Known keys remain available and return NaN when disabled or suspended because the learner is disabled; only unknown keys return nullopt. Fixed diagnostic keys hold atomic values, so UI reads acquire no additional lock. Whiten error_mean/error_std report cumulative or EMA statistics for the next batch, remaining NaN while empty during learn_predictor warm-up. learn_count increases during this warm-up.
+
+Step diagnostics retain `intrinsic.error`, `intrinsic.normalized_error`, and `intrinsic.bonus` for each evaluation transition, separately from group 56 aggregates.
+
+Step diagnostic keys `intrinsic.error`, `intrinsic.normalized_error`, and `intrinsic.bonus` retain per-transition evaluation values separately from group 56 aggregates.
 
 - `DQNActionInfo` carries the Action, auxiliary Q/quantile information, and an optional replay initial-priority hint.
 - `episode_start_action_uqe_margin.[i]` and `episode_start_action_q_margin.[i]` average the difference between action `i` and the best other action over episode-start lanes in the batch. The UQE version uses UQE values; the Q version uses Q-related scores from the network output, remaining in h-space even with TBO. With IQN+UQE, both use the same risk-biased action score, not full-distribution `E[Z]`. Steps without episode-start lanes return `NaN` and skip scalar output.

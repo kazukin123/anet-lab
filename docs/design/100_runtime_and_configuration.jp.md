@@ -263,6 +263,8 @@ Eventは対応する処理が完了した時点のcountを持ち、count本体�
 Serial/PipelineともTrain stepから`Actor::Sync()`を暗黙には呼ばず、同期の要否と時点は具象Actorの契約に委ねる。DefaultDQN Train Actorの定期snapshot同期は`MakeAction()`内で処理されるため、詳細は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 shutdown時は未完了学習を待ち、futureの例外を回収してからEnvをshutdownする。終了処理でLearn/Train通知を追加しない。
 
+`Actor::AttachSyncFollower`は同期に従う相手を所有せずにつなぐ。DQN系Actorはnetworkを写したのと同じsourceの読み取りロックの中で`ActorSyncFollower`を呼び、相手が破棄されたら呼ばない。
+
 ```mermaid
 sequenceDiagram
     participant RT as RunnerThread

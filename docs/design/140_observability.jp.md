@@ -181,6 +181,34 @@ RunnerFrameは状態表示用のtrain observerを排水の後にDetachする。�
 
 periodic timerは`RunName.log`だけをflushする。metrics、stdout、stderrはpause、save、shutdownなどの明示的な`FlushRunOutputs()`境界でまとめてflushする。
 
+### 5.3 Evaluation Trace の採点と同期
+
+内的報酬の列を求めたDefaultDQNだけが、全laneをまとめて読むだけの採点を行う。写しを持つActorでは、推定器とβをnetworkと同じ読み取りロックの中で写す。部品を作っただけでは写さず、paneを閉じた間の同期では写しを捨てる。写しを持たないActorでは採点のたびにAgentの読み取りロックを取る。値と制約は[内的報酬の診断](212_rnd_lifelong_novelty.jp.md#46-evaluation-trace-で読む値)を参照する。
+
+```mermaid
+sequenceDiagram
+    actor U as 利用者
+    participant T as EvalTracePanel
+    participant A as EvalPanel / Actor
+    participant G as 学習側Agent
+    participant D as step診断 / 推定器の写し
+    U->>T: pane を開く
+    T->>D: Resume（写しが要るか）
+    opt 写しが無いとき
+        T->>A: 通常の同期
+        A->>G: 読み取りロックを取る
+        A->>A: network を写す
+        A->>D: 同じロックで推定器とβを写す
+        A->>G: ロックを離す
+    end
+    A->>T: 評価stepの遷移
+    T->>D: Observe（全laneを1回）
+    D-->>T: 列の値を行へ保存
+    U->>T: pane を閉じる
+    T->>D: Suspend
+    Note over A,D: 休止中のActor同期では写しを捨てる
+```
+
 ## 6. Metric設定contract
 
 scalar定義の基本形は次である。
@@ -279,17 +307,17 @@ Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混�
 | `$actor` | その判断時点のActorのscalar |
 | `$env_step` | 遷移の結果。`reward`・`done`・`truncated`と結果型のscalar。終端でもリセット前 |
 | `$runner` | 今回を数えたcounts・報酬・完了集計。`step_in_episode`は1始まりで終端行は完了長。EvalRunnerだけはlane指定の`forced`も持ち、強制行動のstepは1、通常stepと初期値は0。lane省略は値なし、範囲外はfail-fast |
-| `$agent_step` | Agentの診断が所有するModuleのscalar。DQNでは`q_sa`・`state_value`・`approx_priority`。診断非対応Agentではtarget全体をNaNにする |
+| `$agent_step` | Agentの診断が所有するModuleのscalar。DQNでは`q_sa`・`state_value`・`approx_priority`。DefaultDQNはさらに`intrinsic.error`・`intrinsic.normalized_error`・`intrinsic.bonus`。診断非対応Agentではtarget全体をNaNにする |
 
 `$agent`・`$env`・`$exp`・`$update_result`は列で使えない。集約prefixを使えるのは`$runner`のepisode_return/episode_stepsだけで、完了しない行ではNaNになる。未知キーは最初の読出しでfail-fast、既知未成立と非有限値は空欄にする。metrics DSLへ`$agent_step`を足すものではない。
 
 `AgentStepDiagnosticsResult.current`は`unique_ptr<const Module>`でbatchの値を所有し、`GetScalar(key, lane)`で読む。共通層はキーを制限せず、提供元があるときの未知キー（nullopt）は最初の読み取りで列番号・キー付きfail-fastにする。提供元がないAgentでは任意の`$agent_step`列をNaNとし、既定列を使える。既知NaNと未確定は独立で、lane別`pending_keys`のうち選択列に対応するものだけを待つ。
 
-Agentは`CreateStepDiagnosticsProvider`で`AgentStepDiagnosticsProvider`を生成する。Providerはlaneごとの系列窓を所有し、pendingに示す鍵もcurrentでは既知NaNを返す。pendingの鍵は値が成立しなかった場合もNaNで必ず確定を返す。遅延確定は`AgentStepDiagnosticsCompletion`の`lane`・`steps_back`・`resolved_keys`と、対象1行を所有する`values`で通知する。値は`GetScalar(key, 0)`で読む。`StepTrace.value_ready`は列ごとに確定を表し、NaNでの確定でもtrueにする。全選択列の確定で`complete`になる。更新handlerは新たに確定した列の0始まりindexを同期`span<const size_t>`で受ける（spanは通知中だけ有効）。同じキーの複数列も各列を一度ずつ確定する。
+Agentは`CreateStepDiagnosticsProvider`で`AgentStepDiagnosticsProvider`を生成する。入力の`AgentStepDiagnosticsRequest`はlane数、重複を除いた列の鍵、そのRunnerのActorを運ぶ。鍵は追加の採点の要否だけを決め、既知の鍵の認識を変えない。Providerはlaneごとの系列窓を所有し、pendingに示す鍵もcurrentでは既知NaNを返す。pendingの鍵は値が成立しなかった場合もNaNで必ず確定を返す。遅延確定は`AgentStepDiagnosticsCompletion`の`lane`・`steps_back`・`resolved_keys`と、対象1行を所有する`values`で通知する。値は`GetScalar(key, 0)`で読む。`StepTrace.value_ready`は列ごとに確定を表し、NaNでの確定でもtrueにする。全選択列の確定で`complete`になる。更新handlerは新たに確定した列の0始まりindexを同期`span<const size_t>`で受ける（spanは通知中だけ有効）。同じキーの複数列も各列を一度ずつ確定する。
 
 `BatchActionInfo`はModuleBaseから派生し、lane指定の`action`・`action.[次元]`を共通のGetScalarで読む。次元は文字列全体と範囲を検証する。lane=-1のscalar問い合わせではこの2キーを認識せず、Agent固有のscalarは派生型が提供する。DQNActionInfoは自分のキー以外を基底へ委譲する。非DQNを含め未知キーはnulloptとなり、scalar Observerでは通常のvalue not found WARNをtagごとRunに1回出す。通知にActionInfo自体が無い要求は従来どおりエラーにする。
 
-DQNの具体的な提供元と3キーの認識はDQN実装内に閉じる。DQNのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。PERの有無によらず計算し、追加forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset時の初期stdをatomicへ公開し、診断はAgentのmutexと可変Tensor統計を参照せず、この値だけを読む。学習側の演算順序は変えず、現行checkpointが保存しない報酬統計の復元機構も持たない。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。
+DQNの具体的な提供元と鍵の認識はDQN実装内に閉じる。DQNのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。既存の3キーはPERの有無によらず計算し、追加forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset時の初期stdをatomicへ公開し、診断はAgentのmutexと可変Tensor統計を参照せず、この値だけを読む。学習側の演算順序は変えず、現行checkpointが保存しない報酬統計の復元機構も持たない。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。
 
 生成器は行追加と遅延列確定を別々に知らせる。GUIの保持上限を超えた行の画像を保持し続けない。列解析・時点・診断・再生の公開経路と数値等価性は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)で確かめる。
 
@@ -348,6 +376,8 @@ TimeHeatMapのScale描画、Histgram、SweepedHeatMapは、wxImage自身が確�
 - text logのperiodic flushはGUI FPSから分離する。metrics/stdoutまで同じtimerでflushしてI/O頻度を増やさない。
 
 ## 9. テストと拡張時の確認事項
+
+内的報酬の採点・同期・休止と学習不変性の検証は[PRD127検証資材](../../core/anet-core/testdata/prd127/README.md)を参照する。
 
 画像の固定画素・所有権の回帰テストは`heat_map_test.cpp`で確認する。確保・解放の不一致と確保失敗は通常の描画成功だけで判定せず、[画像メモリの検証資材](../../core/anet-core/testdata/prd115/README.md)で実際のwxWidgets境界を通して確認する。
 

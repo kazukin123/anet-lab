@@ -1801,7 +1801,7 @@ TEST_CASE("EvalRunner publishes a transition reward as a step trace", "[trainer]
     auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request, "eval");
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.columns.[1]", "$env_step reward");
-    rl::StepTraceBuilder builder(config, env->GetSpec(), agent, 1);
+    rl::StepTraceBuilder builder(config, env->GetSpec(), agent, 1, nullptr);
     std::vector<std::shared_ptr<rl::StepTrace>> rows;
     builder.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); }, {});
     auto observer = std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
@@ -1826,7 +1826,7 @@ TEST_CASE("Forced Eval step publishes its flag through the transition notificati
     auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request, "forced-trace");
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.columns.[260]", "$runner forced label:forced");
-    rl::StepTraceBuilder builder(config, env->GetSpec(), agent, 1);
+    rl::StepTraceBuilder builder(config, env->GetSpec(), agent, 1, nullptr);
     std::vector<std::shared_ptr<rl::StepTrace>> rows;
     builder.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); }, {});
     notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
@@ -1889,7 +1889,7 @@ TEST_CASE("Step trace reads one transition across Runner counters and terminal r
     config.Set("app.eval_trace_panel.columns.[5]", "$action_info action");
     config.Set("app.eval_trace_panel.columns.[6]", "$agent_step q_sa");
     config.Set("app.eval_trace_panel.columns.[7]", "$runner exp_step");
-    rl::StepTraceBuilder builder(config, env->GetSpec(), agent, 1);
+    rl::StepTraceBuilder builder(config, env->GetSpec(), agent, 1, nullptr);
     std::vector<std::shared_ptr<rl::StepTrace>> rows;
     builder.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); }, {});
     notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {

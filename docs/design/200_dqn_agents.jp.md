@@ -395,6 +395,8 @@ sequenceDiagram
 
 RND の基本概念、数式と処理順、設定・指標の具体例は [212 RND による新しさの評価と内的報酬](212_rnd_lifelong_novelty.jp.md)を参照する。
 
+`EstimateWithoutUpdate`は学習側の採点を動かさずに可視化用の値を計算する。DefaultDQNのstep診断は、要求された列に`intrinsic.`の鍵があれば採点し、Actorが写しを持つときは自分の推定器とβの写しを所有する。`ActorSyncFollower`はnetworkと同じ読み取りロックの中で写し直す時機を受ける。写しを持たないActorではstepごとに学習側をロックして読む。
+
 DefaultDQN の `intrinsic.enabled=true` は、facade の既存 write lock 内で報酬スケール後に `LifelongNoveltyEstimator` を呼び、`beta(exp_step) × (alpha − 1)` を加算する。`intrinsic.observation=next_state`（既定）は次観測を採点・学習し、`intrinsic.use_done_mask=true`（既定）のときdoneのbonusだけ0にする（truncatedは加算する）。falseでは終端の採点値も足す。`state` は行動した時点の生の観測を採点・学習し、doneでもmaskしない。この場合use_done_maskは使わず、既定と違うfalseだけ構築時1回WARNする。Actorのframe stack後の入力とは別である。Replayへ渡す報酬に畳み込むため、Actor、Replay形式、Qのoptimizerは変えない。`learner.enabled=false` ではRunに1回INFOを出し、採点と補助学習を休止する。
 
 RNDは別々の `target.net`・`predictor.net` から固定targetとpredictorを組み、共通の `output_dim` のLinear Headへ `head.init.*` を適用する。非カテゴリのuint8はRND内でfloatに変換する。既定の `statistics_mode=whiten` は更新前の観測・誤差統計を使い、採点後に統計を更新する。誤差の統計は `error_norm.average_mode=cumulative`（既定）か `ema`（観測件数の時定数 `ema_steps`、既定1,000,000）で選ぶ。`error_norm.use_centering=true`（既定）は平均を引き、falseは誤差をそのまま標準偏差で割る。`variance_feedback` はlane順の再帰で観測を正規化・clipして統計へ戻し、更新後の誤差平均と分散でzを作る（標準偏差では割らない）。`multiplier_mode=clipped`（既定）は `clamp(1+z,1,multiplier_max)`、`unclipped` は `1+z` を返す。割る値0か統計が空なら1。warm-upは観測件数で数え、既定12,800件の間は倍率1。whiten の `warmup_mode=learn_predictor`（既定）は補助学習を進め、誤差を統計に入れない。collect_errors と variance_feedback は誤差を集めて補助学習を止める。0なら初回から学習する。詳しい再帰とwarm-upのbatch境界は212を参照する。
@@ -467,7 +469,7 @@ ONではhard action選択を呼ばない。IQNはcurrent N本、target M本、�
 
 ### 6.4 DefaultDQN Train Actor snapshot
 
-`DefaultDQNAgent.actor.[key].clone_model=true`かつ`sync_interval.*`を宣言したActorがprivate Networkの定期snapshotを持つ。同期周期profileは`exp_step`で更新し、現在のageは`train_step`で測る。判定とcopyは`MakeAction()`のforward直前に行うため、Serial/Pipeline Runnerのどちらでも同じaction境界になる。
+`DefaultDQNAgent.actor.[key].clone_model=true`かつ`sync_interval.*`を宣言したActorがprivate Networkの定期snapshotを持つ。同期では、networkを写す同じsourceの読み取りロックの中で`ActorSyncFollower`も呼ぶ。step診断が所有する推定器とβの写しは、この通知に従う。同期周期profileは`exp_step`で更新し、現在のageは`train_step`で測る。判定とcopyは`MakeAction()`のforward直前に行うため、Serial/Pipeline Runnerのどちらでも同じaction境界になる。
 
 ```mermaid
 sequenceDiagram
@@ -543,7 +545,7 @@ Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期s
 | 前処理 | RewardScaler、ObservationNormalizer、frame stack | frame stackなし（device転送のみ）。専用scaler/normalizer設定なし |
 | Head/Learner | TD/QR/IQN、Dueling有無を選択 | TD/QR、Dueling有無を選択 |
 | Replay拡張 | N-step、PER、prefetch、replay ratio、TBOなど | N-step、PER。現行Configはprefetch、TBO、fused optimizerを無効化 |
-| Actor clone | カタログの`clone_model`と任意の`sync_interval.*`で指定 | カタログの`clone_model`で指定。定期snapshotなし |
+| Actor clone | カタログの`clone_model`と任意の`sync_interval.*`で指定。同期に従うstep診断の写しも同じロックの中で更新 | カタログの`clone_model`で指定。定期snapshotなし |
 | spatial exploration | Actorごとに利用可能 | Actorごとに共通方策のspatial設定を利用可能 |
 | 保存・読込 | 独自archive payloadと`auto_load_file`あり | 独自Save/Load overrideなし |
 
@@ -560,6 +562,8 @@ Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期s
 | 内的報酬 | `intrinsic.enabled`、ProfiledValueの `intrinsic.beta`、`intrinsic.observation`、`intrinsic.use_done_mask`、`intrinsic.learn_ratio`、`intrinsic.learn_batch_size`、Factoryが解釈する `intrinsic.rnd.*`（target.net / predictor.net、head.init、multiplier_mode、statistics_mode、warmup_mode、error_norm、adam_epsなど） |
 
 RNDの既定は `agent.txt` の `@baseline` に置く。学習ratio=0.25、batch size=32、観測next_state、倍率clipped、統計whiten、adam_eps=1e-8。whiten の warmup_mode=learn_predictor、error_norm.average_mode=cumulative、error_norm.ema_steps=1,000,000、error_norm.use_centering=true と、facade の use_done_mask=true が既定である。Atari・GridMaze・LunarLanderの `run.@rnd` は有効化、2つのBody、群56の13指標を選ぶ。Atariは専用3層CNNと512次元Head、predictorだけ2層FCを持つ。Atariの `run.@rnd_taiga` はstate・unclipped・variance_feedbackと毎経験1件の学習などを選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はenabled以外の設定キーを解釈せず、Network・optimizer・統計を生成しない。既知の診断キーは無効時も保持してNaNを返す。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
+
+Evaluation Traceのstep診断は`intrinsic.error`・`intrinsic.normalized_error`・`intrinsic.bonus`を出す。値の時点、未成立とdoneの扱い、統計方式ごとの単位、乱数層の制約は[212](212_rnd_lifelong_novelty.jp.md#46-evaluation-trace-で読む値)を参照する。これらは群56の集約診断とは別である。
 
 全keyと既定値の正本は`DefaultDQNAgentConfig`、`RainbowAgentConfig`、`LearnerConfig`、`ActionPolicyConfig`と[apps/runner/config](../../apps/runner/config)である。本書へ設定一覧を複製せず、Runの`config/config_data.txt`と`config/<tag>.txt`で解決結果を確認する。
 
@@ -631,6 +635,8 @@ NetworkのSN u/vはnamed bufferなので、DefaultDQN checkpointのonline/target
 ### 9.1 metric
 
 内的報酬の群 `56_agent_in` は `$agent intrinsic.<key> @learn` で読む。`bonus_mean`・`bonus_max`・`bonus_min` はbeta倍と選択したmask後の値、`bonus_pos_ratio` は正のlaneの割合。`bonus_share` は `Σ|bonus| / (Σ|scaled external reward| + Σ|bonus|)`（分母0はNaN）で、負のボーナスでも0〜1に収まる。`error_mean`・`error_std` は選択した方式の統計（stdは分散の平方根）、`error_step` は今回の誤差平均。`target_feature_var` は出力次元ごとの一生の母分散の平均（1件目は0）、`target_feature_max` は今回の出力の絶対値最大。`clip_ratio` は倍率上限に達したlaneの比率で、unclippedなら0。`predictor_loss` は直近の成功stepの損失を、学習しないintakeでも保持する（未学習・読込直後はNaN）。`learn_count` は実際にoptimizerが進んだ累計回数で、warm-upのfalseは数えない。無効時とlearner停止による休止中も既知キーを保ち、NaNを返す。未知キーだけnullopt。構築時にキーを固定したatomicの診断値を読むため、UI読み出しで新たなロックを取らない。 whiten の error_mean/error_std は次の batch に使う累積か EMA の統計で、learn_predictor の warm-up 中は空なので NaN になる。learn_count はこの warm-up 中も増える。
+
+step診断の`intrinsic.error`・`intrinsic.normalized_error`・`intrinsic.bonus`は群56の集約値とは別に、評価の遷移ごとの値を保持する。
 
 - `DQNActionInfo`はAction、Q値・quantile補助情報、必要に応じてReplay初期priority hintを運ぶ。
 - `episode_start_action_uqe_margin.[i]`と`episode_start_action_q_margin.[i]`は、episode開始laneだけを対象に、action `i`の値と最良の他actionとの差をbatch内平均する。UQE版はUQE値、Q版はnetwork出力のQ系scoreを使い、TBO有効時もh空間のまま扱う。IQN+UQEでは両者が同じrisk-biased action scoreになり、full-distributionの`E[Z]`ではない。episode開始laneがないstepは`NaN`を返し、scalar出力をskipする。

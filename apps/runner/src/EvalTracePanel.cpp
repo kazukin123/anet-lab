@@ -181,7 +181,10 @@ void EvalTracePanel::Initialize(std::shared_ptr<RunManager> manager, std::shared
     env_name_ = env_config ? env_config->Get<std::string>("env.class_id", runner->GetBatchEnv()->GetName())
         : runner->GetBatchEnv()->GetName();
     agent_name_ = config_.Get("agent.class_id");
-    builder_ = std::make_unique<StepTraceBuilder>(config_, env_spec_, manager->GetAgent(), 1);
+    builder_ = std::make_unique<StepTraceBuilder>(config_, env_spec_, manager->GetAgent(), 1, runner->GetActor());
+    if (!IsPaneOpen(manager_.GetPane(this))) builder_->Suspend();
+    // 保存済みlayoutが構築前にactiveを立てても、最初の採点より前に写しを用意する。
+    else if (active_ && builder_->Resume()) eval_.SyncModel();
     columns_ = builder_->GetColumns();
     percentile_windows_.resize(columns_.size());
     table_ = new Table(*this);
@@ -268,6 +271,12 @@ void EvalTracePanel::SetActive(bool active)
 {
     if (active == active_) return;
     active_ = active;
+    // 写しを持たない間だけ通常同期を前倒しし、閉じた間は採点と複製を休ませる。
+    if (builder_) {
+        if (active) {
+            if (builder_->Resume()) eval_.SyncModel();
+        } else builder_->Suspend();
+    }
     // 明示的に閉じたときだけ消去し、最大化による一時非表示では状態を保持する。
     ReturnToLive();
     ClearRows();

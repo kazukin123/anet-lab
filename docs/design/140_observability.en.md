@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:8b43922988f29d3d8f45702ec1c1f40cf9643c41 date:2026-11-12 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:6c00d29c13f1230b1957e989a94338107e33f359 date:2026-11-13 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -182,6 +182,34 @@ RunnerFrame detaches its status train observer after the drain. Background evalu
 
 The periodic timer flushes only `RunName.log`. Metrics, stdout, and stderr are flushed together at explicit `FlushRunOutputs()` boundaries such as pause, save, and shutdown.
 
+### 5.3 Evaluation Trace Scoring and Synchronization
+
+Only DefaultDQN with requested intrinsic columns performs read-only scoring, once for all lanes. With a cloned Actor, the estimator and beta are copied under the same read lock as the network. Creation alone does not copy them; synchronization while the pane is closed discards the snapshot. With an Actor that shares its network, each scoring call takes the Agent read lock. See [intrinsic diagnostics](212_rnd_lifelong_novelty.en.md#46-values-in-evaluation-trace) for values and constraints.
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant T as EvalTracePanel
+    participant A as EvalPanel / Actor
+    participant G as Training Agent
+    participant D as Step diagnostics / estimator snapshot
+    U->>T: Open pane
+    T->>D: Resume: is a snapshot needed?
+    opt No snapshot available
+        T->>A: Normal synchronization
+        A->>G: Acquire read lock
+        A->>A: Copy network
+        A->>D: Copy estimator and beta under the same lock
+        A->>G: Release lock
+    end
+    A->>T: Evaluation transition
+    T->>D: Observe all lanes once
+    D-->>T: Store column values in the row
+    U->>T: Close pane
+    T->>D: Suspend
+    Note over A,D: Actor synchronization while suspended discards the snapshot
+```
+
 ## 6. Metric Configuration Contracts
 
 The basic scalar definition is:
@@ -280,17 +308,17 @@ Metrics Viewer stores traces in existing `json_lines`, separately from scalars. 
 | `$actor` | Actor scalars at that decision time |
 | `$env_step` | Transition results: `reward`, `done`, `truncated`, and result-type scalars, before Reset even at termination |
 | `$runner` | Counts including this step, rewards, and completion aggregates. `step_in_episode` is 1-based; a terminal row shows the completed length. EvalRunner also exposes lane-specific `forced`: 1 for a forced-action step, 0 for ordinary steps and the initial value. Omitting the lane yields no value; an out-of-range lane fails fast |
-| `$agent_step` | Scalars from the Module owned by Agent diagnostics. DQN provides `q_sa`, `state_value`, and `approx_priority`. Agents without diagnostics make the entire target NaN |
+| `$agent_step` | Scalars from the Module owned by Agent diagnostics. DQN provides `q_sa`, `state_value`, and `approx_priority`. DefaultDQN also provides `intrinsic.error`, `intrinsic.normalized_error`, and `intrinsic.bonus`. Agents without diagnostics make the entire target NaN |
 
 Columns cannot use `$agent`, `$env`, `$exp`, or `$update_result`. Aggregation prefixes are supported only for `$runner` episode_return/episode_steps, returning NaN on non-completion rows. Unknown keys fail fast on first read; known unavailable and nonfinite values appear blank. This does not add `$agent_step` to the metrics DSL.
 
 `AgentStepDiagnosticsResult.current` owns batch values through `unique_ptr<const Module>` and exposes them via `GetScalar(key, lane)`. The shared layer does not restrict keys. If a provider exists, an unknown key (nullopt) fails fast on first read with the column number and key. Without a provider, arbitrary `$agent_step` columns yield NaN, allowing default columns to work. Known NaN and pending status are independent; only lane-specific `pending_keys` corresponding to selected columns are awaited.
 
-Agent creates an `AgentStepDiagnosticsProvider` through `CreateStepDiagnosticsProvider`. The Provider owns a sequence window per lane, and even pending keys return known NaN in current. Every pending key eventually resolves, including with NaN if a value could not be established. Delayed resolution uses `AgentStepDiagnosticsCompletion` with `lane`, `steps_back`, `resolved_keys`, and `values` owning the target row; read the value through `GetScalar(key, 0)`. `StepTrace.value_ready` marks resolution per column, becoming true even for a resolved NaN. All selected columns resolving makes the row `complete`. An update handler receives newly resolved zero-based column indices through a synchronous `span<const size_t>` valid only during notification. Multiple columns for the same key each resolve once.
+Agent creates an `AgentStepDiagnosticsProvider` through `CreateStepDiagnosticsProvider`. `AgentStepDiagnosticsRequest` carries the lane count, deduplicated column keys, and that Runner's Actor. Keys select additional scoring, without changing which keys are recognized. The Provider owns a sequence window per lane, and even pending keys return known NaN in current. Every pending key eventually resolves, including with NaN if a value could not be established. Delayed resolution uses `AgentStepDiagnosticsCompletion` with `lane`, `steps_back`, `resolved_keys`, and `values` owning the target row; read the value through `GetScalar(key, 0)`. `StepTrace.value_ready` marks resolution per column, becoming true even for a resolved NaN. All selected columns resolving makes the row `complete`. An update handler receives newly resolved zero-based column indices through a synchronous `span<const size_t>` valid only during notification. Multiple columns for the same key each resolve once.
 
 `BatchActionInfo` derives from ModuleBase and exposes lane-specific `action` and `action.[dimension]` through shared GetScalar. The entire dimension string and range are validated. Scalar queries with lane=-1 do not recognize these two keys; derived types provide Agent-specific scalars. DQNActionInfo delegates keys it does not own to the base. Unknown keys, including for non-DQN Agents, return nullopt, causing scalar Observers' ordinary value not found WARN once per tag per Run. Requests whose notification lacks ActionInfo remain errors.
 
-The concrete DQN provider and recognition of its three keys stay inside DQN. DQN step diagnostics use Q-hint generation shared with Actor, n-step assembly shared with replay, and the existing initial-priority estimator. Computation is independent of PER and adds no forward or RNG consumption. The reward scaler applies its current transform without updating statistics or clipping rates. RunningStdRewardScaler publishes the std computed by Scale and the initial std at Reset through an atomic; diagnostics read only this value, without accessing the Agent mutex or mutable Tensor statistics. Learning-side operation order is unchanged, and no restoration mechanism is added for reward statistics absent from current checkpoints. Windows containing truncation leave priority unavailable. Nonterminal values fill their original row once bootstrap Q is available; terminal steps resolve shorter windows.
+The concrete DQN provider and key recognition stay inside DQN. DQN step diagnostics use Q-hint generation shared with Actor, n-step assembly shared with replay, and the existing initial-priority estimator. Computation of the existing three keys is independent of PER and adds no forward or RNG consumption. The reward scaler applies its current transform without updating statistics or clipping rates. RunningStdRewardScaler publishes the std computed by Scale and the initial std at Reset through an atomic; diagnostics read only this value, without accessing the Agent mutex or mutable Tensor statistics. Learning-side operation order is unchanged, and no restoration mechanism is added for reward statistics absent from current checkpoints. Windows containing truncation leave priority unavailable. Nonterminal values fill their original row once bootstrap Q is available; terminal steps resolve shorter windows.
 
 The builder reports row additions separately from delayed column resolution. Images are not retained for rows beyond the GUI's retention limit. Verify public paths for column parsing, timing, diagnostics, playback, and numerical equivalence with the [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md).
 
@@ -349,6 +377,8 @@ TimeHeatMap in Scale mode, Histgram, and SweepedHeatMap draw into pixel storage 
 - Separate periodic text-log flushing from GUI FPS. Do not increase I/O frequency by flushing metrics/stdout on the same timer.
 
 ## 9. Tests and Extension Checks
+
+See the [PRD127 validation assets](../../core/anet-core/testdata/prd127/README.md) for intrinsic scoring, synchronization, suspension, and learning invariance.
 
 The fixed-pixel and ownership regression tests are in `heat_map_test.cpp`. Successful rendering alone does not verify allocator compatibility or allocation failure handling; use the [image memory verification materials](../../core/anet-core/testdata/prd115/README.md) to exercise the actual wxWidgets boundary.
 

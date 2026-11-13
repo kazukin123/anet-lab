@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:d49a15fc38dbe4e63d8c128aed3e5920c10edb42 date:2026-11-11 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:0911dfe3b4ad5a5b1a1a6611283bfbeb96d62e28 date:2026-11-13 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -262,6 +262,8 @@ Events contain counts at completion of their corresponding processing; the count
 At the beginning of a later step, it collects completion or exceptions from the submitted update and emits `LearnEvent` and `TrainEvent` on RunnerThread. It then runs Actor inference, submits asynchronous learning for the previous Experience, and performs the current Env Step, including automatic Reset of terminal lanes. Existing notification counts, including those of the first two calls, are preserved, and state is updated from `continue_state`.
 Neither Serial nor Pipeline implicitly calls `Actor::Sync()` from a Train step; synchronization requirements and timing belong to the concrete Actor's contract. DefaultDQN Train Actor handles periodic snapshot synchronization within `MakeAction()`; see [DQN Agents](200_dqn_agents.en.md).
 Shutdown waits for outstanding learning and collects future exceptions before shutting down Env. It adds no Learn or Train notifications.
+
+`Actor::AttachSyncFollower` attaches a non-owned synchronization follower. A DQN Actor calls `ActorSyncFollower` under the same source read lock used to copy the network, and skips destroyed followers.
 
 ```mermaid
 sequenceDiagram

@@ -2,6 +2,7 @@
 
 #include "anet/default_dqn_agent.hpp"
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <numeric>
 #include <sstream>
@@ -32,6 +33,8 @@ constexpr char kCheckpointFormatV2[] = "DefaultDQNAgent-2";
 constexpr char kCheckpointIntrinsicV1[] = "DefaultDQNAgent;intrinsic";
 constexpr char kCheckpointIntrinsicV2[] = "DefaultDQNAgent-2;intrinsic";
 constexpr char kIntrinsicPrefix[] = "intrinsic.";
+constexpr char kIntrinsicBonus[] = "intrinsic.bonus";
+constexpr char kIntrinsicError[] = "intrinsic.error";
 constexpr char kIntrinsicBonusMean[] = "intrinsic.bonus_mean";
 constexpr char kIntrinsicBonusMax[] = "intrinsic.bonus_max";
 constexpr char kIntrinsicBonusShare[] = "intrinsic.bonus_share";
@@ -686,14 +689,144 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         mutex_, network, source, *forward_configs_.at(cfg.nn_forward_key), emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config, std::move(skip));
 }
 
-std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::CreateStepDiagnosticsProvider(int64_t num_lanes) const
+namespace {
+    class IntrinsicSnapshot final : public anet::rl::ActorSyncFollower {
+    public:
+        using Estimator = anet::rl::intrinsic::LifelongNoveltyEstimator;
+        using Capture = std::function<std::pair<std::unique_ptr<Estimator>, std::optional<float>>() >;
+        explicit IntrinsicSnapshot(Capture capture) : capture_(std::move(capture)) {}
+        void OnActorSync() override
+        {
+            ANET_PROFILE_FUNC();
+            // Actor が既に取った source の読み取りロックの中でだけ写す。
+            if (active_) {
+                auto captured = capture_();
+                estimator = std::move(captured.first);
+                beta = captured.second;
+            } else {
+                estimator.reset();
+                beta.reset();
+            }
+        }
+        void Suspend() { active_ = false; }
+        bool Resume() { active_ = true; return !estimator; }
+        std::unique_ptr<Estimator> estimator;
+        std::optional<float> beta;
+    private:
+        Capture capture_;
+        bool active_ = true;
+    };
+
+    class IntrinsicStepDiagnosticsValues final : public anet::ModuleBase {
+    public:
+        IntrinsicStepDiagnosticsValues(std::unique_ptr<const anet::Module> base,
+            std::map<std::string, torch::Tensor> values,
+            std::shared_ptr<const std::vector<std::string>> keys, int64_t num_lanes)
+            : base_(std::move(base)), values_(std::move(values)), keys_(std::move(keys)), num_lanes_(num_lanes) {}
+        std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const override
+        {
+            const auto found = values_.find(key);
+            if (found == values_.end()) {
+                if (std::ranges::find(*keys_, key) == keys_->end())
+                    return base_ ? base_->GetScalar(key, lane) : std::nullopt;
+                ANET_CHECK_MSG(lane >= 0 && lane < num_lanes_,
+                    "Invalid intrinsic diagnostic lane. key='" << key << "' lane=" << lane
+                    << " expected=[0," << num_lanes_ << ").");
+                return std::numeric_limits<float>::quiet_NaN();
+            }
+            ANET_CHECK_MSG(lane >= 0 && lane < found->second.size(0),
+                "Invalid intrinsic diagnostic lane. key='" << key << "' lane=" << lane
+                << " expected=[0," << found->second.size(0) << ").");
+            return found->second[lane].item<float>();
+        }
+    private:
+        std::unique_ptr<const anet::Module> base_;
+        std::map<std::string, torch::Tensor> values_;
+        std::shared_ptr<const std::vector<std::string>> keys_;
+        int64_t num_lanes_;
+    };
+
+    class IntrinsicStepDiagnosticsProvider final : public anet::rl::AgentStepDiagnosticsProvider {
+    public:
+        using Score = std::function<std::map<std::string, torch::Tensor>(const anet::rl::BatchExperience&)>;
+        IntrinsicStepDiagnosticsProvider(std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> base,
+            int64_t num_lanes, std::vector<std::string> keys, Score score,
+            std::shared_ptr<IntrinsicSnapshot> snapshot)
+            : base_(std::move(base)), num_lanes_(num_lanes), keys_(std::make_shared<const std::vector<std::string>>(std::move(keys))),
+              score_(std::move(score)), snapshot_(std::move(snapshot)) {}
+        anet::rl::AgentStepDiagnosticsResult Observe(const anet::rl::BatchExperience& experience) override
+        {
+            ANET_PROFILE_FUNC();
+            // 既存の系列窓と遅延確定はそのまま使い、即時値だけを追加する。
+            auto result = base_->Observe(experience);
+            std::map<std::string, torch::Tensor> values;
+            if (score_) values = score_(experience);
+            result.current = std::make_unique<IntrinsicStepDiagnosticsValues>(
+                std::move(result.current), std::move(values), keys_, num_lanes_);
+            return result;
+        }
+        void Reset() override { base_->Reset(); }
+        void Suspend() override { if (snapshot_) snapshot_->Suspend(); }
+        bool Resume() override { return snapshot_ && snapshot_->Resume(); }
+    private:
+        std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> base_;
+        int64_t num_lanes_;
+        std::shared_ptr<const std::vector<std::string>> keys_;
+        Score score_;
+        std::shared_ptr<IntrinsicSnapshot> snapshot_;
+    };
+} // namespace
+
+std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::CreateStepDiagnosticsProvider(
+    const AgentStepDiagnosticsRequest& request) const
 {
-    // 診断部品がAgentを共有所有し、scalerが公開した変換だけをロックなしで読む。
+    // 既知の鍵と計算要求を分け、無効・未要求でも鍵はNaNとして認識する。
     auto self = shared_from_this();
-    return anet::rl::dqn::CreateStepDiagnosticsProvider(config_.learner, num_lanes,
-        [self](const torch::Tensor& reward) {
-            return self->reward_scaler_->ScaleWithoutUpdate(reward);
+    auto base = anet::rl::dqn::CreateStepDiagnosticsProvider(config_.learner, request.num_lanes,
+        [self](const torch::Tensor& reward) { return self->reward_scaler_->ScaleWithoutUpdate(reward); });
+    std::vector<std::string> keys;
+    for (const auto& key : intrinsic::LifelongNoveltyEstimatorFactory::LaneDiagnosticKeys())
+        keys.push_back(std::string(kIntrinsicPrefix) + key);
+    keys.emplace_back(kIntrinsicBonus);
+    const auto requested = std::ranges::find_if(request.keys, [](const auto& key) { return key.starts_with(kIntrinsicPrefix); });
+    IntrinsicStepDiagnosticsProvider::Score observe;
+    std::shared_ptr<IntrinsicSnapshot> snapshot;
+    if (lifelong_novelty_ && requested != request.keys.end()) {
+        if (!request.actor)
+            ANET_SYSTEM_ERROR("Step diagnostics key='" << *requested << "' requires an Actor; actual=null expected=Runner Actor.");
+        snapshot = std::make_shared<IntrinsicSnapshot>([self] {
+            return std::pair(self->lifelong_novelty_->Clone(), self->last_intrinsic_beta_);
         });
+        if (!request.actor->AttachSyncFollower(snapshot)) snapshot.reset();
+        const auto score = [self](intrinsic::LifelongNoveltyEstimator& estimator,
+            std::optional<float> beta, const BatchExperience& experience) {
+            const bool next = self->config_.intrinsic.observation == DefaultDQNAgentConfig::kIntrinsicObservationNextState;
+            auto result = estimator.EstimateWithoutUpdate(next ? experience.next_state.obs : experience.state.obs);
+            std::map<std::string, torch::Tensor> values;
+            for (auto& [key, value] : result.diagnostics)
+                values.emplace(std::string(kIntrinsicPrefix) + key, std::move(value));
+            auto bonus = torch::full_like(result.multipliers, std::numeric_limits<float>::quiet_NaN());
+            if (beta) {
+                bonus = *beta * (result.multipliers - 1.0f);
+                if (next && self->config_.intrinsic.use_done_mask)
+                    bonus.masked_fill_(experience.next_state.done.to(torch::kCPU), 0.0f);
+                bonus.masked_fill_(~torch::isfinite(values.at(kIntrinsicError)), std::numeric_limits<float>::quiet_NaN());
+            }
+            values.emplace(kIntrinsicBonus, std::move(bonus));
+            return values;
+        };
+        observe = [self, snapshot, score](const BatchExperience& experience) {
+            if (snapshot) {
+                if (!snapshot->estimator) return std::map<std::string, torch::Tensor>{};
+                return score(*snapshot->estimator, snapshot->beta, experience);
+            }
+            // 写しを持たないActorだけ、stepごとに学習側を読み取りロックで守る。
+            std::shared_lock<std::shared_mutex> lock(*self->mutex_);
+            return score(*self->lifelong_novelty_, self->last_intrinsic_beta_, experience);
+        };
+    }
+    return std::make_unique<IntrinsicStepDiagnosticsProvider>(std::move(base), request.num_lanes,
+        std::move(keys), std::move(observe), std::move(snapshot));
 }
 
 std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()
@@ -722,7 +855,8 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
             const bool use_next_state = config_.intrinsic.observation == DefaultDQNAgentConfig::kIntrinsicObservationNextState;
             const auto& intrinsic_observations = use_next_state ? batch_exp.next_state.obs : batch_exp.state.obs;
             const auto alpha = lifelong_novelty_->Estimate(intrinsic_observations);
-            auto bonus = intrinsic_beta_->Evaluate(counts.exp_step) * (alpha - 1.0f);
+            last_intrinsic_beta_ = intrinsic_beta_->Evaluate(counts.exp_step);
+            auto bonus = *last_intrinsic_beta_ * (alpha - 1.0f);
             if (use_next_state && config_.intrinsic.use_done_mask)
                 bonus = bonus.masked_fill(batch_exp.next_state.done, 0.0f);
 

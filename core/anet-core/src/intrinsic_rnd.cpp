@@ -1,4 +1,5 @@
 #include "intrinsic_rnd.hpp"
+#include <sstream>
 #include <cmath>
 #include <limits>
 #include <ATen/CPUGeneratorImpl.h>
@@ -10,6 +11,8 @@ using namespace anet::rl::intrinsic;
 constexpr char kTargetSeed[] = "intrinsic.target";
 constexpr char kPredictorSeed[] = "intrinsic.predictor";
 constexpr char kOutput[] = "novelty";
+constexpr char kError[] = "error";
+constexpr char kNormalizedError[] = "normalized_error";
 constexpr char kErrorMean[] = "error_mean";
 constexpr char kErrorStd[] = "error_std";
 constexpr char kErrorStep[] = "error_step";
@@ -221,6 +224,21 @@ torch::Tensor RndNoveltyEstimator::VarianceFeedbackStatistics::UpdateErrors(cons
     return result;
 }
 
+torch::Tensor RndNoveltyEstimator::VarianceFeedbackStatistics::ErrorsWithoutUpdate(const torch::Tensor& errors) const
+{
+    // lane 同士は統計を共有更新せず、各 lane を独立に次の1件として扱う。
+    for (const auto& [key, variance] : obs_v_)
+        if (!(variance > 0).all().item<bool>())
+            return torch::full_like(errors, std::numeric_limits<float>::quiet_NaN());
+    const auto count = static_cast<double>(n_ + 1);
+    const auto values = errors.to(torch::kDouble);
+    const auto difference = values - err_m_;
+    const auto mean = err_m_ + difference / count;
+    const auto variance = (err_v_ * count + difference.square() * count / (count + 1.0)) / (count + 1.0);
+    return torch::where(variance > 0, (values - mean) / variance,
+        torch::full_like(values, std::numeric_limits<double>::quiet_NaN())).to(torch::kFloat32);
+}
+
 int64_t RndNoveltyEstimator::VarianceFeedbackStatistics::Save(anet::OutputArchive& archive) const
 {
     auto bytes = archive.Write(n_);
@@ -417,6 +435,7 @@ RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimatorConfig& config
             byte_observation_keys_.push_back(key);
         }
     }
+    normalized_observation_spec_ = normalized_spec;
     auto head = std::make_shared<RndHeadFactory>(config.output_dim, kOutput,
         config.head.init);
     const auto build = [&](const char* name, const anet::nn::NetworkConfig& network_config) {
@@ -439,6 +458,47 @@ RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimatorConfig& config
     else
         feedback_stats_.emplace(normalized_spec);
     diagnostics_ = LifelongNoveltyEstimatorFactory::InitialDiagnostics();
+}
+
+RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimator& source)
+    : config_(source.config_), device_(source.device_), byte_observation_keys_(source.byte_observation_keys_),
+      normalized_observation_spec_(source.normalized_observation_spec_),
+      error_stats_(config_.error_norm.average_mode == kErrorAverageEma, config_.error_norm.ema_steps),
+      target_feature_stats_({config_.output_dim}, 0.0), score_count_(source.score_count_), diagnostics_(source.diagnostics_)
+{
+    // Network の再構築が消費する既定乱数を外へ持ち越さず、重みは device 内で複製する。
+    ConstructionSeedScope seed_scope(0);
+    target_ = source.target_->Clone(device_);
+    predictor_ = source.predictor_->Clone(device_);
+    target_->eval();
+    predictor_->train(source.predictor_->is_training());
+    for (auto& parameter : target_->parameters()) parameter.requires_grad_(false);
+    optimizer_ = std::make_unique<torch::optim::AdamW>(predictor_->parameters(),
+        torch::optim::AdamWOptions(config_.learning_rate).weight_decay(config_.weight_decay).eps(config_.adam_eps));
+    if (source.feedback_stats_) feedback_stats_.emplace(normalized_observation_spec_);
+    else {
+        anet::rl::StateSpec state_spec;
+        state_spec.obs_spec = normalized_observation_spec_;
+        normalizer_ = anet::rl::ObservationNormalizerFactory(config_.obs_norm).CreateObservationNormalizer(state_spec);
+    }
+    // Tensor を含む統計と optimizer の所有状態も深く複製し、元との別名共有を避ける。
+    std::stringstream state(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(state);
+    if (source.feedback_stats_) source.feedback_stats_->Save(output);
+    else { source.normalizer_->Save(output); source.error_stats_.Save(output); }
+    source.target_feature_stats_.Save(output);
+    output.WriteTorchObject(*source.optimizer_);
+    anet::InputArchive input(state);
+    if (feedback_stats_) feedback_stats_->Load(input);
+    else { normalizer_->Load(input); error_stats_.Load(input); }
+    target_feature_stats_.Load(input);
+    input.ReadTorchObject(*optimizer_);
+}
+
+std::unique_ptr<LifelongNoveltyEstimator> RndNoveltyEstimator::Clone() const
+{
+    ANET_PROFILE_FUNC();
+    return std::unique_ptr<LifelongNoveltyEstimator>(new RndNoveltyEstimator(*this));
 }
 
 torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations)
@@ -512,6 +572,48 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
         ? (alpha == config_.multiplier_max).to(torch::kFloat32).mean().item<float>() : 0.0f;
     ANET_PROFILE_SCOPE_NEXT(result_transfer);
     return alpha.to(observations.device());
+}
+
+LifelongNoveltyEstimateResult RndNoveltyEstimator::EstimateWithoutUpdate(const anet::TensorDict& observations) const
+{
+    ANET_PROFILE_FUNC();
+    torch::NoGradGuard no_grad;
+    // 入力と誤差の転送は batch ごとにまとめ、統計は現在値を読むだけにする。
+    ANET_PROFILE_SCOPE(normalize);
+    auto input = observations.To(torch::kCPU);
+    for (const auto& key : byte_observation_keys_)
+        input.Set(key, input.At(key).to(torch::kFloat32));
+    const auto normalized = feedback_stats_ ? feedback_stats_->Normalize(input, config_.obs_norm.clip_range)
+        : normalizer_->Normalize(input);
+    ANET_PROFILE_SCOPE_NEXT(forward);
+    const auto device_input = normalized.To(device_);
+    const auto target = target_->Forward(device_input).At(kOutput);
+    const auto prediction = predictor_->Forward(device_input).At(kOutput);
+    const auto errors = (prediction - target).square().mean(-1).to(torch::kCPU).contiguous();
+    ANET_PROFILE_SCOPE_NEXT(standardize);
+    const auto nan = std::numeric_limits<float>::quiet_NaN();
+    auto standardized = torch::full_like(errors, nan);
+    if (feedback_stats_)
+        standardized = feedback_stats_->ErrorsWithoutUpdate(errors);
+    else if (error_stats_.HasData() && error_stats_.Std() > 0.0f)
+        standardized = (errors - (config_.error_norm.use_centering ? error_stats_.Mean() : 0.0f)) / error_stats_.Std();
+    // 未成立は NaN として公開し、学習が加える倍率だけは同じ条件で1にする。
+    const auto invalid = ~torch::isfinite(errors);
+    standardized.masked_fill_(invalid, nan);
+    auto multipliers = torch::ones_like(errors);
+    if (score_count_ >= config_.warmup_steps)
+        multipliers = torch::where(torch::isnan(standardized), multipliers, 1.0f + standardized);
+    if (config_.multiplier_mode == kMultiplierClipped)
+        multipliers.clamp_(1.0f, config_.multiplier_max);
+    const auto diagnostic_errors = errors.masked_fill(invalid, nan);
+    if (invalid.any().item<bool>()) {
+        const auto lane = invalid.nonzero()[0][0].item<int64_t>();
+        anet::log::warn_once(config_.GetConfigPrefix() + ".read_only_prediction_error")
+            << "Invalid RND read-only prediction_error at lane=" << lane << " value=" << errors[lane].item<float>()
+            << "; expected finite value; lane diagnostics are unavailable.";
+    }
+    return {.multipliers = std::move(multipliers),
+        .diagnostics = {{kError, diagnostic_errors}, {kNormalizedError, standardized}}};
 }
 
 bool RndNoveltyEstimator::Learn(const anet::TensorDict& observations)
@@ -640,6 +742,11 @@ int64_t RndNoveltyEstimator::Load(anet::InputArchive& archive)
     if (target_feature_stats_.GetCount() > 0)
         diagnostics_[kTargetFeatureVar] = TargetFeatureVariance();
     return bytes;
+}
+
+std::vector<std::string> LifelongNoveltyEstimatorFactory::LaneDiagnosticKeys()
+{
+    return {kError, kNormalizedError};
 }
 
 std::map<std::string, float> LifelongNoveltyEstimatorFactory::InitialDiagnostics()

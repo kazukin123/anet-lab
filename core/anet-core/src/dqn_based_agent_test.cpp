@@ -3929,7 +3929,7 @@ TEST_CASE("Skip action scalars distinguish decisions, durations and inactive val
     columns.Set("app.eval_trace_panel.columns.[2]", "$action_info skip_length");
     for (int64_t j = 1; j <= 3; ++j)
         columns.Set("app.eval_trace_panel.columns.[" + std::to_string(2+j) + "]", "$action_info skip_q.[" + std::to_string(j) + "]");
-    rl::StepTraceBuilder trace(columns, MakeLearnerEnvSpec(), nullptr, 3);
+    rl::StepTraceBuilder trace(columns, MakeLearnerEnvSpec(), nullptr, 3, nullptr);
     std::vector<std::shared_ptr<rl::StepTrace>> rows;
     trace.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); }, {});
     const auto flags = torch::zeros({3}, torch::kBool);
@@ -10846,7 +10846,7 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
     diagnostic_spec.action_spec.value_labels = { "a0", "a1" };
     std::shared_ptr<rl::Agent> agent = std::make_shared<dqn::DefaultDQNAgent>(config,
         MakeAgentForwardNetworkConfig(), rl::BatchEnvSpec{1, 1}, diagnostic_spec, torch::kCPU, 123);
-    auto diagnostics = agent->CreateStepDiagnosticsProvider(1);
+    auto diagnostics = agent->CreateStepDiagnosticsProvider({.num_lanes = 1, .keys = {}, .actor = nullptr});
     REQUIRE(diagnostics);
     const auto make = [&](bool first, float reward, const torch::Tensor& q) {
         auto action = MakeDiagnosticActionInfo(torch::tensor({0}, torch::kInt64),
@@ -10880,7 +10880,7 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
     anet::ConfigData columns;
     columns.Set("app.eval_trace_panel.columns.[1]", "$agent_step approx_priority");
     columns.Set("app.eval_trace_panel.columns.[2]", "$agent_step approx_priority display:pct");
-    rl::StepTraceBuilder trace(columns, diagnostic_spec, agent, 1);
+    rl::StepTraceBuilder trace(columns, diagnostic_spec, agent, 1, nullptr);
     std::vector<std::shared_ptr<rl::StepTrace>> rows;
     std::vector<int64_t> completed_ids;
     trace.SetHandlers([&](const auto& row, const rl::TrainEvent&) { rows.push_back(row); },
@@ -10950,7 +10950,7 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
     spec.action_spec.value_labels = {"a0", "a1"};
     auto agent = std::make_shared<dqn::DefaultDQNAgent>(config, MakeAgentForwardNetworkConfig(),
         rl::BatchEnvSpec{1, 1}, spec, torch::kCPU, 345);
-    auto diagnostics = agent->CreateStepDiagnosticsProvider(1);
+    auto diagnostics = agent->CreateStepDiagnosticsProvider({.num_lanes = 1, .keys = {}, .actor = nullptr});
     REQUIRE(diagnostics);
     const dqn::ActorQHintValues hint_config{ .munchausen = config.learner.munchausen.Resolve(
         config.learner.munchausen.alpha.value, config.learner.munchausen.entropy_tau.value),
@@ -11017,7 +11017,7 @@ TEST_CASE("DQN diagnostics do not wait for the learner Agent mutex", "[dqn][prd0
     spec.action_spec.value_labels = {"a0", "a1"};
     auto agent = std::make_shared<LockableAgent>(config, MakeAgentForwardNetworkConfig(),
         rl::BatchEnvSpec{1, 1}, spec, torch::kCPU, 123);
-    auto diagnostics = agent->CreateStepDiagnosticsProvider(1);
+    auto diagnostics = agent->CreateStepDiagnosticsProvider({.num_lanes = 1, .keys = {}, .actor = nullptr});
     auto action = MakeDiagnosticActionInfo(torch::tensor({0}, torch::kInt64),
         anet::TensorDict{}, rl::AuxData{{"q_values", torch::tensor({{1.0f, 2.0f}})}}, config.learner);
     const rl::BatchExperience experience{MakeDeterminismState(0, 1, {false}, {false}, {true}),
@@ -11539,4 +11539,23 @@ TEST_CASE("PRD101 Rainbow Actor honors spatial selection and moving endpoints", 
     actor->MakeAction(rl::StepCounts{.exp_step = 8}, state);
     CHECK(*actor->GetScalar("epsilon") == Catch::Approx(spatial ? 0.2f : 0.9f));
     CHECK(*actor->GetScalar("epsilon_lane_max") == Catch::Approx(spatial ? 0.4f : 0.9f));
+}
+
+TEST_CASE("Rainbow rejects intrinsic Trace columns at the first scalar read", "[prd127][step_diagnostics]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto agent = std::make_shared<dqn::RainbowAgent>(MakeDeviceForwardRainbowConfig(), MakeAgentForwardNetworkConfig(),
+        rl::BatchEnvSpec{1, 1}, MakeLearnerEnvSpec(), torch::kCPU, 123);
+    anet::ConfigData columns;
+    columns.Set("app.eval_trace_panel.columns.[600]", "$agent_step intrinsic.error");
+    rl::StepTraceBuilder trace(columns, MakeLearnerEnvSpec(), agent, 1, nullptr);
+    auto flags = torch::zeros({1}, torch::kBool);
+    rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({1, 2})}}, flags, flags, flags);
+    auto actor = agent->CreateActor(rl::ActorRequest{.batch_env_spec = {1, 1},
+        .env_spec = MakeLearnerEnvSpec(), .device = torch::kCPU, .seed = 456, .actor_key = "eval"});
+    auto action = actor->MakeAction({}, state);
+    const rl::BatchExperience experience{state, action, torch::zeros({1}), state};
+    auto result = std::make_shared<rl::PlainBatchStepResult>(experience.reward, state, state, 1, 0, std::vector<rl::AuxData>(1));
+    CHECK_THROWS_WITH(trace.OnTrain({{experience, nullptr, {}, agent, {}}, nullptr, result, action}),
+        Catch::Matchers::ContainsSubstring("column=600") && Catch::Matchers::ContainsSubstring("key='intrinsic.error'"));
 }

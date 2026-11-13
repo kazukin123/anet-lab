@@ -769,6 +769,7 @@ namespace anet::rl::dqn {
             std::optional<SkipActorResources> skip = std::nullopt);
         std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
         void Sync() override;
+        bool AttachSyncFollower(std::weak_ptr<ActorSyncFollower> follower) override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
     private:
         void ResetSkipSession() const;
@@ -786,6 +787,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::nn::Network> network_;
         std::shared_ptr<anet::nn::Network> src_network_;
         std::shared_ptr<anet::nn::NetworkForwardExecutor> actor_forward_;
+        mutable std::vector<std::weak_ptr<ActorSyncFollower>> sync_followers_;
         mutable uint64_t forward_clock_ = 0; ///< 行動選択ごとの時計。episodeやsnapshot同期でリセットしない。
         bool emit_actor_q_hint_ = false; ///< 学習Actorから初期優先度推定用Qヒントを生成するか
         const ActorQHintConfig actor_q_hint_config_;

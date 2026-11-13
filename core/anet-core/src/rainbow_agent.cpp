@@ -191,10 +191,10 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
         std::nullopt, false, ActorQHintConfig{.munchausen = config_.learner.munchausen, .gamma = config_.learner.gamma});
 }
 
-std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> RainbowAgent::CreateStepDiagnosticsProvider(int64_t num_lanes) const
+std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> RainbowAgent::CreateStepDiagnosticsProvider(const AgentStepDiagnosticsRequest& request) const
 {
     // Rainbowの学習経路は報酬scalerを持たないので、診断も同じ無変換とする。
-    return anet::rl::dqn::CreateStepDiagnosticsProvider(config_.learner, num_lanes,
+    return anet::rl::dqn::CreateStepDiagnosticsProvider(config_.learner, request.num_lanes,
         [](const torch::Tensor& reward) { return reward; });
 }
 

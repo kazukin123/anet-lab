@@ -53,8 +53,18 @@ public:
 private:
     float value_;
 };
+struct TraceUiLifecycleState {
+    int suspend_calls = 0;
+    int resume_calls = 0;
+    int sync_calls = 0;
+    bool needs_sync = true;
+    std::weak_ptr<anet::rl::Actor> requested_actor;
+};
 class TraceUiDiagnosticsProvider final : public anet::rl::AgentStepDiagnosticsProvider {
 public:
+    explicit TraceUiDiagnosticsProvider(std::shared_ptr<TraceUiLifecycleState> lifecycle) : lifecycle_(std::move(lifecycle)) {}
+    void Suspend() override { ++lifecycle_->suspend_calls; }
+    bool Resume() override { ++lifecycle_->resume_calls; return lifecycle_->needs_sync; }
     anet::rl::AgentStepDiagnosticsResult Observe(const anet::rl::BatchExperience&) override
     {
         anet::rl::AgentStepDiagnosticsResult result;
@@ -67,20 +77,25 @@ public:
     void Reset() override { step_ = 0; }
 private:
     int step_ = 0;
+    std::shared_ptr<TraceUiLifecycleState> lifecycle_;
 };
 // 実際のEval step数を測るときも、NNや学習を起動せず一定の行動を返す。
 class TraceUiActor final : public anet::rl::Actor {
 public:
+    explicit TraceUiActor(std::shared_ptr<TraceUiLifecycleState> lifecycle) : lifecycle_(std::move(lifecycle)) {}
     std::shared_ptr<anet::rl::BatchActionInfo> MakeAction(
         const anet::rl::StepCounts&, const anet::rl::BatchState&) const override
     { return std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64)); }
-    void Sync() override {}
+    void Sync() override { ++lifecycle_->sync_calls; }
+private:
+    std::shared_ptr<TraceUiLifecycleState> lifecycle_;
 };
 class TraceUiAgent final : public anet::rl::Agent {
 public:
-    std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(int64_t) const override
-    { return std::make_unique<TraceUiDiagnosticsProvider>(); }
-    std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::ActorRequest&) const override { return std::make_shared<TraceUiActor>(); }
+    std::shared_ptr<TraceUiLifecycleState> lifecycle = std::make_shared<TraceUiLifecycleState>();
+    std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(const anet::rl::AgentStepDiagnosticsRequest& request) const override
+    { lifecycle->requested_actor = request.actor; return std::make_unique<TraceUiDiagnosticsProvider>(lifecycle); }
+    std::shared_ptr<anet::rl::Actor> CreateActor(const anet::rl::ActorRequest&) const override { return std::make_shared<TraceUiActor>(lifecycle); }
     std::shared_ptr<anet::rl::Learner> CreateLearner() override { return nullptr; }
     torch::Device GetDevice() const override { return torch::kCPU; }
     std::optional<float> GetScalar(const std::string&, int64_t = -1) const override { return std::nullopt; }
@@ -126,14 +141,16 @@ struct TraceUiFixture {
     EvalTracePanel* panel = nullptr;
     wxGrid* grid = nullptr;
     wxAuiToolBar* toolbar = nullptr;
-    explicit TraceUiFixture(anet::ConfigData config = {})
+    bool owns_metrics = true;
+    explicit TraceUiFixture(anet::ConfigData config = {}, bool lifecycle_test = false, bool initially_open = false)
+        : owns_metrics(!lifecycle_test)
     {
         frame.CreateStatusBar();
         // 実RunManagerの通知を使い、学習やゲームの進行は起動しない。
-        anet::MetricsLogger::Reset();
+        if (owns_metrics) anet::MetricsLogger::Reset();
         anet::MetricsLoggerConfig logger_config;
         logger_config.run_name_tmpl = "trace_ui_test";
-        anet::MetricsLogger::Init(std::make_unique<TraceUiMetricsBackend>(), logger_config,
+        if (owns_metrics) anet::MetricsLogger::Init(std::make_unique<TraceUiMetricsBackend>(), logger_config,
             TraceUiOutputDirectory() / "metrics");
         config.Set("env.class_id", "CartPoleEnv");
         config.Set("env.worker_type", "1");
@@ -150,9 +167,19 @@ struct TraceUiFixture {
         run = std::make_shared<anet::rl::RunManager>(config);
         runner = run->CreateEvalRunner("EvalPanel", "panel");
         eval = new EvalPanel(&frame, EvalPanelConfig{}, [] {});
-        eval->SetFps(14.5f);
+        if (lifecycle_test) eval->Initialize(run, runner);
+        eval->SetFps(lifecycle_test ? 0.0f : 14.5f);
+        if (lifecycle_test) {
+            auto state = std::dynamic_pointer_cast<TraceUiAgent>(run->GetAgent())->lifecycle;
+            state->needs_sync = true;
+            state->sync_calls = 0;
+        }
         panel = new EvalTracePanel(frame, manager, *eval, config);
         manager.AddPane(panel, wxAuiPaneInfo().CenterPane().Name("trace"));
+        if (lifecycle_test) {
+            manager.GetPane(panel).Show(initially_open);
+            if (initially_open) panel->SetActive(true);
+        }
         panel->Initialize(run, runner);
         manager.Update();
         for (auto* child : panel->GetChildren()) {
@@ -168,7 +195,7 @@ struct TraceUiFixture {
         delete eval;
         runner.reset();
         run.reset();
-        anet::MetricsLogger::Reset();
+        if (owns_metrics) anet::MetricsLogger::Reset();
     }
     void Add(float reward, bool done = false, bool truncated = false)
     {
@@ -1441,7 +1468,9 @@ int main(int argc, char** argv)
     bool starts_runner_app = false;
     for (int i = 1; i < arguments.Argc(); ++i) {
         const std::string_view argument(arguments.Argv()[i]);
-        starts_runner_app |= argument.find("[runner_close_drain]") != std::string_view::npos;
+        starts_runner_app |= argument.find("[runner_close_drain]") != std::string_view::npos
+            || argument.find("[prd127]") != std::string_view::npos
+            || argument.find("[prd127_ui_lifecycle]") != std::string_view::npos;
         starts_runner_app |= argument.find("eval_steps_menu") != std::string_view::npos
             || argument.find("prd105_ui_keys") != std::string_view::npos
             || argument.find("[prd109_") != std::string_view::npos
@@ -1466,4 +1495,63 @@ int main(int argc, char** argv)
     }
     wxEntryCleanup();
     return result;
+}
+
+TEST_CASE("Trace pane forwards suspension and requests one Actor synchronization", "[.][prd127][prd127_ui_lifecycle]")
+{
+    // SyncModelは実EvalPanelの公開初期化を通すため、View factoryを持つRunnerAppも起動する。
+    const auto directory = TraceUiOutputDirectory();
+    std::filesystem::create_directories(directory);
+    const auto config_path = directory / "prd127_lifecycle.txt";
+    {
+        std::ofstream config(config_path);
+        config << "env.class_id = CartPoleEnv\nenv.worker_type = 1\nenv.device = cpu\n"
+            "agent.class_id = TraceUiAgent\nagent.device = cpu\nrun.eval_device = cpu\n"
+            "run.seed = 1\nrun.train.num_envs = 1\nrun.train.runner_type = serial\n"
+            "run.eval.[panel].run_mode = eval\napp.eval_panel.eval_config_tag = panel\n"
+            "app.train_auto_start = false\napp.save_agent_on_close = false\napp.show_error_dialog = false\n"
+            "app.main_view = train\napp.train_panel.fps = 0\napp.eval_panel.fps = 0\napp.eval_panel.auto_start = false\n"
+            "backend.torch_num_threads = 1\napp.run_name = run_{t}_prd127_lifecycle\n"
+            "app.eval_trace_panel.columns.[1] = $runner exp_step label:step\n"
+            "app.runs_dir = " << directory.generic_string() << '\n';
+    }
+    auto executable = wxTheApp->argv[0].ToStdWstring();
+    auto config_arg = config_path.wstring();
+    wchar_t option[] = L"--config";
+    wchar_t* arguments[] = {executable.data(), option, config_arg.data()};
+    wxTheApp->argc = 3;
+    wxTheApp->argv.Init(3, arguments);
+    wxTheApp->SetExitOnFrameDelete(false);
+    struct AppCleanup {
+        ~AppCleanup() {
+            if (auto* frame = wxGetApp().GetMainFrame()) frame->Close(true);
+            wxTheApp->Yield(true);
+            wxTheApp->OnExit();
+        }
+    } cleanup;
+    REQUIRE(wxTheApp->OnInit());
+    REQUIRE(WaitForRunnerInitialization());
+    for (const bool initially_open : {false, true}) {
+        TraceUiFixture ui({}, true, initially_open);
+        const auto lifecycle = std::dynamic_pointer_cast<TraceUiAgent>(ui.run->GetAgent())->lifecycle;
+        REQUIRE(lifecycle->requested_actor.lock() == ui.runner->GetActor());
+        if (initially_open) {
+            // 保存済みlayoutが先にpaneを開いていても、最初の採点前に同期する。
+            CHECK(lifecycle->resume_calls == 1);
+            CHECK(lifecycle->sync_calls == 1);
+            continue;
+        }
+        CHECK(lifecycle->suspend_calls == 1);
+        CHECK(lifecycle->resume_calls == 0);
+        const int initial_syncs = lifecycle->sync_calls;
+        ui.panel->SetActive(true);
+        CHECK(lifecycle->resume_calls == 1);
+        CHECK(lifecycle->sync_calls == initial_syncs + 1);
+        ui.panel->SetActive(false);
+        CHECK(lifecycle->suspend_calls == 2);
+        lifecycle->needs_sync = false;
+        ui.panel->SetActive(true);
+        CHECK(lifecycle->resume_calls == 2);
+        CHECK(lifecycle->sync_calls == initial_syncs + 1);
+    }
 }
