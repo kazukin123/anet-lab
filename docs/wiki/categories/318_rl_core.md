@@ -70,7 +70,8 @@
 - 2026-11-12: step診断の部品（`AgentStepDiagnosticsProvider`）に、休ませる口（`Suspend`）と使い始める口（`Resume`。Actorの同期が要るかを返す）を足す仕様をグリルで決めた。基底の既定は、何もせず、偽を返す（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D20・§5.4・§6.1）。
 - 2026-11-12: Replay は報酬を成分ごとに記録し、成分ごとの割引率で収益を作る。成分の意味は持たない（出典: [ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、本文）。
 - 2026-11-12: 価値の分解のために、Replayが報酬を成分ごとに受け取り、n-stepの収益・抽選時のstepの報酬・初期優先度の見積もりの入力を成分ごとに作る契約を、グリルで決めた。1成分なら今と同じ値になる（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D8・§8.2）。
-- 2026-11-12: ExperienceSamplesのフィールドの並びを1つにする直しを含む、リファクタリング5件の仕様を、暫定で起票した（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§2.2・§5.2）。
+- 2026-11-12: ExperienceSamplesのフィールドの並びを1つにする直しを含む、リファクタリング5件の仕様を、暫定で起票した（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、冒頭の起票の行）。
+- 2026-11-13: ExperienceSamplesのフィールドの並びを1つにし、`To`をCPUとCUDAで1つの経路にして未定義のtensorをそのまま返し、効き目の無いstream guardを消す仕様をグリルで決めた（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D7〜D9・§6.1）。
 
 ## 選ばなかった形
 
@@ -112,6 +113,9 @@
 - 内的報酬という名前の2本目の報酬をReplayに足す形 — 不採用（却下）: 汎用のReplayに、特定のアルゴリズムの名前と意味が入る（出典: [ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、Considered Options）。
 - game overで切らない形のために、終端の観測からbootstrapする形 — 不採用: Replayはgame overの終端の観測を保存しておらず、次のエピソードの最初の観測からのbootstrapが、Replayを変えずに作れる（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§4・§5 D7・§5.1）。
 - 窓の収益を成分ごとに作る形 — 先送り: 窓の規則を使うのはskipだけで、価値の分解とskipの併用はERRORなので、今は使う構成が無い。成分が2つ以上のReplayに窓の規則を渡したらERRORにする。再開条件: 価値の分解とTempoRLの併用を作るとき（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D8・§5.1、[ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、Consequences）。
+- `ExperienceSamples::To`で、必須のフィールドが未定義なら止める形 — 不採用: どのフィールドが必須かは標本を使う側が決める（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D7・§5.1）。
+- `ExperienceSamples::To`の経路ごとの未定義の扱いを、引数で切り替えて保つ形 — 不採用: 片方だけ直した跡と読める食い違いを引数として残す（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D7・§5.1）。
+- `ExperienceSamples::To`のstream guardをCUDAのときだけ残す形 — 不採用: 今のdeviceの今のstreamを設定し直すだけで効き目が無い（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§2.2・§5 D8・§5.1）。
 
 ## 変えるときの条件
 
@@ -132,6 +136,7 @@
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、PRD103の検証資材でmetrics checksumを一致させる（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.7・§7の受入1）。
 - MakeActionOptionsを渡さないstepと行動選択は、nn_traceを作らないことのほかは今と同じ結果にし、決定的な設定の短いRunのmetrics checksumを変更の前後で一致させる（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§5.2・§7のA2・A11）。
 - 報酬の成分を足しても、終端、打ち切り、次観測、実際に進んだstep数、抽選の分布、item key、PERのcompletionとeviction統計のreadyの基準、PushとExtractのlock、indexの昇順を変えない。成分が1つのとき、記録・収益（窓の収益を含む）・標本・乱数の消費を今と同じに保ち、既存の断定を期待値を変えずに通す（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§8.2・§9.2の2）。
+- `ExperienceSamples`のフィールドの並びを変えるときは、CPUの経路（GridMaze・LunarLander）とCUDAの経路（Atari qbert・DropMerge）の両方の構成で、実装前に保存した実行体と全scalarの点を比べ、学習の速さを交互3巡以上で確かめる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D16・D18、§6.4）。
 
 ## 関係
 
@@ -198,11 +203,11 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261111-288879](../../management/issues/issue-20261111-288879.md) | 調査中 | 4.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md) | 未確認 | ExperienceSamples のフィールドの並びが To の 2 経路・ForEachTensor・ToString に分かれ、To の 2 経路で未定義の tensor の扱いが食い違っている |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 調査中 | 1.0 | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
-| [issue-20261111-288879](../../management/issues/issue-20261111-288879.md) | 未着手 | 4.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md) | 未確認 | ExperienceSamples のフィールドの並びが To の 2 経路・ForEachTensor・ToString に分かれ、To の 2 経路で未定義の tensor の扱いが食い違っている |
 | [issue-20261103-1beaf9](../../management/issues/issue-20261103-1beaf9.md) | 未着手 | 3.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
 | [issue-20261111-7cc67b](../../management/issues/issue-20261111-7cc67b.md) | 未着手 | 3.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | EvalRunner の 1 step が、多重定義 4 つ・-1 の特別な値・bool の引数で、パネルからの 1 step と評価 session の 1 step を切り替えている |
 | [issue-20261111-4a6b6f](../../management/issues/issue-20261111-4a6b6f.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | RunManager のコンストラクタが 277 行あり、評価の設定の解釈・名前の予約・構築・ログ・配線が 1 つの関数に並んでいる |

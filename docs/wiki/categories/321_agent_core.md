@@ -71,7 +71,7 @@
 - 2026-11-12: Learnerの診断指標の群の共通化を含む、リファクタリング5件の仕様を、暫定で起票した（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、冒頭の起票の行）。
 - 2026-11-13: Actor Qヒントを、価値の分解の有無に依らず常時5列（内的のHeadのQ_saとV_sの2列を足す）に広げると決めた。列の数をモードで変えず、使わない列を0にする判断は保つ（出典: [ADR 0075](../../adr/0075-actor-q-hint-five-columns-carry-per-head-values.md)、本文、[PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D12）。
 - 2026-11-13: 価値の分解に、内的のHeadが行動の選択をどれだけ変えたかを見る診断を足すと決めた。Actorが行動を選ぶたびに、不一致（合わせたQと外的のQで1位の行動が違うか）、譲った外的の価値、外的の差、内的の差（どちらも1位と2位のQの差）をlaneごとに作る。Evaluation Traceはlaneごとの値、学習のActorはlaneの平均、評価のActorはsessionの累積を、別の鍵で読む（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D26〜D28・§6.8・§8.4）。
-- 2026-11-13: Learnerの診断指標の6つの群が購読の解析・間隔・発火・要求を共通の型で持ち、probe用の乱数を購読の設定で受け取る仕様をグリルで決めた（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D13）。
+- 2026-11-13: Learnerの診断指標の6つの群が購読の解析・間隔・発火・要求を共通の型で持ち、値の読み出しはpackの形の群も含めて共通にする仕様をグリルで決めた。probe用の乱数5つは、使う側のLearnerが構築時に、Agentの基のseedから今と同じ名前で作って持つ（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D13）。
 
 ## 選ばなかった形
 
@@ -129,8 +129,14 @@
 - step診断の内的報酬の鍵を、読まれたときに計算する形 — 不採用: 値を返すだけに見える読み出しがNetworkを通し、読む時機で計算の時点がずれる（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D3・§4.1）。
 - RNDが有効なら、step診断が常に内的報酬を採点する形 — 不採用: 評価sessionの記録で`q_sa`だけを宣言したとき、全lane・全stepで使われない採点が走る（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4.1）。
 - RNDのNetworkに、forwardで乱数を引く層（dropout・droppath）や内部の統計を書き換える層（BatchNorm）がある構成を検出してWARNする形 — 不採用: 学習の採点も同じforwardで今も検出しておらず、出荷設定には無い（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D11・§4.1）。
-- 診断の指標の番号に名前を付けるだけにし、群の共通の型を作らない形 — 不採用: 群を足すたびに12か所前後を直す形が残る。共通の型に載らない群だけはこの形にする（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・§5.1・§8 U1）。
-- probe用の乱数の渡し口を、Learnerのコンストラクタと購読の設定の2つのまま残す形 — 不採用: 揃えても名前付きのseedなので乱数の列は変わらない（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D13・§5.1）。
+- 群の共通の型を作らず、診断の指標を名前で指す形にだけ直す形 — 不採用: 群を足すたびに12か所前後を直す形が残る。共通の型に載らない群だけはこの形にし、その群でも並びと参照が食い違えばビルドが止まる形にする（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・§5.1・§8 U1）。
+- 診断の指標に名前を付けるだけで、指標の並びとの食い違いをビルドで止めない形 — 不採用: 並びを変えたときに、名前が黙って別の指標を指す形が残る（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D19・§5.1）。
+- 診断の共通の読み出しを、間隔のgateを持つ6群だけにする形 — 不採用: PRD121が足す、毎更新に出すメトリクスが載らない（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・§5.1）。
+- probe用の乱数の渡し口を、Learnerのコンストラクタと購読の設定の2つのまま残す形 — 不採用: 課題24d885の事象が残る（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D13・§5.1）。
+- probe用の乱数を、購読されたときにAgentが作って渡す形 — 不採用: AgentとLearnerが同じ購読の判断を別々に書き、食い違うとRunの途中で止まるか黙って購読を捨てる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§2.5・§5 D13・§5.1）。
+- probe用の乱数を、Agentが構築時に作ってLearnerへ渡す形 — 不採用: 使うのはLearnerだけで、使う側が作って持つほうが単純（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D13・§5.1）。
+- probe用の乱数を、Learnerが購読されたときに群の型の中で作る形 — 不採用: 購読を設定し直すと乱数の列が頭に戻る置き場になる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D13・§5.1）。
+- probe用の乱数を、Learner自身のseedから作る形 — 不採用: 同じseedでもprobeの診断の値が変わり、診断を作り直す段の前後比較を一致で確かめられない。切り替えるなら別の段で、変わるのがprobeのtagだけだと確かめる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D13・§5.1）。
 - 診断の群の共通の型をAgentの共通基盤に置き、ImageClsAgentも載せる形 — 範囲外: リファクタリング5件の外で、前後比較の組がImageClsを通らない。再開条件: ImageClsに診断の群を足すとき（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§1.3・§5 D22）。
 - Learnerの購読を「開始前の宣言」と「呼び出しごとの要求」に分ける形 — 範囲外: 購読の口を変える別の関心。再開条件: 購読の口を変える要求が出たとき（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§1.3・§5.1）。
 
@@ -162,6 +168,7 @@
 - DefaultDQN系とImageClsのnn_traceの鍵と値を、captureへの統合の前後で変えない。TempoRLのskip側のforwardと、Learnerがtargetの方策を呼ぶSelectActionからは取り出さない（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§3.1 G2・§5.2）。
 - 推定器の読むだけの採点（`EstimateWithoutUpdate`）を挟んでも、`Estimate`・`Learn`の戻り値と`Diagnostics`の値が変わらないことを、whitenの累積・直近重みと`variance_feedback`の3構成で確かめる。どの方式でも、読むだけの採点の倍率が、直後にその観測1件を`Estimate`へ渡したときの倍率と一致する。写しを採点しても元の推定器は変わらない（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§5.1・§7の1・2・4）。
 - 診断の群を共通の型へ寄せるときは、メトリクスの名前とWARNの文言・回数を変えず、診断の6群をすべて購読する組を含む前後比較で全scalarの点を一致させ、更新の速さを交互3巡以上で確かめる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D16・D18、§6.4）。
+- probe用の乱数の作り方を変えるときは、Agentの基のseedと乱数の名前を変えず、購読を設定し直しても作り直さない。名前付きのseedは作る順に依らず、probeは学習の乱数に触れないので、この2つを守れば診断の値も学習の値も変わらない（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§2.5・§5 D13）。
 
 ## 関係
 
@@ -272,8 +279,9 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.0 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD957](../../memo/957_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261108-227b05](../../management/issues/issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 未確認 | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
+| [issue-20261113-6f954f](../../management/issues/issue-20261113-6f954f.md) | 未着手 | 0.6 | [issue-20261111-24d885](../../management/issues/issue-20261111-24d885.md) | 成果物 | PRD | 321_agent_core, 324_dqn | アルゴリズム | リファクタリング | — | 未確認 | Learner の診断の購読が、Run で使う診断の宣言と、呼び出しごとの要求を 1 つの口で兼ねている |
 
-着手できる 39 / 待ち 7 / 保留 0 / 次版 0 / 解決 0
+着手できる 39 / 待ち 8 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) — Evaluation Traceで内的報酬（RNDの新しさ）を見られない
