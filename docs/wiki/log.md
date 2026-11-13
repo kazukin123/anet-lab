@@ -833,3 +833,4 @@
 2026-11-13 writeback docs/adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md blob:789dcb7ff4034deaec7ea75da2eda65365621981 → なし（冒頭に後発決定の注記を足しただけで、ページの主張は変わらない。合成 Head の採用は ADR 0074 の行で書いた）
 2026-11-13 writeback docs/adr/0065-scheduled-gamma-recomputes-return-at-sample.md blob:14cc79fc2beedb6c540e1466986571447d02a076 → なし（冒頭に後発決定の注記を足しただけで、ページの主張は変わらない。成分ごとに規則を当てる点は ADR 0073 の行で書いた）
 2026-11-13 writeback docs/memo/121_extrinsic_intrinsic_value_decomposition_10prd.md blob:8179b48eda4fbc4b22da4d63bcb924f0ee6c99fb → なし（§7.3 の課題の関係の表に、観測の正規化の課題を 1 行足しただけで、ページの主張は変わらない）
+2026-11-13 writeback docs/memo/121_extrinsic_intrinsic_value_decomposition_10prd.md blob:2684dbb76f7c9cd2a7145a25020432ea07848984 → docs/wiki/categories/324_dqn.md、docs/wiki/categories/321_agent_core.md（改訂 2 回目。成立の経緯に、行動の選択への効き方の診断（D26〜D28）を足した。324 の選ばなかった形に、差の比、差に占める内的の割合、同じ鍵で返す形、Learner のバッチで数える形、行動間の差を広げる学習則を足した）

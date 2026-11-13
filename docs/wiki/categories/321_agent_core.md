@@ -68,8 +68,10 @@
 - 2026-11-12: Actorがnn_traceを要求された呼び出しだけcaptureで取り出し、SelectAction系がcallbackの代わりにcaptureを受ける仕様をグリルで決めた（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4 D7・D9・D11・D12）。
 - 2026-11-12: 一生の新しさの推定器に、重みも統計も変えずに採点する口（`EstimateWithoutUpdate`）、写しを作る口（`Clone`）、laneごとの診断値の鍵の一覧を足し、DQNのstep診断の部品が、列の鍵に内的報酬の鍵があるときだけ採点する仕様をグリルで決めた（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D1・D3・D4・§6.1）。
 - 2026-11-12: DQNの学習器が、外的のHeadと内的のHeadのそれぞれに目標値・損失を作り、優先度をHeadごとの誤差の重み付きの和にする仕様を、グリルで決めた。合わせたQはDQN側の1つの関数が作り、損失ごとに勾配のclipとAdamの状態を分けるモードを持つ（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D4・D5・D12・D24・D25・§6）。
-- 2026-11-12: Learnerの診断指標の群の共通化を含む、リファクタリング5件の仕様を、暫定で起票した（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§2.5・§5.2）。
+- 2026-11-12: Learnerの診断指標の群の共通化を含む、リファクタリング5件の仕様を、暫定で起票した（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、冒頭の起票の行）。
 - 2026-11-13: Actor Qヒントを、価値の分解の有無に依らず常時5列（内的のHeadのQ_saとV_sの2列を足す）に広げると決めた。列の数をモードで変えず、使わない列を0にする判断は保つ（出典: [ADR 0075](../../adr/0075-actor-q-hint-five-columns-carry-per-head-values.md)、本文、[PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D12）。
+- 2026-11-13: 価値の分解に、内的のHeadが行動の選択をどれだけ変えたかを見る診断を足すと決めた。Actorが行動を選ぶたびに、不一致（合わせたQと外的のQで1位の行動が違うか）、譲った外的の価値、外的の差、内的の差（どちらも1位と2位のQの差）をlaneごとに作る。Evaluation Traceはlaneごとの値、学習のActorはlaneの平均、評価のActorはsessionの累積を、別の鍵で読む（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D26〜D28・§6.8・§8.4）。
+- 2026-11-13: Learnerの診断指標の6つの群が購読の解析・間隔・発火・要求を共通の型で持ち、probe用の乱数を購読の設定で受け取る仕様をグリルで決めた（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D13）。
 
 ## 選ばなかった形
 
@@ -127,6 +129,10 @@
 - step診断の内的報酬の鍵を、読まれたときに計算する形 — 不採用: 値を返すだけに見える読み出しがNetworkを通し、読む時機で計算の時点がずれる（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D3・§4.1）。
 - RNDが有効なら、step診断が常に内的報酬を採点する形 — 不採用: 評価sessionの記録で`q_sa`だけを宣言したとき、全lane・全stepで使われない採点が走る（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4.1）。
 - RNDのNetworkに、forwardで乱数を引く層（dropout・droppath）や内部の統計を書き換える層（BatchNorm）がある構成を検出してWARNする形 — 不採用: 学習の採点も同じforwardで今も検出しておらず、出荷設定には無い（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D11・§4.1）。
+- 診断の指標の番号に名前を付けるだけにし、群の共通の型を作らない形 — 不採用: 群を足すたびに12か所前後を直す形が残る。共通の型に載らない群だけはこの形にする（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・§5.1・§8 U1）。
+- probe用の乱数の渡し口を、Learnerのコンストラクタと購読の設定の2つのまま残す形 — 不採用: 揃えても名前付きのseedなので乱数の列は変わらない（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D13・§5.1）。
+- 診断の群の共通の型をAgentの共通基盤に置き、ImageClsAgentも載せる形 — 範囲外: リファクタリング5件の外で、前後比較の組がImageClsを通らない。再開条件: ImageClsに診断の群を足すとき（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§1.3・§5 D22）。
+- Learnerの購読を「開始前の宣言」と「呼び出しごとの要求」に分ける形 — 範囲外: 購読の口を変える別の関心。再開条件: 購読の口を変える要求が出たとき（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§1.3・§5.1）。
 
 ## 変えるときの条件
 
@@ -155,6 +161,7 @@
 - 学習器の更新の速さは、Releaseで着手前に保存した実行体と直した後の実行体を交互に3巡以上流し、更新1回あたりの実時間の中央値が直す前のRunの最大値を超えないことで確かめる（出典: [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md)、§4 D16・§6 A9）。
 - DefaultDQN系とImageClsのnn_traceの鍵と値を、captureへの統合の前後で変えない。TempoRLのskip側のforwardと、Learnerがtargetの方策を呼ぶSelectActionからは取り出さない（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§3.1 G2・§5.2）。
 - 推定器の読むだけの採点（`EstimateWithoutUpdate`）を挟んでも、`Estimate`・`Learn`の戻り値と`Diagnostics`の値が変わらないことを、whitenの累積・直近重みと`variance_feedback`の3構成で確かめる。どの方式でも、読むだけの採点の倍率が、直後にその観測1件を`Estimate`へ渡したときの倍率と一致する。写しを採点しても元の推定器は変わらない（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§5.1・§7の1・2・4）。
+- 診断の群を共通の型へ寄せるときは、メトリクスの名前とWARNの文言・回数を変えず、診断の6群をすべて購読する組を含む前後比較で全scalarの点を一致させ、更新の速さを交互3巡以上で確かめる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D16・D18、§6.4）。
 
 ## 関係
 
@@ -210,6 +217,7 @@
 - [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) — RND の内的報酬の尺度（誤差の統計の取り方・warm-up・平均を引かない形・終端の mask） PRD
 - [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md) — PRD124: anet-core-test の開始時に MKLDNN を切り、テストの順序で oneDNN の assert が出ないようにする
 - [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md) — PRD125: DQN の学習器の 1 回の更新の進行と Munchausen の target を 1 か所に寄せる
+- [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
 
 ## 課題
 
@@ -218,11 +226,12 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261111-24d885](../../management/issues/issue-20261111-24d885.md) | 調査中 | 3.2 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md) | 未確認 | 診断指標の群を 1 つ足すたびに、キー配列・添字の解析・購読の間隔・要求の旗・読み出しの同じ形を 12 か所前後へ足し、添字も数値で直書きしている |
 | [issue-20261111-77ac3c](../../management/issues/issue-20261111-77ac3c.md) | 対応中 | 3.0 | — | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 残件有り | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
+| [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 調査中 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD944](../../memo/944_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
 | [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 調査中 | 1.0 | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
 | [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
-| [issue-20261111-24d885](../../management/issues/issue-20261111-24d885.md) | 未着手 | 3.2 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md) | 未確認 | 診断指標の群を 1 つ足すたびに、キー配列・添字の解析・購読の間隔・要求の旗・読み出しの同じ形を 12 か所前後へ足し、添字も数値で直書きしている |
 | [issue-20261111-585e60](../../management/issues/issue-20261111-585e60.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
 | [issue-20261111-17fea4](../../management/issues/issue-20261111-17fea4.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 324_dqn, 321_agent_core | アルゴリズム | リファクタリング | — | 未確認 | 方策の種類（policy_type）と分布の表し方（quantile_mode）を文字列のまま持ち回り、数字の別名の受け付け方が関数ごとに違う |
 | [issue-20261111-52ed74](../../management/issues/issue-20261111-52ed74.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 315_nn, 321_agent_core | アルゴリズム | リファクタリング | — | 未確認 | 可塑性指標の一覧と重みノルムのキーの並びを、nn・DQN・ImageCls の 5〜6 か所で手で合わせている |
@@ -235,7 +244,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-72f807](../../management/issues/issue-20261103-72f807.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | 不具合 | — | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD945](../../memo/945_outside_core_extension_layout_10prd.md) | 残件有り | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-a39330](../../management/issues/issue-20261103-a39330.md) | 未着手 | 2.0 | — | 成果物 | PRD | 321_agent_core, 324_dqn | アルゴリズム | 機能追加 | [PRD941](../../memo/941_iqn_first_priority_quantile_pair_10prd.md) | 残件有り | PRD 999: IQN初回Learner priorityのquantile-pair方式 |
-| [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 未着手 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD944](../../memo/944_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
 | [issue-20261111-0ddffa](../../management/issues/issue-20261111-0ddffa.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | — | 未確認 | RndNoveltyEstimator に 2 つの統計方式が同居して分岐が 5 つの関数の 9 か所に散り、Estimate と Learn も前半の約 20 行を同じ形で書いている |
 | [issue-20261111-54c7e1](../../management/issues/issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
@@ -266,9 +274,9 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
 着手できる 39 / 待ち 7 / 保留 0 / 次版 0 / 解決 0
+- 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) — Evaluation Traceで内的報酬（RNDの新しさ）を見られない
-- 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
 - 関連する課題: [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) — 外的と内的の価値の分解（DQN 系の Q を外的報酬と内的報酬の 2 つの Head で学ぶ）
 <!-- issues:end -->

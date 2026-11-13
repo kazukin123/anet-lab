@@ -6,6 +6,7 @@
 
 > 2026-11-12 改訂: グリルを行って暫定の印を外した。起票時の未決表の 21 行をすべて決め直し、確定事項（§5）へ移した（対応は §5.2）。節の番号は付け直した（起票の行にある節の番号は当時のもの）。起票のあとに変わった前提を反映した。変わった前提は、β と Munchausen の切り分けが済んだこと（§2.1）、PRD123 で既定の RND の中身が変わったこと、PRD125 で 3 つの学習器の更新が 1 本になったこと、PRD127 が Evaluation Trace の内的報酬の列を持つこと、終端の遷移で Replay が返す次観測が次のエピソードの最初の観測であること（§4）である。起票時の既定から変えた主な点は、内的報酬を割引収益の標準偏差で割る正規化を範囲に入れたこと（D9）、Munchausen と併用できるようにしたこと（D10）、損失の重みと優先度の重みの設定キーを足したこと（D4・D12）、外的の Head の bootstrap のモードを足したこと（D5）、終端で切らない形を近似ではなく次のエピソードの最初の観測からの bootstrap にしたこと（D7）、効果を確かめる Run の組み立てを Atari の枠へ移したこと（D19）である。本文の「葉」を「設定キー」に改めた。
 > 2026-11-13 改訂: 起草のあと、別モデル（Opus）の検討を受けた。結論への反対 1 件と、前提が変わった 2 件を開発者に聞いて決め直し、理由や前提の不足は本文を補った。変えた点は次のとおり。(1) 分解が有効のとき、Network は `q`・`q_dist` を出さず、DQN 側の 1 つの関数が合わせる形にした（D24。「`q` は外的のまま」を取り下げた）。(2) 損失ごとに勾配の clip と Adam の状態を分けるモードを足した（D25。skip の既存の経路を流用できると分かり、先送りをやめた）。(3) 報酬スケーラの状態を、外的報酬用も内的報酬用も checkpoint に保存する形にした（D16。内的報酬用だけ保存する形をやめた）。(4) 細部として、割引収益の種類と自動の倍率の同時指定を ERROR にし（D9）、窓の収益の成分ごとの対応を先送りにし（D8）、Evaluation Trace の鍵の名前を改め、分解が有効のときの既存のメトリクスの値を定めた（D20）。Actor の hint を、モードに依らない 5 列にし（D12、ADR 0075）、足すメトリクスの tag を、既定では選ばれない組に置いた（D19・D20）。(5) 事実と文言として、done と打ち切りが同時に真の遷移の扱いを足し（D7）、「game over」を「終端（done）」に改め、TBO のとき合わせた値を h 空間で渡すと定め（D14）、収益を Learner が作る形を退けた理由を書き直した（D8、ADR 0073）。
+> 2026-11-13 改訂（2 回目）: 確定のあと、開発者の求めで開き直し、内的の Head が行動の選択をどれだけ変えたかを見る診断を足した。行動は Q_外 ＋ β·Q_内 で選ぶので、β の釣り合いは分解しても行動の選択に残るが、それまでの診断（選んだ行動の値に占める内的の割合）では、選択への効き方を読めなかったためである。起草のあと、別モデル（Opus）の検討を受け、指標の組を開発者に聞き直した（差に占める内的の割合をやめ、Head ごとの行動間の差を 2 つ足した）。lane ごとの値と lane の平均を別の鍵にし、値を実空間で取り、評価の名前と tag の名前の決まりを足した。足したのは、ゴール G8、非ゴール 2 行（§1.4）、機構の 1 行（§1.5）、事例（§2.5）、用語 1 行（§3）、現状 3 項目と地図の 1 行（§4）、確定事項 D26〜D28、選ばなかった形 7 行（§5.1）、定義（§6.8）と §6.7・§8.3 の 1 項目ずつ、指標 6〜9（§8.4）、クラス一覧（dqn::Actor の行の責務と、足した DQNActionInfo の行）、移行対象（§8.7 の検索語、テスト、設定、設計文書）、読み方の材料（§9.1）、受入 22・23 と人が確かめる項（§9.2）である。D1〜D25 の決定は変えていない。D20 の「5 種」を「1〜5」に改め、D22 の費用の列挙に、足した診断の 2 項目（Actor の step ごとの診断、評価の Actor の session の足し込み）と、依存の D26・D27 を加えた。
 
 ## 1. 目的と問題
 
@@ -26,6 +27,7 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 - **G5**: 2 つの Head の Q を、診断（Evaluation Trace の列とメトリクス）で別々に見られる。Actor ごとに、行動を選ぶときの β を変えられる（評価で β=0 にできる）。
 - **G6**: [924](924_intrinsic_reward_novelty_10prd.md)（NGU 型と方策の組）が、この分解の上に方策の番号の入力（UVFA）を重ねられる形にする（§7）。
 - **G7**: 効果を §1.3 の 2 つの仮説で確かめられる。
+- **G8**: 価値の分解が有効のとき、内的の Head が行動の選択をどれだけ変えたかを、学習の Actor・評価の Actor・Evaluation Trace で読める。仮説 A の読みに使える（§9.1）。
 
 ### 1.3 仮説・比べ方・終わり方
 
@@ -51,6 +53,8 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | 観測の正規化の統計を checkpoint に保存すること | 報酬スケーラの状態の保存（D16）と同じ場所の未対応だが、本 PRD の機構が要るのは報酬スケーラだけである。別の関心 | 制約ではない |
 | Atari.txt の Run プロファイルと bat の群の組み立て | Run の条件に効く値は、実験の段取りと一緒に Atari の枠で決める（D19） | 制約ではない |
 | RainbowAgent への対応 | RainbowAgent は内的報酬を持たない（§4） | 制約ではない |
+| 行動の選び方を変えること（行動間の差を広げる学習則、Head ごとに差の大きさをそろえる正規化） | 別の関心。足す診断（D26）の結果を見てから考える。作る条件は §5.1 | 制約ではない |
+| QValuePanel に Head ごとの Q を出すこと | 別の関心（Runner の画面）。Head ごとの値と、足す診断は、Evaluation Trace の列で読める（D20、D27） | 制約ではない |
 
 ### 1.5 機構とゴールの対応
 
@@ -67,6 +71,7 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | 外的の Head の bootstrap のモード | G5・G6。内的報酬を使わない点数だけの方策を、924 を待たずに評価できる |
 | Actor ごとの行動の β | G5、問題 3 |
 | Head ごとの診断（Trace の列、メトリクス） | G5、問題 3 |
+| 行動の選択への効き方の診断（不一致、譲った外的の価値、外的の差、内的の差） | G8、問題 1、仮説 A。β の釣り合いが、学習ではなく行動の選択にどう効いたかを読む（D26） |
 
 ## 2. 背景
 
@@ -126,6 +131,15 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | Agent57 の公開の再実装（[deep_rl_zoo](https://github.com/michaelnny/deep_rl_zoo) の `agent57/agent.py`。DeepMind の実装ではない） | Head ごとに優先度を作り、0.8 × 外的 ＋ 0.2 × 内的 で足す。損失は単純な和 |
 | anet の skip | 主の誤差の絶対値 ＋ λ × skip の誤差の絶対値。既定の λ は 0（`Learner::CombinePriorityErrors`） |
 
+### 2.5 行動間の差と、選ぶ行動の不一致の事例（2026-11-13 に確認）
+
+| 事例 | 中身 |
+|---|---|
+| Bellemare ら（AAAI 2016、[arXiv 1512.04860](https://arxiv.org/abs/1512.04860)） | 行動間の差（action gap）を、最善の行動と次善の行動の価値の差で定義する。差が大きいほど、近似の誤差で greedy の行動が変わりにくい |
+| anet の `q_gap` | Learner が、学習のバッチで、1 位と 2 位の行動の Q の差の平均を出す |
+| anet の `iqn_uqe_full_q_argmax_disagreement` | 方策が、行動を選ぶたびに、2 つのスコア（UQE のスコアと full Q）で 1 位の行動が違う割合を出す |
+| 外的と内的に分けた Head で、選ぶ行動が違う割合を測った事例 | 検索 2 回では見つからなかった（無いと確かめたわけではない） |
+
 ## 3. 用語
 
 | 語 | 意味 |
@@ -136,8 +150,9 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | 合わせた Q | Q_外 ＋ β·Q_内。行動の選択と bootstrap の行動の選択に使う。β は使う側（Actor・Learner）が持つ |
 | 報酬の成分 | Replay が 1 step ごとに別々に記録する報酬の並び。Replay の汎用の語として使い、内的報酬の意味を持たせない |
 | 終端（done） | Env が done を返した遷移。game over のときのほか、命を失うと done になる構成（`episodic_life`）では、命を失ったときも当たる。打ち切り（truncated）は含まない |
+| 行動間の差 | ある局面での、1 位の行動と 2 位の行動の Q の差（§2.5） |
 
-既存の語では言い換えられない。「価値ストリーム」は Dueling の V の流れに限った語で、報酬の種類で分けた出力を表さない。「報酬スケーラ」は報酬の大きさを変える部品で、報酬を複数の並びで持つことを表さない。「価値の分解」と「報酬の成分」を [CONTEXT.md](../../CONTEXT.md) に足す（D21）。
+既存の語では言い換えられない。「価値ストリーム」は Dueling の V の流れに限った語で、報酬の種類で分けた出力を表さない。「報酬スケーラ」は報酬の大きさを変える部品で、報酬を複数の並びで持つことを表さない。「価値の分解」と「報酬の成分」を [CONTEXT.md](../../CONTEXT.md) に足す（D21）。「行動間の差」は指標の定義に使う語で、用語集には足さない。
 
 ## 4. 現状（2026-11-12〜13 にコードで確認）
 
@@ -158,6 +173,9 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 - **報酬スケーラ**: 定数倍の種類と、1 step の報酬の標準偏差で割る動的な種類がある（[scaler_impl.hpp:182-215](../../core/anet-core/src/scaler_impl.hpp)）。lane ごとの割引和は持たない。統計を更新せずに変換する口がある（[scaler.hpp:89](../../core/anet-core/include/anet/scaler.hpp)）。構築のとき、step 0 の割引率を受け取る。自動の倍率（`use_auto_post_scale`）は、目標の Q の標準偏差に (1 − γ) を掛けた値である（[scaler_impl.cpp:884-902](../../core/anet-core/src/scaler_impl.cpp)）。使っているのは外的報酬だけである。
 - **報酬スケーラの状態と checkpoint**: 報酬スケーラの状態と、観測の正規化の統計は、checkpoint に保存されていない（`DefaultDQNAgent::Save` に未対応の印がある）。動的な報酬スケーラを使う構成では、checkpoint 引き継ぎのたびに統計が 0 から始まる。解決済みの設定の基準（`core/anet-core/testdata/prd072/baseline/`）では、動的な種類を使うのは LunarLander・GridMaze・CartPole の既定で、Atari と DropMerge は定数の倍率である。
 - **Trace**: 評価の Trace の `q_sa`・`state_value` の列は、Agent の step の診断から読む（[common.txt:176-177](../../apps/runner/config/common.txt)、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)・[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)）。1 step の内的報酬の列は [127](127_eval_trace_intrinsic_reward_columns_10prd.md) が足す。127 は、`intrinsic.` で始まる鍵を、RND の推定器の写しを使う経路で計算する（127 の D3〜D5）。
+- **方策の診断と、行動の情報**: 方策は、行動を選ぶのに使った forward の結果から診断を作り、行動の情報に載せる。追加の forward はしない。値は Actor と同じ device に置き、読むときだけ CPU へ移す（[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の `UQEActionPolicy::SelectAction`）。購読の有無に依らず、毎 step 作る。行動の情報の鍵には、lane の平均を返すもの（`skip_decision_rate`・`iqn_uqe_full_q_argmax_disagreement` など。lane の指定を使わない）と、lane ごとの値を返すもの（`skip_decision`・`skip_length`。lane の指定が要り、範囲の外なら ERROR）がある。学習の Actor のメトリクスは、前者を `@train $action_info` で読む。Evaluation Trace は、行ごとに lane を指定して読むので（[metrics.cpp](../../core/anet-core/src/metrics.cpp) の、Trace の行を作る処理）、列にするのは後者である（[Atari.txt](../../apps/runner/config/Atari.txt) の `run.@skip` の列）。評価の lane が 2 つ以上の構成がある（[Atari.txt](../../apps/runner/config/Atari.txt) の `eval_batch_size`）。
+- **評価の Actor の指標**: 評価の Actor の値は、Actor が session のあいだ足し込み、session の終わりに `$eval.[<名前>] $actor @session_end` で読む（skip の `skip_session_decision_rate`。[103](done/103_temporl_reference_alignment_10prd.md) D8）。足し込みは Actor と同じ device で行い、session の始まりで 0 に戻す（`Actor::ResetSkipSession`）。数えた数が 0 の session で読むと、NaN を返す。評価の名前は、`[eval]`・`[eval_target]`・`[eval_panel]` がどの Env にもあり（[common.txt](../../apps/runner/config/common.txt)）、`[greedy]` などは Atari の設定だけにある。
+- **行動間の差**: Learner は、行動が 2 つ以上のとき、学習のバッチで 1 位と 2 位の Q の差を `q_gap` として出す。Actor の側に、行動間の差を出す鍵は無い。
 
 **触る既存部品と、実装の地図に書かれた選ばなかった形・変えるときの条件**
 
@@ -170,10 +188,11 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | 成立の経緯: 「Actor Qヒントを3列へ拡張し、近似Actor初期優先度をMunchausenターゲットと同型にする」（324。出典 ADR 0036） | 列の数をモードで変えない判断を保ち、列を 5 つに広げる（D12）。ADR 0036 の「常時 3 列」が改まるので、ADR 0075 を起こし、ADR 0036 の先頭に注記を足す（D21） |
 | 変えるときの条件: 「スキップが無効のとき、forward の回数・順序、RNG の消費、loss、優先度、checkpoint の形を今と同一に保ち、metrics checksum の一致で確かめる」（324。出典 098 §5.9・§7） | 価値の分解が無効のときも同じ形で確かめる（D17、§9.2 の 1） |
 | 変えるときの条件: 「slot に 1 step の記録を足しても、sampling 分布・item key・PER の completion と eviction 統計の ready 基準・Push と Extract の lock・index の昇順を変えない」（318。出典 098） | 報酬の成分を足すときも守る（D8、§9.2 の 2） |
+| 「評価側の skip 指標を評価 slot の action_info の step 値で取る形 — 不採用」（324。出典 103 §4 D8） | 評価の step の軸に載り、学習の進みと並べられない、という理由。評価の Actor の診断は、session の累積を終わりに読む形にする（D27） |
 
 ## 5. 確定事項
 
-2026-11-12 のグリルと、2026-11-13 の別モデルの検討のあとの質疑で決めた。D2〜D5・D9〜D13・D16・D18・D19・D24・D25 は問いへの答え、D1・D6〜D8・D14・D17・D23 は規約・現行コード・ほかの決定から決まるもの、D15・D20〜D22 は推奨の既定を採った細部である。D12 のうち hint の列の数は、ADR 0036 の判断から決まるものである。設定キーは、どれも `DefaultDQNAgent` の下である。
+2026-11-12 のグリルと、2026-11-13 の別モデルの検討のあとの質疑で決めた。D2〜D5・D9〜D13・D16・D18・D19・D24・D25 は問いへの答え、D1・D6〜D8・D14・D17・D23 は規約・現行コード・ほかの決定から決まるもの、D15・D20〜D22 は推奨の既定を採った細部である。D12 のうち hint の列の数は、ADR 0036 の判断から決まるものである。D26〜D28 は、確定のあとの 2026-11-13 の改訂（2 回目）で足した。D26・D27 は問いへの答え、D28 は推奨の既定を採った細部である。D26 の指標の組と、D27 の鍵の分け方は、別モデルの検討のあとに決め直した。設定キーは、どれも `DefaultDQNAgent` の下である。
 
 | # | 決定 | 理由と依存 |
 |---|---|---|
@@ -196,12 +215,15 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | D17 | **無効のときの同一性。** `intrinsic.value_mode` と報酬スケーラの新しい設定キーが既定のとき、forward の回数と順、乱数の消費、loss、優先度を今と同じに保つ。checkpoint の形は、状態を持つ報酬スケーラを使わない構成では今と同じに保つ。記録されるメトリクスの tag も変えない（足す tag は、既定では選ばれない組に置く。D20）。Actor の hint を使う構成では、hint が 5 列になるが（D12）、足した 2 列は 0 で、初期優先度の値は今と同じである。実装前に保存した実行体と、同 seed・決定的モードの短い Run の metrics checksum を比べて確かめる | 地図の「変えるときの条件」（§4）。比較の相手は、実装前に保存した実行体にする（[324 DQN](../wiki/categories/324_dqn.md) の PRD084 の条件）。checkpoint の形の条件を狭めるのは、D16 で動的な報酬スケーラの状態を保存するため。hint の列が増えても初期優先度の値を同じに保つ形は、ADR 0036 が Munchausen 無効のときに置いた条件と同じである。依存: D1、D8、D9、D12、D16、D20 |
 | D18 | **順序。** 本 PRD の実装は、§7.3 に挙げるリファクタリングの課題 5 件を片づけたあとに行う。5 件は本 PRD の範囲に取り込まず、[128](128_dqn_agent_refactor_bundle_10prd.md) が扱う | 開発者の選択。5 件は、本 PRD が変更を足す場所（取り込み、標本、Head の選択、設定の読み取り、診断の群）の重複や散らばりである。先に片づけると、本 PRD の変更が 1 か所ずつで済む。取り込まないのは、機能の追加と挙動を変えない直しを 1 本に混ぜると、前後の比較で差が出たときに原因を分けにくいため（PRD125 と同じ進め方）。依存: なし |
 | D19 | **効果の確かめの置き場。** Atari.txt の Run プロファイルと bat の群の組み立ては、本 PRD の範囲に入れず、Atari の枠で実験の段取りと一緒に決める。本 PRD が足す設定は、`agent.txt` の既定の設定キーと、`metrics_scalar.txt` のメトリクスの組（既定では選ばれない。D20）だけにする。比較の基準は、PRD123 の新しい RND の条件で取り直す。実装の受入は正しさの項目だけにし（§9.2）、Run の結果は Atari の枠で実験記録に書く | 開発者の選択。Atari.txt は Run の開始ごとに読まれるので、Run の条件に効く値は、流す直前に、そのときの基準の Run と合わせて決める。基準の取り直しは [123](123_rnd_intrinsic_reward_scale_10prd.md) D15 による（b001 は PRD123 より前の中身の Run である）。依存: D18 |
-| D20 | **診断。** Evaluation Trace の `$agent_step` に、`extrinsic_q_sa`・`intrinsic_q_sa`・`extrinsic_state_value`・`intrinsic_state_value` の鍵を足す。今の `q_sa`・`state_value` は、その Actor の β で合わせた値を出す。既定の列には足さない。1 step の内的報酬の列は 127 が持ち、本 PRD は足さない。分解が有効のとき、今ある学習のメトリクス（`q_sa`・`max_q` など）は合わせた Q の値を出し、RND の診断の `bonus_*` は「β × 内的報酬用の報酬スケーラを通した値」を出す。メトリクスは §8.4 の 5 種を足す。tag の定義は、`metrics_scalar.txt` の組 `metrics.scalar.@value_decomposition` に置き、どの Run プロファイルの連鎖にも足さない | G5。鍵は Network の出力の鍵（`extrinsic_q`・`intrinsic_q`）と同じ付け方にする（D15）。今ある値は、今の意味を保つ。学習のメトリクスは行動に使う Q、`bonus_*` は学習に入る内的報酬の大きさなので、分解の有無をまたいで比べられる。足すメトリクスは、損失の重み（D4）と clip の共有（D2）が効いているかを学習中に読むためのものである。tag を組に置くのは、skip・Munchausen・NoisyNet の診断と同じ置き方（`metrics.scalar.@skip` など）で、使う Run が `metrics.scalar.$` の連鎖に足すまで、記録される tag が変わらないためである。RND の tag のように Env ごとの Run プロファイルへ書かないのは、価値の分解を使う Run プロファイルを本 PRD が作らないため（D19）。依存: D2、D4、D9、D13、D19、D24 |
+| D20 | **診断。** Evaluation Trace の `$agent_step` に、`extrinsic_q_sa`・`intrinsic_q_sa`・`extrinsic_state_value`・`intrinsic_state_value` の鍵を足す。今の `q_sa`・`state_value` は、その Actor の β で合わせた値を出す。既定の列には足さない。1 step の内的報酬の列は 127 が持ち、本 PRD は足さない。分解が有効のとき、今ある学習のメトリクス（`q_sa`・`max_q` など）は合わせた Q の値を出し、RND の診断の `bonus_*` は「β × 内的報酬用の報酬スケーラを通した値」を出す。メトリクスは §8.4 の 1〜5 を足す。tag の定義は、`metrics_scalar.txt` の組 `metrics.scalar.@value_decomposition` に置き、どの Run プロファイルの連鎖にも足さない | G5。鍵は Network の出力の鍵（`extrinsic_q`・`intrinsic_q`）と同じ付け方にする（D15）。今ある値は、今の意味を保つ。学習のメトリクスは行動に使う Q、`bonus_*` は学習に入る内的報酬の大きさなので、分解の有無をまたいで比べられる。足すメトリクスは、損失の重み（D4）と clip の共有（D2）が効いているかを学習中に読むためのものである。tag を組に置くのは、skip・Munchausen・NoisyNet の診断と同じ置き方（`metrics.scalar.@skip` など）で、使う Run が `metrics.scalar.$` の連鎖に足すまで、記録される tag が変わらないためである。RND の tag のように Env ごとの Run プロファイルへ書かないのは、価値の分解を使う Run プロファイルを本 PRD が作らないため（D19）。依存: D2、D4、D9、D13、D19、D24 |
 | D21 | **文書。** 設計文書 `docs/design/214_value_decomposition.jp.md` を新設し、今ある設計文書とユーザーガイドを追随させる（一覧は §8.7 が正本）。ADR は 0073・0074・0075 の 3 本を起こし、ADR 0036・ADR 0062・ADR 0065 の先頭に注記を足す。[CONTEXT.md](../../CONTEXT.md) に「価値の分解」と「報酬の成分」を足す。「Actor Qヒント」の項目の、運ぶ中身の説明（実行行動の価値、bootstrap 用の状態価値、Munchausen項）には、実装のときに、内的の Head の Q_sa と V_s を足す | 新しい仕組みなので、現在形を書く設計文書が要る。ADR は、戻しにくく、文脈が無いと驚き、本当のトレードオフがあった 3 つに限る（Replay の口、ADR 0062 が skip で退けた形を内的の Head で採ったこと、Actor の hint の列の数）。既存の ADR の判断を改めるときは、古い ADR の先頭に注記を足し、新しい ADR を起こす（[PRD 品質確認観点](../quality/prd.md) の項番 23）。依存: D2、D8、D12 |
-| D22 | **性能。** 受入に閾値を置かない。実装後に、Atari の実時間を無効と有効（Body を共有する構成）で交互に測り、実装計画に記録する | 既定のモードでは、forward と backward の回数と順は変えない（D17）。足されるのは、Actor の forward ごとに Head の射影 1 組と合わせる計算、Learner の更新ごとに online と target の射影 1 組ずつと損失 1 つ、Replay の 1 step あたり報酬 1 つと slot あたり収益 1 つ、取り込みの lane あたりの四則演算数回、Actor の hint の値 2 つである。hint の 2 列は、hint を使う構成なら分解が無効でも増える（値は 0。D12）。`feature_gradient = split`（D25）では backward が 2 回になり、Body を別にする構成では Body の forward が 2 倍になるが、それは構成を選んだ利用側の費用である。依存: D2、D8、D12、D25 |
+| D22 | **性能。** 受入に閾値を置かない。実装後に、Atari の実時間を無効と有効（Body を共有する構成）で交互に測り、実装計画に記録する | 既定のモードでは、forward と backward の回数と順は変えない（D17）。足されるのは、Actor の forward ごとに Head の射影 1 組と合わせる計算、Learner の更新ごとに online と target の射影 1 組ずつと損失 1 つ、Replay の 1 step あたり報酬 1 つと slot あたり収益 1 つ、取り込みの lane あたりの四則演算数回、Actor の hint の値 2 つ、Actor の step ごとの診断（D26。行動の数の並びへの argmax と、1 位・2 位の取り出し）、評価の Actor の session の足し込み（D27。Actor と同じ device での加算）である。hint の 2 列は、hint を使う構成なら分解が無効でも増える（値は 0。D12）。`feature_gradient = split`（D25）では backward が 2 回になり、Body を別にする構成では Body の forward が 2 倍になるが、それは構成を選んだ利用側の費用である。依存: D2、D8、D12、D25、D26、D27 |
 | D23 | **互換。** 旧い Push の口の別名や互換の分岐は作らない。過去の Run・ADR・実験記録は書き換えない | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針。依存: D8 |
 | D24 | **合わせた Q の届け方。** 分解が有効のとき、Network は `q`・`q_dist` を出さない。合成 Head の出力は、外的が `extrinsic_q`・`extrinsic_q_dist`、内的が `intrinsic_q`・`intrinsic_q_dist` である。DQN 側の 1 つの関数が、forward の結果に、β で合わせた `q`・`q_dist` を足す（合わせ方は D14）。行動の方策や診断などの読み手は、今のまま `q`・`q_dist` を読む。外的の Q だけが要る箇所（D5 の `extrinsic`）は、`extrinsic_q` を名指しで読む。分解が無効のときは、今と同じく Network が `q`・`q_dist` を出す | 開発者の選択。`q`・`q_dist` を直接読む箇所が 17 か所ある（§4）。`q` を外的の Head の出力のままにして読み手ごとに合わせる形は、直し漏れた読み手が ERROR にならず、外的の Q だけで動く（[AGENTS.md](../../AGENTS.md) §Fail-Fast 原則に反する）。Network が `q` を出さなければ、合わせる関数を通し忘れた経路は、鍵が無いので必ず止まる。合わせる計算と TBO の扱いが 1 か所にまとまり、読み手を変えずに済む。β を Network の入力にする形を採らないのは、Head が TBO の変換を知る必要が出て、Network の入力の契約が変わるためである。依存: D2、D3、D14 |
 | D25 | **損失ごとの最適化のモード。** `learner.intrinsic.feature_gradient`（`merge`｜`split`）で選び、既定は `merge`（D4 の和で backward を 1 回）。`split` は、backward を外的の損失と内的の損失で 1 回ずつ取り、勾配の clip を損失ごとに掛け、共有の重みを損失ごとの Adam の状態で更新する | 開発者の選択。skip の `feature_gradient = split` の経路がすでにあり（§4）、同じ作りを流用できる。キーの語と値の語は、skip の `learner.skip.feature_gradient`（`stop`｜`merge`｜`split`）にそろえる。`stop` を値に持たないのは、共有の Body への勾配を止める形を先送りにしたため（§5.1）。Agent57 が NN を分ける理由の 1 つ（optimizer の状態を分ける）を、Body を共有したまま満たせる。損失ごとに歩幅がそろうので、内的の値の桁が大きくても外的の更新が埋もれず、問題 1 に直接効く。`split` では、損失の重み（D4）はほとんど効かなくなる（Adam が損失ごとに歩幅をそろえるため。skip の `split` と同じ性質）。依存: D2、D4 |
+| D26 | **行動の選択への効き方の診断。** 価値の分解が有効のとき、Actor は、行動を選ぶたびに、lane ごとに次の 4 つを作る。(1) 不一致: 合わせた Q の 1 位の行動と、外的の Q の 1 位の行動が違えば 1、同じなら 0。(2) 譲った外的の価値: 外的の Q で見た、外的の 1 位の行動と、合わせた Q の 1 位の行動の差。(3) 外的の差: Q_外 の 1 位と 2 位の差。(4) 内的の差: β·Q_内 の 1 位と 2 位の差。定義は §6.8、鍵は §8.4 | 開発者の選択。行動は合わせた Q で選ぶので、β の釣り合いは分解しても行動の選択に残る。`intrinsic_q_share`（§8.4 の 4）は選んだ行動の値に占める割合で、値が行動間で一定なら選択に効かない。不一致で頻度、譲った外的の価値で変えたときに手放した量、2 つの差で行動間の差の大きさの釣り合いが読める。外的の差は、譲った外的の価値を比べる相手にもなる。差の定義は、今ある `q_gap` と同じである（§2.5）。合わせた Q の 1 位と 2 位の差に占める内的の割合を 1 つの値で出す形は、別モデルの検討で弱点が分かり、開発者が外すと決めた（§5.1）。依存: D3、D13、D14、D24 |
+| D27 | **診断を読める場所。** Evaluation Trace は、lane ごとの値の鍵を列にする。学習の Actor は、step ごとの lane の平均の鍵を読む（`@train $action_info`）。評価の Actor は、session のあいだの累積の鍵を、session の終わりに読む（`$eval.[<名前>] $actor @session_end`）。3 種の鍵は、別の名前にする（§8.4）。Learner のバッチでは数えない | 開発者の選択（評価の Actor の累積を足すこと）。成績は評価側で読み、起点の Run でも Greedy が止まる局面が問題だった（§2.1）。学習の Actor の値は、探索しながら訪れた局面のものである。評価の Actor の値を step の値で取らないのは、103 の D8 が退けた形のためで（§4）、skip の session の指標と同じ作りにする。lane ごとの値と lane の平均を別の鍵にするのは、Trace が行ごとに lane を指定して読むためで（§4）、同じクラスの skip の鍵（`skip_decision` と `skip_decision_rate`）と同じ分け方にする。Learner のバッチで数えないのは、Actor ごとの行動の β（D13）を反映できず、局面が PER の抽選に偏るためである。依存: D13、D20、D26 |
+| D28 | **診断の細部。** 比べる Q は、方策が使うスコアではなく、Head ごとの平均の Q にする。4 つとも実空間の値で作る。内的の差には、その Actor の行動の β を掛ける。行動が 1 つの Env では、不一致と譲った外的の価値は 0、2 つの差は NaN にする。ε の探索や強制行動で実際の行動が変わっても、値は変えない。分解が有効なら、購読の有無に依らず毎 step 作る。数えた数が 0 の session で読んだ値は NaN にする。tag の定義は `metrics.scalar.@value_decomposition` に置き、評価の session の累積の tag は、どの Env にもある評価（`[eval]`・`[eval_target]`）のぶんを書く。tag は、鍵と別の短い名前にする。Evaluation Trace の既定の列には足さない | 推奨の既定を採った細部。平均の Q で比べるのは、方策の種類に依らず同じ定義にでき、追加の計算が要らないため。診断が表すのは「平均の Q で選んだとしたときの、選び方への効き方」で、分布を使う方策（UQE、Thompson）では、方策が実際に選ぶ行動とずれうる。実空間にするのは、β が 0 のとき、合わせた Q と外的の Q が同じ値になって不一致が必ず 0 になり、差と譲った外的の価値が、報酬スケーラを通した外的報酬の単位になるためである（TBO の h は和を保たない。D14）。方策が argmax を取る値（h を掛けた値）とは、同点に近い行動で、丸めのぶんだけ 1 位がずれうる。内的の差に β を掛けるのは、外的の差と同じ単位で並べるためで、`intrinsic_q_share` も β を掛けた値で作る（§8.4）。行動が 1 つのときの扱いは、今ある `q_gap` が行動 2 つ以上でだけ計算するのに合わせる（§4）。実際の行動に依らないのは、探索を除いた選び方に内的が効いたかを見る指標にするため。毎 step 作るのは、既存の方策の診断と同じ作りで（§4）、分岐を増やさないため。数えていない session の扱いは、skip の session の指標と同じである（§4）。評価の名前を 2 つに絞るのは、`[greedy]` などが Atari の設定だけにあり（§4）、その評価が無い構成で組を選ぶと、評価の名前が無いという ERROR になるためである。そのぶんは Atari の枠で足す（D19）。tag を鍵と別の名前にするのは、tag が群名と `/` を含めて 40 文字以内の決まりで（[実装 品質確認観点](../quality/impl.md) の「設定ファイル」）、鍵のままでは超えるためである。Trace の扱いは D20 と同じ。依存: D14、D19、D20、D26、D27 |
 
 ### 5.1 選ばなかった形と先送り
 
@@ -230,6 +252,13 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | β を Network の入力にし、合成 Head が合わせた `q` も出す形 | 不採用 | Head が TBO の変換を知る必要が出て、Network の入力の契約が変わる（D24） |
 | リファクタリングの課題 5 件を本 PRD に取り込む形、順序を決めない形 | 不採用 | D18 の理由 |
 | Atari.txt の Run プロファイルの追加を本 PRD に入れる形 | 範囲外 | Atari の枠で決める（D19） |
+| Head ごとの行動間の差の比（β × 内的の 1 位と 2 位の差 ÷ 外的の 1 位と 2 位の差）を、1 つの値で出す形 | 不採用 | 外的の差が 0 に近い局面で、比が跳ね上がる。割らずに、2 つの差をそのまま並べる形にした（D26） |
+| 合わせた Q の 1 位と 2 位の差に占める内的の割合を出す形 | 不採用 | 向きを持たず、内的が同じ向きに押した標本と、逆らって及ばなかった標本が同じ値になる。内的が行動を変えた標本では 0.5 を超えやすく、平均が不一致率と混ざる。外的の差も内的の差も 0 に近い局面では、雑音で決まる（別モデルの検討で分かった。D26） |
+| lane ごとの値と lane の平均を、同じ鍵で返す形（lane を指定すればその値、指定しなければ平均） | 不採用 | 鍵は少なくなるが、同じクラスに、その形の鍵が無い。skip の鍵と同じく、別の名前にする（D27） |
+| 2 つの Head の 1 位の行動が違う割合を診断にする形 | 不採用 | 行動が多い Env では、2 つの Head の 1 位が偶然そろうことがまれで、ほぼ常に 1 に近くなる（D26） |
+| 診断を Learner のバッチで数える形 | 不採用 | Actor ごとの行動の β を反映できず、局面が PER の抽選に偏る（D27） |
+| 評価の Actor の診断を足さない形、評価の Actor の値を step の値で取る形 | 不採用 | 前者は、Greedy の評価で読めない。後者は、103 の D8 が退けた形である（D27） |
+| 行動間の差を広げる学習則、Head ごとに差の大きさをそろえる正規化 | 範囲外 | 別の関心。作る条件: 足した診断で、内的が行動を動かせていない（不一致率が 0 に近く、内的の差が外的の差よりずっと小さい）か、外的の価値を大きく手放している（譲った外的の価値が、外的の差に比べて大きい）と分かったとき（§1.4） |
 
 ### 5.2 起票時の未決表との対応
 
@@ -342,6 +371,32 @@ y_内 = 内的の収益 ＋ γ_内^n (1 − d_内) Σ_{a'} π(a') Q_内,target(s
 
 - `decomposed` のとき、Actor は forward の結果に合わせる関数（§6.3）を通し、合わせた Q で行動を選ぶ。合わせるときの β は、`action_beta_mode` が `learner` なら学習と同じ β（Actor が自分の step で評価する）、`fixed` なら `action_beta` の値である（D13）。
 - ε・τ・NoisyNet の扱いは今と同じで、合わせた Q（分布型では合わせた分位点）に当てる。
+- `decomposed` のとき、Actor は行動を選ぶたびに §6.8 の診断を作り、行動の情報に載せる。
+
+### 6.8 行動の選択への効き方の診断
+
+D26〜D28 による。`decomposed` のとき、Actor が行動を選ぶたびに、その forward の結果から作る。追加の forward はしない。
+
+- Q_外(a) と Q_内(a) は、各 Head の、行動ごとの平均の Q である（分布型では、分位点の平均）。実空間の値を使う（TBO が有効なら、h の逆変換で戻した値）。方策が使うスコア（UQE のスコアなど）は使わない。NoisyNet が有効なら、その forward の値をそのまま使う。
+- Q(a) = Q_外(a) ＋ β·Q_内(a) は、合わせた Q である。β は、その Actor の行動の β である（§6.7）。
+- a* は Q の 1 位の行動、a_外 は Q_外 の 1 位の行動である。1 位は、同じ argmax の決まりで取る。
+
+| 指標 | lane ごとの値 |
+|---|---|
+| 不一致 | a* と a_外 が違えば 1、同じなら 0 |
+| 譲った外的の価値 | Q_外(a_外) − Q_外(a*)。a* と a_外 が同じなら 0 |
+| 外的の差 | Q_外 の 1 位の値 − 2 位の値 |
+| 内的の差 | β·Q_内 の 1 位の値 − 2 位の値 |
+
+- lane の平均は、その step の全 lane の平均である。
+- 評価の session の累積は、不一致が「1 だった数 ÷ 数えた数」、ほかの 3 つが平均である。数える単位は、Actor が行動を選んだ lane × step である。session の始まりで 0 に戻す。数えた数が 0 のときは NaN である。
+- 行動の β が 0 の Actor では、不一致、譲った外的の価値、内的の差が 0 になる。外的の差は β に依らない。
+- ε の探索や強制行動で、実際の行動が a* と違っても、値は変えない。
+- 分布を使う方策（UQE、Thompson）では、a* が、方策が探索なしで選ぶ行動と違うことがある。診断は、平均の Q で選んだとしたときの値である。
+- 行動が 1 つの Env では、不一致と譲った外的の価値は 0、2 つの差は NaN である。行動の β が 0 でも、内的の差は NaN である。
+- `decomposed` でないときは、作らない。鍵は NaN を返す（§8.4）。
+
+**例。** 行動が 3 つ、β = 0.01 で、Q_外 = (1.00, 1.02, 0.90)、β·Q_内 = (0.08, 0.05, 0.12) のとき、Q = (1.08, 1.07, 1.02) である。a* は 1 番目、a_外 は 2 番目になる。不一致 = 1。譲った外的の価値 = 1.02 − 1.00 = 0.02。外的の差 = 1.02 − 1.00 = 0.02。内的の差 = 0.12 − 0.08 = 0.04。
 
 ## 7. 924 ほかとの関係
 
@@ -472,6 +527,7 @@ D8 による。
 - Actor は §6.7 のとおりに行動を選ぶ。
 - 初期優先度の hint は、常に 5 列（Q_sa、V_s、Munchausen項、内的の Q_sa、内的の V_s）で運ぶ（D12）。`decomposed` のとき、前の 3 列は外的の Head の値である。V_s は、Learner の bootstrap（§6.1・§6.2）と同じ決まりを、Actor が行動に使った合わせた Q に当てて、Head ごとに作る。追加の forward はしない。`combined` のとき、前の 3 列は今と同じ値で、内的の 2 列は 0 にする。行動を差し替えるとき（行動の情報の `WithAction`）は、Q_sa と Munchausen項に加えて、内的の Q_sa も選び直す。RainbowAgent の hint も 5 列になり、内的の 2 列は 0 である。
 - 初期優先度の見積もりは、`decomposed` のとき、Head ごとに目標値を作って D12 の決まりで足す。`combined` のとき、前の 3 列だけを今と同じに使う。hint の検証は、列の数が 5 で、すべてが有限の値であることを求める。
+- Actor は、`decomposed` のとき、§6.8 の診断を作る。評価の session の累積は、skip の session の指標と同じ時機に 0 に戻す。
 
 ### 8.4 診断
 
@@ -493,6 +549,18 @@ D8 による。
 | 3 | `extrinsic_head_grad_norm`・`intrinsic_head_grad_norm`、`extrinsic_grad_norm`・`intrinsic_grad_norm` | Head ごとの最終の射影のパラメータの、勾配の大きさ（clip の前）。後ろの 2 つは、`feature_gradient = split` のときの、損失ごとの勾配の大きさ（clip の前） |
 | 4 | `intrinsic_q_share` | β·Q_内 の絶対値が、「Q_外 の絶対値 ＋ β·Q_内 の絶対値」に占める割合（選んだ行動の値の、バッチの平均）。分母が 0 の標本は 0 とする |
 | 5 | `intrinsic.reward_scaler.scale` | 内的報酬用の報酬スケーラの倍率（報酬に掛かっている係数。今の `reward_scaler.scale` と同じ決め方） |
+
+- Actor の行動の情報と、評価の Actor の session の累積に、次の鍵を足す（D26〜D28。定義は §6.8）。`decomposed` でないときは NaN を返す。
+
+| # | 指標 | lane ごとの値の鍵（`$action_info`） | lane の平均の鍵（`@train $action_info`） | 評価の session の累積の鍵（`$eval.[<名前>] $actor @session_end`） |
+|---|---|---|---|---|
+| 6 | 不一致 | `extrinsic_q_argmax_disagreement` | `extrinsic_q_argmax_disagreement_rate` | `extrinsic_q_session_argmax_disagreement_rate` |
+| 7 | 譲った外的の価値 | `extrinsic_q_regret` | `extrinsic_q_regret_mean` | `extrinsic_q_session_regret_mean` |
+| 8 | 外的の差 | `extrinsic_q_gap` | `extrinsic_q_gap_mean` | `extrinsic_q_session_gap_mean` |
+| 9 | 内的の差 | `intrinsic_q_gap` | `intrinsic_q_gap_mean` | `intrinsic_q_session_gap_mean` |
+
+- lane ごとの値の鍵は、lane を指定して読む。指定した lane が範囲の外なら ERROR にする（skip の lane ごとの鍵と同じ）。Evaluation Trace の列にできる（`app.eval_trace_panel.columns.[<番号>] = $action_info <鍵>`）。既定の列には足さない。
+- tag の定義は、1〜5 と同じ組 `metrics.scalar.@value_decomposition` に置く。評価の session の累積の tag は、`$eval.[eval]` と `$eval.[eval_target]` のぶんを書く。ほかの評価（Atari の `[greedy]` など）のぶんは、Atari の枠で足す（D19）。tag は、鍵と別の短い名前にし、群名と `/` を含めて 40 文字以内にする。名前と群の番号は、1〜5 と同じく、実装のときに決める。
 
 ### 8.5 checkpoint
 
@@ -524,7 +592,8 @@ D16 による。次の表を上から順に当て、最初に当たった行で�
 | ReplayBufferConfig・PrefetchingReplayBuffer・ReplayExperienceStorage・DefaultExperienceBuilder・InitialPriorityEstimateInput | 変更 | 成分ごとの step の記録、n-step の収益、抽選時の報酬、見積もりの入力。成分が 2 つ以上のときの窓の規則の拒否。hint の行の型（`ReplayInitialPriorityHintRow`）を、5 列が追加の確保なしで載る要素数にする | ReplayBuffer（replay_buffer） |
 | DqnInitialPriorityEstimator | 変更 | Head ごとの見積もりを、優先度の決まりで足す | DQN 系（dqn_based_agent） |
 | dqn::Learner・QuantileLearnerBase | 変更 | Head ごとの目標値・損失・優先度。Munchausen の置き方。bootstrap のモード。損失ごとの最適化のモード | DQN 系（dqn_based_agent） |
-| dqn::Actor | 変更 | forward の結果に合わせる関数を通し、行動の β で合わせた Q から行動を選ぶ。5 列の hint（行動の差し替えでの選び直しを含む） | DQN 系（dqn_based_agent） |
+| dqn::Actor | 変更 | forward の結果に合わせる関数を通し、行動の β で合わせた Q から行動を選ぶ。5 列の hint。行動の選択への効き方の診断（§6.8）を作り、評価の session の累積を持つ | DQN 系（dqn_based_agent） |
+| DQNActionInfo | 変更 | 行動を差し替えるときの hint の選び直しに、内的の Q_sa を足す。§6.8 の診断の鍵の読み出し | DQN 系（dqn_based_agent） |
 | DqnAgentStepDiagnosticsProvider・DqnAgentStepDiagnosticsValues | 変更 | Head ごとの Q_sa と状態の価値を出す | DQN 系（dqn_based_agent） |
 | DecomposedValueCombiner | 新規 | forward の結果の外的と内的の出力から、β で合わせた `q`・`q_dist` を作って足す。TBO の変換を含む | DQN 系（dqn_based_agent） |
 | DecomposedHeadFactory | 新規 | 外的の Head と内的の Head を束ねた合成 Head を組む。既存の Head の生成部品を使い、複製しない | DQN 系の Head（dqn_based_heads） |
@@ -536,15 +605,15 @@ D16 による。次の表を上から順に当て、最初に当たった行で�
 
 ### 8.7 移行対象
 
-経路の検索（2026-11-12〜13、`git grep -il -F`、範囲は追跡している `core`・`apps`・`docs`・`viewers`・`reports`）: `target_returns`・`InitialPriorityEstimateInput`・`sampled_rewards`・`sampled_window_rewards`・`FinalizeReturns`・`GetStepReward`・`PackActorQHint`・`ActorQHint`・`CreateRewardScaler`・`use_dynamic_scaling`・`RewardScalerConfig`・`ScaleWithoutUpdate`・`報酬へ畳む`・`munchausen_terms`・`MakeBellmanTarget`・`CombinePriorityErrors`・`HeadFactory`・`RunningStdRewardScaler`・`kCheckpointFormat`・`kCheckpointIntrinsic`・`skip_primary_optimizer_`・`kFeatureGradientSplit`・`kQOutputKey`・`state_value`・`kActorQHintColumnCount`・`ReplayInitialPriorityHintRow`・`BatchExperience` のどれかを含むファイルと、`ReplayBuffer` を継承するクラス（正規表現 `public (anet::)?(rl::)?ReplayBuffer\b` で引いた。本体の 2 つと、テスト用の 3 つ）のあるファイル、`Push(` を呼ぶファイル（正規表現 `(->|\.|::)Push\(`、範囲は `core`・`apps`。11 ファイルで、うち Atari の Env の 3 つは別の型の `Push` である）から、過去の PRD・実装計画・ADR・実験記録・課題・wiki・サーベイ（書き換えない）を除くと、現用のものは次のとおり。
+経路の検索（2026-11-12〜13、`git grep -il -F`、範囲は追跡している `core`・`apps`・`docs`・`viewers`・`reports`）: `target_returns`・`InitialPriorityEstimateInput`・`sampled_rewards`・`sampled_window_rewards`・`FinalizeReturns`・`GetStepReward`・`PackActorQHint`・`ActorQHint`・`CreateRewardScaler`・`use_dynamic_scaling`・`RewardScalerConfig`・`ScaleWithoutUpdate`・`報酬へ畳む`・`munchausen_terms`・`MakeBellmanTarget`・`CombinePriorityErrors`・`HeadFactory`・`RunningStdRewardScaler`・`kCheckpointFormat`・`kCheckpointIntrinsic`・`skip_primary_optimizer_`・`kFeatureGradientSplit`・`kQOutputKey`・`state_value`・`kActorQHintColumnCount`・`ReplayInitialPriorityHintRow`・`BatchExperience`・`iqn_uqe_full_q_argmax_disagreement`・`skip_session_decision_rate`・`ResetSkipSession` のどれかを含むファイルと、`ReplayBuffer` を継承するクラス（正規表現 `public (anet::)?(rl::)?ReplayBuffer\b` で引いた。本体の 2 つと、テスト用の 3 つ）のあるファイル、`Push(` を呼ぶファイル（正規表現 `(->|\.|::)Push\(`、範囲は `core`・`apps`。11 ファイルで、うち Atari の Env の 3 つは別の型の `Push` である）から、過去の PRD・実装計画・ADR・実験記録・課題・wiki・サーベイ（書き換えない）を除くと、現用のものは次のとおり。
 
 - **コード**: [rl.hpp](../../core/anet-core/include/anet/rl.hpp)・[rl.cpp](../../core/anet-core/src/rl.cpp)・[replay_buffer.hpp](../../core/anet-core/include/anet/replay_buffer.hpp)・[replay_buffer_impl.hpp](../../core/anet-core/src/replay_buffer_impl.hpp)・[replay_buffer_impl.cpp](../../core/anet-core/src/replay_buffer_impl.cpp)・[dqn_based_agent.hpp](../../core/anet-core/src/dqn_based_agent.hpp)・[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp)・[dqn_based_heads.hpp](../../core/anet-core/src/dqn_based_heads.hpp)・[dqn_based_heads.cpp](../../core/anet-core/src/dqn_based_heads.cpp)・[default_dqn_agent.hpp](../../core/anet-core/include/anet/default_dqn_agent.hpp)・[default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp)・[scaler.hpp](../../core/anet-core/include/anet/scaler.hpp)・[scaler_impl.hpp](../../core/anet-core/src/scaler_impl.hpp)・[scaler_impl.cpp](../../core/anet-core/src/scaler_impl.cpp)。dqn_based_agent.cpp では、forward の結果を読む経路に合わせる関数を通す。`q`・`q_dist` の読み手 17 か所は変えない。hint の列の数（`kActorQHintColumnCount`）と、hint を詰める・検証する・ほどく箇所（dqn_based_agent.hpp・dqn_based_agent.cpp）、hint の行の型（replay_buffer_impl.hpp の `ReplayInitialPriorityHintRow`）を、5 列に合わせる。
 - **口が変われば呼び出しを合わせるコード（動きは変えない）**: [rainbow_agent.cpp](../../core/anet-core/src/rainbow_agent.cpp)（Head の生成部品と、Actor の hint の設定を使う側。RainbowAgent は内的報酬を持たない）、[agent.hpp](../../core/anet-core/include/anet/agent.hpp)（checkpoint の書式の識別子を使う側）。
 - **検索に当たるが変えないコード**: [nn.hpp](../../core/anet-core/include/anet/nn.hpp)・[nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp)・[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp)・[nn_heads.hpp](../../core/anet-core/src/nn_heads.hpp)・[nn_heads.cpp](../../core/anet-core/src/nn_heads.cpp)・[nn_test.cpp](../../core/anet-core/src/nn_test.cpp)・[intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp)・[muzero_based_agent.cpp](../../core/anet-core/src/muzero_based_agent.cpp)・[image_cls_agent.cpp](../../core/anet-core/src/image_cls_agent.cpp)・[optuna_common.py](../../apps/runner/tools/optuna_common.py)・[config_test.cpp](../../core/anet-core/src/config_test.cpp)。Network が Head を 1 つ持つ作り、Head の生成部品の口、RND の推定器、今ある Trace の鍵の名前は変えない（D2、D9、D20）。`BatchExperience` を含むファイルは 41 ある。上に挙げたもののほかは、報酬を 1 本で読むか、型を受け渡すだけの利用側（Trainer、Observer、probe、metrics、image、ImageClsAgent、Env の View、Runner のテストと、それぞれのテスト）で、1 成分のときの形が今と同じなので変えない（§8.2）。MuZero 系（[muzero_rb.hpp](../../core/anet-core/src/muzero_rb.hpp)・[muzero_rb.cpp](../../core/anet-core/src/muzero_rb.cpp)・[muzero_based_agent.hpp](../../core/anet-core/src/muzero_based_agent.hpp)・muzero_based_agent.cpp・[prd101_muzero_test.cpp](../../core/anet-core/src/prd101_muzero_test.cpp)）は、`MuZeroReplayBuffer` が `ReplayBuffer` を継承せず、自分の `Push` を持つので変えない。
-- **テスト**: [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)・[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)・[dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp)・[dqn_munchausen_test.cpp](../../core/anet-core/src/dqn_munchausen_test.cpp)・[intrinsic_test.cpp](../../core/anet-core/src/intrinsic_test.cpp)・[scaler_test.cpp](../../core/anet-core/src/scaler_test.cpp)・[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)。Push の口が変わるので、Push を呼ぶテストと、`ReplayBuffer` を継承して `Push` を上書きするテスト用のクラス（dqn_based_agent_test.cpp の `RecordingReplayBuffer`、replay_buffer_test.cpp の `BlockingReplayBuffer`、trainer_test.cpp の `HintRecordingReplayBuffer`）は、新しい口に合わせる。hint を 3 列で断定するか、3 列で組んでいるテスト（dqn_based_agent_test.cpp の、`kActorQHintColumnCount` を使う断定と、hint の行を手で組む箇所）は、5 列に合わせる。1 成分のときの値は今と同じなので、既存の断定の期待値は変えない。checkpoint の書式と中身を断定するテスト（dqn_based_agent_test.cpp の `[dqn][serialize]` のタグのテスト、intrinsic_test.cpp の `[checkpoint]` のタグのテスト。`DefaultDQN checkpoint headers identify Agent serialization formats` など）は、動的な報酬スケーラを使う構成の checkpoint に報酬スケーラの状態が入ることに合わせて、断定を直す。設定の型の既定は動的な種類なので、既定の設定で Agent を作って保存するテストが当たる。§9.2 の受入のテストを足す。
-- **設定**: [agent.txt](../../apps/runner/config/agent.txt)（§8.1 の設定キーの既定）、[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt)（組 `metrics.scalar.@value_decomposition` を足す。どの Run プロファイルの連鎖にも足さない。§8.4）。[Atari.txt](../../apps/runner/config/Atari.txt)・[DropMerge.txt](../../apps/runner/config/DropMerge.txt)・[GridMaze.txt](../../apps/runner/config/GridMaze.txt)・[common.txt](../../apps/runner/config/common.txt) は、検索に当たるが変えない（今ある報酬スケーラのキーは、新しい既定で今と同じ値になる。Trace の既定の列は足さない。`actor_approx` を指定する 2 つの Run プロファイルも、hint の列の数が設定に現れないので変えない）。
+- **テスト**: [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)・[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)・[dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp)・[dqn_munchausen_test.cpp](../../core/anet-core/src/dqn_munchausen_test.cpp)・[intrinsic_test.cpp](../../core/anet-core/src/intrinsic_test.cpp)・[scaler_test.cpp](../../core/anet-core/src/scaler_test.cpp)・[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)・[config_baseline_test.cpp](../../core/anet-core/src/config_baseline_test.cpp)（出荷の設定を読むテストを足す。§9.2 の 17・23）。Push の口が変わるので、Push を呼ぶテストと、`ReplayBuffer` を継承して `Push` を上書きするテスト用のクラス（dqn_based_agent_test.cpp の `RecordingReplayBuffer`、replay_buffer_test.cpp の `BlockingReplayBuffer`、trainer_test.cpp の `HintRecordingReplayBuffer`）は、新しい口に合わせる。hint を 3 列で断定するか、3 列で組んでいるテスト（dqn_based_agent_test.cpp の、`kActorQHintColumnCount` を使う断定と、hint の行を手で組む箇所）は、5 列に合わせる。1 成分のときの値は今と同じなので、既存の断定の期待値は変えない。checkpoint の書式と中身を断定するテスト（dqn_based_agent_test.cpp の `[dqn][serialize]` のタグのテスト、intrinsic_test.cpp の `[checkpoint]` のタグのテスト。`DefaultDQN checkpoint headers identify Agent serialization formats` など）は、動的な報酬スケーラを使う構成の checkpoint に報酬スケーラの状態が入ることに合わせて、断定を直す。設定の型の既定は動的な種類なので、既定の設定で Agent を作って保存するテストが当たる。§9.2 の受入のテストを足す。
+- **設定**: [agent.txt](../../apps/runner/config/agent.txt)（§8.1 の設定キーの既定）、[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt)（組 `metrics.scalar.@value_decomposition` を足す。どの Run プロファイルの連鎖にも足さない。§8.4）。[Atari.txt](../../apps/runner/config/Atari.txt)・[DropMerge.txt](../../apps/runner/config/DropMerge.txt)・[GridMaze.txt](../../apps/runner/config/GridMaze.txt)・[common.txt](../../apps/runner/config/common.txt) は、検索に当たるが変えない（今ある報酬スケーラのキーは、新しい既定で今と同じ値になる。Trace の既定の列は足さない。`actor_approx` を指定する 2 つの Run プロファイルも、hint の列の数が設定に現れないので変えない）。[12_batch_run.bat](../../apps/12_batch_run.bat) は、skip の session の指標を引数で指定しているので検索に当たるが、変えない。
 - **設定の検証資材**: `core/anet-core/testdata/prd072/baseline/` の解決済みの設定の基準。既定の設定キーを足すので、差分が足した設定キーだけであることを確かめて更新する。足すメトリクスの組は、どの構成の連鎖にも入らないので、基準には現れない。`core/anet-core/testdata/prd084/`・`prd092/`・`prd094/` の資材は、過去の検証の記録なので変えない。
-- **設計文書**: `docs/design/214_value_decomposition.jp.md` を新設する（価値の分解の仕組み、式、合わせる関数、設定、診断とメトリクスの組、checkpoint。可塑性の診断で、内的の Head の重みが readout の側に入ることも書く）。[140_observability.jp.md](../design/140_observability.jp.md)（`$agent_step` の鍵と、報酬スケーラの診断の鍵の説明に、足す鍵と種類）、[150_replay_buffer.jp.md](../design/150_replay_buffer.jp.md)（§2.1・§2.2・§2.4・§6.1・§6.1.1・§7.6・§8 に報酬の成分）、[200_dqn_agents.jp.md](../design/200_dqn_agents.jp.md)（§2.5 の Actor の hint の列を 5 つに。§6.2・§6.3・§7.2・§8.2・§9.1・§10 に価値の分解と、214 への参照。§8.2 の「報酬スケーラの統計を保存しない」の記述を、保存する形に直す）、[212_rnd_lifelong_novelty.jp.md](../design/212_rnd_lifelong_novelty.jp.md)（§3.6・§3.7 に、内的報酬用の報酬スケーラと成分での受け渡し）、[020_user_guide_run.jp.md](../design/020_user_guide_run.jp.md)（Evaluation Trace の鍵を挙げている箇所に、足す鍵）。[130_neural_networks.jp.md](../design/130_neural_networks.jp.md) は、検索に当たるが、Network と Head の契約を変えないので変えない。en は `anet-translate-docs` で作る。
+- **設計文書**: `docs/design/214_value_decomposition.jp.md` を新設する（価値の分解の仕組み、式、合わせる関数、設定、診断とメトリクスの組、checkpoint。可塑性の診断で、内的の Head の重みが readout の側に入ることも書く）。[140_observability.jp.md](../design/140_observability.jp.md)（`$agent_step` の鍵と、報酬スケーラの診断の鍵の説明に、足す鍵と種類。行動の情報の鍵と、評価の session の累積の鍵の説明に、§8.4 の 6〜9）、[150_replay_buffer.jp.md](../design/150_replay_buffer.jp.md)（§2.1・§2.2・§2.4・§6.1・§6.1.1・§7.6・§8 に報酬の成分）、[200_dqn_agents.jp.md](../design/200_dqn_agents.jp.md)（§2.5 の Actor の hint の列を 5 つに。§6.2・§6.3・§7.2・§8.2・§9.1・§10 に価値の分解と、214 への参照。§8.2 の「報酬スケーラの統計を保存しない」の記述を、保存する形に直す）、[212_rnd_lifelong_novelty.jp.md](../design/212_rnd_lifelong_novelty.jp.md)（§3.6・§3.7 に、内的報酬用の報酬スケーラと成分での受け渡し）、[020_user_guide_run.jp.md](../design/020_user_guide_run.jp.md)（Evaluation Trace の鍵を挙げている箇所に、足す鍵）、[030_user_guide_analysis.jp.md](../design/030_user_guide_analysis.jp.md)（方策の診断の読み方を書いている箇所に、§8.4 の 6〜9 の読み方）。[130_neural_networks.jp.md](../design/130_neural_networks.jp.md) は、検索に当たるが、Network と Head の契約を変えないので変えない。en は `anet-translate-docs` で作る。
 - **検証資材**: `core/anet-core/testdata/prd121/README.md` を新設する（実装前の実行体の保存と、無効のときの metrics checksum の比較の手順。§9.2 の 1）。200 の §10 から参照する。
 - **127 との調整**: 127 が先に入っていれば、Trace のボーナスの列（`intrinsic.bonus`）の計算を、内的報酬用の報酬スケーラを通した値（統計を更新しない口）に β を掛けた値に合わせる。127 があとから入るなら、127 の実装がこの形に合わせる。
 - **用語集と ADR**: [CONTEXT.md](../../CONTEXT.md) の「価値の分解」「報酬の成分」、ADR 0073・0074・0075、ADR 0036・0062・0065 の先頭の注記は、PRD づくりで済ませた（D21）。[CONTEXT.md](../../CONTEXT.md) の「Actor Qヒント」の項目は、実装のときに、運ぶ中身の説明へ内的の Head の Q_sa と V_s を足す。実装が入るまでは、今の 3 つの中身の説明が正しいためである。
@@ -561,6 +630,7 @@ D16 による。次の表を上から順に当て、最初に当たった行で�
 - **仮説 A の群。** 1 本の Q と分解した Q（`discount_mode = shared`・`terminal_mode = episodic`・`extrinsic_bootstrap_mode = combined`）を、β 2 点以上で。分解した側は、次のような群を並べると、共有の Body への影響を分けて読める。損失の重みが 1.0 の群、損失の重みを β に近い値にした群、`feature_gradient = split` の群、内的報酬用の報酬スケーラの定数の倍率で内的の目標値の桁を外的に合わせた群（損失の効く範囲をそろえる。§6.4）。
 - **仮説 B の群。** 分解した Q で、内的を外的と同じ扱いにした群と、`separate`・`non_episodic` にした群。内的報酬用の報酬スケーラを `return_std` にし、`intrinsic.use_done_mask` を偽にした群を足すと、Burda らの形に寄る。
 - **読む指標。** 評価側（Greedy と ε 0.01）の 2500 点の割合と平均点、訪れた部屋の種類数、Head ごとの Q（Trace とメトリクス）。行動の β を 0 にした評価を足すと、2500 点のあとの局面が外的の Head にもあるかを分けられる。
+- **行動の選択への効き方（D26）。** 群どうしで、評価の Actor の不一致率、譲った外的の価値、2 つの差を比べる。点数が β で変わらず、不一致率がどの群でも 0 に近く、内的の差が外的の差よりずっと小さければ、内的が行動を動かせていない。不一致率が高いのに点数が同じなら、動かしているが効いていない。譲った外的の価値は、外的の差の平均に対する比で読む。比が大きい群は、β が大きい側にある。群どうしで値をそのまま比べられるのは、外的報酬の報酬スケーラが同じ（定数の倍率）ときだけである。2500 点のあとの平らな局面では、Trace の列で、その step の 4 つの値を読める。
 - **途中の時期の差。** 鍵や扉に届いた時期の差は、Run ごとの揺れの内とみなし、判定に使わない（起点の方向 (1)）。
 
 ### 9.2 正しさの受入
@@ -585,13 +655,15 @@ D16 による。次の表を上から順に当て、最初に当たった行で�
 | 14 | 割引収益の標準偏差で割る報酬スケーラ | 2 lane に既知の報酬の列を入れると、lane ごとの割引和、標準偏差、割った値が手計算と一致する。エピソードの終わりをまたいでも割引和が続く。統計を更新しない口は、割引和と統計を変えない |
 | 15 | 内的報酬用の報酬スケーラ | 既定では、通した値が入力と一致する。`combined` で `return_std` のとき、学習へ渡る報酬が「外的 ＋ β × 通した値」になる。`decomposed` のとき、内的の成分が通した値（β を掛けない）になる。done の lane の扱いが、報酬スケーラに通す前に当たっている |
 | 16 | Trace の鍵 | `decomposed` の Actor の step 診断が、§8.4 の 4 つの鍵に値を返し、`q_sa` が「外的 ＋ その Actor の β × 内的」と一致する。`combined` では 4 つの鍵が NaN になる |
-| 17 | メトリクス | `decomposed` の小さな Agent を 1 回以上更新したあと、§8.4 の 5 種の鍵を読むと、`feature_gradient = merge` では `extrinsic_grad_norm`・`intrinsic_grad_norm` だけが NaN で、ほかはすべて有限の値である。`feature_gradient = split` では、すべて有限の値である。`intrinsic.value_mode = combined`・`intrinsic.enabled = true` では、1〜4 が NaN で、5 が有限の値である。今ある学習のメトリクスの選んだ行動の Q が、学習の β で合わせた Q の値と一致する。出荷の設定を読むテスト（`[shipped_config]` のタグ）で、GridMaze の既定に、`run.@rnd`、`intrinsic.value_mode = decomposed`、`metrics.scalar.$` の連鎖への `metrics.scalar.@value_decomposition` を足した構成が解決でき、その組の tag の鍵が、どれも §8.4 の鍵である（GridMaze の既定は skip が無効なので、§8.1 の判定の行 6 に当たらない） |
+| 17 | メトリクス | `decomposed` の小さな Agent を 1 回以上更新したあと、§8.4 の 1〜5 の鍵を読むと、`feature_gradient = merge` では `extrinsic_grad_norm`・`intrinsic_grad_norm` だけが NaN で、ほかはすべて有限の値である。`feature_gradient = split` では、すべて有限の値である。`intrinsic.value_mode = combined`・`intrinsic.enabled = true` では、1〜4 が NaN で、5 が有限の値である。今ある学習のメトリクスの選んだ行動の Q が、学習の β で合わせた Q の値と一致する。出荷の設定を読むテスト（`[shipped_config]` のタグ）で、GridMaze の既定に、`run.@rnd`、`intrinsic.value_mode = decomposed`、`metrics.scalar.$` の連鎖への `metrics.scalar.@value_decomposition` を足した構成が解決でき、その組の tag の鍵が、どれも §8.4 の鍵である（GridMaze の既定は skip が無効なので、§8.1 の判定の行 6 に当たらない） |
 | 18 | checkpoint | §8.5 の表の各行が、表のとおりに扱われる。保存して読み直すと、内的の Head の出力と、外的報酬用・内的報酬用の報酬スケーラの変換の結果が、保存の前と一致する（`reward_std` と `return_std` の両方）。実装前の実行体が保存した、定数の倍率の構成の checkpoint を、新しい実行体が読める |
 | 19 | 初期優先度 | 初期優先度を Actor の hint から見積もる構成で、hint が `combined` でも `decomposed` でも 5 列である。`combined` のとき、内的の 2 列が 0 で、見積もりの値が今と同じである（既存の断定の期待値が変わらない）。`decomposed` のとき、hint が Head ごとの値を運び、見積もりが優先度の決まり（#10）と同じ形になる。列の数が 5 でない hint は ERROR になる |
 | 20 | 性能の記録 | 実装計画に、Atari の同じ構成の実時間を、`combined` と `decomposed`（Body を共有、`feature_gradient = merge`）で交互に 3 巡以上測った値が書かれている。閾値は置かない |
 | 21 | 文書 | §8.7 の設計文書・検証資材・用語集・ADR がそろっている |
+| 22 | 行動の選択への効き方の診断 | 行動が 3 つ以上の、既知の Q_外・Q_内・β で、§6.8 の 4 つの指標の lane ごとの値（lane を指定して読む）と、lane の平均が、手計算と一致する。lane が 2 つ以上で、lane ごとに値が違う入力で確かめる。TD・QR・IQN のそれぞれで確かめ、分布型では分位点の平均で比べる。TBO が有効のとき、h の逆変換で戻した値での手計算と一致する。行動の β が 0 の Actor では、不一致、譲った外的の価値、内的の差が 0 になる。`combined` では、§8.4 の 6〜9 の鍵がすべて NaN になる。行動を差し替えても、値が変わらない。lane ごとの値の鍵を、範囲の外の lane で読むと ERROR になる |
+| 23 | 評価の session の累積 | 評価の Actor を既知の値で数 step 進めると、session の終わりに読む 4 つの鍵が、その session の lane × step の値から作った値（不一致は割合、ほかは平均）と一致する。1 step も進めていない session では NaN になる。次の session の始まりで 0 に戻る。出荷の設定を読むテスト（`[shipped_config]` のタグ）で、組 `metrics.scalar.@value_decomposition` の tag の鍵に、§8.4 の 6〜9 の lane の平均の鍵と、`[eval]`・`[eval_target]` の session の累積の鍵が入っていて、どの tag も 40 文字以内である |
 
-人が確かめる項: EvalPanel の Evaluation Trace に、プロファイルで足した Head ごとの列が表示される。
+人が確かめる項: EvalPanel の Evaluation Trace に、プロファイルで足した Head ごとの列と、診断の列（§8.4 の 6〜9 の lane ごとの値の鍵）が表示される。評価の lane が 2 つ以上のとき、行ごとに、その lane の値が出る。
 
 ## 10. 決めること（未決表）
 
