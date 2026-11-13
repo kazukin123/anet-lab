@@ -52,7 +52,12 @@ echo === 21. montezuma_revenge 30m seed 2: b001 recipe (Munchausen off, Double D
 call :find_done mz_tg_r123_b001_s2
 if not defined DONE_DIR call :run_ws "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.01 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b001_s2"
 
-echo === 22. montezuma_revenge 30m seed 1: same as 21 but seed 1 and beta 0.003 ===
+echo === 22. montezuma_revenge +20m from 20 (30m to 50m): same recipe as 20, seed 1, continued from its agent_close.anet ===
+call :find_done mz_tg_r123_s1_c50m
+if not defined DONE_DIR call :find_ckpt run_*_mz_tg_r123_b001_s1
+if not defined DONE_DIR if defined CKPT call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.01 "DefaultDQNAgent.auto_load_file=%CKPT%" app.batchrun.exp_exit_step=20000000 "app.run_name=run_{t}_mz_tg_r123_s1_c50m"
+
+echo === 23. montezuma_revenge 30m seed 1: same as 20 but beta 0.003 ===
 call :find_done mz_tg_r123_b0003_s1
 if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.003 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b0003_s1"
 
