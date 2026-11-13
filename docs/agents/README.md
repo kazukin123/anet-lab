@@ -51,8 +51,8 @@
 | 検証資材 | [core/anet-core/testdata/prd111/README.md](../../core/anet-core/testdata/prd111/README.md) | 該当領域の検証。設計文書のテスト章から引く | 人間・Claude・Codex | docs/design/210_metrics_viewer.jp.md:1055、docs/design/210_metrics_viewer.en.md:1055 | core/anet-core/testdata/prd111/README.md（実在と参照元をrgで確認） |
 | 検証資材 | [core/anet-core/testdata/prd114/README.md](../../core/anet-core/testdata/prd114/README.md) | 該当領域の検証。設計文書のテスト章から引く | 人間・Claude・Codex | docs/design/160_applications_and_tools.en.md:376、docs/design/160_applications_and_tools.jp.md:415 | core/anet-core/testdata/prd114/README.md（実在と参照元をrgで確認） |
 | 規約・索引 | [docs/agents/README.md](README.md) | 対象の領域・作業に入る前。AGENTS.mdと入口skillから引く | 人間・Claude・Codex | .agents/skills/anet-harness-map/SKILL.md:3、.agents/skills/anet-housekeeping/SKILL.md:37 | docs/agents/README.md（実在と参照元をrgで確認） |
-| 規約・索引 | [docs/agents/domain.md](domain.md) | 対象の領域・作業に入る前。AGENTS.mdと入口skillから引く | 人間・Claude・Codex | AGENTS.md:664、.agents/skills/anet-harness-map/references/harness-map-contract.md:22、.agents/skills/setup-matt-pocock-skills/SKILL.md:75 | docs/agents/domain.md（実在と参照元をrgで確認） |
-| 規約・索引 | [docs/agents/issue-tracker.md](issue-tracker.md) | 対象の領域・作業に入る前。AGENTS.mdと入口skillから引く | 人間・Claude・Codex | AGENTS.md:654、.agents/skills/anet-harness-map/references/harness-map-contract.md:22、.agents/skills/setup-matt-pocock-skills/SKILL.md:75 | docs/agents/issue-tracker.md（実在と参照元をrgで確認） |
+| 規約・索引 | [docs/agents/domain.md](domain.md) | 対象の領域・作業に入る前。AGENTS.mdと入口skillから引く | 人間・Claude・Codex | AGENTS.md:664、.agents/skills/anet-harness-map/references/harness-map-contract.md:22 | docs/agents/domain.md（実在と参照元をrgで確認） |
+| 規約・索引 | [docs/agents/issue-tracker.md](issue-tracker.md) | 対象の領域・作業に入る前。AGENTS.mdと入口skillから引く | 人間・Claude・Codex | AGENTS.md:654、.agents/skills/anet-harness-map/references/harness-map-contract.md:22 | docs/agents/issue-tracker.md（実在と参照元をrgで確認） |
 | 規約・索引 | [docs/agents/triage-labels.md](triage-labels.md) | 対象の領域・作業に入る前。AGENTS.mdと入口skillから引く | 人間・Claude・Codex | AGENTS.md:659、docs/agents/issue-tracker.md:46、.agents/skills/anet-harness-map/references/harness-map-contract.md:22 | docs/agents/triage-labels.md（実在と参照元をrgで確認） |
 | 設計文書 | [docs/design/010_framework_overview.jp.md](../design/010_framework_overview.jp.md) | 対象の領域・作業に入る前。AGENTS.mdと入口skillから引く | 人間・Claude・Codex | .agents/skills/anet-translate-docs/SKILL.md:12、.agents/skills/anet-translate-docs/SKILL.md:17、.agents/skills/README.md:18 | docs/design/010_framework_overview.jp.md（実在と参照元をrgで確認） |
 | 設計文書 | [docs/design/020_user_guide_run.jp.md](../design/020_user_guide_run.jp.md) | 対象の領域・作業に入る前。AGENTS.mdと入口skillから引く | 人間・Claude・Codex | docs/design/030_user_guide_analysis.jp.md:447、docs/design/030_user_guide_analysis.jp.md:521、docs/design/020_user_guide_run.en.md:1 | docs/design/020_user_guide_run.jp.md（実在と参照元をrgで確認） |
@@ -185,19 +185,12 @@
 | improve-codebase-architecture | improve-codebase-architecture/LANGUAGE.md | project | 一致 | 個人版に記録 | なし | improve-codebase-architecture/LANGUAGE.md |
 | improve-codebase-architecture | improve-codebase-architecture/SKILL.md | project | 一致 | 個人版に記録 | なし | improve-codebase-architecture/SKILL.md |
 | karpathy-guidelines | karpathy-guidelines/SKILL.md | project | 一致 | 個人版に記録 | なし | karpathy-guidelines/SKILL.md |
-| setup-matt-pocock-skills | setup-matt-pocock-skills/domain.md | project | 一致 | 個人版に記録 | なし | setup-matt-pocock-skills/domain.md |
-| setup-matt-pocock-skills | setup-matt-pocock-skills/issue-tracker-github.md | project | 一致 | 個人版に記録 | なし | setup-matt-pocock-skills/issue-tracker-github.md |
-| setup-matt-pocock-skills | setup-matt-pocock-skills/issue-tracker-gitlab.md | project | 一致 | 個人版に記録 | なし | setup-matt-pocock-skills/issue-tracker-gitlab.md |
-| setup-matt-pocock-skills | setup-matt-pocock-skills/issue-tracker-local.md | project | 一致 | 個人版に記録 | なし | setup-matt-pocock-skills/issue-tracker-local.md |
-| setup-matt-pocock-skills | setup-matt-pocock-skills/SKILL.md | project | 一致 | 個人版に記録 | なし | setup-matt-pocock-skills/SKILL.md |
-| setup-matt-pocock-skills | setup-matt-pocock-skills/triage-labels.md | project | 一致 | 個人版に記録 | なし | setup-matt-pocock-skills/triage-labels.md |
 | tdd | tdd/deep-modules.md | project | 一致 | 個人版に記録 | なし | tdd/deep-modules.md |
 | tdd | tdd/interface-design.md | project | 一致 | 個人版に記録 | なし | tdd/interface-design.md |
 | tdd | tdd/mocking.md | project | 一致 | 個人版に記録 | なし | tdd/mocking.md |
 | tdd | tdd/refactoring.md | project | 一致 | 個人版に記録 | なし | tdd/refactoring.md |
 | tdd | tdd/SKILL.md | project | 一致 | 個人版に記録 | なし | tdd/SKILL.md |
 | tdd | tdd/tests.md | project | 一致 | 個人版に記録 | なし | tdd/tests.md |
-| to-prd | to-prd/SKILL.md | project | 一致 | 個人版に記録 | なし | to-prd/SKILL.md |
 
 ## 発見事項
 

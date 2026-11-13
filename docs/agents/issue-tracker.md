@@ -28,8 +28,6 @@ those artifacts exist. Do not copy their bodies into `.scratch/`.
 
 ## PRDs and Implementation Plans
 
-- `to-prd` creates only the corresponding `docs/memo/*_10prd.md`. It does not
-  create a tracking issue under `.scratch/`.
 - Assign the next formal number below 900 when creating a PRD, including a
   provisional draft. Never reuse a number. See `docs/memo/README.md`.
 - `anet-impl-prd` creates the next available implementation-plan slot

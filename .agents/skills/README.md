@@ -39,9 +39,7 @@ anet- スキル共通の約束(対象は定常整備系。anet-housekeeping と�
 | スキル | 用途 | 出所 |
 |---|---|---|
 | grill-me | 計画や設計を決定木の枝ごとに問い詰め、共通理解に到達させる | mattpocock/skills(skills-lock.json) |
-| to-prd | 会話の文脈から PRD を起こす。この repo では `docs/memo/*_10prd.md` に置く | mattpocock/skills(skills-lock.json) |
 | handoff | 会話を別エージェントへ引き継ぐための要約文書を作る | mattpocock/skills(skills-lock.json) |
-| setup-matt-pocock-skills | AGENTS.md と `docs/agents/` に issue tracker と triage label の規約を用意する。初回導入用 | mattpocock/skills(skills-lock.json) |
 | improve-codebase-architecture | CONTEXT.md と ADR を手掛かりに deep module 化の機会を探す。anet-audit の architecture 観点が語彙を借りる | 手動コピー(lock 未登録) |
 | tdd | red-green-refactor でのテスト先行開発 | 手動コピー(lock 未登録) |
 | karpathy-guidelines | LLM がやりがちな過剰実装・想定の隠蔽を避ける行動指針 | 手動コピー(lock 未登録) |
