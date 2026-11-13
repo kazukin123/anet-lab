@@ -68,6 +68,9 @@
 - 2026-11-12: `Agent::CreateStepDiagnosticsProvider`の引数を、laneの数・Evaluation Traceの列の鍵の一覧・RunnerのActorを持つ入力（`AgentStepDiagnosticsRequest`）に替える仕様をグリルで決めた。鍵の一覧は計算するかどうかだけを決め、鍵の認識は変えない（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D3・D9・§5.2・§6.1）。
 - 2026-11-12: Actorに、同期に従うもの（`ActorSyncFollower`）をつなぐ口（`AttachSyncFollower`）を足す仕様をグリルで決めた。Actorは、sourceから写し直すとき、sourceを守るロックの中でそれを呼び、相手を所有しない。基底の既定は、つながずに偽を返す（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§3・§4 D4・§6.1）。
 - 2026-11-12: step診断の部品（`AgentStepDiagnosticsProvider`）に、休ませる口（`Suspend`）と使い始める口（`Resume`。Actorの同期が要るかを返す）を足す仕様をグリルで決めた。基底の既定は、何もせず、偽を返す（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D20・§5.4・§6.1）。
+- 2026-11-12: Replay は報酬を成分ごとに記録し、成分ごとの割引率で収益を作る。成分の意味は持たない（出典: [ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、本文）。
+- 2026-11-12: 価値の分解のために、Replayが報酬を成分ごとに受け取り、n-stepの収益・抽選時のstepの報酬・初期優先度の見積もりの入力を成分ごとに作る契約を、グリルで決めた。1成分なら今と同じ値になる（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D8・§8.2）。
+- 2026-11-12: ExperienceSamplesのフィールドの並びを1つにする直しを含む、リファクタリング5件の仕様を、暫定で起票した（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§2.2・§5.2）。
 
 ## 選ばなかった形
 
@@ -105,6 +108,10 @@
 - 公開のMakeActionをvirtualでない1本にして既定値をそこだけに書き、実装は別名のvirtualをoverrideする形 — 不採用: 既定値は空の構造体で食い違う余地がほとんど無く、Runnerのstepも同じ作りにそろえるとEvalRunnerで基底のDoStepが名前ごと隠れる（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§4.1）。
 - EvalRunnerの手動の行動の引数をMakeActionOptionsにまとめる形 — 範囲外: PRD944の範囲（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§3.2・§9）。
 - Learnerの購読ヒントを、開始前の宣言と呼び出しごとの要求に分けて見直す形 — 範囲外: 別の関心（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§8の1）。
+- Replayはstepの報酬だけを成分で持ち、収益はLearnerが抽選のあとに作る形 — 不採用（却下）: 成分が1つのときは今と同じ値を保つために定数の割引率でPush時に保存する経路を残す必要があり、成分があるときだけ別の経路にすると、収益を作る経路が2通りになる（出典: [ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、Considered Options、[PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D8）。
+- 内的報酬という名前の2本目の報酬をReplayに足す形 — 不採用（却下）: 汎用のReplayに、特定のアルゴリズムの名前と意味が入る（出典: [ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、Considered Options）。
+- game overで切らない形のために、終端の観測からbootstrapする形 — 不採用: Replayはgame overの終端の観測を保存しておらず、次のエピソードの最初の観測からのbootstrapが、Replayを変えずに作れる（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§4・§5 D7・§5.1）。
+- 窓の収益を成分ごとに作る形 — 先送り: 窓の規則を使うのはskipだけで、価値の分解とskipの併用はERRORなので、今は使う構成が無い。成分が2つ以上のReplayに窓の規則を渡したらERRORにする。再開条件: 価値の分解とTempoRLの併用を作るとき（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D8・§5.1、[ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、Consequences）。
 
 ## 変えるときの条件
 
@@ -124,6 +131,7 @@
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§5.7・§7の受入1）。
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、PRD103の検証資材でmetrics checksumを一致させる（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.7・§7の受入1）。
 - MakeActionOptionsを渡さないstepと行動選択は、nn_traceを作らないことのほかは今と同じ結果にし、決定的な設定の短いRunのmetrics checksumを変更の前後で一致させる（出典: [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md)、§5.2・§7のA2・A11）。
+- 報酬の成分を足しても、終端、打ち切り、次観測、実際に進んだstep数、抽選の分布、item key、PERのcompletionとeviction統計のreadyの基準、PushとExtractのlock、indexの昇順を変えない。成分が1つのとき、記録・収益（窓の収益を含む）・標本・乱数の消費を今と同じに保ち、既存の断定を期待値を変えずに通す（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§8.2・§9.2の2）。
 
 ## 関係
 
@@ -194,7 +202,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 調査中 | 1.0 | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
-| [issue-20261111-288879](../../management/issues/issue-20261111-288879.md) | 未着手 | 3.7 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | ExperienceSamples のフィールドの並びが To の 2 経路・ForEachTensor・ToString に分かれ、To の 2 経路で未定義の tensor の扱いが食い違っている |
+| [issue-20261111-288879](../../management/issues/issue-20261111-288879.md) | 未着手 | 4.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md) | 未確認 | ExperienceSamples のフィールドの並びが To の 2 経路・ForEachTensor・ToString に分かれ、To の 2 経路で未定義の tensor の扱いが食い違っている |
 | [issue-20261103-1beaf9](../../management/issues/issue-20261103-1beaf9.md) | 未着手 | 3.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
 | [issue-20261111-7cc67b](../../management/issues/issue-20261111-7cc67b.md) | 未着手 | 3.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | EvalRunner の 1 step が、多重定義 4 つ・-1 の特別な値・bool の引数で、パネルからの 1 step と評価 session の 1 step を切り替えている |
 | [issue-20261111-4a6b6f](../../management/issues/issue-20261111-4a6b6f.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | RunManager のコンストラクタが 277 行あり、評価の設定の解釈・名前の予約・構築・ログ・配線が 1 つの関数に並んでいる |
@@ -205,7 +213,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261111-fe23e0](../../management/issues/issue-20261111-fe23e0.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 318_rl_core, 320_env_core | 学習基盤 | リファクタリング | — | 未確認 | BatchEnvSpec に「group の数」「group と lane の対応」を返す関数が無く、使う側が三項演算を 19 か所に書き、終端の mask を CPU へ移す処理も関数ごとに書いている |
 | [issue-20261103-b2a0b1](../../management/issues/issue-20261103-b2a0b1.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
 | [issue-20261103-34d35d](../../management/issues/issue-20261103-34d35d.md) | 未着手 | 2.3 | — | 成果物 | PRD | 318_rl_core | 学習基盤 | 不具合 | [PRD916](../../memo/916_episode_end_read_semantics_10prd.md) | 残件有り | `@episode_end` で読む値を、どの target でもそのエピソードの値にそろえる |
-| [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) | 未着手 | 2.3 | — | 成果物 | PRD | 324_dqn, 318_rl_core | アルゴリズム | 機能追加 | [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md) | 未確認 | 外的と内的の価値の分解（DQN 系の Q を外的報酬と内的報酬の 2 つの Head で学ぶ） |
 | [issue-20261111-2c251b](../../management/issues/issue-20261111-2c251b.md) | 未着手 | 2.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | Replay の窓の規則 3 クラスが同じ骨格の写しで、PER のスカラーのキーも一覧・条件式・分岐の 3〜4 か所に並んでいる |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-78c643](../../management/issues/issue-20261103-78c643.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
@@ -235,6 +242,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-afe841](../../management/issues/issue-20261103-afe841.md) | 未着手 | 0.8 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 318_rl_core | 学習基盤 | 機能追加 | [PRD933](../../memo/933_staged_batch_replay_schedule_10prd.md) | 残件有り | DefaultDQN Staged Batch / Replay Schedule |
 | [issue-20261103-969184](../../management/issues/issue-20261103-969184.md) | 未着手 | 0.6 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD926](../../memo/926_llm_actor_10prd.md) | 残件有り | LLM Actor（LLM の事前知識で行動する Actor。単独 Agent と DQN ハイブリッド） |
 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD927](../../memo/927_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
+| [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) | 調査中 | 2.3 | [issue-20261111-08d557](../../management/issues/issue-20261111-08d557.md), [issue-20261111-288879](../../management/issues/issue-20261111-288879.md), [issue-20261111-72d640](../../management/issues/issue-20261111-72d640.md), [issue-20261111-e33797](../../management/issues/issue-20261111-e33797.md), [issue-20261111-24d885](../../management/issues/issue-20261111-24d885.md) | 成果物 | PRD | 324_dqn, 318_rl_core | アルゴリズム | 機能追加 | [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md) | 未確認 | 外的と内的の価値の分解（DQN 系の Q を外的報酬と内的報酬の 2 つの Head で学ぶ） |
 | [issue-20261103-9df5c5](../../management/issues/issue-20261103-9df5c5.md) | 未着手 | 2.7 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 成果物 | PRD | 318_rl_core, 110_runner_app, 314_tensor | 学習基盤 | 不具合 | [PRD942](../../memo/942_notifier_scoped_detach_10prd.md) | 残件有り | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [PRD921](../../memo/921_agent_prev_action_obs_10prd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
 | [issue-20261103-ca1a85](../../management/issues/issue-20261103-ca1a85.md) | 未着手 | 1.6 | [issue-20261103-1beaf9](../../management/issues/issue-20261103-1beaf9.md) | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
@@ -245,10 +253,14 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.0 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD957](../../memo/957_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261103-578986](../../management/issues/issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md), [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD923](../../memo/923_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 
-着手できる 44 / 待ち 9 / 保留 0 / 次版 0 / 解決 0
+着手できる 44 / 待ち 10 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261107-1226e5](../../management/issues/issue-20261107-1226e5.md) — Evaluation Traceで内的報酬（RNDの新しさ）を見られない
+- 関連する課題: [issue-20261111-e33797](../../management/issues/issue-20261111-e33797.md) — DefaultDQNAgentConfig のコンストラクタが 534 行あり、読み取り・検証・既定値の導出・記録が 1 つの関数に並び、接頭辞の下を写して記録する処理も 4 か所に手書きされている
+- 関連する課題: [issue-20261111-24d885](../../management/issues/issue-20261111-24d885.md) — 診断指標の群を 1 つ足すたびに、キー配列・添字の解析・購読の間隔・要求の旗・読み出しの同じ形を 12 か所前後へ足し、添字も数値で直書きしている
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
+- 関連する課題: [issue-20261111-08d557](../../management/issues/issue-20261111-08d557.md) — 内的報酬の扱いが DefaultDQNAgent の 5 つの関数と 6 つのメンバに散り、UpdateFromBatch の 95 行のうち 56 行を占めている
+- 関連する課題: [issue-20261111-72d640](../../management/issues/issue-20261111-72d640.md) — DefaultDQNAgent のコンストラクタが 242 行あり、RainbowAgent が Head の選択・Actor の生成・値の振り分け・更新を写して既に 5 点で食い違っている
 - 関連する課題: [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) — 999: train/eval mode 整理後の排他精査 PRD（草案）
 <!-- issues:end -->

@@ -20,6 +20,7 @@
 - 2026-09-24: device文字列を解決するParseDeviceをtensor_utilにまとめた（出典: [PRD070](../../memo/done/070_device_spec_auto_10prd.md)、確定したD8）。
 - 2026-09-27: ActionContext廃止に合わせstackerをActor私有としstacker側のAgent依存を除いた（出典: [PRD083](../../memo/done/083_action_context_retire_10prd.md)、確定した設計判断5・7）。
 - 2026-10-21: scalarの読み口統一に合わせScaler群の値取得を接続した（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.1 D1・§4.3 規約・ADR・コードから導いたこと）。
+- 2026-11-12: 報酬スケーラに、lane ごとの割引収益の標準偏差で割る種類（`dynamic_mode = return_std`）を足し、動的な種類の状態を checkpoint に保存する仕様を、グリルで決めた（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D9・D16・§6.6）。
 
 ## 選ばなかった形
 
@@ -84,7 +85,9 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | 成果物 | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | アルゴリズム | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261103-f40ae8](../../management/issues/issue-20261103-f40ae8.md) | 未着手 | 0.9 | — | 成果物 | PRD | 317_metrics, 314_tensor, 318_rl_core | UI | 性能改善 | [PRD056](../../memo/056_timehistogram_fine_grid_10prd.md) | 残件有り | TimeHistogram fine-bin保持・描画時集約 |
 | [issue-20261103-9df5c5](../../management/issues/issue-20261103-9df5c5.md) | 未着手 | 2.7 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 成果物 | PRD | 318_rl_core, 110_runner_app, 314_tensor | 学習基盤 | 不具合 | [PRD942](../../memo/942_notifier_scoped_detach_10prd.md) | 残件有り | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す |
+| [issue-20261113-b96b2c](../../management/issues/issue-20261113-b96b2c.md) | 未着手 | 2.3 | [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) | 成果物 | PRD | 324_dqn, 314_tensor | アルゴリズム | 機能改善 | — | 未確認 | 観測の正規化の統計が checkpoint に保存されず、統計を使う構成では checkpoint 引き継ぎのたびに 0 から始まる |
 
-着手できる 5 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 5 / 待ち 2 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) — Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る
+- 関連する課題: [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) — 外的と内的の価値の分解（DQN 系の Q を外的報酬と内的報酬の 2 つの Head で学ぶ）
 <!-- issues:end -->

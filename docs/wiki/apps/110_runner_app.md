@@ -297,12 +297,12 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 
 着手できる 25 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
-- 関連する課題: [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) — Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
-- 関連する課題: [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) — 外的と内的の価値の分解（DQN 系の Q を外的報酬と内的報酬の 2 つの Head で学ぶ）
-- 関連する課題: [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) — 999: train/eval mode 整理後の排他精査 PRD（草案）
 - 関連する課題: [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) — 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化
+- 関連する課題: [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) — Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る
+- 関連する課題: [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) — 999: train/eval mode 整理後の排他精査 PRD（草案）
 - 関連する課題: [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) — n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正）
 - 関連する課題: [issue-20261103-f39d10](../../management/issues/issue-20261103-f39d10.md) — Background eval の network snapshot 順序保証
+- 関連する課題: [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) — 外的と内的の価値の分解（DQN 系の Q を外的報酬と内的報酬の 2 つの Head で学ぶ）
 - 関連する課題: [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) — 直前行動観測の共通部品（`prev_action` フレーム段）
 <!-- issues:end -->

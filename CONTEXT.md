@@ -23,6 +23,10 @@ _Avoid_: V branch, value branch
 Dueling DQN 系の Q ネットワークで、行動ごとの優位性 A を推定するための特徴表現と最終射影の流れ。
 _Avoid_: A branch, advantage branch
 
+**価値の分解**:
+Q を、環境の報酬（外的報酬）で学ぶ出力と、新しさなどの探索用の報酬（内的報酬）で学ぶ出力の和で表し、それぞれを別の報酬で学ぶ構成。行動には、内的の側に重みを掛けて合わせた値を使う。
+_Avoid_: 価値ストリームの分離（Dueling の語と紛れる）, Q の分割
+
 **Bellmanターゲット**:
 報酬と次状態のブートストラップ価値から作る、現在の Q 値が近づくべき教師値。
 _Avoid_: target Q, TD target
@@ -30,6 +34,10 @@ _Avoid_: target Q, TD target
 **target return**:
 実報酬の N-step 割引和。ReplayBuffer に保持される値で、bootstrap 価値は含まない（学習時に次状態のブートストラップ価値が加算されて Bellmanターゲットになる）。
 _Avoid_: n-step reward, stored return
+
+**報酬の成分**:
+ReplayBuffer が 1 step ごとに別々に記録する報酬の並びの 1 本。成分ごとに target return を持ち、成分の意味は利用側が決める。
+_Avoid_: 報酬チャネル, サブ報酬
 
 **Q空間**:
 学習器が Q 値として扱う値の表現空間。TBO 有効時は圧縮済みの h 空間を、TBO 無効時は実空間を指す。
