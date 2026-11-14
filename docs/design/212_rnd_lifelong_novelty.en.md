@@ -1,4 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:1b687015d0b30e256429f6af11b38b06be32b798 date:2026-11-14 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:f932c027dc6763a5fcbf5218b3872776ea554f5c date:2026-11-14 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.
@@ -421,6 +421,8 @@ Atari's CNN passes through `AtariRndConv1` (32 channels, kernel 8, stride 4), `A
 
 GridMaze/LunarLander reference `net.branch.@RndMlp` from both Bodies. It uses `MLP_FC1` / `MLP_FC2` from the common catalog, with a default 128-dimensional Head. The common catalog's `Conv1d_S/M` and `Conv2d_S/M` read the `conv.*` keys; a two-layer Conv2d gives 6,400 after Flatten and 854,240 parameters including the 128-dimensional Head.
 
+Atari's `run.@rnd` also selects β=0.03 and warmup_steps=200,000. β is smaller than the `agent.txt` default of 0.1: in KFM runs of 10M exp steps, 0.1 made the intrinsic share of the training reward exceed 0.5 during 2M–3M and lowered evaluation scores. The warm-up length keeps the large early errors out of the error statistics (§3.5). GridMaze and LunarLander `run.@rnd` keep the defaults (β=0.1, 12,800 observations).
+
 Atari's `run.@rnd_taiga` selects the following eight values: β=0.00005, observation=state, learn_ratio=1, learn_batch_size=1, multiplier_mode=unclipped, statistics_mode=variance_feedback, warmup_steps=0, and adam_eps=1e-5. Add the Q-side `run.@rainbow_like` to the existing chain, then layer `run.@rnd > run.@rnd_taiga` on top. It does not select num_envs. Also confirm in the resolved Run configuration the Q-side noop_max=0, the Nature structure of main_feature, and the absence of Munchausen metrics.
 
 RND receives the selected raw observations, rather than Actor-preprocessed Q inputs. For Atari as well, distinguish Q-input frame stacking from RND input.
@@ -502,7 +504,14 @@ With a cloned Actor, values use the training predictor, statistics, and beta at 
 
 Dropout and DropPath consume shared randomness, so configurations containing them are outside the learning-invariance guarantee even with a cloned Actor. BatchNorm updates stay in a snapshot, but alter training statistics when the Actor does not clone; that case is also outside the guarantee. These layers are neither detected nor warned about. Shipped RND networks contain none of them.
 
-See the [PRD127 validation assets](../../core/anet-core/testdata/prd127/README.md) for acceptance and measurement procedures. Measure training exp steps/s, Observe time, and estimator/beta copy time over at least three alternating open/closed cycles for Atari normal RND and Taiga-style RND. GUI measurements have not yet been collected, so overhead and the choice to keep default columns remain unverified.
+See the [PRD127 validation assets](../../core/anet-core/testdata/prd127/README.md) for acceptance and measurement procedures. With KFM's real-time-priority configuration plus `run.@rnd` (128 lanes, CUDA, Release), and the same configuration with `run.@rainbow_like` and `run.@rnd_taiga` layered on top, the pane was measured closed and open three times each, alternating, while EvalPanel kept playing. Each state measured training exp steps/s over 90 seconds starting 25 seconds after the switch, followed by 12 seconds of Tracy zone timings.
+
+| Configuration | Training exp steps/s, closed (median, range) | Open | Observe per call (mean, max) | Of which scoring (`EstimateWithoutUpdate`, mean) | Estimator and β copy per sync |
+|---|---|---|---|---|---|
+| Normal RND | 3,633 (3,303–3,666) | 3,164 (3,156–3,355) | 2.15–2.25 ms, max 8.9 ms | 1.35–1.39 ms | 166–176 ms |
+| Taiga-style | 249 (241–249) | 233 (227–234) | 1.51–1.73 ms, max 12.0 ms | 1.23–1.40 ms | 152–189 ms |
+
+Observe time includes the DQN step diagnostics it calls internally (mean 0.74–0.82 ms for normal RND, 0.26–0.33 ms for Taiga-style). About 50 rows were produced per second. A copy occurs once per periodic Actor sync (every 10 seconds by EvalPanel's default), and almost all of it is the RND estimator copy (`RndNoveltyEstimator::Clone`). With the pane closed, neither scoring nor copying ran. The copy time was about 50 times the few milliseconds estimated by [PRD127](../memo/127_eval_trace_intrinsic_reward_columns_10prd.md).
 
 ## 5. Current Status and Limitations
 

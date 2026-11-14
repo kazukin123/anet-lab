@@ -420,6 +420,8 @@ AtariのCNNは `AtariRndConv1`（32 channels、kernel 8、stride 4）、`AtariRn
 
 GridMaze/LunarLanderは `net.branch.@RndMlp` を両Bodyから参照する。共通カタログの `MLP_FC1` / `MLP_FC2` を使い、Headは既定128次元。共通カタログの `Conv1d_S/M`・`Conv2d_S/M` は `conv.*` の設定キーを読み、2層Conv2dではFlatten 6,400、128次元Headを含め854,240パラメータになる。
 
+Atariの `run.@rnd` は、ほかにβ=0.03と warmup_steps=200,000 を選ぶ。βは `agent.txt` の既定0.1より小さい。KFMの10M exp stepでは、0.1だと学習の報酬に占める内的報酬の割合が2M〜3Mに0.5を超え、評価の点が下がった。warm-upは、序盤の大きな誤差を誤差の統計に入れない長さである（§3.5）。GridMaze・LunarLanderの `run.@rnd` は既定（β=0.1、12,800件）のままである。
+
 Atariの `run.@rnd_taiga` は次の8値を選ぶ。β=0.00005、observation=state、learn_ratio=1、learn_batch_size=1、multiplier_mode=unclipped、statistics_mode=variance_feedback、warmup_steps=0、adam_eps=1e-5。Q側の `run.@rainbow_like` を既存の連鎖へ加え、さらに `run.@rnd > run.@rnd_taiga` を重ねる。num_envsは選ばない。解決したRun設定でQ側のnoop_max=0、main_featureのNature構造、Munchausen指標の不在も確認する。
 
 RNDは選択した生の観測を受け取り、Actor側でQ入力用に加工したものを横取りしない。AtariでもQ入力のフレーム積層とRND入力は区別する。
@@ -501,7 +503,14 @@ Actorが写しを持つ場合、行の値は最後のActor同期時点の学習�
 
 forwardで乱数を引くdropout・droppathは共有乱数列を進めるので、Actorが写しを持つ場合も学習不変性の保証外である。BatchNormの更新は写しの中に閉じるが、写しを持たないActorでは学習側の統計も変わる。この場合も保証外である。これらの層は検出もWARNもしない。出荷のRND構成には含まれない。
 
-受入と費用の測定手順は[PRD127検証資材](../../core/anet-core/testdata/prd127/README.md)に置く。Atariの通常RNDとTaiga式について、pane開閉各3巡以上の学習exp step/s、Observe時間、推定器とβの写し時間を測る。GUIでの測定値はまだ採取していないため、費用と既定列の採否は未確認である。
+受入と費用の測定手順は[PRD127検証資材](../../core/anet-core/testdata/prd127/README.md)に置く。KFMの実時間優先＋`run.@rnd`（128 lane、CUDA、Release）と、それに`run.@rainbow_like`・`run.@rnd_taiga`を重ねた構成で、EvalPanelを再生したまま、paneを閉じた状態と開いた状態を交互に3回ずつ測った。各状態は、切り替えの25秒後から90秒の学習exp step/sと、続く12秒のTracyの区間時間である。
+
+| 構成 | 学習exp step/s、閉じた状態（中央値、範囲） | 開いた状態 | Observe 1回（平均、最大） | うち採点（`EstimateWithoutUpdate`、平均） | 推定器とβの写し 1回 |
+|---|---|---|---|---|---|
+| 通常RND | 3,633（3,303〜3,666） | 3,164（3,156〜3,355） | 2.15〜2.25 ms、最大8.9 ms | 1.35〜1.39 ms | 166〜176 ms |
+| Taiga式 | 249（241〜249） | 233（227〜234） | 1.51〜1.73 ms、最大12.0 ms | 1.23〜1.40 ms | 152〜189 ms |
+
+Observeの時間は、内側で呼ぶDQNのstep診断（通常RNDで平均0.74〜0.82 ms、Taiga式で0.26〜0.33 ms）を含む。行は1秒に約50行できた。写しは定期のActor同期（EvalPanelの既定で10秒ごと）のたびに1回入り、ほぼ全部がRNDの推定器の写し（`RndNoveltyEstimator::Clone`）だった。paneを閉じた状態では、採点も写しも行われなかった。写しの時間は、[PRD127](../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)が見積もった数ミリ秒の約50倍だった。
 
 ## 5. 現在の状態と限界
 

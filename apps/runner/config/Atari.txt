@@ -5,7 +5,10 @@
 app.$ = app.online > P1
 
 # RND 単独の比較群。既存の run.$ の末尾に run.@rnd を足して選ぶ。
+# β は agent.txt の既定 0.1 より小さい 0.03（KFM 10M で 0.1 は評価の点を下げた）。warm-up は序盤の大きな誤差を誤差の統計に入れない長さ。
 run.@rnd : DefaultDQNAgent.intrinsic.enabled = true
+run.@rnd : DefaultDQNAgent.intrinsic.beta = 0.03
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.warmup_steps = 200,000
 run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].bind = grid
 run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].structure = AtariRndConv1 > AtariRndLeaky > AtariRndConv2 > AtariRndLeaky > AtariRndConv3 > AtariRndLeaky > Flatten
 run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.body.output.[features] = feature

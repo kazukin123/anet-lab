@@ -60,6 +60,8 @@ SET "R123=DefaultDQNAgent.intrinsic.beta=0.1 DefaultDQNAgent.intrinsic.rnd.warmu
 SET "R123EMA=%R123% DefaultDQNAgent.intrinsic.rnd.error_norm.average_mode=ema"
 SET "R123CE=DefaultDQNAgent.intrinsic.beta=0.1 DefaultDQNAgent.intrinsic.rnd.warmup_mode=collect_errors DefaultDQNAgent.intrinsic.rnd.warmup_steps=12800"
 SET "R123NC=DefaultDQNAgent.intrinsic.beta=0.01 DefaultDQNAgent.intrinsic.rnd.warmup_steps=200000 DefaultDQNAgent.intrinsic.rnd.error_norm.use_centering=false"
+SET "R123B003=DefaultDQNAgent.intrinsic.beta=0.03 DefaultDQNAgent.intrinsic.rnd.warmup_steps=200000"
+SET "B003W1M=DefaultDQNAgent.intrinsic.beta=0.03 DefaultDQNAgent.intrinsic.rnd.warmup_steps=1000000"
 SET "B1K=A2.learner.replay_batch_size=1024"
 SET "RT10V=run.$=%A5%>%RR1%>%RF%>run.@cap2m>run.@eval2ch_r1>run.@eval2ch_r1_50m>run.@to_10m>run.@vitva>run.@batch"
 SET "SENZ=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@nz_learning>run.@batch"
@@ -181,6 +183,30 @@ if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.see
 echo === 31. kung_fu_master 10m seed 5: same as 30 ===
 call :find_done kfm_10m_r123nc_s05
 if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %R123NC% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123nc_s05"
+echo === 32. kung_fu_master 10m seed 4: same as 22 but beta 0.03 ===
+call :find_done kfm_10m_r123b003_s04
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %R123B003% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123b003_s04"
+echo === 33. kung_fu_master 10m seed 5: same as 32 ===
+call :find_done kfm_10m_r123b003_s05
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %R123B003% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123b003_s05"
+echo === 34. kung_fu_master 10m seed 6: same as 32 ===
+call :find_done kfm_10m_r123b003_s06
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 %R123B003% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123b003_s06"
+echo === 35. kung_fu_master 10m seed 7: same as 32 ===
+call :find_done kfm_10m_r123b003_s07
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %R123B003% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123b003_s07"
+echo === 36. kung_fu_master 10m seed 4: same as 32 but RND warm-up 1,000,000 ===
+call :find_done kfm_10m_b003w1m_s04
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %B003W1M% %EVFIX% "app.run_name=run_{t}_kfm_10m_b003w1m_s04"
+echo === 37. kung_fu_master 10m seed 5: same as 36 ===
+call :find_done kfm_10m_b003w1m_s05
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %B003W1M% %EVFIX% "app.run_name=run_{t}_kfm_10m_b003w1m_s05"
+echo === 38. kung_fu_master 10m seed 6: same as 36 ===
+call :find_done kfm_10m_b003w1m_s06
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 %B003W1M% %EVFIX% "app.run_name=run_{t}_kfm_10m_b003w1m_s06"
+echo === 39. kung_fu_master 10m seed 7: same as 36 ===
+call :find_done kfm_10m_b003w1m_s07
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %B003W1M% %EVFIX% "app.run_name=run_{t}_kfm_10m_b003w1m_s07"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
