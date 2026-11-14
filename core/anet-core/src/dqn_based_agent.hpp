@@ -1286,6 +1286,7 @@ namespace anet::rl::dqn {
     protected:
         float update_credit_ = 0.0f;
     private:
+        bool warmup_active_ = false; ///< 開始を通知したウォームアップの終了を一度だけ通知する。
         bool has_enough_replay_samples_ = false;
     };
 

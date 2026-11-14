@@ -4420,9 +4420,18 @@ void Learner::UpdatePerBeta(step_t step)
 
 bool Learner::CanUpdate(step_t exp_step)
 {
-    // warmup
-    if (config_.update_warmup_steps > 0 && exp_step < config_.update_warmup_steps)
+    // warmupの境界だけを通知し、Replay件数の成立や最初の学習更新とは区別する。
+    if (config_.update_warmup_steps > 0 && exp_step < config_.update_warmup_steps) {
+        if (!warmup_active_) {
+            LOG::info_once() << "Learner warmup started: update_warmup_steps=" << config_.update_warmup_steps;
+            warmup_active_ = true;
+        }
         return false;
+    }
+    if (warmup_active_) {
+        LOG::info_once() << "Learner warmup finished: update_warmup_steps=" << config_.update_warmup_steps;
+        warmup_active_ = false;
+    }
 
     // ReplayBufferのサイズがminibatchサイズに満たない場合はスキップ（N-STEPであり得る）
     // 一度 minibatch サイズに到達した後は sampleable count が閾値未満へ戻らない前提で、

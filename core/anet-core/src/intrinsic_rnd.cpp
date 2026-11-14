@@ -505,6 +505,11 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
 {
     ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
+    // 観測件数の境界だけを通知し、predictorの学習開始・終了とは区別する。
+    const bool warming_up = score_count_ < config_.warmup_steps;
+    if (warming_up && score_count_ == 0)
+        anet::log::info_once(config_.GetConfigPrefix()) << "RND warmup started: warmup_mode=" << config_.warmup_mode
+            << " warmup_steps=" << config_.warmup_steps;
     // 入力のdeviceによらず、観測の正規化と統計をCPUで扱う。
     ANET_PROFILE_SCOPE(observation_transfer);
     auto float_observations = observations.To(torch::kCPU);
@@ -564,6 +569,9 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
     if (config_.multiplier_mode == kMultiplierClipped)
         alpha = alpha.clamp(1.0f, config_.multiplier_max);
     score_count_ += observations.Size(0);
+    if (warming_up && score_count_ >= config_.warmup_steps)
+        anet::log::info_once(config_.GetConfigPrefix()) << "RND warmup finished: warmup_mode=" << config_.warmup_mode
+            << " warmup_steps=" << config_.warmup_steps;
     target_feature_stats_.Update(target_features);
     diagnostics_[kTargetFeatureVar] = TargetFeatureVariance();
     diagnostics_[kTargetFeatureMax] = target_features.abs().max().item<float>();
