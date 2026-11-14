@@ -16,7 +16,7 @@ docs:
   - docs/memo/924_intrinsic_reward_novelty_10prd.md
   - docs/memo/123_rnd_intrinsic_reward_scale_10prd.md
 prd:
-priority: 中
+priority: 高
 depends: []
 parent:
 value: 3
@@ -27,7 +27,8 @@ wsjf: 2
 resolved:
 resolution:
 memo:
-tags: []
+tags:
+  - RND
 ---
 
 ## 背景
