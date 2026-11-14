@@ -24,6 +24,84 @@
 #include <thread>
 #include <vector>
 
+TEST_CASE("ExperienceSamples transfers and visits every populated field in order", "[prd128][replay_buffer]")
+{
+    const bool cuda = GENERATE(false, true);
+    if (cuda && !torch::cuda::is_available()) {
+        WARN("CUDA unavailable; CPU transfer remains covered.");
+        return;
+    }
+    // 異なる値を全フィールドへ入れ、欠落と並びの変化の両方を検出する。
+    constexpr const char* kObservationKey = "observation";
+    anet::rl::ExperienceSamples samples;
+    samples.obs.Set(kObservationKey, torch::tensor({1.0f}));
+    samples.actions = torch::tensor({2.0f});
+    samples.target_returns = torch::tensor({3.0f});
+    samples.next_state.next_obs.Set(kObservationKey, torch::tensor({4.0f}));
+    samples.next_state.terminals = torch::tensor({5.0f});
+    samples.n_steps = torch::tensor({6.0f});
+    samples.window.lengths = torch::tensor({7.0f});
+    samples.window.max_lengths = torch::tensor({8.0f});
+    samples.window.returns = torch::tensor({9.0f});
+    samples.window.terminals = torch::tensor({10.0f});
+    samples.window.truncated = torch::tensor({11.0f});
+    samples.window.next_obs.Set(kObservationKey, torch::tensor({12.0f}));
+    samples.replay_item_keys = torch::tensor({13}, torch::kInt64);
+    samples.is_weights = torch::tensor({14.0f});
+    samples.per_priority_sources = torch::tensor({15}, torch::kInt8);
+    samples.info.Set("auxiliary", torch::tensor({16.0f}));
+    samples.sampled_rewards = torch::tensor({17.0f});
+    samples.sampled_window_rewards = torch::tensor({18.0f});
+
+    const torch::Device device = cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
+    auto transferred = samples.To(device, false);
+    std::vector<float> values;
+    transferred.ForEachTensor([&](const torch::Tensor& tensor) {
+        values.push_back(tensor.item<float>());
+        const bool metadata = values.size() == 13 || values.size() == 15;
+        CHECK(tensor.device() == (metadata ? torch::Device(torch::kCPU) : device));
+    });
+    CHECK(values == (std::vector<float>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}));
+    CHECK(transferred.replay_item_keys.scalar_type() == torch::kInt64);
+    CHECK(transferred.per_priority_sources.scalar_type() == torch::kInt8);
+    CHECK(transferred.ToString().find("target_returns") != std::string::npos);
+}
+
+TEST_CASE("ExperienceSamples string describes every field including undefined fields", "[prd128][replay_buffer]")
+{
+    const anet::rl::ExperienceSamples samples;
+    const auto text = samples.ToString();
+    for (const auto* field : {"obs", "actions", "target_returns", "next_state.next_obs", "next_state.terminals",
+        "n_steps", "window.lengths", "window.max_lengths", "window.returns", "window.terminals", "window.truncated",
+        "window.next_obs", "replay_item_keys", "is_weights", "per_priority_sources", "info",
+        "sampled_rewards", "sampled_window_rewards"}) {
+        CAPTURE(field);
+        CHECK(text.find(field) != std::string::npos);
+    }
+}
+
+TEST_CASE("ExperienceSamples retains undefined core tensors on CPU and CUDA", "[prd128][replay_buffer]")
+{
+    const int missing = GENERATE(0, 1, 2);
+    const bool cuda = GENERATE(false, true);
+    if (cuda && !torch::cuda::is_available()) {
+        WARN("CUDA unavailable; CPU transfer remains covered.");
+        return;
+    }
+    anet::rl::ExperienceSamples samples;
+    samples.actions = torch::zeros({1});
+    samples.target_returns = torch::zeros({1});
+    samples.next_state.terminals = torch::zeros({1}, torch::kBool);
+    if (missing == 0) samples.actions = torch::Tensor{};
+    if (missing == 1) samples.target_returns = torch::Tensor{};
+    if (missing == 2) samples.next_state.terminals = torch::Tensor{};
+    // D7: 転送先によらず未定義を保持する。必須性の判断は利用側へ残す。
+    const auto transferred = samples.To(cuda ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU), false);
+    CHECK(transferred.actions.defined() == (missing != 0));
+    CHECK(transferred.target_returns.defined() == (missing != 1));
+    CHECK(transferred.next_state.terminals.defined() == (missing != 2));
+}
+
 // ============================================================================
 // ReplayBuffer API test coverage model
 //

@@ -1,4 +1,4 @@
-<!-- translated-from: 110_agents_and_learning.jp.md blob:3c5006c75cdbd3d7eb29b3e783d291d22cb78c4b date:2026-11-04 progress:done -->
+<!-- translated-from: 110_agents_and_learning.jp.md blob:c23257d699ad3b451bf14f9a67687be72af1a1db date:2026-11-14 progress:done -->
 # Agents and Learning
 
 > Primary perspective: function (shared Agent, Actor, and Learner contracts, with processing stages in chronological order)
@@ -46,7 +46,7 @@ Actor is also a Module: epsilon, temperature, and similar values are available t
 
 Agent-related ownership follows these principles:
 
-- Agent is the Run-level lifetime owner of Resources such as Networks, Optimizers, ReplayBuffers, RNGs, and Configs. Agent also owns feature-specific RNGs, such as probes, from named seeds; consuming modules hold only non-owning references.
+- Agent is the Run-level lifetime owner of Resources such as Networks, Optimizers, ReplayBuffers, RNGs, and Configs. For DQN probes, the inner Learner constructs and owns dedicated RNGs from the Agent's base seed and purpose names. Reconfiguring subscriptions does not recreate them.
 - Agent ownership does not require a direct field in the Agent class. Resources may reside beneath an Agent-owned Learner or Actor as long as their lifetimes remain within the Agent's.
 - Mutable State such as epsilon, EMA, and warmup counters belongs to the component that updates it.
 - Distinguish snapshot Networks used by only one Actor as Actor-owned private Resources from Networks referenced by multiple Actors and Learner as Agent-owned shared Resources.
@@ -59,7 +59,7 @@ The [Agent Implementation Ownership Guidelines](../ownership_guideline.md) are a
 | `agent.class_id` | Role | Details |
 |---|---|---|
 | `DefaultDQNAgent` | Configurable DQN Agent | [DQN Agents](200_dqn_agents.en.md) |
-| `RainbowAgent` | DQN Agent with a Rainbow configuration | [DQN Agents](200_dqn_agents.en.md) |
+| `RainbowAgent` | Second Agent used to check responsibility boundaries in shared DQN components; not used for Runs | [DQN Agents](200_dqn_agents.en.md) |
 | `MuZeroAgent` | Prototype MuZero implementation | See current code |
 | `ImageClsAgent` | Image classification on the shared Run/Agent contracts | See current code |
 
@@ -214,7 +214,7 @@ When adding or changing checkpoint support, identify unsaved State and check the
 
 ### 7.5 Scalar Metric Subscriptions
 
-`RunManager` converts actually attached scalar metric definitions into `ScalarMetricSubscription` and passes them once to `Agent::ConfigureScalarMetricSubscriptions()` before learning begins. Subscriptions retain source key, event, optional target, interval, runner scope, and eval name. The base Agent does nothing. Concrete Agents filter only their own train-scope `LEARN` keys to determine activation and cadence of expensive capture or probes. Metric processing without subscriptions must be completely inactive.
+`RunManager` converts actually attached scalar metric definitions into `ScalarMetricSubscription` and passes them once to `Agent::ConfigureScalarMetricSubscriptions()` before learning begins. Subscriptions retain source key, event, optional target, interval, runner scope, and eval name. The base Agent does nothing. Concrete Agents filter only their own train-scope `LEARN` keys to determine activation and cadence of expensive capture or probes. Metric processing without subscriptions must be completely inactive. DQN's inner Learner separates subscription distribution, validation, and Resource preparation. Four fixed-metric groups share gates and requests through `DiagnosticDemandTable`; plasticity channels and attention's layer-specific demands retain their own structures.
 
 ## 8. Tests and Extension Checks
 

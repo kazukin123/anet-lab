@@ -2,6 +2,8 @@
 
 #include "anet/default_dqn_agent.hpp"
 #include <algorithm>
+#include <atomic>
+#include <random>
 #include <functional>
 #include <memory>
 #include <numeric>
@@ -19,6 +21,7 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/stacker.hpp"
 #include "anet/serialize.hpp"
+#include "anet/intrinsic.hpp"
 #include "nn_heads.hpp"
 #include "dqn_based_heads.hpp"
 #include "dqn_based_agent.hpp"
@@ -45,6 +48,226 @@ constexpr char kIntrinsicLearnSeed[] = "intrinsic.learn";
 constexpr const char* kSkipStructureTag = "skip.net.structure";
 constexpr const char* kSkipDetailTag = "skip.net.detail";
 constexpr const char* kSkipNetworkSeed = "skip_network";
+
+// Agent の内的報酬の State と処理をまとめ、設定は不変な値として保持する。
+class DefaultDQNAgent::IntrinsicRewardCoordinator {
+    using IntrinsicConfig = decltype(DefaultDQNAgentConfig::intrinsic);
+public:
+    IntrinsicRewardCoordinator(const IntrinsicConfig& config, bool learning_enabled,
+        const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device,
+        anet::SeedMaker& seed_maker, const std::string& prefix)
+        : config_(config), learning_enabled_(learning_enabled)
+    {
+        if (config_.enabled)
+            intrinsic_learn_random_.emplace(seed_maker.MakeNamedSeed(kIntrinsicLearnSeed));
+
+        // 鍵は生成側が宣言し、部品を作らない場合も既知の未成立値を保つ。
+        for (const auto& [key, value] : anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::InitialDiagnostics())
+            intrinsic_diagnostics_.try_emplace(std::string(kIntrinsicPrefix) + key, value);
+        for (const auto* key : {kIntrinsicBonusMean, kIntrinsicBonusMax, kIntrinsicBonusShare,
+            kIntrinsicBonusMin, kIntrinsicBonusPosRatio, kIntrinsicLearnCount})
+            intrinsic_diagnostics_.try_emplace(key, std::numeric_limits<float>::quiet_NaN());
+
+        // 内的報酬の推定器を初期化
+        if (config_.enabled) {
+            if (learning_enabled_ && batch_env_spec.num_envs < config_.learn_batch_size) {
+                ANET_SYSTEM_ERROR("DefaultDQNAgent.intrinsic.learn_batch_size=" << config_.learn_batch_size
+                    << " exceeds num_envs=" << batch_env_spec.num_envs
+                    << "; expected learn_batch_size <= run.train.num_envs when DefaultDQNAgent.learner.enabled=true.");
+            }
+            lifelong_novelty_ = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+                config_.rnd, prefix,
+                env_spec.state_spec.obs_spec, device, seed_maker);
+            intrinsic_beta_.emplace(config_.beta);
+            // 学習の入口を通らない評価専用 Run にも、現在の Run の開始時点の β を用意する。
+            last_intrinsic_beta_ = intrinsic_beta_->Evaluate(0);
+            intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(0.0f, std::memory_order_relaxed);
+            if (!learning_enabled_)
+                LOG::info_once() << "DefaultDQNAgent.intrinsic.enabled=true with learner.enabled=false: intrinsic scoring and training are suspended.";
+        }
+    }
+
+    bool IsEnabled() const { return static_cast<bool>(lifelong_novelty_); }
+
+    void AdvanceBeta(const StepCounts& counts)
+    {
+        // 学習停止中も Run の予定を進める。推定器と診断値の更新は学習有効時に限る。
+        if (lifelong_novelty_)
+            last_intrinsic_beta_ = intrinsic_beta_->Evaluate(counts.exp_step);
+    }
+
+    bool IsLearningEnabled() const { return lifelong_novelty_ && learning_enabled_; }
+
+    torch::Tensor ScoreBonus(const BatchExperience& batch_exp, const torch::Tensor& scaled_rewards)
+    {
+        // 生の観測を選んで採点する。次観測だけは終端のボーナスをマスクする。
+        const auto& intrinsic_observations = SelectObservations(batch_exp);
+        const auto alpha = lifelong_novelty_->Estimate(intrinsic_observations);
+        auto bonus = CalculateBonus(alpha, *last_intrinsic_beta_, batch_exp.next_state.done,
+            UsesDoneMask(), BonusMaskOperation::Copy);
+
+        // ボーナスの診断値を公開する。比率の分母には加算前の外的報酬を使う。
+        const float bonus_sum = bonus.abs().sum().item<float>();
+        const float denominator = scaled_rewards.abs().sum().item<float>() + bonus_sum;
+        intrinsic_diagnostics_.at(kIntrinsicBonusMean).store(bonus.mean().item<float>(), std::memory_order_relaxed);
+        intrinsic_diagnostics_.at(kIntrinsicBonusMax).store(bonus.max().item<float>(), std::memory_order_relaxed);
+        intrinsic_diagnostics_.at(kIntrinsicBonusMin).store(bonus.min().item<float>(), std::memory_order_relaxed);
+        intrinsic_diagnostics_.at(kIntrinsicBonusPosRatio).store((bonus > 0.0f).to(torch::kFloat32).mean().item<float>(),
+            std::memory_order_relaxed);
+        intrinsic_diagnostics_.at(kIntrinsicBonusShare).store(denominator > 0.0f ? bonus_sum / denominator
+            : std::numeric_limits<float>::quiet_NaN(), std::memory_order_relaxed);
+        return bonus;
+    }
+
+    void Learn(const BatchExperience& batch_exp)
+    {
+        if (!lifelong_novelty_ || !learning_enabled_) return;
+        const auto& intrinsic_observations = SelectObservations(batch_exp);
+        // 経験件数に比例したcreditを貯め、同じintakeのlaneを重複なくk件ずつ渡す。
+        const auto num_lanes = intrinsic_observations.Size(0);
+        const auto batch_size = config_.learn_batch_size;
+        intrinsic_learn_credit_ += static_cast<float>(num_lanes) * config_.learn_ratio / batch_size;
+        if (intrinsic_learn_credit_ >= 1.0f) {
+            ANET_PROFILE_SCOPE(intrinsic_selection);
+            std::vector<int64_t> lanes(num_lanes);
+            std::iota(lanes.begin(), lanes.end(), 0);
+            std::shuffle(lanes.begin(), lanes.end(), *intrinsic_learn_random_);
+            auto indices = torch::tensor(lanes, torch::kInt64);
+            // indexのdevice転送はstepループの前にまとめ、CUDAにはpinnedから非同期で送る。
+            if (intrinsic_observations.device().is_cuda())
+                indices = indices.pin_memory().to(intrinsic_observations.device(), true);
+            for (int64_t offset = 0; offset + batch_size <= num_lanes && intrinsic_learn_credit_ >= 1.0f;
+                offset += batch_size) {
+                ANET_PROFILE_SCOPE(intrinsic_learn);
+                anet::TensorDict observations;
+                const auto selected = indices.narrow(0, offset, batch_size);
+                for (const auto& [key, value] : intrinsic_observations)
+                    observations.Set(key, value.index_select(0, selected));
+                if (lifelong_novelty_->Learn(observations)) ++intrinsic_learn_count_;
+                // warm-upの未実行分も消費し、明けたときに追いつき学習をしない。
+                intrinsic_learn_credit_ -= 1.0f;
+            }
+        }
+
+        // 補助学習後の推定器の診断値を公開する。
+        intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(static_cast<float>(intrinsic_learn_count_), std::memory_order_relaxed);
+        for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
+            intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
+    }
+
+    int64_t Save(anet::OutputArchive& archive) const
+    {
+        int64_t total_size = 0;
+        // RND本体に続けて、Coordinatorのcredit・lane抽選の乱数状態・累計成功回数を保存する。
+        // 読込時にRND本体の書式検査で異なる形式を拒否できるよう、本体を先に置く。
+        if (lifelong_novelty_) {
+            total_size += lifelong_novelty_->Save(archive);
+            total_size += archive.Write(intrinsic_learn_credit_);
+            std::ostringstream random_state;
+            random_state << *intrinsic_learn_random_;
+            total_size += archive.Write(random_state.str());
+            total_size += archive.Write(intrinsic_learn_count_);
+        }
+        return total_size;
+    }
+
+    void Load(anet::InputArchive& in)
+    {
+        // RND本体に続けて、Coordinatorのcredit・lane抽選の乱数状態・累計成功回数を復元し、診断へ反映する。
+        // 異なる形式をCoordinatorの状態として読む前に拒否するため、RND本体の書式検査を先に行う。
+        if (lifelong_novelty_) {
+            lifelong_novelty_->Load(in);
+            in.Read(intrinsic_learn_credit_);
+            if (!std::isfinite(intrinsic_learn_credit_) || intrinsic_learn_credit_ < 0.0f)
+                ANET_SYSTEM_ERROR("Invalid intrinsic learning credit=" << intrinsic_learn_credit_ << "; expected finite value >= 0.");
+            std::string random_state;
+            in.Read(random_state);
+            std::istringstream random_stream(random_state);
+            if (!(random_stream >> *intrinsic_learn_random_))
+                ANET_SYSTEM_ERROR("Invalid intrinsic learning RNG state in checkpoint; expected mt19937_64 state.");
+            in.Read(intrinsic_learn_count_);
+            if (intrinsic_learn_count_ < 0)
+                ANET_SYSTEM_ERROR("Invalid intrinsic learn_count=" << intrinsic_learn_count_ << "; expected value >= 0.");
+            intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(
+                static_cast<float>(intrinsic_learn_count_), std::memory_order_relaxed);
+            for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
+                intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
+        }
+    }
+
+    std::optional<float> GetScalar(const std::string& key) const
+    {
+        const auto it = intrinsic_diagnostics_.find(key);
+        if (it == intrinsic_diagnostics_.end()) return std::nullopt;
+        if (!config_.enabled || !learning_enabled_) return std::numeric_limits<float>::quiet_NaN();
+        return it->second.load(std::memory_order_relaxed);
+    }
+
+    static std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(
+        const AgentStepDiagnosticsRequest& request,
+        std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> base,
+        std::shared_ptr<std::shared_mutex> mutex,
+        std::shared_ptr<const IntrinsicRewardCoordinator> self);
+private:
+    bool UsesNextState() const
+    {
+        return config_.observation == DefaultDQNAgentConfig::kIntrinsicObservationNextState;
+    }
+
+    bool UsesDoneMask() const { return UsesNextState() && config_.use_done_mask; }
+
+    const anet::TensorDict& SelectObservations(const BatchExperience& experience) const
+    {
+        return UsesNextState() ? experience.next_state.obs : experience.state.obs;
+    }
+
+    enum class BonusMaskOperation { Copy, InPlace };
+
+    static torch::Tensor CalculateBonus(const torch::Tensor& multipliers, float beta,
+        const torch::Tensor& done, bool mask, BonusMaskOperation operation)
+    {
+        auto bonus = beta * (multipliers - 1.0f);
+        if (mask) {
+            // 学習側の複製と Trace 側の書き換えを保ち、式と mask の判定を共有する。
+            if (operation == BonusMaskOperation::Copy) bonus = bonus.masked_fill(done, 0.0f);
+            else bonus.masked_fill_(done, 0.0f);
+        }
+        return bonus;
+    }
+
+    std::map<std::string, torch::Tensor> ScoreTrace(intrinsic::LifelongNoveltyEstimator& estimator,
+        std::optional<float> beta, const BatchExperience& experience) const
+    {
+        auto result = estimator.EstimateWithoutUpdate(SelectObservations(experience));
+        std::map<std::string, torch::Tensor> values;
+        for (auto& [key, value] : result.diagnostics)
+            values.emplace(std::string(kIntrinsicPrefix) + key, std::move(value));
+        auto bonus = torch::full_like(result.multipliers, std::numeric_limits<float>::quiet_NaN());
+        if (beta) {
+            const bool mask = UsesDoneMask();
+            bonus = CalculateBonus(result.multipliers, *beta,
+                mask ? experience.next_state.done.to(torch::kCPU) : torch::Tensor{}, mask, BonusMaskOperation::InPlace);
+            bonus.masked_fill_(~torch::isfinite(values.at(kIntrinsicError)), std::numeric_limits<float>::quiet_NaN());
+        }
+        values.emplace(kIntrinsicBonus, std::move(bonus));
+        return values;
+    }
+
+    const IntrinsicConfig config_;
+    const bool learning_enabled_;
+    std::unique_ptr<anet::rl::intrinsic::LifelongNoveltyEstimator> lifelong_novelty_;
+    std::optional<anet::ProfiledValue<float>> intrinsic_beta_;
+    std::optional<float> last_intrinsic_beta_; ///< 構築時は exp step 0、以後は学習の入口が直近に評価した値。checkpointには保存しない。
+    float intrinsic_learn_credit_ = 0.0f; ///< Coordinatorが更新する補助学習の未消費credit。
+    int64_t intrinsic_learn_count_ = 0; ///< optimizerが実際に進んだ累計step数。
+    std::optional<std::mt19937_64> intrinsic_learn_random_; ///< 有効時だけ作るlane抽選のResource。
+    std::map<std::string, std::atomic<float>> intrinsic_diagnostics_; ///< キーは構築時に固定。UI は値だけ読む。
+};
+
+void DefaultDQNAgent::IntrinsicRewardCoordinatorDeleter::operator()(IntrinsicRewardCoordinator* value) const
+{
+    delete value;
+}
 
 // ======================================================
 // DefaultDQNAgent
@@ -90,42 +313,14 @@ DefaultDQNAgent::DefaultDQNAgent(
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
     auto learner_seed = seed_maker.MakeNamedSeed("learner");
     auto network_seed = seed_maker.MakeNamedSeed("network");
-    this->plasticity_probe_random_ = std::make_shared<anet::RandomGenerator>(
-        seed_maker.MakeNamedSeed("plasticity_probe"));
-    this->policy_churn_probe_random_ = std::make_shared<anet::RandomGenerator>(
-        seed_maker.MakeNamedSeed("policy_churn_probe"));
-    if (config_.intrinsic.enabled)
-        intrinsic_learn_random_.emplace(seed_maker.MakeNamedSeed(kIntrinsicLearnSeed));
-
     // RuntimeVars生成
     this->vars_ = std::make_unique<RuntimeVars>();
 
     const bool is_distributional = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
 
-    // 鍵は生成側が宣言し、部品を作らない場合も既知の未成立値を保つ。
-    for (const auto& [key, value] : anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::InitialDiagnostics())
-        intrinsic_diagnostics_.try_emplace(std::string(kIntrinsicPrefix) + key, value);
-    for (const auto* key : {kIntrinsicBonusMean, kIntrinsicBonusMax, kIntrinsicBonusShare,
-        kIntrinsicBonusMin, kIntrinsicBonusPosRatio, kIntrinsicLearnCount})
-        intrinsic_diagnostics_.try_emplace(key, std::numeric_limits<float>::quiet_NaN());
-
-    // 内的報酬の推定器を初期化
-    if (config_.intrinsic.enabled) {
-        if (config_.learner.enabled && batch_env_spec.num_envs < config_.intrinsic.learn_batch_size) {
-            ANET_SYSTEM_ERROR("DefaultDQNAgent.intrinsic.learn_batch_size=" << config_.intrinsic.learn_batch_size
-                << " exceeds num_envs=" << batch_env_spec.num_envs
-                << "; expected learn_batch_size <= run.train.num_envs when DefaultDQNAgent.learner.enabled=true.");
-        }
-        lifelong_novelty_ = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
-            config_.intrinsic.rnd, config_.GetConfigPrefix() + ".intrinsic.rnd",
-            env_spec.state_spec.obs_spec, device_, seed_maker);
-        intrinsic_beta_.emplace(config_.intrinsic.beta);
-        // 学習の入口を通らない評価専用 Run にも、現在の Run の開始時点の β を用意する。
-        last_intrinsic_beta_ = intrinsic_beta_->Evaluate(0);
-        intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(0.0f, std::memory_order_relaxed);
-        if (!config_.learner.enabled)
-            LOG::info_once() << "DefaultDQNAgent.intrinsic.enabled=true with learner.enabled=false: intrinsic scoring and training are suspended.";
-    }
+    // 無効時も既知の診断キーを保つ。可変の State は Coordinator に集める。
+    intrinsic_.reset(new IntrinsicRewardCoordinator(config_.intrinsic, config_.learner.enabled,
+        batch_env_spec, env_spec, device_, seed_maker, config_.GetConfigPrefix() + ".intrinsic.rnd"));
 
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
@@ -140,47 +335,61 @@ DefaultDQNAgent::DefaultDQNAgent(
     // HeadFactory の準備
     // ------------------------------------------------------------
 
-    // Head用の初期化設定を作成 (AgentがConfigDataから読み取る)
-    const anet::nn::WeightInitConfig& head_init_config = config_.head.init;
-
-    std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory;
-
-    // 分布表現とDuelingの直積でHeadを選択する。
-    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
-        if (config_.head.use_dueling) {
-            head_factory = std::make_shared<IQNDuelingHeadFactory>(n_actions_, head_init_config, config_.head.projection);
-            LOG::info() << "Network Head: IQN Dueling";
-        } else {
-            head_factory = std::make_shared<IQNHeadFactory>(n_actions_, head_init_config, config_.head.projection);
-            LOG::info() << "Network Head: IQN Plain";
-        }
-    } else if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeQr) {
-        if (config_.head.use_dueling) {
-            head_factory = std::make_shared<QuantileDuelingHeadFactory>(
-                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head.projection);
-            LOG::info() << "Network Head: Quantile Dueling (N=" << config_.qr.num_quantiles << ")";
-        } else {
-            head_factory = std::make_shared<QuantileHeadFactory>(
-                n_actions_, config_.qr.num_quantiles, head_init_config, config_.head.projection);
-            LOG::info() << "Network Head: Quantile Plain (N=" << config_.qr.num_quantiles << ")";
-        }
-    } else {
-        if (config_.head.use_dueling) {
-            head_factory = std::make_shared<DuelingHeadFactory>(
-                n_actions_, head_init_config, config_.head.projection);
-            LOG::info() << "Network Head: Dueling";
-        } else {
-            head_factory = std::make_shared<LinearHeadFactory>(
-                n_actions_, head_init_config, config_.head.projection);
-            LOG::info() << "Network Head: Plain Linear";
-        }
-    }
+    auto head_factory = SelectHeadFactory();
 
     // DTO にある設定データから、用途が参照する不変 Resource を構築する。
     for (const auto& [key, data] : config_.nn_forward) {
         forward_configs_.emplace(key, std::make_shared<const anet::nn::NetworkForwardConfig>(
             config_.MakeForwardConfigKey(key), data));
     }
+    auto network_obs_spec = MakeNetworkInputSpec(env_spec);
+
+    // NetworkModel生成
+    std::optional<SkipNetworkDefinition> skip_definition;
+    if (config_.skip.enabled) {
+        skip_definition.emplace(SkipNetworkDefinition{
+            .config = config_.skip,
+            .network_config = anet::nn::NetworkConfig(config_.skip_net, "DefaultDQNAgent.skip.net"),
+            .head_factory = std::make_shared<SkipHeadFactory>(n_actions_, config_.skip.max_length,
+                config_.skip.network_mode, config_.quantile_mode, config_.qr.num_quantiles,
+                config_.skip.head.init, config_.skip.head.projection),
+            .seed = seed_maker.MakeNamedSeed(kSkipNetworkSeed)});
+    }
+    this->model_ = std::make_unique<NetworkModel>(
+        config_.model, device_,
+        net_config, network_obs_spec, n_actions_, head_factory,
+        is_distributional, network_seed, skip_definition ? &*skip_definition : nullptr
+    );
+
+    RecordNetworkStructure();
+
+    // target用のランダム探索は全有効端点で禁止する。
+    if (config_.target_policy.policy_type == "EpsilonGreedy") {
+        auto epsilon = config_.target_policy.epsilon;
+        epsilon.max_value = 0.0f;
+        anet::detail::ValidateProfiledValueConfig(epsilon, "target_policy.epsilon");
+    }
+
+    // ActionPolicy生成
+    this->target_policy_ = DqnComponentAssembler::CreateActionPolicy(config_.target_policy, config_.quantile_mode, false, num_envs_, device_);
+
+    InitializeLearner(batch_env_spec, env_spec, replay_seed, learner_seed);
+
+    // load
+    if (!config_.auto_load_file.empty()) {
+        LOG::info() << "Auto-loading network from file: " << config_.auto_load_file;
+        LoadNetwork(config_.auto_load_file);
+	}
+}
+
+std::shared_ptr<anet::nn::NetworkHeadFactory> DefaultDQNAgent::SelectHeadFactory() const
+{
+    return DqnComponentAssembler::CreateHeadFactory(config_.quantile_mode, config_.head.use_dueling,
+        n_actions_, config_.qr.num_quantiles, config_.head.init, config_.head.projection);
+}
+
+anet::TensorSpecMap DefaultDQNAgent::MakeNetworkInputSpec(const EnvSpec& env_spec) const
+{
     // オリジナルのStateSpecをコピー
     auto network_obs_spec = env_spec.state_spec.obs_spec;
 
@@ -212,23 +421,11 @@ DefaultDQNAgent::DefaultDQNAgent(
         network_obs_spec[anet::nn::kKey_Taus] = tau_spec;
     }
 
-    // NetworkModel生成
-    std::optional<SkipNetworkDefinition> skip_definition;
-    if (config_.skip.enabled) {
-        skip_definition.emplace(SkipNetworkDefinition{
-            .config = config_.skip,
-            .network_config = anet::nn::NetworkConfig(config_.skip_net, "DefaultDQNAgent.skip.net"),
-            .head_factory = std::make_shared<SkipHeadFactory>(n_actions_, config_.skip.max_length,
-                config_.skip.network_mode, config_.quantile_mode, config_.qr.num_quantiles,
-                config_.skip.head.init, config_.skip.head.projection),
-            .seed = seed_maker.MakeNamedSeed(kSkipNetworkSeed)});
-    }
-    this->model_ = std::make_unique<NetworkModel>(
-        config_.model, device_,
-        net_config, network_obs_spec, n_actions_, head_factory,
-        is_distributional, network_seed, skip_definition ? &*skip_definition : nullptr
-    );
+    return network_obs_spec;
+}
 
+void DefaultDQNAgent::RecordNetworkStructure() const
+{
     // Network グラフ可視化
     {
         const auto& net = *model_->GetOnlineNetwork();
@@ -242,16 +439,11 @@ DefaultDQNAgent::DefaultDQNAgent(
         }
     }
 
-    // target用のランダム探索は全有効端点で禁止する。
-    if (config_.target_policy.policy_type == "EpsilonGreedy") {
-        auto epsilon = config_.target_policy.epsilon;
-        epsilon.max_value = 0.0f;
-        anet::detail::ValidateProfiledValueConfig(epsilon, "target_policy.epsilon");
-    }
+}
 
-    // ActionPolicy生成
-    this->target_policy_ = CreateActionPolicy(config_.target_policy, false, num_envs_, device_);
-
+void DefaultDQNAgent::InitializeLearner(const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec,
+    anet::seed_t replay_seed, anet::seed_t learner_seed)
+{
     // 解決済みのbootstrap方策をログへ示し、平均と経験分位のsoft targetを区別する。
     const auto risk_score = target_policy_->GetRiskScoreSpec();
     std::ostringstream munchausen_info;
@@ -260,77 +452,23 @@ DefaultDQNAgent::DefaultDQNAgent(
         << " score_source=" << (risk_score ? "risk_biased" : "mean");
     if (risk_score) munchausen_info << " risk_tau=" << risk_score->tau << " use_tail_mean=" << risk_score->use_tail_mean;
 
-    // Learner生成
-    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
-        this->learner_ = std::make_unique<IQNLearner>(
-            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_,
-            LearnerForwardResources{
-                .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
-                .target = *forward_configs_.at(config_.learner.target.nn_forward_key)}, config_.stucker, learner_seed,
-            plasticity_probe_random_.get(), policy_churn_probe_random_.get());
-        LOG::info() << "Initialized IQNLearner (current_taus=" << config_.learner.iqn.current_taus.num_taus
-            << ", target_taus=" << config_.learner.iqn.target_taus.num_taus << ")" << munchausen_info.str();
-    } else if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeQr) {
-        this->learner_ = std::make_unique<QRLearner>(
-            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_,
-            LearnerForwardResources{
-                .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
-                .target = *forward_configs_.at(config_.learner.target.nn_forward_key)}, config_.stucker, learner_seed,
-            plasticity_probe_random_.get(), policy_churn_probe_random_.get());
-        LOG::info() << "Initialized QRLearner (Quantiles=" << config_.qr.num_quantiles << ")" << munchausen_info.str();
-    } else {
-        this->learner_ = std::make_unique<TDLearner>(
-            config_.learner, *model_, *vars_, obs_norm_, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_,
-            LearnerForwardResources{
-                .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
-                .target = *forward_configs_.at(config_.learner.target.nn_forward_key)}, config_.stucker, learner_seed,
-            plasticity_probe_random_.get(), policy_churn_probe_random_.get());
-        LOG::info() << "Initialized TDLearner" << munchausen_info.str();
+    // Noisy parameter がある Network にだけ、probe の固定用途を構築時に準備する。
+    std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config;
+    if (!model_->GetOnlineNetwork()->GetNoisyParameterEntries().empty()) {
+        auto data = forward_configs_.at(config_.learner.current.nn_forward_key)->GetConfigData();
+        data.Set("noisy.mode", "sample");
+        data.Set("noisy.hold", "call");
+        data.Set("noisy.share", "batch");
+        noisy_probe_config = std::make_shared<const anet::nn::NetworkForwardConfig>(
+            MakeNetworkForwardConfigKey("noisy_probe"), data);
     }
 
-    // load
-    if (!config_.auto_load_file.empty()) {
-        LOG::info() << "Auto-loading network from file: " << config_.auto_load_file;
-        LoadNetwork(config_.auto_load_file);
-	}
-}
-
-std::shared_ptr<ActionPolicy> DefaultDQNAgent::CreateActionPolicy(
-    const ActionPolicyConfig& policy_config, bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device) const
-{
-    if (policy_config.policy_type == "EpsilonGreedy" || policy_config.policy_type == "0") {
-        // ε-Greedy
-        return std::make_shared<EpsilonGreedyActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
-    } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
-        // UQE
-        if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
-            ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
-                << "' requires quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
-                << " or " << ActionPolicyConfig::kQuantileModeIqn << ", actual='" << config_.quantile_mode << "'");
-        }
-        return std::make_shared<UQEActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
-    } else if (policy_config.IsThompsonSampling()) {
-        //ThompsonSampling
-        if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
-            ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
-                << "' requires quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
-                << " or " << ActionPolicyConfig::kQuantileModeIqn << ", actual='" << config_.quantile_mode << "'");
-        }
-        return std::make_shared<ThompsonSamplingActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
-    } else if (policy_config.policy_type == kActionPolicyTypeStr_Greedy || policy_config.policy_type == "3") {
-        // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
-        ActionPolicyConfig greedy_cfg = policy_config;
-        greedy_cfg.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};
-        greedy_cfg.spatial.enabled = false;
-        return std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg, false, num_envs, device);
-    }
-
-    // 不明なtype
-    ANET_SYSTEM_ERROR("Unknown action policy type: " << policy_config.policy_type);
-    return nullptr;
+    learner_ = DqnComponentAssembler::CreateLearner(config_.quantile_mode, config_.qr.num_quantiles, config_.learner,
+        *model_, *vars_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_,
+        obs_norm_, LearnerForwardResources{
+            .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
+            .target = *forward_configs_.at(config_.learner.target.nn_forward_key)},
+        config_.stucker, learner_seed, noisy_probe_config, munchausen_info.str());
 }
 
 int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
@@ -343,7 +481,7 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     // ヘッダ
     anet::ArchiveHeader header;
     header.info = config_.skip.enabled ? kCheckpointFormatV2 : kCheckpointFormatV1;
-    if (lifelong_novelty_)
+    if (intrinsic_->IsEnabled())
         header.info = config_.skip.enabled ? kCheckpointIntrinsicV2 : kCheckpointIntrinsicV1;
     auto header_size = archive.Write(header);
 	total_size += header_size;
@@ -364,16 +502,7 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     auto adam_size = learner_->Save(archive);
 	total_size += adam_size;
 
-    // RND本体に続けて、facadeのcredit・lane抽選の乱数状態・累計成功回数を保存する。
-    // 読込時にRND本体の書式検査で異なる形式を拒否できるよう、本体を先に置く。
-    if (lifelong_novelty_) {
-        total_size += lifelong_novelty_->Save(archive);
-        total_size += archive.Write(intrinsic_learn_credit_);
-        std::ostringstream random_state;
-        random_state << *intrinsic_learn_random_;
-        total_size += archive.Write(random_state.str());
-        total_size += archive.Write(intrinsic_learn_count_);
-    }
+    total_size += intrinsic_->Save(archive);
 
     // ログ
     LOG::info() << "DefaultDQNAgent Serialized. total_size=" << anet::FormatWithCommas(total_size)
@@ -423,26 +552,7 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
 	// Learner
 	auto learner_size = learner_->LoadCheckpoint(in, has_skip);
 
-    // RND本体に続けて、facadeのcredit・lane抽選の乱数状態・累計成功回数を復元し、診断へ反映する。
-    // 異なる形式をfacadeの状態として読む前に拒否するため、RND本体の書式検査を先に行う。
-    if (lifelong_novelty_) {
-        lifelong_novelty_->Load(in);
-        in.Read(intrinsic_learn_credit_);
-        if (!std::isfinite(intrinsic_learn_credit_) || intrinsic_learn_credit_ < 0.0f)
-            ANET_SYSTEM_ERROR("Invalid intrinsic learning credit=" << intrinsic_learn_credit_ << "; expected finite value >= 0.");
-        std::string random_state;
-        in.Read(random_state);
-        std::istringstream random_stream(random_state);
-        if (!(random_stream >> *intrinsic_learn_random_))
-            ANET_SYSTEM_ERROR("Invalid intrinsic learning RNG state in checkpoint; expected mt19937_64 state.");
-        in.Read(intrinsic_learn_count_);
-        if (intrinsic_learn_count_ < 0)
-            ANET_SYSTEM_ERROR("Invalid intrinsic learn_count=" << intrinsic_learn_count_ << "; expected value >= 0.");
-        intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(
-            static_cast<float>(intrinsic_learn_count_), std::memory_order_relaxed);
-        for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
-            intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
-    }
+    intrinsic_->Load(in);
     LOG::info() << "LoadNetwork: learner_size=" << learner_size;
     if (config_.skip.enabled && !has_skip) {
         LOG::warn_once(filename) << "Checkpoint has no skip networks; restored primary networks and optimizer state, initialized skip networks and optimizer groups. file=" << filename;
@@ -505,30 +615,9 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
 
 std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key.starts_with(kIntrinsicPrefix)) {
-        const auto it = intrinsic_diagnostics_.find(key);
-        if (it == intrinsic_diagnostics_.end()) return std::nullopt;
-        if (!config_.intrinsic.enabled || !config_.learner.enabled)
-            return std::numeric_limits<float>::quiet_NaN();
-        return it->second.load(std::memory_order_relaxed);
-    }
-    // プレフィックスで各 Policy インスタンスへ処理を委譲
-    if (anet::StartsWith(key, "target_policy.")) return target_policy_->GetScalar(anet::RemovePrefix(key, "target_policy."), index);
-
-    for (const auto* schedule_key : kLearnerScheduleMetricKeys) {
-        if (key == schedule_key) {
-            std::shared_lock<std::shared_mutex> lock(*mutex_);
-            return learner_->GetScalar(key);
-        }
-    }
-    if (key == "per_beta") {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return vars_->per_beta;
-    }
-    if (key.starts_with("plasticity_probe_") || key.starts_with("noisy_") || key.find(ReplayBuffer::kKeyPrefix) == 0) {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return learner_->GetScalar(key);
-    }
+    if (key.starts_with(kIntrinsicPrefix)) return intrinsic_->GetScalar(key);
+    if (const auto value = DqnComponentAssembler::GetScalar(
+        key, index, *learner_, *vars_, *target_policy_, *mutex_)) return value;
     if (key.find(RewardScaler::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return reward_scaler_->GetScalar(key);
@@ -545,68 +634,12 @@ void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
     const std::vector<ScalarMetricSubscription>& subscriptions)
 {
     std::unique_lock<std::shared_mutex> lock(*mutex_);
-    // 購読内容からResourceの必要性を決め、母数・実PERのみの購読では専用RNGを作らない。
-    std::array<bool, dqn::kReplayFitMetricKeys.size()> request{};
-    bool replay_fit_enabled = false;
-    if (config_.learner.enabled) {
-        for (const auto& subscription : subscriptions) {
-            if (subscription.scope != RunnerScope::TRAIN || subscription.event != EventType::LEARN
-                || subscription.target != EventField::UPDATE_RESULT) continue;
-            const auto metric = dqn::ParseReplayFitMetric(subscription.source_key);
-            if (!metric) continue;
-            replay_fit_enabled = true;
-            request[*metric] = true;
-        }
-    }
-    if (replay_fit_enabled && config_.target_policy.IsThompsonSampling()) {
-        ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; target_policy.policy_type="
-            << config_.target_policy.policy_type << " expected " << kActionPolicyTypeStr_Greedy << ", "
-            << kActionPolicyTypeStr_EpsilonGreedy << ", or " << kActionPolicyTypeStr_UQE << ".");
-    }
-    const bool needs_sampling = dqn::ResolveReplayFitRequirements(request, config_.learner.use_per).NeedsSampling();
-    if (needs_sampling && !replay_fit_probe_random_) {
-        anet::SeedMaker seed_maker(GetSeed());
-        replay_fit_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("replay_fit_probe"));
-    }
-    // Noisy 診断の用途を固定の sample/call/batch として選び、他 Module の設定は opaque に保持する。
-    const bool needs_noisy_probe = config_.learner.enabled && std::ranges::any_of(subscriptions, [](const auto& entry) {
-        const auto metric = dqn::ParseNoisyMetric(entry.source_key);
-        return entry.scope == RunnerScope::TRAIN && entry.event == EventType::LEARN && metric && *metric >= 8;
-    }) && !model_->GetOnlineNetwork()->GetNoisyParameterEntries().empty();
-    if (needs_noisy_probe && !noisy_probe_random_) {
-        anet::SeedMaker seed_maker(GetSeed());
-        noisy_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("noisy_probe.sample"));
-        anet::ConfigData data;
-        const std::string prefix = MakeNetworkForwardConfigKey("noisy_probe");
-        for (const auto& [key, value] : forward_configs_.at(config_.learner.current.nn_forward_key)->GetConfigData().Map()) {
-            data.Set(key, value);
-        }
-        data.Set("noisy.mode", "sample");
-        data.Set("noisy.hold", "call");
-        data.Set("noisy.share", "batch");
-        noisy_probe_forward_config_ = std::make_shared<const anet::nn::NetworkForwardConfig>(prefix, data);
-    }
-    // attentionも購読された場合だけ専用抽選器を作り、他診断の乱数列と分離する。
-    const bool needs_attention = config_.learner.enabled && std::ranges::any_of(subscriptions, [](const auto& entry) {
-        return entry.scope == RunnerScope::TRAIN && entry.event == EventType::LEARN
-            && entry.target == EventField::UPDATE_RESULT && dqn::ParseAttentionEntropyMetric(entry.source_key).has_value();
-    });
-    if (needs_attention && !attention_entropy_probe_random_) {
-        anet::SeedMaker seed_maker(GetSeed());
-        attention_entropy_probe_random_ = std::make_shared<anet::RandomGenerator>(seed_maker.MakeNamedSeed("attention_entropy_probe"));
-    }
-    learner_->ConfigureScalarMetricSubscriptions(subscriptions, needs_sampling ? replay_fit_probe_random_.get() : nullptr,
-        needs_noisy_probe ? noisy_probe_random_.get() : nullptr,
-        needs_noisy_probe ? noisy_probe_forward_config_.get() : nullptr,
-        needs_attention ? attention_entropy_probe_random_.get() : nullptr);
+    learner_->ConfigureScalarMetricSubscriptions(subscriptions);
 }
 
 std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, int64_t index) const
 {
-    if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return learner_->GetTensor(key);
-    }
+    if (const auto value = DqnComponentAssembler::GetTensor(key, *learner_, *mutex_)) return value;
     if (key.find(RewardScaler::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return reward_scaler_->GetTensor(key);
@@ -621,12 +654,7 @@ std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, 
 
 std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const std::string& key, int64_t index) const
 {
-    if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return learner_->GetTensorVector(key);
-    }
-
-    return std::nullopt;
+    return DqnComponentAssembler::GetTensorVector(key, *learner_, *mutex_);
 }
 
 std::unique_ptr<anet::rl::FrameStacker> DefaultDQNAgent::CreateFrameStacker(const ActorRequest& request) const
@@ -650,10 +678,8 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         ANET_SYSTEM_ERROR("Missing resolved actor.[" << request.actor_key << "].nn_forward_key; expected a declared forward configuration.");
     }
     ValidateActorDevice(cfg.clone_model, request.device);
-    auto policy = CreateActionPolicy(cfg.policy, cfg.policy.spatial.enabled,
+    auto policy = DqnComponentAssembler::CreateActionPolicy(cfg.policy, config_.quantile_mode, cfg.policy.spatial.enabled,
         request.batch_env_spec.num_envs, request.device);
-    auto source = cfg.network == "target" ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
-    auto network = source;
     std::optional<SkipActorResources> skip;
     if (config_.skip.enabled) {
         auto skip_source = cfg.network == "target" ? model_->GetSkipTargetNetwork() : model_->GetSkipOnlineNetwork();
@@ -664,7 +690,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
             ? *cfg.skip.nn_forward_key : cfg.nn_forward_key;
         skip.emplace(SkipActorResources{
             .config = config_.skip,
-            .policy = shared_policy ? policy : CreateActionPolicy(cfg.skip_policy, cfg.skip_policy.spatial.enabled,
+            .policy = shared_policy ? policy : DqnComponentAssembler::CreateActionPolicy(cfg.skip_policy, config_.quantile_mode, cfg.skip_policy.spatial.enabled,
                 request.batch_env_spec.num_envs, request.device),
             .network = skip_source, .source = skip_source,
             .forward_config = forward_configs_.at(skip_forward_key),
@@ -672,23 +698,12 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
             .shared_policy = shared_policy, .max_length_mode = cfg.skip.max_length_mode,
             .max_length = cfg.skip.max_length});
     }
-    if (cfg.clone_model) {
-        // sourceのparameterとbufferを学習更新から保護して複製する。
-        std::shared_lock lock(*mutex_);
-        network = source->Clone(request.device);
-        network->eval();
-        if (skip) {
-            skip->network = skip->source->Clone(request.device);
-            skip->network->eval();
-        }
-    }
-    const bool emit_hint = config_.learner.use_per
-        && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
     const ActorQHintConfig hint_config{
         .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
         .tbo_epsilon = config_.learner.tbo_epsilon, .gamma = config_.learner.gamma};
-    return std::make_shared<Actor>(policy, obs_norm_, CreateFrameStacker(request), request.device, request.seed,
-        mutex_, network, source, *forward_configs_.at(cfg.nn_forward_key), emit_hint, cfg.clone_model ? cfg.sync_interval : std::nullopt, true, hint_config, std::move(skip));
+    return DqnComponentAssembler::CreateActor(cfg, config_.learner, request, *model_, mutex_, policy,
+        *forward_configs_.at(cfg.nn_forward_key), obs_norm_, CreateFrameStacker(request),
+        true, hint_config, cfg.clone_model ? cfg.sync_interval : std::nullopt, std::move(skip));
 }
 
 namespace {
@@ -782,10 +797,20 @@ namespace {
 std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::CreateStepDiagnosticsProvider(
     const AgentStepDiagnosticsRequest& request) const
 {
-    // 既知の鍵と計算要求を分け、無効・未要求でも鍵はNaNとして認識する。
     auto self = shared_from_this();
     auto base = anet::rl::dqn::CreateStepDiagnosticsProvider(config_.learner, request.num_lanes,
         [self](const torch::Tensor& reward) { return self->reward_scaler_->ScaleWithoutUpdate(reward); });
+    // Agent の所有する Coordinator を Agent と同じ寿命で借り、採点は Coordinator に委ねる。
+    auto intrinsic = std::shared_ptr<const IntrinsicRewardCoordinator>(self, intrinsic_.get());
+    return IntrinsicRewardCoordinator::CreateStepDiagnosticsProvider(
+        request, std::move(base), mutex_, std::move(intrinsic));
+}
+
+std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::IntrinsicRewardCoordinator::CreateStepDiagnosticsProvider(
+    const AgentStepDiagnosticsRequest& request, std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> base,
+    std::shared_ptr<std::shared_mutex> mutex, std::shared_ptr<const IntrinsicRewardCoordinator> self)
+{
+    // 既知の鍵と計算要求を分け、無効・未要求でも鍵はNaNとして認識する。
     std::vector<std::string> keys;
     for (const auto& key : intrinsic::LifelongNoveltyEstimatorFactory::LaneDiagnosticKeys())
         keys.push_back(std::string(kIntrinsicPrefix) + key);
@@ -793,38 +818,21 @@ std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::CreateS
     const auto requested = std::ranges::find_if(request.keys, [](const auto& key) { return key.starts_with(kIntrinsicPrefix); });
     IntrinsicStepDiagnosticsProvider::Score observe;
     std::shared_ptr<IntrinsicSnapshot> snapshot;
-    if (lifelong_novelty_ && requested != request.keys.end()) {
+    if (self->lifelong_novelty_ && requested != request.keys.end()) {
         if (!request.actor)
             ANET_SYSTEM_ERROR("Step diagnostics key='" << *requested << "' requires an Actor; actual=null expected=Runner Actor.");
         snapshot = std::make_shared<IntrinsicSnapshot>([self] {
             return std::pair(self->lifelong_novelty_->Clone(), self->last_intrinsic_beta_);
         });
         if (!request.actor->AttachSyncFollower(snapshot)) snapshot.reset();
-        const auto score = [self](intrinsic::LifelongNoveltyEstimator& estimator,
-            std::optional<float> beta, const BatchExperience& experience) {
-            const bool next = self->config_.intrinsic.observation == DefaultDQNAgentConfig::kIntrinsicObservationNextState;
-            auto result = estimator.EstimateWithoutUpdate(next ? experience.next_state.obs : experience.state.obs);
-            std::map<std::string, torch::Tensor> values;
-            for (auto& [key, value] : result.diagnostics)
-                values.emplace(std::string(kIntrinsicPrefix) + key, std::move(value));
-            auto bonus = torch::full_like(result.multipliers, std::numeric_limits<float>::quiet_NaN());
-            if (beta) {
-                bonus = *beta * (result.multipliers - 1.0f);
-                if (next && self->config_.intrinsic.use_done_mask)
-                    bonus.masked_fill_(experience.next_state.done.to(torch::kCPU), 0.0f);
-                bonus.masked_fill_(~torch::isfinite(values.at(kIntrinsicError)), std::numeric_limits<float>::quiet_NaN());
-            }
-            values.emplace(kIntrinsicBonus, std::move(bonus));
-            return values;
-        };
-        observe = [self, snapshot, score](const BatchExperience& experience) {
+        observe = [self, snapshot, mutex](const BatchExperience& experience) {
             if (snapshot) {
                 if (!snapshot->estimator) return std::map<std::string, torch::Tensor>{};
-                return score(*snapshot->estimator, snapshot->beta, experience);
+                return self->ScoreTrace(*snapshot->estimator, snapshot->beta, experience);
             }
             // 写しを持たないActorだけ、stepごとに学習側を読み取りロックで守る。
-            std::shared_lock<std::shared_mutex> lock(*self->mutex_);
-            return score(*self->lifelong_novelty_, self->last_intrinsic_beta_, experience);
+            std::shared_lock<std::shared_mutex> lock(*mutex);
+            return self->ScoreTrace(*self->lifelong_novelty_, self->last_intrinsic_beta_, experience);
         };
     }
     return std::make_unique<IntrinsicStepDiagnosticsProvider>(std::move(base), request.num_lanes,
@@ -850,65 +858,13 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         // RewardScaler
         auto scaled_rewards = this->reward_scaler_->Scale(batch_exp.reward);
 
-        // 学習停止中も Run の予定を進める。推定器と診断値の更新は学習有効時に限る。
-        if (lifelong_novelty_)
-            last_intrinsic_beta_ = intrinsic_beta_->Evaluate(counts.exp_step);
-
-        if (lifelong_novelty_ && config_.learner.enabled) {
+        intrinsic_->AdvanceBeta(counts);
+        if (intrinsic_->IsLearningEnabled()) {
             ANET_PROFILE_SCOPE(intrinsic_reward);
-
-            // 生の観測を選んで採点する。次観測だけは終端のボーナスをマスクする。
-            const bool use_next_state = config_.intrinsic.observation == DefaultDQNAgentConfig::kIntrinsicObservationNextState;
-            const auto& intrinsic_observations = use_next_state ? batch_exp.next_state.obs : batch_exp.state.obs;
-            const auto alpha = lifelong_novelty_->Estimate(intrinsic_observations);
-            auto bonus = *last_intrinsic_beta_ * (alpha - 1.0f);
-            if (use_next_state && config_.intrinsic.use_done_mask)
-                bonus = bonus.masked_fill(batch_exp.next_state.done, 0.0f);
-
-            // ボーナスの診断値を公開する。比率の分母には加算前の外的報酬を使う。
-            const float bonus_sum = bonus.abs().sum().item<float>();
-            const float denominator = scaled_rewards.abs().sum().item<float>() + bonus_sum;
-            intrinsic_diagnostics_.at(kIntrinsicBonusMean).store(bonus.mean().item<float>(), std::memory_order_relaxed);
-            intrinsic_diagnostics_.at(kIntrinsicBonusMax).store(bonus.max().item<float>(), std::memory_order_relaxed);
-            intrinsic_diagnostics_.at(kIntrinsicBonusMin).store(bonus.min().item<float>(), std::memory_order_relaxed);
-            intrinsic_diagnostics_.at(kIntrinsicBonusPosRatio).store((bonus > 0.0f).to(torch::kFloat32).mean().item<float>(),
-                std::memory_order_relaxed);
-            intrinsic_diagnostics_.at(kIntrinsicBonusShare).store(denominator > 0.0f ? bonus_sum / denominator
-                : std::numeric_limits<float>::quiet_NaN(), std::memory_order_relaxed);
-
+            const auto bonus = intrinsic_->ScoreBonus(batch_exp, scaled_rewards);
             // 学習報酬へボーナスを加算する。
             scaled_rewards = scaled_rewards + bonus;
-
-            // 経験件数に比例したcreditを貯め、同じintakeのlaneを重複なくk件ずつ渡す。
-            const auto num_lanes = intrinsic_observations.Size(0);
-            const auto batch_size = config_.intrinsic.learn_batch_size;
-            intrinsic_learn_credit_ += static_cast<float>(num_lanes) * config_.intrinsic.learn_ratio / batch_size;
-            if (intrinsic_learn_credit_ >= 1.0f) {
-                ANET_PROFILE_SCOPE(intrinsic_selection);
-                std::vector<int64_t> lanes(num_lanes);
-                std::iota(lanes.begin(), lanes.end(), 0);
-                std::shuffle(lanes.begin(), lanes.end(), *intrinsic_learn_random_);
-                auto indices = torch::tensor(lanes, torch::kInt64);
-                // indexのdevice転送はstepループの前にまとめ、CUDAにはpinnedから非同期で送る。
-                if (intrinsic_observations.device().is_cuda())
-                    indices = indices.pin_memory().to(intrinsic_observations.device(), true);
-                for (int64_t offset = 0; offset + batch_size <= num_lanes && intrinsic_learn_credit_ >= 1.0f;
-                    offset += batch_size) {
-                    ANET_PROFILE_SCOPE(intrinsic_learn);
-                    anet::TensorDict observations;
-                    const auto selected = indices.narrow(0, offset, batch_size);
-                    for (const auto& [key, value] : intrinsic_observations)
-                        observations.Set(key, value.index_select(0, selected));
-                    if (lifelong_novelty_->Learn(observations)) ++intrinsic_learn_count_;
-                    // warm-upの未実行分も消費し、明けたときに追いつき学習をしない。
-                    intrinsic_learn_credit_ -= 1.0f;
-                }
-            }
-
-            // 補助学習後の推定器の診断値を公開する。
-            intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(static_cast<float>(intrinsic_learn_count_), std::memory_order_relaxed);
-            for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
-                intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
+            intrinsic_->Learn(batch_exp);
         }
 
         // Normalize observations 統計更新

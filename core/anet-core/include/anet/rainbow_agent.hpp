@@ -82,11 +82,24 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, use_dueling_net);
             ANET_READ_CONFIG(config_data, use_qr);
             ValidateQuantileConfig();
+            ValidatePolicyConfig();
 
             learner.num_quantiles = num_quantiles;
             learner.use_rb_prefetch = false;
             learner.use_tbo = false;
             learner.use_fused_optimizer = false;
+        }
+
+        void ValidatePolicyConfig() const
+        {
+            for (const auto& [key, entry] : actor) {
+                const auto prefix = MakeDefaultConfigKey("actor.[" + key + "].policy");
+                if (entry.policy.policy_type != kActionPolicyTypeStr_EpsilonGreedy && entry.policy.policy_type != "0") {
+                    ANET_SYSTEM_ERROR("Invalid " << prefix << ".policy_type='" << entry.policy.policy_type
+                        << "'; expected EpsilonGreedy (RainbowAgent supports epsilon-greedy only).");
+                }
+                ValidateActionPolicy(entry.policy, prefix);
+            }
         }
 
         void ValidateQuantileConfig() const
@@ -106,7 +119,6 @@ namespace anet::rl::dqn {
             const anet::rl::BatchEnvSpec& batc_env_spec, const anet::rl::EnvSpec& env_spec, const torch::Device& device,
             std::optional<seed_t> seed = std::nullopt);
 
-        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& exprience);
     public:
         std::shared_ptr<anet::rl::Actor> CreateActor(const ActorRequest& request) const override;
         std::shared_ptr<anet::rl::Learner> CreateLearner() override;
@@ -118,7 +130,7 @@ namespace anet::rl::dqn {
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
         std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
     private:
-    private:
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& experience) override;
         RainbowAgentConfig config_;
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;

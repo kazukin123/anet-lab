@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <map>
 #include <unordered_map>
 #include <stdexcept>
@@ -894,26 +895,39 @@ namespace anet::rl {
                 }
             };
 
-            obs.ForEachTensor(visit);
-            visit(actions);
-            visit(target_returns);
-            next_state.next_obs.ForEachTensor(visit);
-            visit(next_state.terminals);
-            visit(n_steps);
-            visit(window.lengths);
-            visit(window.max_lengths);
-            visit(window.returns);
-            visit(window.terminals);
-            visit(window.truncated);
-            window.next_obs.ForEachTensor(visit);
-            visit(replay_item_keys);
-            visit(is_weights);
-            visit(per_priority_sources);
-            info.ForEachTensor(visit);
-            visit(sampled_rewards);
-            visit(sampled_window_rewards);
+            VisitFields(*this, *this, [&](auto& value, auto&, const char*, bool) {
+                if constexpr (std::is_same_v<std::remove_cvref_t<decltype(value)>, anet::TensorDict>)
+                    value.ForEachTensor(visit);
+                else
+                    visit(value);
+            });
         }
         std::string ToString() const;
+    private:
+        template <class Source, class Destination, class F>
+        static void VisitFields(Source& source, Destination& destination, F&& fn)
+        {
+            // 転送先を伴う処理と、その場の走査で同じフィールドの並びを使う。
+            // opaque な Replay metadata だけは CPU に置き、学習 device へ送らない。
+            fn(source.obs, destination.obs, "obs", false);
+            fn(source.actions, destination.actions, "actions", false);
+            fn(source.target_returns, destination.target_returns, "target_returns", false);
+            fn(source.next_state.next_obs, destination.next_state.next_obs, "next_state.next_obs", false);
+            fn(source.next_state.terminals, destination.next_state.terminals, "next_state.terminals", false);
+            fn(source.n_steps, destination.n_steps, "n_steps", false);
+            fn(source.window.lengths, destination.window.lengths, "window.lengths", false);
+            fn(source.window.max_lengths, destination.window.max_lengths, "window.max_lengths", false);
+            fn(source.window.returns, destination.window.returns, "window.returns", false);
+            fn(source.window.terminals, destination.window.terminals, "window.terminals", false);
+            fn(source.window.truncated, destination.window.truncated, "window.truncated", false);
+            fn(source.window.next_obs, destination.window.next_obs, "window.next_obs", false);
+            fn(source.replay_item_keys, destination.replay_item_keys, "replay_item_keys", true);
+            fn(source.is_weights, destination.is_weights, "is_weights", false);
+            fn(source.per_priority_sources, destination.per_priority_sources, "per_priority_sources", true);
+            fn(source.info, destination.info, "info", false);
+            fn(source.sampled_rewards, destination.sampled_rewards, "sampled_rewards", false);
+            fn(source.sampled_window_rewards, destination.sampled_window_rewards, "sampled_window_rewards", false);
+        }
     };
 
 

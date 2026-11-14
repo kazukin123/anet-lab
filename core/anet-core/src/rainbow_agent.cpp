@@ -14,7 +14,6 @@
 #include "anet/config.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/profile.hpp"
-#include "dqn_based_heads.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
@@ -33,12 +32,12 @@ RainbowAgent::RainbowAgent(
     , config_(config)
 {
     config_.ValidateQuantileConfig();
+    config_.ValidatePolicyConfig();
     ANET_LOG_DEBUG("seed=" << GetSeed());
 
     // ログ：パラメータ記録
     LOG::info() << "RainbowAgent config=" << config_.ToString();
-    anet::MetricsLogger::Instance()->Log("RainbowAgent", config_.ToJson());
-    anet::MetricsLogger::Instance()->Flush();
+    anet::MetricsLogger::Instance()->Log(config_);
 
     //seed
     anet::SeedMaker seed_maker(GetSeed());
@@ -55,33 +54,9 @@ RainbowAgent::RainbowAgent(
 	// HeadFactory の準備
 	// ------------------------------------------------------------
 	
-	// Head用の初期化設定を作成 (AgentがConfigDataから読み取る)
-    const anet::nn::WeightInitConfig& head_init_config = config_.head.init;
-
-    std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory;
-
-    // アルゴリズムに応じてFactoryを切り替え
-    if (is_distributional) {
-        if (config_.use_dueling_net) {
-            head_factory = std::make_shared<QuantileDuelingHeadFactory>(
-                n_actions_, config_.num_quantiles, head_init_config);
-            LOG::info() << "Network Head: Quantile Dueling (N=" << config_.num_quantiles << ")";
-        } else {
-            head_factory = std::make_shared<QuantileHeadFactory>(
-                n_actions_, config_.num_quantiles, head_init_config);
-            LOG::info() << "Network Head: Quantile Plain (N=" << config_.num_quantiles << ")";
-        }
-    } else {
-        if (config_.use_dueling_net) {
-            head_factory = std::make_shared<DuelingHeadFactory>(
-                n_actions_, head_init_config);
-            LOG::info() << "Network Head: Dueling";
-        } else {
-            head_factory = std::make_shared<LinearHeadFactory>(
-                n_actions_, head_init_config);
-            LOG::info() << "Network Head: Plain Linear";
-        }
-    }
+    auto head_factory = DqnComponentAssembler::CreateHeadFactory(
+        config_.use_qr ? ActionPolicyConfig::kQuantileModeQr : ActionPolicyConfig::kQuantileModeNone,
+        config_.use_dueling_net, n_actions_, config_.num_quantiles, config_.head.init);
 
     // ------------------------------------------------------------
     // Network構築 (Builder)
@@ -94,22 +69,15 @@ RainbowAgent::RainbowAgent(
 
     // ActionPolicy生成
 
-    // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
     ActionPolicyConfig greedy_cfg;
-    greedy_cfg.policy_type = "EpsilonGreedy";
-        greedy_cfg.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};
-    this->target_policy_ = std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg);
+    greedy_cfg.policy_type = kActionPolicyTypeStr_Greedy;
+    this->target_policy_ = DqnComponentAssembler::CreateActionPolicy(
+        greedy_cfg, is_distributional ? ActionPolicyConfig::kQuantileModeQr : ActionPolicyConfig::kQuantileModeNone,
+        false, num_envs_, device_);
 
-    // Learner生成
-    if (is_distributional) {
-        this->learner_ = std::make_unique<QRLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_, LearnerForwardResources{});
-        LOG::info() << "Initialized QRLearner (Quantiles=" << config_.num_quantiles << ")";
-    } else {
-        this->learner_ = std::make_unique<TDLearner>(config_.learner, *model_, *vars_, nullptr, batch_env_spec, env_spec, device_, replay_seed,
-            target_policy_, LearnerForwardResources{});
-        LOG::info() << "Initialized TDLearner";
-    }
+    learner_ = DqnComponentAssembler::CreateLearner(
+        is_distributional ? ActionPolicyConfig::kQuantileModeQr : ActionPolicyConfig::kQuantileModeNone,
+        config_.num_quantiles, config_.learner, *model_, *vars_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_);
 }
 
 std::optional<anet::TensorDictFunction> RainbowAgent::GetTensorDictFunction(const std::string& key)
@@ -132,42 +100,17 @@ std::optional<anet::TensorDictFunction> RainbowAgent::GetTensorDictFunction(cons
 
 std::optional<float> RainbowAgent::GetScalar(const std::string& key, int64_t index) const
 {
-    for (const auto* schedule_key : kLearnerScheduleMetricKeys) {
-        if (key == schedule_key) {
-            std::shared_lock<std::shared_mutex> lock(*mutex_);
-            return learner_->GetScalar(key);
-        }
-    }
-    if (key == "per_beta") {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return vars_->per_beta;
-    }
-    if (key.find("replaybuffer.") == 0) {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return learner_->GetScalar(key);
-    }
-
-    return std::nullopt;
+    return DqnComponentAssembler::GetScalar(key, index, *learner_, *vars_, *target_policy_, *mutex_);
 }
 
 std::optional<torch::Tensor> RainbowAgent::GetTensor(const std::string& key, int64_t index) const
 {
-    if (key.find("replaybuffer.") == 0) {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return learner_->GetTensor(key);
-    }
-
-    return std::nullopt;
+    return DqnComponentAssembler::GetTensor(key, *learner_, *mutex_);
 }
 
 std::optional<std::vector<torch::Tensor>> RainbowAgent::GetTensorVector(const std::string& key, int64_t index) const
 {
-    if (key.find("replaybuffer.") == 0) {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return learner_->GetTensorVector(key);
-    }
-
-    return std::nullopt;
+    return DqnComponentAssembler::GetTensorVector(key, *learner_, *mutex_);
 }
 
 std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& request) const
@@ -176,19 +119,13 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
     env_spec_.CheckSameStateActionSpec(request.env_spec);
     const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
     ValidateActorDevice(cfg.clone_model, request.device);
-    auto policy = std::make_shared<EpsilonGreedyActionPolicy>(cfg.policy, cfg.policy.spatial.enabled,
-        request.batch_env_spec.num_envs, request.device);
-    auto source = cfg.network == "target" ? model_->GetTargetNetwork() : model_->GetOnlineNetwork();
-    auto network = source;
-    if (cfg.clone_model) {
-        std::shared_lock lock(*mutex_);
-        network = source->Clone(request.device);
-        network->eval();
-    }
-    const bool emit_hint = config_.learner.use_per
-        && ParseReplayInitialPriorityMode(config_.learner) == ReplayInitialPriorityMode::ACTOR_APPROX;
-    return std::make_shared<Actor>(policy, nullptr, nullptr, request.device, request.seed, mutex_, network, source, anet::nn::NetworkForwardConfig::GetDefault(), emit_hint,
-        std::nullopt, false, ActorQHintConfig{.munchausen = config_.learner.munchausen, .gamma = config_.learner.gamma});
+    const auto quantile_mode = config_.use_qr
+        ? ActionPolicyConfig::kQuantileModeQr : ActionPolicyConfig::kQuantileModeNone;
+    auto policy = DqnComponentAssembler::CreateActionPolicy(cfg.policy, quantile_mode,
+        cfg.policy.spatial.enabled, request.batch_env_spec.num_envs, request.device);
+    return DqnComponentAssembler::CreateActor(cfg, config_.learner, request, *model_, mutex_, policy,
+        anet::nn::NetworkForwardConfig::GetDefault(), nullptr, nullptr, false,
+        ActorQHintConfig{.munchausen = config_.learner.munchausen, .gamma = config_.learner.gamma});
 }
 
 std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> RainbowAgent::CreateStepDiagnosticsProvider(const AgentStepDiagnosticsRequest& request) const

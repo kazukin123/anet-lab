@@ -28,17 +28,148 @@ namespace anet::rl::dqn {
     /// 未知keyはnullopt、認識したindexed keyの不正番号はfail-fastにする。
     std::optional<int64_t> ParseAttentionEntropyMetric(std::string_view key);
 
-    inline constexpr std::array<const char*, 6> kLearnerScheduleMetricKeys = {
-        "learning_rate", "weight_decay", "soft_update_tau", "gamma", "munchausen_alpha", "munchausen_entropy_tau"
+    struct DiagnosticMetricEntry {
+        size_t index;
+        const char* key;
     };
-    inline constexpr std::array<const char*, 5> kMunchausenMetricKeys = {
-        "munchausen_scaled_log_policy_mean", "munchausen_clip_ratio", "munchausen_bonus_mean",
-        "munchausen_next_entropy", "munchausen_soft_gap",
+
+    template<size_t Count>
+    consteval std::array<const char*, Count> MakeDiagnosticMetricKeys(
+        const std::array<DiagnosticMetricEntry, Count>& entries)
+    {
+        std::array<const char*, Count> keys{};
+        for (size_t i = 0; i < Count; ++i) {
+            if (entries[i].index != i) throw "DQN diagnostic metric order does not match its named index";
+            keys[i] = entries[i].key;
+        }
+        return keys;
+    }
+
+    template<size_t Count>
+    std::optional<size_t> ParseDiagnosticMetric(
+        const std::string& key, const std::array<const char*, Count>& keys)
+    {
+        for (size_t i = 0; i < Count; ++i) if (key == keys[i]) return i;
+        return std::nullopt;
+    }
+
+    template<size_t Count>
+    class DiagnosticDemandTable {
+    public:
+        struct Entry {
+            size_t metric;
+            int interval;
+            anet::IntervalGate gate;
+            Entry(size_t metric, int interval)
+                : metric(metric), interval(interval), gate(static_cast<uint64_t>(interval)) {}
+        };
+        explicit DiagnosticDemandTable(const std::array<const char*, Count>& keys) : keys_(keys) {}
+        std::optional<size_t> Add(const std::string& key, int interval) {
+            const auto metric = ParseDiagnosticMetric(key, keys_);
+            if (metric) entries_.emplace_back(*metric, interval);
+            return metric;
+        }
+        std::array<bool, Count> MakeRequest(uint64_t step) {
+            std::array<bool, Count> request{};
+            for (auto& entry : entries_) if (entry.gate.ShouldFire(step)) request[entry.metric] = true;
+            return request;
+        }
+        void clear() { entries_.clear(); }
+        bool empty() const { return entries_.empty(); }
+        auto begin() { return entries_.begin(); }
+        auto end() { return entries_.end(); }
+        auto begin() const { return entries_.begin(); }
+        auto end() const { return entries_.end(); }
+    private:
+        std::array<const char*, Count> keys_;
+        std::vector<Entry> entries_;
     };
-    inline constexpr std::array<const char*, 7> kSkipUpdateMetricKeys = {
-        "skip_loss", "skip_td_abs_mean", "skip_sample_k_mean", "skip_kmax_mean", "skip_grad_norm",
-        "skip_primary_grad_norm", "skip_primary_clip_ratio"
+
+    template<size_t Count, size_t... Indices, class... Values>
+    auto MakeDiagnosticValues(Values&&... values)
+    {
+        static_assert(sizeof...(Indices) == Count && sizeof...(Values) == Count);
+        static_assert([] {
+            constexpr std::array<size_t, sizeof...(Indices)> indices{Indices...};
+            for (size_t i = 0; i < indices.size(); ++i) if (indices[i] != i) return false;
+            return true;
+        }(), "DQN diagnostic values do not match their named order");
+        return std::array{std::forward<Values>(values)...};
+    }
+
+    template<size_t Count, size_t... Indices, class... Values>
+    torch::Tensor StackDiagnosticValues(Values&&... values)
+    {
+        const auto ordered = MakeDiagnosticValues<Count, Indices...>(std::forward<Values>(values)...);
+        return torch::stack(ordered);
+    }
+
+    // 先にキーを解析し、未知キーでは遅延転送や診断の計算を始めない。
+    template<class Index, class Read>
+    std::optional<float> ReadDiagnosticScalar(std::optional<Index> metric, Read&& read)
+    {
+        if (!metric) return std::nullopt;
+        return read(*metric).value_or(std::numeric_limits<float>::quiet_NaN());
+    }
+
+    struct IqnMetric {
+        enum : size_t { CurrentMcScale, TargetMcScale, PriorityMcRatio, FirstPriorityMcRatio, FirstPairAbsTd, FirstCancellationRatio, FirstQuantileLossNorm, Count };
     };
+    inline constexpr auto kIqnMetricKeys = MakeDiagnosticMetricKeys<IqnMetric::Count>({{
+        { .index = IqnMetric::CurrentMcScale, .key = "iqn_current_mc_scale" },
+        { .index = IqnMetric::TargetMcScale, .key = "iqn_target_mc_scale" },
+        { .index = IqnMetric::PriorityMcRatio, .key = "iqn_priority_mc_ratio" },
+        { .index = IqnMetric::FirstPriorityMcRatio, .key = "iqn_first_priority_mc_ratio" },
+        { .index = IqnMetric::FirstPairAbsTd, .key = "iqn_first_pair_abs_td" },
+        { .index = IqnMetric::FirstCancellationRatio, .key = "iqn_first_cancellation_ratio" },
+        { .index = IqnMetric::FirstQuantileLossNorm, .key = "iqn_first_quantile_loss_norm" },
+    }});
+
+    struct PlasticityWeightNormMetric {
+        enum : size_t { Feature, Readout, FeatureEffective, ReadoutEffective, SpectralSigmaFeature, SpectralSigmaReadout, Count, OnlineInvalidCount = Count, TargetInvalidCount, PackCount };
+    };
+    inline constexpr auto kPlasticityWeightNormMetricKeys = MakeDiagnosticMetricKeys<PlasticityWeightNormMetric::Count>({{
+        { .index = PlasticityWeightNormMetric::Feature, .key = "plasticity_weight_norm_feature" },
+        { .index = PlasticityWeightNormMetric::Readout, .key = "plasticity_weight_norm_readout" },
+        { .index = PlasticityWeightNormMetric::FeatureEffective, .key = "plasticity_weight_norm_feature_effective" },
+        { .index = PlasticityWeightNormMetric::ReadoutEffective, .key = "plasticity_weight_norm_readout_effective" },
+        { .index = PlasticityWeightNormMetric::SpectralSigmaFeature, .key = "plasticity_spectral_sigma_feature" },
+        { .index = PlasticityWeightNormMetric::SpectralSigmaReadout, .key = "plasticity_spectral_sigma_readout" },
+    }});
+
+    struct LearnerScheduleMetric {
+        enum : size_t { LearningRate, WeightDecay, SoftUpdateTau, Gamma, MunchausenAlpha, MunchausenEntropyTau, Count };
+    };
+    inline constexpr auto kLearnerScheduleMetricKeys = MakeDiagnosticMetricKeys<LearnerScheduleMetric::Count>({{
+        { .index = LearnerScheduleMetric::LearningRate, .key = "learning_rate" },
+        { .index = LearnerScheduleMetric::WeightDecay, .key = "weight_decay" },
+        { .index = LearnerScheduleMetric::SoftUpdateTau, .key = "soft_update_tau" },
+        { .index = LearnerScheduleMetric::Gamma, .key = "gamma" },
+        { .index = LearnerScheduleMetric::MunchausenAlpha, .key = "munchausen_alpha" },
+        { .index = LearnerScheduleMetric::MunchausenEntropyTau, .key = "munchausen_entropy_tau" },
+    }});
+    struct MunchausenMetric {
+        enum : size_t { ScaledLogPolicyMean, ClipRatio, BonusMean, NextEntropy, SoftGap, Count };
+    };
+    inline constexpr auto kMunchausenMetricKeys = MakeDiagnosticMetricKeys<MunchausenMetric::Count>({{
+        { .index = MunchausenMetric::ScaledLogPolicyMean, .key = "munchausen_scaled_log_policy_mean" },
+        { .index = MunchausenMetric::ClipRatio, .key = "munchausen_clip_ratio" },
+        { .index = MunchausenMetric::BonusMean, .key = "munchausen_bonus_mean" },
+        { .index = MunchausenMetric::NextEntropy, .key = "munchausen_next_entropy" },
+        { .index = MunchausenMetric::SoftGap, .key = "munchausen_soft_gap" },
+    }});
+    struct SkipUpdateMetric {
+        enum : size_t { Loss, TdAbsMean, SampleKMean, KmaxMean, GradNorm, PrimaryGradNorm, PrimaryClipRatio, Count };
+    };
+    inline constexpr auto kSkipUpdateMetricKeys = MakeDiagnosticMetricKeys<SkipUpdateMetric::Count>({{
+        { .index = SkipUpdateMetric::Loss, .key = "skip_loss" },
+        { .index = SkipUpdateMetric::TdAbsMean, .key = "skip_td_abs_mean" },
+        { .index = SkipUpdateMetric::SampleKMean, .key = "skip_sample_k_mean" },
+        { .index = SkipUpdateMetric::KmaxMean, .key = "skip_kmax_mean" },
+        { .index = SkipUpdateMetric::GradNorm, .key = "skip_grad_norm" },
+        { .index = SkipUpdateMetric::PrimaryGradNorm, .key = "skip_primary_grad_norm" },
+        { .index = SkipUpdateMetric::PrimaryClipRatio, .key = "skip_primary_clip_ratio" },
+    }});
 
     torch::Tensor MakeRiskBiasedScore(float tau, const torch::Tensor& q_quantiles, bool use_tail_mean);
 
@@ -54,38 +185,62 @@ namespace anet::rl::dqn {
         const torch::Tensor& next_mean_q, const torch::Tensor& actions,
         const MunchausenValues& config, bool collect_diagnostics = true);
 
-    inline constexpr std::array<const char*, 7> kPolicyChurnMetricKeys = {
-        "policy_churn_action_ratio",
-        "policy_churn_q_delta_abs_mean",
-        "policy_churn_q_delta_signed_max",
-        "policy_churn_q_delta_signed_min",
-        "policy_churn_target_policy_disagreement",
-        "policy_churn_target_q_delta_abs_mean",
-        "policy_churn_target_sync_age",
+    struct PolicyChurnMetric {
+        enum : size_t { ActionRatio, QDeltaAbsMean, QDeltaSignedMax, QDeltaSignedMin, TargetPolicyDisagreement, TargetQDeltaAbsMean, TargetSyncAge, Count };
     };
+    inline constexpr auto kPolicyChurnMetricKeys = MakeDiagnosticMetricKeys<PolicyChurnMetric::Count>({{
+        { .index = PolicyChurnMetric::ActionRatio, .key = "policy_churn_action_ratio" },
+        { .index = PolicyChurnMetric::QDeltaAbsMean, .key = "policy_churn_q_delta_abs_mean" },
+        { .index = PolicyChurnMetric::QDeltaSignedMax, .key = "policy_churn_q_delta_signed_max" },
+        { .index = PolicyChurnMetric::QDeltaSignedMin, .key = "policy_churn_q_delta_signed_min" },
+        { .index = PolicyChurnMetric::TargetPolicyDisagreement, .key = "policy_churn_target_policy_disagreement" },
+        { .index = PolicyChurnMetric::TargetQDeltaAbsMean, .key = "policy_churn_target_q_delta_abs_mean" },
+        { .index = PolicyChurnMetric::TargetSyncAge, .key = "policy_churn_target_sync_age" },
+    }});
 
-    inline constexpr std::array<const char*, 15> kGradientNoiseMetricKeys = {
-        "grad_noise_scale_adam", "grad_noise_scale_adam_feature", "grad_noise_scale_adam_readout",
-        "grad_noise_ratio_adam", "grad_noise_scale", "grad_noise_signal_adam", "grad_noise_variance_adam",
-        "grad_noise_signal_adam_raw", "grad_noise_variance_adam_raw", "grad_noise_signal_raw", "grad_noise_variance_raw",
-        "grad_noise_signal_adam_feature_raw", "grad_noise_variance_adam_feature_raw",
-        "grad_noise_signal_adam_readout_raw", "grad_noise_variance_adam_readout_raw",
+    struct GradientNoiseMetric {
+        enum : size_t { ScaleAdam, ScaleAdamFeature, ScaleAdamReadout, RatioAdam, Scale, SignalAdam, VarianceAdam, SignalAdamRaw, VarianceAdamRaw, SignalRaw, VarianceRaw, SignalAdamFeatureRaw, VarianceAdamFeatureRaw, SignalAdamReadoutRaw, VarianceAdamReadoutRaw, Count };
     };
+    inline constexpr auto kGradientNoiseMetricKeys = MakeDiagnosticMetricKeys<GradientNoiseMetric::Count>({{
+        { .index = GradientNoiseMetric::ScaleAdam, .key = "grad_noise_scale_adam" },
+        { .index = GradientNoiseMetric::ScaleAdamFeature, .key = "grad_noise_scale_adam_feature" },
+        { .index = GradientNoiseMetric::ScaleAdamReadout, .key = "grad_noise_scale_adam_readout" },
+        { .index = GradientNoiseMetric::RatioAdam, .key = "grad_noise_ratio_adam" },
+        { .index = GradientNoiseMetric::Scale, .key = "grad_noise_scale" },
+        { .index = GradientNoiseMetric::SignalAdam, .key = "grad_noise_signal_adam" },
+        { .index = GradientNoiseMetric::VarianceAdam, .key = "grad_noise_variance_adam" },
+        { .index = GradientNoiseMetric::SignalAdamRaw, .key = "grad_noise_signal_adam_raw" },
+        { .index = GradientNoiseMetric::VarianceAdamRaw, .key = "grad_noise_variance_adam_raw" },
+        { .index = GradientNoiseMetric::SignalRaw, .key = "grad_noise_signal_raw" },
+        { .index = GradientNoiseMetric::VarianceRaw, .key = "grad_noise_variance_raw" },
+        { .index = GradientNoiseMetric::SignalAdamFeatureRaw, .key = "grad_noise_signal_adam_feature_raw" },
+        { .index = GradientNoiseMetric::VarianceAdamFeatureRaw, .key = "grad_noise_variance_adam_feature_raw" },
+        { .index = GradientNoiseMetric::SignalAdamReadoutRaw, .key = "grad_noise_signal_adam_readout_raw" },
+        { .index = GradientNoiseMetric::VarianceAdamReadoutRaw, .key = "grad_noise_variance_adam_readout_raw" },
+    }});
     
     using GradientNoiseMetrics = std::array<float, kGradientNoiseMetricKeys.size()>;
     inline std::optional<size_t> ParseGradientNoiseMetric(const std::string& key)
     {
-        for (size_t i = 0; i < kGradientNoiseMetricKeys.size(); ++i) if (key == kGradientNoiseMetricKeys[i]) return i;
-        return std::nullopt;
+        return ParseDiagnosticMetric(key, kGradientNoiseMetricKeys);
     }
 
-    inline constexpr std::array<const char*, 11> kNoisyMetricKeys = {
-        "noisy_sigma_mean_abs_feature_weight", "noisy_sigma_mean_abs_feature_bias",
-        "noisy_sigma_mean_abs_readout_weight", "noisy_sigma_mean_abs_readout_bias",
-        "noisy_sigma_l2_ratio_feature_weight", "noisy_sigma_l2_ratio_feature_bias",
-        "noisy_sigma_l2_ratio_readout_weight", "noisy_sigma_l2_ratio_readout_bias",
-        "noisy_q_abs_diff", "noisy_action_disagreement_ratio", "noisy_action_entropy",
+    struct NoisyMetric {
+        enum : size_t { SigmaMeanAbsFeatureWeight, SigmaMeanAbsFeatureBias, SigmaMeanAbsReadoutWeight, SigmaMeanAbsReadoutBias, SigmaL2RatioFeatureWeight, SigmaL2RatioFeatureBias, SigmaL2RatioReadoutWeight, SigmaL2RatioReadoutBias, QAbsDiff, ActionDisagreementRatio, ActionEntropy, Count };
     };
+    inline constexpr auto kNoisyMetricKeys = MakeDiagnosticMetricKeys<NoisyMetric::Count>({{
+        { .index = NoisyMetric::SigmaMeanAbsFeatureWeight, .key = "noisy_sigma_mean_abs_feature_weight" },
+        { .index = NoisyMetric::SigmaMeanAbsFeatureBias, .key = "noisy_sigma_mean_abs_feature_bias" },
+        { .index = NoisyMetric::SigmaMeanAbsReadoutWeight, .key = "noisy_sigma_mean_abs_readout_weight" },
+        { .index = NoisyMetric::SigmaMeanAbsReadoutBias, .key = "noisy_sigma_mean_abs_readout_bias" },
+        { .index = NoisyMetric::SigmaL2RatioFeatureWeight, .key = "noisy_sigma_l2_ratio_feature_weight" },
+        { .index = NoisyMetric::SigmaL2RatioFeatureBias, .key = "noisy_sigma_l2_ratio_feature_bias" },
+        { .index = NoisyMetric::SigmaL2RatioReadoutWeight, .key = "noisy_sigma_l2_ratio_readout_weight" },
+        { .index = NoisyMetric::SigmaL2RatioReadoutBias, .key = "noisy_sigma_l2_ratio_readout_bias" },
+        { .index = NoisyMetric::QAbsDiff, .key = "noisy_q_abs_diff" },
+        { .index = NoisyMetric::ActionDisagreementRatio, .key = "noisy_action_disagreement_ratio" },
+        { .index = NoisyMetric::ActionEntropy, .key = "noisy_action_entropy" },
+    }});
     using NoisyMetrics = std::array<float, kNoisyMetricKeys.size()>;
     std::array<float, 3> MeasureNoisyQProbe(const torch::Tensor& mean_q, int num_draws,
         const std::function<torch::Tensor(int)>& draw);
@@ -93,19 +248,27 @@ namespace anet::rl::dqn {
 
     inline std::optional<size_t> ParseNoisyMetric(const std::string& key)
     {
-        for (size_t i = 0; i < kNoisyMetricKeys.size(); ++i) {
-            if (key == kNoisyMetricKeys[i]) return i;
-        }
-        return std::nullopt;
+        return ParseDiagnosticMetric(key, kNoisyMetricKeys);
     }
 
-    inline constexpr std::array<const char*, 13> kReplayFitMetricKeys = {
-        "replay_fit_unsampled_td_mean", "replay_fit_sampled_td_mean", "replay_fit_unsampled_td_ratio",
-        "replay_fit_unsampled_loss_mean", "replay_fit_sampled_loss_mean", "replay_fit_unsampled_loss_ratio",
-        "replay_fit_unsampled_count", "replay_fit_sampled_count",
-        "replay_fit_unsampled_age_mean", "replay_fit_sampled_age_mean",
-        "replay_fit_uniform_td_mean", "replay_fit_per_td_mean", "replay_fit_per_selectivity",
+    struct ReplayFitMetric {
+        enum : size_t { UnsampledTdMean, SampledTdMean, UnsampledTdRatio, UnsampledLossMean, SampledLossMean, UnsampledLossRatio, UnsampledCount, SampledCount, UnsampledAgeMean, SampledAgeMean, UniformTdMean, PerTdMean, PerSelectivity, Count };
     };
+    inline constexpr auto kReplayFitMetricKeys = MakeDiagnosticMetricKeys<ReplayFitMetric::Count>({{
+        { .index = ReplayFitMetric::UnsampledTdMean, .key = "replay_fit_unsampled_td_mean" },
+        { .index = ReplayFitMetric::SampledTdMean, .key = "replay_fit_sampled_td_mean" },
+        { .index = ReplayFitMetric::UnsampledTdRatio, .key = "replay_fit_unsampled_td_ratio" },
+        { .index = ReplayFitMetric::UnsampledLossMean, .key = "replay_fit_unsampled_loss_mean" },
+        { .index = ReplayFitMetric::SampledLossMean, .key = "replay_fit_sampled_loss_mean" },
+        { .index = ReplayFitMetric::UnsampledLossRatio, .key = "replay_fit_unsampled_loss_ratio" },
+        { .index = ReplayFitMetric::UnsampledCount, .key = "replay_fit_unsampled_count" },
+        { .index = ReplayFitMetric::SampledCount, .key = "replay_fit_sampled_count" },
+        { .index = ReplayFitMetric::UnsampledAgeMean, .key = "replay_fit_unsampled_age_mean" },
+        { .index = ReplayFitMetric::SampledAgeMean, .key = "replay_fit_sampled_age_mean" },
+        { .index = ReplayFitMetric::UniformTdMean, .key = "replay_fit_uniform_td_mean" },
+        { .index = ReplayFitMetric::PerTdMean, .key = "replay_fit_per_td_mean" },
+        { .index = ReplayFitMetric::PerSelectivity, .key = "replay_fit_per_selectivity" },
+    }});
     using ReplayFitMetrics = std::array<float, kReplayFitMetricKeys.size()>;
 
     struct ReplayFitRequirements {
@@ -125,18 +288,12 @@ namespace anet::rl::dqn {
 
     inline std::optional<size_t> ParseReplayFitMetric(const std::string& key)
     {
-        for (size_t i = 0; i < kReplayFitMetricKeys.size(); ++i) {
-            if (key == kReplayFitMetricKeys[i]) return i;
-        }
-        return std::nullopt;
+        return ParseDiagnosticMetric(key, kReplayFitMetricKeys);
     }
 
     inline std::optional<size_t> ParsePolicyChurnMetric(const std::string& key)
     {
-        for (size_t i = 0; i < kPolicyChurnMetricKeys.size(); ++i) {
-            if (key == kPolicyChurnMetricKeys[i]) return i;
-        }
-        return std::nullopt;
+        return ParseDiagnosticMetric(key, kPolicyChurnMetricKeys);
     }
 
     ReplayInitialPriorityMode ParseReplayInitialPriorityMode(const LearnerConfig& config);
@@ -607,6 +764,7 @@ namespace anet::rl::dqn {
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
 
+        const ActionPolicyConfig& GetConfig() const { return config_; }
         virtual ~ActionPolicy() = default;
     protected:
         anet::TensorDict ForwardForAction(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
@@ -822,21 +980,15 @@ namespace anet::rl::dqn {
     public:
         Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
-            torch::Device device, anet::seed_t replay_seed,
+            torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
-            anet::RandomGenerator* plasticity_probe_random = nullptr,
-            anet::RandomGenerator* policy_churn_probe_random = nullptr);
+            std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences) override;
-        void ConfigureScalarMetricSubscriptions(
-            const std::vector<ScalarMetricSubscription>& subscriptions,
-            anet::RandomGenerator* replay_fit_probe_random = nullptr,
-            anet::RandomGenerator* noisy_probe_random = nullptr,
-            const anet::nn::NetworkForwardConfig* noisy_probe_config = nullptr,
-            anet::RandomGenerator* attention_entropy_probe_random = nullptr);
+        void ConfigureScalarMetricSubscriptions(const std::vector<ScalarMetricSubscription>& subscriptions);
 
         virtual ~Learner() = default;
     public:
@@ -907,6 +1059,9 @@ namespace anet::rl::dqn {
             const torch::Tensor& q_gap = torch::Tensor(),
             const torch::Tensor& q_gap_rel = torch::Tensor(), const SkipLearningResult& skip = {}) const;
     private:
+        void DistributeDiagnosticSubscriptions(const std::vector<ScalarMetricSubscription>& subscriptions);
+        void ValidateDiagnosticSubscriptions();
+        void PrepareDiagnosticResources();
         std::vector<torch::optim::AdamWOptions> BuildOptimizerOptions() const;
         std::vector<std::string> OptimizerRoles() const;
         bool CanUpdate(step_t exp_step);
@@ -953,31 +1108,23 @@ namespace anet::rl::dqn {
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
         std::unique_ptr<torch::optim::Optimizer> skip_primary_optimizer_; ///< primaryへ流れるskip勾配だけの独立したモーメント。
         anet::GradScaler grad_scaler_;
-        anet::RandomGenerator* plasticity_probe_random_ = nullptr; ///< Agent所有の専用Resourceを借用する。
-        anet::RandomGenerator* policy_churn_probe_random_ = nullptr; ///< Agent所有の専用Resourceを借用する。
+        anet::RandomGenerator plasticity_probe_random_;
+        anet::RandomGenerator policy_churn_probe_random_;
+        anet::RandomGenerator replay_fit_probe_random_;
+        anet::RandomGenerator noisy_probe_random_;
+        anet::RandomGenerator attention_entropy_probe_random_;
+        std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config_;
         std::optional<at::cuda::CUDAStream> per_priority_copy_stream_;
         anet::transfer::EventRecycler<torch::Tensor> per_priority_event_recycler_;
         struct GradientNoiseState {
-            struct DemandEntry {
-                size_t metric;
-                int interval;
-                anet::IntervalGate gate;
-                DemandEntry(size_t metric, int interval) : metric(metric), interval(interval), gate(interval) {}
-            };
-            std::vector<DemandEntry> demand;
+            DiagnosticDemandTable<kGradientNoiseMetricKeys.size()> demand{kGradientNoiseMetricKeys};
             std::array<bool, kGradientNoiseMetricKeys.size()> request{};
             anet::GradientNoiseRequest subscribed;
             std::array<anet::GradientNoiseEstimator, 4> estimators;
             std::vector<anet::GradientNoiseParameter> parameters;
         } grad_noise_;
         struct NoisyDiagnosticState {
-            struct DemandEntry {
-                size_t metric;
-                anet::IntervalGate gate;
-                DemandEntry(size_t metric, int interval) : metric(metric), gate(static_cast<uint64_t>(interval)) {}
-            };
-            std::vector<DemandEntry> demand;
-            anet::RandomGenerator* random = nullptr; ///< Agent所有の専用Resourceを借用する。
+            DiagnosticDemandTable<kNoisyMetricKeys.size()> demand{kNoisyMetricKeys};
             std::shared_ptr<anet::nn::NetworkForwardExecutor> sample_forward;
             uint64_t forward_clock = 0;
             NoisyMetrics values;
@@ -990,7 +1137,6 @@ namespace anet::rl::dqn {
                 DemandEntry(int64_t layer, int interval) : layer(layer), gate(static_cast<uint64_t>(interval)) {}
             };
             std::vector<DemandEntry> demand;
-            anet::RandomGenerator* random = nullptr; ///< Agent所有の専用Resourceを借用する。
         } attention_;
         struct PlasticityState {
             struct DemandEntry {
@@ -1039,16 +1185,7 @@ namespace anet::rl::dqn {
             mutable std::optional<anet::nn::PlasticityMetrics> probe_metrics_cache;
         } plasticity_;
         struct PolicyChurnState {
-            struct DemandEntry {
-                size_t metric_index;
-                int interval;
-                anet::IntervalGate gate;
-
-                DemandEntry(size_t metric_index, int interval)
-                    : metric_index(metric_index), interval(interval), gate(static_cast<uint64_t>(interval)) {}
-            };
-
-            std::vector<DemandEntry> demand;
+            DiagnosticDemandTable<kPolicyChurnMetricKeys.size()> demand{kPolicyChurnMetricKeys};
             std::array<bool, kPolicyChurnMetricKeys.size()> request{};
             anet::TensorDict probe_obs;
             torch::Tensor fixed_taus;
@@ -1057,7 +1194,7 @@ namespace anet::rl::dqn {
 
             bool AnyQRequest() const
             {
-                for (size_t i = 0; i < request.size() - 1; ++i) {
+                for (size_t i = 0; i < PolicyChurnMetric::TargetSyncAge; ++i) {
                     if (request[i]) return true;
                 }
                 return false;
@@ -1065,7 +1202,7 @@ namespace anet::rl::dqn {
 
             bool NeedsOnlineBefore() const
             {
-                return request[0] || request[1] || request[2] || request[3];
+                return request[PolicyChurnMetric::ActionRatio] || request[PolicyChurnMetric::QDeltaAbsMean] || request[PolicyChurnMetric::QDeltaSignedMax] || request[PolicyChurnMetric::QDeltaSignedMin];
             }
 
             bool NeedsOnlineAfter() const
@@ -1075,17 +1212,10 @@ namespace anet::rl::dqn {
 
             bool NeedsTargetAfter() const
             {
-                return request[4] || request[5];
+                return request[PolicyChurnMetric::TargetPolicyDisagreement] || request[PolicyChurnMetric::TargetQDeltaAbsMean];
             }
         } policy_churn_;
-        struct ReplayFitDemandEntry {
-            size_t metric;
-            anet::IntervalGate gate;
-            ReplayFitDemandEntry(size_t metric, int interval)
-                : metric(metric), gate(static_cast<uint64_t>(interval)) {}
-        };
-        std::vector<ReplayFitDemandEntry> replay_fit_demand_;
-        anet::RandomGenerator* replay_fit_probe_random_ = nullptr; ///< Agent所有の専用Resourceを借用する。
+        DiagnosticDemandTable<kReplayFitMetricKeys.size()> replay_fit_demand_{kReplayFitMetricKeys};
     protected:
         float update_credit_ = 0.0f;
     private:
@@ -1096,13 +1226,12 @@ namespace anet::rl::dqn {
     public:
         explicit QuantileLearnerBase(
         	const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
-            anet::RandomGenerator* plasticity_probe_random = nullptr,
-            anet::RandomGenerator* policy_churn_probe_random = nullptr);
+            std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
         virtual ~QuantileLearnerBase() = default;
     protected:
@@ -1138,26 +1267,24 @@ namespace anet::rl::dqn {
     class TDLearner final : public anet::rl::dqn::Learner {
     public:
         explicit TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
-            anet::RandomGenerator* plasticity_probe_random = nullptr,
-            anet::RandomGenerator* policy_churn_probe_random = nullptr);
+            std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
     };
 
     class QRLearner final : public anet::rl::dqn::QuantileLearnerBase {
     public:
         explicit QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
-            anet::RandomGenerator* plasticity_probe_random = nullptr,
-            anet::RandomGenerator* policy_churn_probe_random = nullptr);
+            std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
     private:
         ElementError ComputeElementError(const torch::Tensor& current,
@@ -1169,13 +1296,12 @@ namespace anet::rl::dqn {
     class IQNLearner final : public anet::rl::dqn::QuantileLearnerBase {
     public:
         explicit IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+            const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
             std::optional<StuckerConfig> stucker_config = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
-            anet::RandomGenerator* plasticity_probe_random = nullptr,
-            anet::RandomGenerator* policy_churn_probe_random = nullptr);
+            std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
     private:
         CurrentForwardResult ForwardCurrent(const ExperienceSamples& samples,
@@ -1184,5 +1310,45 @@ namespace anet::rl::dqn {
             const CurrentForwardResult& current, const torch::Tensor& target, const ElementError& error) const override;
     };
 
+
+    class DqnComponentAssembler {
+    public:
+        static std::shared_ptr<anet::nn::NetworkHeadFactory> CreateHeadFactory(
+            const std::string& quantile_mode, bool dueling, int64_t num_actions, int num_quantiles,
+            const anet::nn::WeightInitConfig& init,
+            const anet::ConfigData& projection = anet::EmptyConfigData);
+        static std::shared_ptr<ActionPolicy> CreateActionPolicy(
+            const ActionPolicyConfig& config, const std::string& quantile_mode,
+            bool spatial, int64_t num_envs, const torch::Device& device);
+        static std::shared_ptr<Learner> CreateLearner(
+            const std::string& quantile_mode, int num_quantiles, const LearnerConfig& config,
+            NetworkModel& model, RuntimeVars& vars,
+            const BatchEnvSpec& batch, const EnvSpec& env, const torch::Device& device,
+            anet::seed_t replay_seed, anet::seed_t agent_seed,
+            std::shared_ptr<ActionPolicy> target_policy,
+            std::shared_ptr<ObservationNormalizer> normalizer = nullptr,
+            const LearnerForwardResources& forwards = {},
+            std::optional<StuckerConfig> stacker = std::nullopt,
+            std::optional<anet::seed_t> learner_seed = std::nullopt,
+            std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe = nullptr,
+            const std::string& log_suffix = "");
+        static std::shared_ptr<Actor> CreateActor(
+            const DQNActorConfig& config, const LearnerConfig& learner_config,
+            const ActorRequest& request, NetworkModel& model,
+            const std::shared_ptr<std::shared_mutex>& mutex, std::shared_ptr<ActionPolicy> policy,
+            const anet::nn::NetworkForwardConfig& forward = anet::nn::NetworkForwardConfig::GetDefault(),
+            std::shared_ptr<ObservationNormalizer> normalizer = nullptr,
+            std::unique_ptr<FrameStacker> stacker = nullptr,
+            bool emit_snapshot_metrics = false, ActorQHintConfig hint = {},
+            std::optional<anet::ProfiledValueConfig<step_t>> sync_interval = std::nullopt,
+            std::optional<SkipActorResources> skip = std::nullopt);
+        static std::optional<float> GetScalar(const std::string& key, int64_t index,
+            const Learner& learner, const RuntimeVars& vars, const ActionPolicy& target_policy,
+            std::shared_mutex& mutex);
+        static std::optional<torch::Tensor> GetTensor(
+            const std::string& key, const Learner& learner, std::shared_mutex& mutex);
+        static std::optional<std::vector<torch::Tensor>> GetTensorVector(
+            const std::string& key, const Learner& learner, std::shared_mutex& mutex);
+    };
 
 } // namespace anet::rl::dqn

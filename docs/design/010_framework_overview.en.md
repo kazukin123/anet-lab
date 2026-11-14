@@ -1,4 +1,4 @@
-<!-- translated-from: 010_framework_overview.jp.md blob:6be59a1be6f58481ed534ede2e0efddf5e69d0fc date:2026-11-10 progress:done -->
+<!-- translated-from: 010_framework_overview.jp.md blob:e9dc0f9af434537e68497fa7730b162da23fd1e5 date:2026-11-14 progress:done -->
 # ANET Framework Overview
 
 > Primary perspective: overall structure (organized mainly by function, with major workflows included)
@@ -181,7 +181,7 @@ See [6.12](#612-concrete-agent-and-env-implementations) for selecting and extend
 | Type | Implementation | Overview |
 |---|---|---|
 | Agent | `DefaultDQNAgent` | Standard implementation for DQN-based value learning |
-| Agent | `RainbowAgent` | Agent implementation for Rainbow configurations |
+| Agent | `RainbowAgent` | Second Agent used to check responsibility boundaries in shared DQN components; not used for Runs |
 | Agent | `MuZeroAgent` | Prototype MuZero implementation for deterministic Envs |
 | Agent | `ImageClsAgent` | Supervised learning implementation for image classification |
 | Env | `CartPoleEnv` | Inverted pendulum environment with vector Observations |

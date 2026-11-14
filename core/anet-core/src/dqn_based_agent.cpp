@@ -26,6 +26,10 @@
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
 
+static constexpr std::string_view kPlasticityProbePrefix = "plasticity_probe_";
+static constexpr std::string_view kPlasticityTargetPrefix = "plasticity_target_";
+static constexpr std::string_view kPlasticityPrefix = "plasticity_";
+
 static constexpr char kQOutputKey[] = "q";
 static constexpr char kQDistOutputKey[] = "q_dist";
 
@@ -123,13 +127,15 @@ MunchausenTargetTerms anet::rl::dqn::MakeMunchausenTargetTerms(
     if (collect_diagnostics) {
         const auto mean_q = next_mean_q.detach().to(torch::kFloat32);
         const auto soft_value = (next_policy * (mean_q - next_log)).sum(1);
-        diagnostics = torch::stack({
+        diagnostics = StackDiagnosticValues<MunchausenMetric::Count,
+        MunchausenMetric::ScaledLogPolicyMean, MunchausenMetric::ClipRatio, MunchausenMetric::BonusMean,
+        MunchausenMetric::NextEntropy, MunchausenMetric::SoftGap>(
             selected_log.mean(),
             selected_log.lt(config.clip_value_min).to(torch::kFloat32).mean(),
             bonus.mean(),
             -(next_policy * next_log).sum(1).mean() / config.entropy_tau,
-            (soft_value - std::get<0>(mean_q.max(1))).mean(),
-        });
+            (soft_value - std::get<0>(mean_q.max(1))).mean()
+        );
     }
     return MunchausenTargetTerms{
         .bonus = bonus, .next_policy = next_policy, .next_scaled_log_policy = next_log, .diagnostics = diagnostics,
@@ -1238,9 +1244,9 @@ std::optional<int64_t> ParseActionFullQMarginKey(const std::string& key)
 
 std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == kLearnerScheduleMetricKeys[3]) return effective_gamma;
-    if (key == kLearnerScheduleMetricKeys[4]) return munchausen_alpha;
-    if (key == kLearnerScheduleMetricKeys[5]) return munchausen_entropy_tau;
+    if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::Gamma]) return effective_gamma;
+    if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::MunchausenAlpha]) return munchausen_alpha;
+    if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::MunchausenEntropyTau]) return munchausen_entropy_tau;
 
     const bool skip_rate = key.starts_with(DQNActionInfo::kSkipLengthRatePrefix);
     const bool skip_value = key.starts_with(DQNActionInfo::kSkipQPrefix);
@@ -2631,10 +2637,10 @@ std::optional<float> Actor::GetScalar(const std::string& key, int64_t index) con
 // ======================================================
 
 Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-    const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed,
+    const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
-    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
+    std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
     : RandomHolder(target_seed), config_(config), learning_rate_(config.learning_rate), weight_decay_(config.weight_decay), per_beta_(config.per_beta), soft_update_tau_(model.GetSoftUpdateTauConfig()), gamma_(config.gamma),
       munchausen_alpha_(config.munchausen.alpha), munchausen_entropy_tau_(config.munchausen.entropy_tau),
       munchausen_values_(config.munchausen.Resolve(munchausen_alpha_.Value(), munchausen_entropy_tau_.Value())),
@@ -2643,8 +2649,12 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     , n_actions_(env_spec.action_spec.GetNumActions())//, state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
     , target_policy_(std::move(target_policy))
-    , plasticity_probe_random_(plasticity_probe_random)
-    , policy_churn_probe_random_(policy_churn_probe_random)
+    , plasticity_probe_random_(anet::SeedMaker(agent_seed).MakeNamedSeed("plasticity_probe"))
+    , policy_churn_probe_random_(anet::SeedMaker(agent_seed).MakeNamedSeed("policy_churn_probe"))
+    , replay_fit_probe_random_(anet::SeedMaker(agent_seed).MakeNamedSeed("replay_fit_probe"))
+    , noisy_probe_random_(anet::SeedMaker(agent_seed).MakeNamedSeed("noisy_probe.sample"))
+    , attention_entropy_probe_random_(anet::SeedMaker(agent_seed).MakeNamedSeed("attention_entropy_probe"))
+    , noisy_probe_config_(std::move(noisy_probe_config))
 {
     // 名前付き参照と受け取ったResourceの対応を、NNの準備や資源確保より前に確認する。
     config_.grad_noise.Validate("learner.grad_noise");
@@ -2711,30 +2721,31 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
 
 std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) const
 {
-    if (key == kLearnerScheduleMetricKeys[0]) return learning_rate_.Value();
-    if (key == kLearnerScheduleMetricKeys[1]) return weight_decay_.Value();
-    if (key == kLearnerScheduleMetricKeys[2]) return soft_update_tau_.Value();
-    if (key == kLearnerScheduleMetricKeys[3]) return gamma_.Value();
-    if (key == kLearnerScheduleMetricKeys[4]) return munchausen_alpha_.Value();
-    if (key == kLearnerScheduleMetricKeys[5]) return munchausen_entropy_tau_.Value();
-    if (const auto metric = ParseNoisyMetric(key)) return noisy_.values[*metric];
-    if (key.starts_with("plasticity_probe_")) {
-        const auto suffix = key.substr(std::string("plasticity_probe_").size());
-        const auto metric = anet::nn::ParsePlasticityMetricSuffix(suffix);
-        if (!metric.has_value()) return std::nullopt;
-        if (!plasticity_.probe_request.Contains(*metric)) {
-            return std::numeric_limits<float>::quiet_NaN();
+    if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::LearningRate]) return learning_rate_.Value();
+    if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::WeightDecay]) return weight_decay_.Value();
+    if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::SoftUpdateTau]) return soft_update_tau_.Value();
+    if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::Gamma]) return gamma_.Value();
+    if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::MunchausenAlpha]) return munchausen_alpha_.Value();
+    if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::MunchausenEntropyTau]) return munchausen_entropy_tau_.Value();
+    if (const auto value = ReadDiagnosticScalar(ParseNoisyMetric(key),
+        [&](size_t metric) -> std::optional<float> { return noisy_.values[metric]; })) return value;
+    if (key.starts_with(kPlasticityProbePrefix)) {
+        const auto suffix = key.substr(kPlasticityProbePrefix.size());
+        return ReadDiagnosticScalar(anet::nn::ParsePlasticityMetricSuffix(suffix), [&](auto metric) -> std::optional<float> {
+        if (!plasticity_.probe_request.Contains(metric)) {
+            return std::nullopt;
         }
-        if (!plasticity_.probe_features.defined()) return std::numeric_limits<float>::quiet_NaN();
+        if (!plasticity_.probe_features.defined()) return std::nullopt;
         if (!plasticity_.probe_metrics_cache.has_value()) {
             plasticity_.probe_metrics_cache = anet::nn::ComputePlasticityMetrics(
                 plasticity_.probe_features, plasticity_.probe_request);
         }
-        const auto value = plasticity_.probe_metrics_cache->Get(*metric);
+        const auto value = plasticity_.probe_metrics_cache->Get(metric);
         if (!value.has_value()) {
             ANET_SYSTEM_ERROR("Learner plasticity probe cache is missing a requested metric.");
         }
         return value;
+        });
     }
     if (key.find(ReplayBuffer::kKeyPrefix) == 0) {
         // ReplayBufferを持たないRun(learner.enabled=false)でも、この prefix は Learner が所有する
@@ -2747,19 +2758,21 @@ std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) c
     return std::nullopt;
 }
 
-void Learner::ConfigureScalarMetricSubscriptions(
-    const std::vector<ScalarMetricSubscription>& subscriptions, anet::RandomGenerator* replay_fit_probe_random,
-    anet::RandomGenerator* noisy_probe_random, const anet::nn::NetworkForwardConfig* noisy_probe_config,
-    anet::RandomGenerator* attention_entropy_probe_random)
+void Learner::ConfigureScalarMetricSubscriptions(const std::vector<ScalarMetricSubscription>& subscriptions)
+{
+    DistributeDiagnosticSubscriptions(subscriptions);
+    ValidateDiagnosticSubscriptions();
+    PrepareDiagnosticResources();
+}
+
+void Learner::DistributeDiagnosticSubscriptions(const std::vector<ScalarMetricSubscription>& subscriptions)
 {
     attention_ = AttentionEntropyState{};
-    attention_.random = attention_entropy_probe_random;
     grad_noise_ = GradientNoiseState{};
     plasticity_ = PlasticityState{};
     noisy_ = NoisyDiagnosticState{};
     policy_churn_.demand.clear();
     replay_fit_demand_.clear();
-    replay_fit_probe_random_ = replay_fit_probe_random;
     const auto update_min = [](int current, int candidate, bool was_enabled) {
         return was_enabled ? std::min(current, candidate) : candidate;
     };
@@ -2774,57 +2787,56 @@ void Learner::ConfigureScalarMetricSubscriptions(
                 if (config_.enabled) attention_.demand.emplace_back(*layer, subscription.interval);
                 continue;
             }
-            if (const auto metric = ParseGradientNoiseMetric(key)) {
-                grad_noise_.demand.emplace_back(*metric, subscription.interval);
+            if (const auto metric = grad_noise_.demand.Add(key, subscription.interval)) {
                 const auto i = *metric;
-                if (i == 4 || i == 9 || i == 10) grad_noise_.subscribed.raw = true;
-                else if (i == 1 || i == 11 || i == 12) grad_noise_.subscribed.adam[1] = true;
-                else if (i == 2 || i == 13 || i == 14) grad_noise_.subscribed.adam[2] = true;
+                if (i == GradientNoiseMetric::Scale || i == GradientNoiseMetric::SignalRaw || i == GradientNoiseMetric::VarianceRaw) grad_noise_.subscribed.raw = true;
+                else if (i == GradientNoiseMetric::ScaleAdamFeature || i == GradientNoiseMetric::SignalAdamFeatureRaw || i == GradientNoiseMetric::VarianceAdamFeatureRaw) grad_noise_.subscribed.adam[1] = true;
+                else if (i == GradientNoiseMetric::ScaleAdamReadout || i == GradientNoiseMetric::SignalAdamReadoutRaw || i == GradientNoiseMetric::VarianceAdamReadoutRaw) grad_noise_.subscribed.adam[2] = true;
                 else grad_noise_.subscribed.adam[0] = true;
                 continue;
             }
         }
-        if (const auto metric = ParseNoisyMetric(key)) {
-            noisy_.demand.emplace_back(*metric, subscription.interval);
+        if (const auto metric = noisy_.demand.Add(key, subscription.interval)) {
             continue;
         }
         if (config_.enabled && subscription.target == EventField::UPDATE_RESULT) {
-            if (const auto metric = ParseReplayFitMetric(key)) {
-                replay_fit_demand_.emplace_back(*metric, subscription.interval);
+            if (const auto metric = replay_fit_demand_.Add(key, subscription.interval)) {
                 continue;
             }
         }
-        if (policy_churn_probe_random_ != nullptr
-            && subscription.target == EventField::UPDATE_RESULT) {
-            if (const auto metric = ParsePolicyChurnMetric(key)) {
-                policy_churn_.demand.emplace_back(*metric, subscription.interval);
+        if (subscription.target == EventField::UPDATE_RESULT) {
+            if (const auto metric = policy_churn_.demand.Add(key, subscription.interval)) {
                 continue;
             }
         }
-        if (key == "plasticity_weight_norm_feature"
-            || key == "plasticity_weight_norm_readout"
-            || key == "plasticity_weight_norm_feature_effective"
-            || key == "plasticity_weight_norm_readout_effective"
-            || key == "plasticity_spectral_sigma_feature"
-            || key == "plasticity_spectral_sigma_readout") {
+        if (ParseDiagnosticMetric(key, kPlasticityWeightNormMetricKeys)) {
             plasticity_.weight_norm_interval = update_min(
                 plasticity_.weight_norm_interval, subscription.interval, plasticity_.weight_norm_enabled);
             plasticity_.weight_norm_enabled = true;
-        } else if (key.starts_with("plasticity_probe_")) {
+        } else if (key.starts_with(kPlasticityProbePrefix)) {
             const auto metric = anet::nn::ParsePlasticityMetricSuffix(
-                key.substr(std::string("plasticity_probe_").size()));
+                key.substr(kPlasticityProbePrefix.size()));
             if (metric.has_value()) plasticity_.probe.Add(*metric, subscription.interval);
-        } else if (key.starts_with("plasticity_target_")) {
+        } else if (key.starts_with(kPlasticityTargetPrefix)) {
             const auto metric = anet::nn::ParsePlasticityMetricSuffix(
-                key.substr(std::string("plasticity_target_").size()));
+                key.substr(kPlasticityTargetPrefix.size()));
             if (metric.has_value()) plasticity_.target.Add(*metric, subscription.interval);
-        } else if (key.starts_with("plasticity_")) {
+        } else if (key.starts_with(kPlasticityPrefix)) {
             const auto metric = anet::nn::ParsePlasticityMetricSuffix(
-                key.substr(std::string("plasticity_").size()));
+                key.substr(kPlasticityPrefix.size()));
             if (metric.has_value()) plasticity_.online.Add(*metric, subscription.interval);
         }
     }
 
+}
+
+void Learner::ValidateDiagnosticSubscriptions()
+{
+    if (!replay_fit_demand_.empty() && target_policy_->GetConfig().IsThompsonSampling()) {
+        ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; target_policy.policy_type="
+            << target_policy_->GetConfig().policy_type << " expected " << kActionPolicyTypeStr_Greedy << ", "
+            << kActionPolicyTypeStr_EpsilonGreedy << ", or " << kActionPolicyTypeStr_UQE << ".");
+    }
     // 購読のある構成だけで値域・精度と測定用parameterを確定する。
     const bool grad_noise_split = grad_noise_.subscribed.adam[1] || grad_noise_.subscribed.adam[2];
     if (!grad_noise_.demand.empty()) {
@@ -2857,14 +2869,18 @@ void Learner::ConfigureScalarMetricSubscriptions(
                 grad_noise_.parameters.push_back({ .parameter = parameter });
         }
     }
-    // probe の用途は Agent が選択する。Learner は設定の中身を解釈せず NN に検証を委譲する。
-    if (config_.enabled && std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric >= 8; })
+}
+
+void Learner::PrepareDiagnosticResources()
+{
+    const bool grad_noise_split = grad_noise_.subscribed.adam[1] || grad_noise_.subscribed.adam[2];
+    // Agent が解決した sample/call/batch 設定の検証は NN に委ねる。
+    if (config_.enabled && std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric >= NoisyMetric::QAbsDiff; })
         && !model_.GetOnlineNetwork()->GetNoisyParameterEntries().empty()) {
-        if (!noisy_probe_random || !noisy_probe_config) {
-            ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.noisy_probe requires a dedicated RNG and a resolved sample forward config.");
+        if (!noisy_probe_config_) {
+            ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.noisy_probe requires a resolved sample forward config.");
         }
-        noisy_.random = noisy_probe_random;
-        noisy_.sample_forward = model_.GetOnlineNetwork()->CreateForwardExecutor(*noisy_probe_config,
+        noisy_.sample_forward = model_.GetOnlineNetwork()->CreateForwardExecutor(*noisy_probe_config_,
             anet::nn::NetworkForwardClock::kTransientRows,
             anet::SeedMaker(GetSeed()).MakeNamedSeed("network_forward.noisy_probe"));
     }
@@ -2885,7 +2901,7 @@ void Learner::ConfigureScalarMetricSubscriptions(
 
     if (!plasticity_.online.enabled && !plasticity_.target.enabled
         && !plasticity_.probe.enabled && !plasticity_.weight_norm_enabled
-        && !std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric < 8; })
+        && !std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric < NoisyMetric::QAbsDiff; })
         && !grad_noise_split && attention_.demand.empty()) return;
     const auto branch_names = model_.GetOnlineNetwork()->GetBranchNames();
     std::ostringstream available;
@@ -2914,15 +2930,15 @@ ReplayFitRequirements anet::rl::dqn::ResolveReplayFitRequirements(
     const std::array<bool, kReplayFitMetricKeys.size()>& request, bool use_per)
 {
     // 購読時のResource確保と測定回ごとの処理で、同じ指標依存を使う。
-    const bool uniform = request[10] || (use_per && request[12]);
+    const bool uniform = request[ReplayFitMetric::UniformTdMean] || (use_per && request[ReplayFitMetric::PerSelectivity]);
     return ReplayFitRequirements{
         .uniform = uniform,
-        .per = use_per && (request[11] || request[12]),
-        .td_u = request[0] || request[2] || uniform,
-        .td_s = request[1] || request[2] || uniform,
-        .loss_u = request[3] || request[5],
-        .loss_s = request[4] || request[5],
-        .counts = request[6] || request[7] || request[8] || request[9] || uniform,
+        .per = use_per && (request[ReplayFitMetric::PerTdMean] || request[ReplayFitMetric::PerSelectivity]),
+        .td_u = request[ReplayFitMetric::UnsampledTdMean] || request[ReplayFitMetric::UnsampledTdRatio] || uniform,
+        .td_s = request[ReplayFitMetric::SampledTdMean] || request[ReplayFitMetric::UnsampledTdRatio] || uniform,
+        .loss_u = request[ReplayFitMetric::UnsampledLossMean] || request[ReplayFitMetric::UnsampledLossRatio],
+        .loss_s = request[ReplayFitMetric::SampledLossMean] || request[ReplayFitMetric::UnsampledLossRatio],
+        .counts = request[ReplayFitMetric::UnsampledCount] || request[ReplayFitMetric::SampledCount] || request[ReplayFitMetric::UnsampledAgeMean] || request[ReplayFitMetric::SampledAgeMean] || uniform,
     };
 }
 
@@ -2930,15 +2946,8 @@ std::optional<ReplayFitMetrics> Learner::CaptureReplayFit(const ExperienceSample
 {
     // 未購読では測定用配列やpackを作らず、cadence判定へも入らない。
     if (replay_fit_demand_.empty()) return std::nullopt;
-    std::array<bool, kReplayFitMetricKeys.size()> request{};
-    bool any = false;
-    for (auto& demand : replay_fit_demand_) {
-        if (demand.gate.ShouldFire(vars_.learn_step)) {
-            request[demand.metric] = true;
-            any = true;
-        }
-    }
-    if (!any) return std::nullopt;
+    const auto request = replay_fit_demand_.MakeRequest(vars_.learn_step);
+    if (!std::ranges::any_of(request, [](bool value) { return value; })) return std::nullopt;
     ANET_PROFILE_SCOPE(replay_fit);
     ReplayFitMetrics values;
     values.fill(std::numeric_limits<float>::quiet_NaN());
@@ -2950,11 +2959,11 @@ std::optional<ReplayFitMetrics> Learner::CaptureReplayFit(const ExperienceSample
             .counts = counts,
             .unsampled_batch_size = td_u || loss_u ? std::optional<int64_t>(config_.replay_fit.probe.batch_size) : std::nullopt,
             .sampled_batch_size = td_s || loss_s ? std::optional<int64_t>(config_.replay_fit.probe.batch_size) : std::nullopt,
-        }, replay_fit_probe_random_, gamma_.Value());
-        if (request[6]) values[6] = static_cast<float>(snapshot.unsampled_count);
-        if (request[7]) values[7] = static_cast<float>(snapshot.sampled_count);
-        if (request[8]) values[8] = snapshot.unsampled_age_mean;
-        if (request[9]) values[9] = snapshot.sampled_age_mean;
+        }, &replay_fit_probe_random_, gamma_.Value());
+        if (request[ReplayFitMetric::UnsampledCount]) values[ReplayFitMetric::UnsampledCount] = static_cast<float>(snapshot.unsampled_count);
+        if (request[ReplayFitMetric::SampledCount]) values[ReplayFitMetric::SampledCount] = static_cast<float>(snapshot.sampled_count);
+        if (request[ReplayFitMetric::UnsampledAgeMean]) values[ReplayFitMetric::UnsampledAgeMean] = snapshot.unsampled_age_mean;
+        if (request[ReplayFitMetric::SampledAgeMean]) values[ReplayFitMetric::SampledAgeMean] = snapshot.sampled_age_mean;
     }
     if (!snapshot.unsampled && !snapshot.sampled && !per) return values;
 
@@ -2969,12 +2978,12 @@ std::optional<ReplayFitMetrics> Learner::CaptureReplayFit(const ExperienceSample
     const auto ratio = [nan](float numerator, float denominator) {
         return denominator == 0.0f ? nan : numerator / denominator;
     };
-    if (request[0]) values[0] = u.first;
-    if (request[1]) values[1] = s.first;
-    if (request[2]) values[2] = ratio(u.first, s.first);
-    if (request[3]) values[3] = u.second;
-    if (request[4]) values[4] = s.second;
-    if (request[5]) values[5] = ratio(u.second, s.second);
+    if (request[ReplayFitMetric::UnsampledTdMean]) values[ReplayFitMetric::UnsampledTdMean] = u.first;
+    if (request[ReplayFitMetric::SampledTdMean]) values[ReplayFitMetric::SampledTdMean] = s.first;
+    if (request[ReplayFitMetric::UnsampledTdRatio]) values[ReplayFitMetric::UnsampledTdRatio] = ratio(u.first, s.first);
+    if (request[ReplayFitMetric::UnsampledLossMean]) values[ReplayFitMetric::UnsampledLossMean] = u.second;
+    if (request[ReplayFitMetric::SampledLossMean]) values[ReplayFitMetric::SampledLossMean] = s.second;
+    if (request[ReplayFitMetric::UnsampledLossRatio]) values[ReplayFitMetric::UnsampledLossRatio] = ratio(u.second, s.second);
     float uniform_td = nan;
     if (uniform) {
         const auto total = snapshot.unsampled_count + snapshot.sampled_count;
@@ -2983,12 +2992,12 @@ std::optional<ReplayFitMetrics> Learner::CaptureReplayFit(const ExperienceSample
                 + (snapshot.sampled_count > 0 ? snapshot.sampled_count * static_cast<double>(s.first) : 0.0);
             uniform_td = static_cast<float>(sum / total);
         }
-        if (request[10]) values[10] = uniform_td;
+        if (request[ReplayFitMetric::UniformTdMean]) values[ReplayFitMetric::UniformTdMean] = uniform_td;
     }
     if (per) {
         const float per_td = EvaluateReplayFit(samples, true, false).first;
-        if (request[11]) values[11] = per_td;
-        if (request[12]) values[12] = ratio(per_td, uniform_td);
+        if (request[ReplayFitMetric::PerTdMean]) values[ReplayFitMetric::PerTdMean] = per_td;
+        if (request[ReplayFitMetric::PerSelectivity]) values[ReplayFitMetric::PerSelectivity] = ratio(per_td, uniform_td);
     }
     return values;
 }
@@ -3032,28 +3041,25 @@ void Learner::CaptureNoisyDiagnostics()
 {
     // 各更新で失効させ、購読 cadence が発火した項目だけを成立させる。
     noisy_.values.fill(std::numeric_limits<float>::quiet_NaN());
-    std::array<bool, kNoisyMetricKeys.size()> request{};
-    for (auto& entry : noisy_.demand) {
-        if (entry.gate.ShouldFire(vars_.learn_step)) request[entry.metric] = true;
-    }
-    if (std::ranges::any_of(std::span(request).first(8), [](bool value) { return value; })) {
+    const auto request = noisy_.demand.MakeRequest(vars_.learn_step);
+    if (std::ranges::any_of(std::span(request).first(NoisyMetric::QAbsDiff), [](bool value) { return value; })) {
         ANET_PROFILE_SCOPE(statistics);
         const auto stats = model_.GetOnlineNetwork()->ComputeNoisyParameterStatistics(config_.final_feature_branch_key).cpu();
         const auto values = stats.accessor<float, 1>();
-        for (size_t metric = 0; metric < 8; ++metric) {
+        for (size_t metric = 0; metric < NoisyMetric::QAbsDiff; ++metric) {
             if (request[metric]) noisy_.values[metric] = values[metric];
         }
     }
-    if (!std::ranges::any_of(std::span(request).subspan(8), [](bool value) { return value; })) return;
+    if (!std::ranges::any_of(std::span(request).subspan(NoisyMetric::QAbsDiff), [](bool value) { return value; })) return;
     const auto network = model_.GetOnlineNetwork();
     if (network->GetNoisyParameterEntries().empty()) return;
     ANET_PROFILE_SCOPE(probe);
-    if (!noisy_.random || !noisy_.sample_forward) {
+    if (!noisy_.sample_forward) {
         ANET_SYSTEM_ERROR("Noisy probe Resource is unavailable for subscribed metrics.");
     }
     ExperienceSamples cpu_samples;
     // 学習/PER の抽選を流用せず、一様非復元で B 状態が揃ったときだけ測る。
-    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.noisy_probe.probe.batch_size, *noisy_.random, gamma_.Value())) return;
+    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.noisy_probe.probe.batch_size, noisy_probe_random_, gamma_.Value())) return;
     const auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.noisy_probe.probe.batch_size);
     auto input = NormalizeSampleObservations(samples).obs;
@@ -3072,8 +3078,8 @@ void Learner::CaptureNoisyDiagnostics()
         const anet::nn::NetworkForwardCallInfo info({.clock = ++noisy_.forward_clock});
         return noisy_.sample_forward->Forward(input, info).At("q");
     });
-    for (size_t metric = 8; metric < kNoisyMetricKeys.size(); ++metric) {
-        if (request[metric]) noisy_.values[metric] = metrics[metric - 8];
+    for (size_t metric = NoisyMetric::QAbsDiff; metric < kNoisyMetricKeys.size(); ++metric) {
+        if (request[metric]) noisy_.values[metric] = metrics[metric - NoisyMetric::QAbsDiff];
     }
 
 }
@@ -3086,10 +3092,9 @@ torch::Tensor Learner::CaptureAttentionEntropy()
     ANET_PROFILE_FUNC();
 
     // 専用の非復元抽選と既存の正規化適用だけを使い、学習側の状態へ触れない。
-    if (!attention_.random) ANET_SYSTEM_ERROR("Attention entropy probe requires a dedicated RNG.");
     torch::NoGradGuard no_grad;
     ExperienceSamples cpu_samples;
-    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.attention_entropy.probe.batch_size, *attention_.random, gamma_.Value())) return {};
+    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.attention_entropy.probe.batch_size, attention_entropy_probe_random_, gamma_.Value())) return {};
     const auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.attention_entropy.probe.batch_size);
     const auto normalized = NormalizeSampleObservations(samples);
@@ -3124,12 +3129,9 @@ void Learner::CapturePlasticityProbe()
 {
     ANET_PROFILE_SCOPE(plasticity_probe);
 
-    if (plasticity_probe_random_ == nullptr) {
-        ANET_SYSTEM_ERROR("Plasticity probe RNG is unavailable for a subscribed probe metric.");
-    }
     ExperienceSamples cpu_samples;
     if (!replay_buffer_->SampleUniqueUniform(
-        cpu_samples, config_.plasticity.probe.batch_size, *plasticity_probe_random_, gamma_.Value())) return;
+        cpu_samples, config_.plasticity.probe.batch_size, plasticity_probe_random_, gamma_.Value())) return;
     auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.plasticity.probe.batch_size);
     const auto norm_samples = NormalizeSampleObservations(samples);
@@ -3152,25 +3154,18 @@ void Learner::PreparePolicyChurnRequest()
     policy_churn_.fixed_taus = torch::Tensor();
     policy_churn_.online_before = torch::Tensor();
     policy_churn_.online_after = torch::Tensor();
-    for (auto& entry : policy_churn_.demand) {
-        if (entry.gate.ShouldFire(vars_.learn_step)) {
-            policy_churn_.request[entry.metric_index] = true;
-        }
-    }
+    policy_churn_.request = policy_churn_.demand.MakeRequest(vars_.learn_step);
 }
 
 void Learner::CapturePolicyChurnProbe()
 {
     if (!policy_churn_.AnyQRequest()) return;
     ANET_PROFILE_SCOPE_FULL(sample, "Learner::PolicyChurn.sample");
-    if (policy_churn_probe_random_ == nullptr) {
-        ANET_SYSTEM_ERROR("Policy churn probe RNG is unavailable for a subscribed metric.");
-    }
 
     // 完全な一様非復元 batch を取得できる場合だけ、同一 update の比較入力を確定する。
     ExperienceSamples cpu_samples;
     if (!replay_buffer_->SampleUniqueUniform(
-        cpu_samples, config_.policy_churn.probe.batch_size, *policy_churn_probe_random_, gamma_.Value())) return;
+        cpu_samples, config_.policy_churn.probe.batch_size, policy_churn_probe_random_, gamma_.Value())) return;
     auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.policy_churn.probe.batch_size);
     policy_churn_.probe_obs = NormalizeSampleObservations(samples).obs;
@@ -3235,25 +3230,25 @@ void Learner::FinalizePolicyChurn(BatchUpdateResult& result)
     // online update 差分は before/after の両方が成立した場合だけ集計する。
     if (policy_churn_.online_before.defined() && policy_churn_.online_after.defined()) {
         const auto delta = policy_churn_.online_after - policy_churn_.online_before;
-        set_value(0, policy_churn_.online_before.argmax(1).ne(
+        set_value(PolicyChurnMetric::ActionRatio, policy_churn_.online_before.argmax(1).ne(
             policy_churn_.online_after.argmax(1)).to(torch::kFloat32).mean());
-        set_value(1, delta.abs().mean());
+        set_value(PolicyChurnMetric::QDeltaAbsMean, delta.abs().mean());
         const auto action_mean = delta.mean(0);
-        set_value(2, action_mean.max());
-        set_value(3, action_mean.min());
+        set_value(PolicyChurnMetric::QDeltaSignedMax, action_mean.max());
+        set_value(PolicyChurnMetric::QDeltaSignedMin, action_mean.min());
     }
 
     // target 指標は通常 target update 後の online/target を同一 probe 上で比較する。
     if (policy_churn_.NeedsTargetAfter() && policy_churn_.online_after.defined()) {
         ANET_PROFILE_SCOPE_FULL(target_after_profile, "Learner::PolicyChurn.target_after");
         const auto target_after = ForwardPolicyChurnExpectedQ(true);
-        set_value(4, policy_churn_.online_after.argmax(1).ne(
+        set_value(PolicyChurnMetric::TargetPolicyDisagreement, policy_churn_.online_after.argmax(1).ne(
             target_after.argmax(1)).to(torch::kFloat32).mean());
-        set_value(5, (policy_churn_.online_after - target_after).abs().mean());
+        set_value(PolicyChurnMetric::TargetQDeltaAbsMean, (policy_churn_.online_after - target_after).abs().mean());
     }
 
-    if (policy_churn_.request[6] && model_.GetHardUpdateInterval() > 0) {
-        values[6] = static_cast<float>(vars_.learn_step % model_.GetHardUpdateInterval());
+    if (policy_churn_.request[PolicyChurnMetric::TargetSyncAge] && model_.GetHardUpdateInterval() > 0) {
+        values[PolicyChurnMetric::TargetSyncAge] = static_cast<float>(vars_.learn_step % model_.GetHardUpdateInterval());
     }
     result.policy_churn_metrics = std::move(values);
 }
@@ -3448,10 +3443,15 @@ std::optional<GradientNoiseMetrics> Learner::CaptureGradientNoise(const torch::T
     const auto scale = [](const anet::GradientNoiseEstimate& estimate) {
         return estimate.signal > 0 ? estimate.variance / estimate.signal : std::numeric_limits<double>::quiet_NaN();
     };
-    const std::array<double, 15> values{ scale(adam_ema[0]), scale(adam_ema[1]), scale(adam_ema[2]),
+    const auto values = MakeDiagnosticValues<GradientNoiseMetric::Count,
+        GradientNoiseMetric::ScaleAdam, GradientNoiseMetric::ScaleAdamFeature, GradientNoiseMetric::ScaleAdamReadout,
+        GradientNoiseMetric::RatioAdam, GradientNoiseMetric::Scale, GradientNoiseMetric::SignalAdam,
+        GradientNoiseMetric::VarianceAdam, GradientNoiseMetric::SignalAdamRaw, GradientNoiseMetric::VarianceAdamRaw,
+        GradientNoiseMetric::SignalRaw, GradientNoiseMetric::VarianceRaw, GradientNoiseMetric::SignalAdamFeatureRaw,
+        GradientNoiseMetric::VarianceAdamFeatureRaw, GradientNoiseMetric::SignalAdamReadoutRaw, GradientNoiseMetric::VarianceAdamReadoutRaw>(scale(adam_ema[0]), scale(adam_ema[1]), scale(adam_ema[2]),
         scale(adam_ema[0]) / weighted_element_loss.size(0), scale(raw_ema), adam_ema[0].signal, adam_ema[0].variance,
         measurement.adam[0].signal, measurement.adam[0].variance, measurement.raw.signal, measurement.raw.variance,
-        measurement.adam[1].signal, measurement.adam[1].variance, measurement.adam[2].signal, measurement.adam[2].variance };
+        measurement.adam[1].signal, measurement.adam[1].variance, measurement.adam[2].signal, measurement.adam[2].variance);
     GradientNoiseMetrics result;
     result.fill(std::numeric_limits<float>::quiet_NaN());
     // EMA更新と公開を分離し、当該key自身が発火した値だけを確定する。
@@ -3756,8 +3756,9 @@ PerPriorityUpdatePending Learner::PreparePerPriorityUpdate(
     }
     if (munchausen_diagnostics.defined()) {
         // PERなしでも診断だけを既存の単一readbackへ載せる。
-        if (munchausen_diagnostics.dim() != 1 || munchausen_diagnostics.numel() != 5) {
-            ANET_SYSTEM_ERROR("Invalid Munchausen diagnostics shape=" << munchausen_diagnostics.sizes() << "; expected [5].");
+        if (munchausen_diagnostics.dim() != 1 || munchausen_diagnostics.numel() != MunchausenMetric::Count) {
+            ANET_SYSTEM_ERROR("Invalid Munchausen diagnostics shape=" << munchausen_diagnostics.sizes()
+                << "; expected [" << MunchausenMetric::Count << "].");
         }
         readback_parts.push_back(munchausen_diagnostics.detach().to(
             torch::TensorOptions().dtype(torch::kFloat32).device(td_error.device())).contiguous());
@@ -3896,8 +3897,11 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
             : torch::full({}, std::numeric_limits<float>::quiet_NaN(), skip.loss.options());
         const auto skip_primary_clip = opt_result.skip_primary_grad_norm.defined()
             ? skip_primary_norm.gt(opt_result.grad_clip_tau).to(torch::kFloat32) : skip_primary_norm;
-        result->skip_metrics = torch::stack({skip.loss.detach(), skip.td.detach().abs().mean(),
-            skip.k_mean, skip.kmax_mean, opt_result.skip_grad_norm, skip_primary_norm, skip_primary_clip}).detach();
+        result->skip_metrics = StackDiagnosticValues<SkipUpdateMetric::Count,
+        SkipUpdateMetric::Loss, SkipUpdateMetric::TdAbsMean, SkipUpdateMetric::SampleKMean,
+        SkipUpdateMetric::KmaxMean, SkipUpdateMetric::GradNorm, SkipUpdateMetric::PrimaryGradNorm,
+        SkipUpdateMetric::PrimaryClipRatio>(skip.loss.detach(), skip.td.detach().abs().mean(),
+            skip.k_mean, skip.kmax_mean, opt_result.skip_grad_norm, skip_primary_norm, skip_primary_clip).detach();
     }
     result->grad_noise = opt_result.grad_noise;
     result->loss = loss.detach();
@@ -4087,10 +4091,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
         // 現在の learn_step に対応する actual/probe 測定要求を準備
         if (!grad_noise_.demand.empty()) {
-            grad_noise_.request.fill(false);
-            for (auto& entry : grad_noise_.demand) {
-                if (entry.gate.ShouldFire(vars_.learn_step)) grad_noise_.request[entry.metric] = true;
-            }
+            grad_noise_.request = grad_noise_.demand.MakeRequest(vars_.learn_step);
         }
         PreparePolicyChurnRequest();
         CapturePolicyChurnProbe();
@@ -4116,7 +4117,10 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
             const auto norms = model_.GetOnlineNetwork()->ComputeParameterNormSplit(
                 config_.final_feature_branch_key);
             const auto target_invalid = model_.GetTargetNetwork()->ComputeSpectralNormValidity();
-            plasticity_.weight_norms = torch::stack({
+            plasticity_.weight_norms = StackDiagnosticValues<PlasticityWeightNormMetric::PackCount,
+        PlasticityWeightNormMetric::Feature, PlasticityWeightNormMetric::Readout, PlasticityWeightNormMetric::FeatureEffective,
+        PlasticityWeightNormMetric::ReadoutEffective, PlasticityWeightNormMetric::SpectralSigmaFeature, PlasticityWeightNormMetric::SpectralSigmaReadout,
+        PlasticityWeightNormMetric::OnlineInvalidCount, PlasticityWeightNormMetric::TargetInvalidCount>(
                 norms.feature,
                 norms.readout,
                 norms.feature_effective,
@@ -4124,8 +4128,8 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
                 norms.sigma_feature_max,
                 norms.sigma_readout_max,
                 norms.invalid_count,
-                target_invalid,
-            });
+                target_invalid
+            );
         }
 
         // 固有処理呼び出し
@@ -4413,12 +4417,12 @@ MunchausenForwardResult Learner::ForwardMunchausenValues(
 
 
 QuantileLearnerBase::QuantileLearnerBase(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
+    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
-    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
-    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
-        std::move(target_policy), forward_resources, stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
+    std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
+    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+        std::move(target_policy), forward_resources, stucker_config, target_seed, std::move(noisy_probe_config))
 {
 }
 
@@ -4650,12 +4654,12 @@ IqnLossResult QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
 
 
 TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
+    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
-    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
-    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, device, replay_seed,
-        std::move(target_policy), forward_resources, stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
+    std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
+    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, device, replay_seed, agent_seed,
+        std::move(target_policy), forward_resources, stucker_config, target_seed, std::move(noisy_probe_config))
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -5013,12 +5017,12 @@ torch::Tensor Learner::MakeUpdateDiagnostics(const ExperienceSamples&,
 // ======================================================
 
 QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
+    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
-    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
-    : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
-        std::move(target_policy), forward_resources, stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
+    std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
+    : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+        std::move(target_policy), forward_resources, stucker_config, target_seed, std::move(noisy_probe_config))
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -5044,12 +5048,12 @@ ElementError QRLearner::ComputeElementError(const torch::Tensor& current,
 // ======================================================
 
 IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
-    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed,
+    const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
-    anet::RandomGenerator* plasticity_probe_random, anet::RandomGenerator* policy_churn_probe_random)
-    : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed,
-        std::move(target_policy), forward_resources, stucker_config, target_seed, plasticity_probe_random, policy_churn_probe_random)
+    std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
+    : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+        std::move(target_policy), forward_resources, stucker_config, target_seed, std::move(noisy_probe_config))
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -5114,15 +5118,18 @@ torch::Tensor IQNLearner::MakeUpdateDiagnostics(const ExperienceSamples& samples
     };
 
     // 全batch診断と初回行診断を、既存priority readbackへ同梱する固定長packにまとめる。
-    return torch::stack({
+    return StackDiagnosticValues<IqnMetric::Count,
+        IqnMetric::CurrentMcScale, IqnMetric::TargetMcScale, IqnMetric::PriorityMcRatio,
+        IqnMetric::FirstPriorityMcRatio, IqnMetric::FirstPairAbsTd, IqnMetric::FirstCancellationRatio,
+        IqnMetric::FirstQuantileLossNorm>(
         current_scale.mean(),
         target_scale.mean(),
         priority_ratio.mean(),
         masked_mean(priority_ratio),
         masked_mean(error.pair_abs_td),
         masked_mean(error.cancellation_ratio),
-        masked_mean(error.loss.detach().to(torch::kFloat32) / static_cast<float>(N)),
-    }).detach();
+        masked_mean(error.loss.detach().to(torch::kFloat32) / static_cast<float>(N))
+    ).detach();
 }
 
 std::optional<int64_t> anet::rl::dqn::ParseAttentionEntropyMetric(std::string_view key)
@@ -5155,12 +5162,18 @@ std::optional<float> BatchUpdateResult::GetScalar(const std::string& key, int64_
     if (const auto value = GetPolicyChurnScalar(key)) return value;
     if (const auto value = GetPlasticityScalar(key)) return value;
 
+    if (const auto value = ReadDiagnosticScalar(ParseDiagnosticMetric(key, kIqnMetricKeys),
+        [&](size_t metric) -> std::optional<float> {
+            return iqn_diagnostics.defined()
+                ? std::optional<float>(iqn_diagnostics[static_cast<int64_t>(metric)].item<float>()) : std::nullopt;
+        })) return value;
+
     // 固定名は1つの表に並べ、値の計算と遅延転送は当たった行だけで行う。
     struct ScalarReaderEntry {
         std::string_view key;
         std::optional<float> (*read)(const BatchUpdateResult&);
     };
-    static constexpr std::array<ScalarReaderEntry, 43> kDirectScalarReaders{{
+    static constexpr std::array<ScalarReaderEntry, 36> kDirectScalarReaders{{
         { .key = "loss", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
             if (!result.loss.defined()) return std::numeric_limits<float>::quiet_NaN();
             return result.loss.item<float>();
@@ -5233,27 +5246,6 @@ std::optional<float> BatchUpdateResult::GetScalar(const std::string& key, int64_
         { .key = "q_gap_rel", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
             if (result.q_gap_rel.defined()) return anet::ToFloat(result.q_gap_rel);
             return std::numeric_limits<float>::quiet_NaN();
-        } },
-        { .key = "iqn_current_mc_scale", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
-            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[0].item<float>() : std::numeric_limits<float>::quiet_NaN();
-        } },
-        { .key = "iqn_target_mc_scale", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
-            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[1].item<float>() : std::numeric_limits<float>::quiet_NaN();
-        } },
-        { .key = "iqn_priority_mc_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
-            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[2].item<float>() : std::numeric_limits<float>::quiet_NaN();
-        } },
-        { .key = "iqn_first_priority_mc_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
-            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[3].item<float>() : std::numeric_limits<float>::quiet_NaN();
-        } },
-        { .key = "iqn_first_pair_abs_td", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
-            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[4].item<float>() : std::numeric_limits<float>::quiet_NaN();
-        } },
-        { .key = "iqn_first_cancellation_ratio", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
-            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[5].item<float>() : std::numeric_limits<float>::quiet_NaN();
-        } },
-        { .key = "iqn_first_quantile_loss_norm", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
-            return result.iqn_diagnostics.defined() ? result.iqn_diagnostics[6].item<float>() : std::numeric_limits<float>::quiet_NaN();
         } },
         { .key = "upper_tail_priority_spearman", .read = [](const BatchUpdateResult& result) -> std::optional<float> {
             return result.upper_tail_priority_spearman;
@@ -5382,120 +5374,82 @@ std::optional<float> BatchUpdateResult::GetScalar(const std::string& key, int64_
 
 std::optional<float> BatchUpdateResult::GetAttentionEntropyScalar(const std::string& key) const
 {
-    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
-    if (const auto layer = ParseAttentionEntropyMetric(key)) {
-        if (!attention_entropy.defined() || *layer >= attention_entropy.numel()) {
-            return std::numeric_limits<float>::quiet_NaN();
-        }
-        return attention_entropy.data_ptr<float>()[*layer];
-    }
-    return std::nullopt;
+    return ReadDiagnosticScalar(ParseAttentionEntropyMetric(key), [&](int64_t layer) -> std::optional<float> {
+        if (!attention_entropy.defined() || layer >= attention_entropy.numel()) return std::nullopt;
+        return attention_entropy.data_ptr<float>()[layer];
+    });
 }
 
 std::optional<float> BatchUpdateResult::GetSkipScalar(const std::string& key) const
 {
-    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
-    for (size_t i = 0; i < kSkipUpdateMetricKeys.size(); ++i) {
-        if (key != kSkipUpdateMetricKeys[i]) continue;
-        if (!skip_metrics.defined()) return std::numeric_limits<float>::quiet_NaN();
+    return ReadDiagnosticScalar(ParseDiagnosticMetric(key, kSkipUpdateMetricKeys), [&](size_t metric) -> std::optional<float> {
+        if (!skip_metrics.defined()) return std::nullopt;
         if (!skip_metrics_cpu.defined()) skip_metrics_cpu = skip_metrics.cpu();
-        return skip_metrics_cpu[static_cast<int64_t>(i)].item<float>();
-    }
-    return std::nullopt;
+        return skip_metrics_cpu[static_cast<int64_t>(metric)].item<float>();
+    });
 }
 
 std::optional<float> BatchUpdateResult::GetGradientNoiseScalar(const std::string& key) const
 {
-    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
-    if (const auto metric = ParseGradientNoiseMetric(key)) {
-        return grad_noise ? (*grad_noise)[*metric] : std::numeric_limits<float>::quiet_NaN();
-    }
-    return std::nullopt;
+    return ReadDiagnosticScalar(ParseGradientNoiseMetric(key), [&](size_t metric) -> std::optional<float> {
+        return grad_noise ? std::optional<float>((*grad_noise)[metric]) : std::nullopt;
+    });
 }
 
 std::optional<float> BatchUpdateResult::GetNoisyScalar(const std::string& key) const
 {
-    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
-    if (const auto metric = ParseNoisyMetric(key)) {
-        return noisy_metrics ? (*noisy_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
-    }
-    return std::nullopt;
+    return ReadDiagnosticScalar(ParseNoisyMetric(key), [&](size_t metric) -> std::optional<float> {
+        return noisy_metrics ? std::optional<float>((*noisy_metrics)[metric]) : std::nullopt;
+    });
 }
 
 std::optional<float> BatchUpdateResult::GetReplayFitScalar(const std::string& key) const
 {
-    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
-    if (const auto metric = ParseReplayFitMetric(key)) {
-        return replay_fit_metrics ? (*replay_fit_metrics)[*metric] : std::numeric_limits<float>::quiet_NaN();
-    }
-    return std::nullopt;
+    return ReadDiagnosticScalar(ParseReplayFitMetric(key), [&](size_t metric) -> std::optional<float> {
+        return replay_fit_metrics ? std::optional<float>((*replay_fit_metrics)[metric]) : std::nullopt;
+    });
 }
 
 std::optional<float> BatchUpdateResult::GetMunchausenScalar(const std::string& key) const
 {
-    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
-    for (size_t i = 0; i < kMunchausenMetricKeys.size(); ++i) {
-        if (key != kMunchausenMetricKeys[i]) continue;
-        if (!munchausen_diagnostics.defined()) return std::numeric_limits<float>::quiet_NaN();
-        if (munchausen_diagnostics.dim() != 1 || munchausen_diagnostics.numel() != 5) {
-            ANET_SYSTEM_ERROR("Invalid Munchausen diagnostics shape=" << munchausen_diagnostics.sizes() << "; expected [5].");
+    return ReadDiagnosticScalar(ParseDiagnosticMetric(key, kMunchausenMetricKeys), [&](size_t metric) -> std::optional<float> {
+        if (!munchausen_diagnostics.defined()) return std::nullopt;
+        if (munchausen_diagnostics.dim() != 1 || munchausen_diagnostics.numel() != MunchausenMetric::Count) {
+            ANET_SYSTEM_ERROR("Invalid Munchausen diagnostics shape=" << munchausen_diagnostics.sizes()
+                << "; expected [" << MunchausenMetric::Count << "].");
         }
-        return munchausen_diagnostics[static_cast<int64_t>(i)].item<float>();
-    }
-    return std::nullopt;
+        return munchausen_diagnostics[static_cast<int64_t>(metric)].item<float>();
+    });
 }
 
 std::optional<float> BatchUpdateResult::GetPolicyChurnScalar(const std::string& key) const
 {
-    // 自分の群だけを受け、認識しないキーは次の群へ渡す。
-    if (const auto metric = ParsePolicyChurnMetric(key)) {
-        if (!policy_churn_metrics.defined()) {
-            return std::numeric_limits<float>::quiet_NaN();
-        }
+    return ReadDiagnosticScalar(ParsePolicyChurnMetric(key), [&](size_t metric) -> std::optional<float> {
+        if (!policy_churn_metrics.defined()) return std::nullopt;
         if (policy_churn_metrics.numel() != static_cast<int64_t>(kPolicyChurnMetricKeys.size())) {
             ANET_SYSTEM_ERROR("DQN policy churn scalar pack has invalid size="
                 << policy_churn_metrics.numel() << " expected=" << kPolicyChurnMetricKeys.size() << ".");
         }
-        return policy_churn_metrics[static_cast<int64_t>(*metric)].item<float>();
-    }
-    return std::nullopt;
+        return policy_churn_metrics[static_cast<int64_t>(metric)].item<float>();
+    });
 }
 
 std::optional<float> BatchUpdateResult::GetPlasticityScalar(const std::string& key) const
 {
-    constexpr std::string_view kPlasticityWeightNormFeature = "plasticity_weight_norm_feature";
-    constexpr std::string_view kPlasticityWeightNormReadout = "plasticity_weight_norm_readout";
-    constexpr std::string_view kPlasticityWeightNormFeatureEffective = "plasticity_weight_norm_feature_effective";
-    constexpr std::string_view kPlasticityWeightNormReadoutEffective = "plasticity_weight_norm_readout_effective";
-    constexpr std::string_view kPlasticitySpectralSigmaFeature = "plasticity_spectral_sigma_feature";
-    constexpr std::string_view kPlasticitySpectralSigmaReadout = "plasticity_spectral_sigma_readout";
-    constexpr std::string_view kPlasticityTargetPrefix = "plasticity_target_";
-    constexpr std::string_view kPlasticityPrefix = "plasticity_";
-
-    int64_t weight_norm_index = -1;
-    if (key == kPlasticityWeightNormFeature) weight_norm_index = 0;
-    else if (key == kPlasticityWeightNormReadout) weight_norm_index = 1;
-    else if (key == kPlasticityWeightNormFeatureEffective) weight_norm_index = 2;
-    else if (key == kPlasticityWeightNormReadoutEffective) weight_norm_index = 3;
-    else if (key == kPlasticitySpectralSigmaFeature) weight_norm_index = 4;
-    else if (key == kPlasticitySpectralSigmaReadout) weight_norm_index = 5;
-    if (weight_norm_index >= 0) {
-        if (!plasticity_weight_norms.defined()) {
-            return std::numeric_limits<float>::quiet_NaN();
-        }
-        if (!plasticity_weight_norms_cpu.defined()) {
-            plasticity_weight_norms_cpu = plasticity_weight_norms.cpu();
-        }
-        if (plasticity_weight_norms_cpu.numel() != 8) {
-            ANET_SYSTEM_ERROR("DQN plasticity weight norm pack has invalid size="
-                << plasticity_weight_norms_cpu.numel() << " expected=8.");
-        }
-        ValidateSpectralNormSentinel(
-            plasticity_weight_norms_cpu[6].item<float>(), "online", plasticity_online_network);
-        ValidateSpectralNormSentinel(
-            plasticity_weight_norms_cpu[7].item<float>(), "target", plasticity_target_network);
-        return plasticity_weight_norms_cpu[weight_norm_index].item<float>();
-    }
+    if (const auto value = ReadDiagnosticScalar(ParseDiagnosticMetric(key, kPlasticityWeightNormMetricKeys),
+        [&](size_t metric) -> std::optional<float> {
+            if (!plasticity_weight_norms.defined()) return std::nullopt;
+            if (!plasticity_weight_norms_cpu.defined()) plasticity_weight_norms_cpu = plasticity_weight_norms.cpu();
+            if (plasticity_weight_norms_cpu.numel() != PlasticityWeightNormMetric::PackCount) {
+                ANET_SYSTEM_ERROR("DQN plasticity weight norm pack has invalid size="
+                    << plasticity_weight_norms_cpu.numel() << " expected=" << PlasticityWeightNormMetric::PackCount << ".");
+            }
+            ValidateSpectralNormSentinel(
+                plasticity_weight_norms_cpu[PlasticityWeightNormMetric::OnlineInvalidCount].item<float>(), "online", plasticity_online_network);
+            ValidateSpectralNormSentinel(
+                plasticity_weight_norms_cpu[PlasticityWeightNormMetric::TargetInvalidCount].item<float>(), "target", plasticity_target_network);
+            return plasticity_weight_norms_cpu[static_cast<int64_t>(metric)].item<float>();
+        })) return value;
 
     const torch::Tensor* features = nullptr;
     const anet::nn::PlasticityMetricRequest* request = nullptr;
@@ -5515,18 +5469,18 @@ std::optional<float> BatchUpdateResult::GetPlasticityScalar(const std::string& k
         return std::nullopt;
     }
 
-    const auto metric = anet::nn::ParsePlasticityMetricSuffix(suffix);
-    if (!metric.has_value()) return std::nullopt;
-    if (!request->Contains(*metric)) return std::numeric_limits<float>::quiet_NaN();
-    if (!features->defined()) return std::numeric_limits<float>::quiet_NaN();
+    return ReadDiagnosticScalar(anet::nn::ParsePlasticityMetricSuffix(suffix), [&](auto metric) -> std::optional<float> {
+    if (!request->Contains(metric)) return std::nullopt;
+    if (!features->defined()) return std::nullopt;
     if (!cache->has_value()) {
         *cache = anet::nn::ComputePlasticityMetrics(*features, *request);
     }
-    const auto value = cache->value().Get(*metric);
+    const auto value = cache->value().Get(metric);
     if (!value.has_value()) {
         ANET_SYSTEM_ERROR("BatchUpdateResult plasticity cache is missing a requested metric.");
     }
     return value;
+    });
 }
 
 void BatchUpdateResult::ValidateSpectralNormSentinel(
@@ -5564,4 +5518,179 @@ void BatchUpdateResult::TransRealQToCpu() const
 {
     if (max_q_real_cpu.defined()) return;
     if (max_q_real.defined()) max_q_real_cpu = max_q_real.cpu();
+}
+
+std::shared_ptr<anet::nn::NetworkHeadFactory> DqnComponentAssembler::CreateHeadFactory(
+    const std::string& quantile_mode, bool dueling, int64_t num_actions, int num_quantiles,
+    const anet::nn::WeightInitConfig& init, const anet::ConfigData& projection)
+{
+    std::shared_ptr<anet::nn::NetworkHeadFactory> head_factory;
+    // 分布表現とDuelingの直積でHeadを選択する。
+    if (quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
+        if (dueling) {
+            head_factory = std::make_shared<IQNDuelingHeadFactory>(num_actions, init, projection);
+            LOG::info() << "Network Head: IQN Dueling";
+        } else {
+            head_factory = std::make_shared<IQNHeadFactory>(num_actions, init, projection);
+            LOG::info() << "Network Head: IQN Plain";
+        }
+    } else if (quantile_mode == ActionPolicyConfig::kQuantileModeQr) {
+        if (dueling) {
+            head_factory = std::make_shared<QuantileDuelingHeadFactory>(
+                num_actions, num_quantiles, init, projection);
+            LOG::info() << "Network Head: Quantile Dueling (N=" << num_quantiles << ")";
+        } else {
+            head_factory = std::make_shared<QuantileHeadFactory>(
+                num_actions, num_quantiles, init, projection);
+            LOG::info() << "Network Head: Quantile Plain (N=" << num_quantiles << ")";
+        }
+    } else {
+        if (dueling) {
+            head_factory = std::make_shared<DuelingHeadFactory>(
+                num_actions, init, projection);
+            LOG::info() << "Network Head: Dueling";
+        } else {
+            head_factory = std::make_shared<LinearHeadFactory>(
+                num_actions, init, projection);
+            LOG::info() << "Network Head: Plain Linear";
+        }
+    }
+
+    return head_factory;
+}
+
+std::shared_ptr<ActionPolicy> DqnComponentAssembler::CreateActionPolicy(
+    const ActionPolicyConfig& policy_config, const std::string& quantile_mode,
+    bool enable_spatial_exploration, int64_t num_envs, const torch::Device& device)
+{
+    if (policy_config.policy_type == "EpsilonGreedy" || policy_config.policy_type == "0") {
+        // ε-Greedy
+        return std::make_shared<EpsilonGreedyActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
+    } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
+        // UQE
+        if (quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
+            ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
+                << "' requires quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
+                << " or " << ActionPolicyConfig::kQuantileModeIqn << ", actual='" << quantile_mode << "'");
+        }
+        return std::make_shared<UQEActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
+    } else if (policy_config.IsThompsonSampling()) {
+        //ThompsonSampling
+        if (quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
+            ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
+                << "' requires quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
+                << " or " << ActionPolicyConfig::kQuantileModeIqn << ", actual='" << quantile_mode << "'");
+        }
+        return std::make_shared<ThompsonSamplingActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
+    } else if (policy_config.policy_type == kActionPolicyTypeStr_Greedy || policy_config.policy_type == "3") {
+        // Greedyは、EpsilonGreedyのノイズ0としてインスタンス化
+        ActionPolicyConfig greedy_cfg = policy_config;
+        greedy_cfg.epsilon = {.value = 0.0f, .min_value = 0.0f, .max_value = 1.0f};
+        greedy_cfg.spatial.enabled = false;
+        return std::make_shared<EpsilonGreedyActionPolicy>(greedy_cfg, false, num_envs, device);
+    }
+
+    // 不明なtype
+    ANET_SYSTEM_ERROR("Unknown action policy type: " << policy_config.policy_type);
+    return nullptr;
+}
+
+std::shared_ptr<Learner> DqnComponentAssembler::CreateLearner(
+    const std::string& quantile_mode, int num_quantiles, const LearnerConfig& config,
+    NetworkModel& model, RuntimeVars& vars,
+    const BatchEnvSpec& batch, const EnvSpec& env, const torch::Device& device,
+    anet::seed_t replay_seed, anet::seed_t agent_seed, std::shared_ptr<ActionPolicy> target_policy,
+    std::shared_ptr<ObservationNormalizer> normalizer, const LearnerForwardResources& forwards,
+    std::optional<StuckerConfig> stacker, std::optional<anet::seed_t> learner_seed,
+    std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe, const std::string& log_suffix)
+{
+    // 型ごとの分岐からも同じ引数列を通し、構築時の入力を1か所にまとめる。
+    const auto create = [&]<typename ConcreteLearner>() -> std::shared_ptr<Learner> {
+        return std::make_shared<ConcreteLearner>(config, model, vars, normalizer, batch, env, device,
+            replay_seed, agent_seed, target_policy, forwards, stacker, learner_seed, noisy_probe);
+    };
+    std::shared_ptr<Learner> learner;
+    if (quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
+        learner = create.operator()<IQNLearner>();
+        LOG::info() << "Initialized IQNLearner (current_taus=" << config.iqn.current_taus.num_taus
+            << ", target_taus=" << config.iqn.target_taus.num_taus << ")" << log_suffix;
+    } else if (quantile_mode == ActionPolicyConfig::kQuantileModeQr) {
+        learner = create.operator()<QRLearner>();
+        LOG::info() << "Initialized QRLearner (Quantiles=" << num_quantiles << ")" << log_suffix;
+    } else {
+        learner = create.operator()<TDLearner>();
+        LOG::info() << "Initialized TDLearner" << log_suffix;
+    }
+    return learner;
+}
+
+std::shared_ptr<Actor> DqnComponentAssembler::CreateActor(
+    const DQNActorConfig& config, const LearnerConfig& learner_config,
+    const ActorRequest& request, NetworkModel& model,
+    const std::shared_ptr<std::shared_mutex>& mutex, std::shared_ptr<ActionPolicy> policy,
+    const anet::nn::NetworkForwardConfig& forward,
+    std::shared_ptr<ObservationNormalizer> normalizer, std::unique_ptr<FrameStacker> stacker,
+    bool emit_snapshot_metrics, ActorQHintConfig hint,
+    std::optional<anet::ProfiledValueConfig<step_t>> sync_interval,
+    std::optional<SkipActorResources> skip)
+{
+    auto source = config.network == "target" ? model.GetTargetNetwork() : model.GetOnlineNetwork();
+    auto network = source;
+    if (config.clone_model) {
+        // source の parameter と buffer を学習更新から保護して複製する。
+        std::shared_lock lock(*mutex);
+        network = source->Clone(request.device);
+        network->eval();
+        if (skip) {
+            skip->network = skip->source->Clone(request.device);
+            skip->network->eval();
+        }
+    }
+    const bool emit_hint = learner_config.use_per
+        && ParseReplayInitialPriorityMode(learner_config) == ReplayInitialPriorityMode::ACTOR_APPROX;
+    return std::make_shared<Actor>(std::move(policy), std::move(normalizer), std::move(stacker),
+        request.device, request.seed, mutex, network, source, forward, emit_hint,
+        sync_interval, emit_snapshot_metrics, hint, std::move(skip));
+}
+
+std::optional<float> DqnComponentAssembler::GetScalar(
+    const std::string& key, int64_t index, const Learner& learner, const RuntimeVars& vars,
+    const ActionPolicy& target_policy, std::shared_mutex& mutex)
+{
+    constexpr char kTargetPolicyPrefix[] = "target_policy.";
+    constexpr std::string_view kNoisyPrefix = "noisy_";
+    if (key.starts_with(kTargetPolicyPrefix))
+        return target_policy.GetScalar(anet::RemovePrefix(key, kTargetPolicyPrefix), index);
+    for (const auto* schedule_key : kLearnerScheduleMetricKeys) {
+        if (key == schedule_key) {
+            std::shared_lock lock(mutex);
+            return learner.GetScalar(key);
+        }
+    }
+    if (key == "per_beta") {
+        std::shared_lock lock(mutex);
+        return vars.per_beta;
+    }
+    if (key.starts_with(kPlasticityProbePrefix) || key.starts_with(kNoisyPrefix)
+        || key.starts_with(ReplayBuffer::kKeyPrefix)) {
+        std::shared_lock lock(mutex);
+        return learner.GetScalar(key);
+    }
+    return std::nullopt;
+}
+
+std::optional<torch::Tensor> DqnComponentAssembler::GetTensor(
+    const std::string& key, const Learner& learner, std::shared_mutex& mutex)
+{
+    if (!key.starts_with(ReplayBuffer::kKeyPrefix)) return std::nullopt;
+    std::shared_lock lock(mutex);
+    return learner.GetTensor(key);
+}
+
+std::optional<std::vector<torch::Tensor>> DqnComponentAssembler::GetTensorVector(
+    const std::string& key, const Learner& learner, std::shared_mutex& mutex)
+{
+    if (!key.starts_with(ReplayBuffer::kKeyPrefix)) return std::nullopt;
+    std::shared_lock lock(mutex);
+    return learner.GetTensorVector(key);
 }

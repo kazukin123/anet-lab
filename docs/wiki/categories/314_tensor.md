@@ -89,6 +89,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261113-b96b2c](../../management/issues/issue-20261113-b96b2c.md) | 未着手 | 2.3 | [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) | 成果物 | PRD | 324_dqn, 314_tensor | アルゴリズム | 機能改善 | — | 未確認 | 観測の正規化の統計が checkpoint に保存されず、統計を使う構成では checkpoint 引き継ぎのたびに 0 から始まる |
 
 着手できる 5 / 待ち 2 / 保留 0 / 次版 0 / 解決 0
-- 関連する課題: [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) — Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る
 - 関連する課題: [issue-20261110-0de9e7](../../management/issues/issue-20261110-0de9e7.md) — 外的と内的の価値の分解（DQN 系の Q を外的報酬と内的報酬の 2 つの Head で学ぶ）
+- 関連する課題: [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) — Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る
 <!-- issues:end -->

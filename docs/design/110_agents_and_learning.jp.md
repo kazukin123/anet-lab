@@ -45,7 +45,7 @@ ActorはModuleでもあり、`Runner::GetActor()`とmetricsの`$actor`からepsi
 
 Agent系の所有権は次の原則に従う。
 
-- Network、Optimizer、ReplayBuffer、RNG、ConfigなどのResourceは、AgentをRun単位のlifetime ownerとする。probe等の機能専用RNGもAgentがnamed seedから所有し、利用moduleは非所有参照だけを持つ。
+- Network、Optimizer、ReplayBuffer、RNG、ConfigなどのResourceは、AgentをRun単位のlifetime ownerとする。DQN の probe 専用 RNG は、内側の Learner が Agent の基の seed と用途ごとの名前から構築して所有する。購読を設定し直しても作り直さない。
 - 「Agent所有」はAgent classの直接fieldだけを意味しない。Agentが所有するLearnerやActorの配下へ配置しても、Agentのlifetime内に閉じていればよい。
 - epsilon、EMA、warmup counterなどの可変Stateは、それを更新するコンポーネントが所有する。
 - 特定Actorだけが使用するsnapshot NetworkはActor所有のprivate Resource、複数ActorとLearnerが参照するNetworkはAgent所有のshared Resourceとして区別する。
@@ -58,7 +58,7 @@ Agent系の所有権は次の原則に従う。
 | `agent.class_id` | 位置付け | 詳細 |
 |---|---|---|
 | `DefaultDQNAgent` | 設定可能なDQN系Agent | [DQN系Agent](200_dqn_agents.jp.md) |
-| `RainbowAgent` | Rainbow構成を持つDQN系Agent | [DQN系Agent](200_dqn_agents.jp.md) |
+| `RainbowAgent` | DQN 系の共通部品の責務分担を確かめる2つ目の Agent。Run では使わない | [DQN系Agent](200_dqn_agents.jp.md) |
 | `MuZeroAgent` | MuZeroの試作実装 | 現行コードを参照 |
 | `ImageClsAgent` | 共通Run/Agent contract上で画像分類を学習する実装 | 現行コードを参照 |
 
@@ -213,7 +213,7 @@ checkpoint対応を追加・変更するときは、保存しないStateを明�
 
 ### 7.5 scalar metric購読
 
-`RunManager`は実際にattachしたscalar metrics定義を`ScalarMetricSubscription`へ変換し、学習開始前に`Agent::ConfigureScalarMetricSubscriptions()`へ1回渡す。購読はsource key、event、optional target、interval、runner scope、eval名を保持する。基底Agentはno-opであり、具象Agentは自身が所有するtrain-scope `LEARN` keyだけをfilterして、重いcaptureやprobeのON/OFFとcadenceを決める。購読が無いmetric処理は完全に不活性でなければならない。
+`RunManager`は実際にattachしたscalar metrics定義を`ScalarMetricSubscription`へ変換し、学習開始前に`Agent::ConfigureScalarMetricSubscriptions()`へ1回渡す。購読はsource key、event、optional target、interval、runner scope、eval名を保持する。基底Agentはno-opであり、具象Agentは自身が所有するtrain-scope `LEARN` keyだけをfilterして、重いcaptureやprobeのON/OFFとcadenceを決める。購読が無いmetric処理は完全に不活性でなければならない。 DQN の内側 Learner は、購読の振り分け、検証、Resource の準備を分ける。固定指標の4群は `DiagnosticDemandTable` で gate と要求を共有し、plasticity のチャネルと attention の層別要求は固有構造を保つ。
 
 ## 8. テストと拡張時の確認事項
 

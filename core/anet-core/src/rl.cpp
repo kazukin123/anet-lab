@@ -773,70 +773,16 @@ void ExperienceSamples::FinalizeReturns(float gamma)
 ExperienceSamples ExperienceSamples::To(torch::Device device, bool non_blocking) const
 {
     ANET_PROFILE_FUNC();
-
-    // GPUデバイスへの転送時のみストリームガードを有効にする
-    if (device.is_cuda()) {
-        auto stream = at::cuda::getCurrentCUDAStream();
-        at::cuda::CUDAStreamGuard guard(stream);
-
-        return {
-            .obs = obs.To(device, non_blocking),
-            .actions = anet::To(actions, device, non_blocking),
-            .target_returns = anet::To(target_returns, device, non_blocking),
-            .next_state = {
-                .next_obs = next_state.next_obs.To(device, non_blocking),
-                .terminals = anet::To(next_state.terminals, device, non_blocking),
-            },
-            .n_steps = anet::To(n_steps, device, non_blocking),
-            .window = {
-                .lengths = anet::To(window.lengths, device, non_blocking),
-                .max_lengths = anet::To(window.max_lengths, device, non_blocking),
-                .returns = anet::To(window.returns, device, non_blocking),
-                .terminals = anet::To(window.terminals, device, non_blocking),
-                .truncated = anet::To(window.truncated, device, non_blocking),
-                .next_obs = window.next_obs.To(device, non_blocking),
-            },
-            // replay item key/source は ReplayBuffer の CPU metadata なので learner device へは送らない。
-            .replay_item_keys = replay_item_keys.defined()
-                ? (replay_item_keys.device().is_cpu() ? replay_item_keys : replay_item_keys.to(torch::kCPU))
-                : replay_item_keys,
-            .is_weights = anet::To(is_weights, device, non_blocking),
-            .per_priority_sources = per_priority_sources.defined()
-                ? (per_priority_sources.device().is_cpu() ? per_priority_sources : per_priority_sources.to(torch::kCPU))
-                : per_priority_sources,
-			.info = info.To(device, non_blocking),
-            .sampled_rewards = anet::To(sampled_rewards, device, non_blocking),
-            .sampled_window_rewards = anet::To(sampled_window_rewards, device, non_blocking)
-        };
-    }
-
-    // CPUの場合はそのまま転送
-    return {
-        .obs = obs.To(device, non_blocking),
-        .actions = actions.to(device, non_blocking),
-        .target_returns = target_returns.to(device, non_blocking),
-        .next_state = {
-            .next_obs = next_state.next_obs.To(device, non_blocking),
-            .terminals = next_state.terminals.to(device, non_blocking),
-        },
-        .n_steps = n_steps.defined() ? n_steps.to(device, non_blocking) : n_steps,
-        .window = {
-            .lengths = anet::To(window.lengths, device, non_blocking),
-            .max_lengths = anet::To(window.max_lengths, device, non_blocking),
-            .returns = anet::To(window.returns, device, non_blocking),
-            .terminals = anet::To(window.terminals, device, non_blocking),
-            .truncated = anet::To(window.truncated, device, non_blocking),
-            .next_obs = window.next_obs.To(device, non_blocking),
-        },
-        .replay_item_keys = replay_item_keys.defined() ? replay_item_keys.to(torch::kCPU) : replay_item_keys,
-        .is_weights = is_weights.defined() ? is_weights.to(device, non_blocking) : is_weights,
-        .per_priority_sources = per_priority_sources.defined()
-            ? per_priority_sources.to(torch::kCPU)
-            : per_priority_sources,
-        .info = info.To(device, non_blocking),
-            .sampled_rewards = anet::To(sampled_rewards, device, non_blocking),
-            .sampled_window_rewards = anet::To(sampled_window_rewards, device, non_blocking)
-    };
+    ExperienceSamples result;
+    // device に送る値と CPU metadata の違いだけを扱い、必須性は利用側へ残す。
+    VisitFields(*this, result, [&](const auto& source, auto& destination, const char*, bool cpu_only) {
+        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(source)>, anet::TensorDict>)
+            destination = source.To(device, non_blocking);
+        else
+            destination = anet::To(source, cpu_only ? torch::Device(torch::kCPU) : device,
+                cpu_only ? false : non_blocking);
+    });
+    return result;
 }
 
 
@@ -844,16 +790,14 @@ std::string ExperienceSamples::ToString() const
 {
     std::ostringstream oss;
     oss << "ExperienceSamples{\n";
-    oss << "  obs = " << obs.ToString() << "\n";
-    oss << "  action  = " << anet::ToString(actions) << "\n";
-    oss << "  target_returns  = " << anet::ToString(target_returns) << "\n";
-    oss << "  next_state.next_obs = " << next_state.next_obs.ToString() << "\n";
-    oss << "  next_state.terminals     = " << anet::ToString(next_state.terminals) << "\n";
-    oss << "  n_steps                  = " << anet::ToString(n_steps) << "\n";
-    oss << "  replay_item_keys         = " << anet::ToString(replay_item_keys) << "\n";
-    oss << "  is_weights               = " << anet::ToString(is_weights) << "\n";
-    oss << "  per_priority_sources     = " << anet::ToString(per_priority_sources) << "\n";
-    oss << "  info = " << info.ToString() << "\n";
+    VisitFields(*this, *this, [&](const auto& value, const auto&, const char* name, bool) {
+        oss << "  " << name << " = ";
+        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(value)>, anet::TensorDict>)
+            oss << value.ToString();
+        else
+            oss << anet::ToString(value);
+        oss << "\n";
+    });
     oss << "}";
     return oss.str();
 }

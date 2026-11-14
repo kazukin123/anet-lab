@@ -153,6 +153,48 @@ namespace anet::rl {
             }
         };
 
+        inline void ValidateTauRule(const TauRuleConfig& rule, const std::string& key)
+        {
+            if (rule.num_taus <= 0) {
+                ANET_SYSTEM_ERROR("Invalid " << key << ".num_taus: value=" << rule.num_taus << " expected > 0");
+            }
+            if (rule.sample_mode != "random" && rule.sample_mode != "fixed"
+                && rule.sample_mode != "stratified" && rule.sample_mode != "systematic"
+                && rule.sample_mode != "antithetic") {
+                ANET_SYSTEM_ERROR("Invalid " << key << ".sample_mode: value='" << rule.sample_mode
+                    << "' expected one of: random, fixed, stratified, systematic, antithetic");
+            }
+        }
+
+        inline void ValidateActionPolicy(const ActionPolicyConfig& policy, const std::string& key)
+        {
+            const auto& quantile_mode = policy.quantile_mode;
+            const auto is_uqe = [](const std::string& type) { return type == "UQE" || type == "1"; };
+            const auto& type = policy.policy_type;
+            if (type != kActionPolicyTypeStr_Greedy && type != kActionPolicyTypeStr_EpsilonGreedy && type != "0" && !is_uqe(type) && !policy.IsThompsonSampling()) {
+                ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type='" << type
+                    << "'; expected " << kActionPolicyTypeStr_Greedy << ", " << kActionPolicyTypeStr_EpsilonGreedy
+                    << ", " << kActionPolicyTypeStr_UQE << ", or " << kActionPolicyTypeStr_ThompsonSampling << ".");
+            }
+            ValidateTauRule(policy.tau_rule, key + ".tau_rule");
+            ValidateTauRule(policy.full_distribution_query.tau_rule, key + ".full_distribution_query.tau_rule");
+
+            if ((is_uqe(policy.policy_type) || policy.IsThompsonSampling()) && quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
+                ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type: value='" << policy.policy_type
+                    << "' expected quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
+                    << " or " << ActionPolicyConfig::kQuantileModeIqn);
+            }
+            // full queryはIQN専用の任意機能とし、他のquantile modeでは休眠設定として保持する。
+            if (policy.full_distribution_query.enabled
+                && quantile_mode == ActionPolicyConfig::kQuantileModeIqn && !is_uqe(policy.policy_type)) {
+                ANET_SYSTEM_ERROR("Invalid " << key << ".full_distribution_query.enabled: value=true"
+                    << " expected policy_type=UQE when quantile_mode=" << ActionPolicyConfig::kQuantileModeIqn
+                    << ", actual quantile_mode='"
+                    << quantile_mode << "' policy_type='" << policy.policy_type << "'");
+            }
+
+        }
+
         inline void ValidateSpatialScale(const std::string& scale, const std::string& key)
         {
             if (scale != "log" && scale != "linear")

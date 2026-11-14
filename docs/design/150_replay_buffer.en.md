@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:1b611609300e552f9508d27237deadbeb969082d date:2026-11-11 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:4a0d5ce4f4673ad5fc1049a6a1630269340bb75f date:2026-11-14 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -47,6 +47,8 @@ Runner obtains the state for its next action from the Step result's `continue_st
 ReplayBuffer capacity is specified across all lanes. The current implementation uses `capacity_per_env = capacity / num_envs`, rounding down to `actual_capacity = capacity_per_env * num_envs`, with equal-length ring time series per lane. Generation-key radix and SumTree capacity use this `actual_capacity`.
 
 `ExperienceSamples` contains Observations, Actions, target returns, N-step next states, terminals, N-step lengths, IS weights, and Agent-specific info. Metadata `replay_item_keys` is CPU `int64`; `per_priority_sources` is CPU `int8`. Both remain on CPU after device transfer. Other Tensors are returned on the storage device by `DefaultReplayBuffer`, or the specified target device by `PrefetchingReplayBuffer`.
+
+`To`, `ForEachTensor`, and `ToString` use the same field list. Whether transferring to CPU or CUDA, `To` preserves undefined Tensors and leaves validation of required fields to the caller. `ForEachTensor` visits only defined Tensors. `ToString` also includes every window field and `sampled_rewards` / `sampled_window_rewards`, which are used to recompute returns with γ.
 
 Keys are `generation * actual_capacity + flat_slot_index`, not physical indices, enabling stale updates after ring overwrite to be identified. The caller owns sample Tensor handles and metadata. Asynchronous CUDA transfers internally retain source payloads until ready events complete and apply `record_stream` to consumer streams to prevent premature reuse.
 
@@ -331,7 +333,7 @@ DQN's warmup latch and PER beta are also excluded. Loading therefore restarts wa
 
 `SampleUniqueUniform(out, batch_size, random, gamma)` returns a unique CPU batch sampled uniformly without replacement from sampleable indices, with IS weights set to 1. The caller owns the RNG; ReplayBuffer stores no probe RNG. If insufficient items exist, it returns `false` without changing output or caller RNG. Selecting all indices consumes no RNG, but when a window is configured, selecting each start's length uses the caller RNG. It does not touch the ordinary sampler, priorities, `MarkSampledOnce`, or eviction statistics.
 
-In DefaultDQN, Agent creates independent `RandomGenerator` Resources from named seeds `plasticity_probe` and `policy_churn_probe`; inner Learner passes non-owning references to sample calls. Policy-churn activation or cadence therefore changes neither ordinary Replay sampling nor plasticity-probe random sequences. Each caller's seed owns reproducibility; ReplayBuffer does not implicitly derive probe sequences from its own seed.
+DQN's inner Learner constructs and owns independent `RandomGenerator` Resources from the Agent's base seed and names `plasticity_probe` and `policy_churn_probe`, passing them to each sample call. Their sequences continue across subscription reconfiguration. Policy-churn activation or cadence therefore changes neither ordinary Replay sampling nor plasticity-probe sequences. Each caller's base seed determines reproducibility; ReplayBuffer does not implicitly derive probe sequences from its own seed.
 
 `PrefetchingReplayBuffer` settles accepted Push operations and in-flight prefetch in FIFO order before delegating, without consuming or reordering the ordinary prefetched batch. Probes therefore do not change the ordinary sample sequence.
 
@@ -343,10 +345,11 @@ In DefaultDQN, Agent creates independent `RandomGenerator` Resources from named 
 
 `unsampled_batch_size` and `sampled_batch_size` are independent optional extraction requests. Only requested groups' candidates are retained and sampled uniformly without replacement. Counts must be positive integers, and extraction requires a caller RNG. Insufficient groups return nullopt without invalidating the other group's result. IS weights are 1; the existing extractor reconstructs frame stacks, N-step data, and generation-aware keys. Ordinary sample sequences, sampling history, and PER priorities remain unchanged.
 
-The Prefetching version uses the same FIFO wait as existing probes, settling accepted Push and prefetch operations before delegation while retaining the next ordinary batch. DefaultDQN's group-extraction RNG comes from the outer Agent-owned named seed `replay_fit_probe` and is created only when a group-extraction subscription becomes necessary.
+The Prefetching version uses the same FIFO wait as existing probes, settling accepted Push and prefetch operations before delegation while retaining the next ordinary batch. For DQN group extraction, the inner Learner constructs and owns its RNG at construction from the Agent's base seed and name `replay_fit_probe`, retaining it across subscription reconfiguration.
 
 ## 8. Tests and Extension Checks
 
+- [PRD128 validation](../../core/anet-core/testdata/prd128/README.md): transfer, traversal, and string formatting of every field; preservation of undefined Tensors on CPU/CUDA; comparison with the original executable.
 - [PRD104 validation](../../core/anet-core/testdata/prd104/README.md): action-change and episode-end windows, terminal/dummy boundaries, ring wrap and transfer.
 
 Use [PRD101 validation assets](../../core/anet-core/testdata/prd101/README.md) for staged comparisons, short actual Runs, and comparison of every key across seven Envs.

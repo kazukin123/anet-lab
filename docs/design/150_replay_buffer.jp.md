@@ -47,6 +47,8 @@ ReplayBuffer capacityは全laneの合計として指定する。現行実装は`
 
 `ExperienceSamples`はObservation、Action、target return、N-step次状態、terminal、N-step長、IS weight、Agent固有infoを持つ。`replay_item_keys`はCPU `int64`、`per_priority_sources`はCPU `int8`のmetadataとしてdevice転送後もCPUへ残す。その他のTensorは`DefaultReplayBuffer`ではstorage device、`PrefetchingReplayBuffer`では指定したtarget device上で返る。
 
+`To`、`ForEachTensor`、`ToString`は同じフィールド一覧を使う。`To`はCPU・CUDAのどちらへ送る場合も、未定義のTensorを未定義のまま返し、必須フィールドの検証は利用側へ残す。`ForEachTensor`は定義済みのTensorだけを渡す。`ToString`にはwindowの全フィールドと、γの再計算に使う`sampled_rewards`・`sampled_window_rewards`も含む。
+
 keyは物理indexではなく`generation * actual_capacity + flat_slot_index`であり、ring overwrite後のstale更新を識別する。sample結果のTensor handleとmetadataはcallerが所有する。非同期CUDA転送では転送元payloadをready event完了まで内部で保持し、consumer streamへ`record_stream`して早期再利用を防ぐ。
 
 `ValidIndexManager`はenv laneごとに、未上書きかつN-step/unrollの未来側条件が確定した論理区間をready rangeとして管理する。uniform sampling、PER、`Size()`、可視化accessor、`DumpToLog()`は、ready rangeへring折り返し後のhistory margin（`stack_count - 1`）とwindow指定時の追加未来marginを適用し、dummy slotを除外したsampleable rangeを共有する。wrap前と`stack_count == 1`ではhistory marginは0である。windowの未来側条件は§6.1.1に従う。`InitialPriorityCompleter`とeviction統計は、過去stack履歴やwindowを必要としないためready rangeを使う。
@@ -330,7 +332,7 @@ eviction統計はready rangeを基準にする。追い出されるslotはhistor
 
 `SampleUniqueUniform(out, batch_size, random, gamma)`はsampleable indexから一様・非復元で一意なCPU batchを返し、IS weightを1にする。RNGはcallerが所有し、ReplayBufferはprobe用RNGを保持しない。件数不足時は`false`を返し、出力とcaller RNGを変更しない。全件要求のindex選択はRNGを消費しないが、window指定時は各起点の長さ抽選にcaller RNGを使う。通常sampler、priority、`MarkSampledOnce`、eviction統計へは触れない。
 
-DefaultDQNではAgentがnamed seed `plasticity_probe`と`policy_churn_probe`から独立した`RandomGenerator` Resourceを作り、inner Learnerが非所有参照で各sample呼出しへ渡す。このためpolicy churnのON/OFFやcadenceは、通常Replay sampleとplasticity probeの乱数系列を変えない。callerごとの系列再現性はcaller seedの責務であり、ReplayBuffer seedからprobe系列を暗黙生成しない。
+DQN の内側 Learner は、Agent の基の seed と `plasticity_probe`・`policy_churn_probe` の名前から独立した `RandomGenerator` Resource を構築して所有し、各 sample 呼び出しへ渡す。購読を設定し直しても乱数列を継続する。このため policy churn の ON/OFF や cadence は、通常 Replay sample と plasticity probe の乱数列を変えない。呼び出す側ごとの再現性はその基の seed が担い、ReplayBuffer の seed から probe の列を暗黙に生成しない。
 
 `PrefetchingReplayBuffer`は呼出時までに受理したPushとin-flight prefetchをFIFO順でsettleしてからinnerへ委譲するが、通常prefetched batchは消費・並べ替えない。このためprobeの有無で通常sample列を変えない。
 
@@ -342,10 +344,11 @@ DefaultDQNではAgentがnamed seed `plasticity_probe`と`policy_churn_probe`か�
 
 `unsampled_batch_size`と`sampled_batch_size`は独立した任意の抽出要求で、要求された群の候補だけを保持し、一様・非復元抽出する。件数は正整数、抽出時のcaller RNGは必須。不足群はnulloptとし、他群の結果を失効させない。IS weightは1で、既存extractorによりframe stack・n-step・generation-aware keyを復元する。通常sample系列、抽選履歴、PER priorityを変更しない。
 
-Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとprefetchをsettleしてから委譲する。次回の通常batchは保持する。DefaultDQNの群抽出RNGは外側Agent所有のnamed seed `replay_fit_probe`から作り、群抽出の購読が必要になるまで生成しない。
+Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとprefetchをsettleしてから委譲する。次回の通常batchは保持する。DQN の群抽出 RNG は、内側 Learner が Agent の基の seed と `replay_fit_probe` の名前から構築時に作って所有し、購読の再設定でも保持する。
 
 ## 8. テストと拡張時の確認事項
 
+- [PRD128検証資材](../../core/anet-core/testdata/prd128/README.md): 全フィールドの転送・走査・文字列化、CPU/CUDAでの未定義保持、変更前の実行体との比較。
 - [PRD104検証資材](../../core/anet-core/testdata/prd104/README.md): action_change・episode_endの窓、終了・dummy・ring wrap・転送の確認。
 
 PRD101の段階別比較・短い実Run・7環境全キー比較は[PRD101検証資材](../../core/anet-core/testdata/prd101/README.md)を使う。

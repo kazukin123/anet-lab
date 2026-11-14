@@ -1,4 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:34185200420a7fa8c8a1674a3e2f305b7dd5fb17 date:2026-11-14 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:1b687015d0b30e256429f6af11b38b06be32b798 date:2026-11-14 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.
@@ -51,7 +51,8 @@ This document starts from the basics for readers unfamiliar with reinforcement l
 | Term | Meaning |
 | --- | --- |
 | Actor | The component selecting actions from observations. It does not call RND directly here. |
-| Facade | The outer interface coordinating internal components. Here `DefaultDQNAgent::UpdateFromBatch` preprocesses rewards. |
+| Facade | The outer interface coordinating internal components. Here `DefaultDQNAgent::UpdateFromBatch` is the entry point and delegates intrinsic reward to `IntrinsicRewardCoordinator`. |
+| `IntrinsicRewardCoordinator` | Private nested DefaultDQN component owning the estimator, beta schedule/latest value, credit, lane-selection RNG, successful learning count, and diagnostics; handles scoring, auxiliary learning, persistence, and Trace. |
 | DQN Learner | The inner learner for Q values. It uses rewards composed by the facade. |
 | ReplayBuffer | Stores experience for later learning. Experience includes observations, actions, rewards, and next observations. |
 | Batch / lane | A batch is a set of observations processed together; a lane is one environment position within it. B is the lane count. |
@@ -126,7 +127,7 @@ NGU multiplies episodic reward by a lifelong-novelty factor. ANET does not curre
 
 ### 3.1 Feeding the Same Input to Two Networks
 
-First normalize the observation selected by the facade specifically for RND, then pass the same input to target and predictor. The default `intrinsic.observation=next_state` selects the transition's next observation; `state` selects the observation at which the action was taken. Both are the latest single frame before the Actor's frame stacking.
+First normalize the observation selected by the Coordinator specifically for RND, then pass the same input to target and predictor. The default `intrinsic.observation=next_state` selects the transition's next observation; `state` selects the observation at which the action was taken. Both are the latest single frame before the Actor's frame stacking.
 
 ```mermaid
 graph TD
@@ -211,7 +212,7 @@ This measures how many standard deviations the error exceeds its usual value, th
 - Even large errors cannot exceed L, which defaults to 5.
 - During warm-up, without scoring history, or when `σ_e=0`, every lane gets `α=1`.
 
-The facade converts the multiplier into a bonus.
+The Coordinator converts the multiplier into a bonus. Training intake and Trace scoring use the shared `CalculateBonus`.
 
 `error_norm.use_centering=false` does not subtract the mean and uses `α=1+e/σ_e`. Clipped mode caps this at L; unclipped mode returns it unchanged. The denominator is the same error standard deviation, and during warm-up, with empty statistics, or with zero standard deviation, both give multiplier 1. Centering and clipping are selected independently. Without subtracting the mean, ordinary observations also receive positive reward, which can also favor living longer, so read comparison conditions for β together.
 
@@ -242,19 +243,19 @@ The following table shows the default whiten, clipped, and next_state. Selecting
 | Order | Operation | State used or updated |
 | ---: | --- | --- |
 | 1 | Scale extrinsic reward | Existing reward scaler |
-| 2 | Normalize next observations | RND observation statistics before including current observations |
+| 2 | Evaluate beta at the current exp step, then normalize next observations | `counts.exp_step` and RND observation statistics before including current observations |
 | 3 | Compute errors from target and predictor outputs | Predictor weights before updating |
 | 4 | Compute multiplier α | Error statistics before adding current errors |
 | 5 | Update observation/error statistics and scored-observation count | All lanes participate; default warm-up excludes errors |
-| 6 | Evaluate β, mask done, and add bonuses | `counts.exp_step` and current α |
-| 7 | Facade adds credit, selects k lanes per available learning step, and calls `Learn` | Observation statistics updated in step 5; normalize and forward all k inputs on each call, learning with a fresh graph |
+| 6 | The Agent adds the beta-weighted, done-masked bonus | Current beta and current α |
+| 7 | Coordinator adds credit, selects k lanes per available learning step, and calls `Learn` | Observation statistics updated in step 5; normalize and forward all k inputs on each call, learning with a fresh graph |
 | 8 | Pass experience with composed rewards to the inner Learner | Existing Q-learning and ReplayBuffer path |
 
 Training the predictor first and then measuring error would score observations after becoming familiar with them, so both statistics modes score before learning. When error statistics are updated differs by method: whiten uses the baseline before adding current values, and variance_feedback uses the baseline after adding them.
 
 `Estimate` also performs step 5. It is not a read-only query, but retains no computation graph. `Learn` computes independently from supplied observations, reading current observation statistics without updating them. Consequently, the same raw observation can normalize differently during scoring and learning.
 
-The facade calls `Estimate` once for all intake observations, then `Learn` zero or more times according to credit. The public API requires neither identical observations nor a fixed order or count. For example, two scoring calls can precede learning on other observations, and `Learn` alone can train even during the default warm-up. `Learn` returns true when the optimizer advances, and false during collect_errors or variance_feedback warm-up. The interface also supports separating action-time scoring from auxiliary learning on Replay observations.
+The Coordinator calls `Estimate` once for all intake observations, then `Learn` zero or more times according to credit. The RND public API requires neither identical observations nor a fixed order or count. For example, two scoring calls can precede learning on other observations, and `Learn` alone can train even during the default warm-up. `Learn` returns true when the optimizer advances, and false during collect_errors or variance_feedback warm-up. The interface also supports separating action-time scoring from auxiliary learning on Replay observations.
 
 ### 3.5 Warm-up and Lane Sampling
 
@@ -264,7 +265,7 @@ Whiten's α checks the count before scoring the batch and returns 1 for all lane
 
 `warmup_mode=collect_errors` updates both observation and error statistics during warm-up, while `Learn` returns false if the post-scoring count is at or below the threshold. variance_feedback warm-up keeps this form and does not use warmup_mode. However, its scoring checks the per-lane pre-scoring count, so normal multipliers begin partway through a batch that crosses the threshold. `warmup_steps=0` trains from the first call and adds errors to the statistics from the first call in either warmup_mode. An unused warmup_mode produces one construction-time INFO only when it differs from the default.
 
-The facade owns learning cadence. Let k be `learn_batch_size`; add `N × learn_ratio / k` to credit per intake. Each full unit permits one step on k observations, retaining fractional credit. At default ratio 0.25 and batch size 32, N=128 gives one step per intake, while N=64 gives one every two intakes: both train on 32 observations once per 128 experiences. If the learner is enabled and N is below batch size, construction stops without shrinking the batch. Runs with the learner disabled do not perform this comparison.
+The Coordinator owns learning cadence. Let k be `learn_batch_size`; add `N × learn_ratio / k` to credit per intake. Each full unit permits one step on k observations, retaining fractional credit. At default ratio 0.25 and batch size 32, N=128 gives one step per intake, while N=64 gives one every two intakes: both train on 32 observations once per 128 experiences. If the learner is enabled and N is below batch size, construction stops without shrinking the batch. Runs with the learner disabled do not perform this comparison.
 
 Sampling creates one lane permutation per intake and takes chunks of k. No lane repeats across steps, which are capped at `floor(N/k)`. If N is not divisible by k and the cap is reached, unspent credit, including its integer part, carries forward. Each `Learn` call consumes credit even if it returns false, preventing catch-up training after warm-up. Only successful true results increment `learn_count`.
 
@@ -276,6 +277,7 @@ All lanes are scored and included in statistics. RND `Learn` does no sampling: i
 sequenceDiagram
     participant F as facade / UpdateFromBatch
     participant S as RewardScaler
+    participant C as IntrinsicRewardCoordinator
     participant R as RND estimator
     participant T as RND target
     participant P as RND predictor
@@ -284,7 +286,9 @@ sequenceDiagram
     participant N as NetworkModel
     F->>S: Scale(外的報酬)
     S-->>F: スケール済み外的報酬
-    F->>R: Estimate(次観測)
+    F->>C: AdvanceBeta(counts)
+    F->>C: ScoreBonus(experience, scaled_rewards)
+    C->>R: Estimate(次観測)
     R->>R: byte→float、更新前統計で正規化、H2D
     R->>T: forward(全lane、勾配なし)
     T-->>R: 教師の出力
@@ -292,11 +296,14 @@ sequenceDiagram
     P-->>R: 予測
     R->>R: 誤差とtarget出力のD2H、有限検査
     R->>R: 更新前の誤差統計でα、統計更新
-    R-->>F: α（入力と同じdevice）
-    F->>F: βと設定されたdoneマスクで内的報酬を合成
-    F->>F: credit += N × learn_ratio / k、lane順列を準備
+    R-->>C: α（入力と同じdevice）
+    C->>C: CalculateBonusと診断値の更新
+    C-->>F: β倍・終端マスク後のボーナス
+    F->>F: スケール済み外的報酬へ加算
+    F->>C: Learn(experience)
+    C->>C: credit += N × learn_ratio / k、lane順列を準備
     loop creditが1以上、最大floor(N/k)回
-        F->>R: Learn(k laneずつ、重複なし)
+        C->>R: Learn(k laneずつ、重複なし)
         opt learn_predictor、またはwarm-up後
         R->>R: 全k件を今の統計で正規化、H2D
         R->>T: forward(選択lane、勾配なし)
@@ -308,9 +315,10 @@ sequenceDiagram
         R->>P: 平均lossをbackward
         R->>O: step（predictorの重みを更新）
         end
-        R-->>F: optimizerを進めたか（bool）
-        F->>F: creditを1消費、trueならlearn_countを加算
+        R-->>C: optimizerを進めたか（bool）
+        C->>C: creditを1消費、trueならlearn_countを加算
     end
+    C-->>F: 補助学習の完了
     F->>L: 合成済み報酬を含む経験
     L->>N: Replayからの学習でNNの重みを更新
 ```
@@ -340,7 +348,8 @@ This avoids changing Replay's format but prevents later separate handling of ext
 | --- | --- | --- |
 | What callers can access | `LifelongNoveltyEstimator` and Factory in [`intrinsic.hpp`](../../core/anet-core/include/anet/intrinsic.hpp) | Expose multiplier scoring, auxiliary learning, diagnostics, and persistence while hiding RND-specific composition |
 | Where reward is added | `UpdateFromBatch` in [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) | Add after existing reward scaling |
-| Learning cadence and sampling | `UpdateFromBatch` in [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) | Facade owns credit and RNG with named seed `intrinsic.learn`, supplying k observations at a time |
+| Learning cadence and sampling | `IntrinsicRewardCoordinator::Learn` in [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) | Coordinator owns credit and the RNG with named seed `intrinsic.learn`, supplying k observations at a time |
+| Intrinsic diagnostics, Trace, and persistence | `IntrinsicRewardCoordinator` in the same file | `ScoreBonus` and `ScoreTrace` share the bonus formula; `GetScalar`, `Save`, and `Load` handle diagnostics and persistence |
 | What RND owns | [`intrinsic_rnd.hpp`](../../core/anet-core/src/intrinsic_rnd.hpp) | Target, predictor, optimizer, two statistics, and scored-observation count |
 | Scoring and learning order | `Estimate` / `Learn` in [`intrinsic_rnd.cpp`](../../core/anet-core/src/intrinsic_rnd.cpp) | Update statistics after scoring; learning computes independently from supplied observations and current statistics |
 | Exact normalization | [`scaler_impl.cpp`](../../core/anet-core/src/scaler_impl.cpp) and [`scaler_impl.hpp`](../../core/anet-core/src/scaler_impl.hpp) | Use shared normalization, cumulative statistics, and persistence |
@@ -459,7 +468,7 @@ Predictor weights alone cannot restore RND. Changing the teacher changes the ans
 
 RND first writes `RndNoveltyEstimator-4` for whiten EMA, or `RndNoveltyEstimator-3` for cumulative and variance_feedback, followed by statistics_mode. Target, predictor, optimizer, selected statistics, cumulative target-output statistics, and scored-observation count follow in the existing order. Whiten saves observation normalization plus Welford state for cumulative, or weight sum, mean, and squared deviations for EMA. Variance feedback saves obs_m, obs_v, err_m, err_v, and n. A different identifier or statistics_mode is rejected before reading the payload, reporting both saved and expected values. Cumulative format and payload remain unchanged, allowing existing -3 checkpoints to load directly. warmup_mode, use_centering, ema_steps, and use_done_mask are not saved; the settings at resume apply.
 
-The Agent then saves the facade's unconsumed credit, lane-selection RNG state, and cumulative success count. The RND body comes first, so a different format is rejected by the body's check. Except in the middle of a call, saving and restoring work before the first scoring, between Estimate and Learn, and immediately after Learn. Computation graphs are not carried over. The latest loss is not saved and remains NaN until the first successful step after loading.
+The Coordinator writes its own unconsumed credit after the RND body, lane-selection RNG state, and cumulative success count. The RND body comes first, so a different format is rejected by the body's check. Except in the middle of a call, saving and restoring work before the first scoring, between Estimate and Learn, and immediately after Learn. Computation graphs are not carried over. The latest loss is not saved and remains NaN until the first successful step after loading. The Agent delegates persistence of this section to the Coordinator's `Save` and `Load`.
 
 Agent checkpoints containing RND append `;intrinsic` to the existing identifier. Loading fails if the saved checkpoint has RND but the reader disables it, or vice versa. Disabled mode uses the previous format.
 
@@ -487,7 +496,7 @@ During warm-up or with NaN normalized error the multiplier is 1. Otherwise `clip
 | Scoring next_state with use_done_mask=true on a done lane | Error and normalized error; bonus 0 |
 | Otherwise | Error and normalized error; beta times (multiplier minus 1) |
 
-Beta is initialized by evaluating its schedule at exp step 0 during Agent construction, then updated at the exp step of each training intake regardless of whether learning is enabled. It is copied with the estimator. It is not checkpointed and loading a checkpoint does not overwrite it. Evaluation-only and freshly resumed Runs also show the bonus. Immediately after a new Run starts, empty error statistics give a multiplier of 1 and a bonus of 0. `intrinsic.observation=next_state` scores the resulting screen displayed in the row; `state` scores the preceding screen used to choose the action.
+Beta is initialized by evaluating its schedule at exp step 0 during Coordinator construction, then updated at the exp step of each training intake regardless of whether learning is enabled. It is copied with the estimator. It is not checkpointed and loading a checkpoint does not overwrite it. Evaluation-only and freshly resumed Runs also show the bonus. Immediately after a new Run starts, empty error statistics give a multiplier of 1 and a bonus of 0. `intrinsic.observation=next_state` scores the resulting screen displayed in the row; `state` scores the preceding screen used to choose the action.
 
 With a cloned Actor, values use the training predictor, statistics, and beta at the last Actor synchronization, matching the time of the network used for that row's Q values. An Actor sharing its network reads the training estimator at each step. Values are stored once when the row is created; selecting old rows does not rescore them. Without requested intrinsic keys, there is no scoring, estimator copy, follower attachment, or additional Agent lock. A closed pane suspends scoring and copying. Reopening without a snapshot performs normal Actor synchronization.
 
@@ -499,11 +508,11 @@ See the [PRD127 validation assets](../../core/anet-core/testdata/prd127/README.m
 
 ### 5.1 Computation Placement and Cost
 
-RND target, predictor, and facade lane sampling use separate named seeds. Ordinary weight initialization currently uses the default CPU generator, so construction temporarily saves its state, seeds it, and restores the state afterward. Models are constructed on CPU and moved to the required device.
+RND target, predictor, and Coordinator lane sampling use separate named seeds. Ordinary weight initialization currently uses the default CPU generator, so construction temporarily saves its state, seeds it, and restores the state afterward. Models are constructed on CPU and moved to the required device.
 
-Inputs may reside on CPU or CUDA. RND moves observations to CPU for normalization, then sends them to the Factory's computation device. Finite-error checks and statistics run on CPU; returned α uses the input device. The facade selects lanes first, and `Learn` normalizes/transfers all k supplied observations. CUDA-input selection indices are sent asynchronously from pinned memory once per intake; there are no synchronous per-lane transfers.
+Inputs may reside on CPU or CUDA. RND moves observations to CPU for normalization, then sends them to the Factory's computation device. Finite-error checks and statistics run on CPU; returned α uses the input device. The Coordinator selects lanes first, and `Learn` normalizes/transfers all k supplied observations. CUDA-input selection indices are sent asynchronously from pinned memory once per intake; there are no synchronous per-lane transfers.
 
-RND owns independent FP32 models. Scoring performs two forwards on all N observations; each auxiliary step performs two forwards and one backward on k observations. After warm-up, without hitting the cap, average steps per intake are `N × learn_ratio / k`. Default N=128 gives one step on 32 observations. Learning needs fresh forwards because scoring graphs are not reused. The speed difference measured on GridMaze with CPU and 256 lanes is given in the next section. The cost for Atari image inputs remains unmeasured, and observation-statistics updates still duplicate normalization through the existing API.
+RND owns independent FP32 models. Scoring performs two forwards on all N observations; each auxiliary step performs two forwards and one backward on k observations. After warm-up, without hitting the cap, average steps per intake are `N × learn_ratio / k`. Default N=128 gives one step on 32 observations. Learning needs fresh forwards because scoring graphs are not reused. The speed difference measured on GridMaze with CPU and 256 lanes is given in the next section. For Atari image inputs, see the measurements in the next section as well. Observation-statistics updates still duplicate normalization through the existing API.
 
 variance_feedback updates observation statistics on CPU in lane order, then forwards the results together. To accumulate target_feature_var, scoring returns the N×output_dim target outputs to CPU in addition to errors. The Taiga configuration uses k=1 and ratio=1, so it runs N backwards per intake, a cost very different from the default cadence. Transfer/synchronization estimates and the scope actually confirmed are recorded in [23impl](../memo/116_rnd_lifelong_novelty_23impl.md). Performance measurement is separate.
 
@@ -512,6 +521,8 @@ Scoring and auxiliary learning occur per batch independently of Q-learning step 
 With `learner.enabled=false`, scoring and auxiliary learning pause with one INFO per Run. If intrinsic reward is enabled, components still exist for persistence. Aggregate diagnostics use a value-transfer mechanism. With a cloned Actor, Evaluation Trace copies the estimator and beta under the existing periodic synchronization lock, without adding another periodic lock wait. Opening the pane without a snapshot adds one synchronization and can wait for one training intake. An Actor sharing its network waits at each scoring step. This is a developer-approved exception to the UI-thread training-lock rule. If Actor synchronization is moved to training-side snapshot publication, move the estimator and beta with it.
 
 ### 5.2 Verified Scope
+
+See the [PRD128 validation assets](../../core/anet-core/testdata/prd128/README.md) for before/after comparisons after the structural separation, continuation from an old checkpoint, and Release performance.
 
 Validation procedures for error statistics, warm-up, centering, and terminal masking are in the [PRD123 validation assets](../../core/anet-core/testdata/prd123/README.md). They distinguish before/after comparisons for collect_errors (which selects the old behavior), variance_feedback, and disabled RND from hand-calculated EMA and save/restore checks. KFM effectiveness checks are performed only after separate approval.
 

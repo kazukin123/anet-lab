@@ -180,7 +180,7 @@ flowchart TB
 | 種別 | 実装 | 概要 |
 |---|---|---|
 | Agent | `DefaultDQNAgent` | DQN 系の価値学習を行う標準実装 |
-| Agent | `RainbowAgent` | Rainbow 系構成を扱う Agent 実装 |
+| Agent | `RainbowAgent` | DQN 系の共通部品の責務分担を確かめる2つ目の Agent。Run では使わない |
 | Agent | `MuZeroAgent` | 決定論的 Env を対象とする MuZero 試作実装 |
 | Agent | `ImageClsAgent` | 画像分類を学習する教師あり学習実装 |
 | Env | `CartPoleEnv` | ベクトル Observation の倒立振子環境 |

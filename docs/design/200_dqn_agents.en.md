@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:d196141fc08a4bf9d26bc4a0d23298b85ac567b8 date:2026-11-14 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:44bb81f54c2d80f7a04d05c7c1ef21d76ff92fc9 date:2026-11-14 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -39,7 +39,7 @@ This section first outlines learning and exploration methods; [Section 2.2](#22-
 | N-step return | Combine rewards over multiple steps and bootstrap from a later state | `learner.use_n_step` and `learner.n_step` in both Agents | [Rainbow (2017/10), Multi-step learning][paper-rainbow] |
 | Prioritized Experience Replay (PER) | Change sampling frequency by priority and correct sampling bias with importance weights | `learner.use_per` in both Agents; shared ReplayBuffer stores and samples experience | [PER (2015/11)][paper-per] |
 | NoisyNet | Explore by varying Network outputs through learnable noisy weights | DefaultDQN Head projections and NN execution settings ([Section 7.3](#73-defaultdqn-noisy-execution-settings)) | [NoisyNet (2017/06)][paper-noisy] |
-| Rainbow | Combine six DQN extensions | `RainbowAgent` uses QR; differences from the paper are in [Section 2.1.3](#213-rainbow-components) | [Rainbow (2017/10)][paper-rainbow] |
+| Rainbow | Combine six DQN extensions | `RainbowAgent` remains to check shared component responsibilities and is not used for Runs; differences from the paper are in [Section 2.1.3](#213-rainbow-components) | [Rainbow (2017/10)][paper-rainbow] |
 | QR-DQN | Represent a return distribution by learning returns at fixed quantile levels | `QRLearner` in both Agents | [QR-DQN (2017/10)][paper-qr] |
 | Implicit Quantile Network (IQN) | Learn a quantile function with quantile level τ as input | DefaultDQN `IQNLearner` | [IQN (2018/06)][paper-iqn] |
 | Upper Quantile Exploration (UQE) | Compare actions using an upper quantile or upper-tail mean instead of mean return | DefaultDQN QR/IQN policies ([Section 2.1.5](#215-uqe-action-selection-with-upper-quantiles)) | [Policy implementation](../../core/anet-core/src/dqn_based_agent.cpp); related: [IQN (2018/06), Section 4][paper-iqn] |
@@ -92,7 +92,7 @@ flowchart LR
     T ~~~ V ~~~ E
 ```
 
-This implementation's `RainbowAgent` represents distributions with QR and uses epsilon-greedy Actors. NoisyNet is selected in DefaultDQN. See [Section 7.1](#71-main-differences) for differences between the original composition and the two Agents.
+This implementation retains `RainbowAgent` as a second Agent for checking responsibility boundaries in shared DQN components; it is not used for Runs. It uses ordinary Q or QR, epsilon-greedy Actors (`EpsilonGreedy` or `0`), and a fixed Greedy target. It has no IQN, Head projection settings (including Noisy selection), reward scaler, observation normalization, stacker, or `nn_viz`. See [Section 7.1](#71-main-differences) for differences between the original composition and the two Agents.
 
 #### 2.1.4 Quantile Learning: QR-DQN and IQN
 
@@ -214,7 +214,7 @@ Ape-X's Atari experiments keep ε fixed during training. [Ape-X (2018/03), Secti
 
 ### 2.2 Implementation Layers
 
-`DefaultDQNAgent` and `RainbowAgent` both implement `AgentBase` and the shared `rl::Learner`. `CreateLearner()` returns the outer Agent itself, which manages shared mutexes and pre/post-processing before delegating updates to an inner `dqn::Learner`.
+`DefaultDQNAgent` and `RainbowAgent` both implement `AgentBase` and the shared `rl::Learner`. `CreateLearner()` returns the outer Agent itself, which manages shared mutexes and pre/post-processing before delegating updates to an inner `dqn::Learner`. Both Agents call `DqnComponentAssembler`, supplying Head initialization and projection on each call. DefaultDQN construction is split into `SelectHeadFactory`, `MakeNetworkInputSpec`, `RecordNetworkStructure`, and `InitializeLearner`.
 
 `dqn_based_agent.*` provides internal components including `NetworkModel`, `ActionPolicy`, `Actor`, `Learner`, `TDLearner`, `QRLearner`, and `IQNLearner`. Both concrete Agents compose these components; neither inherits the inner `dqn::Learner`.
 
@@ -278,7 +278,10 @@ Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `mun
 | Component | Definition |
 |---|---|
 | `DefaultDQNAgent` | Configurable DQN Agent combining scalers, multiple Policies, Train Actor snapshots, and more |
-| `RainbowAgent` | DQN Agent centered on QR, Dueling, Double DQN, N-step, and PER |
+| `IntrinsicRewardCoordinator` | Private nested DefaultDQN component combining intrinsic scoring, beta, auxiliary learning, diagnostics, persistence, and Evaluation Trace scoring/snapshots |
+| `RainbowAgent` | Second Agent used to check responsibility boundaries in shared DQN components; not used for Runs |
+| `DqnComponentAssembler` | Shares Head, Policy, Actor, and Learner construction and value routing without accepting concrete Agent config types |
+| `DiagnosticDemandTable` | Holds subscription parsing, intervals, gates, and requests for one fixed-metric group |
 | `RuntimeVars` | Mutable DQN-learning State such as `learn_step` and PER beta |
 | `NetworkModel` | Resource combining online/target Networks, target updates, and save/load |
 | `DQNActionInfo` | ActionInfo carrying Actions, Q auxiliaries, Replay initial-priority hints, evaluated γ/Munchausen values, and snapshot diagnostics |
@@ -314,6 +317,11 @@ class AgentBase
 class LearnerInterface
 class DefaultDQNAgent
 class RainbowAgent
+class IntrinsicRewardCoordinator
+class LifelongNoveltyEstimator
+class DqnComponentAssembler
+class NetworkHeadFactory
+class DiagnosticDemandTable
 class RuntimeVars
 class DqnNetworkModel
 class ActionPolicy
@@ -330,6 +338,15 @@ AgentBase <|-- DefaultDQNAgent
 AgentBase <|-- RainbowAgent
 LearnerInterface <|.. DefaultDQNAgent
 LearnerInterface <|.. RainbowAgent
+DefaultDQNAgent ..> DqnComponentAssembler : 構築
+RainbowAgent ..> DqnComponentAssembler : 構築
+DqnComponentAssembler ..> NetworkHeadFactory : 生成
+DqnComponentAssembler ..> ActionPolicy : 生成
+DqnComponentAssembler ..> DqnActor : 生成
+DqnComponentAssembler ..> DqnLearner : 生成
+DqnLearner *-- DiagnosticDemandTable
+DefaultDQNAgent *-- IntrinsicRewardCoordinator
+IntrinsicRewardCoordinator *-- LifelongNoveltyEstimator
 DefaultDQNAgent *-- RuntimeVars
 RainbowAgent *-- RuntimeVars
 DefaultDQNAgent *-- DqnNetworkModel
@@ -397,13 +414,13 @@ Actors using shared Networks invoke Policy under a shared lock to avoid conflict
 
 See [212 Novelty Estimation and Intrinsic Reward with RND](212_rnd_lifelong_novelty.en.md) for basic concepts, formulas and processing order, and configuration and metric examples.
 
-`EstimateWithoutUpdate` computes visualization values without moving training scoring. DefaultDQN step diagnostics score only when requested columns contain an `intrinsic.` key. With a cloned Actor, diagnostics own an estimator/beta snapshot; `ActorSyncFollower` receives the copy boundary under the same read lock as the network. With an Actor sharing its network, diagnostics lock and read training state at each step.
+`EstimateWithoutUpdate` computes visualization values without moving training scoring. DefaultDQN step diagnostics delegate scoring and snapshots to `IntrinsicRewardCoordinator` and score only when requested columns contain an `intrinsic.` key. With a cloned Actor, diagnostics own an estimator/beta snapshot; `ActorSyncFollower` receives the copy boundary under the same read lock as the network. With an Actor sharing its network, diagnostics lock and read training state at each step. Training intake and Trace use the same bonus formula in the Coordinator's `CalculateBonus`.
 
-With `intrinsic.enabled=true`, the DefaultDQN facade adds `beta(exp_step) * (alpha - 1)` under its existing write lock after external reward scaling. `intrinsic.observation=next_state` (default) scores and learns next observations, masking done bonuses only when intrinsic.use_done_mask=true (default), while retaining truncated bonuses. `state` scores and learns the raw observation at action time without masking done lanes. False retains terminal bonuses; state ignores this setting and warns once for a nondefault false value. This input is separate from the Actor's frame stack. The combined reward enters Replay; Actor, Replay schema, and Q optimizers are unchanged. With `learner.enabled=false`, it reports one INFO per Run and suspends intrinsic scoring and training.
+With `intrinsic.enabled=true`, DefaultDQN constructs a private `IntrinsicRewardCoordinator`. Under the facade's existing write lock, it scales external rewards and calls the Coordinator's `AdvanceBeta` to evaluate beta at the current exp step whether learning is enabled or disabled. When learning is enabled, `ScoreBonus` scores observations, publishes diagnostics, and returns the beta-weighted, terminal-masked bonus. The Agent adds it to rewards in one line, then calls the Coordinator's `Learn` for auxiliary learning. `intrinsic.observation=next_state` (default) scores and learns next observations, masking done bonuses only when intrinsic.use_done_mask=true (default), while retaining truncated bonuses. `state` scores and learns the raw observation at action time without masking done lanes. False retains terminal bonuses; state ignores this setting and warns once for a nondefault false value. This input is separate from the Actor's frame stack. The combined reward enters Replay; Actor, Replay schema, and Q optimizers are unchanged. With `learner.enabled=false`, it reports one INFO per Run and suspends intrinsic scoring and training.
 
 RND builds its fixed target and predictor from separate `target.net` and `predictor.net` configurations, applying `head.init.*` to their Linear Heads with a shared `output_dim`. Noncategorical uint8 inputs become float inside RND. Default `statistics_mode=whiten` uses previous observation and error statistics, updating statistics after scoring. Whiten selects error_norm.average_mode=cumulative (default) or ema with observation-count time constant error_norm.ema_steps=1,000,000. error_norm.use_centering=true (default) subtracts the mean; false divides the raw error by the same standard deviation. `variance_feedback` normalizes and clips observations sequentially by lane, feeds them back into its recurrence, and computes z using the updated error mean and variance (not standard deviation). Default `multiplier_mode=clipped` returns `clamp(1+z,1,multiplier_max)`; `unclipped` returns `1+z`, including negative values. A zero divisor or empty statistics gives one. Warm-up counts observations: the default 12,800 observations receive a multiplier of one with predictor learning under default warmup_mode=learn_predictor, excluding errors from statistics. collect_errors and variance_feedback instead collect errors and suspend learning. Zero enables learning from the first call. See document 212 for the recurrence and warm-up batch boundaries.
 
-The facade owns auxiliary-learning cadence and lane selection. Each intake of N lanes earns `N * intrinsic.learn_ratio / k` credits, where k is `intrinsic.learn_batch_size`. A configuration with k greater than N stops construction when the learner is enabled; disabled learners do not perform this comparison. It calls `Learn` on disjoint groups of k lanes, up to `floor(N/k)` times per intake, carrying unused credit forward. RND recomputes target and predictor outputs for all supplied observations, advances its private AdamW once using mean MSE, and returns true. During collect_errors or variance_feedback warm-up it returns false. The facade consumes credit regardless of the result and counts only true results in `intrinsic.learn_count`. Scoring graphs are not retained. Normalization runs on CPU; CUDA computation requires input H2D and error D2H transfers for scoring and each learning step. See sections 3.5 and 5.1 of document 212 for boundaries and costs.
+The Coordinator owns auxiliary-learning cadence and lane selection. Each intake of N lanes earns `N * intrinsic.learn_ratio / k` credits, where k is `intrinsic.learn_batch_size`. A configuration with k greater than N stops construction when the learner is enabled; disabled learners do not perform this comparison. It calls `Learn` on disjoint groups of k lanes, up to `floor(N/k)` times per intake, carrying unused credit forward. RND recomputes target and predictor outputs for all supplied observations, advances its private AdamW once using mean MSE, and returns true. During collect_errors or variance_feedback warm-up it returns false. The Coordinator consumes credit regardless of the result and counts only true results in `intrinsic.learn_count`. Scoring graphs are not retained. Normalization runs on CPU; CUDA computation requires input H2D and error D2H transfers for scoring and each learning step. See sections 3.5 and 5.1 of document 212 for boundaries and costs.
 
 ```mermaid
 sequenceDiagram
@@ -547,7 +564,7 @@ See [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md) f
 |---|---|---|
 | Policy | Actor catalog and Learner target configured separately; epsilon-greedy, UQE, Thompson Sampling | Per-Actor epsilon-greedy and greedy for the Learner target |
 | Preprocessing | RewardScaler, ObservationNormalizer, frame stack | No frame stack (device transfer only); no dedicated scaler/normalizer configuration |
-| Head/Learner | TD/QR/IQN with optional Dueling | TD/QR with optional Dueling |
+| Head/Learner | TD/QR/IQN with optional Dueling | TD/QR with optional Dueling; no Head projection settings |
 | Replay extensions | N-step, PER, prefetch, replay ratio, TBO, etc. | N-step and PER; current Config disables prefetch, TBO, and fused optimizer |
 | Actor clone | Catalog `clone_model` and optional `sync_interval.*`. Synchronized step-diagnostic snapshots update under the same lock | Catalog `clone_model`; no periodic snapshot |
 | Spatial exploration | Available per Actor | Shared-policy spatial settings available per Actor |
@@ -571,6 +588,8 @@ Evaluation Trace step diagnostics expose `intrinsic.error`, `intrinsic.normalize
 
 The authoritative definitions of all keys and defaults are `DefaultDQNAgentConfig`, `RainbowAgentConfig`, `LearnerConfig`, `ActionPolicyConfig`, and [apps/runner/config](../../apps/runner/config). Rather than duplicating the configuration list here, inspect the resolved results in the Run's `config/config_data.txt` and `config/<tag>.txt`.
 
+`DefaultDQNAgentConfig` calls concern-specific readers in the original order: `ReadIntrinsic` for intrinsic reward, `ReadHeadAndCommon` for Head and common construction settings, and `ReadLearner` for learning settings. `ValidateChoice` and `ValidateRange` validate choices and numeric ranges. `CopyAndRecordPrefix` copies and records values under a prefix through the base `RecordConfigValue`. Policy and tau validation belong to `ValidateActionPolicy` and `ValidateTauRule` in `agent.hpp`, alongside their types.
+
 DefaultDQN defaults to `quantile_mode` set to `qr` and `qr.num_quantiles` set to 51. The IQN learner independently configures gradient-side `learner.iqn.current_taus` and target-distribution-side `learner.iqn.target_taus`; both default to random x 64 and allow N≠M. Target action selection uses `target_policy.tau_rule` separately from these two sets. The old DefaultDQN keys `use_qr` and the direct child `num_quantiles` are outside the current contract; Rainbow retains `use_qr` and `num_quantiles`.
 
 The IQN-specific loss sums over current-side N, averages over target-side M, and divides the Huber term by `kappa`. For `N = 1`, it does not use an unbiased variance estimate and explicitly sets `q_std` to 0. With `quantile_mode=none`, there are no quantiles, so `q_std` is unavailable and returns `NaN`, without disguising it as 0.
@@ -583,7 +602,7 @@ The IQN-specific loss sums over current-side N, averages over target-side M, and
 
 TD, QR, IQN, and Dueling final projections use `head.projection.noisy.enabled=false` / `head.projection.noisy.sigma0=0.5` by default. Actor owns one dedicated box and advances its action-selection clock. Learner owns one current box, one target-purpose online box, and one target-purpose target box, using actual-update learn_step. Named seeds remain independent of existing acting, learning, and τ RNGs. Every target forward preserves its configuration, box, and clock. Munchausen target mode uses NetworkForwardRowMapping `[0..B-1,0..B-1]` for `[2B]` input without skip or `[0..B-1,0..B-1,0..B-1]` for `[3B]` with skip, validated on CPU and transferred once. Thus each transition's current, n-step endpoint, and window endpoint share ε. Each computation component validates online_reuse sample/sample or μ-only/μ-only compatibility.
 
-Config DTOs contain only values and nn_forward_key; catalogs hold ConfigData. Agent resources retain selected carriers and initialize purpose-specific NetworkForwardExecutor objects. Actor has a dedicated execution; Learner has current/target executions. Target-purpose online and target calls use the same settings and clock kind but independent State, with network_forward.target_online and network_forward.target named seeds. The probe mean uses default Forward; only sample owns a dedicated execution. CallInfo is constructed in a separate statement; Actor/Learner retain clock advancement. Learner owns the current executor and target/diagnostic executor pairs; target capture applies only to ordinary updates. ActionPolicy borrows its executor by reference. A common base handles preparation, reuse validation, and parameter enumeration for the six projection Heads while preserving value-before-adv order and Head-specific computation. Independent boxes change draw assignment for Double DQN and Munchausen online sample paths, preserving the distribution.
+Config DTOs contain only values and nn_forward_key; catalogs hold ConfigData. Agent resources retain selected carriers and initialize purpose-specific NetworkForwardExecutor objects. Actor has a dedicated execution; Learner has current/target executions. Target-purpose online and target calls use the same settings and clock kind but independent State, with network_forward.target_online and network_forward.target named seeds. The probe mean uses default Forward; only sample owns a dedicated execution. CallInfo is constructed in a separate statement; Actor/Learner retain clock advancement. Learner owns the current executor and target/diagnostic executor pairs; target capture applies only to ordinary updates. ActionPolicy borrows its executor by reference. A common base handles preparation, reuse validation, and parameter enumeration for the six projection Heads while preserving value-before-adv order and Head-specific computation. Independent boxes change draw assignment for Double DQN and Munchausen online sample paths, preserving the distribution. For Networks with Noisy parameters, Agent prepares the sample/call/batch probe configuration at construction and passes it to Learner. Subscription setup does not recreate this configuration.
 
 Learner forward_resources is a required initialization argument. Before preparation, an enabled Learner validates each current/target Resource against its selection key. Direct construction with an empty selection requires an explicit default Resource; disabled Learners preserve dormant settings.
 
@@ -595,7 +614,8 @@ Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` 
 
 ### 8.1 Resources and State
 
-- The outer Agent owns the lifetimes of `RuntimeVars`, `NetworkModel`, Policies, the inner Learner, scalers, and RNG Resources for plasticity/policy churn probes.
+- The outer Agent owns the lifetimes of `RuntimeVars`, `NetworkModel`, Policies, the inner Learner, scalers, and `IntrinsicRewardCoordinator`. The inner Learner constructs and owns five probe RNGs from the Agent's base seed and purpose names, retaining them across subscription reconfiguration.
+- The Coordinator owns the estimator, beta schedule and latest value, auxiliary-learning credit/count/lane-selection RNG, and diagnostics. Trace retains the Coordinator for the Agent's lifetime and preserves the existing locking boundaries for copying or directly reading the estimator.
 - The inner Learner references the outer `NetworkModel` and `RuntimeVars` and directly owns the Optimizer and ReplayBuffer.
 - A shared Actor references the Agent-owned Network; a clone Actor owns a private Network. Neither references the Learner itself.
 - Epsilon and the UQE tau decay schedule are State updated and owned by ActionPolicy; update credit, the warmup latch, and per-update policy churn requests/probes/Q are owned by the inner Learner; snapshot interval and last sync step are owned by the clone Actor. IQN tau placement mode is configuration, while each forward's taus are temporary inputs generated from a Policy- or Learner-owned RNG. Policy churn's fixed midpoint taus consume no randomness and are shared across up to three forwards in the same update.
@@ -605,7 +625,7 @@ Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` 
 
 The version-1/version-2 descriptions below use `intrinsic.enabled=false` as their baseline. Enabled mode also saves and restores the additional section described next.
 
-Intrinsic-enabled DefaultDQN appends `;intrinsic` to its existing header identifier and writes an intrinsic section after the learner. It first writes `RndNoveltyEstimator-4` for whiten EMA, or `RndNoveltyEstimator-3` for cumulative and variance_feedback, followed by statistics_mode, then the fixed target, predictor, AdamW moments/step, selected observation/error statistics (EMA weight sum, mean, and squared deviations), cumulative target-output statistics, and scored-observation count. The facade then saves unused credit, lane-selection RNG state, and cumulative successful learning steps. A different format or statistics mode is rejected before reading the payload, with both values in the diagnostic. Section presence must also match the enabled setting. Current learning_rate, weight_decay, and adam_eps replace saved options, reporting differences once per Run at INFO. Disabled mode retains the previous identifier, configuration string, and payload layout.
+Intrinsic-enabled DefaultDQN appends `;intrinsic` to its existing header identifier and writes an intrinsic section after the learner. It first writes `RndNoveltyEstimator-4` for whiten EMA, or `RndNoveltyEstimator-3` for cumulative and variance_feedback, followed by statistics_mode, then the fixed target, predictor, AdamW moments/step, selected observation/error statistics (EMA weight sum, mean, and squared deviations), cumulative target-output statistics, and scored-observation count. The Coordinator then saves unused credit, lane-selection RNG state, and cumulative successful learning steps. A different format or statistics mode is rejected before reading the payload, with both values in the diagnostic. Section presence must also match the enabled setting. Current learning_rate, weight_decay, and adam_eps replace saved options, reporting differences once per Run at INFO. Disabled mode retains the previous identifier, configuration string, and payload layout.
 
 The `split` optimizer adds `primary_skip` to the ordinary four roles, saving the additional optimizer's moments and step. Loading a four-role checkpoint into split initializes the added state and warns once; loading five roles into stop/merge is rejected. After restoration, the additional optimizer also receives current lr, eps, and betas, retaining zero weight decay. Stop/merge save formats are unchanged.
 
@@ -613,7 +633,7 @@ DefaultDQNAgent save formats are identified by version-1 `DefaultDQNAgent` and v
 
 Skip-disabled checkpoints retain the existing header, two Networks, and optimizer format. Loading one with skip enabled transfers primary and its optimizer state, freshly initializes skip, and warns once. This branch is a current contract for moving from a baseline Run into skip learning. Loading a skip-enabled checkpoint with skip disabled fails fast. Actor continuation and replay are not saved.
 
-Current `DefaultDQNAgent::Save()` saves the archive header, Config string, NetworkModel, and inner Learner. NetworkModel follows the enabled/disabled formats above; inner `dqn::Learner::Save()` saves Optimizer state and group roles when enabled. `auto_load_file` restores the payload into Network and Optimizer during Agent construction.
+Current `DefaultDQNAgent::Save()` saves the archive header, Config string, NetworkModel, and inner Learner. NetworkModel follows the enabled/disabled formats above; inner `dqn::Learner::Save()` saves Optimizer state and group roles when enabled. `auto_load_file` restores the payload into Network and Optimizer during Agent construction. Enabled intrinsic-reward persistence delegates to the Coordinator's `Save` and `Load`.
 
 The current DefaultDQN checkpoint does not save or restore:
 
@@ -636,13 +656,13 @@ Network SN u/v are named buffers and are saved/restored with the online/target N
 
 ## 9. Observability, Performance, and Errors
 
+For fixed metrics in gradient noise, noisy, policy churn, and replay fit, `DiagnosticDemandTable` owns subscription parsing, intervals, gates, and requests. Plasticity's three channels and attention's layer-specific demands retain their own structures. Each group's scalars use `ReadDiagnosticScalar`, returning NaN for known values that are unavailable and nullopt for unknown keys. Skip, Munchausen, IQN, and weight norms use the same reader. Metrics and range boundaries use named references; `MakeDiagnosticMetricKeys` and value-pack compile-time checks validate their order.
+
 ### 9.1 Metrics
 
 Group `56_agent_in` reads `$agent intrinsic.<key> @learn`: `bonus_mean`, `bonus_max`, and `bonus_min` describe the weighted bonus after the selected masking rule; `bonus_pos_ratio` is the positive-lane fraction. `bonus_share` is `Σ|bonus| / (Σ|scaled external reward| + Σ|bonus|)` (NaN for a zero denominator), remaining within 0–1 for negative bonuses. `error_mean`/`error_std` describe the selected statistics (std is the square root of variance), and `error_step` is the current mean error. `target_feature_var` is the mean lifelong population variance across output dimensions (zero for the first observation); `target_feature_max` is the current maximum absolute output. `clip_ratio` is the fraction at the multiplier cap, or zero in unclipped mode. `predictor_loss` retains the most recent successful step's loss through intakes without learning (NaN before learning or immediately after loading). `learn_count` counts actual optimizer steps, excluding false returns during warm-up. Known keys remain available and return NaN when disabled or suspended because the learner is disabled; only unknown keys return nullopt. Fixed diagnostic keys hold atomic values, so UI reads acquire no additional lock. Whiten error_mean/error_std report cumulative or EMA statistics for the next batch, remaining NaN while empty during learn_predictor warm-up. learn_count increases during this warm-up.
 
 Step diagnostics retain `intrinsic.error`, `intrinsic.normalized_error`, and `intrinsic.bonus` for each evaluation transition, separately from group 56 aggregates.
-
-Step diagnostic keys `intrinsic.error`, `intrinsic.normalized_error`, and `intrinsic.bonus` retain per-transition evaluation values separately from group 56 aggregates.
 
 - `DQNActionInfo` carries the Action, auxiliary Q/quantile information, and an optional replay initial-priority hint.
 - `episode_start_action_uqe_margin.[i]` and `episode_start_action_q_margin.[i]` average the difference between action `i` and the best other action over episode-start lanes in the batch. The UQE version uses UQE values; the Q version uses Q-related scores from the network output, remaining in h-space even with TBO. With IQN+UQE, both use the same risk-biased action score, not full-distribution `E[Z]`. Steps without episode-start lanes return `NaN` and skip scalar output.
@@ -766,13 +786,15 @@ The 15 metrics under 49_agent_gradnoise require explicit subscription through me
 
 ### 9.9 Attention Entropy Diagnostics
 
-The shared DefaultDQN TD/QR/IQN Learner takes the union of updates due from `attention_entropy.[n]` subscriptions using `@learn $update_result` and measures only before parameter updates. `learner.attention_entropy.probe.batch_size` defaults to 256 and must be at least 1. An Agent-owned dedicated RNG (named seed `attention_entropy_probe`) samples ReplayBuffer uniformly without replacement; insufficient samples leave that update unmeasured. Normalization is applied without updating statistics. A partial forward to `learner.final_feature_branch_key` uses eval, NoGrad, the Learner's autocast, and the default Context. IQN taus are unnecessary. Training RNG, PER statistics, normalization statistics, and network buffers remain unchanged, and execution modes are restored even on exceptions.
+The shared DefaultDQN TD/QR/IQN Learner takes the union of updates due from `attention_entropy.[n]` subscriptions using `@learn $update_result` and measures only before parameter updates. `learner.attention_entropy.probe.batch_size` defaults to 256 and must be at least 1. A Learner-owned dedicated RNG (named seed `attention_entropy_probe`) samples ReplayBuffer uniformly without replacement; insufficient samples leave that update unmeasured. Normalization is applied without updating statistics. A partial forward to `learner.final_feature_branch_key` uses eval, NoGrad, the Learner's autocast, and the default Context. IQN taus are unnecessary. Training RNG, PER statistics, normalization statistics, and network buffers remain unchanged, and execution modes are restored even on exceptions.
 
 Capture requests `TransformerEncoder/attention_entropy/`. Layer-count-length Tensors from each executed module are concatenated in execution order and transferred to CPU once for all layers. Results enter `BatchUpdateResult` with zero-based global indices, without further averaging or normalization. Unmeasured updates and insufficient samples return NaN through `GetScalar` without carrying values forward. Noninteger or negative indices fail fast during subscription; out-of-range indices fail at the first measurement with the key, layer count, valid range, and layer count for each populated capture key. A dependency closure without a Transformer stops because the capture prefix is unfulfilled. With no subscriptions, no sampling, extra forward, or entropy calculation occurs.
 
 Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../core/anet-core/testdata/prd093/README.md).
 
 ## 10. Tests and Extension Checklist
+
+When changing construction, configuration reading, intrinsic reward, or diagnostic responsibilities, use the [PRD128 validation assets](../../core/anet-core/testdata/prd128/README.md) for before/after comparisons across 34 configurations, continuation from an old checkpoint, Release performance, and metric-order mutation checks.
 
 When changing the TD/QR/IQN update flow, Munchausen evaluation, or Bellman target assembly, use the [PRD125 validation assets](../../core/anet-core/testdata/prd125/README.md) for baseline capture, comparisons across 31 configurations and BF16, numerical target checks, and Release performance comparisons.
 

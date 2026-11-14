@@ -18,6 +18,8 @@
 #include <vector>
 #include <wx/cmdline.h>
 
+static constexpr anet::seed_t kTestAgentSeed = 6000;
+
 using namespace anet;
 using namespace anet::rl;
 using namespace anet::rl::dqn;
@@ -409,7 +411,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         const auto spec = SoftEnvSpec();
         const auto update = [&]<typename ConcreteLearner>() {
             ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
-                device, 67010, policy, LearnerForwardResources{}, std::nullopt, 67011);
+                device, 67010, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67011);
             online->clear();
             target->clear();
             return learner.UpdateFromSamples(SoftSamples(device));
@@ -447,7 +449,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         torch::Tensor hard_actions;
         if (kind == "qr" && risk_mode == 1 && scenario == 2) {
             SoftHardSelector selector(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
-                device, 67010, policy, LearnerForwardResources{}, std::nullopt, 67011);
+                device, 67010, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67011);
             hard_actions = selector.SelectTargetActions(SoftSamples(device).next_state.next_obs, selector.MakeTargetEvaluation(false));
         }
         double expected_loss = 0.0;
@@ -623,7 +625,7 @@ TEST_CASE("Munchausen target capture exposes only next state rows", "[dqn][munch
     const auto spec = SoftEnvSpec();
     const auto update = [&]<typename ConcreteLearner>() {
         ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
-            device, 67030, policy, LearnerForwardResources{}, std::nullopt, 67031);
+            device, 67030, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67031);
         learner.ConfigureScalarMetricSubscriptions({
             ScalarMetricSubscription{ .source_key = "plasticity_feature_norm", .event = EventType::LEARN,
                 .interval = 1, .scope = RunnerScope::TRAIN },
@@ -701,13 +703,12 @@ TEST_CASE("Replay fit TD and quantile losses match independent fixed-distributio
     std::shared_ptr<const anet::rl::BatchUpdateResult> measured;
     const auto run = [&]<typename ConcreteLearner>() {
         ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
-            torch::kCPU, 73041, policy, LearnerForwardResources{}, std::nullopt, 73042);
-        RandomGenerator random(73043);
+            torch::kCPU, 73041, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 73042);
         std::vector<ScalarMetricSubscription> subscriptions;
         for (const auto* key : kReplayFitMetricKeys) subscriptions.push_back(ScalarMetricSubscription{
             .source_key = key, .event = EventType::LEARN, .target = EventField::UPDATE_RESULT,
             .interval = 1, .scope = RunnerScope::TRAIN });
-        learner.ConfigureScalarMetricSubscriptions(subscriptions, &random);
+        learner.ConfigureScalarMetricSubscriptions(subscriptions);
         const auto flags = torch::zeros({ 2 }, torch::kBool);
         const TensorDict obs{ { ObsKeys::kVector, torch::tensor({ { 1.0f, 3.0f }, { 1.0f, 3.0f } }) } };
         for (step_t step = 0; step <= 3; ++step) {
@@ -808,13 +809,12 @@ TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distribu
         const auto keep = [&](const torch::Tensor& value) { observed.push_back(value.detach().clone()); };
         const auto run = [&]<typename ConcreteLearner>() {
             ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
-                torch::kCPU, 73012, policy, LearnerForwardResources{}, std::nullopt, 73013);
-            RandomGenerator random(73014);
+                torch::kCPU, 73012, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 73013);
             std::vector<ScalarMetricSubscription> subscriptions;
             if (enabled) for (const auto* key : kReplayFitMetricKeys) subscriptions.push_back(ScalarMetricSubscription{
                 .source_key = key, .event = EventType::LEARN, .target = EventField::UPDATE_RESULT,
                 .interval = 1, .scope = RunnerScope::TRAIN });
-            learner.ConfigureScalarMetricSubscriptions(subscriptions, &random);
+            learner.ConfigureScalarMetricSubscriptions(subscriptions);
             const auto samples = SoftSamples(torch::kCPU);
             const auto flags = torch::zeros({ 2 }, torch::kBool);
             for (step_t step = 0; step < 9; ++step) {
@@ -937,7 +937,7 @@ TEST_CASE("DQN target evaluation preserves the PRD073 pre-change baseline", "[dq
         : std::shared_ptr<ActionPolicy>(std::make_shared<EpsilonGreedyActionPolicy>(policy_config));
     const auto run = [&]<typename ConcreteLearner>() {
         ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
-            device, 73001, policy, LearnerForwardResources{}, std::nullopt, 73002);
+            device, 73001, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 73002);
         // PER更新の対象slotを公開収集経路から用意し、実在する第1世代keyを使用する。
         const auto initial = SoftSamples(device);
         const auto flags = torch::zeros({ 2 }, torch::kBool);
@@ -1019,7 +1019,7 @@ TEST_CASE("PRD125 Bellman target preserves returns, discounts, and terminal bonu
     const auto spec = SoftEnvSpec();
     BellmanTargetReader learner(config, model, vars, nullptr,
         BatchEnvSpec{ .num_envs = kBatchSize, .num_threads = 2 }, spec,
-        torch::kCPU, 12501, policy, LearnerForwardResources{}, std::nullopt, 12502);
+        torch::kCPU, 12501, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 12502);
     auto samples = SoftSamples(torch::kCPU);
     samples.target_returns = torch::tensor({ 1.25f, -2.0f });
     samples.n_steps = torch::tensor({ 1, 3 }, torch::kInt64);

@@ -50,7 +50,8 @@ RND は、**固定した問題の答えを学習する小さなモデルを持�
 | 用語 | 意味 |
 | --- | --- |
 | Actor | 観測から行動を選ぶ部品。今回、RND を直接呼ぶ役割は持たない。 |
-| facade | 内側の部品をまとめる外側の窓口。ここでは `DefaultDQNAgent::UpdateFromBatch` が報酬の前処理を担当する。 |
+| facade | 内側の部品をまとめる外側の窓口。ここでは `DefaultDQNAgent::UpdateFromBatch` が入口となり、内的報酬の処理を `IntrinsicRewardCoordinator` へ委ねる。 |
+| `IntrinsicRewardCoordinator` | DefaultDQN の private な入れ子。推定器、βの予定と直近値、credit、lane抽選の乱数、累計学習回数、診断値を持ち、採点・補助学習・保存・Traceを担当する。 |
 | DQN Learner | Q 値を学習する内側の学習器。facade が合成した報酬を使う。 |
 | ReplayBuffer | 過去の経験を保存し、後から学習用に取り出す部品。経験には観測、行動、報酬、次観測などが含まれる。 |
 | batch・lane | batch はまとめて処理する観測の組、lane はその中の1つの環境の位置。B は lane 数。 |
@@ -125,7 +126,7 @@ NGU はエピソード内の報酬に一生の新しさの倍率を掛ける。�
 
 ### 3.1 同じ入力を2つの Network に入れる
 
-まずfacadeが選んだ観測をRND専用に正規化し、同じ入力をtargetとpredictorへ渡す。既定の `intrinsic.observation=next_state` は遷移の次観測、`state` は行動した観測を選ぶ。どちらもActorのframe stack前の最新1フレームである。
+まずCoordinatorが選んだ観測をRND専用に正規化し、同じ入力をtargetとpredictorへ渡す。既定の `intrinsic.observation=next_state` は遷移の次観測、`state` は行動した観測を選ぶ。どちらもActorのframe stack前の最新1フレームである。
 
 ```mermaid
 graph TD
@@ -210,7 +211,7 @@ $$
 - 大きな誤差でも上限 L を超えない。既定は `L=5`。
 - warm-up 中、採点履歴が無いとき、または `σ_e=0` のときは、全 lane で `α=1`。
 
-facade は、この倍率からボーナスを作る。
+Coordinator は、この倍率からボーナスを作る。学習の入口と Trace の採点は、共通の `CalculateBonus` を使う。
 
 `error_norm.use_centering=false` は平均を引かず、`α=1+e/σ_e` とする。clipped なら上限 L で切り、unclipped ならそのまま返す。分母は同じ誤差の標準偏差で、warm-up 中・統計が空・標準偏差0ではどちらも倍率1である。中心化と clip は独立して選べる。平均を引かないと普段の観測にも正の報酬が付き、長く生きる向きにも働くので、β の比較条件も合わせて読む。
 
@@ -241,19 +242,19 @@ $$
 | 順番 | 処理 | 使う状態・更新する状態 |
 | ---: | --- | --- |
 | 1 | 外的報酬をスケールする | 既存の reward scaler |
-| 2 | 次観測を正規化する | 今回の観測を入れる前の RND 観測統計 |
+| 2 | βを現在のexp stepで評価し、次観測を正規化する | `counts.exp_step` と今回の観測を入れる前のRND観測統計 |
 | 3 | target と predictor の出力から誤差を計算する | 更新前の predictor の重み |
 | 4 | 倍率 α を求める | 今回の誤差を入れる前の誤差統計 |
 | 5 | 観測・誤差の統計と採点した観測の件数を更新する | 全 lane が対象。既定の warm-up 中は誤差の統計を更新しない |
-| 6 | β を評価し、done をマスクしてボーナスを加える | `counts.exp_step` と今回の α |
-| 7 | facadeがcreditを加算し、学習可能な回数だけk laneずつ選んで `Learn` を呼ぶ | 手順5で更新した観測統計。各呼び出しで全k件を正規化・順伝播し、新しいグラフで学習する |
+| 6 | βを掛け、doneをマスクしたボーナスをAgentが加える | 現在のβと今回のα |
+| 7 | Coordinatorがcreditを加算し、学習可能な回数だけk laneずつ選んで `Learn` を呼ぶ | 手順5で更新した観測統計。各呼び出しで全k件を正規化・順伝播し、新しいグラフで学習する |
 | 8 | 合成済み報酬を含む経験を内側の Learner へ渡す | Q 学習と ReplayBuffer の既存経路 |
 
 先にpredictorを学習させてから誤差を測ると、「今回の観測に慣れた後」の点数になるため、どちらの統計モードも学習前に採点する。誤差統計の更新時点は方式によって異なり、whitenは今回の値を入れる前、variance_feedbackは今回の値を入れた後の基準を使う。
 
 `Estimate` は採点だけでなく手順5まで実行する。読み取り専用の問い合わせではないが、計算グラフは保持しない。`Learn` は渡された観測から独立して計算し、その時点の観測統計を読むだけで、統計を更新しない。このため、同じ生の観測でも採点時と学習時では正規化後の値が異なることがある。
 
-現在のfacadeはintakeの全観測で `Estimate` を1回呼び、creditに応じて0回以上 `Learn` を呼ぶ。公開API自体は同じ観測・順序・回数を要求しない。例えば2回採点してから別の観測を学習してもよく、既定の warm-up 中も `Learn` だけで学習できる。`Learn` はoptimizerを進めたらtrue、collect_errors または variance_feedback の warm-up 中ならfalseを返す。将来、行動時の採点とReplayの観測を使う補助学習を分けても、この口を利用できる。
+Coordinatorはintakeの全観測で `Estimate` を1回呼び、creditに応じて0回以上 `Learn` を呼ぶ。RNDの公開API自体は同じ観測・順序・回数を要求しない。例えば2回採点してから別の観測を学習してもよく、既定の warm-up 中も `Learn` だけで学習できる。`Learn` はoptimizerを進めたらtrue、collect_errors または variance_feedback の warm-up 中ならfalseを返す。将来、行動時の採点とReplayの観測を使う補助学習を分けても、この口を利用できる。
 
 ### 3.5 warm-up と lane の抽選
 
@@ -263,7 +264,7 @@ whitenのαはbatchの採点前の件数で判定し、閾値未満なら全lane
 
 `warmup_mode=collect_errors` は、warm-up 中も観測と誤差の統計を更新する一方、採点後の件数が閾値以下なら `Learn` がfalseを返す。variance_feedback の warm-up はこの形のままで、warmup_mode を使わない。ただし採点はlaneごとの採点前の件数で判定し、閾値をまたぐ batch の途中から通常の倍率になる。`warmup_steps=0` はどちらの warmup_mode でも初回から学習し、初回から誤差を統計に入れる。使わない warmup_mode が既定と違うときだけ構築時に1回 INFO を出す。
 
-学習の刻みはfacadeが持つ。kを `learn_batch_size` とし、intakeごとにcreditへ `N × learn_ratio / k` を足す。creditが1以上ならk件で1 step、1未満の端数は次へ残す。既定のratio=0.25・batch size=32なら、N=128では毎intakeに1 step、N=64では2 intakeに1 stepとなり、どちらも128経験あたり32件を1回学習する。learnerが有効でNがbatch sizeより小さいときは構築時に停止し、件数を縮めない。learner無効のRunではこの比較を行わない。
+学習の刻みはCoordinatorが持つ。kを `learn_batch_size` とし、intakeごとにcreditへ `N × learn_ratio / k` を足す。creditが1以上ならk件で1 step、1未満の端数は次へ残す。既定のratio=0.25・batch size=32なら、N=128では毎intakeに1 step、N=64では2 intakeに1 stepとなり、どちらも128経験あたり32件を1回学習する。learnerが有効でNがbatch sizeより小さいときは構築時に停止し、件数を縮めない。learner無効のRunではこの比較を行わない。
 
 抽選は1 intakeにつき1つのlane順列を作り、k件ずつ切り出す。同じlaneを複数stepで使わず、step数は `floor(N/k)` が上限になる。Nがkで割り切れず上限に当たった場合は、整数部分を含む未消費creditも次へ残す。`Learn` を呼んだ分のcreditはfalseでも消費し、warm-up明けのまとめ学習は行わない。成功したtrueだけを `learn_count` に数える。
 
@@ -275,6 +276,7 @@ whitenのαはbatchの採点前の件数で判定し、閾値未満なら全lane
 sequenceDiagram
     participant F as facade / UpdateFromBatch
     participant S as RewardScaler
+    participant C as IntrinsicRewardCoordinator
     participant R as RND estimator
     participant T as RND target
     participant P as RND predictor
@@ -283,7 +285,9 @@ sequenceDiagram
     participant N as NetworkModel
     F->>S: Scale(外的報酬)
     S-->>F: スケール済み外的報酬
-    F->>R: Estimate(次観測)
+    F->>C: AdvanceBeta(counts)
+    F->>C: ScoreBonus(experience, scaled_rewards)
+    C->>R: Estimate(次観測)
     R->>R: byte→float、更新前統計で正規化、H2D
     R->>T: forward(全lane、勾配なし)
     T-->>R: 教師の出力
@@ -291,11 +295,14 @@ sequenceDiagram
     P-->>R: 予測
     R->>R: 誤差とtarget出力のD2H、有限検査
     R->>R: 更新前の誤差統計でα、統計更新
-    R-->>F: α（入力と同じdevice）
-    F->>F: βと設定されたdoneマスクで内的報酬を合成
-    F->>F: credit += N × learn_ratio / k、lane順列を準備
+    R-->>C: α（入力と同じdevice）
+    C->>C: CalculateBonusと診断値の更新
+    C-->>F: β倍・終端マスク後のボーナス
+    F->>F: スケール済み外的報酬へ加算
+    F->>C: Learn(experience)
+    C->>C: credit += N × learn_ratio / k、lane順列を準備
     loop creditが1以上、最大floor(N/k)回
-        F->>R: Learn(k laneずつ、重複なし)
+        C->>R: Learn(k laneずつ、重複なし)
         opt learn_predictor、またはwarm-up後
         R->>R: 全k件を今の統計で正規化、H2D
         R->>T: forward(選択lane、勾配なし)
@@ -307,9 +314,10 @@ sequenceDiagram
         R->>P: 平均lossをbackward
         R->>O: step（predictorの重みを更新）
         end
-        R-->>F: optimizerを進めたか（bool）
-        F->>F: creditを1消費、trueならlearn_countを加算
+        R-->>C: optimizerを進めたか（bool）
+        C->>C: creditを1消費、trueならlearn_countを加算
     end
+    C-->>F: 補助学習の完了
     F->>L: 合成済み報酬を含む経験
     L->>N: Replayからの学習でNNの重みを更新
 ```
@@ -339,7 +347,8 @@ sequenceDiagram
 | --- | --- | --- |
 | 呼び出し側に何を公開するか | [`intrinsic.hpp`](../../core/anet-core/include/anet/intrinsic.hpp) の `LifelongNoveltyEstimator` と Factory | 倍率の採点、補助学習、診断、保存を公開し、RND 固有の構成を隠す |
 | 報酬をどこで加算するか | [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) の `UpdateFromBatch` | 既存の報酬スケール後に加算する |
-| 学習の刻みと抽選 | [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) の `UpdateFromBatch` | creditと名前付きseed `intrinsic.learn` の乱数をfacadeが持ち、k件ずつ渡す |
+| 学習の刻みと抽選 | [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) の `IntrinsicRewardCoordinator::Learn` | Coordinatorがcreditと名前付きseed `intrinsic.learn` の乱数を持ち、k件ずつ渡す |
+| 内的報酬の診断・Trace・保存 | 同ファイルの `IntrinsicRewardCoordinator` | `ScoreBonus` と `ScoreTrace` が共通のボーナス式を使い、`GetScalar`・`Save`・`Load`が診断と保存を受け持つ |
 | RND が何を所有するか | [`intrinsic_rnd.hpp`](../../core/anet-core/src/intrinsic_rnd.hpp) | target、predictor、optimizer、2種類の統計、採点した観測の件数を持つ |
 | 採点・学習の順番 | [`intrinsic_rnd.cpp`](../../core/anet-core/src/intrinsic_rnd.cpp) の `Estimate` / `Learn` | 採点後に統計を更新し、学習は渡された観測と現在の統計から独立して計算する |
 | 正規化の具体的な計算 | [`scaler_impl.cpp`](../../core/anet-core/src/scaler_impl.cpp) と [`scaler_impl.hpp`](../../core/anet-core/src/scaler_impl.hpp) | 共通の正規化・累積統計・保存処理を使う |
@@ -458,7 +467,7 @@ RND は predictor の重みだけでは再開できない。教師が変われ�
 
 RND本体は、whiten の EMA だけ `RndNoveltyEstimator-4`、累積と variance_feedback は `RndNoveltyEstimator-3` の識別子とstatistics_modeを先に書く。その後にtarget、predictor、optimizer、選択した方式の統計、target出力の累積統計、採点した観測件数を保存する。whitenは観測正規化と、累積なら既存 Welford、EMAなら重みの和・平均・二乗偏差を保存する。variance_feedbackはobs_m・obs_v・err_m・err_v・nを保存する。設定に対応する識別子か statistics_mode と違えば、双方の値を含むERRORでpayload読込前に拒否する。累積の書式と中身は変えないので、保存済みの -3 をそのまま読める。warmup_mode・use_centering・ema_steps・use_done_mask は保存せず、再開時の設定に従う。
 
-Agentはその後ろにfacadeの未消費credit、lane抽選の乱数状態、累計成功回数を保存する。RND本体を先に置き、異なる書式を本体の検査で拒否する。呼び出し途中を除き、初回採点前、EstimateとLearnの間、Learn直後で保存・復元できる。計算グラフは持ち越さない。直近lossは保存対象外で、読込後の最初の成功stepまではNaNとなる。
+CoordinatorはRND本体の後ろに自身の未消費credit、lane抽選の乱数状態、累計成功回数を保存する。RND本体を先に置き、異なる書式を本体の検査で拒否する。呼び出し途中を除き、初回採点前、EstimateとLearnの間、Learn直後で保存・復元できる。計算グラフは持ち越さない。直近lossは保存対象外で、読込後の最初の成功stepまではNaNとなる。Agentはこの節の保存・復元をCoordinatorの`Save`・`Load`へ委ねる。
 
 RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付けて区別する。保存側に RND があるのに読み込み側が無効、またはその逆の場合はエラーにする。無効時は従来の保存形式を使う。
 
@@ -486,7 +495,7 @@ DefaultDQNの`run.@rnd`では、235 `rnd_bonus`、600 `rnd_err`、610 `rnd_norm`
 | next_stateを採点しuse_done_mask=trueでdone | 誤差と標準化した値、ボーナス0 |
 | その他 | 誤差と標準化した値、β×(倍率−1) |
 
-βはAgentの構築時に予定をexp step 0で評価して用意し、以後は学習の有効・無効に依らず、学習の入口のexp stepで評価した値に更新する。推定器と同じ時機に写し、checkpointへ保存せず、読み込んでも上書きしない。評価専用・再開直後もボーナスが出る。新しいRunの起動直後は誤差統計が空で倍率が1なので、ボーナスは0になる。`intrinsic.observation=next_state`なら行に表示する結果の画面、`state`なら行動を決めた1つ前の画面を採点する。
+βはCoordinatorの構築時に予定をexp step 0で評価して用意し、以後は学習の有効・無効に依らず、学習の入口のexp stepで評価した値に更新する。推定器と同じ時機に写し、checkpointへ保存せず、読み込んでも上書きしない。評価専用・再開直後もボーナスが出る。新しいRunの起動直後は誤差統計が空で倍率が1なので、ボーナスは0になる。`intrinsic.observation=next_state`なら行に表示する結果の画面、`state`なら行動を決めた1つ前の画面を採点する。
 
 Actorが写しを持つ場合、行の値は最後のActor同期時点の学習側のpredictor・統計・βによる。同じ行のQも同じ時点のnetworkを使う。写しを持たない場合はそのstepで学習側を直接読む。値は行の生成時に1回保存し、過去の行の選択で採点し直さない。内的報酬の鍵を要求しないときは採点・写し・接続・追加のAgentロックを行わない。paneを閉じた間は採点も写しも休み、開いたときに写しが無ければ通常のActor同期を行う。
 
@@ -498,11 +507,11 @@ forwardで乱数を引くdropout・droppathは共有乱数列を進めるので�
 
 ### 5.1 計算する場所と費用
 
-名前付きseedは、RNDのtarget・predictorとfacadeのlane抽選で分ける。現在の通常の重み初期化はCPUの既定乱数生成器を使うため、構築中だけその状態を退避してseedを指定し、終了時に復元する。CPUで構築したモデルを必要なdeviceへ移す。
+名前付きseedは、RNDのtarget・predictorとCoordinatorのlane抽選で分ける。現在の通常の重み初期化はCPUの既定乱数生成器を使うため、構築中だけその状態を退避してseedを指定し、終了時に復元する。CPUで構築したモデルを必要なdeviceへ移す。
 
-入力はCPUでもCUDAでも受け取る。RND内部では観測をCPUへ移して正規化し、Factoryで指定した計算deviceへ送る。誤差の有限検査と統計はCPUで扱い、返すαは入力と同じdeviceに置く。facadeは先にlaneを選び、`Learn` は渡された全k件を正規化・転送する。CUDA入力の選択番号はintakeごとに1回、pinnedメモリから非同期で送る。laneごとの同期転送は置かない。
+入力はCPUでもCUDAでも受け取る。RND内部では観測をCPUへ移して正規化し、Factoryで指定した計算deviceへ送る。誤差の有限検査と統計はCPUで扱い、返すαは入力と同じdeviceに置く。Coordinatorは先にlaneを選び、`Learn` は渡された全k件を正規化・転送する。CUDA入力の選択番号はintakeごとに1回、pinnedメモリから非同期で送る。laneごとの同期転送は置かない。
 
-RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn_ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。GridMazeのCPU・256 laneで測った速度差は次節に記す。Atariの画像入力の費用は未測定であり、観測正規化の統計更新時には既存APIによる正規化の二重計算も残る。
+RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn_ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。GridMazeのCPU・256 laneで測った速度差は次節に記す。Atariの画像入力の費用も次節の測定結果を参照する。観測正規化の統計更新時には、既存APIによる正規化の二重計算も残る。
 
 variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md) に記録する。性能測定は別途である。
 
@@ -511,6 +520,8 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 `learner.enabled=false` ではRunに1回INFOを出して採点と補助学習を休止する。有効設定なら保存状態を扱うための部品は構築される。集約診断の読み取りは値の受け渡し専用の仕組みを使う。Evaluation Traceで写しを持つActorを使うときは、定期の同期と同じロックの中で推定器とβも写すので、定期同期のロック待ちの回数は増えない。paneを開いて写しが無いときは同期が1回入り、学習の入口1回の終わりを待つ。写しを持たないActorではstepごとに待つ。これはUIスレッドの学習ロック禁止規約の、開発者が決めた例外である。Actorの同期全体を学習側が写しを公開する形へ移すときは、推定器とβも一緒に移す。
 
 ### 5.2 確認済みの範囲
+
+構造の分離後の前後比較、旧checkpointの継続、Releaseの速度は [PRD128検証資材](../../core/anet-core/testdata/prd128/README.md)を参照する。
 
 誤差統計・warm-up・中心化・終端の mask の検証手順は [PRD123 検証資材](../../core/anet-core/testdata/prd123/README.md) にある。旧挙動を選ぶ collect_errors、variance_feedback、RND 無効の前後比較と、EMA の手計算・保存復元を区別する。KFM の効果確認は別の承認を受けてから行う。
 
