@@ -61,6 +61,7 @@ namespace anet::nn {
 
     /// 構築時にweightとbiasへ適用する初期化方式とその引数。
     struct WeightInitConfig {
+        static constexpr char kDefaultOwner[] = "WeightInitConfig"; ///< 設定元を指定しない場合の診断名。
         std::string mode = "xavier"; ///< default、xavier、he、orthogonal、constant、trunc_normal。
         double manual_gain = 0.0f; ///< orthogonalの手動gain。正値なら使用し、それ以外はnonlinearityから求める。
         std::string nonlinearity = "relu"; ///< heとorthogonalのgain計算に使う活性化名。
@@ -71,12 +72,14 @@ namespace anet::nn {
     };
 
     /// 初期化方式の列挙を検証する。関連する数値より先に列挙を検査する構築処理でも使う。
-    void ValidateWeightInitConfigMode(const WeightInitConfig& config, const std::string& owner);
+    void ValidateWeightInitConfigMode(const WeightInitConfig& config, const std::string& owner = WeightInitConfig::kDefaultOwner);
 
     /// 初期化設定の共通条件を検証する。ownerは診断に用いる設定キーの接頭辞。
-    void ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner = "WeightInitConfig");
+    void ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner = WeightInitConfig::kDefaultOwner);
 
-    /// 利用しない射影に明示された非既定値を、射影自身の既定と比較して通知する。
+    /// Linear射影を使わない構成（used=false）で、設定しても効かない値を知らせる。
+    /// 明示した値が射影の既定値と異なる場合だけ、設定キー・値・reasonをWARNで1回通知する。
+    /// ownerは設定キーの接頭辞、reasonは射影を使わない理由。used=trueでは何もしない。
     void ReportUnusedLinearProjectionConfig(const ConfigData& config, const std::string& owner, bool used, const std::string& reason);
 
     /// 射影の設定をNetwork構築前にも検証する。設定の解釈は具象の射影実装と共有する。
