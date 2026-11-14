@@ -85,6 +85,7 @@
 | [issue-20261103-61d771](issue-20261103-61d771.md) | 未着手 | 1.6 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD906](../../memo/906_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
 | [issue-20261110-adf548](issue-20261110-adf548.md) | 未着手 | 1.6 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | — | 未確認 | GridMaze に MiniGrid 互換の課題が無く、難しい探索の検証と DI-engine との比較に使えない |
 | [issue-20261113-d38960](issue-20261113-d38960.md) | 未着手 | 1.6 | — | 成果物 | 実装 | 110_runner_app, 324_dqn, 318_rl_core | UI | 性能改善 | — | 未確認 | EvalPanel のモデル同期が UI スレッドで学習ロックを待ち、画面の更新や操作応答を止め得る |
+| [issue-20261114-fbcbca](issue-20261114-fbcbca.md) | 未着手 | 1.6 | — | ハーネス | ハーネス保守 | — | 開発 | 機能改善 | — | 未確認 | ADR へのたどり方を改善する（wiki への取り込み遅れと漏れ、入口の方針、サブエージェントの経路） |
 | [issue-20261103-75b8da](issue-20261103-75b8da.md) | 未着手 | 1.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [PRD943](../../memo/943_nstep_target_correction_10prd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
 | [issue-20261103-e29c92](issue-20261103-e29c92.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 残件有り | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
 | [issue-20261103-df24e5](issue-20261103-df24e5.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 312_util | 基盤 | 不具合 | — | 判定不能 | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
