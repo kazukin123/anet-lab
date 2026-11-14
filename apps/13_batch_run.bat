@@ -81,6 +81,12 @@ SET "MERGE=DefaultDQNAgent.learner.skip.feature_gradient=merge"
 SET "FW10=app.batchrun.exp_exit_step=10000000 run.eval_schedule.[greedy].interval=15781"
 SET "EVTAU=DefaultDQNAgent.learner.enabled=false app.save_agent_on_close=false run.train.num_envs=1 app.batchrun.exp_exit_step=5 run.eval_schedule.[eval].interval=10 run.eval_schedule.[greedy].interval=10 run.eval_schedule.[greedy_single].interval=10 run.eval.[eval].eval_batch_size=16 run.eval.[eval].eval_episodes=100 run.eval.[greedy].eval_batch_size=16 run.eval.[greedy].eval_episodes=100 run.eval.[greedy_single].eval_batch_size=16 run.eval.[greedy_single].eval_episodes=100 DefaultDQNAgent.actor.[eval].policy.tau_rule.sample_mode=random DefaultDQNAgent.actor.[greedy].policy.tau_rule.sample_mode=random DefaultDQNAgent.actor.[greedy_single].policy.tau_rule.sample_mode=fixed run.eval_schedule.[eval].warmup_count=0 run.eval_schedule.[greedy].warmup_count=0 run.eval_schedule.[greedy_single].warmup_count=0"
 
+SET "VD003=DefaultDQNAgent.intrinsic.value_mode=decomposed DefaultDQNAgent.intrinsic.reward_scaler.constant_scale=0.03 DefaultDQNAgent.intrinsic.rnd.warmup_steps=200000"
+SET "VDMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@value_decomposition"
+SET "VDG1=metrics.scalar.[77_agent_value/41_greedy_disagree]=extrinsic_q_session_argmax_disagreement_rate $eval.[greedy] $actor @session_end"
+SET "VDG2=metrics.scalar.[77_agent_value/42_greedy_regret]=extrinsic_q_session_regret_mean $eval.[greedy] $actor @session_end"
+SET "VDG3=metrics.scalar.[77_agent_value/43_greedy_ext_gap]=extrinsic_q_session_gap_mean $eval.[greedy] $actor @session_end"
+SET "VDG4=metrics.scalar.[77_agent_value/44_greedy_int_gap]=intrinsic_q_session_gap_mean $eval.[greedy] $actor @session_end"
 call :use_ws AtariSub-01 Atari.txt
 echo === 1. freeway 10m seed 1: btr aligned, pixel_area, init default, munchausen log pi online, epsilon 1.0 to 0.01 with time constant 2M, greedy eval every 1.01M, no skip ===
 call :find_done a5_fw_aln_btreps_s1
@@ -207,6 +213,30 @@ if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.see
 echo === 39. kung_fu_master 10m seed 7: same as 36 ===
 call :find_done kfm_10m_b003w1m_s07
 if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %B003W1M% %EVFIX% "app.run_name=run_{t}_kfm_10m_b003w1m_s07"
+echo === 40. kung_fu_master 10m seed 4: same as 32 plus PRD121 value decomposition, intrinsic reward x0.03 and beta 1 (same effective weight as 32) ===
+call :find_done kfm_10m_vd_b1_s04
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %VD003% DefaultDQNAgent.intrinsic.beta=1 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b1_s04"
+echo === 41. kung_fu_master 10m seed 4: same as 40 but beta 3.3333 (same effective weight as 22) ===
+call :find_done kfm_10m_vd_b333_s04
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %VD003% DefaultDQNAgent.intrinsic.beta=3.3333 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b333_s04"
+echo === 42. kung_fu_master 10m seed 5: same as 40 with seed 5 ===
+call :find_done kfm_10m_vd_b1_s05
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %VD003% DefaultDQNAgent.intrinsic.beta=1 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b1_s05"
+echo === 43. kung_fu_master 10m seed 5: same as 41 with seed 5 ===
+call :find_done kfm_10m_vd_b333_s05
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %VD003% DefaultDQNAgent.intrinsic.beta=3.3333 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b333_s05"
+echo === 44. kung_fu_master 10m seed 6: same as 40 with seed 6 ===
+call :find_done kfm_10m_vd_b1_s06
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 %VD003% DefaultDQNAgent.intrinsic.beta=1 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b1_s06"
+echo === 45. kung_fu_master 10m seed 6: same as 41 with seed 6 ===
+call :find_done kfm_10m_vd_b333_s06
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 %VD003% DefaultDQNAgent.intrinsic.beta=3.3333 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b333_s06"
+echo === 46. kung_fu_master 10m seed 7: same as 40 with seed 7 ===
+call :find_done kfm_10m_vd_b1_s07
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %VD003% DefaultDQNAgent.intrinsic.beta=1 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b1_s07"
+echo === 47. kung_fu_master 10m seed 7: same as 41 with seed 7 ===
+call :find_done kfm_10m_vd_b333_s07
+if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %VD003% DefaultDQNAgent.intrinsic.beta=3.3333 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b333_s07"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
