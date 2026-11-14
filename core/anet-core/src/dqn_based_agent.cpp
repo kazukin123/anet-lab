@@ -34,18 +34,11 @@ static constexpr std::string_view kPlasticityProbePrefix = "plasticity_probe_";
 static constexpr std::string_view kPlasticityTargetPrefix = "plasticity_target_";
 static constexpr std::string_view kPlasticityPrefix = "plasticity_";
 
-static constexpr char kQOutputKey[] = "q";
-static constexpr char kQDistOutputKey[] = "q_dist";
-static constexpr char kExtrinsicQOutputKey[] = "extrinsic_q";
-static constexpr char kIntrinsicQOutputKey[] = "intrinsic_q";
-static constexpr char kExtrinsicQDistOutputKey[] = "extrinsic_q_dist";
-static constexpr char kIntrinsicQDistOutputKey[] = "intrinsic_q_dist";
 static constexpr char kExtrinsicQValues[] = "extrinsic_q_values";
 static constexpr char kIntrinsicQValues[] = "intrinsic_q_values";
 static constexpr char kConstantScheduleType[] = "constant";
 constexpr char kStepQSaKey[] = "q_sa";
 constexpr char kStepStateValueKey[] = "state_value";
-constexpr char kStepApproxPriorityKey[] = "approx_priority";
 constexpr char kStepExtrinsicQSaKey[] = "extrinsic_q_sa";
 constexpr char kStepIntrinsicQSaKey[] = "intrinsic_q_sa";
 constexpr char kStepExtrinsicStateValueKey[] = "extrinsic_state_value";
@@ -422,10 +415,15 @@ torch::Tensor anet::rl::dqn::PackActorQHint(
         ANET_SYSTEM_ERROR("PackActorQHint expected tensors on the same device. actor_q_sa="
             << actor_q_sa.device() << " actor_state_value=" << actor_state_value.device() << " munchausen_term=" << munchausen_term.device());
     }
-    for (const auto& value : {intrinsic_q_sa, intrinsic_state_value}) {
+    for (const auto& [name, value] : {std::pair{kStepIntrinsicQSaKey, intrinsic_q_sa},
+        std::pair{kStepIntrinsicStateValueKey, intrinsic_state_value}}) {
         if (!value.defined() || value.sizes() != actor_q_sa.sizes() || value.device() != actor_q_sa.device()) {
-            ANET_SYSTEM_ERROR("PackActorQHint requires matching intrinsic tensors. expected=" << actor_q_sa.sizes()
-                << " on " << actor_q_sa.device());
+            std::ostringstream actual;
+            if (value.defined()) actual << "shape=" << value.sizes() << " device=" << value.device();
+            else actual << "shape=undefined device=undefined";
+            ANET_SYSTEM_ERROR("PackActorQHint requires matching intrinsic tensor. tensor=" << name
+                << " " << actual.str() << " expected_shape=" << actor_q_sa.sizes()
+                << " expected_device=" << actor_q_sa.device());
         }
     }
     return torch::stack({ actor_q_sa, actor_state_value, munchausen_term, intrinsic_q_sa, intrinsic_state_value }, 1)
@@ -498,7 +496,7 @@ ActorQHintBatch anet::rl::dqn::DecodeActorQHint(const torch::Tensor& payload)
     }
     if (payload.dim() != 2 || payload.scalar_type() != torch::kFloat32
         || payload.size(1) != kActorQHintColumnCount) {
-        ANET_SYSTEM_ERROR("DQN Actor Q hint must be float32 [B,5]. actual=" << payload.sizes());
+        ANET_SYSTEM_ERROR("DQN Actor Q hint must be float32 [B," << kActorQHintColumnCount << "]. actual=" << payload.sizes());
     }
     return ActorQHintBatch{
         .actor_q_sa = payload.select(1, kActorQSaColumn),
@@ -513,7 +511,7 @@ ActorQHintRow anet::rl::dqn::DecodeActorQHint(std::span<const float> payload)
 {
     // ReplayBufferから渡されたopaque rowは、DQN推定器に入る時点でだけ列へdecodeする。
     if (payload.size() != kActorQHintColumnCount) {
-        ANET_SYSTEM_ERROR("DQN Actor Q hint must have K=5. actual=" << payload.size());
+        ANET_SYSTEM_ERROR("DQN Actor Q hint must have K=" << kActorQHintColumnCount << ". actual=" << payload.size());
     }
     return ActorQHintRow{
         .actor_q_sa = payload[kActorQSaColumn],
@@ -618,7 +616,7 @@ public:
         float DqnDiagnosticRow::* member = nullptr;
         if (key == kStepQSaKey) member = &DqnDiagnosticRow::q_sa;
         else if (key == kStepStateValueKey) member = &DqnDiagnosticRow::state_value;
-        else if (key == kStepApproxPriorityKey) member = &DqnDiagnosticRow::approx_priority;
+        else if (key == DqnComponentAssembler::kStepApproxPriorityKey) member = &DqnDiagnosticRow::approx_priority;
         else if (key == kStepExtrinsicQSaKey) member = &DqnDiagnosticRow::extrinsic_q_sa;
         else if (key == kStepIntrinsicQSaKey) member = &DqnDiagnosticRow::intrinsic_q_sa;
         else if (key == kStepExtrinsicStateValueKey) member = &DqnDiagnosticRow::extrinsic_state_value;
@@ -718,7 +716,7 @@ public:
             "DQN step diagnostics reward shape mismatch. expected_lanes=" << num_lanes_);
         anet::rl::AgentStepDiagnosticsResult result;
         std::vector<DqnDiagnosticRow> rows(static_cast<size_t>(num_lanes_));
-        result.pending_keys.assign(static_cast<size_t>(num_lanes_), compute_priority_ ? std::vector<std::string>{kStepApproxPriorityKey} : std::vector<std::string>{});
+        result.pending_keys.assign(static_cast<size_t>(num_lanes_), compute_priority_ ? std::vector<std::string>{DqnComponentAssembler::kStepApproxPriorityKey} : std::vector<std::string>{});
         for (int64_t i = 0; i < num_lanes_; ++i) {
             auto& lane = lanes_[i];
             anet::rl::ReplayInitialPriorityHintRow current;
@@ -759,7 +757,7 @@ public:
                     if (estimated) priority = *estimated;
                 }
                 result.completed.push_back({ .lane = i, .steps_back = lane.step - pending.start,
-                    .resolved_keys = {kStepApproxPriorityKey}, .values = std::make_unique<DqnAgentStepDiagnosticsValues>(
+                    .resolved_keys = {DqnComponentAssembler::kStepApproxPriorityKey}, .values = std::make_unique<DqnAgentStepDiagnosticsValues>(
                         std::vector<DqnDiagnosticRow>{{ .approx_priority = priority }}) });
             };
             // episode開始と将来Qの到着を、現在rewardを窓へ入れる前に処理する。
@@ -1415,14 +1413,14 @@ std::optional<int64_t> ParseActionFullQMarginKey(const std::string& key)
 static torch::Tensor MakeValueSelectionDiagnostics(const anet::TensorDict& output, float beta, bool use_tbo, float epsilon)
 {
     ANET_PROFILE_FUNC();
-    const auto mean = [&](const char* scalar, const char* distribution) {
+    const auto mean = [&](const std::string& scalar, const std::string& distribution) {
         const auto quantiles = output.Get(distribution);
         auto value = (quantiles ? *quantiles : output.At(scalar)).to(torch::kFloat32);
         if (use_tbo) value = InverseDecomposedValue(value, epsilon);
         return quantiles ? value.mean(2) : value;
     };
-    const auto external = mean(kExtrinsicQOutputKey, kExtrinsicQDistOutputKey);
-    const auto internal = beta * mean(kIntrinsicQOutputKey, kIntrinsicQDistOutputKey);
+    const auto external = mean(DecomposedHeadFactory::kExtrinsicQOutputKey, DecomposedHeadFactory::kExtrinsicQDistOutputKey);
+    const auto internal = beta * mean(DecomposedHeadFactory::kIntrinsicQOutputKey, DecomposedHeadFactory::kIntrinsicQDistOutputKey);
     const auto best_external = external.max(1);
     const auto best_combined_action = (external + internal).argmax(1);
     const auto disagreement = (best_combined_action != std::get<1>(best_external)).to(torch::kFloat32);
@@ -1763,12 +1761,12 @@ void DecomposedValueCombiner::Combine(anet::TensorDict& output, float beta, bool
         if (!use_tbo) return external + beta * internal;
         return dqn::TransformH(InverseDecomposedValue(external, epsilon) + beta * InverseDecomposedValue(internal, epsilon), epsilon);
     };
-    if (output.Get(kExtrinsicQDistOutputKey)) {
-        const auto distribution = combine(output.At(kExtrinsicQDistOutputKey), output.At(kIntrinsicQDistOutputKey));
-        output.Set(kQDistOutputKey, distribution);
-        output.Set(kQOutputKey, distribution.mean(-1));
+    if (output.Get(DecomposedHeadFactory::kExtrinsicQDistOutputKey)) {
+        const auto distribution = combine(output.At(DecomposedHeadFactory::kExtrinsicQDistOutputKey), output.At(DecomposedHeadFactory::kIntrinsicQDistOutputKey));
+        output.Set(HeadFactoryBase::kQDistOutputKey, distribution);
+        output.Set(HeadFactoryBase::kQOutputKey, distribution.mean(-1));
     } else {
-        output.Set(kQOutputKey, combine(output.At(kExtrinsicQOutputKey), output.At(kIntrinsicQOutputKey)));
+        output.Set(HeadFactoryBase::kQOutputKey, combine(output.At(DecomposedHeadFactory::kExtrinsicQOutputKey), output.At(DecomposedHeadFactory::kIntrinsicQOutputKey)));
     }
 }
 
@@ -2741,15 +2739,15 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     }
     if (actor_q_hint_config_.decomposed) {
         // IQNの追加full queryを、行動のrisk領域と初期優先度の近似へ混ぜない。
-        const auto component = [&](const char* q_key, const char* dist_key) {
+        const auto component = [&](const std::string& q_key, const std::string& dist_key) {
             auto distribution = act_info->forward_output.Contains(dist_key) ? act_info->forward_output.At(dist_key) : torch::Tensor();
             if (distribution.defined() && act_info->risk_num_taus > 0)
                 distribution = distribution.narrow(2, 0, act_info->risk_num_taus);
             const auto values = distribution.defined() ? distribution.mean(2) : act_info->forward_output.At(q_key);
             return std::pair(values, distribution);
         };
-        const auto [external_q, external_dist] = component(kExtrinsicQOutputKey, kExtrinsicQDistOutputKey);
-        const auto [internal_q, internal_dist] = component(kIntrinsicQOutputKey, kIntrinsicQDistOutputKey);
+        const auto [external_q, external_dist] = component(DecomposedHeadFactory::kExtrinsicQOutputKey, DecomposedHeadFactory::kExtrinsicQDistOutputKey);
+        const auto [internal_q, internal_dist] = component(DecomposedHeadFactory::kIntrinsicQOutputKey, DecomposedHeadFactory::kIntrinsicQDistOutputKey);
         act_info->GetAuxData()[kExtrinsicQValues] = external_q;
         act_info->GetAuxData()[kIntrinsicQValues] = internal_q;
         act_info->GetAuxData()[kExtrinsicActionScores] = policy_->MakeActionScores(external_q, external_dist, true, act_info->selection_taus);
@@ -3354,15 +3352,15 @@ std::pair<float, float> Learner::EvaluateReplayFit(const ExperienceSamples& inpu
     if (config_.intrinsic.decomposed) {
         const CurrentForwardResult state{.input = current_input, .output = current, .all_values = all};
         const auto targets = MakeDecomposedTargets(batch, normalized.obs, normalized.next_obs, state, evaluation);
-        const auto gather = [&](const char* key) {
+        const auto gather = [&](const std::string& key) {
             const auto& values = current.At(key);
             return distributional ? values.gather(1, batch.actions.view({size, 1, 1}).expand({size, 1, values.size(2)})).squeeze(1)
                 : values.gather(1, batch.actions.unsqueeze(1)).squeeze(1);
         };
         if (loss && config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) taus = taus.unsqueeze(2);
-        const auto external = ComputeElementError(gather(distributional ? kExtrinsicQDistOutputKey : kExtrinsicQOutputKey),
+        const auto external = ComputeElementError(gather(distributional ? DecomposedHeadFactory::kExtrinsicQDistOutputKey : DecomposedHeadFactory::kExtrinsicQOutputKey),
             targets.primary, taus, ElementErrorRequest{.td = td, .loss = loss});
-        const auto internal = ComputeElementError(gather(distributional ? kIntrinsicQDistOutputKey : kIntrinsicQOutputKey),
+        const auto internal = ComputeElementError(gather(distributional ? DecomposedHeadFactory::kIntrinsicQDistOutputKey : DecomposedHeadFactory::kIntrinsicQOutputKey),
             targets.intrinsic, taus, ElementErrorRequest{.td = td, .loss = loss});
         if (td) error.td = external.td.abs() + config_.intrinsic.priority_lambda * internal.td.abs();
         if (loss) error.loss = external.loss + config_.intrinsic.loss_weight * internal.loss;
@@ -3419,12 +3417,12 @@ void Learner::CaptureNoisyDiagnostics()
     anet::TrainingModeGuard training_guard(*network, false);
     auto mean_output = network->Forward(input);
     if (config_.intrinsic.decomposed) DecomposedValueCombiner::Combine(mean_output, intrinsic_beta_, config_.use_tbo, config_.tbo_epsilon);
-    const auto mean_q = mean_output.At(kQOutputKey);
+    const auto mean_q = mean_output.At(HeadFactoryBase::kQOutputKey);
     const auto metrics = MeasureNoisyQProbe(mean_q, config_.noisy_probe.num_draws, [&](int) {
         const anet::nn::NetworkForwardCallInfo info({.clock = ++noisy_.forward_clock});
         auto output = noisy_.sample_forward->Forward(input, info);
         if (config_.intrinsic.decomposed) DecomposedValueCombiner::Combine(output, intrinsic_beta_, config_.use_tbo, config_.tbo_epsilon);
-        return output.At(kQOutputKey);
+        return output.At(HeadFactoryBase::kQOutputKey);
     });
     for (size_t metric = NoisyMetric::QAbsDiff; metric < kNoisyMetricKeys.size(); ++metric) {
         if (request[metric]) noisy_.values[metric] = metrics[metric - NoisyMetric::QAbsDiff];
@@ -3541,7 +3539,7 @@ torch::Tensor Learner::ForwardPolicyChurnExpectedQ(bool target) const
     }
     auto output = network->Forward(input);
     if (config_.intrinsic.decomposed) DecomposedValueCombiner::Combine(output, intrinsic_beta_, config_.use_tbo, config_.tbo_epsilon);
-    const auto q = output.At(kQOutputKey);
+    const auto q = output.At(HeadFactoryBase::kQOutputKey);
     if (q.scalar_type() != torch::kFloat32) {
         ANET_SYSTEM_ERROR("Policy churn forward must produce float32 Q values. dtype="
             << c10::toString(q.scalar_type()) << ".");
@@ -3652,8 +3650,8 @@ void Learner::SetupOptimizer()
         for (const auto& entry : model_.GetOnlineNetwork()->GetNoisyParameterEntries()) sigma_ids.insert(entry.sigma.unsafeGetTensorImpl());
         std::array<std::vector<torch::Tensor>, 4> parameters;
         for (const auto& entry : model_.GetOnlineNetwork()->named_parameters()) {
-            const bool internal = entry.key().starts_with("head.intrinsic.");
-            if (internal || entry.key().starts_with("head.extrinsic.")) value_head_parameters_[internal ? 1 : 0].push_back(entry.value());
+            const bool internal = entry.key().starts_with(DecomposedHeadFactory::kIntrinsicParameterPrefix);
+            if (internal || entry.key().starts_with(DecomposedHeadFactory::kExtrinsicParameterPrefix)) value_head_parameters_[internal ? 1 : 0].push_back(entry.value());
             parameters[(internal ? 2 : 0) + (sigma_ids.contains(entry.value().unsafeGetTensorImpl()) ? 1 : 0)].push_back(entry.value());
         }
         if (config_.intrinsic.feature_gradient == LearnerConfig::kFeatureGradientSplit) {
@@ -4916,7 +4914,7 @@ CurrentForwardResult QuantileLearnerBase::ForwardCurrentQuantiles(const Experien
     const int64_t N = current_taus.defined() ? current_taus.size(1) : config_.num_quantiles;
     auto output = model_.ForwardOnlineWithTrain(input, *current_forward_, info, OnlineBranchCapture());
     if (config_.intrinsic.decomposed) DecomposedValueCombiner::Combine(output, intrinsic_beta_, config_.use_tbo, config_.tbo_epsilon);
-    const auto current_dist_all = output.At(kQDistOutputKey);
+    const auto current_dist_all = output.At(HeadFactoryBase::kQDistOutputKey);
     ANET_ASSERT_SHAPE(current_dist_all, { B, A, N });
     ANET_ASSERT_NAN(current_dist_all);
     const auto current_dist = GatherActionQuantiles(current_dist_all, samples.actions);
@@ -4928,7 +4926,7 @@ CurrentForwardResult QuantileLearnerBase::ForwardCurrentQuantiles(const Experien
         ordered_dist = current_dist.gather(1, order);
     }
     const auto upper_tail_std = CalculateQuantileTailStatistics(ordered_dist).upper_truncated_std;
-    auto metrics = MakeQuantileMetrics(current_dist, output.At(kQOutputKey));
+    auto metrics = MakeQuantileMetrics(current_dist, output.At(HeadFactoryBase::kQOutputKey));
     return CurrentForwardResult{
         .input = input, .output = std::move(output), .all_values = current_dist_all,
         .action_values = current_dist,
@@ -4974,7 +4972,7 @@ std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeMunchausenTarge
 {
     torch::NoGradGuard no_grad;
     const auto values = ForwardMunchausenValues(samples, obs, next_obs, current_dist_all, evaluation,
-        kQDistOutputKey, config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn);
+        HeadFactoryBase::kQDistOutputKey, config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn);
 
     // 分位点を個別に実空間へ戻し、方策と全分布混合をFP32で計算する。
     ANET_PROFILE_SCOPE(munchausen_target);
@@ -5279,7 +5277,7 @@ std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeTarget(
     auto input = next_obs;
     if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) input.Set(anet::nn::kKey_Taus, evaluation.target_taus(samples.actions.size(0)));
     const auto output = evaluation.forwards->target->Forward(input, evaluation.info, {}, evaluation.target_capture);
-    const auto next_dist = GatherActionQuantiles(output.At(kQDistOutputKey), actions);
+    const auto next_dist = GatherActionQuantiles(output.At(HeadFactoryBase::kQDistOutputKey), actions);
     const auto bootstrap = config_.use_tbo ? TransformHInv(next_dist) : next_dist;
     return { MakeBellmanTarget(samples, bootstrap), {} };
 }
@@ -5316,7 +5314,7 @@ std::pair<torch::Tensor, torch::Tensor> Learner::MakeTarget(
     torch::Tensor td_target;
     if (config_.munchausen.enabled) {
         torch::NoGradGuard no_grad;
-        const auto values = ForwardMunchausenValues(samples, obs, next_obs, q_all, evaluation, kQOutputKey, false);
+        const auto values = ForwardMunchausenValues(samples, obs, next_obs, q_all, evaluation, HeadFactoryBase::kQOutputKey, false);
 
         ANET_PROFILE_SCOPE(munchausen_target);
         const auto current_q = config_.use_tbo ? TransformHInv(values.current_values.to(torch::kFloat32)) : values.current_values.to(torch::kFloat32);
@@ -5379,8 +5377,8 @@ LearningTargets Learner::MakeDecomposedTargets(const ExperienceSamples& samples,
     const int64_t batch = samples.actions.size(0);
     const bool quantiles = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
     const bool iqn = config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn;
-    const auto external_key = quantiles ? kExtrinsicQDistOutputKey : kExtrinsicQOutputKey;
-    const auto internal_key = quantiles ? kIntrinsicQDistOutputKey : kIntrinsicQOutputKey;
+    const auto& external_key = quantiles ? DecomposedHeadFactory::kExtrinsicQDistOutputKey : DecomposedHeadFactory::kExtrinsicQOutputKey;
+    const auto& internal_key = quantiles ? DecomposedHeadFactory::kIntrinsicQDistOutputKey : DecomposedHeadFactory::kIntrinsicQOutputKey;
     const auto real = [&](const torch::Tensor& value) {
         return config_.use_tbo ? TransformHInv(value.to(torch::kFloat32)) : value.to(torch::kFloat32);
     };
@@ -5453,9 +5451,9 @@ LearningTargets Learner::MakeDecomposedTargets(const ExperienceSamples& samples,
         const auto action = action_info->GetAction(device_);
         auto external_action = action;
         if (config_.intrinsic.extrinsic_bootstrap_mode == LearnerConfig::kBootstrapExtrinsic) {
-            auto distribution = quantiles ? action_info->forward_output.At(kExtrinsicQDistOutputKey) : torch::Tensor();
+            auto distribution = quantiles ? action_info->forward_output.At(DecomposedHeadFactory::kExtrinsicQDistOutputKey) : torch::Tensor();
             if (iqn && action_info->risk_num_taus > 0) distribution = distribution.narrow(2, 0, action_info->risk_num_taus);
-            const auto values = quantiles ? distribution.mean(2) : action_info->forward_output.At(kExtrinsicQOutputKey);
+            const auto values = quantiles ? distribution.mean(2) : action_info->forward_output.At(DecomposedHeadFactory::kExtrinsicQOutputKey);
             // 同じτとforwardへ方策を当て、探索を除く。Thompsonも抽選済みτを使い直す。
             external_action = target_policy_->SelectFromValues(values, distribution, GetRandomGenerator(), iqn,
                 /*greedy_only=*/true, action_info->selection_taus);
@@ -5522,8 +5520,8 @@ Learner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
                 return values.gather(1, indices).squeeze(1);
             };
             const bool distribution = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
-            current.action_values = gather(current.output.At(distribution ? kExtrinsicQDistOutputKey : kExtrinsicQOutputKey));
-            current.intrinsic_action_values = gather(current.output.At(distribution ? kIntrinsicQDistOutputKey : kIntrinsicQOutputKey));
+            current.action_values = gather(current.output.At(distribution ? DecomposedHeadFactory::kExtrinsicQDistOutputKey : DecomposedHeadFactory::kExtrinsicQOutputKey));
+            current.intrinsic_action_values = gather(current.output.At(distribution ? DecomposedHeadFactory::kIntrinsicQDistOutputKey : DecomposedHeadFactory::kIntrinsicQOutputKey));
             current.current_mean = distribution ? current.action_values.mean(1) : current.action_values;
             const auto internal_mean = distribution ? current.intrinsic_action_values.mean(1) : current.intrinsic_action_values;
             // 表示するHead平均は出力空間のまま、割合だけは分位点ごとに逆変換した実空間で作る。
@@ -5611,7 +5609,7 @@ CurrentForwardResult Learner::ForwardCurrent(const ExperienceSamples& samples,
     const int A = n_actions_;
     auto output = model_.ForwardOnlineWithTrain(obs, *current_forward_, info, OnlineBranchCapture());
     if (config_.intrinsic.decomposed) DecomposedValueCombiner::Combine(output, intrinsic_beta_, config_.use_tbo, config_.tbo_epsilon);
-    const auto q_all = output.At(kQOutputKey);
+    const auto q_all = output.At(HeadFactoryBase::kQOutputKey);
     ANET_ASSERT_SHAPE(q_all, { B, A });
     const auto idx_actions = samples.actions.view({ B, 1 });
     ANET_ASSERT_SHAPE(idx_actions, { B, 1 });

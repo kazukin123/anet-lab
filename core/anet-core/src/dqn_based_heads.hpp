@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <string>
 #include "nn_impl.hpp"
 #include "anet/agent.hpp"
 
@@ -13,6 +14,9 @@ namespace anet::rl::dqn {
 
     class HeadFactoryBase : public anet::nn::NetworkHeadFactory {
     public:
+        static constexpr char kQOutputKey[] = "q";
+        static constexpr char kQDistOutputKey[] = "q_dist";
+
         HeadFactoryBase(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,
             const anet::ConfigData& projection_config = anet::EmptyConfigData);
         virtual ~HeadFactoryBase() = default;
@@ -26,6 +30,20 @@ namespace anet::rl::dqn {
     /// 既存の2つのHeadを同じNetworkの中で実行し、出力の意味を分ける。
     class DecomposedHeadFactory final : public anet::nn::NetworkHeadFactory {
     public:
+        static constexpr char kExtrinsicHeadName[] = "extrinsic";
+        static constexpr char kIntrinsicHeadName[] = "intrinsic";
+        static constexpr char kHeadKeySeparator[] = "_";
+        static constexpr char kHeadParameterPrefix[] = "head.";
+        static constexpr char kModuleSeparator[] = ".";
+        inline static const std::string kExtrinsicOutputPrefix = std::string(kExtrinsicHeadName) + kHeadKeySeparator;
+        inline static const std::string kIntrinsicOutputPrefix = std::string(kIntrinsicHeadName) + kHeadKeySeparator;
+        inline static const std::string kExtrinsicQOutputKey = kExtrinsicOutputPrefix + HeadFactoryBase::kQOutputKey;
+        inline static const std::string kIntrinsicQOutputKey = kIntrinsicOutputPrefix + HeadFactoryBase::kQOutputKey;
+        inline static const std::string kExtrinsicQDistOutputKey = kExtrinsicOutputPrefix + HeadFactoryBase::kQDistOutputKey;
+        inline static const std::string kIntrinsicQDistOutputKey = kIntrinsicOutputPrefix + HeadFactoryBase::kQDistOutputKey;
+        inline static const std::string kExtrinsicParameterPrefix = std::string(kHeadParameterPrefix) + kExtrinsicHeadName + kModuleSeparator;
+        inline static const std::string kIntrinsicParameterPrefix = std::string(kHeadParameterPrefix) + kIntrinsicHeadName + kModuleSeparator;
+
         DecomposedHeadFactory(std::shared_ptr<anet::nn::NetworkHeadFactory> extrinsic,
             std::shared_ptr<anet::nn::NetworkHeadFactory> intrinsic, bool dedicated, bool intrinsic_dueling);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;

@@ -28,7 +28,6 @@
 
 
 using namespace anet::rl::dqn;
-constexpr char kApproxPriorityKey[] = "approx_priority";
 namespace LOG = anet::log;
 
 // Agent全体の保存形式。第1版の識別子は既存primary checkpointのため保持する。
@@ -877,7 +876,7 @@ std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::CreateS
 {
     auto self = shared_from_this();
     const bool compute_priority = !config_.learner.intrinsic.decomposed
-        || std::ranges::find(request.keys, kApproxPriorityKey) != request.keys.end();
+        || std::ranges::find(request.keys, DqnComponentAssembler::kStepApproxPriorityKey) != request.keys.end();
     auto base = anet::rl::dqn::CreateStepDiagnosticsProvider(config_.learner, request.num_lanes,
         [self](const torch::Tensor& reward) {
             if (self->config_.learner.intrinsic.decomposed)
@@ -903,10 +902,10 @@ std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::Intrins
     IntrinsicStepDiagnosticsProvider::Score observe;
     std::shared_ptr<IntrinsicSnapshot> snapshot;
     const bool decomposed = self->config_.value_mode == DefaultDQNAgentConfig::kValueModeDecomposed;
-    const bool component_rewards = decomposed && std::ranges::find(request.keys, kApproxPriorityKey) != request.keys.end();
+    const bool component_rewards = decomposed && std::ranges::find(request.keys, DqnComponentAssembler::kStepApproxPriorityKey) != request.keys.end();
     if (self->lifelong_novelty_ && (requested != request.keys.end() || component_rewards)) {
         if (!request.actor)
-            ANET_SYSTEM_ERROR("Step diagnostics key='" << (requested != request.keys.end() ? *requested : std::string(kApproxPriorityKey))
+            ANET_SYSTEM_ERROR("Step diagnostics key='" << (requested != request.keys.end() ? *requested : std::string(DqnComponentAssembler::kStepApproxPriorityKey))
                 << "' requires an Actor; actual=null expected=Runner Actor.");
         snapshot = std::make_shared<IntrinsicSnapshot>([self] {
             return std::pair(self->lifelong_novelty_->Clone(), self->last_intrinsic_beta_);

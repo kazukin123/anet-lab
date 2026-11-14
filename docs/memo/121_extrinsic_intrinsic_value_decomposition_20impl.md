@@ -208,6 +208,17 @@ Claudeは初回から同じsession `e2ebfe8c-4750-4dfc-9e7f-f50f6eaf4086`を再�
 
 レビュー中に別作業の課題属性のcommitでHEADが`ce44a84c`へ進み、別作業13ファイルがステージされていた。新commitはPRD121の51対象に触れておらず、snapshotも同一だったため、判定・検証への影響はない。こちらからstage/commit/pushは行わず、そのindexを保持した。最終の結果記録だけを本節と課題へ追記し、コード・設定・テストには触れていない。EvalPanelの人手確認は未実施として残す。
 
+## 追加指摘への対応（2026-11-15）
+
+- 書き手と読み手が共有する値をクラスのメンバ定数へ統一する。`approx_priority` は `DqnComponentAssembler`、通常Headの出力鍵は `HeadFactoryBase` が持つ。分解Headの登録名・出力接頭辞・出力鍵・optimizerのパラメータ接頭辞は `DecomposedHeadFactory` が持ち、登録名と通常Headの出力鍵から組み立てる。Qヒントの診断に出す列数も `kActorQHintColumnCount` を使う。
+- `Learner::LoadCheckpoint` の内的optimizer設定の置換ログは、共通方針の失敗の扱いの表の第1行「checkpoint の値を今の設定で置換」に当たる。checkpointの学習率・weight decay・epsilonを現在の設定値で置換したとき、対象のgroupにつきRunごとに1回だけINFOを出す。ログのレベルと回数の実装は変更しない。
+- `PackActorQHint` の内的tensorの不整合は、tensor名、実際のshape・device、期待するshape・deviceを診断に含める。未定義tensorはshape・deviceを参照せず、`undefined` と表示する。両tensorについて未定義・shape不一致・device不一致を回帰テストで確認する。
+- 既存行の `q` / `q_dist`、`aux.find("q_values")`、`munchausen_terms` の直接書きは、今回とは別の指摘として対象外とする。演算・乱数・設定値を変えないため、性能測定は追加しない。
+- 検証: 追加テスト `[prd121-review-pack]` は修正前に6条件すべて失敗（`followup-red.xml`）。修正後の `[prd121-review-pack],[hint]` は5 case・79 assertionが失敗/ERROR/skip 0（`followup-hint.xml`）。Meta deviceのtensorを使い、GPUへの転送なしでdevice不一致を確認した。
+- 全体ビルドは `cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug'` と、同じコマンドのpresetを `x64-Release` に変えたものが両方成功した。標準出力・標準エラーは `.scratch/prd121/followup-debug-build.log` と `followup-release-build.log` に保存し、画面には末尾だけを返した。
+- 関連テストは `core/anet-core/bin/Debug/anet-core-test.exe '[prd121],[hint],[actor_initial_priority],[action_policy],[step_diagnostics],[prd127],[prd129],[dqn][munchausen],[nn][init],[scaler]' --reporter junit --out .scratch/prd121/followup-regression.xml` で実行し、24,856 assertionが失敗/ERROR/skip 0、142.353秒。通常ログと標準エラーは `.scratch/prd121/followup-regression.log` に保存し、画面には末尾とJUnitの集計だけを返した。ビルド・テストはセッションの完了通知を待ち、途中は進捗だけを確認した。
+- 自己点検: 実装品質確認観点の全項目を適用判定し、対象項目を確認した。変更範囲・定数の所有者と利用箇所・診断の実値・INFOの分類・追加テストの外部挙動を照合し、BOM保持・LF・重複文字列・禁止された表記・`git diff --check` の機械検査も成功した。設定・保存形式・演算・UI契約の変更は無い。
+
 ## 完了報告
 
 - 実施内容: PRD121の価値分解、Replay、最適化、報酬スケーラ、診断と保存を実装し、受入23項目の自動検証と性能3巡を完了した。

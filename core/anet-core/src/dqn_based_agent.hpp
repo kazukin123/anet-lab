@@ -1380,6 +1380,9 @@ namespace anet::rl::dqn {
 
     class DqnComponentAssembler {
     public:
+        /// Agentのstep診断で要求・完了を対応付ける鍵。
+        static constexpr char kStepApproxPriorityKey[] = "approx_priority";
+
         static std::shared_ptr<anet::nn::NetworkHeadFactory> CreateHeadFactory(
             const std::string& quantile_mode, bool dueling, int64_t num_actions, int num_quantiles,
             const anet::nn::WeightInitConfig& init,

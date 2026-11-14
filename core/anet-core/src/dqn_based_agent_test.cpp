@@ -7720,6 +7720,29 @@ TEST_CASE("DQN Actor Q hint schema packs and decodes five columns", "[dqn][per][
     CHECK_THROWS(dqn::DecodeActorQHint(std::span<const float>(row.data(), 1)));
 }
 
+TEST_CASE("Actor Q hint names invalid intrinsic tensors and their actual metadata", "[prd121][dqn][hint][prd121-review-pack]")
+{
+    const bool state_value = GENERATE(false, true);
+    const int invalid = GENERATE(0, 1, 2);
+    const auto primary = torch::zeros({2});
+    auto intrinsic_q = torch::zeros_like(primary);
+    auto intrinsic_value = torch::zeros_like(primary);
+    torch::Tensor bad;
+    if (invalid == 1) bad = torch::zeros({3});
+    if (invalid == 2) bad = torch::empty({2}, torch::TensorOptions().device(c10::DeviceType::Meta));
+    (state_value ? intrinsic_value : intrinsic_q) = bad;
+    const auto name = state_value ? "intrinsic_state_value" : "intrinsic_q_sa";
+    const auto shape = invalid == 0 ? "shape=undefined" : invalid == 1 ? "shape=[3]" : "shape=[2]";
+    const auto device = invalid == 0 ? "device=undefined" : invalid == 1 ? "device=cpu" : "device=meta";
+    CAPTURE(state_value, invalid);
+    CHECK_THROWS_WITH(dqn::PackActorQHint(primary, primary, primary, intrinsic_q, intrinsic_value),
+        Catch::Matchers::ContainsSubstring(name)
+        && Catch::Matchers::ContainsSubstring(shape)
+        && Catch::Matchers::ContainsSubstring(device)
+        && Catch::Matchers::ContainsSubstring("expected_shape=[2]")
+        && Catch::Matchers::ContainsSubstring("expected_device=cpu"));
+}
+
 TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn][per][actor_initial]")
 {
     auto q_values = torch::tensor({
