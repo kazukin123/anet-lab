@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:4a0d5ce4f4673ad5fc1049a6a1630269340bb75f date:2026-11-14 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:09b43abbdfc14406a13e1213a738ed0ab3eebfbb date:2026-11-14 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -32,6 +32,8 @@ DQN-specific Q-value schemas and learning formulas, MuZero-specific buffers, and
 - Per-lane Rewards
 - Next `BatchState`, including terminal states
 
+Runner rewards have shape `[N]`. Only Agents using multiple reward components change the rewards passed from intake to Replay to `[N,C]`. Construction-time `ReplayBufferConfig.reward_component_count` fixes C (default 1). Single-component shapes and operation order remain unchanged. The consuming Agent owns component semantics.
+
 Runner clones State, Reward, and next State at the required boundaries to detach Experiences from storage reused by Env.
 Runner obtains the state for its next action from the Step result's `continue_state`. Terminal lanes are automatically Reset inside Step, while `next_state` stored in ReplayBuffer preserves the terminal observation before Reset.
 
@@ -39,8 +41,8 @@ Runner obtains the state for its next action from the Step result's `continue_st
 
 | Operation | Current contract |
 |---|---|
-| `Push(batch_exp, gamma)` | Accepts one step of Experience with the construction-time `num_envs` lane count. `BatchState::episode_start == true` must hold only for each lane's first input and the input after a preceding `done || truncated`; all lanes are preflighted before any write. `DefaultReplayBuffer` immediately copies Observation, Action, info, and the history-start flag into preallocated storage and queues lightweight per-lane records for N-step finalization |
-| `Sample(out_samples, minibatch_size, beta, gamma)` | Requires `Size() >= minibatch_size` and constructs a minibatch from sampleable transitions. Insufficient data stops with an assertion rather than silently reducing batch size |
+| `Push(batch_exp, gammas)` | Accepts one step of Experience with the construction-time `num_envs` lane count and one discount per component. `BatchState::episode_start == true` must hold only for each lane's first input and the input after a preceding `done || truncated`; all lanes are preflighted before any write. `DefaultReplayBuffer` immediately copies Observation, Action, info, and the history-start flag into preallocated storage and queues lightweight per-lane records for N-step finalization |
+| `Sample(out_samples, minibatch_size, beta, gammas)` | Accepts one discount per component. Requires `Size() >= minibatch_size` and constructs a minibatch from sampleable transitions. Insufficient data stops with an assertion rather than silently reducing batch size |
 | `Size()` | Returns sampleable transitions after applying stack history margins and additional future margins for windows to ready ranges and excluding dummy slots, rather than the raw stored-slot count |
 | `UpdatePriorities(item_keys, priorities)` | With PER, applies raw priorities to generation-aware keys and returns applied/stale counts. Uniform sampling performs no updates |
 
@@ -54,9 +56,9 @@ Keys are `generation * actual_capacity + flat_slot_index`, not physical indices,
 
 For each Env lane, `ValidIndexManager` manages ready ranges: logical intervals not overwritten and satisfying future-side N-step/unroll requirements. Uniform sampling, PER, `Size()`, visualization accessors, and `DumpToLog()` share sampleable ranges obtained by applying the post-wrap history margin (`stack_count - 1`), the additional future margin when a window is configured, and dummy-slot exclusion. Before wrap, or with `stack_count == 1`, the history margin is zero. Section 6.1.1 defines window future-side requirements. `InitialPriorityCompleter` and eviction statistics use ready ranges because they need neither past stack history nor windows.
 
-Push, Sample, uniform probes, and sampling-history probes receive the current γ from the caller; builders and extractors do not retain γ persistently. Push stores the existing n-step return using that γ. Entries awaiting initial-priority completion retain the bootstrap discount evaluated at the same Push.
+Push, Sample, uniform probes, and sampling-history probes receive a vector of current component discounts from the caller; builders and extractors do not retain γ persistently. Push stores each component's n-step return using its γ. Entries awaiting initial-priority completion retain component returns and bootstrap discounts evaluated at the same Push.
 
-With constant γ, stored returns are returned unchanged. Only configurations with scheduled γ add a snapshot of each sampled start's step rewards to `ExperienceSamples`, zero-padded to length N (J for windows). `FinalizeReturns(gamma)` computes returns with the same reverse-order sum as the existing builder, using the same γ as bootstrapping. Actual done/truncated lengths follow existing `n_steps` and window lengths. Snapshots are transferred through `To` and `ForEachTensor`.
+With constant γ, stored returns are returned unchanged. Only configurations with scheduled γ add a snapshot of each sampled start's step rewards to `ExperienceSamples`, zero-padded to length N (J for windows). `FinalizeReturns(gammas)` computes returns with the same reverse-order sum as the existing builder, using the same γ as bootstrapping. With multiple components, only components selected by `recompute_reward_components` are recomputed; constant components retain stored values. Returns have shape `[B]` for one component or `[B,C]` for multiple components; step-reward snapshots have shape `[B,N]` or `[B,N,C]`, respectively. Actual done/truncated lengths follow existing `n_steps` and window lengths. Snapshots and recomputation flags are transferred through `To` and `ForEachTensor`.
 
 Prefetch retains the snapshot taken at sampling and finalizes returns with γ at the point the consumer's `Sample` returns. It does not reread the original storage after ring overwrite. Window returns and diagnostic sampling follow the same contract. β still uses the value at sampling request time, separately from γ finalization.
 
@@ -73,7 +75,7 @@ History lost through ring overwrite is not an episode boundary and is not padded
 ### 2.4 PER
 
 Prioritized Experience Replay samples indices according to priorities and computes Importance Sampling weights from their probabilities.
-Initial sources are `fixed_initial`, `max_initial`, or `actor_initial`; after learning, `learner_updated`; invalid slots use `none`. Sources distinguish zero priority from invalidation. Actor approximation mode carries the starting step's initial-priority hint as an opaque row until N-step finalization, then combines it with a bootstrap hint at the ready boundary. The shared layer does not interpret columns; an injected `InitialPriorityEstimator` validates the schema and estimates priority. True terminals use an empty bootstrap span. Truncation validates the starting hint before falling back to max initialization. Nonfinite hints or estimates fail fast in Debug builds and fall back to max initialization in `NDEBUG` builds. See [DQN Agents](200_dqn_agents.en.md) for DQN's `K = 3` schema and formula.
+Initial sources are `fixed_initial`, `max_initial`, or `actor_initial`; after learning, `learner_updated`; invalid slots use `none`. Sources distinguish zero priority from invalidation. Actor approximation mode carries the starting step's initial-priority hint as an opaque row until N-step finalization, then combines it with a bootstrap hint at the ready boundary. The shared layer does not interpret columns; an injected `InitialPriorityEstimator` validates the schema and estimates priority. True terminals use an empty bootstrap span. Truncation validates the starting hint before falling back to max initialization. Nonfinite hints or estimates fail fast in Debug builds and fall back to max initialization in `NDEBUG` builds. Component returns and discounts are also passed to the estimator. See [DQN Agents](200_dqn_agents.en.md) for DQN's schema and formula.
 
 Learner computes new priorities from TD errors or similar values and calls `UpdatePriorities(item_keys, priorities)` with sampled keys. The entire update batch is preflighted: negative keys, generation 0/future generations, length mismatches, or negative/nonfinite priorities prevent partial application. Only past generations are rejected per element. `ReplayPriorityUpdateResult` returns applied/stale counts and comparison statistics between Actor initial and Learner-updated priorities. Duplicate keys use input-order last-wins semantics.
 Uniform samplers also expose known PER scalar keys, returning NaN when PER is disabled.
@@ -180,7 +182,7 @@ sequenceDiagram
     participant X as ExperienceSampleExtractor
 
     R->>L: UpdateFromBatch(BatchExperience)
-    L->>B: Push(experience, gamma)
+    L->>B: Push(experience, gammas)
     B->>Q: laneごとの遷移を追加
     Q-->>B: 確定したtarget return / terminal
     B->>V: ready rangeを更新
@@ -188,7 +190,7 @@ sequenceDiagram
         B->>P: 初期priorityとsourceを確定
     end
     alt warmupと更新条件を満たす
-        L->>B: Sample(minibatch_size, beta, gamma)
+        L->>B: Sample(minibatch_size, beta, gammas)
         B->>V: GetValidIndices1D()
         V-->>B: sampleable indices
         B->>S: SampleIndices(sampleable indices, beta)
@@ -205,6 +207,8 @@ sequenceDiagram
 ```
 
 ### 6.1.1 Variable-Length Windows at Sampling
+
+If two or more components are combined with a window rule, construction rejects the configuration and reports the component count and window-rule presence. Window returns are not expanded into components.
 
 Independently of n-step finalization, Push retains each transition's one-step reward, done/truncated flags, and `BatchActionInfo.info["decision"]`. decision is a bool vector over lanes; if omitted, every lane is treated as making a decision. Dummy slots after truncation store only terminal observations and cannot occur inside a window.
 
@@ -264,6 +268,7 @@ Before any future starts, `Push` delegates synchronously to the inner buffer. Du
 | Setting | Meaning |
 |---|---|
 | Replay capacity | Requested total capacity across lanes, rounded down to a multiple of lane count |
+| `reward_component_count` / `recompute_reward_components` | Construction-time component count and flags selecting components whose returns are recomputed after sampling. The default is one component |
 | `n_step` / `recompute_returns_on_sample` | Future horizon of target returns and whether reward snapshots are retained for scheduled γ. The latter is an internal setting derived from DQN's γ type |
 | Sampler type | Uniform or prioritized |
 | `per_alpha` | Strength of priority influence on sampling probability |
@@ -320,6 +325,8 @@ Eviction statistics use ready ranges. Since evicted slots have already been unsa
 
 ### 7.6 Checkpoints
 
+Component step rewards and returns are also excluded from persistence. Component counts and recomputation flags are reconstructed from the new Run's consuming configuration.
+
 The current shared ReplayBuffer is not serialized in Agent archives. Loading a DQN checkpoint initializes these as new:
 
 - Storage contents, slot generations, valid indices, N-step queues
@@ -331,7 +338,7 @@ DQN's warmup latch and PER beta are also excluded. Loading therefore restarts wa
 
 ### 7.7 Uniform Sampling without Replacement for Probes
 
-`SampleUniqueUniform(out, batch_size, random, gamma)` returns a unique CPU batch sampled uniformly without replacement from sampleable indices, with IS weights set to 1. The caller owns the RNG; ReplayBuffer stores no probe RNG. If insufficient items exist, it returns `false` without changing output or caller RNG. Selecting all indices consumes no RNG, but when a window is configured, selecting each start's length uses the caller RNG. It does not touch the ordinary sampler, priorities, `MarkSampledOnce`, or eviction statistics.
+`SampleUniqueUniform(out, batch_size, random, gammas)` returns a unique CPU batch sampled uniformly without replacement from sampleable indices, with IS weights set to 1. The caller owns the RNG; ReplayBuffer stores no probe RNG. If insufficient items exist, it returns `false` without changing output or caller RNG. Selecting all indices consumes no RNG, but when a window is configured, selecting each start's length uses the caller RNG. It does not touch the ordinary sampler, priorities, `MarkSampledOnce`, or eviction statistics.
 
 DQN's inner Learner constructs and owns independent `RandomGenerator` Resources from the Agent's base seed and names `plasticity_probe` and `policy_churn_probe`, passing them to each sample call. Their sequences continue across subscription reconfiguration. Policy-churn activation or cadence therefore changes neither ordinary Replay sampling nor plasticity-probe sequences. Each caller's base seed determines reproducibility; ReplayBuffer does not implicitly derive probe sequences from its own seed.
 
@@ -339,7 +346,7 @@ DQN's inner Learner constructs and owns independent `RandomGenerator` Resources 
 
 ### 7.8 Probes by Sampling History
 
-`ProbeSamplingHistory(request, random, gamma)` partitions sampleable entries from the same storage/metadata snapshot into never-sampled U and sampled S using existing `sampled_once_`. Ordinary Sample, including prefetched samples, moves entries to S; replacement by a new generation on ring Push returns them to U. Dummies and history margins are excluded.
+`ProbeSamplingHistory(request, random, gammas)` partitions sampleable entries from the same storage/metadata snapshot into never-sampled U and sampled S using existing `sampled_once_`. Ordinary Sample, including prefetched samples, moves entries to S; replacement by a new generation on ring Push returns them to U. Dummies and history margins are excluded.
 
 `counts` returns both group populations and mean ages. Age is the difference between the lane's write cursor and retained logical index, measured in Pushes to that lane including episode-end dummies. Dummies themselves do not contribute to the average. Empty groups have NaN mean age. Population-only requests create no candidate Tensors, sampling RNG, or Experience batches.
 
@@ -348,6 +355,8 @@ DQN's inner Learner constructs and owns independent `RandomGenerator` Resources 
 The Prefetching version uses the same FIFO wait as existing probes, settling accepted Push and prefetch operations before delegation while retaining the next ordinary batch. For DQN group extraction, the inner Learner constructs and owns its RNG at construction from the Agent's base seed and name `replay_fit_probe`, retaining it across subscription reconfiguration.
 
 ## 8. Tests and Extension Checks
+
+- [PRD121 validation](../../core/anet-core/testdata/prd121/README.md): component returns and discounts, constant preservation and scheduled recomputation, initial priorities, window rejection, and single-component equivalence.
 
 - [PRD128 validation](../../core/anet-core/testdata/prd128/README.md): transfer, traversal, and string formatting of every field; preservation of undefined Tensors on CPU/CUDA; comparison with the original executable.
 - [PRD104 validation](../../core/anet-core/testdata/prd104/README.md): action-change and episode-end windows, terminal/dummy boundaries, ring wrap and transfer.

@@ -70,8 +70,14 @@ namespace anet::nn {
         double trunc_b = 2.0; ///< trunc_normalの切断区間の上限。
     };
 
+    /// 初期化方式の列挙を検証する。関連する数値より先に列挙を検査する構築処理でも使う。
+    void ValidateWeightInitConfigMode(const WeightInitConfig& config, const std::string& owner);
+
     /// 初期化設定の共通条件を検証する。ownerは診断に用いる設定キーの接頭辞。
     void ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner = "WeightInitConfig");
+
+    /// 利用しない射影に明示された非既定値を、射影自身の既定と比較して通知する。
+    void ReportUnusedLinearProjectionConfig(const ConfigData& config, const std::string& owner, bool used, const std::string& reason);
 
     /// 射影の設定をNetwork構築前にも検証する。設定の解釈は具象の射影実装と共有する。
     void ValidateLinearProjectionConfig(const ConfigData& config, const std::string& owner = "LinearProjection");

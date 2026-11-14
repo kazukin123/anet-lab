@@ -154,7 +154,7 @@ _Avoid_: 時間の両端とlaneの両端を兼ねる記法（意味が二義的�
 _Avoid_: Actor優先度, Actor priority, Actor-computed priority, final priority
 
 **Actor Qヒント**:
-Replay初期優先度ヒントへ格納するDQN固有payload。実行行動の価値、bootstrap用の状態価値、Munchausen項（OFFでは0）をActorから初期優先度推定器へ渡す。
+Replay初期優先度ヒントへ格納するDQN固有payload。実行行動の価値、bootstrap用の状態価値、Munchausen項（OFFでは0）、内的Headの実行行動の価値とbootstrap用の状態価値をActorから初期優先度推定器へ渡す。常時5列で、価値の分解が無効なら内的の2列は0である。
 _Avoid_: Actor優先度, Actor priority, Actor TD error, final priority
 
 **近似Actor初期優先度**:

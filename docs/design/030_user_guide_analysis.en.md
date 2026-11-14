@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:37424fbe55b597543eda28b62489a44b181978b5 date:2026-11-10 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:82a646720e86b833fdf10a966d82fb49bca9ee52 date:2026-11-14 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -287,6 +287,29 @@ Compare periods of sustained decline in each layer's value with periods when res
 
 > [!NOTE]
 > Do not compare these values with TQL's target of 0.8; the aggregation methods differ.
+
+### 4.11 Reading Extrinsic and Intrinsic Values
+
+Append `metrics.scalar.@value_decomposition` to the existing metrics selection chain to record optional group `77_agent_value`. Keep existing terms so replacing the chain does not drop other metrics. It is not selected by default. First check resolved intrinsic.value_mode, learning and Actor beta, gamma, terminal mode, bootstrap, loss_weight, priority_lambda, feature_gradient, and the intrinsic scaler.
+
+| Tag suffix | Interpretation |
+|---|---|
+| `01_ext_loss`, `02_int_loss` | Per-Head losses after IS weighting. Intrinsic loss excludes loss_weight. Total loss is extrinsic + loss_weight × intrinsic |
+| `03_ext_q`, `04_int_q` | Selected-action Q in learning samples; Head output space when TBO is enabled |
+| `05_int_share` | Sample mean of the real-space share of abs(β Q_int); samples with both values zero contribute zero. Separate from intake-reward bonus_share |
+| `06_reward_scale` | Current intrinsic reward-scaler multiplier; check when dynamic scaling changes its scale |
+| `07_ext_head_grad`, `08_int_head_grad` | Head gradient norms before clipping; intrinsic uses the weighted loss |
+| `09_ext_grad`, `10_int_grad` | Full gradient norms per loss before clipping in split mode; unavailable in merge mode |
+| `11_disagree_rate`, `12_regret` | Training-Actor disagreement between extrinsic-only and combined argmax, and extrinsic value forgone by the combined selection |
+| `13_ext_gap`, `14_int_gap` | Top-two-action gaps for extrinsic and beta-weighted intrinsic values |
+| `21`–`24`, `31`–`34` | eval/eval_target session aggregates: disagreement, forgone extrinsic value, extrinsic gap, intrinsic gap |
+
+> [!NOTE]
+> The four Actor diagnostics use real-space mean Q, separately from UQE scores or actions after epsilon exploration. Forced-action replacement does not change them. With one action, top-two gaps are unavailable, while disagreement and forgone value are zero. Sessions sum lane × step values before dividing, so their results need not equal a simple mean of step averages.
+
+Do not replace unavailable values from empty sessions, combined mode, or before learning with zero.
+
+The ten loss/gradient/Q rows use learn_step; four training-Actor rows use train_step; evaluation-session values use training exp_step. Check axes even within the same tag group. See the [Run Execution User Guide](020_user_guide_run.en.md#65-inspecting-transitions-with-evaluation-trace) for per-Head Evaluation Trace columns.
 
 ## 5. Analyzing Optuna Results
 

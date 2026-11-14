@@ -754,16 +754,30 @@ std::vector<SingleExperience> BatchExperience::ToExperienceList() const
 // ExperienceSamples
 // =============================================================
 
-void ExperienceSamples::FinalizeReturns(float gamma)
+void ExperienceSamples::FinalizeReturns(const std::vector<float>& gammas)
 {
     if (!sampled_rewards.defined() && !sampled_window_rewards.defined()) return;
     ANET_PROFILE_FUNC();
     // ExperienceBuilderと同じ逆順のfloat演算で、消費時の収益を確定する。
-    const auto evaluate = [gamma](const torch::Tensor& rewards, torch::Tensor& result) {
+    const auto evaluate = [&](const torch::Tensor& rewards, torch::Tensor& result) {
         if (!rewards.defined()) return;
+        if (gammas.empty()) ANET_SYSTEM_ERROR("Return discounts count=0; expected at least one component.");
+        if (rewards.dim() == 3) {
+            if (gammas.size() != static_cast<size_t>(rewards.size(2)))
+                ANET_SYSTEM_ERROR("Return discounts count=" << gammas.size() << "; expected " << rewards.size(2) << ".");
+            auto values = torch::zeros({rewards.size(0), rewards.size(2)}, rewards.options());
+            // 各成分の演算順序は単一成分と同じ逆順に保つ。
+            for (int64_t component = 0; component < rewards.size(2); ++component) {
+                auto value = values.select(1, component);
+                for (int64_t offset = rewards.size(1); offset-- > 0;)
+                    value.copy_(rewards.select(1, offset).select(1, component) + gammas[component] * value);
+            }
+            result = recompute_reward_components.defined() ? torch::where(recompute_reward_components, values, result) : values;
+            return;
+        }
         result = torch::zeros({rewards.size(0)}, rewards.options());
         for (int64_t offset = rewards.size(1); offset-- > 0;) {
-            result = rewards.select(1, offset) + gamma * result;
+            result = rewards.select(1, offset) + gammas.front() * result;
         }
     };
     evaluate(sampled_rewards, target_returns);

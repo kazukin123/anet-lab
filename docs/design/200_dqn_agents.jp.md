@@ -254,17 +254,19 @@ logラダーは `max(端, 1e-4)` の列を指定端へ線形に伸縮する。cl
 
 内側の`dqn::Learner`はCPU上の共通ReplayBufferを所有し、ExperienceをPushしてからwarmup、sample可能数、update creditを確認する。更新可能な間はminibatchをsampleし、学習deviceへ移してTDまたはquantile lossを計算する。N-step、frame stack、generation-aware item key、PER、prefetchの共通contractは[ReplayBuffer](150_replay_buffer.jp.md)を正本とする。
 
-PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存forwardからDQN固有の`float32[B,3]` hintを作る。列は次の順序である。
+PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存forwardからDQN固有の`float32[B,5]` hintを作る。combinedの列は次の順序である。分解時の前3列は外的Headの値とし、内的の2列も使う。
 
 | 列 | 値 |
 |---:|---|
 | 0 | 実際に選択したActionのaction score |
 | 1 | OFFでは`max_a` action score、Munchausen ONではsoft state value（TBO時はh空間） |
 | 2 | Munchausen bonus（実空間）。OFFでは0 |
+| 3 | 内的HeadのQ_sa。combinedでは0 |
+| 4 | 内的HeadのV_s。combinedでは0 |
 
-共通ReplayBufferはpayloadをopaqueな行として運び、DQNの`InitialPriorityEstimator`だけが`K = 3`を検証・decodeする。N-step確定後、確定収益へ開始hintのbonusを1回加え、bootstrap hintのstate valueと割引からLearner更新前のraw priorityを推定する。true terminalでもbonusを残し、bootstrapだけを使わない。TBO有効時はstate valueを実空間へ戻して合成し、完成targetをh空間へ変換する。
+共通ReplayBufferはpayloadをopaqueな行として運び、DQNの`InitialPriorityEstimator`だけが`K = 5`を検証・decodeする。N-step確定後、確定収益へ開始hintのbonusを1回加え、bootstrap hintのstate valueと割引からLearner更新前のraw priorityを推定する。true terminalでもbonusを残し、bootstrapだけを使わない。TBO有効時はstate valueを実空間へ戻して合成し、完成targetをh空間へ変換する。
 
-通常Q/QRでは既存の平均Q、IQN+UQEでは行動選択と同じrisk-biased action scoreからhintを作る。`uqe.use_tail_mean=true`はupper-tail mean、`false`は`Zτ`であり、full queryを有効にしてもActor Qヒントへfull分布平均は使わない。Munchausen ONでも追加forwardは行わず、この既存scoreのsoft化による近似である。`WithAction`は行動Qとbonusをauxから再gatherし、state valueを維持する。`ActorQHintConfig`は共通の`MunchausenConfig`を`munchausen`として保持し、TBO設定を併せて持つ。`munchausen.enabled`はMunchausen計算だけを制御し、ヒント全体の出力可否は`emit_actor_q_hint`が制御する。共通設定の`log_policy_mode`はLearner専用でActorは参照しない。RainbowはMunchausen OFFのまま同じK3 transportを使う。
+通常Q/QRでは既存の平均Q、IQN+UQEでは行動選択と同じrisk-biased action scoreからhintを作る。`uqe.use_tail_mean=true`はupper-tail mean、`false`は`Zτ`であり、full queryを有効にしてもActor Qヒントへfull分布平均は使わない。Munchausen ONでも追加forwardは行わず、この既存scoreのsoft化による近似である。`WithAction`は行動Qとbonusをauxから再gatherし、state valueを維持する。`ActorQHintConfig`は共通の`MunchausenConfig`を`munchausen`として保持し、TBO設定を併せて持つ。`munchausen.enabled`はMunchausen計算だけを制御し、ヒント全体の出力可否は`emit_actor_q_hint`が制御する。共通設定の`log_policy_mode`はLearner専用でActorは参照しない。RainbowはMunchausen OFFのまま同じ5列のtransportを使う。
 
 学習側の `learning_rate`・`weight_decay`・`gamma`・`munchausen.alpha`・`munchausen.entropy_tau` と `model.soft_update_tau` は、`UpdateFromBatch`の先頭で`exp_step`から評価する。warmup中も評価し、全optimizer groupのlrと通常groupのdecayへ反映する。σ専用groupのdecayは固定の `noisy_weight_decay` を維持する。soft updateはその時点のτを受け取る。`per_beta`だけはstep 0の値で始め、各更新末尾に評価して次の抽選要求へ渡す。prefetchを含む抽選の要求順序は変えない。
 
@@ -401,7 +403,7 @@ sequenceDiagram
     N-->>P: q または q_dist
     P-->>A: DQNActionInfo
     opt actor_approx
-        A->>A: Q hintをfloat32 Bx3でpack
+        A->>A: Q hintをfloat32 Bx5でpack
     end
     A-->>R: DQNActionInfo
 ```
@@ -412,9 +414,9 @@ sequenceDiagram
 
 RND の基本概念、数式と処理順、設定・指標の具体例は [212 RND による新しさの評価と内的報酬](212_rnd_lifelong_novelty.jp.md)を参照する。
 
-`EstimateWithoutUpdate`は学習側の採点を動かさずに可視化用の値を計算する。DefaultDQNのstep診断は`IntrinsicRewardCoordinator`へ採点と写しを委ね、要求された列に`intrinsic.`の鍵があれば採点し、Actorが写しを持つときは自分の推定器とβの写しを所有する。`ActorSyncFollower`はnetworkと同じ読み取りロックの中で写し直す時機を受ける。写しを持たないActorではstepごとに学習側をロックして読む。学習の入口とTraceのボーナスは、Coordinatorの`CalculateBonus`で同じ式から作る。
+`EstimateWithoutUpdate`は学習側の採点を動かさずに可視化用の値を計算する。DefaultDQNのstep診断は`IntrinsicRewardCoordinator`へ採点と写しを委ね、要求された列に`intrinsic.`の鍵があれば、または分解時の初期優先度診断に必要なら採点し、Actorが写しを持つときは自分の推定器とβの写しを所有する。`ActorSyncFollower`はnetworkと同じ読み取りロックの中で写し直す時機を受ける。写しを持たないActorではstepごとに学習側をロックして読む。学習の入口とTraceのボーナスは、Coordinatorの`CalculateBonus`で同じ式から作る。
 
-DefaultDQN の `intrinsic.enabled=true` は、privateな`IntrinsicRewardCoordinator`を構築する。facadeの既存write lock内で外的報酬をスケールし、Coordinatorの`AdvanceBeta`で学習の有効・無効によらず現在のexp stepのβを評価する。学習有効時は`ScoreBonus`が採点と診断を行ってβ倍・終端マスク後のボーナスを返し、Agentが報酬へ足す1行を実行してから、Coordinatorの`Learn`が補助学習を進める。`intrinsic.observation=next_state`（既定）は次観測を採点・学習し、`intrinsic.use_done_mask=true`（既定）のときdoneのbonusだけ0にする（truncatedは加算する）。falseでは終端の採点値も足す。`state` は行動した時点の生の観測を採点・学習し、doneでもmaskしない。この場合use_done_maskは使わず、既定と違うfalseだけ構築時1回WARNする。Actorのframe stack後の入力とは別である。Replayへ渡す報酬に畳み込むため、Actor、Replay形式、Qのoptimizerは変えない。`learner.enabled=false` ではRunに1回INFOを出し、採点と補助学習を休止する。
+DefaultDQN の `intrinsic.enabled=true` は、privateな`IntrinsicRewardCoordinator`を構築する。facadeの既存write lock内で外的報酬をスケールし、Coordinatorの`AdvanceBeta`で学習の有効・無効によらず現在のexp stepのβを評価する。学習有効時は`ScoreBonus`が採点と診断を行って終端の処理・内的スケーラ・β倍を適用したボーナスを返し、Agentが報酬へ足す1行を実行してから、Coordinatorの`Learn`が補助学習を進める。`intrinsic.observation=next_state`（既定）は次観測を採点・学習し、`intrinsic.use_done_mask=true`（既定）のときdoneのbonusだけ0にする（truncatedは加算する）。falseでは終端の採点値も足す。`state` は行動した時点の生の観測を採点・学習し、doneでもmaskしない。この場合use_done_maskは使わず、既定と違うfalseだけ構築時1回WARNする。Actorのframe stack後の入力とは別である。`intrinsic.value_mode=combined`（既定）では報酬へ畳み込む。`decomposed`では、doneの処理後に内的スケーラを当て、βを掛けずに外的・内的の2成分をReplayへ渡す。行動選択で2つのHeadをβで合わせる。`learner.enabled=false` ではRunに1回INFOを出し、採点と補助学習を休止する。
 
 RNDは別々の `target.net`・`predictor.net` から固定targetとpredictorを組み、共通の `output_dim` のLinear Headへ `head.init.*` を適用する。非カテゴリのuint8はRND内でfloatに変換する。既定の `statistics_mode=whiten` は更新前の観測・誤差統計を使い、採点後に統計を更新する。誤差の統計は `error_norm.average_mode=cumulative`（既定）か `ema`（観測件数の時定数 `ema_steps`、既定1,000,000）で選ぶ。`error_norm.use_centering=true`（既定）は平均を引き、falseは誤差をそのまま標準偏差で割る。`variance_feedback` はlane順の再帰で観測を正規化・clipして統計へ戻し、更新後の誤差平均と分散でzを作る（標準偏差では割らない）。`multiplier_mode=clipped`（既定）は `clamp(1+z,1,multiplier_max)`、`unclipped` は `1+z` を返す。割る値0か統計が空なら1。warm-upは観測件数で数え、既定12,800件の間は倍率1。whiten の `warmup_mode=learn_predictor`（既定）は補助学習を進め、誤差を統計に入れない。collect_errors と variance_feedback は誤差を集めて補助学習を止める。0なら初回から学習する。詳しい再帰とwarm-upのbatch境界は212を参照する。
 
@@ -578,7 +580,7 @@ Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期s
 | 前処理 | frame stack、Reward scale、Observation normalize |
 | 内的報酬 | `intrinsic.enabled`、ProfiledValueの `intrinsic.beta`、`intrinsic.observation`、`intrinsic.use_done_mask`、`intrinsic.learn_ratio`、`intrinsic.learn_batch_size`、Factoryが解釈する `intrinsic.rnd.*`（target.net / predictor.net、head.init、multiplier_mode、statistics_mode、warmup_mode、error_norm、adam_epsなど） |
 
-RNDの既定は `agent.txt` の `@baseline` に置く。学習ratio=0.25、batch size=32、観測next_state、倍率clipped、統計whiten、adam_eps=1e-8。whiten の warmup_mode=learn_predictor、error_norm.average_mode=cumulative、error_norm.ema_steps=1,000,000、error_norm.use_centering=true と、facade の use_done_mask=true が既定である。Atari・GridMaze・LunarLanderの `run.@rnd` は有効化、2つのBody、群56の13指標を選ぶ。Atariは専用3層CNNと512次元Head、predictorだけ2層FCを持ち、β=0.03とwarmup_steps=200,000も選ぶ。Atariの `run.@rnd_taiga` はstate・unclipped・variance_feedbackと毎経験1件の学習などを選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はenabled以外の設定キーを解釈せず、Network・optimizer・統計を生成しない。既知の診断キーは無効時も保持してNaNを返す。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
+RNDの既定は `agent.txt` の `@baseline` に置く。学習ratio=0.25、batch size=32、観測next_state、倍率clipped、統計whiten、adam_eps=1e-8。whiten の warmup_mode=learn_predictor、error_norm.average_mode=cumulative、error_norm.ema_steps=1,000,000、error_norm.use_centering=true と、facade の use_done_mask=true が既定である。Atari・GridMaze・LunarLanderの `run.@rnd` は有効化、2つのBody、群56の13指標を選ぶ。Atariは専用3層CNNと512次元Head、predictorだけ2層FCを持ち、β=0.03とwarmup_steps=200,000も選ぶ。Atariの `run.@rnd_taiga` はstate・unclipped・variance_feedbackと毎経験1件の学習などを選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はRNDのNetwork・optimizer・統計を生成しない。分解と内的スケーラの認識した値は無効時も型・列挙・値域を検証し、未使用の明示的な非既定値を1回WARNする。既知の診断キーは無効時も保持してNaNを返す。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
 
 Evaluation Traceのstep診断は`intrinsic.error`・`intrinsic.normalized_error`・`intrinsic.bonus`を出す。値の時点、未成立とdoneの扱い、統計方式ごとの単位、乱数層の制約は[212](212_rnd_lifelong_novelty.jp.md#46-evaluation-trace-で読む値)を参照する。これらは群56の集約診断とは別である。
 
@@ -619,13 +621,15 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 
 ### 8.2 checkpoint
 
+分解、または動的な外的・内的報酬スケーラを使う構成は第3版（`DefaultDQNAgent-3`、内的報酬有効なら`;intrinsic`付き）を使う。分解の有無、`feature_gradient`、スケーラの種類を重みの読込み前に照合し、相違はERRORとする。動的スケーラの統計とreturn_stdのlane別割引和も保存する。lane数だけが違う場合は統計を引き継ぎ、割引和を0から始めて1回WARNする。combined・定数スケーラの構成は旧形式を維持する。
+
 以下の第1版・第2版の説明は `intrinsic.enabled=false` を基準とする。有効時は次の追加節も保存・復元する。
 
 内的報酬が有効なDefaultDQNは、従来の識別子へ `;intrinsic` を付け、Learnerの後へintrinsic節を追加する。最初に、whiten の EMA なら `RndNoveltyEstimator-4`、累積と variance_feedback なら `RndNoveltyEstimator-3` とstatistics_modeを書き、固定target、predictor、AdamWのmoment/step、選択した方式の観測・誤差統計（EMA は重みの和・平均・二乗偏差）、target出力の累積統計、採点した観測件数を保存する。続けてCoordinatorの未消費credit・lane抽選の乱数状態・累計成功回数を保存する。異なる書式、または設定と異なる統計モードはpayloadを読む前に拒否し、診断に双方の値を含める。有効設定と節の有無も一致を要求する。optimizerのlearning_rate・weight_decay・adam_epsは現在設定を優先し、差があればRunに1回INFOで知らせる。無効時の識別子・設定文字列・payload配置は従来どおりである。
 
 `split`のoptimizerは通常の4役割に`primary_skip`を加え、追加optimizerのmoment・stepを保存する。4役割のcheckpointからsplitへは追加状態を初期化して一度WARNし、5役割からstop／mergeへの読込は拒否する。復元後は追加optimizerにも現在のlr・eps・betasを適用し、weight decayは0に保つ。stop／mergeの保存形式は変更しない。
 
-DefaultDQNAgent全体の保存形式は、第1版の `DefaultDQNAgent` と第2版の `DefaultDQNAgent-2` で識別する。識別子はdefault_dqn_agent.cpp内の `kCheckpointFormatV1` / `kCheckpointFormatV2` に一元化し、書込・読込・診断で共有する。skip無効時は既存の第1版、skip有効時はprimaryとskipのonline／targetの4 Networkを持つ第2版を保存する。識別子以外のバイト配置は変更しない。optimizer は primary通常・primaryσ・skip通常・skipσの役割名と状態を保存する。読み込み時は保存された役割でgroupを対応付け、momentとstepを復元してから現在のoptionsを役割ごとに適用する。空のσ groupも役割を保持する。
+combined・定数スケーラの保存形式は、第1版の `DefaultDQNAgent` と第2版の `DefaultDQNAgent-2` で識別する。識別子はdefault_dqn_agent.cpp内の `kCheckpointFormatV1` / `kCheckpointFormatV2` に一元化し、書込・読込・診断で共有する。skip無効時は既存の第1版、skip有効時はprimaryとskipのonline／targetの4 Networkを持つ第2版を保存する。識別子以外のバイト配置は変更しない。optimizer は primary通常・primaryσ・skip通常・skipσの役割名と状態を保存する。読み込み時は保存された役割でgroupを対応付け、momentとstepを復元してから現在のoptionsを役割ごとに適用する。空のσ groupも役割を保持する。
 
 skip 無効の checkpoint は従来の header と2 Network・optimizer の形式を保持する。これを skip 有効で読むと primary とその optimizer 状態を引き継ぎ、skip を新規初期化して一度 WARN する。この分岐は基準 Run から skip 学習へ移るための現行契約である。skip 有効の checkpoint を無効の構成で読む場合は fail-fast する。Actor の継続状態と replay は保存しない。
 
@@ -636,7 +640,7 @@ skip 無効の checkpoint は従来の header と2 Network・optimizer の形式
 - ReplayBufferの内容、generation、priority、通常sample RNG、prefetch状態
 - plasticity/policy churn probe RNGと、update途中のpolicy churn測定State
 - `RuntimeVars`、update credit、warmup latch、PER betaなどの学習進行State
-- 外的報酬の RewardScaler と Q 入力用 ObservationNormalizer の統計（RND 専用の統計は上記の節へ保存する）
+- Q入力用ObservationNormalizerの統計（外的・内的の動的RewardScalerとRND専用統計は保存する）
 - RunのStepCountsとmetric系列
 - Actor-private snapshot、同期周期runtime、last sync step、Actor RNG
 
@@ -713,7 +717,7 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 
 - shared ActorのdeviceがAgent deviceと異なる場合は、cloneを有効にするか同じdeviceを指定する。
 - Action数、Observation shape、sample tensorのshape・dtype・deviceをAgent、Actor、Learner境界で検証する。
-- `actor_approx`のhintは`float32[B,3]`を要求し、schema違反はfail-fastする。全列をfinite検証し、nonfiniteはDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。
+- `actor_approx`のhintは`float32[B,5]`を要求し、schema違反はfail-fastする。全列をfinite検証し、nonfiniteはDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。
 - 未知Policy、無効なPER mode、非finiteまたは範囲外設定、互換性のないcheckpointは処理を継続しない。
 - DefaultDQNは未知`quantile_mode`、QRのquantile数不正、IQNのtau数・配置方式・Huber κ不正、IQN+UQE/spatial Thompsonで使用するtau下限の非finite・範囲外を構築時にfail-fastする。
 - Rainbowは`use_qr=true`のとき`num_quantiles>1`を要求し、不正な件数を通常Qへ読み替えない。
@@ -788,7 +792,13 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 
 値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../core/anet-core/testdata/prd093/README.md)を参照する。
 
+### 9.10 価値の分解
+
+`intrinsic.value_mode=decomposed`のHead、結合、2成分の目標値・損失・PER、merge/split、内的スケーラ、Actor診断とTraceの契約は[214 価値の分解](214_value_decomposition.jp.md)を正本とする。`metrics.scalar.@value_decomposition`の任意の群`77_agent_value`は、Head別のloss・Q・勾配norm、内的Qの割合とスケーラ倍率、学習Actorのlane平均、eval/eval_targetのsession累積を公開する。既定の購読には含めない。
+
 ## 10. テストと拡張時の確認事項
+
+価値の分解と報酬スケーラを変えるときは、[PRD121検証資材](../../core/anet-core/testdata/prd121/README.md)の数値検査、checkpoint判定表、既定5構成の前後比較とAtari性能測定を確認する。
 
 構築・設定読み込み・内的報酬・診断の責務を変えるときは、[PRD128検証資材](../../core/anet-core/testdata/prd128/README.md)の34構成の前後比較、旧checkpointの継続、Releaseの速度、指標の並びの破壊検査を確認する。
 

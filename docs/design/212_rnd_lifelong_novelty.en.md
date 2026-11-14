@@ -1,4 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:f932c027dc6763a5fcbf5218b3872776ea554f5c date:2026-11-14 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:1dae292ad6fe5b6e39d527d1dce2755368ff7f49 date:2026-11-14 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.
@@ -8,6 +8,8 @@
 RND **uses a small model that learns the answers to a fixed problem, giving an exploration bonus to observations whose answers it cannot yet reproduce well**. It adds a learning signal separate from the environment's score, encouraging visits to places not yet sufficiently experienced.
 
 This document starts from the basics for readers unfamiliar with reinforcement learning or RND. See §2 for concepts, §3 for the connection between calculations and implementation, and §4 for configuration and metrics. The overall DQN specification is in [200 DQN Agents](200_dqn_agents.en.md).
+
+Unless stated otherwise, the reward formulas, diagrams, and worked examples below use the default `intrinsic.value_mode=combined` and identity intrinsic scaler. See Section 3.9 for separate value learning and scaler ordering.
 
 ## 1. Terminology
 
@@ -336,11 +338,11 @@ Despite the shared name, RND target must not enter DQN synchronization. Reducing
 
 ### 3.7 Bonuses Stored in Replay Are Not Rescored
 
-Experience arriving at the facade receives extrinsic reward plus bonus, passed to ReplayBuffer as one reward. Later sampling does not recompute the bonus with a newer predictor.
+In default combined mode, experience arriving at the facade receives extrinsic reward plus bonus, passed to ReplayBuffer as one reward. Later sampling does not recompute the bonus with a newer predictor.
 
 For example, a transition receiving bonus 0.2 when collected retains that bonus in its stored training reward even after the location becomes familiar. It need not match the bonus for visiting now. Changing β also does not rewrite rewards already in Replay.
 
-This avoids changing Replay's format but prevents later separate handling of extrinsic and intrinsic rewards. It is an implementation choice, not an inherent RND restriction.
+This avoids changing Replay's format but prevents later separate handling of extrinsic and intrinsic rewards. Decomposed mode stores two components and learns extrinsic/intrinsic values separately (Section 3.9). Neither mode rescores RND during Replay sampling.
 
 ### 3.8 Reading the Implementation
 
@@ -356,6 +358,16 @@ This avoids changing Replay's format but prevents later separate handling of ext
 | Contract verification | [`intrinsic_test.cpp`](../../core/anet-core/src/intrinsic_test.cpp) | Test fixed teacher, learning, update order, reward addition, and restoration through public paths |
 
 DefaultDQN interprets `intrinsic.enabled`, `intrinsic.beta`, `intrinsic.observation`, `intrinsic.use_done_mask`, `intrinsic.learn_ratio`, and `intrinsic.learn_batch_size`. RND-specific settings go to the Factory and are interpreted by `RndNoveltyEstimatorConfig`. Reward composition and learning cadence are separated from novelty computation and auxiliary learning itself.
+
+### 3.9 Value Decomposition and the Intrinsic Reward Scaler
+
+`intrinsic.value_mode=decomposed` learns extrinsic and intrinsic Heads from separate rewards and combines them as `Q_ext + β Q_int` for action selection. It requires `intrinsic.enabled=true`; combining it with skip is an error. See [214 Value Decomposition](214_value_decomposition.en.md) for TD/QR/IQN, TBO, shared/dedicated Head input, and merge/split contracts.
+
+Intake applies done handling to `α−1`, applies `intrinsic.reward_scaler`, then multiplies by beta. Combined mode adds the beta-weighted value to extrinsic reward. Decomposed mode stores the scaled value before beta weighting and extrinsic reward as two components. `bonus_mean` and related metrics, and Trace `intrinsic.bonus`, remain beta-weighted in both modes.
+
+The intrinsic scaler defaults to an identity transform: constant multiplier 1, no dynamic scaling, no automatic multiplier, and no clipping. `dynamic_mode=reward_std` divides reward by its standard deviation; `return_std` uses the standard deviation of per-lane discounted sums. The latter retains sums across episode boundaries and uses effective intrinsic gamma at initialization. Combining return_std with use_auto_post_scale=true is an error.
+
+Defaults are shared gamma, episodic terminals, combined bootstrap, loss_weight=1, priority_lambda=1, and feature_gradient=merge. Separate gamma and fixed Actor action_beta have no defaults and must be explicitly provided when used. Intrinsic reward normalization and Q-value TBO transformation are separate operations.
 
 ## 4. Examples: Reading Values, Settings, and Metrics
 
@@ -472,7 +484,7 @@ RND first writes `RndNoveltyEstimator-4` for whiten EMA, or `RndNoveltyEstimator
 
 The Coordinator writes its own unconsumed credit after the RND body, lane-selection RNG state, and cumulative success count. The RND body comes first, so a different format is rejected by the body's check. Except in the middle of a call, saving and restoring work before the first scoring, between Estimate and Learn, and immediately after Learn. Computation graphs are not carried over. The latest loss is not saved and remains NaN until the first successful step after loading. The Agent delegates persistence of this section to the Coordinator's `Save` and `Load`.
 
-Agent checkpoints containing RND append `;intrinsic` to the existing identifier. Loading fails if the saved checkpoint has RND but the reader disables it, or vice versa. Disabled mode uses the previous format.
+Agent checkpoints containing RND append `;intrinsic` to the existing identifier. Loading fails if the saved checkpoint has RND but the reader disables it, or vice versa. Agents using decomposition or dynamic extrinsic/intrinsic scalers use version 3, saving statistics and return_std discounted sums. A mismatch in decomposition, feature_gradient, or scaler kind is an error. A return_std lane-count mismatch alone retains statistics, resets discounted sums, and warns once. Combined mode with constant scalers retains the previous format.
 
 Loading restores predictor optimizer training state, then applies the current learning rate, weight decay, and adam_eps, reporting differences once per Run at INFO. Resuming with changed values therefore differs from continuing identical training.
 
@@ -480,7 +492,7 @@ Loading restores predictor optimizer training state, then applies the current le
 
 DefaultDQN `run.@rnd` adds columns 235 `rnd_bonus`, 600 `rnd_err`, and 610 `rnd_norm`. Their keys are `intrinsic.bonus`, `intrinsic.error`, and `intrinsic.normalized_error`, respectively. Bonus immediately follows 230 `reward`; the two error columns appear to the right of `prio_pct`. These numbers do not overlap 240 `decision` or 250 `skip`, so combining RND with TempoRL preserves each column. Disabled RND recognizes these keys and returns NaN. Rainbow does not recognize them.
 
-`EstimateWithoutUpdate` normalizes observations using current statistics and runs target and predictor without gradients. Error is mean squared feature error. It does not update error or observation statistics, counts, aggregate diagnostics, or weights. It derives the multiplier using the configured statistics and warm-up; bonus is beta times (multiplier minus 1).
+`EstimateWithoutUpdate` normalizes observations using current statistics and runs target and predictor without gradients. Error is mean squared feature error. It does not update error or observation statistics, counts, aggregate diagnostics, or weights. It derives the multiplier using the configured statistics and warm-up, applies done handling and the intrinsic scaler through ScaleWithoutUpdate, then multiplies by beta. Scaler statistics, discounted sums, and clipping ratio are also unchanged. With the default identity scaler, bonus is beta times (multiplier minus 1).
 
 | Condition (apply the first matching row) | Normalized error |
 |---|---|
@@ -500,7 +512,7 @@ During warm-up or with NaN normalized error the multiplier is 1. Otherwise `clip
 
 Beta is initialized by evaluating its schedule at exp step 0 during Coordinator construction, then updated at the exp step of each training intake regardless of whether learning is enabled. It is copied with the estimator. It is not checkpointed and loading a checkpoint does not overwrite it. Evaluation-only and freshly resumed Runs also show the bonus. Immediately after a new Run starts, empty error statistics give a multiplier of 1 and a bonus of 0. `intrinsic.observation=next_state` scores the resulting screen displayed in the row; `state` scores the preceding screen used to choose the action.
 
-With a cloned Actor, values use the training predictor, statistics, and beta at the last Actor synchronization, matching the time of the network used for that row's Q values. An Actor sharing its network reads the training estimator at each step. Values are stored once when the row is created; selecting old rows does not rescore them. Without requested intrinsic keys, there is no scoring, estimator copy, follower attachment, or additional Agent lock. A closed pane suspends scoring and copying. Reopening without a snapshot performs normal Actor synchronization.
+With a cloned Actor, values use the training predictor, statistics, and beta at the last Actor synchronization, matching the time of the network used for that row's Q values. An Actor sharing its network reads the training estimator at each step. Values are stored once when the row is created; selecting old rows does not rescore them. Without requested intrinsic keys or decomposed-mode `approx_priority`, there is no scoring, estimator copy, follower attachment, or additional Agent lock. Requesting only per-Head Q values does not require intrinsic-reward scoring. A closed pane suspends scoring and copying. Reopening without a snapshot performs normal Actor synchronization.
 
 Dropout and DropPath consume shared randomness, so configurations containing them are outside the learning-invariance guarantee even with a cloned Actor. BatchNorm updates stay in a snapshot, but alter training statistics when the Actor does not clone; that case is also outside the guarantee. These layers are neither detected nor warned about. Shipped RND networks contain none of them.
 
@@ -531,6 +543,8 @@ With `learner.enabled=false`, scoring and auxiliary learning pause with one INFO
 
 ### 5.2 Verified Scope
 
+See [PRD121 validation assets](../../core/anet-core/testdata/prd121/README.md) for value decomposition, intrinsic scaling, and dynamic-scaler save/restore checks.
+
 See the [PRD128 validation assets](../../core/anet-core/testdata/prd128/README.md) for before/after comparisons after the structural separation, continuation from an old checkpoint, and Release performance.
 
 Validation procedures for error statistics, warm-up, centering, and terminal masking are in the [PRD123 validation assets](../../core/anet-core/testdata/prd123/README.md). They distinguish before/after comparisons for collect_errors (which selects the old behavior), variance_feedback, and disabled RND from hand-calculated EMA and save/restore checks. KFM effectiveness checks are performed only after separate approval.
@@ -556,7 +570,7 @@ Whole-file bytes of disabled-mode checkpoints differ even between reruns of the 
 
 Short smoke runs establish the connection between computation, reward addition, learning, and recording. They do not demonstrate improved extrinsic performance, resolution of difficult-game exploration problems, or acceptable performance cost.
 
-Motivation to revisit familiar paths, episodic novelty, separate extrinsic/intrinsic learning, and families of policies with different exploration strengths remain separate from this standalone RND implementation. Related options and open questions are in [PRD924](../memo/924_intrinsic_reward_novelty_10prd.md).
+Motivation to revisit familiar paths, episodic novelty, and families of policies with different exploration strengths remain separate from this standalone RND implementation. Related options and open questions are in [PRD924](../memo/924_intrinsic_reward_novelty_10prd.md).
 
 run.@rnd_taiga is not a complete reproduction of Taiga et al. either. Q uses IQN rather than C51, the CNN uses VALID rather than SAME padding, and Q embeddings, initialization, PER, the units used to count statistics, and the ALE version also differ. During auxiliary learning, inputs are renormalized with the updated statistics. The list of remaining differences is in the [23impl table](../memo/116_rnd_lifelong_novelty_23impl.md#%E6%9C%AC%E5%AE%B6%E3%81%A8%E3%81%AE%E6%AE%8B%E3%82%8B%E5%B7%AE).
 

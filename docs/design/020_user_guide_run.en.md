@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:fb37ed6fd1ca21539232c1110d2c5ffa61bd6c56 date:2026-11-14 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:8c6d6c11036a854da393891fa2806dbc0c021f93 date:2026-11-15 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -95,6 +95,17 @@ For constant exploration, specify both `policy.epsilon.type = constant` and the 
 > A bare value written where a nonconstant type is inherited is retained but not evaluated. To switch to constant, specify both the type and the bare value. Only constants inside a phase use `phase.[name].value`.
 
 The shared slots are `eval_target` and `eval`, referring to target and online respectively. Existing metrics output tags are retained. Undefined Actor references fail at startup, but definitions without schedules and slots with `interval=0` do not create Actors. Shared Actors use the same device as the Agent. MuZero does not support cloning; specify `clone_model=false`.
+
+### 2.5 Learning Extrinsic and Intrinsic Values Separately
+
+Configure the RND target/predictor, select `run.@rnd` in a DefaultDQN configuration, and set `DefaultDQNAgent.intrinsic.value_mode = decomposed`. Avoid combining it with skip.
+
+To change intrinsic gamma, specify both `learner.intrinsic.discount_mode = separate` and `learner.intrinsic.gamma`. To use only extrinsic value in an evaluation Actor, specify `actor.[eval].intrinsic.action_beta_mode = fixed` and `actor.[eval].intrinsic.action_beta = 0` for that Actor. Prefix all these keys with `DefaultDQNAgent.`.
+
+To divide intrinsic reward by the standard deviation of per-lane discounted sums, set `use_dynamic_scaling = true`, `dynamic_mode = return_std`, and `use_auto_post_scale = false` under `intrinsic.reward_scaler`. Check Logs for inactive learning and unused nondefault settings. See [Value Decomposition](214_value_decomposition.en.md) for details.
+
+> [!NOTE]
+> The default `combined` mode uses one Q, while `decomposed` separates extrinsic and intrinsic Heads. Decomposed mode shares Body features and gamma by default. Dedicated gamma has no default. The intrinsic reward scaler defaults to an identity transform.
 
 ## 3. Writing Configuration Files
 
@@ -528,6 +539,9 @@ Use `run.eval_schedule.[tag].offset` (default 0) to shift evaluation firings in 
 > [!NOTE]
 > `warmup_count` is separate from Learner `update_warmup_steps` (the period for collecting experience before learning starts); it counts firings from the beginning of the evaluation sequence. With offset 500, interval 1000, warmup_count 1, and increments of 1, the first evaluation is at learn step 1500. Both values are validated even for dormant schedules with `interval = 0`.
 
+> [!NOTE]
+> DefaultDQN also restores dynamic extrinsic/intrinsic reward-scaler statistics. Changing only the lane count with return_std retains statistics, resets per-lane discounted sums to zero, and warns once. Checkpoints with different decomposition modes, `learner.intrinsic.feature_gradient`, or scaler kinds cannot be loaded. Dynamic-scaler checkpoints made by the previous executable lack statistics and produce a loading error. Old combined-mode checkpoints with constant scalers remain usable.
+
 ### 6.5 Inspecting Transitions with Evaluation Trace
 
 Show Evaluation Trace from the View menu to stream Eval actions and results into a table, newest first. Selecting a row pauses Eval and displays that row's screen, Q values, and activations for Conv2d panes that were open at the time. Steps recorded before a pane was opened show `no data for this step`.
@@ -585,6 +599,11 @@ To inspect Q values from the same online network used for training, use:
 ```text
 DefaultDQNAgent.@baseline : actor.[eval_panel].network = online
 ```
+
+To inspect each Head, add `$agent_step` keys `extrinsic_q_sa`, `intrinsic_q_sa`, `extrinsic_state_value`, and `intrinsic_state_value` as columns. For example, place them at 440, 450, 460, and 470 in the value category.
+
+> [!NOTE]
+> In decomposed mode, default `Q_sa` and `V_s` still show combined values. The four Head-specific keys are blank in combined mode. `rnd_bonus` includes done handling, intrinsic scaling, and beta weighting, computed without updating scaler statistics.
 
 Playback cannot start when FPS is 0. If FPS is changed to 0 during playback, the first pause button still works. Restoring FPS continues from the same position if playback was active. No records are created while the panel is closed; reopening starts empty. Recording continues while another pane is maximized and hides this panel.
 

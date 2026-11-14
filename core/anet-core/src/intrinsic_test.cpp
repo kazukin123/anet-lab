@@ -22,6 +22,34 @@
 #include "anet/observers.hpp"
 #include "anet/test_util.hpp"
 
+constexpr const char* kPrd121ExtrinsicGradNorm = "extrinsic_grad_norm";
+constexpr const char* kPrd121ExtrinsicQSaMean = "extrinsic_q_sa_mean";
+constexpr const char* kPrd121IntrinsicGradNorm = "intrinsic_grad_norm";
+constexpr const char* kPrd121IntrinsicQSaMean = "intrinsic_q_sa_mean";
+constexpr const char* kPrd121IntrinsicQShare = "intrinsic_q_share";
+
+// PRD121の入力・公開識別子を、同じ意味の検査で共有する。
+constexpr const char* kPrd121ApproxPriority = "approx_priority";
+constexpr const char* kPrd121ExtrinsicHeadGradNorm = "extrinsic_head_grad_norm";
+constexpr const char* kPrd121ExtrinsicLoss = "extrinsic_loss";
+constexpr const char* kPrd121ExtrinsicQ = "extrinsic_q";
+constexpr const char* kPrd121ExtrinsicQSa = "extrinsic_q_sa";
+constexpr const char* kPrd121ExtrinsicStateValue = "extrinsic_state_value";
+constexpr const char* kPrd121FixedActorKey = "fixed";
+constexpr const char* kPrd121IntrinsicHeadGradNorm = "intrinsic_head_grad_norm";
+constexpr const char* kPrd121IntrinsicLoss = "intrinsic_loss";
+constexpr const char* kPrd121IntrinsicQ = "intrinsic_q";
+constexpr const char* kPrd121IntrinsicQSa = "intrinsic_q_sa";
+constexpr const char* kPrd121IntrinsicRewardScalerScale = "intrinsic.reward_scaler.scale";
+constexpr const char* kPrd121IntrinsicStateValue = "intrinsic_state_value";
+constexpr const char* kPrd121Learner = "learner";
+constexpr const char* kPrd121NoisyQAbsDiff = "noisy_q_abs_diff";
+constexpr const char* kPrd121Off = "off";
+constexpr const char* kPrd121PolicyChurnQDeltaAbsMean = "policy_churn_q_delta_abs_mean";
+constexpr const char* kPrd121PolicyNetForward = "policy-net.forward";
+constexpr const char* kPrd121Q = "q";
+constexpr const char* kPrd121ReplayFitUniformTdMean = "replay_fit_uniform_td_mean";
+
 constexpr char kTraceActionLabel[] = "a0";
 constexpr char kTraceActorKey[] = "trace";
 constexpr char kTraceForwardKey[] = "test";
@@ -160,7 +188,8 @@ static anet::ConfigData IntrinsicAgentData(bool enabled)
         data.Set("DefaultDQNAgent.intrinsic." + key, value);
     return data;
 }
-static std::shared_ptr<anet::rl::dqn::DefaultDQNAgent> MakeIntrinsicAgent(const anet::ConfigData& data, int num_envs = 2)
+static std::shared_ptr<anet::rl::dqn::DefaultDQNAgent> MakeIntrinsicAgent(const anet::ConfigData& data, int num_envs = 2,
+    torch::Device device = torch::kCPU)
 {
     anet::rl::EnvSpec spec;
     spec.state_spec.obs_spec = RndTestSpec();
@@ -173,7 +202,7 @@ static std::shared_ptr<anet::rl::dqn::DefaultDQNAgent> MakeIntrinsicAgent(const 
         net.output_keys[kSkipContext] = kObservation;
     return std::make_shared<anet::rl::dqn::DefaultDQNAgent>(
         anet::rl::dqn::DefaultDQNAgentConfig(data), net,
-        anet::rl::BatchEnvSpec{.num_envs = num_envs, .num_threads = 1}, spec, torch::kCPU, 123);
+        anet::rl::BatchEnvSpec{.num_envs = num_envs, .num_threads = 1}, spec, device, 123);
 }
 static anet::rl::BatchExperience IntrinsicExperience(float scale, bool done, bool truncated, bool start = false)
 {
@@ -1321,6 +1350,89 @@ TEST_CASE("RND rejects nonfinite prediction errors before publishing statistics"
     CHECK(std::isnan(estimator->Diagnostics().at(kPredictorLoss)));
 }
 
+TEST_CASE("DQN scales the intrinsic reward before combining it with external reward", "[prd121][intrinsic]")
+{
+    IntrinsicMetricsScope metrics;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.obs_norm.pass_through", true);
+    data.Set("DefaultDQNAgent.intrinsic.beta", 0.5f);
+    data.Set("DefaultDQNAgent.intrinsic.reward_scaler.constant_scale", 2.0f);
+    data.Set("DefaultDQNAgent.head.init.mode", kConstantInit);
+    data.Set("DefaultDQNAgent.head.init.constant_val", 0.0f);
+    data.Set("DefaultDQNAgent.learner.learning_rate", 0.0f);
+    data.Set("DefaultDQNAgent.learner.gamma", 0.0f);
+    data.Set("DefaultDQNAgent.learner.use_n_step", false);
+    data.Set("DefaultDQNAgent.learner.use_per", false);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 0);
+    data.Set("DefaultDQNAgent.learner.update_interval", 1);
+    data.Set("DefaultDQNAgent.learner.replay_capacity", 4);
+    data.Set("DefaultDQNAgent.learner.use_td_clip", false);
+    data.Set("DefaultDQNAgent.reward_scaler.constant_scale", 2.0f);
+    auto agent = MakeIntrinsicAgent(data);
+    auto learner = agent->CreateLearner();
+    learner->UpdateFromBatch({}, IntrinsicExperience(1, false, false, true));
+    learner->UpdateFromBatch({.exp_step = 2}, IntrinsicExperience(1, false, false));
+    learner->UpdateFromBatch({.exp_step = 4}, IntrinsicExperience(100, false, false));
+    const auto results = learner->UpdateFromBatch({.exp_step = 6}, IntrinsicExperience(10000, false, true));
+    REQUIRE_FALSE(results.empty());
+    CHECK(*results.back()->GetScalar(kTdMean) == Catch::Approx(6.0f));
+}
+
+TEST_CASE("Intrinsic return scaling masks before statistics and stores components before beta", "[prd121][intrinsic][return_intake]")
+{
+    IntrinsicMetricsScope metrics;
+    const bool decomposed = GENERATE(false, true);
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.value_mode", decomposed ? anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed : anet::rl::dqn::DefaultDQNAgentConfig::kValueModeCombined);
+    data.Set("DefaultDQNAgent.intrinsic.beta", 0.5f);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.obs_norm.pass_through", true);
+    data.Set("DefaultDQNAgent.head.init.mode", kConstantInit);
+    data.Set("DefaultDQNAgent.head.init.constant_val", 0.0f);
+    data.Set("DefaultDQNAgent.intrinsic.value.head.init.mode", kConstantInit);
+    data.Set("DefaultDQNAgent.intrinsic.value.head.init.constant_val", 0.0f);
+    data.Set("DefaultDQNAgent.learner.learning_rate", 0.0f);
+    data.Set("DefaultDQNAgent.learner.gamma", 0.5f);
+    data.Set("DefaultDQNAgent.learner.use_n_step", false);
+    data.Set("DefaultDQNAgent.learner.use_per", false);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 0);
+    data.Set("DefaultDQNAgent.learner.update_interval", 1);
+    data.Set("DefaultDQNAgent.learner.replay_capacity", 4);
+    data.Set("DefaultDQNAgent.learner.use_td_clip", false);
+    data.Set("DefaultDQNAgent.reward_scaler.constant_scale", 2.0f);
+    auto identity = MakeIntrinsicAgent(data);
+    data.Set("DefaultDQNAgent.intrinsic.reward_scaler.use_dynamic_scaling", true);
+    data.Set("DefaultDQNAgent.intrinsic.reward_scaler.dynamic_mode", anet::rl::RewardScaler::kReturnStdState);
+    data.Set("DefaultDQNAgent.intrinsic.reward_scaler.epsilon", 0.01f);
+    auto scaled = MakeIntrinsicAgent(data);
+    anet::rl::RewardScalerConfig config;
+    config.dynamic_mode = anet::rl::RewardScaler::kReturnStdState;
+    config.use_auto_post_scale = false;
+    config.epsilon = 0.01f;
+    auto reference = anet::rl::RewardScalerFactory(config).CreateRewardScaler(0.5f, 2);
+    torch::Tensor previous;
+    bool previous_done = false;
+    for (anet::rl::step_t step = 0; step < 8; ++step) {
+        const bool done = step >= 4 && step % 2 == 0;
+        auto experience = IntrinsicExperience(1, false, false, step == 0);
+        experience.state.episode_start = torch::tensor({step == 0 || previous_done, step == 0}, torch::kBool);
+        experience.next_state.obs.Set(kObservation, torch::ones({2, 2}) * std::pow(10.0f, float(step)));
+        experience.next_state.done = torch::tensor({done, false}, torch::kBool);
+        identity->CreateLearner()->UpdateFromBatch({.exp_step = step * 2}, experience);
+        const float raw = *identity->GetScalar(kBonusMean) / (done ? 0.25f : 0.5f);
+        const auto expected = reference->Scale(torch::tensor({done ? 0.0f : raw, raw}));
+        const auto updates = scaled->CreateLearner()->UpdateFromBatch({.exp_step = step * 2}, experience);
+        CHECK(*scaled->GetScalar(kBonusMean) == Catch::Approx(0.5f * expected.mean().item<float>()));
+        CHECK(scaled->GetScalar(kPrd121IntrinsicRewardScalerScale) == reference->GetScalar(anet::rl::RewardScaler::kKeyScale));
+        if (step == 3 || step == 4) {
+            REQUIRE_FALSE(updates.empty());
+            CHECK(*updates.back()->GetScalar(kTdMean) == Catch::Approx(2.0f + (decomposed ? 1.0f : 0.5f) * previous.mean().item<float>()));
+        }
+        previous = expected;
+        previous_done = done;
+    }
+}
+
 TEST_CASE("DQN learner consumes the scaled external reward plus intrinsic bonus", "[prd116][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
@@ -1410,6 +1522,76 @@ TEST_CASE("DQN intrinsic done mask controls the actual learning reward", "[prd12
         }
         CHECK(*agent->GetScalar(kBonusMean) == Catch::Approx(bonus));
     }
+}
+
+TEST_CASE("DQN checkpoint resumes dynamic reward scaler statistics", "[prd121][intrinsic][checkpoint]")
+{
+    // Agentの公開保存・自動読み込みを通し、統計が初期化されず続くことを確かめる。
+    IntrinsicMetricsScope metrics;
+    const auto outer_mode = GENERATE(std::string(anet::rl::RewardScaler::kRewardStdState), std::string(anet::rl::RewardScaler::kReturnStdState));
+    const auto inner_mode = GENERATE(std::string(kPrd121Off), std::string(anet::rl::RewardScaler::kConstantState), std::string(anet::rl::RewardScaler::kRewardStdState), std::string(anet::rl::RewardScaler::kReturnStdState));
+    const bool decomposed = GENERATE(false, true);
+    if (decomposed && inner_mode == kPrd121Off) return;
+    CAPTURE(outer_mode, inner_mode, decomposed);
+    auto data = IntrinsicAgentData(inner_mode != kPrd121Off);
+    data.Set("DefaultDQNAgent.intrinsic.value_mode", decomposed ? anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed : anet::rl::dqn::DefaultDQNAgentConfig::kValueModeCombined);
+    data.Set("DefaultDQNAgent.reward_scaler.use_dynamic_scaling", true);
+    data.Set("DefaultDQNAgent.reward_scaler.use_auto_post_scale", false);
+    data.Set("DefaultDQNAgent.reward_scaler.dynamic_mode", outer_mode);
+    data.Set("DefaultDQNAgent.intrinsic.reward_scaler.use_dynamic_scaling", inner_mode == anet::rl::RewardScaler::kRewardStdState || inner_mode == anet::rl::RewardScaler::kReturnStdState);
+    if (inner_mode == anet::rl::RewardScaler::kRewardStdState || inner_mode == anet::rl::RewardScaler::kReturnStdState)
+        data.Set("DefaultDQNAgent.intrinsic.reward_scaler.dynamic_mode", inner_mode);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 100000);
+    auto original = MakeIntrinsicAgent(data);
+    auto first = IntrinsicExperience(1, false, false, true);
+    first.reward = torch::tensor({1.0f, 3.0f});
+    original->CreateLearner()->UpdateFromBatch({}, first);
+    const auto path = std::filesystem::temp_directory_path() / ("anet-prd121-"
+        + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + kCheckpointExtension);
+    IntrinsicCheckpointCleanup cleanup{.path = path};
+    {
+        std::ofstream stream(path, std::ios::binary);
+        anet::OutputArchive archive(stream);
+        original->Save(archive);
+    }
+    data.Set("DefaultDQNAgent.auto_load_file", path.string());
+    {
+        auto mismatch = data;
+        mismatch.Set("DefaultDQNAgent.reward_scaler.use_dynamic_scaling", false);
+        CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("reward_scaler kind"));
+        mismatch = data;
+        mismatch.Set("DefaultDQNAgent.reward_scaler.dynamic_mode", outer_mode == anet::rl::RewardScaler::kRewardStdState ? anet::rl::RewardScaler::kReturnStdState : anet::rl::RewardScaler::kRewardStdState);
+        CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("reward_scaler kind"));
+        if (inner_mode != kPrd121Off) {
+            mismatch = data;
+            mismatch.Set("DefaultDQNAgent.intrinsic.value_mode", decomposed ? anet::rl::dqn::DefaultDQNAgentConfig::kValueModeCombined : anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
+            CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("intrinsic.value_mode"));
+            mismatch = data;
+            mismatch.Set("DefaultDQNAgent.intrinsic.reward_scaler.use_dynamic_scaling", inner_mode == anet::rl::RewardScaler::kConstantState);
+            CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("intrinsic.reward_scaler kind"));
+        }
+        if (decomposed) {
+            mismatch = data;
+            mismatch.Set("DefaultDQNAgent.learner.intrinsic.feature_gradient", anet::rl::dqn::LearnerConfig::kFeatureGradientSplit);
+            CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("feature_gradient"));
+        }
+    }
+    auto restored = MakeIntrinsicAgent(data);
+    const auto key = anet::rl::RewardScaler::kKeyCount;
+    REQUIRE(original->GetScalar(key));
+    REQUIRE(restored->GetScalar(key));
+    CHECK(*restored->GetScalar(key) == *original->GetScalar(key));
+    if (inner_mode != kPrd121Off)
+        CHECK(original->GetScalar(kPrd121IntrinsicRewardScalerScale) == restored->GetScalar(kPrd121IntrinsicRewardScalerScale));
+    auto next = IntrinsicExperience(1, false, false);
+    next.reward = torch::tensor({2.0f, 6.0f});
+    original->CreateLearner()->UpdateFromBatch({.exp_step = 2}, next);
+    next.state.episode_start.fill_(true);
+    restored->CreateLearner()->UpdateFromBatch({.exp_step = 2}, next);
+    CHECK(original->GetScalar(anet::rl::RewardScaler::kKeyScale) == restored->GetScalar(anet::rl::RewardScaler::kKeyScale));
+    if (inner_mode != kPrd121Off)
+        CHECK(original->GetScalar(kPrd121IntrinsicRewardScalerScale) == restored->GetScalar(kPrd121IntrinsicRewardScalerScale));
 }
 
 TEST_CASE("DQN checkpoint requires matching intrinsic presence and resumes scoring", "[prd116][intrinsic][checkpoint]")
@@ -1831,6 +2013,205 @@ static std::shared_ptr<anet::rl::Actor> MakeIntrinsicTraceActor(
     spec.reward_range = {-1000.0f, 1000.0f};
     return agent->CreateActor({.batch_env_spec = {.num_envs = num_lanes, .num_threads = 1},
         .env_spec = spec, .device = torch::kCPU, .seed = 42, .actor_key = kTraceActorKey});
+}
+
+TEST_CASE("Decomposed Q-only Trace avoids RND followers and scoring", "[prd121][intrinsic][prd121-review-trace]")
+{
+    IntrinsicMetricsScope metrics;
+    const bool with_actor = GENERATE(false, true);
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.value_mode", anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].clone_model", true);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 100000);
+    auto agent = MakeIntrinsicAgent(data);
+    auto actor = MakeIntrinsicTraceActor(agent);
+    // Actorを渡さないQ専用の要求も通り、RNDのsync followerを接続しない。
+    auto trace = agent->CreateStepDiagnosticsProvider({.num_lanes = 2,
+        .keys = {kPrd121ExtrinsicQSa, kPrd121IntrinsicQSa, kPrd121ExtrinsicStateValue, kPrd121IntrinsicStateValue},
+        .actor = with_actor ? actor : nullptr});
+    CHECK_FALSE(trace->Resume());
+    for (anet::rl::step_t step = 0; step < 4; ++step) {
+        auto experience = IntrinsicExperience(2.0f, false, false, step == 0);
+        experience.action = actor->MakeAction({.train_step = step}, experience.state);
+        const auto result = trace->Observe(experience);
+        for (int lane = 0; lane < 2; ++lane) {
+            CHECK(std::isfinite(*result.current->GetScalar(kPrd121ExtrinsicQSa, lane)));
+            CHECK(std::isfinite(*result.current->GetScalar(kPrd121IntrinsicQSa, lane)));
+            CHECK(std::isnan(*result.current->GetScalar(kStepIntrinsicError, lane)));
+        }
+        // 未要求の内的報酬からpriorityを作るために採点しない。
+        CHECK(result.completed.empty());
+    }
+}
+
+TEST_CASE("Decomposed AMP updates both heads with merge and split", "[prd121][intrinsic][amp]")
+{
+    if (!torch::cuda::is_available()) {
+        WARN("CUDA unavailable; decomposed AMP validation not executed.");
+        return;
+    }
+    IntrinsicMetricsScope metrics;
+    const bool bf16 = GENERATE(false, true);
+    const bool split = GENERATE(false, true);
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.value_mode", anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
+    data.Set("DefaultDQNAgent.learner.intrinsic.feature_gradient", split ? anet::rl::dqn::LearnerConfig::kFeatureGradientSplit : anet::rl::dqn::LearnerConfig::kFeatureGradientMerge);
+    data.Set("DefaultDQNAgent.learner.use_amp", true);
+    data.Set("DefaultDQNAgent.learner.use_amp_bf16", bf16);
+    data.Set("DefaultDQNAgent.learner.use_fused_optimizer", true);
+    data.Set("DefaultDQNAgent.learner.use_n_step", false);
+    data.Set("DefaultDQNAgent.learner.use_per", false);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 0);
+    data.Set("DefaultDQNAgent.learner.update_interval", 1);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    const torch::Device device(torch::kCUDA, 0);
+    auto agent = MakeIntrinsicAgent(data, 2, device);
+    const auto forward = agent->GetTensorDictFunction(kPrd121PolicyNetForward);
+    REQUIRE(forward);
+    const auto observations = RndTestObservation().To(device);
+    const auto before = (*forward)(observations).Clone();
+    for (anet::rl::step_t step = 0; step < 12; ++step)
+        agent->CreateLearner()->UpdateFromBatch({.exp_step = step * 2}, IntrinsicExperience(1 + float(step), false, false, step == 0));
+    const auto after = (*forward)(observations);
+    CAPTURE(bf16, split);
+    CHECK_FALSE(torch::equal(before.At(kPrd121ExtrinsicQ), after.At(kPrd121ExtrinsicQ)));
+    CHECK_FALSE(torch::equal(before.At(kPrd121IntrinsicQ), after.At(kPrd121IntrinsicQ)));
+    for (const auto* key : {kPrd121ExtrinsicLoss, kPrd121IntrinsicLoss, kPrd121ExtrinsicHeadGradNorm, kPrd121IntrinsicHeadGradNorm}) {
+        const auto value = agent->GetScalar(key);
+        REQUIRE(value);
+        CHECK(std::isfinite(*value));
+    }
+    for (const auto* key : {kPrd121ExtrinsicGradNorm, kPrd121IntrinsicGradNorm}) {
+        const auto value = agent->GetScalar(key);
+        REQUIRE(value);
+        CHECK(std::isfinite(*value) == split);
+    }
+}
+
+TEST_CASE("Decomposed Agent selects fixed-zero and learner beta per Actor", "[prd121][intrinsic][actor_beta]")
+{
+    IntrinsicMetricsScope metrics;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.value_mode", anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
+    data.Set("DefaultDQNAgent.intrinsic.value.head.use_dueling", false);
+    data.Set("DefaultDQNAgent.intrinsic.beta", 10.0f);
+    for (const auto* name : {kPrd121FixedActorKey, kPrd121Learner}) {
+        const auto prefix = std::string("DefaultDQNAgent.actor.[") + name + "]";
+        data.Set(prefix + ".nn_forward_key", kTraceForwardKey);
+        data.Set(prefix + ".network", "online");
+        data.Set(prefix + ".clone_model", false);
+        data.Set(prefix + ".policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    }
+    data.Set("DefaultDQNAgent.actor.[fixed].intrinsic.action_beta_mode", anet::rl::dqn::DQNActorConfig::kActionBetaFixed);
+    data.Set("DefaultDQNAgent.actor.[fixed].intrinsic.action_beta", 0.0f);
+    anet::rl::EnvSpec spec;
+    spec.state_spec.obs_spec = RndTestSpec();
+    spec.action_spec.is_discrete = true;
+    spec.action_spec.value_labels = {"a0", "a1"};
+    spec.reward_range = {-1000.0f, 1000.0f};
+    anet::nn::NetworkConfig net;
+    net.output_keys["features"] = kObservation;
+    auto agent = std::make_shared<anet::rl::dqn::DefaultDQNAgent>(anet::rl::dqn::DefaultDQNAgentConfig(data),
+        net, anet::rl::BatchEnvSpec{2, 1}, spec, torch::kCPU, 123);
+    const auto angles = torch::arange(64, torch::kFloat32) * (6.283185307f / 64);
+    const anet::TensorDict observations{{kObservation, torch::stack({angles.cos(), angles.sin()}, 1)}};
+    const auto forward = agent->GetTensorDictFunction(kPrd121PolicyNetForward);
+    REQUIRE(forward);
+    const auto output = (*forward)(observations);
+    const auto external = output.At(kPrd121ExtrinsicQ).argmax(1);
+    const auto combined = output.At(kPrd121Q).argmax(1);
+    REQUIRE(external.ne(combined).any().item<bool>());
+    for (const auto* name : {kPrd121FixedActorKey, kPrd121Learner}) {
+        const auto actor = agent->CreateActor({.batch_env_spec = {64, 1}, .env_spec = spec,
+            .device = torch::kCPU, .seed = 123, .actor_key = name});
+        const auto flags = torch::zeros({64}, torch::kBool);
+        const auto info = actor->MakeAction({}, anet::rl::BatchState(observations, flags, flags, ~flags));
+        CHECK(torch::equal(info->GetAction(), std::string(name) == kPrd121FixedActorKey ? external : combined));
+    }
+}
+
+TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[prd121][intrinsic]")
+{
+    // 公開の設定・Actor・取り込み・Replay・更新をつないだ最初の検査。
+    IntrinsicMetricsScope metrics;
+    auto data = IntrinsicAgentData(true);
+    data.Set("DefaultDQNAgent.intrinsic.value_mode", anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
+    data.Set("DefaultDQNAgent.intrinsic.value.head.use_dueling", false);
+    data.Set("DefaultDQNAgent.intrinsic.value.head.projection.noisy.enabled", true);
+    data.Set("DefaultDQNAgent.actor.[trace].nn_forward_key", kTraceForwardKey);
+    data.Set("DefaultDQNAgent.actor.[trace].policy.policy_type", anet::rl::dqn::kActionPolicyTypeStr_Greedy);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.warmup_steps", 0);
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 0);
+    data.Set("DefaultDQNAgent.learner.update_interval", 1);
+    data.Set("DefaultDQNAgent.learner.use_n_step", false);
+    data.Set("DefaultDQNAgent.learner.use_per", false);
+    data.Set("DefaultDQNAgent.learner.replay_fit.probe.batch_size", 1);
+    data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 1);
+    data.Set("DefaultDQNAgent.learner.noisy_probe.probe.batch_size", 1);
+    data.Set("DefaultDQNAgent.learner.noisy_probe.num_draws", 2);
+    auto agent = MakeIntrinsicAgent(data);
+    auto actor = MakeIntrinsicTraceActor(agent);
+    auto learner = agent->CreateLearner();
+    agent->ConfigureScalarMetricSubscriptions({anet::rl::ScalarMetricSubscription{
+        .source_key = kPrd121ReplayFitUniformTdMean, .event = anet::rl::EventType::LEARN,
+        .target = anet::rl::EventField::UPDATE_RESULT, .interval = 1, .scope = anet::rl::RunnerScope::TRAIN},
+        anet::rl::ScalarMetricSubscription{.source_key = kPrd121PolicyChurnQDeltaAbsMean, .event = anet::rl::EventType::LEARN,
+        .target = anet::rl::EventField::UPDATE_RESULT, .interval = 1, .scope = anet::rl::RunnerScope::TRAIN},
+        anet::rl::ScalarMetricSubscription{.source_key = kPrd121NoisyQAbsDiff, .event = anet::rl::EventType::LEARN,
+        .target = anet::rl::EventField::UPDATE_RESULT, .interval = 1, .scope = anet::rl::RunnerScope::TRAIN}});
+    float replay_fit = std::numeric_limits<float>::quiet_NaN();
+    float churn = std::numeric_limits<float>::quiet_NaN();
+    float noisy = std::numeric_limits<float>::quiet_NaN();
+    for (int step = 0; step < 6; ++step) {
+        const anet::rl::StepCounts counts{.exp_step = static_cast<anet::rl::step_t>(step * 2)};
+        auto experience = IntrinsicExperience(1.0f + step, false, false, step == 0);
+        experience.action = actor->MakeAction(counts, experience.state);
+        const auto updates = learner->UpdateFromBatch(counts, experience);
+        if (!updates.empty()) {
+            const auto value = updates.back()->GetScalar(kPrd121ReplayFitUniformTdMean);
+            if (value) replay_fit = *value;
+            const auto churn_value = updates.back()->GetScalar(kPrd121PolicyChurnQDeltaAbsMean);
+            if (churn_value) churn = *churn_value;
+            const auto noisy_value = updates.back()->GetScalar(kPrd121NoisyQAbsDiff);
+            if (noisy_value) noisy = *noisy_value;
+        }
+    }
+    CHECK(std::isfinite(replay_fit));
+    CHECK(std::isfinite(churn));
+    CHECK(std::isfinite(noisy));
+    CHECK(noisy > 0.0f);
+    const auto forward = agent->GetTensorDictFunction(kPrd121PolicyNetForward);
+    REQUIRE(forward);
+    const auto values = (*forward)(IntrinsicExperience(2.0f, false, false).state.obs);
+    CHECK(torch::allclose(values.At(kPrd121Q), values.At(kPrd121ExtrinsicQ) + 0.1f * values.At(kPrd121IntrinsicQ)));
+    auto trace = agent->CreateStepDiagnosticsProvider({.num_lanes = 2,
+        .keys = {kPrd121ApproxPriority, kPrd121ExtrinsicQSa, kPrd121IntrinsicQSa,
+            kPrd121ExtrinsicStateValue, kPrd121IntrinsicStateValue}, .actor = actor});
+    auto experience = IntrinsicExperience(2.0f, false, false, true);
+    experience.action = actor->MakeAction({}, experience.state);
+    const auto row = trace->Observe(experience);
+    for (const auto* key : {kPrd121ExtrinsicQSa, kPrd121IntrinsicQSa, kPrd121ExtrinsicStateValue, kPrd121IntrinsicStateValue}) {
+        const auto value = row.current->GetScalar(key, 0);
+        CAPTURE(key);
+        REQUIRE(value);
+        CHECK(std::isfinite(*value));
+    }
+    auto next = IntrinsicExperience(3.0f, false, false, false);
+    next.action = actor->MakeAction({.exp_step = 2}, next.state);
+    const auto following = trace->Observe(next);
+    REQUIRE_FALSE(following.completed.empty());
+    for (const auto& completed : following.completed) {
+        REQUIRE(completed.values->GetScalar(kPrd121ApproxPriority, 0));
+        CHECK(std::isfinite(*completed.values->GetScalar(kPrd121ApproxPriority, 0)));
+    }
+    for (const auto* key : {kPrd121ExtrinsicLoss, kPrd121IntrinsicLoss, kPrd121ExtrinsicQSaMean, kPrd121IntrinsicQSaMean,
+        kPrd121ExtrinsicHeadGradNorm, kPrd121IntrinsicHeadGradNorm, kPrd121IntrinsicQShare}) {
+        const auto value = agent->GetScalar(key);
+        CAPTURE(key);
+        REQUIRE(value);
+        CHECK(std::isfinite(*value));
+    }
 }
 
 TEST_CASE("DQN trace scores its Actor snapshot after synchronization", "[prd127][prd129][intrinsic]")

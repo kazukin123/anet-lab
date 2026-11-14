@@ -183,7 +183,7 @@ periodic timerは`RunName.log`だけをflushする。metrics、stdout、stderr�
 
 ### 5.3 Evaluation Trace の採点と同期
 
-内的報酬の列を求めたDefaultDQNだけが、全laneをまとめて読むだけの採点を行う。写しを持つActorでは、推定器とβをnetworkと同じ読み取りロックの中で写す。部品を作っただけでは写さず、paneを閉じた間の同期では写しを捨てる。写しを持たないActorでは採点のたびにAgentの読み取りロックを取る。値と制約は[内的報酬の診断](212_rnd_lifelong_novelty.jp.md#46-evaluation-trace-で読む値)を参照する。
+内的報酬の列を求めたDefaultDQNと、価値分解が有効なDefaultDQNのstep診断は、全laneをまとめて読むだけの採点を行う。分解時は近似優先度の内的の収益にも使う。写しを持つActorでは、推定器とβをnetworkと同じ読み取りロックの中で写す。部品を作っただけでは写さず、paneを閉じた間の同期では写しを捨てる。写しを持たないActorでは採点のたびにAgentの読み取りロックを取る。値と制約は[内的報酬の診断](212_rnd_lifelong_novelty.jp.md#46-evaluation-trace-で読む値)を参照する。
 
 ```mermaid
 sequenceDiagram
@@ -263,6 +263,10 @@ EMA状態は`interval`と無関係に毎event更新する。`interval`を変え�
 
 `$agent`、`$actor`、`$action_info`、`$update_result`で取得できるkeyは、共通interfaceと具象Agentが公開するmetricの組合せで決まる。対応しないkeyを全Agentで同じ値に見せることはせず、Observer側は`std::optional`や`NaN`の意味をmetric定義ごとに扱う。DefaultDQNのTrain Actor snapshot診断など、Agent固有keyの意味は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
+価値分解の`$agent`の鍵は、Head別の`extrinsic_loss`・`intrinsic_loss`、`extrinsic_q_sa_mean`・`intrinsic_q_sa_mean`、`extrinsic_head_grad_norm`・`intrinsic_head_grad_norm`、split専用の`extrinsic_grad_norm`・`intrinsic_grad_norm`、`intrinsic_q_share`である。内的スケーラの倍率は`intrinsic.reward_scaler.scale`で読む。スケーラはreward_stdとreturn_stdを選べ、Traceは統計を更新しない。定義とNaNの条件は[価値の分解](214_value_decomposition.jp.md#5-診断)を参照する。
+
+行動選択の4指標は、`extrinsic_q_argmax_disagreement`・`extrinsic_q_regret`・`extrinsic_q_gap`・`intrinsic_q_gap`をlane指定の`$action_info`で読む。学習にはlane平均の別の鍵を`@train $action_info`で、評価にはsession累積の別の鍵を`$eval.[eval] $actor @session_end`・`$eval.[eval_target] $actor @session_end`で使う。任意の組`metrics.scalar.@value_decomposition`が`77_agent_value`へ記録する。既定の連鎖とTrace列へは足さない。12個の鍵と解釈は[行動選択への影響](214_value_decomposition.jp.md#52-行動選択への影響)を参照する。
+
 `GetScalar()`の`std::nullopt`は「指定keyを知らない、または委譲先でも処理できない」ことを表す。指定keyが既知だが現在の状態、タイミング、設定、入力不足で値が成立しない場合は`NaN`を返す。Observer、wrapper、aggregatorは`std::nullopt`を未知key、`NaN`を値未成立として扱い、未初期化EMA、episode未確定、PER無効、batch不足などを0、前回値、既定値へ読み替えない。
 
 IQN診断ではdevice同期をmetric keyごとに発生させない。Policy診断は複数scalarをdetached packed Tensorへまとめ、`DQNActionInfo`が最初のkey参照時だけCPUへmaterializeする。Learnerの既存IQN診断はPER有効時にpriority readbackへ同梱し、PER無効時も固定長の診断packだけを既存の非同期readback経路で回収する。`metrics.scalar.iqn_search_p0`は`metrics.scalar.full`全体を有効化せず、PER健全性とthroughputのP0選抜だけを合成するgroupである。
@@ -309,6 +313,8 @@ Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混�
 | `$runner` | 今回を数えたcounts・報酬・完了集計。`step_in_episode`は1始まりで終端行は完了長。EvalRunnerだけはlane指定の`forced`も持ち、強制行動のstepは1、通常stepと初期値は0。lane省略は値なし、範囲外はfail-fast |
 | `$agent_step` | Agentの診断が所有するModuleのscalar。DQNでは`q_sa`・`state_value`・`approx_priority`。DefaultDQNはさらに`intrinsic.error`・`intrinsic.normalized_error`・`intrinsic.bonus`。診断非対応Agentではtarget全体をNaNにする |
 
+DefaultDQNはHead別の`extrinsic_q_sa`・`intrinsic_q_sa`・`extrinsic_state_value`・`intrinsic_state_value`も返す。combinedでは4鍵ともNaNで、分解時の既存q_sa・state_valueはそのActorのβで結合した値である。
+
 `$agent`・`$env`・`$exp`・`$update_result`は列で使えない。集約prefixを使えるのは`$runner`のepisode_return/episode_stepsだけで、完了しない行ではNaNになる。未知キーは最初の読出しでfail-fast、既知未成立と非有限値は空欄にする。metrics DSLへ`$agent_step`を足すものではない。
 
 `AgentStepDiagnosticsResult.current`は`unique_ptr<const Module>`でbatchの値を所有し、`GetScalar(key, lane)`で読む。共通層はキーを制限せず、提供元があるときの未知キー（nullopt）は最初の読み取りで列番号・キー付きfail-fastにする。提供元がないAgentでは任意の`$agent_step`列をNaNとし、既定列を使える。既知NaNと未確定は独立で、lane別`pending_keys`のうち選択列に対応するものだけを待つ。
@@ -317,7 +323,7 @@ Agentは`CreateStepDiagnosticsProvider`で`AgentStepDiagnosticsProvider`を生�
 
 `BatchActionInfo`はModuleBaseから派生し、lane指定の`action`・`action.[次元]`を共通のGetScalarで読む。次元は文字列全体と範囲を検証する。lane=-1のscalar問い合わせではこの2キーを認識せず、Agent固有のscalarは派生型が提供する。DQNActionInfoは自分のキー以外を基底へ委譲する。非DQNを含め未知キーはnulloptとなり、scalar Observerでは通常のvalue not found WARNをtagごとRunに1回出す。通知にActionInfo自体が無い要求は従来どおりエラーにする。
 
-DQNの具体的な提供元と鍵の認識はDQN実装内に閉じる。DQNのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。既存の3キーはPERの有無によらず計算し、追加forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset時の初期stdをatomicへ公開し、診断はAgentのmutexと可変Tensor統計を参照せず、この値だけを読む。学習側の演算順序は変えず、現行checkpointが保存しない報酬統計の復元機構も持たない。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。
+DQNの具体的な提供元と鍵の認識はDQN実装内に閉じる。DQNのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。既存の3キーのQ計算はPERの有無によらず、追加のQ forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset・Load時のstdをatomicへ公開し、診断は可変Tensor統計を参照せず、この値だけを読む。動的な外的・内的報酬スケーラは統計をcheckpointへ保存する。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。non_episodicの終端の初期優先度の内的の見積もりもbootstrapなしである。
 
 生成器は行追加と遅延列確定を別々に知らせる。GUIの保持上限を超えた行の画像を保持し続けない。列解析・時点・診断・再生の公開経路と数値等価性は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)で確かめる。
 

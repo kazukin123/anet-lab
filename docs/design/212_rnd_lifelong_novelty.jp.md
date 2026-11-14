@@ -8,6 +8,8 @@ RND は、**固定した問題の答えを学習する小さなモデルを持�
 
 本書は、強化学習や RND に詳しくない読者が基本から読めるように構成した。概念を知りたい場合は §2、計算と実装の関係を追いたい場合は §3、設定や指標を読みたい場合は §4 を参照する。DQN 全体の仕様は [200 DQN 系 Agent](200_dqn_agents.jp.md) にある。
 
+以下の報酬の式・図・手計算は、特記しない限り既定の`intrinsic.value_mode=combined`と恒等の内的スケーラを使う。価値を分けて学ぶ構成とスケーラの順序は§3.9を参照する。
+
 ## 1. 用語
 
 ### 1.1 強化学習の基本
@@ -335,11 +337,11 @@ sequenceDiagram
 
 ### 3.7 Replay に保存したボーナスは採点し直さない
 
-現在の実装は、経験が facade に来た時点で外的報酬とボーナスを合成し、1本の報酬として ReplayBuffer へ渡す。後から同じ経験を取り出しても、新しい predictor でボーナスを再計算しない。
+既定のcombinedは、経験が facade に来た時点で外的報酬とボーナスを合成し、1本の報酬として ReplayBuffer へ渡す。後から同じ経験を取り出しても、新しい predictor でボーナスを再計算しない。
 
 例えば、収集時に珍しくてボーナス0.2が付いた遷移は、その場所に慣れた後の学習でも、保存された0.2を含む報酬を使う。現在その場所を訪れたときのボーナスとは一致しなくてよい。β を途中で変えても、Replay に既に入った報酬までは書き換わらない。
 
-この方法なら Replay の形式を変えずに導入できるが、外的・内的報酬を後から別々に扱えない。これは現在の実装の選択であり、RND という手法に必須の制約ではない。
+この方法なら Replay の形式を変えずに導入できるが、外的・内的報酬を後から別々に扱えない。分解時は2成分を保存し、外的・内的を別々に学ぶ（§3.9）。どちらもRNDをReplay抽選時に採点し直さない。
 
 ### 3.8 実装を読む順番
 
@@ -355,6 +357,16 @@ sequenceDiagram
 | 契約をどう確かめるか | [`intrinsic_test.cpp`](../../core/anet-core/src/intrinsic_test.cpp) | 固定教師、学習、更新順序、報酬加算、保存再開などを公開経路から検証する |
 
 DefaultDQN側が解釈するのは `intrinsic.enabled`・`intrinsic.beta`・`intrinsic.observation`・`intrinsic.use_done_mask`・`intrinsic.learn_ratio`・`intrinsic.learn_batch_size`。RND固有の設定はFactoryへ渡し、`RndNoveltyEstimatorConfig` が解釈する。報酬の合成・学習の刻みを担当する側と、新しさの計算・補助学習そのものを担当する側を分けている。
+
+### 3.9 価値の分解と内的報酬スケーラ
+
+`intrinsic.value_mode=decomposed`は外的と内的のHeadを別々の報酬で学び、行動選択で`Q_ext + β Q_int`へ合わせる。`intrinsic.enabled=true`が必要で、skipとの併用はERRORになる。TD・QR・IQN、TBO、Head入力の共有/専用、merge/splitの契約は[214 価値の分解](214_value_decomposition.jp.md)を参照する。
+
+取り込みの順序は、`α−1`へdoneの扱いを適用し、`intrinsic.reward_scaler`を当て、その後にβを掛ける。combinedはβ倍した値を外的報酬へ足す。decomposedはβを掛ける前のスケール済み値と外的報酬を2成分で保存する。`bonus_mean`等とTraceの`intrinsic.bonus`は、どちらのモードでもβ倍後の値である。
+
+内的スケーラの既定は定数倍率1、動的変換なし、自動倍率なし、clipなしの恒等変換。`dynamic_mode=reward_std`は報酬、`return_std`はlane別の割引和の標準偏差で報酬を割る。後者はエピソード境界で割引和を消さず、初期化時の実効内的gammaを使う。return_stdとuse_auto_post_scale=trueの併用はERRORになる。
+
+共有gamma・episodic・combined bootstrap・loss_weight=1・priority_lambda=1・feature_gradient=mergeが既定。separateのgammaとfixedのActor action_betaには既定値がなく、使う構成で必ず指定する。内的報酬の正規化とQのTBO変換は別々の処理である。
 
 ## 4. 具体例 ― 値・設定・指標を読む
 
@@ -471,7 +483,7 @@ RND本体は、whiten の EMA だけ `RndNoveltyEstimator-4`、累積と varianc
 
 CoordinatorはRND本体の後ろに自身の未消費credit、lane抽選の乱数状態、累計成功回数を保存する。RND本体を先に置き、異なる書式を本体の検査で拒否する。呼び出し途中を除き、初回採点前、EstimateとLearnの間、Learn直後で保存・復元できる。計算グラフは持ち越さない。直近lossは保存対象外で、読込後の最初の成功stepまではNaNとなる。Agentはこの節の保存・復元をCoordinatorの`Save`・`Load`へ委ねる。
 
-RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付けて区別する。保存側に RND があるのに読み込み側が無効、またはその逆の場合はエラーにする。無効時は従来の保存形式を使う。
+RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付けて区別する。保存側に RND があるのに読み込み側が無効、またはその逆の場合はエラーにする。分解または動的な外的・内的スケーラを使うAgentは第3版の書式を使い、統計とreturn_stdの割引和も保存する。分解の有無、feature_gradient、スケーラの種類の不一致はERRORとし、return_stdのlane数だけが違えば統計を保持して割引和を初期化し1回WARNする。combined・定数スケーラの構成は従来の形式を維持する。
 
 読込ではpredictorのoptimizerの学習状態を復元したうえで、学習率・重み減衰・adam_epsを現在の設定へ合わせ、差があればRunに1回INFOで知らせる。それらを変更した再開は、同じ学習をそのまま継続する場合とは区別する。
 
@@ -479,7 +491,7 @@ RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付�
 
 DefaultDQNの`run.@rnd`では、235 `rnd_bonus`、600 `rnd_err`、610 `rnd_norm`の3列を出す。鍵はそれぞれ`intrinsic.bonus`・`intrinsic.error`・`intrinsic.normalized_error`である。ボーナスは230 `reward`の直後、誤差2列は`prio_pct`の右に並ぶ。240 `decision`・250 `skip`とは重複せず、TempoRLとの併用でも各列を保つ。RND無効では既知の鍵としてNaNを返す。Rainbowはこれらの鍵を認識しない。
 
-`EstimateWithoutUpdate`は観測を現在の統計で正規化し、targetとpredictorを勾配なしで通す。誤差は特徴ごとの二乗誤差の平均である。誤差統計・観測統計・件数・集約診断と重みは更新しない。統計方式とwarm-upに従って倍率を作り、ボーナスはβ×(倍率−1)とする。
+`EstimateWithoutUpdate`は観測を現在の統計で正規化し、targetとpredictorを勾配なしで通す。誤差は特徴ごとの二乗誤差の平均である。誤差統計・観測統計・件数・集約診断と重みは更新しない。統計方式とwarm-upに従って倍率を作り、doneの扱いのあと内的スケーラのScaleWithoutUpdateを当ててβを掛ける。スケーラの統計・割引和・clip率も更新しない。既定の恒等スケーラならβ×(倍率−1)となる。
 
 | 条件（上から最初の行を適用） | 標準化した値 |
 |---|---|
@@ -499,7 +511,7 @@ DefaultDQNの`run.@rnd`では、235 `rnd_bonus`、600 `rnd_err`、610 `rnd_norm`
 
 βはCoordinatorの構築時に予定をexp step 0で評価して用意し、以後は学習の有効・無効に依らず、学習の入口のexp stepで評価した値に更新する。推定器と同じ時機に写し、checkpointへ保存せず、読み込んでも上書きしない。評価専用・再開直後もボーナスが出る。新しいRunの起動直後は誤差統計が空で倍率が1なので、ボーナスは0になる。`intrinsic.observation=next_state`なら行に表示する結果の画面、`state`なら行動を決めた1つ前の画面を採点する。
 
-Actorが写しを持つ場合、行の値は最後のActor同期時点の学習側のpredictor・統計・βによる。同じ行のQも同じ時点のnetworkを使う。写しを持たない場合はそのstepで学習側を直接読む。値は行の生成時に1回保存し、過去の行の選択で採点し直さない。内的報酬の鍵を要求しないときは採点・写し・接続・追加のAgentロックを行わない。paneを閉じた間は採点も写しも休み、開いたときに写しが無ければ通常のActor同期を行う。
+Actorが写しを持つ場合、行の値は最後のActor同期時点の学習側のpredictor・統計・βによる。同じ行のQも同じ時点のnetworkを使う。写しを持たない場合はそのstepで学習側を直接読む。値は行の生成時に1回保存し、過去の行の選択で採点し直さない。内的報酬の鍵も、分解時の`approx_priority`も要求しないときは採点・写し・接続・追加のAgentロックを行わない。Head別Qだけを要求する場合、内的報酬の採点は不要である。paneを閉じた間は採点も写しも休み、開いたときに写しが無ければ通常のActor同期を行う。
 
 forwardで乱数を引くdropout・droppathは共有乱数列を進めるので、Actorが写しを持つ場合も学習不変性の保証外である。BatchNormの更新は写しの中に閉じるが、写しを持たないActorでは学習側の統計も変わる。この場合も保証外である。これらの層は検出もWARNもしない。出荷のRND構成には含まれない。
 
@@ -530,6 +542,8 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 
 ### 5.2 確認済みの範囲
 
+価値の分解・内的スケーラ・動的スケーラの保存復元の検証は[PRD121検証資材](../../core/anet-core/testdata/prd121/README.md)に置く。
+
 構造の分離後の前後比較、旧checkpointの継続、Releaseの速度は [PRD128検証資材](../../core/anet-core/testdata/prd128/README.md)を参照する。
 
 誤差統計・warm-up・中心化・終端の mask の検証手順は [PRD123 検証資材](../../core/anet-core/testdata/prd123/README.md) にある。旧挙動を選ぶ collect_errors、variance_feedback、RND 無効の前後比較と、EMA の手計算・保存復元を区別する。KFM の効果確認は別の承認を受けてから行う。
@@ -555,7 +569,7 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 
 短期動作確認は、計算・報酬加算・学習・記録がつながっていることを確かめるものである。外的な成績が改善すること、難しいゲームの探索問題を解決すること、性能上の費用が許容できることまでは示していない。
 
-特に、一度慣れた経路を再び探索する動機、エピソードごとの新しさ、外的報酬と内的報酬を分離した学習、探索の強さが異なる方策の組は、今回の RND 単独実装とは別の論点である。関連する選択肢と未決は [PRD924](../memo/924_intrinsic_reward_novelty_10prd.md) にある。
+特に、一度慣れた経路を再び探索する動機、エピソードごとの新しさ、探索の強さが異なる方策の組は、今回の RND 単独実装とは別の論点である。関連する選択肢と未決は [PRD924](../memo/924_intrinsic_reward_novelty_10prd.md) にある。
 
 run.@rnd_taigaもTaigaらの完全な再現ではない。QはC51でなくIQN、CNNはSAMEでなくVALID paddingであり、Qの埋め込み・初期値・PER・統計を数える単位・ALEの版も異なる。補助学習時には更新後の統計で入力を正規化し直す。残る差の一覧は [23implの表](../memo/116_rnd_lifelong_novelty_23impl.md#本家との残る差) にある。
 

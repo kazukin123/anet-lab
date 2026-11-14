@@ -507,7 +507,7 @@ public:
     {
     }
 
-    void Push(const rl::BatchExperience& batch_exp, float gamma) override
+    void Push(const rl::BatchExperience& batch_exp, const std::vector<float>& gammas) override
     {
         std::lock_guard<std::mutex> lock(mutex);
         push_called_before_first_sample_finished = first_sample_started && !first_sample_finished;
@@ -520,7 +520,7 @@ public:
         cv.notify_all();
     }
 
-    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float, float gamma) const override
+    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float, const std::vector<float>& gammas) const override
     {
         int call_index = 0;
         {
@@ -557,7 +557,7 @@ public:
     }
 
     bool SampleUniqueUniform(
-        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&, float gamma) const override
+        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&, const std::vector<float>& gammas) const override
     {
         std::lock_guard<std::mutex> lock(mutex);
         ++unique_sample_count;
@@ -571,12 +571,12 @@ public:
     }
 
     rl::SamplingHistoryProbeResult ProbeSamplingHistory(
-        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const override
+        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, const std::vector<float>& gammas) const override
     {
         rl::SamplingHistoryProbeResult result;
         if (request.unsampled_batch_size) {
             rl::ExperienceSamples samples;
-            SampleUniqueUniform(samples, *request.unsampled_batch_size, *random, gamma);
+            SampleUniqueUniform(samples, *request.unsampled_batch_size, *random, gammas);
             result.unsampled = std::move(samples);
         }
         return result;
@@ -780,7 +780,7 @@ void PushTime(
         next_done,
         next_truncated,
         episode_start,
-        include_mask), buffer.config.gamma);
+        include_mask), {buffer.config.gamma});
 }
 
 void PushTimeWithActionInfo(
@@ -801,7 +801,7 @@ void PushTimeWithActionInfo(
         BoolValues(buffer.num_envs, false),
         episode_start,
         false,
-        action_info), buffer.config.gamma);
+        action_info), {buffer.config.gamma});
 }
 
 rl::ExperienceSamples MakeTransferSamples()
@@ -882,11 +882,11 @@ TEST_CASE("Replay windows stop at the next decision and return discounted transi
         anet::TensorDict info;
         info.Set("decision", torch::tensor({ t % 3 == 0 }, torch::kBool));
         buffer.rb->Push(MakeBatch({ float(t) }, { float(t + 1) }, { 1.0f },
-            { false }, { false }, { t == 0 }, false, info), buffer.config.gamma);
+            { false }, { false }, { t == 0 }, false, info), {buffer.config.gamma});
     }
     REQUIRE(buffer.rb->Size() == 8);
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 8, 0.0f, buffer.config.gamma);
+    buffer.rb->Sample(samples, 8, 0.0f, {buffer.config.gamma});
     REQUIRE(samples.window.lengths.numel() == 8);
     for (int64_t i = 0; i < 8; ++i) {
         const int start = static_cast<int>(samples.obs.At(kVectorKey)[i].item<float>());
@@ -901,7 +901,7 @@ TEST_CASE("Replay windows stop at the next decision and return discounted transi
     if (execution == 2) CHECK(samples.window.next_obs.device().is_cuda());
     // Probeもwindowと同じ候補範囲を使い、通常Sampleとは独立したcaller RNGで窓を得る。
     anet::RandomGenerator random(98);
-    const auto history = buffer.rb->ProbeSamplingHistory({.counts = true, .sampled_batch_size = 1}, &random, buffer.config.gamma);
+    const auto history = buffer.rb->ProbeSamplingHistory({.counts = true, .sampled_batch_size = 1}, &random, {buffer.config.gamma});
     CHECK(history.unsampled_count + history.sampled_count == 8);
     REQUIRE(history.sampled);
     REQUIRE(history.sampled->window.lengths.defined());
@@ -920,10 +920,62 @@ TEST_CASE("Decision window margin does not delay PER initial-priority completion
     for (int step = 0; step < 12; ++step) {
         buffer.rb->Push(MakeBatch({float(step)}, {float(step + 1)}, {1}, {false}, {false}, {step == 0}, false,
             anet::TensorDict{{"decision", torch::tensor({step % 3 == 0}, torch::kBool)}},
-            rl::ReplayInitialPriorityHint(torch::ones({1, 1}))), buffer.config.gamma);
+            rl::ReplayInitialPriorityHint(torch::ones({1, 1}))), {buffer.config.gamma});
     }
     CHECK(*calls == 10);
     CHECK(buffer.rb->Size() == 8);
+}
+
+TEST_CASE("Replay recomputes only the scheduled reward component", "[prd121][replay_buffer]")
+{
+    // 公開のPushと抽選を通し、定数の成分とscheduleの成分を同じ標本で比べる。
+    const int components = GENERATE(2, 3);
+    const int boundary = GENERATE(0, 1, 2, 3); // 通常、done、truncated、両方。
+    const bool prefetch = GENERATE(false, true);
+    auto config = MakeConfig(16, 2, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
+    config.reward_component_count = components;
+    config.recompute_reward_components = components == 2 ? std::vector<bool>{false, true} : std::vector<bool>{false, true, false};
+    auto buffer = MakeBuffer(config, 1);
+    if (prefetch) buffer.rb = std::make_shared<rl::PrefetchingReplayBuffer>(buffer.rb, torch::kCPU);
+    const std::vector<float> push_gammas = components == 2 ? std::vector<float>{0.5f, 0.5f} : std::vector<float>{0.5f, 0.5f, 0.75f};
+    const std::vector<float> sample_gammas = components == 2 ? std::vector<float>{0.1f, 0.25f} : std::vector<float>{0.1f, 0.25f, 0.1f};
+    for (int step = 0; step < 5; ++step) {
+        auto batch = MakeBatch({float(step)}, {step == 1 && boundary >= 2 ? -2.0f : float(step + 1)}, {1.0f},
+            {step == 1 && (boundary == 1 || boundary == 3)}, {step == 1 && boundary >= 2},
+            {step == 0 || (step == 2 && boundary != 0)});
+        batch.reward = torch::arange(1, components + 1, torch::kFloat32).unsqueeze(0) * (step + 1);
+        buffer.rb->Push(batch, push_gammas);
+    }
+    anet::RandomGenerator random(121);
+    rl::ExperienceSamples samples;
+    const auto check = [&] {
+        REQUIRE(samples.target_returns.sizes() == torch::IntArrayRef({samples.actions.size(0), components}));
+        for (int64_t row = 0; row < samples.actions.size(0); ++row) {
+            const auto step = samples.obs.At(kVectorKey)[row][0].item<float>();
+            const int length = boundary != 0 && step == 1 ? 1 : 2;
+            const bool ends = boundary != 0 && step <= 1;
+            CAPTURE(components, boundary, prefetch, step);
+            CHECK(samples.n_steps[row].item<int>() == length);
+            CHECK(samples.next_state.terminals[row].item<bool>() == (ends && (boundary == 1 || boundary == 3)));
+            CHECK(samples.next_state.truncated[row].item<bool>() == (ends && boundary >= 2));
+            for (int component = 0; component < components; ++component) {
+                const float gamma = component == 1 ? sample_gammas[component] : push_gammas[component];
+                const float expected = (component + 1) * (step + 1 + (length == 1 ? 0 : gamma * (step + 2)));
+                CHECK(samples.target_returns[row][component].item<float>() == Catch::Approx(expected));
+            }
+        }
+    };
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, sample_gammas));
+    check();
+    for (int request = 0; request < 2; ++request) {
+        buffer.rb->Sample(samples, buffer.rb->Size(), 0, sample_gammas);
+        check();
+    }
+    config.window_rule = rl::CreateDecisionWindowRule(2);
+    CHECK_THROWS_WITH(MakeBuffer(config, 1), Catch::Matchers::ContainsSubstring("component"));
+    config.window_rule.reset();
+    config.reward_component_count = 0;
+    CHECK_THROWS_WITH(MakeBuffer(config, 1), Catch::Matchers::ContainsSubstring("component"));
 }
 
 TEST_CASE("Replay windows retain episode boundaries through ring wrap and transfer", "[replay_buffer][prd098]")
@@ -938,12 +990,12 @@ TEST_CASE("Replay windows retain episode boundaries through ring wrap and transf
         anet::TensorDict info;
         info.Set("decision", torch::tensor({ episode_start || t % 3 == 0 }, torch::kBool));
         buffer.rb->Push(MakeBatch({ float(t) }, { truncated ? -float(t + 1) : float(t + 1) },
-            { float(t + 1) }, { done }, { truncated }, { episode_start }, false, info), buffer.config.gamma);
+            { float(t + 1) }, { done }, { truncated }, { episode_start }, false, info), {buffer.config.gamma});
         episode_start = done || truncated;
     }
     anet::RandomGenerator random(98);
     rl::ExperienceSamples samples;
-    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, buffer.config.gamma));
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, {buffer.config.gamma}));
     samples = samples.To(torch::kCPU);
     for (int64_t row = 0; row < samples.actions.size(0); ++row) {
         const int start = static_cast<int>(samples.obs.At(kVectorKey)[row][-1].item<float>());
@@ -979,15 +1031,15 @@ TEST_CASE("Replay decision windows preserve margins and sample lengths uniformly
     for (int step = 0; step < 16; ++step) {
         anet::TensorDict info{{"decision", torch::tensor({step == 0}, torch::kBool)}};
         const auto batch = MakeBatch({float(step)}, {float(step + 1)}, {1.0f}, {false}, {false}, {step == 0}, false, info);
-        ordinary.rb->Push(batch, ordinary.config.gamma);
-        windowed.rb->Push(batch, windowed.config.gamma);
+        ordinary.rb->Push(batch, {ordinary.config.gamma});
+        windowed.rb->Push(batch, {windowed.config.gamma});
     }
     CHECK(ordinary.rb->Size() - windowed.rb->Size() == 3);
     anet::RandomGenerator random(98);
     std::array<int, 4> count{};
     rl::ExperienceSamples sample;
     for (int draw = 0; draw < 4000; ++draw) {
-        REQUIRE(windowed.rb->SampleUniqueUniform(sample, 1, random, windowed.config.gamma));
+        REQUIRE(windowed.rb->SampleUniqueUniform(sample, 1, random, {windowed.config.gamma}));
         REQUIRE(sample.window.max_lengths.item<int>() == 4);
         const int length = sample.window.lengths.item<int>();
         REQUIRE(length >= 1);
@@ -995,7 +1047,7 @@ TEST_CASE("Replay decision windows preserve margins and sample lengths uniformly
         ++count[length - 1];
     }
     for (const int observed : count) { CHECK(observed > 800); CHECK(observed < 1200); }
-    REQUIRE(ordinary.rb->SampleUniqueUniform(sample, 1, random, ordinary.config.gamma));
+    REQUIRE(ordinary.rb->SampleUniqueUniform(sample, 1, random, {ordinary.config.gamma}));
     CHECK_FALSE(sample.window.lengths.defined());
     config.capacity = 4;
     CHECK_THROWS(MakeBuffer(config, 1));
@@ -1015,11 +1067,11 @@ TEST_CASE("Replay rejects action changes inside a decision window", "[replay_buf
             anet::TensorDict{{"decision", torch::tensor({step == 0}, torch::kBool)}});
         const auto action = continuous ? torch::full({1, 1}, float(step % 2)) : torch::tensor({step % 2}, torch::kInt64);
         batch.action = batch.action->WithAction(action);
-        buffer->Push(batch, config.gamma);
+        buffer->Push(batch, {config.gamma});
     }
     rl::ExperienceSamples sample;
     anet::RandomGenerator random(98);
-    CHECK_THROWS_WITH(buffer->SampleUniqueUniform(sample, 1, random, config.gamma), Catch::Matchers::ContainsSubstring("Invalid window action"));
+    CHECK_THROWS_WITH(buffer->SampleUniqueUniform(sample, 1, random, {config.gamma}), Catch::Matchers::ContainsSubstring("Invalid window action"));
 }
 
 TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring wrap", "[replay_buffer][prd104][prd104-windows]")
@@ -1038,12 +1090,12 @@ TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring w
             {float(t + 1)}, {done}, {truncated}, {episode_start}, false,
             anet::TensorDict{{"decision", torch::ones({1}, torch::kBool)}});
         batch.action = batch.action->WithAction(torch::tensor({(t / 6) % 2}, torch::kLong));
-        buffer.rb->Push(batch, config.gamma);
+        buffer.rb->Push(batch, {config.gamma});
         episode_start = done || truncated;
     }
     rl::ExperienceSamples samples;
     anet::RandomGenerator random(104);
-    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, config.gamma));
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, {config.gamma}));
     for (int64_t row = 0; row < samples.actions.size(0); ++row) {
         const int start = static_cast<int>(samples.obs.At(kVectorKey)[row][-1].item<float>());
         const int length = samples.window.lengths[row].item<int>();
@@ -1071,7 +1123,7 @@ TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring w
     // 通常のSampleも2回通し、prefetchの受け渡しが窓を運ぶことを確認する。
     for (int sample = 0; sample < 2; ++sample) {
         rl::ExperienceSamples actual;
-        buffer.rb->Sample(actual, 4, 0.0f, config.gamma);
+        buffer.rb->Sample(actual, 4, 0.0f, {config.gamma});
         CHECK(actual.window.lengths.numel() == 4);
         CHECK(actual.window.lengths.ge(1).all().item<bool>());
         CHECK(actual.window.lengths.le(actual.window.max_lengths).all().item<bool>());
@@ -1348,7 +1400,7 @@ rl::ExperienceSamples SampleOnlyIndex(const TestBuffer& buffer, int64_t target_i
     const int64_t actual_capacity = buffer.capacity_per_env * buffer.num_envs;
     for (int attempt = 0; attempt < 4096; ++attempt) {
         rl::ExperienceSamples samples;
-        buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
+        buffer.rb->Sample(samples, 1, 0.4f, {buffer.config.gamma});
         const int64_t key = samples.replay_item_keys[0].item<int64_t>();
         if (key % actual_capacity == target_index) {
             RequireSampleIndex(samples, target_index);
@@ -1430,7 +1482,7 @@ TEST_CASE("ReplayBuffer sampled indices are valid sampleable storage indices", "
     REQUIRE(buffer.rb->Size() == 6);
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f, {buffer.config.gamma});
 
     RequireShape(samples.replay_item_keys, { buffer.rb->Size() });
     REQUIRE(samples.replay_item_keys.scalar_type() == torch::kInt64);
@@ -1474,7 +1526,7 @@ TEST_CASE("ReplayBuffer reads a caller-random unique uniform probe batch without
 
     rl::ExperienceSamples samples;
     anet::RandomGenerator probe_random(777);
-    REQUIRE(buffer.rb->SampleUniqueUniform(samples, 5, probe_random, buffer.config.gamma));
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, 5, probe_random, {buffer.config.gamma}));
 
     const auto keys = TensorToInt64Vector(samples.replay_item_keys);
     CHECK(std::set<int64_t>(keys.begin(), keys.end()).size() == 5);
@@ -1487,14 +1539,14 @@ TEST_CASE("ReplayBuffer sampling history returns requested disjoint groups from 
     auto buffer = MakeBuffer(MakeConfig(20, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 1, false, 73001);
     for (int64_t t = 0; t <= 6; ++t) PushTime(buffer, t, {}, {}, BoolValues(1, t == 0));
     rl::ExperienceSamples normal;
-    buffer.rb->Sample(normal, 1, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(normal, 1, 0.4f, {buffer.config.gamma});
     const auto selected_key = normal.replay_item_keys.item<int64_t>();
     anet::RandomGenerator random(73002);
     anet::RandomGenerator control(73002);
 
     // 全件抽出でも群は混ぜず、通常Sampleの履歴とcaller RNGをそのまま保つ。
     const auto result = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{
-        .counts = true, .unsampled_batch_size = 5, .sampled_batch_size = 1 }, &random, buffer.config.gamma);
+        .counts = true, .unsampled_batch_size = 5, .sampled_batch_size = 1 }, &random, {buffer.config.gamma});
     CHECK(result.unsampled_count == 5);
     CHECK(result.sampled_count == 1);
     REQUIRE(result.unsampled.has_value());
@@ -1508,7 +1560,7 @@ TEST_CASE("ReplayBuffer sampling history returns requested disjoint groups from 
     const auto sampled_age = 7 - selected_key % 20;
     CHECK(result.sampled_age_mean == Catch::Approx(static_cast<float>(sampled_age)));
     CHECK(result.unsampled_age_mean == Catch::Approx((27.0f - sampled_age) / 5.0f));
-    const auto after = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr, buffer.config.gamma);
+    const auto after = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr, {buffer.config.gamma});
     CHECK(after.unsampled_count == 5);
     CHECK(after.sampled_count == 1);
 }
@@ -1519,27 +1571,27 @@ TEST_CASE("ReplayBuffer history probes preserve ring generations and sample reco
     const int stack = GENERATE(1, 3);
     auto buffer = MakeBuffer(MakeConfig(24, n_step, 0.5f, stack, rl::ReplaySamplerType::PRIORITIZED), 2, false, 73021);
     anet::RandomGenerator random(73022);
-    CHECK_THROWS(buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .unsampled_batch_size = 0 }, &random, buffer.config.gamma));
-    CHECK_THROWS(buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .sampled_batch_size = 1 }, nullptr, buffer.config.gamma));
-    const auto empty = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr, buffer.config.gamma);
+    CHECK_THROWS(buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .unsampled_batch_size = 0 }, &random, {buffer.config.gamma}));
+    CHECK_THROWS(buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .sampled_batch_size = 1 }, nullptr, {buffer.config.gamma}));
+    const auto empty = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr, {buffer.config.gamma});
     CHECK(empty.unsampled_count == 0);
     CHECK(empty.sampled_count == 0);
     CHECK(std::isnan(empty.unsampled_age_mean));
     for (int64_t t = 0; t < 10; ++t) PushTime(buffer, t, {}, {}, BoolValues(2, t == 0));
     rl::ExperienceSamples ordinary;
-    buffer.rb->Sample(ordinary, 2, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(ordinary, 2, 0.4f, {buffer.config.gamma});
     // 全slotを上書きした後は旧世代の抽選履歴が残らない。
     for (int64_t t = 10; t < 30; ++t) PushTime(buffer, t);
-    const auto before = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr, buffer.config.gamma);
+    const auto before = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .counts = true }, nullptr, {buffer.config.gamma});
     CHECK(before.sampled_count == 0);
     CHECK(before.unsampled_count == buffer.rb->Size());
     const auto total = buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL);
     const auto result = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{
-        .counts = true, .unsampled_batch_size = buffer.rb->Size(), .sampled_batch_size = 1 }, &random, buffer.config.gamma);
+        .counts = true, .unsampled_batch_size = buffer.rb->Size(), .sampled_batch_size = 1 }, &random, {buffer.config.gamma});
     REQUIRE(result.unsampled);
     CHECK_FALSE(result.sampled);
     rl::ExperienceSamples control;
-    REQUIRE(buffer.rb->SampleUniqueUniform(control, buffer.rb->Size(), random, buffer.config.gamma));
+    REQUIRE(buffer.rb->SampleUniqueUniform(control, buffer.rb->Size(), random, {buffer.config.gamma}));
     CHECK(torch::equal(result.unsampled->replay_item_keys, control.replay_item_keys));
     CHECK(torch::equal(result.unsampled->target_returns, control.target_returns));
     CHECK(torch::equal(result.unsampled->n_steps, control.n_steps));
@@ -1547,7 +1599,7 @@ TEST_CASE("ReplayBuffer history probes preserve ring generations and sample reco
     CHECK(torch::equal(result.unsampled->next_state.next_obs.At(kVectorKey), control.next_state.next_obs.At(kVectorKey)));
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL) == total);
     const auto insufficient = buffer.rb->ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{
-        .counts = true, .unsampled_batch_size = buffer.rb->Size() + 1 }, &random, buffer.config.gamma);
+        .counts = true, .unsampled_batch_size = buffer.rb->Size() + 1 }, &random, {buffer.config.gamma});
     CHECK_FALSE(insufficient.unsampled);
     CHECK(insufficient.unsampled_count == before.unsampled_count);
 }
@@ -1574,7 +1626,7 @@ TEST_CASE("ReplayBuffer probe does not mark samples or change PER statistics", "
 
     rl::ExperienceSamples probe;
     anet::RandomGenerator probe_random(4321);
-    REQUIRE(buffer.rb->SampleUniqueUniform(probe, buffer.rb->Size(), probe_random, buffer.config.gamma));
+    REQUIRE(buffer.rb->SampleUniqueUniform(probe, buffer.rb->Size(), probe_random, {buffer.config.gamma}));
 
     CHECK(*buffer.rb->GetScalar(rl::ReplayBuffer::PER_TOTAL) == Catch::Approx(*per_total_before));
     CHECK(*buffer.rb->GetScalar(rl::ReplayBuffer::PER_INITIAL_MASS_RATIO)
@@ -1610,15 +1662,15 @@ TEST_CASE("ReplayBuffer caller-owned probe RNG is deterministic and isolated", "
 
     rl::ExperienceSamples unchanged;
     unchanged.replay_item_keys = torch::tensor({ 999 }, torch::TensorOptions().dtype(torch::kInt64));
-    CHECK_FALSE(probed.rb->SampleUniqueUniform(unchanged, 7, probed_random, probed.config.gamma));
+    CHECK_FALSE(probed.rb->SampleUniqueUniform(unchanged, 7, probed_random, {probed.config.gamma}));
     CHECK(unchanged.replay_item_keys.item<int64_t>() == 999);
 
     rl::ExperienceSamples all_items;
-    REQUIRE(probed.rb->SampleUniqueUniform(all_items, 6, probed_random, probed.config.gamma));
+    REQUIRE(probed.rb->SampleUniqueUniform(all_items, 6, probed_random, {probed.config.gamma}));
     rl::ExperienceSamples probe_after_all;
     rl::ExperienceSamples control_probe;
-    REQUIRE(probed.rb->SampleUniqueUniform(probe_after_all, 5, probed_random, probed.config.gamma));
-    REQUIRE(probe_sequence_control.rb->SampleUniqueUniform(control_probe, 5, control_random, probe_sequence_control.config.gamma));
+    REQUIRE(probed.rb->SampleUniqueUniform(probe_after_all, 5, probed_random, {probed.config.gamma}));
+    REQUIRE(probe_sequence_control.rb->SampleUniqueUniform(control_probe, 5, control_random, {probe_sequence_control.config.gamma}));
     CHECK(torch::equal(probe_after_all.replay_item_keys, control_probe.replay_item_keys));
 
     // 一方の probe consumer が乱数を消費しても、別 caller 所有 RNG の系列は変わらない。
@@ -1628,16 +1680,16 @@ TEST_CASE("ReplayBuffer caller-owned probe RNG is deterministic and isolated", "
     rl::ExperienceSamples plasticity_probe;
     rl::ExperienceSamples churn_probe;
     rl::ExperienceSamples churn_control_probe;
-    REQUIRE(probed.rb->SampleUniqueUniform(plasticity_probe, 5, plasticity_random, probed.config.gamma));
-    REQUIRE(probed.rb->SampleUniqueUniform(churn_probe, 5, churn_random, probed.config.gamma));
+    REQUIRE(probed.rb->SampleUniqueUniform(plasticity_probe, 5, plasticity_random, {probed.config.gamma}));
+    REQUIRE(probed.rb->SampleUniqueUniform(churn_probe, 5, churn_random, {probed.config.gamma}));
     REQUIRE(probe_sequence_control.rb->SampleUniqueUniform(
-        churn_control_probe, 5, churn_control_random, probe_sequence_control.config.gamma));
+        churn_control_probe, 5, churn_control_random, {probe_sequence_control.config.gamma}));
     CHECK(torch::equal(churn_probe.replay_item_keys, churn_control_probe.replay_item_keys));
 
     rl::ExperienceSamples normal_after_probe;
     rl::ExperienceSamples normal_control;
-    probed.rb->Sample(normal_after_probe, 5, 0.4f, probed.config.gamma);
-    normal_sample_control.rb->Sample(normal_control, 5, 0.4f, normal_sample_control.config.gamma);
+    probed.rb->Sample(normal_after_probe, 5, 0.4f, {probed.config.gamma});
+    normal_sample_control.rb->Sample(normal_control, 5, 0.4f, {normal_sample_control.config.gamma});
     CHECK(torch::equal(normal_after_probe.replay_item_keys, normal_control.replay_item_keys));
 }
 
@@ -1856,7 +1908,7 @@ TEST_CASE("PER falls back once when repeated rejection draws cannot select a pos
     anet::test::LogCaptureGuard logs;
     for (int attempt = 0; attempt < 2; ++attempt) {
         rl::ExperienceSamples samples;
-        REQUIRE_NOTHROW(buffer.rb->Sample(samples, 1, 0.4f, config.gamma));
+        REQUIRE_NOTHROW(buffer.rb->Sample(samples, 1, 0.4f, {config.gamma}));
         REQUIRE(samples.is_weights.numel() == 1);
         CHECK(samples.is_weights.item<float>() == 1.0f);
         CHECK(samples.replay_item_keys.numel() == 1);
@@ -1882,13 +1934,13 @@ TEST_CASE("ReplayBuffer PER initial mass ratio remains accurate with many slots"
     }
 
     rl::ExperienceSamples all_samples;
-    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f, {buffer.config.gamma});
     auto all_item_keys = TensorToInt64Vector(all_samples.replay_item_keys);
     std::sort(all_item_keys.begin(), all_item_keys.end());
     all_item_keys.erase(std::unique(all_item_keys.begin(), all_item_keys.end()), all_item_keys.end());
     while (all_item_keys.size() < static_cast<size_t>(updated_count)) {
         rl::ExperienceSamples extra;
-        buffer.rb->Sample(extra, buffer.rb->Size(), 0.4f, buffer.config.gamma);
+        buffer.rb->Sample(extra, buffer.rb->Size(), 0.4f, {buffer.config.gamma});
         auto extra_keys = TensorToInt64Vector(extra.replay_item_keys);
         all_item_keys.insert(all_item_keys.end(), extra_keys.begin(), extra_keys.end());
         std::sort(all_item_keys.begin(), all_item_keys.end());
@@ -2532,15 +2584,15 @@ TEST_CASE("ReplayBuffer transports an opaque three-column hint until initial pri
     };
 
     buffer.rb->Push(MakeBatch(
-        { 0.0f }, { 1.0f }, { 1.0f }, { false }, { false }, { true }, false, {}, make_hint(4.0f, 5.0f)), buffer.config.gamma);
+        { 0.0f }, { 1.0f }, { 1.0f }, { false }, { false }, { true }, false, {}, make_hint(4.0f, 5.0f)), {buffer.config.gamma});
     REQUIRE(buffer.rb->Size() == 0);
 
     buffer.rb->Push(MakeBatch(
-        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { false }, false, {}, make_hint(6.0f, 2.0f)), buffer.config.gamma);
+        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { false }, false, {}, make_hint(6.0f, 2.0f)), {buffer.config.gamma});
     REQUIRE(buffer.rb->Size() == 1);
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(samples, 1, 0.4f, {buffer.config.gamma});
     REQUIRE(samples.per_priority_sources.device().is_cpu());
     REQUIRE(samples.per_priority_sources.scalar_type() == torch::kInt8);
     REQUIRE(samples.per_priority_sources[0].item<int8_t>()
@@ -2566,7 +2618,7 @@ TEST_CASE("ReplayBuffer completes a true terminal from the start hint only", "[r
     auto hint = rl::ReplayInitialPriorityHint(torch::tensor(
         { { 4.0f, 5.0f, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
-        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(hint)), buffer.config.gamma);
+        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(hint)), {buffer.config.gamma});
     REQUIRE(buffer.rb->Size() == 0);
 
     // sampleable境界へ進める次stepのhintはbootstrapとして読まれないことも同時に確認する。
@@ -2575,11 +2627,11 @@ TEST_CASE("ReplayBuffer completes a true terminal from the start hint only", "[r
         torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
         { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { true }, false, {},
-        std::move(next_episode_hint)), buffer.config.gamma);
+        std::move(next_episode_hint)), {buffer.config.gamma});
 
     REQUIRE(buffer.rb->Size() == 1);
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(samples, 1, 0.4f, {buffer.config.gamma});
     REQUIRE(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::ACTOR_INITIAL));
 }
@@ -2598,11 +2650,11 @@ TEST_CASE("ReplayBuffer uses max initial priority for a finite truncated hint", 
     auto hint = rl::ReplayInitialPriorityHint(torch::tensor(
         { { 4.0f, 5.0f, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
-        { 0.0f }, { 1.0f }, { 2.0f }, { false }, { true }, { true }, false, {}, std::move(hint)), buffer.config.gamma);
+        { 0.0f }, { 1.0f }, { 2.0f }, { false }, { true }, { true }, false, {}, std::move(hint)), {buffer.config.gamma});
 
     REQUIRE(buffer.rb->Size() == 1);
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(samples, 1, 0.4f, {buffer.config.gamma});
     CHECK(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::MAX_INITIAL));
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_COUNT).value() == 1.0f);
@@ -2628,16 +2680,16 @@ TEST_CASE("ReplayBuffer validates a truncated start hint before fallback", "[rep
         { 0.0f }, { 1.0f }, { 2.0f }, { false }, { true }, { true }, false, {}, std::move(hint));
 
 #ifdef NDEBUG
-    REQUIRE_NOTHROW(buffer.rb->Push(batch, buffer.config.gamma));
+    REQUIRE_NOTHROW(buffer.rb->Push(batch, {buffer.config.gamma}));
     REQUIRE(buffer.rb->Size() == 1);
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(samples, 1, 0.4f, {buffer.config.gamma});
     CHECK(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::MAX_INITIAL));
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_NONFINITE_FALLBACK_COUNT).value() == 1.0f);
     CHECK(buffer.rb->GetScalar(rl::ReplayBuffer::PER_ACTOR_TRUNCATION_FALLBACK_COUNT).value() == 0.0f);
 #else
-    REQUIRE_THROWS(buffer.rb->Push(batch, buffer.config.gamma));
+    REQUIRE_THROWS(buffer.rb->Push(batch, {buffer.config.gamma}));
 #endif
 }
 
@@ -2664,7 +2716,7 @@ TEST_CASE("ReplayBuffer rejects a hint batch mismatch before mutation", "[replay
         { true, true },
         false,
         {},
-        std::move(mismatched_hint)), buffer.config.gamma));
+        std::move(mismatched_hint)), {buffer.config.gamma}));
     CHECK(buffer.rb->Size() == 0);
 }
 
@@ -2756,7 +2808,7 @@ TEST_CASE("ReplayBuffer priority update validates the whole batch before mutatio
     REQUIRE_THROWS(buffer.rb->UpdatePriorities({ first_key, future_key }, { 9.0f, 4.0f }));
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(samples, buffer.rb->Size(), 0.4f, {buffer.config.gamma});
     auto sources_tensor = samples.per_priority_sources.contiguous();
     auto sources = sources_tensor.accessor<int8_t, 1>();
     for (int64_t i = 0; i < samples.per_priority_sources.size(0); ++i) {
@@ -2827,11 +2879,11 @@ TEST_CASE("ReplayBuffer duplicate priority updates are last-wins with one actor 
     auto start_hint = rl::ReplayInitialPriorityHint(torch::tensor(
         { { 4.0f, 5.0f, 123.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
-        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(start_hint)), buffer.config.gamma);
+        { 0.0f }, { 1.0f }, { 2.0f }, { true }, { false }, { true }, false, {}, std::move(start_hint)), {buffer.config.gamma});
     auto next_hint = rl::ReplayInitialPriorityHint(torch::tensor(
         { { 1.0f, 1.0f, 456.0f } }, torch::TensorOptions().dtype(torch::kFloat32)));
     buffer.rb->Push(MakeBatch(
-        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { true }, false, {}, std::move(next_hint)), buffer.config.gamma);
+        { 1.0f }, { 2.0f }, { 0.0f }, { false }, { false }, { true }, false, {}, std::move(next_hint)), {buffer.config.gamma});
 
     const int64_t slot = IndexOf(buffer, 0, 0);
     const int64_t key = FindCurrentKey(buffer, slot);
@@ -2845,7 +2897,7 @@ TEST_CASE("ReplayBuffer duplicate priority updates are last-wins with one actor 
     CHECK(buffer.rb->GetTensor(rl::ReplayBuffer::PER_VALUES, slot)->item<float>() == Catch::Approx(7.0f));
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(samples, 1, 0.4f, {buffer.config.gamma});
     CHECK(samples.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED));
 }
@@ -2897,7 +2949,7 @@ TEST_CASE("ReplayBuffer PER samples expose initial-priority flags", "[replay_buf
     REQUIRE(buffer.rb->Size() == 1);
 
     rl::ExperienceSamples first;
-    buffer.rb->Sample(first, 1, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(first, 1, 0.4f, {buffer.config.gamma});
     RequireShape(first.per_priority_sources, { 1 });
     CHECK(first.per_priority_sources[0].item<int8_t>()
         != static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED));
@@ -2906,7 +2958,7 @@ TEST_CASE("ReplayBuffer PER samples expose initial-priority flags", "[replay_buf
     buffer.rb->UpdatePriorities(sampled_indices, { 2.0f });
 
     rl::ExperienceSamples second;
-    buffer.rb->Sample(second, 1, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(second, 1, 0.4f, {buffer.config.gamma});
     RequireShape(second.per_priority_sources, { 1 });
     CHECK(second.per_priority_sources[0].item<int8_t>()
         == static_cast<int8_t>(rl::ReplayPrioritySource::LEARNER_UPDATED));
@@ -2933,7 +2985,7 @@ TEST_CASE("ReplayBuffer PER normalizes IS weights from priority probabilities", 
     bool checked_mixed_batch = false;
     for (int attempt = 0; attempt < 128 && !checked_mixed_batch; ++attempt) {
         rl::ExperienceSamples samples;
-        buffer.rb->Sample(samples, 2, 0.5f, buffer.config.gamma);
+        buffer.rb->Sample(samples, 2, 0.5f, {buffer.config.gamma});
         RequireShape(samples.replay_item_keys, { 2 });
         RequireShape(samples.is_weights, { 2 });
 
@@ -3079,7 +3131,7 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
         try {
             for (int i = 0; i < 100; ++i) {
                 rl::ExperienceSamples samples;
-                buffer.rb->Sample(samples, 4, 0.4f, buffer.config.gamma);
+                buffer.rb->Sample(samples, 4, 0.4f, {buffer.config.gamma});
 
                 if (samples.replay_item_keys.sizes().vec() != std::vector<int64_t>{ 4 }) {
                     throw std::runtime_error("Unexpected sample index shape.");
@@ -3109,7 +3161,7 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
     }
 
     rl::ExperienceSamples samples;
-    buffer.rb->Sample(samples, 4, 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(samples, 4, 0.4f, {buffer.config.gamma});
     RequireShape(samples.replay_item_keys, { 4 });
     RequireShape(samples.actions, { 4 });
 }
@@ -3128,7 +3180,7 @@ TEST_CASE("PrefetchingReplayBuffer samples deterministically on CPU", "[replay_b
         std::vector<int64_t> out;
         for (int i = 0; i < 4; ++i) {
             rl::ExperienceSamples samples;
-            rb->Sample(samples, 4, 0.4f, 0.99f);
+            rb->Sample(samples, 4, 0.4f, {0.99f});
             RequireShape(samples.replay_item_keys, { 4 });
             RequireShape(samples.actions, { 4 });
             CHECK(samples.actions.device().is_cpu());
@@ -3151,7 +3203,7 @@ TEST_CASE("PrefetchingReplayBuffer forwards ReplayBuffer accessors on CPU", "[re
     auto inner_state = std::make_shared<BlockingReplayBuffer>();
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
-    rb.Push(rl::BatchExperience{}, 0.99f);
+    rb.Push(rl::BatchExperience{}, {0.99f});
     CHECK(inner_state->PushCount() == 1);
     CHECK(rb.Size() == inner_state->size_value);
 
@@ -3200,7 +3252,7 @@ TEST_CASE("PrefetchingReplayBuffer waits for in-flight sample before priority up
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
     rl::ExperienceSamples samples;
-    rb.Sample(samples, 1, 0.0f, 0.99f);
+    rb.Sample(samples, 1, 0.0f, {0.99f});
     CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
 
     inner_state->WaitForSecondSampleStarted();
@@ -3228,13 +3280,13 @@ TEST_CASE("PrefetchingReplayBuffer waits for cold sample before push", "[replay_
 
     rl::ExperienceSamples samples;
     std::thread sampler([&] {
-        rb.Sample(samples, 1, 0.0f, 0.99f);
+        rb.Sample(samples, 1, 0.0f, {0.99f});
     });
 
     inner_state->WaitForFirstSampleStarted();
 
     std::thread pusher([&] {
-        rb.Push(rl::BatchExperience{}, 0.99f);
+        rb.Push(rl::BatchExperience{}, {0.99f});
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -3256,14 +3308,14 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
     rl::ExperienceSamples samples;
-    rb.Sample(samples, 1, 0.0f, 0.99f);
+    rb.Sample(samples, 1, 0.0f, {0.99f});
     CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
 
     inner_state->WaitForSecondSampleStarted();
 
     std::atomic<bool> push_returned = false;
     std::thread pusher([&] {
-        rb.Push(rl::BatchExperience{}, 0.99f);
+        rb.Push(rl::BatchExperience{}, {0.99f});
         push_returned = true;
     });
 
@@ -3278,7 +3330,7 @@ TEST_CASE("PrefetchingReplayBuffer delays armed push on worker FIFO", "[replay_b
     inner_state->ReleaseSecondSample();
 
     rl::ExperienceSamples second_samples;
-    rb.Sample(second_samples, 1, 0.0f, 0.99f);
+    rb.Sample(second_samples, 1, 0.0f, {0.99f});
     CHECK(TensorToInt64Vector(second_samples.replay_item_keys) == std::vector<int64_t>{ 2 });
     inner_state->WaitForSampleCount(3);
 
@@ -3294,11 +3346,11 @@ TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe witho
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
     rl::ExperienceSamples first_samples;
-    rb.Sample(first_samples, 1, 0.0f, 0.99f);
+    rb.Sample(first_samples, 1, 0.0f, {0.99f});
     CHECK(TensorToInt64Vector(first_samples.replay_item_keys) == std::vector<int64_t>{ 1 });
     inner_state->WaitForSecondSampleStarted();
 
-    std::thread pusher([&] { rb.Push(rl::BatchExperience{}, 0.99f); });
+    std::thread pusher([&] { rb.Push(rl::BatchExperience{}, {0.99f}); });
     pusher.join();
     CHECK(inner_state->PushCount() == 0);
 
@@ -3307,10 +3359,10 @@ TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe witho
     anet::RandomGenerator probe_random(2802);
     std::thread probe([&] {
         if (history) {
-            const auto result = rb.ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .unsampled_batch_size = 1 }, &probe_random, 0.99f);
+            const auto result = rb.ProbeSamplingHistory(rl::SamplingHistoryProbeRequest{ .unsampled_batch_size = 1 }, &probe_random, {0.99f});
             probe_ok = result.unsampled.has_value();
             if (result.unsampled) probe_samples = *result.unsampled;
-        } else probe_ok = rb.SampleUniqueUniform(probe_samples, 1, probe_random, 0.99f);
+        } else probe_ok = rb.SampleUniqueUniform(probe_samples, 1, probe_random, {0.99f});
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     CHECK(inner_state->UniqueSampleCount() == 0);
@@ -3322,7 +3374,7 @@ TEST_CASE("PrefetchingReplayBuffer settles FIFO work before a unique probe witho
     CHECK(TensorToInt64Vector(probe_samples.replay_item_keys) == std::vector<int64_t>{ 101 });
 
     rl::ExperienceSamples second_samples;
-    rb.Sample(second_samples, 1, 0.0f, 0.99f);
+    rb.Sample(second_samples, 1, 0.0f, {0.99f});
     CHECK(TensorToInt64Vector(second_samples.replay_item_keys) == std::vector<int64_t>{ 2 });
 }
 
@@ -3332,7 +3384,7 @@ TEST_CASE("PrefetchingReplayBuffer keeps shallow armed push alive after caller s
     rl::PrefetchingReplayBuffer rb(inner_state, torch::kCPU);
 
     rl::ExperienceSamples samples;
-    rb.Sample(samples, 1, 0.0f, 0.99f);
+    rb.Sample(samples, 1, 0.0f, {0.99f});
     CHECK(TensorToInt64Vector(samples.replay_item_keys) == std::vector<int64_t>{ 1 });
 
     inner_state->WaitForSecondSampleStarted();
@@ -3348,7 +3400,7 @@ TEST_CASE("PrefetchingReplayBuffer keeps shallow armed push alive after caller s
             { false });
 
         std::thread pusher([&] {
-            rb.Push(batch, 0.99f);
+            rb.Push(batch, {0.99f});
             push_returned = true;
         });
 
@@ -3700,7 +3752,7 @@ TEST_CASE("ReplayBuffer PER samples only safe wrapped frame-stack indices", "[re
     }
 
     rl::ExperienceSamples all_samples;
-    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f, buffer.config.gamma);
+    buffer.rb->Sample(all_samples, buffer.rb->Size(), 0.4f, {buffer.config.gamma});
     auto all_item_keys = TensorToInt64Vector(all_samples.replay_item_keys);
     buffer.rb->UpdatePriorities(all_item_keys, std::vector<float>(all_item_keys.size(), 0.0f));
     REQUIRE(all_item_keys.size() >= 2);
@@ -3708,7 +3760,7 @@ TEST_CASE("ReplayBuffer PER samples only safe wrapped frame-stack indices", "[re
 
     for (int attempt = 0; attempt < 16; ++attempt) {
         rl::ExperienceSamples samples;
-        buffer.rb->Sample(samples, 1, 0.4f, buffer.config.gamma);
+        buffer.rb->Sample(samples, 1, 0.4f, {buffer.config.gamma});
         RequireShape(samples.replay_item_keys, { 1 });
         RequireSlotsIn(samples.replay_item_keys, buffer.capacity_per_env * buffer.num_envs, {
             IndexOf(buffer, 0, 5),
@@ -3858,7 +3910,7 @@ TEST_CASE("ReplayBuffer rejects episode_start transitions that disagree with the
         auto ended = MakeBatch(
             StateValues(num_envs, 1), StateValues(num_envs, 2), RewardValues(num_envs, 1),
             next_done, BoolValues(num_envs, false), BoolValues(num_envs, false));
-        buffer.rb->Push(ended, buffer.config.gamma);
+        buffer.rb->Push(ended, {buffer.config.gamma});
         const int64_t size_before = buffer.rb->Size();
 
         CHECK_THROWS_WITH(
@@ -3985,7 +4037,7 @@ TEST_CASE("ReplayBuffer preserves history at the first capacity boundary",
     REQUIRE(buffer.rb->Size() == expected_size);
     anet::RandomGenerator random(78002);
     rl::ExperienceSamples samples;
-    REQUIRE(buffer.rb->SampleUniqueUniform(samples, expected_size, random, buffer.config.gamma));
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, expected_size, random, {buffer.config.gamma}));
     const auto keys = TensorToInt64Vector(samples.replay_item_keys);
 
     if (pushed < 9) {
@@ -4389,7 +4441,7 @@ void Run(
     int previous_snapshot = 0;
     std::set<int64_t> previous_keys;
     for (int pushed = 1; pushed <= steps; ++pushed) {
-        buffer->Push(Input(history, pushed - 1), config.gamma);
+        buffer->Push(Input(history, pushed - 1), {config.gamma});
         if (!checkpoints.contains(pushed)) continue;
         CAPTURE(pushed);
         const auto expected = ExpectedKeys(history, pushed, capacity, stack, n_step);
@@ -4400,7 +4452,7 @@ void Run(
 
         // 全件probeがwrite-behindの同期境界になる。SizeだけではFIFO完了を保証しない。
         rl::ExperienceSamples samples;
-        REQUIRE(buffer->SampleUniqueUniform(samples, static_cast<int64_t>(expected.size()), probe_random, config.gamma));
+        REQUIRE(buffer->SampleUniqueUniform(samples, static_cast<int64_t>(expected.size()), probe_random, {config.gamma}));
         REQUIRE(buffer->Size() == static_cast<int64_t>(expected.size()));
         const auto probed = Verify(samples, history, expected, pushed, capacity, stack, n_step);
         REQUIRE(probed == expected);
@@ -4408,14 +4460,14 @@ void Run(
 
         // 先読み済み1バッチは古いsnapshotで検証し、現snapshotの被覆へ混ぜない。
         if (prefetch && previous_snapshot != 0) {
-            buffer->Sample(samples, batch_size, 0.4f, config.gamma);
+            buffer->Sample(samples, batch_size, 0.4f, {config.gamma});
             Verify(samples, history, previous_keys, previous_snapshot, capacity, stack, n_step);
             counts.checked_samples += samples.replay_item_keys.numel();
         }
         auto missing = expected;
         const int64_t max_batches = (32 * static_cast<int64_t>(expected.size()) + batch_size - 1) / batch_size;
         for (int64_t batch = 0; batch < max_batches && !missing.empty(); ++batch) {
-            buffer->Sample(samples, batch_size, 0.4f, config.gamma);
+            buffer->Sample(samples, batch_size, 0.4f, {config.gamma});
             const auto seen = Verify(samples, history, expected, pushed, capacity, stack, n_step);
             for (const auto key : seen) missing.erase(key);
             counts.checked_samples += samples.replay_item_keys.numel();
@@ -4449,7 +4501,7 @@ TEST_CASE("ReplayBuffer pads initial frame history when the ring first becomes f
     REQUIRE(buffer.rb->Size() == 7);
     anet::RandomGenerator random(replay_integrity_assay::kFixedSeed);
     rl::ExperienceSamples samples;
-    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, buffer.config.gamma));
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, {buffer.config.gamma}));
     const auto keys = TensorToInt64Vector(samples.replay_item_keys);
     const auto first = std::find(keys.begin(), keys.end(), int64_t{ 8 });
     REQUIRE(first != keys.end());
@@ -4472,7 +4524,7 @@ TEST_CASE("ReplayBuffer preserves bootstrap frame history while n-step metadata 
             REQUIRE(buffer.rb->Size() == 1);
             anet::RandomGenerator random(replay_integrity_assay::kFixedSeed);
             rl::ExperienceSamples samples;
-            REQUIRE(buffer.rb->SampleUniqueUniform(samples, 1, random, buffer.config.gamma));
+            REQUIRE(buffer.rb->SampleUniqueUniform(samples, 1, random, {buffer.config.gamma}));
             REQUIRE(samples.n_steps.item<int64_t>() == n_step);
             REQUIRE_FALSE(samples.next_state.terminals.item<bool>());
             RequireFlatApprox(samples.obs.At(kVectorKey)[0], { 0.0f, 0.0f, 0.0f, 0.0f });
@@ -4495,7 +4547,7 @@ TEST_CASE("ReplayBuffer ignores previous-generation terminal metadata in bootstr
     }
     anet::RandomGenerator random(replay_integrity_assay::kFixedSeed);
     rl::ExperienceSamples samples;
-    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, buffer.config.gamma));
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, {buffer.config.gamma}));
     const auto keys = TensorToInt64Vector(samples.replay_item_keys);
     const auto target = std::find(keys.begin(), keys.end(), int64_t{ 16 });
     REQUIRE(target != keys.end());
@@ -4544,11 +4596,11 @@ TEST_CASE("PRD101 scheduled gamma rebuilds sampled returns after the push bounda
     auto buffer = MakeBuffer(config, 1);
     for (int step = 0; step < 5; ++step) {
         buffer.rb->Push(MakeBatch({float(step)}, {float(step + 1)}, {float(step + 1)},
-            {false}, {false}, {step == 0}), 0.5f);
+            {false}, {false}, {step == 0}), {0.5f});
     }
     anet::RandomGenerator random(101);
     rl::ExperienceSamples samples;
-    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, 0.9f));
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, {0.9f}));
     bool found = false;
     for (int64_t row = 0; row < samples.actions.size(0); ++row) {
         if (samples.obs.At(kVectorKey)[row][0].item<float>() != 0.0f) continue;
@@ -4582,16 +4634,16 @@ TEST_CASE("PRD101 prefetch keeps reward snapshots through wrap and episode bound
         const bool truncated = boundary == 2 && ended;
         anet::TensorDict info{{"decision", torch::tensor({episode_start || step % 3 == 0}, torch::kBool)}};
         replay->Push(MakeBatch({float(step)}, {float(step + 1)}, {float(step + 1)},
-            {done}, {truncated}, {episode_start}, false, info), 0.5f);
+            {done}, {truncated}, {episode_start}, false, info), {0.5f});
         episode_start = done || truncated;
     };
     for (int step = 0; step < 12; ++step) push(step);
     rl::ExperienceSamples warm;
-    replay->Sample(warm, 4, 0.0f, 0.5f);
+    replay->Sample(warm, 4, 0.0f, {0.5f});
     // 起動済み抽選の後に全slotを上書きし、消費側は元の報酬列だけから確定する。
     for (int step = 12; step < 36; ++step) push(step);
     rl::ExperienceSamples result;
-    replay->Sample(result, 4, 0.0f, 0.9f);
+    replay->Sample(result, 4, 0.0f, {0.9f});
     REQUIRE(result.target_returns.device().is_cuda() == cuda);
     result = result.To(torch::kCPU, false);
     REQUIRE(result.sampled_rewards.defined());
@@ -4616,11 +4668,11 @@ TEST_CASE("PRD101 constant gamma retains saved returns without reward snapshots"
     auto buffer = MakeBuffer(MakeConfig(16, 3, 0.5f, 1, rl::ReplaySamplerType::UNIFORM), 1);
     for (int step = 0; step < 5; ++step) {
         buffer.rb->Push(MakeBatch({float(step)}, {float(step + 1)}, {float(step + 1)},
-            {false}, {false}, {step == 0}), 0.5f);
+            {false}, {false}, {step == 0}), {0.5f});
     }
     anet::RandomGenerator random(101);
     rl::ExperienceSamples samples;
-    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, 0.9f));
+    REQUIRE(buffer.rb->SampleUniqueUniform(samples, buffer.rb->Size(), random, {0.9f}));
     CHECK_FALSE(samples.sampled_rewards.defined());
     CHECK_FALSE(samples.sampled_window_rewards.defined());
     for (int64_t row = 0; row < samples.actions.size(0); ++row) {
@@ -4637,10 +4689,10 @@ TEST_CASE("PRD101 sampling-history diagnostics receive their own current gamma",
     auto buffer = MakeBuffer(config, 1);
     for (int step = 0; step < 5; ++step) {
         buffer.rb->Push(MakeBatch({float(step)}, {float(step + 1)}, {float(step + 1)},
-            {false}, {false}, {step == 0}), 0.5f);
+            {false}, {false}, {step == 0}), {0.5f});
     }
     anet::RandomGenerator random(101);
-    const auto result = buffer.rb->ProbeSamplingHistory({.counts = true, .unsampled_batch_size = 2}, &random, 0.7f);
+    const auto result = buffer.rb->ProbeSamplingHistory({.counts = true, .unsampled_batch_size = 2}, &random, {0.7f});
     REQUIRE(result.unsampled.has_value());
     const auto& samples = *result.unsampled;
     for (int64_t row = 0; row < samples.actions.size(0); ++row) {

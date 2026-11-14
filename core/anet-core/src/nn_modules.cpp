@@ -1,6 +1,7 @@
 ﻿// nn_module_impl.cpp
 
 #include <array>
+#include <exception>
 #include <numeric>
 #include <numbers>
 #include <sstream>
@@ -196,7 +197,27 @@ struct LinearProjectionNoisyConfig {
 
 void anet::nn::ValidateLinearProjectionConfig(const ConfigData& config, const std::string& owner)
 {
-    (void)LinearProjectionNoisyConfig(config, owner);
+    try {
+        (void)LinearProjectionNoisyConfig(config, owner);
+    } catch (const std::exception& error) {
+        ANET_SYSTEM_ERROR("Invalid projection config: owner=" << owner << "; " << error.what());
+    }
+}
+
+void anet::nn::ReportUnusedLinearProjectionConfig(const ConfigData& config, const std::string& owner,
+    bool used, const std::string& reason)
+{
+    if (used) return;
+    const LinearProjectionNoisyConfig actual(config, owner);
+    const LinearProjectionNoisyConfig defaults(EmptyConfigData, owner);
+    const auto report = [&](const std::string& key, const auto& value, const auto& default_value) {
+        if (config.Has(key) && value != default_value)
+            LOG::warn_once(owner + "." + key) << "Ignored " << owner << "." << key
+                << "=" << anet::json(value).dump() << "; default=" << anet::json(default_value).dump()
+                << "; reason=" << reason << ".";
+    };
+    report("noisy.enabled", actual.enabled, defaults.enabled);
+    report("noisy.sigma0", actual.sigma0, defaults.sigma0);
 }
 
 // Lazy Linear Implementation

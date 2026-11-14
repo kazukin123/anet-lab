@@ -23,6 +23,17 @@ namespace anet::rl::dqn {
 
     };
 
+    /// 既存の2つのHeadを同じNetworkの中で実行し、出力の意味を分ける。
+    class DecomposedHeadFactory final : public anet::nn::NetworkHeadFactory {
+    public:
+        DecomposedHeadFactory(std::shared_ptr<anet::nn::NetworkHeadFactory> extrinsic,
+            std::shared_ptr<anet::nn::NetworkHeadFactory> intrinsic, bool dedicated, bool intrinsic_dueling);
+        std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
+    private:
+        std::shared_ptr<anet::nn::NetworkHeadFactory> extrinsic_, intrinsic_;
+        bool dedicated_, intrinsic_dueling_;
+    };
+
     class LinearHeadFactory final : public HeadFactoryBase {
     public:
         LinearHeadFactory(int64_t action_dim, const anet::nn::WeightInitConfig& init_config,

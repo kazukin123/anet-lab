@@ -40,7 +40,7 @@ namespace anet::rl {
     // ======================================================
 
     /// ReplayBuffer内部でcompletionまで運ぶ、schema非依存のhint行。
-    using ReplayInitialPriorityHintRow = c10::SmallVector<float, 4>;
+    using ReplayInitialPriorityHintRow = c10::SmallVector<float, 5>;
 
     /// Storage上の重いデータ（Obs等）とは分離された、N-Step計算用の軽量メタデータ
     struct QueueRecord {
@@ -51,6 +51,7 @@ namespace anet::rl {
         bool truncated;         ///< タイムアップ等による打ち切りフラグ
         bool is_dummy = false;  ///< Truncated時の終端計算用ダミーフラグ
         std::optional<ReplayInitialPriorityHintRow> replay_initial_priority_hint;
+        std::vector<float> component_rewards; ///< 2成分目以降。1成分なら確保しない。
     };
 
     /// 各環境(Env)ごとの未処理メタデータを一時保持するキュー
@@ -86,12 +87,13 @@ namespace anet::rl {
         bool terminal;          ///< 最終的な終了フラグ
         int actual_n_steps;     ///< 実際に進んだステップ数
         bool truncated = false; ///< true terminalではないtruncation境界
+        std::vector<float> component_returns; ///< 2成分目以降。
     };
 
     class ReplayExperienceBuilder {
     public:
         /// 系列(Sequence)を受け取り、アルゴリズムに応じた ReplayExperience を構築する
-        virtual ReplayExperience Build(const ExperienceSequence& sequence, float gamma) const = 0;
+        virtual ReplayExperience Build(const ExperienceSequence& sequence, const std::vector<float>& gammas) const = 0;
         virtual ~ReplayExperienceBuilder() = default;
     };
    
@@ -233,8 +235,9 @@ namespace anet::rl {
         /// extractorへring layoutを露出せず、実slotの履歴開始だけを返す。
         bool IsHistoryStart(int64_t env_idx, int64_t physical_idx) const;
         /// 1 step の事実を、n-step確定とは独立して保存する。
-        void RecordStep(int64_t env_idx, int64_t time_idx, float reward, bool done, bool truncated, bool decision);
-        float GetStepReward(int64_t env_idx, int64_t time_idx) const;
+        void RecordStep(int64_t env_idx, int64_t time_idx, float reward, bool done, bool truncated, bool decision,
+            std::span<const float> components = {});
+        float GetStepReward(int64_t env_idx, int64_t time_idx, int component = 0) const;
         uint8_t GetStepFlags(int64_t env_idx, int64_t time_idx) const;
         static constexpr uint8_t kDone = 1;
         static constexpr uint8_t kTruncated = 2;
@@ -249,6 +252,7 @@ namespace anet::rl {
         int64_t num_envs_;
         int64_t capacity_per_env_;
         std::vector<int64_t> write_cursors_;
+        int reward_component_count_;
         torch::Device device_;
 
         // --- 物理テンソル群 ---
@@ -297,7 +301,7 @@ namespace anet::rl {
             ExperienceSamples& out_samples,
             const ReplayExperienceStorage& storage,
             const IndexSampleResult& idx_result,
-            int stack_count, int unroll_steps, ReplayExperienceSampler& sampler, float gamma) const = 0;
+            int stack_count, int unroll_steps, ReplayExperienceSampler& sampler, const std::vector<float>& gammas) const = 0;
         virtual ~ExperienceSampleExtractor() = default;
     };
 
@@ -340,6 +344,8 @@ namespace anet::rl {
             int64_t flat_slot_index = 0;  ///< 初期優先度を適用する物理slot
             float target_return = 0.0f;   ///< ExperienceQueue通過後の確定済みtarget return
             float discount = 0.0f;        ///< 収益を確定したPushでの割引率
+            std::vector<float> component_returns;
+            std::vector<float> component_discounts;
             bool terminal = false;        ///< bootstrapを行わない真の終端か
             bool truncated = false;       ///< 終端観測を推論せずmaxへfallbackする打切りか
             int actual_n_steps = 1;       ///< 終端短縮を反映した実n-step数
@@ -461,11 +467,11 @@ namespace anet::rl {
             torch::Device device,
             bool pin_memory);
 
-        void Push(const BatchExperience& batch_exp, float gamma) override;
-        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const override;
-        bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, float gamma) const override;
+        void Push(const BatchExperience& batch_exp, const std::vector<float>& gammas) override;
+        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, const std::vector<float>& gammas) const override;
+        bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, const std::vector<float>& gammas) const override;
         SamplingHistoryProbeResult ProbeSamplingHistory(
-            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, float gamma) const override;
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, const std::vector<float>& gammas) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;
@@ -480,7 +486,7 @@ namespace anet::rl {
         void ProcessQueue(
             int64_t env_idx,
             const std::optional<ReplayInitialPriorityHintRow>& current_hint,
-            int64_t current_logical_idx, float gamma); // 内部パイプラインの駆動
+            int64_t current_logical_idx, const std::vector<float>& gammas); // 内部パイプラインの駆動
         int64_t OnSlotWritten(int64_t flat_slot_index);
         int64_t EncodeReplayItemKey(int64_t flat_slot_index) const;
         void InvalidateAccessorCacheForStorage();

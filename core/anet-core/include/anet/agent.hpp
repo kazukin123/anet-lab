@@ -202,6 +202,8 @@ namespace anet::rl {
         }
 
         struct DQNActorConfig {
+            static constexpr char kActionBetaLearner[] = "learner";
+            static constexpr char kActionBetaFixed[] = "fixed";
             static constexpr const char* kMaxLengthSingle = "single";
             static constexpr const char* kMaxLengthFull = "full";
             static constexpr const char* kMaxLengthVariable = "variable";
@@ -210,6 +212,10 @@ namespace anet::rl {
 
             ActionPolicyConfig policy;
             ActionPolicyConfig skip_policy;
+            struct {
+                std::string action_beta_mode = kActionBetaLearner;
+                std::optional<float> action_beta;
+            } intrinsic;
             bool has_skip_policy = false;
             struct {
                 std::string max_length_mode = kMaxLengthFull;
@@ -246,8 +252,11 @@ namespace anet::rl {
         };
 
         struct MunchausenValues {
+            static constexpr char kLogPolicyTarget[] = "target";
+            static constexpr char kLogPolicyOnline[] = "online";
+            static constexpr char kLogPolicyOnlineReuse[] = "online_reuse";
             bool enabled = false;
-            std::string log_policy_mode = "target"; ///< Learner専用。Actorのヒント生成では参照しない。
+            std::string log_policy_mode = kLogPolicyTarget; ///< Learner専用。Actorのヒント生成では参照しない。
             float alpha = 0.9f;
             float entropy_tau = 0.03f;
             float clip_value_min = -1.0f;
@@ -255,7 +264,7 @@ namespace anet::rl {
 
         struct MunchausenConfig {
             bool enabled = false;
-            std::string log_policy_mode = "target";
+            std::string log_policy_mode = MunchausenValues::kLogPolicyTarget;
             anet::ProfiledValueConfig<float> alpha{ .value = 0.9f, .min_value = 0.0f, .max_value = 1.0f };
             anet::ProfiledValueConfig<float> entropy_tau{ .value = 0.03f, .min_value = std::numeric_limits<float>::denorm_min() };
             float clip_value_min = -1.0f;
@@ -274,9 +283,26 @@ namespace anet::rl {
         }
 
         struct LearnerConfig {
+            static constexpr char kDiscountShared[] = "shared";
+            static constexpr char kDiscountSeparate[] = "separate";
+            static constexpr char kTerminalEpisodic[] = "episodic";
+            static constexpr char kTerminalNonEpisodic[] = "non_episodic";
+            static constexpr char kBootstrapCombined[] = "combined";
+            static constexpr char kBootstrapExtrinsic[] = "extrinsic";
             static constexpr const char* kFeatureGradientStop = "stop";
             static constexpr const char* kFeatureGradientMerge = "merge";
             static constexpr const char* kFeatureGradientSplit = "split";
+            struct {
+                bool decomposed = false; ///< Agent が価値の構成から解決する。
+                std::string discount_mode = kDiscountShared;
+                anet::ProfiledValueConfig<float> gamma{.value = 0.99f, .min_value = std::numeric_limits<float>::min(),
+                    .max_value = std::nextafter(1.0f, 0.0f)};
+                std::string terminal_mode = kTerminalEpisodic;
+                float loss_weight = 1.0f;
+                float priority_lambda = 1.0f;
+                std::string extrinsic_bootstrap_mode = kBootstrapCombined;
+                std::string feature_gradient = kFeatureGradientMerge;
+            } intrinsic;
             static constexpr const char* kSampleWeightUniform = "uniform";
             static constexpr const char* kSampleWeightKmax = "kmax";
             static constexpr const char* kTargetWindowDecision = "decision";

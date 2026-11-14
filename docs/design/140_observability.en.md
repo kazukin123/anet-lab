@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:6c00d29c13f1230b1957e989a94338107e33f359 date:2026-11-13 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:3294f91ff6d2d3e2bce673134bd82d06826b16f9 date:2026-11-14 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -184,30 +184,30 @@ The periodic timer flushes only `RunName.log`. Metrics, stdout, and stderr are f
 
 ### 5.3 Evaluation Trace Scoring and Synchronization
 
-Only DefaultDQN with requested intrinsic columns performs read-only scoring, once for all lanes. With a cloned Actor, the estimator and beta are copied under the same read lock as the network. Creation alone does not copy them; synchronization while the pane is closed discards the snapshot. With an Actor that shares its network, each scoring call takes the Agent read lock. See [intrinsic diagnostics](212_rnd_lifelong_novelty.en.md#46-values-in-evaluation-trace) for values and constraints.
+DefaultDQN with requested intrinsic columns, and DefaultDQN step diagnostics with value decomposition enabled, perform read-only scoring once for all lanes. Decomposed mode also uses it for intrinsic returns in approximate priorities. With a cloned Actor, the estimator and beta are copied under the same read lock as the network. Creation alone does not copy them; synchronization while the pane is closed discards the snapshot. With an Actor that shares its network, each scoring call takes the Agent read lock. See [intrinsic diagnostics](212_rnd_lifelong_novelty.en.md#46-values-in-evaluation-trace) for values and constraints.
 
 ```mermaid
 sequenceDiagram
-    actor U as User
+    actor U as 利用者
     participant T as EvalTracePanel
     participant A as EvalPanel / Actor
-    participant G as Training Agent
-    participant D as Step diagnostics / estimator snapshot
-    U->>T: Open pane
-    T->>D: Resume: is a snapshot needed?
-    opt No snapshot available
-        T->>A: Normal synchronization
-        A->>G: Acquire read lock
-        A->>A: Copy network
-        A->>D: Copy estimator and beta under the same lock
-        A->>G: Release lock
+    participant G as 学習側Agent
+    participant D as step診断 / 推定器の写し
+    U->>T: pane を開く
+    T->>D: Resume（写しが要るか）
+    opt 写しが無いとき
+        T->>A: 通常の同期
+        A->>G: 読み取りロックを取る
+        A->>A: network を写す
+        A->>D: 同じロックで推定器とβを写す
+        A->>G: ロックを離す
     end
-    A->>T: Evaluation transition
-    T->>D: Observe all lanes once
-    D-->>T: Store column values in the row
-    U->>T: Close pane
+    A->>T: 評価stepの遷移
+    T->>D: Observe（全laneを1回）
+    D-->>T: 列の値を行へ保存
+    U->>T: pane を閉じる
     T->>D: Suspend
-    Note over A,D: Actor synchronization while suspended discards the snapshot
+    Note over A,D: 休止中のActor同期では写しを捨てる
 ```
 
 ## 6. Metric Configuration Contracts
@@ -264,6 +264,10 @@ Unknown events, step axes, targets, and attributes stop construction with `ANET_
 
 Keys available through `$agent`, `$actor`, `$action_info`, and `$update_result` depend on the shared interface and concrete Agent's metrics. Unsupported keys are not made to appear equivalent across Agents; Observers handle `std::optional` and `NaN` according to metric definitions. See [DQN Agents](200_dqn_agents.en.md) for Agent-specific keys such as DefaultDQN Train Actor snapshot diagnostics.
 
+Value decomposition exposes `$agent` keys for per-head `extrinsic_loss` / `intrinsic_loss`, `extrinsic_q_sa_mean` / `intrinsic_q_sa_mean`, `extrinsic_head_grad_norm` / `intrinsic_head_grad_norm`, split-only `extrinsic_grad_norm` / `intrinsic_grad_norm`, and `intrinsic_q_share`. Read the intrinsic scaler factor through `intrinsic.reward_scaler.scale`. Scalers support reward_std and return_std; Trace does not update statistics. See [value decomposition](214_value_decomposition.en.md#5-diagnostics) for definitions and NaN conditions.
+
+Read the four action-selection metrics `extrinsic_q_argmax_disagreement`, `extrinsic_q_regret`, `extrinsic_q_gap`, and `intrinsic_q_gap` through lane-specific `$action_info`. Training uses separate lane-mean keys with `@train $action_info`; evaluation uses separate session keys with `$eval.[eval] $actor @session_end` and `$eval.[eval_target] $actor @session_end`. The optional `metrics.scalar.@value_decomposition` group records them under `77_agent_value`. It is absent from default chains and Trace columns. See [effect on action selection](214_value_decomposition.en.md#52-effect-on-action-selection) for all twelve keys and their interpretation.
+
 `GetScalar()` returning `std::nullopt` means the key is unknown or cannot be handled by a delegate. A known key whose value is unavailable because of current state, timing, configuration, or missing input returns `NaN`. Observers, wrappers, and aggregators distinguish unknown keys from unavailable values, without replacing uninitialized EMA, unfinished episodes, disabled PER, or insufficient batches with zero, previous values, or defaults.
 
 IQN diagnostics do not synchronize devices per metric key. Policy diagnostics pack multiple scalars into a detached Tensor; `DQNActionInfo` materializes them on CPU only at the first key access. Existing Learner IQN diagnostics share priority readback when PER is enabled. With PER disabled, a fixed-length diagnostic pack still uses the existing asynchronous readback path. `metrics.scalar.iqn_search_p0` composes only P0 selections for PER health and throughput without enabling all of `metrics.scalar.full`.
@@ -310,6 +314,8 @@ Metrics Viewer stores traces in existing `json_lines`, separately from scalars. 
 | `$runner` | Counts including this step, rewards, and completion aggregates. `step_in_episode` is 1-based; a terminal row shows the completed length. EvalRunner also exposes lane-specific `forced`: 1 for a forced-action step, 0 for ordinary steps and the initial value. Omitting the lane yields no value; an out-of-range lane fails fast |
 | `$agent_step` | Scalars from the Module owned by Agent diagnostics. DQN provides `q_sa`, `state_value`, and `approx_priority`. DefaultDQN also provides `intrinsic.error`, `intrinsic.normalized_error`, and `intrinsic.bonus`. Agents without diagnostics make the entire target NaN |
 
+DefaultDQN also returns per-head `extrinsic_q_sa`, `intrinsic_q_sa`, `extrinsic_state_value`, and `intrinsic_state_value`. All four are NaN in combined mode. In decomposed mode, existing q_sa and state_value use that Actor's β combination.
+
 Columns cannot use `$agent`, `$env`, `$exp`, or `$update_result`. Aggregation prefixes are supported only for `$runner` episode_return/episode_steps, returning NaN on non-completion rows. Unknown keys fail fast on first read; known unavailable and nonfinite values appear blank. This does not add `$agent_step` to the metrics DSL.
 
 `AgentStepDiagnosticsResult.current` owns batch values through `unique_ptr<const Module>` and exposes them via `GetScalar(key, lane)`. The shared layer does not restrict keys. If a provider exists, an unknown key (nullopt) fails fast on first read with the column number and key. Without a provider, arbitrary `$agent_step` columns yield NaN, allowing default columns to work. Known NaN and pending status are independent; only lane-specific `pending_keys` corresponding to selected columns are awaited.
@@ -318,7 +324,7 @@ Agent creates an `AgentStepDiagnosticsProvider` through `CreateStepDiagnosticsPr
 
 `BatchActionInfo` derives from ModuleBase and exposes lane-specific `action` and `action.[dimension]` through shared GetScalar. The entire dimension string and range are validated. Scalar queries with lane=-1 do not recognize these two keys; derived types provide Agent-specific scalars. DQNActionInfo delegates keys it does not own to the base. Unknown keys, including for non-DQN Agents, return nullopt, causing scalar Observers' ordinary value not found WARN once per tag per Run. Requests whose notification lacks ActionInfo remain errors.
 
-The concrete DQN provider and key recognition stay inside DQN. DQN step diagnostics use Q-hint generation shared with Actor, n-step assembly shared with replay, and the existing initial-priority estimator. Computation of the existing three keys is independent of PER and adds no forward or RNG consumption. The reward scaler applies its current transform without updating statistics or clipping rates. RunningStdRewardScaler publishes the std computed by Scale and the initial std at Reset through an atomic; diagnostics read only this value, without accessing the Agent mutex or mutable Tensor statistics. Learning-side operation order is unchanged, and no restoration mechanism is added for reward statistics absent from current checkpoints. Windows containing truncation leave priority unavailable. Nonterminal values fill their original row once bootstrap Q is available; terminal steps resolve shorter windows.
+The concrete DQN provider and key recognition stay inside DQN. DQN step diagnostics use Q-hint generation shared with Actor, n-step assembly shared with replay, and the existing initial-priority estimator. Q calculations for the existing three keys are independent of PER and add no Q forward or RNG consumption. The reward scaler applies its current transform without updating statistics or clipping rates. RunningStdRewardScaler publishes the std computed by Scale and the std at Reset or Load through an atomic; diagnostics read only this value without accessing mutable Tensor statistics. Dynamic extrinsic and intrinsic reward scalers save their statistics in checkpoints. Windows containing truncation leave priority unavailable. Nonterminal values fill their original row once bootstrap Q is available; terminal steps resolve shorter windows. Intrinsic initial-priority estimates at non_episodic terminals also omit bootstrap.
 
 The builder reports row additions separately from delayed column resolution. Images are not retained for rows beyond the GUI's retention limit. Verify public paths for column parsing, timing, diagnostics, playback, and numerical equivalence with the [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md).
 

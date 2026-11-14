@@ -1,4 +1,4 @@
-<!-- translated-from: README.jp.md blob:f3459c0e72a6315e601424afbb170619bb1e4894 date:2026-11-06 progress:done -->
+<!-- translated-from: README.jp.md blob:5b7993382dcb7ec42dc32a3105fa4d02bd6268b4 date:2026-11-14 progress:done -->
 # ANET Documentation
 
 > Primary perspective: overall structure (guide to documents organized by function and workflow)
@@ -73,7 +73,8 @@ These specifications describe component structure, configuration, data structure
 |---:|---|---|---|
 | 200 | [DQN Agents](200_dqn_agents.en.md) | DefaultDQN, Rainbow, shared DQN components, learning, synchronization, PER | DQN Agent developers |
 | 210 | [Metrics Viewer](210_metrics_viewer.en.md) | Ingestion, cache DB, range queries, rendering, configuration, dependencies | Metrics Viewer developers |
-| 212 | [RND Novelty and Intrinsic Rewards (Japanese)](212_rnd_lifelong_novelty.jp.md) | Basic concepts, algorithm background, scoring, reward composition, implementation, configuration, and metrics | Users studying exploration and Agent developers |
+| 212 | [RND Novelty and Intrinsic Rewards](212_rnd_lifelong_novelty.en.md) | Basic concepts, algorithm background, scoring, reward composition, implementation, configuration, and metrics | Users studying exploration and Agent developers |
+| 214 | [Extrinsic and Intrinsic Value Decomposition](214_value_decomposition.en.md) | Reward components, heads, combination and TBO, learning, diagnostics, and persistence | DQN Agent and exploration method developers |
 | 220 | [Atari Env (ALE Integration)](220_atari_env.en.md) | AtariEnv, ALE configuration key contracts, preprocessing, presets, AtariView | Env developers and Atari experiment users |
 
 ## 4. Related Documents

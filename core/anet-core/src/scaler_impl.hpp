@@ -185,6 +185,9 @@ namespace anet::rl {
         torch::Tensor Scale(const torch::Tensor& reward) override;
         torch::Tensor ScaleWithoutUpdate(const torch::Tensor& reward) const override;
         void Reset() override {}
+        std::string StateKind() const override { return kConstantState; }
+        int64_t Save(anet::OutputArchive&) const override { return 0; }
+        int64_t Load(anet::InputArchive&) override { return 0; }
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
     private:
@@ -200,8 +203,14 @@ namespace anet::rl {
         torch::Tensor Scale(const torch::Tensor& reward) override;
         torch::Tensor ScaleWithoutUpdate(const torch::Tensor& reward) const override;
         void Reset() override;
+        std::string StateKind() const override { return kRewardStdState; }
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+    protected:
+        virtual void UpdateStatistics(const torch::Tensor& reward);
+        RunningMeanStd stats_;
     private:
         // 設定
         const std::optional<float> clip_range_; ///< クリップ範囲
@@ -209,9 +218,25 @@ namespace anet::rl {
         const float post_scale_;
 
         // 統計
-        RunningMeanStd stats_;
         std::atomic<float> diagnostic_std_{1.0f}; ///< 診断は可変Tensor統計を参照せず、公開済みのstdだけを読む
         float last_clip_ratio_ = 0.0f;  ///< 直近のNormalizeでのクリップ率（メトリクス用）
+    };
+
+    class ReturnStdRewardScaler final : public RunningStdRewardScaler {
+    public:
+        ReturnStdRewardScaler(float gamma, int64_t num_lanes, const std::optional<float>& clip_range,
+            float epsilon, float post_scale, std::string prefix);
+        void Reset() override;
+        std::string StateKind() const override { return kReturnStdState; }
+        int64_t Save(anet::OutputArchive& archive) const override;
+        int64_t Load(anet::InputArchive& archive) override;
+    protected:
+        void UpdateStatistics(const torch::Tensor& reward) override;
+    private:
+        float gamma_;
+        int64_t num_lanes_;
+        torch::Tensor returns_;
+        std::string prefix_;
     };
 
 } // namespace anet::rl

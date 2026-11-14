@@ -16,6 +16,52 @@
 #include "anet/test_util.hpp"
 #include "nn_impl.hpp"
 
+TEST_CASE("Value decomposition ships inactive defaults and optional metrics", "[prd121][shipped_config]")
+{
+    const auto repo = std::filesystem::current_path();
+    const auto directory = repo / "out/test-tmp/prd121-config";
+    std::filesystem::create_directories(directory);
+    const auto path = directory / "input.txt";
+    const auto write = [&](bool value_metrics) {
+        std::ofstream file(path);
+        file << "$include <" << (repo / "apps/runner/config/_main.txt").generic_string() << ">\n";
+        file << "$include <" << (repo / "apps/runner/config/GridMaze.txt").generic_string() << ">\n";
+        if (value_metrics) file << "run.$ = run.@rnd\nDefaultDQNAgent.intrinsic.value_mode = decomposed\n"
+            << "metrics.scalar.$ = metrics.scalar.@baseline > M1 > metrics.scalar.@value_decomposition\n";
+    };
+    write(false);
+    const auto baseline = anet::ConfigManager(path).GetConfigData();
+    REQUIRE(baseline.Has("DefaultDQNAgent.intrinsic.value_mode"));
+    CHECK(baseline.Get<std::string>("DefaultDQNAgent.intrinsic.value_mode") == "combined");
+    REQUIRE(baseline.Has("DefaultDQNAgent.learner.intrinsic.feature_gradient"));
+    CHECK_FALSE(baseline.Has("DefaultDQNAgent.learner.intrinsic.gamma"));
+    for (const auto& [key, value] : baseline.Map()) CHECK_FALSE(key.starts_with("metrics.scalar.[77_agent_value/"));
+    write(true);
+    const auto selected = anet::ConfigManager(path).GetConfigData();
+    CHECK(anet::rl::dqn::DefaultDQNAgentConfig(selected).learner.intrinsic.decomposed);
+    int rows = 0;
+    std::set<std::string> keys;
+    for (const auto& [key, value] : selected.Map()) {
+        if (!key.starts_with("metrics.scalar.[77_agent_value/")) continue;
+        ++rows;
+        const auto start = key.find('[') + 1;
+        CHECK(key.size() - start - 1 <= 40);
+        keys.insert(value.substr(0, value.find(' ')));
+    }
+    const std::set<std::string> expected{
+        "extrinsic_loss", "intrinsic_loss", "extrinsic_q_sa_mean", "intrinsic_q_sa_mean", "intrinsic_q_share",
+        "intrinsic.reward_scaler.scale", "extrinsic_head_grad_norm", "intrinsic_head_grad_norm", "extrinsic_grad_norm", "intrinsic_grad_norm",
+        "extrinsic_q_argmax_disagreement_rate", "extrinsic_q_regret_mean", "extrinsic_q_gap_mean", "intrinsic_q_gap_mean",
+        "extrinsic_q_session_argmax_disagreement_rate", "extrinsic_q_session_regret_mean",
+        "extrinsic_q_session_gap_mean", "intrinsic_q_session_gap_mean"};
+    CHECK(keys == expected);
+    CHECK(rows == 22);
+    for (const auto& [key, value] : baseline.Map()) {
+        if (key.starts_with("metrics.scalar.[")) CHECK(selected.Get(key) == value);
+    }
+    CHECK_NOTHROW(anet::rl::ObserverFactory(selected));
+}
+
 TEST_CASE("PRD117 captures current Env defaults for key comparison", "[.][prd117-capture]")
 {
     // 履歴の固定入力ではなく、今回変更する出荷設定の全キーを採取する。

@@ -807,7 +807,7 @@ torch::Tensor RunningStdRewardScaler::Scale(const torch::Tensor& reward)
     // reward: [N] (並列環境数分の報酬)
 
     // ---- 統計更新 (RunningMeanStdに丸投げ)
-    stats_.Update(reward);
+    UpdateStatistics(reward);
 
     // ---- スケーリング
 
@@ -870,18 +870,104 @@ std::optional<float> RunningStdRewardScaler::GetScalar(const std::string& key, i
     return std::nullopt;
 }
 
+void RunningStdRewardScaler::UpdateStatistics(const torch::Tensor& reward)
+{
+    stats_.Update(reward);
+}
+
+int64_t RunningStdRewardScaler::Save(anet::OutputArchive& archive) const
+{
+    auto size = archive.Write(StateKind());
+    size += stats_.Save(archive);
+    size += archive.Write(last_clip_ratio_);
+    return size;
+}
+
+int64_t RunningStdRewardScaler::Load(anet::InputArchive& archive)
+{
+    std::string kind;
+    auto size = archive.Read(kind);
+    if (kind != StateKind())
+        ANET_SYSTEM_ERROR("Reward scaler state kind='" << kind << "'; expected '" << StateKind() << "'.");
+    size += stats_.Load(archive);
+    size += archive.Read(last_clip_ratio_);
+    diagnostic_std_.store(static_cast<float>(stats_.GetStd().item<double>()), std::memory_order_relaxed);
+    return size;
+}
+
+ReturnStdRewardScaler::ReturnStdRewardScaler(float gamma, int64_t num_lanes,
+    const std::optional<float>& clip_range, float epsilon, float post_scale, std::string prefix)
+    : RunningStdRewardScaler(clip_range, epsilon, post_scale), gamma_(gamma), num_lanes_(num_lanes), prefix_(std::move(prefix))
+{
+    if (num_lanes_ < 1 || !std::isfinite(gamma_) || gamma_ < 0.0f || gamma_ > 1.0f)
+        ANET_SYSTEM_ERROR("Invalid return reward scaler: num_lanes=" << num_lanes_ << " gamma=" << gamma_
+            << "; expected num_lanes >= 1 and finite gamma in [0,1].");
+}
+
+void ReturnStdRewardScaler::UpdateStatistics(const torch::Tensor& reward)
+{
+    ANET_PROFILE_FUNC();
+    ANET_ASSERT_SHAPE(reward, {num_lanes_});
+    // laneごとの履歴はエピソードで切らず、報酬を割る統計だけをこの割引和で更新する。
+    if (!returns_.defined()) returns_ = torch::zeros_like(reward);
+    else if (returns_.device() != reward.device()) returns_ = returns_.to(reward.device());
+    returns_ = gamma_ * returns_ + reward;
+    stats_.Update(returns_);
+}
+
+void ReturnStdRewardScaler::Reset()
+{
+    RunningStdRewardScaler::Reset();
+    returns_ = torch::Tensor();
+}
+
+int64_t ReturnStdRewardScaler::Save(anet::OutputArchive& archive) const
+{
+    auto size = RunningStdRewardScaler::Save(archive);
+    size += archive.Write(num_lanes_);
+    size += archive.Write(returns_.defined() ? returns_.to(torch::kCPU) : torch::zeros({num_lanes_}));
+    return size;
+}
+
+int64_t ReturnStdRewardScaler::Load(anet::InputArchive& archive)
+{
+    auto size = RunningStdRewardScaler::Load(archive);
+    int64_t lanes;
+    size += archive.Read(lanes);
+    torch::Tensor returns;
+    size += archive.Read(returns);
+    ANET_ASSERT_SHAPE(returns, {lanes});
+    if (lanes == num_lanes_) returns_ = std::move(returns);
+    else {
+        returns_ = torch::Tensor();
+        anet::log::warn_once(prefix_) << "Reward scaler " << prefix_ << " checkpoint num_lanes=" << lanes
+            << " differs from configured num_lanes=" << num_lanes_ << "; restored statistics and reset discounted returns.";
+    }
+    return size;
+}
+
 
 // =============================================================
 // RewardScalarFactory
 // =============================================================
 
-RewardScalerFactory::RewardScalerFactory(const RewardScalerConfig& config)
-    : config_(config)
+RewardScalerFactory::RewardScalerFactory(const RewardScalerConfig& config, std::string prefix)
+    : config_(config), prefix_(std::move(prefix))
 {
-    ;
+    ValidateRewardScalerConfig(config_, prefix_);
 }
 
-std::unique_ptr<RewardScaler> RewardScalerFactory::CreateRewardScaler(float gamma) const
+void anet::rl::ValidateRewardScalerConfig(const RewardScalerConfig& config, const std::string& prefix, bool used)
+{
+    if (config.dynamic_mode != RewardScaler::kRewardStdState && config.dynamic_mode != RewardScaler::kReturnStdState)
+        ANET_SYSTEM_ERROR("Invalid " << prefix << ".dynamic_mode='" << config.dynamic_mode
+            << "'; expected " << RewardScaler::kRewardStdState << " or " << RewardScaler::kReturnStdState << ".");
+    if (used && config.use_dynamic_scaling && config.dynamic_mode == RewardScaler::kReturnStdState && config.use_auto_post_scale)
+        ANET_SYSTEM_ERROR("Invalid " << prefix << ".use_dynamic_scaling=true " << prefix << ".dynamic_mode="
+            << config.dynamic_mode << " " << prefix << ".use_auto_post_scale=true; expected use_auto_post_scale=false.");
+}
+
+std::unique_ptr<RewardScaler> RewardScalerFactory::CreateRewardScaler(float gamma, int64_t num_lanes) const
 {
     std::optional<float> clip;
     if (config_.use_clipping)
@@ -899,5 +985,8 @@ std::unique_ptr<RewardScaler> RewardScalerFactory::CreateRewardScaler(float gamm
     // Scaler生成
     if (!config_.use_dynamic_scaling)
         return std::make_unique<ConstantRewardScaler>(config_.constant_scale * final_post_scale, clip);
+    if (config_.dynamic_mode == RewardScaler::kReturnStdState) {
+        return std::make_unique<ReturnStdRewardScaler>(gamma, num_lanes, clip, config_.epsilon, final_post_scale, prefix_);
+    }
     return std::make_unique<RunningStdRewardScaler>(clip, config_.epsilon, final_post_scale);
 }
