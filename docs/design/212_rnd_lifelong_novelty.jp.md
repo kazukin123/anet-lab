@@ -130,15 +130,24 @@ NGU はエピソード内の報酬に一生の新しさの倍率を掛ける。�
 
 まずCoordinatorが選んだ観測をRND専用に正規化し、同じ入力をtargetとpredictorへ渡す。既定の `intrinsic.observation=next_state` は遷移の次観測、`state` は行動した観測を選ぶ。どちらもActorのframe stack前の最新1フレームである。
 
+2つの出力の誤差は、そのまま倍率にしない。誤差の統計で「普段との差」に直してから倍率αにする。入力側と出力側にそれぞれ統計がある。既定のwhitenでは、どちらも今回の値を入れる前の統計で採点し、採点のあとに更新する。
+
 ```mermaid
 graph TD
-    O[選んだ生の観測] --> N[観測正規化]
-    N --> T[RND target]
-    N --> P[RND predictor]
-    T --> E[予測誤差]
+    O["選んだ生の観測"] --> N["観測の正規化"]
+    SO[("観測の統計<br/>成分ごとの平均と標準偏差")] -.->|"今回の観測を入れる前の値"| N
+    N --> T["RND target<br/>重みは固定のまま"]
+    N --> P["RND predictor<br/>重みを学習して更新する"]
+    T --> E["予測誤差 e<br/>出力の差の二乗の平均"]
     P --> E
-    E --> A[倍率 α]
+    E --> Z["誤差を普段との差に直す<br/>z = (e−μ_e) ÷ σ_e"]
+    SE[("誤差の統計<br/>平均と標準偏差<br/>全laneで1組")] -.->|"今回の誤差を入れる前の値"| Z
+    Z --> A["倍率 α<br/>普段より大きい誤差ほど大きい<br/>1 + z を1〜Lに収める"]
+    O -.->|"採点のあとに更新する"| SO
+    E -.->|"採点のあとに更新する<br/>warm-up中は除く"| SE
 ```
+
+図は既定の `statistics_mode=whiten`・`multiplier_mode=clipped` である。2つの統計の目的は§3.2、αの式と中心化・unclippedは§3.3、更新の順番は§3.4、warm-upの扱いは§3.5を参照する。`variance_feedback` はlaneごとに観測と誤差の統計を順に更新し、誤差は更新後の統計で割る。
 
 1 lane の正規化済み観測を `x`、教師を `f`、predictor を `g`、出力の次元を `d` とすると、コードが使う誤差は次の値である。
 
@@ -264,6 +273,14 @@ Coordinatorはintakeの全観測で `Estimate` を1回呼び、creditに応じ�
 
 whitenのαはbatchの採点前の件数で判定し、閾値未満なら全laneで1を返す。`warmup_mode=learn_predictor`（既定）は、その間も `Learn` がtrueを返して学習し、観測の統計だけを更新する。誤差の統計は空なので error_mean/error_std は NaN である。warm-up 明けの最初の batch も空の統計で倍率1を返し、その誤差を統計に入れる。次の batch から採点前の統計を使う。
 
+```mermaid
+graph LR
+    W["warm-up 中<br/>採点前の件数が<br/>warmup_steps 未満<br/>α=1、ボーナス0<br/>predictorは学習する<br/>観測の統計だけ更新する"] --> F["warm-up 明けの<br/>最初の batch<br/>誤差の統計がまだ空なので<br/>α=1 のまま<br/>この batch の誤差から<br/>統計に入れ始める"]
+    F --> R["次の batch から<br/>採点前の誤差の統計で<br/>α を作る"]
+```
+
+図は既定の whiten・`warmup_mode=learn_predictor` である。`collect_errors` と variance_feedback は、warm-up 中も誤差を統計に入れる代わりに `Learn` を止める（次の段落）。
+
 `warmup_mode=collect_errors` は、warm-up 中も観測と誤差の統計を更新する一方、採点後の件数が閾値以下なら `Learn` がfalseを返す。variance_feedback の warm-up はこの形のままで、warmup_mode を使わない。ただし採点はlaneごとの採点前の件数で判定し、閾値をまたぐ batch の途中から通常の倍率になる。`warmup_steps=0` はどちらの warmup_mode でも初回から学習し、初回から誤差を統計に入れる。使わない warmup_mode が既定と違うときだけ構築時に1回 INFO を出す。
 
 学習の刻みはCoordinatorが持つ。kを `learn_batch_size` とし、intakeごとにcreditへ `N × learn_ratio / k` を足す。creditが1以上ならk件で1 step、1未満の端数は次へ残す。既定のratio=0.25・batch size=32なら、N=128では毎intakeに1 step、N=64では2 intakeに1 stepとなり、どちらも128経験あたり32件を1回学習する。learnerが有効でNがbatch sizeより小さいときは構築時に停止し、件数を縮めない。learner無効のRunではこの比較を行わない。
@@ -364,6 +381,20 @@ DefaultDQN側が解釈するのは `intrinsic.enabled`・`intrinsic.beta`・`int
 
 取り込みの順序は、`α−1`へdoneの扱いを適用し、`intrinsic.reward_scaler`を当て、その後にβを掛ける。combinedはβ倍した値を外的報酬へ足す。decomposedはβを掛ける前のスケール済み値と外的報酬を2成分で保存する。`bonus_mean`等とTraceの`intrinsic.bonus`は、どちらのモードでもβ倍後の値である。
 
+```mermaid
+graph TD
+    A["倍率 α"] --> M["α − 1"]
+    M --> D["doneの扱い<br/>既定では、終端の次観測の<br/>ボーナスを0にする<br/>（条件は§3.3）"]
+    D --> S["内的報酬スケーラ<br/>既定は恒等"]
+    X["外的報酬"] --> XS["外的の報酬スケーラ"]
+    S --> C{"intrinsic.value_mode"}
+    XS --> C
+    C -- combined --> B["スケール済み外的 + β × 内的<br/>Replayへ1成分"]
+    C -- decomposed --> R["スケール済み外的と内的<br/>Replayへ2成分<br/>βは行動選択でQに掛ける"]
+```
+
+doneで0にした値も内的報酬スケーラを通る。動的なスケーラでは、その0も統計に入る。
+
 内的スケーラの既定は定数倍率1、動的変換なし、自動倍率なし、clipなしの恒等変換。`dynamic_mode=reward_std`は報酬、`return_std`はlane別の割引和の標準偏差で報酬を割る。後者はエピソード境界で割引和を消さず、初期化時の実効内的gammaを使う。return_stdとuse_auto_post_scale=trueの併用はERRORになる。
 
 共有gamma・episodic・combined bootstrap・loss_weight=1・priority_lambda=1・feature_gradient=mergeが既定。separateのgammaとfixedのActor action_betaには既定値がなく、使う構成で必ず指定する。内的報酬の正規化とQのTBO変換は別々の処理である。
@@ -389,30 +420,30 @@ lane 1 は正のボーナスを得ても、外的なペナルティと相殺し�
 
 以下は `DefaultDQNAgent.` を省略したキーである。既定値は [`agent.txt`](../../apps/runner/config/agent.txt) と RND の設定型に対応する。
 
-| キー | 既定 | 変わるもの・注意点 |
-| --- | ---: | --- |
-| `intrinsic.enabled` | false | false なら estimator を作らず、β と RND の他の設定も解釈しない |
-| `intrinsic.beta` | 0.1 | `α−1` に掛ける係数。0以上の ProfiledValue。0にしても採点・補助学習は止まらない |
-| `intrinsic.observation` | next_state | 採点・補助学習へ渡す生の観測。stateなら行動時の観測で、doneをmaskしない |
-| `intrinsic.use_done_mask` | true | next_state の done lane の内的報酬を0にするか。stateでは使わない |
-| `intrinsic.rnd.warmup_mode` | learn_predictor | whiten の warm-up 中に学習させる。collect_errors は誤差を集めて学習を止める |
-| `intrinsic.rnd.error_norm.average_mode` | cumulative | whiten の誤差の統計。cumulative または ema |
-| `intrinsic.rnd.error_norm.ema_steps` | 1,000,000 | ema の時定数。採点した観測の件数で、整数1以上 |
-| `intrinsic.rnd.error_norm.use_centering` | true | whiten の式で誤差から平均を引くか |
-| `intrinsic.rnd.multiplier_mode` | clipped | unclippedなら倍率を制限せず、負のボーナスも残す |
-| `intrinsic.rnd.statistics_mode` | whiten | variance_feedbackならTaigaらの再帰統計をlane順に使う |
-| `intrinsic.rnd.head.output_dim` | 128 | target / predictor の Head が出すベクトルの次元。1以上。Head の入力の幅は、構築時に Body の出力から決まる |
-| `intrinsic.rnd.head.init.*` | xavier・manual_gain=0 | 両Headに適用する既存WeightInitConfigの設定キー |
-| `intrinsic.rnd.adam_eps` | 1e-8 | 私有AdamWのeps。有限で正の値。読込時も現在設定を使う |
-| `intrinsic.rnd.multiplier_max` | 5 | α の上限 L。有限で1より大きい値 |
-| `intrinsic.learn_ratio` | 0.25 | 収集1経験あたりの補助学習件数。有限で0より大きく1以下 |
-| `intrinsic.learn_batch_size` | 32 | 補助学習1 stepの件数。整数で1以上。learner有効時にlane数を超える値は構築時に停止。§3.5参照 |
-| `intrinsic.rnd.warmup_steps` | 12,800 | ボーナスを止める観測の件数。0以上。中身は warmup_mode による |
-| `intrinsic.rnd.learning_rate` | 0.0001 | predictor の学習率。有限で正の値 |
-| `intrinsic.rnd.weight_decay` | 0 | predictor の AdamW の重み減衰。有限で0以上 |
-| `intrinsic.rnd.obs_norm.clip_range` | 5 | 観測正規化後の制限範囲。α の上限 L とは別 |
-| `intrinsic.rnd.target.net.*` | 各環境の `run.@rnd` が指定 | targetの入力とBody。必須 |
-| `intrinsic.rnd.predictor.net.*` | 各環境の `run.@rnd` が指定 | predictorの入力とBody。必須。targetから暗黙に補わない |
+| キー                                       |                   既定 | 変わるもの・注意点                                                               |
+| ---------------------------------------- | -------------------: | ----------------------------------------------------------------------- |
+| `intrinsic.enabled`                      |                false | false なら estimator を作らず、β と RND の他の設定も解釈しない                             |
+| `intrinsic.beta`                         |                  0.1 | `α−1` に掛ける係数。0以上の ProfiledValue。0にしても採点・補助学習は止まらない                      |
+| `intrinsic.observation`                  |           next_state | 採点・補助学習へ渡す生の観測。stateなら行動時の観測で、doneをmaskしない                              |
+| `intrinsic.use_done_mask`                |                 true | next_state の done lane の内的報酬を0にするか。stateでは使わない                          |
+| `intrinsic.rnd.warmup_mode`              |      learn_predictor | whiten の warm-up 中に学習させる。collect_errors は誤差を集めて学習を止める                   |
+| `intrinsic.rnd.error_norm.average_mode`  |           cumulative | whiten の誤差の統計。cumulative または ema                                        |
+| `intrinsic.rnd.error_norm.ema_steps`     |            1,000,000 | ema の時定数。採点した観測の件数で、整数1以上                                               |
+| `intrinsic.rnd.error_norm.use_centering` |                 true | whiten の式で誤差から平均を引くか                                                    |
+| `intrinsic.rnd.multiplier_mode`          |              clipped | unclippedなら倍率を制限せず、負のボーナスも残す                                            |
+| `intrinsic.rnd.statistics_mode`          |               whiten | variance_feedbackならTaigaらの再帰統計をlane順に使う                                 |
+| `intrinsic.rnd.head.output_dim`          |                  128 | target / predictor の Head が出すベクトルの次元。1以上。Head の入力の幅は、構築時に Body の出力から決まる |
+| `intrinsic.rnd.head.init.*`              | xavier・manual_gain=0 | 両Headに適用する既存WeightInitConfigの設定キー                                       |
+| `intrinsic.rnd.adam_eps`                 |                 1e-8 | 私有AdamWのeps。有限で正の値。読込時も現在設定を使う                                          |
+| `intrinsic.rnd.multiplier_max`           |                    5 | α の上限 L。有限で1より大きい値                                                      |
+| `intrinsic.learn_ratio`                  |                 0.25 | 収集1経験あたりの補助学習件数。有限で0より大きく1以下                                            |
+| `intrinsic.learn_batch_size`             |                   32 | 補助学習1 stepの件数。整数で1以上。learner有効時にlane数を超える値は構築時に停止。§3.5参照                |
+| `intrinsic.rnd.warmup_steps`             |               12,800 | ボーナスを止める観測の件数。0以上。中身は warmup_mode による                                   |
+| `intrinsic.rnd.learning_rate`            |               0.0001 | predictor の学習率。有限で正の値                                                   |
+| `intrinsic.rnd.weight_decay`             |                    0 | predictor の AdamW の重み減衰。有限で0以上                                          |
+| `intrinsic.rnd.obs_norm.clip_range`      |                    5 | 観測正規化後の制限範囲。α の上限 L とは別                                                 |
+| `intrinsic.rnd.target.net.*`             |  各環境の `run.@rnd` が指定 | targetの入力とBody。必須                                                       |
+| `intrinsic.rnd.predictor.net.*`          |  各環境の `run.@rnd` が指定 | predictorの入力とBody。必須。targetから暗黙に補わない                                    |
 
 `learn_ratio` と `learn_batch_size` はoptimizerの進む回数と1回の件数を変え、誤差が減る速度にも影響する。単なる高速化の設定として扱わない。βは同じαに対する報酬の大きさ、Lは大きな誤差の倍率上限を変える。作用する位置を分けて読む。
 
