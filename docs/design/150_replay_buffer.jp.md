@@ -31,6 +31,8 @@ DQN固有のQ値schemaと学習式、MuZero固有buffer、ImageCls dataset/cache
 - laneごとのReward
 - 終端を含む次の`BatchState`
 
+RunnerからのRewardは`[N]`である。Agentが複数の報酬成分を使う場合だけ、取り込みからReplayへ渡す報酬を`[N,C]`にする。成分の数Cは構築時の`ReplayBufferConfig.reward_component_count`（既定1）で固定する。1成分のshapeと計算順は変えない。成分の意味は利用側Agentが所有する。
+
 RunnerはEnvが再利用するstorageからExperienceを切り離すため、State、Reward、次Stateを必要な境界でcloneする。
 Runnerの次行動用状態はStep結果の`continue_state`から取得する。終端laneはStep内で自動Resetされるが、ReplayBufferへ保存する`next_state`はリセット前の終端観測を保持する。
 
@@ -38,8 +40,8 @@ Runnerの次行動用状態はStep結果の`continue_state`から取得する。
 
 | 操作 | 現行contract |
 |---|---|
-| `Push(batch_exp, gamma)` | 構築時の`num_envs`と同じlane数を持つ1 step分のExperienceを受け取る。各laneの初回と直前入力が`done || truncated`だった次の入力だけ`BatchState::episode_start == true`とし、全laneを事前検証してから書き込む。`DefaultReplayBuffer`はObservation、Action、info、履歴開始を事前確保storageへ即時copyし、N-step確定用の軽量recordをlane別queueへ積む |
-| `Sample(out_samples, minibatch_size, beta, gamma)` | `Size() >= minibatch_size`を前提に、sample可能transitionからminibatchを作る。不足時はassertで停止し、暗黙に小さいbatchへ変更しない |
+| `Push(batch_exp, gammas)` | 構築時の`num_envs`と同じlane数を持つ1 step分のExperienceと、成分数だけの割引率を受け取る。各laneの初回と直前入力が`done || truncated`だった次の入力だけ`BatchState::episode_start == true`とし、全laneを事前検証してから書き込む。`DefaultReplayBuffer`はObservation、Action、info、履歴開始を事前確保storageへ即時copyし、N-step確定用の軽量recordをlane別queueへ積む |
+| `Sample(out_samples, minibatch_size, beta, gammas)` | 成分数だけの割引率を受け取る。`Size() >= minibatch_size`を前提に、sample可能transitionからminibatchを作る。不足時はassertで停止し、暗黙に小さいbatchへ変更しない |
 | `Size()` | 保存済みraw slot数ではなく、ready rangeへstackのhistory marginとwindowの追加未来marginを適用し、dummyを除外したsampleable rangeのtransition数を返す |
 | `UpdatePriorities(item_keys, priorities)` | PER有効時にgeneration-aware keyへraw priorityを適用し、applied/stale件数を返す。uniform samplerでは更新を行わない |
 
@@ -53,9 +55,11 @@ keyは物理indexではなく`generation * actual_capacity + flat_slot_index`で
 
 `ValidIndexManager`はenv laneごとに、未上書きかつN-step/unrollの未来側条件が確定した論理区間をready rangeとして管理する。uniform sampling、PER、`Size()`、可視化accessor、`DumpToLog()`は、ready rangeへring折り返し後のhistory margin（`stack_count - 1`）とwindow指定時の追加未来marginを適用し、dummy slotを除外したsampleable rangeを共有する。wrap前と`stack_count == 1`ではhistory marginは0である。windowの未来側条件は§6.1.1に従う。`InitialPriorityCompleter`とeviction統計は、過去stack履歴やwindowを必要としないためready rangeを使う。
 
-Push・Sample・一様probe・履歴probeはcallerから現在のγを受け取り、builderとextractorはγを永続保持しない。Push時にはそのγで従来のn-step収益を保存する。初期priorityの完成待ちentryには、同じPushで評価したbootstrap割引率を保持する。
+Push・Sample・一様probe・履歴probeはcallerから成分ごとの現在のγの列を受け取り、builderとextractorはγを永続保持しない。Push時にはそのγで成分ごとのn-step収益を保存する。初期priorityの完成待ちentryには、同じPushで評価した成分ごとの収益とbootstrap割引率を保持する。
 
-定数γでは保存済み収益をそのまま返す。schedule γの構成だけは、抽選した各起点のstep報酬を長さN（窓はJ）へ0埋めしたsnapshotとして`ExperienceSamples`へ持たせる。`FinalizeReturns(gamma)`は既存builderと同じ逆順の和で収益を作り、bootstrapと同じγを使う。done・truncatedの実長は既存の`n_steps`・窓長に従う。snapshotは`To`と`ForEachTensor`の転送対象である。
+`Push`・`Sample`・`SampleUniqueUniform`・`ProbeSamplingHistory`へ渡す`gammas`は、成分ごとの1 stepの割引率を読む`std::span<const float>`である。同期呼び出し中だけ借り、先読みと遅延Pushをworkerへ渡す境界では値を所有するvectorへコピーする。
+
+定数γでは保存済み収益をそのまま返す。schedule γの構成だけは、抽選した各起点のstep報酬を長さN（窓はJ）へ0埋めしたsnapshotとして`ExperienceSamples`へ持たせる。`FinalizeReturns(gammas)`は既存builderと同じ逆順の和で収益を作り、bootstrapと同じγを使う。複数成分では`needs_return_recompute`で指定した成分だけを再計算し、定数成分の保存値は保つ。収益は1成分なら`[B]`、複数なら`[B,C]`、step報酬snapshotはそれぞれ`[B,N]`、`[B,N,C]`である。done・truncatedの実長は既存の`n_steps`・窓長に従う。snapshotと再計算のフラグは`To`と`ForEachTensor`の転送対象である。
 
 prefetchは抽選時のsnapshotを保持し、consumerの`Sample`が返す時点のγで収益を確定する。ringが上書きされても元のstorageを読み直さない。窓収益と診断用抽選も同じ契約である。βは従来どおり抽選要求時の値を使い、γの確定時機とは分離する。
 
@@ -72,7 +76,7 @@ ring上書きで失われた履歴はepisode境界ではないためpaddingせ�
 ### 2.4 PER
 
 Prioritized Experience Replayでは、priorityに応じてindexをsampleし、確率からImportance Sampling weightを計算する。
-初期sourceは`fixed_initial`、`max_initial`、`actor_initial`、学習後は`learner_updated`、無効slotは`none`である。priority値0と無効化はsourceで区別する。Actor近似modeでは開始stepの初期priority hintをopaqueな行としてN-step確定まで運び、ready化境界でbootstrap hintと組み合わせる。共通層は列の意味を解釈せず、注入された`InitialPriorityEstimator`がschema検証と推定を行う。true terminalではbootstrap spanを空にし、truncatedは開始hintを検証してからmax初期化へfallbackする。nonfinite hintまたは推定値はDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。DQNの`K = 3` schemaと推定式は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+初期sourceは`fixed_initial`、`max_initial`、`actor_initial`、学習後は`learner_updated`、無効slotは`none`である。priority値0と無効化はsourceで区別する。Actor近似modeでは開始stepの初期priority hintをopaqueな行としてN-step確定まで運び、ready化境界でbootstrap hintと組み合わせる。共通層は列の意味を解釈せず、注入された`InitialPriorityEstimator`がschema検証と推定を行う。true terminalではbootstrap spanを空にし、truncatedは開始hintを検証してからmax初期化へfallbackする。nonfinite hintまたは推定値はDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。成分ごとの収益と割引も推定器へ渡す。DQNのschemaと推定式は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
 LearnerはTD error等から新しいpriorityを作り、sample時に返されたkeyへ`UpdatePriorities(item_keys, priorities)`する。更新はbatch全体をpreflightし、負key、generation 0/future、長さ不一致、負またはnonfinite priorityでは部分適用しない。過去generationだけは要素単位で棄却し、戻り値の`ReplayPriorityUpdateResult`がapplied/stale件数とActor初期priority・Learner更新priorityの比較統計を返す。同一keyの重複は入力順のlast-winsである。
 uniform samplerでもPERの既知scalarキーは公開し、PER無効時の値をNaNとする。
@@ -179,7 +183,7 @@ sequenceDiagram
     participant X as ExperienceSampleExtractor
 
     R->>L: UpdateFromBatch(BatchExperience)
-    L->>B: Push(experience, gamma)
+    L->>B: Push(experience, gammas)
     B->>Q: laneごとの遷移を追加
     Q-->>B: 確定したtarget return / terminal
     B->>V: ready rangeを更新
@@ -187,7 +191,7 @@ sequenceDiagram
         B->>P: 初期priorityとsourceを確定
     end
     alt warmupと更新条件を満たす
-        L->>B: Sample(minibatch_size, beta, gamma)
+        L->>B: Sample(minibatch_size, beta, gammas)
         B->>V: GetValidIndices1D()
         V-->>B: sampleable indices
         B->>S: SampleIndices(sampleable indices, beta)
@@ -204,6 +208,8 @@ sequenceDiagram
 ```
 
 ### 6.1.1 Sample時の可変長window
+
+成分数が2以上で窓規則が指定された場合は、構築時に成分数と窓規則の指定を示して拒否する。窓の収益を成分へ展開しない。
 
 Pushはn-stepの確定とは別に、各遷移の1-step reward、done／truncated、`BatchActionInfo.info["decision"]`を保持する。decisionはboolのlane列で、省略時は全laneを判断とみなす。打ち切り後のdummy slotは終端観測の保存専用であり、windowの途中には入れない。
 
@@ -263,7 +269,8 @@ futureを起動する前の`Push`はinnerへ同期委譲する。prefetch中の`
 | 設定 | 意味 |
 |---|---|
 | replay capacity | 全laneを合わせた要求容量。実容量はlane数の倍数へ切り下げる |
-| `n_step` / `recompute_returns_on_sample` | target returnの将来長と、schedule γ用の報酬snapshotの有無。後者はDQNのγのtypeから導出する内部構成 |
+| `reward_component_count` / `needs_return_recompute` | 成分数（既定1）と、その数のboolフラグ。真の成分は`FinalizeReturns`で抽選・消費時のγから収益を作り直す。長さが成分数と違う構成はERROR。いずれかが真ならstep報酬snapshotを保持する |
+| `n_step` | target returnの将来長 |
 | sampler type | uniformまたはprioritized |
 | `per_alpha` | priorityをsample確率へ反映する強さ |
 | `per_initial_priority` | 新規transitionの初期priority |
@@ -319,6 +326,8 @@ eviction統計はready rangeを基準にする。追い出されるslotはhistor
 
 ### 7.6 checkpoint
 
+成分のstep報酬と収益も保存対象外である。成分数と再計算のフラグは、新しいRunの利用側設定から再構築する。
+
 現行の共通ReplayBufferはAgent archiveへserializeされない。DQN系checkpointを読み込んでも、次は新規構築時の状態から始まる。
 
 - storage内容、slot generation、valid index、N-step queue
@@ -330,7 +339,7 @@ eviction統計はready rangeを基準にする。追い出されるslotはhistor
 
 ### 7.7 一様・非復元probe sample
 
-`SampleUniqueUniform(out, batch_size, random, gamma)`はsampleable indexから一様・非復元で一意なCPU batchを返し、IS weightを1にする。RNGはcallerが所有し、ReplayBufferはprobe用RNGを保持しない。件数不足時は`false`を返し、出力とcaller RNGを変更しない。全件要求のindex選択はRNGを消費しないが、window指定時は各起点の長さ抽選にcaller RNGを使う。通常sampler、priority、`MarkSampledOnce`、eviction統計へは触れない。
+`SampleUniqueUniform(out, batch_size, random, gammas)`はsampleable indexから一様・非復元で一意なCPU batchを返し、IS weightを1にする。RNGはcallerが所有し、ReplayBufferはprobe用RNGを保持しない。件数不足時は`false`を返し、出力とcaller RNGを変更しない。全件要求のindex選択はRNGを消費しないが、window指定時は各起点の長さ抽選にcaller RNGを使う。通常sampler、priority、`MarkSampledOnce`、eviction統計へは触れない。
 
 DQN の内側 Learner は、Agent の基の seed と `plasticity_probe`・`policy_churn_probe` の名前から独立した `RandomGenerator` Resource を構築して所有し、各 sample 呼び出しへ渡す。購読を設定し直しても乱数列を継続する。このため policy churn の ON/OFF や cadence は、通常 Replay sample と plasticity probe の乱数列を変えない。呼び出す側ごとの再現性はその基の seed が担い、ReplayBuffer の seed から probe の列を暗黙に生成しない。
 
@@ -338,7 +347,7 @@ DQN の内側 Learner は、Agent の基の seed と `plasticity_probe`・`polic
 
 ### 7.8 抽選履歴別のprobe
 
-`ProbeSamplingHistory(request, random, gamma)`は同じstorage/metadata snapshotのsampleable集合を、既存の`sampled_once_`で未抽選群Uと抽選済み群Sに分ける。通常Sample（prefetch済みを含む）でSへ移り、ringへのPushで新世代に置換されるとUへ戻る。dummyやhistory marginは候補に含めない。
+`ProbeSamplingHistory(request, random, gammas)`は同じstorage/metadata snapshotのsampleable集合を、既存の`sampled_once_`で未抽選群Uと抽選済み群Sに分ける。通常Sample（prefetch済みを含む）でSへ移り、ringへのPushで新世代に置換されるとUへ戻る。dummyやhistory marginは候補に含めない。
 
 `counts`は両群の母数と平均年齢を返す。年齢はlaneのwrite cursorと保持中のlogical indexとの差で、単位はepisode終端のdummyを含むそのlaneへのPush回数である。dummy自体は平均の対象に含めない。空群の平均年齢はNaN。母数だけなら候補Tensor・抽選RNG・経験バッチを作らない。
 
@@ -347,6 +356,8 @@ DQN の内側 Learner は、Agent の基の seed と `plasticity_probe`・`polic
 Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとprefetchをsettleしてから委譲する。次回の通常batchは保持する。DQN の群抽出 RNG は、内側 Learner が Agent の基の seed と `replay_fit_probe` の名前から構築時に作って所有し、購読の再設定でも保持する。
 
 ## 8. テストと拡張時の確認事項
+
+- [PRD121検証資材](../../core/anet-core/testdata/prd121/README.md): 成分ごとの収益と割引、定数の保持とscheduleの再計算、初期優先度、窓拒否、1成分の同一性。
 
 - [PRD128検証資材](../../core/anet-core/testdata/prd128/README.md): 全フィールドの転送・走査・文字列化、CPU/CUDAでの未定義保持、変更前の実行体との比較。
 - [PRD104検証資材](../../core/anet-core/testdata/prd104/README.md): action_change・episode_endの窓、終了・dummy・ring wrap・転送の確認。

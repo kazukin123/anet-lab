@@ -35,7 +35,10 @@ constexpr char kCheckpointFormatV1[] = "DefaultDQNAgent";
 constexpr char kCheckpointFormatV2[] = "DefaultDQNAgent-2";
 constexpr char kCheckpointIntrinsicV1[] = "DefaultDQNAgent;intrinsic";
 constexpr char kCheckpointIntrinsicV2[] = "DefaultDQNAgent-2;intrinsic";
+constexpr char kCheckpointFormatV3[] = "DefaultDQNAgent-3";
+constexpr char kCheckpointIntrinsicV3[] = "DefaultDQNAgent-3;intrinsic";
 constexpr char kIntrinsicPrefix[] = "intrinsic.";
+constexpr char kIntrinsicRewardScale[] = "intrinsic.reward_scaler.scale";
 constexpr char kIntrinsicBonus[] = "intrinsic.bonus";
 constexpr char kIntrinsicError[] = "intrinsic.error";
 constexpr char kIntrinsicBonusMean[] = "intrinsic.bonus_mean";
@@ -55,7 +58,7 @@ class DefaultDQNAgent::IntrinsicRewardCoordinator {
 public:
     IntrinsicRewardCoordinator(const IntrinsicConfig& config, bool learning_enabled,
         const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device,
-        anet::SeedMaker& seed_maker, const std::string& prefix)
+        anet::SeedMaker& seed_maker, const std::string& prefix, float reward_gamma)
         : config_(config), learning_enabled_(learning_enabled)
     {
         if (config_.enabled)
@@ -70,6 +73,9 @@ public:
 
         // 内的報酬の推定器を初期化
         if (config_.enabled) {
+            reward_scaler_ = RewardScalerFactory(config_.reward_scaler,
+                prefix.substr(0, prefix.size() - std::string(".rnd").size()) + ".reward_scaler")
+                .CreateRewardScaler(reward_gamma, batch_env_spec.num_envs);
             if (learning_enabled_ && batch_env_spec.num_envs < config_.learn_batch_size) {
                 ANET_SYSTEM_ERROR("DefaultDQNAgent.intrinsic.learn_batch_size=" << config_.learn_batch_size
                     << " exceeds num_envs=" << batch_env_spec.num_envs
@@ -88,6 +94,7 @@ public:
     }
 
     bool IsEnabled() const { return static_cast<bool>(lifelong_novelty_); }
+    std::string ScalerStateKind() const { return reward_scaler_ ? reward_scaler_->StateKind() : RewardScaler::kConstantState; }
 
     void AdvanceBeta(const StepCounts& counts)
     {
@@ -98,13 +105,18 @@ public:
 
     bool IsLearningEnabled() const { return lifelong_novelty_ && learning_enabled_; }
 
-    torch::Tensor ScoreBonus(const BatchExperience& batch_exp, const torch::Tensor& scaled_rewards)
+    float Beta() const { return last_intrinsic_beta_.value_or(0.0f); }
+
+    torch::Tensor ScoreBonus(const BatchExperience& batch_exp, const torch::Tensor& scaled_rewards, torch::Tensor* component = nullptr)
     {
         // 生の観測を選んで採点する。次観測だけは終端のボーナスをマスクする。
         const auto& intrinsic_observations = SelectObservations(batch_exp);
         const auto alpha = lifelong_novelty_->Estimate(intrinsic_observations);
-        auto bonus = CalculateBonus(alpha, *last_intrinsic_beta_, batch_exp.next_state.done,
+        const auto unscaled = CalculateBonus(alpha, 1.0f, batch_exp.next_state.done,
             UsesDoneMask(), BonusMaskOperation::Copy);
+        const auto scaled = reward_scaler_->Scale(unscaled);
+        auto bonus = *last_intrinsic_beta_ * scaled;
+        if (component) *component = scaled;
 
         // ボーナスの診断値を公開する。比率の分母には加算前の外的報酬を使う。
         const float bonus_sum = bonus.abs().sum().item<float>();
@@ -167,6 +179,7 @@ public:
             random_state << *intrinsic_learn_random_;
             total_size += archive.Write(random_state.str());
             total_size += archive.Write(intrinsic_learn_count_);
+            total_size += reward_scaler_->Save(archive);
         }
         return total_size;
     }
@@ -192,11 +205,14 @@ public:
                 static_cast<float>(intrinsic_learn_count_), std::memory_order_relaxed);
             for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
                 intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
+            reward_scaler_->Load(in);
         }
     }
 
     std::optional<float> GetScalar(const std::string& key) const
     {
+        if (key == kIntrinsicRewardScale)
+            return reward_scaler_ ? reward_scaler_->GetScalar(RewardScaler::kKeyScale) : std::optional<float>(std::numeric_limits<float>::quiet_NaN());
         const auto it = intrinsic_diagnostics_.find(key);
         if (it == intrinsic_diagnostics_.end()) return std::nullopt;
         if (!config_.enabled || !learning_enabled_) return std::numeric_limits<float>::quiet_NaN();
@@ -236,7 +252,7 @@ private:
     }
 
     std::map<std::string, torch::Tensor> ScoreTrace(intrinsic::LifelongNoveltyEstimator& estimator,
-        std::optional<float> beta, const BatchExperience& experience) const
+        std::optional<float> beta, const BatchExperience& experience, torch::Tensor* component = nullptr) const
     {
         auto result = estimator.EstimateWithoutUpdate(SelectObservations(experience));
         std::map<std::string, torch::Tensor> values;
@@ -245,8 +261,11 @@ private:
         auto bonus = torch::full_like(result.multipliers, std::numeric_limits<float>::quiet_NaN());
         if (beta) {
             const bool mask = UsesDoneMask();
-            bonus = CalculateBonus(result.multipliers, *beta,
+            const auto raw = CalculateBonus(result.multipliers, 1.0f,
                 mask ? experience.next_state.done.to(torch::kCPU) : torch::Tensor{}, mask, BonusMaskOperation::InPlace);
+            const auto scaled = reward_scaler_->ScaleWithoutUpdate(raw);
+            if (component) *component = scaled;
+            bonus = *beta * scaled;
             bonus.masked_fill_(~torch::isfinite(values.at(kIntrinsicError)), std::numeric_limits<float>::quiet_NaN());
         }
         values.emplace(kIntrinsicBonus, std::move(bonus));
@@ -256,6 +275,7 @@ private:
     const IntrinsicConfig config_;
     const bool learning_enabled_;
     std::unique_ptr<anet::rl::intrinsic::LifelongNoveltyEstimator> lifelong_novelty_;
+    std::unique_ptr<RewardScaler> reward_scaler_;
     std::optional<anet::ProfiledValue<float>> intrinsic_beta_;
     std::optional<float> last_intrinsic_beta_; ///< 構築時は exp step 0、以後は学習の入口が直近に評価した値。checkpointには保存しない。
     float intrinsic_learn_credit_ = 0.0f; ///< Coordinatorが更新する補助学習の未消費credit。
@@ -320,11 +340,13 @@ DefaultDQNAgent::DefaultDQNAgent(
 
     // 無効時も既知の診断キーを保つ。可変の State は Coordinator に集める。
     intrinsic_.reset(new IntrinsicRewardCoordinator(config_.intrinsic, config_.learner.enabled,
-        batch_env_spec, env_spec, device_, seed_maker, config_.GetConfigPrefix() + ".intrinsic.rnd"));
+        batch_env_spec, env_spec, device_, seed_maker, config_.GetConfigPrefix() + ".intrinsic.rnd",
+        anet::ProfiledValue<float>(config_.learner.intrinsic.decomposed && config_.learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate
+            ? config_.learner.intrinsic.gamma : config_.learner.gamma).Evaluate(0)));
 
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
-    this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(anet::ProfiledValue<float>(config_.learner.gamma).Evaluate(0));
+    this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(anet::ProfiledValue<float>(config_.learner.gamma).Evaluate(0), batch_env_spec.num_envs);
 
     // ObservationNormalizer生成
     anet::rl::ObservationNormalizerFactory obs_norm_factory(config_.obs_norm);
@@ -384,8 +406,14 @@ DefaultDQNAgent::DefaultDQNAgent(
 
 std::shared_ptr<anet::nn::NetworkHeadFactory> DefaultDQNAgent::SelectHeadFactory() const
 {
-    return DqnComponentAssembler::CreateHeadFactory(config_.quantile_mode, config_.head.use_dueling,
+    auto extrinsic = DqnComponentAssembler::CreateHeadFactory(config_.quantile_mode, config_.head.use_dueling,
         n_actions_, config_.qr.num_quantiles, config_.head.init, config_.head.projection);
+    if (!config_.learner.intrinsic.decomposed) return extrinsic;
+    const auto& head = config_.intrinsic.value.head;
+    auto intrinsic = DqnComponentAssembler::CreateHeadFactory(config_.quantile_mode, head.use_dueling,
+        n_actions_, config_.qr.num_quantiles, head.init, head.projection);
+    return std::make_shared<DecomposedHeadFactory>(std::move(extrinsic), std::move(intrinsic),
+        head.input_mode == DefaultDQNAgentConfig::kHeadInputDedicated, head.use_dueling);
 }
 
 anet::TensorSpecMap DefaultDQNAgent::MakeNetworkInputSpec(const EnvSpec& env_spec) const
@@ -483,15 +511,25 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
     header.info = config_.skip.enabled ? kCheckpointFormatV2 : kCheckpointFormatV1;
     if (intrinsic_->IsEnabled())
         header.info = config_.skip.enabled ? kCheckpointIntrinsicV2 : kCheckpointIntrinsicV1;
+    const bool has_scaler_state = reward_scaler_->StateKind() != RewardScaler::kConstantState;
+    const bool extended = has_scaler_state || config_.learner.intrinsic.decomposed || intrinsic_->ScalerStateKind() != RewardScaler::kConstantState;
+    if (extended) header.info = intrinsic_->IsEnabled() ? kCheckpointIntrinsicV3 : kCheckpointFormatV3;
     auto header_size = archive.Write(header);
 	total_size += header_size;
 
     // Config
     auto config_size = archive.Write(this->config_.ToString());
 	total_size += config_size;
+    if (extended) {
+        // Networkを読む前に検査できる構成の契約を、payloadから独立して保存する。
+        total_size += archive.Write(config_.skip.enabled);
+        total_size += archive.Write(config_.learner.intrinsic.decomposed);
+        total_size += archive.Write(config_.learner.intrinsic.feature_gradient);
+        total_size += archive.Write(reward_scaler_->StateKind());
+        total_size += archive.Write(intrinsic_->ScalerStateKind());
+    }
 
     /// @todo state_dim_やn_actions_の永続化対応(NN整合チェックで必要)
-    /// @todo RewardScalerの永続化対応
     /// @todo ObservationNormalizerの永続化対応
 
     // Network(policy_net/target_net)
@@ -503,6 +541,7 @@ int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
 	total_size += adam_size;
 
     total_size += intrinsic_->Save(archive);
+    if (extended) total_size += reward_scaler_->Save(archive);
 
     // ログ
     LOG::info() << "DefaultDQNAgent Serialized. total_size=" << anet::FormatWithCommas(total_size)
@@ -533,13 +572,35 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
     LOG::info() << "LoadNetwork: config: len=" << config_len;
     LOG::verbose() << "LoadNetwork: config: config_str=\n" << config_str;
 
-    const bool has_intrinsic = header.info == kCheckpointIntrinsicV1 || header.info == kCheckpointIntrinsicV2;
-    const bool has_skip = header.info == kCheckpointFormatV2 || header.info == kCheckpointIntrinsicV2;
-    if (header.info != kCheckpointFormatV1 && header.info != kCheckpointFormatV2 && !has_intrinsic) {
+    const bool extended = header.info == kCheckpointFormatV3 || header.info == kCheckpointIntrinsicV3;
+    const bool has_intrinsic = header.info == kCheckpointIntrinsicV1 || header.info == kCheckpointIntrinsicV2 || header.info == kCheckpointIntrinsicV3;
+    bool has_skip = header.info == kCheckpointFormatV2 || header.info == kCheckpointIntrinsicV2;
+    if (header.info != kCheckpointFormatV1 && header.info != kCheckpointFormatV2 && !has_intrinsic && !extended) {
         ANET_SYSTEM_ERROR("Invalid DefaultDQN checkpoint header='" << header.info
             << "'; expected " << kCheckpointFormatV1 << ", " << kCheckpointFormatV2
-            << ", " << kCheckpointIntrinsicV1 << " or " << kCheckpointIntrinsicV2 << ".");
+            << ", " << kCheckpointIntrinsicV1 << ", " << kCheckpointIntrinsicV2
+            << ", " << kCheckpointFormatV3 << " or " << kCheckpointIntrinsicV3 << ".");
     }
+    bool decomposed = false;
+    std::string feature_gradient = LearnerConfig::kFeatureGradientMerge;
+    std::string external_kind = RewardScaler::kConstantState, internal_kind = RewardScaler::kConstantState;
+    if (extended) {
+        in.Read(has_skip);
+        in.Read(decomposed);
+        in.Read(feature_gradient);
+        in.Read(external_kind);
+        in.Read(internal_kind);
+    }
+    if (decomposed != config_.learner.intrinsic.decomposed)
+        ANET_SYSTEM_ERROR("Checkpoint intrinsic.value_mode=" << (decomposed ? DefaultDQNAgentConfig::kValueModeDecomposed : DefaultDQNAgentConfig::kValueModeCombined)
+            << "; expected " << config_.intrinsic.value_mode << ".");
+    if (decomposed && feature_gradient != config_.learner.intrinsic.feature_gradient)
+        ANET_SYSTEM_ERROR("Checkpoint learner.intrinsic.feature_gradient=" << feature_gradient
+            << "; expected " << config_.learner.intrinsic.feature_gradient << ".");
+    if (external_kind != reward_scaler_->StateKind())
+        ANET_SYSTEM_ERROR("Checkpoint reward_scaler kind=" << external_kind << "; expected " << reward_scaler_->StateKind() << ".");
+    if (internal_kind != intrinsic_->ScalerStateKind())
+        ANET_SYSTEM_ERROR("Checkpoint intrinsic.reward_scaler kind=" << internal_kind << "; expected " << intrinsic_->ScalerStateKind() << ".");
     if (has_intrinsic != config_.intrinsic.enabled)
         ANET_SYSTEM_ERROR("Checkpoint header='" << header.info << "' intrinsic=" << has_intrinsic
             << "; expected intrinsic=" << config_.intrinsic.enabled << " from DefaultDQNAgent.intrinsic.enabled.");
@@ -553,6 +614,7 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
 	auto learner_size = learner_->LoadCheckpoint(in, has_skip);
 
     intrinsic_->Load(in);
+    if (extended) reward_scaler_->Load(in);
     LOG::info() << "LoadNetwork: learner_size=" << learner_size;
     if (config_.skip.enabled && !has_skip) {
         LOG::warn_once(filename) << "Checkpoint has no skip networks; restored primary networks and optimizer state, initialized skip networks and optimizer groups. file=" << filename;
@@ -607,7 +669,10 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
         auto obs_norm = self->obs_norm_->Normalize(proc_obs);
 
         // ネットワーク(policy_net or target_net)から抽出して返す
-        return network_fn(obs_norm);
+        auto output = network_fn(obs_norm);
+        if (self->config_.learner.intrinsic.decomposed)
+            DecomposedValueCombiner::Combine(output, self->intrinsic_->Beta(), self->config_.learner.use_tbo, self->config_.learner.tbo_epsilon);
+        return output;
         };
 
     return norm_fn;
@@ -700,7 +765,12 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
     }
     const ActorQHintConfig hint_config{
         .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
-        .tbo_epsilon = config_.learner.tbo_epsilon, .gamma = config_.learner.gamma};
+        .tbo_epsilon = config_.learner.tbo_epsilon, .gamma = config_.learner.gamma,
+        .decomposed = config_.learner.intrinsic.decomposed,
+        .beta = config_.learner.intrinsic.decomposed && cfg.intrinsic.action_beta_mode == DQNActorConfig::kActionBetaFixed
+            ? anet::ProfiledValueConfig<float>{.value = cfg.intrinsic.action_beta.value(), .min_value = 0.0f} : config_.intrinsic.beta,
+        .extrinsic_bootstrap = config_.learner.intrinsic.extrinsic_bootstrap_mode == LearnerConfig::kBootstrapExtrinsic,
+        .intrinsic_gamma = config_.learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate ? config_.learner.intrinsic.gamma : config_.learner.gamma};
     return DqnComponentAssembler::CreateActor(cfg, config_.learner, request, *model_, mutex_, policy,
         *forward_configs_.at(cfg.nn_forward_key), obs_norm_, CreateFrameStacker(request),
         true, hint_config, cfg.clone_model ? cfg.sync_interval : std::nullopt, std::move(skip));
@@ -765,19 +835,25 @@ namespace {
 
     class IntrinsicStepDiagnosticsProvider final : public anet::rl::AgentStepDiagnosticsProvider {
     public:
-        using Score = std::function<std::map<std::string, torch::Tensor>(const anet::rl::BatchExperience&)>;
+        using Score = std::function<std::map<std::string, torch::Tensor>(const anet::rl::BatchExperience&, torch::Tensor*)>;
         IntrinsicStepDiagnosticsProvider(std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> base,
             int64_t num_lanes, std::vector<std::string> keys, Score score,
-            std::shared_ptr<IntrinsicSnapshot> snapshot)
+            std::shared_ptr<IntrinsicSnapshot> snapshot, bool needs_component_rewards)
             : base_(std::move(base)), num_lanes_(num_lanes), keys_(std::make_shared<const std::vector<std::string>>(std::move(keys))),
-              score_(std::move(score)), snapshot_(std::move(snapshot)) {}
+              score_(std::move(score)), snapshot_(std::move(snapshot)), needs_component_rewards_(needs_component_rewards) {}
         anet::rl::AgentStepDiagnosticsResult Observe(const anet::rl::BatchExperience& experience) override
         {
             ANET_PROFILE_FUNC();
             // 既存の系列窓と遅延確定はそのまま使い、即時値だけを追加する。
-            auto result = base_->Observe(experience);
             std::map<std::string, torch::Tensor> values;
-            if (score_) values = score_(experience);
+            torch::Tensor component;
+            if (score_) values = score_(experience, needs_component_rewards_ ? &component : nullptr);
+            auto trace_experience = experience;
+            if (needs_component_rewards_) {
+                if (!component.defined()) component = torch::full_like(experience.reward, std::numeric_limits<float>::quiet_NaN());
+                trace_experience.reward = torch::stack({experience.reward, component.to(experience.reward.device())}, 1);
+            }
+            auto result = base_->Observe(trace_experience);
             result.current = std::make_unique<IntrinsicStepDiagnosticsValues>(
                 std::move(result.current), std::move(values), keys_, num_lanes_);
             return result;
@@ -791,6 +867,7 @@ namespace {
         std::shared_ptr<const std::vector<std::string>> keys_;
         Score score_;
         std::shared_ptr<IntrinsicSnapshot> snapshot_;
+        bool needs_component_rewards_;
     };
 } // namespace
 
@@ -798,8 +875,14 @@ std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::CreateS
     const AgentStepDiagnosticsRequest& request) const
 {
     auto self = shared_from_this();
+    const bool needs_step_priority = !config_.learner.intrinsic.decomposed
+        || std::ranges::find(request.keys, DqnComponentAssembler::kStepApproxPriorityKey) != request.keys.end();
     auto base = anet::rl::dqn::CreateStepDiagnosticsProvider(config_.learner, request.num_lanes,
-        [self](const torch::Tensor& reward) { return self->reward_scaler_->ScaleWithoutUpdate(reward); });
+        [self](const torch::Tensor& reward) {
+            if (self->config_.learner.intrinsic.decomposed)
+                return torch::stack({self->reward_scaler_->ScaleWithoutUpdate(reward.select(1, 0)), reward.select(1, 1)}, 1);
+            return self->reward_scaler_->ScaleWithoutUpdate(reward);
+        }, needs_step_priority);
     // Agent の所有する Coordinator を Agent と同じ寿命で借り、採点は Coordinator に委ねる。
     auto intrinsic = std::shared_ptr<const IntrinsicRewardCoordinator>(self, intrinsic_.get());
     return IntrinsicRewardCoordinator::CreateStepDiagnosticsProvider(
@@ -818,25 +901,28 @@ std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::Intrins
     const auto requested = std::ranges::find_if(request.keys, [](const auto& key) { return key.starts_with(kIntrinsicPrefix); });
     IntrinsicStepDiagnosticsProvider::Score observe;
     std::shared_ptr<IntrinsicSnapshot> snapshot;
-    if (self->lifelong_novelty_ && requested != request.keys.end()) {
+    const bool decomposed = self->config_.value_mode == DefaultDQNAgentConfig::kValueModeDecomposed;
+    const bool needs_component_rewards = decomposed && std::ranges::find(request.keys, DqnComponentAssembler::kStepApproxPriorityKey) != request.keys.end();
+    if (self->lifelong_novelty_ && (requested != request.keys.end() || needs_component_rewards)) {
         if (!request.actor)
-            ANET_SYSTEM_ERROR("Step diagnostics key='" << *requested << "' requires an Actor; actual=null expected=Runner Actor.");
+            ANET_SYSTEM_ERROR("Step diagnostics key='" << (requested != request.keys.end() ? *requested : std::string(DqnComponentAssembler::kStepApproxPriorityKey))
+                << "' requires an Actor; actual=null expected=Runner Actor.");
         snapshot = std::make_shared<IntrinsicSnapshot>([self] {
             return std::pair(self->lifelong_novelty_->Clone(), self->last_intrinsic_beta_);
         });
         if (!request.actor->AttachSyncFollower(snapshot)) snapshot.reset();
-        observe = [self, snapshot, mutex](const BatchExperience& experience) {
+        observe = [self, snapshot, mutex](const BatchExperience& experience, torch::Tensor* component) {
             if (snapshot) {
                 if (!snapshot->estimator) return std::map<std::string, torch::Tensor>{};
-                return self->ScoreTrace(*snapshot->estimator, snapshot->beta, experience);
+                return self->ScoreTrace(*snapshot->estimator, snapshot->beta, experience, component);
             }
             // 写しを持たないActorだけ、stepごとに学習側を読み取りロックで守る。
             std::shared_lock<std::shared_mutex> lock(*mutex);
-            return self->ScoreTrace(*self->lifelong_novelty_, self->last_intrinsic_beta_, experience);
+            return self->ScoreTrace(*self->lifelong_novelty_, self->last_intrinsic_beta_, experience, component);
         };
     }
     return std::make_unique<IntrinsicStepDiagnosticsProvider>(std::move(base), request.num_lanes,
-        std::move(keys), std::move(observe), std::move(snapshot));
+        std::move(keys), std::move(observe), std::move(snapshot), needs_component_rewards);
 }
 
 std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()
@@ -859,11 +945,13 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         auto scaled_rewards = this->reward_scaler_->Scale(batch_exp.reward);
 
         intrinsic_->AdvanceBeta(counts);
+        torch::Tensor intrinsic_rewards;
         if (intrinsic_->IsLearningEnabled()) {
             ANET_PROFILE_SCOPE(intrinsic_reward);
-            const auto bonus = intrinsic_->ScoreBonus(batch_exp, scaled_rewards);
+            const auto bonus = intrinsic_->ScoreBonus(batch_exp, scaled_rewards,
+                config_.learner.intrinsic.decomposed ? &intrinsic_rewards : nullptr);
             // 学習報酬へボーナスを加算する。
-            scaled_rewards = scaled_rewards + bonus;
+            scaled_rewards = config_.learner.intrinsic.decomposed ? torch::stack({scaled_rewards, intrinsic_rewards}, 1) : scaled_rewards + bonus;
             intrinsic_->Learn(batch_exp);
         }
 
@@ -881,7 +969,7 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
         };
 
         // Update実行
-        auto result = this->learner_->UpdateFromBatch(counts, exp);
+        auto result = this->learner_->UpdateFromBatch(counts, exp, intrinsic_->Beta());
         result_list = std::move(result);
 
         // Update後処理

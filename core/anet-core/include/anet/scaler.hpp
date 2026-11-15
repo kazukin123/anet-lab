@@ -8,6 +8,7 @@
 #include <torch/torch.h>
 #include "anet/common.hpp"
 #include "anet/config.hpp"
+#include "anet/log.hpp"
 #include "anet/rl.hpp"
 #include "anet/serialize.hpp"
 
@@ -19,12 +20,6 @@ namespace anet::rl {
 
     class ObservationNormalizer : virtual public Module, public anet::Serializable {
     public:
-        virtual anet::TensorDict Normalize(const anet::TensorDict& obs) const = 0;
-        virtual anet::TensorDict NormalizeAndUpdateStats(const anet::TensorDict& obs) = 0;
-        virtual void Reset() = 0;
-
-        virtual ~ObservationNormalizer() = default;
-    public:
         static constexpr const char* kKeyPrefix = "obs_norm.";
 
         static constexpr const char* kKeyCount = "obs_norm.count";
@@ -34,6 +29,12 @@ namespace anet::rl {
         static constexpr const char* kKeyStd = "obs_norm.std";              ///< 標準偏差の平均（探索範囲監視）
         static constexpr const char* kKeyClipRatio = "obs_norm.clip_ratio"; ///< クリップ率
         static constexpr const char* kKeyRobustOutlierRatio = "obs_norm.robust_outlier_ratio"; ///< Robust Updateで除外された割合
+    public:
+        virtual anet::TensorDict Normalize(const anet::TensorDict& obs) const = 0;
+        virtual anet::TensorDict NormalizeAndUpdateStats(const anet::TensorDict& obs) = 0;
+        virtual void Reset() = 0;
+
+        virtual ~ObservationNormalizer() = default;
     };
     
     static constexpr const int kPostProcessNone = 0;
@@ -77,7 +78,15 @@ namespace anet::rl {
     // RewardScaler
     // =============================================================
 
-    class RewardScaler : virtual public Module {
+    class RewardScaler : virtual public Module, public anet::Serializable {
+    public:
+        static constexpr const char* kKeyPrefix = "reward_scaler.";
+
+        static constexpr const char* kKeyCount = "reward_scaler.count";
+        static constexpr const char* kKeyMean = "reward_scaler.mean";
+        static constexpr const char* kKeyStd = "reward_scaler.std";
+        static constexpr const char* kKeyScale = "reward_scaler.scale";
+        static constexpr const char* kKeyClipRatio = "reward_scaler.clip_ratio";
     public:
         /**
          * @brief 報酬(Batch)を受け取り、統計を更新し、スケールされたTensorを返す
@@ -88,16 +97,12 @@ namespace anet::rl {
         /// 現在の統計で変換し、統計とclip率を更新しない。
         virtual torch::Tensor ScaleWithoutUpdate(const torch::Tensor& reward) const = 0;
         virtual void Reset() = 0;
+        virtual std::string StateKind() const = 0;
+        static constexpr char kConstantState[] = "constant";
+        static constexpr char kRewardStdState[] = "reward_std";
+        static constexpr char kReturnStdState[] = "return_std";
 
         virtual ~RewardScaler() = default;
-    public:
-        static constexpr const char* kKeyPrefix = "reward_scaler.";
-
-        static constexpr const char* kKeyCount = "reward_scaler.count";
-        static constexpr const char* kKeyMean = "reward_scaler.mean";
-        static constexpr const char* kKeyStd = "reward_scaler.std";
-        static constexpr const char* kKeyScale = "reward_scaler.scale";
-        static constexpr const char* kKeyClipRatio = "reward_scaler.clip_ratio";
     };
 
     // =============================================================
@@ -111,6 +116,7 @@ namespace anet::rl {
         float constant_scale = 1.0f;
 
         bool use_dynamic_scaling = true;
+        std::string dynamic_mode = RewardScaler::kRewardStdState;
 
         float epsilon = 1e-8f;
         bool use_auto_post_scale = true;     ///< gammaを使って自動設定するか？
@@ -122,11 +128,64 @@ namespace anet::rl {
 
     class RewardScalerFactory {
     public:
-        RewardScalerFactory(const RewardScalerConfig& config);
-        std::unique_ptr<RewardScaler> CreateRewardScaler(float gamma) const;
+        RewardScalerFactory(const RewardScalerConfig& config, std::string prefix = "reward_scaler");
+        std::unique_ptr<RewardScaler> CreateRewardScaler(float gamma, int64_t num_lanes) const;
     private:
         RewardScalerConfig config_;
+        std::string prefix_;
     };
+
+    void ValidateRewardScalerConfig(const RewardScalerConfig& config, const std::string& prefix, bool used = true);
 
 
 }	// namespace anet::rl
+
+namespace anet {
+    template<> struct ConfigReader<rl::RewardScalerConfig> {
+        static constexpr bool kEnabled = true;
+        static void Read(Config& owner, const ConfigData& data, const std::string& key, rl::RewardScalerConfig& value, bool used = true)
+        {
+            ReadImpl(owner, data, key, value, used, true);
+        }
+        /// 型と列挙を検証して読む。組み合わせは、全関連値が揃った時点でValidateRewardScalerConfigに渡す。
+        static void ReadFields(Config& owner, const ConfigData& data, const std::string& key, rl::RewardScalerConfig& value, bool used = true)
+        {
+            ReadImpl(owner, data, key, value, used, false);
+        }
+    private:
+        static void ReadImpl(Config& owner, const ConfigData& data, const std::string& key,
+            rl::RewardScalerConfig& value, bool used, bool validate_combinations)
+        {
+            // 接頭辞だけが異なる外的・内的の設定を、同じ型の口で解釈する。
+            const auto defaults = value;
+            owner.ReadSubConfig(data, key, "use_clipping", value.use_clipping);
+            owner.ReadSubConfig(data, key, "clip_range", value.clip_range);
+            owner.ReadSubConfig(data, key, "constant_scale", value.constant_scale);
+            owner.ReadSubConfig(data, key, "use_dynamic_scaling", value.use_dynamic_scaling);
+            owner.ReadSubConfig(data, key, "dynamic_mode", value.dynamic_mode);
+            owner.ReadSubConfig(data, key, "epsilon", value.epsilon);
+            owner.ReadSubConfig(data, key, "use_auto_post_scale", value.use_auto_post_scale);
+            owner.ReadSubConfig(data, key, "reference_q_std", value.reference_q_std);
+            owner.ReadSubConfig(data, key, "manual_post_scale", value.manual_post_scale);
+            // usedは休眠時の通知に保ち、段階読み込みでは組み合わせだけを後へ残す。
+            rl::ValidateRewardScalerConfig(value, owner.MakeDefaultConfigKey(key), used && validate_combinations);
+            const auto report = [&](const std::string& field, const auto& actual, const auto& default_value, bool field_used) {
+                if (!field_used && owner.HasConfigValue(data, key + "." + field) && actual != default_value) {
+                    const auto full_key = owner.MakeDefaultConfigKey(key + "." + field);
+                    anet::log::warn_once(full_key) << "Ignored " << full_key << "=" << anet::json(actual).dump()
+                        << "; default=" << anet::json(default_value).dump()
+                        << "; reason=" << (used ? "use_dynamic_scaling=false" : "reward scaler inactive") << ".";
+                }
+            };
+            report("use_clipping", value.use_clipping, defaults.use_clipping, used);
+            report("clip_range", value.clip_range, defaults.clip_range, used);
+            report("constant_scale", value.constant_scale, defaults.constant_scale, used);
+            report("use_dynamic_scaling", value.use_dynamic_scaling, defaults.use_dynamic_scaling, used);
+            report("dynamic_mode", value.dynamic_mode, defaults.dynamic_mode, used && value.use_dynamic_scaling);
+            report("epsilon", value.epsilon, defaults.epsilon, used);
+            report("use_auto_post_scale", value.use_auto_post_scale, defaults.use_auto_post_scale, used);
+            report("reference_q_std", value.reference_q_std, defaults.reference_q_std, used);
+            report("manual_post_scale", value.manual_post_scale, defaults.manual_post_scale, used);
+        }
+    };
+}

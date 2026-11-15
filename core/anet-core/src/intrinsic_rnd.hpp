@@ -21,7 +21,6 @@ namespace anet::rl::intrinsic {
     inline constexpr char kErrorAverageEma[] = "ema";
 
     struct RndNoveltyEstimatorConfig : public anet::Config {
-        int output_dim = 128;
         static constexpr float kDefaultMultiplierMax = 5.0f;
         static constexpr int64_t kDefaultEmaSteps = 1000000;
         static constexpr bool kDefaultErrorNormUseCentering = true;
@@ -39,6 +38,7 @@ namespace anet::rl::intrinsic {
         float weight_decay = 0.0f;
         double adam_eps = 1e-8;
         struct {
+            int output_dim = 128;
             anet::nn::WeightInitConfig init;
         } head;
         ObservationNormalizerConfig obs_norm;

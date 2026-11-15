@@ -45,6 +45,58 @@
 
 #include "anet/tensor_check.hpp"
 
+constexpr const char* kPrd121AdvFeature = "adv_feature";
+constexpr const char* kPrd121ExtrinsicQArgmaxDisagreement = "extrinsic_q_argmax_disagreement";
+constexpr const char* kPrd121ExtrinsicQArgmaxDisagreementRate = "extrinsic_q_argmax_disagreement_rate";
+constexpr const char* kPrd121ExtrinsicQGapMean = "extrinsic_q_gap_mean";
+constexpr const char* kPrd121ExtrinsicQRegret = "extrinsic_q_regret";
+constexpr const char* kPrd121ExtrinsicQRegretMean = "extrinsic_q_regret_mean";
+constexpr const char* kPrd121ExtrinsicQSessionArgmaxDisagreementRate = "extrinsic_q_session_argmax_disagreement_rate";
+constexpr const char* kPrd121ExtrinsicQSessionRegretMean = "extrinsic_q_session_regret_mean";
+constexpr const char* kPrd121Gap = "_gap";
+constexpr const char* kPrd121GapMean = "gap_mean";
+constexpr const char* kPrd121Intrinsic = "intrinsic";
+constexpr const char* kPrd121IntrinsicPrefix = "intrinsic_";
+constexpr const char* kPrd121IntrinsicQGap = "intrinsic_q_gap";
+constexpr const char* kPrd121IntrinsicQGapMean = "intrinsic_q_gap_mean";
+constexpr const char* kPrd121IntrinsicQSessionGapMean = "intrinsic_q_session_gap_mean";
+constexpr const char* kPrd121OnlineReuse = "online_reuse";
+constexpr const char* kPrd121PlasticityTargetSrank = "plasticity_target_srank";
+constexpr const char* kPrd121ValueFeature = "value_feature";
+
+// PRD121の入力・公開識別子を、同じ意味の検査で共有する。
+constexpr const char* kPrd121Eval = "eval";
+constexpr const char* kPrd121ExtrinsicGradNorm = "extrinsic_grad_norm";
+constexpr const char* kPrd121ExtrinsicHead = "extrinsic";
+constexpr const char* kPrd121ExtrinsicLoss = "extrinsic_loss";
+constexpr const char* kPrd121ExtrinsicQ = "extrinsic_q";
+constexpr const char* kPrd121ExtrinsicQDist = "extrinsic_q_dist";
+constexpr const char* kPrd121ExtrinsicQGap = "extrinsic_q_gap";
+constexpr const char* kPrd121ExtrinsicQSessionGapMean = "extrinsic_q_session_gap_mean";
+constexpr const char* kPrd121Features = "features";
+constexpr const char* kPrd121FixedTauMode = "fixed";
+constexpr const char* kPrd121HeadExtrinsicLinearBias = "head.extrinsic.linear.bias";
+constexpr const char* kPrd121HeadIntrinsicLinearBias = "head.intrinsic.linear.bias";
+constexpr const char* kPrd121Inf = "inf";
+constexpr const char* kPrd121IntrinsicAdvFeature = "intrinsic_adv_feature";
+constexpr const char* kPrd121IntrinsicFeatures = "intrinsic_features";
+constexpr const char* kPrd121IntrinsicGradNorm = "intrinsic_grad_norm";
+constexpr const char* kPrd121IntrinsicLoss = "intrinsic_loss";
+constexpr const char* kPrd121IntrinsicQ = "intrinsic_q";
+constexpr const char* kPrd121IntrinsicQDist = "intrinsic_q_dist";
+constexpr const char* kPrd121IntrinsicValueFeature = "intrinsic_value_feature";
+constexpr const char* kPrd121Invalid = "invalid";
+constexpr const char* kPrd121Linear = "linear";
+constexpr const char* kPrd121Nan = "nan";
+constexpr const char* kPrd121Off = "off";
+constexpr const char* kPrd121OnlineLogPolicyMode = "online";
+constexpr const char* kPrd121OnlineNetworkMode = "online";
+constexpr const char* kPrd121Q = "q";
+constexpr const char* kPrd121QDist = "q_dist";
+constexpr const char* kPrd121ReplayFitUniformTdMean = "replay_fit_uniform_td_mean";
+constexpr const char* kPrd121SharedBranchKey = "shared";
+constexpr const char* kPrd121TargetLogPolicyMode = "target";
+
 static constexpr anet::seed_t kTestAgentSeed = 6000;
 
 static constexpr const char* kQValueKey = "q";
@@ -194,7 +246,7 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
         return BuildLaneTensor(lanes, first, last, scale, device).flip({0});
     }
 
-    std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, anet::nn::NetworkForwardExecutor&,
+    std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, const dqn::DqnForwardExecutor&,
         std::shared_ptr<anet::RandomGenerator>, const anet::nn::NetworkForwardCallInfo&, const anet::TraceCallback&,
         const dqn::DiagnosticActionEvaluation*, const torch::Tensor&) const override
     {
@@ -493,7 +545,7 @@ private:
 class RecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
     rl::SamplingHistoryProbeResult ProbeSamplingHistory(
-        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator*, float gamma) const override
+        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator*, std::span<const float> gammas) const override
     {
         ++history_probe_count;
         last_history_request = request;
@@ -509,16 +561,16 @@ public:
     mutable rl::SamplingHistoryProbeRequest last_history_request;
     rl::SamplingHistoryProbeResult history_result;
 
-    void Push(const rl::BatchExperience&, float gamma) override
+    void Push(const rl::BatchExperience&, std::span<const float> gammas) override
     {
-        pushed_gammas.push_back(gamma);
+        pushed_gammas.push_back(gammas.front());
         ++push_count;
     }
 
-    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float beta, float gamma) const override
+    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float beta, std::span<const float> gammas) const override
     {
         sampled_betas.push_back(beta);
-        sampled_gammas.push_back(gamma);
+        sampled_gammas.push_back(gammas.front());
         ++sample_count;
 
         out_samples.obs = anet::TensorDict{
@@ -541,11 +593,11 @@ public:
     }
 
     bool SampleUniqueUniform(
-        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&, float gamma) const override
+        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&, std::span<const float> gammas) const override
     {
         ++unique_sample_count;
         if (!unique_sample_enabled) return false;
-        Sample(out_samples, batch_size, 0.0f, gamma);
+        Sample(out_samples, batch_size, 0.0f, gammas);
         return true;
     }
 
@@ -1766,8 +1818,8 @@ TEST_CASE("DQN initial priority estimator completes a one-step bootstrap", "[dqn
     config.use_per_prio_clip = false;
     auto estimator = dqn::CreateInitialPriorityEstimator(config);
 
-    const std::array<float, 3> start_hint{ 4.0f, 5.0f, 0.0f };
-    const std::array<float, 3> bootstrap_hint{ 6.0f, 2.0f, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> start_hint{ 4.0f, 5.0f, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> bootstrap_hint{ 6.0f, 2.0f, 0.0f };
     const auto priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
         .start_hint = start_hint,
         .bootstrap_hint = bootstrap_hint,
@@ -1918,8 +1970,8 @@ TEST_CASE("DQN initial priority estimator distinguishes n-step bootstrap and tru
     config.per_eps = 0.0f;
     config.use_per_prio_clip = false;
     auto estimator = dqn::CreateInitialPriorityEstimator(config);
-    const std::array<float, 3> start_hint{ 4.0f, 99.0f, 0.0f };
-    const std::array<float, 3> bootstrap_hint{ 88.0f, 3.0f, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> start_hint{ 4.0f, 99.0f, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> bootstrap_hint{ 88.0f, 3.0f, 0.0f };
 
     const auto n_step_priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
         .start_hint = start_hint,
@@ -1955,8 +2007,8 @@ TEST_CASE("DQN initial priority estimator applies TBO to QR mean Q hints", "[dqn
 
     const float actor_q_sa = torch::tensor({ 2.0f, 4.0f }).mean().item<float>();
     const float bootstrap_state_value = torch::tensor({ 1.0f, 5.0f }).mean().item<float>();
-    const std::array<float, 3> start_hint{ actor_q_sa, 0.0f, 0.0f };
-    const std::array<float, 3> bootstrap_hint{ 0.0f, bootstrap_state_value, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> start_hint{ actor_q_sa, 0.0f, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> bootstrap_hint{ 0.0f, bootstrap_state_value, 0.0f };
     const auto priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
         .start_hint = start_hint,
         .bootstrap_hint = bootstrap_hint,
@@ -1980,7 +2032,7 @@ TEST_CASE("DQN initial priority estimator applies TBO to QR mean Q hints", "[dqn
 
 TEST_CASE("DQN initial priority estimator preserves zero and clip boundaries", "[dqn][per][actor_initial][estimator]")
 {
-    const std::array<float, 3> start_hint{ 2.0f, 0.0f, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> start_hint{ 2.0f, 0.0f, 0.0f };
 
     dqn::LearnerConfig zero_config = WithDefaultLearnerForwardConfig();
     zero_config.per_eps = 0.0f;
@@ -2018,9 +2070,9 @@ TEST_CASE("DQN initial priority estimator distinguishes schema errors and non-fi
 {
     dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
     auto estimator = dqn::CreateInitialPriorityEstimator(config);
-    const std::array<float, 3> finite_hint{ 1.0f, 2.0f, 0.0f };
-    const std::array<float, 3> nan_hint{ std::numeric_limits<float>::quiet_NaN(), 2.0f, 0.0f };
-    const std::array<float, 3> inf_hint{ 1.0f, std::numeric_limits<float>::infinity(), 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> finite_hint{ 1.0f, 2.0f, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> nan_hint{ std::numeric_limits<float>::quiet_NaN(), 2.0f, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> inf_hint{ 1.0f, std::numeric_limits<float>::infinity(), 0.0f };
 
     CHECK(estimator->ValidateHint(finite_hint));
     CHECK_FALSE(estimator->ValidateHint(nan_hint));
@@ -2108,8 +2160,8 @@ TEST_CASE("DQN initial priority estimator matches scalar learner TD priority", "
         REQUIRE(result->td_error.numel() == 1);
         REQUIRE(result->q_sa.numel() == 1);
 
-        const std::array<float, 3> start_hint{ result->q_sa.item<float>(), 0.0f, 0.0f };
-        const std::array<float, 3> bootstrap_hint{ 0.0f, bootstrap_state_value, 0.0f };
+        const std::array<float, dqn::kActorQHintColumnCount> start_hint{ result->q_sa.item<float>(), 0.0f, 0.0f };
+        const std::array<float, dqn::kActorQHintColumnCount> bootstrap_hint{ 0.0f, bootstrap_state_value, 0.0f };
         auto estimator = dqn::CreateInitialPriorityEstimator(config);
         const auto actor_priority = estimator->Estimate(rl::InitialPriorityEstimateInput{
             .start_hint = start_hint,
@@ -3178,7 +3230,7 @@ public:
     explicit FixedSkipInputPolicy(torch::Tensor features)
         : ActionPolicy(dqn::ActionPolicyConfig{}), features_(std::move(features)) {}
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool,
-        anet::nn::NetworkForwardExecutor&, std::shared_ptr<anet::RandomGenerator>,
+        const dqn::DqnForwardExecutor&, std::shared_ptr<anet::RandomGenerator>,
         const anet::nn::NetworkForwardCallInfo&, const anet::TraceCallback&,
         const dqn::DiagnosticActionEvaluation*, const torch::Tensor&) const override
     {
@@ -3753,11 +3805,13 @@ TEST_CASE("Variable IQN skip selection keeps full auxiliary values for each poli
 TEST_CASE("DefaultDQN checkpoint headers identify Agent serialization formats", "[dqn][serialize][prd098][checkpoint-format]")
 {
     ScopedNoopMetricsLogger metrics_logger;
-    // Agent全体の保存形式として、第1版と拡張した第2版を識別する。
-    for (const bool enabled : {false, true}) {
+    // 定数倍率は既存の版、動的スケーラは状態を保存する第3版を使う。
+    const bool enabled = GENERATE(false, true);
+    const bool dynamic = GENERATE(false, true);
         INFO("skip.enabled=" << enabled);
         auto config = MakeDeviceForwardDefaultDqnConfig();
         config.skip.enabled = enabled;
+        config.reward_scaler.use_dynamic_scaling = dynamic;
         config.learner.use_amp = false;
         if (enabled) {
             config.skip.max_length = 3;
@@ -3773,8 +3827,7 @@ TEST_CASE("DefaultDQN checkpoint headers identify Agent serialization formats", 
         anet::InputArchive input(stream);
         anet::ArchiveHeader header;
         input.Read(header);
-        CHECK(header.info == (enabled ? "DefaultDQNAgent-2" : "DefaultDQNAgent"));
-    }
+        CHECK(header.info == (dynamic ? "DefaultDQNAgent-3" : enabled ? "DefaultDQNAgent-2" : "DefaultDQNAgent"));
 }
 
 TEST_CASE("Skip checkpoint restores skip values across construction seeds", "[dqn][serialize][prd098]")
@@ -6799,12 +6852,858 @@ TEST_CASE("DQNActionInfo exposes episode-start action margin scalar metrics", "[
     CHECK_THROWS(info.GetScalar("episode_start_action_q_margin.[3]"));
 }
 
-TEST_CASE("DQN Actor Q hint schema packs and decodes three columns", "[dqn][per][actor_initial][hint]")
+TEST_CASE("Decomposed combination preserves tau pairs and exact zero beta values", "[prd121][dqn][combine]")
+{
+    const bool tbo = GENERATE(false, true);
+    const float beta = GENERATE(0.0f, 0.3f);
+    constexpr double epsilon = 0.01;
+    const auto external = torch::tensor({{{0.1f, 0.5f, 1.0f}, {-0.25f, -1.5f, 2.0f}}});
+    const auto internal = torch::tensor({{{-0.5f, 0.25f, 1.2f}, {0.2f, 1.0f, -0.8f}}});
+    anet::TensorDict output{{kPrd121ExtrinsicQDist, external}, {kPrd121IntrinsicQDist, internal}};
+    CHECK_FALSE(output.Contains(kPrd121Q));
+    CHECK_FALSE(output.Contains(kPrd121QDist));
+    dqn::DecomposedValueCombiner::Combine(output, beta, tbo, epsilon);
+    if (beta == 0) CHECK(torch::equal(output.At(kPrd121QDist), external));
+    const auto h = [](double value) { return std::copysign(std::sqrt(std::abs(value) + 1) - 1, value) + epsilon * value; };
+    const auto inverse = [](double value) {
+        const double root = (std::sqrt(1 + 4 * epsilon * (std::abs(value) + 1 + epsilon)) - 1) / (2 * epsilon);
+        return std::copysign(root * root - 1, value);
+    };
+    for (int action = 0; action < 2; ++action) {
+        for (int tau = 0; tau < 3; ++tau) {
+            const double ext = external[0][action][tau].item<float>(), intr = internal[0][action][tau].item<float>();
+            const double expected = tbo ? h(inverse(ext) + beta * inverse(intr)) : ext + beta * intr;
+            CHECK(output.At(kPrd121QDist)[0][action][tau].item<float>() == Catch::Approx(expected).epsilon(1e-5).margin(1e-6));
+        }
+    }
+    CHECK(torch::equal(output.At(kPrd121Q), output.At(kPrd121QDist).mean(2)));
+}
+
+TEST_CASE("Decomposed Heads validate shared and dedicated feature shapes", "[prd121][dqn][decomposed_head]")
+{
+    const auto mode = GENERATE(std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn));
+    const bool dueling = GENERATE(false, true);
+    const bool dedicated = GENERATE(false, true);
+    const bool iqn = mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn;
+    anet::TensorDict features;
+    const auto external = torch::ones(iqn ? std::vector<int64_t>{2, 3, 4} : std::vector<int64_t>{2, 4});
+    const auto internal = torch::ones(iqn ? std::vector<int64_t>{2, 3, 5} : std::vector<int64_t>{2, 5});
+    features.Set(kPrd121Features, external);
+    features.Set(kPrd121ValueFeature, external);
+    features.Set(kPrd121AdvFeature, external);
+    features.Set(kPrd121IntrinsicFeatures, internal);
+    features.Set(kPrd121IntrinsicValueFeature, internal);
+    features.Set(kPrd121IntrinsicAdvFeature, internal);
+    anet::ConfigData projection;
+    projection.Set("noisy.enabled", true);
+    const anet::nn::WeightInitConfig init;
+    dqn::DecomposedHeadFactory factory(
+        dqn::DqnComponentAssembler::CreateHeadFactory(mode, dueling, 2, 3, init, {}),
+        dqn::DqnComponentAssembler::CreateHeadFactory(mode, dueling, 2, 3, init, projection), dedicated, dueling);
+    const auto forward = [&](const anet::TensorDict& input) {
+        const auto head = factory.CreateHead(input);
+        REQUIRE_FALSE(head->GetNoisyParameterEntries().empty());
+        return head->Forward(input, anet::nn::NetworkForwardContext::GetDefault());
+    };
+    const auto output = forward(features);
+    CHECK_FALSE(output.Contains(kPrd121Q));
+    CHECK_FALSE(output.Contains(kPrd121QDist));
+    CHECK(output.At(kPrd121ExtrinsicQ).sizes() == torch::IntArrayRef({2, 2}));
+    CHECK(output.At(kPrd121IntrinsicQ).sizes() == torch::IntArrayRef({2, 2}));
+    if (!dedicated) return;
+    anet::TensorDict missing;
+    for (const auto& [key, value] : features) if (!key.starts_with(kPrd121IntrinsicPrefix)) missing.Set(key, value);
+    CHECK_THROWS_WITH(forward(missing), Catch::Matchers::ContainsSubstring(
+        std::string("net.body.output.[") + kPrd121IntrinsicFeatures + "]"));
+    if (!dueling) {
+        anet::TensorDict missing_default;
+        for (const auto& [key, value] : features) if (key != kPrd121IntrinsicFeatures) missing_default.Set(key, value);
+        CHECK_THROWS_WITH(forward(missing_default), Catch::Matchers::ContainsSubstring(
+            std::string("net.body.output.[") + kPrd121IntrinsicFeatures + "]"));
+    }
+    if (dueling) {
+        for (const auto* missing_key : {kPrd121IntrinsicValueFeature, kPrd121IntrinsicAdvFeature}) {
+            anet::TensorDict partial;
+            for (const auto& [key, value] : features) if (key != missing_key) partial.Set(key, value);
+            CHECK_THROWS_WITH(forward(partial), Catch::Matchers::ContainsSubstring(
+                std::string("net.body.output.[") + missing_key + "]"));
+        }
+    }
+    auto wrong_rank = features;
+    const auto wrong = torch::ones(iqn ? std::vector<int64_t>{2, 5} : std::vector<int64_t>{2, 3, 5});
+    for (const auto* key : {kPrd121IntrinsicFeatures, kPrd121IntrinsicValueFeature, kPrd121IntrinsicAdvFeature}) wrong_rank.Set(key, wrong);
+    CHECK_THROWS(forward(wrong_rank));
+    if (iqn) {
+        auto wrong_taus = features;
+        for (const auto* key : {kPrd121IntrinsicFeatures, kPrd121IntrinsicValueFeature, kPrd121IntrinsicAdvFeature})
+            wrong_taus.Set(key, torch::ones({2, 4, 5}));
+        CHECK_THROWS(forward(wrong_taus));
+    }
+}
+
+TEST_CASE("Decomposed Actor hints reuse policy selection and exclude full queries", "[prd121][dqn][decomposed_hint_policy]")
+{
+    const bool iqn = GENERATE(false, true);
+    const auto external = iqn ? torch::tensor({{{1.0f, 200.0f, 200.0f, 200.0f, 200.0f}, {2.0f, 100.0f, 100.0f, 100.0f, 100.0f}}})
+        : torch::tensor({{{0.0f, 0.0f, 12.0f}, {6.0f, 6.0f, 6.0f}}});
+    const auto internal = iqn ? torch::tensor({{{3.0f, 50.0f, 50.0f, 50.0f, 50.0f}, {4.0f, 100.0f, 100.0f, 100.0f, 100.0f}}})
+        : torch::zeros_like(external);
+    anet::TensorDict observations{{kPrd121ExtrinsicQDist, external}, {kPrd121IntrinsicQDist, internal},
+        {kPrd121ExtrinsicQ, external.mean(2)}, {kPrd121IntrinsicQ, internal.mean(2)}};
+    anet::TensorSpecMap specs;
+    anet::nn::NetworkConfig net;
+    for (const auto& [key, value] : observations) {
+        specs[key] = {.shape = value.sizes().slice(1).vec(), .dtype = torch::kFloat32};
+        net.output_keys[key] = key;
+    }
+    auto body = std::make_shared<anet::nn::NetworkBody>(std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{}, specs,
+        std::vector<std::string>{}, net.output_keys);
+    auto network = std::make_shared<anet::nn::Network>(net, specs, nullptr, body, nullptr);
+    dqn::ActionPolicyConfig config;
+    config.policy_type = "UQE";
+    config.quantile_mode = iqn ? anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn : anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr;
+    config.uqe.tau.value = 1;
+    config.uqe.use_tail_mean = false;
+    config.uqe.epsilon.value = 0;
+    config.tau_rule = {.sample_mode = kPrd121FixedTauMode, .num_taus = 1};
+    config.full_distribution_query.enabled = iqn;
+    config.full_distribution_query.tau_rule = {.sample_mode = kPrd121FixedTauMode, .num_taus = 4};
+    auto policy = dqn::DqnComponentAssembler::CreateActionPolicy(config, config.quantile_mode, false, 1, torch::kCPU);
+    dqn::ActorQHintConfig hint;
+    hint.decomposed = true;
+    hint.beta.value = 0.5f;
+    hint.extrinsic_bootstrap = true;
+    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 121, std::make_shared<std::shared_mutex>(), network, network,
+        anet::nn::NetworkForwardConfig::GetDefault(), true, std::nullopt, false, hint);
+    const auto flags = torch::zeros({1}, torch::kBool);
+    const auto info = actor.MakeAction({}, rl::BatchState(observations, flags, flags, ~flags));
+    REQUIRE(info->GetReplayInitialPriorityHint());
+    const auto values = dqn::DecodeActorQHint(info->GetReplayInitialPriorityHint()->GetPayload());
+    CHECK(values.actor_q_sa.item<float>() == Catch::Approx(iqn ? 2 : 4));
+    CHECK(values.actor_state_value.item<float>() == Catch::Approx(iqn ? 2 : 4));
+    CHECK(values.intrinsic_q_sa.item<float>() == Catch::Approx(iqn ? 4 : 0));
+    const auto replaced = info->WithAction(torch::tensor({0}, torch::kInt64));
+    const auto replacement = dqn::DecodeActorQHint(replaced->GetReplayInitialPriorityHint()->GetPayload());
+    CHECK(replacement.actor_q_sa.item<float>() == Catch::Approx(iqn ? 1 : 4));
+    CHECK(replacement.intrinsic_q_sa.item<float>() == Catch::Approx(iqn ? 3 : 0));
+}
+
+TEST_CASE("Decomposed learners match component Bellman targets and losses", "[prd121][dqn][decomposed_numeric]")
+{
+    ScopedNoopMetricsLogger logger;
+    anet::nn::InitNN();
+    const auto mode = GENERATE(std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn));
+    const bool tbo = GENERATE(false, true);
+    const auto munch = GENERATE(std::string(kPrd121Off), std::string(kPrd121TargetLogPolicyMode), std::string(kPrd121OnlineLogPolicyMode), std::string(kPrd121OnlineReuse));
+    const bool separate = GENERATE(false, true);
+    const bool continuing = GENERATE(false, true);
+    const bool external_policy = GENERATE(false, true);
+    const bool double_dqn = GENERATE(false, true);
+    const float weight = GENERATE(0.2f, 0.5f, 1.0f);
+    CAPTURE(mode, tbo, munch, separate, continuing, external_policy, double_dqn, weight);
+    const auto env = MakeIqnTracerEnvSpec();
+    auto specs = env.state_spec.obs_spec;
+    anet::nn::NetworkConfig net;
+    net.output_keys[kPrd121Features] = kVectorKey;
+    if (mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn) {
+        net = anet::nn::NetworkConfig(MakeIqnTracerConfigData(), "DefaultDQNAgent.net");
+        specs[anet::nn::kKey_Taus] = {.shape = {4}, .dtype = torch::kFloat32};
+    }
+    const anet::nn::WeightInitConfig init;
+    auto head = std::make_shared<dqn::DecomposedHeadFactory>(
+        dqn::DqnComponentAssembler::CreateHeadFactory(mode, false, 2, 3, init, {}),
+        dqn::DqnComponentAssembler::CreateHeadFactory(mode, false, 2, 3, init, {}), false, false);
+    dqn::NetworkModel model({}, torch::kCPU, net, specs, 2, head, mode != anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone, 121);
+    const auto h = [tbo](double value) {
+        return tbo ? std::copysign(std::sqrt(std::abs(value) + 1) - 1, value) + 0.01 * value : value;
+    };
+    // Headの重みを0にして各行動のbiasを既知の値に固定し、独立したdoubleの式で参照値を作る。
+    const std::array<double, 2> online_external{1, 3}, online_internal{8, 1}, target_external{4, 6}, target_internal{1, 2};
+    const auto set_values = [&](const std::shared_ptr<anet::nn::Network>& network,
+        const auto& external, const auto& internal) {
+        torch::NoGradGuard guard;
+        for (auto& entry : network->named_parameters()) {
+            entry.value().zero_();
+            const bool ext = entry.key() == kPrd121HeadExtrinsicLinearBias;
+            const bool intr = entry.key() == kPrd121HeadIntrinsicLinearBias;
+            if (!ext && !intr) continue;
+            const auto& values = ext ? external : internal;
+            const int64_t width = entry.value().numel() / 2;
+            for (int action = 0; action < 2; ++action) entry.value().narrow(0, action * width, width).fill_(h(values[action]));
+        }
+    };
+    set_values(model.GetOnlineNetwork(), online_external, online_internal);
+    set_values(model.GetTargetNetwork(), target_external, target_internal);
+    auto config = WithDefaultLearnerForwardConfig();
+    config.quantile_mode = mode;
+    config.num_quantiles = 3;
+    config.iqn.current_taus = {.sample_mode = kPrd121FixedTauMode, .num_taus = 4};
+    config.iqn.target_taus = {.sample_mode = kPrd121FixedTauMode, .num_taus = 3};
+    config.intrinsic.decomposed = true;
+    config.intrinsic.loss_weight = weight;
+    config.intrinsic.priority_lambda = 0.3f;
+    config.intrinsic.discount_mode = separate ? anet::rl::dqn::LearnerConfig::kDiscountSeparate : anet::rl::dqn::LearnerConfig::kDiscountShared;
+    config.intrinsic.gamma.value = 0.25f;
+    config.intrinsic.terminal_mode = continuing ? anet::rl::dqn::LearnerConfig::kTerminalNonEpisodic : anet::rl::dqn::LearnerConfig::kTerminalEpisodic;
+    config.intrinsic.extrinsic_bootstrap_mode = external_policy ? anet::rl::dqn::LearnerConfig::kBootstrapExtrinsic : anet::rl::dqn::LearnerConfig::kBootstrapCombined;
+    config.gamma.value = 0.5f;
+    config.use_tbo = tbo;
+    config.tbo_epsilon = 0.01f;
+    config.use_double_dqn = double_dqn;
+    config.use_per = false;
+    config.use_td_clip = false;
+    config.use_amp = false;
+    config.learning_rate.value = 0;
+    config.replay_batch_size = 4;
+    config.replay_capacity = 64;
+    config.use_n_step = false;
+    config.update_warmup_steps = 100000;
+    config.munchausen.enabled = munch != kPrd121Off;
+    config.munchausen.log_policy_mode = munch == kPrd121Off ? kPrd121TargetLogPolicyMode : munch;
+    config.munchausen.alpha.value = 0.9f;
+    config.munchausen.entropy_tau.value = 0.7f;
+    dqn::ActionPolicyConfig policy_config;
+    policy_config.policy_type = anet::rl::dqn::kActionPolicyTypeStr_Greedy;
+    policy_config.quantile_mode = mode;
+    auto policy = dqn::DqnComponentAssembler::CreateActionPolicy(policy_config, mode, false, 4, torch::kCPU);
+    dqn::RuntimeVars vars;
+    std::shared_ptr<dqn::Learner> learner;
+    const auto create = [&]<typename T>() {
+        return std::make_shared<T>(config, model, vars, nullptr, rl::BatchEnvSpec{4, 1}, env, torch::kCPU, 121, kTestAgentSeed, policy, dqn::LearnerForwardResources{});
+    };
+    if (mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone) learner = create.operator()<dqn::TDLearner>();
+    else if (mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr) learner = create.operator()<dqn::QRLearner>();
+    else learner = create.operator()<dqn::IQNLearner>();
+    rl::ExperienceSamples samples;
+    samples.obs = anet::TensorDict{{kVectorKey, torch::ones({4, 4})}};
+    samples.next_state.next_obs = samples.obs;
+    samples.actions = torch::tensor({0, 1, 0, 1}, torch::kInt64);
+    samples.target_returns = torch::tensor({{0.2f, 1.0f}, {0.4f, 2.0f}, {0.6f, 3.0f}, {0.8f, 4.0f}});
+    samples.n_steps = torch::tensor({1, 2, 3, 4}, torch::kInt64);
+    samples.next_state.terminals = torch::tensor({false, true, false, true});
+    samples.next_state.truncated = torch::tensor({false, false, true, true});
+    const auto flags = torch::zeros({4}, torch::kBool);
+    learner->UpdateFromBatch({}, {rl::BatchState(samples.obs, flags, flags, ~flags),
+        std::make_shared<rl::BatchActionInfo>(samples.actions), torch::zeros({4, 2}), rl::BatchState(samples.obs, flags, flags, flags)}, 0.5f);
+    const auto result = learner->UpdateFromSamples(samples);
+    // Headの表示用Qと区別し、割合はTBOを戻した報酬の単位で求める。
+    constexpr char kIntrinsicQShareMetric[] = "intrinsic_q_share";
+    const auto share = learner->GetScalar(kIntrinsicQShareMetric);
+    REQUIRE(share);
+    CHECK(*share == Catch::Approx(0.5 * (4.0 / 5.0 + 0.5 / 3.5)).epsilon(1e-5).margin(1e-6));
+    const auto log_policy = [](const std::array<double, 2>& q) {
+        const double maximum = std::max(q[0], q[1]);
+        const double log_z = std::log(std::exp((q[0] - maximum) / 0.7) + std::exp((q[1] - maximum) / 0.7));
+        return std::array<double, 2>{q[0] - maximum - 0.7 * log_z, q[1] - maximum - 0.7 * log_z};
+    };
+    const auto combine = [](const auto& ext, const auto& intr) { return std::array<double, 2>{ext[0] + 0.5 * intr[0], ext[1] + 0.5 * intr[1]}; };
+    const auto combined_next_log = log_policy(combine(target_external, target_internal));
+    const auto external_next_log = log_policy(external_policy ? target_external : combine(target_external, target_internal));
+    const auto& current_ext = munch == kPrd121TargetLogPolicyMode ? target_external : online_external;
+    const auto& current_int = munch == kPrd121TargetLogPolicyMode ? target_internal : online_internal;
+    const auto current_log = log_policy(external_policy ? current_ext : combine(current_ext, current_int));
+    const auto& selection_ext = double_dqn ? online_external : target_external;
+    const auto& selection_int = double_dqn ? online_internal : target_internal;
+    const auto combined_selection = combine(selection_ext, selection_int);
+    const int combined_action = combined_selection[0] >= combined_selection[1] ? 0 : 1;
+    double expected_external_loss = 0, expected_internal_loss = 0;
+    const auto huber = [](double error) { const double value = std::abs(error); return value < 1 ? 0.5 * value * value : value - 0.5; };
+    for (int lane = 0; lane < 4; ++lane) {
+        const int action = lane % 2;
+        double external_bootstrap = target_external[external_policy ? 1 : combined_action];
+        double internal_bootstrap = target_internal[combined_action];
+        double bonus = 0;
+        if (munch != kPrd121Off) {
+            bonus = 0.9 * std::clamp(current_log[action], static_cast<double>(config.munchausen.clip_value_min), 0.0);
+            external_bootstrap = internal_bootstrap = 0;
+            for (int next_action = 0; next_action < 2; ++next_action) {
+                external_bootstrap += std::exp(external_next_log[next_action] / 0.7) * (target_external[next_action] - external_next_log[next_action]);
+                internal_bootstrap += std::exp(combined_next_log[next_action] / 0.7) * target_internal[next_action];
+            }
+        }
+        const bool done = lane == 1 || lane == 3;
+        const bool internal_done = done && (!continuing || lane == 3);
+        const double external_target = 0.2 * (lane + 1) + bonus + (done ? 0 : std::pow(0.5, lane + 1) * external_bootstrap);
+        const double internal_target = lane + 1 + (internal_done ? 0 : std::pow(separate ? 0.25 : 0.5, lane + 1) * internal_bootstrap);
+        const double external_error = h(online_external[action]) - h(external_target);
+        const double internal_error = h(online_internal[action]) - h(internal_target);
+        CHECK(result->td_error[lane].item<float>() == Catch::Approx(std::abs(external_error) + 0.3 * std::abs(internal_error)).epsilon(1e-5).margin(1e-6));
+        const double loss_factor = mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone ? 1 : mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr ? 1.5 : 2.0;
+        expected_external_loss += loss_factor * huber(external_error) / 4;
+        expected_internal_loss += loss_factor * huber(internal_error) / 4;
+    }
+    CHECK(*learner->GetScalar(kPrd121ExtrinsicLoss) == Catch::Approx(expected_external_loss).epsilon(1e-5).margin(1e-6));
+    CHECK(*learner->GetScalar(kPrd121IntrinsicLoss) == Catch::Approx(expected_internal_loss).epsilon(1e-5).margin(1e-6));
+    CHECK(result->loss.item<float>() == Catch::Approx(expected_external_loss + weight * expected_internal_loss).epsilon(1e-5).margin(1e-6));
+}
+
+TEST_CASE("Shared episodic component targets reproduce a combined learner target", "[prd121][dqn][combined_target_equivalence]")
+{
+    ScopedNoopMetricsLogger logger;
+    anet::nn::InitNN();
+    const auto mode = GENERATE(std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn));
+    const bool tbo = GENERATE(false, true);
+    const bool munchausen = GENERATE(false, true);
+    const auto env = MakeIqnTracerEnvSpec();
+    auto specs = env.state_spec.obs_spec;
+    anet::nn::NetworkConfig net;
+    net.output_keys[kPrd121Features] = kVectorKey;
+    if (mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn) {
+        net = anet::nn::NetworkConfig(MakeIqnTracerConfigData(), "DefaultDQNAgent.net");
+        specs[anet::nn::kKey_Taus] = {.shape = {4}, .dtype = torch::kFloat32};
+    }
+    const auto h = [tbo](double value) { return tbo ? std::sqrt(value + 1) - 1 + 0.01 * value : value; };
+    const auto real = [tbo](double value) {
+        const double z = 2 * value / (std::sqrt(1.02 * 1.02 + 0.04 * value) + 1.02);
+        return tbo ? z * (z + 2) : value;
+    };
+    const double loss_factor = mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone ? 1 : mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr ? 1.5 : 2;
+    // 現在値0・正の定数分布なので、公開lossからHuberを逆に解いて目標値を観測できる。
+    const auto target_from_loss = [&](float value) {
+        const double loss = value / loss_factor;
+        return real(loss >= 0.5 ? loss + 0.5 : std::sqrt(2 * loss));
+    };
+    double combined_target = 0, component_target = 0;
+    for (const bool decomposed : {false, true}) {
+        const anet::nn::WeightInitConfig init;
+        const auto factory = [&] { return dqn::DqnComponentAssembler::CreateHeadFactory(mode, false, 2, 3, init, {}); };
+        std::shared_ptr<anet::nn::NetworkHeadFactory> head = factory();
+        if (decomposed) head = std::make_shared<dqn::DecomposedHeadFactory>(factory(), factory(), false, false);
+        dqn::NetworkModel model({}, torch::kCPU, net, specs, 2, head, mode != anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone, 121);
+        {
+            torch::NoGradGuard guard;
+            for (auto& parameter : model.GetOnlineNetwork()->parameters()) parameter.zero_();
+            for (auto& parameter : model.GetTargetNetwork()->parameters()) parameter.zero_();
+            for (auto& parameter : model.GetTargetNetwork()->named_parameters()) {
+                if (parameter.key() == "head.linear.bias") parameter.value().fill_(h(5));
+                if (parameter.key() == kPrd121HeadExtrinsicLinearBias) parameter.value().fill_(h(4));
+                if (parameter.key() == kPrd121HeadIntrinsicLinearBias) parameter.value().fill_(h(2));
+            }
+        }
+        auto config = WithDefaultLearnerForwardConfig();
+        config.quantile_mode = mode;
+        config.num_quantiles = 3;
+        config.iqn.current_taus = {.sample_mode = kPrd121FixedTauMode, .num_taus = 4};
+        config.iqn.target_taus = {.sample_mode = kPrd121FixedTauMode, .num_taus = 3};
+        config.intrinsic.decomposed = decomposed;
+        config.gamma.value = 0.5f;
+        config.use_tbo = tbo;
+        config.tbo_epsilon = 0.01f;
+        config.use_double_dqn = false;
+        config.use_per = false;
+        config.use_td_clip = false;
+        config.use_amp = false;
+        config.learning_rate.value = 0;
+        config.replay_batch_size = 2;
+        config.replay_capacity = 16;
+        config.use_n_step = false;
+        config.update_warmup_steps = 100000;
+        config.munchausen.enabled = munchausen;
+        config.munchausen.entropy_tau.value = 0.7f;
+        dqn::ActionPolicyConfig policy_config;
+        policy_config.policy_type = anet::rl::dqn::kActionPolicyTypeStr_Greedy;
+        policy_config.quantile_mode = mode;
+        auto policy = dqn::DqnComponentAssembler::CreateActionPolicy(policy_config, mode, false, 2, torch::kCPU);
+        dqn::RuntimeVars vars;
+        const auto create = [&]<typename T>() { return std::make_shared<T>(config, model, vars, nullptr,
+            rl::BatchEnvSpec{2, 1}, env, torch::kCPU, 121, kTestAgentSeed, policy, dqn::LearnerForwardResources{}); };
+        std::shared_ptr<dqn::Learner> learner;
+        if (mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone) learner = create.operator()<dqn::TDLearner>();
+        else if (mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr) learner = create.operator()<dqn::QRLearner>();
+        else learner = create.operator()<dqn::IQNLearner>();
+        rl::ExperienceSamples samples;
+        samples.obs = anet::TensorDict{{kVectorKey, torch::ones({2, 4})}};
+        samples.next_state.next_obs = samples.obs;
+        samples.actions = torch::zeros({2}, torch::kInt64);
+        samples.target_returns = decomposed ? torch::tensor({{1.0f, 2.0f}, {1.0f, 2.0f}}) : torch::full({2}, 2.0f);
+        samples.n_steps = torch::ones({2}, torch::kInt64);
+        const auto flags = torch::zeros({2}, torch::kBool);
+        samples.next_state.terminals = flags;
+        samples.next_state.truncated = flags;
+        learner->UpdateFromBatch({}, {rl::BatchState(samples.obs, flags, flags, ~flags),
+            std::make_shared<rl::BatchActionInfo>(samples.actions), torch::zeros_like(samples.target_returns),
+            rl::BatchState(samples.obs, flags, flags, flags)}, 0.5f);
+        const auto result = learner->UpdateFromSamples(samples);
+        if (decomposed) component_target = target_from_loss(*learner->GetScalar(kPrd121ExtrinsicLoss))
+            + 0.5 * target_from_loss(*learner->GetScalar(kPrd121IntrinsicLoss));
+        else combined_target = target_from_loss(result->loss.item<float>());
+    }
+    CAPTURE(mode, tbo, munchausen);
+    CHECK(component_target == Catch::Approx(combined_target).epsilon(1e-5).margin(1e-6));
+    CHECK(component_target == Catch::Approx(4.5 + (munchausen ? -0.4 * 0.7 * std::log(2.0) : 0)).epsilon(1e-5).margin(1e-6));
+}
+
+TEST_CASE("Extrinsic bootstrap preserves UQE risk selection in learning and diagnostics", "[prd121][dqn][decomposed_risk]")
+{
+    ScopedNoopMetricsLogger logger;
+    anet::nn::InitNN();
+    const bool tail = GENERATE(false, true);
+    auto env = MakeLearnerEnvSpec();
+    env.action_spec.value_labels = {"a0", "a1"};
+    anet::nn::NetworkConfig net;
+    net.output_keys[kPrd121Features] = kVectorKey;
+    const anet::nn::WeightInitConfig init;
+    auto factory = std::make_shared<dqn::QuantileHeadFactory>(2, 3, init);
+    auto head = std::make_shared<dqn::DecomposedHeadFactory>(factory, factory, false, false);
+    dqn::NetworkModel model({}, torch::kCPU, net, env.state_spec.obs_spec, 2, head, true, 121);
+    const auto set_biases = [](const auto& network, const torch::Tensor& external, const torch::Tensor& internal) {
+        torch::NoGradGuard guard;
+        for (auto& entry : network->named_parameters()) {
+            entry.value().zero_();
+            if (entry.key() == kPrd121HeadExtrinsicLinearBias) entry.value().copy_(external.flatten());
+            if (entry.key() == kPrd121HeadIntrinsicLinearBias) entry.value().copy_(internal.flatten());
+        }
+    };
+    const auto external = tail ? torch::tensor({{-100.0f, 0.0f, 0.0f}, {-1.0f, -1.0f, -1.0f}})
+        : torch::tensor({{0.0f, 0.0f, 100.0f}, {5.0f, 5.0f, 5.0f}});
+    const auto internal = tail ? torch::tensor({{0.0f, 0.0f, 0.0f}, {20.0f, 20.0f, 20.0f}})
+        : torch::tensor({{20.0f, 20.0f, 20.0f}, {0.0f, 0.0f, 0.0f}});
+    set_biases(model.GetOnlineNetwork(), external, internal);
+    set_biases(model.GetTargetNetwork(), torch::tensor({{4.0f, 4.0f, 4.0f}, {6.0f, 6.0f, 6.0f}}),
+        torch::tensor({{1.0f, 1.0f, 1.0f}, {2.0f, 2.0f, 2.0f}}));
+    auto config = WithDefaultLearnerForwardConfig();
+    config.quantile_mode = anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr;
+    config.num_quantiles = 3;
+    config.intrinsic.decomposed = true;
+    config.intrinsic.extrinsic_bootstrap_mode = anet::rl::dqn::LearnerConfig::kBootstrapExtrinsic;
+    config.gamma.value = 0.5f;
+    config.use_double_dqn = true;
+    config.use_per = false;
+    config.use_tbo = false;
+    config.learning_rate.value = 0;
+    config.replay_batch_size = 2;
+    config.replay_capacity = 16;
+    config.use_n_step = false;
+    config.update_warmup_steps = 0;
+    config.update_interval = 1;
+    config.replay_ratio = -1;
+    config.replay_fit.probe.batch_size = 1;
+    dqn::ActionPolicyConfig policy_config;
+    policy_config.quantile_mode = anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr;
+    policy_config.uqe.tau.value = tail ? 0.5f : 0;
+    policy_config.uqe.use_tail_mean = tail;
+    auto policy = std::make_shared<dqn::UQEActionPolicy>(policy_config);
+    dqn::RuntimeVars vars;
+    dqn::QRLearner learner(config, model, vars, nullptr, {2, 1}, env, torch::kCPU, 121, kTestAgentSeed, policy, {});
+    auto experience = MakeDeterminismExperience(0, 2);
+    experience.reward = torch::zeros({2, 2});
+    experience.next_state.done.zero_();
+    experience.next_state.truncated.zero_();
+    learner.UpdateFromBatch({}, experience, 0.5f);
+    rl::ExperienceSamples samples;
+    samples.obs = experience.state.obs;
+    samples.next_state.next_obs = samples.obs;
+    samples.actions = torch::zeros({2}, torch::kInt64);
+    samples.target_returns = torch::zeros({2, 2});
+    samples.n_steps = torch::ones({2}, torch::kInt64);
+    samples.next_state.terminals = torch::zeros({2}, torch::kBool);
+    samples.next_state.truncated = torch::zeros({2}, torch::kBool);
+    const auto result = learner.UpdateFromSamples(samples);
+    const float expected = std::abs(external[0].mean().item<float>() - (tail ? 2.0f : 3.0f))
+        + std::abs(internal[0].mean().item<float>() - (tail ? 1.0f : 0.5f));
+    CHECK(torch::allclose(result->td_error, torch::full({2}, expected), 1e-5, 1e-5));
+    learner.ConfigureScalarMetricSubscriptions({{.source_key = kPrd121ReplayFitUniformTdMean, .event = rl::EventType::LEARN,
+        .target = rl::EventField::UPDATE_RESULT, .interval = 1, .scope = rl::RunnerScope::TRAIN}});
+    experience.state.episode_start.zero_();
+    const auto updates = learner.UpdateFromBatch({.exp_step = 2}, experience, 0.5f);
+    REQUIRE_FALSE(updates.empty());
+    REQUIRE(updates.back()->GetScalar(kPrd121ReplayFitUniformTdMean));
+    CHECK(std::isfinite(*updates.back()->GetScalar(kPrd121ReplayFitUniformTdMean)));
+}
+
+TEST_CASE("Decomposition config rejects invalid explicit values even when inactive", "[prd121][dqn][config]")
+{
+    const bool intrinsic = GENERATE(false, true);
+    const auto invalid = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
+        {"intrinsic.value_mode", kPrd121Invalid}, {"learner.intrinsic.discount_mode", kPrd121Invalid},
+        {"learner.intrinsic.gamma", "0"}, {"learner.intrinsic.gamma", "1"}, {"learner.intrinsic.gamma", kPrd121Nan},
+        {"learner.intrinsic.gamma.type", kPrd121Invalid}, {"learner.intrinsic.terminal_mode", kPrd121Invalid},
+        {"learner.intrinsic.loss_weight", "0"}, {"learner.intrinsic.loss_weight", kPrd121Inf},
+        {"learner.intrinsic.priority_lambda", "-1"}, {"learner.intrinsic.priority_lambda", kPrd121Nan},
+        {"learner.intrinsic.extrinsic_bootstrap_mode", kPrd121Invalid}, {"learner.intrinsic.feature_gradient", "stop"},
+        {"intrinsic.value.head.input_mode", kPrd121Invalid}, {"intrinsic.value.head.use_dueling", kPrd121Invalid},
+        {"intrinsic.value.head.init.mode", kPrd121Invalid}, {"intrinsic.value.head.init.manual_gain", kPrd121Nan},
+        {"intrinsic.value.head.projection.noisy.enabled", kPrd121Invalid}, {"intrinsic.value.head.projection.noisy.sigma0", "-1"},
+        {"actor.[train].intrinsic.action_beta_mode", kPrd121Invalid}, {"actor.[train].intrinsic.action_beta", "-1"},
+        {"actor.[train].intrinsic.action_beta", kPrd121Inf}, {"reward_scaler.dynamic_mode", kPrd121Invalid},
+        {"intrinsic.reward_scaler.dynamic_mode", kPrd121Invalid}}));
+    anet::ConfigData base;
+    base.Set("DefaultDQNAgent.actor.[train].network", kPrd121OnlineNetworkMode);
+    auto data = WithDefaultForwardConfig(base);
+    data.Set("DefaultDQNAgent.intrinsic.enabled", intrinsic);
+    data.Set("DefaultDQNAgent." + invalid.first, invalid.second);
+    CAPTURE(intrinsic, invalid.first, invalid.second);
+    const std::string projection_prefix = "intrinsic.value.head.projection.";
+    if (invalid.first.starts_with(projection_prefix)) {
+        CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
+            Catch::Matchers::ContainsSubstring("intrinsic.value.head.projection")
+            && Catch::Matchers::ContainsSubstring(invalid.first.substr(projection_prefix.size())));
+    } else {
+        CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring(invalid.first));
+    }
+}
+
+TEST_CASE("Decomposition validates all Actor and Head values before combinations", "[prd121][dqn][config][prd121-review-config]")
+{
+    const int combination = GENERATE(0, 1, 2, 3);
+    const auto invalid = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
+        {"intrinsic.value.head.input_mode", kPrd121Invalid},
+        {"intrinsic.value.head.init.manual_gain", kPrd121Nan},
+        {"intrinsic.value.head.projection.noisy.sigma0", "-1"},
+        {"actor.[z].intrinsic.action_beta_mode", kPrd121Invalid},
+        {"actor.[z].intrinsic.action_beta", "-1"}}));
+    anet::ConfigData base;
+    base.Set("DefaultDQNAgent.actor.[a].network", kPrd121OnlineNetworkMode);
+    base.Set("DefaultDQNAgent.actor.[z].network", kPrd121OnlineNetworkMode);
+    auto data = WithDefaultForwardConfig(base);
+    data.Set("DefaultDQNAgent.intrinsic.value_mode", dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
+    data.Set("DefaultDQNAgent.intrinsic.enabled", combination != 0);
+    if (combination == 1) {
+        data.Set("DefaultDQNAgent.skip.enabled", true);
+        data.Set("DefaultDQNAgent.skip.max_length", 2);
+        data.Set("DefaultDQNAgent.skip.net.branch.[shared].bind", kPrd121Features);
+        data.Set("DefaultDQNAgent.skip.net.body.output.[features]", kPrd121SharedBranchKey);
+    }
+    if (combination == 2)
+        data.Set("DefaultDQNAgent.learner.intrinsic.discount_mode", dqn::LearnerConfig::kDiscountSeparate);
+    if (combination == 3)
+        data.Set("DefaultDQNAgent.actor.[a].intrinsic.action_beta_mode", dqn::DQNActorConfig::kActionBetaFixed);
+    data.Set("DefaultDQNAgent." + invalid.first, invalid.second);
+    CAPTURE(combination, invalid.first);
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring(
+        invalid.first.starts_with("intrinsic.value.head.projection.") ? "intrinsic.value.head.projection" : invalid.first));
+}
+
+TEST_CASE("Decomposition mode errors precede numeric errors in other components", "[prd121][dqn][config][prd121-review-config]")
+{
+    const auto numeric_key = GENERATE("learner.intrinsic.loss_weight", "learner.intrinsic.gamma", "actor.[a].intrinsic.action_beta");
+    const auto mode_key = GENERATE("actor.[z].intrinsic.action_beta_mode", "intrinsic.value.head.init.mode");
+    anet::ConfigData base;
+    base.Set("DefaultDQNAgent.actor.[a].network", kPrd121OnlineNetworkMode);
+    base.Set("DefaultDQNAgent.actor.[z].network", kPrd121OnlineNetworkMode);
+    auto data = WithDefaultForwardConfig(base);
+    data.Set("DefaultDQNAgent." + std::string(numeric_key), -1);
+    data.Set("DefaultDQNAgent." + std::string(mode_key), kPrd121Invalid);
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
+        Catch::Matchers::ContainsSubstring(mode_key) && Catch::Matchers::ContainsSubstring("expected"));
+}
+
+TEST_CASE("Decomposition validates individual fields before scaler combinations", "[prd121][dqn][config][prd121-review-order]")
+{
+    const bool intrinsic_scaler = GENERATE(false, true);
+    const int error = GENERATE(0, 1, 2, 3, 4, 5, 6, 7);
+    anet::ConfigData base;
+    base.Set("DefaultDQNAgent.actor.[z].network", kPrd121OnlineNetworkMode);
+    auto data = WithDefaultForwardConfig(base);
+    data.Set("DefaultDQNAgent.intrinsic.enabled", true);
+    const std::string scaler = intrinsic_scaler ? "intrinsic.reward_scaler" : "reward_scaler";
+    const std::string other_scaler = intrinsic_scaler ? "reward_scaler" : "intrinsic.reward_scaler";
+    data.Set("DefaultDQNAgent." + scaler + ".use_dynamic_scaling", true);
+    data.Set("DefaultDQNAgent." + scaler + ".dynamic_mode", rl::RewardScaler::kReturnStdState);
+    data.Set("DefaultDQNAgent." + scaler + ".use_auto_post_scale", true);
+    const std::array<std::string, 8> keys{
+        "actor.[z].intrinsic.action_beta_mode", "learner.intrinsic.terminal_mode",
+        "intrinsic.value.head.init.mode", other_scaler + ".dynamic_mode",
+        "learner.intrinsic.loss_weight", "learner.intrinsic.gamma",
+        "actor.[z].intrinsic.action_beta", "intrinsic.value.head.init.manual_gain"};
+    const auto& key = keys[error];
+    data.Set("DefaultDQNAgent." + key, error < 4 ? kPrd121Invalid : (error == 7 ? kPrd121Nan : "-1"));
+    CAPTURE(scaler, key);
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
+        Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("expected"));
+}
+
+TEST_CASE("Decomposition still rejects each active scaler combination", "[prd121][dqn][config][prd121-review-order]")
+{
+    const bool intrinsic_scaler = GENERATE(false, true);
+    auto data = WithDefaultForwardConfig();
+    data.Set("DefaultDQNAgent.intrinsic.enabled", true);
+    const std::string scaler = intrinsic_scaler ? "intrinsic.reward_scaler" : "reward_scaler";
+    data.Set("DefaultDQNAgent." + scaler + ".use_dynamic_scaling", true);
+    data.Set("DefaultDQNAgent." + scaler + ".dynamic_mode", rl::RewardScaler::kReturnStdState);
+    data.Set("DefaultDQNAgent." + scaler + ".use_auto_post_scale", true);
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent." + scaler)
+        && Catch::Matchers::ContainsSubstring("expected use_auto_post_scale=false"));
+}
+
+TEST_CASE("Unused decomposition settings warn only for explicit nondefaults", "[prd121][dqn][config]")
+{
+    const int scenario = GENERATE(0, 1, 2, 3, 4, 5, 6);
+    anet::ConfigData base;
+    base.Set("DefaultDQNAgent.actor.[train].network", kPrd121OnlineNetworkMode);
+    auto data = WithDefaultForwardConfig(base);
+    std::string key;
+    if (scenario == 0 || scenario == 2) {
+        key = "DefaultDQNAgent.intrinsic.value.head.input_mode";
+        data.Set(key, scenario == 0 ? anet::rl::dqn::DefaultDQNAgentConfig::kHeadInputShared : anet::rl::dqn::DefaultDQNAgentConfig::kHeadInputDedicated);
+    } else if (scenario == 1) {
+        key = "DefaultDQNAgent.learner.intrinsic.loss_weight";
+        data.Set(key, 2);
+    } else if (scenario == 3 || scenario == 4) {
+        data.Set("DefaultDQNAgent.intrinsic.enabled", true);
+        data.Set("DefaultDQNAgent.intrinsic.value_mode", anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
+        key = scenario == 3 ? "DefaultDQNAgent.learner.intrinsic.gamma" : "DefaultDQNAgent.actor.[train].intrinsic.action_beta";
+        data.Set(key, 0.5f);
+    } else if (scenario == 5) {
+        key = "DefaultDQNAgent.intrinsic.reward_scaler.constant_scale";
+        data.Set(key, 2);
+    } else {
+        key = "DefaultDQNAgent.reward_scaler.dynamic_mode";
+        data.Set("DefaultDQNAgent.reward_scaler.use_dynamic_scaling", false);
+        data.Set(key, anet::rl::RewardScaler::kReturnStdState);
+    }
+    anet::test::LogCaptureGuard logs;
+    const dqn::DefaultDQNAgentConfig config(data);
+    logs.Flush();
+    const auto count = std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
+        return record.level == wxLOG_Warning && record.message.find(key) != std::string::npos;
+    });
+    CAPTURE(scenario, key);
+    CHECK(count == (scenario == 0 ? 0 : 1));
+}
+
+TEST_CASE("Combined Actor leaves inactive fixed beta unset", "[prd121][dqn][config]")
+{
+    ScopedNoopMetricsLogger logger;
+    auto config = MakeDeviceForwardDefaultDqnConfig();
+    config.actor[kPrd121Eval].intrinsic.action_beta_mode = anet::rl::dqn::DQNActorConfig::kActionBetaFixed;
+    const auto env = MakeLearnerEnvSpec();
+    auto agent = std::make_shared<dqn::DefaultDQNAgent>(config, MakeAgentForwardNetworkConfig(), rl::BatchEnvSpec{1, 1}, env, torch::kCPU, 121);
+    CHECK_NOTHROW(agent->CreateActor({.batch_env_spec = {1, 1}, .env_spec = env,
+        .device = torch::kCPU, .seed = 121, .actor_key = kPrd121Eval}));
+}
+
+TEST_CASE("Decomposed config accepts an explicit gamma schedule without a constant value", "[prd121][dqn][config]")
+{
+    auto data = WithDefaultForwardConfig();
+    data.Set("DefaultDQNAgent.intrinsic.enabled", true);
+    data.Set("DefaultDQNAgent.intrinsic.value_mode", anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
+    data.Set("DefaultDQNAgent.learner.intrinsic.discount_mode", anet::rl::dqn::LearnerConfig::kDiscountSeparate);
+    data.Set("DefaultDQNAgent.learner.intrinsic.gamma.type", kPrd121Linear);
+    data.Set("DefaultDQNAgent.learner.intrinsic.gamma.start", 0.9f);
+    data.Set("DefaultDQNAgent.learner.intrinsic.gamma.end", 0.99f);
+    data.Set("DefaultDQNAgent.learner.intrinsic.gamma.steps", 100);
+    const dqn::DefaultDQNAgentConfig config(data);
+    const anet::ProfiledValue<float> gamma(config.learner.intrinsic.gamma);
+    CHECK(gamma.Evaluate(0) == Catch::Approx(0.9f));
+    CHECK(gamma.Evaluate(100) == Catch::Approx(0.99f));
+}
+
+TEST_CASE("Decomposed updates reject nonfinite gradients before both optimizer steps", "[prd121][dqn][prd121-review-nan]")
+{
+#if ANET_ENABLE_TENSOR_NAN_CHECK
+    anet::nn::InitNN();
+    const bool split = GENERATE(false, true);
+    const bool poison_intrinsic = GENERATE(false, true);
+    const float poison = GENERATE(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity());
+    const auto env = MakeLearnerEnvSpec();
+    const anet::nn::WeightInitConfig init;
+    auto head = std::make_shared<dqn::DecomposedHeadFactory>(std::make_shared<dqn::LinearHeadFactory>(1, init),
+        std::make_shared<dqn::LinearHeadFactory>(1, init), false, false);
+    dqn::NetworkModel model({}, torch::kCPU, MakeAgentForwardNetworkConfig(), env.state_spec.obs_spec, 1, head, false, 121);
+    auto config = WithDefaultLearnerForwardConfig();
+    config.intrinsic.decomposed = true;
+    config.intrinsic.feature_gradient = split ? dqn::LearnerConfig::kFeatureGradientSplit : dqn::LearnerConfig::kFeatureGradientMerge;
+    config.replay_capacity = 16;
+    config.replay_batch_size = 2;
+    config.use_per = false;
+    config.use_tbo = false;
+    config.use_td_clip = false;
+    config.use_amp = false;
+    config.use_fused_optimizer = false;
+    dqn::RuntimeVars vars;
+    dqn::TDLearner learner(config, model, vars, nullptr, {.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 121, kTestAgentSeed,
+        std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}), {});
+    const auto parameters = model.GetOnlineParameters();
+    std::vector<torch::Tensor> before;
+    for (const auto& parameter : parameters) before.push_back(parameter.detach().clone());
+    bool hooked = false;
+    for (const auto& entry : model.GetOnlineNetwork()->named_parameters()) {
+        if (entry.key().find(poison_intrinsic ? kPrd121Intrinsic : kPrd121ExtrinsicHead) == std::string::npos) continue;
+        // forwardとlossは有限のまま、選んだHeadのbackwardだけを壊す。
+        entry.value().register_hook([poison](torch::Tensor grad) { return torch::full_like(grad, poison); });
+        hooked = true;
+        break;
+    }
+    REQUIRE(hooked);
+    rl::ExperienceSamples samples;
+    samples.obs = anet::TensorDict{{kVectorKey, torch::ones({2, 2})}};
+    samples.actions = torch::zeros({2}, torch::kInt64);
+    samples.target_returns = torch::ones({2, 2});
+    samples.n_steps = torch::ones({2}, torch::kInt64);
+    samples.next_state.next_obs = samples.obs;
+    samples.next_state.terminals = torch::ones({2}, torch::kBool);
+    samples.next_state.truncated = torch::zeros({2}, torch::kBool);
+    CHECK_THROWS_WITH(learner.UpdateFromSamples(samples), Catch::Matchers::ContainsSubstring("Nonfinite gradient norms"));
+    for (size_t i = 0; i < parameters.size(); ++i) CHECK(torch::equal(parameters[i], before[i]));
+#else
+    SUCCEED("Gradient NaN checks are disabled in this build");
+#endif
+}
+
+TEST_CASE("Decomposed split adds independently clipped Adam updates", "[prd121][dqn][split_numeric]")
+{
+    const bool fused = GENERATE(false, true);
+    const bool clipped = GENERATE(false, true);
+    const float decay = GENERATE(0.0f, 0.1f);
+    const bool scheduled = GENERATE(false, true);
+    anet::nn::InitNN();
+    const auto env = MakeLearnerEnvSpec();
+    anet::ConfigData data;
+    data.Set("net.block.[SharedLinear].type", "Linear");
+    data.Set("net.block.[SharedLinear].linear.out_features", 2);
+    data.Set("net.branch.[shared].bind", kVectorKey);
+    data.Set("net.branch.[shared].structure", "SharedLinear");
+    data.Set("net.body.output.[features]", kPrd121SharedBranchKey);
+    const anet::nn::WeightInitConfig init;
+    auto head = std::make_shared<dqn::DecomposedHeadFactory>(std::make_shared<dqn::LinearHeadFactory>(1, init),
+        std::make_shared<dqn::LinearHeadFactory>(1, init), false, false);
+    dqn::NetworkModel model({}, torch::kCPU, anet::nn::NetworkConfig(data, "net"), env.state_spec.obs_spec, 1, head, false, 98);
+    auto config = WithDefaultLearnerForwardConfig();
+    config.intrinsic.decomposed = true;
+    config.intrinsic.feature_gradient = "split";
+    config.intrinsic.loss_weight = 0.2f;
+    config.replay_capacity = 16;
+    config.replay_batch_size = 2;
+    config.learning_rate.value = 0.01f;
+    config.weight_decay.value = decay;
+    config.update_warmup_steps = 100000;
+    if (scheduled) {
+        config.learning_rate.type = kPrd121Linear;
+        config.learning_rate.start = 0.01f;
+        config.learning_rate.end = 0.02f;
+        config.learning_rate.steps = 4;
+        config.weight_decay.type = kPrd121Linear;
+        config.weight_decay.start = decay;
+        config.weight_decay.end = decay + 0.1f;
+        config.weight_decay.steps = 4;
+    }
+    const float effective_lr = scheduled ? 0.02f : 0.01f;
+    const float effective_decay = scheduled ? decay + 0.1f : decay;
+    config.use_per = false;
+    config.use_tbo = false;
+    config.use_td_clip = false;
+    config.use_amp = false;
+    config.use_grad_clip = clipped;
+    config.grad_clip_tau = 0.5f;
+    config.use_fused_optimizer = fused;
+    dqn::RuntimeVars vars;
+    dqn::TDLearner learner(config, model, vars, nullptr, {.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 98, kTestAgentSeed,
+        std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}), {});
+    const auto advance_schedule = [&](bool first) {
+        const auto flags = torch::zeros({2}, torch::kBool);
+        const anet::TensorDict obs{{kVectorKey, torch::ones({2, 2})}};
+        learner.UpdateFromBatch({.exp_step = 4}, {rl::BatchState(obs, flags, flags, torch::full({2}, first, torch::kBool)),
+            std::make_shared<rl::BatchActionInfo>(torch::zeros({2}, torch::kInt64)),
+            torch::zeros({2, 2}), rl::BatchState(obs, flags, flags, flags)}, 0.1f);
+    };
+    if (scheduled) advance_schedule(true);
+    auto parameters = model.GetOnlineParameters();
+    {
+        torch::NoGradGuard guard;
+        for (auto& parameter : parameters) parameter.fill_(0.1f);
+    }
+    rl::ExperienceSamples samples;
+    samples.obs = anet::TensorDict{{kVectorKey, torch::ones({2, 2})}};
+    samples.actions = torch::zeros({2}, torch::kInt64);
+    samples.target_returns = torch::tensor({{3.0f, -4.0f}, {3.0f, -4.0f}});
+    samples.n_steps = torch::ones({2}, torch::kInt64);
+    samples.next_state.next_obs = samples.obs;
+    samples.next_state.terminals = torch::ones({2}, torch::kBool);
+    samples.next_state.truncated = torch::zeros({2}, torch::kBool);
+    const auto output = model.GetOnlineNetwork()->Forward(samples.obs);
+    const auto external_loss = torch::nn::functional::smooth_l1_loss(output.At(kPrd121ExtrinsicQ).squeeze(1), samples.target_returns.select(1, 0));
+    const auto internal_loss = config.intrinsic.loss_weight * torch::nn::functional::smooth_l1_loss(output.At(kPrd121IntrinsicQ).squeeze(1), samples.target_returns.select(1, 1));
+    const auto norm = [&] {
+        float squared = 0;
+        for (const auto& parameter : parameters) if (parameter.grad().defined()) squared += parameter.grad().square().sum().item<float>();
+        return std::sqrt(squared);
+    };
+    const auto delta = [&](const torch::Tensor& gradient, float total) {
+        const auto grad = gradient * (clipped ? std::min(1.0f, config.grad_clip_tau / (total + 1e-6f)) : 1.0f);
+        return effective_lr * grad / (grad.abs() + config.adam_eps);
+    };
+    std::vector<torch::Tensor> expected;
+    std::vector<bool> external_used;
+    external_loss.backward({}, true);
+    const auto external_norm = norm();
+    for (auto& parameter : parameters) {
+        auto value = parameter.detach().clone();
+        external_used.push_back(parameter.grad().defined());
+        if (parameter.grad().defined()) value = value * (1 - effective_lr * effective_decay) - delta(parameter.grad(), external_norm);
+        expected.push_back(value);
+        parameter.mutable_grad() = torch::Tensor();
+    }
+    internal_loss.backward();
+    const auto internal_norm = norm();
+    if (clipped) {
+        CHECK(external_norm > config.grad_clip_tau);
+        CHECK(internal_norm < config.grad_clip_tau);
+    }
+    for (size_t i = 0; i < parameters.size(); ++i) {
+        if (parameters[i].grad().defined()) {
+            if (!external_used[i]) expected[i] *= 1 - effective_lr * effective_decay;
+            expected[i] -= delta(parameters[i].grad(), internal_norm);
+        }
+        parameters[i].mutable_grad() = torch::Tensor();
+    }
+    learner.UpdateFromSamples(samples);
+    for (size_t i = 0; i < parameters.size(); ++i) {
+        CAPTURE(i, fused, clipped);
+        CHECK(torch::allclose(parameters[i], expected[i], 1e-5, 1e-6));
+    }
+    REQUIRE(learner.GetScalar(kPrd121ExtrinsicGradNorm));
+    REQUIRE(learner.GetScalar(kPrd121IntrinsicGradNorm));
+    CHECK(*learner.GetScalar(kPrd121ExtrinsicGradNorm) == Catch::Approx(external_norm));
+    CHECK(*learner.GetScalar(kPrd121IntrinsicGradNorm) == Catch::Approx(internal_norm));
+    std::stringstream checkpoint(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive archive(checkpoint);
+    learner.Save(archive);
+    std::vector<torch::Tensor> saved, continued;
+    for (const auto& parameter : parameters) saved.push_back(parameter.detach().clone());
+    learner.UpdateFromSamples(samples);
+    for (const auto& parameter : parameters) continued.push_back(parameter.detach().clone());
+    {
+        torch::NoGradGuard guard;
+        for (size_t i = 0; i < parameters.size(); ++i) parameters[i].copy_(saved[i]);
+    }
+    checkpoint.seekg(0);
+    anet::InputArchive input(checkpoint);
+    learner.Load(input);
+    if (scheduled) advance_schedule(false);
+    learner.UpdateFromSamples(samples);
+    for (size_t i = 0; i < parameters.size(); ++i) CHECK(torch::equal(parameters[i], continued[i]));
+}
+
+TEST_CASE("DQN initial priorities sum independent head errors", "[prd121][dqn][per][actor_initial]")
+{
+    const float weight = GENERATE(1.0f, 0.2f, 0.0f);
+    const bool tbo = GENERATE(false, true);
+    dqn::LearnerConfig config;
+    config.intrinsic.decomposed = true;
+    config.intrinsic.priority_lambda = weight;
+    config.use_tbo = tbo;
+    config.per_eps = 0.01f;
+    config.use_per_prio_clip = false;
+    auto estimator = dqn::CreateInitialPriorityEstimator(config);
+    const auto value = [&](float input) { return tbo ? dqn::TransformH(input, config.tbo_epsilon) : input; };
+    const std::array<float, 5> start{value(5), 0, 0, value(2), 0};
+    const std::array<float, 5> bootstrap{0, value(2), 0, 0, value(4)};
+    const std::array<float, 1> returns{7};
+    const std::array<float, 1> discounts{0.25f};
+    const auto priority = estimator->Estimate({.start_hint = start, .bootstrap_hint = bootstrap,
+        .target_return = 1, .discount = 0.5f, .extra_component_returns = returns, .extra_component_discounts = discounts});
+    REQUIRE(priority);
+    CHECK(*priority == Catch::Approx(std::abs(value(2) - value(5)) + weight * std::abs(value(8) - value(2)) + config.per_eps));
+}
+
+TEST_CASE("DQN Actor Q hint schema packs and decodes five columns", "[dqn][per][actor_initial][hint]")
 {
     auto q_sa = torch::tensor({ 2.0f, 3.0f });
     auto state_value = torch::tensor({ 5.0f, 7.0f });
 
-    auto packed = dqn::PackActorQHint(q_sa, state_value, torch::zeros_like(q_sa));
+    auto packed = dqn::PackActorQHint(q_sa, state_value, torch::zeros_like(q_sa), torch::zeros_like(q_sa), torch::zeros_like(q_sa));
     CHECK(packed.scalar_type() == torch::kFloat32);
     CHECK(packed.sizes() == torch::IntArrayRef({ 2, dqn::kActorQHintColumnCount }));
 
@@ -6812,13 +7711,36 @@ TEST_CASE("DQN Actor Q hint schema packs and decodes three columns", "[dqn][per]
     CHECK(torch::equal(batch.actor_q_sa, q_sa));
     CHECK(torch::equal(batch.actor_state_value, state_value));
 
-    const std::array<float, 3> row{ 11.0f, 13.0f, 0.0f };
+    const std::array<float, dqn::kActorQHintColumnCount> row{ 11.0f, 13.0f, 0.0f };
     const auto decoded_row = dqn::DecodeActorQHint(std::span<const float>(row));
     CHECK(decoded_row.actor_q_sa == Catch::Approx(11.0f));
     CHECK(decoded_row.actor_state_value == Catch::Approx(13.0f));
 
     CHECK_THROWS(dqn::DecodeActorQHint(torch::zeros({ 1, 2 }, torch::kFloat32)));
     CHECK_THROWS(dqn::DecodeActorQHint(std::span<const float>(row.data(), 1)));
+}
+
+TEST_CASE("Actor Q hint names invalid intrinsic tensors and their actual metadata", "[prd121][dqn][hint][prd121-review-pack]")
+{
+    const bool state_value = GENERATE(false, true);
+    const int invalid = GENERATE(0, 1, 2);
+    const auto primary = torch::zeros({2});
+    auto intrinsic_q = torch::zeros_like(primary);
+    auto intrinsic_value = torch::zeros_like(primary);
+    torch::Tensor bad;
+    if (invalid == 1) bad = torch::zeros({3});
+    if (invalid == 2) bad = torch::empty({2}, torch::TensorOptions().device(c10::DeviceType::Meta));
+    (state_value ? intrinsic_value : intrinsic_q) = bad;
+    const auto name = state_value ? "intrinsic_state_value" : "intrinsic_q_sa";
+    const auto shape = invalid == 0 ? "shape=undefined" : invalid == 1 ? "shape=[3]" : "shape=[2]";
+    const auto device = invalid == 0 ? "device=undefined" : invalid == 1 ? "device=cpu" : "device=meta";
+    CAPTURE(state_value, invalid);
+    CHECK_THROWS_WITH(dqn::PackActorQHint(primary, primary, primary, intrinsic_q, intrinsic_value),
+        Catch::Matchers::ContainsSubstring(name)
+        && Catch::Matchers::ContainsSubstring(shape)
+        && Catch::Matchers::ContainsSubstring(device)
+        && Catch::Matchers::ContainsSubstring("expected_shape=[2]")
+        && Catch::Matchers::ContainsSubstring("expected_device=cpu"));
 }
 
 TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn][per][actor_initial]")
@@ -6830,7 +7752,7 @@ TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn
     rl::AuxData aux;
     aux["q_values"] = q_values;
     aux["munchausen_terms"] = torch::zeros_like(q_values);
-    auto packed = torch::tensor({ { 5.0f, 5.0f, 0.0f }, { 7.0f, 7.0f, 0.0f } });
+    auto packed = torch::tensor({ { 5.0f, 5.0f, 0.0f, 0.0f, 0.0f }, { 7.0f, 7.0f, 0.0f, 0.0f, 0.0f } });
     dqn::DQNActionInfo info(
         torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)),
         {},
@@ -6841,7 +7763,7 @@ TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn
     REQUIRE(replaced->GetReplayInitialPriorityHint().has_value());
     CHECK(torch::equal(
         replaced->GetReplayInitialPriorityHint()->GetPayload(),
-        torch::tensor({ { 2.0f, 5.0f, 0.0f }, { 3.0f, 7.0f, 0.0f } })));
+        torch::tensor({ { 2.0f, 5.0f, 0.0f, 0.0f, 0.0f }, { 3.0f, 7.0f, 0.0f, 0.0f, 0.0f } })));
     const auto& first_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
     const auto& second_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
     CHECK(first_cpu.unsafeGetTensorImpl() == second_cpu.unsafeGetTensorImpl());
@@ -7891,7 +8813,7 @@ TEST_CASE("DQN replay fit populations reach the update result without another fo
     rl::ReplayBufferConfig replay_config;
     replay_config.capacity = 32;
     const auto replay = rl::CreateReplayBuffer(replay_config, env_spec, 1, torch::kCPU, false, 73001);
-    for (int64_t step = 0; step < 5; ++step) replay->Push(MakeDeterminismExperience(step, 1), 0.99f);
+    for (int64_t step = 0; step < 5; ++step) replay->Push(MakeDeterminismExperience(step, 1), std::array{0.99f});
     auto probe = std::make_shared<AutocastProbeState>();
     AutocastProbeNetworkModel model(probe, torch::kCPU);
     dqn::RuntimeVars vars;
@@ -7951,9 +8873,9 @@ TEST_CASE("DQN replay fit routes each subscription and retains update-specific v
     replay->SetSizeValues({ 2 });
     rl::ExperienceSamples u, s;
     replay->vector_value = 2.0f;
-    replay->Sample(u, 2, 0.0f, 0.99f);
+    replay->Sample(u, 2, 0.0f, std::array{0.99f});
     replay->vector_value = 1.0f;
-    replay->Sample(s, 2, 0.0f, 0.99f);
+    replay->Sample(s, 2, 0.0f, std::array{0.99f});
     replay->history_result = rl::SamplingHistoryProbeResult{
         .unsampled_count = 6, .sampled_count = 2, .unsampled_age_mean = 3.0f, .sampled_age_mean = 5.0f,
         .unsampled = u, .sampled = s,
@@ -9297,6 +10219,45 @@ rl::BatchExperience MakeNoisyOptimizerExperience(rl::step_t step, float reward)
     return experience;
 }
 
+}
+
+TEST_CASE("Decomposed target plasticity captures only bootstrap rows", "[prd121][dqn][plasticity]")
+{
+    ScopedNoopMetricsLogger logger;
+    anet::nn::InitNN();
+    auto data = MakeNoisyOptimizerTestData();
+    data.Set("net.block.[Linear].noisy.enabled", false);
+    auto config = MakeNoisyOptimizerLearnerConfig(data);
+    config.intrinsic.decomposed = true;
+    config.quantile_mode = anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone;
+    config.munchausen.enabled = true;
+    config.munchausen.log_policy_mode = kPrd121TargetLogPolicyMode;
+    config.final_feature_branch_key = "feature";
+    config.current.nn_forward_key.clear();
+    config.target.nn_forward_key.clear();
+    const auto env = MakeLearnerEnvSpec();
+    const auto factory = std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{});
+    auto head = std::make_shared<dqn::DecomposedHeadFactory>(factory, factory, false, false);
+    dqn::NetworkModel model({}, torch::kCPU, anet::nn::NetworkConfig(data), env.state_spec.obs_spec, 1, head, false, 121);
+    dqn::RuntimeVars vars;
+    auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
+    dqn::TDLearner learner(config, model, vars, nullptr, rl::BatchEnvSpec{1, 1}, env,
+        torch::kCPU, 121, kTestAgentSeed, policy, dqn::LearnerForwardResources{});
+    learner.ConfigureScalarMetricSubscriptions({{.source_key = kPrd121PlasticityTargetSrank,
+        .event = rl::EventType::LEARN, .interval = 1, .scope = rl::RunnerScope::TRAIN}});
+    bool updated = false;
+    for (rl::step_t step = 0; step < 4; ++step) {
+        auto experience = MakeNoisyOptimizerExperience(step, 1);
+        experience.reward = torch::ones({1, 2});
+        for (const auto& base : learner.UpdateFromBatch({.exp_step = step}, experience, 0.5f)) {
+            const auto result = std::dynamic_pointer_cast<const dqn::BatchUpdateResult>(base);
+            REQUIRE(result);
+            REQUIRE(result->plasticity_target_features.defined());
+            CHECK(result->plasticity_target_features.size(0) == config.replay_batch_size);
+            updated = true;
+        }
+    }
+    CHECK(updated);
 }
 
 TEST_CASE("Learner checkpoint applies current optimizer options and preserves state", "[dqn][learner][serialize][prd091]")
@@ -11030,7 +11991,7 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
     const auto make = [&](bool first, float reward, const torch::Tensor& q) {
         auto action = MakeDiagnosticActionInfo(torch::tensor({0}, torch::kInt64),
             anet::TensorDict{}, rl::AuxData{{"q_values", q}}, config.learner,
-            rl::ReplayInitialPriorityHint(torch::full({1, 3}, 100.0f)));
+            rl::ReplayInitialPriorityHint(torch::full({1, dqn::kActorQHintColumnCount}, 100.0f)));
         action = action->WithAction(torch::tensor({1}, torch::kInt64));
         return rl::BatchExperience{MakeDeterminismState(0, 1, {false}, {false}, {first}),
             action, torch::tensor({reward}), MakeDeterminismState(1, 1, {false}, {false}, {false})};
@@ -11141,7 +12102,7 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
         const auto action = torch::tensor({step % 2}, torch::kInt64);
         const auto payload = dqn::MakeActorQHint(q, action, hint_config).payload;
         rl::ReplayInitialPriorityHintRow hint;
-        for (int k = 0; k < 3; ++k) hint.push_back(payload[0][k].item<float>());
+        for (int k = 0; k < dqn::kActorQHintColumnCount; ++k) hint.push_back(payload[0][k].item<float>());
         hints.push_back(hint);
         const float reward = 0.25f * (step + 1);
         rewards.push_back(std::clamp(reward * 1.25f, -1.0f, 1.0f));
@@ -11815,4 +12776,121 @@ TEST_CASE("PRD128 Rainbow accepts epsilon-greedy aliases and shared scalar route
         if (value) CHECK(std::isnan(*value));
     }
     CHECK_FALSE(agent->GetScalar("unknown"));
+}
+
+TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "[prd121][dqn]")
+{
+    // 非零値は相対1e-5、零値だけ絶対1e-6で検査する。
+    const auto approximate = [](float expected) {
+        return Catch::Approx(expected).epsilon(1e-5).margin(expected == 0.0f ? 1e-6 : 0.0);
+    };
+    // 2 lane・3行動の既知の値をNetworkの公開口へ渡し、Actorが作る診断を読む。
+    const auto mode = GENERATE(std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn));
+    const bool tbo = GENERATE(false, true);
+    const bool zero_beta = GENERATE(false, true);
+    const bool single_action = GENERATE(false, true);
+    const int64_t actions = single_action ? 1 : 3;
+    constexpr int64_t quantiles = 5;
+    constexpr const char* external_key = kPrd121ExtrinsicQ;
+    constexpr const char* internal_key = kPrd121IntrinsicQ;
+    constexpr const char* external_dist_key = kPrd121ExtrinsicQDist;
+    constexpr const char* internal_dist_key = kPrd121IntrinsicQDist;
+    const auto external = torch::tensor({{1.0f, 1.02f, 0.9f}, {0.5f, 0.6f, 0.4f}}).narrow(1, 0, actions);
+    const auto internal = torch::tensor({{8.0f, 5.0f, 12.0f}, {0.0f, 1.0f, 2.0f}}).narrow(1, 0, actions);
+    anet::TensorDict observations;
+    observations.Set(external_key, tbo ? dqn::TransformH(external, 0.01f) : external);
+    observations.Set(internal_key, tbo ? dqn::TransformH(internal, 0.01f) : internal);
+    observations.Set(external_dist_key, observations.At(external_key).unsqueeze(2).expand({2, actions, quantiles}));
+    observations.Set(internal_dist_key, observations.At(internal_key).unsqueeze(2).expand({2, actions, quantiles}));
+    anet::TensorSpecMap specs;
+    anet::nn::NetworkConfig network_config;
+    for (const auto* key : {external_key, internal_key, external_dist_key, internal_dist_key}) {
+        if (mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone && (std::string(key) == external_dist_key || std::string(key) == internal_dist_key)) continue;
+        specs[key] = {.shape = observations.At(key).sizes().slice(1).vec(), .dtype = torch::kFloat32};
+        network_config.output_keys[key] = key;
+    }
+    auto body = std::make_shared<anet::nn::NetworkBody>(std::vector<std::shared_ptr<anet::nn::NetworkBranch>>{},
+        specs, std::vector<std::string>{}, network_config.output_keys);
+    auto network = std::make_shared<anet::nn::Network>(network_config, specs, nullptr, body, nullptr);
+    dqn::ActionPolicyConfig policy_config;
+    policy_config.policy_type = dqn::kActionPolicyTypeStr_Greedy;
+    policy_config.tau_rule.num_taus = quantiles;
+    auto policy = dqn::DqnComponentAssembler::CreateActionPolicy(policy_config, mode, false, 2, torch::kCPU);
+    dqn::ActorQHintConfig hint;
+    hint.use_tbo = tbo;
+    hint.decomposed = true;
+    hint.beta.value = zero_beta ? 0.0f : 0.01f;
+    auto actor = std::make_shared<dqn::Actor>(policy, nullptr, nullptr, torch::kCPU, 121,
+        std::make_shared<std::shared_mutex>(), network, network, anet::nn::NetworkForwardConfig::GetDefault(),
+        true, std::nullopt, false, hint);
+    const auto flags = torch::zeros({2}, torch::kBool);
+    const auto info = actor->MakeAction({}, rl::BatchState(observations, flags, flags, ~flags));
+    REQUIRE(info->GetReplayInitialPriorityHint());
+    const auto values = dqn::DecodeActorQHint(info->GetReplayInitialPriorityHint()->GetPayload());
+    const auto selected = info->GetAction().unsqueeze(1);
+    if (zero_beta) CHECK(torch::equal(info->GetAction(), external.argmax(1)));
+    CHECK(torch::allclose(values.actor_q_sa, observations.At(external_key).gather(1, selected).squeeze(1), 1e-5, 1e-6));
+    CHECK(torch::allclose(values.intrinsic_q_sa, observations.At(internal_key).gather(1, selected).squeeze(1), 1e-5, 1e-6));
+    const auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(info->WithAction(torch::zeros({2}, torch::kInt64)));
+    const auto replaced_values = dqn::DecodeActorQHint(replaced->GetReplayInitialPriorityHint()->GetPayload());
+    CHECK(torch::allclose(replaced_values.actor_q_sa, observations.At(external_key).select(1, 0), 1e-5, 1e-6));
+    CHECK(torch::allclose(replaced_values.intrinsic_q_sa, observations.At(internal_key).select(1, 0), 1e-5, 1e-6));
+    CHECK(torch::equal(replaced_values.intrinsic_state_value, values.intrinsic_state_value));
+    struct Expected {
+        const char* lane_key;
+        const char* mean_key;
+        float first;
+        float second;
+    };
+    for (const auto& expected : std::array<Expected, 4>{{
+        {.lane_key = kPrd121ExtrinsicQArgmaxDisagreement, .mean_key = kPrd121ExtrinsicQArgmaxDisagreementRate, .first = 1.0f, .second = 0.0f},
+        {.lane_key = kPrd121ExtrinsicQRegret, .mean_key = kPrd121ExtrinsicQRegretMean, .first = 0.02f, .second = 0.0f},
+        {.lane_key = kPrd121ExtrinsicQGap, .mean_key = kPrd121ExtrinsicQGapMean, .first = 0.02f, .second = 0.1f},
+        {.lane_key = kPrd121IntrinsicQGap, .mean_key = kPrd121IntrinsicQGapMean, .first = 0.04f, .second = 0.01f}}}) {
+        CAPTURE(mode, tbo, expected.lane_key);
+        const auto first = info->GetScalar(expected.lane_key, 0);
+        const auto second = info->GetScalar(expected.lane_key, 1);
+        const auto average = info->GetScalar(expected.mean_key);
+        REQUIRE(first);
+        REQUIRE(second);
+        REQUIRE(average);
+        CHECK_THROWS(info->GetScalar(expected.lane_key, 2));
+        CHECK_THROWS(info->GetScalar(expected.lane_key, -1));
+        if (single_action && std::string(expected.lane_key).ends_with(kPrd121Gap)) {
+            CHECK(std::isnan(*first));
+            CHECK(std::isnan(*second));
+            CHECK(std::isnan(*average));
+        } else {
+            const bool zero = single_action || (zero_beta && std::string(expected.lane_key) != kPrd121ExtrinsicQGap);
+            CHECK(*first == approximate(zero ? 0 : expected.first));
+            CHECK(*second == approximate(zero ? 0 : expected.second));
+            CHECK(*average == approximate(zero ? 0 : (expected.first + expected.second) / 2));
+            CHECK(replaced->GetScalar(expected.mean_key) == average);
+        }
+    }
+    auto next_observations = observations;
+    next_observations.Set(internal_key, torch::zeros_like(observations.At(internal_key)));
+    next_observations.Set(internal_dist_key, torch::zeros_like(observations.At(internal_dist_key)));
+    actor->MakeAction({.exp_step = 2}, rl::BatchState(next_observations, flags, flags, flags));
+    const std::array<std::pair<const char*, float>, 4> session_values{{
+        {kPrd121ExtrinsicQSessionArgmaxDisagreementRate, 0.25f},
+        {kPrd121ExtrinsicQSessionRegretMean, 0.005f},
+        {kPrd121ExtrinsicQSessionGapMean, 0.06f},
+        {kPrd121IntrinsicQSessionGapMean, 0.0125f}}};
+    for (const auto& [key, expected] : session_values) {
+        const auto value = actor->GetScalar(key);
+        CAPTURE(key);
+        REQUIRE(value);
+        if (single_action && std::string(key).ends_with(kPrd121GapMean)) CHECK(std::isnan(*value));
+        else {
+            const bool zero = single_action || (zero_beta && std::string(key) != kPrd121ExtrinsicQSessionGapMean);
+            CHECK(*value == approximate(zero ? 0 : expected));
+        }
+    }
+    actor->Sync();
+    for (const auto& [key, expected] : session_values) {
+        const auto value = actor->GetScalar(key);
+        REQUIRE(value);
+        CHECK(std::isnan(*value));
+    }
 }

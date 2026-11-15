@@ -13,6 +13,153 @@ using namespace anet::rl::dqn;
 
 static constexpr const char* kKey_ValueFeature = "value_feature";
 static constexpr const char* kKey_AdvFeature = "adv_feature";
+static constexpr char kDecomposedHeadType[] = "Decomposed";
+
+constexpr char kDecomposedForwardFunction[] = "forward";
+constexpr char kDecomposedForwardQFunction[] = "forward.q";
+constexpr char kDecomposedQValuesFunction[] = "q_values";
+constexpr char kDecomposedForwardDistFunction[] = "forward.dist";
+constexpr char kDecomposedDistributionsFunction[] = "distributions";
+
+static anet::TensorDict MakeIntrinsicHeadFeatures(const anet::TensorDict& features, bool dedicated)
+{
+    if (!dedicated) return features;
+    // 専用の出力だけを標準Headの入力名へ対応付け、shape検証はそのHeadへ任せる。
+    anet::TensorDict result;
+    for (const auto* key : {anet::nn::kKey_DefaultOutput, kKey_ValueFeature, kKey_AdvFeature}) {
+        const auto value = features.Get(DecomposedHeadFactory::kIntrinsicOutputPrefix + key);
+        if (value) result.Set(key, *value);
+    }
+    return result;
+}
+
+static anet::TensorDict MakeDecomposedHeadOutputs(const anet::TensorDict& extrinsic, const anet::TensorDict& intrinsic)
+{
+    // 初期化のdummy実行でも検査し、異なるbatch・行動・τの組を実行時まで持ち越さない。
+    for (const auto* key : {HeadFactoryBase::kQOutputKey, HeadFactoryBase::kQDistOutputKey}) {
+        const auto external = extrinsic.Get(key), internal = intrinsic.Get(key);
+        if (!external && !internal && key == HeadFactoryBase::kQDistOutputKey) continue;
+        const int rank = key == HeadFactoryBase::kQOutputKey ? 2 : 3;
+        if (!external || !internal || external->dim() != rank || external->sizes() != internal->sizes())
+            ANET_SYSTEM_ERROR("Invalid decomposed Head output key=" << key
+                << " extrinsic_shape=" << (external ? external->sizes().vec() : std::vector<int64_t>{})
+                << " intrinsic_shape=" << (internal ? internal->sizes().vec() : std::vector<int64_t>{})
+                << "; expected matching rank=" << rank << " and batch/action/tau dimensions.");
+    }
+    anet::TensorDict result;
+    for (const auto& [key, value] : extrinsic) result.Set(DecomposedHeadFactory::kExtrinsicOutputPrefix + key, value);
+    for (const auto& [key, value] : intrinsic) result.Set(DecomposedHeadFactory::kIntrinsicOutputPrefix + key, value);
+    return result;
+}
+
+namespace {
+    class DecomposedHead final : public anet::nn::NetworkHead {
+    public:
+        DecomposedHead(std::shared_ptr<anet::nn::NetworkHead> extrinsic,
+            std::shared_ptr<anet::nn::NetworkHead> intrinsic, bool dedicated)
+            : extrinsic_(register_module(DecomposedHeadFactory::kExtrinsicHeadName, std::move(extrinsic))),
+              intrinsic_(register_module(DecomposedHeadFactory::kIntrinsicHeadName, std::move(intrinsic))), dedicated_(dedicated) {}
+
+        anet::TensorDict Forward(const anet::TensorDict& features, const anet::nn::NetworkForwardContext& context) override
+        {
+            ANET_PROFILE_FUNC();
+            const auto extrinsic = extrinsic_->Forward(features, context);
+            const auto intrinsic = intrinsic_->Forward(MakeIntrinsicHeadFeatures(features, dedicated_), context);
+            return MakeDecomposedHeadOutputs(extrinsic, intrinsic);
+        }
+        std::unique_ptr<anet::nn::NetworkHeadExecutor> CreateExecutor(
+            const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock) override
+        {
+            return std::make_unique<Executor>(*this, config, clock);
+        }
+        void ValidateForwardReuse(const anet::nn::NetworkForwardConfig& source,
+            const anet::nn::NetworkForwardConfig& requested) const override
+        {
+            extrinsic_->ValidateForwardReuse(source, requested);
+            intrinsic_->ValidateForwardReuse(source, requested);
+        }
+        std::vector<anet::nn::NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
+        {
+            auto result = extrinsic_->GetNoisyParameterEntries();
+            auto intrinsic = intrinsic_->GetNoisyParameterEntries();
+            result.insert(result.end(), intrinsic.begin(), intrinsic.end());
+            return result;
+        }
+        anet::nn::HeadGraphVizInfo GetGraphVizInfo() const override
+        {
+            anet::nn::HeadGraphVizInfo info;
+            info.type = kDecomposedHeadType;
+            for (const auto& [name, head] : {std::pair{DecomposedHeadFactory::kExtrinsicHeadName, extrinsic_}, std::pair{DecomposedHeadFactory::kIntrinsicHeadName, intrinsic_}}) {
+                for (auto output : head->GetGraphVizInfo().outputs) {
+                    output.name = std::string(name) + DecomposedHeadFactory::kHeadKeySeparator + output.name;
+                    info.outputs.push_back(std::move(output));
+                }
+            }
+            return info;
+        }
+        std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override
+        {
+            const bool values = key == kDecomposedForwardFunction || key == kDecomposedForwardQFunction || key == kDecomposedQValuesFunction;
+            const bool distribution = key == kDecomposedForwardDistFunction || key == kDecomposedDistributionsFunction;
+            if ((!values && !distribution) || !extrinsic_->GetTensorDictFunction(key) || !intrinsic_->GetTensorDictFunction(key))
+                return std::nullopt;
+            return [this](const anet::TensorDict& features) {
+                // 結合側が個々の分位点へ逆変換できるよう、平均Qの要求でも分布を保つ。
+                return Forward(features, anet::nn::NetworkForwardContext::GetDefault());
+            };
+        }
+    private:
+        class Executor final : public anet::nn::NetworkHeadExecutor {
+        public:
+            Executor(DecomposedHead& owner, const anet::nn::NetworkForwardConfig& config, anet::nn::NetworkForwardClock clock)
+                : owner_(owner), extrinsic_(owner.extrinsic_->CreateExecutor(config, clock)),
+                  intrinsic_(owner.intrinsic_->CreateExecutor(config, clock)) {}
+
+                  anet::TensorDict Forward(const anet::TensorDict& features, const anet::nn::NetworkForwardContext& context) override
+            {
+                ANET_PROFILE_FUNC();
+                const auto extrinsic = (extrinsic_ ? extrinsic_.get() : owner_.extrinsic_.get())->Forward(features, context);
+                const auto input = MakeIntrinsicHeadFeatures(features, owner_.dedicated_);
+                const auto intrinsic = (intrinsic_ ? intrinsic_.get() : owner_.intrinsic_.get())->Forward(input, context);
+                return MakeDecomposedHeadOutputs(extrinsic, intrinsic);
+            }
+        private:
+            DecomposedHead& owner_; ///< 所有者のNetworkが実行器も所有する。
+            std::unique_ptr<anet::nn::NetworkHeadExecutor> extrinsic_, intrinsic_;
+        };
+        std::shared_ptr<anet::nn::NetworkHead> extrinsic_, intrinsic_;
+        bool dedicated_;
+    };
+}
+
+DecomposedHeadFactory::DecomposedHeadFactory(std::shared_ptr<anet::nn::NetworkHeadFactory> extrinsic,
+    std::shared_ptr<anet::nn::NetworkHeadFactory> intrinsic, bool dedicated, bool intrinsic_dueling)
+    : extrinsic_(std::move(extrinsic)), intrinsic_(std::move(intrinsic)), dedicated_(dedicated), intrinsic_dueling_(intrinsic_dueling) {}
+
+std::shared_ptr<anet::nn::NetworkHead> DecomposedHeadFactory::CreateHead(const anet::TensorDict& features) const
+{
+    // 各Headの既存の構築・検証を使い、重みの登録順を外的→内的に固定する。
+    auto extrinsic = extrinsic_->CreateHead(features);
+    const auto input = MakeIntrinsicHeadFeatures(features, dedicated_);
+    if (dedicated_) {
+        // 専用出力の配線漏れは改名前のキーで示す。rank等の検証は既存Headが所有する。
+        const auto require_input = [&](const char* key) {
+            if (!input.Contains(key)) {
+                const auto source_key = DecomposedHeadFactory::kIntrinsicOutputPrefix + key;
+                ANET_SYSTEM_ERROR("Missing dedicated intrinsic Head input key='" << source_key
+                    << "'; expected net.body.output.[" << source_key << "] for intrinsic.value.head.input_mode=dedicated.");
+            }
+        };
+        if (intrinsic_dueling_ && (input.Contains(kKey_ValueFeature) || input.Contains(kKey_AdvFeature))) {
+            require_input(kKey_ValueFeature);
+            require_input(kKey_AdvFeature);
+        } else {
+            require_input(anet::nn::kKey_DefaultOutput);
+        }
+    }
+    auto intrinsic = intrinsic_->CreateHead(input);
+    return std::make_shared<DecomposedHead>(std::move(extrinsic), std::move(intrinsic), dedicated_);
+}
 
 // Bodyから渡されたTensorDictから、指定キーの特徴量を抽出する安全なヘルパー
 static torch::Tensor GetFeature(const anet::TensorDict& feature_dict, const std::string& key)

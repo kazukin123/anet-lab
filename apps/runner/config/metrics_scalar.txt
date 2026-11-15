@@ -391,3 +391,27 @@ metrics.scalar.@skip : [50_agent_skip/18_skip_primary_clip_ratio] ?= skip_primar
 metrics.scalar.@skip : [50_agent_skip/19_skip_primary_clip_ratio_ema] ?= skip_primary_clip_ratio @learn $learn_step $update_result $ema
 metrics.scalar.@skip : [50_agent_skip/21_greedy_decision_rate] ?= skip_session_decision_rate $eval.[greedy] $actor @session_end
 metrics.scalar.@skip : [50_agent_skip/22_greedy_length_mean] ?= skip_session_length_mean $eval.[greedy] $actor @session_end
+
+# 価値の分解。明示的に選択した場合だけ利用する。既定の購読は変えない。
+metrics.scalar.@value_decomposition : [77_agent_value/01_ext_loss] ?= extrinsic_loss @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/02_int_loss] ?= intrinsic_loss @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/03_ext_q] ?= extrinsic_q_sa_mean @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/04_int_q] ?= intrinsic_q_sa_mean @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/05_int_share] ?= intrinsic_q_share @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/06_reward_scale] ?= intrinsic.reward_scaler.scale @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/07_ext_head_grad] ?= extrinsic_head_grad_norm @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/08_int_head_grad] ?= intrinsic_head_grad_norm @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/09_ext_grad] ?= extrinsic_grad_norm @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/10_int_grad] ?= intrinsic_grad_norm @learn $learn_step $agent
+metrics.scalar.@value_decomposition : [77_agent_value/11_disagree_rate] ?= extrinsic_q_argmax_disagreement_rate @train $action_info
+metrics.scalar.@value_decomposition : [77_agent_value/12_regret] ?= extrinsic_q_regret_mean @train $action_info
+metrics.scalar.@value_decomposition : [77_agent_value/13_ext_gap] ?= extrinsic_q_gap_mean @train $action_info
+metrics.scalar.@value_decomposition : [77_agent_value/14_int_gap] ?= intrinsic_q_gap_mean @train $action_info
+metrics.scalar.@value_decomposition : [77_agent_value/21_eval_disagree] ?= extrinsic_q_session_argmax_disagreement_rate $eval.[eval] $actor @session_end
+metrics.scalar.@value_decomposition : [77_agent_value/22_eval_regret] ?= extrinsic_q_session_regret_mean $eval.[eval] $actor @session_end
+metrics.scalar.@value_decomposition : [77_agent_value/23_eval_ext_gap] ?= extrinsic_q_session_gap_mean $eval.[eval] $actor @session_end
+metrics.scalar.@value_decomposition : [77_agent_value/24_eval_int_gap] ?= intrinsic_q_session_gap_mean $eval.[eval] $actor @session_end
+metrics.scalar.@value_decomposition : [77_agent_value/31_target_disagree] ?= extrinsic_q_session_argmax_disagreement_rate $eval.[eval_target] $actor @session_end
+metrics.scalar.@value_decomposition : [77_agent_value/32_target_regret] ?= extrinsic_q_session_regret_mean $eval.[eval_target] $actor @session_end
+metrics.scalar.@value_decomposition : [77_agent_value/33_target_ext_gap] ?= extrinsic_q_session_gap_mean $eval.[eval_target] $actor @session_end
+metrics.scalar.@value_decomposition : [77_agent_value/34_target_int_gap] ?= intrinsic_q_session_gap_mean $eval.[eval_target] $actor @session_end

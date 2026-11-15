@@ -724,7 +724,7 @@ static void AddHeadGraphVizInfo(anet::graphviz::LabelData& label, const HeadGrap
     }
 }
 
-void anet::nn::ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner)
+void anet::nn::ValidateWeightInitConfigMode(const WeightInitConfig& config, const std::string& owner)
 {
     // 方式の契約は利用側によらず共通とし、設定元のキーで診断する。
     if (config.mode != "default" && config.mode != "xavier" && config.mode != "he"
@@ -733,6 +733,11 @@ void anet::nn::ValidateWeightInitConfig(const WeightInitConfig& config, const st
             << "'; expected default, xavier, he, orthogonal, constant or trunc_normal.");
     }
 
+}
+
+void anet::nn::ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner)
+{
+    ValidateWeightInitConfigMode(config, owner);
     // 直接組み立てたDTOも検証し、不正値を重みへ適用する前に止める。
     for (const auto& [key, value] : std::initializer_list<std::pair<const char*, double>>{
         {"manual_gain", config.manual_gain}, {"constant_val", config.constant_val},

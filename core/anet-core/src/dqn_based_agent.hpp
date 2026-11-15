@@ -332,25 +332,32 @@ namespace anet::rl::dqn {
         float td_error, float per_eps, bool use_clip, float clip_value);
     std::unique_ptr<InitialPriorityEstimator> CreateInitialPriorityEstimator(const LearnerConfig& config);
 
-    inline constexpr int64_t kActorQHintColumnCount = 3;
+    inline constexpr int64_t kActorQHintColumnCount = 5;
     inline constexpr int64_t kActorQSaColumn = 0;
     inline constexpr int64_t kActorStateValueColumn = 1;
     inline constexpr int64_t kActorMunchausenTermColumn = 2;
+    inline constexpr int64_t kActorIntrinsicQSaColumn = 3;
+    inline constexpr int64_t kActorIntrinsicStateValueColumn = 4;
 
     struct ActorQHintBatch {
         torch::Tensor actor_q_sa;
         torch::Tensor actor_state_value;
         torch::Tensor munchausen_term;
+        torch::Tensor intrinsic_q_sa;
+        torch::Tensor intrinsic_state_value;
     };
 
     struct ActorQHintRow {
         float actor_q_sa = 0.0f;
         float actor_state_value = 0.0f;
         float munchausen_term = 0.0f;
+        float intrinsic_q_sa = 0.0f;
+        float intrinsic_state_value = 0.0f;
     };
 
     torch::Tensor PackActorQHint(
-        const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value, const torch::Tensor& munchausen_term);
+        const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value, const torch::Tensor& munchausen_term,
+        const torch::Tensor& intrinsic_q_sa, const torch::Tensor& intrinsic_state_value);
     ActorQHintBatch DecodeActorQHint(const torch::Tensor& payload);
     ActorQHintRow DecodeActorQHint(std::span<const float> payload);
 
@@ -482,6 +489,9 @@ namespace anet::rl::dqn {
         torch::Tensor grad_norm_tensor;
         torch::Tensor skip_grad_norm;
         torch::Tensor skip_primary_grad_norm;
+        torch::Tensor extrinsic_head_grad_norm;
+        torch::Tensor intrinsic_head_grad_norm;
+        torch::Tensor intrinsic_grad_norm;
         std::optional<float> grad_norm;
         float grad_clip_ratio = 0.0f;
         float grad_clip_tau = std::numeric_limits<float>::infinity();
@@ -491,6 +501,7 @@ namespace anet::rl::dqn {
         torch::Tensor primary;
         torch::Tensor window;
         torch::Tensor diagnostics;
+        torch::Tensor intrinsic;
     };
 
     struct SkipLearningResult {
@@ -650,11 +661,14 @@ namespace anet::rl::dqn {
         static constexpr const char* kSkipLengthRateIndexPrefix = "skip_length_rate.[";
         static constexpr const char* kSkipQPrefix = "skip_q.";
         static constexpr const char* kSkipQIndexPrefix = "skip_q.[";
+        static constexpr const char* kIntrinsicGamma = "intrinsic_gamma";
 
         using anet::rl::BatchActionInfo::BatchActionInfo;
         anet::TensorDict forward_output; ///< Actor が skip 入力を組むまで保持する一時出力。
         int64_t risk_num_taus = 0;
+        torch::Tensor selection_taus; ///< 同じforwardの別の価値へ方策を当て直すときに使う抽選済みτ。
         float effective_gamma = std::numeric_limits<float>::quiet_NaN();
+        float effective_intrinsic_gamma = std::numeric_limits<float>::quiet_NaN();
         float munchausen_alpha = std::numeric_limits<float>::quiet_NaN();
         float munchausen_entropy_tau = std::numeric_limits<float>::quiet_NaN();
 
@@ -670,6 +684,7 @@ namespace anet::rl::dqn {
         mutable torch::Tensor iqn_policy_diagnostics_cpu_;
         mutable torch::Tensor quantile_tail_diagnostics_cpu_;
         mutable torch::Tensor skip_diagnostics_cpu_;
+        mutable torch::Tensor value_selection_diagnostics_cpu_;
     };
 
     struct DiagnosticActionEvaluation {
@@ -719,6 +734,7 @@ namespace anet::rl::dqn {
         ElementErrorRequest error_request;
         QuantileMetrics metrics;
         torch::Tensor upper_tail_std;
+        torch::Tensor intrinsic_action_values;
     };
 
     struct RiskScoreSpec {
@@ -746,6 +762,26 @@ namespace anet::rl::dqn {
         float mean_ = 0.0f, minimum_ = 0.0f, maximum_ = 0.0f;
     };
 
+    class DecomposedValueCombiner {
+    public:
+        static void Combine(anet::TensorDict& output, float beta, bool use_tbo, float epsilon);
+    };
+
+    /// DQN側だけで結合する同期呼び出し。NNの出力契約へβを持ち込まない。
+    class DqnForwardExecutor {
+    public:
+        DqnForwardExecutor(anet::nn::NetworkForwardExecutor& forward,
+            std::optional<float> beta = std::nullopt, bool use_tbo = false, float epsilon = 0.01f)
+            : forward_(forward), beta_(beta), use_tbo_(use_tbo), epsilon_(epsilon) {}
+        anet::TensorDict Forward(const anet::TensorDict& input, const anet::nn::NetworkForwardCallInfo& info,
+            const anet::TraceCallback& callback = {}, anet::nn::NetworkForwardCapture* capture = nullptr) const;
+    private:
+        anet::nn::NetworkForwardExecutor& forward_; ///< 同期呼び出しの間、ActorまたはLearner所有の実行器を借りる。
+        std::optional<float> beta_;
+        bool use_tbo_;
+        float epsilon_;
+    };
+
     class ActionPolicy : virtual public anet::ModuleBase {
     public:
         ActionPolicy(const ActionPolicyConfig& config,
@@ -753,13 +789,17 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         virtual std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
+            const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback = {},
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const = 0;
         virtual void UpdateSchedule(const StepCounts& counts) { }
         virtual std::optional<RiskScoreSpec> GetRiskScoreSpec() const { return std::nullopt; }
+        /// 同じforwardと抽選済みτでscoreを作り、乱数と探索を追加しない。
+        virtual torch::Tensor MakeActionScores(const torch::Tensor& q, const torch::Tensor& distribution,
+            bool iqn_risk_query, const torch::Tensor& selection_taus) const;
         virtual torch::Tensor SelectFromValues(const torch::Tensor& q, const torch::Tensor& distribution,
-            std::shared_ptr<anet::RandomGenerator> random, bool iqn_risk_query = true) const;
+            std::shared_ptr<anet::RandomGenerator> random, bool iqn_risk_query = true,
+            bool greedy_only = false, const torch::Tensor& selection_taus = {}) const;
         virtual torch::Tensor MakeValueQueryTaus(int64_t batch, const torch::Device& device, anet::RandomGenerator& random) const;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
@@ -767,10 +807,10 @@ namespace anet::rl::dqn {
         const ActionPolicyConfig& GetConfig() const { return config_; }
         virtual ~ActionPolicy() = default;
     protected:
-        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
+        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
         anet::TensorDict ForwardForActionWithTaus(
             const anet::TensorDict& obs, const torch::Tensor& taus,
-            anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+            const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
             const torch::Tensor& additional_taus = {}) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
@@ -803,7 +843,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
+            const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const override;
         void UpdateSchedule(const StepCounts& counts) override;
@@ -825,12 +865,15 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
+            const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const override;
         void UpdateSchedule(const StepCounts& counts) override;
+        torch::Tensor MakeActionScores(const torch::Tensor& q, const torch::Tensor& distribution,
+            bool iqn_risk_query, const torch::Tensor& selection_taus) const override;
         torch::Tensor SelectFromValues(const torch::Tensor& q, const torch::Tensor& distribution,
-            std::shared_ptr<anet::RandomGenerator> random, bool iqn_risk_query = true) const override;
+            std::shared_ptr<anet::RandomGenerator> random, bool iqn_risk_query = true,
+            bool greedy_only = false, const torch::Tensor& selection_taus = {}) const override;
         torch::Tensor MakeValueQueryTaus(int64_t batch, const torch::Device& device, anet::RandomGenerator& random) const override;
 
         virtual ~UQEActionPolicy() = default;
@@ -840,7 +883,7 @@ namespace anet::rl::dqn {
         }
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
-            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+            const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
             bool iqn_use_full_range = false, const DiagnosticActionEvaluation* evaluation = nullptr,
             const torch::Tensor& additional_taus = {}) const;
         void UpdateTau(step_t step);
@@ -858,7 +901,7 @@ namespace anet::rl::dqn {
             const torch::Device& device = torch::Device(torch::kCPU));
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
-            anet::nn::NetworkForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
+            const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
             const anet::TraceCallback& callback,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const override;
         void UpdateSchedule(const StepCounts& counts) override;
@@ -874,12 +917,21 @@ namespace anet::rl::dqn {
         bool use_tbo = false;
         float tbo_epsilon = 0.01f;
         anet::ProfiledValueConfig<float> gamma{ .value = 0.99f, .min_value = 0.0f, .max_value = 1.0f };
+        bool decomposed = false;
+        anet::ProfiledValueConfig<float> beta{.value = 0.1f, .min_value = 0.0f};
+        bool extrinsic_bootstrap = false;
+        anet::ProfiledValueConfig<float> intrinsic_gamma{.value = 0.99f, .min_value = 0.0f, .max_value = 1.0f};
     };
 
     struct ActorQHintValues {
         MunchausenValues munchausen;
         bool use_tbo = false;
         float tbo_epsilon = 0.01f;
+        torch::Tensor extrinsic_q;
+        torch::Tensor intrinsic_q;
+        torch::Tensor extrinsic_scores;
+        torch::Tensor combined_scores;
+        bool extrinsic_bootstrap = false;
     };
 
     struct ActorQHintData {
@@ -889,7 +941,7 @@ namespace anet::rl::dqn {
     ActorQHintData MakeActorQHint(const torch::Tensor& q_values,
         const torch::Tensor& action, const ActorQHintValues& config);
     std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(const LearnerConfig& config,
-        int64_t num_lanes, std::function<torch::Tensor(const torch::Tensor&)> scale_reward);
+        int64_t num_lanes, std::function<torch::Tensor(const torch::Tensor&)> scale_reward, bool needs_step_priority = true);
 
     anet::TensorDict MakeSkipInput(const anet::TensorDict& obs, const anet::TensorDict& primary,
         const torch::Tensor& actions, bool stop_gradient);
@@ -930,7 +982,7 @@ namespace anet::rl::dqn {
         bool AttachSyncFollower(std::weak_ptr<ActorSyncFollower> follower) override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
     private:
-        void ResetSkipSession() const;
+        void ResetSessionDiagnostics() const;
         void CopySourceNetwork() const;
         void UpdateSnapshot(const StepCounts& step) const;
         std::shared_ptr<DQNActionInfo> ApplySkip(std::shared_ptr<DQNActionInfo> proposal,
@@ -950,6 +1002,8 @@ namespace anet::rl::dqn {
         bool emit_actor_q_hint_ = false; ///< 学習Actorから初期優先度推定用Qヒントを生成するか
         const ActorQHintConfig actor_q_hint_config_;
         anet::ProfiledValue<float> gamma_;
+        anet::ProfiledValue<float> intrinsic_gamma_;
+        anet::ProfiledValue<float> intrinsic_beta_;
         anet::ProfiledValue<float> munchausen_alpha_, munchausen_entropy_tau_;
         mutable std::optional<anet::ProfiledValue<step_t>> snapshot_sync_interval_;
         mutable step_t last_snapshot_sync_train_step_ = 0;
@@ -963,6 +1017,9 @@ namespace anet::rl::dqn {
         mutable torch::Tensor skip_session_counts_; ///< 長さ別の判断回数。Actorと同じdeviceで加算する。
         mutable torch::Tensor skip_session_counts_cpu_;
         mutable int64_t skip_session_lane_steps_ = 0;
+        mutable torch::Tensor value_selection_session_sums_;
+        mutable torch::Tensor value_selection_session_cpu_;
+        mutable int64_t value_selection_session_lane_steps_ = 0;
         mutable torch::Tensor skip_actions_;
         mutable torch::Tensor skip_lengths_;
     };
@@ -988,6 +1045,7 @@ namespace anet::rl::dqn {
             std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences) override;
+        BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& experiences, float beta);
         void ConfigureScalarMetricSubscriptions(const std::vector<ScalarMetricSubscription>& subscriptions);
 
         virtual ~Learner() = default;
@@ -1015,6 +1073,8 @@ namespace anet::rl::dqn {
         TargetEvaluation MakeTargetEvaluation(bool diagnostic);
         LearningTargets MakeLearningTargets(const ExperienceSamples& samples, const anet::TensorDict& obs,
             const anet::TensorDict& next_obs, const torch::Tensor& current_all, const TargetEvaluation& evaluation);
+        LearningTargets MakeDecomposedTargets(const ExperienceSamples& samples, const anet::TensorDict& obs,
+            const anet::TensorDict& next_obs, const CurrentForwardResult& current, const TargetEvaluation& evaluation);
         SkipLearningResult ComputeSkipLoss(const ExperienceSamples& samples, const anet::TensorDict& input,
             const anet::TensorDict& primary, const torch::Tensor& target,
             const anet::nn::NetworkForwardCallInfo& info, const torch::Tensor& taus = {});
@@ -1033,7 +1093,7 @@ namespace anet::rl::dqn {
             const torch::Tensor& current_mean = {}) const;
         NormalizedSampleObservations NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const;
         OptimizerStepResult Optimize(const torch::Tensor& primary_loss, const torch::Tensor& weighted_element_loss,
-            const torch::Tensor& skip_loss = {});
+            const torch::Tensor& skip_loss = {}, const torch::Tensor& intrinsic_loss = {});
     protected:
         PerPriorityUpdatePending PreparePerPriorityUpdate(
             const anet::rl::ExperienceSamples& samples,
@@ -1047,7 +1107,7 @@ namespace anet::rl::dqn {
         torch::Tensor TransformH(const torch::Tensor& x) const;
         torch::Tensor TransformHInv(const torch::Tensor& x) const;
         torch::Tensor MakeBellmanTarget(const ExperienceSamples& samples,
-            const torch::Tensor& bootstrap_real, const torch::Tensor& bonus = {}) const;
+            const torch::Tensor& bootstrap_real, const torch::Tensor& bonus = {}, std::optional<float> gamma = std::nullopt) const;
         std::shared_ptr<anet::rl::dqn::BatchUpdateResult> MakeBatchUpdateResult(
             const torch::Tensor& loss,
             const torch::Tensor& td_error,
@@ -1091,6 +1151,11 @@ namespace anet::rl::dqn {
         anet::ProfiledValue<float> per_beta_;
         anet::ProfiledValue<float> soft_update_tau_;
         anet::ProfiledValue<float> gamma_;
+        anet::ProfiledValue<float> intrinsic_gamma_;
+        float intrinsic_beta_ = 0.0f;
+        torch::Tensor decomposition_metrics_;
+        mutable torch::Tensor decomposition_metrics_cpu_;
+        std::vector<float> ComponentGammas() const;
         anet::ProfiledValue<float> munchausen_alpha_, munchausen_entropy_tau_;
         MunchausenValues munchausen_values_;
         const bool has_optimizer_schedule_;
@@ -1106,6 +1171,8 @@ namespace anet::rl::dqn {
         std::shared_ptr<ObservationNormalizer> obs_norm_;
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
+        std::unique_ptr<torch::optim::Optimizer> intrinsic_optimizer_;
+        std::array<std::vector<torch::Tensor>, 2> value_head_parameters_;
         std::unique_ptr<torch::optim::Optimizer> skip_primary_optimizer_; ///< primaryへ流れるskip勾配だけの独立したモーメント。
         anet::GradScaler grad_scaler_;
         anet::RandomGenerator plasticity_probe_random_;
@@ -1219,6 +1286,7 @@ namespace anet::rl::dqn {
     protected:
         float update_credit_ = 0.0f;
     private:
+        bool warmup_active_ = false; ///< 開始を通知したウォームアップの終了を一度だけ通知する。
         bool has_enough_replay_samples_ = false;
     };
 
@@ -1313,6 +1381,9 @@ namespace anet::rl::dqn {
 
     class DqnComponentAssembler {
     public:
+        /// Agentのstep診断で要求・完了を対応付ける鍵。
+        static constexpr char kStepApproxPriorityKey[] = "approx_priority";
+
         static std::shared_ptr<anet::nn::NetworkHeadFactory> CreateHeadFactory(
             const std::string& quantile_mode, bool dueling, int64_t num_actions, int num_quantiles,
             const anet::nn::WeightInitConfig& init,

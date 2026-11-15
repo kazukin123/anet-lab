@@ -95,6 +95,17 @@ metrics.scalar.[explore/epsilon] = $eval.[explore] $actor epsilon @session_end
 
 共通スロットは`eval_target`と`eval`で、それぞれtarget / onlineを参照する。metricsの既存出力タグは維持する。未定義のActor参照は起動時に失敗するが、スケジュールのない定義や`interval=0`のスロットはActorを生成しない。sharedのActorはAgentと同じdeviceを使う。MuZeroはcloneに対応せず、`clone_model=false`を指定する。
 
+### 2.5 外的と内的の価値を分けて学ぶ
+
+RNDのtarget/predictorを設定し、`run.@rnd`を選んだDefaultDQNの構成に`DefaultDQNAgent.intrinsic.value_mode = decomposed`を指定してください。skipとの併用は避けてください。
+
+内的の割引率を変える場合は`learner.intrinsic.discount_mode = separate`と`learner.intrinsic.gamma`を両方指定してください。評価Actorで外的価値だけを使う場合は、対象の`actor.[eval].intrinsic.action_beta_mode = fixed`と`actor.[eval].intrinsic.action_beta = 0`を指定してください。キーの先頭にはすべて`DefaultDQNAgent.`を付けてください。
+
+内的報酬をlane別の割引和の標準偏差で割る場合は、`intrinsic.reward_scaler`の`use_dynamic_scaling = true`、`dynamic_mode = return_std`、`use_auto_post_scale = false`を指定してください。学習停止中の値や未使用の非既定値の通知はLogsで確認してください。詳細は[価値の分解](214_value_decomposition.jp.md)を参照してください。
+
+> [!NOTE]
+> 既定の`combined`は1本のQを使い、`decomposed`は外的と内的のHeadを分けます。分解時の既定ではBodyの特徴と割引率を共有します。専用のgammaには既定値がありません。内的報酬スケーラの既定は恒等変換です。
+
 ## 3. 設定ファイルの書き方
 
 本章は`apps/runner/config`の設定ファイルを読み書きするために必要な記法と優先順位だけを説明する。用語の正本は[CONTEXT.md](../../CONTEXT.md)、契約の詳細とresolverの内部処理は[実行基盤と設定](100_runtime_and_configuration.jp.md)の§2.1である。
@@ -527,6 +538,9 @@ checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固�
 > [!NOTE]
 > `warmup_count` は、Learner の `update_warmup_steps`（学習を始める前に経験をためる期間）とは別で、評価の発火列の先頭から数える回数である。offset が 500、interval が 1000、warmup_count が 1 なら、刻み 1 の最初の評価は learn step 1500 になる。休止の `interval = 0` でも両方の値は検証される。
 
+> [!NOTE]
+> DefaultDQNの動的な外的・内的報酬スケーラは統計も引き継ぎます。return_stdでlane数だけを変えた場合は、統計を保ち、lane別の割引和を0から始めて1回WARNします。分解の有無、`learner.intrinsic.feature_gradient`、スケーラの種類が異なるcheckpointは読み込めません。更新前の実行体で作った動的スケーラのcheckpointには統計が無いため、読み込みはERRORになります。combined・定数スケーラの旧checkpointは引き続き使えます。
+
 ### 6.5 Evaluation Traceで遷移を調べる
 
 ViewメニューのEvaluation Traceを表示すると、Evalの行動と結果が新しい順に表へ流れます。行を選ぶとEvalを一時停止し、その行の画面・Q値・開いていたConv2dの活性を表示します。paneを開く前の記録は`no data for this step`になります。
@@ -584,6 +598,11 @@ app.eval_trace_panel.columns.[900] = $agent_step approx_priority display:pct lab
 ```text
 DefaultDQNAgent.@baseline : actor.[eval_panel].network = online
 ```
+
+Head別に見るには、`$agent_step`の`extrinsic_q_sa`・`intrinsic_q_sa`・`extrinsic_state_value`・`intrinsic_state_value`を列へ追加してください。たとえば価値の分類の440・450・460・470に置けます。
+
+> [!NOTE]
+> 分解時も既定の`Q_sa`・`V_s`は合わせた価値です。Head別の4鍵はcombinedでは空欄です。`rnd_bonus`はdoneの扱い、内的スケーラ、βを適用した値で、スケーラの統計を更新せずに計算します。
 
 FPSが0のときは再生を開始できません。再生中に0へ変更した場合も、先頭の一時停止ボタンは使えます。FPSを戻すと、再生中だった場合はその位置から続行します。パネルを閉じている間は記録を作りません。開き直すと空から始まります。他のpaneの最大化で隠れた間は記録を続けます。
 

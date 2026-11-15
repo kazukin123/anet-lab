@@ -301,6 +301,29 @@ DropMerge・Atariで`run.@attention`をRunチェーンの末尾へ加えると�
 > [!NOTE]
 > TQLの目標0.8とは集約方法が違うので比べない。
 
+### 4.11 外的と内的の価値を読む
+
+`metrics.scalar.@value_decomposition`を既存のメトリクス選択チェーンの末尾へ加えると、任意の群`77_agent_value`を記録します。既存の項を残し、選択チェーン全体を置き換えて他の指標を落とさないようにします。既定では選ばれません。解決済み設定で`intrinsic.value_mode`、学習とActorのβ、割引率、終端モード、bootstrap、loss_weight、priority_lambda、feature_gradient、内的スケーラを先に確認してください。
+
+| tagの末尾 | 読み方 |
+|---|---|
+| `01_ext_loss`・`02_int_loss` | HeadごとのIS適用後の損失。内的の値はloss_weightを掛ける前。合計損失は外的＋loss_weight×内的 |
+| `03_ext_q`・`04_int_q` | 学習標本の選択行動のQ。TBO有効時はHeadの出力空間 |
+| `05_int_share` | 実空間でのabs(β Q_int)の割合の標本平均。両方0の標本は0。取り込み報酬のbonus_shareとは別 |
+| `06_reward_scale` | 内的報酬スケーラの現在の倍率。動的変換の尺度が変わった時期を確認する |
+| `07_ext_head_grad`・`08_int_head_grad` | clip前のHead勾配norm。内的は重み付き損失による値 |
+| `09_ext_grad`・`10_int_grad` | splitの損失ごとのclip前の全体norm。mergeでは未成立 |
+| `11_disagree_rate`・`12_regret` | 学習Actorで、外的だけのargmaxと合わせたargmaxが違う割合、合わせた選択によって譲った外的価値 |
+| `13_ext_gap`・`14_int_gap` | 外的、β倍内的それぞれの上位2行動の差 |
+| `21`〜`24`・`31`〜`34` | eval・eval_targetのsession累積。4指標の順は不一致率、譲った外的価値、外的の差、内的の差 |
+
+> [!NOTE]
+> Actorの4指標は平均Qの実空間で計算し、UQEのscoreやε探索後の行動とは区別します。強制行動へ差し替えても値は変わりません。1行動だけなら上位2行動の差は未成立、不一致率と譲った価値は0です。session値はlane×stepを足してから割るため、step平均の単純平均とは限りません。
+
+sessionが空、combined、学習前などの未成立値を0へ読み替えないでください。
+
+損失・勾配・Qの10行はlearn_step、学習Actorの4行はtrain_step、evalのsession値は学習側のexp_stepです。同じtag群でも軸を確認して比較します。Head別のEvaluation Trace列は[Run実行ユーザーガイド](020_user_guide_run.jp.md#65-evaluation-traceで遷移を調べる)を参照してください。
+
 ## 5. Optuna結果を分析する
 
 ### 5.1 Metrics ViewerとDashboardの役割

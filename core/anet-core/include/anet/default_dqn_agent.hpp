@@ -28,6 +28,10 @@ namespace anet::rl::dqn {
     // ======================================================
 
     struct DefaultDQNAgentConfig : public anet::Config {
+        static constexpr char kValueModeCombined[] = "combined";
+        static constexpr char kValueModeDecomposed[] = "decomposed";
+        static constexpr char kHeadInputShared[] = "shared";
+        static constexpr char kHeadInputDedicated[] = "dedicated";
         static constexpr char kIntrinsicObservationNextState[] = "next_state";
         static constexpr char kIntrinsicObservationState[] = "state";
         static constexpr bool kDefaultIntrinsicUseDoneMask = true;
@@ -41,12 +45,22 @@ namespace anet::rl::dqn {
         ObservationNormalizerConfig obs_norm;
         struct {
             bool enabled = false;
+            std::string value_mode = kValueModeCombined;
             anet::ProfiledValueConfig<float> beta{.value = 0.1f, .min_value = 0.0f};
             std::string observation = kIntrinsicObservationNextState;
             bool use_done_mask = kDefaultIntrinsicUseDoneMask;
             float learn_ratio = 0.25f;
             int learn_batch_size = 32;
             anet::ConfigData rnd; ///< Factory へ渡す opaque な構築設定（共有 NN カタログを含む）。
+            RewardScalerConfig reward_scaler{.use_dynamic_scaling = false, .use_auto_post_scale = false};
+            struct {
+                struct {
+                    std::string input_mode = kHeadInputShared;
+                    bool use_dueling = true;
+                    anet::nn::WeightInitConfig init;
+                    anet::ConfigData projection;
+                } head;
+            } value;
         } intrinsic;
         struct {
             bool use_dueling = true;
@@ -84,6 +98,7 @@ namespace anet::rl::dqn {
             ReadObservationNormalizer(config_data);
             ReadHeadSelection(config_data);
             ReadSkip(config_data);
+            ReadValueDecomposition(config_data, actor_read_scopes);
             ReportFreshEvaluation();
             FinalizeActors(actor_read_scopes);
             ValidateCombinations();
@@ -124,9 +139,24 @@ namespace anet::rl::dqn {
                 ANET_SYSTEM_ERROR("Invalid " << key << "=" << value << "; expected " << expected << ".");
         }
 
+        template<typename T>
+        void ReportIgnoredValue(const ConfigData& data, const std::string& key, const T& value,
+            const T& default_value, bool used, const std::string& reason) const
+        {
+            if (!used && HasConfigValue(data, key) && value != default_value)
+                anet::log::warn_once(MakeDefaultConfigKey(key)) << "Ignored " << MakeDefaultConfigKey(key)
+                    << "=" << anet::json(value).dump() << "; default=" << anet::json(default_value).dump()
+                    << "; reason=" << reason << ".";
+        }
+
         void ReadIntrinsic(const ConfigData& config_data)
         {
+            ANET_READ_CONFIG(config_data, intrinsic.value_mode);
+            ValidateChoice("DefaultDQNAgent.intrinsic.value_mode", intrinsic.value_mode, {kValueModeCombined, kValueModeDecomposed});
             ANET_READ_CONFIG(config_data, intrinsic.enabled);
+            // 休眠中も型と列挙を検査し、利用する部品だけ組み合わせを検証する。
+            // 組み合わせの検査だけを、Head・Actorを含む全キーの値の検証後へ残す。
+            anet::ConfigReader<RewardScalerConfig>::ReadFields(*this, config_data, "intrinsic.reward_scaler", intrinsic.reward_scaler, intrinsic.enabled);
             if (intrinsic.enabled) {
                 ANET_READ_CONFIG(config_data, intrinsic.beta);
                 ANET_READ_CONFIG(config_data, intrinsic.observation);
@@ -152,6 +182,129 @@ namespace anet::rl::dqn {
                 anet::log::info_once() << "Inactive config prefix=DefaultDQNAgent.intrinsic; reason=DefaultDQNAgent.intrinsic.enabled=false.";
                 // 無効時の checkpoint 内の設定文字列を従来と同一にする。
                 my_config_json_.erase("intrinsic.enabled");
+            }
+        }
+
+        void ReadValueDecomposition(const ConfigData& config_data,
+            const std::map<std::string, ConfigData>& actor_read_scopes)
+        {
+            // 認識した値は休眠中も検証し、有効なときだけ構築へ使う。
+            learner.intrinsic.decomposed = intrinsic.value_mode == kValueModeDecomposed;
+            ANET_READ_CONFIG(config_data, learner.intrinsic.discount_mode);
+            const auto gamma_key = MakeDefaultConfigKey("learner.intrinsic.gamma");
+            const auto gamma_override = MakeOverrideConfigKey("learner.intrinsic.gamma");
+            bool has_gamma = false;
+            for (const auto& [key, value] : config_data.Map()) {
+                if (key == gamma_key || key.starts_with(gamma_key + ".")
+                    || key == gamma_override || key.starts_with(gamma_override + ".")) {
+                    has_gamma = true;
+                    break;
+                }
+            }
+            ANET_READ_CONFIG(config_data, learner.intrinsic.terminal_mode);
+            ANET_READ_CONFIG(config_data, learner.intrinsic.loss_weight);
+            ANET_READ_CONFIG(config_data, learner.intrinsic.priority_lambda);
+            ANET_READ_CONFIG(config_data, learner.intrinsic.extrinsic_bootstrap_mode);
+            ANET_READ_CONFIG(config_data, learner.intrinsic.feature_gradient);
+            ValidateChoice(MakeDefaultConfigKey("learner.intrinsic.discount_mode"), learner.intrinsic.discount_mode, {LearnerConfig::kDiscountShared, LearnerConfig::kDiscountSeparate});
+            ValidateChoice(MakeDefaultConfigKey("learner.intrinsic.terminal_mode"), learner.intrinsic.terminal_mode, {LearnerConfig::kTerminalEpisodic, LearnerConfig::kTerminalNonEpisodic});
+            ValidateChoice(MakeDefaultConfigKey("learner.intrinsic.extrinsic_bootstrap_mode"), learner.intrinsic.extrinsic_bootstrap_mode, {LearnerConfig::kBootstrapCombined, LearnerConfig::kBootstrapExtrinsic});
+            ValidateChoice(MakeDefaultConfigKey("learner.intrinsic.feature_gradient"), learner.intrinsic.feature_gradient,
+                {LearnerConfig::kFeatureGradientMerge, LearnerConfig::kFeatureGradientSplit});
+            ANET_READ_CONFIG(config_data, intrinsic.value.head.input_mode);
+            ANET_READ_CONFIG(config_data, intrinsic.value.head.use_dueling);
+            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.mode);
+            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.manual_gain);
+            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.constant_val);
+            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.trunc_std);
+            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.trunc_a);
+            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.trunc_b);
+            intrinsic.value.head.init.nonlinearity = "linear";
+            anet::nn::ValidateWeightInitConfigMode(intrinsic.value.head.init, MakeDefaultConfigKey("intrinsic.value.head.init"));
+            ValidateChoice(MakeDefaultConfigKey("intrinsic.value.head.input_mode"), intrinsic.value.head.input_mode, {kHeadInputShared, kHeadInputDedicated});
+            CopyAndRecordPrefix(config_data, MakeDefaultConfigKey("intrinsic.value.head.projection") + ".",
+                "intrinsic.value.head.projection.", &intrinsic.value.head.projection);
+            const bool decomposed = learner.intrinsic.decomposed;
+            // 全Actorの局所的な値を先に検証し、別Actorの未指定や機能の組み合わせより優先する。
+            for (auto& [key, entry] : actor) {
+                const auto prefix = "actor.[" + key + "].intrinsic";
+                const auto& scope = actor_read_scopes.at(key);
+                ReadConfig(scope, prefix + ".action_beta_mode", entry.intrinsic.action_beta_mode);
+                ReadConfig(scope, prefix + ".action_beta", entry.intrinsic.action_beta);
+                ValidateChoice(MakeDefaultConfigKey(prefix + ".action_beta_mode"), entry.intrinsic.action_beta_mode, {DQNActorConfig::kActionBetaLearner, DQNActorConfig::kActionBetaFixed});
+            }
+            // モード列挙をすべて確かめてから、数値とHead固有の構造キーを検証する。
+            if (has_gamma) ANET_READ_CONFIG(config_data, learner.intrinsic.gamma);
+            ValidateRange(std::isfinite(learner.intrinsic.loss_weight) && learner.intrinsic.loss_weight > 0,
+                MakeDefaultConfigKey("learner.intrinsic.loss_weight"), learner.intrinsic.loss_weight, "finite > 0");
+            ValidateRange(std::isfinite(learner.intrinsic.priority_lambda) && learner.intrinsic.priority_lambda >= 0,
+                MakeDefaultConfigKey("learner.intrinsic.priority_lambda"), learner.intrinsic.priority_lambda, "finite >= 0");
+            anet::nn::ValidateWeightInitConfig(intrinsic.value.head.init, MakeDefaultConfigKey("intrinsic.value.head.init"));
+            anet::nn::ValidateLinearProjectionConfig(intrinsic.value.head.projection, MakeDefaultConfigKey("intrinsic.value.head.projection"));
+            for (const auto& [key, entry] : actor) {
+                if (entry.intrinsic.action_beta)
+                    ValidateRange(std::isfinite(*entry.intrinsic.action_beta) && *entry.intrinsic.action_beta >= 0,
+                        MakeDefaultConfigKey("actor.[" + key + "].intrinsic.action_beta"), *entry.intrinsic.action_beta, "finite >= 0");
+            }
+            // PRDの判定表に従い、値の検証後に組み合わせ、gamma、Actorの必須値を順に判定する。
+            anet::rl::ValidateRewardScalerConfig(reward_scaler, MakeDefaultConfigKey("reward_scaler"));
+            anet::rl::ValidateRewardScalerConfig(intrinsic.reward_scaler, MakeDefaultConfigKey("intrinsic.reward_scaler"), intrinsic.enabled);
+            if (decomposed && (!intrinsic.enabled || skip.enabled))
+                ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.intrinsic.value_mode=" << intrinsic.value_mode
+                    << "; expected intrinsic.enabled=true and skip.enabled=false; actual intrinsic.enabled="
+                    << intrinsic.enabled << " skip.enabled=" << skip.enabled << ".");
+            if (decomposed && learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate && !has_gamma)
+                ANET_SYSTEM_ERROR("Missing DefaultDQNAgent.learner.intrinsic.gamma; expected explicit value for discount_mode=separate.");
+            for (const auto& [key, entry] : actor) {
+                if (decomposed && entry.intrinsic.action_beta_mode == DQNActorConfig::kActionBetaFixed && !entry.intrinsic.action_beta)
+                    ANET_SYSTEM_ERROR("Missing " << MakeDefaultConfigKey("actor.[" + key + "].intrinsic.action_beta")
+                        << "; expected explicit value for action_beta_mode=fixed.");
+            }
+            const std::string inactive_reason = "intrinsic.value_mode=combined";
+            const LearnerConfig defaults;
+            ReportIgnoredValue(config_data, "learner.intrinsic.discount_mode", learner.intrinsic.discount_mode,
+                defaults.intrinsic.discount_mode, decomposed, inactive_reason);
+            ReportIgnoredValue(config_data, "learner.intrinsic.terminal_mode", learner.intrinsic.terminal_mode,
+                defaults.intrinsic.terminal_mode, decomposed, inactive_reason);
+            ReportIgnoredValue(config_data, "learner.intrinsic.loss_weight", learner.intrinsic.loss_weight,
+                defaults.intrinsic.loss_weight, decomposed, inactive_reason);
+            ReportIgnoredValue(config_data, "learner.intrinsic.priority_lambda", learner.intrinsic.priority_lambda,
+                defaults.intrinsic.priority_lambda, decomposed, inactive_reason);
+            ReportIgnoredValue(config_data, "learner.intrinsic.extrinsic_bootstrap_mode", learner.intrinsic.extrinsic_bootstrap_mode,
+                defaults.intrinsic.extrinsic_bootstrap_mode, decomposed, inactive_reason);
+            ReportIgnoredValue(config_data, "learner.intrinsic.feature_gradient", learner.intrinsic.feature_gradient,
+                defaults.intrinsic.feature_gradient, decomposed, inactive_reason);
+            if (has_gamma && (!decomposed || learner.intrinsic.discount_mode == LearnerConfig::kDiscountShared))
+                anet::log::warn_once(gamma_key) << "Ignored " << gamma_key << "; type=" << learner.intrinsic.gamma.type
+                    << " value=" << learner.intrinsic.gamma.value
+                    << "; expected discount_mode=separate and intrinsic.value_mode=decomposed; actual discount_mode="
+                    << learner.intrinsic.discount_mode << " intrinsic.value_mode=" << intrinsic.value_mode << ".";
+            ReportIgnoredValue(config_data, "intrinsic.value.head.input_mode", intrinsic.value.head.input_mode,
+                std::string(kHeadInputShared), decomposed, inactive_reason);
+            ReportIgnoredValue(config_data, "intrinsic.value.head.use_dueling", intrinsic.value.head.use_dueling,
+                true, decomposed, inactive_reason);
+            const anet::nn::WeightInitConfig init_defaults;
+            const auto report_init = [&](const std::string& key, const auto& value, const auto& default_value) {
+                ReportIgnoredValue(config_data, "intrinsic.value.head.init." + key, value, default_value, decomposed, inactive_reason);
+            };
+            report_init("mode", intrinsic.value.head.init.mode, init_defaults.mode);
+            report_init("manual_gain", intrinsic.value.head.init.manual_gain, init_defaults.manual_gain);
+            report_init("constant_val", intrinsic.value.head.init.constant_val, init_defaults.constant_val);
+            report_init("trunc_std", intrinsic.value.head.init.trunc_std, init_defaults.trunc_std);
+            report_init("trunc_a", intrinsic.value.head.init.trunc_a, init_defaults.trunc_a);
+            report_init("trunc_b", intrinsic.value.head.init.trunc_b, init_defaults.trunc_b);
+            anet::nn::ReportUnusedLinearProjectionConfig(intrinsic.value.head.projection,
+                MakeDefaultConfigKey("intrinsic.value.head.projection"), decomposed, inactive_reason);
+            for (const auto& [key, entry] : actor) {
+                const auto prefix = "actor.[" + key + "].intrinsic";
+                const auto& scope = actor_read_scopes.at(key);
+                ReportIgnoredValue(scope, prefix + ".action_beta_mode", entry.intrinsic.action_beta_mode,
+                    std::string(DQNActorConfig::kActionBetaLearner), decomposed, inactive_reason);
+                if (entry.intrinsic.action_beta && (!decomposed || entry.intrinsic.action_beta_mode == DQNActorConfig::kActionBetaLearner))
+                    anet::log::warn_once(MakeDefaultConfigKey(prefix + ".action_beta"))
+                        << "Ignored " << MakeDefaultConfigKey(prefix + ".action_beta") << "=" << *entry.intrinsic.action_beta
+                        << "; expected intrinsic.value_mode=decomposed and action_beta_mode=fixed; actual intrinsic.value_mode="
+                        << intrinsic.value_mode << " action_beta_mode=" << entry.intrinsic.action_beta_mode << ".";
             }
         }
 
@@ -314,7 +467,7 @@ namespace anet::rl::dqn {
             // 休眠中も認識済みの設定値を検証し、ON/OFF切替で不正値を潜伏させない。
             const auto& munchausen = learner.munchausen;
             ValidateChoice("learner.munchausen.log_policy_mode", munchausen.log_policy_mode,
-                {"target", "online", "online_reuse"});
+                {MunchausenValues::kLogPolicyTarget, MunchausenValues::kLogPolicyOnline, MunchausenValues::kLogPolicyOnlineReuse});
             ValidateRange(std::isfinite(munchausen.clip_value_min) && munchausen.clip_value_min <= 0.0f,
                 "learner.munchausen.clip_value_min", munchausen.clip_value_min, "finite <= 0");
             ANET_READ_CONFIG(config_data, learner.use_n_step);
@@ -365,14 +518,8 @@ namespace anet::rl::dqn {
 
         void ReadRewardScaler(const ConfigData& config_data)
         {
-            ANET_READ_CONFIG(config_data, reward_scaler.use_clipping);
-            ANET_READ_CONFIG(config_data, reward_scaler.clip_range);
-            ANET_READ_CONFIG(config_data, reward_scaler.constant_scale);
-            ANET_READ_CONFIG(config_data, reward_scaler.use_dynamic_scaling);
-            ANET_READ_CONFIG(config_data, reward_scaler.epsilon);
-            ANET_READ_CONFIG(config_data, reward_scaler.use_auto_post_scale);
-            ANET_READ_CONFIG(config_data, reward_scaler.reference_q_std);
-            ANET_READ_CONFIG(config_data, reward_scaler.manual_post_scale);
+            // 内的用と同様に、表の行1・2の全キーを確かめてから行3の組み合わせを検証する。
+            anet::ConfigReader<RewardScalerConfig>::ReadFields(*this, config_data, "reward_scaler", reward_scaler);
             if (learner.use_tbo && (reward_scaler.use_dynamic_scaling || reward_scaler.use_auto_post_scale)) {
                 anet::log::warn_once()
                     << "learner.use_tbo is enabled together with reward_scaler.use_dynamic_scaling or "

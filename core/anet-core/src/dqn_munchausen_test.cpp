@@ -279,7 +279,7 @@ TEST_CASE("Munchausen Actor uses exactly one existing score forward", "[dqn][mun
         REQUIRE(records->size() == 1);
         const auto hint = result->GetReplayInitialPriorityHint();
         REQUIRE(hint.has_value());
-        CHECK(hint->GetPayload().sizes() == torch::IntArrayRef({ 2, 3 }));
+        CHECK(hint->GetPayload().sizes() == torch::IntArrayRef({ 2, kActorQHintColumnCount }));
         if (enabled) CHECK(hint->GetPayload().select(1, 2).lt(0).any().item<bool>());
         else CHECK(torch::equal(hint->GetPayload().select(1, 2), torch::zeros({ 2 })));
         if (reference_hint.defined()) CHECK(torch::equal(hint->GetPayload(), reference_hint));
@@ -287,20 +287,20 @@ TEST_CASE("Munchausen Actor uses exactly one existing score forward", "[dqn][mun
     }
 }
 
-TEST_CASE("K3 Actor hints carry the selected start bonus into initial priorities", "[dqn][munchausen][k3]")
+TEST_CASE("Five-column Actor hints carry the selected start bonus into initial priorities", "[dqn][munchausen][hint]")
 {
     // 行動差し替え後のhintを公開推定器へ渡し、transport全体の列契約を検証する。
     AuxData aux;
     aux["q_values"] = torch::tensor({ { 1.0f, 4.0f } });
     aux["munchausen_terms"] = torch::tensor({ { -0.7f, -0.2f } });
     DQNActionInfo action(torch::tensor({ 1 }, torch::kInt64), {}, aux,
-        ReplayInitialPriorityHint(torch::tensor({ { 4.0f, 5.0f, -0.2f } })));
+        ReplayInitialPriorityHint(torch::tensor({ { 4.0f, 5.0f, -0.2f, 0.0f, 0.0f } })));
     const auto replaced = action.WithAction(torch::tensor({ 0 }, torch::kInt64));
     REQUIRE(replaced->GetReplayInitialPriorityHint().has_value());
-    CHECK(torch::equal(replaced->GetReplayInitialPriorityHint()->GetPayload(), torch::tensor({ { 1.0f, 5.0f, -0.7f } })));
+    CHECK(torch::equal(replaced->GetReplayInitialPriorityHint()->GetPayload(), torch::tensor({ { 1.0f, 5.0f, -0.7f, 0.0f, 0.0f } })));
     aux.erase("munchausen_terms");
     DQNActionInfo missing(torch::tensor({ 1 }, torch::kInt64), {}, aux,
-        ReplayInitialPriorityHint(torch::tensor({ { 4.0f, 5.0f, -0.2f } })));
+        ReplayInitialPriorityHint(torch::tensor({ { 4.0f, 5.0f, -0.2f, 0.0f, 0.0f } })));
     CHECK_THROWS(missing.WithAction(torch::tensor({ 0 }, torch::kInt64)));
 
     for (const bool tbo : { false, true }) {
@@ -313,8 +313,8 @@ TEST_CASE("K3 Actor hints carry the selected start bonus into initial priorities
         for (const bool terminal : { false, true }) {
             for (const float bonus : { 0.0f, -0.7f }) {
                 const float q_sa = static_cast<float>(tbo ? OracleH(1.4) : 1.4);
-                const std::array<float, 3> start{ q_sa, 99.0f, bonus };
-                const std::array<float, 3> bootstrap{ 88.0f, static_cast<float>(tbo ? OracleH(3.2) : 3.2), -99.0f };
+                const std::array<float, kActorQHintColumnCount> start{ q_sa, 99.0f, bonus };
+                const std::array<float, kActorQHintColumnCount> bootstrap{ 88.0f, static_cast<float>(tbo ? OracleH(3.2) : 3.2), -99.0f };
                 REQUIRE(estimator->ValidateHint(start));
                 const auto priority = estimator->Estimate(InitialPriorityEstimateInput{
                     .start_hint = start, .bootstrap_hint = bootstrap, .target_return = 1.25f,
@@ -325,8 +325,8 @@ TEST_CASE("K3 Actor hints carry the selected start bonus into initial priorities
                 CHECK(*priority == Catch::Approx(std::abs((tbo ? OracleH(raw_target) : raw_target) - q_sa) + 0.01).margin(3e-4));
             }
         }
-        for (int column = 0; column < 3; ++column) {
-            std::array<float, 3> invalid{ 1.0f, 2.0f, 0.0f };
+        for (int column = 0; column < kActorQHintColumnCount; ++column) {
+            std::array<float, kActorQHintColumnCount> invalid{ 1.0f, 2.0f, 0.0f };
             invalid[column] = std::numeric_limits<float>::quiet_NaN();
             CHECK_FALSE(estimator->ValidateHint(invalid));
             invalid[column] = std::numeric_limits<float>::infinity();

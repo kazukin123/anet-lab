@@ -8,6 +8,8 @@ RND は、**固定した問題の答えを学習する小さなモデルを持�
 
 本書は、強化学習や RND に詳しくない読者が基本から読めるように構成した。概念を知りたい場合は §2、計算と実装の関係を追いたい場合は §3、設定や指標を読みたい場合は §4 を参照する。DQN 全体の仕様は [200 DQN 系 Agent](200_dqn_agents.jp.md) にある。
 
+以下の報酬の式・図・手計算は、特記しない限り既定の`intrinsic.value_mode=combined`と恒等の内的スケーラを使う。価値を分けて学ぶ構成とスケーラの順序は§3.9を参照する。
+
 ## 1. 用語
 
 ### 1.1 強化学習の基本
@@ -128,15 +130,24 @@ NGU はエピソード内の報酬に一生の新しさの倍率を掛ける。�
 
 まずCoordinatorが選んだ観測をRND専用に正規化し、同じ入力をtargetとpredictorへ渡す。既定の `intrinsic.observation=next_state` は遷移の次観測、`state` は行動した観測を選ぶ。どちらもActorのframe stack前の最新1フレームである。
 
+2つの出力の誤差は、そのまま倍率にしない。誤差の統計で「普段との差」に直してから倍率αにする。入力側と出力側にそれぞれ統計がある。既定のwhitenでは、どちらも今回の値を入れる前の統計で採点し、採点のあとに更新する。
+
 ```mermaid
 graph TD
-    O[選んだ生の観測] --> N[観測正規化]
-    N --> T[RND target]
-    N --> P[RND predictor]
-    T --> E[予測誤差]
+    O["選んだ生の観測"] --> N["観測の正規化"]
+    SO[("観測の統計<br/>成分ごとの平均と標準偏差")] -.->|"今回の観測を入れる前の値"| N
+    N --> T["RND target<br/>重みは固定のまま"]
+    N --> P["RND predictor<br/>重みを学習して更新する"]
+    T --> E["予測誤差 e<br/>出力の差の二乗の平均"]
     P --> E
-    E --> A[倍率 α]
+    E --> Z["誤差を普段との差に直す<br/>z = (e−μ_e) ÷ σ_e"]
+    SE[("誤差の統計<br/>平均と標準偏差<br/>全laneで1組")] -.->|"今回の誤差を入れる前の値"| Z
+    Z --> A["倍率 α<br/>普段より大きい誤差ほど大きい<br/>1 + z を1〜Lに収める"]
+    O -.->|"採点のあとに更新する"| SO
+    E -.->|"採点のあとに更新する<br/>warm-up中は除く"| SE
 ```
+
+図は既定の `statistics_mode=whiten`・`multiplier_mode=clipped` である。2つの統計の目的は§3.2、αの式と中心化・unclippedは§3.3、更新の順番は§3.4、warm-upの扱いは§3.5を参照する。`variance_feedback` はlaneごとに観測と誤差の統計を順に更新し、誤差は更新後の統計で割る。
 
 1 lane の正規化済み観測を `x`、教師を `f`、predictor を `g`、出力の次元を `d` とすると、コードが使う誤差は次の値である。
 
@@ -157,7 +168,7 @@ $$
 
 コードの入口は [`RndNoveltyEstimator::Estimate`](../../core/anet-core/src/intrinsic_rnd.cpp)。target と predictor は別の重みを持ち、target の勾配計算を止め、学習時の状態更新をしないモードに置く。Q 値を計算する Network とは共有しない。
 
-targetとpredictorは、それぞれ必須の `intrinsic.rnd.target.net.*` と `intrinsic.rnd.predictor.net.*` から別々に組む。Bodyの深さや特徴数は異なってよいが、どちらもHeadで共通の `output_dim` 次元へ射影する。Headの初期値は `intrinsic.rnd.head.init.*` で選び、実装の既定はxavierである。初期重みには別の名前付きseedを使い、教師の重みをpredictorへコピーしない。同じ変換を初めから持たせれば、練習前から答えが一致し、誤差を新しさの手掛かりにできなくなるためである。
+targetとpredictorは、それぞれ必須の `intrinsic.rnd.target.net.*` と `intrinsic.rnd.predictor.net.*` から別々に組む。Bodyの深さや特徴数は異なってよいが、どちらもHeadで共通の `head.output_dim` 次元へ射影する。Headの初期値は `intrinsic.rnd.head.init.*` で選び、実装の既定はxavierである。初期重みには別の名前付きseedを使い、教師の重みをpredictorへコピーしない。同じ変換を初めから持たせれば、練習前から答えが一致し、誤差を新しさの手掛かりにできなくなるためである。
 
 ### 3.2 2種類の正規化を分けて考える
 
@@ -262,6 +273,14 @@ Coordinatorはintakeの全観測で `Estimate` を1回呼び、creditに応じ�
 
 whitenのαはbatchの採点前の件数で判定し、閾値未満なら全laneで1を返す。`warmup_mode=learn_predictor`（既定）は、その間も `Learn` がtrueを返して学習し、観測の統計だけを更新する。誤差の統計は空なので error_mean/error_std は NaN である。warm-up 明けの最初の batch も空の統計で倍率1を返し、その誤差を統計に入れる。次の batch から採点前の統計を使う。
 
+```mermaid
+graph LR
+    W["warm-up 中<br/>採点前の件数が<br/>warmup_steps 未満<br/>α=1、ボーナス0<br/>predictorは学習する<br/>観測の統計だけ更新する"] --> F["warm-up 明けの<br/>最初の batch<br/>誤差の統計がまだ空なので<br/>α=1 のまま<br/>この batch の誤差から<br/>統計に入れ始める"]
+    F --> R["次の batch から<br/>採点前の誤差の統計で<br/>α を作る"]
+```
+
+図は既定の whiten・`warmup_mode=learn_predictor` である。`collect_errors` と variance_feedback は、warm-up 中も誤差を統計に入れる代わりに `Learn` を止める（次の段落）。
+
 `warmup_mode=collect_errors` は、warm-up 中も観測と誤差の統計を更新する一方、採点後の件数が閾値以下なら `Learn` がfalseを返す。variance_feedback の warm-up はこの形のままで、warmup_mode を使わない。ただし採点はlaneごとの採点前の件数で判定し、閾値をまたぐ batch の途中から通常の倍率になる。`warmup_steps=0` はどちらの warmup_mode でも初回から学習し、初回から誤差を統計に入れる。使わない warmup_mode が既定と違うときだけ構築時に1回 INFO を出す。
 
 学習の刻みはCoordinatorが持つ。kを `learn_batch_size` とし、intakeごとにcreditへ `N × learn_ratio / k` を足す。creditが1以上ならk件で1 step、1未満の端数は次へ残す。既定のratio=0.25・batch size=32なら、N=128では毎intakeに1 step、N=64では2 intakeに1 stepとなり、どちらも128経験あたり32件を1回学習する。learnerが有効でNがbatch sizeより小さいときは構築時に停止し、件数を縮めない。learner無効のRunではこの比較を行わない。
@@ -335,11 +354,11 @@ sequenceDiagram
 
 ### 3.7 Replay に保存したボーナスは採点し直さない
 
-現在の実装は、経験が facade に来た時点で外的報酬とボーナスを合成し、1本の報酬として ReplayBuffer へ渡す。後から同じ経験を取り出しても、新しい predictor でボーナスを再計算しない。
+既定のcombinedは、経験が facade に来た時点で外的報酬とボーナスを合成し、1本の報酬として ReplayBuffer へ渡す。後から同じ経験を取り出しても、新しい predictor でボーナスを再計算しない。
 
 例えば、収集時に珍しくてボーナス0.2が付いた遷移は、その場所に慣れた後の学習でも、保存された0.2を含む報酬を使う。現在その場所を訪れたときのボーナスとは一致しなくてよい。β を途中で変えても、Replay に既に入った報酬までは書き換わらない。
 
-この方法なら Replay の形式を変えずに導入できるが、外的・内的報酬を後から別々に扱えない。これは現在の実装の選択であり、RND という手法に必須の制約ではない。
+この方法なら Replay の形式を変えずに導入できるが、外的・内的報酬を後から別々に扱えない。分解時は2成分を保存し、外的・内的を別々に学ぶ（§3.9）。どちらもRNDをReplay抽選時に採点し直さない。
 
 ### 3.8 実装を読む順番
 
@@ -355,6 +374,30 @@ sequenceDiagram
 | 契約をどう確かめるか | [`intrinsic_test.cpp`](../../core/anet-core/src/intrinsic_test.cpp) | 固定教師、学習、更新順序、報酬加算、保存再開などを公開経路から検証する |
 
 DefaultDQN側が解釈するのは `intrinsic.enabled`・`intrinsic.beta`・`intrinsic.observation`・`intrinsic.use_done_mask`・`intrinsic.learn_ratio`・`intrinsic.learn_batch_size`。RND固有の設定はFactoryへ渡し、`RndNoveltyEstimatorConfig` が解釈する。報酬の合成・学習の刻みを担当する側と、新しさの計算・補助学習そのものを担当する側を分けている。
+
+### 3.9 価値の分解と内的報酬スケーラ
+
+`intrinsic.value_mode=decomposed`は外的と内的のHeadを別々の報酬で学び、行動選択で`Q_ext + β Q_int`へ合わせる。`intrinsic.enabled=true`が必要で、skipとの併用はERRORになる。TD・QR・IQN、TBO、Head入力の共有/専用、merge/splitの契約は[214 価値の分解](214_value_decomposition.jp.md)を参照する。
+
+取り込みの順序は、`α−1`へdoneの扱いを適用し、`intrinsic.reward_scaler`を当て、その後にβを掛ける。combinedはβ倍した値を外的報酬へ足す。decomposedはβを掛ける前のスケール済み値と外的報酬を2成分で保存する。`bonus_mean`等とTraceの`intrinsic.bonus`は、どちらのモードでもβ倍後の値である。
+
+```mermaid
+graph TD
+    A["倍率 α"] --> M["α − 1"]
+    M --> D["doneの扱い<br/>既定では、終端の次観測の<br/>ボーナスを0にする<br/>（条件は§3.3）"]
+    D --> S["内的報酬スケーラ<br/>既定は恒等"]
+    X["外的報酬"] --> XS["外的の報酬スケーラ"]
+    S --> C{"intrinsic.value_mode"}
+    XS --> C
+    C -- combined --> B["スケール済み外的 + β × 内的<br/>Replayへ1成分"]
+    C -- decomposed --> R["スケール済み外的と内的<br/>Replayへ2成分<br/>βは行動選択でQに掛ける"]
+```
+
+doneで0にした値も内的報酬スケーラを通る。動的なスケーラでは、その0も統計に入る。
+
+内的スケーラの既定は定数倍率1、動的変換なし、自動倍率なし、clipなしの恒等変換。`dynamic_mode=reward_std`は報酬、`return_std`はlane別の割引和の標準偏差で報酬を割る。後者はエピソード境界で割引和を消さず、初期化時の実効内的gammaを使う。return_stdとuse_auto_post_scale=trueの併用はERRORになる。
+
+共有gamma・episodic・combined bootstrap・loss_weight=1・priority_lambda=1・feature_gradient=mergeが既定。separateのgammaとfixedのActor action_betaには既定値がなく、使う構成で必ず指定する。内的報酬の正規化とQのTBO変換は別々の処理である。
 
 ## 4. 具体例 ― 値・設定・指標を読む
 
@@ -377,30 +420,30 @@ lane 1 は正のボーナスを得ても、外的なペナルティと相殺し�
 
 以下は `DefaultDQNAgent.` を省略したキーである。既定値は [`agent.txt`](../../apps/runner/config/agent.txt) と RND の設定型に対応する。
 
-| キー | 既定 | 変わるもの・注意点 |
-| --- | ---: | --- |
-| `intrinsic.enabled` | false | false なら estimator を作らず、β と RND の他の設定も解釈しない |
-| `intrinsic.beta` | 0.1 | `α−1` に掛ける係数。0以上の ProfiledValue。0にしても採点・補助学習は止まらない |
-| `intrinsic.observation` | next_state | 採点・補助学習へ渡す生の観測。stateなら行動時の観測で、doneをmaskしない |
-| `intrinsic.use_done_mask` | true | next_state の done lane の内的報酬を0にするか。stateでは使わない |
-| `intrinsic.rnd.warmup_mode` | learn_predictor | whiten の warm-up 中に学習させる。collect_errors は誤差を集めて学習を止める |
-| `intrinsic.rnd.error_norm.average_mode` | cumulative | whiten の誤差の統計。cumulative または ema |
-| `intrinsic.rnd.error_norm.ema_steps` | 1,000,000 | ema の時定数。採点した観測の件数で、整数1以上 |
-| `intrinsic.rnd.error_norm.use_centering` | true | whiten の式で誤差から平均を引くか |
-| `intrinsic.rnd.multiplier_mode` | clipped | unclippedなら倍率を制限せず、負のボーナスも残す |
-| `intrinsic.rnd.statistics_mode` | whiten | variance_feedbackならTaigaらの再帰統計をlane順に使う |
-| `intrinsic.rnd.head.init.*` | xavier・manual_gain=0 | 両Headに適用する既存WeightInitConfigの設定キー |
-| `intrinsic.rnd.adam_eps` | 1e-8 | 私有AdamWのeps。有限で正の値。読込時も現在設定を使う |
-| `intrinsic.rnd.output_dim` | 128 | target / predictor が出すベクトルの次元。1以上 |
-| `intrinsic.rnd.multiplier_max` | 5 | α の上限 L。有限で1より大きい値 |
-| `intrinsic.learn_ratio` | 0.25 | 収集1経験あたりの補助学習件数。有限で0より大きく1以下 |
-| `intrinsic.learn_batch_size` | 32 | 補助学習1 stepの件数。整数で1以上。learner有効時にlane数を超える値は構築時に停止。§3.5参照 |
-| `intrinsic.rnd.warmup_steps` | 12,800 | ボーナスを止める観測の件数。0以上。中身は warmup_mode による |
-| `intrinsic.rnd.learning_rate` | 0.0001 | predictor の学習率。有限で正の値 |
-| `intrinsic.rnd.weight_decay` | 0 | predictor の AdamW の重み減衰。有限で0以上 |
-| `intrinsic.rnd.obs_norm.clip_range` | 5 | 観測正規化後の制限範囲。α の上限 L とは別 |
-| `intrinsic.rnd.target.net.*` | 各環境の `run.@rnd` が指定 | targetの入力とBody。必須 |
-| `intrinsic.rnd.predictor.net.*` | 各環境の `run.@rnd` が指定 | predictorの入力とBody。必須。targetから暗黙に補わない |
+| キー                                       |                   既定 | 変わるもの・注意点                                                               |
+| ---------------------------------------- | -------------------: | ----------------------------------------------------------------------- |
+| `intrinsic.enabled`                      |                false | false なら estimator を作らず、β と RND の他の設定も解釈しない                             |
+| `intrinsic.beta`                         |                  0.1 | `α−1` に掛ける係数。0以上の ProfiledValue。0にしても採点・補助学習は止まらない                      |
+| `intrinsic.observation`                  |           next_state | 採点・補助学習へ渡す生の観測。stateなら行動時の観測で、doneをmaskしない                              |
+| `intrinsic.use_done_mask`                |                 true | next_state の done lane の内的報酬を0にするか。stateでは使わない                          |
+| `intrinsic.rnd.warmup_mode`              |      learn_predictor | whiten の warm-up 中に学習させる。collect_errors は誤差を集めて学習を止める                   |
+| `intrinsic.rnd.error_norm.average_mode`  |           cumulative | whiten の誤差の統計。cumulative または ema                                        |
+| `intrinsic.rnd.error_norm.ema_steps`     |            1,000,000 | ema の時定数。採点した観測の件数で、整数1以上                                               |
+| `intrinsic.rnd.error_norm.use_centering` |                 true | whiten の式で誤差から平均を引くか                                                    |
+| `intrinsic.rnd.multiplier_mode`          |              clipped | unclippedなら倍率を制限せず、負のボーナスも残す                                            |
+| `intrinsic.rnd.statistics_mode`          |               whiten | variance_feedbackならTaigaらの再帰統計をlane順に使う                                 |
+| `intrinsic.rnd.head.output_dim`          |                  128 | target / predictor の Head が出すベクトルの次元。1以上。Head の入力の幅は、構築時に Body の出力から決まる |
+| `intrinsic.rnd.head.init.*`              | xavier・manual_gain=0 | 両Headに適用する既存WeightInitConfigの設定キー                                       |
+| `intrinsic.rnd.adam_eps`                 |                 1e-8 | 私有AdamWのeps。有限で正の値。読込時も現在設定を使う                                          |
+| `intrinsic.rnd.multiplier_max`           |                    5 | α の上限 L。有限で1より大きい値                                                      |
+| `intrinsic.learn_ratio`                  |                 0.25 | 収集1経験あたりの補助学習件数。有限で0より大きく1以下                                            |
+| `intrinsic.learn_batch_size`             |                   32 | 補助学習1 stepの件数。整数で1以上。learner有効時にlane数を超える値は構築時に停止。§3.5参照                |
+| `intrinsic.rnd.warmup_steps`             |               12,800 | ボーナスを止める観測の件数。0以上。中身は warmup_mode による                                   |
+| `intrinsic.rnd.learning_rate`            |               0.0001 | predictor の学習率。有限で正の値                                                   |
+| `intrinsic.rnd.weight_decay`             |                    0 | predictor の AdamW の重み減衰。有限で0以上                                          |
+| `intrinsic.rnd.obs_norm.clip_range`      |                    5 | 観測正規化後の制限範囲。α の上限 L とは別                                                 |
+| `intrinsic.rnd.target.net.*`             |  各環境の `run.@rnd` が指定 | targetの入力とBody。必須                                                       |
+| `intrinsic.rnd.predictor.net.*`          |  各環境の `run.@rnd` が指定 | predictorの入力とBody。必須。targetから暗黙に補わない                                    |
 
 `learn_ratio` と `learn_batch_size` はoptimizerの進む回数と1回の件数を変え、誤差が減る速度にも影響する。単なる高速化の設定として扱わない。βは同じαに対する報酬の大きさ、Lは大きな誤差の倍率上限を変える。作用する位置を分けて読む。
 
@@ -471,7 +514,7 @@ RND本体は、whiten の EMA だけ `RndNoveltyEstimator-4`、累積と varianc
 
 CoordinatorはRND本体の後ろに自身の未消費credit、lane抽選の乱数状態、累計成功回数を保存する。RND本体を先に置き、異なる書式を本体の検査で拒否する。呼び出し途中を除き、初回採点前、EstimateとLearnの間、Learn直後で保存・復元できる。計算グラフは持ち越さない。直近lossは保存対象外で、読込後の最初の成功stepまではNaNとなる。Agentはこの節の保存・復元をCoordinatorの`Save`・`Load`へ委ねる。
 
-RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付けて区別する。保存側に RND があるのに読み込み側が無効、またはその逆の場合はエラーにする。無効時は従来の保存形式を使う。
+RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付けて区別する。保存側に RND があるのに読み込み側が無効、またはその逆の場合はエラーにする。分解または動的な外的・内的スケーラを使うAgentは第3版の書式を使い、統計とreturn_stdの割引和も保存する。分解の有無、feature_gradient、スケーラの種類の不一致はERRORとし、return_stdのlane数だけが違えば統計を保持して割引和を初期化し1回WARNする。combined・定数スケーラの構成は従来の形式を維持する。
 
 読込ではpredictorのoptimizerの学習状態を復元したうえで、学習率・重み減衰・adam_epsを現在の設定へ合わせ、差があればRunに1回INFOで知らせる。それらを変更した再開は、同じ学習をそのまま継続する場合とは区別する。
 
@@ -479,7 +522,7 @@ RND を含む Agent checkpoint は、従来の識別子へ `;intrinsic` を付�
 
 DefaultDQNの`run.@rnd`では、235 `rnd_bonus`、600 `rnd_err`、610 `rnd_norm`の3列を出す。鍵はそれぞれ`intrinsic.bonus`・`intrinsic.error`・`intrinsic.normalized_error`である。ボーナスは230 `reward`の直後、誤差2列は`prio_pct`の右に並ぶ。240 `decision`・250 `skip`とは重複せず、TempoRLとの併用でも各列を保つ。RND無効では既知の鍵としてNaNを返す。Rainbowはこれらの鍵を認識しない。
 
-`EstimateWithoutUpdate`は観測を現在の統計で正規化し、targetとpredictorを勾配なしで通す。誤差は特徴ごとの二乗誤差の平均である。誤差統計・観測統計・件数・集約診断と重みは更新しない。統計方式とwarm-upに従って倍率を作り、ボーナスはβ×(倍率−1)とする。
+`EstimateWithoutUpdate`は観測を現在の統計で正規化し、targetとpredictorを勾配なしで通す。誤差は特徴ごとの二乗誤差の平均である。誤差統計・観測統計・件数・集約診断と重みは更新しない。統計方式とwarm-upに従って倍率を作り、doneの扱いのあと内的スケーラのScaleWithoutUpdateを当ててβを掛ける。スケーラの統計・割引和・clip率も更新しない。既定の恒等スケーラならβ×(倍率−1)となる。
 
 | 条件（上から最初の行を適用） | 標準化した値 |
 |---|---|
@@ -499,7 +542,7 @@ DefaultDQNの`run.@rnd`では、235 `rnd_bonus`、600 `rnd_err`、610 `rnd_norm`
 
 βはCoordinatorの構築時に予定をexp step 0で評価して用意し、以後は学習の有効・無効に依らず、学習の入口のexp stepで評価した値に更新する。推定器と同じ時機に写し、checkpointへ保存せず、読み込んでも上書きしない。評価専用・再開直後もボーナスが出る。新しいRunの起動直後は誤差統計が空で倍率が1なので、ボーナスは0になる。`intrinsic.observation=next_state`なら行に表示する結果の画面、`state`なら行動を決めた1つ前の画面を採点する。
 
-Actorが写しを持つ場合、行の値は最後のActor同期時点の学習側のpredictor・統計・βによる。同じ行のQも同じ時点のnetworkを使う。写しを持たない場合はそのstepで学習側を直接読む。値は行の生成時に1回保存し、過去の行の選択で採点し直さない。内的報酬の鍵を要求しないときは採点・写し・接続・追加のAgentロックを行わない。paneを閉じた間は採点も写しも休み、開いたときに写しが無ければ通常のActor同期を行う。
+Actorが写しを持つ場合、行の値は最後のActor同期時点の学習側のpredictor・統計・βによる。同じ行のQも同じ時点のnetworkを使う。写しを持たない場合はそのstepで学習側を直接読む。値は行の生成時に1回保存し、過去の行の選択で採点し直さない。内的報酬の鍵も、分解時の`approx_priority`も要求しないときは採点・写し・接続・追加のAgentロックを行わない。Head別Qだけを要求する場合、内的報酬の採点は不要である。paneを閉じた間は採点も写しも休み、開いたときに写しが無ければ通常のActor同期を行う。
 
 forwardで乱数を引くdropout・droppathは共有乱数列を進めるので、Actorが写しを持つ場合も学習不変性の保証外である。BatchNormの更新は写しの中に閉じるが、写しを持たないActorでは学習側の統計も変わる。この場合も保証外である。これらの層は検出もWARNもしない。出荷のRND構成には含まれない。
 
@@ -522,13 +565,15 @@ Observeの時間は、内側で呼ぶDQNのstep診断（通常RNDで平均0.74�
 
 RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn_ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。GridMazeのCPU・256 laneで測った速度差は次節に記す。Atariの画像入力の費用も次節の測定結果を参照する。観測正規化の統計更新時には、既存APIによる正規化の二重計算も残る。
 
-variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md) に記録する。性能測定は別途である。
+variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×head.output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md) に記録する。性能測定は別途である。
 
 Q学習の回数とは別にbatchごとに採点・補助学習するため、Qの更新間隔を大きくしてもRNDの費用が同じ比率で減るとは限らない。計測区間は抽選、正規化、入力転送、target / predictorの順伝播、誤差転送、統計、backward、optimizerのstepを区別する。
 
 `learner.enabled=false` ではRunに1回INFOを出して採点と補助学習を休止する。有効設定なら保存状態を扱うための部品は構築される。集約診断の読み取りは値の受け渡し専用の仕組みを使う。Evaluation Traceで写しを持つActorを使うときは、定期の同期と同じロックの中で推定器とβも写すので、定期同期のロック待ちの回数は増えない。paneを開いて写しが無いときは同期が1回入り、学習の入口1回の終わりを待つ。写しを持たないActorではstepごとに待つ。これはUIスレッドの学習ロック禁止規約の、開発者が決めた例外である。Actorの同期全体を学習側が写しを公開する形へ移すときは、推定器とβも一緒に移す。
 
 ### 5.2 確認済みの範囲
+
+価値の分解・内的スケーラ・動的スケーラの保存復元の検証は[PRD121検証資材](../../core/anet-core/testdata/prd121/README.md)に置く。
 
 構造の分離後の前後比較、旧checkpointの継続、Releaseの速度は [PRD128検証資材](../../core/anet-core/testdata/prd128/README.md)を参照する。
 
@@ -555,7 +600,7 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 
 短期動作確認は、計算・報酬加算・学習・記録がつながっていることを確かめるものである。外的な成績が改善すること、難しいゲームの探索問題を解決すること、性能上の費用が許容できることまでは示していない。
 
-特に、一度慣れた経路を再び探索する動機、エピソードごとの新しさ、外的報酬と内的報酬を分離した学習、探索の強さが異なる方策の組は、今回の RND 単独実装とは別の論点である。関連する選択肢と未決は [PRD924](../memo/924_intrinsic_reward_novelty_10prd.md) にある。
+特に、一度慣れた経路を再び探索する動機、エピソードごとの新しさ、探索の強さが異なる方策の組は、今回の RND 単独実装とは別の論点である。関連する選択肢と未決は [PRD924](../memo/924_intrinsic_reward_novelty_10prd.md) にある。
 
 run.@rnd_taigaもTaigaらの完全な再現ではない。QはC51でなくIQN、CNNはSAMEでなくVALID paddingであり、Qの埋め込み・初期値・PER・統計を数える単位・ALEの版も異なる。補助学習時には更新後の統計で入力を正規化し直す。残る差の一覧は [23implの表](../memo/116_rnd_lifelong_novelty_23impl.md#本家との残る差) にある。
 
