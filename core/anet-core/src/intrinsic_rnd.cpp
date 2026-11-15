@@ -34,7 +34,7 @@ namespace {
                 "Please configure RND net.body.output.[features].");
             if (tensor.dim() != 2)
                 ANET_SYSTEM_ERROR("Invalid RND features shape=" << tensor.sizes()
-                    << "; expected [B, F] before projection to [B, output_dim].");
+                    << "; expected [B, F] before projection to [B, head.output_dim].");
             return anet::nn::LinearHeadFactory::CreateHead(features);
         }
     };
@@ -301,7 +301,6 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
       target{.net = anet::nn::NetworkConfig(data, prefix + ".target.net")},
       predictor{.net = anet::nn::NetworkConfig(data, prefix + ".predictor.net")}
 {
-    ANET_READ_CONFIG(data, output_dim);
     ANET_READ_CONFIG(data, multiplier_mode);
     ANET_READ_CONFIG(data, statistics_mode);
     ANET_READ_CONFIG(data, multiplier_max);
@@ -313,6 +312,7 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
     ANET_READ_CONFIG(data, learning_rate);
     ANET_READ_CONFIG(data, weight_decay);
     ANET_READ_CONFIG(data, adam_eps);
+    ANET_READ_CONFIG(data, head.output_dim);
     ANET_READ_CONFIG(data, head.init.mode);
     ANET_READ_CONFIG(data, head.init.manual_gain);
     ANET_READ_CONFIG(data, head.init.nonlinearity);
@@ -341,8 +341,8 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
     ANET_READ_CONFIG(data, obs_norm.post_process_threshold);
 
     // Network や optimizer の資源を確保する前に全設定を検証する。
-    if (output_dim < 1)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".output_dim=" << output_dim << "; expected >= 1.");
+    if (head.output_dim < 1)
+        ANET_SYSTEM_ERROR("Invalid " << prefix << ".head.output_dim=" << head.output_dim << "; expected >= 1.");
     if (warmup_steps < 0)
         ANET_SYSTEM_ERROR("Invalid " << prefix << ".warmup_steps=" << warmup_steps << "; expected >= 0.");
     if (!std::isfinite(multiplier_max) || multiplier_max <= 1.0f)
@@ -425,7 +425,7 @@ RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimatorConfig& config
     const anet::SeedMaker& seed_maker)
     : config_(config), device_(device),
       error_stats_(config.error_norm.average_mode == kErrorAverageEma, config.error_norm.ema_steps),
-      target_feature_stats_({config.output_dim}, 0.0)
+      target_feature_stats_({config.head.output_dim}, 0.0)
 {
     // 互いに独立した重みを作り、教師側は勾配と学習時の状態更新を止める。
     auto normalized_spec = observation_spec;
@@ -436,7 +436,7 @@ RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimatorConfig& config
         }
     }
     normalized_observation_spec_ = normalized_spec;
-    auto head = std::make_shared<RndHeadFactory>(config.output_dim, kOutput,
+    auto head = std::make_shared<RndHeadFactory>(config.head.output_dim, kOutput,
         config.head.init);
     const auto build = [&](const char* name, const anet::nn::NetworkConfig& network_config) {
         const auto seed = seed_maker.MakeNamedSeed(name);
@@ -464,7 +464,7 @@ RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimator& source)
     : config_(source.config_), device_(source.device_), byte_observation_keys_(source.byte_observation_keys_),
       normalized_observation_spec_(source.normalized_observation_spec_),
       error_stats_(config_.error_norm.average_mode == kErrorAverageEma, config_.error_norm.ema_steps),
-      target_feature_stats_({config_.output_dim}, 0.0), score_count_(source.score_count_), diagnostics_(source.diagnostics_)
+      target_feature_stats_({config_.head.output_dim}, 0.0), score_count_(source.score_count_), diagnostics_(source.diagnostics_)
 {
     // Network の再構築が消費する既定乱数を外へ持ち越さず、重みは device 内で複製する。
     ConstructionSeedScope seed_scope(0);

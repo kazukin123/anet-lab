@@ -106,7 +106,7 @@ static anet::ConfigData RndTestConfig()
         data.Set(prefix + ".branch.[feature].structure", "");
         data.Set(prefix + ".body.output.[features]", kReferenceFeature);
     }
-    data.Set("rnd.output_dim", 4);
+    data.Set("rnd.head.output_dim", 4);
     data.Set("rnd.warmup_steps", 4);
     return data;
 }
@@ -122,7 +122,7 @@ TEST_CASE("RND requires independent target and predictor configurations", "[prd1
         data.Set(prefix + ".branch.[feature].structure", "");
         data.Set(prefix + ".body.output.[features]", kReferenceFeature);
     }
-    data.Set("rnd.output_dim", 4);
+    data.Set("rnd.head.output_dim", 4);
     data.Set("rnd.warmup_steps", 0);
     data.Set("rnd.predictor.net.branch.[feature].structure", "Projection");
     data.Set("rnd.predictor.net.block.[Projection].type", "Linear");
@@ -337,7 +337,7 @@ TEST_CASE("DQN intrinsic validates beta only when enabled", "[prd116][intrinsic]
 {
     auto data = IntrinsicAgentData(false);
     data.Set("DefaultDQNAgent.intrinsic.beta", -1.0f);
-    data.Set("DefaultDQNAgent.intrinsic.rnd.output_dim", -1);
+    data.Set("DefaultDQNAgent.intrinsic.rnd.head.output_dim", -1);
     CHECK_NOTHROW(anet::rl::dqn::DefaultDQNAgentConfig(data));
     data.Set("DefaultDQNAgent.intrinsic.enabled", true);
     CHECK_THROWS_WITH(anet::rl::dqn::DefaultDQNAgentConfig(data),
@@ -1066,7 +1066,7 @@ TEST_CASE("RND checkpoint can resume at every operation boundary", "[prd116][int
 TEST_CASE("RND rejects invalid configuration before building networks", "[prd116][intrinsic][config]")
 {
     const auto invalid = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
-        {"output_dim", "0"},
+        {"head.output_dim", "0"},
         {"warmup_steps", "-1"}, {"multiplier_max", "1"}, {"multiplier_max", "nan"},
         {"learning_rate", "0"}, {"learning_rate", "inf"}, {"weight_decay", "-1"},
         {"adam_eps", "0"}, {"adam_eps", "-1"}, {"adam_eps", "nan"}, {"adam_eps", "inf"},

@@ -159,7 +159,7 @@ $$
 
 コードの入口は [`RndNoveltyEstimator::Estimate`](../../core/anet-core/src/intrinsic_rnd.cpp)。target と predictor は別の重みを持ち、target の勾配計算を止め、学習時の状態更新をしないモードに置く。Q 値を計算する Network とは共有しない。
 
-targetとpredictorは、それぞれ必須の `intrinsic.rnd.target.net.*` と `intrinsic.rnd.predictor.net.*` から別々に組む。Bodyの深さや特徴数は異なってよいが、どちらもHeadで共通の `output_dim` 次元へ射影する。Headの初期値は `intrinsic.rnd.head.init.*` で選び、実装の既定はxavierである。初期重みには別の名前付きseedを使い、教師の重みをpredictorへコピーしない。同じ変換を初めから持たせれば、練習前から答えが一致し、誤差を新しさの手掛かりにできなくなるためである。
+targetとpredictorは、それぞれ必須の `intrinsic.rnd.target.net.*` と `intrinsic.rnd.predictor.net.*` から別々に組む。Bodyの深さや特徴数は異なってよいが、どちらもHeadで共通の `head.output_dim` 次元へ射影する。Headの初期値は `intrinsic.rnd.head.init.*` で選び、実装の既定はxavierである。初期重みには別の名前付きseedを使い、教師の重みをpredictorへコピーしない。同じ変換を初めから持たせれば、練習前から答えが一致し、誤差を新しさの手掛かりにできなくなるためである。
 
 ### 3.2 2種類の正規化を分けて考える
 
@@ -401,9 +401,9 @@ lane 1 は正のボーナスを得ても、外的なペナルティと相殺し�
 | `intrinsic.rnd.error_norm.use_centering` | true | whiten の式で誤差から平均を引くか |
 | `intrinsic.rnd.multiplier_mode` | clipped | unclippedなら倍率を制限せず、負のボーナスも残す |
 | `intrinsic.rnd.statistics_mode` | whiten | variance_feedbackならTaigaらの再帰統計をlane順に使う |
+| `intrinsic.rnd.head.output_dim` | 128 | target / predictor の Head が出すベクトルの次元。1以上。Head の入力の幅は、構築時に Body の出力から決まる |
 | `intrinsic.rnd.head.init.*` | xavier・manual_gain=0 | 両Headに適用する既存WeightInitConfigの設定キー |
 | `intrinsic.rnd.adam_eps` | 1e-8 | 私有AdamWのeps。有限で正の値。読込時も現在設定を使う |
-| `intrinsic.rnd.output_dim` | 128 | target / predictor が出すベクトルの次元。1以上 |
 | `intrinsic.rnd.multiplier_max` | 5 | α の上限 L。有限で1より大きい値 |
 | `intrinsic.learn_ratio` | 0.25 | 収集1経験あたりの補助学習件数。有限で0より大きく1以下 |
 | `intrinsic.learn_batch_size` | 32 | 補助学習1 stepの件数。整数で1以上。learner有効時にlane数を超える値は構築時に停止。§3.5参照 |
@@ -534,7 +534,7 @@ Observeの時間は、内側で呼ぶDQNのstep診断（通常RNDで平均0.74�
 
 RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn_ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。GridMazeのCPU・256 laneで測った速度差は次節に記す。Atariの画像入力の費用も次節の測定結果を参照する。観測正規化の統計更新時には、既存APIによる正規化の二重計算も残る。
 
-variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md) に記録する。性能測定は別途である。
+variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×head.output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md) に記録する。性能測定は別途である。
 
 Q学習の回数とは別にbatchごとに採点・補助学習するため、Qの更新間隔を大きくしてもRNDの費用が同じ比率で減るとは限らない。計測区間は抽選、正規化、入力転送、target / predictorの順伝播、誤差転送、統計、backward、optimizerのstepを区別する。
 
