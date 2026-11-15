@@ -63,6 +63,7 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 | 8 | skill の実体コピーの同期 | `git -c core.safecrlf=false diff --no-index --no-renames --name-status .agents/skills .claude/skills`。変更ファイルに `.agents/skills/` か `.claude/skills/` の配下を含むときだけ | 変更ファイルに含まれる skill 配下のファイルが、出力に現れない。出力は、中身が違うものが `M`、片方にしか無いものが `D`（`.agents/skills` 側だけ）か `A`（`.claude/skills` 側だけ）で、片方の側のパスで出る。`skills/` より後ろの相対パスで突き合わせる | [skills README](../../.agents/skills/README.md) 冒頭 |
 | 62 | 既存ファイルの BOM | `./.venv/Scripts/python.exe -c "import codecs,subprocess,sys; from pathlib import Path; base=sys.argv[1]; subprocess.run(['git','rev-parse','--verify',base+'^{tree}'],check=True,stdout=subprocess.DEVNULL); args=[a.replace(chr(92),'/') for a in sys.argv[2:]]; paths=[p for p in args if Path(p).is_file() and subprocess.run(['git','cat-file','-e',base+':'+p],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0]; bad=[p for p in paths if (subprocess.check_output(['git','show',base+':'+p])[:3]==codecs.BOM_UTF8)!=(Path(p).read_bytes()[:3]==codecs.BOM_UTF8)]; print('\n'.join('NG: '+p+' (UTF-8 BOM changed)' for p in bad) or 'OK: UTF-8 BOM preserved ('+str(len(paths))+' checked, '+str(len(args)-len(paths))+' skipped)'); sys.exit(bool(bad))" <基準コミット> <変更ファイル>` | BOM の有無が一致すれば `OK: UTF-8 BOM preserved (<比べた件数> checked, <飛ばした件数> skipped)`・終了値0、異なれば対象パス付きの `NG`・終了値1。作業ツリーに無いファイルと基準側に無い新しいファイルは比較せず、`skipped` に数える | 本節のBOMの規約 |
 | 72 | 重なる文字列リテラル | `./.venv/Scripts/python.exe -c "import collections,re,subprocess,sys; from pathlib import Path; base=sys.argv[1]; subprocess.run(['git','rev-parse','--verify',base+'^{tree}'],check=True,stdout=subprocess.DEVNULL); paths=[p.replace(chr(92),'/') for p in sys.argv[2:]]; diffs=[(p,subprocess.check_output(['git','diff','--no-ext-diff','--no-color','-U0',base,'--',p]).decode('utf-8','replace') if subprocess.run(['git','cat-file','-e',base+':'+p],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0 else '\n'.join('+'+l for l in Path(p).read_text(encoding='utf-8-sig').splitlines())) for p in paths]; rx=chr(34)+r'([A-Za-z_][A-Za-z0-9_./-]*)'+chr(34); counts=[(p,collections.Counter(m for l in d.splitlines() if l.startswith('+') and not l.startswith('+++') and '#include' not in l for m in re.findall(rx,l))) for p,d in diffs]; [print(p,n,s) for p,c in counts for s,n in c.most_common() if n>=2]" <基準コミット> <変更ファイルのうち *.cpp と *.hpp（*_test.cpp を含む）>`。変更ファイルに `*.cpp` か `*.hpp` があるときだけ。基準に無い新規ファイルは、未追跡でも全文を読む | 出力は、同じファイルの追加行に 2 回以上現れる識別子らしい文字列（パス・回数・文字列）である。候補を項番 66 で判定し、設定キー・ログ文言・テストの期待値などの例外は同項に従う。単独の識別子や既存行との重複はこの検査だけでは拾えないので、項番 66 の確認も行う | 本書「C++ コード」の規約 |
+| 83 | 既存の ADR の保持 | `git diff <基準コミット> --no-renames --name-status -- docs/adr`。`M` の行があれば、そのファイルに `git diff <基準コミット> -- <そのファイル>`。項番 80〜82 の適用範囲に当たるときだけ | 基準コミットにある ADR の変更（`M`）と削除（`D`）が無い。`M` がある場合は、差分が先頭への注記の追加だけである。基準コミットのあとのコミット、ステージ済みの変更、ステージしていない変更を、同じに扱う。新しい ADR（`A` と、出力に現れない未追跡のファイル）は問わない | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
 
 ## 読解観点
 
@@ -102,6 +103,16 @@ BOM の規約: 基準コミットと作業ツリーで、変更した既存フ�
 | 21 | 過去の記録の保持 | 過去の Run artifact・ADR・実験記録・履歴資料を、新しい契約に合わせて書き換えていない | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
 | 22 | 互換の条件 | 互換のためのコードを持つ場合、互換対象・移行方法・互換期間・削除条件が、コードか文書に書かれている。持たない実装は対象外 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
 
+### ADR
+
+適用: ADR を起こした、または変えた変更。PRD の実装で起こしたものも、PRD に沿わない変更（入力元が「なし」）で起こしたものも含む。
+
+| 項番 | 確認観点 | 確認内容 | 規約の所在 |
+| --- | --- | --- | --- |
+| 80 | ADR を起こす条件 | 起こした ADR が、所在の 3 条件をすべて満たす | [ADR-FORMAT.md](../../.agents/skills/anet-create-prd/ADR-FORMAT.md)（When to offer an ADR） |
+| 81 | ADR の形 | 起こした ADR が、題と 1〜3 文で、判断と理由を述べている。PRD・実装計画・規約の本文を写していない。番号が、基準コミットの ADR の最大の番号より大きく、作業ツリーのほかの ADR と重ならない。2 本以上起こしたときは、番号が続いている。ファイル名が決定文である | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Keep it short）、[ADR-FORMAT.md](../../.agents/skills/anet-create-prd/ADR-FORMAT.md)（Numbering）、[AGENTS.md](../../AGENTS.md) §設計判断の記録(ADR)を読む条件（ファイル名） |
+| 82 | 既存 ADR の保持 | 基準コミットにある ADR の本文を書き換えていない。判断を変えるときは、古い ADR の先頭に注記を足し、新しい ADR を起こしている。この変更で起こした ADR（基準コミットに無いもの）の書き直しは対象外である。基準コミットにあるかは、項番 83 の出力で見る | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
+
 ### 失敗の扱い
 
 **規約**
@@ -138,7 +149,7 @@ Tensor を組み合わせる処理では、入力と出力の rank・各軸の�
 8. 説明に使う記号（`z`）は記号であることを書き、設定キーや公開名（`skip_context`）と取り違えないようにする。
 9. 名前を変えるときは、変える理由（多義の解消、既存の表記への揃えなど）を、PRD・実装計画・依頼のどれかに書く。
 
-用語集との照合は [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件、クラス名の接尾辞と動詞、名前つきの定数、汎用層の名前は本書「C++ コード」の規約による。
+用語集との照合は [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件、クラス名の接尾辞と動詞、関数名の形、名前つきの定数、汎用層の名前は本書「C++ コード」の規約による。
 
 適用: 名前（設定キー、メトリクスの tag、クラス・関数・メンバ・引数、層、プロファイル）を足した、または変えた実装。
 
@@ -221,6 +232,33 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 - C++ の `.cpp` 側では、`namespace ... {}` で全体を囲むのではなく `using namespace ...;` を使用。
 - `.cpp` の namespace を追加・変更するときは、[PRD079「確定事項」D1〜D4](../memo/079_cpp_internal_linkage_convention_10prd.md#確定事項) のブロックのインデントと内部リンケージの使い分けを読む。テストも対象にする。
 - 同じ名前空間で省略可能な名前空間修飾は省略する。
+- クラスの宣言は、メンバを種類（型・定数・関数・データメンバ）ごとにまとめ、次のように区切る。並びは Google の Declaration Order のままにする（アクセスの範囲は public → protected → private、範囲の中は型 → 定数 → 関数 → データメンバ、関数は生成（factory・コンストラクタ・代入・デストラクタ）が先）。
+  - 種類が変わるところでは、アクセスの範囲が同じでもアクセス指定（`public:`・`protected:`・`private:`）を書き直し、種類の見出しにする。
+  - 1 つのアクセス指定の下では、次の群の間に空行を入れる。生成（factory・コンストラクタ・代入・デストラクタ）とほかの関数。基底の仮想関数の上書きと、そのクラスだけの関数。名前の部品の定数と、それを組み立てた鍵。これ以外の分け方（読み出しと変更など）で空行を入れるかは、書き手が決める。群の先頭に Doxygen のコメントがあるときは、空行をコメントの前に置く。
+  - ただし、1 つのアクセス指定の下の宣言が 3 個以下なら、空行を入れない。宣言は行でなく宣言の単位で数える（2 行にわたるコンストラクタも 1 個）。
+  - アクセス指定の前と直後には空行を入れない。Google の Class Format と違い、アクセス指定そのものを区切りにする。
+  - アクセス指定を書かない struct（集成体の DTO など）は、種類の切れ目に、アクセス指定の代わりに空行を入れる。群の空行と 3 個以下の例外も同じに当て、宣言は struct 全体で数える。
+  - 既存のクラスには、この規約を当てない。並び・アクセス指定・空行を、この規約に合わせて直さない。既存のクラスにメンバを足すときは、Declaration Order の位置に置き、アクセス指定は、アクセスの範囲を変えるのに要るときだけ書く。
+
+  例:
+  ```cpp
+  class FooLearner final : public Base {
+  public:
+      static constexpr char kLossKey[] = "loss";
+      static constexpr char kGradNormKey[] = "grad_norm";
+  public:
+      explicit FooLearner(const Config& config);
+      ~FooLearner() override;
+
+      void Learn(const anet::TensorDict& batch) override;
+      void Reset() override;
+
+      float GetLastLoss() const;
+  private:
+      const Config config_;
+      float last_loss_ = 0.0f;
+  };
+  ```
 - 初期化処理は、依存に必要な順序を守ったうえで、共通基本処理から個別機能へ並べる。同じ目的の初期化ブロックを、別機能の初期化で分断しない。たとえば seed の準備をまとめ、共通の実行時変数を生成してから、個別機能の推定器を生成する。依存のためにこの順序にできない場合は、その依存が分かるコメントを置く。
 - `const` を適切かつ積極的に使う。
 - 生ポインタ `T*` は所有しない借用を表す。所有は `std::unique_ptr` / `std::shared_ptr` で表す（フレームワークが所有を規定する場合は下記）。
@@ -231,6 +269,13 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 - `dynamic_cast` はテストコード内に限定し、production code では使用しない。型ごとの分岐が必要な場合は、仮想関数、明示的な interface、既存 API の拡張、または型情報を持つデータ構造で表現する。`dynamic_cast` を避けるために取り出し口（`GetXxxSource`・`AsXxx` など）を足す前に、基底の型がその interface を持つべきかを見る。
 - UI スレッド（GUI のイベントとタイマー）から、学習スレッドが更新の間ずっと持つロックを取らない。学習側の可変状態は、学習スレッドで作った写しか、atomic に公開した値を通して読む。
 - クラス名は、作る側・結果・読み口などの役割を、接尾辞（Provider・Builder・Reader・Result など）で示す。既存のコードで使われている動詞（Create・Capture・On など）は、既存と同じ意味で使う。
+- 関数（メンバ関数・自由関数・ファイルの中の static 関数）の名前は、動詞で始める（`MakeIntrinsicHeadFeatures`）。
+  - 値を返す関数も、組み立てる・計算する・読み出すことを動詞で示す（`Make…`・`Compute…`・`Get…`）。引数なしで状態を読むだけの関数も `Get` で始める（`GetCapacity()`）。
+  - 真偽を返す関数は、問いの形にする（`Is…`・`Has…`・`Can…`・`Should…`・`Needs…`）。
+  - 型の変換の `To…`・`As…`（`ToString`・`AsXxx`）と、イベントの受け口の `On…` は、この形のまま使ってよい。
+  - 外の決まりで名前が決まるものは、その名前にする。標準ライブラリ・libtorch・wxWidgets の型の仮想関数の上書きと、range-for に要る `begin`・`end` が当たる。
+  - 標準ライブラリか libtorch に同じ名前の関数がある計算は、その名前でよい（`Lerp`・`Softmax`・`Argmax`）。
+  - 既存の関数を、この規約だけを理由に改名しない。
 - 外で使わない補助のクラスは、持ち主のクラスの内側（private な入れ子）か、.cpp の無名名前空間に置き、公開ヘッダの名前空間で宣言しない。
 - 設定の固定キーは `ANET_READ_CONFIG(config_data, head.init.trunc_b)` の形で読み、設定 DTO のメンバのパスを設定キーと一致させる。`ReadConfig(config_data, "head.init.trunc_b", head_init.trunc_b)` のように、文字列のキーと名前の違うメンバを対応付けない。一致させるために、必要なら DTO に入れ子の struct を設ける。`ReadConfig` を直接使ってよいのは、キーが実行時に決まる場合（`actor.[<key>]` のような添字付きのキー）と、読んだ値を別の型へ変換して持つ場合（文字列を enum へ変換する `skip.network_mode` など）に限る。
 - 次のリテラルは、名前つきの定数（`kXxx`）にして使う。
@@ -262,6 +307,8 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 | 65 | 共通処理の置き場 | 足した処理のうち、扱う型・機構の情報だけで正誤や結果が決まるもの（設定の値域・整合の検証など）が、個別の利用側ではなく、その型・機構の共通処理にあって、利用側はそれを呼んでいる。既存の共通処理と同じ内容を、利用側に重ねて書いていない | [AGENTS.md](../../AGENTS.md) §汎用機構と利用側の責任境界 |
 | 66 | リテラルの定数化 | 足した・変えたコードで、2 か所以上で使う同じ値と、所在の節が挙げる外と取り決める識別子が名前つきの定数になっていて、使う箇所と診断のメッセージはその定数を参照している。テストと新規ファイルも確認する。設定キー・ログの文言・1 か所だけのテストの期待値と設定の列挙値は対象外 | 本節の規約 |
 | 75 | 初期化の順序 | 追加・変更した初期化が、依存順序を守り、共通基本処理から個別機能へ並んでいる。同じ目的のブロックが別機能で分断されていない。依存のために順序を変えた箇所は、コメントから理由が分かる | 本節の規約 |
+| 78 | クラス宣言の区切り | 新しく書いたクラスで、種類（型・定数・関数・データメンバ）の切れ目ごとにアクセス指定を書き直している（アクセス指定を書かない struct は、宣言が 4 個以上なら、代わりに空行がある）。1 つのアクセス指定の下（struct は全体）の宣言が 4 個以上なら、所在の節が挙げる群（生成とほかの関数、上書きとそのクラスだけの関数、名前の部品の定数と組み立てた鍵）の間に空行があり、3 個以下なら空行が無い。アクセス指定の前後に空行が無い。既存のクラスの並び・アクセス指定・空行を、この規約に合わせて直していない。既存のクラスに足したメンバは Declaration Order の位置にあり、アクセス指定は、アクセスの範囲を変えるのに要るときだけ書いている | 本節の規約 |
+| 79 | 関数名の形 | 足した関数と、名前を変えた関数の名前が、動詞で始まっている。真偽を返す関数は問いの形で、引数なしで状態を読む関数は `Get` で始まっている。所在の節が挙げる形と名前（`To`・`As`・`On`、外の決まりで決まる名前、標準ライブラリ・libtorch と同じ名前の計算）は対象外。既存の関数を、この規約だけを理由に改名していない | 本節の規約 |
 
 ### コメントと TODO
 
