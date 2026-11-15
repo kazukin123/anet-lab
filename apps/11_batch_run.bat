@@ -20,13 +20,14 @@ ping -n 16 127.0.0.1 >nul
 tasklist /FI "IMAGENAME eq AnetRLRunner_ab.exe" 2>nul | find /I "AnetRLRunner_ab.exe" >nul
 if not errorlevel 1 goto :waitprev
 
-SET "SRC_EXE=%~dp0..\.scratch\r125-20261112\bin\AnetRLRunner_r125_20261112.exe"
+SET "SRC_EXE=bin\%BUILD%\AnetRLRunner.exe"
 if not exist "%SRC_EXE%" goto :no_exe
 copy /Y "%SRC_EXE%" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 if errorlevel 1 goto :no_exe
 if not exist "bin\%BUILD%\AnetRLRunner_ab.exe" goto :no_exe
 
 SET RUNNER="bin\%BUILD%\AnetRLRunner_ab.exe"
+for %%F in ("%SRC_EXE%") do echo %DATE% %TIME% EXE %%~fF built %%~tF
 
 SET /A SUCCEEDED_RUNS=0
 SET /A FAILED_RUNS=0
@@ -45,21 +46,33 @@ SET "MZT=E1.game=montezuma_revenge run.seed=1 run.eval.[greedy].eval_episodes=16
 SET "MZT2=E1.game=montezuma_revenge run.seed=2 run.eval.[greedy].eval_episodes=16"
 SET "NMDD=DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true"
 SET "R123=DefaultDQNAgent.intrinsic.rnd.warmup_steps=200000"
+SET "VD=DefaultDQNAgent.intrinsic.value_mode=decomposed DefaultDQNAgent.intrinsic.reward_scaler.constant_scale=0.01 DefaultDQNAgent.intrinsic.beta=1"
+SET "VDMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@value_decomposition"
+SET "VDG1=metrics.scalar.[77_agent_value/41_greedy_disagree]=extrinsic_q_session_argmax_disagreement_rate $eval.[greedy] $actor @session_end"
+SET "VDG2=metrics.scalar.[77_agent_value/42_greedy_regret]=extrinsic_q_session_regret_mean $eval.[greedy] $actor @session_end"
+SET "VDG3=metrics.scalar.[77_agent_value/43_greedy_ext_gap]=extrinsic_q_session_gap_mean $eval.[greedy] $actor @session_end"
+SET "VDG4=metrics.scalar.[77_agent_value/44_greedy_int_gap]=intrinsic_q_session_gap_mean $eval.[greedy] $actor @session_end"
+SET "EVB0=DefaultDQNAgent.learner.enabled=false app.save_agent_on_close=false DefaultDQNAgent.actor.[greedy].intrinsic.action_beta_mode=fixed DefaultDQNAgent.actor.[greedy].intrinsic.action_beta=0 DefaultDQNAgent.actor.[greedy_single].intrinsic.action_beta_mode=learner run.eval.[eval].eval_batch_size=16 run.eval.[eval].eval_episodes=16 run.eval_schedule.[eval].interval=10 run.eval_schedule.[greedy].interval=10 run.eval_schedule.[greedy_single].interval=10 run.eval_schedule.[eval_target].interval=0 run.eval_schedule.[eval].warmup_count=0 run.eval_schedule.[greedy].warmup_count=0 run.eval_schedule.[greedy_single].warmup_count=0 app.batchrun.exp_exit_step=12"
+SET "VDS1=metrics.scalar.[77_agent_value/45_gs_disagree]=extrinsic_q_session_argmax_disagreement_rate $eval.[greedy_single] $actor @session_end"
+SET "VDS2=metrics.scalar.[77_agent_value/46_gs_regret]=extrinsic_q_session_regret_mean $eval.[greedy_single] $actor @session_end"
+SET "VDS3=metrics.scalar.[77_agent_value/47_gs_ext_gap]=extrinsic_q_session_gap_mean $eval.[greedy_single] $actor @session_end"
+SET "VDS4=metrics.scalar.[77_agent_value/48_gs_int_gap]=intrinsic_q_session_gap_mean $eval.[greedy_single] $actor @session_end"
+SET "G99NE=DefaultDQNAgent.learner.intrinsic.discount_mode=separate DefaultDQNAgent.learner.intrinsic.gamma=0.99 DefaultDQNAgent.learner.intrinsic.terminal_mode=non_episodic"
 
 call :use_ws AtariRnd-01 Atari.txt
 
-echo === 21. montezuma_revenge 30m seed 2: b001 recipe (Munchausen off, Double DQN on) with the PRD123 RND default (warm-up 200k), beta 0.01 ===
-call :find_done mz_tg_r123_b001_s2
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.01 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b001_s2"
+echo === 26. montezuma_revenge eval only: 30m weights of mz_tg_r121_vd_s1, greedy with intrinsic beta 0 (greedy_single and eval keep beta 1) ===
+call :find_done mz_r121_vd_s1_ev_b0
+if not defined DONE_DIR call :find_ckpt run_*_mz_tg_r121_vd_s1
+if not defined DONE_DIR if defined CKPT call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%VDS1%" "%VDS2%" "%VDS3%" "%VDS4%" %EVB0% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_r121_vd_s1_ev_b0"
 
-echo === 22. montezuma_revenge +20m from 20 (30m to 50m): same recipe as 20, seed 1, continued from its agent_close.anet ===
-call :find_done mz_tg_r123_s1_c50m
-if not defined DONE_DIR call :find_ckpt run_*_mz_tg_r123_b001_s1
-if not defined DONE_DIR if defined CKPT call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.01 "DefaultDQNAgent.auto_load_file=%CKPT%" app.batchrun.exp_exit_step=20000000 "app.run_name=run_{t}_mz_tg_r123_s1_c50m"
+echo === 27. montezuma_revenge 30m seed 1: same as mz_tg_r121_vd_s1 plus intrinsic discount 0.99 and no cut of intrinsic value at game over (Burda-style) ===
+call :find_done mz_tg_r121_g99ne_s1
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r121_g99ne_s1"
 
-echo === 23. montezuma_revenge 30m seed 1: same as 20 but beta 0.003 ===
-call :find_done mz_tg_r123_b0003_s1
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% DefaultDQNAgent.intrinsic.beta=0.003 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r123_b0003_s1"
+echo === 28. montezuma_revenge 30m seed 2: same as 27 ===
+call :find_done mz_tg_r121_g99ne_s2
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r121_g99ne_s2"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

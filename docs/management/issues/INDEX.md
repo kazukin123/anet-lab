@@ -5,7 +5,6 @@
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261107-949e8a](issue-20261107-949e8a.md) | 対応中 | 5.0 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 残件有り | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
-| [issue-20261107-1226e5](issue-20261107-1226e5.md) | 対応中 | 4.3 | — | 成果物 | その他 | 324_dqn, 110_runner_app | UI | 機能追加 | [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) | 残件有り | Evaluation Traceで内的報酬（RNDの新しさ）を見られない |
 | [issue-20261111-77ac3c](issue-20261111-77ac3c.md) | 対応中 | 3.0 | — | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 残件有り | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | 成果物 | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261103-6a32b4](issue-20261103-6a32b4.md) | 調査中 | 1.4（引継ぎ） | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
@@ -81,6 +80,7 @@
 | [issue-20261111-54c7e1](issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
 | [issue-20261111-90fa5c](issue-20261111-90fa5c.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 110_runner_app | UI | リファクタリング | — | 未確認 | QValuePanel の ComputeQValueHeatMap が 218 行で値の変換・範囲の更新・投票・色の正規化を並べ、データの受け渡しにスレッド越し用の部品と保護の無いメンバが混ざっている |
 | [issue-20261112-983afe](issue-20261112-983afe.md) | 未着手 | 2.0 | — | 成果物 | その他 | 324_dqn, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | — | 未確認 | KFMの学習がボスへ行き着くかが偶然に頼る（1階の廊下の位置が観測に無く、Qも内的報酬も左へ進む向きを持てない） |
+| [issue-20261114-9468cb](issue-20261114-9468cb.md) | 未着手 | 2.0 | — | 成果物 | 実装 | 324_dqn, 110_runner_app | アルゴリズム | 性能改善 | — | 未確認 | Evaluation Traceを開いている間のActor同期で、RNDの推定器の写しが1回約170 msかかる |
 | [issue-20261103-58696c](issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD112](../../memo/112_claude_memory_tidy_10prd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
 | [issue-20261103-0ef7b8](issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-61d771](issue-20261103-61d771.md) | 未着手 | 1.6 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD906](../../memo/906_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
@@ -138,7 +138,7 @@
 | [issue-20261103-9bd71e](issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [PRD921](../../memo/921_agent_prev_action_obs_10prd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
 | [issue-20261103-ca1a85](issue-20261103-ca1a85.md) | 未着手 | 1.6 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
 | [issue-20261103-124da5](issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD956](../../memo/956_smdp_transition_duration_10prd.md) | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す） |
-| [issue-20261103-736e39](issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-b754ff](issue-20261103-b754ff.md), [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-9bd71e](issue-20261103-9bd71e.md), [issue-20261103-75b8da](issue-20261103-75b8da.md), [issue-20261107-1226e5](issue-20261107-1226e5.md), [issue-20261107-949e8a](issue-20261107-949e8a.md) | 成果物 | PRD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [PRD924](../../memo/924_intrinsic_reward_novelty_10prd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
+| [issue-20261103-736e39](issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-b754ff](issue-20261103-b754ff.md), [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-9bd71e](issue-20261103-9bd71e.md), [issue-20261103-75b8da](issue-20261103-75b8da.md), [issue-20261107-949e8a](issue-20261107-949e8a.md) | 成果物 | PRD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [PRD924](../../memo/924_intrinsic_reward_novelty_10prd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
 | [issue-20261109-adc5c4](issue-20261109-adc5c4.md) | 未着手 | 1.4 | [issue-20261109-1499d0](issue-20261109-1499d0.md) | 成果物 | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 未確認 | Agent・Env・View・NNモジュールの4つのRepositoryが同じ形を別々に実装し、登録と取り出しの関数名もそろっていない |
 | [issue-20261115-c89660](issue-20261115-c89660.md) | 未着手 | 1.4 | [issue-20261103-6a32b4](issue-20261103-6a32b4.md) | 成果物 | その他 | 110_runner_app, 321_agent_core, 318_rl_core | UI | 機能追加 | — | 未確認 | Runner の Conv2dPanel と metrics.image の conv2d に、RND の target と predictor の畳み込みの出力が出ない |
 | [issue-20261103-6661d2](issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](issue-20261103-f39d10.md), [issue-20261103-2d66d2](issue-20261103-2d66d2.md) | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app | 学習基盤 | 機能追加 | [PRD913](../../memo/913_best_checkpoint_10prd.md) | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
@@ -150,7 +150,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD923](../../memo/923_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 127 / 待ち 15 / 保留 0 / 次版 0 / 解決 0
+着手できる 130 / 待ち 15 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 

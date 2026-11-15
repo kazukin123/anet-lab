@@ -5,6 +5,7 @@
 > 2026-11-13 改訂。受入5・10の学習報酬の照合は、偽のLearnerの受信値に加え、実際のLearnerが保存したn-step無効時の公開Replay収益でも確認できると明記した。観測する報酬の列と一致条件は変えない。
 > 2026-11-13 改訂。開発者が変更した列配置を採り、rnd_bonusをrewardの直後の235番へ移した。240番のTempoRL decisionとの重複を避ける番号は開発者が選択した。rnd_err・rnd_normは600・610番を維持する。受入12・13と検証資材を同じ配置へ合わせた。
 > 2026-11-13: D2 のうち β の出どころ（題、本文の 2 文目の前半、本文の最後の文）、D7 の 2 文目（学習の入口をまだ通っていない Run ではボーナスを NaN にする）、§5.2 の表の行 5 と表の下の 1 つ目の箇条は、[PRD129](129_eval_trace_bonus_beta_before_learning_10prd.md) が置き換える（範囲の正本は PRD129 の §9。Agent の構築時に β を exp step 0 で評価し、学習を止めた Run でも学習の入口で β を評価する）。D7 の 1 文目（ボーナスが 0 になる条件）と 3 文目（β は checkpoint に保存しない）は変わらない。§2.6 の「学習の入口は呼ばれない」は誤りで、学習の入口は train step ごとに呼ばれ、学習を止めた分岐で内的報酬の部分を飛ばしている（PRD129 §2.3）。
+> 2026-11-14 改訂。§8 の U1 を決め、未決表から外した。§7 の 14 の測定では、pane を開いた状態の学習の速さが閉じた状態より通常 RND で 13%、Taiga 式で 6% 下がり、どちらも閉じた状態のぶれを超えた。推定器と β の写しは 1 回 152〜189 ms で、見積もり（数ミリ秒）の約 50 倍だった（値は[設計文書 212](../design/212_rnd_lifelong_novelty.jp.md) の §4.6）。U1 の分かれ方では 3 列を外す側だったが、開発者は Trace を開いている間の学習の遅れを許容とみて、3 列を `run.@rnd` の既定に残すと決めた。写しを減らす直しは課題 [issue-20261114-9468cb](../management/issues/issue-20261114-9468cb.md) に分けた。
 > 起点: 課題 [issue-20261107-1226e5](../management/issues/issue-20261107-1226e5.md)。2026-11-07 の Montezuma の RND の Run で、Train では鍵を取るのに評価（EvalPanel）では止まる場面があり、どの画面で新しさのボーナスが大きいかを Evaluation Trace で 1 step ずつ確かめたいという話が出た。同じ日に「Greedy がたどる状態のうち Train でめったに通らないものは、Q が直らずそこで止まる」という仮説が立ち、その検証にも使う。
 > 関連: [116_rnd_lifelong_novelty_10prd.md](116_rnd_lifelong_novelty_10prd.md)（RND の本体。評価での採点と診断を非ゴールにした）、[123_rnd_intrinsic_reward_scale_10prd.md](123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計と warm-up）、[924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（採点の場所と保存する報酬の問い）、[done/094_evalpanel_step_history_10prd.md](done/094_evalpanel_step_history_10prd.md)（Evaluation Trace と step 診断）、[919_eval_session_step_trace_10prd.md](919_eval_session_step_trace_10prd.md)（同じ鍵を評価 session で使う）、[938_nn_trace_capture_unification_10prd.md](938_nn_trace_capture_unification_10prd.md)（要求を引数で渡す考え方）。ほかの PRD との関係は §9。
 
@@ -237,7 +238,7 @@ RND の Network に、forward で乱数を引く層（dropout・droppath）や�
 
 Atari・GridMaze・LunarLander の `run.@rnd` に、235 `rnd_bonus`、600 `rnd_err`、610 `rnd_norm` の 3 列を足す（§5.5）。`rnd_bonus` は230 `reward`の直後へ置き、600 番台を「内的報酬の誤差」の分類にする。RND を選ばない Run の列は変えない。
 
-理由: RND を持つ env の全部に入れる。ボーナスを環境の報酬と並べて比べられる配置を、開発者が選んだ。240番はTempoRLの`decision`なので、既存列を動かさず直前へ差し込むため、番号の一の位を空ける原則の例外として235番を使う。プロファイルが列を足す形は `run.@skip` と同じであり、両方の順序で重ねても互いの列を上書きしない。誤差2列は空いている600番台を使う（§2.8）。既定に入れたままにするかは、費用を測って確かめる（§8 の U1）。依存: §2.8。
+理由: RND を持つ env の全部に入れる。ボーナスを環境の報酬と並べて比べられる配置を、開発者が選んだ。240番はTempoRLの`decision`なので、既存列を動かさず直前へ差し込むため、番号の一の位を空ける原則の例外として235番を使う。プロファイルが列を足す形は `run.@skip` と同じであり、両方の順序で重ねても互いの列を上書きしない。誤差2列は空いている600番台を使う（§2.8）。既定に入れたままにすることは、§7 の 14 の費用の測定のあとに開発者が決めた（冒頭の 2026-11-14 の改訂）。依存: §2.8。
 
 ### D13. 百分位の列は既定で足さない
 
@@ -551,9 +552,7 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 
 ## 8. 決めること（未決表）
 
-| # | 事項 | 確かめ方 | 分かれ方 |
-|---|---|---|---|
-| U1 | `run.@rnd` の既定に 3 列を入れたままにするか（D12） | §7 の 14 の測定。Evaluation Trace を開いたままの Run で、学習の速さが閉じた状態からどれだけ下がるか。あわせて、pane を開いている間の、Actor の同期のうち推定器と β を写す時間 | 下がり方が、同じ状態を繰り返し測ったぶれの幅に収まり、写す時間が見積もり（数ミリ秒）の程度なら、既定のままにする。どちらかが外れたら、3 列を `run.@rnd` から外し、足し方（§5.5 の 3 行）をユーザーガイドに書く形に改める |
+残る未決は無い。U1（`run.@rnd` の既定に 3 列を入れたままにするか）は 2026-11-14 に決めた（冒頭の改訂と D12）。
 
 本 PRD で直さないが、課題として残す候補は次の 3 つである。工程の最後に起票の候補として挙げる。
 
