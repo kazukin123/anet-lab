@@ -229,6 +229,7 @@
 - [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
 - [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md) — PRD128: DQN 系 Agent まわりのリファクタリング 5 件をまとめて片づける（価値の分解の前に） PRD
 - [PRD129](../../memo/129_eval_trace_bonus_beta_before_learning_10prd.md) — Evaluation Trace のボーナスの β を、学習の入口を通る前から用意する PRD
+- [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) — PRD130: RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける 暫定 PRD
 
 ## 課題
 
@@ -242,6 +243,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
 | [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
 | [issue-20261115-ce0101](../../management/issues/issue-20261115-ce0101.md) | 未着手 | 5.0 | — | 成果物 | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | — | 未確認 | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
+| [issue-20261115-e5a0eb](../../management/issues/issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | 成果物 | PRD | 315_nn, 321_agent_core, 317_metrics | アルゴリズム | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
 | [issue-20261111-585e60](../../management/issues/issue-20261111-585e60.md) | 未着手 | 3.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
 | [issue-20261111-17fea4](../../management/issues/issue-20261111-17fea4.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 324_dqn, 321_agent_core | アルゴリズム | リファクタリング | — | 未確認 | 方策の種類（policy_type）と分布の表し方（quantile_mode）を文字列のまま持ち回り、数字の別名の受け付け方が関数ごとに違う |
 | [issue-20261111-52ed74](../../management/issues/issue-20261111-52ed74.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 315_nn, 321_agent_core | アルゴリズム | リファクタリング | — | 未確認 | 可塑性指標の一覧と重みノルムのキーの並びを、nn・DQN・ImageCls の 5〜6 か所で手で合わせている |
@@ -288,7 +290,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
-着手できる 41 / 待ち 8 / 保留 0 / 次版 0 / 解決 0
+着手できる 42 / 待ち 8 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
 <!-- issues:end -->

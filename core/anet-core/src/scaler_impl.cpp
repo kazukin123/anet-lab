@@ -148,12 +148,14 @@ void RunningMeanStd::Reset()
 
 void RunningMeanStd::Update(const torch::Tensor& batch_input)
 {
+    ANET_PROFILE_FUNC();
     ANET_LOG_DEBUG("batch_input=" << anet::ToString(batch_input));
 
     // 入力が空なら何もしない
     if (batch_input.numel() == 0) return;
 
     // バッチ内の統計量を計算
+    ANET_PROFILE_SCOPE(batch_moments);
     torch::Tensor batch_mean_t, batch_var_t;
 
     // 入力形状と内部形状を比較して、Reductionする次元を決定
@@ -173,6 +175,7 @@ void RunningMeanStd::Update(const torch::Tensor& batch_input)
         batch_mean_t = std::get<1>(res);
     }
 
+    ANET_PROFILE_SCOPE_NEXT(moments_transfer);
     auto target_device = mean_.device(); // 通常はCPU
 
     // 計算精度確保のため double にキャスト
@@ -180,6 +183,7 @@ void RunningMeanStd::Update(const torch::Tensor& batch_input)
     batch_var_t = batch_var_t.to(target_device).to(torch::kDouble);
 
     // バッチサイズ (Obsの場合は行数)
+    ANET_PROFILE_SCOPE_NEXT(merge);
     int64_t batch_count = 0;
     if (mean_.ndimension() == 0) {
         batch_count = batch_input.numel();
@@ -374,13 +378,17 @@ RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) co
     auto device = obs.device();
 
     // 統計量取得 (Double CPU Tensor -> Float Device Tensor)
+    // 平均も先に作り、統計の作り直しと割り算を別の区間で測れるようにする。
+    ANET_PROFILE_SCOPE(statistics_transfer);
     torch::Tensor std = stats_.GetStd().to(device).to(torch::kFloat32);
+    torch::Tensor mean;
+    if (use_centering_) mean = stats_.GetMean().to(device).to(torch::kFloat32);
 
     // 正規化 (Broadcasting: [B, state_dim...] -> [ state_dim...])
+    ANET_PROFILE_SCOPE_NEXT(scale);
     torch::Tensor normalized;
     if (use_centering_) {
         // (x - mean) / std
-        auto mean = stats_.GetMean().to(device).to(torch::kFloat32);
         normalized = (obs - mean) / std;
     } else {
         // x / std → 「スケール」だけが揃い、「原点」は保存される
@@ -388,6 +396,7 @@ RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) co
     }
 
     // 後処理
+    ANET_PROFILE_SCOPE_NEXT(post_process);
     switch (post_process_type_) {
     case kPostProcessSymLog: {
         // 式: sign(x) * ln(|x| + 1)
@@ -422,6 +431,7 @@ RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) co
     }
 
     // クリッピング
+    ANET_PROFILE_SCOPE_NEXT(clip);
     float clipped = 0.0f;
     if (clip_range_.has_value()) {
         float limit = *clip_range_;
@@ -444,8 +454,11 @@ torch::Tensor RunningStdSingleTensorNormalizer::Normalize(const torch::Tensor& o
 
 torch::Tensor RunningStdSingleTensorNormalizer::NormalizeAndUpdateStats(const torch::Tensor& obs)
 {
+    ANET_PROFILE_FUNC();
+
     // 統計更新の前に、入力値を常識的な範囲にクリップする
     // これにより、暴発値で統計（分散）が爆発するのを防ぐ
+    ANET_PROFILE_SCOPE(update_stats);
     if (use_robust_update_) {
         // 現在の平均・標準偏差を取得 (デバイス合わせる)
         auto device = obs.device();
@@ -553,6 +566,8 @@ torch::Tensor RunningStdSingleTensorNormalizer::NormalizeAndUpdateStats(const to
         stats_.Update(obs);
         last_outlier_ratio_ = 0.0f;
     }
+    // 更新のあとの正規化を、統計の更新と分けて測る。
+    ANET_PROFILE_SCOPE_NEXT(normalize);
     auto result = normalizeInternal(obs);
     this->last_clip_ratio_ = result.second;
     return result.first;

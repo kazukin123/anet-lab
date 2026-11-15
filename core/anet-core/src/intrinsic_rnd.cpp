@@ -559,6 +559,8 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
         // 新しい既定は predictor が慣れるまで誤差の統計を空のまま保つ。
         if (score_count_ >= config_.warmup_steps || config_.warmup_mode == kWarmupCollectErrors)
             error_stats_.Update(errors);
+        // 観測の統計の更新は、誤差の統計と分けて内訳を測れるようにする。
+        ANET_PROFILE_SCOPE(observation_statistics);
         /// @todo 正規化結果を捨てる二重計算の費用を測定し、統計更新専用APIの追加を判断する。
         normalizer_->NormalizeAndUpdateStats(float_observations);
         if (error_stats_.HasData()) {
@@ -572,7 +574,10 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
     if (warming_up && score_count_ >= config_.warmup_steps)
         anet::log::info_once(config_.GetConfigPrefix()) << "RND warmup finished: warmup_mode=" << config_.warmup_mode
             << " warmup_steps=" << config_.warmup_steps;
+    // target の出力の統計と診断値の読み出しも、区間を分けて測る。
+    ANET_PROFILE_SCOPE_NEXT(target_feature_statistics);
     target_feature_stats_.Update(target_features);
+    ANET_PROFILE_SCOPE_NEXT(diagnostics);
     diagnostics_[kTargetFeatureVar] = TargetFeatureVariance();
     diagnostics_[kTargetFeatureMax] = target_features.abs().max().item<float>();
     diagnostics_[kErrorStep] = errors.mean().item<float>();

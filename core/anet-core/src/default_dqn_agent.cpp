@@ -109,9 +109,13 @@ public:
 
     torch::Tensor ScoreBonus(const BatchExperience& batch_exp, const torch::Tensor& scaled_rewards, torch::Tensor* component = nullptr)
     {
+        ANET_PROFILE_FUNC();
+
         // 生の観測を選んで採点する。次観測だけは終端のボーナスをマスクする。
+        ANET_PROFILE_SCOPE(estimate);
         const auto& intrinsic_observations = SelectObservations(batch_exp);
         const auto alpha = lifelong_novelty_->Estimate(intrinsic_observations);
+        ANET_PROFILE_SCOPE_NEXT(bonus);
         const auto unscaled = CalculateBonus(alpha, 1.0f, batch_exp.next_state.done,
             UsesDoneMask(), BonusMaskOperation::Copy);
         const auto scaled = reward_scaler_->Scale(unscaled);
@@ -119,6 +123,7 @@ public:
         if (component) *component = scaled;
 
         // ボーナスの診断値を公開する。比率の分母には加算前の外的報酬を使う。
+        ANET_PROFILE_SCOPE_NEXT(diagnostics);
         const float bonus_sum = bonus.abs().sum().item<float>();
         const float denominator = scaled_rewards.abs().sum().item<float>() + bonus_sum;
         intrinsic_diagnostics_.at(kIntrinsicBonusMean).store(bonus.mean().item<float>(), std::memory_order_relaxed);

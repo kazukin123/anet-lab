@@ -20,6 +20,7 @@
 | [issue-20261110-3f4e63](issue-20261110-3f4e63.md) | 未着手 | 4.5 | — | 成果物 | PRD | 110_runner_app | UI | 不具合 | — | 未確認 | QValuePanelで平滑化が有効なままsmooth_radiusが0以下だと、空の重みの範囲外を読む |
 | [issue-20261111-9e6e27](issue-20261111-9e6e27.md) | 未着手 | 3.6 | — | 成果物 | PRD | 110_runner_app | UI | 機能改善 | — | 未確認 | 無人で走るRun（番号付きbat）でWARNに気づけない |
 | [issue-20261110-546bdb](issue-20261110-546bdb.md) | 未着手 | 3.5 | — | 成果物 | 実装 | 316_config | 開発 | 不整合 | — | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
+| [issue-20261115-e5a0eb](issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | 成果物 | PRD | 315_nn, 321_agent_core, 317_metrics | アルゴリズム | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | 未着手 | 3.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
 | [issue-20261111-7cc67b](issue-20261111-7cc67b.md) | 未着手 | 3.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | EvalRunner の 1 step が、多重定義 4 つ・-1 の特別な値・bool の引数で、パネルからの 1 step と評価 session の 1 step を切り替えている |
 | [issue-20261111-a5370c](issue-20261111-a5370c.md) | 未着手 | 3.3 | — | 成果物 | 監査 | 315_nn | アルゴリズム | リファクタリング | — | 未確認 | NetworkBody の走査（branch→struct→block→module）が 6 か所に写され、null の検査の有無が場所ごとに違う |
@@ -150,7 +151,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD923](../../memo/923_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD914](../../memo/914_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 130 / 待ち 15 / 保留 0 / 次版 0 / 解決 0
+着手できる 131 / 待ち 15 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 
