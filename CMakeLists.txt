@@ -14,8 +14,6 @@ enable_testing()
 # 共通設定
 # ---------------------------------------------------------------------
 
-set(CMAKE_CONFIGURATION_TYPES "Debug;RelWithDebInfo;Release" CACHE STRING "" FORCE)
-
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -127,7 +125,7 @@ endif()
 # libtorch のパス検出
 # ---------------------------------------------------------------------
 
-# 現在の構成を得る（CMAKE_CONFIGURATION_TYPES は共通設定で常に設定するので、Ninja でも分岐しない）
+# 現在の構成を得る
 if(NOT DEFINED CMAKE_BUILD_TYPE)
     # VS では CMAKE_BUILD_TYPE は空なのでジェネレータ表現で判定
     set(_cfg "$<CONFIG>")
