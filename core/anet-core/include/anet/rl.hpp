@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <optional>
+#include <span>
 #include <mutex>
 #include <cstdint>
 #include <cctype>
@@ -853,7 +854,7 @@ namespace anet::rl {
 
         // --- コア遷移データ ---
         torch::Tensor actions;          ///< [B] または [B, Unroll]
-        torch::Tensor target_returns;   ///< [B] (N-Step割引累積報酬) または [B, Unroll]
+        torch::Tensor target_returns;   ///< n-stepの収益。[B]、複数成分なら[B,C]、unrollなら[B,Unroll]。
 
         struct {
             anet::TensorDict next_obs;      ///< [B, Stack, C, H, W] 等 (Rainbow等の N-Step 次状態)
@@ -867,7 +868,7 @@ namespace anet::rl {
         struct {
             torch::Tensor lengths;     ///< [B] 抽選した窓の長さ。規則未指定なら未定義。
             torch::Tensor max_lengths; ///< [B] 起点から取れる窓の最大長
-            torch::Tensor returns;     ///< [B] 窓の割引報酬
+            torch::Tensor returns;     ///< [B] 窓の収益
             torch::Tensor terminals;   ///< [B] 真の終端
             torch::Tensor truncated;   ///< [B] 打ち切り
             anet::TensorDict next_obs; ///< k先の観測（履歴を含む）
@@ -881,10 +882,10 @@ namespace anet::rl {
         anet::TensorDict info;          ///< アルゴリズム固有データ (MuZeroの target_values 等)
 
         // schedule gamma用の抽選時snapshot。定数構成では未定義。
-        torch::Tensor sampled_rewards;        ///< [B,N] 実長以後は0
-        torch::Tensor recompute_reward_components; ///< [C] 作り直す成分の旗。
+        torch::Tensor sampled_rewards;        ///< step報酬。[B,N]、複数成分なら[B,N,C]。実長以後は0。
+        torch::Tensor needs_return_recompute; ///< [C]のbool。真の成分はFinalizeReturnsがsampled_rewardsから消費時のγで収益を作り直す。
         torch::Tensor sampled_window_rewards; ///< [B,J] 実長以後は0
-        void FinalizeReturns(const std::vector<float>& gammas);
+        void FinalizeReturns(std::span<const float> gammas);
 
         // ユーティリティ
         ExperienceSamples To(torch::Device device, bool non_blocking = true) const;
@@ -929,7 +930,7 @@ namespace anet::rl {
             fn(source.per_priority_sources, destination.per_priority_sources, "per_priority_sources", true);
             fn(source.info, destination.info, "info", false);
             fn(source.sampled_rewards, destination.sampled_rewards, "sampled_rewards", false);
-            fn(source.recompute_reward_components, destination.recompute_reward_components, "recompute_reward_components", false);
+            fn(source.needs_return_recompute, destination.needs_return_recompute, "needs_return_recompute", false);
             fn(source.sampled_window_rewards, destination.sampled_window_rewards, "sampled_window_rewards", false);
         }
     };
@@ -962,12 +963,12 @@ namespace anet::rl {
 
     class ReplayBuffer : public anet::Module, public ReplayPriorityController {
     public:
-        virtual void Push(const BatchExperience& batch_exp, const std::vector<float>& gammas) = 0;
-        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, const std::vector<float>& gammas) const = 0;
+        virtual void Push(const BatchExperience& batch_exp, std::span<const float> gammas) = 0;
+        virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, std::span<const float> gammas) const = 0;
         virtual bool SampleUniqueUniform(
-            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, const std::vector<float>& gammas) const = 0;
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, std::span<const float> gammas) const = 0;
         virtual SamplingHistoryProbeResult ProbeSamplingHistory(
-            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, const std::vector<float>& gammas) const = 0;
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, std::span<const float> gammas) const = 0;
         virtual int64_t Size() const = 0;
 
         virtual ~ReplayBuffer() = default;

@@ -1,4 +1,5 @@
 #include "anet/catch_test.hpp"
+#include <array>
 
 #include "anet/agent.hpp"
 #include "anet/default_dqn_agent.hpp"
@@ -267,8 +268,8 @@ private:
 class HintRecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
     rl::SamplingHistoryProbeResult ProbeSamplingHistory(
-        const rl::SamplingHistoryProbeRequest&, anet::RandomGenerator*, const std::vector<float>& gammas) const override { return {}; }
-    void Push(const rl::BatchExperience& batch_exp, const std::vector<float>& gammas) override
+        const rl::SamplingHistoryProbeRequest&, anet::RandomGenerator*, std::span<const float> gammas) const override { return {}; }
+    void Push(const rl::BatchExperience& batch_exp, std::span<const float> gammas) override
     {
         std::lock_guard<std::mutex> lock(mutex_);
         const auto& hint = batch_exp.action->GetReplayInitialPriorityHint();
@@ -278,9 +279,9 @@ public:
         ++push_count_;
     }
 
-    void Sample(rl::ExperienceSamples&, int64_t, float, const std::vector<float>& gammas) const override {}
+    void Sample(rl::ExperienceSamples&, int64_t, float, std::span<const float> gammas) const override {}
     bool SampleUniqueUniform(
-        rl::ExperienceSamples&, int64_t, anet::RandomGenerator&, const std::vector<float>&) const override { return false; }
+        rl::ExperienceSamples&, int64_t, anet::RandomGenerator&, std::span<const float>) const override { return false; }
     int64_t Size() const override { return 0; }
     rl::ReplayPriorityUpdateResult UpdatePriorities(
         const std::vector<int64_t>&, const std::vector<float>&) override
@@ -336,7 +337,7 @@ public:
         const rl::StepCounts&, const rl::BatchExperience& batch_exp) override
     {
         if (fail_) throw std::runtime_error("last learner failure");
-        replay_buffer_->Push(batch_exp, {0.99f});
+        replay_buffer_->Push(batch_exp, std::array{0.99f});
         rl::BatchUpdateResultList results;
         for (int i = 0; i < result_count_; ++i) {
             results.push_back(std::make_shared<TestBatchUpdateResult>());

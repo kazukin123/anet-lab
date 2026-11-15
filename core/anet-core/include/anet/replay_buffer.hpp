@@ -43,8 +43,8 @@ namespace anet::rl {
         std::span<const float> bootstrap_hint; ///< bootstrap stepのopaqueなhint行。真の終端では空
         float target_return = 0.0f;            ///< 確定済みのn-step収益
         float discount = 0.0f;                 ///< 実n-step数を反映したbootstrap割引率
-        std::span<const float> component_returns; ///< 2成分目以降の収益。
-        std::span<const float> component_discounts; ///< 2成分目以降のbootstrap割引率。
+        std::span<const float> extra_component_returns; ///< 2成分目以降の収益。
+        std::span<const float> extra_component_discounts; ///< 2成分目以降のbootstrap割引率。
         bool terminal = false;                 ///< bootstrapを行わない真の終端か
         int actual_n_steps = 1;                ///< 終端短縮を反映した実n-step数
     };
@@ -66,8 +66,8 @@ namespace anet::rl {
         // N-step 用
         int n_step = 1;
         int reward_component_count = 1;
-        std::vector<bool> recompute_reward_components; ///< 複数成分のscheduleの有無。
-        bool recompute_returns_on_sample = false; ///< schedule gamma用の抽選済み報酬列を保持する。
+        /// 成分数のstd::vector<bool>。真の成分はsampled_rewardsから収益を作り直す必要があり、FinalizeReturnsが消費時のγで計算する。
+        std::vector<bool> needs_return_recompute{false};
 
         // PER系
         float per_alpha = 0.5f;
@@ -122,12 +122,12 @@ namespace anet::rl {
         PrefetchingReplayBuffer(std::shared_ptr<ReplayBuffer> inner, torch::Device target_device);
         ~PrefetchingReplayBuffer() override;
 
-        void Push(const BatchExperience& batch_exp, const std::vector<float>& gammas) override;
-        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, const std::vector<float>& gammas) const override;
+        void Push(const BatchExperience& batch_exp, std::span<const float> gammas) override;
+        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, std::span<const float> gammas) const override;
         bool SampleUniqueUniform(
-            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, const std::vector<float>& gammas) const override;
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, std::span<const float> gammas) const override;
         SamplingHistoryProbeResult ProbeSamplingHistory(
-            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, const std::vector<float>& gammas) const override;
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, std::span<const float> gammas) const override;
         int64_t Size() const override;
         ReplayPriorityUpdateResult UpdatePriorities(
             const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;

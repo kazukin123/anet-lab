@@ -57,7 +57,9 @@ keyは物理indexではなく`generation * actual_capacity + flat_slot_index`で
 
 Push・Sample・一様probe・履歴probeはcallerから成分ごとの現在のγの列を受け取り、builderとextractorはγを永続保持しない。Push時にはそのγで成分ごとのn-step収益を保存する。初期priorityの完成待ちentryには、同じPushで評価した成分ごとの収益とbootstrap割引率を保持する。
 
-定数γでは保存済み収益をそのまま返す。schedule γの構成だけは、抽選した各起点のstep報酬を長さN（窓はJ）へ0埋めしたsnapshotとして`ExperienceSamples`へ持たせる。`FinalizeReturns(gammas)`は既存builderと同じ逆順の和で収益を作り、bootstrapと同じγを使う。複数成分では`recompute_reward_components`で指定した成分だけを再計算し、定数成分の保存値は保つ。収益は1成分なら`[B]`、複数なら`[B,C]`、step報酬snapshotはそれぞれ`[B,N]`、`[B,N,C]`である。done・truncatedの実長は既存の`n_steps`・窓長に従う。snapshotと再計算の旗は`To`と`ForEachTensor`の転送対象である。
+`Push`・`Sample`・`SampleUniqueUniform`・`ProbeSamplingHistory`へ渡す`gammas`は、成分ごとの1 stepの割引率を読む`std::span<const float>`である。同期呼び出し中だけ借り、先読みと遅延Pushをworkerへ渡す境界では値を所有するvectorへコピーする。
+
+定数γでは保存済み収益をそのまま返す。schedule γの構成だけは、抽選した各起点のstep報酬を長さN（窓はJ）へ0埋めしたsnapshotとして`ExperienceSamples`へ持たせる。`FinalizeReturns(gammas)`は既存builderと同じ逆順の和で収益を作り、bootstrapと同じγを使う。複数成分では`needs_return_recompute`で指定した成分だけを再計算し、定数成分の保存値は保つ。収益は1成分なら`[B]`、複数なら`[B,C]`、step報酬snapshotはそれぞれ`[B,N]`、`[B,N,C]`である。done・truncatedの実長は既存の`n_steps`・窓長に従う。snapshotと再計算のフラグは`To`と`ForEachTensor`の転送対象である。
 
 prefetchは抽選時のsnapshotを保持し、consumerの`Sample`が返す時点のγで収益を確定する。ringが上書きされても元のstorageを読み直さない。窓収益と診断用抽選も同じ契約である。βは従来どおり抽選要求時の値を使い、γの確定時機とは分離する。
 
@@ -267,8 +269,8 @@ futureを起動する前の`Push`はinnerへ同期委譲する。prefetch中の`
 | 設定 | 意味 |
 |---|---|
 | replay capacity | 全laneを合わせた要求容量。実容量はlane数の倍数へ切り下げる |
-| `reward_component_count` / `recompute_reward_components` | 構築時の成分数と、抽選後に収益を再計算する成分の旗。既定は1成分 |
-| `n_step` / `recompute_returns_on_sample` | target returnの将来長と、schedule γ用の報酬snapshotの有無。後者はDQNのγのtypeから導出する内部構成 |
+| `reward_component_count` / `needs_return_recompute` | 成分数（既定1）と、その数のboolフラグ。真の成分は`FinalizeReturns`で抽選・消費時のγから収益を作り直す。長さが成分数と違う構成はERROR。いずれかが真ならstep報酬snapshotを保持する |
+| `n_step` | target returnの将来長 |
 | sampler type | uniformまたはprioritized |
 | `per_alpha` | priorityをsample確率へ反映する強さ |
 | `per_initial_priority` | 新規transitionの初期priority |
@@ -324,7 +326,7 @@ eviction統計はready rangeを基準にする。追い出されるslotはhistor
 
 ### 7.6 checkpoint
 
-成分のstep報酬と収益も保存対象外である。成分数と再計算の旗は、新しいRunの利用側設定から再構築する。
+成分のstep報酬と収益も保存対象外である。成分数と再計算のフラグは、新しいRunの利用側設定から再構築する。
 
 現行の共通ReplayBufferはAgent archiveへserializeされない。DQN系checkpointを読み込んでも、次は新規構築時の状態から始まる。
 

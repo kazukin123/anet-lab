@@ -838,18 +838,18 @@ namespace {
         using Score = std::function<std::map<std::string, torch::Tensor>(const anet::rl::BatchExperience&, torch::Tensor*)>;
         IntrinsicStepDiagnosticsProvider(std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> base,
             int64_t num_lanes, std::vector<std::string> keys, Score score,
-            std::shared_ptr<IntrinsicSnapshot> snapshot, bool component_rewards)
+            std::shared_ptr<IntrinsicSnapshot> snapshot, bool needs_component_rewards)
             : base_(std::move(base)), num_lanes_(num_lanes), keys_(std::make_shared<const std::vector<std::string>>(std::move(keys))),
-              score_(std::move(score)), snapshot_(std::move(snapshot)), component_rewards_(component_rewards) {}
+              score_(std::move(score)), snapshot_(std::move(snapshot)), needs_component_rewards_(needs_component_rewards) {}
         anet::rl::AgentStepDiagnosticsResult Observe(const anet::rl::BatchExperience& experience) override
         {
             ANET_PROFILE_FUNC();
             // 既存の系列窓と遅延確定はそのまま使い、即時値だけを追加する。
             std::map<std::string, torch::Tensor> values;
             torch::Tensor component;
-            if (score_) values = score_(experience, component_rewards_ ? &component : nullptr);
+            if (score_) values = score_(experience, needs_component_rewards_ ? &component : nullptr);
             auto trace_experience = experience;
-            if (component_rewards_) {
+            if (needs_component_rewards_) {
                 if (!component.defined()) component = torch::full_like(experience.reward, std::numeric_limits<float>::quiet_NaN());
                 trace_experience.reward = torch::stack({experience.reward, component.to(experience.reward.device())}, 1);
             }
@@ -867,7 +867,7 @@ namespace {
         std::shared_ptr<const std::vector<std::string>> keys_;
         Score score_;
         std::shared_ptr<IntrinsicSnapshot> snapshot_;
-        bool component_rewards_;
+        bool needs_component_rewards_;
     };
 } // namespace
 
@@ -875,14 +875,14 @@ std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::CreateS
     const AgentStepDiagnosticsRequest& request) const
 {
     auto self = shared_from_this();
-    const bool compute_priority = !config_.learner.intrinsic.decomposed
+    const bool needs_step_priority = !config_.learner.intrinsic.decomposed
         || std::ranges::find(request.keys, DqnComponentAssembler::kStepApproxPriorityKey) != request.keys.end();
     auto base = anet::rl::dqn::CreateStepDiagnosticsProvider(config_.learner, request.num_lanes,
         [self](const torch::Tensor& reward) {
             if (self->config_.learner.intrinsic.decomposed)
                 return torch::stack({self->reward_scaler_->ScaleWithoutUpdate(reward.select(1, 0)), reward.select(1, 1)}, 1);
             return self->reward_scaler_->ScaleWithoutUpdate(reward);
-        }, compute_priority);
+        }, needs_step_priority);
     // Agent の所有する Coordinator を Agent と同じ寿命で借り、採点は Coordinator に委ねる。
     auto intrinsic = std::shared_ptr<const IntrinsicRewardCoordinator>(self, intrinsic_.get());
     return IntrinsicRewardCoordinator::CreateStepDiagnosticsProvider(
@@ -902,8 +902,8 @@ std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::Intrins
     IntrinsicStepDiagnosticsProvider::Score observe;
     std::shared_ptr<IntrinsicSnapshot> snapshot;
     const bool decomposed = self->config_.value_mode == DefaultDQNAgentConfig::kValueModeDecomposed;
-    const bool component_rewards = decomposed && std::ranges::find(request.keys, DqnComponentAssembler::kStepApproxPriorityKey) != request.keys.end();
-    if (self->lifelong_novelty_ && (requested != request.keys.end() || component_rewards)) {
+    const bool needs_component_rewards = decomposed && std::ranges::find(request.keys, DqnComponentAssembler::kStepApproxPriorityKey) != request.keys.end();
+    if (self->lifelong_novelty_ && (requested != request.keys.end() || needs_component_rewards)) {
         if (!request.actor)
             ANET_SYSTEM_ERROR("Step diagnostics key='" << (requested != request.keys.end() ? *requested : std::string(DqnComponentAssembler::kStepApproxPriorityKey))
                 << "' requires an Actor; actual=null expected=Runner Actor.");
@@ -922,7 +922,7 @@ std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> DefaultDQNAgent::Intrins
         };
     }
     return std::make_unique<IntrinsicStepDiagnosticsProvider>(std::move(base), request.num_lanes,
-        std::move(keys), std::move(observe), std::move(snapshot), component_rewards);
+        std::move(keys), std::move(observe), std::move(snapshot), needs_component_rewards);
 }
 
 std::shared_ptr<anet::rl::Learner> DefaultDQNAgent::CreateLearner()

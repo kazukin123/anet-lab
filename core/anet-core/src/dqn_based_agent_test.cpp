@@ -545,7 +545,7 @@ private:
 class RecordingReplayBuffer final : public rl::ReplayBuffer {
 public:
     rl::SamplingHistoryProbeResult ProbeSamplingHistory(
-        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator*, const std::vector<float>& gammas) const override
+        const rl::SamplingHistoryProbeRequest& request, anet::RandomGenerator*, std::span<const float> gammas) const override
     {
         ++history_probe_count;
         last_history_request = request;
@@ -561,13 +561,13 @@ public:
     mutable rl::SamplingHistoryProbeRequest last_history_request;
     rl::SamplingHistoryProbeResult history_result;
 
-    void Push(const rl::BatchExperience&, const std::vector<float>& gammas) override
+    void Push(const rl::BatchExperience&, std::span<const float> gammas) override
     {
         pushed_gammas.push_back(gammas.front());
         ++push_count;
     }
 
-    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float beta, const std::vector<float>& gammas) const override
+    void Sample(rl::ExperienceSamples& out_samples, int64_t minibatch_size, float beta, std::span<const float> gammas) const override
     {
         sampled_betas.push_back(beta);
         sampled_gammas.push_back(gammas.front());
@@ -593,7 +593,7 @@ public:
     }
 
     bool SampleUniqueUniform(
-        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&, const std::vector<float>& gammas) const override
+        rl::ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator&, std::span<const float> gammas) const override
     {
         ++unique_sample_count;
         if (!unique_sample_enabled) return false;
@@ -7693,7 +7693,7 @@ TEST_CASE("DQN initial priorities sum independent head errors", "[prd121][dqn][p
     const std::array<float, 1> returns{7};
     const std::array<float, 1> discounts{0.25f};
     const auto priority = estimator->Estimate({.start_hint = start, .bootstrap_hint = bootstrap,
-        .target_return = 1, .discount = 0.5f, .component_returns = returns, .component_discounts = discounts});
+        .target_return = 1, .discount = 0.5f, .extra_component_returns = returns, .extra_component_discounts = discounts});
     REQUIRE(priority);
     CHECK(*priority == Catch::Approx(std::abs(value(2) - value(5)) + weight * std::abs(value(8) - value(2)) + config.per_eps));
 }
@@ -8813,7 +8813,7 @@ TEST_CASE("DQN replay fit populations reach the update result without another fo
     rl::ReplayBufferConfig replay_config;
     replay_config.capacity = 32;
     const auto replay = rl::CreateReplayBuffer(replay_config, env_spec, 1, torch::kCPU, false, 73001);
-    for (int64_t step = 0; step < 5; ++step) replay->Push(MakeDeterminismExperience(step, 1), {0.99f});
+    for (int64_t step = 0; step < 5; ++step) replay->Push(MakeDeterminismExperience(step, 1), std::array{0.99f});
     auto probe = std::make_shared<AutocastProbeState>();
     AutocastProbeNetworkModel model(probe, torch::kCPU);
     dqn::RuntimeVars vars;
@@ -8873,9 +8873,9 @@ TEST_CASE("DQN replay fit routes each subscription and retains update-specific v
     replay->SetSizeValues({ 2 });
     rl::ExperienceSamples u, s;
     replay->vector_value = 2.0f;
-    replay->Sample(u, 2, 0.0f, {0.99f});
+    replay->Sample(u, 2, 0.0f, std::array{0.99f});
     replay->vector_value = 1.0f;
-    replay->Sample(s, 2, 0.0f, {0.99f});
+    replay->Sample(s, 2, 0.0f, std::array{0.99f});
     replay->history_result = rl::SamplingHistoryProbeResult{
         .unsampled_count = 6, .sampled_count = 2, .unsampled_age_mean = 3.0f, .sampled_age_mean = 5.0f,
         .unsampled = u, .sampled = s,

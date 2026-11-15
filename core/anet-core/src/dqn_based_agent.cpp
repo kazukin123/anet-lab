@@ -561,14 +561,14 @@ public:
         // Learnerと同じraw priority確定policyをscalar overloadで適用する。
         float error = std::abs(target - start_hint.actor_q_sa);
         if (decomposed_) {
-            if (input.component_returns.size() != 1 || input.component_discounts.size() != 1) {
+            if (input.extra_component_returns.size() != 1 || input.extra_component_discounts.size() != 1) {
                 ANET_SYSTEM_ERROR("DQN decomposed priority requires one additional return and discount. returns="
-                    << input.component_returns.size() << " discounts=" << input.component_discounts.size());
+                    << input.extra_component_returns.size() << " discounts=" << input.extra_component_discounts.size());
             }
-            float intrinsic_target = input.component_returns.front();
+            float intrinsic_target = input.extra_component_returns.front();
             if (!input.terminal) {
                 const float value = DecodeActorQHint(input.bootstrap_hint).intrinsic_state_value;
-                intrinsic_target += input.component_discounts.front() * (use_tbo_ ? InverseDecomposedValue(value, tbo_epsilon_) : value);
+                intrinsic_target += input.extra_component_discounts.front() * (use_tbo_ ? InverseDecomposedValue(value, tbo_epsilon_) : value);
             }
             if (use_tbo_) intrinsic_target = TransformH(intrinsic_target, tbo_epsilon_);
             error += priority_lambda_ * std::abs(intrinsic_target - start_hint.intrinsic_q_sa);
@@ -644,8 +644,8 @@ class DqnAgentStepDiagnosticsProvider final : public anet::rl::AgentStepDiagnost
     };
 public:
     DqnAgentStepDiagnosticsProvider(const LearnerConfig& config, int64_t num_lanes,
-        std::function<torch::Tensor(const torch::Tensor&)> scale_reward, bool compute_priority)
-        : config_(config), num_lanes_(num_lanes), scale_reward_(std::move(scale_reward)), compute_priority_(compute_priority)
+        std::function<torch::Tensor(const torch::Tensor&)> scale_reward, bool needs_step_priority)
+        : config_(config), num_lanes_(num_lanes), scale_reward_(std::move(scale_reward)), needs_step_priority_(needs_step_priority)
         , controller_(anet::rl::CreateNStepQueueController(config.use_n_step ? config.n_step : 1))
         , builder_(anet::rl::CreateDefaultExperienceBuilder())
         , estimator_(CreateInitialPriorityEstimator(config))
@@ -707,16 +707,16 @@ public:
                 .payload.detach().to(torch::kCPU).contiguous();
         }
         // Q列のみの要求では、未要求の報酬・系列窓・priorityを計算しない。
-        auto rewards = compute_priority_ ? scale_reward_(experience.reward).to(torch::kCPU).contiguous() : torch::Tensor();
-        const auto done = compute_priority_ ? experience.next_state.done.to(torch::kCPU).contiguous() : torch::Tensor();
-        const auto truncated = compute_priority_ ? experience.next_state.truncated.to(torch::kCPU).contiguous() : torch::Tensor();
-        const auto starts = compute_priority_ ? experience.state.episode_start.to(torch::kCPU).contiguous() : torch::Tensor();
-        ANET_CHECK_MSG(!compute_priority_ || (rewards.dim() == (config_.intrinsic.decomposed ? 2 : 1) && rewards.size(0) == num_lanes_
+        auto rewards = needs_step_priority_ ? scale_reward_(experience.reward).to(torch::kCPU).contiguous() : torch::Tensor();
+        const auto done = needs_step_priority_ ? experience.next_state.done.to(torch::kCPU).contiguous() : torch::Tensor();
+        const auto truncated = needs_step_priority_ ? experience.next_state.truncated.to(torch::kCPU).contiguous() : torch::Tensor();
+        const auto starts = needs_step_priority_ ? experience.state.episode_start.to(torch::kCPU).contiguous() : torch::Tensor();
+        ANET_CHECK_MSG(!needs_step_priority_ || (rewards.dim() == (config_.intrinsic.decomposed ? 2 : 1) && rewards.size(0) == num_lanes_
             && (!config_.intrinsic.decomposed || rewards.size(1) == 2)),
             "DQN step diagnostics reward shape mismatch. expected_lanes=" << num_lanes_);
         anet::rl::AgentStepDiagnosticsResult result;
         std::vector<DqnDiagnosticRow> rows(static_cast<size_t>(num_lanes_));
-        result.pending_keys.assign(static_cast<size_t>(num_lanes_), compute_priority_ ? std::vector<std::string>{DqnComponentAssembler::kStepApproxPriorityKey} : std::vector<std::string>{});
+        result.pending_keys.assign(static_cast<size_t>(num_lanes_), needs_step_priority_ ? std::vector<std::string>{DqnComponentAssembler::kStepApproxPriorityKey} : std::vector<std::string>{});
         for (int64_t i = 0; i < num_lanes_; ++i) {
             auto& lane = lanes_[i];
             anet::rl::ReplayInitialPriorityHintRow current;
@@ -731,7 +731,7 @@ public:
                 rows[i].intrinsic_state_value = values[i][kActorIntrinsicStateValueColumn];
                 for (int col = 0; col < kActorQHintColumnCount; ++col) current[col] = values[i][col];
             }
-            if (!compute_priority_) continue;
+            if (!needs_step_priority_) continue;
             const auto complete = [&](const Pending& pending, bool unavailable) {
                 float priority = std::numeric_limits<float>::quiet_NaN();
                 if (!unavailable) {
@@ -740,7 +740,7 @@ public:
                     if (config_.gamma.type == kConstantScheduleType) effective.target_return = pending.experience.target_return;
                     if (config_.intrinsic.decomposed && (config_.intrinsic.discount_mode == LearnerConfig::kDiscountShared
                         ? config_.gamma.type == kConstantScheduleType : config_.intrinsic.gamma.type == kConstantScheduleType))
-                        effective.component_returns = pending.experience.component_returns;
+                        effective.extra_component_returns = pending.experience.extra_component_returns;
                     std::vector<float> discounts;
                     for (size_t component = 1; component < gammas.size(); ++component)
                         discounts.push_back(std::pow(gammas[component], effective.actual_n_steps));
@@ -750,8 +750,8 @@ public:
                             : std::span<const float>(current.data(), current.size()),
                         .target_return = effective.target_return,
                         .discount = static_cast<float>(std::pow(gamma, effective.actual_n_steps)),
-                        .component_returns = effective.component_returns,
-                        .component_discounts = discounts,
+                        .extra_component_returns = effective.extra_component_returns,
+                        .extra_component_discounts = discounts,
                         .terminal = effective.terminal,
                         .actual_n_steps = effective.actual_n_steps });
                     if (estimated) priority = *estimated;
@@ -778,7 +778,7 @@ public:
             lane.queue.Push(anet::rl::QueueRecord{ .time_idx = lane.step, .logical_time_idx = lane.step,
                 .reward = config_.intrinsic.decomposed ? rewards[i][0].item<float>() : rewards[i].item<float>(),
                 .done = done[i].item<bool>(), .truncated = truncated[i].item<bool>(), .replay_initial_priority_hint = current,
-                .component_rewards = config_.intrinsic.decomposed ? std::vector<float>{rewards[i][1].item<float>()} : std::vector<float>{} });
+                .extra_component_rewards = config_.intrinsic.decomposed ? std::vector<float>{rewards[i][1].item<float>()} : std::vector<float>{} });
             for (const auto& sequence : controller_->ExtractSequences(lane.queue)) {
                 Pending pending{ .start = sequence.front().logical_time_idx,
                     .experience = builder_->Build(sequence, gammas),
@@ -799,7 +799,7 @@ private:
     LearnerConfig config_;
     int64_t num_lanes_;
     std::function<torch::Tensor(const torch::Tensor&)> scale_reward_;
-    bool compute_priority_;
+    bool needs_step_priority_;
     std::unique_ptr<anet::rl::ExperienceQueueController> controller_;
     std::unique_ptr<anet::rl::ReplayExperienceBuilder> builder_;
     std::unique_ptr<anet::rl::InitialPriorityEstimator> estimator_;
@@ -810,9 +810,9 @@ private:
 
 std::unique_ptr<anet::rl::AgentStepDiagnosticsProvider> anet::rl::dqn::CreateStepDiagnosticsProvider(
     const LearnerConfig& config, int64_t num_lanes,
-    std::function<torch::Tensor(const torch::Tensor&)> scale_reward, bool compute_priority)
+    std::function<torch::Tensor(const torch::Tensor&)> scale_reward, bool needs_step_priority)
 {
-    return std::make_unique<DqnAgentStepDiagnosticsProvider>(config, num_lanes, std::move(scale_reward), compute_priority);
+    return std::make_unique<DqnAgentStepDiagnosticsProvider>(config, num_lanes, std::move(scale_reward), needs_step_priority);
 }
 
 
@@ -3282,7 +3282,7 @@ std::optional<ReplayFitMetrics> Learner::CaptureReplayFit(const ExperienceSample
             .counts = counts,
             .unsampled_batch_size = td_u || loss_u ? std::optional<int64_t>(config_.replay_fit.probe.batch_size) : std::nullopt,
             .sampled_batch_size = td_s || loss_s ? std::optional<int64_t>(config_.replay_fit.probe.batch_size) : std::nullopt,
-        }, &replay_fit_probe_random_, RewardDiscounts());
+        }, &replay_fit_probe_random_, ComponentGammas());
         if (request[ReplayFitMetric::UnsampledCount]) values[ReplayFitMetric::UnsampledCount] = static_cast<float>(snapshot.unsampled_count);
         if (request[ReplayFitMetric::SampledCount]) values[ReplayFitMetric::SampledCount] = static_cast<float>(snapshot.sampled_count);
         if (request[ReplayFitMetric::UnsampledAgeMean]) values[ReplayFitMetric::UnsampledAgeMean] = snapshot.unsampled_age_mean;
@@ -3401,7 +3401,7 @@ void Learner::CaptureNoisyDiagnostics()
     }
     ExperienceSamples cpu_samples;
     // 学習/PER の抽選を流用せず、一様非復元で B 状態が揃ったときだけ測る。
-    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.noisy_probe.probe.batch_size, noisy_probe_random_, RewardDiscounts())) return;
+    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.noisy_probe.probe.batch_size, noisy_probe_random_, ComponentGammas())) return;
     const auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.noisy_probe.probe.batch_size);
     auto input = NormalizeSampleObservations(samples).obs;
@@ -3440,7 +3440,7 @@ torch::Tensor Learner::CaptureAttentionEntropy()
     // 専用の非復元抽選と既存の正規化適用だけを使い、学習側の状態へ触れない。
     torch::NoGradGuard no_grad;
     ExperienceSamples cpu_samples;
-    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.attention_entropy.probe.batch_size, attention_entropy_probe_random_, RewardDiscounts())) return {};
+    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.attention_entropy.probe.batch_size, attention_entropy_probe_random_, ComponentGammas())) return {};
     const auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.attention_entropy.probe.batch_size);
     const auto normalized = NormalizeSampleObservations(samples);
@@ -3477,7 +3477,7 @@ void Learner::CapturePlasticityProbe()
 
     ExperienceSamples cpu_samples;
     if (!replay_buffer_->SampleUniqueUniform(
-        cpu_samples, config_.plasticity.probe.batch_size, plasticity_probe_random_, RewardDiscounts())) return;
+        cpu_samples, config_.plasticity.probe.batch_size, plasticity_probe_random_, ComponentGammas())) return;
     auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.plasticity.probe.batch_size);
     const auto norm_samples = NormalizeSampleObservations(samples);
@@ -3511,7 +3511,7 @@ void Learner::CapturePolicyChurnProbe()
     // 完全な一様非復元 batch を取得できる場合だけ、同一 update の比較入力を確定する。
     ExperienceSamples cpu_samples;
     if (!replay_buffer_->SampleUniqueUniform(
-        cpu_samples, config_.policy_churn.probe.batch_size, policy_churn_probe_random_, RewardDiscounts())) return;
+        cpu_samples, config_.policy_churn.probe.batch_size, policy_churn_probe_random_, ComponentGammas())) return;
     auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.policy_churn.probe.batch_size);
     policy_churn_.probe_obs = NormalizeSampleObservations(samples).obs;
@@ -3736,12 +3736,11 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     ValidateReplayPriorityConfig(config_, initial_priority_mode);
     anet::rl::ReplayBufferConfig rep_config{};
     rep_config.capacity = config_.replay_capacity;
-    rep_config.recompute_returns_on_sample = config_.gamma.type != kConstantScheduleType;
+    rep_config.needs_return_recompute = {config_.gamma.type != kConstantScheduleType};
     if (config_.intrinsic.decomposed) {
         rep_config.reward_component_count = 2;
-        rep_config.recompute_reward_components = {config_.gamma.type != kConstantScheduleType,
+        rep_config.needs_return_recompute = {config_.gamma.type != kConstantScheduleType,
             config_.intrinsic.discount_mode == LearnerConfig::kDiscountShared ? config_.gamma.type != kConstantScheduleType : config_.intrinsic.gamma.type != kConstantScheduleType};
-        rep_config.recompute_returns_on_sample = std::ranges::any_of(rep_config.recompute_reward_components, [](bool value) { return value; });
     }
     rep_config.n_step = config_.use_n_step ? config_.n_step : 1;
     if (model_.GetSkipOnlineNetwork()) {
@@ -4509,7 +4508,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
     }
 
     // ReplayBuffer へ push
-    replay_buffer_->Push(experiences, RewardDiscounts());
+    replay_buffer_->Push(experiences, ComponentGammas());
 
     // 戻り値のUpdateResultを準備
     BatchUpdateResultList result_list;
@@ -4536,7 +4535,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         // Sample
         float current_beta = config_.use_per ? vars_.per_beta : 0.0f;
         ExperienceSamples samples;
-        replay_buffer_->Sample(samples, B, current_beta, RewardDiscounts());
+        replay_buffer_->Sample(samples, B, current_beta, ComponentGammas());
         ExperienceSamples dev_samples = samples.To(device_);
 //LOG::info() << "\n========\nUpdateFromBatch() exp_step=" << counts.exp_step << "\n========";
 //LOG::verbose() << "indexes=" << anet::ToString(samples.indices);
@@ -5365,7 +5364,7 @@ std::pair<torch::Tensor, torch::Tensor> Learner::MakeTarget(
     return { td_target, munchausen_diagnostics };
 }
 
-std::vector<float> Learner::RewardDiscounts() const
+std::vector<float> Learner::ComponentGammas() const
 {
     if (!config_.intrinsic.decomposed) return {gamma_.Value()};
     return {gamma_.Value(), config_.intrinsic.discount_mode == LearnerConfig::kDiscountShared ? gamma_.Value() : intrinsic_gamma_.Value()};
@@ -5479,7 +5478,7 @@ LearningTargets Learner::MakeDecomposedTargets(const ExperienceSamples& samples,
     component.target_returns = samples.target_returns.select(1, 1);
     if (config_.intrinsic.terminal_mode == LearnerConfig::kTerminalNonEpisodic)
         component.next_state.terminals = samples.next_state.terminals & samples.next_state.truncated;
-    const auto internal_target = MakeBellmanTarget(component, internal_bootstrap, {}, RewardDiscounts()[1]);
+    const auto internal_target = MakeBellmanTarget(component, internal_bootstrap, {}, ComponentGammas()[1]);
     return {.primary = std::move(external_target), .diagnostics = std::move(diagnostics), .intrinsic = internal_target};
 }
 

@@ -941,7 +941,7 @@ namespace anet::rl::dqn {
     ActorQHintData MakeActorQHint(const torch::Tensor& q_values,
         const torch::Tensor& action, const ActorQHintValues& config);
     std::unique_ptr<AgentStepDiagnosticsProvider> CreateStepDiagnosticsProvider(const LearnerConfig& config,
-        int64_t num_lanes, std::function<torch::Tensor(const torch::Tensor&)> scale_reward, bool compute_priority = true);
+        int64_t num_lanes, std::function<torch::Tensor(const torch::Tensor&)> scale_reward, bool needs_step_priority = true);
 
     anet::TensorDict MakeSkipInput(const anet::TensorDict& obs, const anet::TensorDict& primary,
         const torch::Tensor& actions, bool stop_gradient);
@@ -1155,7 +1155,7 @@ namespace anet::rl::dqn {
         float intrinsic_beta_ = 0.0f;
         torch::Tensor decomposition_metrics_;
         mutable torch::Tensor decomposition_metrics_cpu_;
-        std::vector<float> RewardDiscounts() const;
+        std::vector<float> ComponentGammas() const;
         anet::ProfiledValue<float> munchausen_alpha_, munchausen_entropy_tau_;
         MunchausenValues munchausen_values_;
         const bool has_optimizer_schedule_;

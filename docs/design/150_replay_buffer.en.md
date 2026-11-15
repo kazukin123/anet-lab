@@ -58,7 +58,7 @@ For each Env lane, `ValidIndexManager` manages ready ranges: logical intervals n
 
 Push, Sample, uniform probes, and sampling-history probes receive a vector of current component discounts from the caller; builders and extractors do not retain γ persistently. Push stores each component's n-step return using its γ. Entries awaiting initial-priority completion retain component returns and bootstrap discounts evaluated at the same Push.
 
-With constant γ, stored returns are returned unchanged. Only configurations with scheduled γ add a snapshot of each sampled start's step rewards to `ExperienceSamples`, zero-padded to length N (J for windows). `FinalizeReturns(gammas)` computes returns with the same reverse-order sum as the existing builder, using the same γ as bootstrapping. With multiple components, only components selected by `recompute_reward_components` are recomputed; constant components retain stored values. Returns have shape `[B]` for one component or `[B,C]` for multiple components; step-reward snapshots have shape `[B,N]` or `[B,N,C]`, respectively. Actual done/truncated lengths follow existing `n_steps` and window lengths. Snapshots and recomputation flags are transferred through `To` and `ForEachTensor`.
+With constant γ, stored returns are returned unchanged. Only configurations with scheduled γ add a snapshot of each sampled start's step rewards to `ExperienceSamples`, zero-padded to length N (J for windows). `FinalizeReturns(gammas)` computes returns with the same reverse-order sum as the existing builder, using the same γ as bootstrapping. With multiple components, only components selected by `needs_return_recompute` are recomputed; constant components retain stored values. Returns have shape `[B]` for one component or `[B,C]` for multiple components; step-reward snapshots have shape `[B,N]` or `[B,N,C]`, respectively. Actual done/truncated lengths follow existing `n_steps` and window lengths. Snapshots and recomputation flags are transferred through `To` and `ForEachTensor`.
 
 Prefetch retains the snapshot taken at sampling and finalizes returns with γ at the point the consumer's `Sample` returns. It does not reread the original storage after ring overwrite. Window returns and diagnostic sampling follow the same contract. β still uses the value at sampling request time, separately from γ finalization.
 
@@ -268,8 +268,8 @@ Before any future starts, `Push` delegates synchronously to the inner buffer. Du
 | Setting | Meaning |
 |---|---|
 | Replay capacity | Requested total capacity across lanes, rounded down to a multiple of lane count |
-| `reward_component_count` / `recompute_reward_components` | Construction-time component count and flags selecting components whose returns are recomputed after sampling. The default is one component |
-| `n_step` / `recompute_returns_on_sample` | Future horizon of target returns and whether reward snapshots are retained for scheduled γ. The latter is an internal setting derived from DQN's γ type |
+| `reward_component_count` / `needs_return_recompute` | Construction-time component count and flags selecting components whose returns are recomputed after sampling. The default is one component |
+| `n_step` / `needs_return_recompute` | Future horizon of target returns and whether reward snapshots are retained for scheduled γ. The latter is an internal setting derived from DQN's γ type |
 | Sampler type | Uniform or prioritized |
 | `per_alpha` | Strength of priority influence on sampling probability |
 | `per_initial_priority` | Initial priority of new transitions |
