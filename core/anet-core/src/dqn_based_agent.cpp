@@ -3440,7 +3440,8 @@ torch::Tensor Learner::CaptureAttentionEntropy()
     // 専用の非復元抽選と既存の正規化適用だけを使い、学習側の状態へ触れない。
     torch::NoGradGuard no_grad;
     ExperienceSamples cpu_samples;
-    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.attention_entropy.probe.batch_size, attention_entropy_probe_random_, ComponentGammas())) return {};
+    const bool sampled = replay_buffer_->SampleUniqueUniform(cpu_samples, config_.attention_entropy.probe.batch_size, attention_entropy_probe_random_, ComponentGammas());
+    if (!sampled) return {};
     const auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.attention_entropy.probe.batch_size);
     const auto normalized = NormalizeSampleObservations(samples);

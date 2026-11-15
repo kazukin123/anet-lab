@@ -20,12 +20,6 @@ namespace anet::rl {
 
     class ObservationNormalizer : virtual public Module, public anet::Serializable {
     public:
-        virtual anet::TensorDict Normalize(const anet::TensorDict& obs) const = 0;
-        virtual anet::TensorDict NormalizeAndUpdateStats(const anet::TensorDict& obs) = 0;
-        virtual void Reset() = 0;
-
-        virtual ~ObservationNormalizer() = default;
-    public:
         static constexpr const char* kKeyPrefix = "obs_norm.";
 
         static constexpr const char* kKeyCount = "obs_norm.count";
@@ -35,6 +29,12 @@ namespace anet::rl {
         static constexpr const char* kKeyStd = "obs_norm.std";              ///< 標準偏差の平均（探索範囲監視）
         static constexpr const char* kKeyClipRatio = "obs_norm.clip_ratio"; ///< クリップ率
         static constexpr const char* kKeyRobustOutlierRatio = "obs_norm.robust_outlier_ratio"; ///< Robust Updateで除外された割合
+    public:
+        virtual anet::TensorDict Normalize(const anet::TensorDict& obs) const = 0;
+        virtual anet::TensorDict NormalizeAndUpdateStats(const anet::TensorDict& obs) = 0;
+        virtual void Reset() = 0;
+
+        virtual ~ObservationNormalizer() = default;
     };
     
     static constexpr const int kPostProcessNone = 0;
@@ -80,6 +80,14 @@ namespace anet::rl {
 
     class RewardScaler : virtual public Module, public anet::Serializable {
     public:
+        static constexpr const char* kKeyPrefix = "reward_scaler.";
+
+        static constexpr const char* kKeyCount = "reward_scaler.count";
+        static constexpr const char* kKeyMean = "reward_scaler.mean";
+        static constexpr const char* kKeyStd = "reward_scaler.std";
+        static constexpr const char* kKeyScale = "reward_scaler.scale";
+        static constexpr const char* kKeyClipRatio = "reward_scaler.clip_ratio";
+    public:
         /**
          * @brief 報酬(Batch)を受け取り、統計を更新し、スケールされたTensorを返す
          * @param reward [N] の形状を持つ Tensor (CPU or CUDA、kFloat32)
@@ -95,14 +103,6 @@ namespace anet::rl {
         static constexpr char kReturnStdState[] = "return_std";
 
         virtual ~RewardScaler() = default;
-    public:
-        static constexpr const char* kKeyPrefix = "reward_scaler.";
-
-        static constexpr const char* kKeyCount = "reward_scaler.count";
-        static constexpr const char* kKeyMean = "reward_scaler.mean";
-        static constexpr const char* kKeyStd = "reward_scaler.std";
-        static constexpr const char* kKeyScale = "reward_scaler.scale";
-        static constexpr const char* kKeyClipRatio = "reward_scaler.clip_ratio";
     };
 
     // =============================================================
