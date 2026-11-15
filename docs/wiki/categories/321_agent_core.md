@@ -73,6 +73,7 @@
 - 2026-11-13: 価値の分解に、内的のHeadが行動の選択をどれだけ変えたかを見る診断を足すと決めた。Actorが行動を選ぶたびに、不一致（合わせたQと外的のQで1位の行動が違うか）、譲った外的の価値、外的の差、内的の差（どちらも1位と2位のQの差）をlaneごとに作る。Evaluation Traceはlaneごとの値、学習のActorはlaneの平均、評価のActorはsessionの累積を、別の鍵で読む（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D26〜D28・§6.8・§8.4）。
 - 2026-11-13: Learnerの診断指標の6つの群が購読の解析・間隔・発火・要求を共通の型で持ち、値の読み出しはpackの形の群も含めて共通にする仕様をグリルで決めた。probe用の乱数5つは、使う側のLearnerが構築時に、Agentの基のseedから今と同じ名前で作って持つ（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D13）。
 - 2026-11-15: RNDの採点の統計の区間を軽くし、2つの統計方式（whiten・variance_feedback）を型で分ける仕様を、暫定で起票した（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、冒頭の起票の行・§1.2）。
+- 2026-11-16: RNDの正規化と統計の集計を計算deviceで行い、統計方式の整理を性能の直しのあとに入れる仕様を、グリルで決めた（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1）。
 
 ## 選ばなかった形
 
@@ -140,6 +141,11 @@
 - probe用の乱数を、Learner自身のseedから作る形 — 不採用: 同じseedでもprobeの診断の値が変わり、診断を作り直す段の前後比較を一致で確かめられない。切り替えるなら別の段で、変わるのがprobeのtagだけだと確かめる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D13・§5.1）。
 - 診断の群の共通の型をAgentの共通基盤に置き、ImageClsAgentも載せる形 — 範囲外: リファクタリング5件の外で、前後比較の組がImageClsを通らない。再開条件: ImageClsに診断の群を足すとき（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§1.3・§5 D22）。
 - Learnerの購読を「開始前の宣言」と「呼び出しごとの要求」に分ける形 — 範囲外: 購読の口を変える別の関心。再開条件: 購読の口を変える要求が出たとき（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§1.3・§5.1）。
+- RNDの統計と正規化をCPUのまま、batchの集計の式だけを替える形 — 不採用: 見積もりは1 intakeあたり7〜8 msで、計算deviceへ寄せる試作の6.482 msより遅く、計算deviceへ送る量も今のままになる（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1の退けた案）。
+- RNDの補助学習を別のスレッドから出す並列処理化 — 先送り: NGUの対応のあとに残らない見込みで、得が1 intakeの3〜4%にとどまる。再開条件: 性能の直しのあとも、RNDが1 intakeの1割以上を占めるとき（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D9）。
+- RNDの正規化をNNの中の前処理にする形 — 不採用: 統計がNetworkの中身になり、checkpointの書式が変わる（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D3・退けた案）。
+- RNDの統計方式の整理と性能の直しを同時に入れる形 — 不採用: 値を変えない直しを、同seedの結果の一致で確かめられなくなる（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1の退けた案）。
+- RNDのtargetの出力の統計と診断値の読み戻しを1回にまとめる形、ボーナスの診断値の読み出しをまとめる形、CPUのスレッド数を増やす形 — 不採用: 置き場の変更だけでtargetの出力の統計が0.772 msから0.151 msになり、ボーナスの読み出しは0.033 ms、スレッド数は実時間が1.874倍と13.486倍に延びた（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D8）。
 
 ## 変えるときの条件
 
@@ -170,6 +176,7 @@
 - 推定器の読むだけの採点（`EstimateWithoutUpdate`）を挟んでも、`Estimate`・`Learn`の戻り値と`Diagnostics`の値が変わらないことを、whitenの累積・直近重みと`variance_feedback`の3構成で確かめる。どの方式でも、読むだけの採点の倍率が、直後にその観測1件を`Estimate`へ渡したときの倍率と一致する。写しを採点しても元の推定器は変わらない（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§5.1・§7の1・2・4）。
 - 診断の群を共通の型へ寄せるときは、メトリクスの名前とWARNの文言・回数を変えず、診断の6群をすべて購読する組を含む前後比較で全scalarの点を一致させ、更新の速さを交互3巡以上で確かめる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D16・D18、§6.4）。
 - probe用の乱数の作り方を変えるときは、Agentの基のseedと乱数の名前を変えず、購読を設定し直しても作り直さない。名前付きのseedは作る順に依らず、probeは学習の乱数に触れないので、この2つを守れば診断の値も学習の値も変わらない（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§2.5・§5 D13）。
+- RNDの正規化と統計の置き場を変えるときは、RND無効の出荷の設定で同seed・決定的モードのmetrics checksumを着手前の実行体と一致させ、CUDAで計算するRND有効の構成で同seedのRunが2回一致することを確かめる。速さは、RNDなしとRNDありを同じ回・同じ実行体で3巡測り、中央値の比で見る（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D15・D16、§7）。
 
 ## 関係
 
@@ -229,7 +236,7 @@
 - [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
 - [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md) — PRD128: DQN 系 Agent まわりのリファクタリング 5 件をまとめて片づける（価値の分解の前に） PRD
 - [PRD129](../../memo/129_eval_trace_bonus_beta_before_learning_10prd.md) — Evaluation Trace のボーナスの β を、学習の入口を通る前から用意する PRD
-- [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) — PRD130: RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける 暫定 PRD
+- [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) — PRD130: RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける PRD
 
 ## 課題
 
@@ -239,6 +246,8 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261111-77ac3c](../../management/issues/issue-20261111-77ac3c.md) | 対応中 | 3.0 | — | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 残件有り | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
+| [issue-20261112-f9790d](../../management/issues/issue-20261112-f9790d.md) | 調査中 | 2.1 | — | 成果物 | 実装 | 324_dqn, 321_agent_core | アルゴリズム | 性能改善 | [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) | 未確認 | RNDの既定設定で、採点ごとの統計の更新がCPUの1スレッドで走り、RNDの時間の63%を占める |
+| [issue-20261111-0ddffa](../../management/issues/issue-20261111-0ddffa.md) | 調査中 | 2.0 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) | 未確認 | RndNoveltyEstimator に 2 つの統計方式が同居して分岐が 5 つの関数の 9 か所に散り、Estimate と Learn も前半の約 20 行を同じ形で書いている |
 | [issue-20261103-6a32b4](../../management/issues/issue-20261103-6a32b4.md) | 調査中 | 1.4（引継ぎ） | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
 | [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
 | [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | 未着手 | 5.0 | — | 成果物 | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
@@ -252,12 +261,10 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-cdac7c](../../management/issues/issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | 成果物 | PRD | 321_agent_core | アルゴリズム | 機能改善 | [PRD940](../../memo/940_target_update_step_axis_10prd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |
 | [issue-20261111-4351bc](../../management/issues/issue-20261111-4351bc.md) | 未着手 | 2.2 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | — | 未確認 | DQN の Actor が const の MakeAction の中で 11 個の mutable メンバを書き換えて状態を進め、一時的な出力を結果の public メンバで運んでいる |
-| [issue-20261112-f9790d](../../management/issues/issue-20261112-f9790d.md) | 未着手 | 2.1 | — | 成果物 | 実装 | 324_dqn, 321_agent_core | アルゴリズム | 性能改善 | [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) | 未確認 | RNDの既定設定で、採点ごとの統計の更新がCPUの1スレッドで走り、RNDの時間の63%を占める |
 | [issue-20261103-72f807](../../management/issues/issue-20261103-72f807.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | 不具合 | — | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | 成果物 | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD945](../../memo/945_outside_core_extension_layout_10prd.md) | 残件有り | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-a39330](../../management/issues/issue-20261103-a39330.md) | 未着手 | 2.0 | — | 成果物 | PRD | 321_agent_core, 324_dqn | アルゴリズム | 機能追加 | [PRD941](../../memo/941_iqn_first_priority_quantile_pair_10prd.md) | 残件有り | PRD 999: IQN初回Learner priorityのquantile-pair方式 |
 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 未着手 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD944](../../memo/944_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
-| [issue-20261111-0ddffa](../../management/issues/issue-20261111-0ddffa.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) | 未確認 | RndNoveltyEstimator に 2 つの統計方式が同居して分岐が 5 つの関数の 9 か所に散り、Estimate と Learn も前半の約 20 行を同じ形で書いている |
 | [issue-20261111-54c7e1](../../management/issues/issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | 成果物 | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 未着手 | 1.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [PRD943](../../memo/943_nstep_target_correction_10prd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |

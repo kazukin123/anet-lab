@@ -21,11 +21,15 @@
 - 2026-09-27: ActionContext廃止に合わせstackerをActor私有としstacker側のAgent依存を除いた（出典: [PRD083](../../memo/done/083_action_context_retire_10prd.md)、確定した設計判断5・7）。
 - 2026-10-21: scalarの読み口統一に合わせScaler群の値取得を接続した（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.1 D1・§4.3 規約・ADR・コードから導いたこと）。
 - 2026-11-12: 報酬スケーラに、lane ごとの割引収益の標準偏差で割る種類（`dynamic_mode = return_std`）を足し、動的な種類の状態を checkpoint に保存する仕様を、グリルで決めた（出典: [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、§5 D9・D16・§6.6）。
+- 2026-11-16: 観測の正規化の部品に統計だけを更新する口を足し、累積の統計の部品のbatch方向の集計の式を替える仕様を、グリルで決めた（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D4〜D7）。
 
 ## 選ばなかった形
 
 - 低解像度動画をNVENC用にpaddingする形 — 先送り: 出力寸法と毎frame処理の複雑化に見合う実需要がない。再開条件: NVENCを強制維持する実需要が出たとき（出典: [PRD025](../../memo/done/025_videolog_codec_auto_ffmpeg_guard_10prd.md)、ゴール / 非ゴール）。
 - ObservationPipelineクラスと専用ファイル・テストの追加 — 範囲外: 固定3段の観測加工はActor本体で満たせ、段の要件が揃う前のクラス化は作り直しになる。再開条件: 段の要件が揃う後続の観測パイプラインPRDで導入する。（出典: [PRD083](../../memo/done/083_action_context_retire_10prd.md)、複雑さ監査）。
+- 累積の統計の部品のbatch方向の集計の式を替えない形と、RNDだけが使う集計の口を足す形 — 不採用: 替えないと計算deviceがCPUの構成に遅い行が残り、口を分けても、その行を通るのは出荷の設定ではRNDだけで経路が二重になる（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1の退けた案）。
+- 累積の統計も計算deviceに置く形 — 不採用: 得が合流と転送の0.083 msにとどまり、診断値を読むたびの同期と、推定器の写しの作りに触ることになる（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D8）。
+- 統計つきの正規化に、平均と標準偏差の写しを持たせない形 — 不採用: 別モデルの検討が推したが、開発者が、写しを作る時点と置き場の決まりを書いて入れると選んだ（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D5・退けた案）。
 
 ## 変えるときの条件
 
@@ -34,6 +38,7 @@
 - H2DとLearner streamを安全につなぐeventのrecord/waitを維持し、性能改善のために消さない（出典: [PRD020](../../memo/done/020_device_transfer_common_part_10prd.md)、Context / Problem Statement）。
 - 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [PRD083](../../memo/done/083_action_context_retire_10prd.md)、Context・確定した設計判断2〜4・11）。
 - 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§4.1 D3・§8 1）。
+- 累積の統計の部品の集計の式を変えるときは、全要素の集計の行（報酬スケーラが通る）を動かさず、新しい経路とCPU・倍精度の参照の計算の差を単体テストで確かめる（観測の統計の平均と標準偏差が相対1e-4以内）（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D7、§7の5）。
 
 ## 関係
 
@@ -73,7 +78,7 @@
 - [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md) — 外的と内的の価値の分解（Q を外的報酬と内的報酬の 2 つの Head で学ぶ） PRD
 - [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md) — PRD122: 小さなリファクタリングとテストの空白をまとめて片づける
 - [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
-- [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) — PRD130: RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける 暫定 PRD
+- [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) — PRD130: RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける PRD
 
 ## 課題
 

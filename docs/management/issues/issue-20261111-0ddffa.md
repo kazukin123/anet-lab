@@ -1,7 +1,7 @@
 ---
 id: issue-20261111-0ddffa
 title: RndNoveltyEstimator に 2 つの統計方式が同居して分岐が 5 つの関数の 9 か所に散り、Estimate と Learn も前半の約 20 行を同じ形で書いている
-status: 未着手
+status: 調査中
 raised: 2026-11-11
 phase: 監査
 scope: core/anet-core/src/intrinsic_rnd.cpp・intrinsic_rnd.hpp の RndNoveltyEstimator と RndErrorStatistics（RND の内的報酬の毎 update の経路と checkpoint）
@@ -57,3 +57,7 @@ PRD123 は 2026-11-11 に warm-up と誤差の正規化の選択肢を足した�
 方式ごとの統計（観測の正規化、誤差からの倍率、保存と復元、診断の平均と標準偏差）を 1 つの内部の型にまとめ、whiten 用と variance_feedback 用の 2 つの実装を構築時に 1 つ選ぶ。`RndErrorStatistics` も累積用と EMA 用に分ける。`Estimate` と `Learn` の共通の前半は private の小さな関数にする。checkpoint の並びと書式名、設定キー、診断キー、ログの文言、プロファイルの区間名は変えない。warm-up の条件が方式をまたいで書かれているので、分けたあとにどちらの側へ置くかを PRD123 で置いた判断と突き合わせて決める。
 
 ## 対応内容
+
+## 備考
+
+- 2026-11-15 状態を `未着手` から `調査中` へ変更。工程の出来事による（PRD130 の再グリルを始めた）。
