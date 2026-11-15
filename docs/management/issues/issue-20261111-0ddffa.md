@@ -15,7 +15,7 @@ ai_judged:
 docs:
   - docs/memo/924_intrinsic_reward_novelty_10prd.md
   - docs/memo/123_rnd_intrinsic_reward_scale_10prd.md
-prd:
+prd: "[[130_rnd_estimate_statistics_perf_10prd]]"
 priority: 高
 depends: []
 parent:
