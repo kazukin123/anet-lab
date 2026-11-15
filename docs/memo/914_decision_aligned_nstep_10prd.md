@@ -29,7 +29,7 @@ DropMerge で起きている問題は次のとおり。
 ## 3. 提案の骨子
 
 1. n-step の窓の終わりを「判断の遷移」で決める。判断でない遷移（待ち）が続く間は窓を延ばし、次の判断の遷移、終端、または上限の長さで区切る。
-2. 判断かどうかは、[999_smdp_transition_duration](956_smdp_transition_duration_10prd.md) の経過時間から決める案を既定にする（DROP 単位で数えるとき、τ = 0 の遷移は待ち）。別の旗を持たないので、時間の数え方と区切りが食い違わない。
+2. 判断かどうかは、[956_smdp_transition_duration](956_smdp_transition_duration_10prd.md) の経過時間から決める案を既定にする（DROP 単位で数えるとき、τ = 0 の遷移は待ち）。別の旗を持たないので、時間の数え方と区切りが食い違わない。
 3. 割引は、窓の中の γ^τ の積で行う。
 4. n-step に特有の偏り（目標値が「その後も待ち続けた前提の値」になる）は、無駄な待ちに値段を付ける向きに働く。これを許容する前提で、検証で効き方を確かめる。
 5. 本 PRD の「判断」は待ちでない遷移（DropMerge の DROP など）を指し、[098 TempoRL](098_temporl_skip_policy_10prd.md) の「判断」（Actor が行動とスキップ長を選ぶ step）とは別の語である。詳細設計で語を分ける。
@@ -43,17 +43,17 @@ DropMerge で起きている問題は次のとおり。
 
 1. 窓の上限の長さ（ショットクロックの 100 step に合わせるか）。
 2. step 単位で数えるとき（τ = 1 のまま）にも使えるよう、Env が判断かどうかの旗を返す案を残すか。
-3. PER の優先度、Munchausen の項、IQN の分布の目標値との組み合わせ。Munchausen の項の積み方と方策オフの補正は、[999_nstep_target_correction](943_nstep_target_correction_10prd.md) の決定に従う。
+3. PER の優先度、Munchausen の項、IQN の分布の目標値との組み合わせ。Munchausen の項の積み方と方策オフの補正は、[943_nstep_target_correction](943_nstep_target_correction_10prd.md) の決定に従う。
 4. replay の保存量（可変長の窓の終点の持ち方）。
 
 ## 6. 対象外
 
-- 経過時間を割引に通す仕組みそのもの（[999_smdp_transition_duration](956_smdp_transition_duration_10prd.md)）。
+- 経過時間を割引に通す仕組みそのもの（[956_smdp_transition_duration](956_smdp_transition_duration_10prd.md)）。
 - 続ける長さの学習（[098_temporl_skip_policy](098_temporl_skip_policy_10prd.md)）。
 
 ## 7. 依存と順序
 
-[999_smdp_transition_duration](956_smdp_transition_duration_10prd.md) と [999_nstep_target_correction](943_nstep_target_correction_10prd.md) の上に載る。固定長の n-step で NEET が悪化した問題が解けるまでは、窓を延ばしても同じ問題が出るおそれがある。順番待ちの候補として置く。
+[956_smdp_transition_duration](956_smdp_transition_duration_10prd.md) と [943_nstep_target_correction](943_nstep_target_correction_10prd.md) の上に載る。固定長の n-step で NEET が悪化した問題が解けるまでは、窓を延ばしても同じ問題が出るおそれがある。順番待ちの候補として置く。
 
 ## 8. 参照
 

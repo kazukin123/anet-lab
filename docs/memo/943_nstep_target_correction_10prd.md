@@ -70,17 +70,17 @@ n > 1 の n-step return を、Munchausen と強い探索（DropMerge の spatial
 5. PER の優先度、IQN と QR の分布の目標値、TBO の h 変換との組み合わせ。
 6. 既定（今の D3、補正なし）で今と metrics checksum が一致すること。
 7. Atari（BTR 互換の D3 で動いている）への影響。既定は変えず、DropMerge で切り替える案を既定にする。
-8. [999_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md) との関係。窓を延ばす区間は待ちの区間なので、§3.1 と §3.2 の両方が効く。
+8. [914_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md) との関係。窓を延ばす区間は待ちの区間なので、§3.1 と §3.2 の両方が効く。
 
 ## 6. 対象外
 
-- 判断の区切りで窓を延ばす n-step（[999_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md)）。
-- 経過時間を割引に通す仕組み（[999_smdp_transition_duration](956_smdp_transition_duration_10prd.md)）。
+- 判断の区切りで窓を延ばす n-step（[914_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md)）。
+- 経過時間を割引に通す仕組み（[956_smdp_transition_duration](956_smdp_transition_duration_10prd.md)）。
 - ε の段（spatial exploration）の設計の変更。
 
 ## 7. 依存と順序
 
-単独で作れる。[999_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md) は本 PRD の上に載る。順番待ちの候補として置く。
+単独で作れる。[914_decision_aligned_nstep](914_decision_aligned_nstep_10prd.md) は本 PRD の上に載る。順番待ちの候補として置く。
 
 ## 8. 参照
 
