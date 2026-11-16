@@ -7,6 +7,7 @@
 | [issue-20261107-949e8a](issue-20261107-949e8a.md) | 対応中 | 5.0 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 残件有り | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
 | [issue-20261111-77ac3c](issue-20261111-77ac3c.md) | 対応中 | 3.0 | — | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 残件有り | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | 成果物 | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
+| [issue-20261115-5adbf9](issue-20261115-5adbf9.md) | 調査中 | 1.6 | — | ハーネス | その他 | 311_dev_tools | 開発 | リファクタリング | [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md) | 未確認 | 9xxの番号のPRD（過去のPRDのID）を、900未満の連番へ振り直す |
 | [issue-20261103-6a32b4](issue-20261103-6a32b4.md) | 調査中 | 1.4（引継ぎ） | — | 成果物 | PRD | 315_nn, 321_agent_core, 318_rl_core, 312_util | アルゴリズム | リファクタリング | [PRD938](../../memo/938_nn_trace_capture_unification_10prd.md) | 残件有り | forward の名前付き出力を NetworkForwardCapture に一本化する |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
@@ -87,7 +88,6 @@
 | [issue-20261113-d38960](issue-20261113-d38960.md) | 未着手 | 1.6 | — | 成果物 | 実装 | 110_runner_app, 324_dqn, 318_rl_core | UI | 性能改善 | — | 未確認 | EvalPanel のモデル同期が UI スレッドで学習ロックを待ち、画面の更新や操作応答を止め得る |
 | [issue-20261114-fbcbca](issue-20261114-fbcbca.md) | 未着手 | 1.6 | — | ハーネス | ハーネス保守 | — | 開発 | 機能改善 | — | 未確認 | ADR へのたどり方を改善する（wiki への取り込み遅れと漏れ、入口の方針、サブエージェントの経路） |
 | [issue-20261115-3e5b77](issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 成果物 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
-| [issue-20261115-5adbf9](issue-20261115-5adbf9.md) | 未着手 | 1.6 | — | ハーネス | その他 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 9xxの番号のPRD（過去のPRDのID）を、900未満の連番へ振り直す |
 | [issue-20261103-75b8da](issue-20261103-75b8da.md) | 未着手 | 1.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [PRD943](../../memo/943_nstep_target_correction_10prd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
 | [issue-20261103-e29c92](issue-20261103-e29c92.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 残件有り | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
 | [issue-20261103-df24e5](issue-20261103-df24e5.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 312_util | 基盤 | 不具合 | — | 判定不能 | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
@@ -119,6 +119,7 @@
 | [issue-20261103-c16aab](issue-20261103-c16aab.md) | 未着手 | 1.0 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD954](../../memo/954_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 | [issue-20261105-f4b870](issue-20261105-f4b870.md) | 未着手 | 1.0 | — | 成果物 | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261111-d1d12b](issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | 成果物 | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | アルゴリズム | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
+| [issue-20261116-fe09dc](issue-20261116-fe09dc.md) | 未着手 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261103-cfe994](issue-20261103-cfe994.md) | 未着手 | 0.9 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
 | [issue-20261103-c5c791](issue-20261103-c5c791.md) | 未着手 | 0.9 | — | 成果物 | PRD | 322_env_individual, 318_rl_core | 学習基盤 | 調査 | [PRD946](../../memo/946_prd097_performance_remeasurement_10prd.md) | 残件有り | PRD097: 判定不能4構成の性能再測定とDropMerge serial追加費用の調査 |
 | [issue-20261103-f33167](issue-20261103-f33167.md) | 未着手 | 0.9 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 315_nn | アルゴリズム | 機能追加 | [PRD107](../../memo/107_noisy_gain_lane_ladder_10prd.md) | 残件有り | 学習の Actor の lane ごとに NoisyNet のノイズの強さを変える（ノイズのラダー） |

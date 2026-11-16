@@ -37,6 +37,8 @@
 - 2026-11-03: issueの一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）を、発番と同じ置き場の道具と一覧のskillの引数で作る案を暫定で起票した（出典: [925_issue_list_views](../../memo/925_issue_list_views_10prd.md)、題・§1・§4 D1〜D3）。
 - 2026-11-10: 課題のtypeを仕事の種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）にし、PRD専用の索引の課題をやめて各課題がprd欄でPRDを1本だけ指し（N:1）、PRDの実装済みを課題の判定と状態から導き、parent・depends・prdをObsidianのリンクで書き、domain・tags・resolutionを足す案を起票した（出典: [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md)、§1・§4 D1〜D8）。
 - 2026-11-11: Debug版libtorchのoneDNNのassertがテストの順序で出ないよう、anet-core-testが開始時に1回MKLDNNを切り、テストの中の切り替えを消す案を起票した（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、題・§3.1・§4 D1）。
+- 2026-11-16: 9xxの番号のPRD 57本を、起票の日の順に900未満の連番へ振り直し、この振り直しを番号の不再利用の例外として9xxを再び使える番号に戻し、旧い番号を各PRDの題の直下の振り直しの行で引く（wikiのPRDの一覧の道具もその行を読む）案を起票した（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、題・§1.2・§4 D1〜D3・D7・D8）。
+- 2026-11-16: PRDの9xxの番号を、起票の日の順に900未満の連番へ振り直し、9xxを再び使える番号に戻す（出典: [ADR 0077](../../adr/0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable.md)）。
 
 ## 選ばなかった形
 
@@ -84,6 +86,12 @@
 - テストの実行順を宣言順に固定する形 — 不採用: 単独やタグを指定した実行は直らない（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§3.2・§7）。
 - テストの実行体でCPUのスレッド数を1にしてoneDNNの経路を残す形 — 不採用: 残す利点のoneDNNの経路のテストは非ゴールで、CPUのテストがすべて1スレッドになる（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§3.2・§7）。
 - NNを組まないテストの実行体（Envの5本、RunnerのGUIのテスト）のmainでもMKLDNNを切る形 — 不採用: NNを組まない。再開条件: CPUでNNを組むテストをそれらの実行体に足すとき（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§4 D3・§7）。
+- 9xxのPRDを振り直したあと、9xxを使われた番号として飛ばし続ける（退役） — 不採用: 番号の並びが900台に届いたときに予約の帯が残り、規約にも9xxの例外が要る（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D3・§8）。
+- 9xxのPRDを振り直したあとの900台の扱いを、番号が890に届いたときに4桁の形と一緒に決める（先送り） — 不採用: 規約が暗に9xxを予約し続ける。得るのは100個（今の速さで3〜4か月）だけという反対を聞いたうえで、予約の帯を残さない形を保った（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D3・§8）。
+- 9xxのPRDの振り直しでリンクとファイル名だけを直し、番号だけの表記を残す — 不採用: 今使っている文書に番号の食い違いが500か所を超えて残る（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D4・§8）。
+- 改名したPRDを指すADRのリンクを、先頭の注記だけで済ませるか切れたまま残す — 不採用: リンク切れが検査に毎回混ざり、次の改名・移動でも同じ食い違いに当たる（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D6・§8）。
+- PRDの旧い番号と新しい番号の対応表のファイルを置き、道具はそれを読む — 不採用: 置き場が増え、PRDを開いても旧い番号が分からない（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D7・§8）。
+- 番号が1000に届いたときの4桁の形 — 先送り: 別の関心。再開条件: 番号が990に届いたとき（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D15・§8）。
 
 ## 変えるときの条件
 
@@ -96,8 +104,9 @@
 - リリースの組み立てを移すときは、実行用zipの中身（ファイルのentryのパスの一覧）を変えない。移行の直前のコミットで旧workflowのドライランを回したartifactと、新しい入口で作ったzipの一覧を比べる（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§3のG2・§7の受入3）。
 - リリースの構成を足しても、日常のDebug・Release構成の出力先と出力物を変えない。前後でexe・DLL・静的ライブラリのファイル名の一覧を比べる（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§4 D2・§7の受入1）。
 - housekeepingに候補を足しても、reports/housekeeping/runs.jsonlの既存の行は書き換えない（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§5.5）。
-- 過去のPRD（done/・frozen/・dropped/）・実装記録・ADRの本文は書き換えない。999の振り直しでは、ファイル名を指すパスの表記だけを直す（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§5.9・§5.12）。
-- PRDの番号は、一度使ったものを二度と使わない（コミットの件名・CHANGELOG・ADR・実験記録が番号でPRDを指すため）（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D13）。
+- 過去のPRD（done/・frozen/・dropped/）・実装記録・ADRの本文は書き換えない。999の振り直しでは、ファイル名を指すパスの表記だけを直す（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§5.9・§5.12）。参照先のPRDの改名・移動に合わせてMarkdownのリンクのパスだけを直すことと、先頭へ注記を足すことは、書き換えに当たらない（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D6）。
+- PRDの番号は、一度使ったものを二度と使わない（コミットの件名・CHANGELOG・ADR・実験記録が番号でPRDを指すため）（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D13）。9xxの振り直しはこの例外で、振り直しの日（振り直しの行の日付）以前の9xxの使用を数えない（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D3）。
+- PRDを改名するときは、改名と表記の直しを1回のコミットにまとめ、ステージしたあとの`git diff --cached -M`で改名（`R`）として見分けられることを確かめる。定点統計の起票の月は`git log --follow`で取るため（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§2の15・§4 D14・§6のA12）。
 - 課題の仕組みのファイルは共有コアに含めず、anetのskillと文書として持つ。プロセス契約の節とanetの値はskillに直接書き、レジストリの読み替えで当てない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D2・D4・D5）。
 - 共有コアの文面はskill・エージェント・アダプタの名前以外をプロジェクトに依存させず、anet固有のことはレジストリと観点に置く（出典: [ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、冒頭の2026-11-02注記）。
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§5.7・§7の受入1）。
@@ -171,6 +180,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261115-5adbf9](../../management/issues/issue-20261115-5adbf9.md) | 調査中 | 1.6 | — | ハーネス | その他 | 311_dev_tools | 開発 | リファクタリング | [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md) | 未確認 | 9xxの番号のPRD（過去のPRDのID）を、900未満の連番へ振り直す |
 | [issue-20261104-52ffba](../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD925](../../memo/925_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
@@ -180,7 +190,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-61d771](../../management/issues/issue-20261103-61d771.md) | 未着手 | 1.6 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD906](../../memo/906_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
 | [issue-20261115-3e5b77](../../management/issues/issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 成果物 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
-| [issue-20261115-5adbf9](../../management/issues/issue-20261115-5adbf9.md) | 未着手 | 1.6 | — | ハーネス | その他 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 9xxの番号のPRD（過去のPRDのID）を、900未満の連番へ振り直す |
 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [PRD096](../../memo/096_metrics_step_axis_interval_10prd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
 | [issue-20261110-9d4e5a](../../management/issues/issue-20261110-9d4e5a.md) | 未着手 | 1.4 | — | 成果物 | その他 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | C++ の単純な書き方の問題を機械で検出する仕組み（lint・静的解析）が無い |
 | [issue-20261103-71bb9a](../../management/issues/issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD959](../../memo/959_test_line_coverage_10prd.md) | 残件有り | 行カバレッジ計測（OpenCppCoverage） |
@@ -189,6 +198,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261115-657248](../../management/issues/issue-20261115-657248.md) | 未着手 | 1.2 | — | 成果物 | ハーネス保守 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 既存のソースと設定を、最新の規約（include の順・クラス宣言の区切り・関数名の形など）に合わせてまとめて点検し直す |
 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD954](../../memo/954_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | — | 成果物 | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
+| [issue-20261116-fe09dc](../../management/issues/issue-20261116-fe09dc.md) | 未着手 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD949](../../memo/949_release_packaging_cmake_10prd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.0 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD957](../../memo/957_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 
