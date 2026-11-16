@@ -52,12 +52,18 @@ SET "VDG1=metrics.scalar.[77_agent_value/41_greedy_disagree]=extrinsic_q_session
 SET "VDG2=metrics.scalar.[77_agent_value/42_greedy_regret]=extrinsic_q_session_regret_mean $eval.[greedy] $actor @session_end"
 SET "VDG3=metrics.scalar.[77_agent_value/43_greedy_ext_gap]=extrinsic_q_session_gap_mean $eval.[greedy] $actor @session_end"
 SET "VDG4=metrics.scalar.[77_agent_value/44_greedy_int_gap]=intrinsic_q_session_gap_mean $eval.[greedy] $actor @session_end"
-SET "EVB0=DefaultDQNAgent.learner.enabled=false app.save_agent_on_close=false DefaultDQNAgent.actor.[greedy].intrinsic.action_beta_mode=fixed DefaultDQNAgent.actor.[greedy].intrinsic.action_beta=0 DefaultDQNAgent.actor.[greedy_single].intrinsic.action_beta_mode=learner run.eval.[eval].eval_batch_size=16 run.eval.[eval].eval_episodes=16 run.eval_schedule.[eval].interval=10 run.eval_schedule.[greedy].interval=10 run.eval_schedule.[greedy_single].interval=10 run.eval_schedule.[eval_target].interval=0 run.eval_schedule.[eval].warmup_count=0 run.eval_schedule.[greedy].warmup_count=0 run.eval_schedule.[greedy_single].warmup_count=0 app.batchrun.exp_exit_step=12"
+SET "EVB0=DefaultDQNAgent.learner.enabled=false run.train.num_envs=1 app.save_agent_on_close=false DefaultDQNAgent.actor.[greedy].intrinsic.action_beta_mode=fixed DefaultDQNAgent.actor.[greedy].intrinsic.action_beta=0 DefaultDQNAgent.actor.[greedy_single].intrinsic.action_beta_mode=learner run.eval.[eval].eval_batch_size=16 run.eval.[eval].eval_episodes=16 run.eval_schedule.[eval].interval=10 run.eval_schedule.[greedy].interval=10 run.eval_schedule.[greedy_single].interval=10 run.eval_schedule.[eval_target].interval=0 run.eval_schedule.[eval].warmup_count=0 run.eval_schedule.[greedy].warmup_count=0 run.eval_schedule.[greedy_single].warmup_count=0 app.batchrun.exp_exit_step=12"
 SET "VDS1=metrics.scalar.[77_agent_value/45_gs_disagree]=extrinsic_q_session_argmax_disagreement_rate $eval.[greedy_single] $actor @session_end"
 SET "VDS2=metrics.scalar.[77_agent_value/46_gs_regret]=extrinsic_q_session_regret_mean $eval.[greedy_single] $actor @session_end"
 SET "VDS3=metrics.scalar.[77_agent_value/47_gs_ext_gap]=extrinsic_q_session_gap_mean $eval.[greedy_single] $actor @session_end"
 SET "VDS4=metrics.scalar.[77_agent_value/48_gs_int_gap]=intrinsic_q_session_gap_mean $eval.[greedy_single] $actor @session_end"
 SET "G99NE=DefaultDQNAgent.learner.intrinsic.discount_mode=separate DefaultDQNAgent.learner.intrinsic.gamma=0.99 DefaultDQNAgent.learner.intrinsic.terminal_mode=non_episodic"
+SET "FGS=DefaultDQNAgent.learner.intrinsic.feature_gradient=split"
+SET "PL1=metrics.scalar.[34_agent_plasticity/41_probe_dormant_ratio]=$agent plasticity_probe_dormant_ratio @learn $learn_step interval:5000"
+SET "PL2=metrics.scalar.[34_agent_plasticity/42_probe_dead_ratio]=$agent plasticity_probe_dead_ratio @learn $learn_step interval:5000"
+SET "PL3=metrics.scalar.[34_agent_plasticity/43_probe_feature_norm]=$agent plasticity_probe_feature_norm @learn $learn_step interval:5000"
+SET "PL4=metrics.scalar.[34_agent_plasticity/44_probe_srank]=$agent plasticity_probe_srank @learn $learn_step interval:5000"
+SET "PL5=metrics.scalar.[34_agent_plasticity/45_probe_srank_ratio]=$agent plasticity_probe_srank_ratio @learn $learn_step interval:5000"
 
 call :use_ws AtariRnd-01 Atari.txt
 
@@ -66,13 +72,17 @@ call :find_done mz_r121_vd_s1_ev_b0
 if not defined DONE_DIR call :find_ckpt run_*_mz_tg_r121_vd_s1
 if not defined DONE_DIR if defined CKPT call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%VDS1%" "%VDS2%" "%VDS3%" "%VDS4%" %EVB0% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_r121_vd_s1_ev_b0"
 
-echo === 27. montezuma_revenge 30m seed 1: same as mz_tg_r121_vd_s1 plus intrinsic discount 0.99 and no cut of intrinsic value at game over (Burda-style) ===
-call :find_done mz_tg_r121_g99ne_s1
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r121_g99ne_s1"
+echo === 27. montezuma_revenge 30m seed 1: same as mz_tg_r121_vd_s1 plus intrinsic discount 0.99, no cut of intrinsic value at game over, and split feature gradient; plasticity probe every 5000 learn steps ===
+call :find_done mz_tg_g99ne_split_s1
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% %FGS% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1%" "%PL2%" "%PL3%" "%PL4%" "%PL5%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99ne_split_s1"
 
-echo === 28. montezuma_revenge 30m seed 2: same as 27 ===
-call :find_done mz_tg_r121_g99ne_s2
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r121_g99ne_s2"
+echo === 28. montezuma_revenge 30m seed 1: same as 27 but merged feature gradient ===
+call :find_done mz_tg_r121_g99ne_s1
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1%" "%PL2%" "%PL3%" "%PL4%" "%PL5%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r121_g99ne_s1"
+
+echo === 29. montezuma_revenge 30m seed 2: same as 27 ===
+call :find_done mz_tg_g99ne_split_s2
+if not defined DONE_DIR call :run_ws "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% %FGS% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1%" "%PL2%" "%PL3%" "%PL4%" "%PL5%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99ne_split_s2"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
