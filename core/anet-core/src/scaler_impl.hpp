@@ -69,6 +69,7 @@ namespace anet::rl {
     public:
         virtual torch::Tensor Normalize(const torch::Tensor& obs) const = 0;
         virtual torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) = 0;
+        virtual void UpdateStats(const torch::Tensor& obs) = 0;
         virtual void Reset() = 0;
         virtual ~SingleTensorNormalizer() = default;
     };
@@ -91,12 +92,13 @@ namespace anet::rl {
 
         torch::Tensor Normalize(const torch::Tensor& obs) const override;
         torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) override;
+        void UpdateStats(const torch::Tensor& obs) override {}
         void Reset() override;
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
     private:
-        std::pair<torch::Tensor, float> normalizeInternal(const torch::Tensor& obs) const;
+        std::pair<torch::Tensor, float> normalizeInternal(const torch::Tensor& obs, bool measure_clip_ratio) const;
     private:
         // 設定情報
         const bool pass_through_;
@@ -128,12 +130,14 @@ namespace anet::rl {
 
         torch::Tensor Normalize(const torch::Tensor& obs) const override;
         torch::Tensor NormalizeAndUpdateStats(const torch::Tensor& obs) override;
+        void UpdateStats(const torch::Tensor& obs) override;
         void Reset() override;
     public:
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
     private:
-        std::pair<torch::Tensor, float> normalizeInternal(const torch::Tensor& obs) const;
+        void ValidateInput(const torch::Tensor& obs) const;
+        std::pair<torch::Tensor, float> normalizeInternal(const torch::Tensor& obs, bool measure_clip_ratio) const;
     private:
         // 設定情報
         const std::optional<float> clip_range_;
@@ -147,6 +151,8 @@ namespace anet::rl {
 
         // 統計情報
         RunningMeanStd stats_;
+        torch::Tensor normalization_mean_; ///< 統計更新時の device に置く、正規化用の単精度の写し。
+        torch::Tensor normalization_std_;
         float last_clip_ratio_ = 0.0f;    ///< 最後のNormalizeでのクリップ率（メトリクス用）
         float last_outlier_ratio_ = 0.0f; ///< 最後のNormalizeでの異常値判定率（メトリクス用）
     };
@@ -167,6 +173,7 @@ namespace anet::rl {
 
         anet::TensorDict Normalize(const anet::TensorDict& obs) const override;
         anet::TensorDict NormalizeAndUpdateStats(const anet::TensorDict& obs) override;
+        void UpdateStats(const anet::TensorDict& obs) override;
         void Reset() override;
 
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;

@@ -32,6 +32,8 @@ namespace anet::rl {
     public:
         virtual anet::TensorDict Normalize(const anet::TensorDict& obs) const = 0;
         virtual anet::TensorDict NormalizeAndUpdateStats(const anet::TensorDict& obs) = 0;
+        /// 統計だけを更新し、正規化と clip の割合の計測を行わない。
+        virtual void UpdateStats(const anet::TensorDict& obs) = 0;
         virtual void Reset() = 0;
 
         virtual ~ObservationNormalizer() = default;

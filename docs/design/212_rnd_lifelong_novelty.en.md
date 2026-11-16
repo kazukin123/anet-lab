@@ -1,4 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:1dae292ad6fe5b6e39d527d1dce2755368ff7f49 date:2026-11-14 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:526f1ddb7a05b65dcc3b804ed370e90290c1dc37 date:2026-11-16 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.
@@ -131,15 +131,24 @@ NGU multiplies episodic reward by a lifelong-novelty factor. ANET does not curre
 
 First normalize the observation selected by the Coordinator specifically for RND, then pass the same input to target and predictor. The default `intrinsic.observation=next_state` selects the transition's next observation; `state` selects the observation at which the action was taken. Both are the latest single frame before the Actor's frame stacking.
 
+The two output errors are not used directly as multipliers. Error statistics first express how far an error is from its usual value, then produce multiplier α. Statistics exist on both the input and output sides. Default whiten scores with statistics before adding the current values, then updates them after scoring.
+
 ```mermaid
 graph TD
-    O[選んだ生の観測] --> N[観測正規化]
-    N --> T[RND target]
-    N --> P[RND predictor]
-    T --> E[予測誤差]
+    O["選んだ生の観測"] --> N["観測の正規化"]
+    SO[("観測の統計<br/>成分ごとの平均と標準偏差")] -.->|"今回の観測を入れる前の値"| N
+    N --> T["RND target<br/>重みは固定のまま"]
+    N --> P["RND predictor<br/>重みを学習して更新する"]
+    T --> E["予測誤差 e<br/>出力の差の二乗の平均"]
     P --> E
-    E --> A[倍率 α]
+    E --> Z["誤差を普段との差に直す<br/>z = (e−μ_e) ÷ σ_e"]
+    SE[("誤差の統計<br/>平均と標準偏差<br/>全laneで1組")] -.->|"今回の誤差を入れる前の値"| Z
+    Z --> A["倍率 α<br/>普段より大きい誤差ほど大きい<br/>1 + z を1〜Lに収める"]
+    O -.->|"採点のあとに更新する"| SO
+    E -.->|"採点のあとに更新する<br/>warm-up中は除く"| SE
 ```
+
+The diagram shows default `statistics_mode=whiten` and `multiplier_mode=clipped`. See §3.2 for the purposes of the two statistics, §3.3 for α, centering, and unclipped mode, §3.4 for update order, and §3.5 for warm-up. `variance_feedback` updates observation and error statistics in lane order and divides errors by the updated statistics.
 
 For one lane, let x be its normalized observation, f the teacher, g the predictor, and d the output dimension. The code uses this error:
 
@@ -176,6 +185,8 @@ Default observation normalization approximately computes `(value − mean) / sta
 The actual divisor is `sqrt(var) + epsilon` in [`RunningMeanStd::GetStd`](../../core/anet-core/src/scaler_impl.hpp). RND observation normalization also defaults to the common `epsilon=1.0`. Do not substitute a textbook formula assuming a tiny epsilon. Initial mean and variance are 0 and 1.
 
 Noncategorical `uint8` observations, such as pixels, are converted to floating point inside RND before normalization. Categorical observations follow existing observation-specification and normalization handling.
+
+Whiten first moves observations to the computation device, then converts them to floating point and normalizes them there. `UpdateStats` updates observation statistics without producing unused normalized results. Cumulative statistics remain CPU doubles; only batch means and variances are computed on the input device and at the input precision. Float copies of the normalization mean and standard deviation are created during statistics updates and discarded by Load and Reset. Read-only normalization does not modify these copies and creates local values when the device differs. Only normalization that updates statistics counts the clipping ratio.
 
 Error statistics, by contrast, aggregate all lanes into one. `error_norm.average_mode=cumulative` (default) accumulates every batch entered into the statistics, using the existing Welford computation with `epsilon=0`. `ema` reduces the weight of the past by a factor `d=1−1/ema_steps` for each scored observation, using the mean and population variance divided by the weight sum (default `ema_steps=1,000,000`). Updates follow lane order, so the same sequence of errors yields the same statistics regardless of how it is split into batches. `ema_steps=1` keeps only the last observation, so variance is zero. Zero standard deviation or empty statistics receive the special handling in the next section. The mode in §3.5 determines whether errors during warm-up are included.
 
@@ -265,6 +276,14 @@ Default `warmup_steps=12,800` counts **scored observations**. Scoring B observat
 
 Whiten's α checks the count before scoring the batch and returns 1 for all lanes below the threshold. With `warmup_mode=learn_predictor` (default), `Learn` still returns true and trains during that period, and only observation statistics are updated. Error statistics are empty, so error_mean/error_std are NaN. The first batch after warm-up also returns multiplier 1 from the empty statistics and adds its errors to the statistics. From the next batch on, the pre-scoring statistics are used.
 
+```mermaid
+graph LR
+    W["warm-up 中<br/>採点前の件数が<br/>warmup_steps 未満<br/>α=1、ボーナス0<br/>predictorは学習する<br/>観測の統計だけ更新する"] --> F["warm-up 明けの<br/>最初の batch<br/>誤差の統計がまだ空なので<br/>α=1 のまま<br/>この batch の誤差から<br/>統計に入れ始める"]
+    F --> R["次の batch から<br/>採点前の誤差の統計で<br/>α を作る"]
+```
+
+The diagram shows default whiten with `warmup_mode=learn_predictor`. `collect_errors` and variance_feedback instead collect errors during warm-up and suspend `Learn` (next paragraph).
+
 `warmup_mode=collect_errors` updates both observation and error statistics during warm-up, while `Learn` returns false if the post-scoring count is at or below the threshold. variance_feedback warm-up keeps this form and does not use warmup_mode. However, its scoring checks the per-lane pre-scoring count, so normal multipliers begin partway through a batch that crosses the threshold. `warmup_steps=0` trains from the first call and adds errors to the statistics from the first call in either warmup_mode. An unused warmup_mode produces one construction-time INFO only when it differs from the default.
 
 The Coordinator owns learning cadence. Let k be `learn_batch_size`; add `N × learn_ratio / k` to credit per intake. Each full unit permits one step on k observations, retaining fractional credit. At default ratio 0.25 and batch size 32, N=128 gives one step per intake, while N=64 gives one every two intakes: both train on 32 observations once per 128 experiences. If the learner is enabled and N is below batch size, construction stops without shrinking the batch. Runs with the learner disabled do not perform this comparison.
@@ -291,13 +310,14 @@ sequenceDiagram
     F->>C: AdvanceBeta(counts)
     F->>C: ScoreBonus(experience, scaled_rewards)
     C->>R: Estimate(次観測)
-    R->>R: byte→float、更新前統計で正規化、H2D
+    R->>R: H2D、byte→float、更新前統計で正規化
     R->>T: forward(全lane、勾配なし)
     T-->>R: 教師の出力
     R->>P: forward(全lane、勾配なし)
     P-->>R: 予測
-    R->>R: 誤差とtarget出力のD2H、有限検査
+    R->>R: 誤差のD2H、有限検査
     R->>R: 更新前の誤差統計でα、統計更新
+    R->>R: 観測とtarget出力をdeviceで集計、集計結果をCPUの累積へ合流
     R-->>C: α（入力と同じdevice）
     C->>C: CalculateBonusと診断値の更新
     C-->>F: β倍・終端マスク後のボーナス
@@ -307,7 +327,7 @@ sequenceDiagram
     loop creditが1以上、最大floor(N/k)回
         C->>R: Learn(k laneずつ、重複なし)
         opt learn_predictor、またはwarm-up後
-        R->>R: 全k件を今の統計で正規化、H2D
+        R->>R: 全k件をH2D、byte→float、今の統計で正規化
         R->>T: forward(選択lane、勾配なし)
         T-->>R: 教師の出力
         R->>P: forward(選択lane、グラフを作る)
@@ -325,7 +345,7 @@ sequenceDiagram
     L->>N: Replayからの学習でNNの重みを更新
 ```
 
-The diagram shows one intake with the default whiten, clipped, and next_state, using CPU observations and CUDA computation. H2D transfers CPU to GPU; D2H transfers GPU to CPU; CPU computation omits these transfers. CUDA inputs move to CPU before normalization, and multipliers return to the input device. The facade completes RND `Learn` calls before passing experience to the inner Learner. The Learner updates its NN only when existing Replay and update-interval conditions hold. RND auxiliary learning and DQN NN updates use separate weights and optimizers.
+The diagram shows one intake with the default whiten, clipped, and next_state, using CPU observations and CUDA computation. H2D transfers CPU to GPU; D2H transfers GPU to CPU; CPU computation omits these transfers. Whiten normalizes CUDA inputs without going through CPU, and multipliers return to the input device. The facade completes RND `Learn` calls before passing experience to the inner Learner. The Learner updates its NN only when existing Replay and update-interval conditions hold. RND auxiliary learning and DQN NN updates use separate weights and optimizers.
 
 | Comparison | DQN target network | RND target |
 | --- | --- | --- |
@@ -352,18 +372,37 @@ This avoids changing Replay's format but prevents later separate handling of ext
 | Where reward is added | `UpdateFromBatch` in [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) | Add after existing reward scaling |
 | Learning cadence and sampling | `IntrinsicRewardCoordinator::Learn` in [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) | Coordinator owns credit and the RNG with named seed `intrinsic.learn`, supplying k observations at a time |
 | Intrinsic diagnostics, Trace, and persistence | `IntrinsicRewardCoordinator` in the same file | `ScoreBonus` and `ScoreTrace` share the bonus formula; `GetScalar`, `Save`, and `Load` handle diagnostics and persistence |
-| What RND owns | [`intrinsic_rnd.hpp`](../../core/anet-core/src/intrinsic_rnd.hpp) | Target, predictor, optimizer, two statistics, and scored-observation count |
+| What RND owns | [`intrinsic_rnd.hpp`](../../core/anet-core/src/intrinsic_rnd.hpp) | Target, predictor, optimizer, selected-mode statistics, common target-output statistics, and scored-observation count |
 | Scoring and learning order | `Estimate` / `Learn` in [`intrinsic_rnd.cpp`](../../core/anet-core/src/intrinsic_rnd.cpp) | Update statistics after scoring; learning computes independently from supplied observations and current statistics |
-| Exact normalization | [`scaler_impl.cpp`](../../core/anet-core/src/scaler_impl.cpp) and [`scaler_impl.hpp`](../../core/anet-core/src/scaler_impl.hpp) | Use shared normalization, cumulative statistics, and persistence |
+| Statistics-mode responsibilities | `RndStatistics`, `WhitenStatistics`, and `VarianceFeedbackStatistics` in the same file | Select the mode at construction and delegate normalization placement, warm-up, statistics updates, saving, loading, and cloning |
+| Exact normalization | [`scaler_impl.cpp`](../../core/anet-core/src/scaler_impl.cpp) and [`scaler_impl.hpp`](../../core/anet-core/src/scaler_impl.hpp) | Use `UpdateStats` for statistics updates, read-only normalization, cumulative statistics, and persistence |
 | Contract verification | [`intrinsic_test.cpp`](../../core/anet-core/src/intrinsic_test.cpp) | Test fixed teacher, learning, update order, reward addition, and restoration through public paths |
 
 DefaultDQN interprets `intrinsic.enabled`, `intrinsic.beta`, `intrinsic.observation`, `intrinsic.use_done_mask`, `intrinsic.learn_ratio`, and `intrinsic.learn_batch_size`. RND-specific settings go to the Factory and are interpreted by `RndNoveltyEstimatorConfig`. Reward composition and learning cadence are separated from novelty computation and auxiliary learning itself.
+
+`WhitenStatistics` owns observation normalization and either `CumulativeErrorStatistics` or `EmaErrorStatistics`, which implement `RndErrorStatistics`. It separates scoring that reads statistics from statistics updates; auxiliary learning reads the statistics at that time. `VarianceFeedbackStatistics` retains the count before observation updates within the same scoring flow, then performs normalization, observation updates, batched forward, and error updates. It does not reconstruct lane counts from the updated count.
+
+Target/predictor forward, error computation, and finiteness checks after normalization are shared through `ComputePredictionErrors`. Target always runs without gradients; predictor gradients are enabled only for auxiliary learning. Nonfinite errors in read-only scoring retain WARN and NaN handling rather than the ERROR behavior used for scoring and learning. Neither intermediate results nor computation graphs carry over from scoring to auxiliary learning; forward counts and randomness/persistence contracts remain unchanged.
 
 ### 3.9 Value Decomposition and the Intrinsic Reward Scaler
 
 `intrinsic.value_mode=decomposed` learns extrinsic and intrinsic Heads from separate rewards and combines them as `Q_ext + β Q_int` for action selection. It requires `intrinsic.enabled=true`; combining it with skip is an error. See [214 Value Decomposition](214_value_decomposition.en.md) for TD/QR/IQN, TBO, shared/dedicated Head input, and merge/split contracts.
 
 Intake applies done handling to `α−1`, applies `intrinsic.reward_scaler`, then multiplies by beta. Combined mode adds the beta-weighted value to extrinsic reward. Decomposed mode stores the scaled value before beta weighting and extrinsic reward as two components. `bonus_mean` and related metrics, and Trace `intrinsic.bonus`, remain beta-weighted in both modes.
+
+```mermaid
+graph TD
+    A["倍率 α"] --> M["α − 1"]
+    M --> D["doneの扱い<br/>既定では、終端の次観測の<br/>ボーナスを0にする<br/>（条件は§3.3）"]
+    D --> S["内的報酬スケーラ<br/>既定は恒等"]
+    X["外的報酬"] --> XS["外的の報酬スケーラ"]
+    S --> C{"intrinsic.value_mode"}
+    XS --> C
+    C -- combined --> B["スケール済み外的 + β × 内的<br/>Replayへ1成分"]
+    C -- decomposed --> R["スケール済み外的と内的<br/>Replayへ2成分<br/>βは行動選択でQに掛ける"]
+```
+
+Values zeroed by done handling also pass through the intrinsic reward scaler. Dynamic scalers include these zeros in their statistics.
 
 The intrinsic scaler defaults to an identity transform: constant multiplier 1, no dynamic scaling, no automatic multiplier, and no clipping. `dynamic_mode=reward_std` divides reward by its standard deviation; `return_std` uses the standard deviation of per-lane discounted sums. The latter retains sums across episode boundaries and uses effective intrinsic gamma at initialization. Combining return_std with use_auto_post_scale=true is an error.
 
@@ -402,7 +441,7 @@ Keys below omit `DefaultDQNAgent.`. Defaults correspond to [`agent.txt`](../../a
 | `intrinsic.rnd.error_norm.use_centering` | true | Subtract the error mean in whiten scoring |
 | `intrinsic.rnd.multiplier_mode` | clipped | Unclipped returns the multiplier without either bound, including negative bonuses |
 | `intrinsic.rnd.statistics_mode` | whiten | variance_feedback uses the separate sequential recurrence |
-| `intrinsic.rnd.head.output_dim` | 128 | Vector dimension produced by the target/predictor Heads, at least 1. Head input width is determined from the Body output during construction |
+| `intrinsic.rnd.head.output_dim` | 128 | Target/predictor Head output-vector dimension; at least 1. Head input width is determined from Body output at construction |
 | `intrinsic.rnd.head.init.*` | xavier, manual_gain=0 | Existing WeightInitConfig applied to both Heads |
 | `intrinsic.rnd.adam_eps` | 1e-8 | Private AdamW epsilon; finite and positive, current setting also used on load |
 | `intrinsic.rnd.multiplier_max` | 5 | Multiplier upper bound L; finite and greater than 1 |
@@ -531,17 +570,19 @@ Observe time includes the DQN step diagnostics it calls internally (mean 0.74–
 
 RND target, predictor, and Coordinator lane sampling use separate named seeds. Ordinary weight initialization currently uses the default CPU generator, so construction temporarily saves its state, seeds it, and restores the state afterward. Models are constructed on CPU and moved to the required device.
 
-Inputs may reside on CPU or CUDA. RND moves observations to CPU for normalization, then sends them to the Factory's computation device. Finite-error checks and statistics run on CPU; returned α uses the input device. The Coordinator selects lanes first, and `Learn` normalizes/transfers all k supplied observations. CUDA-input selection indices are sent asynchronously from pinned memory once per intake; there are no synchronous per-lane transfers.
+Inputs may reside on CPU or CUDA. Whiten moves observations to the Factory's computation device for conversion, normalization, and batch statistics for observations and target outputs. Cumulative statistics remain CPU doubles; finite-error checks, α computation, error statistics, and diagnostic assembly also remain on CPU. Returned α uses the input device. The Coordinator selects lanes first, and `Learn` transfers all k supplied observations before conversion and normalization. CUDA-input selection indices are sent asynchronously from pinned memory once per intake; there are no synchronous per-lane transfers.
 
-RND owns independent FP32 models. Scoring performs two forwards on all N observations; each auxiliary step performs two forwards and one backward on k observations. After warm-up, without hitting the cap, average steps per intake are `N × learn_ratio / k`. Default N=128 gives one step on 32 observations. Learning needs fresh forwards because scoring graphs are not reused. The speed difference measured on GridMaze with CPU and 256 lanes is given in the next section. For Atari image inputs, see the measurements in the next section as well. Observation-statistics updates still duplicate normalization through the existing API.
+RND owns independent FP32 models. Scoring performs two forwards on all N observations; each auxiliary step performs two forwards and one backward on k observations. After warm-up, without hitting the cap, average steps per intake are `N × learn_ratio / k`. Default N=128 gives one step on 32 observations. Learning needs fresh forwards because scoring graphs are not reused. Existing GridMaze and Atari performance measurements are given in the next section. Stage 1 results for the statistics-only update interface and device placement, and Stage 2 performance comparisons for the main, secondary, and Taiga configurations after separating the statistics modes, are in the [PRD130 implementation memo](../memo/130_rnd_estimate_statistics_perf_20impl.md). Stage 2 used three rounds of alternating fixed executables for each configuration, and all three configurations met the acceptance criteria.
 
-variance_feedback updates observation statistics on CPU in lane order, then forwards the results together. To accumulate target_feature_var, scoring returns the N×head.output_dim target outputs to CPU in addition to errors. The Taiga configuration uses k=1 and ratio=1, so it runs N backwards per intake, a cost very different from the default cadence. Transfer/synchronization estimates and the scope actually confirmed are recorded in [23impl](../memo/116_rnd_lifelong_novelty_23impl.md). Performance measurement is separate.
+variance_feedback updates observation statistics on CPU in lane order, then forwards the results together. To accumulate target_feature_var, scoring returns the N×head.output_dim target outputs to CPU in addition to errors. The Taiga configuration uses k=1 and ratio=1, so it runs N backwards per intake, a cost very different from the default cadence. Transfer/synchronization estimates and the scope actually confirmed are recorded in [23impl](../memo/116_rnd_lifelong_novelty_23impl.md). Performance comparison results for the Taiga configuration are in the PRD130 implementation memo linked above.
 
-Scoring and auxiliary learning occur per batch independently of Q-learning step counts, so increasing the Q-update interval need not reduce RND cost proportionally. Profiling separates sampling, normalization, input transfer, target/predictor forward, error transfer, statistics, backward, and optimizer step.
+Scoring and auxiliary learning occur per batch independently of Q-learning step counts, so increasing the Q-update interval need not reduce RND cost proportionally. Profiling separates sampling, normalization, input transfer, target/predictor forward, error transfer, statistics, backward, and optimizer step. Within scoring statistics, separate zones cover observation-statistics updates, subsequent target-output statistics, and diagnostic reads. Observation normalization separates statistics updates (batch aggregation, transfer, and cumulative merging) from normalization (refreshing statistics, division, postprocessing, and clipping). The scoring caller separates scoring, bonus computation, and diagnostic reads.
 
 With `learner.enabled=false`, scoring and auxiliary learning pause with one INFO per Run. If intrinsic reward is enabled, components still exist for persistence. Aggregate diagnostics use a value-transfer mechanism. With a cloned Actor, Evaluation Trace copies the estimator and beta under the existing periodic synchronization lock, without adding another periodic lock wait. Opening the pane without a snapshot adds one synchronization and can wait for one training intake. An Actor sharing its network waits at each scoring step. This is a developer-approved exception to the UI-thread training-lock rule. If Actor synchronization is moved to training-side snapshot publication, move the estimator and beta with it.
 
 ### 5.2 Verified Scope
+
+PRD130 functional-validation and performance-measurement procedures are in the [validation assets](../../core/anet-core/testdata/prd130/README.md); results and unperformed checks are in the [implementation memo](../memo/130_rnd_estimate_statistics_perf_20impl.md). Performance figures below record the executables used at the time of each measurement.
 
 See [PRD121 validation assets](../../core/anet-core/testdata/prd121/README.md) for value decomposition, intrinsic scaling, and dynamic-scaler save/restore checks.
 

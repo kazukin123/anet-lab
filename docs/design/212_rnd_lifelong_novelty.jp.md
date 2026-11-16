@@ -185,6 +185,8 @@ RND には、目的が異なる2つの統計がある。
 
 画素などの非カテゴリの `uint8` 観測は、RND 内で浮動小数点へ変換してから正規化する。カテゴリを表す観測は、既存の観測仕様・正規化機構の扱いに従う。
 
+whiten は、観測を先に計算 device へ送り、浮動小数点への変換と正規化をそこで行う。観測の統計は `UpdateStats` で更新し、使わない正規化結果は作らない。累積は CPU の倍精度で持ち、batch の平均と分散だけを入力の device と精度で集計する。正規化用の平均・標準偏差の単精度の写しは統計更新時に作り、Load と Reset で捨てる。読むだけの正規化は写しを書き換えず、device が異なるときは局所の値を作る。clip の割合を数えるのは、更新を伴う正規化だけである。
+
 一方、誤差の統計は全 lane の値を1つに集約する。`error_norm.average_mode=cumulative`（既定）は、統計に入れた全 batch の累積で、既存の Welford と `epsilon=0` を使う。`ema` は、採点した観測1件ごとに過去の重みを `d=1−1/ema_steps` 倍に減らし、重みの和で割った平均と母分散を使う（既定の `ema_steps=1,000,000`）。lane 順に更新し、同じ誤差の列なら batch の分け方によらず同じ統計になる。`ema_steps=1` は直前1件だけなので分散0になる。標準偏差0か統計が空の場合には次節の特別扱いをする。warm-up 中の誤差を入れるかは §3.5 のモードが決める。
 
 ここまでが既定の `statistics_mode=whiten` である。Taigaらの公開実装へ条件を合わせる `variance_feedback` は、別の再帰統計を使う。観測の平均 `obs_m` は0、分散に相当する値 `obs_v` は1、誤差の平均 `err_m` は0、誤差の分散に相当する値 `err_v` は1、件数 `n` は0から始める。観測の平均・分散は入力成分ごと、誤差の平均・分散はスカラーで持つ。
@@ -307,13 +309,14 @@ sequenceDiagram
     F->>C: AdvanceBeta(counts)
     F->>C: ScoreBonus(experience, scaled_rewards)
     C->>R: Estimate(次観測)
-    R->>R: byte→float、更新前統計で正規化、H2D
+    R->>R: H2D、byte→float、更新前統計で正規化
     R->>T: forward(全lane、勾配なし)
     T-->>R: 教師の出力
     R->>P: forward(全lane、勾配なし)
     P-->>R: 予測
-    R->>R: 誤差とtarget出力のD2H、有限検査
+    R->>R: 誤差のD2H、有限検査
     R->>R: 更新前の誤差統計でα、統計更新
+    R->>R: 観測とtarget出力をdeviceで集計、集計結果をCPUの累積へ合流
     R-->>C: α（入力と同じdevice）
     C->>C: CalculateBonusと診断値の更新
     C-->>F: β倍・終端マスク後のボーナス
@@ -323,7 +326,7 @@ sequenceDiagram
     loop creditが1以上、最大floor(N/k)回
         C->>R: Learn(k laneずつ、重複なし)
         opt learn_predictor、またはwarm-up後
-        R->>R: 全k件を今の統計で正規化、H2D
+        R->>R: 全k件をH2D、byte→float、今の統計で正規化
         R->>T: forward(選択lane、勾配なし)
         T-->>R: 教師の出力
         R->>P: forward(選択lane、グラフを作る)
@@ -341,7 +344,7 @@ sequenceDiagram
     L->>N: Replayからの学習でNNの重みを更新
 ```
 
-図は既定のwhiten・clipped・next_stateで、CPU観測・CUDA計算を行う1回の処理順を示す。H2DはCPUからGPU、D2HはGPUからCPUへの転送であり、CPU計算なら省かれる。CUDA入力は正規化の前にCPUへ移し、倍率を入力deviceへ戻す。facadeではRNDの `Learn` を終えてから内側のLearnerへ経験を渡す。LearnerのNN更新は既存のReplay・更新間隔の条件が成立したときに行う。RNDの補助学習とDQNのNN更新は別々の重み・optimizerを使う。
+図は既定のwhiten・clipped・next_stateで、CPU観測・CUDA計算を行う1回の処理順を示す。H2DはCPUからGPU、D2HはGPUからCPUへの転送であり、CPU計算なら省かれる。whiten の CUDA 入力は CPU を経由せず正規化し、倍率は入力 device へ戻す。facadeではRNDの `Learn` を終えてから内側のLearnerへ経験を渡す。LearnerのNN更新は既存のReplay・更新間隔の条件が成立したときに行う。RNDの補助学習とDQNのNN更新は別々の重み・optimizerを使う。
 
 | 比較 | DQN の target network | RND target |
 | --- | --- | --- |
@@ -368,12 +371,17 @@ sequenceDiagram
 | 報酬をどこで加算するか | [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) の `UpdateFromBatch` | 既存の報酬スケール後に加算する |
 | 学習の刻みと抽選 | [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) の `IntrinsicRewardCoordinator::Learn` | Coordinatorがcreditと名前付きseed `intrinsic.learn` の乱数を持ち、k件ずつ渡す |
 | 内的報酬の診断・Trace・保存 | 同ファイルの `IntrinsicRewardCoordinator` | `ScoreBonus` と `ScoreTrace` が共通のボーナス式を使い、`GetScalar`・`Save`・`Load`が診断と保存を受け持つ |
-| RND が何を所有するか | [`intrinsic_rnd.hpp`](../../core/anet-core/src/intrinsic_rnd.hpp) | target、predictor、optimizer、2種類の統計、採点した観測の件数を持つ |
+| RND が何を所有するか | [`intrinsic_rnd.hpp`](../../core/anet-core/src/intrinsic_rnd.hpp) | target、predictor、optimizer、選択した方式の統計、target 出力の共通統計、採点した観測の件数を持つ |
 | 採点・学習の順番 | [`intrinsic_rnd.cpp`](../../core/anet-core/src/intrinsic_rnd.cpp) の `Estimate` / `Learn` | 採点後に統計を更新し、学習は渡された観測と現在の統計から独立して計算する |
-| 正規化の具体的な計算 | [`scaler_impl.cpp`](../../core/anet-core/src/scaler_impl.cpp) と [`scaler_impl.hpp`](../../core/anet-core/src/scaler_impl.hpp) | 共通の正規化・累積統計・保存処理を使う |
+| 統計方式の責任 | 同ファイルの `RndStatistics`・`WhitenStatistics`・`VarianceFeedbackStatistics` | 構築時に方式を選び、正規化の配置、warm-up、統計更新、保存・復元・複製を委ねる |
+| 正規化の具体的な計算 | [`scaler_impl.cpp`](../../core/anet-core/src/scaler_impl.cpp) と [`scaler_impl.hpp`](../../core/anet-core/src/scaler_impl.hpp) | `UpdateStats` による統計更新、読み取り専用の正規化、累積統計と保存処理を使う |
 | 契約をどう確かめるか | [`intrinsic_test.cpp`](../../core/anet-core/src/intrinsic_test.cpp) | 固定教師、学習、更新順序、報酬加算、保存再開などを公開経路から検証する |
 
 DefaultDQN側が解釈するのは `intrinsic.enabled`・`intrinsic.beta`・`intrinsic.observation`・`intrinsic.use_done_mask`・`intrinsic.learn_ratio`・`intrinsic.learn_batch_size`。RND固有の設定はFactoryへ渡し、`RndNoveltyEstimatorConfig` が解釈する。報酬の合成・学習の刻みを担当する側と、新しさの計算・補助学習そのものを担当する側を分けている。
+
+`WhitenStatistics` は観測の正規化と、`RndErrorStatistics` の実装である `CumulativeErrorStatistics` または `EmaErrorStatistics` を所有する。読む採点と統計更新を分け、補助学習はその時点の統計を読む。`VarianceFeedbackStatistics` は観測更新前の件数を同じ採点の流れで保持し、正規化・観測更新・一括 forward・誤差更新を行う。更新後の件数から lane の件数を逆算しない。
+
+正規化後の target/predictor の forward・誤差計算・有限性検査は `ComputePredictionErrors` にまとめる。target は常に勾配無し、predictor は補助学習のときだけ勾配を有効にする。読むだけの採点の非有限値は、引き続き WARN と NaN で扱い、採点と学習の ERROR に置き換えない。中間結果や計算グラフを採点から補助学習へ持ち越さず、forward の回数と乱数・保存の契約を維持する。
 
 ### 3.9 価値の分解と内的報酬スケーラ
 
@@ -561,17 +569,19 @@ Observeの時間は、内側で呼ぶDQNのstep診断（通常RNDで平均0.74�
 
 名前付きseedは、RNDのtarget・predictorとCoordinatorのlane抽選で分ける。現在の通常の重み初期化はCPUの既定乱数生成器を使うため、構築中だけその状態を退避してseedを指定し、終了時に復元する。CPUで構築したモデルを必要なdeviceへ移す。
 
-入力はCPUでもCUDAでも受け取る。RND内部では観測をCPUへ移して正規化し、Factoryで指定した計算deviceへ送る。誤差の有限検査と統計はCPUで扱い、返すαは入力と同じdeviceに置く。Coordinatorは先にlaneを選び、`Learn` は渡された全k件を正規化・転送する。CUDA入力の選択番号はintakeごとに1回、pinnedメモリから非同期で送る。laneごとの同期転送は置かない。
+入力はCPUでもCUDAでも受け取る。whiten は観測を Factory の計算 device へ送り、変換・正規化・観測と target 出力の batch の集計を行う。累積統計は CPU・倍精度のままで、誤差の有限検査、α の計算、誤差の統計と診断値の組み立ても CPU に残す。返す α は入力と同じ device に置く。Coordinatorは先にlaneを選び、`Learn` は渡された全k件を転送してから変換・正規化する。CUDA入力の選択番号はintakeごとに1回、pinnedメモリから非同期で送る。laneごとの同期転送は置かない。
 
-RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn_ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。GridMazeのCPU・256 laneで測った速度差は次節に記す。Atariの画像入力の費用も次節の測定結果を参照する。観測正規化の統計更新時には、既存APIによる正規化の二重計算も残る。
+RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn_ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。GridMazeとAtariの既存の性能測定は次節に記す。統計更新専用の口と device 配置を変更したステージ 1 の結果と、統計方式を分けたステージ 2 の主・副・Taiga 設定の性能比較結果は [PRD130 実装メモ](../memo/130_rnd_estimate_statistics_perf_20impl.md) にある。ステージ 2 は固定した実行体の交互比較を各条件で 3 巡行い、3 条件とも受入を満たした。
 
-variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×head.output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md) に記録する。性能測定は別途である。
+variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×head.output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md) に記録する。Taiga 設定の性能比較結果は上記の PRD130 実装メモにある。
 
 Q学習の回数とは別にbatchごとに採点・補助学習するため、Qの更新間隔を大きくしてもRNDの費用が同じ比率で減るとは限らない。計測区間は抽選、正規化、入力転送、target / predictorの順伝播、誤差転送、統計、backward、optimizerのstepを区別する。採点の統計の区間は、内側の観測の統計の更新と、続くtargetの出力の統計、診断値の読み出しを別の区間で測れる。観測の正規化の部品は、統計の更新（batchの集計、転送、累積への合流）と、正規化（統計の作り直し、割り算、後処理、clip）を区別する。採点を呼ぶ側は、採点、ボーナスの計算、診断値の読み出しを区別する。
 
 `learner.enabled=false` ではRunに1回INFOを出して採点と補助学習を休止する。有効設定なら保存状態を扱うための部品は構築される。集約診断の読み取りは値の受け渡し専用の仕組みを使う。Evaluation Traceで写しを持つActorを使うときは、定期の同期と同じロックの中で推定器とβも写すので、定期同期のロック待ちの回数は増えない。paneを開いて写しが無いときは同期が1回入り、学習の入口1回の終わりを待つ。写しを持たないActorではstepごとに待つ。これはUIスレッドの学習ロック禁止規約の、開発者が決めた例外である。Actorの同期全体を学習側が写しを公開する形へ移すときは、推定器とβも一緒に移す。
 
 ### 5.2 確認済みの範囲
+
+PRD130 の機能検証と性能測定の手順は [検証資材](../../core/anet-core/testdata/prd130/README.md)、実施結果と未実施の範囲は [実装メモ](../memo/130_rnd_estimate_statistics_perf_20impl.md) に置く。以下の性能値は、それぞれの測定当時の実行体による記録である。
 
 価値の分解・内的スケーラ・動的スケーラの保存復元の検証は[PRD121検証資材](../../core/anet-core/testdata/prd121/README.md)に置く。
 

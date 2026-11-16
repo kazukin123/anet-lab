@@ -87,6 +87,9 @@ int64_t RunningStdSingleTensorNormalizer::Load(anet::InputArchive& archive)
     bytes += stats_.Load(archive);
     bytes += archive.Read(last_clip_ratio_);
     bytes += archive.Read(last_outlier_ratio_);
+    // 保存の中身は累積だけとし、前の統計の写しを再利用しない。
+    normalization_mean_ = torch::Tensor{};
+    normalization_std_ = torch::Tensor{};
     return bytes;
 }
 
@@ -170,9 +173,10 @@ void RunningMeanStd::Update(const torch::Tensor& batch_input)
         // Vectorモード (ObservationNormalizer用)
         // dim=0 (Batch方向) に沿って計算
         // batch_input: [B, F] -> mean: [F]
-        auto res = torch::var_mean(batch_input, { 0 }, /*unbiased=*/false); // correction=0
-        batch_var_t = std::get<0>(res);
-        batch_mean_t = std::get<1>(res);
+        // 入力の device と精度のまま、平均からの二乗差を集計する。
+        // 全要素の集計は上の経路に残し、報酬の統計の丸め方を変えない。
+        batch_mean_t = batch_input.mean(0);
+        batch_var_t = (batch_input - batch_mean_t).square().mean(0);
     }
 
     ANET_PROFILE_SCOPE_NEXT(moments_transfer);
@@ -255,7 +259,7 @@ void ConstantSingleTensorNormalizer::Reset()
 }
 
 std::pair<torch::Tensor, float>
-ConstantSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) const
+ConstantSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs, bool measure_clip_ratio) const
 {
     ANET_PROFILE_FUNC();
     
@@ -280,8 +284,10 @@ ConstantSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) cons
     float clipped = 0.0f;
     if (clip_range_.has_value()) {
         float clip_val = *clip_range_;
-        auto out_of_range = (normalized.abs() > clip_val).to(torch::kFloat32);
-        clipped = out_of_range.mean().item<float>();
+        if (measure_clip_ratio) {
+            auto out_of_range = (normalized.abs() > clip_val).to(torch::kFloat32);
+            clipped = out_of_range.mean().item<float>();
+        }
         normalized = torch::clamp(normalized, -clip_val, clip_val);
     }
 
@@ -290,13 +296,14 @@ ConstantSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) cons
 
 torch::Tensor ConstantSingleTensorNormalizer::Normalize(const torch::Tensor& obs) const
 {
-    auto result = normalizeInternal(obs);
+    // 読むだけの呼び出しでは、返さない割合の計数と同期を行わない。
+    auto result = normalizeInternal(obs, false);
     return result.first;
 }
 
 torch::Tensor ConstantSingleTensorNormalizer::NormalizeAndUpdateStats(const torch::Tensor& obs)
 {
-    auto result = normalizeInternal(obs);
+    auto result = normalizeInternal(obs, true);
     this->last_clip_ratio_ = result.second;
     return result.first;
 }
@@ -344,15 +351,14 @@ RunningStdSingleTensorNormalizer::RunningStdSingleTensorNormalizer(
 void RunningStdSingleTensorNormalizer::Reset()
 {
     stats_.Reset();
+    normalization_mean_ = torch::Tensor{};
+    normalization_std_ = torch::Tensor{};
     last_clip_ratio_ = 0.0f;
     last_outlier_ratio_ = 0.0f;
 }
 
-std::pair<torch::Tensor, float>
-RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) const
+void RunningStdSingleTensorNormalizer::ValidateInput(const torch::Tensor& obs) const
 {
-    ANET_PROFILE_FUNC();
-
     // 型チェック
     ANET_ASSERT_DTYPE(obs, torch::kFloat32);
 
@@ -374,15 +380,23 @@ RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) co
         }
     }
 
-    //  正規化処理
+}
+
+std::pair<torch::Tensor, float>
+RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs, bool measure_clip_ratio) const
+{
+    ANET_PROFILE_FUNC();
+    ValidateInput(obs);
+    // 正規化と統計更新は同じ入力契約を使う。
     auto device = obs.device();
 
     // 統計量取得 (Double CPU Tensor -> Float Device Tensor)
     // 平均も先に作り、統計の作り直しと割り算を別の区間で測れるようにする。
     ANET_PROFILE_SCOPE(statistics_transfer);
-    torch::Tensor std = stats_.GetStd().to(device).to(torch::kFloat32);
+    const bool has_snapshot = normalization_std_.defined() && normalization_std_.device() == device;
+    torch::Tensor std = has_snapshot ? normalization_std_ : stats_.GetStd().to(device).to(torch::kFloat32);
     torch::Tensor mean;
-    if (use_centering_) mean = stats_.GetMean().to(device).to(torch::kFloat32);
+    if (use_centering_) mean = has_snapshot ? normalization_mean_ : stats_.GetMean().to(device).to(torch::kFloat32);
 
     // 正規化 (Broadcasting: [B, state_dim...] -> [ state_dim...])
     ANET_PROFILE_SCOPE_NEXT(scale);
@@ -437,8 +451,10 @@ RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) co
         float limit = *clip_range_;
 
         // 範囲外の要素数をカウント
-        auto out_of_range = (normalized.abs() > limit).to(torch::kFloat32);
-        clipped = out_of_range.mean().item<float>();
+        if (measure_clip_ratio) {
+            auto out_of_range = (normalized.abs() > limit).to(torch::kFloat32);
+            clipped = out_of_range.mean().item<float>();
+        }
 
         normalized = torch::clamp(normalized, -limit, limit);
     }
@@ -448,17 +464,18 @@ RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs) co
 
 torch::Tensor RunningStdSingleTensorNormalizer::Normalize(const torch::Tensor& obs) const
 {
-    auto result = normalizeInternal(obs);
+    // clip の値は維持し、診断へ使わない割合の計数だけを省く。
+    auto result = normalizeInternal(obs, false);
     return result.first;
 }
 
-torch::Tensor RunningStdSingleTensorNormalizer::NormalizeAndUpdateStats(const torch::Tensor& obs)
+void RunningStdSingleTensorNormalizer::UpdateStats(const torch::Tensor& obs)
 {
     ANET_PROFILE_FUNC();
+    ValidateInput(obs);
 
     // 統計更新の前に、入力値を常識的な範囲にクリップする
     // これにより、暴発値で統計（分散）が爆発するのを防ぐ
-    ANET_PROFILE_SCOPE(update_stats);
     if (use_robust_update_) {
         // 現在の平均・標準偏差を取得 (デバイス合わせる)
         auto device = obs.device();
@@ -566,9 +583,20 @@ torch::Tensor RunningStdSingleTensorNormalizer::NormalizeAndUpdateStats(const to
         stats_.Update(obs);
         last_outlier_ratio_ = 0.0f;
     }
-    // 更新のあとの正規化を、統計の更新と分けて測る。
+    // 読むだけの正規化は共有されるため、写しを書き換えるのは更新側だけにする。
+    ANET_PROFILE_SCOPE(statistics_transfer);
+    normalization_std_ = stats_.GetStd().to(obs.device()).to(torch::kFloat32);
+    if (use_centering_) normalization_mean_ = stats_.GetMean().to(obs.device()).to(torch::kFloat32);
+}
+
+torch::Tensor RunningStdSingleTensorNormalizer::NormalizeAndUpdateStats(const torch::Tensor& obs)
+{
+    ANET_PROFILE_FUNC();
+    // 統計更新の口を共有し、更新を伴う正規化だけが clip の割合を公開する。
+    ANET_PROFILE_SCOPE(update_stats);
+    UpdateStats(obs);
     ANET_PROFILE_SCOPE_NEXT(normalize);
-    auto result = normalizeInternal(obs);
+    auto result = normalizeInternal(obs, true);
     this->last_clip_ratio_ = result.second;
     return result.first;
 } 
@@ -634,6 +662,16 @@ anet::TensorDict DictObservationNormalizer::NormalizeAndUpdateStats(const anet::
         }
     }
     return result;
+}
+
+void DictObservationNormalizer::UpdateStats(const anet::TensorDict& obs)
+{
+    ANET_PROFILE_FUNC();
+    // 未登録の鍵は、正規化と同じく統計の更新対象にしない。
+    for (const auto& [key, tensor] : obs) {
+        const auto it = normalizers_.find(key);
+        if (it != normalizers_.end()) it->second->UpdateStats(tensor);
+    }
 }
 
 void DictObservationNormalizer::Reset()

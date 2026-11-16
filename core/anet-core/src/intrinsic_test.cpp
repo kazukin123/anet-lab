@@ -1268,6 +1268,114 @@ TEST_CASE("RND whitens byte observations like float observations", "[prd116][int
     }
 }
 
+TEST_CASE("RND mixed observations follow double precision reference statistics", "[prd130][intrinsic]")
+{
+    // CPU の倍精度で観測と誤差の統計を作り、公開の採点と保存状態に照らす。
+    // 観測の統計の差を測るため、行列積は先行テストの TF32 設定によらず FP32 に揃える。
+    struct MatmulPrecisionGuard {
+        bool allow_tf32;
+        ~MatmulPrecisionGuard() { at::globalContext().setAllowTF32CuBLAS(allow_tf32); }
+    };
+    const MatmulPrecisionGuard precision{.allow_tf32 = at::globalContext().allowTF32CuBLAS()};
+    at::globalContext().setAllowTF32CuBLAS(false);
+    anet::nn::InitNN();
+    const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
+    if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
+    const auto mode = GENERATE(0, 1, 2);
+    auto data = RndTestConfig();
+    data.Set("rnd.error_norm.ema_steps", 4);
+    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    else data.Set("rnd.error_norm.ema_steps", anet::rl::intrinsic::RndNoveltyEstimatorConfig::kDefaultEmaSteps);
+    if (mode == 2) data.Set("rnd.warmup_mode", anet::rl::intrinsic::kWarmupCollectErrors);
+    for (const auto* role : {kTargetRole, kPredictorRole})
+        data.Set(std::string(kRndPrefix) + "." + role + ".net.branch.[feature].bind",
+            std::string(kReferenceGrid) + ", " + kObservation + ", " + kCategory);
+    auto spec = RndTestSpec();
+    spec[kReferenceGrid] = {.type = anet::SpaceType::Vector, .shape = {2}, .dtype = torch::kUInt8};
+    spec[kCategory] = {.type = anet::SpaceType::Vector, .shape = {1}, .dtype = torch::kInt64, .num_classes = 3};
+    auto actual = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, spec, device, anet::SeedMaker(123));
+    auto reference_data = data;
+    reference_data.Set("rnd.obs_norm.pass_through", true);
+    auto reference_spec = spec;
+    reference_spec.at(kReferenceGrid).dtype = torch::kFloat32;
+    auto reference = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        reference_data, kRndPrefix, reference_spec, torch::kCPU, anet::SeedMaker(123));
+    std::map<std::string, std::vector<torch::Tensor>> history;
+    std::vector<double> errors;
+    double ema_weight = 0, ema_mean = 0, ema_m2 = 0;
+    for (int step = 0; step < 10; ++step) {
+        const float scale = step % 3 == 2 ? 8.0f : 1.0f;
+        anet::TensorDict observations(kObservation,
+            torch::tensor({{(step + 1.25f) * scale, (step + 2.5f) * scale},
+                           {(step + 3.75f) * scale, (step + 5.0f) * scale}}));
+        observations.Set(kReferenceGrid, torch::tensor({{step + 1, step + 3}, {step + 7, step + 11}}, torch::kUInt8));
+        observations.Set(kCategory, torch::tensor({{step % 3}, {(step + 1) % 3}}, torch::kInt64));
+        auto normalized = observations;
+        for (const auto* key : {kObservation, kReferenceGrid}) {
+            const auto values = observations.At(key).to(torch::kDouble);
+            auto mean = torch::zeros({2}, torch::kDouble);
+            auto std = torch::full({2}, 2.0, torch::kDouble);
+            if (!history[key].empty()) {
+                const auto all = torch::cat(history[key], 0);
+                mean = all.mean(0);
+                std = torch::var(all, {0}, true).sqrt() + 1.0;
+            }
+            normalized.Set(key, ((values - mean) / std).clamp(-5.0, 5.0).to(torch::kFloat32));
+            history[key].push_back(values);
+        }
+        const auto prediction_errors = reference->EstimateWithoutUpdate(normalized).diagnostics.at(kLaneError);
+        const auto read_only = actual->EstimateWithoutUpdate(observations);
+        CHECK(torch::allclose(read_only.diagnostics.at(kLaneError), prediction_errors, 1e-4, 1e-5));
+        auto expected = torch::ones({2});
+        if (step >= 2 && !errors.empty()) {
+            double mean = 0, variance = 0;
+            for (const auto value : errors) mean += value / errors.size();
+            for (const auto value : errors) variance += (value - mean) * (value - mean) / (errors.size() - 1);
+            const auto std = mode == 1 ? std::sqrt(ema_m2 / ema_weight) : std::sqrt(variance);
+            const auto center = mode == 1 ? ema_mean : mean;
+            if (std > 0)
+                expected = (1.0f + (prediction_errors - static_cast<float>(center)) / static_cast<float>(std)).clamp(1.0f, 5.0f);
+        }
+        const auto multipliers = actual->Estimate(observations).cpu();
+        CHECK(torch::allclose(multipliers, expected, 0, 1e-3));
+        if (step >= 2 || mode == 2) {
+            for (int lane = 0; lane < 2; ++lane) {
+                const auto value = prediction_errors[lane].item<double>();
+                errors.push_back(value);
+                const auto previous_weight = ema_weight * 0.75;
+                ema_weight = previous_weight + 1.0;
+                const auto difference = value - ema_mean;
+                ema_mean += difference / ema_weight;
+                ema_m2 = 0.75 * ema_m2 + difference * difference * previous_weight / ema_weight;
+            }
+        }
+        // 公開 checkpoint の観測統計を読み、全観測の倍精度の平均・標準偏差と比較する。
+        std::stringstream saved(std::ios::in | std::ios::out | std::ios::binary);
+        anet::OutputArchive output(saved);
+        actual->Save(output);
+        anet::InputArchive input(saved);
+        std::string ignored;
+        for (int field = 0; field < 6; ++field) input.Read(ignored);
+        int64_t count;
+        input.Read(count);
+        REQUIRE(count == 2);
+        for (int key_index = 0; key_index < count; ++key_index) {
+            std::string key;
+            input.Read(key);
+            input.Read(ignored);
+            anet::rl::RunningMeanStd statistics({2}, 1.0);
+            statistics.Load(input);
+            float clip_ratio, outlier_ratio;
+            input.Read(clip_ratio);
+            input.Read(outlier_ratio);
+            const auto all = torch::cat(history.at(key), 0);
+            CHECK(torch::allclose(statistics.GetMean(), all.mean(0), 1e-4, 0));
+            CHECK(torch::allclose(statistics.GetStd(), torch::var(all, {0}, true).sqrt() + 1.0, 1e-4, 0));
+        }
+    }
+}
+
 TEST_CASE("RND keeps its seeded target fixed and uses preceding error statistics", "[prd116][intrinsic]")
 {
     anet::nn::InitNN();
@@ -1929,6 +2037,66 @@ TEST_CASE("DQN intrinsic learns complete lane groups and rejects oversize batche
         return record.message.find("exceeds num_envs=") != std::string::npos;
     });
     CHECK(warnings == 0);
+}
+
+TEST_CASE("RND mixed observation snapshots and checkpoints preserve subsequent learning", "[prd130][intrinsic][checkpoint]")
+{
+    // 混合辞書の公開口で、warm-up 境界のあとも保存・Clone・採点・補助学習が同じ結果になる。
+    anet::nn::InitNN();
+    const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
+    if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
+    const auto mode = GENERATE(0, 1, 2, 3);
+    auto data = RndTestConfig();
+    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    if (mode == 3) data.Set("rnd.warmup_mode", anet::rl::intrinsic::kWarmupCollectErrors);
+    for (const auto* role : {kTargetRole, kPredictorRole})
+        data.Set(std::string(kRndPrefix) + "." + role + ".net.branch.[feature].bind",
+            std::string(kReferenceGrid) + ", " + kObservation + ", " + kCategory);
+    auto spec = RndTestSpec();
+    spec[kReferenceGrid] = {.type = anet::SpaceType::Vector, .shape = {2}, .dtype = torch::kUInt8};
+    spec[kCategory] = {.type = anet::SpaceType::Vector, .shape = {1}, .dtype = torch::kInt64, .num_classes = 3};
+    const auto create = [&] { return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, spec, device, anet::SeedMaker(123)); };
+    const auto observation = [](int step) {
+        auto obs = RndTestObservation();
+        obs.Set(kObservation, obs.At(kObservation) * (step + 1.0f));
+        obs.Set(kReferenceGrid, torch::tensor({{step + 1, step + 3}, {step + 7, step + 11}}, torch::kUInt8));
+        obs.Set(kCategory, torch::tensor({{step % 3}, {(step + 1) % 3}}, torch::kInt64));
+        return obs;
+    };
+    auto source = create();
+    for (int step = 0; step < 3; ++step) {
+        source->Estimate(observation(step));
+        source->Learn(observation(step));
+    }
+    auto snapshot = source->Clone();
+    std::stringstream state(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(state);
+    source->Save(output);
+    auto restored = create();
+    anet::InputArchive input(state);
+    restored->Load(input);
+    for (int step = 3; step < 8; ++step) {
+        const auto obs = observation(step);
+        const auto expected = source->Estimate(obs);
+        CHECK(torch::equal(expected, snapshot->Estimate(obs)));
+        CHECK(torch::equal(expected, restored->Estimate(obs)));
+        const auto learned = source->Learn(obs);
+        CHECK(snapshot->Learn(obs) == learned);
+        CHECK(restored->Learn(obs) == learned);
+        const auto score = source->EstimateWithoutUpdate(obs);
+        for (const auto* copy : {snapshot.get(), restored.get()}) {
+            const auto actual = copy->EstimateWithoutUpdate(obs);
+            CHECK(torch::equal(score.multipliers, actual.multipliers));
+            for (const auto& [key, value] : score.diagnostics)
+                CHECK(torch::allclose(value, actual.diagnostics.at(key), 0, 0, true));
+            for (const auto& [key, value] : source->Diagnostics()) {
+                if (std::isnan(value)) CHECK(std::isnan(copy->Diagnostics().at(key)));
+                else CHECK(value == copy->Diagnostics().at(key));
+            }
+        }
+    }
 }
 
 TEST_CASE("RND read-only scoring leaves subsequent learning unchanged", "[prd127][intrinsic]")

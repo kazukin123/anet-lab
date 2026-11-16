@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cmath>
+#include <functional>
 #include <map>
-#include <optional>
 #include <vector>
 #include "anet/intrinsic.hpp"
 #include "anet/nn.hpp"
@@ -54,6 +54,7 @@ namespace anet::rl::intrinsic {
         RndNoveltyEstimator(const RndNoveltyEstimatorConfig& config,
             const anet::TensorSpecMap& observation_spec, const torch::Device& device,
             const anet::SeedMaker& seed_maker);
+        ~RndNoveltyEstimator() override;
         torch::Tensor Estimate(const anet::TensorDict& observations) override;
         LifelongNoveltyEstimateResult EstimateWithoutUpdate(const anet::TensorDict& observations) const override;
         std::unique_ptr<LifelongNoveltyEstimator> Clone() const override;
@@ -64,59 +65,44 @@ namespace anet::rl::intrinsic {
     private:
         explicit RndNoveltyEstimator(const RndNoveltyEstimator& source);
 
-        // 誤差だけの統計。累積は既存の計算・保存形式をそのまま使う。
+        // 誤差の統計の口。方式は構築時に選び、更新と保存は選んだ型へ委ねる。
         class RndErrorStatistics {
         public:
-            RndErrorStatistics(bool use_ema, int64_t ema_steps);
-            void Update(const torch::Tensor& errors);
-            bool HasData() const;
-            float Mean() const;
-            float Std() const;
-            int64_t Save(anet::OutputArchive& archive) const;
-            int64_t Load(anet::InputArchive& archive);
-        private:
-            const bool use_ema_;
-            const double decay_;
-            RunningMeanStd cumulative_{{}, 0.0};
-            double weight_ = 0.0;
-            double mean_ = 0.0;
-            double m2_ = 0.0;
-        };
-
-        // 観測・誤差の再帰統計。共有の正規化部品とは独立。
-        class VarianceFeedbackStatistics {
+            virtual ~RndErrorStatistics() = default;
         public:
-            explicit VarianceFeedbackStatistics(const anet::TensorSpecMap& observation_spec);
-            anet::TensorDict Normalize(const anet::TensorDict& observations, float clip_range) const;
-            std::pair<anet::TensorDict, torch::Tensor> NormalizeAndUpdate(
-                const anet::TensorDict& observations, float clip_range);
-            torch::Tensor UpdateErrors(const torch::Tensor& errors);
-            torch::Tensor ErrorsWithoutUpdate(const torch::Tensor& errors) const;
-            double ErrorMean() const { return err_m_; }
-            double ErrorStd() const { return std::sqrt(err_v_); }
-            int64_t Count() const { return n_; }
-            int64_t Save(anet::OutputArchive& archive) const;
-            int64_t Load(anet::InputArchive& archive);
-        private:
-            void ValidateObservations(const anet::TensorDict& observations) const;
-            std::map<std::string, torch::Tensor> obs_m_, obs_v_;
-            double err_m_ = 0.0;
-            double err_v_ = 1.0;
-            int64_t n_ = 0;
+            virtual void Update(const torch::Tensor& errors) = 0;
+            virtual bool HasData() const = 0;
+            virtual float Mean() const = 0;
+            virtual float Std() const = 0;
+            virtual int64_t Save(anet::OutputArchive& archive) const = 0;
+            virtual int64_t Load(anet::InputArchive& archive) = 0;
+            virtual std::unique_ptr<RndErrorStatistics> Clone() const = 0;
         };
+        class CumulativeErrorStatistics;
+        class EmaErrorStatistics;
 
+        enum class ForwardUse { Estimate, ReadOnly, Learn };
+        struct ScoreResult {
+            torch::Tensor target_features;
+            torch::Tensor prediction_errors;
+            torch::Tensor errors;
+            torch::Tensor alpha;
+        };
+        using ScoreFunction = std::function<ScoreResult(const anet::TensorDict&)>;
+        class RndStatistics;
+        class WhitenStatistics;
+        class VarianceFeedbackStatistics;
+
+        template<ForwardUse use>
+        ScoreResult ComputePredictionErrors(const anet::TensorDict& normalized) const;
         float TargetFeatureVariance() const;
         const RndNoveltyEstimatorConfig config_;
         const torch::Device device_;
-        std::vector<std::string> byte_observation_keys_;
-        anet::TensorSpecMap normalized_observation_spec_;
         std::shared_ptr<anet::nn::Network> target_;
         std::shared_ptr<anet::nn::Network> predictor_;
         std::unique_ptr<torch::optim::AdamW> optimizer_;
-        std::shared_ptr<ObservationNormalizer> normalizer_;
-        RndErrorStatistics error_stats_;
+        std::unique_ptr<RndStatistics> statistics_;
         RunningMeanStd target_feature_stats_;
-        std::optional<VarianceFeedbackStatistics> feedback_stats_;
         int64_t score_count_ = 0;
         std::map<std::string, float> diagnostics_;
     };

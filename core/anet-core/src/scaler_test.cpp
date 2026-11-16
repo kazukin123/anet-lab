@@ -6,6 +6,7 @@
 #include <sstream>
 
 #include "anet/test_util.hpp"
+#include "scaler_impl.hpp"
 
 // PRD121の入力・公開識別子を、同じ意味の検査で共有する。
 constexpr const char* kPrd121IntrinsicRewardScaler = "intrinsic.reward_scaler";
@@ -214,4 +215,154 @@ TEST_CASE("Observation SymLog keeps its positive non-unit scale", "[prd122][scal
     const float magnitude = 2.0f * std::log1p((5.0f / 1.25f) / 2.0f);
     const auto actual = normalizer->Normalize(obs).At(anet::rl::ObsKeys::kVector);
     CHECK(torch::allclose(actual, torch::tensor({{-magnitude}, {0.0f}, {magnitude}})));
+}
+
+TEST_CASE("Observation statistics update without normalizing a mixed dictionary", "[prd130][scaler]")
+{
+    // Factory から統計更新専用の口を通し、通常更新と同じ次回の正規化になることを確かめる。
+    constexpr char kCategoryKey[] = "category";
+    anet::rl::StateSpec spec;
+    spec.obs_spec[anet::rl::ObsKeys::kVector] = {
+        .type = anet::SpaceType::Vector, .shape = {2}, .dtype = torch::kFloat32};
+    spec.obs_spec[anet::rl::ObsKeys::kGrid] = {
+        .type = anet::SpaceType::Vector, .shape = {2}, .dtype = torch::kUInt8};
+    spec.obs_spec[kCategoryKey] = {
+        .type = anet::SpaceType::Vector, .shape = {1}, .dtype = torch::kInt64, .num_classes = 3};
+    anet::rl::ObservationNormalizerConfig config;
+    config.use_robust_update = false;
+    config.use_centering = true;
+    config.clip_range = 0.25f;
+    config.post_process_type = anet::rl::kPostProcessNone;
+    auto observed = anet::rl::ObservationNormalizerFactory(config).CreateObservationNormalizer(spec);
+    auto reference = anet::rl::ObservationNormalizerFactory(config).CreateObservationNormalizer(spec);
+    anet::TensorDict values(anet::rl::ObsKeys::kVector, torch::tensor({{1.0f, 3.0f}, {5.0f, 7.0f}}));
+    values.Set(anet::rl::ObsKeys::kGrid, torch::tensor({{0, 255}, {128, 16}}, torch::kUInt8));
+    values.Set(kCategoryKey, torch::tensor({{0}, {2}}, torch::kInt64));
+    const auto before_clip = observed->GetScalar(anet::rl::ObservationNormalizer::kKeyClipRatio);
+    observed->UpdateStats(values);
+    reference->NormalizeAndUpdateStats(values);
+    CHECK(observed->GetScalar(anet::rl::ObservationNormalizer::kKeyCount) == 2.0f);
+    CHECK(observed->GetScalar(anet::rl::ObservationNormalizer::kKeyMeanMean)
+        == reference->GetScalar(anet::rl::ObservationNormalizer::kKeyMeanMean));
+    CHECK(observed->GetScalar(anet::rl::ObservationNormalizer::kKeyStdMean)
+        == reference->GetScalar(anet::rl::ObservationNormalizer::kKeyStdMean));
+    CHECK(observed->GetScalar(anet::rl::ObservationNormalizer::kKeyClipRatio) == before_clip);
+    const auto actual = observed->Normalize(values);
+    const auto expected = reference->Normalize(values);
+    for (const auto& [key, tensor] : actual) CHECK(torch::equal(tensor, expected.At(key)));
+    CHECK(torch::equal(actual.At(kCategoryKey), values.At(kCategoryKey)));
+    CHECK(actual.At(anet::rl::ObsKeys::kGrid).scalar_type() == torch::kUInt8);
+}
+
+TEST_CASE("Statistics-only update rejects a mismatched observation before mutation", "[prd130][scaler]")
+{
+    // broadcast で計算できても、宣言した feature 軸と異なる入力は統計を進めない。
+    anet::rl::ObservationNormalizerConfig config;
+    config.use_robust_update = false;
+    auto normalizer = MakeScalerObservationNormalizer(config, 2);
+    const anet::TensorDict invalid(anet::rl::ObsKeys::kVector, torch::ones({2, 1}));
+    CHECK_THROWS(normalizer->UpdateStats(invalid));
+    CHECK(normalizer->GetScalar(anet::rl::ObservationNormalizer::kKeyCount) == 0.0f);
+}
+
+TEST_CASE("Statistics-only update preserves robust and constant normalization behavior", "[prd130][scaler]")
+{
+    // 外れ値を含む行、全行除外、素通し、固定値を通常の更新と対比する。
+    const auto mode = GENERATE(0, 1, 2);
+    anet::rl::ObservationNormalizerConfig config;
+    config.use_clipping = false;
+    config.post_process_type = anet::rl::kPostProcessNone;
+    config.robust_warmup_count = 2;
+    config.robust_std_threshold = 1.0f;
+    config.pass_through = mode == 1;
+    config.use_dynamic_scaling = mode != 2;
+    auto observed = MakeScalerObservationNormalizer(config, 2);
+    auto reference = MakeScalerObservationNormalizer(config, 2);
+    for (const auto& values : {torch::tensor({{0.0f, 0.0f}, {10.0f, 10.0f}}),
+                              torch::tensor({{5.0f, 5.0f}, {100.0f, 9.0f}}),
+                              torch::tensor({{1000.0f, 1000.0f}, {1000.0f, 1000.0f}})}) {
+        const anet::TensorDict obs(anet::rl::ObsKeys::kVector, values);
+        observed->UpdateStats(obs);
+        reference->NormalizeAndUpdateStats(obs);
+        CHECK(observed->GetScalar(anet::rl::ObservationNormalizer::kKeyCount)
+            == reference->GetScalar(anet::rl::ObservationNormalizer::kKeyCount));
+        CHECK(observed->GetScalar(anet::rl::ObservationNormalizer::kKeyRobustOutlierRatio)
+            == reference->GetScalar(anet::rl::ObservationNormalizer::kKeyRobustOutlierRatio));
+        CHECK(torch::equal(observed->Normalize(obs).At(anet::rl::ObsKeys::kVector),
+                           reference->Normalize(obs).At(anet::rl::ObsKeys::kVector)));
+    }
+}
+
+TEST_CASE("Read-only normalization uses current statistics after updates load and reset", "[prd130][scaler]")
+{
+    // 異なる統計で育てた部品へ Load しても、保存元と同じ値を使う。
+    anet::rl::ObservationNormalizerConfig config;
+    config.use_robust_update = false;
+    config.use_clipping = true;
+    config.clip_range = 0.5f;
+    config.use_centering = true;
+    config.post_process_type = anet::rl::kPostProcessNone;
+    auto observed = MakeScalerObservationNormalizer(config, 2);
+    auto reference = MakeScalerObservationNormalizer(config, 2);
+    const anet::TensorDict values(anet::rl::ObsKeys::kVector, torch::tensor({{1.0f, 3.0f}, {5.0f, 9.0f}}));
+    reference->NormalizeAndUpdateStats(values);
+    observed->UpdateStats(anet::TensorDict(anet::rl::ObsKeys::kVector, torch::tensor({{100.0f, 300.0f}, {500.0f, 900.0f}})));
+    std::stringstream checkpoint(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(checkpoint);
+    reference->Save(output);
+    anet::InputArchive input(checkpoint);
+    observed->Load(input);
+    CHECK(torch::equal(observed->Normalize(values).At(anet::rl::ObsKeys::kVector),
+                       reference->Normalize(values).At(anet::rl::ObsKeys::kVector)));
+    const auto clip = observed->GetScalar(anet::rl::ObservationNormalizer::kKeyClipRatio);
+    observed->Normalize(anet::TensorDict(anet::rl::ObsKeys::kVector, torch::zeros({2, 2})));
+    CHECK(observed->GetScalar(anet::rl::ObservationNormalizer::kKeyClipRatio) == clip);
+    observed->UpdateStats(values);
+    reference->NormalizeAndUpdateStats(values);
+    CHECK(torch::equal(observed->Normalize(values).At(anet::rl::ObsKeys::kVector),
+                       reference->Normalize(values).At(anet::rl::ObsKeys::kVector)));
+    observed->Reset();
+    reference->Reset();
+    CHECK(torch::equal(observed->Normalize(values).At(anet::rl::ObsKeys::kVector),
+                       reference->Normalize(values).At(anet::rl::ObsKeys::kVector)));
+}
+
+TEST_CASE("Normalization accepts a different device than its statistics update", "[prd130][scaler]")
+{
+    if (!torch::cuda::is_available()) SKIP("CUDA is unavailable");
+    // 更新に使った device の写しがあっても、別の device で同じ正規化を行う。
+    const auto update_device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
+    anet::rl::ObservationNormalizerConfig config;
+    config.use_centering = true;
+    config.use_robust_update = false;
+    config.post_process_type = anet::rl::kPostProcessNone;
+    auto normalizer = MakeScalerObservationNormalizer(config, 2);
+    const auto values = torch::tensor({{1.0f, 3.0f}, {5.0f, 9.0f}});
+    normalizer->UpdateStats(anet::TensorDict(anet::rl::ObsKeys::kVector, values.to(update_device)));
+    const auto expected = normalizer->Normalize(anet::TensorDict(anet::rl::ObsKeys::kVector, values));
+    const auto actual = normalizer->Normalize(anet::TensorDict(anet::rl::ObsKeys::kVector, values.to(torch::kCUDA)));
+    CHECK(torch::allclose(actual.At(anet::rl::ObsKeys::kVector).cpu(), expected.At(anet::rl::ObsKeys::kVector), 1e-6, 1e-6));
+    CHECK(normalizer->GetScalar(anet::rl::ObservationNormalizer::kKeyCount) == 2.0f);
+}
+
+TEST_CASE("Batch moments agree with an independent double precision reference", "[prd130][scaler]")
+{
+    // batch の分割、空の入力、1 件の更新を含め、累積の不偏分散を手計算する。
+    const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
+    if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
+    anet::rl::RunningMeanStd statistics({2}, 0.0);
+    const auto values = torch::tensor({{1.25f, 3.5f}, {2.5f, 5.0f}, {7.75f, 11.0f}});
+    statistics.Update(values.slice(0, 0, 0).to(device));
+    CHECK(statistics.GetCount() == 0);
+    statistics.Update(values.slice(0, 0, 2).to(device));
+    statistics.Update(values.slice(0, 2, 3).to(device));
+    const std::array<std::array<double, 3>, 2> columns{{{1.25, 2.5, 7.75}, {3.5, 5.0, 11.0}}};
+    for (int column = 0; column < 2; ++column) {
+        double mean = 0, variance = 0;
+        for (const auto value : columns[column]) mean += value / 3.0;
+        for (const auto value : columns[column]) variance += (value - mean) * (value - mean) / 2.0;
+        CHECK(statistics.GetMean()[column].item<double>() == Catch::Approx(mean).epsilon(1e-4));
+        CHECK(statistics.GetVar()[column].item<double>() == Catch::Approx(variance).epsilon(1e-4));
+    }
+    CHECK(statistics.GetCount() == 3);
 }
