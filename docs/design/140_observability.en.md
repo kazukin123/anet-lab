@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:3294f91ff6d2d3e2bce673134bd82d06826b16f9 date:2026-11-14 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:3a5166f40bd1fa6fe05df38073b532aecaec777b date:2026-11-17 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -415,7 +415,7 @@ When changing Observers or output formats, check the following:
 
 Main regression tests belong in [observers_test.cpp](../../core/anet-core/src/observers_test.cpp), [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp), [log_test.cpp](../../core/anet-core/src/log_test.cpp), and [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp).
 
-See [PRD918 validation assets](../../core/anet-core/testdata/prd918/README.md) for evaluation firing sequences, configuration migration, and a short Run.
+See [PRD158 validation assets](../../core/anet-core/testdata/prd158/README.md) for evaluation firing sequences, configuration migration, and a short Run.
 
 ## 10. Related Documents
 

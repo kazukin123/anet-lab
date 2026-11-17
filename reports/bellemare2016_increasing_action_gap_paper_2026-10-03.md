@@ -325,7 +325,7 @@ reports/INDEX.md のキューの問いに、論文の記述の範囲で答える
 
 ## SMDP の PRD の検討に効く点
 
-対象は [docs/memo/956_smdp_transition_duration_10prd.md](../docs/memo/956_smdp_transition_duration_10prd.md) である（PRD114 で 999 から改番）。論文は SMDP も DropMerge も扱っていないので、この節は論文の記述ではなく本解説の推論である。§ は PRD の節を指す。
+対象は [docs/memo/956_smdp_transition_duration_10prd.md](../docs/memo/167_smdp_transition_duration_10prd.md) である（PRD114 で 999 から改番）。論文は SMDP も DropMerge も扱っていないので、この節は論文の記述ではなく本解説の推論である。§ は PRD の節を指す。
 
 1. 役割が違う。経過時間 $\tau$ は目的（何が最適か）を変えて、待つ値段と計画の見通しを分ける。行動ギャップを広げる作用素は最適方策を変えず（厳密な表現の場合、定理 1）、順位の逆転を減らすだけである。§1 の「本来の差 $(1-\gamma)V$ が揺れで入れ替わる」には直接効くが、§4 のストーリー 1 は満たせない。代わりに Env と replay の契約を変えず、$\tau$ の実装を待たずに比べられ、return の物差し（§5 の 6）も変わらない。
 2. 効く大きさは $1/(1-\alpha)$ 倍である（「キューの論点への答え」の 1）。PRD の差 0.3% は $\alpha=0.9$ で 3%、$\alpha=0.99$ で 30% になる。厳密な自己遷移に一貫ベルマン作用素を当てると差は $V$ 全体に広がる。

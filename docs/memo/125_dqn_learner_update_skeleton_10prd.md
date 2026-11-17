@@ -3,7 +3,7 @@
 > 2026-11-12 起票（グリル済み）。行番号は起票時点の作業ツリーの位置で、実装時は近傍の記述で探し直す（dqn_based_agent.cpp は並行する作業で行がずれる）。起草のあと、別モデル（Opus）の検討を受けて、反対の無い指摘を反映した。値が変わらないことの根拠（Head が FP32 で動くこと、更新の直前の検査）、要素誤差へ渡す指定と値の無いものの扱い（§5.2）、基底を呼ぶだけの上書きを書かないこと（D4）、比べる組と診断の値（D13・§5.4）、速さの測り方の言い方（D16・A9）、replay fit の診断を範囲外とすること（§3.2）である。BF16 の確かめ方（D14）は、別モデルの案をユーザーが選び、LunarLander の 3 つの分布ぶんの組を足した。
 > 起点: 2026-11-11〜12 の会話。ユーザーが、課題 ab98b7 を題材に PRD を起こすよう指示した。課題には 2026-11-11 に、Munchausen の target の二重化が同じ系統の写しとして追記されていた。AI は、それを含めるかを比べて示し、ユーザーは含めると決めた。
 > 題材: [issue-20261103-ab98b7](../management/issues/issue-20261103-ab98b7.md)。
-> 関連: [PRD122](122_small_refactor_and_test_gap_fixes_10prd.md)（短い Run の前後比較の前例）、[PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)・[PRD924](924_intrinsic_reward_novelty_10prd.md)（同じ場所へ変更を足す予定の PRD）、[PRD067](done/067_MunchausenRL_10prd.md)（Munchausen の target）、[PRD098](098_temporl_skip_policy_10prd.md)（skip の loss）、[PRD073](done/073_replay_fit_metrics_10prd.md)（target と要素誤差の切り出し）、[PRD103](done/103_temporl_reference_alignment_10prd.md)（性能の測り方の前例）、[PRD957](957_source_layout_10prd.md)（ソースの配置）、[ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md)。
+> 関連: [PRD122](122_small_refactor_and_test_gap_fixes_10prd.md)（短い Run の前後比較の前例）、[PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)・[PRD173](173_intrinsic_reward_novelty_10prd.md)（同じ場所へ変更を足す予定の PRD）、[PRD067](done/067_MunchausenRL_10prd.md)（Munchausen の target）、[PRD098](098_temporl_skip_policy_10prd.md)（skip の loss）、[PRD073](done/073_replay_fit_metrics_10prd.md)（target と要素誤差の切り出し）、[PRD103](done/103_temporl_reference_alignment_10prd.md)（性能の測り方の前例）、[PRD182](182_source_layout_10prd.md)（ソースの配置）、[ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md)。
 
 > 2026-11-12 改訂: ステージ 0 の採取で、IQN の初回優先度の診断 04〜07 は PER 無効では未成立となり、現行の Observer が出力しないことを確認した。ユーザーの判断により、A1 は IQN の全群で 7 タグの定義を確かめ、PER 無効群では 01〜03 の実点を確かめる形へ変更する。学習とメトリクスの振る舞いは変えない。
 
@@ -29,7 +29,7 @@ target の式の後半（n-step の割引 → 終端のマスク → h 空間へ
 
 ### 1.3 同じ場所へ変更を足す予定がある
 
-価値の分解（[PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)）と内的報酬（[PRD924](924_intrinsic_reward_novelty_10prd.md)）は、3 つの学習器の target と要素誤差のあいだへ処理を足す。写しのままでは、同じ変更を 3 回書くことになる。PRD924 の課題は、題材の課題を待っている（§9）。
+価値の分解（[PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)）と内的報酬（[PRD173](173_intrinsic_reward_novelty_10prd.md)）は、3 つの学習器の target と要素誤差のあいだへ処理を足す。写しのままでは、同じ変更を 3 回書くことになる。PRD173 の課題は、題材の課題を待っている（§9）。
 
 ## 2. 現状（2026-11-12 に確認したこと）
 
@@ -146,7 +146,7 @@ G3 の例外は、検査・ログ・プロファイルの 3 つである。ど�
 | 価値の分解のための、Head ごとの目標の口を先に足す | PRD121 は暫定で、口の形が決まっていない | 制約ではない（別の関心。PRD121 のグリルで形が決まったら、PRD121 が足す） |
 | TD・QR・IQN のクラスを 1 つにまとめる | 構築の口と、設定からクラスを選ぶ箇所が変わる。写しを無くすのに要らない | 制約ではない。本 PRD のあとでも行える |
 | 外側のループ `UpdateFromBatch` と、結果の入れ物を作り替える | 写しではない | 制約ではない（別の関心） |
-| dqn_based_agent.cpp をファイルに分ける | [PRD957](957_source_layout_10prd.md) の範囲である | 制約ではない（別の関心） |
+| dqn_based_agent.cpp をファイルに分ける | [PRD182](182_source_layout_10prd.md) の範囲である | 制約ではない（別の関心） |
 | MuZero・ImageCls の学習器を同じ形にする | `dqn::Learner` の派生ではなく、進行が違う | 制約ではない（別の関心） |
 | replay fit の診断が別に書いている進行の前半（§2.4）を、学習の進行と 1 つにする | forward の仕方・τ の置き方・指標の有無が学習と違い、current 側の計算の口をそのまま使えない。題材の課題が挙げる写しでもない | 制約ではない（別の関心。課題 [4efa57](../management/issues/issue-20261112-4efa57.md) に記録した） |
 
@@ -441,8 +441,8 @@ target の式の関数は、次の形で計算する（D11）。4 か所の今�
 
 ## 9. 依存と順序
 
-- 題材の課題を待つ課題がある。PRD924（内的報酬）の課題は、題材の課題に依存している。PRD121（価値の分解）は、本 PRD を先に入れるかを、PRD121 の側の未決にしている。本 PRD が先に入れば、PRD121 は target と要素誤差のあいだの 1 か所へ足せる。
-- PRD121・PRD924・PRD957 は、同じファイルの同じ関数を動かす。本 PRD の実装と同時には進めない。
+- 題材の課題を待つ課題がある。PRD173（内的報酬）の課題は、題材の課題に依存している。PRD121（価値の分解）は、本 PRD を先に入れるかを、PRD121 の側の未決にしている。本 PRD が先に入れば、PRD121 は target と要素誤差のあいだの 1 か所へ足せる。
+- PRD121・PRD173・PRD182 は、同じファイルの同じ関数を動かす。本 PRD の実装と同時には進めない。
 - dqn_based_agent.cpp には、並行する作業の未コミットの変更がある。比べる相手は、着手した時点の作業ツリーから作った実行体である（D17）。ステージの途中で、学習の値を変える別の変更を同じ作業ツリーへ入れない。入れると、前後の差の原因を分けられない。
 
 ## 10. 参照

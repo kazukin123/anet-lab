@@ -19,7 +19,7 @@
 - `Estimate` は既存の `InitialPriorityEstimator::Estimate`（`src/dqn_based_agent.cpp`）と同じく入力から評価値を推定して返す意味で使う。`Learn` は既存の `Update`（統計更新）や `Train`（モード・用途）の多義性を避けるため、改訂PRDが選んだ補助学習の動詞である。
 - facadeは `RewardScaler → Estimate → 報酬合成 → Learn → 内側のLearner` を維持する。依頼書の図の列挙はLearnerが先だが、「facadeの呼び順を変えない」とPRD§5.3を優先し、図も実装と一致させる。
 - `warmup_steps=0` では初回Learn単独から学習する。正のwarm-upは従来どおり最初の指定回数のEstimate直後まで学習を休止する。Learnは採点回数を進めない。
-- 設定名と既定値、無効時経路、保存形式、targetの固定は変えない。Learnerへの移設はPRD924の範囲。
+- 設定名と既定値、無効時経路、保存形式、targetの固定は変えない。Learnerへの移設はPRD173の範囲。
 - 性能は測定しない。追加転送の概算: B=64、float画像84×84ならEstimateの入力約1.72MiB、Learnはfraction=.25で期待約0.43MiB。CPU入力・CUDA計算のLearnで約0.03〜0.15msのH2Dと選択誤差D2H約0.01〜0.10msが1 batch stepに最大1回ずつ加わる想定。CUDA入力ではさらにEstimateの全入力D2H、Learnの選択入力D2H、選択indexとαのH2Dが加わる。合計概算0.2〜0.7ms/batch（forward/backward・CPU正規化を除く、共有GPU負荷で変動）。転送はlaneループ外でまとめ、計測区間を残す。単価は未測定の仮定であり性能保証ではない。
 - 観測正規化の二重計算に対する統計更新専用APIの要否は、既存の合意どおり測定後に判断する。
 

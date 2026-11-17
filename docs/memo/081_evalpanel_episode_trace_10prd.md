@@ -2,7 +2,7 @@
 
 > 起点: 2026-09-23、kung_fu_master 100M Run の EvalPanel を録画と突き合わせようとしたが、EvalPanel のゲームは metrics / trace に 1 本も残っておらず、スコア分布の断絶（74,900 → 84,200）を越えたゲームがあったかを後から確かめられなかったこと。
 > 改訂: 2026-09-24 グリル（`/grill-with-docs`、9 問）で §1.4 の前提修正（EvalPanel の trace `step` は学習 `exp_step` にならない）と裁定。2026-09-26 再グリル: 起動時宣言（旧 D2。`CreateEvalRunner` 撤去）と定義レコードの `env_name` 欄（旧 D5）を取り下げ、`CreateEvalRunner` を残す原案 A1 の形へ戻した。突き合わせは序数の手順から trace 行の `timestamp` へ変更（ADR 0037 の行契約を改訂）。ログ prefix は `env.[<Env name>].[<lane>]:` 記法に追従。決定の記録は ADR 0047。
-> 関連: [ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)（本 PRD で新設）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)（trace チャネル。`episode_id` / `model_version` 欄は需要が出た時点で同じゲートで足す）、[069](done/069_metrics_trace_channel_10prd.md)、[ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)（解析メタデータは Runner が出す）、[932](932_episode_forensics_10prd.md)（Run-scoped `EpisodeId`）、[912](912_background_eval_snapshot_ordering_10prd.md)、[220 §4.7](../design/220_atari_env.jp.md)（AtariEnv のゲーム完了ログ）、[140](../design/140_observability.jp.md)、[160](../design/160_applications_and_tools.jp.md)。
+> 関連: [ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)（本 PRD で新設）、[ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)（trace チャネル。`episode_id` / `model_version` 欄は需要が出た時点で同じゲートで足す）、[069](done/069_metrics_trace_channel_10prd.md)、[ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)（解析メタデータは Runner が出す）、[144](144_episode_forensics_10prd.md)（Run-scoped `EpisodeId`）、[141](141_background_eval_snapshot_ordering_10prd.md)、[220 §4.7](../design/220_atari_env.jp.md)（AtariEnv のゲーム完了ログ）、[140](../design/140_observability.jp.md)、[160](../design/160_applications_and_tools.jp.md)。
 > 担当: 実装（コード・テスト・設計文書・Atari.txt の同期）は実装枠（Codex）。コミットは人間。
 > 2026-10-19 追記: [PRD 094](done/094_evalpanel_step_history_10prd.md) のグリルで、EvalPanel の step trace を trace チャネルへ出す段を本 PRD へ移すと決めた。本 PRD は 094 の後に改訂して取り込む（決めることは 094 の §7 の 2）。実装ノート（§4）の trainer.cpp の名指しは、094 が分けるメトリクス配線のクラスを指すよう、その改訂で直す。
 
@@ -71,10 +71,10 @@ configured eval は `RunSession(event_counts)` の冒頭で `Sync(event_counts)`
 
 - **NG1**: EvalPanel の scalar metrics。人が開始・停止し、QValuePanel から手で行動も打てるので、系列として読むと eval の測定値と誤読される。dormant tag に結び付いた scalar は現行どおり捨てる。
 - **NG2**: ゲーム固有の進行情報の新設。PRD 082 の `ram_metric.[n]` が Atari.txt の trace 行に入ったら、本 PRD の行もキー列を揃えるだけ（§3.7）。
-- **NG3**: 932 の `EpisodeId` 全体（ReplayBuffer までの伝播）と trace 行の `episode_id` 欄（ADR 0037 のゲート）。
+- **NG3**: 144 の `EpisodeId` 全体（ReplayBuffer までの伝播）と trace 行の `episode_id` 欄（ADR 0037 のゲート）。
 - **NG4**: Metrics Viewer 側の trace 表示。
 - **NG5**: 突き合わせのための明示キー（`game_index` 等）と序数結合の手順の文書化。時刻で足りる。
-- **NG6**: ゲーム開始時の方策スナップショット（`model_version`。912 と ADR 0037 のゲート）。
+- **NG6**: ゲーム開始時の方策スナップショット（`model_version`。141 と ADR 0037 のゲート）。
 - **NG7**: 手動行動の trace 欄。ログ 1 行で足りる（§3.6）。
 - **NG8**: RunManager の生成 API の変更（鏡写しの起動時宣言、`CreateEvalRunner` の撤去）。§8 参照。
 

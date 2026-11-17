@@ -419,7 +419,7 @@ The optimal values of most hyperparameters are sensitive to the batch size.
 
 **この章は本調査による考察・提案であり、外部論文がanet-labへ適用を推奨しているという意味ではない。現行PRDの変更決定でもない。**
 
-読んだローカル資料は[PRD092](../docs/memo/done/092_gradient_noise_scale_10prd.md)、[ハイパラ自律調整の暫定PRD](../docs/memo/999_metric_targeted_hyperparam_control_10prd.md)、[ADR0031](../docs/adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR0048](../docs/adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)。規約上、現在のコードと設定も必要箇所だけ読み取った。
+読んだローカル資料は[PRD092](../docs/memo/done/092_gradient_noise_scale_10prd.md)、[ハイパラ自律調整の暫定PRD](../docs/memo/152_metric_targeted_hyperparam_control_10prd.md)、[ADR0031](../docs/adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR0048](../docs/adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)。規約上、現在のコードと設定も必要箇所だけ読み取った。
 
 ### 7.1 GNSを測る方向は妥当だが、成績の因果判定には足りない
 
@@ -498,7 +498,7 @@ Bとηの同時scalingで並列化を目的にする試験は、§4.4に沿う�
 | §7: GNSが小さければノイズでは説明できない | 単純尺度の誤差、共有ノイズ、optimizer依存がある | 検討対象をsample分散の仮説に限定する |
 | §7: 何回かの測定後に有限かつ正になる | G≈0や識別困難な領域でも比が有限とは限らない | 合成問題で正しさを検証し、実Runでは信号・分散・成立可否を読む |
 
-自律調整の暫定PRDが要求する「観測量と成績の較正が先」という順序は維持する。GNS/B=1を、そのまま普遍的な制御目標へ置く根拠は今回の調査では得られなかった。[ハイパラ自律調整の暫定PRD, 前提として先に要る作業](../docs/memo/999_metric_targeted_hyperparam_control_10prd.md)。
+自律調整の暫定PRDが要求する「観測量と成績の較正が先」という順序は維持する。GNS/B=1を、そのまま普遍的な制御目標へ置く根拠は今回の調査では得られなかった。[ハイパラ自律調整の暫定PRD, 前提として先に要る作業](../docs/memo/152_metric_targeted_hyperparam_control_10prd.md)。
 
 ## 8. 総合評価と調査の限界
 

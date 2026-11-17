@@ -7,7 +7,7 @@
 > 2026-11-13: D2 のうち β の出どころ（題、本文の 2 文目の前半、本文の最後の文）、D7 の 2 文目（学習の入口をまだ通っていない Run ではボーナスを NaN にする）、§5.2 の表の行 5 と表の下の 1 つ目の箇条は、[PRD129](129_eval_trace_bonus_beta_before_learning_10prd.md) が置き換える（範囲の正本は PRD129 の §9。Agent の構築時に β を exp step 0 で評価し、学習を止めた Run でも学習の入口で β を評価する）。D7 の 1 文目（ボーナスが 0 になる条件）と 3 文目（β は checkpoint に保存しない）は変わらない。§2.6 の「学習の入口は呼ばれない」は誤りで、学習の入口は train step ごとに呼ばれ、学習を止めた分岐で内的報酬の部分を飛ばしている（PRD129 §2.3）。
 > 2026-11-14 改訂。§8 の U1 を決め、未決表から外した。§7 の 14 の測定では、pane を開いた状態の学習の速さが閉じた状態より通常 RND で 13%、Taiga 式で 6% 下がり、どちらも閉じた状態のぶれを超えた。推定器と β の写しは 1 回 152〜189 ms で、見積もり（数ミリ秒）の約 50 倍だった（値は[設計文書 212](../design/212_rnd_lifelong_novelty.jp.md) の §4.6）。U1 の分かれ方では 3 列を外す側だったが、開発者は Trace を開いている間の学習の遅れを許容とみて、3 列を `run.@rnd` の既定に残すと決めた。写しを減らす直しは課題 [issue-20261114-9468cb](../management/issues/issue-20261114-9468cb.md) に分けた。
 > 起点: 課題 [issue-20261107-1226e5](../management/issues/issue-20261107-1226e5.md)。2026-11-07 の Montezuma の RND の Run で、Train では鍵を取るのに評価（EvalPanel）では止まる場面があり、どの画面で新しさのボーナスが大きいかを Evaluation Trace で 1 step ずつ確かめたいという話が出た。同じ日に「Greedy がたどる状態のうち Train でめったに通らないものは、Q が直らずそこで止まる」という仮説が立ち、その検証にも使う。
-> 関連: [116_rnd_lifelong_novelty_10prd.md](116_rnd_lifelong_novelty_10prd.md)（RND の本体。評価での採点と診断を非ゴールにした）、[123_rnd_intrinsic_reward_scale_10prd.md](123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計と warm-up）、[924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（採点の場所と保存する報酬の問い）、[done/094_evalpanel_step_history_10prd.md](done/094_evalpanel_step_history_10prd.md)（Evaluation Trace と step 診断）、[919_eval_session_step_trace_10prd.md](919_eval_session_step_trace_10prd.md)（同じ鍵を評価 session で使う）、[938_nn_trace_capture_unification_10prd.md](938_nn_trace_capture_unification_10prd.md)（要求を引数で渡す考え方）。ほかの PRD との関係は §9。
+> 関連: [116_rnd_lifelong_novelty_10prd.md](116_rnd_lifelong_novelty_10prd.md)（RND の本体。評価での採点と診断を非ゴールにした）、[123_rnd_intrinsic_reward_scale_10prd.md](123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計と warm-up）、[173_intrinsic_reward_novelty_10prd.md](173_intrinsic_reward_novelty_10prd.md)（採点の場所と保存する報酬の問い）、[done/094_evalpanel_step_history_10prd.md](done/094_evalpanel_step_history_10prd.md)（Evaluation Trace と step 診断）、[184_eval_session_step_trace_10prd.md](184_eval_session_step_trace_10prd.md)（同じ鍵を評価 session で使う）、[170_nn_trace_capture_unification_10prd.md](170_nn_trace_capture_unification_10prd.md)（要求を引数で渡す考え方）。ほかの PRD との関係は §9。
 
 ## 1. 目的と問題
 
@@ -32,11 +32,11 @@ G2 の保証は、写しを持つ Actor では forward で乱数を引く層を�
 
 | 退けた案 | 扱いと理由 |
 |---|---|
-| 学習用の内的報酬を Actor 側で計算し、外的報酬と分けて保存する | 範囲外。統計の更新順、補助学習の刻み、終端の扱い、Replay の保存形式が変わる。924 の問い 7・11 が持つ。本当の制約ではなく順序の選択で、移しても評価の値が可視化用であることは変わらない（§2.5） |
+| 学習用の内的報酬を Actor 側で計算し、外的報酬と分けて保存する | 範囲外。統計の更新順、補助学習の刻み、終端の扱い、Replay の保存形式が変わる。173 の問い 7・11 が持つ。本当の制約ではなく順序の選択で、移しても評価の値が可視化用であることは変わらない（§2.5） |
 | 仮説の検証そのもの（Montezuma・DropMerge の Run と分析） | 範囲外。本 PRD は道具までで、検証は実験記録に書く。制約ではなく、PRD の受入を実装とテストで閉じるための線引き |
 | DropMerge 用の RND のプロファイル（`run.@rnd`） | 範囲外。DropMerge の観測は盤面とベクトルの組で、RND の Network の形を選ぶ必要がある。形の選択は検証の実験の設計に属する。再開条件は §4.1 |
-| 仮説が当たったときの改善策（Train の一部の lane を評価と同じ方策にする、方策の組） | 範囲外。別の関心（924）。制約ではなく、検証の結果が出てから決める順序の選択 |
-| 評価 session の step trace を Run の記録に残すこと | 範囲外。PRD919 が持つ。制約ではなく、記録の口を別の PRD が持つための線引きで、本 PRD の鍵は 919 でそのまま使える（§9） |
+| 仮説が当たったときの改善策（Train の一部の lane を評価と同じ方策にする、方策の組） | 範囲外。別の関心（173）。制約ではなく、検証の結果が出てから決める順序の選択 |
+| 評価 session の step trace を Run の記録に残すこと | 範囲外。PRD184 が持つ。制約ではなく、記録の口を別の PRD が持つための線引きで、本 PRD の鍵は 184 でそのまま使える（§9） |
 | Greedy の軌跡の Q と、その後の割引収益の比較 | 範囲外。Evaluation Trace のダンプと集計でできて、実装が要らない。制約ではない |
 
 ### 1.4 機構とゴールの対応
@@ -108,7 +108,7 @@ whiten の採点は、今回の batch を入れる前の統計で倍率を作る
 
 - 評価の遷移は Replay に入らず、学習されない。評価の step には「実際に使った内的報酬」が、採点をどこに置いても無い。実際に使った値があるのは Train の遷移だけである。
 - Actor の `MakeAction` は行動を選ぶ時点で呼ばれる。その時点では、既定で採点する遷移のあとの観測も、ボーナスに要る done も無い。終端の観測は `MakeAction` を通らない。[PRD116](116_rnd_lifelong_novelty_10prd.md) §1.3 が Actor での採点を退けた理由（1 step 遅れの採点を運ぶ契約が要る）と同じである。step 診断は、遷移の 4 つ組と done を受け取る。
-- 方策が内的報酬を入力に取る形（NGU の「直前の内的報酬」。[924](924_intrinsic_reward_novelty_10prd.md) §4.5）では、評価の Actor も行動のために内的報酬を計算する。その値は Actor が出す値で、本 PRD の列とは別のものになる。
+- 方策が内的報酬を入力に取る形（NGU の「直前の内的報酬」。[173](173_intrinsic_reward_novelty_10prd.md) §4.5）では、評価の Actor も行動のために内的報酬を計算する。その値は Actor が出す値で、本 PRD の列とは別のものになる。
 
 ### 2.6 評価専用の Run
 
@@ -141,9 +141,9 @@ whiten の採点は、今回の batch を入れる前の統計で倍率を作る
 
 ### D1. 学習用の採点は動かさず、Trace の値は可視化用に別に計算する
 
-学習用の採点は、Agent の学習の入口のままにする。Evaluation Trace の値は、同じ predictor と統計を読むだけの採点で、可視化用に別に計算する。学習用の採点を Actor 側へ移すか、方策が内的報酬を入力に取るかは、924 の問いとして開いたままにする。
+学習用の採点は、Agent の学習の入口のままにする。Evaluation Trace の値は、同じ predictor と統計を読むだけの採点で、可視化用に別に計算する。学習用の採点を Actor 側へ移すか、方策が内的報酬を入力に取るかは、173 の問いとして開いたままにする。
 
-理由: 評価の値が可視化用になるのは、採点の場所の選び方ではなく構造から決まる（§2.5）。今回の目的（Greedy が止まった画面を、Train で育った predictor がどれだけ見慣れていないか）は、学習側から見た値を測ることなので、可視化用の値で目的に合う。Actor で計算しない形は、評価 session を含むすべての Actor の step に forward を足さずに済む。課題の依存関係では、924 の課題が本課題を待っている。依存: §2.5。
+理由: 評価の値が可視化用になるのは、採点の場所の選び方ではなく構造から決まる（§2.5）。今回の目的（Greedy が止まった画面を、Train で育った predictor がどれだけ見慣れていないか）は、学習側から見た値を測ることなので、可視化用の値で目的に合う。Actor で計算しない形は、評価 session を含むすべての Actor の step に forward を足さずに済む。課題の依存関係では、173 の課題が本課題を待っている。依存: §2.5。
 
 ### D2. 出す値は誤差・標準化した値・ボーナスの 3 つ。ボーナスの β は、学習の入口が直近に使った値
 
@@ -155,7 +155,7 @@ whiten の採点は、今回の batch を入れる前の統計で倍率を作る
 
 Evaluation Trace の行を作る部品が、列の宣言から `$agent_step` の鍵の一覧を作り、その Runner の Actor とあわせて、`Agent::CreateStepDiagnosticsProvider` の入力として渡す。DefaultDQN の step 診断は、一覧に内的報酬の鍵があるときだけ、呼ばれた時点で読むだけの採点を行う。
 
-理由: 計算するかどうかを、部品を作る 1 か所で決められる。値を返す部品は、今と同じく値を持つだけになる。読み出しが forward を隠し持つ形は、読み手が増えたとき（PRD919）に計算の時点のずれを生みやすい。「何が要るかを、進める側が引数で渡し、core に登録を持たない」という考え方は PRD938（[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）と同じである。列の宣言は Run の間変わらないので、渡すのは作るときの 1 回で足りる（§2.3）。Actor を渡すのは、D4 が Actor の設定と同期に従うためである。D4 は、Actor に「同期に従うもの」をつなぐ。これは登録の形だが、ADR 0072 が退けた登録（step の結果を、引数に現れない値で変えるもの）には当たらない。つないでも、行動選択の出力も step の結果も変わらない。つなぐのは Agent で、呼び出す側（Evaluation Trace）は入力を渡すだけである。依存: D4、§2.3。
+理由: 計算するかどうかを、部品を作る 1 か所で決められる。値を返す部品は、今と同じく値を持つだけになる。読み出しが forward を隠し持つ形は、読み手が増えたとき（PRD184）に計算の時点のずれを生みやすい。「何が要るかを、進める側が引数で渡し、core に登録を持たない」という考え方は PRD170（[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）と同じである。列の宣言は Run の間変わらないので、渡すのは作るときの 1 回で足りる（§2.3）。Actor を渡すのは、D4 が Actor の設定と同期に従うためである。D4 は、Actor に「同期に従うもの」をつなぐ。これは登録の形だが、ADR 0072 が退けた登録（step の結果を、引数に現れない値で変えるもの）には当たらない。つないでも、行動選択の出力も step の結果も変わらない。つなぐのは Agent で、呼び出す側（Evaluation Trace）は入力を渡すだけである。依存: D4、§2.3。
 
 ### D4. 推定器の写しは、Actor が network を写し直すのと同じロックの中で写す
 
@@ -186,7 +186,7 @@ step 診断の部品は、その Runner の Actor の設定に従って、次の
 
 - 行の値の時点は、写しを持つ Actor では「Actor が最後に network を写し直した時点の、学習側の predictor・統計・β」で、同じ行の Q を出した network と同じ時点である。持たない Actor では「その step の瞬間」である。行は、それが学習の何 step 目の状態だったかを持たない。写し直しをまたいだ行どうしでは、採点した predictor の学習の進みが違う。
 - [PRD094](done/094_evalpanel_step_history_10prd.md) の「step trace はロックを持たない」は、写しを持つ Actor では、内的報酬の列を宣言してもそのまま成り立つ。step ごとに Agent の読み取りロックを取るのは、写しを持たない Actor で内的報酬の列を宣言した構成だけである。
-- PRD919 の評価 session では、session の開始の同期 1 回で、session の全体を同じ predictor で採点することになる。
+- PRD184 の評価 session では、session の開始の同期 1 回で、session の全体を同じ predictor で採点することになる。
 - 変えるときの条件: Actor の network の同期を、規約どおりの形（学習のスレッドが写しを作って公開する）へ直すときは、推定器と β の写しも一緒に移す。既存の同期が規約に合っていないことは、別の課題にする（§8）。
 
 ### D5. 鍵の名前
@@ -217,7 +217,7 @@ step 診断の部品は、その Runner の Actor の設定に従って、次の
 
 `CreateStepDiagnosticsProvider` の入力（lane の数、鍵の一覧、Actor）は、呼び出しの全部が書く。
 
-理由: 呼び出しは本体 1 か所とテスト数か所で、書き換えが少ない。PRD938 が `MakeAction` の引数に既定値を付けたのは、テストの呼び出しが約 65 か所あるためで、事情が違う。依存: D3。
+理由: 呼び出しは本体 1 か所とテスト数か所で、書き換えが少ない。PRD170 が `MakeAction` の引数に既定値を付けたのは、テストの呼び出しが約 65 か所あるためで、事情が違う。依存: D3。
 
 ### D10. 知らない鍵で止まる時機は変えない。出荷の列はテストで守る
 
@@ -274,7 +274,7 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 
 ### D18. ADR は起こさない
 
-理由: 足すだけの診断で、あとから変えにくい形を含まない。部品を作るときの入力を足す D3 は、PRD938 の ADR 0072 と同じ考え方に沿う。写しの扱い（D4）は実装の規約の例外だが、戻しにくい形ではない。写す場所を学習側の公開へ移しても、鍵、値の意味、設定は変わらない。例外にした理由と変えるときの条件は、D4 と wiki のトピック別まとめに残す。推定器の写しの持ち主は step 診断の部品で、Actor は写し直す時機に呼ぶだけである。Actor が forward に使う写し（ADR 0013 が Actor の所有と決めたもの）とは別で、ADR 0013 は変えない。採点の場所の判断（D1）は 924 に開いたまま残している。
+理由: 足すだけの診断で、あとから変えにくい形を含まない。部品を作るときの入力を足す D3 は、PRD170 の ADR 0072 と同じ考え方に沿う。写しの扱い（D4）は実装の規約の例外だが、戻しにくい形ではない。写す場所を学習側の公開へ移しても、鍵、値の意味、設定は変わらない。例外にした理由と変えるときの条件は、D4 と wiki のトピック別まとめに残す。推定器の写しの持ち主は step 診断の部品で、Actor は写し直す時機に呼ぶだけである。Actor が forward に使う写し（ADR 0013 が Actor の所有と決めたもの）とは別で、ADR 0013 は変えない。採点の場所の判断（D1）は 173 に開いたまま残している。
 
 ### D19. 流れをシーケンス図で設計文書に書く
 
@@ -303,7 +303,7 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 
 - UI スレッドが Agent の読み取りロックを取る回数は、pane を開いて写しが無かったときに 1 回増える。取る箇所は、既存の EvalPanel の同期と同じである。
 - 同期を episode の単位にした設定（`app.eval_panel.model_sync.mode`）でも、pane を開いたときの同期は、episode の途中で起きる。
-- 「写しが無い」の NaN が出るのは、部品を作ってから Actor がまだ写し直していない間と、休んでいる間に写しを捨てたあと、Actor がまだ写し直していない間である。RunnerApp では、pane を開いたときの同期があるので、ほぼ出ない。Runner を直接使う構成（テスト、PRD919 の評価 session）では、最初の同期までの間に出る。
+- 「写しが無い」の NaN が出るのは、部品を作ってから Actor がまだ写し直していない間と、休んでいる間に写しを捨てたあと、Actor がまだ写し直していない間である。RunnerApp では、pane を開いたときの同期があるので、ほぼ出ない。Runner を直接使う構成（テスト、PRD184 の評価 session）では、最初の同期までの間に出る。
 - RunnerApp は、起動時に pane が閉じていれば、行を作る部品を作った直後に休ませる。開閉の判定は、行を作るかどうかを決めている EvalTracePanel の既存の判定に従う。
 - 採点の費用と、推定器を写す費用がかかるのは、pane を開いている間だけである（D14 で測る）。
 
@@ -311,11 +311,11 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 
 | 形 | 裁定 | 理由 |
 |---|---|---|
-| PRD938 の `MakeActionOptions` に欄を足し、Actor に採点させる | 不採用 | `MakeAction` の時点では遷移のあとの観測も done も無く、終端の観測は通らない。Actor は推定器を持たない。RND の採点は Q の forward の副産物ではなく、capture で運べない（§2.5） |
+| PRD170 の `MakeActionOptions` に欄を足し、Actor に採点させる | 不採用 | `MakeAction` の時点では遷移のあとの観測も done も無く、終端の観測は通らない。Actor は推定器を持たない。RND の採点は Q の forward の副産物ではなく、capture で運べない（§2.5） |
 | ボーナスの β を、Actor が行動のたびに評価する（γ と同じ扱い） | 不採用 | Actor に内的報酬の設定を持たせることになり、D1 に反する。写しと一緒に β を写せば、同じ時点の値になる（D2・D4） |
 | 誤差と標準化した値の 2 つだけを出す | 不採用 | 学習の報酬の単位で読むには、利用者が β と切り方を設定から当てはめる必要がある |
 | 内的報酬の鍵を読まれたときに計算する（課題に書いた形） | 不採用 | 値を返すだけに見える読み出しが forward を通す。読む時機で計算の時点がずれる（D3） |
-| RND が有効なら常に採点する | 不採用 | PRD919 で `q_sa` だけを記録する宣言をしたとき、評価の全 lane・全 step で使われない採点が走る |
+| RND が有効なら常に採点する | 不採用 | PRD184 で `q_sa` だけを記録する宣言をしたとき、評価の全 lane・全 step で使われない採点が走る |
 | step 診断を呼ぶたびに鍵を渡す | 不採用 | 列の宣言は Run の間変わらない（§2.3） |
 | Actor の設定に依らず、Agent の読み取りロックを step ごとに取る | 不採用 | 写しを持つ Actor の Runner でも、Trace の step のたびに GUI のスレッドが Q の更新の終わりを待つ。規約と 212 の記述に反する（§2.4） |
 | 内的報酬だけのロックを作り、学習の採点・補助学習と Trace の採点を排他する | 不採用 | 学習の入口にロックが入る。Taiga 式では入口 1 回に補助学習が 128 回あり（§2.1）、Trace の step が採点か補助学習 1 回ぶんを毎回待ちうる。BatchNorm を入れた構成では学習が変わる |
@@ -331,7 +331,7 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 | 評価専用の Run でだけ出し、学習中の Run では空欄にする | 不採用 | ロックも写しも要らないが、学習中の Run を見ながら止まった画面を調べる使い方ができない。G3 を縮める |
 | 知らない `$agent_step` の鍵を、部品を作るときに検査して起動時に止める | 不採用 | D10。止まる時機が target ごとに分かれ、エラーの文に列番号を入れるには共通の口が 1 つ増える |
 | DropMerge の `run.@rnd` を足す | 範囲外 | §1.3。再開条件: DropMerge で仮説を確かめる実験を起こすとき |
-| 評価 session の新しさを scalar で残す | 範囲外 | 別の関心。step ごとの記録は PRD919 が担う。再開条件: 919 の記録だけでは Greedy と Train の誤差の比較が重いと分かったとき |
+| 評価 session の新しさを scalar で残す | 範囲外 | 別の関心。step ごとの記録は PRD184 が担う。再開条件: 184 の記録だけでは Greedy と Train の誤差の比較が重いと分かったとき |
 | β を checkpoint に保存する | 不採用 | 本当の制約ではない（形式は変えられる）。保存して埋まるのは、再開から最初の学習の入口までの間のボーナスの列だけで、書式の識別子を上げて今ある checkpoint を読めなくする不利益に見合わない（D7） |
 | 乱数を引く層・状態を変える層を持つ RND の Network を検出して WARN する | 不採用 | D11 |
 
@@ -562,13 +562,13 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 
 ## 9. ほかの PRD との関係
 
-- [PRD116](116_rnd_lifelong_novelty_10prd.md): §1.3 が「評価での採点と診断」を非ゴールにし、「評価で内的報酬を見たくなったら 924 の採点点の問いで決める」とした。本 PRD は、採点の場所を動かさずに診断だけを足す形で、この再開条件に応えた。学習用の採点の場所の問いは 924 に残る。
+- [PRD116](116_rnd_lifelong_novelty_10prd.md): §1.3 が「評価での採点と診断」を非ゴールにし、「評価で内的報酬を見たくなったら 173 の採点点の問いで決める」とした。本 PRD は、採点の場所を動かさずに診断だけを足す形で、この再開条件に応えた。学習用の採点の場所の問いは 173 に残る。
 - [PRD123](123_rnd_intrinsic_reward_scale_10prd.md): 誤差の統計の取り方、warm-up、平均を引かない形、done の lane の扱いは、本 PRD の読むだけの採点がそのまま従う（§5.1・§5.2）。
-- [924](924_intrinsic_reward_novelty_10prd.md): 問い 7（ボーナスの合成と尺度）と 11（保存する報酬）は開いたままである。Actor 側の採点や、方策が内的報酬を入力に取る形が入ると、Actor が出す値を読む列が別にできる。評価の Actor は学習用の統計を更新できないので、そのときも読むだけの採点の口と写しは使える。
+- [173](173_intrinsic_reward_novelty_10prd.md): 問い 7（ボーナスの合成と尺度）と 11（保存する報酬）は開いたままである。Actor 側の採点や、方策が内的報酬を入力に取る形が入ると、Actor が出す値を読む列が別にできる。評価の Actor は学習用の統計を更新できないので、そのときも読むだけの採点の口と写しは使える。
 - [PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)（外的と内的の価値の分解。暫定）: 内的の価値を別の Head で学ぶ形が入ると、`intrinsic.bonus` の列を内的の価値の列と並べて読める。本 PRD は 121 を待たない。
 - [PRD094](done/094_evalpanel_step_history_10prd.md): 「step trace はロックを持たない」は、写しを持つ Actor ではそのまま成り立つ。写しを持たない Actor で内的報酬の列を宣言した構成だけが例外になる（D4 の帰結）。PRD094 の再発防止として入った実装の規約（UI スレッドのロック）に対しては、D4 が例外である。
-- [PRD919](919_eval_session_step_trace_10prd.md)（暫定・未実装）: 同じ `$agent_step` の鍵と `StepTraceBuilder` を評価 session で使う。本 PRD の 3 つの鍵は、919 が入ればそのまま記録に使える。919 の再グリルでは、`CreateStepDiagnosticsProvider` の入力（D3）と、session の全体を開始の同期の時点の predictor で採点すること（D4 の帰結）を前提に入れる。step 診断の部品は、作った直後から「使っている」状態なので、session の記録は `Suspend`・`Resume` を呼ばなくてよい（D20）。部品を session の開始の同期より前に作っておけば、最初の step から値が入る。
-- [PRD938](938_nn_trace_capture_unification_10prd.md)（未実装）: `MakeAction` と Runner の step に引数を足す。本 PRD とは別の口だが、同じ基底（rl.hpp）とテスト用の Agent を触るので、実装の順によって書き換えが重なる。意味はぶつからない。
+- [PRD184](184_eval_session_step_trace_10prd.md)（暫定・未実装）: 同じ `$agent_step` の鍵と `StepTraceBuilder` を評価 session で使う。本 PRD の 3 つの鍵は、184 が入ればそのまま記録に使える。184 の再グリルでは、`CreateStepDiagnosticsProvider` の入力（D3）と、session の全体を開始の同期の時点の predictor で採点すること（D4 の帰結）を前提に入れる。step 診断の部品は、作った直後から「使っている」状態なので、session の記録は `Suspend`・`Resume` を呼ばなくてよい（D20）。部品を session の開始の同期より前に作っておけば、最初の step から値が入る。
+- [PRD170](170_nn_trace_capture_unification_10prd.md)（未実装）: `MakeAction` と Runner の step に引数を足す。本 PRD とは別の口だが、同じ基底（rl.hpp）とテスト用の Agent を触るので、実装の順によって書き換えが重なる。意味はぶつからない。
 - [PRD117](117_warn_policy_and_unread_config_10prd.md): §6.2 の行 4 の WARN は、「構築後に、学習と評価の値を変えずに表示の一部だけが欠ける異常」の行に当たる。
 
 ## 10. issue の対応表

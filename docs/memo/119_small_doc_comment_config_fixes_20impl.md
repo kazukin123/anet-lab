@@ -18,7 +18,7 @@
 - D10: `apps/runner/config/Atari.txt` の 1650 行を `app.online.eval_panel.fps = 14.5` にする。
 - D11: Atari.txt の 1652〜1654 行を消し、328 行の `app.online.train_panel.fps = 0` の直前に説明のコメントを置く。
 - D12〜D14: 題材 8 件と索引の課題の対応内容に今回の行を足し、`anet-update-issue` の「判定」で、索引の課題を `実装済み`、題材 8 件を `残件無し` にする。ee32bd・fb8a45 は直さない理由を書く。最後に `reports/tools/wiki_support.py maps` を回す。
-- D15: PRD949 は変えない。
+- D15: PRD185 は変えない。
 
 ## テスト
 

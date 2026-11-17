@@ -29,7 +29,7 @@ PRD を書く前の参照、レビュー、起草した側の自己点検で走�
 | --- | --- | --- | --- | --- | --- |
 | 1 | 状態行の不在 | レビュー対象 | `^\s*>?\s*\**状態\s*\**\s*[:：]` と `^\s*>?\s*\**Status\s*\**\s*[:：]` | どちらも 0 件 | [docs/memo/README.md](../memo/README.md) 冒頭（状態は issue で表す） |
 | 2 | ファイル名の形 | レビュー対象のファイル名 | `^\d{3}_.+_10prd\.md$` | 一致する | [docs/memo/README.md](../memo/README.md) 冒頭、§採番 |
-| 3 | 正式採番の一意性 | `docs/memo/**/{NNN}_*_10prd.md`（`{NNN}` はレビュー対象の番号） | ファイル名 | すべての番号で 1 件（レビュー対象だけ）。9xx も重複しない | [docs/memo/README.md](../memo/README.md) §採番 |
+| 3 | 正式採番の一意性 | `docs/memo/**/{NNN}_*_10prd.md`（`{NNN}` はレビュー対象の番号） | ファイル名 | すべての番号で 1 件（レビュー対象だけ） | [docs/memo/README.md](../memo/README.md) §採番 |
 | 4 | リンク切れの不在 | レビュー対象 | `\]\([^)#][^)]*\)` のうち、`http` で始まらないもの。コードの中に書かれた記法は除く | `#` より前のパスを、レビュー対象のあるディレクトリから辿った先が、すべて実在する | [docs/memo/README.md](../memo/README.md) §リンクの注意 |
 | 39 | issue の ID の対応 | レビュー対象の確定事項・受入・実装契約 | `issue-\d{8}-[0-9a-f]{6}` | 見つかった ID がすべて issue の対応表の行にある | 本書「issue の対応表」の規約 |
 | 40 | 直訳の語の不在 | レビュー対象の全文。改訂した PRD では、今回の改訂より前からある箇所も含む | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルールの表で、「検索」が「する」の行の避ける語のそれぞれを、固定文字列で | 0 件。外部からの引用、コード、外部の固有名の中は数えない | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルール |
@@ -41,7 +41,7 @@ PRD を書く前の参照、レビュー、起草した側の自己点検で走�
 
 | 項番 | 確認観点 | 実行するもの | 期待値 | 規約の所在 |
 | --- | --- | --- | --- | --- |
-| 28 | コミット済みの ADR の保持 | `git diff HEAD --no-renames --name-status -- docs/adr`。`M` の行があれば、そのファイルに `git diff HEAD -- <そのファイル>`。項番 21〜23 の適用範囲に当たるときだけ | コミット済みの ADR の変更（`M`）と削除（`D`）が無い。`M` がある場合は、差分が先頭への注記の追加だけである。ステージ済みの変更も、ステージしていない変更も、同じに扱う。新しい ADR（`A` と、出力に現れない未追跡のファイル）は問わない | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
+| 28 | コミット済みの ADR の保持 | `git diff HEAD --no-renames --name-status -- docs/adr`。`M` の行があれば、そのファイルに `git diff HEAD -- <そのファイル>`。項番 21〜23 の適用範囲に当たるときだけ | コミット済みの ADR の変更（`M`）と削除（`D`）が無い。`M` がある場合は、差分が先頭への注記の追加か、同じ文書の改名・移動のあとのパスへの、リンクの丸括弧の中だけの変更である。ステージ済みの変更も、ステージしていない変更も、同じに扱う。新しい ADR（`A` と、出力に現れない未追跡のファイル）は問わない | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
 
 ## 読解観点
 
@@ -116,7 +116,7 @@ PRD の確定事項と実装契約に、内部の型・入れ物の型・引数�
 | --- | --- | --- | --- |
 | 15 | 移行対象の列挙 | 新しい契約へ移す現用のもの（コード、設定、テスト、サンプル、現行ドキュメント）が、PRD に挙がっている。振る舞いを変える PRD では、その振る舞いに当たる今のテスト・設定・サンプル（たとえば新しく止まる設定を使うテスト）も挙がっている | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
 | 16 | 互換層の扱い | 旧契約のための仕組み（別名、旧引数、互換分岐、暗黙の変換、WARN、検出コード）を残す計画が無い。残す場合は、互換対象・移行方法・互換期間・削除条件が書かれている | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
-| 17 | 過去の記録の扱い | 過去の Run artifact・ADR・実験記録・履歴資料を、書き換える計画も、読み替えるための互換コードを足す計画も無い | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
+| 17 | 過去の記録の扱い | 過去の Run artifact・ADR・実験記録・履歴資料を、書き換える計画も、読み替えるための互換コードを足す計画も無い。参照先の文書の改名・移動に合わせて、同じ文書を指したまま Markdown のリンクの丸括弧の中のパスを直すことと、先頭への注記の追加は、書き換えに当たらない（[docs/memo/README.md](../memo/README.md) §リンクの注意）。リンクを別の文書へ付け替えることは当たる | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 |
 
 ### 設定と失敗の扱い
 
@@ -145,7 +145,7 @@ PRD の確定事項と実装契約に、内部の型・入れ物の型・引数�
 | 20 | 既存 ADR との矛盾 | どの ADR のどの判断と矛盾するかが、PRD に書かれている | [AGENTS.md](../../AGENTS.md) §設計判断の記録(ADR)を読む条件 |
 | 21 | ADR を起こす条件 | 起こした ADR が、所在の 3 条件をすべて満たす | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly）、[ADR-FORMAT.md](../../.agents/skills/anet-create-prd/ADR-FORMAT.md) |
 | 22 | ADR の形 | 起こした ADR が、題と 1〜3 文で、判断と理由を述べている。PRD の内容を写していない | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Keep it short） |
-| 23 | 既存 ADR の保持 | コミット済みの ADR の本文を書き換えていない。判断を変えるときは、古い ADR の先頭に注記を足し、新しい ADR を起こしている。未コミットの ADR の書き直しは対象外である。コミット済みかどうかは、項番 28 の出力で見る | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
+| 23 | 既存 ADR の保持 | コミット済みの ADR の本文を書き換えていない。判断を変えるときは、古い ADR の先頭に注記を足し、新しい ADR を起こしている。未コミットの ADR の書き直しは対象外である。参照先の文書の改名・移動に合わせて、同じ文書を指したまま Markdown のリンクの丸括弧の中のパスを直すことと、先頭への注記の追加は、書き換えに当たらない（[docs/memo/README.md](../memo/README.md) §リンクの注意）。リンクを別の文書へ付け替えることは当たる。コミット済みかどうかは、項番 28 の出力で見る | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
 | 24 | 新しい名前 | PRD が付ける新しい名前（設定キー、メトリクス名、TensorDict キー、公開クラス名）が、[CONTEXT.md](../../CONTEXT.md) の語と合っている。`_Avoid_` に挙がった語を使っていない。クラス一覧の名前に、役割を表す接尾辞がある。名前が、実装 品質確認観点の「名前」の規約の基準に沿っている | [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件、[実装 品質確認観点](impl.md#c-コード)「C++ コード」の規約、[実装 品質確認観点](impl.md#名前)「名前」の規約 |
 | 25 | 用語の欠落 | 用語集に無い概念に名前を付ける場合、既存の語で言い換えられないことと、決めた用語が書かれている | [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件 |
 | 26 | 用語集の項目 | `CONTEXT.md` に足した項目が、実装の詳細を含まず、定義が 1〜2 文である | [anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md)（Update CONTEXT.md inline）、[CONTEXT-FORMAT.md](../../.agents/skills/anet-create-prd/CONTEXT-FORMAT.md)（Rules） |

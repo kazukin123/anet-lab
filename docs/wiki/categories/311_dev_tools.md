@@ -28,16 +28,16 @@
 - 2026-10-20: 解析ツールが遷移結果のtarget env_stepを読むように移行した（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§4.2の17・§9）。
 - 2026-10-22: Evaluation Traceの読み口と表示の検証資材を整えた（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§8・§10）。
 - 2026-10-28: TempoRLの等価性・性能比較用に、実行体と設定の着手前snapshotを使う検証資材を整えた（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§7）。
-- 2026-10-31: リリース物の組み立て（中身・検査・zip化）をrelease.ymlのPowerShellからCMakeのinstall・CPackとワークフローpresetへ移し、GitHubを使わずに手元でも同じコマンドで作れるようにする案を暫定で起票した（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、題・§3のゴール・§4 D1・D4）。
+- 2026-10-31: リリース物の組み立て（中身・検査・zip化）をrelease.ymlのPowerShellからCMakeのinstall・CPackとワークフローpresetへ移し、GitHubを使わずに手元でも同じコマンドで作れるようにする案を暫定で起票した（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、題・§3のゴール・§4 D1・D4）。
 - 2026-11-02: Claude Codeのmemoryをgit・フォルダ・正本・規約と定期的に照合して直すskill（anet-tidy-memory）と、機械的な検査を受け持つreports/tools/memory_support.py、housekeepingの候補memory-tidyを足す案を暫定で起票した（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、題・§1・§4 D9・D10）。
 - 2026-11-02: 課題の置き場を台帳からissue（docs/management/issues/に1課題1ファイル）に替え、課題のskillをanetのskillとして持ち、すべてのPRDにissueを伴わせて作業の状態と順序をissueで持ち、新しいPRDはフォルダを移さず起票時に正式な番号を取り、999のPRDを使われたことの無い番号へ振り直す案を、再グリルで決めた（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、題・§1・§4 D1・D2・D9・D13・D14）。
 - 2026-11-02: 作業の状態と順序はissueが持ち、PRDは指示文書としてフォルダを動かさない（出典: [ADR 0068](../../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md)）。
 - 2026-11-02: 共有コア（プロセス契約・レビューエージェントの定義）とハーネスに出てくるskill・エージェント・アダプタの名前はanet-で始まる名前とし、レビューエージェントは入口のskill anet-reviewと重ならないようanet-review-agentとする（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D3）。
 - 2026-11-02: 共有コアにanet-で始まるskill・エージェント・アダプタの名前を置けると補足し、名前以外はプロジェクトに依存しない文面に保つ判断を維持した（出典: [ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、冒頭の2026-11-02注記）。
-- 2026-11-03: issueの一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）を、発番と同じ置き場の道具と一覧のskillの引数で作る案を暫定で起票した（出典: [925_issue_list_views](../../memo/925_issue_list_views_10prd.md)、題・§1・§4 D1〜D3）。
+- 2026-11-03: issueの一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）を、発番と同じ置き場の道具と一覧のskillの引数で作る案を暫定で起票した（出典: [187_issue_list_views](../../memo/187_issue_list_views_10prd.md)、題・§1・§4 D1〜D3）。
 - 2026-11-10: 課題のtypeを仕事の種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）にし、PRD専用の索引の課題をやめて各課題がprd欄でPRDを1本だけ指し（N:1）、PRDの実装済みを課題の判定と状態から導き、parent・depends・prdをObsidianのリンクで書き、domain・tags・resolutionを足す案を起票した（出典: [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md)、§1・§4 D1〜D8）。
 - 2026-11-11: Debug版libtorchのoneDNNのassertがテストの順序で出ないよう、anet-core-testが開始時に1回MKLDNNを切り、テストの中の切り替えを消す案を起票した（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、題・§3.1・§4 D1）。
-- 2026-11-16: 9xxの番号のPRD 57本を、起票の日の順に900未満の連番へ振り直し、この振り直しを番号の不再利用の例外として9xxを再び使える番号に戻し、旧い番号を各PRDの題の直下の振り直しの行で引く（wikiのPRDの一覧の道具もその行を読む）案を起票した（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、題・§1.2・§4 D1〜D3・D7・D8）。
+- 2026-11-17: 9xxの番号のPRD 57本を、起票の日の順に132〜188へ振り直し、この振り直しを番号の不再利用の例外として9xxを再び使える番号に戻し、旧い番号を各PRDの題の直下の振り直しの行で引くようにした（wikiのPRDの一覧の道具もその行を読む）（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、題・§1.2・§4 D1〜D3・D7・D8）。
 - 2026-11-16: PRDの9xxの番号を、起票の日の順に900未満の連番へ振り直し、9xxを再び使える番号に戻す（出典: [ADR 0077](../../adr/0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable.md)）。
 
 ## 選ばなかった形
@@ -46,14 +46,14 @@
 - inspect_runによるmetricの意味解釈・採否判断・Run ranking — 不採用: 分析の判断をツールへ統合しない（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§10・§11）。
 - inspect_runのraw全点の無制限出力・plot画像生成・interactive viewer — 不採用: 分析用の材料抽出と分ける（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§10）。
 - 監査の指摘の本文や対処方針をトピック別まとめにも要約する — 不採用: 台帳の派生一覧と同じ正本の要約が2か所になる（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§1の非ゴール・§6）。
-- リリースのconfigureの引数だけをpresetへ寄せる案（packageとワークフローpresetは使わない） — 不採用: 手元でリリース物を作れない（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§8）。
-- apps/runner/bin/Releaseやフォルダを丸ごとリリースのzipに包む形 — 不採用: 手元の作業ツリーでは試行用のexe、管理外のDLL、Gitが無視するruns/が混ざる（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§2の9・§8）。
-- exeのimportの表からリリースに入れるDLLを自動でたどる形 — 不採用: 実行時に読み込むDLL（third_party/runtime_dllsのSDL2など）を拾えない（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§2の6・§8）。
-- リリースのインストーラ（NSIS・WiX・Inno Setup） — 先送り: 2GiBの上限は形式で変わらず、要求が無い。再開条件: 展開ではなくインストールで配る需要が出たとき（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§8）。
-- 7Zなど圧縮率の高い形式、LibTorchのDLLを別のzipに分ける形 — 先送り: 今のzipは上限の内。再開条件: 実行用zipが2,000MBの上限に近づいたとき（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§8）。
-- Linux・macOSのリリース物 — 範囲外: 先にビルドの移植が要る。再開条件: Linuxでビルドが通ったとき（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§2の14・§8）。
-- windows-ci.ymlのconfigureをリリースのpresetへ寄せる — 範囲外: CIのビルド確認の関心で、906 CI/CD改善のL1で扱う。再開条件: リリースのpresetが入ったあと（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§8）。
-- 依存の準備（LibTorchの取得など）をCMakeで行う — 範囲外: 環境整備は別の関心で、CUDA Toolkitの導入はCMakeで行えない。再開条件: 環境整備も1つのコマンドにしたくなったとき（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§3の非ゴール・§8）。
+- リリースのconfigureの引数だけをpresetへ寄せる案（packageとワークフローpresetは使わない） — 不採用: 手元でリリース物を作れない（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§8）。
+- apps/runner/bin/Releaseやフォルダを丸ごとリリースのzipに包む形 — 不採用: 手元の作業ツリーでは試行用のexe、管理外のDLL、Gitが無視するruns/が混ざる（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§2の9・§8）。
+- exeのimportの表からリリースに入れるDLLを自動でたどる形 — 不採用: 実行時に読み込むDLL（third_party/runtime_dllsのSDL2など）を拾えない（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§2の6・§8）。
+- リリースのインストーラ（NSIS・WiX・Inno Setup） — 先送り: 2GiBの上限は形式で変わらず、要求が無い。再開条件: 展開ではなくインストールで配る需要が出たとき（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§8）。
+- 7Zなど圧縮率の高い形式、LibTorchのDLLを別のzipに分ける形 — 先送り: 今のzipは上限の内。再開条件: 実行用zipが2,000MBの上限に近づいたとき（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§8）。
+- Linux・macOSのリリース物 — 範囲外: 先にビルドの移植が要る。再開条件: Linuxでビルドが通ったとき（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§2の14・§8）。
+- windows-ci.ymlのconfigureをリリースのpresetへ寄せる — 範囲外: CIのビルド確認の関心で、156 CI/CD改善のL1で扱う。再開条件: リリースのpresetが入ったあと（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§8）。
+- 依存の準備（LibTorchの取得など）をCMakeで行う — 範囲外: 環境整備は別の関心で、CUDA Toolkitの導入はCMakeで行えない。再開条件: 環境整備も1つのコマンドにしたくなったとき（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§3の非ゴール・§8）。
 - memoryの点検をanet-lint-wiki（wiki_support.py）に足す形 — 不採用: wikiの点検の材料はrepoの中の文書だけで、memoryはrepoの外にありClaude Codeからしか見えない（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§8）。
 - 汎用のconsolidate-memoryをそのまま定期に回す形 — 不採用: git・フォルダ・正本・規約と照合しないので、古い状態の記述と知見の二重持ちが残る（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§8）。
 - memoryの整備の1回分の記録をreports/housekeeping/に置く形 — 不採用: repoは公開しており、memoryには私的な事柄がある（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§3.2・§4 D6）。
@@ -101,8 +101,8 @@
 - inspect_runのstreaming・1 pass・128点上限をfocused testで確かめる（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§9・§10）。
 - inspect_runで128点以下は全点を保持し、間引く場合も先頭・末尾と決定性を保つ（出典: [PRD054](../../memo/done/054_inspect_run_10prd.md)、§9）。
 - issueの分類をstatsと共有する変更では、statsのカテゴリ集計が変わらないことを確かめる（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§4.7の台帳のツール・受入15）。
-- リリースの組み立てを移すときは、実行用zipの中身（ファイルのentryのパスの一覧）を変えない。移行の直前のコミットで旧workflowのドライランを回したartifactと、新しい入口で作ったzipの一覧を比べる（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§3のG2・§7の受入3）。
-- リリースの構成を足しても、日常のDebug・Release構成の出力先と出力物を変えない。前後でexe・DLL・静的ライブラリのファイル名の一覧を比べる（出典: [949_release_packaging_cmake](../../memo/949_release_packaging_cmake_10prd.md)、§4 D2・§7の受入1）。
+- リリースの組み立てを移すときは、実行用zipの中身（ファイルのentryのパスの一覧）を変えない。移行の直前のコミットで旧workflowのドライランを回したartifactと、新しい入口で作ったzipの一覧を比べる（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§3のG2・§7の受入3）。
+- リリースの構成を足しても、日常のDebug・Release構成の出力先と出力物を変えない。前後でexe・DLL・静的ライブラリのファイル名の一覧を比べる（出典: [185_release_packaging_cmake](../../memo/185_release_packaging_cmake_10prd.md)、§4 D2・§7の受入1）。
 - housekeepingに候補を足しても、reports/housekeeping/runs.jsonlの既存の行は書き換えない（出典: [PRD112](../../memo/112_claude_memory_tidy_10prd.md)、§5.5）。
 - 過去のPRD（done/・frozen/・dropped/）・実装記録・ADRの本文は書き換えない。999の振り直しでは、ファイル名を指すパスの表記だけを直す（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§5.9・§5.12）。参照先のPRDの改名・移動に合わせてMarkdownのリンクのパスだけを直すことと、先頭へ注記を足すことは、書き換えに当たらない（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D6）。
 - PRDの番号は、一度使ったものを二度と使わない（コミットの件名・CHANGELOG・ADR・実験記録が番号でPRDを指すため）（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D13）。9xxの振り直しはこの例外で、振り直しの日（振り直しの行の日付）以前の9xxの使用を数えない（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D3）。
@@ -172,6 +172,7 @@
 - [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md) — 課題の記録を issue（1 課題 1 ファイル）に替え、仕事は issue・指示は PRD で持つ（台帳の退役、課題の仕組み、PRD の採番とフォルダの改め）PRD
 - [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD
 - [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md) — PRD120: 課題の種類を仕事の種類にし、PRD との結び付けを課題の prd 欄（Obsidian のリンク）に替える
+- [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md) — PRD131: 9xx の番号の PRD 57 本を、起票の日の順に 900 未満の連番へ振り直す PRD
 
 ## 課題
 
@@ -180,27 +181,26 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261115-5adbf9](../../management/issues/issue-20261115-5adbf9.md) | 調査中 | 1.6 | — | ハーネス | その他 | 311_dev_tools | 開発 | リファクタリング | [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md) | 未確認 | 9xxの番号のPRD（過去のPRDのID）を、900未満の連番へ振り直す |
 | [issue-20261104-52ffba](../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | 成果物 | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
-| [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD925](../../memo/925_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
+| [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD187](../../memo/187_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261111-3986b7](../../management/issues/issue-20261111-3986b7.md) | 未着手 | 3.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | テストを回す範囲・回数と、テストの控え・ログの置き場の決まりが無く、実装の時間と .scratch が膨らむ |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-58696c](../../management/issues/issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD112](../../memo/112_claude_memory_tidy_10prd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | 成果物 | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
-| [issue-20261103-61d771](../../management/issues/issue-20261103-61d771.md) | 未着手 | 1.6 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD906](../../memo/906_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
+| [issue-20261103-61d771](../../management/issues/issue-20261103-61d771.md) | 未着手 | 1.6 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD156](../../memo/156_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
 | [issue-20261115-3e5b77](../../management/issues/issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 成果物 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | 成果物 | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [PRD096](../../memo/096_metrics_step_axis_interval_10prd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
 | [issue-20261110-9d4e5a](../../management/issues/issue-20261110-9d4e5a.md) | 未着手 | 1.4 | — | 成果物 | その他 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | C++ の単純な書き方の問題を機械で検出する仕組み（lint・静的解析）が無い |
-| [issue-20261103-71bb9a](../../management/issues/issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD959](../../memo/959_test_line_coverage_10prd.md) | 残件有り | 行カバレッジ計測（OpenCppCoverage） |
-| [issue-20261103-7227bf](../../management/issues/issue-20261103-7227bf.md) | 未着手 | 1.2 | — | 成果物 | PRD | 311_dev_tools, 317_metrics | 開発 | 機能追加 | [PRD947](../../memo/947_q_statistics_config_screening_10prd.md) | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング |
-| [issue-20261103-dbe666](../../management/issues/issue-20261103-dbe666.md) | 未着手 | 1.2 | — | 成果物 | PRD | 322_env_individual, 318_rl_core, 311_dev_tools | Env | 調査 | [PRD915](../../memo/915_dropmerge_neet_diagnostics_10prd.md) | 残件有り | DropMerge の NEET 診断（trace で足りるか確かめてから指標化） |
+| [issue-20261103-71bb9a](../../management/issues/issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD157](../../memo/157_test_line_coverage_10prd.md) | 残件有り | 行カバレッジ計測（OpenCppCoverage） |
+| [issue-20261103-7227bf](../../management/issues/issue-20261103-7227bf.md) | 未着手 | 1.2 | — | 成果物 | PRD | 311_dev_tools, 317_metrics | 開発 | 機能追加 | [PRD153](../../memo/153_q_statistics_config_screening_10prd.md) | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング |
+| [issue-20261103-dbe666](../../management/issues/issue-20261103-dbe666.md) | 未着手 | 1.2 | — | 成果物 | PRD | 322_env_individual, 318_rl_core, 311_dev_tools | Env | 調査 | [PRD163](../../memo/163_dropmerge_neet_diagnostics_10prd.md) | 残件有り | DropMerge の NEET 診断（trace で足りるか確かめてから指標化） |
 | [issue-20261115-657248](../../management/issues/issue-20261115-657248.md) | 未着手 | 1.2 | — | 成果物 | ハーネス保守 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 既存のソースと設定を、最新の規約（include の順・クラス宣言の区切り・関数名の形など）に合わせてまとめて点検し直す |
-| [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD954](../../memo/954_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
+| [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD154](../../memo/154_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | — | 成果物 | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261116-fe09dc](../../management/issues/issue-20261116-fe09dc.md) | 未着手 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
-| [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD949](../../memo/949_release_packaging_cmake_10prd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.0 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD957](../../memo/957_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD185](../../memo/185_release_packaging_cmake_10prd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.0 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 
 着手できる 19 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) — anet-core の外で実装する拡張点とコード配置の規約

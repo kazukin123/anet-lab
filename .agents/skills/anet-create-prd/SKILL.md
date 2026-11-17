@@ -125,7 +125,7 @@ goal anchor の応答を出す前に、`anet-update-issue` の「工程の出来
 
 ### 暫定と Plan Mode
 
-「暫定」と指示された起票では質疑を省き、決めきれない点を未決表へ書く。暫定でも起票時に正式番号を取り、PRD の課題を結び付ける（段3）。番号は memo README に従い、900 未満の最大番号の次を取り、一度使った番号を再利用しない。新しい 999 は作らない。
+「暫定」と指示された起票では質疑を省き、決めきれない点を未決表へ書く。暫定でも起票時に正式番号を取り、PRD の課題を結び付ける（段3）。番号は memo README の「採番」に従って取る。仮の共有番号は作らない。
 
 暫定の起票の PRD には、確定した決定を置かず、確定事項の節を作らない。起点の会話で方向が出ている点も、決めきれない点も、未決表の行にする。AI が置いた既定は、その行の「暫定の既定」の列に、理由と依存とともに書く。実装契約・受入・移行対象などの節は、暫定の既定を前提に書いてよく、前提にした未決表の番号を名指す。冒頭の起票の行には「暫定」と書く。起票の行に「暫定」があり、冒頭の改訂行に、その PRD 自身のグリル（再グリル）を終えた記録が無い PRD を、以下「暫定の印がある PRD」と呼ぶ。ほかの PRD のグリルへの言及や、これからグリルする予定は、終えた記録に当たらない。グリルを終えた PRD は、起票の行に「暫定」が残っていても印が無い（以前の決まりで再グリルした PRD も同じ）。起点の会話の方向は冒頭の起点の行に書き、理由に引いてよいが、決定として扱う書き方（「ユーザーの選択」「合意した」など）にしない。暫定の起票は、あとのグリルですべてを見直す前提で置くためであり、確定事項の章に未確定の既定を置くと、見直す予定と添えても確定と紛れるためである。
 
@@ -330,6 +330,6 @@ If any of the three is missing, skip the ADR. Use the format in [ADR-FORMAT.md](
 
 **Keep it short.** An ADR is a title plus 1-3 sentences. `Status`, `Considered Options` and `Consequences` are optional — most ADRs do not need them. Do not mirror the PRD: the PRD says what to build, the ADR says why this shape was chosen and what was rejected. An ADR long enough to be skimmed instead of read has failed at its only job.
 
-**Never rewrite an existing ADR.** An ADR records the judgement made at that time; rewriting it destroys the reason the decision looked right then. When a later decision changes one, append a short note at the top of the old ADR — which ADR revised it, what was replaced, what still stands — and then write the new one. Partial revision is the normal case, so always say which parts survive.
+**Never rewrite an existing ADR.** An ADR records the judgement made at that time; rewriting it destroys the reason the decision looked right then. When a later decision changes one, append a short note at the top of the old ADR — which ADR revised it, what was replaced, what still stands — and then write the new one. Partial revision is the normal case, so always say which parts survive. When a document an ADR links to is renamed or moved, updating only the path inside that link's parentheses so it still points to the same document is not a rewrite (`docs/memo/README.md`, "リンクの注意"); retargeting the link to another document is.
 
 </supporting-info>

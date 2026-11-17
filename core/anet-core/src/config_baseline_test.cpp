@@ -662,9 +662,9 @@ TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "
     }
 }
 
-TEST_CASE("PRD918 captures and checks migrated evaluation schedules", "[.][prd918-config]")
+TEST_CASE("PRD158 captures and checks migrated evaluation schedules", "[.][prd158-config]")
 {
-    constexpr const char* kOutputEnv = "ANET_PRD918_OUTPUT";
+    constexpr const char* kOutputEnv = "ANET_PRD158_OUTPUT";
     constexpr const char* kEvalTargetTag = "eval_target";
     constexpr const char* kEvalTag = "eval";
     constexpr const char* kGreedyTag = "greedy";

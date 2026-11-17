@@ -9,13 +9,13 @@
 > 2026-11-16 改訂: グリルを行い、暫定の印を外した。確定事項を §5.1 に置き、未決表（§8）の各行をそこへ振り分けた。あわせて、題、§1.3〜§1.5、§2.8（参照の書き換えと、集計の転送と合流の値の追記）、§2.10（warm-up の判定の追記）、§2.11（診断値の区間の追記）、§4、§5 の各節、§6（実装契約）、§7（受入）、§9、§10 を確定事項に合わせて書き直し、§2.12（型の変換と正規化の所在、集計の部品を使うもの）を足した。決めた主な点は、正規化と集計を計算 device で行うこと、batch 方向の集計の式を替えること、性能の直しを先に入れて整理を後にすること、並列処理化を入れないことである。起草のあとに別モデル（Opus）の検討を入れ、その論点と扱いを §5.7 の末尾に書いた。
 > 起点: 2026-11-15 の会話。開発者が、RND の性能改善の課題を、PRD121（価値の分解）を実装したあとのコードを基に入れたいと述べ、題材を §9 の 2 件として暫定の PRD を起こすよう指示した。開発者は、起票のあとに Tracy と Nsight で現状を分析して対応方針を整理し、そのあとでグリルを行うと述べた。直し方の中身について、会話で出た方向は無い。
 > 題材: §9 の課題 2 件。
-> 関連: [116_rnd_lifelong_novelty_10prd.md](116_rnd_lifelong_novelty_10prd.md)（RND の本体と、一生の新しさの口）、[123_rnd_intrinsic_reward_scale_10prd.md](123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計の取り方と warm-up、checkpoint の書式）、[127_eval_trace_intrinsic_reward_columns_10prd.md](127_eval_trace_intrinsic_reward_columns_10prd.md)（読むだけの採点と推定器の写し）、[128_dqn_agent_refactor_bundle_10prd.md](128_dqn_agent_refactor_bundle_10prd.md)・[121_extrinsic_intrinsic_value_decomposition_10prd.md](121_extrinsic_intrinsic_value_decomposition_10prd.md)（採点を呼ぶ側の形を変えた PRD）、[924_intrinsic_reward_novelty_10prd.md](924_intrinsic_reward_novelty_10prd.md)（新しさの推定を広げる PRD）、[Atari の RND 性能測定](../experiments/default-dqn/atari/2026-11-12_rnd_performance.md)、[RND の設計文書](../design/212_rnd_lifelong_novelty.jp.md)、[リファクタリング観点](../quality/refactor.md)。
+> 関連: [116_rnd_lifelong_novelty_10prd.md](116_rnd_lifelong_novelty_10prd.md)（RND の本体と、一生の新しさの口）、[123_rnd_intrinsic_reward_scale_10prd.md](123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計の取り方と warm-up、checkpoint の書式）、[127_eval_trace_intrinsic_reward_columns_10prd.md](127_eval_trace_intrinsic_reward_columns_10prd.md)（読むだけの採点と推定器の写し）、[128_dqn_agent_refactor_bundle_10prd.md](128_dqn_agent_refactor_bundle_10prd.md)・[121_extrinsic_intrinsic_value_decomposition_10prd.md](121_extrinsic_intrinsic_value_decomposition_10prd.md)（採点を呼ぶ側の形を変えた PRD）、[173_intrinsic_reward_novelty_10prd.md](173_intrinsic_reward_novelty_10prd.md)（新しさの推定を広げる PRD）、[Atari の RND 性能測定](../experiments/default-dqn/atari/2026-11-12_rnd_performance.md)、[RND の設計文書](../design/212_rnd_lifelong_novelty.jp.md)、[リファクタリング観点](../quality/refactor.md)。
 
 ## 1. 目的と問題
 
 ### 1.1 問題
 
-既定の RND（`statistics_mode = whiten`）を有効にした Atari の Run は、RND なしの 1.661 倍の実時間がかかる。RND の時間の 62.66% は、採点（`Estimate`）の中の統計の区間が占める（§2.1）。この区間は CPU の 1 スレッドで動く。放っておくと、RND を使う実験（Montezuma の β の比較、価値の分解、[PRD924](924_intrinsic_reward_novelty_10prd.md) の NGU）の 1 本ごとの実時間が、この分だけ長いままになる。
+既定の RND（`statistics_mode = whiten`）を有効にした Atari の Run は、RND なしの 1.661 倍の実時間がかかる。RND の時間の 62.66% は、採点（`Estimate`）の中の統計の区間が占める（§2.1）。この区間は CPU の 1 スレッドで動く。放っておくと、RND を使う実験（Montezuma の β の比較、価値の分解、[PRD173](173_intrinsic_reward_novelty_10prd.md) の NGU）の 1 本ごとの実時間が、この分だけ長いままになる。
 
 同じクラスに 2 つの統計方式（whiten と variance_feedback）が同居し、どちらの組が有効かを表す分岐が、採点・補助学習・読むだけの採点・写し・保存・読み込みに散っている（§2.5）。統計の区間を組み替えると、この分岐の全部に触ることになる。
 
@@ -306,9 +306,9 @@ variance_feedback では、観測の統計も誤差の統計も、lane の順に
 
 NGU に関わる記録は次のとおり。
 
-- [PRD924](924_intrinsic_reward_novelty_10prd.md) の §4.6 の基準案（未決）は、内的報酬を収集時の事実として保存し、学習時に再計算しない。新規性は、観測をエピソード内の記憶へ加える前に算出し、そのあとに記録を更新する。
-- PRD924 の §4.5 の基準案（未決）は、Q への条件付けに、直前の外的報酬と内的報酬を入れる。
-- NGU 原典は、actor が内的報酬を算出して Replay へ入れ、learner が、抽出した系列の末尾 5 時点で、行動予測網と RND の predictor を学習する（[PRD116](116_rnd_lifelong_novelty_10prd.md) の §8.1 の 3、PRD924 の §4.6 が引く原典の付録 A）。
+- [PRD173](173_intrinsic_reward_novelty_10prd.md) の §4.6 の基準案（未決）は、内的報酬を収集時の事実として保存し、学習時に再計算しない。新規性は、観測をエピソード内の記憶へ加える前に算出し、そのあとに記録を更新する。
+- PRD173 の §4.5 の基準案（未決）は、Q への条件付けに、直前の外的報酬と内的報酬を入れる。
+- NGU 原典は、actor が内的報酬を算出して Replay へ入れ、learner が、抽出した系列の末尾 5 時点で、行動予測網と RND の predictor を学習する（[PRD116](116_rnd_lifelong_novelty_10prd.md) の §8.1 の 3、PRD173 の §4.6 が引く原典の付録 A）。
 - anet の補助学習の母集団は、intake の観測である（[PRD116](116_rnd_lifelong_novelty_10prd.md) の D7）。母集団を Replay に変えるかは未決である（同 §8.1 の 5）。
 - NGU 原典が、RND の誤差の統計をどこで更新するかは、確かめていない。
 
@@ -433,7 +433,7 @@ Run は決定的モードではないので、同じ経路の Run どうしで�
 |---|---|---|
 | D1 | **置き場。** 既定（whiten）の採点と補助学習で、浮動小数点への変換、観測の正規化、観測の統計と target の出力の統計の batch の集計を、計算 device（forward と同じ device）で行う。並びは「計算 device へ転送、浮動小数点への変換、正規化」とする。累積の統計、誤差の検査、α の計算、誤差の統計、診断値の組み立ては、CPU のままにする（線引きは §5.4） | 試作で、RND が 1 intake あたり 23.347 ms から 6.482 ms、実時間が主で 0.881 倍、副で 0.662 倍になった（§2.11）。Q の主の経路は、すでに device へ送ってから正規化している（§2.12）。開発者の原則（適材適所、device の空きを抑える、転送の効率を上げる。§5.7）に合う。依存: 値の前提 |
 | D2 | **読むだけの採点。** D1 と同じ置き場で正規化する | 読むだけの採点の倍率が、直後の採点の倍率と一致する条件（§4）を保つ。依存: D1 |
-| D3 | **正規化は NN の外のままにする。** NN の中の前処理は変えない。RND 独自の型の変換（連続の byte の観測を浮動小数点へ変える処理）は残し、置き場だけが計算 device になる | checkpoint の書式を変えない（§4）。Q の主の経路も、正規化は NN の外にある（§2.12）。観測の加工を 1 か所にまとめる話は、PRD944 の題材である（§10）。依存: D1 |
+| D3 | **正規化は NN の外のままにする。** NN の中の前処理は変えない。RND 独自の型の変換（連続の byte の観測を浮動小数点へ変える処理）は残し、置き場だけが計算 device になる | checkpoint の書式を変えない（§4）。Q の主の経路も、正規化は NN の外にある（§2.12）。観測の加工を 1 か所にまとめる話は、PRD161 の題材である（§10）。依存: D1 |
 | D4 | **統計だけを更新する口（C1）。** 共通の観測の正規化の部品に足し、RND の統計更新が使う。Q 入力用の正規化の 2 つの呼び出しは変えない | 部品の中の情報だけで決まる処理は、部品の共通処理として足す（§4）。捨てている正規化は、CPU で 1.519 ms、計算 device で 0.336 ms だった（§2.11）。Q 入力用の正規化は既定が素通しで（§2.12）、RND 以外の呼び出しを変えないのは非ゴールである（§1.3）。依存: なし |
 | D5 | **平均と標準偏差の写し（C3）。** 統計つきの正規化は、正規化に使う平均と標準偏差の写し（今の正規化が毎回作っているものと同じ値）を持つ。写しは、統計を更新した時点で、更新に使った入力の device に作る。正規化の入力の device が写しと違うときと、写しが無いとき（読み込みやリセットの直後）は、今と同じく、その場で作って使い、写しには書き込まない。読み込みとリセットで、写しを捨てる。統計を更新しない正規化（`Normalize`）は、写しを書き換えない。値は変えない | 計算 device では、作り直しのたびに CPU からの転送になり、試作で 3 回、合わせて 0.378 ms だった（§2.11）。D4 のあとは作り直しが 2 回に減り、得は 0.1〜0.2 ms の見積もりである。読むだけの採点は、読み取りロックで複数のスレッドから同時に呼ばれうるので（[default_dqn_agent.cpp:925](../../core/anet-core/src/default_dqn_agent.cpp)）、正規化の中では写しを書かない。部品は計算 device を知らず、Q 入力用に使うと、統計の更新は CPU、正規化は計算 device になりうるので、device が違うときの扱いを決めた。別モデルの検討は入れない案を推したが、開発者が、決まりを書いて入れると選んだ（§5.7）。依存: D1、D4 |
 | D6 | **clip の割合（C9）。** 統計を更新しない正規化（`Normalize`）は、clip した割合を数えない。値は変えない | `Normalize` は割合を返さない（§2.8）。計算 device では、数えるたびに同期の読み出しになる。依存: D1 |
@@ -660,8 +660,8 @@ D12 の中身である。
 
 **AI の整理 5: NGU で変わること・変わらないことと、本 PRD への含み**
 
-- 採点は、NGU でも収集時（push の前）のままである（PRD924 の §4.6 の基準案）。エピソード内の新しさは、その lane のエピソードの記憶に照らして出すので、あとから Replay のサンプルだけで再計算できない。
-- PRD924 の §4.5 の基準案（Q の入力に直前の内的報酬）を採ると、採点は次の行動の決定より前に要る。今は、行動を決めたあとに学習用のスレッドで採点している（§2.9）ので、採点の置き場が動く。
+- 採点は、NGU でも収集時（push の前）のままである（PRD173 の §4.6 の基準案）。エピソード内の新しさは、その lane のエピソードの記憶に照らして出すので、あとから Replay のサンプルだけで再計算できない。
+- PRD173 の §4.5 の基準案（Q の入力に直前の内的報酬）を採ると、採点は次の行動の決定より前に要る。今は、行動を決めたあとに学習用のスレッドで採点している（§2.9）ので、採点の置き場が動く。
 - 補助学習は、母集団が intake の観測から Replay へ変わりうる（§2.10）。
 - 本 PRD への含みは 4 つある。(1) 整理（ステージ 2）で、採点（読むだけ）、統計更新、補助学習の 3 つの単位に分ける。置き場が変わっても、部品は変わらない。(2) 採点と補助学習の間で、中間の結果（正規化した入力、target の出力）を使い回さない。補助学習が Replay の側へ移ると、使い回せない。(3) 採点から統計更新へは、同じ観測の誤差、target の出力、観測の集計を渡してよい。計算 device で集計すれば、統計更新は CPU での小さな合流だけになる。(4) 入力の device で正規化する形が合う。Replay のサンプルは計算 device にあり、今のコードは必ず CPU へ移す（[intrinsic_rnd.cpp:515](../../core/anet-core/src/intrinsic_rnd.cpp)、643 行）ので、往復の転送になる。
 - 3 つの単位に分けるのは構造のためで、速さのためではない。無駄を除いたあとは、どの単位も数 ms の見積もりである。
@@ -833,9 +833,9 @@ D12 の中身である。
 ## 10. ほかの PRD・課題との関係
 
 - [PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)（価値の分解）は実装済みで、本 PRD はそのあとのコードを基にする。採点を呼ぶ側（`ScoreBonus`）は変えない（D8）。
-- [PRD924](924_intrinsic_reward_novelty_10prd.md)（内的報酬の新しさと方策の組）は、新しさの推定を広げる。本 PRD の整理のあとに足すと、統計方式を足す場所が 1 か所になる。PRD924 の基準案（§4.5、§4.6）を採ると、採点の置き場と、補助学習の母集団が変わりうる（§2.10、§5.7）。本 PRD は、NGU の対応のあとも残る仕組みだけを入れ、並列処理化は入れない（D9）。学習を並行で回すかの判断（PRD924 の §4.9）の材料として、律速が kernel を出す CPU の時間で、GPU が埋まっていないという測定（§2.8、§2.11、§5.7 の AI の整理 6）を残す。
+- [PRD173](173_intrinsic_reward_novelty_10prd.md)（内的報酬の新しさと方策の組）は、新しさの推定を広げる。本 PRD の整理のあとに足すと、統計方式を足す場所が 1 か所になる。PRD173 の基準案（§4.5、§4.6）を採ると、採点の置き場と、補助学習の母集団が変わりうる（§2.10、§5.7）。本 PRD は、NGU の対応のあとも残る仕組みだけを入れ、並列処理化は入れない（D9）。学習を並行で回すかの判断（PRD173 の §4.9）の材料として、律速が kernel を出す CPU の時間で、GPU が埋まっていないという測定（§2.8、§2.11、§5.7 の AI の整理 6）を残す。
 - 可塑性メトリクスの計算による停止（§2.8）は、題材の外である。2026-11-15 に、開発者の選択で [issue-20261115-e5a0eb](../management/issues/issue-20261115-e5a0eb.md) に起票した。
 - [issue-20261114-9468cb](../management/issues/issue-20261114-9468cb.md)（推定器の写しが 1 回約 170 ms）は、題材の外である。写しは、統計を保存の形に書いて読み戻す。整理で統計の型が変わっても、写しの結果は今と同じに保つ。
-- [PRD944](944_observation_pipeline_10prd.md)（観測パイプライン。暫定で、グリルの前）は、観測の正規化の部品の持ち方を変える。本 PRD が部品に足す口（`UpdateStats`）は、PRD944 を実装するときに、部品と一緒に移す。本 PRD を先に実装する。RND 独自の型の変換（§2.12）を含む、観測の加工を 1 か所にまとめる話は、PRD944 の題材で、本 PRD は触らない（D3）。
-- [PRD910](910_network_lock_audit_10prd.md)（排他の精査。草案）は、DQN の観測の正規化の `NormalizeAndUpdateStats` の呼び出しとロックの関係を扱う。本 PRD はその呼び出しを変えない（D4）ので、順は問わない。
-- 2026-11-15 に、触るファイルとクラスの名前（`intrinsic_rnd`・`RndNoveltyEstimator`・`LifelongNoveltyEstimator`・`IntrinsicRewardCoordinator`・`scaler_impl`・`ObservationNormalizer`・`RunningMeanStd`・`NormalizeAndUpdateStats`）で `docs/memo/` の PRD を検索した。当たった PRD のうち、同じ箇所の形を変える予定で、まだ実装していないものは、上の PRD924・PRD944・PRD910 である。
+- [PRD161](161_observation_pipeline_10prd.md)（観測パイプライン。暫定で、グリルの前）は、観測の正規化の部品の持ち方を変える。本 PRD が部品に足す口（`UpdateStats`）は、PRD161 を実装するときに、部品と一緒に移す。本 PRD を先に実装する。RND 独自の型の変換（§2.12）を含む、観測の加工を 1 か所にまとめる話は、PRD161 の題材で、本 PRD は触らない（D3）。
+- [PRD134](134_network_lock_audit_10prd.md)（排他の精査。草案）は、DQN の観測の正規化の `NormalizeAndUpdateStats` の呼び出しとロックの関係を扱う。本 PRD はその呼び出しを変えない（D4）ので、順は問わない。
+- 2026-11-15 に、触るファイルとクラスの名前（`intrinsic_rnd`・`RndNoveltyEstimator`・`LifelongNoveltyEstimator`・`IntrinsicRewardCoordinator`・`scaler_impl`・`ObservationNormalizer`・`RunningMeanStd`・`NormalizeAndUpdateStats`）で `docs/memo/` の PRD を検索した。当たった PRD のうち、同じ箇所の形を変える予定で、まだ実装していないものは、上の PRD173・PRD161・PRD134 である。

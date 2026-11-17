@@ -8,10 +8,10 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 
 ## 分かっていること
 
-- 文献の比較条件: NGU 原論文は R2D2 を基にした再帰型の学習器を使う。RLeXplore の共通学習器上のモジュール比較とは構成と予算が違い、公開スコアから同じ条件での順位は付けられない（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.8）。
-- 文献の比較条件: Henaff ら（2023）の NGU 型ボーナスとの比較は主に MiniHack で、Montezuma's Revenge では E3B 単独と RND・併用でも結果が異なる。E3B を NGU の無条件な上位互換とする根拠にはならない（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.8）。
-- 未検証の仮説: KFM のバーの縮みを逆動力学の特徴が保存すれば、報酬 0 の命中にも新しさの手応えを与えられる。ただし自機の姿勢だけで行動を予測できる可能性があり、制御可能な変化が必ず特徴に残る保証は無い（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.5）。
-- 調査の範囲: anet の BTR を基にした構成での NGU／E3B の効果は未測定であり、今回の調査では直接比較に使える BTR＋NGU 全体の実績も確認できていない（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§3「現状」・§2.8「NGU・E3B・BTR の関係と、比較結果の適用範囲」）。
+- 文献の比較条件: NGU 原論文は R2D2 を基にした再帰型の学習器を使う。RLeXplore の共通学習器上のモジュール比較とは構成と予算が違い、公開スコアから同じ条件での順位は付けられない（出典: [内的報酬の PRD](../../memo/173_intrinsic_reward_novelty_10prd.md)、§2.8）。
+- 文献の比較条件: Henaff ら（2023）の NGU 型ボーナスとの比較は主に MiniHack で、Montezuma's Revenge では E3B 単独と RND・併用でも結果が異なる。E3B を NGU の無条件な上位互換とする根拠にはならない（出典: [内的報酬の PRD](../../memo/173_intrinsic_reward_novelty_10prd.md)、§2.8）。
+- 未検証の仮説: KFM のバーの縮みを逆動力学の特徴が保存すれば、報酬 0 の命中にも新しさの手応えを与えられる。ただし自機の姿勢だけで行動を予測できる可能性があり、制御可能な変化が必ず特徴に残る保証は無い（出典: [内的報酬の PRD](../../memo/173_intrinsic_reward_novelty_10prd.md)、§2.5）。
+- 調査の範囲: anet の BTR を基にした構成での NGU／E3B の効果は未測定であり、今回の調査では直接比較に使える BTR＋NGU 全体の実績も確認できていない（出典: [内的報酬の PRD](../../memo/173_intrinsic_reward_novelty_10prd.md)、§3「現状」・§2.8「NGU・E3B・BTR の関係と、比較結果の適用範囲」）。
 - 切り出し: RND による一生の新しさは lane 別の記憶を持たず、facade（`DefaultDQNAgent::UpdateFromBatch`）で次観測を採点して報酬へ畳めば Replay・Actor の契約を変えずに腕にできる。KFM では対照腕で、判断に効くのは GridMaze の到達率と費用・統計の確認（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§1.1・§4 D1・D2・§7）。
 - 切り出し: 一生の新しさの口は「倍率 α を返す採点・補助学習・診断・保存」の 4 操作で、RND の本体は DQN から見えない非公開の実装に閉じる暫定の設計（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§5.1・§5.7）。
 - 比較対象の実装: Taiga ら（ICLR 2020）の Rainbow＋RND は、行動した観測 x_t を agent step ごとに 1 件で採点・学習し、誤差の z を分散に相当する値で割って 0.00005 倍し、Runner が [−1, 1] に clip した外的報酬に足す。合計は clip せず、負の値もそのまま入る。観測の統計は正規化後の値で更新する。Burda ら・anet が採点するのは次観測 x_{t+1}（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1・§8.1 の 6）。
@@ -58,8 +58,8 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - 既定のRNDの序盤の大きな誤差は、predictorが未学習なためか、観測の正規化が未熟なためか。内的報酬のtagはQの学習が始まる200kより前に記録が無く、分けていない（出典: [RNDの内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§2.3）？
 - 既定RNDのbatchの集計の式を替えた実行体と、計算deviceへ寄せる試作に統計だけを更新する口などを足した形では、採点の時間はどれほどか。clipの区間のうち、clipした割合を数える処理の時間はどれほどか。計算deviceへ寄せる試作とRNDなしを同じ回で測ると、比はどれほどか（出典: [RNDの採点の統計の区間の暫定PRD](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§2.6）？
 
-- 同じ anet の学習器・経験予算で、個々の訪問ベクトルとの局所的な近さを測る NGU と、まだ十分に経験していない特徴方向を評価する E3B のどちらが、KFM・GridMaze の外的成績を改善するか（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.8「NGU・E3B・BTR の関係と、比較結果の適用範囲」）？
-- 探索による経験の増加が、点数を目的とする方策の未訪問状態からの到達率へ転移するか（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.7）？
+- 同じ anet の学習器・経験予算で、個々の訪問ベクトルとの局所的な近さを測る NGU と、まだ十分に経験していない特徴方向を評価する E3B のどちらが、KFM・GridMaze の外的成績を改善するか（出典: [内的報酬の PRD](../../memo/173_intrinsic_reward_novelty_10prd.md)、§2.8「NGU・E3B・BTR の関係と、比較結果の適用範囲」）？
+- 探索による経験の増加が、点数を目的とする方策の未訪問状態からの到達率へ転移するか（出典: [内的報酬の PRD](../../memo/173_intrinsic_reward_novelty_10prd.md)、§2.7）？
 - RND の target と predictor の形は、公開実装の形（predictor を深く、出力 512）と NGU の同形・出力 128 のどちらが長い学習で判別を保つか。写しの 6 万 step では同形のほうが誤差の比が大きい（出典: [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)、§2.1・§8 の 2）？
 - bonusが続く状態の一生の新しさを混ぜたとき、LunarLanderの成績は落ちるか。predictorの周期初期化で続くbonusは状態の新しさではないので、その代わりにならない（出典: [RNDの害の確認とpredictorの周期リセット](../../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md)、解釈の限界と残る問い）？
 - 周期初期化のseed 2の崩れは、直前のbonusの山とQの膨張から起きたのか。3 seed中1本の観察で、訪れた状態の分布も測っていない（出典: [RNDの害の確認とpredictorの周期リセット](../../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md)、現時点のまとめ5・解釈の限界と残る問い）？
@@ -77,7 +77,7 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 
 - 2026-11-12: 「MontezumaのRNDで、Greedyの2500点の有無を分けたのは、βとMunchausenのどちらか（2本は両方を同時に変えている）」→ β 0.01・Munchausen有効のRunを足し、β 0.01ではMunchausenの有無で99/160と5/160に分かれ、β 0.1では有無に依らず0だった（seed 1、各組1本）（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ1・探索ブロック02。Run: run_20261110-233727_mz_tg_rnd_b001_s1）。
 - 2026-11-10: β 0.01のMontezumaのRunで「学習側は15M以降のゲームが5〜8千stepでgame overにより終わった」→「16M以降、2M窓ごとの打ち切りは終わったゲームの4〜11%で、残りはgame overで終わった」。ゲームの長さは集計し直しておらず、打ち切りの割合に替えた（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ4）。
-- 2026-10-27: PRD の 2026-10-21 改訂記録にある「命中のたびにボーナスが付く」という説明 → 特徴がバーの差を保つかに依存する未検証の仮説へ限定した（出典: [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)、冒頭の 2026-10-21 改訂記録・§2.5「新しさのボーナスが KFM に効くと見込む理由」）。
+- 2026-10-27: PRD の 2026-10-21 改訂記録にある「命中のたびにボーナスが付く」という説明 → 特徴がバーの差を保つかに依存する未検証の仮説へ限定した（出典: [内的報酬の PRD](../../memo/173_intrinsic_reward_novelty_10prd.md)、冒頭の 2026-10-21 改訂記録・§2.5「新しさのボーナスが KFM に効くと見込む理由」）。
 
 ## 関連
 
@@ -85,11 +85,11 @@ NGU 型のボーナスと E3B の比較結果は、学習器・環境・合成�
 - [Montezuma's Revenge](../subjects/montezuma_revenge.md)。
 - [LunarLander](../subjects/lunarlander.md)。
 - [評価と比較の条件](evaluation.md)。
-- [内的報酬の PRD](../../memo/924_intrinsic_reward_novelty_10prd.md)（機構・設計案と未決の正本）。
-- [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)（924 の第一の腕。一生の新しさの口と RND の実装）。
-- [外的と内的の価値の分解の PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)（Q を外的と内的の 2 つの Head で学ぶ形と、924 との関係）。
+- [内的報酬の PRD](../../memo/173_intrinsic_reward_novelty_10prd.md)（機構・設計案と未決の正本）。
+- [RND の腕の暫定 PRD](../../memo/116_rnd_lifelong_novelty_10prd.md)（173 の第一の腕。一生の新しさの口と RND の実装）。
+- [外的と内的の価値の分解の PRD](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)（Q を外的と内的の 2 つの Head で学ぶ形と、173 との関係）。
 - [RND の内的報酬の尺度の PRD](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計の取り方・warm-up・平均を引かない形・終端の mask）。
-- [Evaluation Trace で RND の内的報酬を見る PRD](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)（評価の step の値は可視化用で、統計を変えない採点で出す。採点の場所の問いは 924 に残す）。
+- [Evaluation Trace で RND の内的報酬を見る PRD](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)（評価の step の値は可視化用で、統計を変えない採点で出す。採点の場所の問いは 173 に残す）。
 - [Evaluation Trace のボーナスの β を学習の入口の前から用意する PRD](../../memo/129_eval_trace_bonus_beta_before_learning_10prd.md)（評価専用の Run でもボーナスの列を出す）。
 - [RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける暫定 PRD](../../memo/130_rnd_estimate_statistics_perf_10prd.md)（採点の費用の内訳、現状分析で確かめる問い、直し方の候補）。
 - 仕組み: [RND の解説](../../design/212_rnd_lifelong_novelty.jp.md) §3.2〜§3.5（誤差の統計と warm-up）。

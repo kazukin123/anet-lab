@@ -1,6 +1,9 @@
 # PRD131: 9xx の番号の PRD 57 本を、起票の日の順に 900 未満の連番へ振り直す PRD
 
 > 2026-11-16 起票（anet-create-prd、Claude Code。題材の課題 5adbf9 をグリルした）。
+> 2026-11-17 実装中の改訂（anet-impl-prd）: §5.2 の行 2 で残すとした本 PRD も、改名するファイル・フォルダを指すリンクのパスだけは直すことにし、§2 の 9・10 のリンク 3 個のパスを直した。本 PRD の自身のリンクが受入 A6（リンク切れの増えた分 0 件）に当たることを見落としていたため。
+> 2026-11-17 実装中の改訂（anet-impl-prd）: D14 と受入 A11 の取り込みの記録を、実装を始めた時点で取り込み済みだった材料（その時点の `scan` の `pending` に出ないもの。実装済みの PRD は `implemented:` つきの記録で見る）に限った。「918・934 は `implemented:` を添える」は、2 本とも実装を始めた時点で実装済みとしての取り込みが済んでいなかったので外した。
+> 2026-11-17 実装中の改訂（anet-impl-prd、実装のレビューの指摘）: §5.2 の出現の定義に `_10prd` の無い `<旧い番号>_<名前>` の形と、日本語の文字に接した番号を明記し、受入 A4 の検索 1・4 をその形に合わせた（検索 4 の前後の判定を ASCII の英数字にした）。§5.2 の行 2 と A4 の除外に本 PRD の実装計画を足した。§5.3 の検査の見出しを、行を読むのは `maps` だけ、に直した。
 > 起点: 課題 [issue-20261115-5adbf9](../management/issues/issue-20261115-5adbf9.md)。開発者が、9xx の番号のまま残る過去の PRD を、900 未満の連番へ振り直したいと指示した。グリルの途中で開発者が、この振り直しそのものを「一度使った番号は再利用しない」の例外とし、振り直したあとは 9xx も普通の番号として使うと決めた（D3）。
 
 ## 1. 問題・ゴール・非ゴール
@@ -59,11 +62,11 @@
    | 過去: PRD114 の検証資材 `migration.json` | 1／96 | 0／0 |
    | 道具が作るもの: 定点統計 `reports/stats/` | 2／241 | 0／0 |
 
-   `PRD` を付けない番号だけの表記（「924 の採点」「[924](924_intrinsic_reward_novelty_10prd.md)」「912 に着手」など）も、今使っている文書に少なくとも 400 か所ある。件数や行番号などの別の意味の数を含むので、正確な数は実装の時点で 1 か所ずつ見て決める（§5.2）。
+   `PRD` を付けない番号だけの表記（「924 の採点」「[924](173_intrinsic_reward_novelty_10prd.md)」「912 に着手」など）も、今使っている文書に少なくとも 400 か所ある。件数や行番号などの別の意味の数を含むので、正確な数は実装の時点で 1 か所ずつ見て決める（§5.2）。
 10. コードに入った番号は次のとおり（`git grep -i prd918` を `core`・`apps`・`viewers`・`reports/tools`・`.agents`・`.claude` で引いた）。
     - [config_baseline_test.cpp:665](../../core/anet-core/src/config_baseline_test.cpp)（テスト名の `PRD918` とタグ `[.][prd918-config]`）、同 667 行（環境変数 `ANET_PRD918_OUTPUT`）
     - [episode_end_test.cpp:567](../../core/anet-core/src/episode_end_test.cpp)・607 行、[trainer_test.cpp:1250](../../core/anet-core/src/trainer_test.cpp)（タグ `[prd918]`）
-    - 検証資材 `core/anet-core/testdata/prd918/` の [README.md](../../core/anet-core/testdata/prd918/README.md) と [validate.py](../../core/anet-core/testdata/prd918/validate.py)（出力先 `.scratch/prd918`（12 行）、Run 名 `run_{t}_prd918_ll`（82・95 行））
+    - 検証資材 `core/anet-core/testdata/prd918/` の [README.md](../../core/anet-core/testdata/prd158/README.md) と [validate.py](../../core/anet-core/testdata/prd158/validate.py)（出力先 `.scratch/prd918`（12 行）、Run 名 `run_{t}_prd918_ll`（82・95 行））
     - 設計文書 [140_observability.jp.md:417](../design/140_observability.jp.md)・en 418 行が、今の確かめ方としてこの検証資材を指す
 11. 番号を題の先頭に持つ PRD は、918（「PRD918:」と実装計画の「PRD918」）、938（「PRD938:」）、941（「PRD 999:」）、910（「999:」）である。941 の題を写した課題 [issue-20261103-a39330](../management/issues/issue-20261103-a39330.md) の `title` と `scope` も「PRD 999:」である。
 12. [CONTEXT.md:342](../../CONTEXT.md) の「PRD900」は、ファイルとして存在したことの無い番号で、921「直前行動観測の共通部品」の起票前の呼び名である（[done/040](done/040_dropmerge_prev_action_obs_10prd.md) の 5・175 行の「PRD900(Agent 側共通部品)」と、921 の題から読んだ）。
@@ -96,7 +99,7 @@
 | D11 | [PRD114](114_findings_intake_and_fix_prd_10prd.md) の冒頭の改訂の行に、「D13 の『9xx の番号のまま残す』と『9xx を新しい番号に使わない』を PRD131 で改めた」の 1 行を足す。D13 の本文と、§5.9 などの番号の範囲は書き換えない | 確定事項の判断は当時の記録として残し、変えたことは冒頭の改訂の行に記録する（[prd.md](../quality/prd.md) の「構成と記録」の規約） |
 | D12 | 今使っている文書の中で、存在しない 9xx を指す表記も新しい番号へ直す。[CONTEXT.md:342](../../CONTEXT.md) の「PRD900」は 921 の新しい番号に、910 の題の「999:」と 941 の題の「PRD 999:」はそれぞれの新しい番号に、課題 a39330 の `title`・`scope` の「PRD 999:」は 941 の新しい番号にする | D3・D4 の帰結。9xx が再び使われると、今使っている文書の旧い 9xx が別の PRD を指す。どれも、その PRD 自身か、起票前の呼び名を指す表記である（§2 の 11・12） |
 | D13 | ADR 0077「PRD の 9xx の番号を、起票の日の順に 900 未満の連番へ振り直し、9xx を再び使える番号に戻す」を起こす | 開発者の選択。戻しにくい（57 本の改名と §2 の 9 の表記の直しで、戻すにも同じ規模が要る）。前後の事情が無いと意外に見える（7 月起票の PRD が 11 月起票の PRD130 より後ろに並ぶ。件名の「PRD918」に当たるファイルが無い。PRD114 の D13 は 9xx を残すと決めていた）。実際に比べて選んだ（9xx を残す・退役させる・再び使う、旧い番号の引き方） |
-| D14 | 実装は次をそろえてから始める。(1) ほかの枠が PRD の起票・グリル・実装をしていないことを開発者が確かめる。(2) `docs/memo`・`docs/management/issues`・`docs/wiki`・`core/anet-core` に未コミットの変更が無い（あれば先にコミットする）。(3) 先頭の番号を D2 のとおり取り直す。実装の最後に、この PRD の変更で中身が変わる wiki の材料（改名した 57 本、表記を直した PRD・ADR・実験記録・設計文書・reports のレポート、ADR 0077 など）を `anet-ingest-wiki` の手順で取り込み、[log.md](../wiki/log.md) に取り込みの行を足す（2026-11-04 の前例の形。実装済みの 918・934 は `implemented:` を添える）。Claude Code で実装したときは、Claude Code の memory（リポジトリの外）にある旧い番号も新しい番号へ直し、完了報告に書く。コミットの準備では、変更を 1 回のコミットにまとめるよう提案し、振り直しの行の日付がコミットする日と同じかを確かめて、違えばその日に直す | 番号は早い者勝ちで、途中で別の枠が PRD を起こすと番号が重なる。未コミットの変更の上で改名すると、ほかの枠の作業と混ざる。1 回のコミットにまとめれば、途中の状態でリンクが切れず、git が改名を見分けて起票の月が保たれる（§2 の 15）。取り込みの行を足さないと、点検が中身の変わった材料を「更新あり」「未取り込み」として拾い、1 回 3 本ずつ取り込み直すことになる（§2 の 7。2026-11-04 の前例も、改名していない PRD に行を足した）。memory は、実装の直後の枠が旧い番号で件名や課題を書くのを防ぐ（別モデルの指摘）。リポジトリの外なので受入にはしない。行の日付を合わせる理由は D7 |
+| D14 | 実装は次をそろえてから始める。(1) ほかの枠が PRD の起票・グリル・実装をしていないことを開発者が確かめる。(2) `docs/memo`・`docs/management/issues`・`docs/wiki`・`core/anet-core` に未コミットの変更が無い（あれば先にコミットする）。(3) 先頭の番号を D2 のとおり取り直す。実装の最後に、この PRD の変更で中身が変わる wiki の材料（改名した 57 本、表記を直した PRD・ADR・実験記録・設計文書・reports のレポート、ADR 0077 など）を `anet-ingest-wiki` の手順で取り込み、[log.md](../wiki/log.md) に取り込みの行を足す（2026-11-04 の前例の形）。足すのは、取り込み済みだった材料（実装を始めた時点で `wiki_support.py scan` の `pending` に出ないもの（実装済みの PRD は、その時点の blob に `implemented:` つきの記録があるもの。ほかは、最後の記録の blob がその時点の blob と一致するもの。改名したものは旧いパスで見る））だけで、実装済みの PRD の行には `implemented:` を添える。実装を始めた時点ですでに取り込み待ちだった材料は、点検に任せる。Claude Code で実装したときは、Claude Code の memory（リポジトリの外）にある旧い番号も新しい番号へ直し、完了報告に書く。コミットの準備では、変更を 1 回のコミットにまとめるよう提案し、振り直しの行の日付がコミットする日と同じかを確かめて、違えばその日に直す | 番号は早い者勝ちで、途中で別の枠が PRD を起こすと番号が重なる。未コミットの変更の上で改名すると、ほかの枠の作業と混ざる。1 回のコミットにまとめれば、途中の状態でリンクが切れず、git が改名を見分けて起票の月が保たれる（§2 の 15）。取り込みの行を足さないと、点検が中身の変わった材料を「更新あり」「未取り込み」として拾い、1 回 3 本ずつ取り込み直すことになる（§2 の 7。2026-11-04 の前例も、改名していない PRD に行を足した）。前から取り込み待ちだった材料に行を足すと、取り込みの記録が実際より進んで見えるので足さない。memory は、実装の直後の枠が旧い番号で件名や課題を書くのを防ぐ（別モデルの指摘）。リポジトリの外なので受入にはしない。行の日付を合わせる理由は D7 |
 | D15 | 番号が 1000 に届いたときの 4 桁の形（ファイル名の検査 `^\d{3}_`、道具の `PRD(\d{3})`）は、本 PRD では扱わない | 実験の結果は要らないが、別の関心である（今の番号の形が続く間は起きない）。番号が 990 に届いたときに、ファイル名の形と道具の読み方を決める PRD を起こす |
 
 ## 5. 実装契約
@@ -113,12 +116,12 @@
 
 ### 5.2 表記の直し方（D4〜D6・D12）
 
-改名する 57 本の旧いファイル名（拡張子の無い形も含む）と旧い番号の各出現に、次の表を上の行から順に当て、最初に条件を満たした行で扱う。旧い番号の出現とは、`PRD`・`PRD `・`PRD-` に続く旧い番号、前後が英数字・`_`・`.`・`/`・`-` でない 3 桁の旧い番号、小文字の `prd` に続く旧い番号（コードの名前）である。D12 の表記（存在しない 9xx を指す表記）も同じ表で扱い、行 5 では D12 が決めた PRD の新しい番号に直す。
+改名する 57 本の旧いファイル名（拡張子の無い形と、`_10prd`・`_20impl` の無い `<旧い番号>_<名前>` の形も含む）と旧い番号の各出現に、次の表を上の行から順に当て、最初に条件を満たした行で扱う。旧い番号の出現とは、`PRD`・`PRD `・`PRD-` に続く旧い番号、前後が ASCII の英数字・`_`・`.`・`/`・`-` でない 3 桁の旧い番号（日本語の文字やカンマに接するものを含む）、小文字の `prd` に続く旧い番号（コードの名前）である。D12 の表記（存在しない 9xx を指す表記）も同じ表で扱い、行 5 では D12 が決めた PRD の新しい番号に直す。
 
 | 行 | 条件 | 扱い |
 |---|---|---|
 | 1 | 道具が作るファイルか区画にある。課題の一覧 `docs/management/issues/INDEX.md`、トピック別まとめの「ファイル」「PRD の一覧」「課題」の区画、定点統計 `reports/stats/` | 手で直さない。道具で作り直す（§5.1 の 6。定点統計は次の `anet-stats` で作り直る） |
-| 2 | 本 PRD（131）、wiki の作業の記録 `docs/wiki/log.md`、PRD114 の検証資材 `core/anet-core/testdata/prd114/migration.json` にある | 残す。本 PRD は振り直しそのものを記録する。log.md は追記だけの記録（[wiki の規約](../wiki/README.md)の 22 行）。`migration.json` は当時の対応を固定した記録（[PRD120](120_issue_work_type_and_prd_link_10prd.md) の 240 行） |
+| 2 | 本 PRD（131）とその実装計画（`131_prd_9xx_renumber_by_creation_date_20impl.md`）、wiki の作業の記録 `docs/wiki/log.md`、PRD114 の検証資材 `core/anet-core/testdata/prd114/migration.json` にある | 残す。ただし本 PRD とその実装計画の中の、改名するファイル・フォルダを指す Markdown のリンクの丸括弧の中のパスは、行 4 と同じく直す（受入 A6 のリンク切れを増やさないため）。本 PRD とその実装計画（旧 → 新の一覧）は振り直しそのものを記録する。log.md は追記だけの記録（[wiki の規約](../wiki/README.md)の 22 行）。`migration.json` は当時の対応を固定した記録（[PRD120](120_issue_work_type_and_prd_link_10prd.md) の 240 行） |
 | 3 | 当時の事実を述べている。次のどれかに当たる。(a) 番号そのものを述べている（振り直しの行 `番号を <旧> から <新> へ振り直した`、使われた番号や振り直した番号の並びと範囲（PRD114 の D13 の「901〜909・914〜919…」など）、題材の課題 5adbf9 の背景・事象にある振り直す前の状態の記述）。(b) 振り直す前に作られて動かさない控え（`.scratch/` の下のファイル・フォルダ、ログ、Run のフォルダ）の場所を示している（証跡のパスなど）。(c) 実行したコマンドの記録の中にある（実装計画の「実行した検証コマンドと結果」の節のコマンドの枠と、その結果の行）。これから実行するコマンド（検証資材の README、課題の対応方針など）の中の表記は、(b)(c) に当たらない | 行 4 と同じ扱い（改名するファイル・フォルダを指す Markdown のリンクの丸括弧の中のパスだけを直し、ほかは残す） |
 | 4 | 過去の記録にある。ADR、実験記録、保管場所（`done/`・`frozen/`・`dropped/`）の PRD と実装記録、`reports/` のレポート（`reports/INDEX.md` と `reports/tools/` を除く）、CHANGELOG のリリース済みの版の節 | 改名するファイル・フォルダ（57 本、918 の実装計画、`core/anet-core/testdata/prd918/`）を指す Markdown のリンクの丸括弧の中のパスなら、パスだけを新しい名前に直す。それ以外（リンクの文字、番号だけの表記、リンクでないパスの表記）は残す |
 | 5 | 上のどれにも当たらない（今使っているもの: 直下の PRD と実装計画、課題、wiki のページ、設計文書、`CONTEXT.md`、`AGENTS.md`、skill、CHANGELOG の未リリースの節と将来の候補、`reports/INDEX.md`、コード・テスト・検証資材）で、PRD を指している（リンク、リンクの文字、ファイル名、Obsidian のリンク、`PRD` 付きの番号、PRD の名として使う番号だけの表記、題、コードの名前） | 新しい名前と番号に直す |
@@ -138,7 +141,7 @@
 - `<旧>`・`<新>`・`<nnn>` は 3 桁の数字。PRD114 の既にある行（`（PRD114）`）も、この形に当たる。
 - 置き場所は、題の直下にある引用行の先頭とする。
 
-**道具が読む行と検査**（`wiki_support.py`。`maps` と `scan` が使う）
+**道具が読む行と検査**（`wiki_support.py` の `maps` が使う）
 
 - `docs/memo/**/*_10prd.md` の、題のあと最初の見出しまでの行のうち、行頭が `> YYYY-MM-DD 番号を` で始まる行を振り直しの行として読む。本文やコードの枠に日付の例を書いても読まないためである。
 - 次のどれかに当たれば、ファイルと行番号を示して止める（課題の欄の検査が止めるのと同じ扱い）。
@@ -246,7 +249,7 @@ find docs/memo -name '9[0-9][0-9]_*'
 
 **A4 今使っているものに旧い名前・番号が残らない**
 
-- 次の検索 1・2・4 を、§5.2 の行 1・2・4 に当たるファイルを除いて回す。除くのは、`docs/memo/done/`・`frozen/`・`dropped/`、`docs/adr/`、`docs/experiments/`、`docs/wiki/log.md`、`reports/` の下（`reports/INDEX.md` と `reports/tools/` は別に引く）、`core/anet-core/testdata/prd114/`、本 PRD である。
+- 次の検索 1・2・4 を、§5.2 の行 1・2・4 に当たるファイルを除いて回す。除くのは、`docs/memo/done/`・`frozen/`・`dropped/`、`docs/adr/`、`docs/experiments/`、`docs/wiki/log.md`、`reports/` の下（`reports/INDEX.md` と `reports/tools/` は別に引く）、`core/anet-core/testdata/prd114/`、本 PRD とその実装計画である。
 - 当たった行が、実装計画の「残した出現」の一覧（§5.2 の行 3・行 6）にあるものだけである。
 - 検索 3 は、検索 2 と同じ文字列を、コードの範囲（§2 の 10 と同じ `core`・`apps`・`viewers`・`reports/tools`・`.agents`・`.claude`）で引き、0 件である（A5）。
 
@@ -254,14 +257,14 @@ find docs/memo -name '9[0-9][0-9]_*'
 
 ```bash
 OLD='901|902|903|904|905|906|907|908|909|910|912|913|914|915|916|917|918|919|920|921|922|923|924|925|926|927|928|929|930|932|933|934|935|936|937|938|939|940|941|942|943|944|945|946|947|948|949|950|951|952|953|954|955|956|957|958|959'
-EXCL=(':!docs/memo/done' ':!docs/memo/frozen' ':!docs/memo/dropped' ':!docs/adr' ':!docs/experiments' ':!docs/wiki/log.md' ':!reports' ':!core/anet-core/testdata/prd114' ':!docs/memo/131_prd_9xx_renumber_by_creation_date_10prd.md')
+EXCL=(':!docs/memo/done' ':!docs/memo/frozen' ':!docs/memo/dropped' ':!docs/adr' ':!docs/experiments' ':!docs/wiki/log.md' ':!reports' ':!core/anet-core/testdata/prd114' ':!docs/memo/131_prd_9xx_renumber_by_creation_date_10prd.md' ':!docs/memo/131_prd_9xx_renumber_by_creation_date_20impl.md')
 ```
 
-検索 1（旧いファイル名。拡張子の無い形も当たる）:
+検索 1（旧いファイル名と `<旧い番号>_<名前>` の形。拡張子や `_10prd` の無い形も当たる）:
 
 ```bash
-git grep -nE "(^|[^0-9])($OLD)_[a-z0-9_]+_(10prd|20impl)" -- . "${EXCL[@]}"
-git grep -nE "(^|[^0-9])($OLD)_[a-z0-9_]+_(10prd|20impl)" -- reports/INDEX.md reports/tools
+git grep -nE "(^|[^0-9])($OLD)_[a-z]" -- . "${EXCL[@]}"
+git grep -nE "(^|[^0-9])($OLD)_[a-z]" -- reports/INDEX.md reports/tools
 ```
 
 検索 2（`PRD` 付きの旧い番号。大文字と小文字を区別しないので、コードの名前の `prd918` も当たる）:
@@ -277,11 +280,11 @@ git grep -niE "prd[ -]?($OLD)([^0-9]|$)" -- reports/INDEX.md reports/tools
 git grep -niE "prd[ -]?($OLD)([^0-9]|$)" -- core apps viewers reports/tools .agents .claude ':!core/anet-core/testdata/prd114'
 ```
 
-検索 4（`PRD` を付けない旧い番号。前後の条件は §5.2 の定義と同じ。Markdown だけを引き、コードは検索 3 に任せる）:
+検索 4（`PRD` を付けない旧い番号。前後の条件は §5.2 の定義と同じで、ASCII の英数字だけで判定する（`\w` は日本語の文字も英数字に数えるので使わない）。Markdown だけを引き、コードは検索 3 に任せる）:
 
 ```bash
-git grep -nP "(?<![\w./-])(?<!PRD)(?<!PRD )(?<!PRD-)($OLD)(?![\w./-])" -- '*.md' "${EXCL[@]}"
-git grep -nP "(?<![\w./-])(?<!PRD)(?<!PRD )(?<!PRD-)($OLD)(?![\w./-])" -- reports/INDEX.md
+git grep -nP "(?<![A-Za-z0-9_./-])(?<!PRD)(?<!PRD )(?<!PRD-)($OLD)(?![A-Za-z0-9_./-])" -- '*.md' "${EXCL[@]}"
+git grep -nP "(?<![A-Za-z0-9_./-])(?<!PRD)(?<!PRD )(?<!PRD-)($OLD)(?![A-Za-z0-9_./-])" -- reports/INDEX.md
 ```
 
 **A5 コード**
@@ -341,7 +344,7 @@ git diff --no-index -- .scratch/prd131/old.md <新しいパス>
 
 **A11 wiki の取り込み**
 
-- [log.md](../wiki/log.md) に、本 PRD の変更で中身が変わった wiki の材料（`git diff --name-only <実装を始めたコミット>` と未追跡のファイルのうち、`wiki_support.py scan` の材料の集合に入るもの）の取り込みの行がある。918・934 の行は `implemented:` つきである。
+- [log.md](../wiki/log.md) に、本 PRD の変更で中身かパスが変わった wiki の材料（`git diff --name-only <実装を始めたコミット>` と未追跡のファイルのうち、`wiki_support.py scan` の材料の集合に入るもの）のうち、D14 の取り込み済みだったもの（実装を始めた時点で `wiki_support.py scan` の `pending` に出ないもの（実装済みの PRD は、その時点の blob に `implemented:` つきの記録があるもの。ほかは、最後の記録の blob がその時点の blob と一致するもの。改名したものは旧いパスで見る））の取り込みの行がある。実装済みの PRD の行は `implemented:` つきである。
 - `wiki_support.py scan` の `pending` と `moved` に、それらの材料のどれも出ない。
 
 **A12 コミットの準備とコミットのあとで確かめる**

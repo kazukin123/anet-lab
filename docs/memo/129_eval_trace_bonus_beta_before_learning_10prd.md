@@ -2,7 +2,7 @@
 
 > 2026-11-13 起票。グリルを行った（問い 1 つと細部 6 件）。決定は §4。
 > 起点: 課題 [issue-20261113-317d32](../management/issues/issue-20261113-317d32.md)。2026-11-13、Montezuma の RND の継続 Run（`run_20261113-113201_mz_tg_r123_s1_c50m`、β 0.01、倍率 `clipped`、上限 5）の 50M の `agent_close.anet` を `run.@evalonly` の Runner で読んだところ、Evaluation Trace の `rnd_err` と `rnd_norm` には値が入り、`rnd_bonus` は全行が空欄だった。
-> 関連: [127_eval_trace_intrinsic_reward_columns_10prd.md](127_eval_trace_intrinsic_reward_columns_10prd.md)（Evaluation Trace の内的報酬の列。本 PRD は D2・D7 の一部と §5.2 の一部を置き換える。範囲は §9）、[128_dqn_agent_refactor_bundle_10prd.md](128_dqn_agent_refactor_bundle_10prd.md)・[121_extrinsic_intrinsic_value_decomposition_10prd.md](121_extrinsic_intrinsic_value_decomposition_10prd.md)（同じ場所を触る）、[930_serialize_10prd.md](930_serialize_10prd.md)（Run の step 数の保存）。ほかの PRD との関係は §9。
+> 関連: [127_eval_trace_intrinsic_reward_columns_10prd.md](127_eval_trace_intrinsic_reward_columns_10prd.md)（Evaluation Trace の内的報酬の列。本 PRD は D2・D7 の一部と §5.2 の一部を置き換える。範囲は §9）、[128_dqn_agent_refactor_bundle_10prd.md](128_dqn_agent_refactor_bundle_10prd.md)・[121_extrinsic_intrinsic_value_decomposition_10prd.md](121_extrinsic_intrinsic_value_decomposition_10prd.md)（同じ場所を触る）、[143_serialize_10prd.md](143_serialize_10prd.md)（Run の step 数の保存）。ほかの PRD との関係は §9。
 
 ## 1. 目的と問題
 
@@ -26,7 +26,7 @@ Evaluation Trace の `rnd_bonus`（鍵 `intrinsic.bonus`）は、学習の報酬
 
 | 退けた案 | 扱いと理由 |
 |---|---|
-| checkpoint に Run の step 数を保存し、評価専用・継続の Run の予定（ε・学習率・β など全部）を、読み込んだ重みの step から続ける | 範囲外。β だけでなく全部の予定に効く別の関心で、永続化の本実装（[PRD930](930_serialize_10prd.md)）が持つ。本当の制約ではない（クリーンブレークで足せる）。入ったときの本 PRD の扱いは D1 の「変えるときの条件」 |
+| checkpoint に Run の step 数を保存し、評価専用・継続の Run の予定（ε・学習率・β など全部）を、読み込んだ重みの step から続ける | 範囲外。β だけでなく全部の予定に効く別の関心で、永続化の本実装（[PRD143](143_serialize_10prd.md)）が持つ。本当の制約ではない（クリーンブレークで足せる）。入ったときの本 PRD の扱いは D1 の「変えるときの条件」 |
 | β を checkpoint に保存する（課題の対応方針の案 b） | 不採用（D1）。本当の制約ではない（書式は変えられる）が、今ある RND の checkpoint を読めなくする |
 | PRD127 のほかの決定（推定器と β を写す時機、ロックの取り方、列の配置）を変える | 範囲外。本 PRD のゴールに要らない。制約ではなく、変える理由が無い |
 | 価値の分解が入ったときの列の意味の変化 | 範囲外。[PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md) が持つ（§9）。制約ではなく、別の PRD の線引き |
@@ -62,7 +62,7 @@ Evaluation Trace の `rnd_bonus`（鍵 `intrinsic.bonus`）は、学習の報酬
 - checkpoint には、設定の文字列、Network、Optimizer、RND の本体と facade の状態（補助学習の credit、lane の抽選の乱数、成功回数）が入り、β も Run の step 数も入らない（[default_dqn_agent.cpp:334-383・385-448](../../core/anet-core/src/default_dqn_agent.cpp)）。設計文書 200 も、checkpoint に保存しないものに「Run の StepCounts と metric 系列」を挙げ、checkpoint の読み込みを「旧 Run の完全再開ではなく、新しい Run へ Network と Optimizer を引き継ぐ操作」と書いている（[200_dqn_agents.jp.md:620・623](../design/200_dqn_agents.jp.md)）。
 - Run の step は 0 から数え、外から入れる口は無い（学習の Runner がカウンタを書くのは step を進めるときだけ。[trainer.cpp:152](../../core/anet-core/src/trainer.cpp)）。継続 Run（`run_20261113-113201_mz_tg_r123_s1_c50m`）も、前の Run の `agent_close.anet` を `auto_load_file` で読んで始めた新しい Run で（[実効設定の写し:816-817](../experiments/default-dqn/atari/config/run_20261113-113201_mz_tg_r123_s1_c50m.txt)）、step は 0 から数える。
 - そのため、課題の対応方針の案 a（β の予定を、読み込んだ重みの exp step で評価する）は、その step が手に入らないので、今は作れない。
-- Run の step 数と予定の進行位置を保存して続ける形は、暫定の [PRD930](930_serialize_10prd.md) が要求として持っている（同 PRD の「Run の `StepCounts` と schedule の進行位置」と、`StepCounts` を Run の継続の中核の状態として扱うという記述）。
+- Run の step 数と予定の進行位置を保存して続ける形は、暫定の [PRD143](143_serialize_10prd.md) が要求として持っている（同 PRD の「Run の `StepCounts` と schedule の進行位置」と、`StepCounts` を Run の継続の中核の状態として扱うという記述）。
 
 ### 2.3 学習を止めた Run と、checkpoint を見るだけの使い方
 
@@ -114,7 +114,7 @@ RND が有効な DefaultDQN は、構築時に β の予定を exp step 0（こ�
 
 依存: §2.2・§2.3・§2.4。
 
-変えるときの条件: Run の step 数を checkpoint から復元するようになったら（[PRD930](930_serialize_10prd.md)）、構築時の評価を、復元した step で評価する形に直す（開発者の答え「step 数の復元は永続化の本実装で検討する」による）。
+変えるときの条件: Run の step 数を checkpoint から復元するようになったら（[PRD143](143_serialize_10prd.md)）、構築時の評価を、復元した step で評価する形に直す（開発者の答え「step 数の復元は永続化の本実装で検討する」による）。
 
 ### D2. 学習を止めた Run でも、学習の入口で β を評価する
 
@@ -208,7 +208,7 @@ Montezuma の 50M の `agent_close.anet` を、`run.@evalonly` で学習を始�
 | β を checkpoint に保存し、読んだら直近の β にする（課題の案 b） | 不採用 | 書式の識別子を上げ、今ある RND の checkpoint（課題の事象の 50M を含む）を読めなくする。新しい Run の起動直後は空欄のまま残る。β に予定を持たせた設定で「保存したときの β」が出る利点は、今は使う設定が無い（D1、§2.4）。PRD127 の D7 の 3 文目（β を checkpoint に保存しない）を、評価専用の Run の事象を入れて比べ直しても変わらない |
 | 構築時に評価し、checkpoint があればその β で上書きする（両方） | 不採用 | 今ある checkpoint を読めなくする点が、上の行と同じ（D1） |
 | 学習の入口でだけ β を評価する（学習を止めた Run でも評価するが、構築時には評価しない） | 不採用 | checkpoint を見るだけの使い方では入口が一度も呼ばれず、空欄のまま残る（§2.3）。G1 を満たさない |
-| β の予定を、読み込んだ重みの exp step で評価する（課題の案 a） | 範囲外 | checkpoint に exp step が無く、今は作れない（§2.2）。Run の step 数の保存は PRD930 が持つ。再開条件: Run の step 数を checkpoint から復元するようになったとき（D1 の「変えるときの条件」） |
+| β の予定を、読み込んだ重みの exp step で評価する（課題の案 a） | 範囲外 | checkpoint に exp step が無く、今は作れない（§2.2）。Run の step 数の保存は PRD143 が持つ。再開条件: Run の step 数を checkpoint から復元するようになったとき（D1 の「変えるときの条件」） |
 | 学習を止めた Run では、学習の入口で β を評価せず、構築時の値のままにする | 不採用 | β に予定を持たせた設定で、同じ行の Q・γ と β の時点がずれる（D2） |
 | 実装の前と後の実行体で、Trace を使わない Run の metrics checksum を比べる | 不採用 | 変える値を読むのは Trace の採点だけで、実行体を 2 つ作る手間に見合わない（D11） |
 
@@ -309,8 +309,8 @@ DefaultDQN の step 診断の 3 つの鍵の値は、次の表を上から順に
   あわせて、PRD127 の §2.6 の「学習の入口は呼ばれない」を訂正する（本 PRD §2.3）。冒頭に注記を足した（D7）。
 - [PRD128](128_dqn_agent_refactor_bundle_10prd.md): 同じ箇所を内的報酬のクラスへ移す。順序はどちらでもよい（D8）。
 - [PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md): Trace のボーナスの列を、内的報酬用の報酬スケーラを通した値に β を掛けた値に変える。β は本 PRD の直近の β を使う。121 は報酬スケーラの状態を checkpoint に保存するので（121 の D16）、評価専用の Run でも、読み込んだ報酬スケーラと本 PRD の β で列が出る。
-- [PRD930](930_serialize_10prd.md)（暫定）: Run の step 数と予定の進行位置を保存して続ける形を持つ。入ったら、D1 の構築時の評価を、復元した step で評価する形に直す（D1 の「変えるときの条件」）。
-- [PRD919](919_eval_session_step_trace_10prd.md)（暫定・未実装）: 評価 session で同じ鍵を使う。本 PRD のあとは、session の開始の同期のあと、最初の step からボーナスが入る。
+- [PRD143](143_serialize_10prd.md)（暫定）: Run の step 数と予定の進行位置を保存して続ける形を持つ。入ったら、D1 の構築時の評価を、復元した step で評価する形に直す（D1 の「変えるときの条件」）。
+- [PRD184](184_eval_session_step_trace_10prd.md)（暫定・未実装）: 評価 session で同じ鍵を使う。本 PRD のあとは、session の開始の同期のあと、最初の step からボーナスが入る。
 
 ## 10. issue の対応表
 

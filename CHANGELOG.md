@@ -31,7 +31,7 @@
 
 黙って挙動・値が変わる変更:
 
-- eval schedule は先頭の発火を既定で 1 回抑止する（`warmup_count=1`）。学習直後の評価が要るタグは 0 を指定し、`offset`（既定 0）で learn step の発火列をずらす(PRD918, ADR0070)。
+- eval schedule は先頭の発火を既定で 1 回抑止する（`warmup_count=1`）。学習直後の評価が要るタグは 0 を指定し、`offset`（既定 0）で learn step の発火列をずらす(PRD158, ADR0070)。
 - TempoRLにloss別Adam更新`split`・skip loss重み`kmax`・greedy評価sessionの判断率を追加。GridMazeのskip方策をepsilon-greedyへ、Atariのsession名を`greedy`へ、長さ別tagの添字を2桁へ移行。split checkpointは追加optimizer状態を持ち、stop/mergeへの読込は拒否する(PRD103)。
 
 - 既定葉 `?=` を導入。`=` は個別葉としてチェーンの供給値に勝つため、共通ファイルに残した `=` は再確認する(PRD072, ADR0040, ADR0042)。
@@ -74,7 +74,7 @@
 
 ## 0.4.0: (未リリース)
 
-- eval schedule に `offset` と `warmup_count` を追加。既定では学習直後に評価せず、位相のために曲げた間隔を offset に置き換えた。評価専用 Run は `warmup_count=0` を明示する(PRD918, ADR0070)。
+- eval schedule に `offset` と `warmup_count` を追加。既定では学習直後に評価せず、位相のために曲げた間隔を offset に置き換えた。評価専用 Run は `warmup_count=0` を明示する(PRD158, ADR0070)。
 - TransformerEncoderの層平均attentionエントロピーを追加。`run.@attention` / `metrics.scalar.@attention`の購読時だけ更新前probeで測り、`48_agent_attention`へ公開する(PRD093)。
 - 実際の更新から勾配ノイズスケールを測る15指標を追加。`metrics.scalar.@gradnoise` の購読で有効化し、BF16とfeature/readoutに対応(PRD092)。
 
@@ -450,21 +450,18 @@ V1 系の初回タグ。コードは 2026-03-28 時点の V1 実装で、この�
 - .cpp の内部リンケージ(static / 無名 namespace)と namespace インデント規約の確定、既存 39 ブロックの一括是正(PRD079)。
 - EvalPanel のゲームを trace へ出す。鏡写し eval インスタンスを起動時に宣言し、dormant trace だけを束縛(PRD081, ADR0047)。
 
-従来から9xxのIDを持つ候補（番号は順序を表さない）:
+PRD131 で 9xx から振り直した候補:
 
-- train / eval mode 整理後の network 排他(lock)の精査(PRD910)。
-- background eval が参照する network snapshot の順序保証(PRD912)。
-- eval 自己ベスト更新時の best checkpoint 自動保存(PRD913)。
-- NN ブロック別の勾配メトリクス(PRD920)。
-- エージェント選択 action の Observation 注入を env 非依存の共通部品にする(PRD921)。
-- Run 全体の Serialize(Save / Load)。optimizer load で Run 側の設定変更が実効値に反映されない件を含む(PRD930)。
-- Episode Forensics。特殊挙動エピソードの自動捕捉と事後調査(PRD932)。
-- DefaultDQN の staged batch / replay schedule。batch size と replay ratio の段階的変更(PRD933)。
-- target network 更新の step 軸正規化。`soft_update_tau` / `hard_update_interval` を replay ratio に追随させる(PRD940)。
-- IQN 初回 Learner priority の quantile-pair 方式(PRD941)。
-
-PRD114で未使用の9xxへ振り直した候補:
-
+- train / eval mode 整理後の network 排他(lock)の精査(PRD134)。
+- background eval が参照する network snapshot の順序保証(PRD141)。
+- eval 自己ベスト更新時の best checkpoint 自動保存(PRD136)。
+- NN ブロック別の勾配メトリクス(PRD135)。
+- エージェント選択 action の Observation 注入を env 非依存の共通部品にする(PRD142)。
+- Run 全体の Serialize(Save / Load)。optimizer load で Run 側の設定変更が実効値に反映されない件を含む(PRD143)。
+- Episode Forensics。特殊挙動エピソードの自動捕捉と事後調査(PRD144)。
+- DefaultDQN の staged batch / replay schedule。batch size と replay ratio の段階的変更(PRD145)。
+- target network 更新の step 軸正規化。`soft_update_tau` / `hard_update_interval` を replay ratio に追随させる(PRD148)。
+- IQN 初回 Learner priority の quantile-pair 方式(PRD147)。
 - CI/CD 改善。ビルド・テスト自動化、定点ジョブ、LLM 補助。
 - 設定 root の所有整合。`app.run_name` 等の階層ずれを規約で棚卸し。
 - `episode_start` を stack / n-step 境界とするかの契約裁定。shouldfail 2 件の解消。

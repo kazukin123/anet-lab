@@ -28,8 +28,10 @@ those artifacts exist. Do not copy their bodies into `.scratch/`.
 
 ## PRDs and Implementation Plans
 
-- Assign the next formal number below 900 when creating a PRD, including a
-  provisional draft. Never reuse a number. See `docs/memo/README.md`.
+- Assign the next formal number after the current maximum when creating a PRD,
+  including a provisional draft. Never reuse a number, except that 900-999 do
+  not count uses on or before the PRD131 renumbering date. A renumbered PRD keeps
+  its old number in a renumber line under its title. See `docs/memo/README.md`.
 - `anet-impl-prd` creates the next available implementation-plan slot
   beside the PRD: `20impl`, then `21impl`, and so on.
 - Never overwrite an existing PRD or implementation-plan slot.

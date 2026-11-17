@@ -2,12 +2,12 @@
 
 > 起点: 2026-10-14 の PRD 整理。DropMerge の次の候補（後半で学習率を下げる、B256 で学習率を半分にする）を、
 > 既存 Run の checkpoint から分岐して試すと、設定ファイルで変えた学習率が効かない。
-> 事実は [930](../930_serialize_10prd.md) の起点そのもので、本 PRD はそのうち Optimizer の retune だけを先に切り出す。
+> 事実は [930](../143_serialize_10prd.md) の起点そのもので、本 PRD はそのうち Optimizer の retune だけを先に切り出す。
 > 改訂: 2026-10-15 再グリル（起票とは別の枠。`grill-with-docs` の anet 版手順: ゴールアンカー → スコープスクリーン → 詳細 5 問 → 最終簡素化パス）。
 > options は group ごとに丸ごと置換（旧「決めること 2」を「全 options」で解消）、param group 数の不一致は LibTorch が既に fail-fast するので実装しない
 > （旧「決めること 4」を取り下げ）、受入を Learner 単位・Agent 単位・smoke に分解、語を「引き継ぎ」へ統一（CONTEXT.md に 2 項目）、
 > 決定の記録は ADR 0053、§10 複雑さ監査と §11 文書同期を追加。見送り 3 件は 930 の「091 からの見送り事項」に記録。
-> 関連: [930_serialize_10prd.md](../930_serialize_10prd.md)（Run 全体の Save / Load。本 PRD の上位）、
+> 関連: [930_serialize_10prd.md](../143_serialize_10prd.md)（Run 全体の Save / Load。本 PRD の上位）、
 > [ADR 0053](../../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)（本 PRD で新設）、
 > [CONTEXT.md](../../../CONTEXT.md)（Agent checkpoint、checkpoint 引き継ぎ）、
 > [done/011_fused_adamw_10prd.md](011_fused_adamw_10prd.md)（FusedAdamW）、
@@ -206,7 +206,7 @@ Optimizer group の `retune` policy になり、`continue` と `require_match` �
 
 - [CONTEXT.md](../../../CONTEXT.md): 「Agent checkpoint」「checkpoint 引き継ぎ」を「Run管理」に追加。
 - [ADR 0053](../../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md): 新設。
-- [930](../930_serialize_10prd.md): 「091 からの見送り事項」を追加。
+- [930](../143_serialize_10prd.md): 「091 からの見送り事項」を追加。
 
 ### 11.2 コード実装時に同期する対象（実装枠が同じ変更で更新）
 

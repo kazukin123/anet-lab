@@ -158,29 +158,29 @@ cc-reviewは最終的にPRD・計画・実装すべて、Codex・ClaudeともOK�
 | --- | --- | --- | --- | --- |
 | T1 | [PRD112の索引](../management/issues/issue-20261103-58696c.md)・[PRD114の索引](../management/issues/issue-20261103-b713c2.md) | kind | 成果物 → ハーネス | 主な題材がskill・プロセス・品質観点である |
 | T2 | [PRD108の索引](../management/issues/issue-20261103-0ef7b8.md) | areaの先頭 | 311_dev_tools → 317_metrics（既存の他areaは維持） | 変更の中心はメトリクスのtag契約である |
-| T3 | [PRD949の索引](../management/issues/issue-20261103-b13ed2.md) | areaの先頭 | 120_metrics_viewer → 311_dev_tools（既存の他areaは維持） | Viewerの機能ではなくCMakeとリリース組立が中心である |
-| T4 | [PRD952の索引](../management/issues/issue-20261103-66f453.md) | areaの先頭 | 316_config → 110_runner_app（316_configは維持） | キューの計画・順序・実行をrunnerが所有する |
+| T3 | [PRD185の索引](../management/issues/issue-20261103-b13ed2.md) | areaの先頭 | 120_metrics_viewer → 311_dev_tools（既存の他areaは維持） | Viewerの機能ではなくCMakeとリリース組立が中心である |
+| T4 | [PRD151の索引](../management/issues/issue-20261103-66f453.md) | areaの先頭 | 316_config → 110_runner_app（316_configは維持） | キューの計画・順序・実行をrunnerが所有する |
 | T5 | [PRD088の索引](../management/issues/issue-20261103-7f1789.md) | areaの先頭 | 322_env_individual → 315_nn（322は維持） | Envで使うが、追加する契約は汎用NNブロックである |
-| T6 | [PRD934の索引](../management/issues/issue-20261103-55b5f1.md) | priorityとWSJF | 中、5/5/3/5 → 低、2/2/1/1、wsjf=5.0 | 本文が示す直しは設計160のLOD説明の整合である |
-| T7 | [PRD906の索引](../management/issues/issue-20261103-61d771.md) | size・wsjf | 5・2.6 → 8・1.6 | 複数workflow・ビルド・定点ジョブの設計を含む |
+| T6 | [PRD188の索引](../management/issues/issue-20261103-55b5f1.md) | priorityとWSJF | 中、5/5/3/5 → 低、2/2/1/1、wsjf=5.0 | 本文が示す直しは設計160のLOD説明の整合である |
+| T7 | [PRD156の索引](../management/issues/issue-20261103-61d771.md) | size・wsjf | 5・2.6 → 8・1.6 | 複数workflow・ビルド・定点ジョブの設計を含む |
 | T8 | [旧キー専用WARN](../management/issues/issue-20261103-2c9a07.md) | size・wsjf | 5・2.2 → 3・3.7 | 本文の修正先は1関数とその呼び出しである |
 | T9 | [GetStatsの注記](../management/issues/issue-20261103-5a5373.md) | size・wsjf | 3・1.7 → 1・5.0 | 現呼び出しは契約を守り、必要なのは数行の注記である |
 | T10 | [インクルードガード](../management/issues/issue-20261103-03a1b6.md) | size・wsjf | 3・1.7 → 2・2.5 | ガードと先頭コメントの局所修正である |
 | T11 | [wxImageの確保不一致](../management/issues/issue-20261103-dd8058.md) | priority | 中 → 高 | 本文は描画時の未定義動作と異常終了を示す |
 | T12 | [stack_keysの無検証](../management/issues/issue-20261103-b754ff.md) | type・priority・WSJF | ずれ・低・2/2/1/3 → 不具合・高・8/5/8/3、wsjf=7.0 | 指定した観測stackが無効のまま学習し、誤った結果が残る |
 | T13 | [MuZeroのテスト空白](../management/issues/issue-20261103-60f11c.md) | area | [318_rl_core] → [325_muzero,318_rl_core] | 本文の対象がMuZero固有の価値targetとmaskである |
-| T14 | [PRD909の索引](../management/issues/issue-20261103-182ca1.md) | 分割 | 子なし → 5候補を判断別の子にする | 本文が1件ずつ直すか決めるとしており、独立した判断が5件ある。起票する内容は各候補を再確認してから選ぶ |
+| T14 | [PRD180の索引](../management/issues/issue-20261103-182ca1.md) | 分割 | 子なし → 5候補を判断別の子にする | 本文が1件ずつ直すか決めるとしており、独立した判断が5件ある。起票する内容は各候補を再確認してから選ぶ |
 | T15 | [PRD098の索引](../management/issues/issue-20261103-2349d0.md)・[PRD107の索引](../management/issues/issue-20261103-f33167.md)・[PRD114の索引](../management/issues/issue-20261103-b713c2.md) | status | 未着手 → 解決にするか人が確認 | ai_judgeが実装済み。人の判断として自動反映しない |
-| T16 | [PRD905の索引](../management/issues/issue-20261103-1edf84.md) | area | [] → [324_dqn,315_nn] | Qの複数HeadとBody共有が題材 |
-| T17 | [PRD951の索引](../management/issues/issue-20261103-322a83.md) | area | [] → [315_nn] | residualとspectralの両立をNNが所有 |
-| T18 | [PRD932の索引](../management/issues/issue-20261103-51220d.md) | area | [] → [317_metrics,318_rl_core] | episode捕捉と事後調査の記録が題材 |
-| T19 | [PRD947の索引](../management/issues/issue-20261103-7227bf.md) | area | [] → [311_dev_tools,324_dqn] | 多環境でのスクリーニングの実行が題材 |
-| T20 | [PRD941の索引](../management/issues/issue-20261103-a39330.md) | area | [] → [324_dqn,318_rl_core] | IQNとPERの初期優先度が題材 |
-| T21 | [PRD930の索引](../management/issues/issue-20261103-aa8701.md) | area | [] → [318_rl_core,321_agent_core] | Run全体のSave/Loadが題材 |
-| T22 | [PRD933の索引](../management/issues/issue-20261103-afe841.md) | area | [] → [324_dqn,318_rl_core] | DQNのbatchとreplay scheduleが題材 |
-| T23 | [PRD946の索引](../management/issues/issue-20261103-c5c791.md) | area | [] → [313_profiling,318_rl_core,322_env_individual] | PRD097の性能再測定とDropMerge追加費用の調査 |
-| T24 | [PRD915の索引](../management/issues/issue-20261103-dbe666.md) | area | [] → [322_env_individual,317_metrics] | DropMergeのNEETをtraceで診断する |
-| T25 | [PRD936の索引](../management/issues/issue-20261103-f993bc.md) | area | [] → [315_nn,321_agent_core] | 全AgentのNN実行設定とAMPの契約 |
+| T16 | [PRD172の索引](../management/issues/issue-20261103-1edf84.md) | area | [] → [324_dqn,315_nn] | Qの複数HeadとBody共有が題材 |
+| T17 | [PRD150の索引](../management/issues/issue-20261103-322a83.md) | area | [] → [315_nn] | residualとspectralの両立をNNが所有 |
+| T18 | [PRD144の索引](../management/issues/issue-20261103-51220d.md) | area | [] → [317_metrics,318_rl_core] | episode捕捉と事後調査の記録が題材 |
+| T19 | [PRD153の索引](../management/issues/issue-20261103-7227bf.md) | area | [] → [311_dev_tools,324_dqn] | 多環境でのスクリーニングの実行が題材 |
+| T20 | [PRD147の索引](../management/issues/issue-20261103-a39330.md) | area | [] → [324_dqn,318_rl_core] | IQNとPERの初期優先度が題材 |
+| T21 | [PRD143の索引](../management/issues/issue-20261103-aa8701.md) | area | [] → [318_rl_core,321_agent_core] | Run全体のSave/Loadが題材 |
+| T22 | [PRD145の索引](../management/issues/issue-20261103-afe841.md) | area | [] → [324_dqn,318_rl_core] | DQNのbatchとreplay scheduleが題材 |
+| T23 | [PRD179の索引](../management/issues/issue-20261103-c5c791.md) | area | [] → [313_profiling,318_rl_core,322_env_individual] | PRD097の性能再測定とDropMerge追加費用の調査 |
+| T24 | [PRD163の索引](../management/issues/issue-20261103-dbe666.md) | area | [] → [322_env_individual,317_metrics] | DropMergeのNEETをtraceで診断する |
+| T25 | [PRD164の索引](../management/issues/issue-20261103-f993bc.md) | area | [] → [315_nn,321_agent_core] | 全AgentのNN実行設定とAMPの契約 |
 | T26 | [nn.txtのサンプル](../management/issues/issue-20261103-2751c8.md)・[nn.txtのコメント](../management/issues/issue-20261103-ef0c2b.md) | area | [] → [316_config,315_nn] | 設定サンプル・記法とNNの登録typeを照合する |
 | T27 | [Doxygen zipの名前](../management/issues/issue-20261103-554849.md) | area・size・wsjf | []・3・1.7 → [311_dev_tools]・1・5.0 | リリース物の案内の数行を直す |
 | T28 | [merginの綴り](../management/issues/issue-20261103-66100f.md) | area | [] → [110_runner_app,317_metrics] | GUIパネルと画像メトリクスの設定である |
@@ -188,7 +188,7 @@ cc-reviewは最終的にPRD・計画・実装すべて、Codex・ClaudeともOK�
 | T30 | [scalar記法のコメント](../management/issues/issue-20261103-879a70.md) | area | [] → [317_metrics,316_config] | metric tokenの説明と設定の整合である |
 | T31 | [実効deviceの用語](../management/issues/issue-20261103-d4258c.md) | area | [] → [316_config,312_util] | 設定の解決結果と用語を合わせる |
 
-統合は提案しない。InitRLの重複fatalと指定値欠落、HeatMapの確保不一致と描画の重複、Notifierの排他とscoped detach、DoStepのイベント不整合と共通化は、同じファイルに触れるが別々に判断して直せる。前提として必須だと本文から言えないものをdependsへ足す提案もしない。PRD909以外は現時点で具体的な分割案を出さない。
+統合は提案しない。InitRLの重複fatalと指定値欠落、HeatMapの確保不一致と描画の重複、Notifierの排他とscoped detach、DoStepのイベント不整合と共通化は、同じファイルに触れるが別々に判断して直せる。前提として必須だと本文から言えないものをdependsへ足す提案もしない。PRD180以外は現時点で具体的な分割案を出さない。
 
 ## 移行の対応表
 

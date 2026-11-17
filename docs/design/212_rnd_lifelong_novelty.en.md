@@ -1,4 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:526f1ddb7a05b65dcc3b804ed370e90290c1dc37 date:2026-11-16 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:310ca6f2127a64ee43c4ff42befcdbb36bccf9f3 date:2026-11-17 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 > Primary perspective: connect basic concepts and algorithmic background to ANET's scoring, reward composition, auxiliary learning, and persistence.
@@ -611,7 +611,7 @@ Whole-file bytes of disabled-mode checkpoints differ even between reruns of the 
 
 Short smoke runs establish the connection between computation, reward addition, learning, and recording. They do not demonstrate improved extrinsic performance, resolution of difficult-game exploration problems, or acceptable performance cost.
 
-Motivation to revisit familiar paths, episodic novelty, and families of policies with different exploration strengths remain separate from this standalone RND implementation. Related options and open questions are in [PRD924](../memo/924_intrinsic_reward_novelty_10prd.md).
+Motivation to revisit familiar paths, episodic novelty, and families of policies with different exploration strengths remain separate from this standalone RND implementation. Related options and open questions are in [PRD173](../memo/173_intrinsic_reward_novelty_10prd.md).
 
 run.@rnd_taiga is not a complete reproduction of Taiga et al. either. Q uses IQN rather than C51, the CNN uses VALID rather than SAME padding, and Q embeddings, initialization, PER, the units used to count statistics, and the ALE version also differ. During auxiliary learning, inputs are renormalized with the updated statistics. The list of remaining differences is in the [23impl table](../memo/116_rnd_lifelong_novelty_23impl.md#%E6%9C%AC%E5%AE%B6%E3%81%A8%E3%81%AE%E6%AE%8B%E3%82%8B%E5%B7%AE).
 

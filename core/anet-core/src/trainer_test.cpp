@@ -1247,7 +1247,7 @@ TEST_CASE("RunManager rejects negative Eval schedule intervals before constructi
     CHECK(factory_state->creation_count == 0);
 }
 
-TEST_CASE("RunManager validates Eval offset and warmup before constructing Env", "[prd918][trainer][eval_schedule]")
+TEST_CASE("RunManager validates Eval offset and warmup before constructing Env", "[prd158][trainer][eval_schedule]")
 {
     const std::string field = GENERATE("offset", "warmup_count");
     const int interval = GENERATE(0, 100);

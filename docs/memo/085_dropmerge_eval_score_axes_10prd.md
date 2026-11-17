@@ -2,7 +2,7 @@
 
 > 2026-10-03 起票。詳細設計は別途グリルで行う前提で、決めることを §5 に残した。
 > 起点: DropMerge フィードバック実験（2026-10-01〜03、Munchausen と評価方策の比較）で、NoDropTimeout の罰や待ち時間の罰を変える実験を控え、罰込みの return ではシリーズをまたいだ比較ができなくなることが分かったこと。あわせて、DropMerge の最終目標である「人間のチャンピオン超え」を測る物差しが無いこと。
-> 関連: [086_dropmerge_macro_actions_10prd.md](086_dropmerge_macro_actions_10prd.md)（行動の単位が変わる実験。比較に本 PRD の物差しを使う）、[956_smdp_transition_duration_10prd.md](956_smdp_transition_duration_10prd.md)（待ち時間の罰で return が変わる）、[CONTEXT.md](../../CONTEXT.md) の「投了」「NEET」「NoDropTimeout」、[done/039_dropmerge_nolegal_adjudication_10prd.md](done/039_dropmerge_nolegal_adjudication_10prd.md)、[ADR 0014](../adr/0014-dropmerge-nodroptimeout-loss-not-truncation.md)。
+> 関連: [086_dropmerge_macro_actions_10prd.md](086_dropmerge_macro_actions_10prd.md)（行動の単位が変わる実験。比較に本 PRD の物差しを使う）、[167_smdp_transition_duration_10prd.md](167_smdp_transition_duration_10prd.md)（待ち時間の罰で return が変わる）、[CONTEXT.md](../../CONTEXT.md) の「投了」「NEET」「NoDropTimeout」、[done/039_dropmerge_nolegal_adjudication_10prd.md](done/039_dropmerge_nolegal_adjudication_10prd.md)、[ADR 0014](../adr/0014-dropmerge-nodroptimeout-loss-not-truncation.md)。
 
 ## 1. 目的と問題
 
@@ -70,7 +70,7 @@ DropMergeEnv.fruit_scores ?= 0.1  0.3  0.7  1.5  3.1  6.3  12.7  25.5  51.1  102
 
 ## 7. 依存と順序
 
-依存は無い。NoDropTimeout の罰の変更、[086](086_dropmerge_macro_actions_10prd.md) のマクロ行動、[999 SMDP 対応](956_smdp_transition_duration_10prd.md) の待ち時間の罰など、報酬や行動の単位を変える実験より前に入れる。
+依存は無い。NoDropTimeout の罰の変更、[086](086_dropmerge_macro_actions_10prd.md) のマクロ行動、[999 SMDP 対応](167_smdp_transition_duration_10prd.md) の待ち時間の罰など、報酬や行動の単位を変える実験より前に入れる。
 
 ## 8. 参照
 

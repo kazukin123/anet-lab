@@ -58,7 +58,7 @@ Actor 本体の 1 箇所に置く**だけに留める。データの演算列・
     unique lock 内で行う潜在競合（dynamic scaling 時のみ顕在化。現行設定は全て `pass_through = true`）。挙動を変えないため本 PRD では触らず、
     後続 PRD の共有 / 私有境界の設計で扱う。設計文書には既知事項として残す。
 11. **等価性の合否は metrics checksum。** [065](065_nn_spectral_norm_10prd.md) の手順に従う。checkpoint の raw checksum は
-    現行 serialize が非決定のためゲートにしない（[930](../930_serialize_10prd.md)）。
+    現行 serialize が非決定のためゲートにしない（[930](../143_serialize_10prd.md)）。
 12. **隣接ドリフトの修正。** 設計文書 110 §6.1 / 200 §6.1 の sequence 図と 110 §7.1 本文に残る旧
     `CreateActor(batch_env_spec, env_spec, run_mode, override, device)`（[ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md) で
     `ActorRequest` へ置き換え済み）を、書き換える図と同じ変更内で現行契約へ直す。
@@ -128,7 +128,7 @@ Actor 本体の 1 箇所に置く**だけに留める。データの演算列・
 | `apps/runner/config/agent.txt` | Action Policy 設定ガイドラインのコメント 2 行 | 「CreateActionContext/MakeAction呼出」→「CreateActor/MakeAction呼出」（受入 1 の rg 0 件のため） |
 
 `.en.md` は翻訳成果物なので本 PRD では触らず、`anet-translate-docs` に追従を任せる。ADR 0044 は当時の記録として変更しない。
-[999_episode_start_stack_contract_10prd.md](../dropped/917_episode_start_stack_contract_10prd.md) は暫定メモで、既に別点（ReplayBuffer の
+[999_episode_start_stack_contract_10prd.md](../dropped/149_episode_start_stack_contract_10prd.md) は暫定メモで、既に別点（ReplayBuffer の
 `episode_start` 扱い）が ADR 0044 と食い違っているため触らない。150 §3 の `DictFrameStacker` 行と 200 §8.2 の「Actor RNG」（非保存 State）は
 現行のまま正しい。
 
@@ -218,11 +218,11 @@ Rainbow の改修前後 Run 比較はユーザー指定（2026-09-27）により
 
 ## 関連
 
-- [921_agent_prev_action_obs_10prd.md](../921_agent_prev_action_obs_10prd.md) — 後続。ActionContext 前提の記述は本 PRD 後に書き直す。
+- [921_agent_prev_action_obs_10prd.md](../142_agent_prev_action_obs_10prd.md) — 後続。ActionContext 前提の記述は本 PRD 後に書き直す。
   順序（本 PRD → 観測パイプライン PRD → 921 改訂）は不変。
-- [999_episode_start_stack_contract_10prd.md](../dropped/917_episode_start_stack_contract_10prd.md) — `StackerActionContext` を引用するが暫定メモで既に陳腐化しているため触らない。
+- [999_episode_start_stack_contract_10prd.md](../dropped/149_episode_start_stack_contract_10prd.md) — `StackerActionContext` を引用するが暫定メモで既に陳腐化しているため触らない。
 - [ADR 0013](../../adr/0013-actor-network-resource-policy.md) — Actor private Resource の前例。
 - [ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md) — `ActorRequest` と Actor カタログ。判断 12 の修正先の契約。
 - [ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md) — Actor 側 stack が `episode_start` で初期化する事実は不変。
 - [065](065_nn_spectral_norm_10prd.md) — metrics checksum による等価性手順。
-- [930_serialize_10prd.md](../930_serialize_10prd.md) — checkpoint checksum をゲートにしない根拠。
+- [930_serialize_10prd.md](../143_serialize_10prd.md) — checkpoint checksum をゲートにしない根拠。

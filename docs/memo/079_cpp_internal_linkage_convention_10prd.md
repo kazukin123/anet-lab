@@ -6,7 +6,7 @@
 > **明文・前提スタイル・既存実例の 3 つが揃って逆を向いていた**。Codex は規約に従っていた。
 > 本 PRD は規約そのものを確定し、既存 39 ブロックの一括是正と AGENTS.md 追記までを範囲とする。
 > 関連: `AGENTS.md`「コーディング規約」（L205-206）、`third_party/catch2/include/catch.hpp`、
-> `docs/memo/906_cicd_improvement_10prd.md`
+> `docs/memo/156_cicd_improvement_10prd.md`
 
 ## Context（背景・目的）
 
@@ -98,7 +98,7 @@ Google 解は「namespace を書いてインデントしない」、anet 解は�
 - **NG3**: clang-format の導入。リポジトリに設定ファイルが無く、導入すると全ファイル一括整形になる
   （「大規模な整形変更は避ける」に抵触）。
 - **NG4**: CI での機械チェック。`windows-ci.yml` は `pull_request.branches` が空で実質発火しないため、
-  現時点で CI をゲートにしても意味が無い。`999_cicd_improvement` の範囲。
+  現時点で CI をゲートにしても意味が無い。`156_cicd_improvement` の範囲。
 
 ## 確定事項
 
@@ -488,7 +488,7 @@ test は 23 ブロック / 23 ファイル。うち `TEST_CASE` を内包する 
 | 3 | 無名 namespace 全面許可（現状追認） | cut | 1465 行ブロックの locality 問題が残り、hpp との非対称も残る |
 | 4 | 型をグローバル直下へ裸で置く | cut | 別 TU に同名異定義があると静かに UB。ODR を naming discipline に賭けない |
 | 5 | clang-format 導入で機械化 | cut（NG3） | 設定ファイルが無く、導入＝全ファイル一括整形になる |
-| 6 | CI ゲート | defer（NG4） | `windows-ci.yml` が実質発火しない。`999_cicd_improvement` へ |
+| 6 | CI ゲート | defer（NG4） | `windows-ci.yml` が実質発火しない。`156_cicd_improvement` へ |
 | 7 | 検出スクリプト + anet-prepare-commit | keep | 39 箇所を直しても、書き手が Codex である限り再発する |
 | 8 | 名前付き namespace のインデント | keep | 実在スコープ。ここを非インデントにすると不変条件が壊れる |
 | 9 | .hpp の変更 | cut（NG1） | 既にインデント済みで不変条件を満たしている |

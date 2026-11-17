@@ -24,12 +24,12 @@ Breakoutではε=0.01で見えない群の差がε=0に現れ、SNの効果の�
 - qbert の ε=0 断面の第 8 面到達は、断面ごとに大きく上下した（例: ε 腕 40.6M 93/100 → 45.7M 32/103、64 env・1M の seed 1 20.4M 68/102 → 25.5M 4/109）。同じ落ち込みは 128 env・2M の seed 2・3 と UQE にも出ており、1 断面の比較では判定しない（出典: [2026-09-27_btr-gap-qbert-bz.md](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)、現時点のまとめ12・探索ブロック03。Run: run_20260927-035604_a5_qbert_btr50m_eps005_end0 / run_20260928-065041_a5_qbert_btr50m_eps005_env64）。
 - ImageCls の ResNet18ish_hr＋Mixup/CutMix では、LR の cosine の長さが違う Run の順位が途中の step と最終で入れ替わった。15M の時点は、学習予算 30M の Run が 74.5%、20M の Run が 82.0%、cosine を 15M で終える Mixup なしの Run が 83.7% で、最終は 86.4・86.0・83.7% だった。cosine の長さが違う Run は最終同士で比べる（出典: [2026-06-25_food101-scratch.md](../../experiments/image-cls/imagecls/2026-06-25_food101-scratch.md)、現時点のまとめ7・探索ブロック05。Run: run_20260707-084617_imgcls_ResNet18HR32_30 / run_20260706-124351_imgcls_ResNet18HRmix / run_20260704-214337_imgcls_ResNet18ish_hr）。
 - ImageCls では、同じ実効設定・同じ seed の 2 本が、cudnn deterministic の設定でも同じ exp step で 0.3〜1.0pt ずれた（出典: [2026-06-25_food101-scratch.md](../../experiments/image-cls/imagecls/2026-06-25_food101-scratch.md)、探索ブロック02。Run: run_20260627-234723_imgcls_Res18_do1 / run_20260630-004827_imgcls_ResNet18ish_hr）。
-- GridMaze で、安定してゴールできるようになった後も、EvalPanel の手操作で点数の方策がほとんど通らないセルへ誘導してから再開させると、ゴールに着かなかった（ユーザーの観察。Run 名の記録は無い）。今の設定では、開始位置は (0, 0) に固定、観測は位置の 2 次元だけで、手操作の遷移は学習に入らない。固定の開始位置からの評価の成功は、通らない状態から届くことを示さない（出典: [924_intrinsic_reward_novelty_10prd.md](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.7「観察」「今の構成」）。
+- GridMaze で、安定してゴールできるようになった後も、EvalPanel の手操作で点数の方策がほとんど通らないセルへ誘導してから再開させると、ゴールに着かなかった（ユーザーの観察。Run 名の記録は無い）。今の設定では、開始位置は (0, 0) に固定、観測は位置の 2 次元だけで、手操作の遷移は学習に入らない。固定の開始位置からの評価の成功は、通らない状態から届くことを示さない（出典: [173_intrinsic_reward_novelty_10prd.md](../../memo/173_intrinsic_reward_novelty_10prd.md)、§2.7「観察」「今の構成」）。
 - anet の TempoRL では、評価 slot のスキップ長にも評価の方策が掛かる（Atari の `eval` は ε 0.01、LunarLander の `eval` は UQE の τ 0.25）。行動の方策が `Greedy` 型の slot（`[eval_panel]`）だけは、skip の葉が無くてもスキップ長が同じ Greedy になる。ε-greedy の ε 0（Atari の `[greedy]`）は Greedy 型ではないが、スキップ長も ε 0 の ε-greedy で選ぶ。学習したスキップ価値そのものを測るには、行動もスキップ長も greedy の評価が要る（出典: [103_temporl_reference_alignment_10prd.md](../../memo/done/103_temporl_reference_alignment_10prd.md)、§2.2 の T12・§4 D7）。
 - 評価 slot の action_info を `@train` の event で scalar にすると、その値は評価 runner 自身の step 軸に載り、`@session_end` の値（学習側の step 軸）とは換算できない（比は Run の中で 0.000039 から 0.0075 へ動く）。評価 session の中の割合や平均を学習の進みと並べるには、session の終わりに学習側の座標で出す必要がある（出典: [103_temporl_reference_alignment_10prd.md](../../memo/done/103_temporl_reference_alignment_10prd.md)、§2.2 の T13・§4 D8、[140 可観測性 §6.x](../../design/140_observability.jp.md)）。
 - eval schedule は `offset + k * interval` の発火列の先頭から `warmup_count` 回（既定 1）を抑止する。評価専用 Run はタグごとに 0 を書く。`IntervalGate` 自体は初回に発火し、共通部品を変えず observer が列を調整する（出典: [Observability](../../design/140_observability.jp.md)、Scalar Metrics の interval と eval schedule の説明）。
-- `run.eval_schedule.[tag].interval` で組んだ評価は従来、step の値によらず初回に必ず 1 回発火する（learn step 0 の未学習の方策の点が入る）。背景の評価は、次の発火のときに前回が終わっていなければ学習が待つ。Atari-5 の 400 エピソードの ε=0 の評価では、未学習の方策が打ち切り上限に張り付いた 2 ゲームで初回の評価が 1 時間級になり、次の発火で学習が 692.6s・885.5s 止まった（出典: [918_eval_schedule_first_fire_10prd.md](../../memo/918_eval_schedule_first_fire_10prd.md)、§1.1・§1.2）。
-- 公開実装の学習開始時の評価: BTR の最初の評価は 250,000 step（`eval_every`）で、Stable-Baselines3 の `EvalCallback` の最初の評価は `eval_freq` 回目の呼び出しで、どちらも学習開始時には評価しない。DI-Engine は学習の反復 0 で評価する。3 つとも、開始時の評価を選ぶ設定も、発火の時点をずらす設定も持たない（出典: [918_eval_schedule_first_fire_10prd.md](../../memo/918_eval_schedule_first_fire_10prd.md)、§2.4）。
+- `run.eval_schedule.[tag].interval` で組んだ評価は従来、step の値によらず初回に必ず 1 回発火する（learn step 0 の未学習の方策の点が入る）。背景の評価は、次の発火のときに前回が終わっていなければ学習が待つ。Atari-5 の 400 エピソードの ε=0 の評価では、未学習の方策が打ち切り上限に張り付いた 2 ゲームで初回の評価が 1 時間級になり、次の発火で学習が 692.6s・885.5s 止まった（出典: [158_eval_schedule_first_fire_10prd.md](../../memo/158_eval_schedule_first_fire_10prd.md)、§1.1・§1.2）。
+- 公開実装の学習開始時の評価: BTR の最初の評価は 250,000 step（`eval_every`）で、Stable-Baselines3 の `EvalCallback` の最初の評価は `eval_freq` 回目の呼び出しで、どちらも学習開始時には評価しない。DI-Engine は学習の反復 0 で評価する。3 つとも、開始時の評価を選ぶ設定も、発火の時点をずらす設定も持たない（出典: [158_eval_schedule_first_fire_10prd.md](../../memo/158_eval_schedule_first_fire_10prd.md)、§2.4）。
 - LunarLander の TempoRL 有効の Run に `[greedy]` session（行動もスキップ長も greedy、1009 learn step ごと）を足すと、同じ seed の 10/26 の Run と比べて、`[eval]` の最初の点（8448 step、学習前）は一致し、2 点目（14848 step、学習前）から違い、学習側の報酬の EMA も 37 エピソード目から違った。学習の設定は同じ（差は `[greedy]` の actor と tag、既定値のままの新しいキー、表示だけの列番号）。`[greedy]` の初回のエピソードが 2 点の間に入るので、評価 session の追加で同じ seed の乱数の系列が変わった。GridMaze では `[greedy]` を足す前のビルドの 3 本が 10/26 と完全に一致している（出典: [2026-10-28_temporl-split-kmax-epsilon.md](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、現時点のまとめ 5・探索ブロック 02、[103_temporl_reference_alignment_10prd.md](../../memo/done/103_temporl_reference_alignment_10prd.md)、§5.7「振る舞いが変わるもの」。Run: run_20261028-131118_t103_ll_mrg_s1 / run_20261026-020453_t98_ll_mrg_s1）。
 - BeamRiderのサンプル効率優先50Mで、設定の差がseedとRun名だけのスキップなし2本のGreedyの35.55〜45.65Mの3回平均は22,914と85,872だった。5.25〜45.65Mの9回で、同じ重みの`53_evalg`と`54_evalgs`の差の平均はスキップなしs1が1,639、s2が2,542、補助学習のみが3,949で、隣の評価（約5.05M後）との差の平均は4,379、16,035、22,027だった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、現時点のまとめ1・探索ブロック01「session の揺れ」。Run: run_20261031-232353_a5_br_aln_btreps_s1 / run_20261103-080630_a5_br_aln_btreps_s2 / run_20261103-220328_a5_br_aln_t104ac_s1）。
 - Montezumaのサンプル効率優先＋RNDの30M（seed 1）で、ε=0.01・τ乱数の評価は14.21Mから400点が続いたが、Greedy（ε=0・τ固定）は20.4Mまで0点、25.45Mに9/16が400点で、5.25M以降のGreedyのゲームは1本を除いて打ち切りで終わった。30Mの重みを4条件・各32ゲームで測ると、ε=0・τ固定が400点以上19/32で、ε=0・τ乱数が29/32、ε=0.01はτ固定・乱数とも32/32だった。exp step 20,066,688で保存した重みは4条件とも全ゲーム400点で、学習Runの中で0/16だったGreedyのsession（exp step 20,400,384）はこの重みより約5,200 learn stepあとだった（出典: [2026-11-08_montezuma-rnd-se-30m.md](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ1・2・5・6・探索ブロック01・04。Run: run_20261108-003056_mz_se_rnd_k32_s1 / run_20261108-110233_mz_se_ev30m_2x2 / run_20261108-111508_mz_se_ev20m_2x2）。
@@ -42,14 +42,14 @@ Breakoutではε=0.01で見えない群の差がε=0に現れ、SNの効果の�
 
 ## 分かっていないこと
 
-- GridMaze で通らないセルから再開してゴールに着かないとき、点数の方策は壁へ向かう行動を繰り返して位置が変わらないまま打ち切られているのか（出典: [924_intrinsic_reward_novelty_10prd.md](../../memo/924_intrinsic_reward_novelty_10prd.md)、§2.7「見立て」。Run では未確認）。
+- GridMaze で通らないセルから再開してゴールに着かないとき、点数の方策は壁へ向かう行動を繰り返して位置が変わらないまま打ち切られているのか（出典: [173_intrinsic_reward_novelty_10prd.md](../../memo/173_intrinsic_reward_novelty_10prd.md)、§2.7「見立て」。Run では未確認）。
 - 評価 session を足すと同じ seed の軌跡が学習前から変わるのは、どの乱数の系列（評価の方策の τ の抽選、env の seed、Actor の乱数）を学習側や既存の評価 slot と共有しているためか。同じ設定の 2 本が一致するかも確かめていない（出典: [2026-10-28_temporl-split-kmax-epsilon.md](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、pending）。
 - qbertのスキップなしseed1で、終了checkpointを学習中と同じ選び方で評価した8面突破率（60.0%）が、学習中の最後の区切り（87.0%）より大きく低いのはなぜか（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック03）。
 
 ## 撤回・更新
 
 - 2026-11-12: MontezumaのTaigaら寄せ＋RNDのseed 2のRunを「PRD123の実装後の実行体」→「seed 1と同じPRD123より前の実行体」。同じ日の取り込みの誤り（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、探索ブロック10。Run: run_20261111-123702_mz_tg_nmdd_b001_s2）。
-- 2026-11-10: 「eval schedule は初回に必ず評価する」を、既定では発火列の先頭 1 回を抑止する挙動へ更新した。共通の IntervalGate の初回発火は維持する（出典: [PRD918](../../memo/918_eval_schedule_first_fire_10prd.md)、§4 D2・D5；[Observability](../../design/140_observability.jp.md)、eval schedule の説明）。
+- 2026-11-10: 「eval schedule は初回に必ず評価する」を、既定では発火列の先頭 1 回を抑止する挙動へ更新した。共通の IntervalGate の初回発火は維持する（出典: [PRD158](../../memo/158_eval_schedule_first_fire_10prd.md)、§4 D2・D5；[Observability](../../design/140_observability.jp.md)、eval schedule の説明）。
 
 ## 関連
 
@@ -59,12 +59,12 @@ Breakoutではε=0.01で見えない群の差がε=0に現れ、SNの効果の�
 - [Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)。
 - [遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD](../../memo/done/097_env_auto_reset_after_notification_10prd.md)。
 - [Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD](../../memo/done/094_evalpanel_step_history_10prd.md)。
-- [内的報酬と方策の組 暫定 PRD（GridMaze の学習の分布の外、§2.7）](../../memo/924_intrinsic_reward_novelty_10prd.md)。
+- [内的報酬と方策の組 暫定 PRD（GridMaze の学習の分布の外、§2.7）](../../memo/173_intrinsic_reward_novelty_10prd.md)。
 - [replay_ratio_lane_window](../mechanisms/replay_ratio_lane_window.md)。
 - [Montezuma's Revenge](../subjects/montezuma_revenge.md)。
 - [temporal_abstraction](../mechanisms/temporal_abstraction.md)。
 - [TempoRL 第二弾（著者の実装との差）の PRD](../../memo/done/103_temporl_reference_alignment_10prd.md)。
-- [eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする PRD](../../memo/918_eval_schedule_first_fire_10prd.md)。
+- [eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする PRD](../../memo/158_eval_schedule_first_fire_10prd.md)。
 - [仕組みと契約](../../design/200_dqn_agents.jp.md)。
 - [Envをまたぐ比較の独自分析](../../experiments/default-dqn/README.md#env-をまたぐ際の扱い)。
 - [Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)。

@@ -31,7 +31,7 @@ repo evidence で解決済み:
 - `ObservationNormalizer` は Serializable ではなく、`RunningMeanStd` の統計も非公開である。保存要求には正規化機構自身の保存・復元対応が必要。
 - `ObservationNormalizerConfig` の既定は use_centering=false、post_process_type=SymLog。RND の白色化では centering=true、post_process_type=None、robust_update=false を RND 側の既定とする。
 - ADR0053 の optimizer options 再適用を RND にも適用する。ADR0062 の primary 出力を使う補助 Network とは入力と同期の責務が異なる。
-- 新しい用語と ADR の確定は PRD §8 に従って 924 に残す。
+- 新しい用語と ADR の確定は PRD §8 に従って 173 に残す。
 
 2ximpl へ固定:
 
@@ -48,7 +48,7 @@ repo evidence で解決済み:
 - beta は StepCounts に従う ProfiledValue。無効時には beta と RND の葉を解釈しない。
 - 既存の未コミット変更は保持する。着手時に変更されていた bat、wiki、索引等の変更を取り消さない。
 
-PRD 範囲外: 924 の方策の組、エピソード内の新しさ、Replay の注釈経路、学習効果の長期比較。
+PRD 範囲外: 173 の方策の組、エピソード内の新しさ、Replay の注釈経路、学習効果の長期比較。
 
 ## テスト
 
@@ -123,7 +123,7 @@ smoke は保存済み実行体 `smoke-r1-bin/AnetRLRunner.exe`（SHA256 `c970096
 
 ## 決まらなかったことと残す検証
 
-- 実装判断の未決は無し。PRD §8の11件は元の方針どおり924の再グリルへ残し、今回確定しない。
+- 実装判断の未決は無し。PRD §8の11件は元の方針どおり173の再グリルへ残し、今回確定しない。
 - 性能測定はユーザーの指示で未実施。新たな起票はせず、索引issueの対応内容と本記録に残す。再開許可後、§6.3のABBAとTracy内訳を検証する。既存Runを停止・変更して測定環境を作ることはしない。
 - 性能測定時の確認事項: `Multiplier` は更新前統計での `Normalize` に続き、統計更新のため `NormalizeAndUpdateStats` を呼び、その正規化結果を捨てている。画像観測ではCPU上の全画素の正規化が重複する。`normalize` と `statistics` の内訳を確認してから、共通normalizerへ統計更新専用APIを追加するか判断する。現時点では計算順序・APIを変えず、呼び出し箇所に `@todo` を残す。
 - 範囲外の既存設定2件: `Atari.txt` の `app.online.eval_panel.fps ?= 14.5` と `app.online.train_panel.fps ?= 10` が既定葉検査に反する。基準にも存在し、本実装では保持した。工程末に提示した新規課題の候補をユーザーが選択し、2026-11-06 に [issue-20261106-ddd395](../management/issues/issue-20261106-ddd395.md) として起票した。起票時の再検査でも同じ2件を確認。既存へ追記・この場で直す・見送り推奨の追加候補は無し。

@@ -177,7 +177,7 @@ class WikiSupportTest(unittest.TestCase):
                 self.material(root,'apps/runner/tools/prd095_probe.py','# probe')
                 # 履歴は外部境界のGitだけ差し替える。本文生成と全ページ更新を通す。
                 def history(_root,*args):
-                    return (f'feat(PRD{number}): probe\n' if args[0]=='log' else
+                    return (f'2026-11-01\tfeat(PRD{number}): probe\n' if args[0]=='log' else
                             'apps/runner/src/Prd095Probe.cpp\0apps/runner/tools/prd095_probe.py\0')
                 with patch.object(helper,'git',side_effect=history):
                     result=helper.regenerate_maps(root)
@@ -223,6 +223,106 @@ class WikiSupportTest(unittest.TestCase):
             with patch.object(helper,'git',side_effect=history):
                 helper.regenerate_maps(root)
             self.assertNotIn('PRD997',(root/pages[0]).read_text(encoding='utf-8'))
+
+    def renumber_root(self, prds):
+        # PRD131 の振り直しの行を持つ PRD と、PRD の一覧を作り直すページを一時の置き場に作る。
+        spec=importlib.util.spec_from_file_location('prd131_wiki_support',HELPER)
+        helper=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        temp=tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root=Path(temp.name)
+        (root/'reports/tools').mkdir(parents=True)
+        shutil.copyfile(REPO/'reports/tools/categories.json',root/'reports/tools/categories.json')
+        for path,text in prds.items():
+            self.material(root,path,text)
+        page='docs/wiki/apps/110_runner_app.md'
+        (root/page).parent.mkdir(parents=True,exist_ok=True)
+        (root/page).write_text('# map\n\n## ファイル\nold\n\n## PRD の一覧\nold\n\n'
+                               '## 課題\n<!-- issues:begin -->\nold\n<!-- issues:end -->\n',encoding='utf-8')
+        self.material(root,'apps/runner/src/Prd131Probe.cpp','// probe')
+        return helper,root,page
+
+    def renumber_maps(self, helper, root, history, pending=None):
+        # 履歴は外部境界の Git だけを差し替え、日付と件名の組を返す。
+        def git(_root,*args):
+            return (history if args[0]=='log' else 'apps/runner/src/Prd131Probe.cpp\0')
+        with patch.object(helper,'git',side_effect=git):
+            if pending:
+                return helper.regenerate_maps(root,pending,['apps/runner/src/Prd131Probe.cpp'])
+            return helper.regenerate_maps(root)
+
+    def test_maps_resolve_old_number_through_renumber_line(self):
+        # 振り直しの行の日付以前のコミットの旧い番号は、振り直した PRD の今の番号の行になる。
+        helper,root,page=self.renumber_root({
+            'docs/memo/158_eval_probe_10prd.md':
+                '# PRD158: eval probe\n\n> 2026-11-17 番号を 997 から 158 へ振り直した（PRD131）。\n\n## 1. 問題\n'})
+        result=self.renumber_maps(helper,root,'2026-11-10\tfeat(RunnerApp): probe。 PRD997 #3\n')
+        self.assertEqual(result['unresolved_prds'],[])
+        text=(root/page).read_text(encoding='utf-8')
+        self.assertIn('- [PRD158](../../memo/158_eval_probe_10prd.md) — PRD158: eval probe',text)
+        self.assertNotIn('PRD997',text)
+
+    def test_maps_merge_old_and_new_numbers_of_one_prd(self):
+        # 今の番号と旧い番号で同じ PRD に当たったら、1 行にまとめる。
+        helper,root,page=self.renumber_root({
+            'docs/memo/158_eval_probe_10prd.md':
+                '# eval probe\n\n> 2026-11-17 番号を 997 から 158 へ振り直した（PRD131）。\n'})
+        result=self.renumber_maps(helper,root,'2026-11-20\tfix(RunnerApp): b。 PRD158 #4\n'
+                                               '2026-11-10\tfeat(RunnerApp): a。 PRD997 #3\n')
+        self.assertEqual(result['unresolved_prds'],[])
+        text=(root/page).read_text(encoding='utf-8')
+        self.assertEqual(text.count('](../../memo/158_eval_probe_10prd.md)'),1)
+
+    def test_maps_send_later_commits_of_reused_number_to_the_new_file(self):
+        # 9xx を再び使ったあとは、振り直しの日より後のコミットの番号を、新しいファイルの PRD に当てる。
+        helper,root,page=self.renumber_root({
+            'docs/memo/158_eval_probe_10prd.md':
+                '# old eval\n\n> 2026-11-17 番号を 997 から 158 へ振り直した（PRD131）。\n',
+            'docs/memo/997_new_probe_10prd.md': '# new probe\n'})
+        result=self.renumber_maps(helper,root,'2029-05-01\tfeat(RunnerApp): new。 PRD997 #3\n'
+                                               '2026-11-17\tfeat(RunnerApp): old。 PRD997 #3\n')
+        self.assertEqual(result['unresolved_prds'],[])
+        text=(root/page).read_text(encoding='utf-8')
+        self.assertIn('- [PRD158](../../memo/158_eval_probe_10prd.md) — old eval',text)
+        self.assertIn('- [PRD997](../../memo/997_new_probe_10prd.md) — new probe',text)
+
+    def test_maps_report_old_number_declared_by_two_prds_as_unresolved(self):
+        # 同じ旧い番号の振り直しの行を 2 本以上の PRD が持つと（PRD114 の 999 など）、一意に決められない。
+        helper,root,page=self.renumber_root({
+            'docs/memo/911_a_probe_10prd.md': '# a\n\n> 2026-11-03 番号を 999 から 911 へ振り直した（PRD114）。\n',
+            'docs/memo/931_b_probe_10prd.md': '# b\n\n> 2026-11-03 番号を 999 から 931 へ振り直した（PRD114）。\n'})
+        result=self.renumber_maps(helper,root,'2026-10-24\tdocs(PRD999): x #3\n')
+        self.assertEqual(result['unresolved_prds'],[{'page':page,'prd':'PRD999','matches':2}])
+        self.assertIn('- PRD999 — （PRD を一意に決められない）',(root/page).read_text(encoding='utf-8'))
+
+    def test_maps_stop_on_broken_renumber_lines(self):
+        # 形の崩れた行、同じ日付の行が 2 つ、旧い番号と新しい番号がつながらない PRD では、どのページも書かずに止まる。
+        cases={
+            'malformed': ('docs/memo/158_eval_probe_10prd.md',
+                          '# x\n\n> 2026-11-17 番号を 997 から 158 へ振り直した。\n',':3:'),
+            'same_date': ('docs/memo/158_eval_probe_10prd.md',
+                          '# x\n\n> 2026-11-17 番号を 999 から 997 へ振り直した（PRD114）。\n'
+                          '> 2026-11-17 番号を 997 から 158 へ振り直した（PRD131）。\n',':4:'),
+            'broken_chain': ('docs/memo/158_eval_probe_10prd.md',
+                             '# x\n\n> 2026-11-17 番号を 997 から 159 へ振り直した（PRD131）。\n',':3:'),
+        }
+        for name,(path,text,line) in cases.items():
+            with self.subTest(name):
+                helper,root,page=self.renumber_root({path:text})
+                with self.assertRaises(ValueError) as caught:
+                    self.renumber_maps(helper,root,'2026-11-10\tfeat(RunnerApp): a。 PRD997 #3\n')
+                self.assertIn(path+line,str(caught.exception))
+                self.assertIn('old',(root/page).read_text(encoding='utf-8'))
+
+    def test_maps_ignore_renumber_like_lines_after_first_heading(self):
+        # 本文やコードの枠にある同じ形の行は、振り直しの行として読まず、検査もしない。
+        helper,root,page=self.renumber_root({
+            'docs/memo/158_eval_probe_10prd.md':
+                '# x\n\n> 2026-11-17 番号を 997 から 158 へ振り直した（PRD131）。\n\n## 1. 例\n\n'
+                '> 2026-11-18 番号を 998 から 158 へ振り直した（PRD131）。\n> 2026-11-19 番号を 9xx から\n'})
+        result=self.renumber_maps(helper,root,'2026-11-10\tfeat(RunnerApp): a。 PRD998 #3\n')
+        self.assertEqual(result['unresolved_prds'],[{'page':page,'prd':'PRD998','matches':0}])
 
     def test_maps_rejects_pending_subject_without_files(self):
         root=self.fixture()

@@ -339,7 +339,7 @@ _Avoid_: action feedback, action echo
 
 **prev-action trio**:
 DropMergeのvector観測末尾へ連結する [valid, noop, drop_x] の3 scalar。drop_xは直前DROP命令列の中心を [-1,1] 正規化した値で、非DROPは0。独立した観測キーではない。
-_Avoid_: prev_actionキー（PRD900の別キー設計と混同）, action one-hot
+_Avoid_: prev_actionキー（PRD142の別キー設計と混同）, action one-hot
 
 **DROP列マーカー**:
 direct系action modeでは未使用になるgridのdropper classを再利用し、直前DROPの命令列をtop rowに描画するマーカー。move系の「現在のdropper位置」表示とは別意味。
@@ -563,7 +563,7 @@ _Avoid_: metrics設定（設定ファイル側と混同）, スキーマ（レ�
 
 **trace**（トレース）:
 統計（scalar）とは別に、1件の個体（laneのエピソード完了など）を1レコードとして識別子付きで記帳するメトリクスチャネル。固定属性と個別値の集合を持ち、集約しない。系列はチャネルとtagの組で識別するため、同じtagのscalarとは別系列である。NNの途中の出力を可視化へ流すnn_traceとは別概念。
-_Avoid_: activationトレース（nn_trace側の呼び名）, record（config dump等のjson行と区別できない）, journal（932のEpisode Journalはforensic側の別概念）, ログ
+_Avoid_: activationトレース（nn_trace側の呼び名）, record（config dump等のjson行と区別できない）, journal（144のEpisode Journalはforensic側の別概念）, ログ
 
 **速報値／確定値**:
 Step の結果から読む env の値の、読むイベントで決まる意味。`@train` で読むとその step の途中の値（速報値）、`@episode_end` で読むとそのエピソードの終わりの値（確定値）になる。

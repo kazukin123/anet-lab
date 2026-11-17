@@ -2,7 +2,7 @@
 
 > 2026-10-18 起票（グリル前の暫定版）。ユーザーの希望で、999 ではなく正式番号で起票した。
 > 起点: DropMerge の勾配ノイズ系列（[092](done/092_gradient_noise_scale_10prd.md) の本線分析、2026-10-16〜18）。B・RR の違う腕の学習時の診断（`49_agent_gradnoise` など）を、Viewer で経験数の横軸に重ねて見られず、毎回スクリプトで学習ステップの範囲を経験数へ換算した。
-> 関連: [092](done/092_gradient_noise_scale_10prd.md) §7.4・A17（腕どうしの比べ方）、[093](done/093_attention_entropy_diagnostics_10prd.md)、[940](940_target_update_step_axis_10prd.md)（target 更新を何の軸で数えるか）、[done/052](done/052_eval_schedule_separation_10prd.md)・[done/053](done/053_interval_gate_perf_ema_10prd.md)（間隔ゲート）、[done/054](done/054_inspect_run_10prd.md)（inspect_run）、[ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)（指標の定義は Runner が出す）
+> 関連: [092](done/092_gradient_noise_scale_10prd.md) §7.4・A17（腕どうしの比べ方）、[093](done/093_attention_entropy_diagnostics_10prd.md)、[148](148_target_update_step_axis_10prd.md)（target 更新を何の軸で数えるか）、[done/052](done/052_eval_schedule_separation_10prd.md)・[done/053](done/053_interval_gate_perf_ema_10prd.md)（間隔ゲート）、[done/054](done/054_inspect_run_10prd.md)（inspect_run）、[ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)（指標の定義は Runner が出す）
 
 ## 1. 目的と問題
 
@@ -26,7 +26,7 @@
 - 測る中身・測定間隔の値（503 など）の変更。
 - 測定そのものを経験数で数えて決めること（経験数あたりの測定密度をそろえる）。§6 で先送りにする。
 - EMA の時定数を経験数基準にする設定（092 A17 で不採用）。
-- target 更新の軸（940 の範囲）。
+- target 更新の軸（148 の範囲）。
 - 過去の Run の読み替え。対応が記録されていない（§6）。
 
 ## 2. 背景
@@ -126,13 +126,13 @@ train_step の軸の記録（18.4%）は、経験数 = train_step × num_envs �
 ## 9. 依存と順序
 
 - 段階 1 は Runner と inspect_run だけで完結する。段階 2 は Viewer（089・090 の後）とキャッシュ（041）に依存する。
-- 940（target 更新の軸）とは独立。ただ「何の軸で数えるか」を設定で選ぶ考え方は共通なので、案 B を作るときは揃える。
+- 148（target 更新の軸）とは独立。ただ「何の軸で数えるか」を設定で選ぶ考え方は共通なので、案 B を作るときは揃える。
 
 ## 10. 参照
 
 - [092_gradient_noise_scale_10prd.md](done/092_gradient_noise_scale_10prd.md) §7.4、§9.1 A17・A19
 - [093_attention_entropy_diagnostics_10prd.md](done/093_attention_entropy_diagnostics_10prd.md)
-- [940_target_update_step_axis_10prd.md](940_target_update_step_axis_10prd.md)
+- [148_target_update_step_axis_10prd.md](148_target_update_step_axis_10prd.md)
 - [done/053_interval_gate_perf_ema_10prd.md](done/053_interval_gate_perf_ema_10prd.md)
 - [done/054_inspect_run_10prd.md](done/054_inspect_run_10prd.md)
 - [ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)

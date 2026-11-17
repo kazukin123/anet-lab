@@ -9,7 +9,7 @@
 - ユーザー判断が必要なブロッカー: 0。
 - repo evidenceで解決済み: dqn_based_agent.hpp の BatchUpdateResult は直接比較43キーと8群を持ち、補助4関数も同ヘッダにある。init.cpp は3キーと既定値の表を持つ。gui.cpp は型照会3箇所を持つ。QValuePanel::Update の加工と Grid 更新は PRD の記述に一致する。
 - 2ximplへ固定: 直接キーの表は constexpr 配列と重複検査の static_assert で守る。8群は現行の順で問い合わせる。既知だが未成立の値を含め現行結果を保持する。
-- PRD範囲外: PRD117・PRD948・PRD922・PRD108 と、MuZero truncated 補い値、平滑化半径0以下、既存 Grid の死にコード。
+- PRD範囲外: PRD117・PRD176・PRD159・PRD108 と、MuZero truncated 補い値、平滑化半径0以下、既存 Grid の死にコード。
 
 ## 主な変更
 

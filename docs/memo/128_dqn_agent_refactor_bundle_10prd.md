@@ -3,7 +3,7 @@
 > 2026-11-12 起票（暫定）。質疑を省いた。確定した決定は持たず、AI が置いた既定と決めきれない点を §8 の未決表に置いた。§5〜§7 は §8 の暫定の既定を前提に書き、前提にした行の番号を名指す。
 > 起点: 2026-11-12 の [PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)（価値の分解）のグリル。開発者は、PRD121 と同じ場所を触るリファクタリングの課題 5 件を、PRD121 の実装より先に片づけると選び（PRD121 の D18）、5 件を 1 本の暫定 PRD にまとめるよう指示した。直し方の中身について、会話で出た方向は無い。
 > 題材: §9 の課題 5 件。
-> 関連: [PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)・[PRD924](924_intrinsic_reward_novelty_10prd.md)（同じ場所へ変更を足す PRD）、[PRD125](125_dqn_learner_update_skeleton_10prd.md)・[PRD122](122_small_refactor_and_test_gap_fixes_10prd.md)（挙動を変えない直しと、短い Run の前後比較の前例）、[PRD127](127_eval_trace_intrinsic_reward_columns_10prd.md)（同じファイルを触る。実装済み）、[PRD059](done/059_config_concept_tree_alignment_10prd.md)（D22 で RainbowAgent を残すと決めた）・[ADR 0030](../adr/0030-nn-config-tree-under-agent-prefix.md)、[PRD937](937_nn_head_projection_separation_10prd.md)（Head の射影の分離）、[PRD938](938_nn_trace_capture_unification_10prd.md)（Learner の購読の見直し案）、[PRD944](944_observation_pipeline_10prd.md)（観測パイプライン。同じコンストラクタを触る）、[PRD957](957_source_layout_10prd.md)（ソースの配置）、[リファクタリング観点](../quality/refactor.md)。
+> 関連: [PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)・[PRD173](173_intrinsic_reward_novelty_10prd.md)（同じ場所へ変更を足す PRD）、[PRD125](125_dqn_learner_update_skeleton_10prd.md)・[PRD122](122_small_refactor_and_test_gap_fixes_10prd.md)（挙動を変えない直しと、短い Run の前後比較の前例）、[PRD127](127_eval_trace_intrinsic_reward_columns_10prd.md)（同じファイルを触る。実装済み）、[PRD059](done/059_config_concept_tree_alignment_10prd.md)（D22 で RainbowAgent を残すと決めた）・[ADR 0030](../adr/0030-nn-config-tree-under-agent-prefix.md)、[PRD165](165_nn_head_projection_separation_10prd.md)（Head の射影の分離）、[PRD170](170_nn_trace_capture_unification_10prd.md)（Learner の購読の見直し案）、[PRD161](161_observation_pipeline_10prd.md)（観測パイプライン。同じコンストラクタを触る）、[PRD182](182_source_layout_10prd.md)（ソースの配置）、[リファクタリング観点](../quality/refactor.md)。
 
 > 2026-11-13 改訂: 起票とは別の枠でグリルを行って暫定の印を外した。起票時の未決表の 21 行をすべて仕分け、確定事項（§5）・非ゴール（§1.3）・現状（§2）・クラス一覧（§6.5）・未決表（§8）へ移した（対応は §5.2）。§5〜§7 は書き直し、節の中の番号は付け直した（起票の行にある節の番号は当時のもの）。起票のあとに分かった前提を反映した。(1) PRD127 は実装済みで、内的報酬のメンバが 7 つになり、Evaluation Trace の採点がボーナスの式を学習の入口とは別に書いている（§2.1）。(2) RainbowAgent は、Rainbow 相当まで設定の柔軟性を意図して落とした実装で、DQN 系の共通部品の責務分担を確かめるためだけに残しており、Run では使わない（開発者の説明。D2）。(3) 名前付きの seed は作る順に依らない（§2.5）。起票時の未決 11 の理由「seed の派生の順に触る」を直した。(4) `ExperienceSamples::To` の stream guard は効き目が無い（§2.2）。(5) 接頭辞の下を写して記録するキーの形は 4 か所とも同じで、違うのは写す先の形だった（§2.4）。起票時の未決 15 と §2.4 の記述を直した。(6) 方策と τ の検証の関数が DefaultDQN のヘッダーにあり、Rainbow から呼べない（§2.3）。(7) prd116 の検証資材は内的報酬のメンバを名指していなかったので、移行対象から外した（§6.6）。開発者に聞いて決めたのは、Rainbow の食い違い 5 点の扱い（D4）、細部 10 件を推奨の既定で埋めること（D4・D9・D15〜D19 に書いた）、probe 用の乱数を使う側の Learner が作って持つこと（D13）、設定のエラー文の書き方をそろえること（D6）である。D13 と D6 は、別モデル（Fable）の検討の論点を受けて聞いた。同じ検討から次を直した。(8) D1 の「残りの 3 件は互いに独立」は誤りで、24d885 を 72d640 の前へ移した。(9) D4 の (d) の理由（`nn_viz` への依存）は誤りだった。(10) Rainbow は共通部品へ渡す入力の多くを今は渡していない（§2.3）。共通部品はそれを任意の入力として受け、それでも Rainbow で変わる点を §6.2 に足した（D3）。Rainbow の制限を、設定の DTO を直接渡す経路でも守る（D4）。(11) 内的報酬のクラスはボーナスを返し、報酬へ足すのは Agent の側にした（D11）。(12) 診断の共通の読み出しを毎更新に値を出す群まで広げ、指標を名前で指して、並びと参照が食い違えばビルドが止まる形にする（止め方は実装計画で決める。D12・D19）。§7 の 9 の検索語に当たらない直書きがあった（§2.5）。(13) PRD121 の足す先を §6.7 の表で確かめる（D24）。(14) Rainbow の学習と、学習を止めた構成の特性テストを足した（§6.3）。工程の終わりに、§1.3 の 3 行の記録先（課題 f9790d への追記、課題 6f954f の新設、wiki への見送り）を書き、§8 の U2 に ERROR の行が出たときの扱いを足した。同じ日に別の枠で起票された PRD129 との関係を §10 に足した。
 > 2026-11-14 改訂: §1.3 の表の 2 行で、課題に記録した先を直した。「ボーナスの診断の `.item<float>()` 6 回を 1 回の転送にまとめること」の行は、課題 f9790d の「対応内容」から「対応方針」へ、「Learner の購読を「開始前の宣言」と「呼び出しごとの要求」に分ける見直し」の行は、課題 24d885 の「対応内容」から「対応方針」へ直した。課題への追記の置き場を中身で決める規則（anet-create-issue の「起票のあとの追記」）に合わせて、課題の側で行を移したためである。決定と範囲は変えていない。
@@ -41,10 +41,10 @@
 | PRD121 の機能（価値の分解、報酬の成分、報酬スケーラの種類）を足すこと | 機能の追加と、挙動を変えない直しを 1 本に混ぜると、前後の比較で差が出たときに原因を分けにくい（PRD121 の D18） | 制約ではない | PRD121 が本 PRD のあとに足す |
 | RainbowAgent を消すこと | DQN 系の共通部品の責務分担を確かめる 2 つ目の利用者として残す（D2。[PRD059](done/059_config_concept_tree_alignment_10prd.md) の D22） | 制約ではない（意図した保持） | — |
 | ボーナスの診断の `.item<float>()` 6 回を 1 回の転送にまとめること | 性能の変更で、構造の直しとは別の関心。速さを測ってから決める（課題 08d557 の対応方針） | 制約ではない | RND の時間の内訳（[課題 f9790d](../management/issues/issue-20261112-f9790d.md)）と合わせて測ってから決める。この案は、課題 f9790d の対応方針に材料として記録した |
-| Learner の購読を「開始前の宣言」と「呼び出しごとの要求」に分ける見直し | 購読の口を変える別の関心で、G1・G2 に要らない（[PRD938](938_nn_trace_capture_unification_10prd.md) §8 の 1） | 制約ではない | 購読の口を変える要求が出たとき。材料は課題 24d885 の対応方針と PRD938 §8 の 1 にある。24d885 が解決すると材料が埋もれるので、この案は [課題 6f954f](../management/issues/issue-20261113-6f954f.md) に記録した |
-| Head の射影の分離 | 別の関心で、[PRD937](937_nn_head_projection_separation_10prd.md) が持つ | 制約ではない | PRD937 の実装 |
-| ソースの配置（ファイルの分け方）を変えること | 配置は別の課題が扱う（[リファクタリング観点](../quality/refactor.md) の「候補にしないもの」、[PRD957](957_source_layout_10prd.md)） | 制約ではない | PRD957 の実装 |
-| PRD937・PRD944 が入るのを待ってから始めること | どちらも未実装の暫定 PRD で、待つと PRD121 の待ちが延びる | 制約ではない（順序の選択） | — |
+| Learner の購読を「開始前の宣言」と「呼び出しごとの要求」に分ける見直し | 購読の口を変える別の関心で、G1・G2 に要らない（[PRD170](170_nn_trace_capture_unification_10prd.md) §8 の 1） | 制約ではない | 購読の口を変える要求が出たとき。材料は課題 24d885 の対応方針と PRD170 §8 の 1 にある。24d885 が解決すると材料が埋もれるので、この案は [課題 6f954f](../management/issues/issue-20261113-6f954f.md) に記録した |
+| Head の射影の分離 | 別の関心で、[PRD165](165_nn_head_projection_separation_10prd.md) が持つ | 制約ではない | PRD165 の実装 |
+| ソースの配置（ファイルの分け方）を変えること | 配置は別の課題が扱う（[リファクタリング観点](../quality/refactor.md) の「候補にしないもの」、[PRD182](182_source_layout_10prd.md)） | 制約ではない | PRD182 の実装 |
+| PRD165・PRD161 が入るのを待ってから始めること | どちらも未実装の暫定 PRD で、待つと PRD121 の待ちが延びる | 制約ではない（順序の選択） | — |
 | ImageClsAgent が持つ同じ形の診断の要求を、共通の型に載せること | 題材の 5 件の範囲の外で、前後比較の組が ImageCls を通らない（D22） | 制約ではない | ImageCls に診断の群を足すとき。課題にはせず、再開の条件を wiki の [321 Agent 共通基盤](../wiki/categories/321_agent_core.md) の「選ばなかった形」に残した（2026-11-13 に開発者が見送りを選んだ） |
 
 ### 1.4 足す部品とゴールへの寄与
@@ -131,8 +131,8 @@
 ### 2.6 ほかの PRD の状況（2026-11-13）
 
 - [PRD127](127_eval_trace_intrinsic_reward_columns_10prd.md) は実装・コミット済みである（72699639）。起票時の未決 17（PRD127 の実装を待つ）の前提は満たされた。
-- [PRD944](944_observation_pipeline_10prd.md)（観測パイプライン）は、別の枠でグリルが始まっている。DefaultDQNAgent のコンストラクタの、stack 軸の spec を作る部分（[default_dqn_agent.cpp:183-201](../../core/anet-core/src/default_dqn_agent.cpp)）を触る。
-- [PRD957](957_source_layout_10prd.md)（ソースの配置）は暫定・未着手で、DQN 系の共通部品を `dqn_based` のライブラリに、DefaultDQN と Rainbow をそれぞれ別のライブラリに置く案を持つ。
+- [PRD161](161_observation_pipeline_10prd.md)（観測パイプライン）は、別の枠でグリルが始まっている。DefaultDQNAgent のコンストラクタの、stack 軸の spec を作る部分（[default_dqn_agent.cpp:183-201](../../core/anet-core/src/default_dqn_agent.cpp)）を触る。
+- [PRD182](182_source_layout_10prd.md)（ソースの配置）は暫定・未着手で、DQN 系の共通部品を `dqn_based` のライブラリに、DefaultDQN と Rainbow をそれぞれ別のライブラリに置く案を持つ。
 
 ## 3. 用語
 
@@ -224,7 +224,7 @@
 | 診断の群の共通の型を Agent の共通基盤に置き、ImageClsAgent も載せる | 範囲外 | 題材の 5 件の外。再開条件: ImageCls に診断の群を足すとき（D22） |
 | ボーナスの診断の `.item<float>()` を 1 回の転送にまとめる | 範囲外 | 性能の変更で別の関心。再開条件: RND の時間の内訳と合わせて測るとき（§1.3） |
 | Learner の購読を「開始前の宣言」と「呼び出しごとの要求」に分ける | 範囲外 | 購読の口を変える別の関心。再開条件: 購読の口を変える要求が出たとき（§1.3） |
-| PRD937・PRD944 を先に入れる | 不採用 | PRD121 の待ちが延びる（§1.3） |
+| PRD165・PRD161 を先に入れる | 不採用 | PRD121 の待ちが延びる（§1.3） |
 | 課題ごとに PRD を分ける、規模の小さい 2 件だけを先に出す | 不採用 | 起票時の指示（D1） |
 
 ### 5.2 起票時の未決表との対応
@@ -246,7 +246,7 @@
 | 13 確かめ方 | D16〜D19・D24、§8 の U3 | 細部として推奨の既定で埋めた。D19 と D24 は別モデルの検討のあとに直した・足した |
 | 14 特性テスト | D15 | 規約から導き、対象は細部として推奨の既定で埋めた |
 | 15 写して記録する関数 | D14 | 事実（§2.4）から導いた。起票時の記述を直した |
-| 16 PRD937 との順序 | §1.3 の非ゴール | 再グリルの初めに、ゴールと非ゴールとして合意した |
+| 16 PRD165 との順序 | §1.3 の非ゴール | 再グリルの初めに、ゴールと非ゴールとして合意した |
 | 17 PRD127 との順序 | §2.6 | 事実（PRD127 は実装済み） |
 | 18 設計文書 | D20 | G1 から導いた |
 | 19 ADR | D21 | ADR を起こす条件から導いた |
@@ -445,9 +445,9 @@ probe_random
 ## 10. ほかの PRD との関係
 
 - [PRD121](121_extrinsic_intrinsic_value_decomposition_10prd.md)（価値の分解）は、本 PRD のあとに実装する（PRD121 の D18）。PRD121 の課題は、§9 の 5 件を待つ。PRD121 の「127 との調整」（Trace のボーナスの列の式）は、D11 で 1 か所にした式を直せば済む。PRD121 が足すものごとの足す先は §6.7 に並べた。
-- [PRD924](924_intrinsic_reward_novelty_10prd.md)（内的報酬と方策の組）も、内的報酬の扱いと設定を広げる。本 PRD の直しのあとに足す。
+- [PRD173](173_intrinsic_reward_novelty_10prd.md)（内的報酬と方策の組）も、内的報酬の扱いと設定を広げる。本 PRD の直しのあとに足す。
 - [PRD127](127_eval_trace_intrinsic_reward_columns_10prd.md) は実装済み（§2.6）。本 PRD は、その実装のあとのコードを直す。写しのロックの取り方（PRD127 の D4）は変えない。
 - [PRD129](129_eval_trace_bonus_beta_before_learning_10prd.md)（Evaluation Trace のボーナスの β を、学習の入口を通る前から用意する。未実装）は、D11 で内的報酬のクラスへ移す箇所（構築時の β、学習を止めた構成での学習の入口）を変える。どちらを先に実装してもよい（PRD129 の D8）。PRD129 は、本 PRD のステージの切れ目（あるステージの前後比較を通したあと。本 PRD を始める前も含む）にだけ入れ、ステージの途中には入れない。ステージの途中で入れると、そのステージの前後比較で、本 PRD の直しによる差と PRD129 による差を分けられないため（G3、D1）。切れ目で入れたときは、次のステージへ進む前に、その時点のコードで実装前の実行体と設定を保存し直し（§6.4。以降のステージの前後比較はこれと比べる）、§6.3 の特性テストのうち PRD129 で挙動が変わるもの（学習を止めた構成など）の期待値を、PRD129 のあとの挙動に直す。β の評価の置き場は、ステージ 3 より前に入ったなら、ステージ 3 で内的報酬のクラスへ移す。ステージ 3 のあとに入ったなら、PRD129 がクラスの中に置く（PRD129 の D8）。
-- [PRD938](938_nn_trace_capture_unification_10prd.md) の再グリルで出た、Learner の購読の見直し案は入れない（§1.3）。
-- [PRD944](944_observation_pipeline_10prd.md)（観測パイプライン）と [PRD937](937_nn_head_projection_separation_10prd.md)（Head の射影の分離）は待たない（§1.3）。PRD944 は、§6.1 のステージ 5 で分けた「入力の spec を作る」関数を触ることになる。
-- [PRD957](957_source_layout_10prd.md)（ソースの配置）は、DQN 系の共通部品を `dqn_based` のライブラリに置く案を持つ。D3 で共通部品へ移した処理は、その置き場に乗る。
+- [PRD170](170_nn_trace_capture_unification_10prd.md) の再グリルで出た、Learner の購読の見直し案は入れない（§1.3）。
+- [PRD161](161_observation_pipeline_10prd.md)（観測パイプライン）と [PRD165](165_nn_head_projection_separation_10prd.md)（Head の射影の分離）は待たない（§1.3）。PRD161 は、§6.1 のステージ 5 で分けた「入力の spec を作る」関数を触ることになる。
+- [PRD182](182_source_layout_10prd.md)（ソースの配置）は、DQN 系の共通部品を `dqn_based` のライブラリに置く案を持つ。D3 で共通部品へ移した処理は、その置き場に乗る。

@@ -511,7 +511,7 @@ struct WeightNormConfig {
 | CNBlock / TransformerEncoder への mode | keep（2026-08-29 改訂） | 当初 deferred gate としたが、共通部品化（配線は全部・実使用は config の判断、型レベルの部分適用罠を残さない）で全 6 型配線へ改訂（D1/D11） |
 | per-weight override（ResBlock の init1/init2 と同様に `weight_norm1` / `weight_norm2` の per-weight `WeightNormConfig` メンバを足す形） | **deferred gate** | Gogianu 型の層選択実験（1 層だけ SN）が pin されたら追加。空間的選択は当面ブロック・インスタンス単位で足りる |
 | mode ≠ `none` × `use_sdpa=false` の旧 MHA 経路対応 | **cut**（fail-fast） | 旧経路は SDPA 等価性確認用の互換参照。functional multi_head_attention_forward への書き換えは必要が pin されたら |
-| 層別 σ の詳細 | **deferred gate** | [920_nn_block_metrics](../920_nn_block_metrics_10prd.md) の領分 |
+| 層別 σ の詳細 | **deferred gate** | [920_nn_block_metrics](../135_nn_block_metrics_10prd.md) の領分 |
 | actor クローン時に σ を確定して再計算 skip | **deferred gate** | actor 側 throughput が実測で問題になったとき |
 | power iteration 回数の config 化 / σ₀ 目標係数 | **cut** | 文献標準は 1 回・σ₀ 無し。必要になった実験が存在しない |
 | 独立 SpectralNorm ブロック（wrap DSL） | **cut** | 原理的に不成立（重み所有 forward 内でしか実現できない）+ 1関心2機構 |
@@ -600,7 +600,7 @@ ResBlock 全部 + Linear512）を推奨 — GroupNorm 試験の部分適用の�
    （config・`train.seed`・step 数は実装計画で 1 組に固定して記載）し、解決済みconfigとmetricsマスタの
    主要 tag（loss / q_max / 61/62）の checksum を記録 → (b) 改修後ビルドで**同一コマンド**を実行 →
    (c) metrics checksum 一致。`agent_close.anet`のraw SHA-256は同一base実行体の再実行間でも一致しない既存serialize非決定性があるため合否ゲートにせず、サイズとhashを観測値として記録する
-   （実測と恒久対処の観点は [930_serialize_10prd](../930_serialize_10prd.md) §決定性と等価性検証へ記録済み）。加えて `weight_norm.mode = none`（既定）では
+   （実測と恒久対処の観点は [930_serialize_10prd](../143_serialize_10prd.md) §決定性と等価性検証へ記録済み）。加えて `weight_norm.mode = none`（既定）では
    **SN の数値経路（state 生成・power iteration・除算）に不到達**
    （`GetSpectralNormEntries()` が空を返す仮想関数呼び出し自体は走ってよい）。
 2. **ON 決定性**: `spectral`（+ `init2.mode = he`）と `spectral_cap`（zero-init のまま）の**各々**で

@@ -192,32 +192,84 @@ def subject_prd_numbers(subject):
     return numbers
 
 
-def prd_rows(root, page, files, pending=None):
-    # コマンド長を抑えて履歴を読む。
+RENUMBER_PREFIX = re.compile(r'^> \d{4}-\d{2}-\d{2} 番号を')
+RENUMBER_LINE = re.compile(r'^> (\d{4}-\d{2}-\d{2}) 番号を (\d{3}) から (\d{3}) へ振り直した（PRD\d{3}）。$')
+RENUMBER_FORMAT = '"> YYYY-MM-DD 番号を NNN から NNN へ振り直した（PRDNNN）。"'
+
+
+def renumber_declarations(root):
+    # PRD の題のあと最初の見出しまでにある振り直しの行を読み、(旧い番号, 振り直した日, PRD のパス) を返す（PRD131 D7・§5.3）。
+    root = Path(root)
+    result = []
+    for path in sorted((root/'docs/memo').rglob('*_10prd.md')):
+        name = path.relative_to(root).as_posix()
+        # 1 行目は題。本文やコードの枠に書いた日付の例を読まないよう、最初の見出しで止める。
+        lines = []
+        for number, line in enumerate(path.read_text(encoding='utf-8-sig').splitlines()[1:], start=2):
+            if line.startswith('#'):
+                break
+            if not RENUMBER_PREFIX.match(line):
+                continue
+            match = RENUMBER_LINE.match(line)
+            if not match:
+                raise ValueError(f'{name}:{number}: renumber line={line!r}; expected {RENUMBER_FORMAT}')
+            lines.append((match[1], match[2], match[3], number))
+        # 1 つの PRD の振り直しは、日付の順に旧い番号から新しい番号へつながり、最後がファイルの番号になる。
+        seen = set()
+        for day, _, _, number in lines:
+            if day in seen:
+                raise ValueError(f'{name}:{number}: renumber date={day}; expected one renumber line per date')
+            seen.add(day)
+        chain = sorted(lines)
+        for (_, _, new, _), (_, old, _, number) in zip(chain, chain[1:]):
+            if old != new:
+                raise ValueError(f'{name}:{number}: renumber from {old}; expected from {new} (the previous renumber line)')
+        if chain and chain[-1][2] != path.name[:3]:
+            raise ValueError(f'{name}:{chain[-1][3]}: renumber to {chain[-1][2]}; expected the file number {path.name[:3]}')
+        result.extend((old, day, path) for day, old, _, _ in lines)
+    return result
+
+
+def prd_rows(root, page, files, pending=None, declarations=None):
+    # コマンド長を抑えて履歴を読む。件名の番号はコミットの日付と組で持つ（振り直しの行の日付と比べるため）。
+    import datetime
     import os
-    numbers = set()
+    mentions = set()
     for offset in range(0, len(files), 80):
-        subjects = git(root, 'log', '--format=%s', '--', *files[offset:offset+80])
-        for line in subjects.splitlines():
-            numbers.update(subject_prd_numbers(line))
-    # これから作るコミットも、触るファイルがページに当たれば履歴と同じに数える。
+        history = git(root, 'log', '--date=short', '--format=%ad%x09%s', '--', *files[offset:offset+80])
+        for line in history.splitlines():
+            date, _, subject = line.partition('\t')
+            mentions.update((number, date) for number in subject_prd_numbers(subject))
+    # これから作るコミットも、触るファイルがページに当たれば履歴と同じに数える。日付は道具を回した日とする。
     if pending and pending['files'] & set(files):
-        numbers.update(subject_prd_numbers(pending['subject']))
-    rows = ['点検が作り直す。手で直さない。', '']
-    unresolved = []
-    for number in sorted(numbers):
-        matches = sorted((Path(root)/'docs/memo').rglob(number+'_*_10prd.md'))
-        if len(matches) != 1:
+        today = datetime.date.today().isoformat()
+        mentions.update((number, today) for number in subject_prd_numbers(pending['subject']))
+    if declarations is None:
+        declarations = renumber_declarations(root)
+    # 番号と日付の組を PRD に当てる。振り直しの行が先で、無ければファイル名の番号で探す（PRD131 §5.3）。
+    sources = set()
+    unresolved_counts = {}
+    for number, date in sorted(mentions):
+        declared = sorted({path for old, day, path in declarations if old == number and day >= date})
+        matches = declared or sorted((Path(root)/'docs/memo').rglob(number+'_*_10prd.md'))
+        if len(matches) == 1:
+            sources.add(matches[0])
+        else:
             # 共有番号と消えた番号はリンク無しで残し、点検側へ報告する。
-            rows.append(f'- PRD{number} — （PRD を一意に決められない）')
-            unresolved.append(dict(prd='PRD'+number, matches=len(matches)))
-            continue
-        source = matches[0]
+            unresolved_counts.setdefault(number, len(matches))
+    # 同じ PRD に当たった番号は 1 行にまとめ、今の番号の順に並べる。
+    entries = []
+    for source in sources:
+        number = source.name[:3]
         title = next((line.lstrip('# ').strip() for line in source.read_text(encoding='utf-8-sig').splitlines()
                       if line.startswith('# ')), 'PRD'+number)
         target = Path(os.path.relpath(source, page.parent)).as_posix()
-        rows.append(f'- [PRD{number}]({target}) — {title}')
-    return ('\n'.join(rows) if numbers else '\n'.join(rows)+'なし'), unresolved
+        entries.append((number, target, f'- [PRD{number}]({target}) — {title}'))
+    entries.extend((number, '', f'- PRD{number} — （PRD を一意に決められない）')
+                   for number in unresolved_counts)
+    rows = ['点検が作り直す。手で直さない。', '', *(row for _, _, row in sorted(entries))]
+    unresolved = [dict(prd='PRD'+number, matches=count) for number, count in sorted(unresolved_counts.items())]
+    return ('\n'.join(rows) if mentions else '\n'.join(rows)+'なし'), unresolved
 
 
 def issue_records(root):
@@ -526,6 +578,8 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
                if pending_subject else None)
     rules = CategoryRules(root)
     records = issue_order(issue_records(root))
+    # PRD の振り直しの行は全ページで同じなので、書く前に 1 回だけ読んで検査する（崩れていれば何も書かずに止まる）。
+    declarations = renumber_declarations(root)
     index = root/'docs/management/issues/INDEX.md'
     current = [r for r in records if r['status'] not in ('次版','解決')]
     index_text = ('# 課題の一覧\n\n道具が作り直す。手で直さない。既定は本版（次版・解決を除く）。\n\n'+issue_table(root,index,current)+'\n\n'
@@ -538,7 +592,7 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
             text = page.read_bytes().decode('utf-8')
             result = replace_section(text, 'ファイル', file_rows(root, page, files, rules,
                                                                    page.stem if folder == 'apps' else None))
-            prds, unresolved = prd_rows(root, page, files, pending)
+            prds, unresolved = prd_rows(root, page, files, pending, declarations)
             result = replace_section(result, 'PRD の一覧', prds)
             selected = [r for r in records if page.stem in r['area'] and r['status'] not in ('次版','解決')]
             result = issue_section(result, issue_table(root,page,selected,records), page.relative_to(root))

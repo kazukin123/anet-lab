@@ -2,7 +2,7 @@
 
 > 起点: 2026-08-25、`42_env/10_game_score_mean` が「128 env の平均」ではなく「その step で完了した env の平均」であると判明したこと。2026-09-05、PRD 060 の評価セッションで eval 側の個体分布が復元不能になり顕在化。
 > グリル: 2026-09-05（grill-with-docs。決定 D1〜D16、再点検と6項目の最終簡素化パス済み）。旧題「record チャネル」から改名。
-> 関連: [060 評価セッション](060_eval_batch_episodes_10prd.md)、[054 inspect_run / `metrics.defs`](054_inspect_run_10prd.md)、[912 background eval snapshot 順序](../912_background_eval_snapshot_ordering_10prd.md)、[932 episode forensics](../932_episode_forensics_10prd.md)、[ADR 0015](../../adr/0015-metrics-cache-disposable-derivative.md)、[ADR 0029](../../adr/0029-analysis-metadata-emitted-by-runner.md)、[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)。
+> 関連: [060 評価セッション](060_eval_batch_episodes_10prd.md)、[054 inspect_run / `metrics.defs`](054_inspect_run_10prd.md)、[912 background eval snapshot 順序](../141_background_eval_snapshot_ordering_10prd.md)、[932 episode forensics](../144_episode_forensics_10prd.md)、[ADR 0015](../../adr/0015-metrics-cache-disposable-derivative.md)、[ADR 0029](../../adr/0029-analysis-metadata-emitted-by-runner.md)、[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[ADR 0037](../../adr/0037-metrics-trace-channel-and-session-end-event.md)。
 
 ## 1. 背景
 

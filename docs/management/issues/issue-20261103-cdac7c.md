@@ -13,7 +13,7 @@ domain: アルゴリズム
 ai_judge: 残件有り
 ai_judged: 2026-11-09
 docs: []
-prd: "[[940_target_update_step_axis_10prd]]"
+prd: "[[148_target_update_step_axis_10prd]]"
 priority: 中
 depends: []
 parent:
@@ -36,7 +36,7 @@ tags: []
 
 ## 事象
 
-対応するPRD: [940_target_update_step_axis_10prd.md](../../memo/940_target_update_step_axis_10prd.md)
+対応するPRD: [148_target_update_step_axis_10prd.md](../../memo/148_target_update_step_axis_10prd.md)
 
 ## 影響
 

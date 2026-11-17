@@ -414,7 +414,7 @@ Observerまたは出力形式を変更する場合は次を確認する。
 
 主な回帰testは[observers_test.cpp](../../core/anet-core/src/observers_test.cpp)、[metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp)、[log_test.cpp](../../core/anet-core/src/log_test.cpp)、[episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp)に置く。
 
-eval schedule の発火列・設定移行・短い Run の確認手順は [PRD918 検証資材](../../core/anet-core/testdata/prd918/README.md) を参照する。
+eval schedule の発火列・設定移行・短い Run の確認手順は [PRD158 検証資材](../../core/anet-core/testdata/prd158/README.md) を参照する。
 
 ## 10. 関連文書
 

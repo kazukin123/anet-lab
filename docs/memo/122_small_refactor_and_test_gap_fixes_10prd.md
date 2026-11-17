@@ -4,7 +4,7 @@
 > 2026-11-10 改訂（グリル）: グリルを行い、暫定の印を外した。未決表の 14 行を §4 の確定事項 D1〜D15 へ移し、未決は無くなった（§8）。暫定の既定から変えた点は次のとおり。(1) e088eb は、生きている Panel の集まりで判定する形をやめ、転送した Panel が親への伝播を止める形にした（D13）。(2) 58bf49 は、ヒートマップの加工を画面の部品に依らない関数に切り出して単体テストを足す（D10・D11）。(3) 741251 の特性テストの範囲を、直接比べる 43 個から、認識する key の全部に広げ、`GetScalar` だけが呼ぶ補助 4 つも .cpp へ移す（D6・D7）。(4) ステージ 1 に、短い Run の前後比較を足した（D8、受入 A7）。(5) e088eb に特性テストを足した（D14）。(6) SymLog のテストで、閾値 0 の読み替えを固めない（D3）。(7) §2.1 の事実を 4 点直した（741251 の key の数、58bf49 の表の更新とモード、e088eb の既存の GUI テストが通る経路、d337bd の robust update の不等号）。§2.3（`wxEVT_CHAR_HOOK` の流れ）を足した。(8) G2 にデバッグログの例外を書き、非ゴールの「キーの転送の経路」の行を狭めた（§3）。(9) グリルのあと、別モデル（Opus）の検討を受けて直した。741251 の直接比べる 43 個の key を、群ごとの関数ではなく 1 つの表にまとめる形にした（D6）。robust update の受入で書き換える行、`GetScalar` の止まる経路と key ごとの戻り値、ヒートマップの加工の契約（平滑化の重み、契約の外の入力）とテストの場合分け、device の検査の前提、テストの実行体が既定のスイートに入らないことの扱い、退けた案の表を直した。(10) レビューの指摘を受けて、A6 の検索の文字列（キーと既定値の対だけに当たる形）と、D7・A5 の、止まる経路のうちテストで通さなくてよいものの条件を直した。あわせて、A5 の .cpp の件数の受入を 43 個の名前での検索に替え、A5 の宣言の検索を「直す前より 1 多い」に替え、A6 にキーの有無を問う検索の項を足し、D8 の理由に表への変更を、D14 に設計文書へ書く名前を、§5.3 に地図への書き戻しの段落を、§5.4 に `State` の既存の用例を足した。(11) 工程の終わりに、見つかった不具合の疑い 2 件を課題に記録し、GUI のテストの実行体が既定のテストに入らない件を既存の課題へ追記して、§7 にその ID を書いた。
 > 起点: 2026-11-10 の課題の整理の枠。ユーザーが、type がリファクタリングで手間の小さい課題 8 件を 1 本の PRD に束ねるよう指示した。AI は、ビルドと単体テストで閉じる core の 6 件と、Runner を動かして確かめる GUI の 2 件で確かめ方が違うことを示し、人の手間（グリル・計画の承認・レビュー・コミットの回数）で比べて、1 本の PRD の中で実装を 2 つのステージに分ける形を出した。ユーザーは、その形で暫定の PRD を起こすよう指示した。グリルと実装は別の枠で行う。
 > 題材: [issue-20261103-d4aa77](../management/issues/issue-20261103-d4aa77.md)、[issue-20261103-d337bd](../management/issues/issue-20261103-d337bd.md)、[issue-20261103-60f11c](../management/issues/issue-20261103-60f11c.md)、[issue-20261103-03a1b6](../management/issues/issue-20261103-03a1b6.md)、[issue-20261103-741251](../management/issues/issue-20261103-741251.md)、[issue-20261103-c1e48b](../management/issues/issue-20261103-c1e48b.md)、[issue-20261103-58bf49](../management/issues/issue-20261103-58bf49.md)、[issue-20261103-e088eb](../management/issues/issue-20261103-e088eb.md)。
-> 関連: [PRD119](119_small_doc_comment_config_fixes_10prd.md)（小さな直しを 1 本に束ねた前例）、[PRD117](117_warn_policy_and_unread_config_10prd.md)（scaler の WARN と `post_process_type` の構築時の検証）、[PRD948](948_qvaluepanel_manual_action_state_alignment_10prd.md)（QValuePanel の Q と手動の行動の時点）、[PRD070](done/070_device_spec_auto_10prd.md)（device の一括検査）、[PRD035](done/035_approx_actor_priority_per_10prd.md)（初期優先度の completer）、[PRD105](done/105_eval_trace_arrow_key_forced_action_10prd.md)（矢印キーと強制の行動）、[PRD094](done/094_evalpanel_step_history_10prd.md)（読み口の整理の前後比較）、[PRD109](done/109_runner_startup_background_init_10prd.md)（短い Run の前後比較の前例）。
+> 関連: [PRD119](119_small_doc_comment_config_fixes_10prd.md)（小さな直しを 1 本に束ねた前例）、[PRD117](117_warn_policy_and_unread_config_10prd.md)（scaler の WARN と `post_process_type` の構築時の検証）、[PRD176](176_qvaluepanel_manual_action_state_alignment_10prd.md)（QValuePanel の Q と手動の行動の時点）、[PRD070](done/070_device_spec_auto_10prd.md)（device の一括検査）、[PRD035](done/035_approx_actor_priority_per_10prd.md)（初期優先度の completer）、[PRD105](done/105_eval_trace_arrow_key_forced_action_10prd.md)（矢印キーと強制の行動）、[PRD094](done/094_evalpanel_step_history_10prd.md)（読み口の整理の前後比較）、[PRD109](done/109_runner_startup_background_init_10prd.md)（短い Run の前後比較の前例）。
 
 ## 1. 問題
 
@@ -97,8 +97,8 @@
 | scaler の `Unknown squash_type` の WARN と、DefaultDQNAgent の経路での `post_process_type` の値域の構築時の検証を一緒に直す | [PRD117](117_warn_policy_and_unread_config_10prd.md) の D7 と §5.5 の範囲である。本 PRD は今の振る舞いをテストで固めるだけにする | 制約ではない（別の関心。PRD117 の WARN の線引きと一緒に決める） |
 | テストで見つかった食い違い（MuZero の打ち切りの式など）を本 PRD で直す | 振る舞いを変えると G2 に反し、直し方の判断が要る | 制約ではない。見つかったら起票の候補にする（D15） |
 | `GetScalar` の key の名前を変える・整理する | 設定の `metrics.scalar` が key の名前で参照している。名前を変えると設定とテストの移行が要る | 制約ではない（別の関心。メトリクスの名前の整理は [PRD108](108_metrics_tag_numbering_10prd.md) の範囲） |
-| QValuePanel の Q と手動の行動の時点のずれを一緒に直す | [PRD948](948_qvaluepanel_manual_action_state_alignment_10prd.md) の範囲で、表示の振る舞いを変える | 制約ではない（別の関心） |
-| 転送イベントの中身（種類・ID・発生元の window・キーの情報）と、`RunnerFrame::OnKey` の解釈を作り替える | 行動の割り当てと step の進み方が変わり、G2 に反する。キーの割り当ての設定化は [PRD922](922_input_mapping_joystick_10prd.md) の範囲である | 制約ではない（別の関心）。`wxEVT_CHAR_HOOK` の親への伝播は、外から見える振る舞いを変えないので変える（D13） |
+| QValuePanel の Q と手動の行動の時点のずれを一緒に直す | [PRD176](176_qvaluepanel_manual_action_state_alignment_10prd.md) の範囲で、表示の振る舞いを変える | 制約ではない（別の関心） |
+| 転送イベントの中身（種類・ID・発生元の window・キーの情報）と、`RunnerFrame::OnKey` の解釈を作り替える | 行動の割り当てと step の進み方が変わり、G2 に反する。キーの割り当ての設定化は [PRD159](159_input_mapping_joystick_10prd.md) の範囲である | 制約ではない（別の関心）。`wxEVT_CHAR_HOOK` の親への伝播は、外から見える振る舞いを変えないので変える（D13） |
 | `InitRL` の同じ塊に触る課題（[issue-20261103-78df9c](../management/issues/issue-20261103-78df9c.md): 同じ fatal が 2 回ログに出る、[issue-20261103-9b314a](../management/issues/issue-20261103-9b314a.md): エラーが指定値を書かない）を一緒に直す | どちらもログとエラーの文言を変えるので、G2 に反する | 制約ではない（別の関心。振る舞いを変える直しとして別に扱う） |
 | ほかのヘッダの先頭のコメントを一括で点検する | ガードの無いヘッダは dqn_based_agent.hpp だけだった（§2.1）。先頭のコメントの食い違いは、見つかった 1 件だけを直す | 制約ではない。見つかれば別の課題にできる |
 
@@ -187,7 +187,7 @@
 
 変える経路を書いている箇所を検索した結果は次のとおり。
 
-- キーの転送: `git grep -n -i -E "OnKey|CHAR_HOOK|ForwardedKeyEvent|EVT_FORWARDED_KEY|多重発火|多重の転送|キーの転送|転送された"` を `docs`・`AGENTS.md`・`CONTEXT.md`・`.agents`・`.claude` に当て、過去の PRD（`docs/memo/done`）、課題の記録、本 PRD を除いた当たりは 11 行である。ユーザーガイド 020 の 470・529 行と設計文書 160 の 131 行は、転送された矢印の使い方の記述で、転送の中身と解釈を変えないので直さない。PRD922 の 18・19・312・347 行、PRD923 の 19 行、PRD944 の 61 行は、転送と `RunnerFrame::OnKey` の経路の記述で、D13 のあとも成り立つので直さない。PRD954 の 62 行と wiki の 319 の課題の行は、別の語に当たっただけである。直すのは、上に挙げた設計文書 160 の `Panel` の行だけである。
+- キーの転送: `git grep -n -i -E "OnKey|CHAR_HOOK|ForwardedKeyEvent|EVT_FORWARDED_KEY|多重発火|多重の転送|キーの転送|転送された"` を `docs`・`AGENTS.md`・`CONTEXT.md`・`.agents`・`.claude` に当て、過去の PRD（`docs/memo/done`）、課題の記録、本 PRD を除いた当たりは 11 行である。ユーザーガイド 020 の 470・529 行と設計文書 160 の 131 行は、転送された矢印の使い方の記述で、転送の中身と解釈を変えないので直さない。PRD159 の 18・19・312・347 行、PRD160 の 19 行、PRD161 の 61 行は、転送と `RunnerFrame::OnKey` の経路の記述で、D13 のあとも成り立つので直さない。PRD154 の 62 行と wiki の 319 の課題の行は、別の語に当たっただけである。直すのは、上に挙げた設計文書 160 の `Panel` の行だけである。
 - `InitRL` の device の検査: `git grep -n -i -E "InitRL|explicit_cuda|明示.{0,6}cuda|一括.{0,10}(報告|検査)|device.{0,20}既定" -- docs/design AGENTS.md CONTEXT.md` の当たりは 9 行で、Agent の factory を `InitRL()` で登録する記述（設計文書 110 の日英の 4 行）と、3 つのキーの既定値の記述（ユーザーガイド 020 の 61・63・64 行、設計文書 100 の 327 行、設計文書 110 の 189 行）である。既定値は持ち主のクラスのもので変わらないので、直すものは無い。
 - `GetScalar`: `git grep -n "GetScalar" -- docs/design AGENTS.md CONTEXT.md` の 40 件は、戻り値の意味、key の名前と意味、値の作り方、汎用層の責任境界の記述で、本体をどこに置くか（ヘッダの中か .cpp か）を書くものは無い。
 - `GetScalar` の補助: `git grep -n -E "rainbow_agent_impl|GetPlasticityScalar|ValidateSpectralNormSentinel|TransQToCpu"`（課題の記録と本 PRD を除く）の当たりは、dqn_based_agent.hpp の中と、ImageCls の同名の別の関数（image_cls_agent.hpp）、過去の PRD065 の 1 行である。直すのは dqn_based_agent.hpp と dqn_based_agent.cpp だけである。
@@ -197,7 +197,7 @@
 
 - `GetScalar` の key の名前と、それを参照する `metrics.scalar` の設定（§3.2）。
 - PRD117 が扱う scaler の WARN と、DefaultDQNAgent の経路での `post_process_type` の検証（§3.2）。
-- QValuePanel の `CreateData`（317〜399 行。PRD948 の範囲）と設定のキー、`RunnerFrame::OnKey` の解釈（PRD922 の範囲）。
+- QValuePanel の `CreateData`（317〜399 行。PRD176 の範囲）と設定のキー、`RunnerFrame::OnKey` の解釈（PRD159 の範囲）。
 - `Panel::OnMouse` と転送イベントの型。
 - 過去の PRD・実装記録・課題の単票の題と事象に書かれた当時の行番号。
 
@@ -319,7 +319,7 @@ A1〜A7 はステージ 1、A8・A9 はステージ 2 の受入である。A10�
 | ヒートマップの加工を core の GUI 共通へ移し、既定のテストスイートで流す | 不採用（D11） | 加工と `QValueData` を使うのは Runner の Q-Values の表示だけである。テストを既定のスイートに入れるために、アプリケーションの部品を core へ置くことになる |
 | QValuePanel の、平滑化が有効で半径が 0 以下のときに空の重みを読む不具合を直す | 範囲外（D15） | 振る舞いを変える直しである。[issue-20261110-3f4e63](../management/issues/issue-20261110-3f4e63.md) に記録した |
 | MuZero の truncated の補いの値を直す | 範囲外（D15） | 学習ターゲットが変わる。[issue-20261110-d21e5f](../management/issues/issue-20261110-d21e5f.md) に記録した（D4） |
-| Runner の GUI のテストの実行体を、既定のビルドと標準のテスト手順に入れる | 範囲外（別の関心） | ビルドとテストの自動化の関心である。[issue-20261103-61d771](../management/issues/issue-20261103-61d771.md)（PRD906 の課題）に追記した。再開条件: PRD906 のグリル |
+| Runner の GUI のテストの実行体を、既定のビルドと標準のテスト手順に入れる | 範囲外（別の関心） | ビルドとテストの自動化の関心である。[issue-20261103-61d771](../management/issues/issue-20261103-61d771.md)（PRD156 の課題）に追記した。再開条件: PRD156 のグリル |
 | `GetScalar` の key の全部を 1 枚の表にする | 不採用（D6） | 名前を解析して受ける群（attention entropy など）は、名前から番号を読むので表に載らない。表にするのは、直接比べていた 43 個だけにする |
 | 直接比べていた 43 個も群ごとの関数に分け、中を if の連鎖のままにする | 不採用（D6） | key の重複や届かない分岐が、機械では見つからないまま残る。key が文字列の直書きのまま散らばる |
 | `InitRL` が既定値を持つクラスの定数を引く | 不採用（D9） | `RunManager::Config` を trainer.cpp の外へ出す変更が要り、書かれていないキーを飛ばせば今の結果のまま二重持ちが消える |
@@ -355,8 +355,8 @@ A1〜A7 はステージ 1、A8・A9 はステージ 2 の受入である。A10�
 
 - 先に要る PRD は無い。
 - [PRD117](117_warn_policy_and_unread_config_10prd.md) は scaler_impl.cpp の 420 行の WARN と 505 行付近の DEBUG の出力を変え、DefaultDQNAgent の経路に `post_process_type` の構築時の検証を足す。本 PRD の scaler のテストは有効な値だけを使い、ログを見ないので、どちらを先に入れてもよい（D3）。同じファイルの同じ関数（`NormalizeAndUpdateStats`）に触るので、並べて実装するときは片方を先に入れる。
-- [PRD948](948_qvaluepanel_manual_action_state_alignment_10prd.md) は QValuePanel.cpp の `CreateData` に触る。本 PRD は `Update` だけを変えるので、どちらを先に入れてもよい。
-- [PRD922](922_input_mapping_joystick_10prd.md) は `RunnerFrame::OnKey` の解釈を作り替える。本 PRD は `Panel::OnKey` の伝播だけを変え、転送イベントの中身は変えないので、どちらを先に入れてもよい。PRD922 が `Panel` より上の window でキーを受ける部品を足すときは、転送イベントを使う（D13）。
+- [PRD176](176_qvaluepanel_manual_action_state_alignment_10prd.md) は QValuePanel.cpp の `CreateData` に触る。本 PRD は `Update` だけを変えるので、どちらを先に入れてもよい。
+- [PRD159](159_input_mapping_joystick_10prd.md) は `RunnerFrame::OnKey` の解釈を作り替える。本 PRD は `Panel::OnKey` の伝播だけを変え、転送イベントの中身は変えないので、どちらを先に入れてもよい。PRD159 が `Panel` より上の window でキーを受ける部品を足すときは、転送イベントを使う（D13）。
 - [PRD108](108_metrics_tag_numbering_10prd.md) がメトリクスの key の名前を変えるときは、本 PRD の `GetScalar` の表（D6）と特性テスト（D7）の key の並びも直す。
 
 ## 10. 参照

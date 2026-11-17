@@ -564,7 +564,7 @@ constexpr const char* kScheduleActorKey = "eval";
 constexpr const char* kScheduleRunnerName = "eval1";
 constexpr anet::seed_t kScheduleSeed = 123;
 
-TEST_CASE("EpisodeEvalObserver suppresses the first scheduled evaluation by default", "[prd918][eval_schedule]")
+TEST_CASE("EpisodeEvalObserver suppresses the first scheduled evaluation by default", "[prd158][eval_schedule]")
 {
     struct ScheduleCase {
         int offset;
@@ -604,7 +604,7 @@ TEST_CASE("EpisodeEvalObserver suppresses the first scheduled evaluation by defa
     CHECK(sessions->learn_steps == schedule.expected);
 }
 
-TEST_CASE("EpisodeEvalObserver shifts the sequence and counts observed firings without catch-up", "[prd918][eval_schedule]")
+TEST_CASE("EpisodeEvalObserver shifts the sequence and counts observed firings without catch-up", "[prd158][eval_schedule]")
 {
     // 格子から決めた期待座標を固定し、共通ゲートの実装をテストへ写さない。
     struct SequenceCase {

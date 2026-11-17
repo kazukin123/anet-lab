@@ -5,7 +5,7 @@
 > 2026-11-09 再グリル（同じ日の別の枠）。暫定の印を外し、§8 の未決表の 11 行と §4 の暫定の既定を、§4 の確定事項 D1〜D15 へ移した。題材に [issue-20261103-fb8a45](../management/issues/issue-20261103-fb8a45.md) を足して 8 件にした（D13）。照合で分かった事実を §2.1 に足し、直した。structure は `(=Tag)`・`(@Source)`・`Add(...)` を解釈しない。nn.txt の 311〜312 行にも古い init.mode のコメントがある。既定葉検査はキーの名前で分類する。`anet-lab-docs-` は done/043 にもある。§1 に 1.5 を足し、§2.2 に規約 4 項目を足した。§5.1 に nn.txt の「記法」の節と設計文書 130 §2.4 を足し、§5.2・§5.4 を D 番号と fb8a45 に合わせた。§6 の A2・A5・A6 を書き直し、A10 を足した。§3.2 の非ゴールに記法の実装を足した。§7 に 4 行を足した。§8 には範囲外の 2 件（記法の実装、設計文書 220 の fps の記述）を残し、§9・§10 を整えた。レビューの指摘で、nn.txt の 376 行（密なスキップ結合をタグで書けるとする MEMO）を D7 の直す箇所に足し、§5.2 の移行対象の範囲と、タグを書く箇所の検索の書き方と、D13 の理由を直した。再グリルで足した行番号も、同じ日の作業ツリーの位置である。
 > 2026-11-09 起票（暫定。質疑を省き、既定を §8 の未決表に置いた）。行番号は起票時点の作業ツリーの位置で、実装時は近傍の記述で探し直す。
 > 起点: 2026-11-09 の課題の棚卸し。本版の課題の WSJF を同じ基準で採点し直したところ、手間の小さい課題（文書・コメント・設定の数行）が一覧の上位に並んだ。ユーザーが、それらを 1 本の暫定 PRD に束ねて起票するよう指示した。グリルと実装は別の枠で行う。
-> 題材: [issue-20261103-554849](../management/issues/issue-20261103-554849.md)、[issue-20261103-c1c608](../management/issues/issue-20261103-c1c608.md)、[issue-20261103-5a5373](../management/issues/issue-20261103-5a5373.md)、[issue-20261103-2751c8](../management/issues/issue-20261103-2751c8.md)、[issue-20261103-879a70](../management/issues/issue-20261103-879a70.md)、[issue-20261106-ddd395](../management/issues/issue-20261106-ddd395.md)、[issue-20261103-ee32bd](../management/issues/issue-20261103-ee32bd.md)、[issue-20261103-fb8a45](../management/issues/issue-20261103-fb8a45.md)。関連: [PRD117](117_warn_policy_and_unread_config_10prd.md)（読まれない設定の検出）、[PRD118](118_atari_run_profile_flatten_10prd.md)（Atari の Run プロファイルの整理）、[PRD934](934_metrics_viewer_lod_documentation_consistency_10prd.md)（LOD の記述の整合）、[PRD949](949_release_packaging_cmake_10prd.md)（リリース物の組み立て）、[PRD114](114_findings_intake_and_fix_prd_10prd.md)（課題の仕組み。過去の PRD のパスの表記の直し）。
+> 題材: [issue-20261103-554849](../management/issues/issue-20261103-554849.md)、[issue-20261103-c1c608](../management/issues/issue-20261103-c1c608.md)、[issue-20261103-5a5373](../management/issues/issue-20261103-5a5373.md)、[issue-20261103-2751c8](../management/issues/issue-20261103-2751c8.md)、[issue-20261103-879a70](../management/issues/issue-20261103-879a70.md)、[issue-20261106-ddd395](../management/issues/issue-20261106-ddd395.md)、[issue-20261103-ee32bd](../management/issues/issue-20261103-ee32bd.md)、[issue-20261103-fb8a45](../management/issues/issue-20261103-fb8a45.md)。関連: [PRD117](117_warn_policy_and_unread_config_10prd.md)（読まれない設定の検出）、[PRD118](118_atari_run_profile_flatten_10prd.md)（Atari の Run プロファイルの整理）、[PRD188](188_metrics_viewer_lod_documentation_consistency_10prd.md)（LOD の記述の整合）、[PRD185](185_release_packaging_cmake_10prd.md)（リリース物の組み立て）、[PRD114](114_findings_intake_and_fix_prd_10prd.md)（課題の仕組み。過去の PRD のパスの表記の直し）。
 
 ## 1. 問題
 
@@ -40,7 +40,7 @@ PRD069 の実装記録の 2 か所と、done/009・done/010 の PRD の 16 か�
 
 | 題材 | 事実 |
 | --- | --- |
-| 554849 | [apps/README.md](../../apps/README.md) の 52 行は Doxygen の zip を `anet-lab-docs-<version>.zip` と書く。[release.yml](../../.github/workflows/release.yml) の 254 行と 317 行が作る名前は `anet-lab-doxygen-<版>.zip` である。現用の文書で `anet-lab-docs-` を書くのは、README の 1 行と、それを引く PRD949 §2 の 15 である。ほかに、過去の記録の [done/043](done/043_release_packaging_10prd.md) の 14 行と、課題の記録（単票の題・事象、課題の一覧、wiki の地図の課題の区画）にある |
+| 554849 | [apps/README.md](../../apps/README.md) の 52 行は Doxygen の zip を `anet-lab-docs-<version>.zip` と書く。[release.yml](../../.github/workflows/release.yml) の 254 行と 317 行が作る名前は `anet-lab-doxygen-<版>.zip` である。現用の文書で `anet-lab-docs-` を書くのは、README の 1 行と、それを引く PRD185 §2 の 15 である。ほかに、過去の記録の [done/043](done/043_release_packaging_10prd.md) の 14 行と、課題の記録（単票の題・事象、課題の一覧、wiki の地図の課題の区画）にある |
 | c1c608 | 切れているリンクは 4 か所で、[030 の日本語版](../design/030_user_guide_analysis.jp.md) の 20 行・525 行と、[160 の日本語版](../design/160_applications_and_tools.jp.md) の 109 行・444 行の `../optuna.md` である。手引きの実物は同じフォルダの [optuna.md](../design/optuna.md) にある。140 の日本語版の行は PRD115 の変更で直っていて、030・140・160 の英語版はどれも `optuna.md` を指していて切れていない |
 | 5a5373 | [replay_buffer_impl.hpp](../../core/anet-core/src/replay_buffer_impl.hpp) の 325 行の `@note` は、`metadata_mutex_` を持って呼ぶ関数として `Enqueue` と `CompleteReady` だけを挙げる。372 行の `GetStats` は `CompleteReady` が更新する統計を写して返す。今の呼び出し元（[replay_buffer_impl.cpp](../../core/anet-core/src/replay_buffer_impl.cpp) の 2128〜2130 行）はロックを取ってから呼んでいる |
 | 2751c8（記法） | structure は、block 名を `>` でつなぎ、`(*N)` で繰り返す直列の記法である。[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) の 541 行の `SplitPipelineString` が `>` で分けた語を、1680〜1700 行が `(*N)` を除いて block 名として引き、見つからなければ `Block definition not found` で止まる。`(=Tag)`・`(@Source)`・`Add(...)` を解釈する箇所は無く、書くと語ごと block 名として引かれて止まる。branch の合流は bind の `*`（積）と `,`（連結）だけで、足し算は無い（[130](../design/130_neural_networks.jp.md) の 84 行）。nn.txt の 362〜368 行の「記法」の節は `(=Tag)`・`(@Source)` を記法として載せ、`Add(@skip @main)` を例にしている。同じファイルの 371〜382 行の「表現出来ないパターン」の MEMO は、376 行で密なスキップ結合を「今の記法での表現: 可能だが、タグだらけになる」と書く。branch を分ければ、bind の連結（`,`）で前の branch の出力を後の branch へつなげる（130 の 84〜91 行）が、structure の中では書けない。130 の日本語版の 94 行と英語版の 95 行も、structure が出力 tag・入力 tag 参照を表せると書く |
@@ -71,8 +71,8 @@ PRD069 の実装記録の 2 か所と、done/009・done/010 の PRD の 16 か�
 
 | 退ける案 | 理由 | 本当の制約か |
 | --- | --- | --- |
-| PRD934（LOD の集約数の記述、issue-20261103-55b5f1）を本 PRD に吸収する | 専用の PRD が既にあり、そのまま実装すれば片づく | 制約ではない。PRD934 を退役させて吸収もできるが、PRD を 2 本並べないほうが記録が単純になる |
-| PRD949 のリリース物の組み立てを一緒に直す | 本 PRD は README の名前の 1 行だけを直す。組み立ての移し替えは別の関心である | 制約ではない（別の関心） |
+| PRD188（LOD の集約数の記述、issue-20261103-55b5f1）を本 PRD に吸収する | 専用の PRD が既にあり、そのまま実装すれば片づく | 制約ではない。PRD188 を退役させて吸収もできるが、PRD を 2 本並べないほうが記録が単純になる |
+| PRD185 のリリース物の組み立てを一緒に直す | 本 PRD は README の名前の 1 行だけを直す。組み立ての移し替えは別の関心である | 制約ではない（別の関心） |
 | nn.txt のほかの見本に残る読まれない葉（issue-20261107-0c34dd）を一緒に直す | 葉を検出する仕組みは PRD117 の範囲で、直し方も PRD117 の検出と一緒に決める | 制約ではない（別の関心） |
 | structure に `(=Tag)`・`(@Source)`・`Add(...)` の記法を実装し、文書のほうを正にする | 新しい仕組みで、小さな食い違いの直しとは別の関心である。C++ の変更とテストが要る | 制約ではない（別の関心。§7、§8 の 1） |
 | 過去の記録を今の事実へ書き換える（PRD069 の実装記録と done/009・done/010 の切れたリンクを直すことを含む） | 過去の Run の設定の写し、done/ の PRD と実装記録、workspace の写しは当時の記録である | 本当の制約（AGENTS.md のクリーンブレーク方針で過去の記録は書き換えない。§2.2）。リンクの記法だけを外す案も退けた（D12） |
@@ -102,7 +102,7 @@ PRD069 の実装記録の 2 か所と、done/009・done/010 の PRD の 16 か�
 | D12 | PRD069 の実装記録は変えない。[issue-20261103-ee32bd](../management/issues/issue-20261103-ee32bd.md) の対応内容に、直さない理由（リンク先はリポジトリに入ったことが無く、過去の記録は書き換えない）を書く | 過去の記録は書き換えない（§2.2）。リンクの記法だけを外しても、読める中身は増えない（§2.1 の ee32bd）。PRD114 の先例は、番号の振り直しでリンク先が動いた場合に限る |
 | D13 | [issue-20261103-fb8a45](../management/issues/issue-20261103-fb8a45.md) を題材に入れる。done/009・done/010 は変えず、対応内容に D12 と同じ理由を書く。fb8a45 の親に、本 PRD の索引の課題を書く | 題材に入れて done/ を変えないのは D12 と同じ判断で、同じ規則で閉じれば、方針の食い違った課題が残らない（§1.5）。親を書くのは、題材の課題は parent で索引の課題を指すという決まりによる（[memo README](README.md) の冒頭） |
 | D14 | 実装の工程では、題材の各課題の対応内容に直した内容（D12・D13 では直さない理由）と場所を書き、AI の判定を `残件無し` にする。状態を `解決` にするのは開発者である | 課題の状態は開発者が変える（§2.2） |
-| D15 | PRD949 §2 の 15（README の名前の食い違いの記述）は、本 PRD では書き換えない | PRD949 は暫定の起票で、まだグリルしていない。PRD949 の再グリルで §2 の事実を今のコードと照合し直す。本 PRD が別の PRD の本文を直すと、改訂の記録が 2 本に分かれる |
+| D15 | PRD185 §2 の 15（README の名前の食い違いの記述）は、本 PRD では書き換えない | PRD185 は暫定の起票で、まだグリルしていない。PRD185 の再グリルで §2 の事実を今のコードと照合し直す。本 PRD が別の PRD の本文を直すと、改訂の記録が 2 本に分かれる |
 
 ## 5. 実装契約
 
@@ -133,7 +133,7 @@ PRD069 の実装記録の 2 か所と、done/009・done/010 の PRD の 16 か�
 - PRD072 の固定 17 入力の golden（`core/anet-core/testdata/prd072/baseline/`）と manifest。固定 commit の設定を入力にするので、本 PRD の変更では変わらない（§2.1）。
 - 過去の Run の設定の写し（`docs/experiments/**/config/` の `net.body.MLP_RES.structure` などの行、`apps/runner/workspaces/**/runs/`、`core/anet-core/testdata/prd092/config/`）と、workspace の写し `apps/runner/workspaces/AtariRnd-01/config/frozen/nn.txt`。当時の記録である（§3.2）。
 - 過去の記録: PRD069 の実装記録（D12）、done/009・done/010（D13）、[done/043](done/043_release_packaging_10prd.md) の 14 行（当時の zip の名前）、[PRD001](done/001_iqn_10prd.md) の 271 行（type 一覧へ足したことの記録）、[PRD059 の実装記録](done/059_config_concept_tree_alignment_29impl_layer_biaxial.md) の 32 行（`@MLP_RES` の名前の記録）。
-- PRD949 §2 の 15（D15）。
+- PRD185 §2 の 15（D15）。
 - [220](../design/220_atari_env.jp.md) の日本語版 166 行と英語版 167 行の `app.online.eval_panel.fps = 15`。Atari.txt の実効値 14.5 と前から食い違っていて、本 PRD は値を変えない（D10）。扱いは §8 の 2。
 - 課題の単票の題・事象に書かれた当時の名前（`anet-lab-docs-`、`@ResNet` など）。課題の記録であり、課題の一覧と wiki の地図の課題の区画は単票から作り直される。
 
@@ -218,7 +218,7 @@ replay_buffer_impl.hpp の `class InitialPriorityCompleter` の直前のコメ�
 | nn.txt のサンプル `@ResNet`・`@MLP_RES` を今の記法で書き直す | 不採用 | MLP の残差を書ける type が無く、書き直すには新しい type か記法の実装が要る（§2.1、D4） |
 | metrics_scalar.txt に要素ごとの語の一覧を写す | 不採用 | 語を足すたびに `ParseMetricTokens`・140 §6・設定ファイルの 3 か所を直すことになり、古い写しは値を黙って記録しない事故になる（D9） |
 | structure の `(=Tag)`・`(@Source)`・`Add(...)` の記法の実装 | 範囲外（別の関心） | 小さな食い違いの直しとは別の関心で、C++ の変更とテストが要る。再開条件: 合流に足し算や名前付きの途中出力が要る NN の構成が出たとき（§8 の 1） |
-| PRD934・PRD949・PRD117 の範囲 | 範囲外（別の関心） | §3.2 のとおり |
+| PRD188・PRD185・PRD117 の範囲 | 範囲外（別の関心） | §3.2 のとおり |
 
 ## 8. 未決
 
@@ -234,7 +234,7 @@ replay_buffer_impl.hpp の `class InitialPriorityCompleter` の直前のコメ�
 - 先に要る PRD は無い。
 - [PRD118](118_atari_run_profile_flatten_10prd.md) は Atari.txt を作り直す。どちらを先に入れてもよい。PRD118 が先なら、D10・D11 を移った先の行に当てる。
 - [PRD117](117_warn_policy_and_unread_config_10prd.md) の読まれない葉の検出が先に入ると、`[ResBlock]` の `Composite` などが検出に当たりうる。本 PRD が先に消せば当たらない。順序はどちらでもよい。
-- [PRD949](949_release_packaging_cmake_10prd.md) の再グリルは、本 PRD の実装の前後を問わず、§2 の 15 を今の README と照合し直す（D15）。
+- [PRD185](185_release_packaging_cmake_10prd.md) の再グリルは、本 PRD の実装の前後を問わず、§2 の 15 を今の README と照合し直す（D15）。
 
 ## 10. 参照
 
