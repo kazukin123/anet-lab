@@ -74,6 +74,8 @@
 - 2026-11-13: Learnerの診断指標の6つの群が購読の解析・間隔・発火・要求を共通の型で持ち、値の読み出しはpackの形の群も含めて共通にする仕様をグリルで決めた。probe用の乱数5つは、使う側のLearnerが構築時に、Agentの基のseedから今と同じ名前で作って持つ（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D13）。
 - 2026-11-15: RNDの採点の統計の区間を軽くし、2つの統計方式（whiten・variance_feedback）を型で分ける仕様を、暫定で起票した（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、冒頭の起票の行・§1.2）。
 - 2026-11-16: RNDの正規化と統計の集計を計算deviceで行い、統計方式の整理を性能の直しのあとに入れる仕様を、グリルで決めた（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1）。
+- 2026-11-18: Agentを基盤の外の系統ごとのライブラリ（DQN・MuZero・ImageCls）へ出し、登録を各ライブラリの初期化関数に移す仕様を、グリルで決めた。公開ヘッダの規約（PRD169）も統合した（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§1・§4.1 D5・D7・D10）。
+- 2026-11-18: Agentは基盤の外の系統ごとのライブラリに置き、Headを書くための部品を基盤が公開する（出典: [ADR 0079](../../adr/0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public.md)、本文）。
 
 ## 選ばなかった形
 
@@ -97,8 +99,6 @@
 - Actor設定キーでeval_panelだけにhintを生成させる形 — 不採用: 設定が増え、autoの語が今の条件を表すものになり、n-step窓の所有がAgent外へ出る（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
 - NetworkModel が特徴空間・行動価値・スキップ価値の 3 つの Network を持つ形 — 不採用: 切れ目は DAG の branch で表せ、checkpoint の形と Network 1 つ前提の経路へ波及する。補助 Network は primary の公開出力を入力に取り、その target は bootstrap に使わず target 側の Actor の行動にだけ使う（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D3、[ADR 0062](../../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)）。
 - 強制行動を Actor へ通知する事後 hook — 先送り: 決定点への入力（161_observation_pipeline の単位 A）で合わせる。再開条件: 単位 A が入ったら、強制された lane のスキップ状態を捨てる（出典: [PRD098 TempoRL](../../memo/098_temporl_skip_policy_10prd.md)、§4 D10・§9）。
-- 具象 Agent を anet-core の中のサブフォルダに分けるだけの形 — 不採用: 内部ヘッダ（Head 部品と Replay の生成）への依存が残り、責務の境界が CMake で強制されない。Env と同じ具象別の独立ライブラリ（`src/agents/<agent>/`）にし、`Init<Agent>()` を app が呼ぶ（出典: [PRD182 ソース配置](../../memo/182_source_layout_10prd.md)、§4・§5）。
-- DQN 系を 1 ライブラリにまとめる形（DefaultDQN と Rainbow を同じライブラリに置く） — 先送り: 移動量は少ないが、Env と同じ「具象 1 つに 1 パス」から外れる。再開条件: グリルで具象別の境界の価値が移動量に見合わないと裁定したとき（出典: [PRD182 ソース配置](../../memo/182_source_layout_10prd.md)、§8 D3）。
 - Thompson sampling の τ の区間を `thompson.tau_low/high` で設定する形 — 不採用: 非 spatial の Thompson は τ を U[0,1]（IQN は全範囲）から引き、区間は存在しない。spatial は `spatial.uqe.tau.*` のラダーを使う（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§2.1・§4.2 D9）。
 - log ラダーの 0 の端を fail-fast にして 0 に届くラダーを新しい並べ方 `exponential` で書く形、下限をキー（`spatial.log_floor`）にする形、1e-4 への clamp を残す形 — 不採用: 下限 1e-4 で log に並べた列を書いた両端へ線形に伸縮する規則 1 つにし（両端が 1e-4 以上なら恒等）、モードやキーを増やさず、0 と書いて 1e-4 で動く形を残さず、端が 0 へ下がる途中も値を連続にする（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.2 D8）。
 - MuZero の温度 `temp_start/end/decay_steps` の ProfiledValue 化 — 範囲外: 試作 Agent。再開条件: 本線に戻すときに同じ器で足す（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§3 非ゴール・§7）。
@@ -146,6 +146,11 @@
 - RNDの正規化をNNの中の前処理にする形 — 不採用: 統計がNetworkの中身になり、checkpointの書式が変わる（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D3・退けた案）。
 - RNDの統計方式の整理と性能の直しを同時に入れる形 — 不採用: 値を変えない直しを、同seedの結果の一致で確かめられなくなる（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1の退けた案）。
 - RNDのtargetの出力の統計と診断値の読み戻しを1回にまとめる形、ボーナスの診断値の読み出しをまとめる形、CPUのスレッド数を増やす形 — 不採用: 置き場の変更だけでtargetの出力の統計が0.772 msから0.151 msになり、ボーナスの読み出しは0.033 ms、スレッド数は実時間が1.874倍と13.486倍に延びた（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D8）。
+- Agentのライブラリを具象ごとの5本にする形 — 不採用: 変更の多いDQNの内部ヘッダが公開面になり、足される強制は今0行の依存に対するものである（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
+- Agent全体を1本のライブラリにする形 — 不採用: MuZeroやImageClsがDQNの部品を読むことを、機械が止めない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
+- 系統のライブラリが基盤のsrcをincludeパスに足して内部ヘッダを読む形 — 不採用: Agentは基盤の公開ヘッダだけを読む、というゴールを満たさない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
+- テストを境界の対象にしない形、系統のテストが基盤のsrcを直接読む形 — 不採用: テストが基盤の公開面を素通りし、同じリポジトリにあることに頼る（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3；[ADR 0080](../../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)、Considered Options）。
+- Envのテストと系統のテストが互いのライブラリを使ってよいとする形 — 不採用: 置き場が主題しだいで割れ、相手が壊れると使う側のテスト実行体が作れない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
 
 ## 変えるときの条件
 
@@ -154,7 +159,6 @@
 - 明示的なActor::Syncは呼出時の強制同期として維持する。shared既定ではaction forward回数と保存形式を保つ（出典: [PRD036](../../memo/done/036_train_actor_periodic_snapshot_10prd.md)、目的）。
 - Actorを追加しても既存Actorの行動列を変えず、同一checkpoint・seedの各スロットの結果を確認する（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、7.4・8）。
 - 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [PRD083](../../memo/done/083_action_context_retire_10prd.md)、Context・確定した設計判断2〜4・11）。
-- Agent のライブラリは anet-core の公開ヘッダと自分のライブラリだけに依存し、anet-core は Agent のライブラリに依存しない。ソースを移すときは 4 env の metrics checksum の一致と全テストで挙動不変を確かめ、旧パスの互換層（symlink・転送ヘッダ）を置かない（出典: [PRD182 ソース配置](../../memo/182_source_layout_10prd.md)、§4 8・§6）。
 - 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない。比較の相手は実装前に保存した基準の実行体・依存DLL・出力とする（PRD060は基準を取り損ねた）（出典: [PRD084](../../memo/done/084_noisynet_10prd.md)、§8.2・§12・§13）。
 - 診断ON/OFFで同seed・決定的モードの学習系列を比較し、学習の.grad・optimizer state・RNGを変えない。費用は反復A/Bで実測しprofiler合計でend-to-end増加率を代用しない（出典: [PRD092](../../memo/done/092_gradient_noise_scale_10prd.md)、§7.1・§7.2）。
 - captureへ移す既存branch出力の値とdetachを保ち、captureなしforwardは不変とする。同seed・決定論設定の診断ON/OFFで学習由来metrics checksumとRNG・buffer等への非干渉を確認する（出典: [PRD093](../../memo/done/093_attention_entropy_diagnostics_10prd.md)、§6 1・5）。
@@ -177,6 +181,8 @@
 - 診断の群を共通の型へ寄せるときは、メトリクスの名前とWARNの文言・回数を変えず、診断の6群をすべて購読する組を含む前後比較で全scalarの点を一致させ、更新の速さを交互3巡以上で確かめる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D16・D18、§6.4）。
 - probe用の乱数の作り方を変えるときは、Agentの基のseedと乱数の名前を変えず、購読を設定し直しても作り直さない。名前付きのseedは作る順に依らず、probeは学習の乱数に触れないので、この2つを守れば診断の値も学習の値も変わらない（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§2.5・§5 D13）。
 - RNDの正規化と統計の置き場を変えるときは、RND無効の出荷の設定で同seed・決定的モードのmetrics checksumを着手前の実行体と一致させ、CUDAで計算するRND有効の構成で同seedのRunが2回一致することを確かめる。速さは、RNDなしとRNDありを同じ回・同じ実行体で3巡測り、中央値の比で見る（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D15・D16、§7）。
+- Agentのライブラリは基盤の公開ヘッダだけを読み、基盤は具象Agentを知らない。テストは上位や兄弟のライブラリに依存せず、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う。ターゲットの依存とincludeは、検索と道具の検査で確かめる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§5.4・§6 のS3-1〜S3-5）。
+- ソースを移す・分けるときは、着手前に保存した実行体と、PRD128の前後比較の組（seed 1本、決定的なbackend、4 envを含む）で比べて、全scalar・設定の記録・WARNとERRORの行の一致を確かめ、旧パスの互換層（symlink・転送ヘッダ）を置かない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D22・D24・§6 のC3）。
 
 ## 関係
 
@@ -255,6 +261,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261111-17fea4](../../management/issues/issue-20261111-17fea4.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 324_dqn, 321_agent_core | アルゴリズム | リファクタリング | — | 残件有り | 方策の種類（policy_type）と分布の表し方（quantile_mode）を文字列のまま持ち回り、数字の別名の受け付け方が関数ごとに違う |
 | [issue-20261111-52ed74](../../management/issues/issue-20261111-52ed74.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 315_nn, 321_agent_core | アルゴリズム | リファクタリング | — | 未確認 | 可塑性指標の一覧と重みノルムのキーの並びを、nn・DQN・ImageCls の 5〜6 か所で手で合わせている |
 | [issue-20261111-e80c7b](../../management/issues/issue-20261111-e80c7b.md) | 未着手 | 2.7 | — | 成果物 | 監査 | 321_agent_core | アルゴリズム | リファクタリング | — | 未確認 | DQNActionInfo::GetScalar が 6 種の指標群を 1 つの関数（276 行）で処理し、「指定した行動を除いた最大値」の計算を 2 回写している |
+| [issue-20261119-4124b6](../../management/issues/issue-20261119-4124b6.md) | 未着手 | 2.5 | — | 成果物 | PRD | 321_agent_core, 324_dqn | アルゴリズム | 機能改善 | — | 未確認 | DQN の共通部品のエラー文 4 か所が DefaultDQNAgent の設定キーを固定で書き、RainbowAgent で出ても DefaultDQNAgent のキーとして表示される |
 | [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) | 未着手 | 2.2 | — | 成果物 | PRD | 324_dqn, 321_agent_core, 325_muzero, 315_nn | 学習基盤 | 調査 | [PRD134](../../memo/134_network_lock_audit_10prd.md) | 残件有り | 999: train/eval mode 整理後の排他精査 PRD（草案） |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | 成果物 | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-cdac7c](../../management/issues/issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | 成果物 | PRD | 321_agent_core | アルゴリズム | 機能改善 | [PRD148](../../memo/148_target_update_step_axis_10prd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |
@@ -287,15 +294,16 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-4a2b5e](../../management/issues/issue-20261103-4a2b5e.md) | 未着手 | 0.5 | — | 成果物 | PRD | 315_nn, 321_agent_core | アルゴリズム | リファクタリング | [PRD165](../../memo/165_nn_head_projection_separation_10prd.md) | 残件有り | NN Head の最終射影と出力変換の責務分離 |
 | [issue-20261103-f993bc](../../management/issues/issue-20261103-f993bc.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 325_muzero, 315_nn | 学習基盤 | リファクタリング | [PRD164](../../memo/164_nn_forward_amp_consolidation_10prd.md) | 残件有り | NN 実行設定への AMP の集約（全 Agent 対象） |
 | [issue-20261115-d3e094](../../management/issues/issue-20261115-d3e094.md) | 未着手 | 0.5 | — | 成果物 | その他 | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDの改良版のSND（targetも自己教師で学ぶ蒸留）を、RNDの評価が落ち着いたあとに試すかを検討する |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 調査中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [PRD142](../../memo/142_agent_prev_action_obs_10prd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
+| [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 成果物 | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD167](../../memo/167_smdp_transition_duration_10prd.md) | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す） |
 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md), [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md), [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md), [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) | 成果物 | PRD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [PRD173](../../memo/173_intrinsic_reward_novelty_10prd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
 | [issue-20261109-adc5c4](../../management/issues/issue-20261109-adc5c4.md) | 未着手 | 1.4 | [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | 成果物 | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 未確認 | Agent・Env・View・NNモジュールの4つのRepositoryが同じ形を別々に実装し、登録と取り出しの関数名もそろっていない |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.0 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261108-227b05](../../management/issues/issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 成果物 | PRD | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 成果物 | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD162](../../memo/162_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 41 / 待ち 7 / 保留 0 / 次版 0 / 解決 0
+着手できる 42 / 待ち 8 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）

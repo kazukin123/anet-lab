@@ -39,6 +39,9 @@
 - 2026-11-11: Debug版libtorchのoneDNNのassertがテストの順序で出ないよう、anet-core-testが開始時に1回MKLDNNを切り、テストの中の切り替えを消す案を起票した（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、題・§3.1・§4 D1）。
 - 2026-11-17: 9xxの番号のPRD 57本を、起票の日の順に132〜188へ振り直し、この振り直しを番号の不再利用の例外として9xxを再び使える番号に戻し、旧い番号を各PRDの題の直下の振り直しの行で引くようにした（wikiのPRDの一覧の道具もその行を読む）（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、題・§1.2・§4 D1〜D3・D7・D8）。
 - 2026-11-16: PRDの9xxの番号を、起票の日の順に900未満の連番へ振り直し、9xxを再び使える番号に戻す（出典: [ADR 0077](../../adr/0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable.md)）。
+- 2026-11-18: 置き場の規則（ビルドの入力はsrc、実行時の配置はapps、実行時にできるものはdata、配らないビルドの出力はout）、テストの参照範囲、基盤のテスト用の口、テスト実行体の出力先の1か所化、道具のapps/toolsへの集約を、グリルで決めた（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D2・D12・D13・D19・D20）。
+- 2026-11-18: トップの階層は、ビルドの入力・実行時の配置・実行時にできるもので分け、ビルドはappsへ直接出す（出典: [ADR 0078](../../adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md)、本文）。
+- 2026-11-18: テストは自分のライブラリの内部まで読み、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う（出典: [ADR 0080](../../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)、本文）。
 
 ## 選ばなかった形
 
@@ -92,6 +95,11 @@
 - 改名したPRDを指すADRのリンクを、先頭の注記だけで済ませるか切れたまま残す — 不採用: リンク切れが検査に毎回混ざり、次の改名・移動でも同じ食い違いに当たる（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D6・§8）。
 - PRDの旧い番号と新しい番号の対応表のファイルを置き、道具はそれを読む — 不採用: 置き場が増え、PRDを開いても旧い番号が分からない（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D7・§8）。
 - 番号が1000に届いたときの4桁の形 — 先送り: 別の関心。再開条件: 番号が990に届いたとき（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、§4 D15・§8）。
+- .libをsrcの下のlibフォルダやout/libに出す形 — 不採用: 前者はsrcにビルドの出力が入り、どちらも.libのパスを人が使う場面が無い（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
+- テスト用の口を、別のライブラリのフォルダや、基盤の中の3つ目のフォルダにする形 — 不採用: 前者は別のフォルダのsrcを読む箇所が残り、後者はライブラリの形が3つになる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
+- 組み合わせのテストをsrc/tests/やRunnerのテストに置く形 — 不採用: テストは各フォルダの中という形から外れるか、Runner自身のテストと別物が混ざる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
+- 道具を2か所のまま、viewers/だけappsの下へ移す形 — 不採用: 探す場所が2つ残る（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
+- ソース配置の受入の検査をCIに載せること — 範囲外: CIの整備のPRDが扱う。再開条件: CIの整備のPRD（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D25・§7）。
 
 ## 変えるときの条件
 
@@ -111,6 +119,8 @@
 - 共有コアの文面はskill・エージェント・アダプタの名前以外をプロジェクトに依存させず、anet固有のことはレジストリと観点に置く（出典: [ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、冒頭の2026-11-02注記）。
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§5.7・§7の受入1）。
 - anet-core-testでMKLDNNを切るのは実行体の開始時の1か所にし、テストの中で切らない。テストの開始時に切れていることを見張りのテストで確かめ、Release（assertが出ない）でも切り替えの消失に気づけるようにする（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§4 D1・D5・§6のA4）。
+- テスト用の口の中身は、組み立ての補助と読むだけの口に限り、製品の処理を置かない。anet/test/の下のヘッダはガードを持ち、製品のコードは読まない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D13・§6 のS3-3）。
+- リリースのzipの中のパスを変えるときは、着手前の一覧と比べて、決めた差だけであることを確かめる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§6 のS1-4・S4-4）。
 
 ## 関係
 
@@ -201,8 +211,9 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | — | 成果物 | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261116-fe09dc](../../management/issues/issue-20261116-fe09dc.md) | 未着手 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD185](../../memo/185_release_packaging_cmake_10prd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 未着手 | 1.0 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 調査中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 成果物 | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 
-着手できる 20 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 20 / 待ち 2 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) — anet-core の外で実装する拡張点とコード配置の規約
 <!-- issues:end -->

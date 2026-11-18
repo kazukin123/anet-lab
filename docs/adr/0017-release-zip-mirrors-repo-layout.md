@@ -1,5 +1,7 @@
 # リリース zip はリポジトリ配置のミラーサブセットとする
 
+> 2026-11-18 後発決定: [ADR 0078](0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md) と [PRD182](../memo/182_source_layout_10prd.md) で、zip のトップに `data/`（workspace ごとの設定）が加わり、道具は `apps/tools`、Metrics Viewer の jar は `apps/metrics-viewer/bin` に入る。zip を配置の写しにする判断と、開発と同じ bat を使う判断は維持する。以下の本文は当時の記録として保持する。
+
 GitHub Release で配布する実行用パッケージ(bin)のレイアウトを決める必要があった。リリース zip の内部配置は**リポジトリの配置そのまま**(`apps/` + `docs/design/` + `licenses/` のサブセット)とし、起動 bat も開発時と同一のもの(`apps/*.bat`)を同梱する。ビルド出力パス(`apps/metrics-viewer/target/metrics-viewer.jar`)もリリース内でそのまま使う。理由は、配布専用レイアウトを作ると起動スクリプト・ドキュメント・パス参照の二重メンテが発生するため。開発動線とリリース動線が常に同一パスを通ることで、リリース物の起動 bat はリポジトリ内で日常的に検証され続ける。
 
 ## Considered Options
