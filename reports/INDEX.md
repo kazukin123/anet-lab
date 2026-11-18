@@ -1,6 +1,6 @@
 # reports 索引(サーベイ)
 
-`anet-survey-queue` が読む索引。済みは実施したサーベイ、キューは次に回す候補。キューへの追加と `ready` 化は人が行う。状態が `候補` の行は実行されない。
+`anet-survey-queue` が読む索引。済みは実施したサーベイ、キューは次に回すサーベイ。キューの行はすべて、優先の数が小さいものから回す。キューへの追加は人が行う。
 
 ## 済み
 
@@ -50,9 +50,5 @@
 
 ## キュー
 
-| 優先 | 状態 | 種別 | テーマ | 関連 | 論点メモ |
-|---|---|---|---|---|---|
-| 7 | 候補 | survey | NoisyNet の現代的な扱い(Rainbow 以降で残っているか、ε-greedy との使い分け、実装の落とし穴) | docs/memo/done/084_noisynet_10prd.md | 採用判断に必要な根拠 |
-| 8 | 候補 | survey | Q 値統計によるハイパーパラメータ誤設定の検出(q_max の伸び率、過大評価指標) | docs/memo/153_q_statistics_config_screening_10prd.md | スクリーニング指標の先行例 |
-| 9 | 候補 | survey | 可塑性喪失の指標と対策の最新動向(dormant units、weight norm、reset) | docs/memo/done/062, 063 | 062 の指標群に欠けがないか |
-| 13 | 候補 | survey | PER の優先度の弱点と代替(TD 誤差が経験の貴重さを表さない場面、確率的な報酬での優先度の張り付き、優先度の古さ、優先度を手前の遷移へ流す方式、損失の形との等価性、収益や gain×need による優先) | docs/memo/171_replay_eviction_sample_count_10prd.md、Atari campaign(2026-10 kung_fu_master のボス撃破が定着しない件) | Schaul et al. 2016「Prioritized Experience Replay」、Brittain et al. 2019「Prioritized Sequence Experience Replay」、Fujimoto et al. 2020「An Equivalence between Loss Functions and Non-uniform Sampling in Experience Replay」(LAP)、Oh et al. 2018「Self-Imitation Learning」、Mattar & Daw 2018「Prioritized memory access explains planning and hippocampal replay」、Lahire et al. 2022「Large Batch Experience Replay」を起点に。分布型(IQN・QR)での優先度の定義の違い(分位点平均の差、分位点 Huber 損失、KL)と、τ のサンプリングの揺らぎが優先度に乗る問題。珍しい大報酬の遷移の優先度が学習中にどう推移するかを測った例。α・β の選び方(BTR 0.2、Rainbow 0.5、原論文 0.6)と、1 遷移が寿命中に約 1 回しか引かれない低い replay ratio での PER の効き。遡り(PSER、EBU)・収益ベース(SIL)・gain×need の Atari での効果量。区分ごとの優先度や抽選回数を計器として出している例 |
+| 優先 | 種別 | テーマ | 関連 | 論点メモ |
+|---|---|---|---|---|

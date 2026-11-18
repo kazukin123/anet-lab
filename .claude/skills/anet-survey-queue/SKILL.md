@@ -1,6 +1,6 @@
 ---
 name: anet-survey-queue
-description: Run the next ready item in anet-lab's survey queue (reports/INDEX.md) with the survey or paper-details skill, save the report under reports/, and move the item to the done list. Use when the user invokes $anet-survey-queue or /anet-survey-queue, optionally with a topic, or from anet-housekeeping when the queue has a ready item.
+description: Run the next item in anet-lab's survey queue (reports/INDEX.md) with the survey or paper-details skill, save the report under reports/, and move the item to the done list. Every queued item is runnable. Use when the user invokes $anet-survey-queue or /anet-survey-queue, optionally with a topic, or from anet-housekeeping when the queue is not empty.
 ---
 
 # ANET Survey Queue
@@ -10,14 +10,14 @@ description: Run the next ready item in anet-lab's survey queue (reports/INDEX.m
 ## INDEX の形(`reports/INDEX.md`)
 
 - `## 済み`: 表。列は 日付 | ファイル | テーマ | 関連。
-- `## キュー`: 表。列は 優先 | 状態 | 種別 | テーマ | 関連 | 論点メモ。
-  - 状態は `ready` か `候補`。実行対象は `ready` だけ。
+- `## キュー`: 表。列は 優先 | 種別 | テーマ | 関連 | 論点メモ。
+  - キューの行はすべて実行対象。優先の数が小さいものから回す。
   - 種別は `survey`(テーマ横断)か `paper`(1 論文)。
-  - キューへの追加と `ready` 化は人が行う。このスキルはキューに項目を足さない。
+  - キューへの追加は人が行う。このスキルはキューに項目を足さない。
 
 ## 手順
 
-1. 引数でテーマがあればそれ。無ければキューの `ready` のうち優先が最も高い 1 件。無ければ「キューに ready なし」と報告して終わる。
+1. 引数でテーマがあればそれ。無ければキューのうち優先の数が最も小さい 1 件。キューが空なら「キューが空」と報告して終わる。
 2. 種別に応じて `survey` または `paper-details` スキルの `SKILL.md` を探し、全文読む。見つからなければ次を返して終わる。
 
    ```text
