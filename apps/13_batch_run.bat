@@ -87,156 +87,56 @@ SET "VDG1=metrics.scalar.[77_agent_value/41_greedy_disagree]=extrinsic_q_session
 SET "VDG2=metrics.scalar.[77_agent_value/42_greedy_regret]=extrinsic_q_session_regret_mean $eval.[greedy] $actor @session_end"
 SET "VDG3=metrics.scalar.[77_agent_value/43_greedy_ext_gap]=extrinsic_q_session_gap_mean $eval.[greedy] $actor @session_end"
 SET "VDG4=metrics.scalar.[77_agent_value/44_greedy_int_gap]=intrinsic_q_session_gap_mean $eval.[greedy] $actor @session_end"
+SET "K32=DefaultDQNAgent.actor.[train].policy.tau_rule.num_taus=32 DefaultDQNAgent.actor.[eval].policy.tau_rule.num_taus=32"
+SET "TGCH=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@to_30m>run.@rnd>run.@batch"
+SET "TGQ=DefaultDQNAgent.learner.replay_ratio=8 DefaultDQNAgent.model.hard_update_interval=250 DefaultDQNAgent.learner.per_alpha=0.5 DefaultDQNAgent.learner.per_beta.start=0.5 DefaultDQNAgent.learner.per_beta.end=0.5"
+SET "TGEV=run.eval_schedule.[eval].interval=62528 run.eval_schedule.[greedy].interval=31250 run.eval_schedule.[greedy_single].interval=31250"
+SET "TGRND=DefaultDQNAgent.intrinsic.learn_ratio=1 DefaultDQNAgent.intrinsic.learn_batch_size=128"
+SET "MZT=E1.game=montezuma_revenge run.seed=1 run.eval.[greedy].eval_episodes=16"
+SET "NMDD=DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true"
+SET "VD=DefaultDQNAgent.intrinsic.value_mode=decomposed DefaultDQNAgent.intrinsic.reward_scaler.constant_scale=0.01 DefaultDQNAgent.intrinsic.beta=1"
+SET "G99NE=DefaultDQNAgent.learner.intrinsic.discount_mode=separate DefaultDQNAgent.learner.intrinsic.gamma=0.99 DefaultDQNAgent.learner.intrinsic.terminal_mode=non_episodic"
+SET "FGS=DefaultDQNAgent.learner.intrinsic.feature_gradient=split"
+SET "PL1=metrics.scalar.[34_agent_plasticity/41_probe_dormant_ratio]=$agent plasticity_probe_dormant_ratio @learn $learn_step interval:5000"
+SET "PL2=metrics.scalar.[34_agent_plasticity/42_probe_dead_ratio]=$agent plasticity_probe_dead_ratio @learn $learn_step interval:5000"
+SET "PL3=metrics.scalar.[34_agent_plasticity/43_probe_feature_norm]=$agent plasticity_probe_feature_norm @learn $learn_step interval:5000"
+SET "PL4=metrics.scalar.[34_agent_plasticity/44_probe_srank]=$agent plasticity_probe_srank @learn $learn_step interval:5000"
+SET "PL5=metrics.scalar.[34_agent_plasticity/45_probe_srank_ratio]=$agent plasticity_probe_srank_ratio @learn $learn_step interval:5000"
+SET "MZW=DefaultDQNAgent.intrinsic.rnd.warmup_steps=200000"
+SET "RBWTG=run.$=%A5%>run.@hard125>run.@munch>%RF%>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@rainbow_like>run.@rnd>run.@rnd_taiga>run.@batch"
+SET "FP32=DefaultDQNAgent.learner.use_amp=false DefaultDQNAgent.learner.use_amp_bf16=false"
+SET "EPSH=DefaultDQNAgent.actor.[train].policy.epsilon.type=phased DefaultDQNAgent.actor.[train].policy.epsilon.phase.[hold].value=1.0 DefaultDQNAgent.actor.[train].policy.epsilon.phase.[hold].steps=20000 DefaultDQNAgent.actor.[train].policy.epsilon.phase.[decay].type=linear DefaultDQNAgent.actor.[train].policy.epsilon.phase.[decay].start=1.0 DefaultDQNAgent.actor.[train].policy.epsilon.phase.[decay].end=0.01 DefaultDQNAgent.actor.[train].policy.epsilon.phase.[decay].steps=250000"
+SET "EPSHP=DefaultDQNAgent.actor.[train].policy.epsilon.phases=hold decay"
+SET "ASYNC1=A2.actor.[train].sync_interval=1"
+SET "MZR2=E1.game=montezuma_revenge run.seed=2 run.train.num_envs=4"
+SET "E64=run.train.num_envs=64 A2.actor.[train].sync_interval=800"
+SET "RBW=run.$=%A5%>run.@hard125>run.@munch>%RF%>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@rainbow_like>run.@batch"
+SET "DQIQN=DefaultDQNAgent.learner.use_per=false DefaultDQNAgent.learner.learning_rate=5e-5 DefaultDQNAgent.learner.adam_eps=3.125e-4 DefaultDQNAgent.learner.iqn.current_taus.num_taus=64 DefaultDQNAgent.learner.iqn.target_taus.num_taus=64 DefaultDQNAgent.actor.[train].policy.tau_rule.num_taus=32 DefaultDQNAgent.actor.[eval].policy.tau_rule.num_taus=32 DefaultDQNAgent.actor.[greedy].policy.tau_rule.num_taus=32"
+SET "NOGS=run.eval_schedule.[greedy_single].interval=0"
+SET "BO1=E1.game=breakout run.seed=1 run.train.num_envs=4"
+SET "QB1=E1.game=qbert run.seed=1 run.train.num_envs=4"
+
 call :use_ws AtariSub-01 Atari.txt
-echo === 1. freeway 10m seed 1: btr aligned, pixel_area, init default, munchausen log pi online, epsilon 1.0 to 0.01 with time constant 2M, greedy eval every 1.01M, no skip ===
-call :find_done a5_fw_aln_btreps_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=freeway run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %FW10% "app.run_name=run_{t}_a5_fw_aln_btreps_s1"
-echo === 2. freeway 10m seed 1: same setup as 1 plus TempoRL sep-merge ===
-call :find_done a5_fw_aln_t98mrg_s1
-if not defined DONE_DIR call :run_exe "%SENZPASK%" "%SKIPMET%" E1.game=freeway run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% %FW10% "app.run_name=run_{t}_a5_fw_aln_t98mrg_s1"
-echo === 3. beam_rider 50m seed 1: btr aligned, pixel_area, init default, munchausen log pi online, epsilon 1.0 to 0.01 with time constant 2M then 0 from 25M, no skip ===
-call :find_done a5_br_aln_btreps_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=beam_rider run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_br_aln_btreps_s1"
-echo === 4. beam_rider 50m seed 1: same setup as 3 plus TempoRL sep-merge ===
-call :find_done a5_br_aln_t98mrg_s1
-if not defined DONE_DIR call :run_exe "%SENZPASK%" "%SKIPMET%" E1.game=beam_rider run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %MERGE% "app.run_name=run_{t}_a5_br_aln_t98mrg_s1"
-echo === 5. beam_rider 50m seed 2: same setup as 3 ===
-call :find_done a5_br_aln_btreps_s2
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=beam_rider run.seed=2 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_br_aln_btreps_s2"
-echo === 6. battle_zone 50m seed 1: same setup as 3 ===
-call :find_done a5_bz_aln_btreps_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=battle_zone run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_bz_aln_btreps_s1"
-echo === 7. name_this_game 50m seed 1: same setup as 3 ===
-call :find_done a5_ntg_aln_btreps_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=name_this_game run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_ntg_aln_btreps_s1"
-echo === 8. phoenix 50m seed 1: same setup as 3 ===
-call :find_done a5_ph_aln_btreps_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=phoenix run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_ph_aln_btreps_s1"
-echo === 9. double_dunk 50m seed 1: same setup as 3 ===
-call :find_done a5_dd_aln_btreps_s1
-if not defined DONE_DIR call :run_exe "%SENZPA%" E1.game=double_dunk run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% "app.run_name=run_{t}_a5_dd_aln_btreps_s1"
-echo === 10. battle_zone eval only on the 50m checkpoint of the same setup as 3: eval and greedy with random taus, greedy_single with fixed taus, 100 episodes each ===
-SET "RUN_EXIT_CODE=0"
-call :find_done a5_bz_aln_evtau_s1
-if not defined DONE_DIR call :find_ckpt "run_*_a5_bz_aln_btreps_s1"
-if not defined DONE_DIR if defined CKPT call :run_exe "%SENZPA%" E1.game=battle_zone run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %EVTAU% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_a5_bz_aln_evtau_s1"
-echo === 11. name_this_game eval only on the 50m checkpoint of the same setup as 3: eval and greedy with random taus, greedy_single with fixed taus, 100 episodes each ===
-SET "RUN_EXIT_CODE=0"
-call :find_done a5_ntg_aln_evtau_s1
-if not defined DONE_DIR call :find_ckpt "run_*_a5_ntg_aln_btreps_s1"
-if not defined DONE_DIR if defined CKPT call :run_exe "%SENZPA%" E1.game=name_this_game run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %EVTAU% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_a5_ntg_aln_evtau_s1"
-echo === 12. phoenix eval only on the 50m checkpoint of the same setup as 3: eval and greedy with random taus, greedy_single with fixed taus, 100 episodes each ===
-SET "RUN_EXIT_CODE=0"
-call :find_done a5_ph_aln_evtau_s1
-if not defined DONE_DIR call :find_ckpt "run_*_a5_ph_aln_btreps_s1"
-if not defined DONE_DIR if defined CKPT call :run_exe "%SENZPA%" E1.game=phoenix run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %EVTAU% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_a5_ph_aln_evtau_s1"
-echo === 13. double_dunk eval only on the 50m checkpoint of the same setup as 3: eval and greedy with random taus, greedy_single with fixed taus, 100 episodes each ===
-SET "RUN_EXIT_CODE=0"
-call :find_done a5_dd_aln_evtau_s1
-if not defined DONE_DIR call :find_ckpt "run_*_a5_dd_aln_btreps_s1"
-if not defined DONE_DIR if defined CKPT call :run_exe "%SENZPA%" E1.game=double_dunk run.seed=1 %BTRENV% %BTREPSPH% %BTRNZ% %ALNINIT% %ALNM% %EVTAU% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_a5_dd_aln_evtau_s1"
-echo === 14. kung_fu_master 10m seed 4: same as kfm_10m_s04 plus RND with the default settings (beta 0.1) ===
-call :find_done kfm_10m_rnd_b01_s04
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s04"
-echo === 15. kung_fu_master 10m seed 5: same as kfm_10m_s05 plus RND with the default settings (beta 0.1) ===
-call :find_done kfm_10m_rnd_b01_s05
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s05"
-echo === 16. kung_fu_master 10m seed 6: same as kfm_10m_s06 plus RND with the default settings (beta 0.1) ===
-call :find_done kfm_10m_rnd_b01_s06
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s06"
-echo === 17. kung_fu_master 10m seed 7: same as kfm_10m_s07 plus RND with the default settings (beta 0.1) ===
-call :find_done kfm_10m_rnd_b01_s07
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s07"
-echo === 18. kung_fu_master 10m seed 8: same as kfm_10m_s08 plus RND with the default settings (beta 0.1) ===
-call :find_done kfm_10m_rnd_b01_s08
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=8 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s08"
-echo === 19. kung_fu_master 10m seed 9: same as kfm_10m_s09 plus RND with the default settings (beta 0.1) ===
-call :find_done kfm_10m_rnd_b01_s09
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=9 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s09"
-echo === 20. kung_fu_master 10m seed 10: same as kfm_10m_s10 plus RND with the default settings (beta 0.1) ===
-call :find_done kfm_10m_rnd_b01_s10
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=10 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s10"
-echo === 21. kung_fu_master 10m seed 11: same as kfm_10m_s11 plus RND with the default settings (beta 0.1) ===
-call :find_done kfm_10m_rnd_b01_s11
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=11 DefaultDQNAgent.intrinsic.beta=0.1 %EVFIX% "app.run_name=run_{t}_kfm_10m_rnd_b01_s11"
-echo === 22. kung_fu_master 10m seed 4: PRD123 new default, RND warm-up 200k with the predictor learning and warm-up errors kept out of the error stats (beta 0.1) ===
-call :find_done kfm_10m_r123_s04
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %R123% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123_s04"
-echo === 23. kung_fu_master 10m seed 4: PRD123 old behaviour on the same exe, warm-up 12800 collecting errors with the predictor frozen (beta 0.1) ===
-call :find_done kfm_10m_r123ce_s04
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %R123CE% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123ce_s04"
-echo === 24. kung_fu_master 10m seed 5: same as 22 ===
-call :find_done kfm_10m_r123_s05
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %R123% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123_s05"
-echo === 25. kung_fu_master 10m seed 5: same as 23 ===
-call :find_done kfm_10m_r123ce_s05
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %R123CE% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123ce_s05"
-echo === 26. kung_fu_master 10m seed 6: same as 22 ===
-call :find_done kfm_10m_r123_s06
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 %R123% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123_s06"
-echo === 27. kung_fu_master 10m seed 7: same as 22 ===
-call :find_done kfm_10m_r123_s07
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %R123% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123_s07"
-echo === 28. kung_fu_master 10m seed 4: same as 22 plus error stats by EMA over 1M scored observations ===
-call :find_done kfm_10m_r123ema_s04
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %R123EMA% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123ema_s04"
-echo === 29. kung_fu_master 10m seed 5: same as 28 ===
-call :find_done kfm_10m_r123ema_s05
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %R123EMA% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123ema_s05"
-echo === 30. kung_fu_master 10m seed 4: same as 22 but the error is not centered, beta 0.01 ===
-call :find_done kfm_10m_r123nc_s04
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %R123NC% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123nc_s04"
-echo === 31. kung_fu_master 10m seed 5: same as 30 ===
-call :find_done kfm_10m_r123nc_s05
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %R123NC% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123nc_s05"
-echo === 32. kung_fu_master 10m seed 4: same as 22 but beta 0.03 ===
-call :find_done kfm_10m_r123b003_s04
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %R123B003% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123b003_s04"
-echo === 33. kung_fu_master 10m seed 5: same as 32 ===
-call :find_done kfm_10m_r123b003_s05
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %R123B003% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123b003_s05"
-echo === 34. kung_fu_master 10m seed 6: same as 32 ===
-call :find_done kfm_10m_r123b003_s06
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 %R123B003% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123b003_s06"
-echo === 35. kung_fu_master 10m seed 7: same as 32 ===
-call :find_done kfm_10m_r123b003_s07
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %R123B003% %EVFIX% "app.run_name=run_{t}_kfm_10m_r123b003_s07"
-echo === 36. kung_fu_master 10m seed 4: same as 32 but RND warm-up 1,000,000 ===
-call :find_done kfm_10m_b003w1m_s04
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %B003W1M% %EVFIX% "app.run_name=run_{t}_kfm_10m_b003w1m_s04"
-echo === 37. kung_fu_master 10m seed 5: same as 36 ===
-call :find_done kfm_10m_b003w1m_s05
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %B003W1M% %EVFIX% "app.run_name=run_{t}_kfm_10m_b003w1m_s05"
-echo === 38. kung_fu_master 10m seed 6: same as 36 ===
-call :find_done kfm_10m_b003w1m_s06
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 %B003W1M% %EVFIX% "app.run_name=run_{t}_kfm_10m_b003w1m_s06"
-echo === 39. kung_fu_master 10m seed 7: same as 36 ===
-call :find_done kfm_10m_b003w1m_s07
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %B003W1M% %EVFIX% "app.run_name=run_{t}_kfm_10m_b003w1m_s07"
-echo === 40. kung_fu_master 10m seed 4: same as 32 plus PRD121 value decomposition, intrinsic reward x0.03 and beta 1 (same effective weight as 32) ===
-call :find_done kfm_10m_vd_b1_s04
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %VD003% DefaultDQNAgent.intrinsic.beta=1 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b1_s04"
-echo === 41. kung_fu_master 10m seed 4: same as 40 but beta 3.3333 (same effective weight as 22) ===
-call :find_done kfm_10m_vd_b333_s04
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=4 %VD003% DefaultDQNAgent.intrinsic.beta=3.3333 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b333_s04"
-echo === 42. kung_fu_master 10m seed 5: same as 40 with seed 5 ===
-call :find_done kfm_10m_vd_b1_s05
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %VD003% DefaultDQNAgent.intrinsic.beta=1 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b1_s05"
-echo === 43. kung_fu_master 10m seed 5: same as 41 with seed 5 ===
-call :find_done kfm_10m_vd_b333_s05
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=5 %VD003% DefaultDQNAgent.intrinsic.beta=3.3333 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b333_s05"
-echo === 44. kung_fu_master 10m seed 6: same as 40 with seed 6 ===
-call :find_done kfm_10m_vd_b1_s06
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 %VD003% DefaultDQNAgent.intrinsic.beta=1 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b1_s06"
-echo === 45. kung_fu_master 10m seed 6: same as 41 with seed 6 ===
-call :find_done kfm_10m_vd_b333_s06
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=6 %VD003% DefaultDQNAgent.intrinsic.beta=3.3333 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b333_s06"
-echo === 46. kung_fu_master 10m seed 7: same as 40 with seed 7 ===
-call :find_done kfm_10m_vd_b1_s07
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %VD003% DefaultDQNAgent.intrinsic.beta=1 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b1_s07"
-echo === 47. kung_fu_master 10m seed 7: same as 41 with seed 7 ===
-call :find_done kfm_10m_vd_b333_s07
-if not defined DONE_DIR call :run_exe "%RT10RND%" E1.game=kung_fu_master run.seed=7 %VD003% DefaultDQNAgent.intrinsic.beta=3.3333 %EVFIX% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "app.run_name=run_{t}_kfm_10m_vd_b333_s07"
+
+echo === 50. breakout 5m seed 1: rainbow_like aligned to Dopamine IQN (uniform replay, Adam 5e-5 eps 3.125e-4, taus 64/64/32), no RND, 4 env ===
+call :find_done bo_dqiqn_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_s1"
+
+echo === 51. qbert 5m seed 1: same as 50 ===
+call :find_done qb_dqiqn_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %QB1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_qb_dqiqn_s1"
+
+echo === 52. breakout 5m seed 1: same Q side as mz_rbw_rndtg (rainbow_like with PER, taus 8) without RND, 4 env ===
+call :find_done bo_rbw_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %NOGS% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_rbw_s1"
+
+echo === 53. qbert 5m seed 1: same as 52 ===
+call :find_done qb_rbw_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %QB1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %NOGS% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_qb_rbw_s1"
+
+echo === 54. montezuma_revenge 30m seed 1: same as mz_tg_g99ne_split_s1 but 64 env (replay lane window 32,768 instead of 16,384 with the same total capacity), train actor sync every 800 train steps (same exp-step interval) and RND learn batch 64 (all lanes every step, as 128 with 128 env) ===
+call :find_done mz_tg_split_e64_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %MZW% %VD% %G99NE% %FGS% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1%" "%PL2%" "%PL3%" "%PL4%" "%PL5%" %E64% DefaultDQNAgent.intrinsic.learn_batch_size=64 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_split_e64_s1"
 
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===

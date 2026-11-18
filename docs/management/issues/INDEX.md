@@ -62,6 +62,7 @@
 | [issue-20261103-d4258c](issue-20261103-d4258c.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 312_util, 316_config | 基盤 | 不整合 | — | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
 | [issue-20261103-7c9a70](issue-20261103-7c9a70.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 316_config | 基盤 | 不整合 | [PRD181](../../memo/181_config_file_layout_10prd.md) | 残件有り | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う |
 | [issue-20261103-eeb2c3](issue-20261103-eeb2c3.md) | 未着手 | 2.5 | — | 成果物 | 監査 | 317_metrics | UI | 不整合 | — | 残件有り | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
+| [issue-20261118-dc5de3](issue-20261118-dc5de3.md) | 未着手 | 2.4 | — | 成果物 | その他 | 317_metrics, 110_runner_app | 基盤 | 機能改善 | — | 未確認 | Atari の Run の列ごとにメトリクスの組と tag がずれ、本線・Taiga 寄せ・易しいゲームの Run どうしを Viewer で重ねて比べられない |
 | [issue-20261103-e6dbb4](issue-20261103-e6dbb4.md) | 未着手 | 2.3 | — | 成果物 | 監査 | 317_metrics | UI | リファクタリング | — | 残件有り | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
 | [issue-20261103-34d35d](issue-20261103-34d35d.md) | 未着手 | 2.3 | — | 成果物 | PRD | 318_rl_core | 学習基盤 | 不具合 | [PRD177](../../memo/177_episode_end_read_semantics_10prd.md) | 残件有り | `@episode_end` で読む値を、どの target でもそのエピソードの値にそろえる |
 | [issue-20261111-2c251b](issue-20261111-2c251b.md) | 未着手 | 2.3 | — | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | Replay の窓の規則 3 クラスが同じ骨格の写しで、PER のスカラーのキーも一覧・条件式・分岐の 3〜4 か所に並んでいる |

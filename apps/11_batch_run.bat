@@ -64,21 +64,18 @@ SET "PL2=metrics.scalar.[34_agent_plasticity/42_probe_dead_ratio]=$agent plastic
 SET "PL3=metrics.scalar.[34_agent_plasticity/43_probe_feature_norm]=$agent plasticity_probe_feature_norm @learn $learn_step interval:5000"
 SET "PL4=metrics.scalar.[34_agent_plasticity/44_probe_srank]=$agent plasticity_probe_srank @learn $learn_step interval:5000"
 SET "PL5=metrics.scalar.[34_agent_plasticity/45_probe_srank_ratio]=$agent plasticity_probe_srank_ratio @learn $learn_step interval:5000"
+SET "RBWTG=run.$=%A5%>run.@hard125>run.@munch>%RF%>run.@cap2m>run.@eval2ch_r1>run.@to_100m>run.@rainbow_like>run.@rnd>run.@rnd_taiga>run.@batch"
+SET "FP32=DefaultDQNAgent.learner.use_amp=false DefaultDQNAgent.learner.use_amp_bf16=false"
+SET "EPSH=DefaultDQNAgent.actor.[train].policy.epsilon.type=phased DefaultDQNAgent.actor.[train].policy.epsilon.phase.[hold].value=1.0 DefaultDQNAgent.actor.[train].policy.epsilon.phase.[hold].steps=20000 DefaultDQNAgent.actor.[train].policy.epsilon.phase.[decay].type=linear DefaultDQNAgent.actor.[train].policy.epsilon.phase.[decay].start=1.0 DefaultDQNAgent.actor.[train].policy.epsilon.phase.[decay].end=0.01 DefaultDQNAgent.actor.[train].policy.epsilon.phase.[decay].steps=250000"
+SET "EPSHP=DefaultDQNAgent.actor.[train].policy.epsilon.phases=hold decay"
+SET "ASYNC1=A2.actor.[train].sync_interval=1"
+SET "MZR=E1.game=montezuma_revenge run.seed=1 run.train.num_envs=4"
 
 call :use_ws AtariRnd-01 Atari.txt
 
-echo === 26. montezuma_revenge eval only: 30m weights of mz_tg_r121_vd_s1, greedy with intrinsic beta 0 (greedy_single and eval keep beta 1) ===
-call :find_done mz_r121_vd_s1_ev_b0
-if not defined DONE_DIR call :find_ckpt run_*_mz_tg_r121_vd_s1
-if not defined DONE_DIR if defined CKPT call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%VDS1%" "%VDS2%" "%VDS3%" "%VDS4%" %EVB0% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_r121_vd_s1_ev_b0"
-
-echo === 27. montezuma_revenge 30m seed 1: same as mz_tg_r121_vd_s1 plus intrinsic discount 0.99, no cut of intrinsic value at game over, and split feature gradient; plasticity probe every 5000 learn steps ===
-call :find_done mz_tg_g99ne_split_s1
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% %FGS% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1%" "%PL2%" "%PL3%" "%PL4%" "%PL5%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99ne_split_s1"
-
-echo === 28. montezuma_revenge 30m seed 1: same as 27 but merged feature gradient ===
-call :find_done mz_tg_r121_g99ne_s1
-if not defined DONE_DIR call :run_ws "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1%" "%PL2%" "%PL3%" "%PL4%" "%PL5%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_r121_g99ne_s1"
+echo === 30. montezuma_revenge 22.5m seed 1: real-time chain + rainbow_like (IQN in place of C51) with Taiga RND, FP32 learner, epsilon 1.0 for 20k then linear to 0.01 over 250k, train actor synced every train step, 4 env ===
+call :find_done mz_rbw_rndtg_s1
+if not defined DONE_DIR call :run_ws "%RBWTG%" %MZR% %FP32% %EPSH% "%EPSHP%" %ASYNC1% app.batchrun.exp_exit_step=22500000 "app.run_name=run_{t}_mz_rbw_rndtg_s1"
 
 echo === 29. montezuma_revenge 30m seed 2: same as 27 ===
 call :find_done mz_tg_g99ne_split_s2
