@@ -524,6 +524,76 @@ run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[08]] = skip_ses
 run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[09]] = skip_session_length_rate.[9] $eval.[greedy] $actor @session_end
 run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[10]] = skip_session_length_rate.[10] $eval.[greedy] $actor @session_end
 
+# RND 単独の比較群。既存の run.$ の末尾に run.@rnd を足して選ぶ。
+# 入力は盤面だけ。vector の no_drop_timeout_ratio を入れると、待つ局面が新しく見えて NEET を後押ししうる。
+# vector をどの枝にもつながないので、NetworkBodyBuilder の WARN が Run ごとに 1 件出る（承知の上で残す）。
+# β は 0.01。報酬は constant_scale 0.01 で 1 手あたり 0.05 前後、ボーナスの平均は β の 0.4 倍前後なので、外的報酬の 1 割未満を狙う。
+# warm-up は Atari と同じ 200,000（序盤の大きな誤差を誤差の統計に入れない）。
+run.@rnd : DefaultDQNAgent.intrinsic.enabled = true
+run.@rnd : DefaultDQNAgent.intrinsic.beta = 0.01
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.warmup_steps = 200,000
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].bind = grid
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].structure = DMRndConv1 > DMRndLeaky > DMRndConv2 > DMRndLeaky > DMRndConv3 > DMRndLeaky > Flatten
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.body.output.[features] = feature
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.predictor.net.branch.[feature].bind = grid
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.predictor.net.branch.[feature].structure = DMRndConv1 > DMRndLeaky > DMRndConv2 > DMRndLeaky > DMRndConv3 > DMRndLeaky > Flatten > DMRndFC > ReLU > DMRndFC > ReLU
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.predictor.net.body.output.[features] = feature
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.head.init.mode = orthogonal
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.head.init.manual_gain = 1.4142135623730951
+run.@rnd : metrics.scalar.[56_agent_in/01_bonus_mean] = $agent intrinsic.bonus_mean @learn
+run.@rnd : metrics.scalar.[56_agent_in/02_bonus_max] = $agent intrinsic.bonus_max @learn
+run.@rnd : metrics.scalar.[56_agent_in/03_bonus_share] = $agent intrinsic.bonus_share @learn
+run.@rnd : metrics.scalar.[56_agent_in/04_bonus_min] = $agent intrinsic.bonus_min @learn
+run.@rnd : metrics.scalar.[56_agent_in/05_bonus_pos_ratio] = $agent intrinsic.bonus_pos_ratio @learn
+run.@rnd : metrics.scalar.[56_agent_in/11_error_mean] = $agent intrinsic.error_mean @learn
+run.@rnd : metrics.scalar.[56_agent_in/12_error_std] = $agent intrinsic.error_std @learn
+run.@rnd : metrics.scalar.[56_agent_in/13_error_step] = $agent intrinsic.error_step @learn
+run.@rnd : metrics.scalar.[56_agent_in/14_target_feature_var] = $agent intrinsic.target_feature_var @learn
+run.@rnd : metrics.scalar.[56_agent_in/15_target_feature_max] = $agent intrinsic.target_feature_max @learn
+run.@rnd : metrics.scalar.[56_agent_in/21_clip_ratio] = $agent intrinsic.clip_ratio @learn
+run.@rnd : metrics.scalar.[56_agent_in/31_predictor_loss] = $agent intrinsic.predictor_loss @learn
+run.@rnd : metrics.scalar.[56_agent_in/32_learn_count] = $agent intrinsic.learn_count @learn
+run.@rnd : app.eval_trace_panel.columns.[235] = $agent_step intrinsic.bonus label:rnd_bonus
+run.@rnd : app.eval_trace_panel.columns.[600] = $agent_step intrinsic.error label:rnd_err
+run.@rnd : app.eval_trace_panel.columns.[610] = $agent_step intrinsic.normalized_error label:rnd_norm
+
+# RND に vector も入れる比較群。run.@rnd の後ろへ足す。vector は Q network と同じく盤面の大きさへ広げ、盤面と重ねて CNN へ入れる。
+run.@rnd_vec : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[vector_feature].bind = vector
+run.@rnd_vec : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[vector_feature].structure = Embed5846_v2
+run.@rnd_vec : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].bind = grid, vector_feature
+run.@rnd_vec : DefaultDQNAgent.intrinsic.rnd.predictor.net.branch.[vector_feature].bind = vector
+run.@rnd_vec : DefaultDQNAgent.intrinsic.rnd.predictor.net.branch.[vector_feature].structure = Embed5846_v2
+run.@rnd_vec : DefaultDQNAgent.intrinsic.rnd.predictor.net.branch.[feature].bind = grid, vector_feature
+
+# RND 専用の CNN。盤面（46×58）を stride 2 で 3 回縮めて 6×8×64 にする。Q network と初期化・形状を共有しない。
+net.block.[DMRndConv1].type = Conv2d
+net.block.[DMRndConv1].conv.out_channels = 32
+net.block.[DMRndConv1].conv.kernel_size = 3
+net.block.[DMRndConv1].conv.stride = 2
+net.block.[DMRndConv1].conv.padding = 1
+net.block.[DMRndConv1].init.mode = orthogonal
+net.block.[DMRndConv1].init.manual_gain = 1.4142135623730951
+net.block.[DMRndConv2].type = Conv2d
+net.block.[DMRndConv2].conv.out_channels = 64
+net.block.[DMRndConv2].conv.kernel_size = 3
+net.block.[DMRndConv2].conv.stride = 2
+net.block.[DMRndConv2].conv.padding = 1
+net.block.[DMRndConv2].init.mode = orthogonal
+net.block.[DMRndConv2].init.manual_gain = 1.4142135623730951
+net.block.[DMRndConv3].type = Conv2d
+net.block.[DMRndConv3].conv.out_channels = 64
+net.block.[DMRndConv3].conv.kernel_size = 3
+net.block.[DMRndConv3].conv.stride = 2
+net.block.[DMRndConv3].conv.padding = 1
+net.block.[DMRndConv3].init.mode = orthogonal
+net.block.[DMRndConv3].init.manual_gain = 1.4142135623730951
+net.block.[DMRndFC].type = Linear
+net.block.[DMRndFC].linear.out_features = 256
+net.block.[DMRndFC].init.mode = orthogonal
+net.block.[DMRndFC].init.manual_gain = 1.4142135623730951
+net.block.[DMRndLeaky].type = LeakyReLU
+net.block.[DMRndLeaky].negative_slope = 0.2
+
 # IQN K/N/M=32 + stratified。現行の主力構成。
 run.@iqn32_stratified : backend.$ = backend.@non-deterministic
 run.@iqn32_stratified : DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G5846 > DropMergeEnv.@heavy > E1
