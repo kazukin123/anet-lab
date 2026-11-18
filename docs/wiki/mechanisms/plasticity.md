@@ -4,7 +4,7 @@
 
 ## 今の結論
 
-同じ勾配step付近の摩耗はreplay ratio間で似ていたが、付随する新規データ量と成績の推移は異なった。崩壊時に膨らんだのはfeature側の重みで、readout側ではなかった。SiLUやLN512で機序指標が改善しても、RR8短期screeningの成績は改善しなかった。MontezumaのRNDで価値を外的と内的の2つのHeadに分けたRunは、分けない2本よりprobeのdormant率とdead率が高かった。そこへ内的の割引率の分離と損失ごとの更新を足したRunは、dormant率とdead率がさらに高いまま、Greedyで2500点以上にそろった。
+同じ勾配step付近の摩耗はreplay ratio間で似ていたが、付随する新規データ量と成績の推移は異なった。崩壊時に膨らんだのはfeature側の重みで、readout側ではなかった。SiLUやLN512で機序指標が改善しても、RR8短期screeningの成績は改善しなかった。MontezumaのRNDで価値を外的と内的の2つのHeadに分けたRunは、分けない2本よりprobeのdormant率とdead率が高かった。そこへ内的の割引率の分離と損失ごとの更新を足したRunは、dormant率とdead率がさらに高いまま、Greedyで2500点以上にそろった。同じ割引率の分離で損失を合わせて1つのoptimizerで更新した形は、別々に更新した形より、2 seedともprobeのdormant率とdead率が低かった。
 
 ## 分かっていること
 
@@ -18,6 +18,7 @@
 - 同じ構成でRNDをTaigaらの式（β 5e-05）にし、Munchausen無効・Double DQN有効にしたRunは、learn step 2万ごとの窓でprobeのdormant率が0.73から0.96、dead率が0.61から0.94、`04_srank`が211から53、`03_feature_norm`が0.35から0.06になり、Qの最大の平均は0.005〜0.012で平らだった（learn step約8万、2.53Mで止めた）（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、探索ブロック08。Run: run_20261109-221347_mz_tg_taiga_nmdd_s1）。
 - 同じ構成のPRD123の既定（β 0.01・Munchausen無効）で、価値を外的と内的の2つのHeadに分けたRun（seed 1）は、4M窓のprobeのdormant率が16M以降0.46〜0.50、dead率が0.24〜0.25だった。分けない2本（seed 1・2）は同じ窓でdormant率0.30〜0.35、dead率0.11〜0.15。分けたRunはGreedyで30Mまで500点を超えず、分けない2本は26.2M・29.2Mに2500点以上に届いた（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ12・15・23・探索ブロック18。Run: run_20261115-055326_mz_tg_r121_vd_s1、run_20261112-043034_mz_tg_r123_b001_s1、run_20261112-222903_mz_tg_r123_b001_s2）。
 - 同じ分解のRunの内的の割引率を0.99に分けてgame overで切らず、外的と内的の損失を別々のAdamで更新したRun（seed 1、probeは5,000 learn stepごと。分解だけのRunは500）は、4M窓のprobeのdormant率が0.59〜0.70、dead率が0.38〜0.52、srankが730〜982だった。分解だけのRunは同じ窓で0.30〜0.50・0.12〜0.25・990〜1,405、分解なしのseed 1はdormant率0.18〜0.35・dead率0.06〜0.15。このRunはGreedyで15.2Mに2500点に届き、20.2〜29.2Mの`53_evalg`で146/160が2500点以上だった（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ25・28・探索ブロック18・20。Run: run_20261116-005336_mz_tg_g99ne_split_s1）。
+- 同じ割引率の分離のまま外的と内的の損失を合わせて1つのoptimizerで更新したRunと、2つの形をseed 2で流したRunを足すと、20〜26Mと26〜30Mの平均で、probeのdormant率は別々の形が0.64・0.62（seed 1）と0.55・0.56（seed 2）、合わせた形が0.48・0.50と0.44・0.45、dead率は別々の形が0.40・0.38と0.33・0.34、合わせた形が0.27・0.27と0.21・0.23だった。20〜30MのGreedy（320ゲーム）の平均は、合わせた形が3,160.3・2,790.9、別々の形が2,394.4・2,265.3だった。seed 2の2本は実行体のbuildがseed 1の2本と違う。合わせた形のreplayの容量を2倍にしたRunは、dormant率0.41・0.48、dead率0.19・0.22で、Greedyの平均は1,919.4だった（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ29・33・探索ブロック20・21。Run: run_20261116-173557_mz_tg_r121_g99ne_s1、run_20261117-142732_mz_tg_r121_g99ne_s2、run_20261116-005336_mz_tg_g99ne_split_s1、run_20261118-000153_mz_tg_g99ne_split_s2、run_20261118-111145_mz_tg_g99ne_cap4m_s1）。
 
 ## 分かっていないこと
 
