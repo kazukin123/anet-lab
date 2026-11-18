@@ -74,8 +74,9 @@ void EvalPanelConfig::Validate() const
 	model_sync.Validate();
 }
 
-EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config, std::function<void()> before_live_action)
-	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY), current_step_per_frame_(config.step_per_frame), before_live_action_(std::move(before_live_action))
+EvalPanel::EvalPanel(wxWindow* parent, const EvalPanelConfig& config, std::function<void()> before_live_action,
+    std::function<anet::rl::MakeActionOptions()> make_action_options)
+	: wxPanel(parent), config_(config), update_timer_(this, wxID_ANY), current_step_per_frame_(config.step_per_frame), before_live_action_(std::move(before_live_action)), make_action_options_(std::move(make_action_options))
 {
 	config_.Validate();
 	is_pause_ = config_.auto_start ? false : true;
@@ -187,11 +188,16 @@ std::string EvalPanel::FormatSpeed() const
 	return std::format("fps={} step_per_frame={}", current_fps_, current_step_per_frame_);
 }
 
+anet::rl::MakeActionOptions EvalPanel::GetMakeActionOptions() const
+{
+    return make_action_options_ ? make_action_options_() : anet::rl::MakeActionOptions{};
+}
+
 void EvalPanel::DoStep()
 {
     if (before_live_action_) before_live_action_();
 	SyncBeforeManualStep();
-	runner_->DoStep();
+	runner_->DoStep(GetMakeActionOptions());
 	SyncAfterStep(runner_->GetCounts());
 	view_->CaptureViewData();
 	Refresh();
@@ -208,7 +214,7 @@ void EvalPanel::DoStep(int64_t action)
     }
     if (before_live_action_) before_live_action_();
 	SyncBeforeManualStep();
-	runner_->DoStep(action);
+	runner_->DoStep(action, runner_->GetCounts(), GetMakeActionOptions());
 	SyncAfterStep(runner_->GetCounts());
 	view_->CaptureViewData();
 	Refresh();
@@ -312,7 +318,7 @@ void EvalPanel::OnTimer(wxTimerEvent& event)
 		[this](const anet::rl::StepCounts& counts)
 		{
 			return SyncAfterStep(counts);
-		});
+		}, GetMakeActionOptions());
 
 	ANET_PROFILE_SCOPE_END_NAMED(eval_update_frame);
 	// データ断面をキャプチャ

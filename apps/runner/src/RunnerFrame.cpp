@@ -52,6 +52,7 @@ const wxSize kToolBitmapSize(16, 16);
 
 using namespace runner_layout;
 
+constexpr char kConv2dPanePrefix[] = "Conv2dPanel_";
 
 enum {
     ID_ResetLayout = wxID_HIGHEST + 1,
@@ -501,6 +502,15 @@ void RunnerFrame::SetupPanes(const TrainPanelConfig& train_panel_config, const E
     // EvalExperienceView
     eval_panel_ = new EvalPanel(this, eval_panel_config, [this] {
         if (eval_trace_panel_) eval_trace_panel_->ReturnToLive();
+    }, [this]() -> anet::rl::MakeActionOptions {
+        // Trace の追従と同じ開閉判定を、step を進める UI スレッドで毎回読む。
+        const bool maximized = HasMaximizedPane();
+        for (const auto& pane : aui_mgr_.GetAllPanes()) {
+            if (pane.name.StartsWith(kConv2dPanePrefix) && anet::rl::gui::IsPaneOpen(pane, maximized)) {
+                return {.nn_trace = true};
+            }
+        }
+        return {};
     });
     wxAuiPaneInfo eval_info = wxAuiPaneInfo()
         .Name("EvalExperiencePanel").Caption("Evaluation View")
@@ -890,7 +900,7 @@ void RunnerFrame::SetupEvents()
 
 bool RunnerFrame::IsAuxPane(const wxAuiPaneInfo& pane) const
 {
-    return pane.name == "EvalTracePanel" || pane.name.StartsWith("HeatMapPanel_") || pane.name.StartsWith("Conv2dPanel_");
+    return pane.name == "EvalTracePanel" || pane.name.StartsWith("HeatMapPanel_") || pane.name.StartsWith(kConv2dPanePrefix);
 }
 
 std::vector<wxAuiPaneInfo*> RunnerFrame::GetAuxPanes()

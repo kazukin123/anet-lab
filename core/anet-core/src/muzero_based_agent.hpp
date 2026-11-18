@@ -171,7 +171,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
             std::shared_ptr<MuZeroNetworkModel> model, const anet::rl::ActionSpec& action_spec, torch::Device device, std::optional<seed_t> seed);
 
         /// 現在の観測からMCTSを回し、行動と学習用情報を返す
-        std::shared_ptr<anet::rl::BatchActionInfo> MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const override;
+        std::shared_ptr<anet::rl::BatchActionInfo> MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state, const anet::rl::MakeActionOptions& options = {}) const override;
 
         void Sync() override;
         std::optional<float> GetScalar(const std::string& key, int64_t = -1) const override
@@ -183,6 +183,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
         const std::shared_ptr<std::shared_mutex> mutex_;
         const torch::Device device_;
         mutable float latest_tau_ = std::numeric_limits<float>::quiet_NaN();
+        mutable bool nn_trace_warned_ = false;
 
         std::shared_ptr<MCTSEngine> mcts_engine_;
     };

@@ -55,6 +55,8 @@ TEST_CASE("Pane open state survives temporary maximize hiding", "[gui][prd094][p
     CHECK_FALSE(anet::rl::gui::IsPaneOpen(wxAuiPaneInfo(), true));
 }
 
+constexpr char kPrd170TraceInput[] = "nn_trace/main/00_Input";
+
 namespace {
 
 namespace rl = anet::rl;
@@ -114,12 +116,12 @@ rl::EnvSpec MakeEnvSpec()
 
 class ThrowingRunner final : public rl::Runner {
 public:
-    rl::StepCounts DoStep() override
+    rl::StepCounts DoStep(const anet::rl::MakeActionOptions& options = {}) override
     {
         throw std::runtime_error("runner failure");
     }
 
-    rl::StepCounts DoUpdateFrame(int, ControlFunction, ControlFunction) override
+    rl::StepCounts DoUpdateFrame(int, ControlFunction, ControlFunction, const anet::rl::MakeActionOptions& options = {}) override
     {
         throw std::runtime_error("runner failure");
     }
@@ -238,17 +240,19 @@ public:
     {
     }
 
-    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts& counts, const rl::BatchState& state) const override
+    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts& counts, const rl::BatchState& state, const anet::rl::MakeActionOptions& options = {}) const override
     {
         // 次の判断へ渡された観測を公開経路の試験で確かめる。
         observed_states_.push_back(state.obs.At(rl::ObsKeys::kVector)[0][0].item<float>());
         last_counts_ = counts;
         auto payload = torch::arange(
             1, num_envs_ * 3 + 1, torch::TensorOptions().dtype(torch::kFloat32)).reshape({ num_envs_, 3 });
+        rl::AuxData aux;
+        if (options.nn_trace) aux[kPrd170TraceInput] = torch::ones({1, 1});
         return std::make_shared<rl::BatchActionInfo>(
             torch::zeros({ num_envs_ }, torch::kInt64),
             anet::TensorDict{},
-            rl::AuxData{},
+            std::move(aux),
             rl::ReplayInitialPriorityHint(std::move(payload)));
     }
 
@@ -1966,4 +1970,65 @@ TEST_CASE("View snapshots freeze one transition and return to the latest live da
     const auto orphan = snapshots.front();
     view.reset();
     CHECK_NOTHROW(orphan->show());
+}
+
+TEST_CASE("Runner forwards per-step nn_trace to every action and notification", "[prd170][runner]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    const int kind = GENERATE(0, 1, 2);
+    auto env = std::make_shared<TestBatchEnv>("nn-trace", 1, torch::kCPU);
+    auto agent = std::make_shared<TestAgent>(torch::kCPU);
+    auto notifier = std::make_shared<rl::Notifier>();
+    const rl::ActorRequest request{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 170, .actor_key = "train"};
+    std::shared_ptr<rl::Runner> runner;
+    if (kind == 0) runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request);
+    else if (kind == 1) runner = std::make_shared<rl::SerialTrainRunner>(env, agent, notifier, request);
+    else runner = std::make_shared<rl::PipelineTrainRunner>(env, agent, notifier, request);
+    std::vector<bool> trace;
+    notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
+        const auto& aux = event.action_info->GetAuxData();
+        trace.push_back(aux.contains(kPrd170TraceInput));
+    }));
+    // Pipeline の通知は遅れるので、公開経路で3 step進めて同じ入力の通知を得る。
+    for (int i = 0; i < 3; ++i) runner->DoStep();
+    REQUIRE_FALSE(trace.empty());
+    CHECK_FALSE(trace.back());
+    for (int i = 0; i < 3; ++i) runner->DoStep({.nn_trace = true});
+    CHECK(trace.back());
+    trace.clear();
+    runner->DoUpdateFrame(3, nullptr, nullptr, {.nn_trace = true});
+    CHECK(trace == std::vector<bool>{true, true, true});
+    for (int i = 0; i < 3; ++i) runner->DoStep();
+    CHECK_FALSE(trace.back());
+    if (const auto eval = std::dynamic_pointer_cast<rl::EvalRunner>(runner)) {
+        eval->DoStep(0, {}, {.nn_trace = true});
+        CHECK(trace.back());
+        eval->DoStep(0, {});
+        CHECK_FALSE(trace.back());
+    }
+    runner->Shutdown();
+}
+
+TEST_CASE("Configured evaluation sessions never request nn_trace", "[prd170][session]")
+{
+    ScopedRunManagerMetricsLogger metrics_logger;
+    auto env = std::make_shared<rl::VectorizedDiscreteBatchEnv>(anet::ConfigData{},
+        std::make_shared<NotificationSingleEnvFactory>(), "nn-trace-session", 1, torch::kCPU, 170);
+    auto session = std::make_shared<rl::EvalSessionEnv>(env, 3, std::vector<std::string>{});
+    auto agent = std::make_shared<TestAgent>(torch::kCPU);
+    auto notifier = std::make_shared<rl::Notifier>();
+    int notifications = 0;
+    notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
+        ++notifications;
+        const auto& aux = event.action_info->GetAuxData();
+        CHECK(std::none_of(aux.begin(), aux.end(), [](const auto& entry) {
+            return entry.first.starts_with("nn_trace/");
+        }));
+    }));
+    auto runner = std::make_shared<rl::EvalRunner>(session, agent, notifier, rl::ActorRequest{
+        .batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = torch::kCPU,
+        .seed = 170, .actor_key = "eval"});
+    runner->RunSession({});
+    CHECK(notifications == 3);
 }

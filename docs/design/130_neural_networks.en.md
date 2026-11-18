@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:cbafddf15f389eb6073e3531b9a419d48acb8e0c date:2026-11-12 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:018ef5bab1d0c504453928084b0be726d1fd51fd date:2026-11-17 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -162,7 +162,7 @@ class NetworkBuilder
 class NetworkConfig
 class Network {
   +CreateForwardExecutor(config, clock_kind, seed)
-  +Forward(input, callback)
+  +Forward(input, capture)
   +Clone(device)
   +CopyTo(target)
   +SoftCopyTo(target, tau)
@@ -176,7 +176,7 @@ class NetworkModuleRepository
 class NetworkHead
 class NetworkHeadFactory
 class NetworkForwardExecutor {
-  +Forward(input, info, callback)
+  +Forward(input, info, capture)
 }
 class NetworkForwardState {
   <<internal>>
@@ -286,7 +286,7 @@ sequenceDiagram
     E-->>C: output
 ```
 
-Passing a `TraceCallback` enables collection of intermediate module/branch Tensors for visualization and diagnostics.
+Requesting `nn_trace/` through capture collects branch inputs and visualizable block outputs. A forward without that request does not produce them.
 
 ## 7. Configuration, Lifetimes, Errors, and Performance
 
@@ -330,17 +330,17 @@ u/v are named buffers initialized using the dedicated RNG, followed by 15 power 
 ### 7.5 Visualization and Performance
 
 - `MakeGraphViz` outputs branches, per-factor dependency edges, blocks, shapes, and parameter information from construction metadata. Enabling branch configuration details also displays `bind_concat_dim`.
-- `GetTensorDictFunction` and TraceCallback provide access to Network internals for Conv2d visualization and probes.
+- `GetTensorDictFunction` and forward capture provide access to Network internals for Conv2d visualization and probes.
 - Forward, attention, and major blocks are profiled; measure costs by shape/batch size when adding modules.
 - Excessively fine profiling ranges introduce measurement noise; choose meaningful processing boundaries.
 
 ### 7.6 Forward Capture and Partial Forward
 
-`Network::Forward`, `NetworkForwardExecutor::Forward`, and `Network::ForwardUpTo` accept an optional `NetworkForwardCapture`. Callers request exact keys or prefixes ending in `/` and use `Wants`, `Add`, `Get`, `GetAll`, `Unfulfilled`, and `Reset`. Each key holds one Tensor; writing an unrequested key or calling `Add` a second time for the same key fails fast. `Get` returns the exact-key value, or an undefined Tensor if unwritten. `GetAll` returns matching prefix keys and Tensors in write order. Prefix `X/` does not match `X` itself.
+`Network::Forward`, `NetworkForwardExecutor::Forward`, and `Network::ForwardUpTo` accept an optional `NetworkForwardCapture`. Callers request exact keys or prefixes ending in `/` and use `Wants`, `WantsAny`, `Add`, `Get`, `GetAll`, `Unfulfilled`, and `Reset`. Each key holds one Tensor; writing an unrequested key or calling `Add` a second time for the same key fails fast. `Get` returns the exact-key value, or an undefined Tensor if unwritten. `GetAll` returns matching prefix keys and Tensors in write order. Prefix `X/` does not match `X` itself.
 
-There are two writers. After each branch executes, Body detaches and writes the output if its branch name was requested. Modules check requests for base keys through `NetworkForwardContext` and write diagnostics. `NetworkStruct` supplies `<branch>/<block instance name>`, appended after a module's base key, so even repetitions such as `(*2)` do not collide. Instance names use the same `<definition name>_<sequence number>` form as checkpoints, rather than trace drawing indices. Direct module calls have no location suffix. Branch names containing `/` are rejected at construction.
+There are three writers. After each branch executes, Body detaches and writes the output if its branch name was requested. Modules check requests for base keys through `NetworkForwardContext` and write diagnostics. `NetworkStruct` supplies `<branch>/<block instance name>`, appended after a module's base key, so even repetitions such as `(*2)` do not collide. Instance names use the same `<definition name>_<sequence number>` form as checkpoints, rather than nn_trace drawing indices. Direct module calls have no location suffix. Branch names containing `/` are rejected at construction.
 
-At forward entry, capture Resets results while retaining requests. At exit, any unwritten exact request or prefix request without a match fails fast with the request, reached branch, written keys, and available branch names. A forward without capture creates no location strings and preserves TraceCallback and Actor numerical paths.
+The public forward entry places capture in Context. Body resets results at entry while retaining requests. At exit, any unwritten exact request or prefix request without a match fails fast with the request, reached branch, written keys, and available branch names. Head receives a Context without capture. A forward without capture creates no location strings and preserves the Actor numerical path.
 
 `Network::ForwardUpTo(input, branch_key, capture)` uses the default Context and formatted input to execute only the target branch's ancestor closure in the existing topological order, then returns that state. `ComputeDependencyClosure` centralizes closure computation. If a bind factor matches both an input-spec key and a branch name, dependency traversal stops at the input key, matching builder precedence. Unknown branches fail fast with the supplied name and the list from `GetBranchNames()`.
 
@@ -349,6 +349,8 @@ TransformerEncoder uses the public constant `kTransformerEncoderAttentionEntropy
 Plasticity statistics accept rank-2 `(N,D)` features and a requested metric set, compute only requested statistics from detached FP32 CPU features, and are cached by the caller. Steps without srank requests perform no SVD. Simultaneous requests for δ=0.01 / 0.05 / 0.20 share one `svdvals` and cumsum. Each result is optional, preventing uncomputed fields from being read as valid values. Unqualified srank means δ=0.01.
 
 `ComputeParameterNormSplit(final_feature_branch_key)` uses the same dependency closure, grouping trainable parameters in closure branches as feature and parameters in other branches and Head as readout. It returns each group's raw L2, effective L2, and maximum sigma as FP32 device scalars. It uses neither forward nor RNG and excludes parameters whose `requires_grad` is false from norms.
+
+NetworkStruct writes requested `nn_trace/<branch>/00_Input` and `nn_trace/<branch>/<two-digit visual index>_<block>` entries in forward order. Inputs retain every rank; numbering counts only visualizable outputs. `WantsAny(prefix)` checks whether an exact or prefix request can match below that prefix before keys are built.
 
 ### 7.7 Noisy Linear and Execution State
 
@@ -384,6 +386,8 @@ When changing Networks, check the following:
 See the [PRD 084 validation instructions](../../core/anet-core/testdata/prd084/README.md) for execution-setting ownership and independent Module / Head extension tests.
 
 Main unit tests are in [nn_test.cpp](../../core/anet-core/src/nn_test.cpp); DQN/ImageCls tests also validate Agent integration.
+
+- See the [PRD170 validation assets](../../core/anet-core/testdata/prd170/README.md) for nn_trace requests, full-value comparison, and propagation through Runner.
 
 ## 9. Related Documents
 

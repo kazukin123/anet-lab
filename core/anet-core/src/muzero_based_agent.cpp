@@ -802,10 +802,15 @@ void MuZeroActor::Sync()
     /// @todo MuZero試作制約：Actor向けのModelのClone非対応
 }
 
-std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const
+std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::rl::StepCounts& step, const anet::rl::BatchState& state, const anet::rl::MakeActionOptions& options) const
 {
     ANET_PROFILE_FUNC();
 
+    // 表示用の追加出力は未実装なので、最初の要求だけ理由を知らせる。
+    if (options.nn_trace && !nn_trace_warned_) {
+        anet::log::warn() << "MuZeroActor: nn_trace=true requested; nn_trace is not implemented. Continuing without nn_trace.";
+        nn_trace_warned_ = true;
+    }
     torch::NoGradGuard grad_guard;
 
     int64_t batch_size = state.obs.Size(0);

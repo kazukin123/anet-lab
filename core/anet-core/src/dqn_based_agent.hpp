@@ -774,7 +774,7 @@ namespace anet::rl::dqn {
             std::optional<float> beta = std::nullopt, bool use_tbo = false, float epsilon = 0.01f)
             : forward_(forward), beta_(beta), use_tbo_(use_tbo), epsilon_(epsilon) {}
         anet::TensorDict Forward(const anet::TensorDict& input, const anet::nn::NetworkForwardCallInfo& info,
-            const anet::TraceCallback& callback = {}, anet::nn::NetworkForwardCapture* capture = nullptr) const;
+            anet::nn::NetworkForwardCapture* capture = nullptr) const;
     private:
         anet::nn::NetworkForwardExecutor& forward_; ///< 同期呼び出しの間、ActorまたはLearner所有の実行器を借りる。
         std::optional<float> beta_;
@@ -790,7 +790,7 @@ namespace anet::rl::dqn {
 
         virtual std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
-            const anet::TraceCallback& callback = {},
+            anet::nn::NetworkForwardCapture* capture = nullptr,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const = 0;
         virtual void UpdateSchedule(const StepCounts& counts) { }
         virtual std::optional<RiskScoreSpec> GetRiskScoreSpec() const { return std::nullopt; }
@@ -807,10 +807,10 @@ namespace anet::rl::dqn {
         const ActionPolicyConfig& GetConfig() const { return config_; }
         virtual ~ActionPolicy() = default;
     protected:
-        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const;
+        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const;
         anet::TensorDict ForwardForActionWithTaus(
             const anet::TensorDict& obs, const torch::Tensor& taus,
-            const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+            const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
             const torch::Tensor& additional_taus = {}) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
@@ -844,7 +844,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
-            const anet::TraceCallback& callback,
+            anet::nn::NetworkForwardCapture* capture,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const override;
         void UpdateSchedule(const StepCounts& counts) override;
     };
@@ -866,7 +866,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
-            const anet::TraceCallback& callback,
+            anet::nn::NetworkForwardCapture* capture,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const override;
         void UpdateSchedule(const StepCounts& counts) override;
         torch::Tensor MakeActionScores(const torch::Tensor& q, const torch::Tensor& distribution,
@@ -883,7 +883,7 @@ namespace anet::rl::dqn {
         }
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
-            const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+            const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
             bool iqn_use_full_range = false, const DiagnosticActionEvaluation* evaluation = nullptr,
             const torch::Tensor& additional_taus = {}) const;
         void UpdateTau(step_t step);
@@ -902,7 +902,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
-            const anet::TraceCallback& callback,
+            anet::nn::NetworkForwardCapture* capture,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const override;
         void UpdateSchedule(const StepCounts& counts) override;
     };
@@ -977,7 +977,7 @@ namespace anet::rl::dqn {
             bool emit_snapshot_metrics = false,
             ActorQHintConfig actor_q_hint_config = {},
             std::optional<SkipActorResources> skip = std::nullopt);
-        std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
+        std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state, const anet::rl::MakeActionOptions& options = {}) const override;
         void Sync() override;
         bool AttachSyncFollower(std::weak_ptr<ActorSyncFollower> follower) override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;

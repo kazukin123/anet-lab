@@ -31,6 +31,8 @@
 #include <type_traits>
 #include <vector>
 
+constexpr char kPrd170TraceFeature[] = "feature";
+
 namespace {
 // テストの既定経路も、製品と同じ統合factoryで生成する。
 std::shared_ptr<anet::nn::NetworkForwardExecutor> MakeDefaultExecutor(
@@ -1991,11 +1993,12 @@ TEST_CASE("Network forward trace captures branch-prefixed visual layers", "[nn][
     auto network = MakeTraceTestNetwork();
     auto input_tensor = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 });
     anet::TensorDict input{ { "obs", input_tensor } };
+    anet::nn::NetworkForwardCapture capture({std::string(anet::nn::kNnTracePrefix)});
+    auto out = network->Forward(input, &capture);
     anet::TensorDict trace;
-
-    auto out = network->Forward(input, [&trace](std::string_view key, const torch::Tensor& tensor) {
-        trace.Set(std::string(key), tensor.detach().clone());
-    });
+    for (const auto& [key, value] : capture.GetAll(anet::nn::kNnTracePrefix)) {
+        trace.Set(key.substr(anet::nn::kNnTracePrefix.size()), value);
+    }
 
     REQUIRE(out.Contains("feature"));
     REQUIRE(trace.Contains("feature/00_Input"));
@@ -3344,16 +3347,12 @@ TEST_CASE("Network branch capture returns the actual forward feature without cha
 
     anet::TensorDict input;
     input.Set("obs", torch::tensor({ { 1.0f, 2.0f }, { 3.0f, 4.0f } }));
-    std::vector<std::pair<std::string, torch::Tensor>> expected_trace;
-    const auto expected = network->Forward(input, [&](std::string_view name, const torch::Tensor& value) {
-        expected_trace.emplace_back(name, value.detach().clone());
-    });
-
-    anet::nn::NetworkForwardCapture capture({ "feature" });
-    std::vector<std::pair<std::string, torch::Tensor>> actual_trace;
-    const auto actual = network->Forward(input, [&](std::string_view name, const torch::Tensor& value) {
-        actual_trace.emplace_back(name, value.detach().clone());
-    }, &capture);
+    anet::nn::NetworkForwardCapture expected_capture({std::string(anet::nn::kNnTracePrefix)});
+    const auto expected = network->Forward(input, &expected_capture);
+    const auto expected_trace = expected_capture.GetAll(anet::nn::kNnTracePrefix);
+    anet::nn::NetworkForwardCapture capture({kPrd170TraceFeature, std::string(anet::nn::kNnTracePrefix)});
+    const auto actual = network->Forward(input, &capture);
+    const auto actual_trace = capture.GetAll(anet::nn::kNnTracePrefix);
 
     CHECK(torch::equal(actual.At("features"), expected.At("features")));
     REQUIRE(actual_trace.size() == expected_trace.size());
@@ -5018,7 +5017,7 @@ TEST_CASE("CUDA autocast preserves Body overrides and FP32 Head and spectral cal
     anet::nn::NetworkForwardCapture capture({ "feature" });
     {
         anet::Autocast autocast(device, true, torch::kBFloat16);
-        const auto output = forward->Forward(input, info, {}, &capture);
+        const auto output = forward->Forward(input, info, &capture);
         CHECK(output.At("q").scalar_type() == torch::kFloat32);
         CHECK(capture.Get("feature").scalar_type() == (force ? torch::kFloat32 : torch::kBFloat16));
         for (const auto& entry : network->GetSpectralNormEntries()) {
@@ -5424,12 +5423,12 @@ TEST_CASE("Network partial and prepared forwards reset capture and reject unmet 
     auto executor = network->CreateForwardExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
         anet::nn::NetworkForwardClock::kTransientRows, 0);
     const anet::nn::NetworkForwardCallInfo info(anet::nn::NetworkForwardCallInfo::Params{});
-    executor->Forward(input, info, {}, &capture);
+    executor->Forward(input, info, &capture);
     CHECK(torch::equal(capture.Get("feature"), input.At("obs")));
     for (const auto& request : { "missing", "TransformerEncoder/attention_entropy/" }) {
         anet::nn::NetworkForwardCapture missing({ request });
-        CHECK_THROWS_WITH(network->Forward(input, {}, &missing), Catch::Matchers::ContainsSubstring(request));
-        CHECK_THROWS_WITH(network->Forward(input, {}, &missing), Catch::Matchers::ContainsSubstring("reached_branch='feature'"));
+        CHECK_THROWS_WITH(network->Forward(input, &missing), Catch::Matchers::ContainsSubstring(request));
+        CHECK_THROWS_WITH(network->Forward(input, &missing), Catch::Matchers::ContainsSubstring("reached_branch='feature'"));
         CHECK_THROWS_WITH(network->ForwardUpTo(input, "feature", &missing), Catch::Matchers::ContainsSubstring("reached_branch='feature'"));
     }
     data.Set("net.branch.[bad/name].bind", "obs");
@@ -5556,7 +5555,7 @@ TEST_CASE("Repeated Transformer captures have stable positions and execution-ord
     const auto info = anet::nn::NetworkForwardCallInfo(anet::nn::NetworkForwardCallInfo::Params{});
     auto executor = network->CreateForwardExecutor(anet::nn::NetworkForwardConfig::GetDefault(),
         anet::nn::NetworkForwardClock::kTransientRows, 0);
-    executor->Forward(input, info, {}, &capture);
+    executor->Forward(input, info, &capture);
     const auto prepared = capture.GetAll(prefix);
     REQUIRE(prepared.size() == entries.size());
     CHECK(torch::equal(torch::cat({ prepared[0].second, prepared[1].second }), layers));
@@ -5680,4 +5679,25 @@ TEST_CASE("Block schema rejects file defaults and type-only Run overrides", "[nn
         logs.Flush();
         CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
     }
+}
+
+TEST_CASE("nn_trace capture respects exact and prefix requests", "[prd170][nn][capture]")
+{
+    const auto request = GENERATE(std::string("nn_trace/feature/00_Input"),
+        std::string("nn_trace/feature/01_Conv2d_0"), std::string("nn_trace/feature/"), std::string("nn_trace/"));
+    auto network = MakeTraceTestNetwork();
+    const anet::TensorDict input{{"obs", torch::arange(8, torch::kFloat32).reshape({2, 1, 2, 2})}};
+    anet::nn::NetworkForwardCapture capture({request});
+    const auto actual = network->Forward(input, &capture);
+    const auto entries = capture.GetAll(anet::nn::kNnTracePrefix);
+    CHECK(entries.size() == (request.ends_with('/') ? 2 : 1));
+    for (const auto& [key, value] : entries) {
+        CHECK(key.starts_with(anet::nn::kNnTracePrefix));
+        CHECK(value.sizes().vec() == std::vector<int64_t>{2, 1, 2, 2});
+    }
+    // branch の診断だけを要求したときは nn_trace を混ぜず、同じ出力を返す。
+    anet::nn::NetworkForwardCapture branch({kPrd170TraceFeature});
+    const auto without_trace = network->Forward(input, &branch);
+    CHECK(branch.GetAll(anet::nn::kNnTracePrefix).empty());
+    CHECK(torch::equal(actual.At(kPrd170TraceFeature), without_trace.At(kPrd170TraceFeature)));
 }

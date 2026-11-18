@@ -125,7 +125,7 @@ void RunnerBase::SetCompletedEpisodes(
     }
 }
 
-StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_func, ControlFunction post_step_func)
+StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_func, ControlFunction post_step_func, const MakeActionOptions& options)
 {
     ANET_PROFILE_FUNC();
 
@@ -149,7 +149,7 @@ StepCounts RunnerBase::DoUpdateFrame(int max_steps, ControlFunction pre_step_fun
         }
 
         // Step実行
-        step_counts_ = DoStep();
+        step_counts_ = DoStep(options);
 
         // ステップ後処理
         if (post_step_func != nullptr) {
@@ -254,14 +254,14 @@ void EvalRunner::Sync(const StepCounts& source_counts)
     source_counts_ = source_counts;
 }
 
-StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts)
+StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts, const MakeActionOptions& options)
 {
-    DoStepInternal(action, event_counts, true);
+    DoStepInternal(action, event_counts, true, options);
     return step_counts_;
 }
 
 std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
-    int64_t action, const StepCounts& event_counts, bool notify_episode_end)
+    int64_t action, const StepCounts& event_counts, bool notify_episode_end, const MakeActionOptions& options)
 {
     ANET_PROFILE_FUNC();
     // 強制行動の不正値は、Reset・Actor実行・環境更新より前に拒否する。
@@ -285,7 +285,7 @@ std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
     ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
 
     // 行動選択
-    auto action_info_raw = actor_->MakeAction(source_counts_, state_);
+    auto action_info_raw = actor_->MakeAction(source_counts_, state_, options);
     ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw->ToString());
 
     // action_infoを生成
@@ -346,9 +346,9 @@ StepCounts EvalRunner::DoStep(const StepCounts& event_counts)
     return DoStep(-1, event_counts);
 }
 
-StepCounts EvalRunner::DoStep()
+StepCounts EvalRunner::DoStep(const MakeActionOptions& options)
 {
-    return DoStep(-1);
+    return DoStep(-1, step_counts_, options);
 }
 
 void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop)
@@ -372,7 +372,7 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
     // 通常の完了通知を抑制し、採用 episode の確定値が有効な Step 直後にだけ通知する。
     size_t completed = 0;
     while (!stop.stop_requested() && !session_env_->GetSessionResult().has_value()) {
-        const auto step = DoStepInternal(-1, event_counts, false);
+        const auto step = DoStepInternal(-1, event_counts, false, {});
         for (const int64_t group : session_env_->LastAdoptedGroups()) {
             const int env_index = session_env_->GetBatchSpec().episode_scope == EpisodeScope::PER_LANE
                 ? static_cast<int>(group) : -1;
@@ -528,7 +528,7 @@ SerialTrainRunner::SerialTrainRunner(
     ;
 }
 
-StepCounts SerialTrainRunner::DoStep()
+StepCounts SerialTrainRunner::DoStep(const MakeActionOptions& options)
 {
     ANET_PROFILE_FUNC();
 
@@ -571,7 +571,7 @@ StepCounts SerialTrainRunner::DoStep()
     const int N = state_.obs.Size(0);
 
     // 行動選択
-    auto action_info = actor_->MakeAction(step_counts_, state_);
+    auto action_info = actor_->MakeAction(step_counts_, state_, options);
     //ANET_LOG_DEBUG("step=" << train_step << " action=" << action_info->ToString());
     ANET_ASSERT_SHAPE(action_info->GetAction(), {N});
 
@@ -669,7 +669,7 @@ void PipelineTrainRunner::Shutdown()
     TrainRunner::Shutdown();
 }
 
-StepCounts PipelineTrainRunner::DoStep()
+StepCounts PipelineTrainRunner::DoStep(const MakeActionOptions& options)
 {
     ANET_PROFILE_FUNC();
 
@@ -726,7 +726,7 @@ StepCounts PipelineTrainRunner::DoStep()
     // ==========================================================
     // 推論 (GPUが空なので最速で終わる)
     // ==========================================================
-    auto action_info = actor_->MakeAction(step_counts_, state_);
+    auto action_info = actor_->MakeAction(step_counts_, state_, options);
 
     // ==========================================================
     // 非同期学習の投入
@@ -1292,12 +1292,13 @@ RunnerThread::RunnerThread(
     std::shared_ptr<anet::rl::Runner> runner,
     anet::rl::Runner::ControlFunction pre_func,
     anet::rl::Runner::ControlFunction post_func,
-    ExceptionFunction exception_func)
+    ExceptionFunction exception_func, const MakeActionOptions& options)
     : anet::ThreadBase(name)
     , runner_(runner)
     , pre_func_(pre_func)
     , post_func_(post_func)
     , exception_func_(exception_func)
+    , options_(options)
 {
 }
 
@@ -1309,7 +1310,7 @@ RunnerThread::~RunnerThread()
 bool RunnerThread::ProcessStep()
 {
     // 1フレーム実行 (既存のコールバック機構をそのまま利用)
-    runner_->DoUpdateFrame(1, pre_func_, post_func_);
+    runner_->DoUpdateFrame(1, pre_func_, post_func_, options_);
 
     // 完了ステータスになったら false を返してスレッドループを抜ける
     if (runner_->GetStatus() == anet::rl::RunnerStatus::COMPLETED) {

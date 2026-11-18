@@ -1,5 +1,6 @@
 ﻿// RunnerApp.cpp
 #include "RunnerApp.hpp"
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <filesystem>
@@ -524,6 +525,12 @@ void RunnerApp::CompleteRunInitialization()
     auto train_runner = run_manager_->GetTrainRunner();
     img_prov_mgr_ = std::make_unique<anet::rl::ImageProviderManager>(env_spec, notifier);
     img_prov_mgr_->CreateAndRegister(config_data, agent, train_runner);
+    // 録画する Conv2d が登録された Run だけ、学習の全 step で中間出力を求める。
+    const auto image_entries = img_prov_mgr_->List();
+    const anet::rl::MakeActionOptions make_action_options{.nn_trace = std::any_of(
+        image_entries.begin(), image_entries.end(), [](const auto& entry) {
+            return entry.config.type == anet::rl::kImageType_Conv2d && entry.config.interval >= 1;
+        })};
 
     // Trainer初期化後のUI初期化
     frame_->Initialize(run_manager_);
@@ -577,7 +584,8 @@ void RunnerApp::CompleteRunInitialization()
         [this]() {  // exception_func
             wxGetApp().StoreCurrentException();
             wxGetApp().CallAfter([] { wxGetApp().RethrowStoredException(); });
-        }
+        },
+        make_action_options
     );
 
     // 永続化

@@ -990,7 +990,7 @@ anet::TensorDict NetworkModel::ForwardOnlineWithTrain(
     const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
 {
     anet::TrainingModeGuard guard(*online_net_, true);
-    return forward.Forward(obs, info, {}, capture);
+    return forward.Forward(obs, info, capture);
 }
 
 anet::TensorDict NetworkModel::ForwardOnlineUpTo(
@@ -1771,30 +1771,29 @@ void DecomposedValueCombiner::Combine(anet::TensorDict& output, float beta, bool
 }
 
 anet::TensorDict DqnForwardExecutor::Forward(const anet::TensorDict& input,
-    const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
-    anet::nn::NetworkForwardCapture* capture) const
+    const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
 {
-    auto output = forward_.Forward(input, info, callback, capture);
+    auto output = forward_.Forward(input, info, capture);
     if (beta_) DecomposedValueCombiner::Combine(output, *beta_, use_tbo_, epsilon_);
     return output;
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
-    const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback) const
+    const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
 {
-    return forward.Forward(obs, info, callback);
+    return forward.Forward(obs, info, capture);
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForActionWithTaus(
     const anet::TensorDict& obs, const torch::Tensor& taus,
-    const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+    const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
     const torch::Tensor& additional_taus) const
 {
     // 追加方策のqueryも同じforwardへ含め、両Networkが全く同じtausを参照できるようにする。
     const auto combined_taus = additional_taus.defined() ? torch::cat({taus, additional_taus}, 1) : taus;
     anet::TensorDict network_input = obs;
     network_input.Set(anet::nn::kKey_Taus, combined_taus);
-    auto result = ForwardForAction(network_input, forward, info, callback);
+    auto result = ForwardForAction(network_input, forward, info, capture);
     result.Set(anet::nn::kKey_Taus, combined_taus);
     return result;
 }
@@ -2021,7 +2020,7 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::UpdateSchedule(const StepCounts& 
 }
 
 std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
     const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     ANET_PROFILE_FUNC();
@@ -2038,9 +2037,9 @@ std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const ane
                 .unsqueeze(0).expand({ obs.Size(0), evaluation->num_taus })
             : GenerateTaus(obs.Size(0), config_.tau_rule.num_taus, config_.tau_rule.sample_mode,
                 0.0f, 1.0f, obs.device(), *rnd);
-        out = ForwardForActionWithTaus(obs, taus, forward, info, callback, additional_taus);
+        out = ForwardForActionWithTaus(obs, taus, forward, info, capture, additional_taus);
     } else {
-        out = ForwardForAction(obs, forward, info, callback);
+        out = ForwardForAction(obs, forward, info, capture);
     }
     auto q_values = out.At("q");
     torch::Tensor q_quantiles;
@@ -2227,7 +2226,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEValues(const torch::Tensor& tau_
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
-    bool greedy_only, const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+    bool greedy_only, const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
     bool iqn_use_full_range, const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     ANET_PROFILE_FUNC();
@@ -2304,10 +2303,10 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
         }
 
         ANET_PROFILE_SCOPE_NEXT(forward);
-        out = ForwardForActionWithTaus(obs, iqn_taus, forward, info, callback, additional_taus);
+        out = ForwardForActionWithTaus(obs, iqn_taus, forward, info, capture, additional_taus);
     } else {
         ANET_PROFILE_SCOPE_NEXT(forward);
-        out = ForwardForAction(obs, forward, info, callback);
+        out = ForwardForAction(obs, forward, info, capture);
     }
     // Headのqは連結した全tausの平均になるため、full query有効時は使わず各領域から平均を再計算する。
     ANET_PROFILE_SCOPE_NEXT(split_outputs);
@@ -2419,15 +2418,15 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
     const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     if (IsSpatialExplorationEnabled()) {
         const int64_t N = obs.Size(0);
         auto tau_tensor = GetSpatialTauTensor(N, obs.device()).view({ N, 1 });
-        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, callback, false, evaluation, additional_taus);
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, capture, false, evaluation, additional_taus);
     }
-    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, forward, rnd, info, callback, false, evaluation, additional_taus);
+    return MakeUQEActionInfo(current_uqe_tau_, torch::Tensor(), obs, greedy_only, forward, rnd, info, capture, false, evaluation, additional_taus);
 }
 
 
@@ -2449,7 +2448,7 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::UpdateSchedule(const StepCount
 }
 
 std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, const anet::TraceCallback& callback,
+    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
     const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     if (evaluation) ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; ThompsonSampling is unsupported.");
@@ -2458,12 +2457,12 @@ std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const 
     auto device = obs.device();
     if (IsSpatialExplorationEnabled()) {
         auto tau_tensor = GetSpatialTauTensor(N, device).view({ N, 1 });
-        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, callback, false, nullptr, additional_taus);
+        return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, capture, false, nullptr, additional_taus);
     }
 
     if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         return MakeUQEActionInfo(
-            0.0f, torch::Tensor(), obs, greedy_only, forward, rnd, info, callback,
+            0.0f, torch::Tensor(), obs, greedy_only, forward, rnd, info, capture,
             /*iqn_use_full_range=*/true, nullptr, additional_taus);
     }
 
@@ -2471,7 +2470,7 @@ std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const 
     auto tau_tensor = torch::rand({ N, 1 }, gen, torch::TensorOptions().device(device));
 
     // tau_tensor(ランダム)でUQE適用
-    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, callback, false, nullptr, additional_taus);
+    return MakeUQEActionInfo(0.0f, tau_tensor, obs, greedy_only, forward, rnd, info, capture, false, nullptr, additional_taus);
 }
 
 
@@ -2684,7 +2683,7 @@ void Actor::UpdateSnapshot(const StepCounts& step) const
     }
 }
 
-std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const
+std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& step, const anet::rl::BatchState& state, const anet::rl::MakeActionOptions& options) const
 {
     ANET_PROFILE_FUNC();
     torch::NoGradGuard ng;
@@ -2716,8 +2715,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
         .clock = ++forward_clock_, .episode_start = state.episode_start});
 
     // 行動選択
-    anet::TensorDict trace;
-    anet::TraceCallback callback = anet::rl::MakeActionTraceCallback(trace);
+    std::optional<anet::nn::NetworkForwardCapture> capture;
+    if (options.nn_trace) capture.emplace(std::vector<std::string>{std::string(anet::nn::kNnTracePrefix)});
     const auto additional_taus = skip_ && !skip_->shared_policy
         ? skip_->policy->MakeValueQueryTaus(norm_obs.Size(0), device_, *skip_random_) : torch::Tensor();
     const auto dedicated_tau_count = additional_taus.defined() ? additional_taus.size(1) : 0;
@@ -2729,12 +2728,22 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
         actor_q_hint_config_.use_tbo, actor_q_hint_config_.tbo_epsilon);
     if (network_ != src_network_) {
         // Clone済み: 自分専用のネットワークなので排他不要
-        act_info = policy_->SelectAction(norm_obs, false, action_forward, rnd_, forward_info, callback, nullptr, additional_taus);
+        act_info = policy_->SelectAction(norm_obs, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
+        // 行動 forward の直後に取り出し、skip 側の forward へ持ち越さない。
+        if (capture) {
+            anet::rl::AppendNnTraceAux(act_info->GetAuxData(), *capture);
+            capture.reset();
+        }
         if (skip_) act_info = ApplySkip(std::move(act_info), norm_obs, state.episode_start, forward_info, dedicated_tau_count);
     } else {
         // Clone無し（直列モード）: Learnerの更新と競合しないようSharedLock
         std::shared_lock<std::shared_mutex> lock(*mutex_);
-        act_info = policy_->SelectAction(norm_obs, false, action_forward, rnd_, forward_info, callback, nullptr, additional_taus);
+        act_info = policy_->SelectAction(norm_obs, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
+        // 行動 forward の直後に取り出し、skip 側の forward へ持ち越さない。
+        if (capture) {
+            anet::rl::AppendNnTraceAux(act_info->GetAuxData(), *capture);
+            capture.reset();
+        }
         if (skip_) act_info = ApplySkip(std::move(act_info), norm_obs, state.episode_start, forward_info, dedicated_tau_count);
     }
     if (actor_q_hint_config_.decomposed) {
@@ -2798,7 +2807,6 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     if (obs_norm_ != nullptr) {
         act_info->GetAuxData()["norm_obs"] = anet::rl::ToUnifiedObservation(norm_obs);
     }
-    anet::rl::AppendTraceAux(act_info->GetAuxData(), trace);
 
     // DefaultDQNでは無効時もNaN、周期snapshot有効時は同期後の現在値を公開する。
     if (emit_snapshot_metrics_) {
@@ -4863,7 +4871,7 @@ MunchausenForwardResult Learner::ForwardMunchausenValues(
             C, target_input.device());
     }
     const auto target_info = evaluation.info.WithRowMapping(std::move(row_mapping));
-    const auto target_values = (evaluation.forwards->target->Forward(target_input, target_info, {}, evaluation.target_capture)).At(output_key);
+    const auto target_values = (evaluation.forwards->target->Forward(target_input, target_info, evaluation.target_capture)).At(output_key);
     torch::Tensor current_values = target_mode ? target_values.narrow(0, 0, C) : current_all.detach();
     const auto next_values = target_mode ? target_values.narrow(0, C, B) : target_values;
     if (!evaluation.diagnostic && target_mode && plasticity_.target_capture.Get(config_.final_feature_branch_key).defined()) {
@@ -5285,7 +5293,7 @@ std::pair<torch::Tensor, torch::Tensor> QuantileLearnerBase::MakeTarget(
     ANET_PROFILE_SCOPE_NEXT(forward_target);
     auto input = next_obs;
     if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) input.Set(anet::nn::kKey_Taus, evaluation.target_taus(samples.actions.size(0)));
-    const auto output = evaluation.forwards->target->Forward(input, evaluation.info, {}, evaluation.target_capture);
+    const auto output = evaluation.forwards->target->Forward(input, evaluation.info, evaluation.target_capture);
     const auto next_dist = GatherActionQuantiles(output.At(HeadFactoryBase::kQDistOutputKey), actions);
     const auto bootstrap = config_.use_tbo ? TransformHInv(next_dist) : next_dist;
     return { MakeBellmanTarget(samples, bootstrap), {} };
@@ -5345,7 +5353,7 @@ std::pair<torch::Tensor, torch::Tensor> Learner::MakeTarget(
         torch::Tensor next_actions = target_action_info->GetAction(device_);
 
         // 選んだ行動の価値を TargetNet で評価する (価値評価は常に TargetNet)
-        auto next_q_out = (evaluation.forwards->target->Forward(next_obs, evaluation.info, {}, evaluation.target_capture));
+        auto next_q_out = (evaluation.forwards->target->Forward(next_obs, evaluation.info, evaluation.target_capture));
         auto next_q_target = next_q_out.At("q"); // (B, A)
         ANET_ASSERT_SHAPE(next_q_target, { B, A });
 
@@ -5405,7 +5413,7 @@ LearningTargets Learner::MakeDecomposedTargets(const ExperienceSamples& samples,
         if (iqn) input.Set(anet::nn::kKey_Taus, evaluation.target_taus(target_mode ? 2 * batch : batch));
         auto mapping = evaluation.info.GetRowMapping();
         if (target_mode) mapping.emplace(torch::arange(batch, torch::kInt64).repeat({2}), batch, input.device());
-        const auto target = evaluation.forwards->target->Forward(input, evaluation.info.WithRowMapping(std::move(mapping)), {}, evaluation.target_capture);
+        const auto target = evaluation.forwards->target->Forward(input, evaluation.info.WithRowMapping(std::move(mapping)), evaluation.target_capture);
         if (!evaluation.diagnostic && target_mode) {
             const auto capture = plasticity_.target_capture.Get(config_.final_feature_branch_key);
             if (capture.defined()) {
@@ -5469,7 +5477,7 @@ LearningTargets Learner::MakeDecomposedTargets(const ExperienceSamples& samples,
         }
         auto input = next_obs;
         if (iqn) input.Set(anet::nn::kKey_Taus, evaluation.target_taus(batch));
-        const auto target = evaluation.forwards->target->Forward(input, evaluation.info, {}, evaluation.target_capture);
+        const auto target = evaluation.forwards->target->Forward(input, evaluation.info, evaluation.target_capture);
         external_bootstrap = real(gather(target.At(external_key), external_action));
         internal_bootstrap = real(gather(target.At(internal_key), action));
     }

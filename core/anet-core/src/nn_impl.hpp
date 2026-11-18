@@ -136,6 +136,8 @@ namespace anet::nn {
             : state_(state), info_(info), capture_(capture) {}
 
         bool HasCapture() const { return capture_ != nullptr; }
+        NetworkForwardCapture* GetCapture() const { return capture_; }
+        std::string_view GetCaptureBranch() const { return capture_branch_; }
         NetworkForwardContext WithCapture(NetworkForwardCapture* capture) const;
         NetworkForwardContext WithCaptureBranch(std::string_view branch) const;
         NetworkForwardContext WithCaptureBlock(std::string_view block) const;
@@ -344,7 +346,7 @@ namespace anet::nn {
     public:
         explicit NetworkStruct(std::vector<std::shared_ptr<NetworkBlock>> blocks = {});
 
-        torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context, const anet::TraceCallback& callback = {},
+        torch::Tensor Forward(torch::Tensor input, const NetworkForwardContext& context,
             const std::vector<NetworkModuleExecutor*>* calls = nullptr);
         const std::vector<std::shared_ptr<NetworkBlock>>& GetBlocks() const { return blocks_; }
     private:
@@ -363,7 +365,7 @@ namespace anet::nn {
             std::shared_ptr<NetworkStruct> network_struct);
 
         /// 現在のTensorDictから必要な入力(bind)を拾って結合し、処理を実行して結果をDictに書き戻す
-        void Execute(anet::TensorDict& current_state, const NetworkForwardContext& context, const anet::TraceCallback& callback = {},
+        void Execute(anet::TensorDict& current_state, const NetworkForwardContext& context,
             const std::vector<NetworkModuleExecutor*>* calls = nullptr);
 
         const std::string& GetName() const { return name_; }
@@ -422,11 +424,8 @@ namespace anet::nn {
         anet::TensorDict Forward(
             const anet::TensorDict& input,
             const NetworkForwardContext& context,
-            const anet::TraceCallback& callback = {},
-            NetworkForwardCapture* capture = nullptr,
             const std::vector<std::vector<NetworkModuleExecutor*>>* calls = nullptr);
-        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key,
-            NetworkForwardCapture* capture = nullptr);
+        anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const NetworkForwardContext& context, const std::string& branch_key);
         std::set<std::string> ComputeDependencyClosure(const std::string& branch_key) const;
         std::vector<std::string> GetBranchNames() const;
         const std::vector<std::shared_ptr<NetworkBranch>>& GetBranches() const { return branches_; }

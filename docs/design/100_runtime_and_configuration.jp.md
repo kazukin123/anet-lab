@@ -87,7 +87,8 @@ DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId()
 - `RunManager`は主Train Env、Agent、Notifier、TrainRunnerとconfigured Eval Runnerを管理する。
 - `RunManager`はBatchEnvの人間向けnameを決定する。main Trainは`train`、configured Evalはtag、動的Evalは`CreateEvalRunner(name, ...)`のnameを使用し、意味を加工しない。
 - BatchEnv nameはcase-sensitiveな完全一致で同一Run内一意とし、`RunManager`のprivateなrun-local registryが所有する。factory、Env、Runnerは一意性状態を持たない。
-- `Runner`は`DoStep()`または`DoUpdateFrame()`で処理を進め、`StepCounts`を更新する。
+- `Runner`は`DoStep`または`DoUpdateFrame`で処理を進め、`StepCounts`を更新する。両方が空の既定値つきの`MakeActionOptions`を受け、そのstepの`Actor::MakeAction`へそのまま渡す。`DoUpdateFrame`はフレーム内の全stepへ同じ値を渡す。
+- `EvalRunner`の手動行動は`DoStep(action, counts, options)`でも要求を渡せる。`RunSession`は要求を受けず、空のoptionsで進む。`RunnerThread`は構築時にoptionsを保持して各stepへ渡す。nn_traceの要求を決める呼ぶ側の規則は[可観測性](140_observability.jp.md#54-nn_trace-の要求と通知)を参照する。
 - `RunnerStatus`は未初期化、実行中、完了を表す。GUIのpauseはRunnerを破棄せず、RunnerThreadからstepを呼ばないことで実現する。
 - `ControlSignal`はframe内継続、frame打切り、Runner停止をpre/post callbackから返す。
 
@@ -229,12 +230,12 @@ sequenceDiagram
     participant N as Notifier
     participant O as Observer
 
-    RT->>R: DoStep()
+    RT->>R: DoStep(options)
     opt 初回
         R->>E: Reset()
         E-->>R: 初期BatchState
     end
-    R->>A: MakeAction(state)
+    R->>A: MakeAction(counts, state, options)
     A-->>R: BatchActionInfo
     R->>E: Step(action)
     E-->>R: reward / next_state
@@ -277,7 +278,7 @@ sequenceDiagram
     participant O as Observer
 
     loop Pipeline step
-        RT->>R: DoStep()
+        RT->>R: DoStep(options)
         opt 初回
             R->>E: Reset()
             E-->>R: 初期BatchState
@@ -294,7 +295,7 @@ sequenceDiagram
             R->>R: update_stepとlearn_stepを更新
         end
         Note over R,O: Event通知はRunnerThread上で同期実行
-        R->>A: MakeAction(state)
+        R->>A: MakeAction(counts, state, options)
         A-->>R: BatchActionInfo
         opt 保持しているExperienceがある
             R->>W: EnqueueFuture(prev experience, prev counts)

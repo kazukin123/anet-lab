@@ -12,38 +12,31 @@
 #include "anet/tensor_util.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/log.hpp"
+#include "anet/nn.hpp"
 
 using namespace anet::rl;
 namespace LOG = anet::log;
 
-namespace anet::rl {
-
-anet::TraceCallback MakeActionTraceCallback(anet::TensorDict& trace)
+void anet::rl::AppendNnTraceAux(AuxData& aux, anet::nn::NetworkForwardCapture& capture)
 {
-    return [&trace](std::string_view key, const torch::Tensor& activation) {
-        trace.Set(std::string(key), activation.slice(0, 0, 1).detach().to(torch::kFloat32).clone());
-    };
-}
-
-void AppendTraceAux(AuxData& aux, const anet::TensorDict& trace)
-{
-    for (const auto& [key, tensor] : trace) {
-        aux[std::string(kNnTracePrefix) + key] = tensor;
+    ANET_PROFILE_FUNC();
+    // lane 0 だけを独立した FP32 の記憶域へ移し、batch 全体の保持を終える。
+    for (const auto& [key, activation] : capture.GetAll(anet::nn::kNnTracePrefix)) {
+        aux[key] = activation.slice(0, 0, 1).detach().to(torch::kFloat32).clone();
     }
+    capture.Reset();
 }
 
-anet::TensorDict ExtractNnTrace(const AuxData& aux)
+anet::TensorDict anet::rl::ExtractNnTrace(const AuxData& aux)
 {
     anet::TensorDict dict;
     for (const auto& [key, tensor] : aux) {
-        if (key.starts_with(kNnTracePrefix)) {
-            dict.Set(key.substr(kNnTracePrefix.size()), tensor);
+        if (key.starts_with(anet::nn::kNnTracePrefix)) {
+            dict.Set(key.substr(anet::nn::kNnTracePrefix.size()), tensor);
         }
     }
     return dict;
 }
-
-} // namespace anet::rl
 
 static std::optional<torch::Tensor> GetObservationTensor(
     const anet::TensorDict& obs, const std::string& key, const char* base_key)

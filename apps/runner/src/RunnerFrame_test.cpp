@@ -1892,3 +1892,93 @@ TEST_CASE("Common Panel redraws its whole stopped scene on resize with either st
         ui.Pump();
     }
 }
+
+TEST_CASE("Conv2d panes request nn_trace for Step actions and timer events", "[.][prd170][gui][prd170_gui]")
+{
+    MainPaneFixture ui;
+    ui.Start("app.eval_panel.step_per_frame = 1\n");
+    auto runner = wxGetApp().GetRunManager().GetEvalRunner("EvalPanel");
+    auto notifier = runner->GetNotifier();
+    auto observed = std::make_shared<std::vector<bool>>();
+    auto observer = std::make_shared<anet::rl::FunctionTrainObserver>([observed](const anet::rl::TrainEvent& event) {
+        const auto& aux = event.action_info->GetAuxData();
+        observed->push_back(aux.contains("nn_trace/main/00_Input"));
+    });
+    notifier->AttachScoped(observer, runner);
+    auto* eval = dynamic_cast<EvalPanel*>(ui.Eval().window);
+    REQUIRE(eval);
+    auto* toolbar = dynamic_cast<wxAuiToolBar*>(ui.Manager().GetPane("RunControlToolBar").window);
+    REQUIRE(toolbar);
+    int step_id = wxID_NONE;
+    for (size_t i = 0; i < toolbar->GetToolCount(); ++i) {
+        auto* tool = toolbar->FindToolByIndex(static_cast<int>(i));
+        if (tool->GetLabel() == "Step") step_id = tool->GetId();
+    }
+    REQUIRE(step_id != wxID_NONE);
+    const auto step = [&] {
+        wxCommandEvent event(wxEVT_MENU, step_id);
+        ui.frame->GetEventHandler()->ProcessEvent(event);
+        ui.Settle();
+    };
+    step();
+    REQUIRE(observed->size() == 1);
+    CHECK_FALSE(observed->back());
+    const auto open = [&] {
+        wxCommandEvent event(wxEVT_MENU, ui.MenuId("Conv2d"));
+        ui.frame->GetEventHandler()->ProcessEvent(event);
+        ui.Settle();
+    };
+    open();
+    step();
+    CHECK(observed->back());
+    ui.Toggle("Evaluation QValue View", true);
+    auto* q_panel = dynamic_cast<QValuePanel*>(ui.Manager().GetPane("EvalQValuePanel").window);
+    REQUIRE(q_panel);
+    wxGrid* grid = nullptr;
+    for (auto* child : q_panel->GetChildren()) if (auto* candidate = dynamic_cast<wxGrid*>(child)) grid = candidate;
+    REQUIRE(grid);
+    const auto click = [&] {
+        const auto before = observed->size();
+        wxGridEvent event(grid->GetId(), wxEVT_GRID_CELL_LEFT_CLICK, grid, 0, 0);
+        grid->GetEventHandler()->ProcessEvent(event);
+        ui.Settle();
+        REQUIRE(observed->size() == before + 1);
+    };
+    click();
+    CHECK(observed->back());
+    // 公開の実タイマーイベントを1回受けてから、同じtimerのイベントを準備する。
+    auto timer = std::make_shared<wxTimer*>(nullptr);
+    eval->Bind(wxEVT_TIMER, [timer](wxTimerEvent& event) { *timer = &event.GetTimer(); event.Skip(); });
+    eval->TogglePause();
+    eval->SetFps(100);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!*timer && std::chrono::steady_clock::now() < deadline) { ui.Pump(); wxMilliSleep(2); }
+    eval->SetFps(0);
+    REQUIRE(*timer);
+    const auto tick = [&] {
+        const auto before = observed->size();
+        wxTimerEvent event(**timer);
+        eval->GetEventHandler()->ProcessEvent(event);
+        REQUIRE(observed->size() == before + 1);
+    };
+    tick();
+    CHECK(observed->back());
+    // 2枚のうち1枚だけ閉じても、残るpaneの要求を保つ。
+    open();
+    std::vector<wxWindow*> panes;
+    for (const auto& pane : ui.Manager().GetAllPanes()) {
+        if (pane.name.StartsWith("Conv2dPanel_") && pane.IsShown()) panes.push_back(pane.window);
+    }
+    REQUIRE(panes.size() == 2);
+    ui.Close(panes[0]);
+    step();
+    CHECK(observed->back());
+    ui.Close(panes[1]);
+    step();
+    CHECK_FALSE(observed->back());
+    click();
+    CHECK_FALSE(observed->back());
+    tick();
+    CHECK_FALSE(observed->back());
+    notifier->Detach(observer);
+}

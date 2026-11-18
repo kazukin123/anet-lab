@@ -39,7 +39,8 @@ struct EvalPanelConfig {
 
 class EvalPanel final : public wxPanel, public anet::rl::gui::TraceFollower {
 public:
-	EvalPanel(wxWindow* parent, const EvalPanelConfig& config, std::function<void()> before_live_action);
+	EvalPanel(wxWindow* parent, const EvalPanelConfig& config, std::function<void()> before_live_action,
+        std::function<anet::rl::MakeActionOptions()> make_action_options = {});
 	~EvalPanel();
 
 	void Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner);
@@ -67,6 +68,7 @@ protected:
 	void OnTimer(wxTimerEvent& event);
 	void OnClose(wxCloseEvent& event);
 private:
+    anet::rl::MakeActionOptions GetMakeActionOptions() const;
 	void SyncBeforeFrame();
 	void SyncBeforeManualStep();
 	anet::rl::ControlSignal SyncAfterStep(const anet::rl::StepCounts& counts);
@@ -89,6 +91,7 @@ private:
     float current_fps_ = 0;
     int current_step_per_frame_;
     std::function<void()> before_live_action_;
+    const std::function<anet::rl::MakeActionOptions()> make_action_options_;
     wxStaticText* no_data_label_ = nullptr;
     std::string resumed_status_;    // 最後にstatus barへ出したresumedの文。pause中は空
 };

@@ -232,7 +232,7 @@ public:
     {
     }
 
-    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&) const override
+    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&, const anet::rl::MakeActionOptions& options = {}) const override
     {
         if (!failure_message_.empty()) {
             throw std::runtime_error(failure_message_);
@@ -348,7 +348,7 @@ public:
     {
     }
 
-    rl::StepCounts DoStep() override { return step_counts_; }
+    rl::StepCounts DoStep(const anet::rl::MakeActionOptions& options = {}) override { return step_counts_; }
     void Shutdown() override {}
 
     void SetScalar(std::string key, float value)

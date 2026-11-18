@@ -26,6 +26,8 @@
 #include "anet/serialize.hpp"
 #include "anet/graphviz.hpp"
 
+namespace anet::nn { class NetworkForwardCapture; }
+
 namespace anet::rl {
 
     /*
@@ -351,9 +353,12 @@ namespace anet::rl {
 
     using AuxData = std::unordered_map<std::string, torch::Tensor>; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
 
-    inline constexpr std::string_view kNnTracePrefix = "nn_trace/";
-    anet::TraceCallback MakeActionTraceCallback(anet::TensorDict& trace);
-    void AppendTraceAux(AuxData& aux, const anet::TensorDict& trace);
+    /// その回の行動選択で求める追加出力。要求は呼び出しの間だけ有効。
+    struct MakeActionOptions {
+        bool nn_trace = false;
+    };
+
+    void AppendNnTraceAux(AuxData& aux, anet::nn::NetworkForwardCapture& capture);
     anet::TensorDict ExtractNnTrace(const AuxData& aux);
 
 
@@ -743,7 +748,7 @@ namespace anet::rl {
     public:
         /// @brief BatchStateから行動を生成する。
         /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
-        virtual std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const = 0;
+        virtual std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state, const MakeActionOptions& options = {}) const = 0;
 
         /// @brief Actor固有のsourceから推論resourceを強制同期する。
         /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
@@ -1281,9 +1286,9 @@ namespace anet::rl {
         using ControlFunction = std::function<ControlSignal(const StepCounts& counts)>; ///< 学習ステップ制御処理(戻り値trueで処理中断)
     public:
         //virtual RunnerStatus Initialize(const ConfigData& config_data) = 0;
-        virtual StepCounts DoStep() = 0;
+        virtual StepCounts DoStep(const MakeActionOptions& options = {}) = 0;
         virtual StepCounts DoUpdateFrame(int max_steps,
-            ControlFunction pre_step_func = nullptr, ControlFunction post_step_func = nullptr) = 0;
+            ControlFunction pre_step_func = nullptr, ControlFunction post_step_func = nullptr, const MakeActionOptions& options = {}) = 0;
         virtual RunnerStatus GetStatus() const = 0;
 
         virtual void Shutdown() = 0;

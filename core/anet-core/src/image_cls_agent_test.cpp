@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -19,6 +20,28 @@
 #include <string>
 #include <tuple>
 #include <vector>
+
+
+static void SavePrd170Trace(const anet::rl::AuxData& aux, const char* name)
+{
+    constexpr const char* kOutputEnv = "ANET_PRD170_TRACE_DIR";
+    const auto* directory = std::getenv(kOutputEnv);
+    if (!directory) return;
+    // 比較用の全要素を辞書順で保存し、表示の丸めや省略を介さずに突き合わせる。
+    anet::json snapshot = anet::json::object();
+    for (const auto& [key, value] : aux) {
+        if (!key.starts_with(anet::nn::kNnTracePrefix)) continue;
+        const auto tensor = value.detach().to(torch::kCPU).contiguous();
+        REQUIRE(tensor.scalar_type() == torch::kFloat32);
+        snapshot[key] = {{"shape", tensor.sizes().vec()}, {"dtype", "float32"},
+            {"values", std::vector<float>(tensor.data_ptr<float>(), tensor.data_ptr<float>() + tensor.numel())}};
+    }
+    REQUIRE_FALSE(snapshot.empty());
+    std::filesystem::create_directories(directory);
+    std::ofstream output(std::filesystem::path(directory) / (std::string(name) + ".json"));
+    REQUIRE(output.good());
+    output << snapshot.dump(2) << '\n';
+}
 
 namespace {
 
@@ -1432,8 +1455,9 @@ TEST_CASE("ImageClsActor stores nn trace in action aux for Conv2dPanel", "[image
     auto expected_input_trace = grid.slice(0, 0, 1).clone();
     auto state = MakeImageClsBatchState(grid);
 
-    auto action_info = actor.MakeAction(anet::rl::StepCounts{}, state);
+    auto action_info = actor.MakeAction(anet::rl::StepCounts{}, state, {.nn_trace = true});
 
+    SavePrd170Trace(action_info->GetAuxData(), "image-cls");
     auto action = action_info->GetAction(torch::kCPU);
     REQUIRE(action.sizes().vec() == std::vector<int64_t>{ 2 });
     REQUIRE(torch::equal(action, torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kInt64))));
@@ -1753,4 +1777,21 @@ TEST_CASE("ImageCls plasticity feature key is NoCare without subscriptions", "[i
         .source_key = "plasticity_weight_norm_feature",
         .event = anet::rl::EventType::LEARN,
     } }));
+}
+
+TEST_CASE("ImageCls action only includes requested nn_trace", "[prd170][image_cls][no_trace]")
+{
+    auto network = MakeImageClsTraceTestNetwork();
+    auto mutex = std::make_shared<std::shared_mutex>();
+    anet::rl::img_cls::ImageClsActor actor({}, mutex, network, torch::kCPU);
+    const auto state = MakeImageClsBatchState(torch::arange(8, torch::kFloat32).view({2, 1, 2, 2}));
+    const auto has_trace = [](const auto& action) {
+        const auto& aux = action->GetAuxData();
+        return std::any_of(aux.begin(), aux.end(), [](const auto& entry) {
+            return entry.first.starts_with(anet::nn::kNnTracePrefix);
+        });
+    };
+    CHECK_FALSE(has_trace(actor.MakeAction({}, state)));
+    CHECK_FALSE(has_trace(actor.MakeAction({}, state, {.nn_trace = false})));
+    CHECK(has_trace(actor.MakeAction({}, state, {.nn_trace = true})));
 }

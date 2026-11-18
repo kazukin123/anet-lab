@@ -263,7 +263,7 @@ namespace anet::rl::img_cls {
             torch::Device device,
             std::shared_ptr<anet::nn::Network> src_network = nullptr);
 
-        std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state) const override;
+        std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state, const anet::rl::MakeActionOptions& options = {}) const override;
         void Sync() override;
     private:
         const ImageClsActorConfig config_;

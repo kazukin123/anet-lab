@@ -32,7 +32,7 @@
 | `ObserverFactory` | `metrics.scalar.*`、`metrics.trace.*`、`metrics.graph.*`などのConfigDataからObserverを組み立てるfactory |
 | `MetricsLog*Observer` | event内の指定sourceからscalarを取得し、step選択、interval、EMA、clipを適用するObserver |
 | `EpisodeEvalObserver` | Learn eventを契機にconfigured Eval sessionを同期またはbackgroundで駆動し、worker例外を呼出側へ再送出するObserver |
-| Image/Graph Observer | ProbeやNN出力からHeatMap、TimeHistogram、Conv2d、GraphVizを生成するObserver |
+| Image/Graph Observer | ProbeやNN出力からHeatMap、TimeHistogram、Conv2d、GraphVizを生成するObserver。Conv2dは要求したstepだけ作られるnn_traceを読む |
 | `MetricsLogger` | Run名とRun directoryを所有し、scalar、JSON、画像、動画、DOTを共通形式で保存するsingleton |
 | `IBackend` / `JsonlBackend` | metric recordの永続化境界。現行backendは`metrics.jsonl`へ追記する |
 | `anet::log::Logger` | 構築時に確定したprefixを先頭へ書き込んだ`WxLogStream`を生成する軽量logger |
@@ -208,6 +208,35 @@ sequenceDiagram
     T->>D: Suspend
     Note over A,D: 休止中のActor同期では写しを捨てる
 ```
+
+### 5.4 nn_trace の要求と通知
+
+nn_trace は、行動選択に使った forward の途中の出力を可視化へ渡す。EvalPanel は、自分の Runner に付いた Conv2d の pane が `IsPaneOpen` で1枚以上開いているときだけ、タイマー・Step・手動行動に `MakeActionOptions.nn_trace = true` を添える。Trace の記録やダンプだけでは要求しない。
+
+```mermaid
+sequenceDiagram
+    participant E as EvalPanel（step を進める側）
+    participant R as Runner
+    participant A as Actor
+    participant N as NN の forward
+    participant T as Notifier
+    participant C as Conv2d の pane（読む側）
+    E->>R: DoStep / DoUpdateFrame(MakeActionOptions)
+    R->>A: MakeAction(step, state, options)
+    alt nn_trace を要求する step
+        A->>N: nn_trace/ を要求する capture
+        N-->>A: capture に branch 入力・描画可能な出力
+        Note over A: env 0 を切り出し、detach・FP32 化・clone<br/>AuxData の同じ nn_trace/ 鍵に積む
+    else 要求しない step
+        A->>N: capture なし
+        Note over A,N: nn_trace を作らず、切り出し・FP32 化・clone もしない
+    end
+    A-->>R: action_info（AuxData を含む）
+    R->>T: TrainEvent（action_info）
+    T->>C: Runner 限定の通知
+```
+
+学習側は、RunnerApp が登録した Conv2d 画像記録に `interval >= 1` が1件でもあれば、RunnerThread の構築時に要求を固定して毎 step 渡す。`interval <= 0` の登録だけの Run と、画像記録の無い Run、背景評価の `RunSession` は要求しない。Runner・Actor・Observer・Notifier に要求の登録は持たない。nn_trace を実装していない Actor は最初の要求で WARN を1回出し、nn_trace を含めずに続ける。
 
 ## 6. Metric設定contract
 
@@ -386,6 +415,8 @@ TimeHeatMapのScale描画、Histgram、SweepedHeatMapは、wxImage自身が確�
 内的報酬の採点・同期・休止と学習不変性の検証は[PRD127検証資材](../../core/anet-core/testdata/prd127/README.md)を参照する。
 
 画像の固定画素・所有権の回帰テストは`heat_map_test.cpp`で確認する。確保・解放の不一致と確保失敗は通常の描画成功だけで判定せず、[画像メモリの検証資材](../../core/anet-core/testdata/prd115/README.md)で実際のwxWidgets境界を通して確認する。
+
+- nn_trace の受入は [PRD170 の検証資材](../../core/anet-core/testdata/prd170/README.md)を参照する。
 
 ### TempoRL の scalar と Trace
 

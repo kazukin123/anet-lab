@@ -325,7 +325,7 @@ public:
     {
     }
 
-    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&) const override
+    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&, const anet::rl::MakeActionOptions& options = {}) const override
     {
         auto action = torch::zeros({ num_envs_ }, torch::kInt64);
         if (use_action_info_scalar_) {
@@ -397,7 +397,7 @@ public:
     {
     }
 
-    rl::StepCounts DoStep() override { return step_counts_; }
+    rl::StepCounts DoStep(const anet::rl::MakeActionOptions& options = {}) override { return step_counts_; }
     void Shutdown() override {}
 
     bool FireEpisodeEnd(

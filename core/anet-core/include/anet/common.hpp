@@ -24,7 +24,6 @@ namespace anet {
     // ===========================================================================
 
     using TensorDictFunction = std::function<anet::TensorDict(const anet::TensorDict&)>;
-    using TraceCallback = std::function<void(std::string_view, const torch::Tensor&)>;
 
     class TensorDictFunctionProvider {
     public:

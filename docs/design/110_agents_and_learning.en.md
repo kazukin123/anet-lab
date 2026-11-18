@@ -1,4 +1,4 @@
-<!-- translated-from: 110_agents_and_learning.jp.md blob:c23257d699ad3b451bf14f9a67687be72af1a1db date:2026-11-14 progress:done -->
+<!-- translated-from: 110_agents_and_learning.jp.md blob:a86c46bc3fb0dfbbf872c2fd81ed919eb0ad7029 date:2026-11-17 progress:done -->
 # Agents and Learning
 
 > Primary perspective: function (shared Agent, Actor, and Learner contracts, with processing stages in chronological order)
@@ -27,7 +27,8 @@ Future designs and unimplemented proposals are not normative specifications.
 ### 2.1 Agent, Actor, and Learner
 
 - `Agent` is the Run-facing entry point and creates Actors and Learners. It also exposes device access, save/load, and visualization functions.
-- `Actor` produces `BatchActionInfo` from `StepCounts` and `BatchState`. `Sync()` forces inference Resources to synchronize from Actor-specific sources.
+- `Actor::MakeAction(step, state, options)` produces `BatchActionInfo` from `StepCounts`, `BatchState`, and `MakeActionOptions` with an empty default. `Sync()` forces inference Resources to synchronize from Actor-specific sources.
+- `MakeActionOptions.nn_trace` defaults to false. Only when it is true for that call does a supporting Actor create nn_trace from the action forward and place it in AuxData. False skips capture, slicing env 0, FP32 conversion, and cloning. An unsupported Actor warns only on the first request and continues without nn_trace. Requests are passed per call, without registration in Actor or Notifier.
 - Do not invoke `MakeAction()` and `Sync()` concurrently on the same Actor instance. The Runner using the Actor must provide the required serialization.
 - `Agent::CreateActor(const ActorRequest&)` receives target specs, device, seed, and `actor_key`. Agent resolves the name in its typed Actor catalog read during construction and selects policy, network, and clone behavior. Undefined names, unsupported cloning, and shared-device mismatches fail fast before creation.
 - `Agent::CreateActor()` receives the target Env's `BatchEnvSpec` and `EnvSpec` in the request; the concrete Agent decides whether it can create that Actor. `EnvSpec::CheckSameStateActionSpec()` is available for ordinary matching state/action contracts, but the shared layer does not impose blanket restrictions on Agents capable of handling different specs.
@@ -112,7 +113,7 @@ class Agent {
 }
 class AgentBase
 class Actor {
-  +MakeAction(step, state)
+  +MakeAction(step, state, options)
   +Sync()
 }
 class Learner {
@@ -143,7 +144,7 @@ sequenceDiagram
     R->>G: CreateActor(actor_request)
     G-->>R: Actor
     loop Runner step
-        R->>A: MakeAction(step_counts, batch_state)
+        R->>A: MakeAction(step_counts, batch_state, options)
         A-->>R: BatchActionInfo
     end
     opt 強制同期が必要

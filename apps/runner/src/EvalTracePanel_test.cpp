@@ -84,8 +84,13 @@ class TraceUiActor final : public anet::rl::Actor {
 public:
     explicit TraceUiActor(std::shared_ptr<TraceUiLifecycleState> lifecycle) : lifecycle_(std::move(lifecycle)) {}
     std::shared_ptr<anet::rl::BatchActionInfo> MakeAction(
-        const anet::rl::StepCounts&, const anet::rl::BatchState&) const override
-    { return std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64)); }
+        const anet::rl::StepCounts&, const anet::rl::BatchState&, const anet::rl::MakeActionOptions& options = {}) const override
+    {
+        constexpr char kTraceInputKey[] = "nn_trace/main/00_Input";
+        auto result = std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64));
+        if (options.nn_trace) result->GetAuxData()[kTraceInputKey] = torch::ones({1, 1, 2, 2});
+        return result;
+    }
     void Sync() override { ++lifecycle_->sync_calls; }
 private:
     std::shared_ptr<TraceUiLifecycleState> lifecycle_;
@@ -1589,7 +1594,13 @@ int main(int argc, char** argv)
     // RunnerAppの工場だけを利用し、OnInit（Run起動）は呼ばない。
     int wxargc = 1;
     char* wxargv[] = {argv[0], nullptr};
-    if (!wxEntryStart(wxargc, wxargv)) return 2;
+    bool records_gpu_memory = false;
+    for (int i = 1; i < arguments.Argc(); ++i) {
+        records_gpu_memory |= std::string_view(arguments.Argv()[i]).find("[prd170_memory]") != std::string_view::npos;
+    }
+    // ImageData の wxInitialize と同じ初期化カウンタで、測定専用プロセスを起動する。
+    if (records_gpu_memory ? !wxInitialize() : !wxEntryStart(wxargc, wxargv)) return 2;
+    if (records_gpu_memory) wxLog::SetLogLevel(wxLOG_Info);
     wxSetAssertHandler([](const wxString&, int, const wxString&, const wxString& condition, const wxString& message) {
         throw std::runtime_error((condition + ": " + message).ToStdString());
     });
@@ -1601,6 +1612,8 @@ int main(int argc, char** argv)
         starts_runner_app |= argument.find("[runner_close_drain]") != std::string_view::npos
             || argument.find("[prd127]") != std::string_view::npos
             || argument.find("[prd127_ui_lifecycle]") != std::string_view::npos;
+        starts_runner_app |= argument.find("[prd170_gui]") != std::string_view::npos
+            || argument.find("[prd170_startup]") != std::string_view::npos;
         starts_runner_app |= argument.find("eval_steps_menu") != std::string_view::npos
             || argument.find("prd105_ui_keys") != std::string_view::npos
             || argument.find("[prd109_") != std::string_view::npos
@@ -1623,7 +1636,8 @@ int main(int argc, char** argv)
         anet::test::StderrLogGuard log;
         result = Catch::Session().run(arguments.Argc(), arguments.Argv());
     }
-    wxEntryCleanup();
+    // ImageClsEnv の既存テストと同じく、測定専用プロセスの wx 初期化は process lifetime に寄せる。
+    if (!records_gpu_memory) wxEntryCleanup();
     return result;
 }
 

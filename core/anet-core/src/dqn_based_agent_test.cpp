@@ -22,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -44,6 +45,28 @@
 #include <wx/utils.h>
 
 #include "anet/tensor_check.hpp"
+
+
+static void SavePrd170Trace(const anet::rl::AuxData& aux, const char* name)
+{
+    constexpr const char* kOutputEnv = "ANET_PRD170_TRACE_DIR";
+    const auto* directory = std::getenv(kOutputEnv);
+    if (!directory) return;
+    // 比較用の全要素を辞書順で保存し、表示の丸めや省略を介さずに突き合わせる。
+    anet::json snapshot = anet::json::object();
+    for (const auto& [key, value] : aux) {
+        if (!key.starts_with(anet::nn::kNnTracePrefix)) continue;
+        const auto tensor = value.detach().to(torch::kCPU).contiguous();
+        REQUIRE(tensor.scalar_type() == torch::kFloat32);
+        snapshot[key] = {{"shape", tensor.sizes().vec()}, {"dtype", "float32"},
+            {"values", std::vector<float>(tensor.data_ptr<float>(), tensor.data_ptr<float>() + tensor.numel())}};
+    }
+    REQUIRE_FALSE(snapshot.empty());
+    std::filesystem::create_directories(directory);
+    std::ofstream output(std::filesystem::path(directory) / (std::string(name) + ".json"));
+    REQUIRE(output.good());
+    output << snapshot.dump(2) << '\n';
+}
 
 constexpr const char* kPrd121AdvFeature = "adv_feature";
 constexpr const char* kPrd121ExtrinsicQArgmaxDisagreement = "extrinsic_q_argmax_disagreement";
@@ -247,7 +270,7 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
     }
 
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, const dqn::DqnForwardExecutor&,
-        std::shared_ptr<anet::RandomGenerator>, const anet::nn::NetworkForwardCallInfo&, const anet::TraceCallback&,
+        std::shared_ptr<anet::RandomGenerator>, const anet::nn::NetworkForwardCallInfo&, anet::nn::NetworkForwardCapture*,
         const dqn::DiagnosticActionEvaluation*, const torch::Tensor&) const override
     {
         return std::make_shared<dqn::DQNActionInfo>();
@@ -513,7 +536,7 @@ public:
         }
         if (run_plasticity_forward_) {
             model_.ForwardOnlineWithTrain(samples.obs, *current_forward_, forward_info, OnlineBranchCapture());
-            if (run_plasticity_target_forward_) target_forwards_.target->Forward(samples.next_state.next_obs, forward_info, {}, TargetBranchCapture());
+            if (run_plasticity_target_forward_) target_forwards_.target->Forward(samples.next_state.next_obs, forward_info, TargetBranchCapture());
             if (parameter_mutation_delta_.has_value()) {
                 torch::NoGradGuard no_grad;
                 for (auto& parameter : model_.GetOnlineParameters()) {
@@ -769,7 +792,7 @@ rl::EnvSpec MakeNativeStackEnvSpec(anet::TensorSpecMap obs_spec)
 std::shared_ptr<dqn::DQNActionInfo> ActWithNativeStack(
     const anet::ConfigData& config_data,
     const rl::EnvSpec& env_spec,
-    anet::TensorDict raw_obs)
+    anet::TensorDict raw_obs, bool nn_trace = true)
 {
     const rl::BatchEnvSpec batch_env_spec{ 2, 1 };
     auto agent = std::make_shared<dqn::DefaultDQNAgent>(
@@ -783,8 +806,12 @@ std::shared_ptr<dqn::DQNActionInfo> ActWithNativeStack(
 
     const auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
     rl::BatchState state(std::move(raw_obs), flags, flags, flags);
+    if (!nn_trace) {
+        const auto implicit = actor->MakeAction(rl::StepCounts{}, state);
+        for (const auto& [key, value] : implicit->GetAuxData()) CHECK_FALSE(key.starts_with(anet::nn::kNnTracePrefix));
+    }
     return std::dynamic_pointer_cast<dqn::DQNActionInfo>(
-        actor->MakeAction(rl::StepCounts{}, state));
+        actor->MakeAction(rl::StepCounts{}, state, {.nn_trace = nn_trace}));
 }
 
 dqn::DefaultDQNAgentConfig MakeDeviceForwardDefaultDqnConfig()
@@ -1353,7 +1380,7 @@ public:
     {
     }
 
-    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&) const override
+    std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&, const anet::rl::MakeActionOptions& options = {}) const override
     {
         return std::make_shared<rl::BatchActionInfo>(
             torch::zeros({ num_envs_ }, torch::TensorOptions().dtype(torch::kInt64)));
@@ -2774,6 +2801,7 @@ TEST_CASE("DefaultDQNAgent preserves the native stack axis for temporal Conv1d",
     REQUIRE(action_info != nullptr);
     REQUIRE(ShapeOf(action_info->GetAction()) == std::vector<int64_t>{ 2 });
     REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    SavePrd170Trace(action_info->GetAuxData(), "native-1");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
@@ -2813,6 +2841,7 @@ TEST_CASE("DefaultDQNAgent flattens native vector stacks for MLP branches", "[dq
 
     REQUIRE(action_info != nullptr);
     REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    SavePrd170Trace(action_info->GetAuxData(), "native-2");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
@@ -2849,6 +2878,7 @@ TEST_CASE("DefaultDQNAgent merges continuous Grid stacks before Conv2d", "[dqn][
 
     REQUIRE(action_info != nullptr);
     REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    SavePrd170Trace(action_info->GetAuxData(), "native-3");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 1, 4, 4 });
@@ -2883,6 +2913,7 @@ TEST_CASE("DefaultDQNAgent keeps discrete Grid one-hot channel merging", "[dqn][
 
     REQUIRE(action_info != nullptr);
     REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
+    SavePrd170Trace(action_info->GetAuxData(), "native-4");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 12, 4, 4 });
@@ -2924,6 +2955,7 @@ TEST_CASE("DefaultDQNAgent leaves stack_keys exclusions unstacked", "[dqn][nativ
         });
 
     REQUIRE(action_info != nullptr);
+    SavePrd170Trace(action_info->GetAuxData(), "native-5");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     REQUIRE(trace.Contains("aux_feature/00_Input"));
@@ -3231,7 +3263,7 @@ public:
         : ActionPolicy(dqn::ActionPolicyConfig{}), features_(std::move(features)) {}
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool,
         const dqn::DqnForwardExecutor&, std::shared_ptr<anet::RandomGenerator>,
-        const anet::nn::NetworkForwardCallInfo&, const anet::TraceCallback&,
+        const anet::nn::NetworkForwardCallInfo&, anet::nn::NetworkForwardCapture*,
         const dqn::DiagnosticActionEvaluation*, const torch::Tensor&) const override
     {
         auto result = std::make_shared<dqn::DQNActionInfo>(torch::zeros({obs.Size(0)}, torch::kLong));
@@ -5105,9 +5137,14 @@ TEST_CASE("DefaultDQNAgent IQN acts through the public ConfigData path", "[dqn][
     REQUIRE_FALSE(state.obs.Contains(anet::nn::kKey_Taus));
 
     auto action_info = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
-        actor->MakeAction(rl::StepCounts{}, state));
+        actor->MakeAction(rl::StepCounts{}, state, {.nn_trace = true}));
 
     REQUIRE(action_info != nullptr);
+    SavePrd170Trace(action_info->GetAuxData(), "iqn");
+    constexpr char kTauInputTrace[] = "tau_embedding/00_Input";
+    const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
+    REQUIRE(trace.Contains(kTauInputTrace));
+    CHECK(trace.At(kTauInputTrace).dim() == 2);
     REQUIRE(ShapeOf(action_info->GetAction()) == std::vector<int64_t>{ 2 });
     const auto& aux = action_info->GetAuxData();
     REQUIRE(ShapeOf(aux.at("q_values")) == std::vector<int64_t>{ 2, 2 });
@@ -9876,7 +9913,7 @@ TEST_CASE("Optimistic target warns for a non optimistic Actor source and preserv
     }
 }
 
-TEST_CASE("MuZero Actor catalog owns temperature and exploration noise", "[prd061][muzero][actor_catalog]")
+TEST_CASE("MuZero Actor catalog owns temperature and exploration noise", "[prd061][muzero][actor_catalog][prd170][muzero]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::nn::InitNN();
@@ -9920,6 +9957,24 @@ TEST_CASE("MuZero Actor catalog owns temperature and exploration noise", "[prd06
     rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({2, 4})}}, flags, flags, flags);
     rl::StepCounts counts;
     counts.exp_step = 100;
+    // 新しいActorで要求 false→true→true の WARN 件数と AuxData を確認する。
+    auto trace_actor = create("quiet");
+    anet::test::LogCaptureGuard logs;
+    const auto no_request = trace_actor->MakeAction(counts, state, {.nn_trace = false});
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+    const auto first_request = trace_actor->MakeAction(counts, state, {.nn_trace = true});
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+    const auto second_request = trace_actor->MakeAction(counts, state, {.nn_trace = true});
+    logs.Flush();
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+    for (const auto& result : {no_request, first_request, second_request}) {
+        const auto& aux = result->GetAuxData();
+        CHECK(std::none_of(aux.begin(), aux.end(), [](const auto& entry) {
+            return entry.first.starts_with(anet::nn::kNnTracePrefix);
+        }));
+    }
     const auto quiet_result = quiet->MakeAction(counts, state);
     const auto noisy_result = noisy->MakeAction(counts, state);
     CHECK(*quiet->GetScalar("tau") == Catch::Approx(1.0f));
@@ -12893,4 +12948,22 @@ TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "
         REQUIRE(value);
         CHECK(std::isnan(*value));
     }
+}
+
+
+TEST_CASE("DQN action without a request does not create nn_trace", "[prd170][dqn][no_trace]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+    auto data = MakeNativeStackConfigData();
+    data.Set("net.branch.[main_feature].bind", kVectorKey);
+    data.Set("net.branch.[main_feature].structure", "Flatten > Linear");
+    const auto spec = MakeNativeStackEnvSpec({{kVectorKey, anet::TensorSpec{
+        .type = anet::SpaceType::Vector, .shape = {8}, .dtype = torch::kFloat32}}});
+    const auto action = ActWithNativeStack(data, spec,
+        anet::TensorDict{{kVectorKey, torch::arange(16, torch::kFloat32).reshape({2, 8})}}, false);
+    const auto& aux = action->GetAuxData();
+    CHECK(std::none_of(aux.begin(), aux.end(), [](const auto& entry) {
+        return entry.first.starts_with(anet::nn::kNnTracePrefix);
+    }));
 }

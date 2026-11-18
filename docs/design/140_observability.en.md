@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:3a5166f40bd1fa6fe05df38073b532aecaec777b date:2026-11-17 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:f86474f3a6fc8ebc26b5a456484983369ce995bb date:2026-11-17 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -33,7 +33,7 @@ This document covers current `Notifier`, Observers, `ObserverFactory`, `MetricsL
 | `ObserverFactory` | Constructs Observers from ConfigData such as `metrics.scalar.*`, `metrics.trace.*`, and `metrics.graph.*` |
 | `MetricsLog*Observer` | Retrieves scalars from event-specified sources and applies step selection, interval, EMA, and clipping |
 | `EpisodeEvalObserver` | Drives configured Eval sessions synchronously or in the background on Learn events, rethrowing worker exceptions to callers |
-| Image/Graph Observer | Generates HeatMap, TimeHistogram, Conv2d, and GraphViz output from Probes or NN outputs |
+| Image/Graph Observer | Generates HeatMap, TimeHistogram, Conv2d, and GraphViz output from Probes or NN outputs. Conv2d reads nn_trace created only for requested steps |
 | `MetricsLogger` | Singleton owning Run name/directory and saving scalars, JSON, images, videos, and DOT in shared formats |
 | `IBackend` / `JsonlBackend` | Metric-record persistence boundary; the current backend appends to `metrics.jsonl` |
 | `anet::log::Logger` | Lightweight logger creating `WxLogStream` with a prefix fixed at construction |
@@ -209,6 +209,35 @@ sequenceDiagram
     T->>D: Suspend
     Note over A,D: 休止中のActor同期では写しを捨てる
 ```
+
+### 5.4 nn_trace requests and notifications
+
+nn_trace delivers intermediate outputs from the actual action-selection forward to visualization. EvalPanel adds `MakeActionOptions.nn_trace = true` to timer, Step, and manual-action calls only while at least one Conv2d pane attached to its Runner is open according to `IsPaneOpen`. Recording or dumping Trace alone does not request it.
+
+```mermaid
+sequenceDiagram
+    participant E as EvalPanel (step caller)
+    participant R as Runner
+    participant A as Actor
+    participant N as NN forward
+    participant T as Notifier
+    participant C as Conv2d pane (consumer)
+    E->>R: DoStep / DoUpdateFrame(MakeActionOptions)
+    R->>A: MakeAction(step, state, options)
+    alt Step requests nn_trace
+        A->>N: capture requesting nn_trace/
+        N-->>A: Branch inputs and visualizable outputs in capture
+        Note over A: Slice env 0, detach, convert to FP32, clone<br/>Store under the same nn_trace/ keys in AuxData
+    else Step does not request it
+        A->>N: No capture
+        Note over A,N: Do not create nn_trace or slice, convert, or clone it
+    end
+    A-->>R: action_info (including AuxData)
+    R->>T: TrainEvent (action_info)
+    T->>C: Runner-scoped notification
+```
+
+For training, RunnerApp fixes the request when constructing RunnerThread if any registered Conv2d image recording has `interval >= 1`, and RunnerThread passes it on every step. Runs with only `interval <= 0` registrations, runs without such recordings, and background evaluation through `RunSession` do not request it. Runner, Actor, Observer, and Notifier have no request registration. An Actor without nn_trace support warns once on its first request and continues without nn_trace.
 
 ## 6. Metric Configuration Contracts
 
@@ -387,6 +416,8 @@ TimeHeatMap in Scale mode, Histgram, and SweepedHeatMap draw into pixel storage 
 See the [PRD127 validation assets](../../core/anet-core/testdata/prd127/README.md) for intrinsic scoring, synchronization, suspension, and learning invariance.
 
 The fixed-pixel and ownership regression tests are in `heat_map_test.cpp`. Successful rendering alone does not verify allocator compatibility or allocation failure handling; use the [image memory verification materials](../../core/anet-core/testdata/prd115/README.md) to exercise the actual wxWidgets boundary.
+
+- See the [PRD170 validation assets](../../core/anet-core/testdata/prd170/README.md) for nn_trace acceptance checks.
 
 ### TempoRL Scalars and Trace
 

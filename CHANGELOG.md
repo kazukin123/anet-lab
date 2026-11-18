@@ -31,6 +31,8 @@
 
 黙って挙動・値が変わる変更:
 
+- nn_trace は要求した step だけ生成する。Conv2d pane を閉じた間の Trace 行には中間出力を保持しない。Actor と Runner の step は `MakeActionOptions` を受け、NN の中間出力は capture に統合した(PRD170)。
+
 - eval schedule は先頭の発火を既定で 1 回抑止する（`warmup_count=1`）。学習直後の評価が要るタグは 0 を指定し、`offset`（既定 0）で learn step の発火列をずらす(PRD158, ADR0070)。
 - TempoRLにloss別Adam更新`split`・skip loss重み`kmax`・greedy評価sessionの判断率を追加。GridMazeのskip方策をepsilon-greedyへ、Atariのsession名を`greedy`へ、長さ別tagの添字を2桁へ移行。split checkpointは追加optimizer状態を持ち、stop/mergeへの読込は拒否する(PRD103)。
 

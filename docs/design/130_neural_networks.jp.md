@@ -161,7 +161,7 @@ class NetworkBuilder
 class NetworkConfig
 class Network {
   +CreateForwardExecutor(config, clock_kind, seed)
-  +Forward(input, callback)
+  +Forward(input, capture)
   +Clone(device)
   +CopyTo(target)
   +SoftCopyTo(target, tau)
@@ -175,7 +175,7 @@ class NetworkModuleRepository
 class NetworkHead
 class NetworkHeadFactory
 class NetworkForwardExecutor {
-  +Forward(input, info, callback)
+  +Forward(input, info, capture)
 }
 class NetworkForwardState {
   <<internal>>
@@ -285,7 +285,7 @@ sequenceDiagram
     E-->>C: output
 ```
 
-`TraceCallback`を渡した場合は、module/branchの中間Tensorを可視化・診断用に収集できる。
+capture で `nn_trace/` を要求すると、branch の入力と描画できる block の出力を収集できる。要求しない forward では作らない。
 
 ## 7. 設定・lifetime・エラー・性能特性
 
@@ -329,17 +329,17 @@ u/vはnamed bufferで、専用RNGによる初期化後に15回power iterationす
 ### 7.5 可視化と性能
 
 - `MakeGraphViz`はNetworkのbranch、factorごとの依存edge、block、shape、parameter情報を構築情報から出力する。branch設定詳細を有効にした場合は`bind_concat_dim`も表示する。
-- `GetTensorDictFunction`とTraceCallbackはConv2d可視化やprobeからNetwork内部へ到達するseamである。
+- `GetTensorDictFunction`とforward captureはConv2d可視化やprobeからNetwork内部へ到達するseamである。
 - forward、attention、主要blockはprofile対象であり、module追加時はshape/batch sizeに応じたcostを実測する。
 - moduleを細分化しすぎたprofile rangeは測定noiseになるため、意味のある処理境界を選ぶ。
 
 ### 7.6 forward captureと部分forward
 
-`Network::Forward`、`NetworkForwardExecutor::Forward`、`Network::ForwardUpTo`はoptionalな`NetworkForwardCapture`を受け取る。呼出側が完全一致の鍵、または末尾`/`の接頭辞を要求し、`Wants`・`Add`・`Get`・`GetAll`・`Unfulfilled`・`Reset`で扱う。鍵1つにTensor1つを保持し、未要求鍵や同じ鍵への2回目の`Add`はfail-fastする。`Get`は完全一致の値（未記入はundefined Tensor）、`GetAll`は接頭辞に一致した鍵とTensorを記入順に返す。接頭辞`X/`は`X`自体に一致しない。
+`Network::Forward`、`NetworkForwardExecutor::Forward`、`Network::ForwardUpTo`はoptionalな`NetworkForwardCapture`を受け取る。呼出側が完全一致の鍵、または末尾`/`の接頭辞を要求し、`Wants`・`WantsAny`・`Add`・`Get`・`GetAll`・`Unfulfilled`・`Reset`で扱う。鍵1つにTensor1つを保持し、未要求鍵や同じ鍵への2回目の`Add`はfail-fastする。`Get`は完全一致の値（未記入はundefined Tensor）、`GetAll`は接頭辞に一致した鍵とTensorを記入順に返す。接頭辞`X/`は`X`自体に一致しない。
 
-書き手は二つある。Bodyは各branch実行後に要求されたbranch名の出力をdetachして書く。moduleは`NetworkForwardContext`経由で素鍵の要求を確認し、診断値を書く。NetworkStructが与えた`<branch>/<block インスタンス名>`をmoduleの素鍵の後ろへ付けるため、`(*2)`の繰返しでも鍵は衝突しない。インスタンス名はcheckpointと同じ`<定義名>_<連番>`であり、traceの描画番号は使わない。moduleの直接呼出しでは位置が付かない。branch名の`/`は構築時に禁止する。
+書き手は三つある。Bodyは各branch実行後に要求されたbranch名の出力をdetachして書く。moduleは`NetworkForwardContext`経由で素鍵の要求を確認し、診断値を書く。NetworkStructが与えた`<branch>/<block インスタンス名>`をmoduleの素鍵の後ろへ付けるため、`(*2)`の繰返しでも鍵は衝突しない。インスタンス名はcheckpointと同じ`<定義名>_<連番>`であり、nn_traceの描画番号は使わない。moduleの直接呼出しでは位置が付かない。branch名の`/`は構築時に禁止する。NetworkStruct は要求された `nn_trace/<branch>/00_Input` と `nn_trace/<branch>/<2 桁の描画番号>_<block>` を forward 順に書く。入力の rank は問わず、番号は描画可能な出力だけを数える。`WantsAny(prefix)` は、その配下へ一致しうる完全一致・接頭辞要求の有無を、鍵を組み立てる前に確認する。
 
-captureはforward入口で結果だけをResetし、要求を保持する。出口では完全一致要求が書かれていない場合、または接頭辞要求に1件も一致しない場合に、要求・到達branch・記入済み鍵・利用可能branch一覧を添えてfail-fastする。captureを渡さないforwardは位置文字列を生成せず、TraceCallbackとActorの数値経路も維持する。
+capture は公開の forward の入口で Context に入り、Body の入口で結果だけを Reset し、要求を保持する。出口では完全一致要求が書かれていない場合、または接頭辞要求に1件も一致しない場合に、要求・到達branch・記入済み鍵・利用可能branch一覧を添えてfail-fastする。Head へ渡す Context には capture を入れない。capture を渡さない forward は位置文字列を生成せず、Actor の数値経路も維持する。
 
 `Network::ForwardUpTo(input, branch_key, capture)`は既定ContextでFormat済み入力と対象branchのancestor closureだけを既存のトポロジカル順で実行し、そのstateを返す。閉包は`ComputeDependencyClosure`で一元化する。bind factorがinput specにも同名branchにも存在する場合は、builderと同じくinput keyを優先して依存探索を終了する。未知branchは指定名と`GetBranchNames()`の一覧を含めてfail-fastする。
 
@@ -383,6 +383,8 @@ Networkを変更する場合は次を確認する。
 実行設定の責任境界・独自 Module / Head の拡張テストは [PRD 084 検証手順](../../core/anet-core/testdata/prd084/README.md)を参照する。
 
 主なunit testは[nn_test.cpp](../../core/anet-core/src/nn_test.cpp)にあり、Agentとの結合はDQN/ImageClsのtestでも検証する。
+
+- nn_trace の要求と全値比較、Runner からの受け渡しの確認は [PRD170 の検証資材](../../core/anet-core/testdata/prd170/README.md)を参照する。
 
 ## 9. 関連文書
 

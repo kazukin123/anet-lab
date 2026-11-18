@@ -26,7 +26,8 @@ DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、Replay
 ### 2.1 Agent、Actor、Learner
 
 - `Agent`はRunから利用する入口であり、ActorとLearnerを生成する。device取得、保存・読込、可視化用functionの公開境界でもある。
-- `Actor`は`StepCounts`と`BatchState`から`BatchActionInfo`を生成する。`Sync()`はActor固有のsourceから推論Resourceを強制同期する。
+- `Actor::MakeAction(step, state, options)`は`StepCounts`、`BatchState`、空の既定値つきの`MakeActionOptions`から`BatchActionInfo`を生成する。`Sync()`はActor固有のsourceから推論Resourceを強制同期する。
+- `MakeActionOptions.nn_trace`は既定で偽。その回に真を渡したときだけ、対応するActorが行動forwardのnn_traceを作り、AuxDataへ入れる。偽ではcapture、env 0の切り出し、FP32化、cloneを行わない。非対応のActorは最初の要求だけWARNし、nn_traceを入れずに続ける。要求は呼び出しごとに渡し、ActorやNotifierへ登録しない。
 - 同一Actor instanceの`MakeAction()`と`Sync()`は並行呼出ししない。必要な直列化はActorを利用するRunner側が守る。
 - `Agent::CreateActor(const ActorRequest&)`は対象spec、device、seed、`actor_key`を受け取る。Agentは構築時に読んだtyped Actorカタログから名前を解決し、方策、network、cloneを選ぶ。未定義名や非対応clone、sharedのdevice不一致は生成前にfail-fastする。
 - `Agent::CreateActor()`はrequest内に対象Envの`BatchEnvSpec`と`EnvSpec`を受け取り、そのActorを生成できるかを具象Agentが判断する。通常の同一state/action契約には`EnvSpec::CheckSameStateActionSpec()`を使用できるが、異なるspecを扱えるAgentへ共通層が一律制約を課さない。
@@ -111,7 +112,7 @@ class Agent {
 }
 class AgentBase
 class Actor {
-  +MakeAction(step, state)
+  +MakeAction(step, state, options)
   +Sync()
 }
 class Learner {
@@ -142,7 +143,7 @@ sequenceDiagram
     R->>G: CreateActor(actor_request)
     G-->>R: Actor
     loop Runner step
-        R->>A: MakeAction(step_counts, batch_state)
+        R->>A: MakeAction(step_counts, batch_state, options)
         A-->>R: BatchActionInfo
     end
     opt 強制同期が必要

@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:0911dfe3b4ad5a5b1a1a6611283bfbeb96d62e28 date:2026-11-13 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:48de3f01da545624a281cc942588ff7cea14e7e0 date:2026-11-17 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -87,7 +87,8 @@ Reading configuration and recording it are separate. A bare value inherited unde
 - `RunManager` manages the main Train Env, Agent, Notifier, TrainRunner, and configured Eval Runners.
 - `RunManager` determines human-facing BatchEnv names: `train` for main Train, the tag for configured Eval, and the supplied name in `CreateEvalRunner(name, ...)` for dynamic Eval, without reinterpreting it.
 - BatchEnv names are unique within a Run by case-sensitive exact matching, owned by a private run-local registry in `RunManager`. Factories, Envs, and Runners hold no uniqueness state.
-- `Runner` advances through `DoStep()` or `DoUpdateFrame()` and updates `StepCounts`.
+- `Runner` advances through `DoStep` or `DoUpdateFrame` and updates `StepCounts`. Both accept `MakeActionOptions` with an empty default and pass it unchanged to that step's `Actor::MakeAction`. `DoUpdateFrame` passes the same value to every step in the frame.
+- Manual actions in `EvalRunner` also accept requests through `DoStep(action, counts, options)`. `RunSession` accepts no request and advances with empty options. `RunnerThread` retains options supplied at construction and passes them to each step. See [Observability](140_observability.en.md#54-nn_trace-requests-and-notifications) for how callers choose nn_trace requests.
 - `RunnerStatus` represents uninitialized, running, or completed. GUI pause keeps Runner alive and simply stops RunnerThread from invoking steps.
 - `ControlSignal` returned by pre/post callbacks requests continuation within a frame, ending the frame, or stopping Runner.
 
@@ -229,12 +230,12 @@ sequenceDiagram
     participant N as Notifier
     participant O as Observer
 
-    RT->>R: DoStep()
+    RT->>R: DoStep(options)
     opt 初回
         R->>E: Reset()
         E-->>R: 初期BatchState
     end
-    R->>A: MakeAction(state)
+    R->>A: MakeAction(counts, state, options)
     A-->>R: BatchActionInfo
     R->>E: Step(action)
     E-->>R: reward / next_state
@@ -277,7 +278,7 @@ sequenceDiagram
     participant O as Observer
 
     loop Pipeline step
-        RT->>R: DoStep()
+        RT->>R: DoStep(options)
         opt 初回
             R->>E: Reset()
             E-->>R: 初期BatchState
@@ -294,7 +295,7 @@ sequenceDiagram
             R->>R: update_stepとlearn_stepを更新
         end
         Note over R,O: Event通知はRunnerThread上で同期実行
-        R->>A: MakeAction(state)
+        R->>A: MakeAction(counts, state, options)
         A-->>R: BatchActionInfo
         opt 保持しているExperienceがある
             R->>W: EnqueueFuture(prev experience, prev counts)

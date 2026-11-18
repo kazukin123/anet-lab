@@ -1,4 +1,5 @@
 #include "anet/catch_test.hpp"
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
@@ -7,12 +8,22 @@
 #include <mutex>
 #include <regex>
 #include <thread>
+#include <c10/cuda/CUDACachingAllocator.h>
+#include <torch/cuda.h>
 #include <wx/evtloop.h>
 #include <wx/textctrl.h>
 #include <wx/weakref.h>
 #include "anet/log.hpp"
 #include "anet/agent.hpp"
+#include "anet/init.hpp"
+#include "anet/metrics_logger.hpp"
+#include "anet/env/ImageCls.hpp"
+#ifdef ANET_HAS_ATARI
+#include "anet/env/Atari.hpp"
+#endif
 #include "RunnerApp.hpp"
+
+constexpr char kPrd170TraceInput[] = "nn_trace/main/00_Input";
 
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -27,8 +38,12 @@ constexpr char kCloseDrainEvalTag[] = "close_drain";
 class StartupTestActor final : public anet::rl::Actor {
 public:
     std::shared_ptr<anet::rl::BatchActionInfo> MakeAction(
-        const anet::rl::StepCounts&, const anet::rl::BatchState&) const override
-    { return std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64)); }
+        const anet::rl::StepCounts&, const anet::rl::BatchState&, const anet::rl::MakeActionOptions& options = {}) const override
+    {
+        auto result = std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64));
+        if (options.nn_trace) result->GetAuxData()[kPrd170TraceInput] = torch::ones({1, 1, 2, 2});
+        return result;
+    }
     void Sync() override {}
 };
 
@@ -579,4 +594,95 @@ TEST_CASE("Runner keeps train observers attached until background Eval drains on
     CHECK(app.Log().find(std::string("eval.[") + kCloseDrainEvalTag + "]: draining in-flight session on exit")
         != std::string::npos);
     close_drain_probe.reset();
+}
+
+TEST_CASE("RunnerApp requests training nn_trace only for active Conv2d recordings", "[.][prd170][prd170_startup]")
+{
+    constexpr const char* kRegistrationEnv = "ANET_PRD170_IMAGE_REGISTRATION";
+    const auto* registration_value = std::getenv(kRegistrationEnv);
+    const int registration = registration_value ? std::stoi(registration_value) : 0;
+    REQUIRE(registration >= 0);
+    REQUIRE(registration <= 2);
+    StartupFixture app;
+    std::string overrides = "agent.construction_delay_ms = 0\napp.save_agent_on_close = false\n";
+    if (registration != 0) {
+        overrides += "metrics.image.[layers].type = Conv2d\nmetrics.image.[layers].interval = "
+            + std::to_string(registration == 2 ? 1 : 0) + "\n";
+    }
+    app.Start(overrides);
+    REQUIRE(app.Wait([] { return wxGetApp().IsRunInitialized(); }));
+    auto runner = wxGetApp().GetRunManager().GetTrainRunner();
+    auto notifier = runner->GetNotifier();
+    auto count = std::make_shared<std::atomic<int>>(0);
+    auto correct = std::make_shared<std::atomic<bool>>(true);
+    auto observer = std::make_shared<anet::rl::FunctionTrainObserver>([count, correct, registration](const anet::rl::TrainEvent& event) {
+        const bool traced = event.action_info->GetAuxData().contains(kPrd170TraceInput);
+        if (traced != (registration == 2)) correct->store(false);
+        ++*count;
+    });
+    notifier->AttachScoped(observer, runner);
+    wxGetApp().ToggleTraining();
+    REQUIRE(app.Wait([&] { return count->load() >= 3; }));
+    wxGetApp().PauseTraining();
+    CHECK(correct->load());
+    notifier->Detach(observer);
+}
+
+TEST_CASE("GPU nn_trace allocation is recorded through the evaluation Runner", "[.][prd170_memory]")
+{
+    constexpr const char* kConfigEnv = "ANET_PRD170_MEMORY_CONFIG";
+    constexpr const char* kOutputEnv = "ANET_PRD170_MEMORY_OUTPUT";
+    constexpr const char* kPeakBytes = "allocated_peak_bytes";
+    const auto* config_path = std::getenv(kConfigEnv);
+    const auto* output_path = std::getenv(kOutputEnv);
+    REQUIRE(config_path);
+    REQUIRE(output_path);
+    REQUIRE(torch::cuda::is_available());
+    const auto data = anet::ConfigManager(config_path).GetConfigData();
+    const std::filesystem::path destination(output_path);
+    anet::MetricsLoggerConfig logger{.runs_dir = (destination.parent_path() / "memory-runs").string(),
+        .run_name_tmpl = "run_{t}_p170_memory"};
+    anet::MetricsLogger::Reset();
+    anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(), logger, destination.parent_path());
+    struct MetricsLoggerResetGuard {
+        ~MetricsLoggerResetGuard() { anet::MetricsLogger::Reset(); }
+    } metrics_reset;
+    // 製品と同じ設定・登録・Runnerを使い、学習とGUIの描画は動かさない。
+    anet::rl::InitRL(anet::rl::BackendConfig(data), data);
+    const auto env = data.Get("env.class_id");
+    if (env == "ImageClsEnv") anet::rl::env::InitImageCls();
+#ifdef ANET_HAS_ATARI
+    else if (env == "AtariEnv") anet::rl::env::InitAtari();
+#endif
+    else FAIL("Expected ImageClsEnv or AtariEnv");
+    auto manager = std::make_shared<anet::rl::RunManager>(data);
+    auto runner = manager->CreateEvalRunner("prd170_memory", data.Get("app.eval_panel.eval_config_tag"));
+    const auto device = manager->GetAgent()->GetDevice();
+    REQUIRE(device.is_cuda());
+    const auto index = device.has_index() ? device.index() : c10::cuda::current_device();
+    constexpr auto aggregate = static_cast<size_t>(c10::CachingAllocator::StatType::AGGREGATE);
+    const auto measure = [&](bool requested) {
+        torch::cuda::synchronize(index);
+        c10::cuda::CUDACachingAllocator::resetPeakStats(index);
+        for (int step = 0; step < 100; ++step) runner->DoStep({.nn_trace = requested});
+        torch::cuda::synchronize(index);
+        const auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(index);
+        return anet::json{{"allocated_current_bytes", stats.allocated_bytes[aggregate].current},
+            {"reserved_current_bytes", stats.reserved_bytes[aggregate].current},
+            {kPeakBytes, stats.allocated_bytes[aggregate].peak}};
+    };
+    const auto before = measure(false);
+    const auto after = measure(true);
+    const anet::json result{{"environment", env}, {"steps_per_arm", 100},
+        {"train_num_envs", manager->GetTrainRunner()->GetBatchEnv()->GetBatchSpec().num_envs},
+        {"eval_num_envs", runner->GetBatchEnv()->GetBatchSpec().num_envs}, {"before", before}, {"after", after},
+        {"peak_delta_bytes", after.at(kPeakBytes).get<int64_t>() - before.at(kPeakBytes).get<int64_t>()}};
+    std::ofstream output(destination);
+    REQUIRE(output.good());
+    output << result.dump(2) << '\n';
+    output.flush();
+    REQUIRE(output.good());
+    // 読み込みworkerを止め、通知が持つRunnerの参照を外してからRunを破棄する。
+    runner->GetBatchEnv()->Shutdown();
+    manager->GetTrainRunner()->Shutdown();
 }

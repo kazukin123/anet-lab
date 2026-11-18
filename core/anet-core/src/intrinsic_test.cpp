@@ -2929,8 +2929,8 @@ namespace {
     public:
         IntrinsicTraceRunner(std::shared_ptr<anet::rl::Agent> agent, std::shared_ptr<anet::rl::Actor> actor)
             : agent_(std::move(agent)), actor_(std::move(actor)) {}
-        anet::rl::StepCounts DoStep() override { return {}; }
-        anet::rl::StepCounts DoUpdateFrame(int, ControlFunction, ControlFunction) override { return {}; }
+        anet::rl::StepCounts DoStep(const anet::rl::MakeActionOptions& options = {}) override { return {}; }
+        anet::rl::StepCounts DoUpdateFrame(int, ControlFunction, ControlFunction, const anet::rl::MakeActionOptions& options = {}) override { return {}; }
         anet::rl::RunnerStatus GetStatus() const override { return anet::rl::RunnerStatus{}; }
         void Shutdown() override {}
         anet::rl::StepCounts GetCounts() const override { return {}; }

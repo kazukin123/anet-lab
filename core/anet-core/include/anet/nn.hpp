@@ -165,6 +165,8 @@ namespace anet::nn {
         NetworkForwardCapture() = default;
         explicit NetworkForwardCapture(std::vector<std::string> requests);
         bool Wants(std::string_view key) const;
+        /// prefix 以下に一致しうる要求があるか。鍵を組み立てる前の判定に使う。
+        bool WantsAny(std::string_view prefix) const;
         void Add(std::string_view key, torch::Tensor value);
         torch::Tensor Get(std::string_view key) const;
         std::vector<Entry> GetAll(std::string_view prefix) const;
@@ -174,6 +176,8 @@ namespace anet::nn {
         std::vector<std::string> requests_;
         std::vector<Entry> entries_;
     };
+
+    inline constexpr std::string_view kNnTracePrefix = "nn_trace/";
 
     inline constexpr std::string_view kTransformerEncoderAttentionEntropyCaptureKey =
         "TransformerEncoder/attention_entropy";
@@ -205,7 +209,6 @@ namespace anet::nn {
         /// 入力を既定動作で計算する。capture指定時は要求されたbranch出力・module診断も取得する。
         anet::TensorDict Forward(
             const anet::TensorDict& input,
-            const anet::TraceCallback& callback = {},
             NetworkForwardCapture* capture = nullptr);
         /// branch_keyまでを既定動作で計算し、Headを実行しない。
         anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key,
@@ -265,8 +268,7 @@ namespace anet::nn {
 
         /// 同期呼び出し中だけinfoを参照し、固定した処理を実行する。
         anet::TensorDict Forward(
-            const anet::TensorDict& input, const NetworkForwardCallInfo& info,
-            const anet::TraceCallback& callback = {}, NetworkForwardCapture* capture = nullptr);
+            const anet::TensorDict& input, const NetworkForwardCallInfo& info, NetworkForwardCapture* capture = nullptr);
     private:
         friend class Network;
         struct Impl;

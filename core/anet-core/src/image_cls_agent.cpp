@@ -39,7 +39,7 @@ ImageClsActor::ImageClsActor(
 }
 
 std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
-    const anet::rl::StepCounts& step, const anet::rl::BatchState& state) const
+    const anet::rl::StepCounts& step, const anet::rl::BatchState& state, const anet::rl::MakeActionOptions& options) const
 {
     ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
@@ -54,8 +54,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     // Forward
     ANET_PROFILE_SCOPE_NEXT(obs_to_device);
     auto obs = state.obs.To(device_);
-    anet::TensorDict trace;
-    anet::TraceCallback callback = anet::rl::MakeActionTraceCallback(trace);
+    std::optional<anet::nn::NetworkForwardCapture> capture;
+    if (options.nn_trace) capture.emplace(std::vector<std::string>{std::string(anet::nn::kNnTracePrefix)});
     ANET_PROFILE_SCOPE_NEXT(forward);
     anet::TensorDict outputs;
     {
@@ -63,7 +63,13 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
             device_,
             config_.bf16,
             torch::kBFloat16);
-        outputs = network_->Forward(obs, callback);
+        outputs = network_->Forward(obs, capture ? &*capture : nullptr);
+    }
+
+    anet::rl::AuxData trace_aux;
+    if (capture) {
+        anet::rl::AppendNnTraceAux(trace_aux, *capture);
+        capture.reset();
     }
 
     // 推論後処理
@@ -85,7 +91,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     // BatchActionInfo(action, info, aux) の形式で返却
     ANET_PROFILE_SCOPE_NEXT(build_action_info);
     auto action_info = std::make_shared<anet::rl::BatchActionInfo>(action, info);
-    anet::rl::AppendTraceAux(action_info->GetAuxData(), trace);
+    action_info->GetAuxData() = std::move(trace_aux);
     return action_info;
 }
 
@@ -377,7 +383,7 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
                 device_,
                 config_.bf16.enabled && config_.bf16.learner,
                 torch::kBFloat16);
-            outputs = network_->Forward(obs, {}, measure_plasticity ? &plasticity_capture : nullptr);
+            outputs = network_->Forward(obs, measure_plasticity ? &plasticity_capture : nullptr);
         }
 
         // 出力ロジットの取得

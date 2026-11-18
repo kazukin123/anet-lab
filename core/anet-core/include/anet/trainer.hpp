@@ -29,10 +29,10 @@ namespace anet::rl {
             const ActorRequest& request,
             std::string name);
 
-        virtual StepCounts DoStep() = 0;
+        virtual StepCounts DoStep(const MakeActionOptions& options = {}) = 0;
 
         StepCounts DoUpdateFrame(
-            int max_steps, ControlFunction pre_step_func = nullptr, ControlFunction post_step_func = nullptr) override;
+            int max_steps, ControlFunction pre_step_func = nullptr, ControlFunction post_step_func = nullptr, const MakeActionOptions& options = {}) override;
 
         virtual ~RunnerBase() = default;
     public:
@@ -135,14 +135,14 @@ namespace anet::rl {
 
         //RunnerStatus Initialize(const ConfigData& config_data);
         StepCounts DoStep(int64_t action);
-        StepCounts DoStep(int64_t action, const StepCounts& event_counts);
+        StepCounts DoStep(int64_t action, const StepCounts& event_counts, const MakeActionOptions& options = {});
         StepCounts DoStep(const StepCounts& event_counts);
-        StepCounts DoStep() override;
+        StepCounts DoStep(const MakeActionOptions& options = {}) override;
         void RunSession(const StepCounts& event_counts, std::stop_token stop = {});
 
     private:
         std::shared_ptr<const BatchStepResult> DoStepInternal(
-            int64_t action, const StepCounts& event_counts, bool notify_episode_end);
+            int64_t action, const StepCounts& event_counts, bool notify_episode_end, const MakeActionOptions& options);
         const ActionSpec action_spec_;
         std::vector<bool> last_forced_;
         std::shared_ptr<EvalSessionEnv> session_env_;
@@ -161,7 +161,7 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request);
 
-        virtual StepCounts DoStep() override = 0;
+        virtual StepCounts DoStep(const MakeActionOptions& options = {}) override = 0;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::string GetEnvClassId() const { return env_class_id_; }
 
@@ -204,7 +204,7 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request);
 
-        StepCounts DoStep() override;
+        StepCounts DoStep(const MakeActionOptions& options = {}) override;
     };
 
 
@@ -218,7 +218,7 @@ namespace anet::rl {
             std::shared_ptr<anet::rl::Agent> agent,
             std::shared_ptr<anet::rl::Notifier> notifier, const ActorRequest& request);
 
-        StepCounts DoStep() override;
+        StepCounts DoStep(const MakeActionOptions& options = {}) override;
         void Shutdown() override;
     private:
         std::unique_ptr<anet::PinnedThreadPool> learn_pool_;
@@ -310,7 +310,7 @@ namespace anet::rl {
     public:
         explicit RunnerThread(
             const std::string& name,std::shared_ptr<anet::rl::Runner> runner,
-            anet::rl::Runner::ControlFunction pre_func = nullptr, anet::rl::Runner::ControlFunction post_func = nullptr, ExceptionFunction exception_func = nullptr);
+            anet::rl::Runner::ControlFunction pre_func = nullptr, anet::rl::Runner::ControlFunction post_func = nullptr, ExceptionFunction exception_func = nullptr, const MakeActionOptions& options = {});
 
         ~RunnerThread() override;
     protected:
@@ -322,6 +322,7 @@ namespace anet::rl {
         anet::rl::Runner::ControlFunction pre_func_;
         anet::rl::Runner::ControlFunction post_func_;
         ExceptionFunction exception_func_;
+        const MakeActionOptions options_;
     };
 
 } // namespace anet::rl
