@@ -6,6 +6,9 @@
 
 | 日付 | ファイル | テーマ | 関連 |
 |---|---|---|---|
+| 2026-11-18 | [per_priority_weaknesses_survey_2026-11-18.md](per_priority_weaknesses_survey_2026-11-18.md) | PERの優先度の弱点と代替。確率的な報酬での張り付き、優先度の古さ、損失の形との等価性（LAP）、α・β、分布型での優先度、遡る系・収益ベース・gain×need の効果量 | docs/memo/171_replay_eviction_sample_count_10prd.md、docs/management/issues/issue-20261103-8c3c6d.md |
+| 2026-11-18 | [episodic_bonus_value_based_survey_2026-11-18.md](episodic_bonus_value_based_survey_2026-11-18.md) | エピソード内の新しさのボーナスを価値ベース（DQN・Replay）に載せるときの論点。NGU系の実装、off-policyでの扱い、Replayに入れた内的報酬の古さと外的・内的の分け方 | docs/memo/173_intrinsic_reward_novelty_10prd.md、docs/management/issues/issue-20261103-736e39.md |
+| 2026-11-18 | [intrinsic_reward_landscape_survey_2026-11-18.md](intrinsic_reward_landscape_survey_2026-11-18.md) | 内的報酬の手法の全体像。予測誤差系・回数と密度の系・エピソード内の新しさと方策の組・戻る系、RNDとICMの使い分け、detachment・derailmentへの対処、ベンチマークごとの基準 | docs/memo/173_intrinsic_reward_novelty_10prd.md、docs/wiki/mechanisms/intrinsic_novelty.md、docs/management/issues/issue-20261115-d3e094.md |
 | 2026-11-07 | [llm_rl_reading_guide_2026-11-07.md](llm_rl_reading_guide_2026-11-07.md) | LLM/RL再サーベイ47論文の索引、関心別の読み順、研究上の問いと費用の比較方法 | 11冊の案内 |
 | 2026-11-07 | [llm_rl_distillation_and_planning_2026-11-07.md](llm_rl_distillation_and_planning_2026-11-07.md) | LVLM2PとPriorZero。小さな方策への蒸留、公開PPOの分布、世界モデルとの相互学習と費用 | LLM/RL再サーベイ |
 | 2026-11-07 | [llm_rl_action_advice_2026-11-07.md](llm_rl_action_advice_2026-11-07.md) | 行動事前分布・観測ヒント・APMの3論文。候補数、cache、KL付き目的を区別 | LLM/RL再サーベイ |

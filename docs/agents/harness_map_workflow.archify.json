@@ -2,252 +2,73 @@
   "schema_version": 1,
   "diagram_type": "workflow",
   "meta": {
-    "title": "PRD を作り、実装して確かめる",
+    "title": "PRD を起こし、実装して確かめる",
     "quality_profile": "showcase",
-    "viewBox": [
-      920,
-      590
-    ]
+    "viewBox": [920, 590]
   },
   "lanes": [
-    {
-      "id": "common",
-      "label": "参照する文書"
-    },
-    {
-      "id": "authoring",
-      "label": "起草・実装・レビュー"
-    },
-    {
-      "id": "inspection",
-      "label": "精査・検証・整備"
-    },
-    {
-      "id": "human",
-      "label": "人間の判断"
-    }
+    { "id": "common", "label": "共通文書" },
+    { "id": "authoring", "label": "起票・実装・レビュー" },
+    { "id": "inspection", "label": "精査・検証・整備" },
+    { "id": "human", "label": "人間" }
   ],
   "phases": [
-    {
-      "id": "read",
-      "label": "読む",
-      "fromCol": 0,
-      "toCol": 0
-    },
-    {
-      "id": "shape",
-      "label": "質疑と起草",
-      "fromCol": 1,
-      "toCol": 2
-    },
-    {
-      "id": "implement",
-      "label": "計画と実装",
-      "fromCol": 3,
-      "toCol": 4
-    },
-    {
-      "id": "verify",
-      "label": "引き渡し",
-      "fromCol": 5,
-      "toCol": 5
-    }
+    { "id": "read", "label": "入口", "fromCol": 0, "toCol": 0 },
+    { "id": "shape", "label": "設計", "fromCol": 1, "toCol": 3 },
+    { "id": "implement", "label": "実装・検証", "fromCol": 4, "toCol": 4 },
+    { "id": "verify", "label": "引き渡し", "fromCol": 5, "toCol": 5 }
   ],
   "nodes": [
-    {
-      "id": "read_rules",
-      "lane": "common",
-      "col": 0,
-      "type": "frontend",
-      "label": "入口",
-      "sublabel": "共通の指示",
-      "width": 92
-    },
-    {
-      "id": "read_personal",
-      "lane": "common",
-      "col": 1,
-      "type": "external",
-      "label": "個別環境",
-      "sublabel": "指示・skill",
-      "width": 92
-    },
-    {
-      "id": "write_prd",
-      "lane": "authoring",
-      "col": 1,
-      "type": "backend",
-      "label": "PRD起草",
-      "sublabel": "issue・wiki",
-      "width": 92
-    },
-    {
-      "id": "regrill_prd",
-      "lane": "inspection",
-      "col": 2,
-      "type": "backend",
-      "label": "再グリル",
-      "sublabel": "前提の照合",
-      "width": 92
-    },
-    {
-      "id": "human_adjust",
-      "lane": "human",
-      "col": 3,
-      "type": "external",
-      "label": "調整",
-      "sublabel": "枠を仲介",
-      "width": 92
-    },
-    {
-      "id": "edit_validate",
-      "lane": "authoring",
-      "col": 4,
-      "type": "backend",
-      "label": "計画・実装",
-      "sublabel": "保存→編集→検証",
-      "width": 92
-    },
-    {
-      "id": "review_work",
-      "lane": "authoring",
-      "col": 5,
-      "type": "backend",
-      "label": "レビュー",
-      "sublabel": "独立して確認",
-      "width": 92
-    },
-    {
-      "id": "human_commit",
-      "lane": "human",
-      "col": 5,
-      "type": "external",
-      "label": "確認",
-      "sublabel": "人間がcommit",
-      "width": 92
-    },
-    {
-      "id": "run_analysis",
-      "lane": "common",
-      "col": 3,
-      "type": "backend",
-      "label": "Run分析",
-      "sublabel": "030・inspect",
-      "width": 92
-    },
-    {
-      "id": "experiment_record",
-      "lane": "common",
-      "col": 5,
-      "type": "database",
-      "label": "実験記録",
-      "sublabel": "campaign",
-      "width": 92
-    },
-    {
-      "id": "build_guide",
-      "lane": "inspection",
-      "col": 4,
-      "type": "backend",
-      "label": "ビルド",
-      "sublabel": "040・検証章",
-      "width": 92
-    },
-    {
-      "id": "routine_work",
-      "lane": "inspection",
-      "col": 0,
-      "type": "backend",
-      "label": "定常整備",
-      "sublabel": "統計・wiki点検・監査",
-      "width": 92
-    }
+    { "id": "read_rules", "lane": "common", "col": 0, "type": "frontend", "label": "入口読み", "sublabel": "共通の指示", "width": 92 },
+    { "id": "read_personal", "lane": "common", "col": 1, "type": "external", "label": "ユーザー環境", "sublabel": "指示・skill", "width": 92 },
+    { "id": "write_prd", "lane": "authoring", "col": 1, "type": "backend", "label": "起票", "sublabel": "グリル・起草", "width": 92 },
+    { "id": "regrill_prd", "lane": "inspection", "col": 2, "type": "backend", "label": "再グリル", "sublabel": "別の枠で精査", "width": 92 },
+    { "id": "human_adjust", "lane": "human", "col": 3, "type": "external", "label": "調整", "sublabel": "枠を仲介", "width": 92 },
+    { "id": "edit_validate", "lane": "authoring", "col": 4, "type": "backend", "label": "計画・実装", "sublabel": "計画→編集→検証", "width": 92 },
+    { "id": "review_work", "lane": "authoring", "col": 5, "type": "backend", "label": "レビュー", "sublabel": "観点で判定", "width": 92 },
+    { "id": "human_commit", "lane": "human", "col": 5, "type": "external", "label": "人のレビュー", "sublabel": "人間がcommit", "width": 92 },
+    { "id": "run_analysis", "lane": "common", "col": 3, "type": "backend", "label": "Run分析", "sublabel": "030・inspect", "width": 92 },
+    { "id": "experiment_record", "lane": "common", "col": 5, "type": "database", "label": "実験記録", "sublabel": "experiments", "width": 92 },
+    { "id": "build_guide", "lane": "inspection", "col": 4, "type": "backend", "label": "ビルド", "sublabel": "040・検証章", "width": 92 },
+    { "id": "routine_work", "lane": "inspection", "col": 0, "type": "backend", "label": "定常整備", "sublabel": "housekeeping", "width": 92 }
   ],
-  "mainPath": [
-    "read_rules",
-    "read_personal",
-    "write_prd",
-    "regrill_prd",
-    "human_adjust",
-    "edit_validate",
-    "review_work",
-    "human_commit"
-  ],
+  "mainPath": ["read_rules", "read_personal", "write_prd", "regrill_prd", "human_adjust", "edit_validate", "review_work", "human_commit"],
   "edges": [
-    {
-      "from": "read_rules",
-      "to": "read_personal"
-    },
-    {
-      "from": "read_personal",
-      "to": "write_prd"
-    },
-    {
-      "from": "write_prd",
-      "to": "regrill_prd"
-    },
-    {
-      "from": "regrill_prd",
-      "to": "human_adjust"
-    },
-    {
-      "from": "human_adjust",
-      "to": "edit_validate"
-    },
-    {
-      "from": "edit_validate",
-      "to": "review_work"
-    },
-    {
-      "from": "review_work",
-      "to": "human_commit"
-    },
-    {
-      "from": "regrill_prd",
-      "to": "run_analysis",
-      "label": "材料を読む"
-    },
-    {
-      "from": "run_analysis",
-      "to": "experiment_record",
-      "label": "記録を読む",
-      "labelDy": 50
-    },
-    {
-      "from": "edit_validate",
-      "to": "build_guide",
-      "label": "検証の手順",
-      "labelDx": 40
-    },
-    {
-      "from": "read_rules",
-      "to": "routine_work",
-      "label": "整備の入口"
-    }
+    { "from": "read_rules", "to": "read_personal" },
+    { "from": "read_personal", "to": "write_prd" },
+    { "from": "write_prd", "to": "regrill_prd" },
+    { "from": "regrill_prd", "to": "human_adjust" },
+    { "from": "human_adjust", "to": "edit_validate" },
+    { "from": "edit_validate", "to": "review_work" },
+    { "from": "review_work", "to": "human_commit" },
+    { "from": "regrill_prd", "to": "run_analysis", "label": "材料を読む" },
+    { "from": "run_analysis", "to": "experiment_record", "label": "記録を読む", "labelDy": 50 },
+    { "from": "edit_validate", "to": "build_guide", "label": "検証の手順", "labelDx": 40 },
+    { "from": "read_rules", "to": "routine_work", "label": "整備の入口" }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "wikiの読みと書き戻し",
+      "title": "工程の非対称",
       "items": [
-        "PRDづくりはトピック別まとめの不採用案と変更条件を読み、出典を確かめる。",
-        "起草で書き戻し、完了前に最終blobを記録する。"
+        "起票・精査・実装は別の枠に置ける。少なくとも起票と精査は分ける。",
+        "実装計画は実装する枠が作り、コミット前に人間がレビューする。"
       ]
     },
     {
       "dot": "emerald",
-      "title": "仕事の状態と工程の境界",
+      "title": "読む条件",
       "items": [
-        "PRD を起こすと索引 issue を作り、題材の parent を結ぶ。",
-        "実装後は AI の判定を更新し、人の status は変えない。"
+        "工程ごとの読む条件は README の表 2 が持つ。図はラベルだけを持つ。",
+        "設定の変更は実装の中で 020 の設定の節と同時に直す。"
       ]
     },
     {
       "dot": "slate",
-      "title": "検証と定常整備",
+      "title": "引き渡し",
       "items": [
-        "Run分析は正本へ書いてから取り込む。点検は取りこぼしを補う。",
-        "housekeepingは統計の次にwiki点検を選び、了承した範囲を実行する。"
+        "commit と push は人間だけ。anet-prepare-commit は文案と選ばれたときのステージまで。",
+        "定常整備は anet-housekeeping から各 skill を呼ぶ。"
       ]
     }
   ]

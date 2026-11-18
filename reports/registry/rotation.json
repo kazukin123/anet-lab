@@ -1,6 +1,6 @@
 {
   "_doc": "anet-audit の巡回状態。next_lens は次回の観点。scopes の last_seen は観点ごとの最終実施日。",
-  "next_lens": "drift",
+  "next_lens": "test-gap",
   "scopes": [
     {
       "key": "318_rl_core",
@@ -126,7 +126,9 @@
     {
       "key": "docs/design/200_dqn_agents.jp.md",
       "kind": "doc",
-      "last_seen": {}
+      "last_seen": {
+        "drift": "2026-11-18"
+      }
     },
     {
       "key": "docs/design/210_metrics_viewer.jp.md",

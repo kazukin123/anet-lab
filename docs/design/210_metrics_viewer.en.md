@@ -1,4 +1,4 @@
-<!-- translated-from: 210_metrics_viewer.jp.md blob:d755e03884f7287df18adc25621469c5f0d5772d date:2026-11-04 progress:done -->
+<!-- translated-from: 210_metrics_viewer.jp.md blob:b1324ddd4527e20ebdf3feb6c8f50f0b73fe4dbe date:2026-11-18 progress:done -->
 # Metrics Viewer
 
 > Primary perspective: concrete application (ingestion, cache DB, range queries, and browser rendering in processing order)
@@ -642,7 +642,7 @@ Client constants not supplied by the server are defined at the beginning of [met
 | `VIEWPORT_DEBOUNCE_MS` | 150 | Debounce before a range request after zoom/pan |
 | `RUN_SOLO_INTERVAL_MS` | 350 | Threshold treating repeated clicks on the same Run row as solo selection |
 | `HOVER_SCROLL_DELAY_MS` | 300 | Delay from hovering a Tag list entry to scrolling to its graph |
-| `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | Movement threshold for drag scrolling under scroll lock |
+| `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | Movement threshold for turning a mouse drag on a graph into vertical scrolling under scroll lock. Touch swipes are not handled in JS and are left to the browser's standard scrolling, with inertia after the finger lifts |
 
 `MetricsViewerClientApp` owns Run colors and resolves them at the start of `refreshLists()`. It first assigns base colors from `RUN_COLORS` in order to uncolored Runs sorted by runId.
 With `Auto Recolor` ON, Runs that were not selected at the previous resolution, including the latest Run selected automatically at first display, count as newly selected. In selection order, each receives the color farthest from other selected Run colors. Previously selected Runs keep their colors; a newly selected Run's base color is ignored. Switching from OFF to ON does not itself change colors.
@@ -929,6 +929,7 @@ lod : { "kind":"lod",
 
 `minMax` contains each bucket's `min` / `max` / `last` points in ordinal order for a polyline; repeated ordinals collapse to one point.
 `summary.steps` contains the left edge of each common Step bin and is used for band rendering and bucket-level hover display.
+A line needs two points, so the browser draws a trace with only one vertex as a marker instead of a line. The decision is per trace and does not change the lines of other Runs in the same graph.
 
 ### 9.6 Tag Sets API and Persistence
 

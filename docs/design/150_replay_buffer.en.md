@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:09b43abbdfc14406a13e1213a738ed0ab3eebfbb date:2026-11-14 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:58e3949d16652b4426b4dedc4ce0f009aedbed04 date:2026-11-18 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -57,6 +57,8 @@ Keys are `generation * actual_capacity + flat_slot_index`, not physical indices,
 For each Env lane, `ValidIndexManager` manages ready ranges: logical intervals not overwritten and satisfying future-side N-step/unroll requirements. Uniform sampling, PER, `Size()`, visualization accessors, and `DumpToLog()` share sampleable ranges obtained by applying the post-wrap history margin (`stack_count - 1`), the additional future margin when a window is configured, and dummy-slot exclusion. Before wrap, or with `stack_count == 1`, the history margin is zero. Section 6.1.1 defines window future-side requirements. `InitialPriorityCompleter` and eviction statistics use ready ranges because they need neither past stack history nor windows.
 
 Push, Sample, uniform probes, and sampling-history probes receive a vector of current component discounts from the caller; builders and extractors do not retain γ persistently. Push stores each component's n-step return using its γ. Entries awaiting initial-priority completion retain component returns and bootstrap discounts evaluated at the same Push.
+
+The `gammas` passed to `Push`, `Sample`, `SampleUniqueUniform`, and `ProbeSamplingHistory` is a `std::span<const float>` reading each component's one-step discount. It is borrowed only during the synchronous call; at the boundary where prefetching and deferred Push hand work to a worker, the values are copied into an owning vector.
 
 With constant γ, stored returns are returned unchanged. Only configurations with scheduled γ add a snapshot of each sampled start's step rewards to `ExperienceSamples`, zero-padded to length N (J for windows). `FinalizeReturns(gammas)` computes returns with the same reverse-order sum as the existing builder, using the same γ as bootstrapping. With multiple components, only components selected by `needs_return_recompute` are recomputed; constant components retain stored values. Returns have shape `[B]` for one component or `[B,C]` for multiple components; step-reward snapshots have shape `[B,N]` or `[B,N,C]`, respectively. Actual done/truncated lengths follow existing `n_steps` and window lengths. Snapshots and recomputation flags are transferred through `To` and `ForEachTensor`.
 
@@ -268,8 +270,8 @@ Before any future starts, `Push` delegates synchronously to the inner buffer. Du
 | Setting | Meaning |
 |---|---|
 | Replay capacity | Requested total capacity across lanes, rounded down to a multiple of lane count |
-| `reward_component_count` / `needs_return_recompute` | Construction-time component count and flags selecting components whose returns are recomputed after sampling. The default is one component |
-| `n_step` / `needs_return_recompute` | Future horizon of target returns and whether reward snapshots are retained for scheduled γ. The latter is an internal setting derived from DQN's γ type |
+| `reward_component_count` / `needs_return_recompute` | Component count (default 1) and that many bool flags. Components whose flag is true have their returns rebuilt by `FinalizeReturns` with the γ at sampling/consumption time. A configuration whose length differs from the component count is an ERROR. If any flag is true, step-reward snapshots are retained |
+| `n_step` | Future horizon of target returns |
 | Sampler type | Uniform or prioritized |
 | `per_alpha` | Strength of priority influence on sampling probability |
 | `per_initial_priority` | Initial priority of new transitions |
