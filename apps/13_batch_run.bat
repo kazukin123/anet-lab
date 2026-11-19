@@ -117,6 +117,8 @@ SET "NOGS=run.eval_schedule.[greedy_single].interval=0"
 SET "BO1=E1.game=breakout run.seed=1 run.train.num_envs=4"
 SET "QB1=E1.game=qbert run.seed=1 run.train.num_envs=4"
 SET "PAD221=net.block.[AtariConv32].conv.padding=2 net.block.[AtariConv64].conv.padding=2 net.block.[AtariConv64Final].conv.padding=1"
+SET "DQ7744=DefaultDQNAgent.$=@baseline>@iqn7744>A1>@bf16>A2>A3"
+SET "NATFLAT=DefaultDQNAgent.net.branch.[main_feature].$=net.branch.@AtariNatureFlat"
 
 call :use_ws AtariSub-01 Atari.txt
 
@@ -143,6 +145,10 @@ if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRN
 echo === 55. breakout 5m seed 1: same as 50 plus conv padding 2/2/1 on the Nature trunk (11x11x64 = 7744 features, as SAME padding in Dopamine) ===
 call :find_done bo_dqiqn_pad_s1
 if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_pad_s1"
+
+echo === 56. breakout 5m seed 1: same as 55 but taus mixed right after the flatten as in Dopamine IQN (no Linear 512 before the mix, tau projection 64 to 7744 with ReLU, then Linear 512) ===
+call :find_done bo_dqiqn_pad_tf_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_pad_tf_s1"
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
 goto :beep_forever

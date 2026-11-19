@@ -746,6 +746,8 @@ DefaultDQNAgent.@iqn2304 : quantile_mode = iqn
 DefaultDQNAgent.@iqn2304 : net.$ = net.@iqn2304
 DefaultDQNAgent.@iqn1024 : quantile_mode = iqn
 DefaultDQNAgent.@iqn1024 : net.$ = net.@iqn1024
+DefaultDQNAgent.@iqn7744 : quantile_mode = iqn
+DefaultDQNAgent.@iqn7744 : net.$ = net.@iqn7744
 DefaultDQNAgent.@nature : head.use_dueling = false
 DefaultDQNAgent.@nature.learner.use_per = false
 DefaultDQNAgent.@nature.learner.use_double_dqn = false
@@ -1151,6 +1153,10 @@ net.block.[AtariIQNTauProj1024].type = Linear
 net.block.[AtariIQNTauProj1024].linear.out_features = 1024
 net.block.[AtariIQNTauProj1024].init.mode = xavier
 
+net.block.[AtariIQNTauProj7744].type = Linear
+net.block.[AtariIQNTauProj7744].linear.out_features = 7744
+net.block.[AtariIQNTauProj7744].init.mode = xavier
+
 net.branch.@AtariImpalaX2CAPR.bind = grid
 net.branch.@AtariImpalaX2CAPR.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
@@ -1271,6 +1277,10 @@ net.branch.@AtariImpalaX2Flat.structure = StackMerge > AtariImpalaConv32 > Atari
 net.branch.@AtariNature.bind = grid
 net.branch.@AtariNature.structure = StackMerge > AtariConv32 > ReLU > AtariConv64 > ReLU > AtariConv64Final > ReLU > Flatten > AtariLinear512 > ReLU
 
+# Flatten で止める Nature（Dopamine の IQN と同じく τ を flatten のすぐあとで混ぜる @iqn7744 と組む）。padding 2/2/1 で 11×11×64＝7744、padding 0 なら 7×7×64＝3136。
+net.branch.@AtariNatureFlat.bind = grid
+net.branch.@AtariNatureFlat.structure = StackMerge > AtariConv32 > ReLU > AtariConv64 > ReLU > AtariConv64Final > ReLU > Flatten
+
 net.branch.@AtariImpala.bind = grid
 net.branch.@AtariImpala.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
@@ -1325,6 +1335,14 @@ net.@iqn1024 : branch.[iqn_fusion].structure =
 net.@iqn1024 : branch.[value_stream].bind = iqn_fusion
 net.@iqn1024 : branch.[adv_stream].bind = iqn_fusion
 net.@iqn1024 : body.output.[features] = iqn_fusion
+
+net.@iqn7744 : branch.[tau_embedding].bind = taus
+net.@iqn7744 : branch.[tau_embedding].structure = AtariIQNCosEmb > AtariIQNTauProj7744 > ReLU
+net.@iqn7744 : branch.[iqn_fusion].bind = main_feature * tau_embedding
+net.@iqn7744 : branch.[iqn_fusion].structure =
+net.@iqn7744 : branch.[value_stream].bind = iqn_fusion
+net.@iqn7744 : branch.[adv_stream].bind = iqn_fusion
+net.@iqn7744 : body.output.[features] = iqn_fusion
 
 
 # ==============================================================================
