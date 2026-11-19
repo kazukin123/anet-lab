@@ -5,7 +5,7 @@ status: 未着手
 raised: 2026-11-03
 phase: PRD
 scope: target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD
-kind: 成果物
+kind: コード
 area:
   - 321_agent_core
 type: 機能改善

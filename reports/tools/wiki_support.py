@@ -230,15 +230,48 @@ def renumber_declarations(root):
     return result
 
 
-def prd_rows(root, page, files, pending=None, declarations=None):
-    # コマンド長を抑えて履歴を読む。件名の番号はコミットの日付と組で持つ（振り直しの行の日付と比べるため）。
+def commit_history(root):
+    # 全コミットの日付・件名と、触ったファイルを今のパスで返す。改名をたどるので、ファイルを移したあとも、
+    # 移す前のコミットが今のパスに当たる（PRD182 でソースを src/ へ移したあとも、PRD の一覧に移す前の PRD を残す）。
+    # Git は新しい順に出すので、改名を見るたびに、それより古いコミットの旧いパスを今のパスへ写す。
+    log = git(root, 'log', '-M', '--name-status', '-z', '--date=short', '--format=%x01%ad%x09%s')
+    current = {}
+    history = []
+    for chunk in log.split('\x01')[1:]:
+        header, _, body = chunk.partition('\0')
+        date, _, subject = header.partition('\t')
+        tokens = body.split('\0')
+        touched = set()
+        i = 0
+        while i < len(tokens):
+            status = tokens[i].strip()
+            if not status:
+                i += 1
+            elif status[0] in 'RC' and i+2 < len(tokens):
+                now = current.get(tokens[i+2], tokens[i+2])
+                touched.add(now)
+                if status[0] == 'R':
+                    current[tokens[i+1]] = now
+                i += 3
+            elif i+1 < len(tokens):
+                touched.add(current.get(tokens[i+1], tokens[i+1]))
+                i += 2
+            else:
+                break
+        history.append((date, subject, touched))
+    return history
+
+
+def prd_rows(root, page, files, pending=None, declarations=None, history=None):
+    # 件名の番号はコミットの日付と組で持つ（振り直しの行の日付と比べるため）。
     import datetime
     import os
+    if history is None:
+        history = commit_history(root)
+    page_files = set(files)
     mentions = set()
-    for offset in range(0, len(files), 80):
-        history = git(root, 'log', '--date=short', '--format=%ad%x09%s', '--', *files[offset:offset+80])
-        for line in history.splitlines():
-            date, _, subject = line.partition('\t')
+    for date, subject, touched in history:
+        if touched & page_files:
             mentions.update((number, date) for number in subject_prd_numbers(subject))
     # これから作るコミットも、触るファイルがページに当たれば履歴と同じに数える。日付は道具を回した日とする。
     if pending and pending['files'] & set(files):
@@ -333,7 +366,7 @@ def validate_issue(root, path, record):
         ('domain',ISSUE_DOMAINS),
         ('ai_judge',('未確認','残件有り','残件無し','判定不能')),
         ('status',('未着手','調査中','対応中','中断中','保留','次版','解決')),
-        ('kind',('成果物','ハーネス')),
+        ('kind',('コード','文書','ハーネス')),
         ('phase',('PRD','実装','監査','ハーネス保守','その他'))):
         require(key,key in record and record[key] in values,values)
     keys = {c['key'] for c in CategoryRules(root).categories}
@@ -580,6 +613,8 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
     records = issue_order(issue_records(root))
     # PRD の振り直しの行は全ページで同じなので、書く前に 1 回だけ読んで検査する（崩れていれば何も書かずに止まる）。
     declarations = renumber_declarations(root)
+    # 履歴も全ページで同じなので、1 回だけ読む。
+    history = commit_history(root)
     index = root/'docs/management/issues/INDEX.md'
     current = [r for r in records if r['status'] not in ('次版','解決')]
     index_text = ('# 課題の一覧\n\n道具が作り直す。手で直さない。既定は本版（次版・解決を除く）。\n\n'+issue_table(root,index,current)+'\n\n'
@@ -592,7 +627,7 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
             text = page.read_bytes().decode('utf-8')
             result = replace_section(text, 'ファイル', file_rows(root, page, files, rules,
                                                                    page.stem if folder == 'apps' else None))
-            prds, unresolved = prd_rows(root, page, files, pending, declarations)
+            prds, unresolved = prd_rows(root, page, files, pending, declarations, history)
             result = replace_section(result, 'PRD の一覧', prds)
             selected = [r for r in records if page.stem in r['area'] and r['status'] not in ('次版','解決')]
             result = issue_section(result, issue_table(root,page,selected,records), page.relative_to(root))

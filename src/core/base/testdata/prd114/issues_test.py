@@ -52,7 +52,7 @@ class IssueViewsTest(unittest.TestCase):
         return '[['+name+']]'
 
     def issue(self,suffix='000001',drop=(),body='## 背景\nfixture\n',**changes):
-        data = dict(id='issue-20261103-'+suffix,title='課題 '+suffix,status='未着手',raised='2026-11-03',phase='監査',scope='test',kind='成果物',
+        data = dict(id='issue-20261103-'+suffix,title='課題 '+suffix,status='未着手',raised='2026-11-03',phase='監査',scope='test',kind='コード',
                     area=['311_dev_tools'],type='リファクタリング',domain='開発',ai_judge='未確認',ai_judged=None,docs=[],prd=None,priority='中',depends=[],parent=None,
                     value=5,urgency=5,risk=3,size=5,wsjf=2.6,resolved=None,resolution=None,memo=None,tags=[])
         data.update(changes)
@@ -88,7 +88,7 @@ class IssueViewsTest(unittest.TestCase):
         index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
         self.assertIn('\n| ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |\n',index)
         row = next(line for line in index.splitlines() if issue_id+'](' in line)
-        self.assertIn('| 成果物 | 監査 | 311_dev_tools | UI | 機能追加 | [PRD120](../../memo/120_probe_10prd.md) | 未確認 |',row)
+        self.assertIn('| コード | 監査 | 311_dev_tools | UI | 機能追加 | [PRD120](../../memo/120_probe_10prd.md) | 未確認 |',row)
 
     def test_adding_an_issue_leaves_other_rows_unchanged(self):
         # 高い点数と低い点数の 2 件で一覧とトピック別まとめを作り、その間に並ぶ課題をあとから足す。
@@ -222,7 +222,7 @@ class IssueViewsTest(unittest.TestCase):
         dependency = self.issue('000002')
         self.write('docs/management/issues/issue-20261103-000001.md','\n'.join([
             '---','id: issue-20261103-000001','title: Obsidian の書き方の課題','status: 未着手','raised: 2026-11-03','phase: 監査',
-            'scope: "core/x.cpp :: Foo::Bar"','kind: 成果物','area:','  - 311_dev_tools','type: リファクタリング','domain: 開発','ai_judge: 残件有り','ai_judged: 2026-11-09',
+            'scope: "core/x.cpp :: Foo::Bar"','kind: コード','area:','  - 311_dev_tools','type: リファクタリング','domain: 開発','ai_judge: 残件有り','ai_judged: 2026-11-09',
             'docs: []','prd:','priority: 高','depends:','  - "[['+dependency+']]"','parent:','value: 3','urgency: 2','risk: 1','size: 3','wsjf: 2','resolved:','resolution:','memo:','tags: []',
             '---','','## 背景','fixture','']))
         self.cli()

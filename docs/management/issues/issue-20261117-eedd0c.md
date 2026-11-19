@@ -5,7 +5,7 @@ status: 調査中
 raised: 2026-11-17
 phase: 実装
 scope: Runner GUI の Evaluation Trace と単一行選択の回帰テスト
-kind: 成果物
+kind: コード
 area:
   - 110_runner_app
 type: 不具合

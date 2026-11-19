@@ -177,7 +177,9 @@ class WikiSupportTest(unittest.TestCase):
                 self.material(root,'apps/tools/prd095_probe.py','# probe')
                 # 履歴は外部境界のGitだけ差し替える。本文生成と全ページ更新を通す。
                 def history(_root,*args):
-                    return (f'2026-11-01\tfeat(PRD{number}): probe\n' if args[0]=='log' else
+                    return (self.log_output([('2026-11-01',f'feat(PRD{number}): probe')],
+                                            ['src/apps/runner/src/Prd095Probe.cpp','apps/tools/prd095_probe.py'])
+                            if args[0]=='log' else
                             'src/apps/runner/src/Prd095Probe.cpp\0apps/tools/prd095_probe.py\0')
                 with patch.object(helper,'git',side_effect=history):
                     result=helper.regenerate_maps(root)
@@ -243,14 +245,43 @@ class WikiSupportTest(unittest.TestCase):
         self.material(root,'src/apps/runner/src/Prd131Probe.cpp','// probe')
         return helper,root,page
 
+    @staticmethod
+    def log_output(commits, files):
+        # git log -M --name-status -z の出力の形を作る。どのコミットも files を変えたことにする。
+        return ''.join('\x01'+date+'\t'+subject+'\0\n'+''.join('M\0'+f+'\0' for f in files)
+                       for date, subject in commits)
+
     def renumber_maps(self, helper, root, history, pending=None):
-        # 履歴は外部境界の Git だけを差し替え、日付と件名の組を返す。
+        # 履歴は外部境界の Git だけを差し替え、日付と件名の組の行を、プローブのファイルを変えたコミットとして返す。
+        commits=[tuple(line.split('\t',1)) for line in history.splitlines() if line]
+        log=self.log_output(commits,['src/apps/runner/src/Prd131Probe.cpp'])
         def git(_root,*args):
-            return (history if args[0]=='log' else 'src/apps/runner/src/Prd131Probe.cpp\0')
+            return (log if args[0]=='log' else 'src/apps/runner/src/Prd131Probe.cpp\0')
         with patch.object(helper,'git',side_effect=git):
             if pending:
                 return helper.regenerate_maps(root,pending,['src/apps/runner/src/Prd131Probe.cpp'])
             return helper.regenerate_maps(root)
+
+    def test_maps_follow_renames_to_keep_prds_of_moved_files(self):
+        # ファイルを移したあとも、移す前のコミットの PRD を、今のパスが当たるページの PRD の一覧に残す（課題 a8d777）。
+        # 関係の無いファイルのコミットは数えない。
+        helper,root,page=self.renumber_root({
+            'docs/memo/046_old_probe_10prd.md':'# old probe\n',
+            'docs/memo/182_move_probe_10prd.md':'# move probe\n',
+            'docs/memo/045_other_probe_10prd.md':'# other probe\n'})
+        log=('\x012026-11-19\trefactor(build): move。 PRD182 #6\0\n'
+             'R100\0core/runner/Prd131Probe.cpp\0src/apps/runner/src/Prd131Probe.cpp\0'
+             '\x012026-10-01\tfeat(RunnerApp): old。 PRD046 #3\0\nM\0core/runner/Prd131Probe.cpp\0'
+             '\x012026-09-01\tfeat(RunnerApp): other。 PRD045 #3\0\nM\0core/other/Other.cpp\0')
+        def git(_root,*args):
+            return log if args[0]=='log' else 'src/apps/runner/src/Prd131Probe.cpp\0'
+        with patch.object(helper,'git',side_effect=git):
+            result=helper.regenerate_maps(root)
+        self.assertEqual(result['unresolved_prds'],[])
+        text=(root/page).read_text(encoding='utf-8')
+        self.assertIn('- [PRD046](../../memo/046_old_probe_10prd.md) — old probe',text)
+        self.assertIn('- [PRD182](../../memo/182_move_probe_10prd.md) — move probe',text)
+        self.assertNotIn('PRD045',text)
 
     def test_maps_resolve_old_number_through_renumber_line(self):
         # 振り直しの行の日付以前のコミットの旧い番号は、振り直した PRD の今の番号の行になる。

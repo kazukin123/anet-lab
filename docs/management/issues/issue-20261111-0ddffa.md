@@ -5,11 +5,11 @@ status: 解決
 raised: 2026-11-11
 phase: 監査
 scope: core/anet-core/src/intrinsic_rnd.cpp・intrinsic_rnd.hpp の RndNoveltyEstimator と RndErrorStatistics（RND の内的報酬の毎 update の経路と checkpoint）
-kind: 成果物
+kind: コード
 area:
   - 321_agent_core
 type: リファクタリング
-domain: アルゴリズム
+domain: 学習基盤
 ai_judge: 残件無し
 ai_judged: 2026-11-16
 docs:

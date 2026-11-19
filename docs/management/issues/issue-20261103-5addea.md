@@ -5,7 +5,7 @@ status: 未着手
 raised: 2026-11-03
 phase: PRD
 scope: "PRD 079: .cpp の内部リンケージと namespace インデント規約"
-kind: 成果物
+kind: コード
 area:
   - 311_dev_tools
   - 318_rl_core
