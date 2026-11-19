@@ -18,4 +18,4 @@ Debug の configure で `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` を指定し、`--g
 
 ## 実機のデータを移す前の確認
 
-[CHANGELOGの移行手順](../../../../../CHANGELOG.md#ワークスペースと-appdata-の移行prd182-ステージ4)を参照する。`move_runtime_data.py` の既定実行は旧・新のパスとフォルダ数を表示する。合成データの確認は `move_runtime_data_test.py` を使う。実機での改名とworkspaceの再選択は開発者が行う。
+[PRD182 §5.5の移行手順](../../../../../docs/memo/182_source_layout_10prd.md#55-ステージ-4-data)を参照する。`move_runtime_data.py` の既定実行は旧・新のパスとフォルダ数を表示する。合成データの確認は `move_runtime_data_test.py` を使う。実機での改名とworkspaceの再選択は開発者が行う。

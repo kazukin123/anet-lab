@@ -9,27 +9,6 @@
 `docs/memo/done/` へ移した PRD。未リリース節は main 8f683164(2026-09-25)時点。
 
 
-## ソース配置の変更（PRD182 ステージ1）
-
-ソースを `src/`、実行時の道具を `apps/tools/` へ移しました。テスト実行体は `out/test/<構成>/`、Metrics Viewer の jar は `apps/metrics-viewer/bin/` に出ます。Runner の実行体と GUI テストは `apps/runner/bin/<構成>/` から起動します。
-
-開発マシンで新しい配置のビルドと起動を確認したら、旧 `core/` 内の `bin/`・`lib/`、`viewers/metrics-tools/.venv/`、`apps/metrics-viewer/target/` に残った生成物を確認して片付けてください。Python の依存はリポジトリ直下の `.venv` に入れてください。
-
-## ワークスペースと appdata の移行（PRD182 ステージ4）
-
-ソースを更新するか配布物を展開したあと、各マシンで同じドライブ内のフォルダの名前変更として移行します。
-
-1. 実行中の Run を止めます。Runner と Metrics Viewer を終了します。
-2. `apps/runner/workspaces/` の各ワークスペースを `data/workspaces/` へ移します。移動先のルートが無ければ、旧ルート全体の改名でタグセットも移せます。
-3. `apps/runner/appdata/` がある場合、`data/appdata/` に移します。
-4. 新しい Runner で、最後に使った workspace を選び直します。
-
-移行ツールは [move_runtime_data.py](src/core/base/testdata/prd182/move_runtime_data.py) です。既定の実行では予定と件数を表示します。実機で移動を確認して `--apply` を選ぶと、同名の作業データがある場合は上書きせずに止まります。改名が終わると、移動前後の workspace と Run のフォルダ数を表示します。
-
-新しい置き場に同名の workspace がある場合、またはタグセットなどが旧ルート直下にある場合は、すべてを改名前に保全してください。配布設定だけを含む新しい置き場は、同じドライブ内の空いている名前へ一時退避できます。旧ルート全体を移し、必要な配布設定は各 workspace の設定と比較してから戻します。新しい置き場に既存の Run がある場合は、両方のデータを確認してから移すフォルダを選びます。
-
-固定した旧実行体を使う bat には、使用する workspace を絶対パスで渡してください。
-
 ## v0.3.0 以降の非互換変更
 
 後方互換は既定の要件としない(AGENTS.md「クリーンブレーク方針」)。v0.3.0 の設定・成果物を

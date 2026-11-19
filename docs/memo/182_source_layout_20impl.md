@@ -212,4 +212,4 @@ Runnerの短いGridMaze Runを3回流し、workspace指定、設定直接指定�
 
 - ステージ1〜4の比較はそれぞれ34/34構成で一致した。ステージ4のDebug、RelWithDebInfo、Releaseのbuildと、専用worktreeの `[workspace],[app_util]` 22ケース、移行ツールの合成5ケース、隔離した道具のテスト8本が通った。最終差分の空白検査は終了値0。
 - 最終CTestはDQNを含む8/9実行体が通った。ImageCls Envは、初回に一時PNGの保存失敗と既知の閉じた設定カタログの失敗が出た。新しい一時先で再試験すると18/19件が通り、既知の1件だけが残った。Runner GUIは38/39件で、既知のEval Trace行選択だけが失敗した。番号付きbatの既存検査も従来と同じ `SET EXE` の前提で止まった。
-- 人が行うものは、各マシンでのworkspaceとappdataの改名とworkspaceの再選択、GitHub Actionsの実物ZIP、Viewerの実画面、C5の生成物と英訳。実機移行は[CHANGELOG](../../CHANGELOG.md#ワークスペースと-appdata-の移行prd182-ステージ4)を参照。
+- 人が行うものは、各マシンでのworkspaceとappdataの改名とworkspaceの再選択、GitHub Actionsの実物ZIP、Viewerの実画面、C5の生成物と英訳。実機移行は[PRD182 §5.5](182_source_layout_10prd.md#55-ステージ-4-data)を参照。
