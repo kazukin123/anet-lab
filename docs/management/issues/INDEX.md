@@ -15,7 +15,6 @@
 | [issue-20261118-7f7757](issue-20261118-7f7757.md) | 調査中 | 3.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | DQN系のADR約20本が設計文書から一度もリンクされず、設計文書200の関連ADRが6本だけ |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | コード | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261117-eedd0c](issue-20261117-eedd0c.md) | 調査中 | 2.6 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | Evaluation Trace の単一行選択テストが合成ドラッグ後に失敗する |
-| [issue-20261116-6db0f2](issue-20261116-6db0f2.md) | 調査中 | 1.5 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD189](../../memo/189_grill_premise_understanding_10prd.md) | 未確認 | グリルを始める前に、判断に要る前提を開発者が理解した状態にする工程と、その状態を確かめる工程が無い |
 | [issue-20261119-20603e](issue-20261119-20603e.md) | 調査中 | 2.5 | — | コード | PRD | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | DQNのτの生成のエラー文・検証関数・テストの名前に、実在しない部品名TauGeneratorが残っている |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
