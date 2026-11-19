@@ -15,7 +15,7 @@
 ## テスト
 
 - 確認する面は GenerateTaus の呼び出しが返すエラー文と、テスト実行体が表示するテスト名。
-- 最初に、既存の不正な配置方式のテストで、固定範囲と lane 別の両方について、エラー文の先頭が GenerateTaus で始まることを一時的に確かめる。変更前の失敗、エラー文を変えたあとの成功を記録する。受入 10 の差分を守るため、この検証用の assertion は取り除く。
+- 最初に、既存の不正な配置方式のテストで、固定範囲と lane 別下限の両方について、例外メッセージに `GenerateTaus received sample_mode=invalid` が含まれることを一時的に確かめる。変更前の失敗と、診断文を変えたあとの成功を記録する。受入 10 の差分を守るため、この検証用の assertion は取り除く。
 - 次に、テスト名で絞った一覧が変更前には 0 本であることを確認し、14 本の先頭を改名する。既存のタグと本体は PRD の受入 10 で差分を確認し、最終版でタグ [tau] を実行する。
 - 検証関数の改名は識別子の整合をとるための変更であり、検索と差分比較で確認する。
 
@@ -51,7 +51,7 @@
 | 7 | CONTEXT.md の TauGenerator は 0 件。 |
 | 8 | 実装後のハッシュは、追跡ファイルの差分 `199792ee19b31490a7b66223d96d46a90cb7b855`、未追跡ファイル一覧 `678f384d8f22d7f871d8ffbee7099c116db99fb4`。下記の比較で、着手前のハッシュとの差を説明できた。 |
 | 9 | 相対リンク切れは 0 件。課題 8 件の対応内容に、その件で行った修正と確認、実装記録へのリンクを追記した。レビュー後、8 件すべての AI 判定 `残件無し` と派生一覧への反映を確認した。 |
-| 10 | src・apps の旧名は 0 件。診断文 4、検証関数の定義・呼び出し 3、テスト名 14 の計 21 行。両 C++ ファイルを HEAD と全文比較し、名前の置換だけで一致した。 |
+| 10 | src・apps の旧名は 0 件。差分で診断文 4 か所の文字列が `GenerateTaus` で始まることを確認した。検証関数の定義・呼び出し 3 行とテスト名 14 行を合わせて計 21 行。両 C++ ファイルを実装前の基準と全文比較し、名前の置換だけで一致した。 |
 
 追跡ファイルの差分は、着手前と同じ基準 62da1be5 に固定して再計算すると `d5e76adcfe4d24b4ef8ca754419592232fbf4154` で一致した。比較時の HEAD 69927612 との差は別作業の PRD191 とその課題・wiki の差分である。除外外で残る既存差分は data/workspaces/metrics_viewer_tag_sets.json と docs/anet.asta。未追跡一覧は、別作業で追加された ADR 0082 と PRD192 の各 1 本を除くと `e92ef8801b903b730c29e9d11ef662a61ae4352b` で一致した。
 
@@ -61,7 +61,7 @@
 
 ### テスト駆動で確かめた結果
 
-- RED と GREEN は `cmake --build --preset x64-Debug --target anet-algo-dqn-test`（VsDevCmd.bat 経由） でビルドしたあと、`out/test/Debug/anet-algo-dqn-test.exe '[tau][validation]'` を実行した。ビルドは両回成功。RED は両方の GenerateTaus 呼び出しで旧名のエラー文が返り、2 assertion が失敗。GREEN は両方で新名のエラー文が返り、2 assertion が成功した。診断文を確かめるための一時変更は取り除いた。
+- RED と GREEN は `cmake --build --preset x64-Debug --target anet-algo-dqn-test`（VsDevCmd.bat 経由）でビルドしたあと、`out/test/Debug/anet-algo-dqn-test.exe '[tau][validation]'` を実行した。ビルドは両回成功。RED は両方の例外メッセージに旧名があり、部分文字列を比較する 2 assertion が失敗した。GREEN は両方の例外メッセージに `GenerateTaus received sample_mode=invalid` が含まれ、2 assertion が成功した。診断文を確かめるための一時変更は取り除いた。
 - `out/test/Debug/anet-algo-dqn-test.exe 'GenerateTaus*' --list-tests` は改名前に 0 本だった。各実行のログは .scratch/prd190/ の red-build.log、red-test.log、green-build.log、green-test.log、test-names-before.log。
 
 ### 最終版の検証
