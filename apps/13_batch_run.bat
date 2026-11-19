@@ -116,6 +116,7 @@ SET "DQIQN=DefaultDQNAgent.learner.use_per=false DefaultDQNAgent.learner.learnin
 SET "NOGS=run.eval_schedule.[greedy_single].interval=0"
 SET "BO1=E1.game=breakout run.seed=1 run.train.num_envs=4"
 SET "QB1=E1.game=qbert run.seed=1 run.train.num_envs=4"
+SET "PAD221=net.block.[AtariConv32].conv.padding=2 net.block.[AtariConv64].conv.padding=2 net.block.[AtariConv64Final].conv.padding=1"
 
 call :use_ws AtariSub-01 Atari.txt
 
@@ -139,6 +140,9 @@ echo === 54. montezuma_revenge 30m seed 1: same as mz_tg_g99ne_split_s1 but 64 e
 call :find_done mz_tg_split_e64_s1
 if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %MZW% %VD% %G99NE% %FGS% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1%" "%PL2%" "%PL3%" "%PL4%" "%PL5%" %E64% DefaultDQNAgent.intrinsic.learn_batch_size=64 app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_split_e64_s1"
 
+echo === 55. breakout 5m seed 1: same as 50 plus conv padding 2/2/1 on the Nature trunk (11x11x64 = 7744 features, as SAME padding in Dopamine) ===
+call :find_done bo_dqiqn_pad_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_pad_s1"
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
 goto :beep_forever

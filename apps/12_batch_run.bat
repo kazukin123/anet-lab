@@ -4,7 +4,7 @@ title %~nx0
 cd /d "%~dp0runner"
 for %%I in ("%~dp0..\data\workspaces") do SET "DATA_WORKSPACES=%%~fI"
 
-SET "QUEUE=mz_g99"
+SET "QUEUE=mz_rr4"
 if not "%~1"=="" SET "QUEUE=%~1"
 if /I "%QUEUE%"=="ll_rnd" goto :skipwait
 
@@ -357,6 +357,7 @@ if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRN
 goto :summary
 
 
+:mz_rr4
 :mz_g99
 copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab12.exe" >nul
 if errorlevel 1 goto :no_exe
@@ -389,6 +390,14 @@ SET "PL3=metrics.scalar.[34_agent_plasticity/43_probe_feature_norm]=$agent plast
 SET "PL4=metrics.scalar.[34_agent_plasticity/44_probe_srank]=$agent plasticity_probe_srank @learn $learn_step interval:5000"
 SET "PL5=metrics.scalar.[34_agent_plasticity/45_probe_srank_ratio]=$agent plasticity_probe_srank_ratio @learn $learn_step interval:5000"
 SET "CAP4M=A2.learner.replay_capacity=4194304"
+SET "TGQ4=DefaultDQNAgent.learner.replay_ratio=4 DefaultDQNAgent.model.hard_update_interval=125 DefaultDQNAgent.learner.per_alpha=0.5 DefaultDQNAgent.learner.per_beta.start=0.5 DefaultDQNAgent.learner.per_beta.end=0.5"
+SET "TGEV4=run.eval_schedule.[eval].interval=31264 run.eval_schedule.[greedy].interval=15625 run.eval_schedule.[greedy_single].interval=0"
+SET "PL1R4=metrics.scalar.[34_agent_plasticity/41_probe_dormant_ratio]=$agent plasticity_probe_dormant_ratio @learn $learn_step interval:2500"
+SET "PL2R4=metrics.scalar.[34_agent_plasticity/42_probe_dead_ratio]=$agent plasticity_probe_dead_ratio @learn $learn_step interval:2500"
+SET "PL3R4=metrics.scalar.[34_agent_plasticity/43_probe_feature_norm]=$agent plasticity_probe_feature_norm @learn $learn_step interval:2500"
+SET "PL4R4=metrics.scalar.[34_agent_plasticity/44_probe_srank]=$agent plasticity_probe_srank @learn $learn_step interval:2500"
+SET "PL5R4=metrics.scalar.[34_agent_plasticity/45_probe_srank_ratio]=$agent plasticity_probe_srank_ratio @learn $learn_step interval:2500"
+if /I "%QUEUE%"=="mz_rr4" goto :mz_rr4_stages
 
 SET "RUN_EXIT_CODE=0"
 call :wait_disk
@@ -410,6 +419,20 @@ call :wait_disk
 call :check_ram
 if %AVAIL_MB% LSS 40000 goto :ram_short
 call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRND% %TGEV% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1%" "%PL2%" "%PL3%" "%PL4%" "%PL5%" %CAP4M% app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99ne_cap4m_s1"
+goto :summary
+
+:mz_rr4_stages
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 34. montezuma_revenge 30m seed 1: same as mz_tg_r121_g99ne_s1 but replay ratio 4 with the target every 125 learn steps (8,000 exp steps), eval every 2M and Greedy every 1M exp steps, no greedy_single, probes every 2,500 learn steps ===
+call :find_done mz_tg_g99ne_rr4_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99ne_rr4_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 35. montezuma_revenge 30m seed 2: same as 34 ===
+call :find_done mz_tg_g99ne_rr4_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99ne_rr4_s2"
 goto :summary
 
 :ram_short
