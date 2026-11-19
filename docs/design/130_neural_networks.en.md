@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:018ef5bab1d0c504453928084b0be726d1fd51fd date:2026-11-17 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:7fd6a4383808463239848fc85c53befbab0968c9 date:2026-11-19 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -67,7 +67,7 @@ NetworkForwardConfig is an immutable carrier of a key and copied selected Config
 
 CreateForwardExecutor requires a Network owned by shared_ptr.
 
-Public nn.hpp contains NN consumer contracts. NetworkHead, NetworkHeadExecutor, NetworkHeadFactory, HeadGraphVizInfo, and WeightNormConfig definitions live in internal nn_impl.hpp. Module/Head CreateExecutor returns nullptr when no dedicated executor is needed, keeping the ordinary body as the direct call target. Public declarations retain only forward declarations required by signatures. State, Context, component execution interfaces, and RunForward are absent from public signatures. A cpp-local RunForward shares the Body/Head computation for default and prepared paths.
+Public nn.hpp contains NN consumer contracts. Head types, executors, GraphViz information, and weight initialization live in the public `anet/nn_head.hpp`. Body assembly and standard module registration live in `nn_impl.hpp`. Module/Head CreateExecutor returns nullptr when no dedicated executor is needed, keeping the ordinary body as the direct call target. Public declarations retain only forward declarations required by signatures. The Forward execution state is referenced through forward declarations, and a cpp-local RunForward shares the Body/Head computation for default and prepared paths.
 
 NetworkForwardExecutor owns Network lifetime. CreateForwardExecutor uses named settings and clock kind during component preparation; the executor owns prepared calls and Network-specific internal State. Default settings perform no component preparation and own no State or clock kind; clock_kind and seed are unused. Calls refer to existing weights; clones need separate preparation. Runtime switching remains deferred.
 
@@ -128,7 +128,7 @@ net.branch.[merged].bind_concat_dim = -1
 | Public consumer Config, CallInfo, Network, Executor, diagnostics, Builder | [nn.hpp](../../src/core/base/include/anet/nn.hpp) |
 | Module/Head author interfaces, Body/Branch/Block/Repository | [nn_impl.hpp](../../src/core/base/src/nn_impl.hpp), [nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) |
 | Module implementations and registration | [nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) |
-| Agent Heads | [nn_heads.hpp](../../src/core/base/include/anet/nn_head.hpp), [nn_heads.cpp](../../src/core/base/src/nn_head.cpp) |
+| Agent Heads | [nn_head.hpp](../../src/core/base/include/anet/nn_head.hpp), [nn_head.cpp](../../src/core/base/src/nn_head.cpp) |
 | DQN Heads | [dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp), [dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp) |
 | Shared TensorDict operations | [common.hpp](../../src/core/base/include/anet/common.hpp), [common.cpp](../../src/core/base/src/common.cpp) |
 | Tensor utilities | [tensor_util.hpp](../../src/core/base/include/anet/tensor_util.hpp), [tensor_check.hpp](../../src/core/base/include/anet/tensor_check.hpp) |
@@ -369,6 +369,8 @@ Cloning, hard/soft copying, and serialization include μ/σ parameters and exist
 `ComputeNoisyParameterStatistics(feature_key)` classifies the feature dependency closure versus readout and returns weight/bias σ mean-abs and L2 ratios. Only paired μ contributes to denominators, using effective μ for SN. Empty populations are NaN; a zero denominator invalidates only its ratio. Existing weight norms exclude σ.
 
 ## 8. Tests and Extension Checks
+
+See the [extension point table in the framework overview](010_framework_overview.en.md#43-extension-points) for the public extension points.
 
 - [PRD117 validation resources](../../src/core/base/testdata/prd117/README.md): closed validation of referenced blocks/profiles, handling of unreferenced definitions, and checks of the shipped configuration.
 

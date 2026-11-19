@@ -1,4 +1,4 @@
-<!-- translated-from: 214_value_decomposition.jp.md blob:a96d97880338b4d9f72f3eeed27d39ba5c67ab3d date:2026-11-14 progress:done -->
+<!-- translated-from: 214_value_decomposition.jp.md blob:a560cadcda26f04b5de0543b0b28fdb0e7b945ab date:2026-11-19 progress:done -->
 # Extrinsic and Intrinsic Value Decomposition
 
 > Main perspective: DefaultDQNAgent reward components, heads, action selection, learning, diagnostics, and persistence.

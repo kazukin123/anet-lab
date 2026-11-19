@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:82a646720e86b833fdf10a966d82fb49bca9ee52 date:2026-11-14 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:466d0ba2909898fdab2d353fbff3b538bfe6ef67 date:2026-11-19 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -24,14 +24,14 @@ For implementing new metrics or modifying Optuna search spaces, see the design d
 
 This guide assumes that the Metrics Viewer jar has been built. See [Development Environment](040_development_environment.en.md) for Java, Maven, and jar build instructions.
 
-To view ordinary Runs, launch the following from `apps/runner`.
+To view ordinary Runs, launch the following from `apps`.
 
 ```powershell
 22_metrics_viewer_java.bat
 ```
 
 - URL: `http://localhost:8082`
-- Workspace directory: `apps/runner/workspaces`
+- Workspace directory: `data/workspaces`
 
 Use the `Workspace` selector at the top to switch between workspaces containing `runs/` or `config/`.
 The browser saves the last selection and restores it on the next startup if that workspace still exists.
@@ -352,7 +352,7 @@ Late-window `score_60_80`, `score_80_100`, and `late_slope` are supporting indic
 Metrics Viewer is a visualization interface for people. Use `inspect_run.py` to extract structured results from the shell, especially when requesting Run analysis from an AI agent. This read-only CLI never modifies Run artifacts and is safe to use on running Runs.
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py <subcommand> [RUN ...] [options]
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py <subcommand> [RUN ...] [options]
 ```
 
 | Subcommand | Role |
@@ -368,17 +368,17 @@ All subcommands except `trace-csv` support `--format json|md` and `--output PATH
 ### 6.1 Finding Runs
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py runs --workspace dm-iqn
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py runs --workspace dm-iqn
 ```
 
-`runs` without arguments lists Runs across all workspaces. Passing `RUN` returns details only for that Run. `RUN` accepts a Run name or an existing relative/absolute directory path. Run-name discovery is restricted to directories directly under `apps/runner/workspaces/*/runs/`. If the same name exists in multiple workspaces, the tool lists candidate paths and exits with status 2, without implicitly selecting a workspace. Legacy layouts under `apps/runner/runs_*` remain readable when explicitly specified by directory path.
+`runs` without arguments lists Runs across all workspaces. Passing `RUN` returns details only for that Run. `RUN` accepts a Run name or an existing relative/absolute directory path. Run-name discovery is restricted to directories directly under `data/workspaces/*/runs/`. If the same name exists in multiple workspaces, the tool lists candidate paths and exits with status 2, without implicitly selecting a workspace. Legacy layouts under `apps/runner/runs_*` remain readable when explicitly specified by directory path.
 
 `runs` does not open the Metrics master. It returns artifact paths, sizes, and modification times; SHA-256 of `config/config_data.txt`; selected Metrics master; Metrics cache status and reasons; and lists of `*.log` and `agent_close.anet`. Presence and modification time of `agent_close.anet` offer clues about whether a Run completed or stopped early. However, Runs with `app.save_agent_on_close=false` do not create it even on normal shutdown, so absence alone does not prove abnormal termination.
 
 ### 6.2 Seeing What Is Available
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py tags run_A --format md
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py tags run_A --format md
 ```
 
 For each tag, `tags` returns resolved definitions (`step_axis`, `runner`, `scope`, `eval_name`, `eval_episodes`, `num_envs`, `event`, `target`, `source_key`, `ema_alpha`, `interval`, `clip`) and observed ranges (`count`, `min_step`, `max_step`) in JSON or Markdown. These show valid `--metric` selectors and how far each tag has progressed; choose ranges after inspecting them.
@@ -407,7 +407,7 @@ Both definitions in `config/config_data.txt` contain `$eval.[eval1] ... $exp_ste
 ### 6.4 Extracting Metrics
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py metrics run_A run_B --metric "42_env/*" --range -4M:
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py metrics run_A run_B --metric "42_env/*" --range -4M:
 ```
 
 `--metric` accepts an exact tag or glob. Only `*` and `?` are glob metacharacters; `[` and `]` are literal, so keys using `[tag]` notation, such as `51_eval1/41_noop_uqe_win_rate`, can be written directly.
@@ -451,7 +451,7 @@ Markdown includes both comparison and detail tables. Add `--series` only when cu
 ### 6.6 Checking Effective Configuration
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py config run_A run_B --diff
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py config run_A run_B --diff
 ```
 
 `config` reads `config/config_data.txt`. This file contains effective values alongside definitions of override layers (`A1`–`A3`, `E1`, `M1`/`M2`, `P1`) and ordinary selection-source prefixes (`app.online`, `app.batchrun`, etc.). It excludes `@` profiles and `.$` selection lines, so **the selected profiles cannot be reconstructed from this file alone.** Inspect selection records with `resolution` in Section 6.7. See Chapter 3 of the [Run Execution User Guide](020_user_guide_run.en.md) for syntax and precedence.
@@ -468,7 +468,7 @@ Each key therefore includes `effective`: `true` if the same key occurs in `confi
 ### 6.7 Checking Configuration Resolution
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py resolution run_A run_B --format md
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py resolution run_A run_B --format md
 ```
 
 `resolution` displays selection records and `${}` value references per Run. If the first selection is `run.$`, it summarizes the Run profile selection first, then displays each selection's `key` / `term` / `resolved` and each reference's `source` / `target` / `value`. Runs without Run profiles omit that summary.
@@ -488,7 +488,7 @@ Running Runs are readable too. Raw files are read only up to their size at the s
 ### 6.9 Extracting Individual Trace Rows as CSV
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py trace-csv run_A --tag "51_eval1/*"
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py trace-csv run_A --tag "51_eval1/*"
 ```
 
 `metrics` handles scalars: statistics after aggregation. One evaluation session is collapsed into one scalar point, so quantiles, threshold-exceedance rates, and the joint score × length distribution cannot be reconstructed. `trace-csv` exports trace-channel rows, one adopted episode per row, for further aggregation in Excel or pandas.

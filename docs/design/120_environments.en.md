@@ -1,4 +1,4 @@
-<!-- translated-from: 120_environments.jp.md blob:9cacedfd7810b512ddb0e4f7209db0f4ccdb25ce date:2026-11-04 progress:done -->
+<!-- translated-from: 120_environments.jp.md blob:e6d972571bfb651fd8fed794e995312fcaf107af date:2026-11-19 progress:done -->
 # Environments
 
 > Primary perspective: function (Env, with internal processing stages in chronological order)
@@ -101,12 +101,12 @@ Both Bases also hold protected `anet::log::Logger log`, constructing the prefix 
 
 | Env | Implementation | Main Observation characteristics |
 |---|---|---|
-| CartPole | [core/envs/cartpole2](../../src/env/cartpole) | Vector |
-| LunarLander | [core/envs/lunarlander1](../../src/env/lunarlander) | Vector, Box2D physical state |
-| DropMerge | [core/envs/dropmerge1](../../src/env/dropmerge) | Grid and vector, Box2D physical state |
-| GridMaze | [core/envs/gridmaze1](../../src/env/gridmaze) | Vector-based maze state with guaranteed reachability; unsolvable seeds are deterministically resampled |
-| ImageCls | [core/envs/imagecls1](../../src/env/imagecls) | Image grid and classification target |
-| Atari | [core/envs/atari1](../../src/env/atari) | Single-frame uint8 grid from ALE |
+| CartPole | [src/env/cartpole](../../src/env/cartpole) | Vector |
+| LunarLander | [src/env/lunarlander](../../src/env/lunarlander) | Vector, Box2D physical state |
+| DropMerge | [src/env/dropmerge](../../src/env/dropmerge) | Grid and vector, Box2D physical state |
+| GridMaze | [src/env/gridmaze](../../src/env/gridmaze) | Vector-based maze state with guaranteed reachability; unsolvable seeds are deterministically resampled |
+| ImageCls | [src/env/imagecls](../../src/env/imagecls) | Image grid and classification target |
+| Atari | [src/env/atari](../../src/env/atari) | Single-frame uint8 grid from ALE |
 
 Each Env directory groups the Env implementation, factory, and optional View and tests by function.
 
@@ -259,6 +259,8 @@ Arcs are centered directly above the lander, with positive values drawn counterc
 `noop_penalty` is added once per Env Step only when the selected command is NOOP in its action mode. `direct` has no NOOP; column zero is also DROP. Action zero is NOOP in `direct_noop`, `move`, and `move_fast`. A NOOP converted to movement by `noop_override` still receives the penalty. A DROP rejected while the dropper is busy remains DROP. The same penalty is included in the Step reward and current episode return; raw score and physical transitions are unchanged.
 
 ## 8. Tests and Extension Checks
+
+See the [extension point table in the framework overview](010_framework_overview.en.md#43-extension-points) for the public extension points.
 
 The DropMerge `[noop_penalty]` tests compare two instances with the same seed and action sequence, changing only the penalty. They cover all four action modes, NOOP overrides, rejected DROP commands, terminal steps, cumulative rewards, and multiple physics steps. Execution conditions are described in the [PRD115 verification materials](../../src/core/base/testdata/prd115/README.md).
 

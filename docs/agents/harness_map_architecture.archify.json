@@ -7,14 +7,14 @@
     "viewBox": [1300, 830],
     "repository": {
       "url": "https://github.com/kazukin123/anet-lab",
-      "revision": "a9a788643fe3a35eccbe2c8978dc9176bc6650b2"
+      "revision": "ad6ce58fdb675083b047487419478c6758f7f055"
     }
   },
   "components": [
     {
       "id": "entry_rules", "type": "frontend", "label": "入口", "sublabel": "CLAUDE.md / AGENTS.md",
       "pos": [50, 300], "size": [180, 72],
-      "sources": [{ "path": "CLAUDE.md", "line": 4 }, { "path": "AGENTS.md", "line": 55, "label": "作業ごとに読むもの" }]
+      "sources": [{ "path": "CLAUDE.md", "line": 4 }, { "path": "AGENTS.md", "line": 61, "label": "作業ごとに読むもの" }]
     },
     {
       "id": "domain_rules", "type": "security", "label": "規約", "sublabel": "品質確認観点・プロセス契約",
@@ -24,17 +24,17 @@
     {
       "id": "design_docs", "type": "backend", "label": "領域の設計文書", "sublabel": "docs/design 1xx・2xx",
       "pos": [550, 300], "size": [180, 72],
-      "sources": [{ "path": "docs/design/README.jp.md", "line": 27 }, { "path": "AGENTS.md", "line": 425 }]
+      "sources": [{ "path": "docs/design/README.jp.md", "line": 27 }, { "path": "AGENTS.md", "line": 431 }, { "path": "docs/design/011_source_layout.jp.md", "label": "ソース配置とライブラリの境界" }]
     },
     {
       "id": "test_chapters", "type": "backend", "label": "テスト章", "sublabel": "テストと拡張時の確認事項",
       "pos": [800, 300], "size": [180, 72],
-      "sources": [{ "path": "AGENTS.md", "line": 301 }, { "path": "docs/design/100_runtime_and_configuration.jp.md", "line": 380 }]
+      "sources": [{ "path": "AGENTS.md", "line": 307 }, { "path": "docs/design/100_runtime_and_configuration.jp.md", "line": 380 }]
     },
     {
       "id": "test_materials", "type": "database", "label": "検証資材", "sublabel": "testdata README",
       "pos": [1050, 300], "size": [180, 72],
-      "sources": [{ "path": "core/anet-core/testdata/prd072/README.md" }, { "path": "AGENTS.md", "line": 302 }]
+      "sources": [{ "path": "src/core/base/testdata/prd072/README.md" }, { "path": "AGENTS.md", "line": 308 }]
     },
     {
       "id": "project_skills", "type": "backend", "label": "skill", "sublabel": "実体コピー 2 系統",
@@ -49,17 +49,17 @@
     {
       "id": "wiki_summary", "type": "database", "label": "wiki", "sublabel": "トピック別まとめ",
       "pos": [800, 90], "size": [180, 72],
-      "sources": [{ "path": "AGENTS.md", "line": 127 }, { "path": "docs/wiki/README.md" }]
+      "sources": [{ "path": "AGENTS.md", "line": 135 }, { "path": "docs/wiki/README.md" }]
     },
     {
       "id": "user_guides", "type": "frontend", "label": "ユーザーガイド", "sublabel": "0xx の Run 起動と分析",
       "pos": [300, 510], "size": [180, 72],
-      "sources": [{ "path": "AGENTS.md", "line": 66 }, { "path": "AGENTS.md", "line": 646 }]
+      "sources": [{ "path": "AGENTS.md", "line": 72 }, { "path": "AGENTS.md", "line": 652 }]
     },
     {
       "id": "terms_decisions", "type": "database", "label": "用語と判断理由", "sublabel": "CONTEXT.md / ADR",
       "pos": [550, 510], "size": [180, 72],
-      "sources": [{ "path": "AGENTS.md", "line": 96 }, { "path": "AGENTS.md", "line": 134 }, { "path": "CONTEXT.md" }]
+      "sources": [{ "path": "AGENTS.md", "line": 102 }, { "path": "AGENTS.md", "line": 140 }, { "path": "CONTEXT.md" }]
     },
     {
       "id": "ci_workflows", "type": "messagebus", "label": "CI", "sublabel": "build・test・Pages",
@@ -105,7 +105,7 @@
       "title": "主経路",
       "items": [
         "入口の「作業ごとに読むもの」から品質確認観点の節へ進み、領域の設計文書を読む。",
-        "検証は設計文書のテスト章から testdata の README へたどる。"
+        "検証は設計文書のテスト章から src/core/base/testdata の README へたどる。"
       ]
     },
     {
@@ -113,7 +113,7 @@
       "title": "仕事と指示と機械化点",
       "items": [
         "状態と順序は課題が持ち、PRD は指示文書として docs/memo の直下に置く。",
-        "機械化点: skill の実体コピーの同期検査と、CI のパス条件化。"
+        "機械化点: skill の実体コピーの同期検査、CI のパス条件化、配置替えの後の旧いパスの検索。"
       ]
     },
     {

@@ -1,4 +1,4 @@
-<!-- translated-from: 040_development_environment.jp.md blob:9985ac57cd924bede906140f8faa16f094fef04a date:2026-10-07 progress:done -->
+<!-- translated-from: 040_development_environment.jp.md blob:b834861588f82cd0f2a4c6d9b9144007fb31270d date:2026-11-19 progress:done -->
 # ANET Development Environment Setup Guide
 
 > Primary perspective: from initial setup to a completed IDE build
@@ -281,17 +281,17 @@ The first build may take time because it includes libtorch. The main Debug outpu
 | Artifact | Output path |
 |---|---|
 | Runner | `apps/runner/bin/Debug/AnetRLRunner.exe` |
-| Core test | `core/anet-core/bin/Debug/anet-core-test.exe` |
-| LunarLander test | `core/envs/lunarlander1/bin/Debug/LunarLanderEnv-test.exe` |
-| ImageCls test | `core/envs/imagecls1/bin/Debug/ImageClsEnv-test.exe` |
-| DropMerge test | `core/envs/dropmerge1/bin/Debug/DropMergeEnv-test.exe` |
-| Atari test (when ALE is prepared in Section 3.6) | `core/envs/atari1/bin/Debug/AtariEnv-test.exe` |
+| Core test | `out/test/Debug/anet-core-base-test.exe` |
+| LunarLander test | `out/test/Debug/anet-env-lunarlander-test.exe` |
+| ImageCls test | `out/test/Debug/anet-env-imagecls-test.exe` |
+| DropMerge test | `out/test/Debug/anet-env-dropmerge-test.exe` |
+| Atari test (when ALE is prepared in Section 3.6) | `out/test/Debug/anet-env-atari-test.exe` |
 
 Post-build processing also copies libtorch and wxWidgets runtime DLLs beside the executables.
 
 ### 4.4 Run Tests
 
-Run CTest from Visual Studio's Test menu. To narrow the scope before running everything, build a test target such as `anet-core-test` from CMake Targets View, then run it from Test Explorer or its generated executable.
+Run CTest from Visual Studio's Test menu. To narrow the scope before running everything, build a test target such as `anet-core-base-test` from CMake Targets View, then run it from Test Explorer or its generated executable.
 
 Disable failure dialogs during ordinary automated validation, except when checking intentional failures. AI agents must follow the specific execution instructions in the [Development and Work Rules](../../AGENTS.md).
 
@@ -307,10 +307,10 @@ Skip this chapter if you will not use Metrics Viewer.
 
 ### 5.1 Build and Start with bat Files
 
-Run `apps\metrics-viewer\build.bat`. If Metrics Viewer is running, stop it first. On success, this JAR is generated.
+Run `src\apps\metrics-viewer\build.bat`. If Metrics Viewer is running, stop it first. On success, this JAR is generated.
 
 ```text
-apps/metrics-viewer/target/metrics-viewer.jar
+apps/metrics-viewer/bin/metrics-viewer.jar
 ```
 
 Running `apps\22_metrics_viewer_java.bat` starts Metrics Viewer and opens `http://localhost:8082` in the browser. See the [Run Analysis Guide](030_user_guide_analysis.en.md) for startup arguments and Run directory selection.
@@ -333,10 +333,12 @@ Perform Section 5.2 and later only when modifying Metrics Viewer.
 1. Start Eclipse.
 2. Open `File > Import`.
 3. Select `Maven > Existing Maven Projects`.
-4. Set Root Directory to `apps/metrics-viewer`.
+4. Set Root Directory to `src/apps/metrics-viewer`.
 5. Select the detected `pom.xml` and import it.
 
 `pom.xml` targets Java 17. If the project uses a JRE older than JDK 17, change it to the JDK from Section 3.7 in project properties or Eclipse's Installed JREs.
+
+To launch from Eclipse, run `MetricsViewerApplication` with `Run As > Java Application`. Use the project's default working directory. It reads the same `data/workspaces` as the startup bat.
 
 ### 5.4 Test in Eclipse
 
@@ -355,7 +357,7 @@ clean package
 On success, this JAR is generated.
 
 ```text
-apps/metrics-viewer/target/metrics-viewer.jar
+apps/metrics-viewer/bin/metrics-viewer.jar
 ```
 
 Setup is complete once the JAR is generated. Start it with `apps\22_metrics_viewer_java.bat`, as in Section 5.1.
@@ -412,24 +414,25 @@ ctest --preset x64-Debug --output-on-failure
 For a narrower scope, build the target first, then launch its executable from the repository root.
 
 ```powershell
-cmake --build --preset x64-Debug --target anet-core-test
-core\anet-core\bin\Debug\anet-core-test.exe
+cmake --build --preset x64-Debug --target anet-core-base-test
+out\test\Debug\anet-core-base-test.exe
 ```
 
-Likewise, `LunarLanderEnv-test`, `ImageClsEnv-test`, and `DropMergeEnv-test` can run individually. When ALE is prepared, `AtariEnv-test` can run the same way. AI agents must also follow [Development and Work Rules](../../AGENTS.md) for dialog suppression, MSVC initialization, and focused test execution.
+Likewise, `anet-env-lunarlander-test`, `anet-env-imagecls-test`, and `anet-env-dropmerge-test` can run individually. When ALE is prepared, `anet-env-atari-test` can run the same way. AI agents must also follow [Development and Work Rules](../../AGENTS.md) for dialog suppression, MSVC initialization, and focused test execution.
 
 ### 6.3 Metrics Viewer
 
 ```powershell
-cd apps\metrics-viewer
+Set-Location src\apps\metrics-viewer
 .\mvnw.cmd -B test
 .\mvnw.cmd -B package
 ```
 
-Example startup check:
+Run the startup check from the repository root.
 
 ```powershell
-java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082
+Set-Location apps\runner
+java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --server.port=8082
 ```
 
 ## 7. Python Supporting Tools
@@ -449,7 +452,7 @@ The Python path above is an example. Even when creating the environment with ano
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install <必要なパッケージ>
-.\.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py --help
+.\.venv\Scripts\python.exe apps\tools\dropmerge_optuna.py --help
 ```
 
 `.venv` is a local development environment and must not be tracked by Git.
@@ -464,14 +467,14 @@ apps\70_compress_workspace_metrics.bat dm-iqn
 apps\70_compress_workspace_metrics.bat dm-iqn --dry-run --no-pause
 ```
 
-Without a workspace argument, select a numbered candidate containing `runs/` directly under `apps/runner/workspaces/`. `[0] EXIT` is the fixed exit choice. After displaying each workspace's result, including dry-run or cancellation, the launcher pauses and returns to workspace selection after a keypress, allowing multiple workspaces to be processed. `--no-pause` skips the pause. A workspace argument makes it exit after one pass. After preflight, select `YES` to execute, `NO` to cancel, or `DRY-RUN` to inspect without changes. Automation can skip the prompt with `--dry-run` and disable the final keypress wait with `--no-pause`. For a single pass with an explicit workspace, exit codes are 0 for success or a blocker-free dry-run, 1 for unprocessed Runs, and 2 for user cancellation.
+Without a workspace argument, select a numbered candidate containing `runs/` directly under `data/workspaces/`. `[0] EXIT` is the fixed exit choice. After displaying each workspace's result, including dry-run or cancellation, the launcher pauses and returns to workspace selection after a keypress, allowing multiple workspaces to be processed. `--no-pause` skips the pause. A workspace argument makes it exit after one pass. After preflight, select `YES` to execute, `NO` to cancel, or `DRY-RUN` to inspect without changes. Automation can skip the prompt with `--dry-run` and disable the final keypress wait with `--no-pause`. For a single pass with an explicit workspace, exit codes are 0 for success or a blocker-free dry-run, 1 for unprocessed Runs, and 2 for user cancellation.
 
 ### 7.3 MLflow Bridge
 
 MLflow bridge and server share the repository-root `.venv` and the selected workspace's `runs/mlflow.db`. The launcher's first argument selects the workspace; if omitted, it uses Runner's saved `last_workspace.txt`, falling back to `_default` if unavailable. Install dependencies with:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r viewers\metrics-tools\requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r apps\tools\requirements.txt
 ```
 
 `requirements.txt` pins MLflow to `3.13.0`. The MLflow 3.14.0 server imports `importlib.abc.Traversable`, removed in Python 3.14, so that combination cannot start. `apps/41_mlflow_bridge.bat` and `apps/42_start_mlflow.bat` fail fast if the required version is absent. The version check in `41_mlflow_bridge.bat` uses package metadata without importing MLflow itself and displays console progress before starting the import.
@@ -523,4 +526,4 @@ Check compatibility between libtorch's CUDA generation, the NVIDIA driver, and C
 
 ### 8.7 Maven Cannot Handle Java Release 17
 
-Check that Eclipse's Installed JREs, the project's JRE System Library, and Maven runtime point to JDK 17 or later. On the CLI, verify that `java -version` and `apps\metrics-viewer\mvnw.cmd -version` use the same JDK; update `JAVA_HOME` and `PATH` as needed.
+Check that Eclipse's Installed JREs, the project's JRE System Library, and Maven runtime point to JDK 17 or later. On the CLI, verify that `java -version` and `src\apps\metrics-viewer\mvnw.cmd -version` use the same JDK; update `JAVA_HOME` and `PATH` as needed.

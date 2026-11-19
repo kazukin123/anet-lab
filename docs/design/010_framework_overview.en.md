@@ -1,4 +1,4 @@
-<!-- translated-from: 010_framework_overview.jp.md blob:e9dc0f9af434537e68497fa7730b162da23fd1e5 date:2026-11-14 progress:done -->
+<!-- translated-from: 010_framework_overview.jp.md blob:918a356cd53a902ee77d7e4b61473445f0ea7677 date:2026-11-19 progress:done -->
 # ANET Framework Overview
 
 > Primary perspective: overall structure (organized mainly by function, with major workflows included)
@@ -103,7 +103,7 @@ flowchart TB
         tools["補助ツール<br/>Optuna / TensorBoard / MLflow"]
     end
 
-    subgraph core["core/anet-core"]
+    subgraph core["src/core/base"]
         config["設定管理"]
         runtime["RunManager / Runner"]
         agent["Agent / Actor / Learner"]
@@ -144,15 +144,28 @@ flowchart TB
 
 | Path | Main contents |
 |---|---|
-| `core/anet-core/include/anet/` | Public framework headers |
-| `core/anet-core/src/` | Shared infrastructure, Agents, NN, ReplayBuffer, Observers, tests |
-| `core/envs/` | Env implementations for CartPole, LunarLander, DropMerge, GridMaze, and ImageCls |
+| `src/core/base/include/anet/` | Public framework headers |
+| `src/core/base/src/` | Shared infrastructure, Agents, NN, ReplayBuffer, Observers, tests |
+| `src/algo/` | Agent implementations and per-family tests for DQN, MuZero, and ImageCls |
+| `src/env/` | Env implementations for CartPole, LunarLander, DropMerge, GridMaze, and ImageCls |
 | `apps/runner/` | `AnetRLRunner`, UI panels, configuration, startup and analysis scripts |
 | `apps/metrics-viewer/` | Java/Spring-based Metrics Viewer |
-| `viewers/metrics-tools/` | Python viewer and TensorBoard/MLflow bridges |
+| `apps/tools/` | Python viewer and TensorBoard/MLflow bridges |
 | `docs/design/` | Current overview, usage, and design |
 | `docs/adr/` | Adopted design decisions |
 | `docs/memo/` | Requirements, plans, and changes under consideration |
+
+### 4.3 Extension Points
+
+| Extension point | Interface | Parts | Registration point | Writable outside the base library | Example |
+|---|---|---|---|---|---|
+| Env | `EnvFactory`, `Env` | Base types in `anet/env.hpp` | `EnvRepository::Regist` | Yes | GridMaze |
+| View | `ViewCreator` | View in `anet/gui.hpp` | `RegisterViewCreator` | Yes | GridMaze View |
+| Agent | `AgentFactory`, `Agent`, `Actor` | `anet/agent.hpp`, `anet/rl.hpp` | `RegisterAgentFactory` | Yes | DefaultDQN |
+| NN Head | `NetworkHead`, `NetworkHeadFactory` | Executor, initialization, and generic Heads in `anet/nn_head.hpp` | Head factory of `NetworkBuilder::BuildNetwork` | Yes | Dueling Head |
+| NN module | `NetworkModule` | Base type visible in `anet/nn_head.hpp` | Internal module registration point | No, because the registration point is not public | Linear module |
+| Observer | `Observer` | `anet/rl.hpp`, `anet/observers.hpp` | `Notifier::Attach` | Yes, when attached in code | ScalarObserver |
+| ReplayBuffer | `ReplayBuffer` | `anet/replay_buffer.hpp`, `anet/replay_experience.hpp` | Inside the shared ReplayBuffer implementation | Cannot be replaced | N-step ReplayBuffer |
 
 ## 5. Feature List
 

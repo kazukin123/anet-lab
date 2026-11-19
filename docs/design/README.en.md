@@ -1,4 +1,4 @@
-<!-- translated-from: README.jp.md blob:5b7993382dcb7ec42dc32a3105fa4d02bd6268b4 date:2026-11-14 progress:done -->
+<!-- translated-from: README.jp.md blob:4a9cc45ddde010dea3afa71367b6c5029fa94dd5 date:2026-11-19 progress:done -->
 # ANET Documentation
 
 > Primary perspective: overall structure (guide to documents organized by function and workflow)
@@ -35,6 +35,7 @@ Document numbers normally increase in steps of 10 to leave room for later additi
 |---:|---|---|---|
 | - | This document | Introduction, system overview, document index | Everyone |
 | 010 | [ANET Framework Overview](010_framework_overview.en.md) | Basic concepts, overall structure, feature list, main processing flows | Everyone |
+| 011 | [Source Layout and Library Boundaries](011_source_layout.en.md) | Public and internal headers, dependency direction, test placement | Developers |
 
 ### 3.2 User Guides
 

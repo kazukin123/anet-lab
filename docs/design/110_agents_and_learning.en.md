@@ -1,4 +1,4 @@
-<!-- translated-from: 110_agents_and_learning.jp.md blob:a86c46bc3fb0dfbbf872c2fd81ed919eb0ad7029 date:2026-11-17 progress:done -->
+<!-- translated-from: 110_agents_and_learning.jp.md blob:b24937b25a964c4300ed03e1831fb8064a14bc41 date:2026-11-19 progress:done -->
 # Agents and Learning
 
 > Primary perspective: function (shared Agent, Actor, and Learner contracts, with processing stages in chronological order)
@@ -64,7 +64,7 @@ The [Agent Implementation Ownership Guidelines](../ownership_guideline.md) are a
 | `MuZeroAgent` | Prototype MuZero implementation | See current code |
 | `ImageClsAgent` | Image classification on the shared Run/Agent contracts | See current code |
 
-Registration occurs in `InitRL()`, and `AgentRepository` resolves class IDs to `AgentFactory` instances.
+Runner registers factories by calling each Agent family's public initialization function, and `AgentRepository` resolves class IDs to `AgentFactory` instances.
 
 ## 3. Component Definitions
 
@@ -219,11 +219,13 @@ When adding or changing checkpoint support, identify unsaved State and check the
 
 ## 8. Tests and Extension Checks
 
+See the [extension point table in the framework overview](010_framework_overview.en.md#43-extension-points) for the public extension points.
+
 Shared factory registration and Runner integration are checked in [init_test.cpp](../../src/core/base/src/init_test.cpp) and [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp); algorithm internals are checked by each concrete Agent's tests. The Actor catalog contract tests `[prd061]` and the comparison procedure for the configuration rename and catalog migration are described in [testdata/prd061/README.md](../../src/core/base/testdata/prd061/README.md).
 
 When adding or modifying an Agent, check at least the following:
 
-1. Register its factory in `InitRL()` under a unique class ID.
+1. Call `RegisterAgentFactory` from the Agent family's public initialization function to register the factory under a unique class ID.
 2. Validate shape and action-count compatibility with EnvSpec/BatchEnvSpec during construction.
 3. Define Actor sharing, cloning, and `Sync()` contracts for Train and every Eval use.
 4. Ensure `UpdateFromBatch()` represents no updates with an empty list and returns multiple results in the correct order.

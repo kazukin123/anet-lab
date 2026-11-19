@@ -1,4 +1,4 @@
-<!-- translated-from: 160_applications_and_tools.jp.md blob:6c99d5b2757a226e82d4f675db07e4fd199c9da6 date:2026-11-18 progress:done -->
+<!-- translated-from: 160_applications_and_tools.jp.md blob:a08931d2cc7a9868567fa8d2c32ed57942aac109 date:2026-11-19 progress:done -->
 # Applications and Tools
 
 > Primary perspective: function (Runner GUI, Metrics Viewer, Optuna harness)
@@ -17,7 +17,7 @@ This document explains the responsibilities, connections, and process boundaries
 
 ### 1.3 Scope
 
-This document covers current `apps/runner`, `apps/metrics-viewer`, `apps/runner/tools`, and launchers. See the respective design documents for Agent, Env, learning-loop, and metric-generation internals.
+This document covers the runtime layout and how to launch. Runner and Metrics Viewer sources are in `src/apps/`; executables and the jar, configuration, launchers, and tools are in `apps/`. See the respective design documents for Agent, Env, learning-loop, and metric-generation internals.
 [Metrics Viewer](210_metrics_viewer.en.md) is authoritative for its internal specifications, including cache schema, settings, HTTP APIs, and dependencies; this document covers only process boundaries and connections.
 
 ## 2. Component Definitions
@@ -361,10 +361,10 @@ sequenceDiagram
 | GUI Run | `apps/10_run.bat [--workspace <path>]` | `<workspace>/runs` |
 | Ordinary Run visualization | `apps/22_metrics_viewer_java.bat` | `http://localhost:8082` |
 | Optuna study/artifacts | `apps/23_optuna_dashboard.bat <workspace_path>` | `<workspace>/optuna`, `http://127.0.0.1:8088` |
-| DropMerge search | `.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py run-study --workspace <path> ...` | `<workspace>/runs`, `<workspace>/optuna` |
+| DropMerge search | `.venv\Scripts\python.exe apps\tools\dropmerge_optuna.py run-study --workspace <path> ...` | `<workspace>/runs`, `<workspace>/optuna` |
 
 - Ordinary Runner selects a workspace and accepts experiment differences as trailing `key=value` overrides. `--config` is reserved for self-contained startup without workspaces.
-- Viewer defaults to parent directory `apps/runner/workspaces`; its selector changes current workspace. Override the parent with `--metricsviewer.workspaces-dir`.
+- Viewer defaults to parent directory `data/workspaces`; its selector changes current workspace. Override the parent with `--metricsviewer.workspaces-dir`.
 - Optuna harness preflights an existing workspace and `config/_main.txt`, fixing Runs under `runs/` and SQLite storage, artifacts, and harness logs under `optuna/`. Run-related output overrides are allowed only beneath the selected workspace's `optuna/`.
 - Optuna harness uses Python from repository-root `.venv`.
 - Viewer frontend has no build step and loads only Plotly from a CDN as an external dependency. Fully offline environments need another asset-delivery method.

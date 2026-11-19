@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:f86474f3a6fc8ebc26b5a456484983369ce995bb date:2026-11-17 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:f28f613fc5ac0cc9135356b14989abb564e117f9 date:2026-11-19 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -216,25 +216,25 @@ nn_trace delivers intermediate outputs from the actual action-selection forward 
 
 ```mermaid
 sequenceDiagram
-    participant E as EvalPanel (step caller)
+    participant E as EvalPanel（step を進める側）
     participant R as Runner
     participant A as Actor
-    participant N as NN forward
+    participant N as NN の forward
     participant T as Notifier
-    participant C as Conv2d pane (consumer)
+    participant C as Conv2d の pane（読む側）
     E->>R: DoStep / DoUpdateFrame(MakeActionOptions)
     R->>A: MakeAction(step, state, options)
-    alt Step requests nn_trace
-        A->>N: capture requesting nn_trace/
-        N-->>A: Branch inputs and visualizable outputs in capture
-        Note over A: Slice env 0, detach, convert to FP32, clone<br/>Store under the same nn_trace/ keys in AuxData
-    else Step does not request it
-        A->>N: No capture
-        Note over A,N: Do not create nn_trace or slice, convert, or clone it
+    alt nn_trace を要求する step
+        A->>N: nn_trace/ を要求する capture
+        N-->>A: capture に branch 入力・描画可能な出力
+        Note over A: env 0 を切り出し、detach・FP32 化・clone<br/>AuxData の同じ nn_trace/ 鍵に積む
+    else 要求しない step
+        A->>N: capture なし
+        Note over A,N: nn_trace を作らず、切り出し・FP32 化・clone もしない
     end
-    A-->>R: action_info (including AuxData)
-    R->>T: TrainEvent (action_info)
-    T->>C: Runner-scoped notification
+    A-->>R: action_info（AuxData を含む）
+    R->>T: TrainEvent（action_info）
+    T->>C: Runner 限定の通知
 ```
 
 For training, RunnerApp fixes the request when constructing RunnerThread if any registered Conv2d image recording has `interval >= 1`, and RunnerThread passes it on every step. Runs with only `interval <= 0` registrations, runs without such recordings, and background evaluation through `RunSession` do not request it. Runner, Actor, Observer, and Notifier have no request registration. An Actor without nn_trace support warns once on its first request and continues without nn_trace.

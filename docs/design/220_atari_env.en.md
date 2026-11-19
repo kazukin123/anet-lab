@@ -1,4 +1,4 @@
-<!-- translated-from: 220_atari_env.jp.md blob:2ae4f8a7ab1e167fd7edfb3396f733638001143a date:2026-11-18 progress:done -->
+<!-- translated-from: 220_atari_env.jp.md blob:b40f58b84a8165b5d1fef5d82cdaaa5ace136d04 date:2026-11-19 progress:done -->
 # Atari Env (ALE Integration)
 
 > Primary perspective: concrete implementation specification (AtariEnv, including external ALE contracts, configuration keys, and View)
@@ -103,21 +103,21 @@ Contract notes:
 
 ### 3.4 Licensing (ADR 0025)
 
-ALE is GPL-2.0. The main project's Apache-2.0 license is maintained through (1) no bundling, using external references; (2) optional builds; (3) exclusion from release packages (`ANET_ENABLE_ATARI=OFF` for release builds); and (4) a GPL notice in `core/envs/atari1/NOTICE.md`.
+ALE is GPL-2.0. The main project's Apache-2.0 license is maintained through (1) no bundling, using external references; (2) optional builds; (3) exclusion from release packages (`ANET_ENABLE_ATARI=OFF` for release builds); and (4) a GPL notice in `src/env/atari/NOTICE.md`.
 
 ## 4. AtariEnv Specification
 
 ### 4.1 Module Structure
 
 ```
-core/envs/atari1/include/anet/env/Atari.hpp   … void InitAtari();
-core/envs/atari1/src/Atari.cpp                … factory + view creator 登録
-core/envs/atari1/src/AtariEnv.hpp/.cpp        … AtariEnvConfig / AtariEnv / AtariEnvFactory
-core/envs/atari1/src/AtariPreprocess.hpp/.cpp … 前処理関数とGrayscaleResizer（named namespace、ALE非依存）
-core/envs/atari1/src/AtariView.hpp/.cpp       … AtariView（§5）
-core/envs/atari1/src/AtariEnv_test.cpp
-core/envs/atari1/src/pch.hpp
-core/envs/atari1/NOTICE.md
+src/env/atari/include/anet/env/Atari.hpp   … void InitAtari();
+src/env/atari/src/Atari.cpp                … factory + view creator 登録
+src/env/atari/src/AtariEnv.hpp/.cpp        … AtariEnvConfig / AtariEnv / AtariEnvFactory
+src/env/atari/src/AtariPreprocess.hpp/.cpp … 前処理関数とGrayscaleResizer（named namespace、ALE非依存）
+src/env/atari/src/AtariView.hpp/.cpp       … AtariView（§5）
+src/env/atari/src/AtariEnv_test.cpp
+src/env/atari/src/pch.hpp
+src/env/atari/NOTICE.md
 ```
 
 The class_id is `AtariEnv`. `AtariEnv : public SingleDiscreteEnvBase, public anet::RandomHolder`.
@@ -247,7 +247,7 @@ Batch aggregation (prefixes such as `mean.`) and NaN handling follow common wrap
 
 **Verbose log at game completion.** One line is written at the same time and with the same values as the finalization in the table above (`Game over.` or `Game truncated by max_episode_frames.`, followed by `game_score` / `game_len` / `game_frames`). When numbered RAM definitions exist, ` ram_metric: floor_clear=0 boss_kill=0` is appended at the end in number order. The prefix is the lane name (`env.[train].[0]:`, `env.[EvalPanel].[0]:`, and so on). The line always remains in the Run's log file; `app.log_panel.level` narrows only the LogPanel display. Games in EvalPanel, which has no metrics or trace, can also be followed here with millisecond timestamps.
 
-**Watch the aggregation denominator.** Game-level keys return NaN for life-only termination, so only real game over/truncation contributes at episode_end; batch aggregation excludes NaNs from its denominator (`core/anet-core/src/util.cpp`; if all envs are NaN, the result is NaN). Thus, the denominator of `mean.game_score` is **the number of envs that actually finished a game at that step**, not num_envs. It averages multiple games only when multiple envs finish simultaneously. The simultaneous-completion rate is λ = num_envs / mean game length. In Breakout (128 envs / about 1,900 steps, λ ≈ 0.07), measurements showed 97% single completions, so the `mean.` series is effectively a sequence of individual game scores. Shorter games experience more averaging and flattened peaks; compare games with `max.` alongside it. Only `lives` is always finalized, so its denominator is num_envs and it is a true batch mean.
+**Watch the aggregation denominator.** Game-level keys return NaN for life-only termination, so only real game over/truncation contributes at episode_end; batch aggregation excludes NaNs from its denominator (`src/core/base/src/util.cpp`; if all envs are NaN, the result is NaN). Thus, the denominator of `mean.game_score` is **the number of envs that actually finished a game at that step**, not num_envs. It averages multiple games only when multiple envs finish simultaneously. The simultaneous-completion rate is λ = num_envs / mean game length. In Breakout (128 envs / about 1,900 steps, λ ≈ 0.07), measurements showed 97% single completions, so the `mean.` series is effectively a sequence of individual game scores. Shorter games experience more averaging and flattened peaks; compare games with `max.` alongside it. Only `lives` is always finalized, so its denominator is num_envs and it is a true batch mean.
 
 `game_score.ge.[N]` is a 0/1 metric sharing this denominator with `game_score`. Its `mean.` is the fraction of envs finishing at that step whose scores were at least N. Window averaging yields a **per-game proportion**, rather than a per-firing-event proportion, avoiding both the flattening of `mean.` and saturation of `max.` when inspecting threshold-crossing frequency: `mean.` flattens the ends of a bimodal distribution, while `max.` saturates as evaluation-session episode count increases. Game-dependent thresholds, such as one Breakout screen = 432, are key parameters rather than entries in the HNS tables of §4.8. This allows multiple simultaneous thresholds in one Run and reflects that thresholds are analytical criteria, not physical game constants.
 
@@ -332,7 +332,7 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 ## 6. Build Integration
 
 - Three-valued cache variable `ANET_ENABLE_ATARI` = `AUTO` (default) / `ON` / `OFF`. AUTO checks `ALE_ROOT` and the existence of `src/ale/ale_interface.hpp`. ON with missing prerequisites produces a configure error. Log the decision at STATUS.
-- Only when enabled: `add_subdirectory(core/envs/atari1)`, link `AtariEnv` to runner and define `ANET_HAS_ATARI`, then call `InitAtari()` under `#ifdef ANET_HAS_ATARI` in `RunnerApp.cpp`.
+- Only when enabled: `add_subdirectory(src/env/atari)`, link `AtariEnv` to runner and define `ANET_HAS_ATARI`, then call `InitAtari()` under `#ifdef ANET_HAS_ATARI` in `RunnerApp.cpp`.
 - Select ale.lib using `$<IF:$<CONFIG:Debug>,Debug,Release>`; RelWithDebInfo uses Release, matching IDL/CRT.
 - Tests build with the module. Ordinary ROM-dependent cases use Catch2 `SKIP()` if `ATARI_ROM_DIR` cannot be resolved. Mandatory PRD097 acceptance cases tagged `[prd097_atari]` use `REQUIRE` to check Asterix ROM availability; an unresolved ROM is neither a pass nor a skip. Preprocessing golden tests always run.
 
@@ -340,7 +340,7 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 
 For resize changes, follow the [PRD099 validation procedure](../../src/core/base/testdata/prd099/README.md). Each of 24 fixed images must have absolute error at most 1 and at least 99.9% exact pixels. Preserve the default learning-series checksum. Performance acceptance requires a median speed ratio of at least 0.98 at 84×84 with 64 envs; defer judgment if baseline-versus-baseline controls do not stay within 1%.
 
-When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../src/core/base/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`. The per-group alignment of RAM metrics and the protocol preset values in the shipped `Atari.txt` are checked by `[shipped_config][atari]` in anet-core-test (`config_baseline_test.cpp`).
+When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../src/core/base/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`. The per-group alignment of RAM metrics and the protocol preset values in the shipped `Atari.txt` are checked by `[shipped_config][atari]` in anet-core-base-test (`config_baseline_test.cpp`).
 
 ## 7. Related Documents
 

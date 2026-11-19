@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:27e1a4541e2cac1b79efb179a2ff346b8408a585 date:2026-11-16 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:122eb5be98acbf3250555026611ce532c34404f5 date:2026-11-19 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -42,14 +42,14 @@ This section first outlines learning and exploration methods; [Section 2.2](#22-
 | Rainbow | Combine six DQN extensions | `RainbowAgent` remains to check shared component responsibilities and is not used for Runs; differences from the paper are in [Section 2.1.3](#213-rainbow-components) | [Rainbow (2017/10)][paper-rainbow] |
 | QR-DQN | Represent a return distribution by learning returns at fixed quantile levels | `QRLearner` in both Agents | [QR-DQN (2017/10)][paper-qr] |
 | Implicit Quantile Network (IQN) | Learn a quantile function with quantile level τ as input | DefaultDQN `IQNLearner` | [IQN (2018/06)][paper-iqn] |
-| Upper Quantile Exploration (UQE) | Compare actions using an upper quantile or upper-tail mean instead of mean return | DefaultDQN QR/IQN policies ([Section 2.1.5](#215-uqe-action-selection-with-upper-quantiles)) | [Policy implementation](../../src/core/base/src/dqn_based_agent.cpp); related: [IQN (2018/06), Section 4][paper-iqn] |
+| Upper Quantile Exploration (UQE) | Compare actions using an upper quantile or upper-tail mean instead of mean return | DefaultDQN QR/IQN policies ([Section 2.1.5](#215-uqe-action-selection-with-upper-quantiles)) | [Policy implementation](../../src/algo/dqn/src/dqn_based_actor.cpp); related: [IQN (2018/06), Section 4][paper-iqn] |
 | Thompson Sampling | Draw from an uncertainty distribution and choose the best action under that sample | DefaultDQN `ThompsonSampling`; see [Section 2.1.6](#216-thompson-sampling-and-return-quantile-sampling-in-this-implementation) for how return-quantile sampling differs | [Thompson Sampling (2017/07), Chapter 4][paper-thompson] |
 | Munchausen RL | Add a log-policy term to reward and combine it with a soft value update | DefaultDQN TD/QR/IQN ([Section 6.3](#63-munchausen-rl)) | [Munchausen (2020/07)][paper-munchausen] |
 | TempoRL | Learn how long to repeat an action as well as which action to take | DefaultDQN skip policy ([Section 6.5](#65-defaultdqn-skip-policy)) | [TempoRL (2021/06)][paper-temporl] |
 | Random Network Distillation (RND) and intrinsic reward | Use prediction error for a fixed random Network as a novelty signal added to reward | DefaultDQN `intrinsic.enabled` ([Section 2.1.9](#219-rnd-and-intrinsic-reward)) | [RND (2018/10)][paper-rnd], [explanation in 212](212_rnd_lifelong_novelty.en.md) |
 | Transformed Bellman Operator (TBO) | Compress Q values and Bellman targets with invertible h to make their scale easier to handle | DefaultDQN `learner.use_tbo` ([Section 2.1.10](#2110-tbo-compressing-q-values-and-targets)) | [TBO (2018/05), Section 3.2][paper-tbo] |
-| Optimistic target | Choose a bootstrap policy using scores from the upper return distribution, not only its mean | DefaultDQN `target_policy` and `use_optimistic_target` ([Section 2.1.11](#2111-optimistic-target)) | [Configuration and policy resolution](../../src/algo/dqn/src/default_dqn_agent.hpp), [target computation](../../src/core/base/src/dqn_based_agent.cpp) |
-| Spatial exploration (derived from Ape-X) | Assign different exploration strengths to concurrently running lanes | Per-lane ε in both Agents' Actors; UQE τ in DefaultDQN ([Section 2.1.12](#2112-spatial-exploration-per-lane-exploration-strength)) | [Ape-X (2018/03), Section 3.1][paper-apex], [SpatialLadderSchedule / ActionPolicy](../../src/core/base/src/dqn_based_agent.cpp) |
+| Optimistic target | Choose a bootstrap policy using scores from the upper return distribution, not only its mean | DefaultDQN `target_policy` and `use_optimistic_target` ([Section 2.1.11](#2111-optimistic-target)) | [Configuration and policy resolution](../../src/algo/dqn/src/default_dqn_agent.hpp), [target computation](../../src/algo/dqn/src/dqn_based_learner.cpp) |
+| Spatial exploration (derived from Ape-X) | Assign different exploration strengths to concurrently running lanes | Per-lane ε in both Agents' Actors; UQE τ in DefaultDQN ([Section 2.1.12](#2112-spatial-exploration-per-lane-exploration-strength)) | [Ape-X (2018/03), Section 3.1][paper-apex], [SpatialLadderSchedule / ActionPolicy](../../src/algo/dqn/src/dqn_based_actor.cpp) |
 
 See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for exploration-policy configuration and tau generation, and [Section 6.2](#62-experience-acceptance-and-learning-updates) for integrating RND intrinsic reward.
 
@@ -112,7 +112,7 @@ DefaultDQN selects ordinary Q, QR, or IQN through `quantile_mode`; Rainbow selec
 
 #### 2.1.5 UQE: Action Selection with Upper Quantiles
 
-UQE here compares actions through the upper return distribution instead of mean Q. At τ=0.9, a point quantile is the 90th percentile and an upper-tail mean averages approximately the top 10%. [Implementation: UQEActionPolicy / MakeRiskBiasedScore](../../src/core/base/src/dqn_based_agent.cpp)
+UQE here compares actions through the upper return distribution instead of mean Q. At τ=0.9, a point quantile is the 90th percentile and an upper-tail mean averages approximately the top 10%. [UQEActionPolicy](../../src/algo/dqn/src/dqn_based_actor.cpp), [MakeRiskBiasedScore](../../src/algo/dqn/src/dqn_based_math.cpp)
 
 ```mermaid
 flowchart LR
@@ -124,18 +124,18 @@ flowchart LR
     T --> A
 ```
 
-QR sorts and extracts quantile values; IQN queries a specified quantile or `[τ,1]`. See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for time variation and lane placement of τ and subsequent `uqe.epsilon` exploration. [Implementation: MakeUQEActionInfo](../../src/core/base/src/dqn_based_agent.cpp) For a general explanation of quantile-based policies, see [IQN (2018/06), Sections 3–4][paper-iqn].
+QR sorts and extracts quantile values; IQN queries a specified quantile or `[τ,1]`. See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for time variation and lane placement of τ and subsequent `uqe.epsilon` exploration. [Implementation: MakeUQEActionInfo](../../src/algo/dqn/src/dqn_based_actor.cpp) For a general explanation of quantile-based policies, see [IQN (2018/06), Sections 3–4][paper-iqn].
 
 #### 2.1.6 Thompson Sampling and Return-Quantile Sampling in This Implementation
 
 Standard Thompson Sampling represents model uncertainty given observed experience with a posterior distribution, samples one model, and selects the best action under it. Unlike epsilon-greedy's uniform random action selection, it explores by comparing sampled values. [Thompson Sampling (2017/07), Chapters 3–4][paper-thompson]
 
-Here, `ThompsonSampling` names a policy using quantiles of the learned return distribution, not a method maintaining a Bayesian model posterior. Non-spatial behavior differs between QR and IQN as follows. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/core/base/src/dqn_based_agent.cpp)
+Here, `ThompsonSampling` names a policy using quantiles of the learned return distribution, not a method maintaining a Bayesian model posterior. Non-spatial behavior differs between QR and IQN as follows. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/algo/dqn/src/dqn_based_actor.cpp)
 
 - **QR**: Draw one uniform τ from `[0,1]` per call and lane, using it for all actions. Compare that quantile when `uqe.use_tail_mean=false`, or the mean above it when `true`.
 - **IQN**: Place multiple taus across `[0,1]` according to `tau_rule` and compare mean outputs per action. Random placement gives a sample mean; a single tau compares one quantile. Fixed placement uses no randomness for tau generation.
 
-With spatial exploration enabled, both pass each lane's τ to the UQE computation as a lower bound or point quantile. Epsilon randomization also applies separately. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/core/base/src/dqn_based_agent.cpp) Distinguish outcome variability represented by a return distribution from model uncertainty in standard Thompson Sampling. [IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
+With spatial exploration enabled, both pass each lane's τ to the UQE computation as a lower bound or point quantile. Epsilon randomization also applies separately. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/algo/dqn/src/dqn_based_actor.cpp) Distinguish outcome variability represented by a return distribution from model uncertainty in standard Thompson Sampling. [IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
 
 #### 2.1.7 Munchausen RL
 
@@ -184,17 +184,17 @@ flowchart LR
     V --> H["変換 h"] --> Y["target<br/>h空間"]
 ```
 
-Select it with `learner.use_tbo`; QR/IQN invert each quantile. The reward scaler changes **reward scale**, while TBO changes **Q-value and target representations**. `TransformHInv` performs inversion and `TransformH` compression. [Implementation: TDLearner / QuantileLearnerBase](../../src/core/base/src/dqn_based_agent.cpp)
+Select it with `learner.use_tbo`; QR/IQN invert each quantile. The reward scaler changes **reward scale**, while TBO changes **Q-value and target representations**. `TransformHInv` performs inversion and `TransformH` compression. [Implementation: TDLearner / QuantileLearnerBase](../../src/algo/dqn/src/dqn_based_learner.cpp)
 
 #### 2.1.11 Optimistic Target
 
-An optimistic target chooses the next-state bootstrap policy using scores from the upper return distribution. Actor-only UQE changes actual actions; using it in the target policy also changes the selection used to construct learning targets. With Munchausen OFF, select the action with the largest score and evaluate its value/distribution using the target Network. The upper-quantile selection score itself does not directly replace the bootstrap value. With Munchausen ON, mix through a soft policy derived from that score ([Section 6.3](#63-munchausen-rl)). [Implementation: target action selection and value evaluation](../../src/core/base/src/dqn_based_agent.cpp)
+An optimistic target chooses the next-state bootstrap policy using scores from the upper return distribution. Actor-only UQE changes actual actions; using it in the target policy also changes the selection used to construct learning targets. With Munchausen OFF, select the action with the largest score and evaluate its value/distribution using the target Network. The upper-quantile selection score itself does not directly replace the bootstrap value. With Munchausen ON, mix through a soft policy derived from that score ([Section 6.3](#63-munchausen-rl)). [Implementation: target action selection and value evaluation](../../src/algo/dqn/src/dqn_based_learner.cpp)
 
 DefaultDQN `use_optimistic_target=true` copies `actor.[train].policy` as the target-policy default and sets epsilon to 0. Subsequent `target_policy.*` settings can override it, so inspect the resolved policy to determine the effective method. If the copied policy is greedy over mean Q, this flag alone does not make it look at upper returns. [Implementation: DefaultDQNAgentConfig](../../src/algo/dqn/src/default_dqn_agent.hpp)
 
 #### 2.1.12 Spatial Exploration: Per-Lane Exploration Strength
 
-The idea of different ε values per Actor in Ape-X is applied to lanes within one Actor. [Ape-X (2018/03), Section 3.1][paper-apex] [Implementation: ActionPolicy / SpatialLadderSchedule](../../src/core/base/src/dqn_based_agent.cpp)
+The idea of different ε values per Actor in Ape-X is applied to lanes within one Actor. [Ape-X (2018/03), Section 3.1][paper-apex] [Implementation: ActionPolicy / SpatialLadderSchedule](../../src/algo/dqn/src/dqn_based_actor.cpp)
 
 ```mermaid
 flowchart LR
@@ -210,13 +210,13 @@ flowchart LR
     A1 -.-> L1
 ```
 
-Ape-X's Atari experiments keep ε fixed during training. [Ape-X (2018/03), Section 4.1][paper-apex] Here, select `spatial.enabled` and place endpoints `first`/`last` using `linear` or `log`. Endpoints can vary over time; DefaultDQN also extends this to UQE ε/τ. Time variation and lane placement are configured independently ([Section 2.4](#24-actionpolicy-and-dqnactioninfo)). [Implementation: per-lane epsilon-greedy / UQE settings](../../src/core/base/src/dqn_based_agent.cpp)
+Ape-X's Atari experiments keep ε fixed during training. [Ape-X (2018/03), Section 4.1][paper-apex] Here, select `spatial.enabled` and place endpoints `first`/`last` using `linear` or `log`. Endpoints can vary over time; DefaultDQN also extends this to UQE ε/τ. Time variation and lane placement are configured independently ([Section 2.4](#24-actionpolicy-and-dqnactioninfo)). [Implementation: per-lane epsilon-greedy / UQE settings](../../src/algo/dqn/src/dqn_based_actor.cpp)
 
 ### 2.2 Implementation Layers
 
 `DefaultDQNAgent` and `RainbowAgent` both implement `AgentBase` and the shared `rl::Learner`. `CreateLearner()` returns the outer Agent itself, which manages shared mutexes and pre/post-processing before delegating updates to an inner `dqn::Learner`. Both Agents call `DqnComponentAssembler`, supplying Head initialization and projection on each call. DefaultDQN construction is split into `SelectHeadFactory`, `MakeNetworkInputSpec`, `RecordNetworkStructure`, and `InitializeLearner`.
 
-`dqn_based_agent.*` provides internal components including `NetworkModel`, `ActionPolicy`, `Actor`, `Learner`, `TDLearner`, `QRLearner`, and `IQNLearner`. Both concrete Agents compose these components; neither inherits the inner `dqn::Learner`.
+The shared DQN parts are divided into five roles: learning, action, Network, assembly, and shared computation. Both concrete Agents compose these components; neither inherits the inner `dqn::Learner`.
 
 ### 2.3 Online and Target Networks
 
@@ -300,13 +300,13 @@ Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `mun
 
 | Area | Main files |
 |---|---|
-| Shared DQN components | [dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp), [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) |
+| Shared DQN parts | [Learning](../../src/algo/dqn/src/dqn_based_learner.hpp), [Action](../../src/algo/dqn/src/dqn_based_actor.hpp), [Network](../../src/algo/dqn/src/dqn_based_network_model.hpp), [Assembly](../../src/algo/dqn/src/dqn_based_assembler.hpp), [Shared computation](../../src/algo/dqn/src/dqn_based_math.hpp) |
 | DQN Head | [dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp), [dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp) |
 | DefaultDQN | [default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp), [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) |
 | Rainbow | [rainbow_agent.hpp](../../src/algo/dqn/src/rainbow_agent.hpp), [rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp) |
 | ReplayBuffer | [replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp), [replay_buffer_impl.hpp](../../src/core/base/src/replay_buffer_impl.hpp), [replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) |
 | Runner configuration examples | [apps/runner/config](../../apps/runner/config) |
-| DQN test | [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp), [dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp) |
+| DQN test | `dqn_based_*_test.cpp` for each DQN role and concrete Agent, [dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp) |
 
 
 ## 5. Static Structure
@@ -802,6 +802,8 @@ Each value averages over a layer's heads, queries, and samples and normalizes by
 
 ## 10. Tests and Extension Checklist
 
+Use the [PRD182 validation assets](../../src/core/base/testdata/prd182/README.md) to confirm that definitions and test bodies match before and after the file split, and that Runner learning results match.
+
 When changing value decomposition or reward scalers, use [PRD121 validation assets](../../src/core/base/testdata/prd121/README.md) for numerical checks, the checkpoint decision table, before/after comparison of five default configurations, and Atari performance measurements.
 
 When changing construction, configuration reading, intrinsic reward, or diagnostic responsibilities, use the [PRD128 validation assets](../../src/core/base/testdata/prd128/README.md) for before/after comparisons across 34 configurations, continuation from an old checkpoint, Release performance, and metric-order mutation checks.
@@ -820,7 +822,7 @@ See [PRD101 validation assets](../../src/core/base/testdata/prd101/README.md) fo
 
 Changes to TempoRL windows, Actor, Learner, checkpoints, or metrics require the contract tests, disabled-skip equivalence across four Envs, smoke checks, and Atari performance comparisons in [PRD098 validation assets](../../src/core/base/testdata/prd098/README.md). Record long-learning acceptance separately from short validation.
 
-Main DQN tests reside in [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) and [dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp); shared Replay tests are in [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp).
+Main DQN tests reside in `dqn_based_*_test.cpp` for each DQN role and concrete Agent and in [dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp); shared Replay tests are in [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp).
 
 When adding or modifying a DQN Agent, check at least the following:
 

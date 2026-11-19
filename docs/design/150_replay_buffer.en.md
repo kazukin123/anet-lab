@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:58e3949d16652b4426b4dedc4ce0f009aedbed04 date:2026-11-18 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:4a13be4641f41cae75f02589b2cac7819978a4fe date:2026-11-19 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -382,7 +382,7 @@ Current [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)
 
 Preserve the public `ReplayBuffer` contract when changing it. Check same-seed sample sequences, PER metadata, CPU paths, and asynchronous paths when CUDA is available. Tests changing capacity and lane count must check `actual_capacity`, not just requested capacity. Add dedicated regression tests when changing background exception propagation or shutdown order rather than assuming existing coverage.
 
-The 384-case matrix uses `[.][integrity_assay]`, excluding it from the ordinary suite and `[replay_buffer]`. Run all cases as separate processes with `core/anet-core/testdata/prd078/run_integrity_assay.py`, which records the fixed seed, completion marker, timeout, and exit code per case. See [testdata/prd078/README.md](../../src/core/base/testdata/prd078/README.md) for the procedure.
+The 384-case matrix uses `[.][integrity_assay]`, excluding it from the ordinary suite and `[replay_buffer]`. Run all cases as separate processes with `src/core/base/testdata/prd078/run_integrity_assay.py`, which records the fixed seed, completion marker, timeout, and exit code per case. See [testdata/prd078/README.md](../../src/core/base/testdata/prd078/README.md) for the procedure.
 
 ## 9. Related Documents
 

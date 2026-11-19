@@ -44,6 +44,10 @@
     "連続区間": "continuous interval",
     "時間の値": "time-varying value",
     "主領域": "main region",
-    "補助 pane": "auxiliary pane"
+    "補助 pane": "auxiliary pane",
+    "公開ヘッダ": "public header",
+    "内部ヘッダ": "internal header",
+    "テスト用の口": "test-only interface",
+    "Agent の系統": "Agent family"
   }
 }

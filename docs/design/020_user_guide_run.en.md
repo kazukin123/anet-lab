@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:8c6d6c11036a854da393891fa2806dbc0c021f93 date:2026-11-15 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:88df37e0bdb53984d5ef5497aa62c43c1a60e852 date:2026-11-19 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -36,7 +36,7 @@ See [Development Environment](040_development_environment.en.md) for development
 When started without arguments, the runner displays a workspace selection dialog and selects the Env from the chosen workspace's `config/_main.txt`. The shared `apps/runner/config/_main.txt` loads only Agent, Network, metrics, and similar settings; Env selection is kept in the workspace. For a new workspace, or missing workspace configuration when first selecting an existing directory, `apps/runner/config/_workspace_template.txt` is copied to `config/_main.txt`. The template's default Env is `LunarLander_cpu.txt`, which loads `LunarLander.txt` and then selects `run.@cpu` (QR, no BF16), which is light enough for the CPU. For GPU configurations, select `LunarLander.txt` directly.
 
 ```text
-# apps/runner/workspaces/<workspace>/config/_main.txt
+# data/workspaces/<workspace>/config/_main.txt
 #$include <LunarLander.txt>
 $include <DropMerge.txt>
 ```
@@ -305,7 +305,7 @@ X.key ?= v              既定キー。X.$ に負ける
 The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). Do not use `?=` merely because a value might be overridden later. Group only the configuration keys that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
 
 ```bash
-.\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
+.\.venv\Scripts\python.exe src/core/base/testdata/prd072/check_default_leaves.py
 ```
 
 `rg` (ripgrep) must be on PATH. Defaults intentionally written with `=`, such as seeds in `DropMerge_optuna.txt`, must have their classification reasons registered in the checker.
@@ -404,7 +404,7 @@ Run the following from `apps/runner`.
 10_run.bat
 ```
 
-On first launch with an empty history, the selection dialog opens with `_default` prefilled as a new name, even when bundled per-ENV workspaces exist. Choose from history, all directories directly under `workspaces/`, an arbitrary path, or a new name. Existing directories without `config/_main.txt`, such as folders containing only relocated past Runs, are also listed; selecting one fills in only the missing configuration. New names are validated as entered, and OK remains disabled while a reason for invalidity appears below the input. Use `--workspace dm_long` to specify a relative workspace directly, or `--select-workspace` to show the dialog regardless of the skip preference. Relative paths are based on `apps/runner/workspaces/`; absolute paths are also supported. Leading and trailing whitespace is trimmed, and `#`, `//`, trailing `;`, and UNC paths are rejected.
+On first launch with an empty history, the selection dialog opens with `_default` prefilled as a new name, even when bundled per-ENV workspaces exist. Choose from history, all directories directly under `workspaces/`, an arbitrary path, or a new name. Existing directories without `config/_main.txt`, such as folders containing only relocated past Runs, are also listed; selecting one fills in only the missing configuration. New names are validated as entered, and OK remains disabled while a reason for invalidity appears below the input. Use `--workspace dm_long` to specify a relative workspace directly, or `--select-workspace` to show the dialog regardless of the skip preference. Relative paths are based on `data/workspaces/`; absolute paths are also supported. Leading and trailing whitespace is trimmed, and `#`, `//`, trailing `;`, and UNC paths are rejected.
 
 Alternatively, specify the executable and main config from the repository root.
 
@@ -612,7 +612,9 @@ Playback cannot start when FPS is 0. If FPS is changed to 0 during playback, the
 
 ## 7. Artifacts
 
-With workspace `dm_long` and `app.run_name=run_{t}`, artifacts are saved under `apps/runner/workspaces/dm_long/runs/<run_name>/`. An absolute-path workspace likewise stores them under its own `runs/` directory.
+With workspace `dm_long` and `app.run_name=run_{t}`, artifacts are saved under `data/workspaces/dm_long/runs/<run_name>/`. An absolute-path workspace likewise stores them under its own `runs/` directory.
+
+When launched with a configuration file specified directly, a relative `app.runs_dir` is resolved against `data/`. The default output location is `data/runs/`.
 
 | Artifact | Contents |
 |---|---|

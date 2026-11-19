@@ -1,4 +1,4 @@
-<!-- translated-from: 210_metrics_viewer.jp.md blob:b1324ddd4527e20ebdf3feb6c8f50f0b73fe4dbe date:2026-11-18 progress:done -->
+<!-- translated-from: 210_metrics_viewer.jp.md blob:c3992e77c9370e79e633b0dced01c5b9bb4759cd date:2026-11-19 progress:done -->
 # Metrics Viewer
 
 > Primary perspective: concrete application (ingestion, cache DB, range queries, and browser rendering in processing order)
@@ -593,7 +593,7 @@ Contract violations abort application startup.
 | Key | Default | Valid range | Meaning |
 |---|---:|---|---|
 | `metricsviewer.tag-sets-file` | `${metricsviewer.workspaces-dir}/metrics_viewer_tag_sets.json` | Local file path | Working tag sets file. Relative paths use the working directory. `TagSetStore` creates missing parents and aborts startup for a directory path, creation failure, or malformed contents |
-| `metricsviewer.workspaces-dir` | `workspaces` | Local path | Parent directory of workspaces; UNC roots are rejected at startup |
+| `metricsviewer.workspaces-dir` | `../../../data/workspaces` | Local path | Parent directory of workspaces. Both Eclipse's `src/apps/metrics-viewer` and the startup bat's `apps/metrics-viewer/bin` refer to the same `data/workspaces`. UNC roots are rejected at startup |
 | `metricsviewer.initial-workspace` | `_default` | Direct child directory name | Initial current workspace; a valid but missing name starts with a warning and an empty Run list |
 | `metricsviewer.target-points-per-series` | `8000` | 3 to `max-points-per-request` | Default vertex budget per series when `maxPoints` is omitted |
 | `metricsviewer.max-points-per-request` | `500000` | 3 to 1,000,000 | Total vertices allowed per request |
@@ -615,19 +615,21 @@ The upper bound for `cache-memory-mb` depends on `Runtime.maxMemory()`. Lowering
 | `spring.mvc.async.request-timeout` | `600000` | Same as above |
 | `spring.jackson.mapper.allow-coercion-of-scalars` | `false` | Fail fast on loosely typed input such as `"123"` |
 | `spring.jackson.deserialization.accept-float-as-int` | `false` | Fail fast on fractional steps and similar inputs |
-| `logging.file.path` | `logs` | Write logs under the startup directory |
+| `logging.file.path` | `../../../data/logs` | Write logs to `data/logs` at the layout root under either launch method |
 
 Request bodies additionally capture unknown fields with `@JsonAnySetter`; any such field produces `invalid_request`.
 `runId` and `tagKey` accept only JSON strings through `StrictStringDeserializer`.
 
 ### 7.3 Startup Arguments
 
+The following examples launch from `apps/metrics-viewer/bin`.
+
 | Purpose | Example |
 |---|---|
-| Visualize default workspaces | `java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082` |
-| Visualize other workspaces | `java -Xmx1g -jar target\metrics-viewer.jar --metricsviewer.workspaces-dir=<path> --metricsviewer.initial-workspace=<name>` |
+| Visualize default workspaces | `java -Xmx1g -jar metrics-viewer.jar --server.port=8082` |
+| Visualize other workspaces | `java -Xmx1g -jar metrics-viewer.jar --metricsviewer.workspaces-dir=<path> --metricsviewer.initial-workspace=<name>` |
 
-[22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat) fixes the default path and port. There is no separate Optuna Viewer launcher; it uses the same workspace selector.
+[22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat) sets the working directory to the JAR's location and fixes the port. There is no separate Optuna Viewer launcher; it uses the same workspace selector.
 
 Selecting a different workspace group through startup arguments also creates the default working tag sets file directly in that group's parent directory. Override `metricsviewer.tag-sets-file` to select another location.
 
@@ -1044,10 +1046,11 @@ Java coding conventions are defined in [checkstyle.xml](../../src/apps/metrics-v
 ### 11.4 Build and Run
 
 ```powershell
-cd apps\metrics-viewer
+Set-Location src\apps\metrics-viewer
 mvn -B test
 mvn -B package
-java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082
+Set-Location ..\..\..\apps\runner
+java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --server.port=8082
 ```
 
 ### 11.5 Frontend Assets
