@@ -1,4 +1,5 @@
 @echo off
+title %~nx0
 setlocal EnableExtensions DisableDelayedExpansion
 
 set "DASHBOARD_HOST=0.0.0.0"
@@ -17,14 +18,14 @@ if errorlevel 1 (
     exit /b 1
 )
 
-for %%I in ("%~dp0runner") do set "RUNNER_ROOT=%%~fI"
+for %%I in ("%~dp0..\data") do set "DATA_ROOT=%%~fI"
 set "IS_ABSOLUTE="
 if "%WORKSPACE_INPUT:~1,2%"==":\" set "IS_ABSOLUTE=1"
 if "%WORKSPACE_INPUT:~1,2%"==":/" set "IS_ABSOLUTE=1"
 if defined IS_ABSOLUTE (
     for %%I in ("%WORKSPACE_INPUT%") do set "WORKSPACE_ROOT=%%~fI"
 ) else (
-    for %%I in ("%RUNNER_ROOT%\workspaces\%WORKSPACE_INPUT%") do set "WORKSPACE_ROOT=%%~fI"
+    for %%I in ("%DATA_ROOT%\workspaces\%WORKSPACE_INPUT%") do set "WORKSPACE_ROOT=%%~fI"
 )
 
 if not exist "%WORKSPACE_ROOT%\" (
@@ -52,7 +53,13 @@ echo Artifacts: %ARTIFACT_DIR%
 echo URL: http://127.0.0.1:%DASHBOARD_PORT%
 echo.
 
-start "OptunaDashboard" cmd /k "optuna-dashboard sqlite:///optuna.db --port %DASHBOARD_PORT% --host %DASHBOARD_HOST% --allow-unsafe --artifact-dir artifacts"
+set "OPTUNA_DASHBOARD_EXE=%~dp0..\.venv\Scripts\optuna-dashboard.exe"
+if not exist "%OPTUNA_DASHBOARD_EXE%" (
+    echo [ERROR] Python tool was not found: "%OPTUNA_DASHBOARD_EXE%"
+    exit /b 1
+)
+
+start "OptunaDashboard" cmd /k ""%OPTUNA_DASHBOARD_EXE%" sqlite:///optuna.db --port %DASHBOARD_PORT% --host %DASHBOARD_HOST% --allow-unsafe --artifact-dir artifacts"
 timeout /t 3 /nobreak >nul
 start "" "http://127.0.0.1:%DASHBOARD_PORT%"
 

@@ -117,5 +117,5 @@ Actor・target・追加診断は u/v を更新しない。ただし、正規化�
 - [NN 設計](../design/130_neural_networks.jp.md): 現行 SN の計算・状態・診断契約。
 - [ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md): 現行 SN の近似・buffer・更新条件を選んだ理由。
 - [SN PRD 065](done/065_nn_spectral_norm_10prd.md): 既存 SN の受け入れ条件。
-- [SN 推定の実装](../../core/anet-core/src/nn_impl.cpp)、[module からの更新ゲート](../../core/anet-core/src/nn_modules.cpp)、[Atari 設定](../../apps/runner/config/Atari.txt)。
+- [SN 推定の実装](../../src/core/base/src/nn_impl.cpp)、[module からの更新ゲート](../../src/core/base/src/nn_modules.cpp)、[Atari 設定](../../apps/runner/config/Atari.txt)。
 - 2026-10-02 のレビュー指摘 A.1: §2.2 の数値の提供元。再現用資材の保存は正式化前の作業として残す。

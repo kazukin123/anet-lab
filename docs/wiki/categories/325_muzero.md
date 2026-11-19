@@ -35,8 +35,13 @@
 
 点検が作り直す。手で直さない。
 
-- [muzero_proto_agent.hpp](../../../core/anet-core/include/anet/muzero_proto_agent.hpp)
-- [muzero_proto_agent.cpp](../../../core/anet-core/src/muzero_proto_agent.cpp)
+- [CMakeLists.txt](../../../src/algo/muzero/CMakeLists.txt)
+- [muzero.hpp](../../../src/algo/muzero/include/anet/algo/muzero.hpp)
+- [muzero.cpp](../../../src/algo/muzero/src/muzero.cpp)
+- [muzero_actor_test.cpp](../../../src/algo/muzero/src/muzero_actor_test.cpp)
+- [muzero_config_baseline_test.cpp](../../../src/algo/muzero/src/muzero_config_baseline_test.cpp)
+- [muzero_proto_agent.cpp](../../../src/algo/muzero/src/muzero_proto_agent.cpp) / [muzero_proto_agent.hpp](../../../src/algo/muzero/src/muzero_proto_agent.hpp)
+- [prd101_muzero_test.cpp](../../../src/algo/muzero/src/prd101_muzero_test.cpp)
 
 ## PRD の一覧
 
@@ -47,6 +52,7 @@
 - [PRD065](../../memo/done/065_nn_spectral_norm_10prd.md) — NN Spectral Normalization（weight_norm.mode）PRD
 - [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
 - [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 
@@ -61,7 +67,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 未着手 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD161](../../memo/161_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
 | [issue-20261110-d21e5f](../../management/issues/issue-20261110-d21e5f.md) | 未着手 | 1.2 | — | 成果物 | PRD | 318_rl_core, 325_muzero | 学習基盤 | 不具合 | — | 未確認 | MuZeroのReplayで、truncatedで終わるときに補う価値が、打ち切った次の状態ではなく最後のstep自身のroot_valueになっている |
 | [issue-20261103-f993bc](../../management/issues/issue-20261103-f993bc.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 325_muzero, 315_nn | 学習基盤 | リファクタリング | [PRD164](../../memo/164_nn_forward_amp_consolidation_10prd.md) | 残件有り | NN 実行設定への AMP の集約（全 Agent 対象） |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 調査中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 
 着手できる 6 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

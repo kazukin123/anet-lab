@@ -116,14 +116,14 @@ uniform samplerでもPERの既知scalarキーは公開し、PER無効時の値�
 
 | 領域 | 主なファイル |
 |---|---|
-| Experience/Replay interface | [rl.hpp](../../core/anet-core/include/anet/rl.hpp) |
-| Replay config/factory/prefetch | [replay_buffer.hpp](../../core/anet-core/include/anet/replay_buffer.hpp) |
-| Replay内部component | [replay_buffer_impl.hpp](../../core/anet-core/src/replay_buffer_impl.hpp)、[replay_buffer_impl.cpp](../../core/anet-core/src/replay_buffer_impl.cpp) |
-| device transfer | [transfer.hpp](../../core/anet-core/include/anet/transfer.hpp)、[transfer.cpp](../../core/anet-core/src/transfer.cpp) |
-| frame stack | [stacker.hpp](../../core/anet-core/include/anet/stacker.hpp)、[stacker.cpp](../../core/anet-core/src/stacker.cpp) |
-| Runner側Experience生成 | [trainer.cpp](../../core/anet-core/src/trainer.cpp) |
+| Experience/Replay interface | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
+| Replay config/factory/prefetch | [replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp) |
+| Replay内部component | [replay_buffer_impl.hpp](../../src/core/base/src/replay_buffer_impl.hpp)、[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) |
+| device transfer | [transfer.hpp](../../src/core/base/include/anet/transfer.hpp)、[transfer.cpp](../../src/core/base/src/transfer.cpp) |
+| frame stack | [stacker.hpp](../../src/core/base/include/anet/stacker.hpp)、[stacker.cpp](../../src/core/base/src/stacker.cpp) |
+| Runner側Experience生成 | [trainer.cpp](../../src/core/base/src/trainer.cpp) |
 | DQN側利用 | [DQN系Agent](200_dqn_agents.jp.md) |
-| test | [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp) |
+| test | [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp) |
 
 ## 5. 静的構造
 
@@ -217,7 +217,7 @@ Pushはn-stepの確定とは別に、各遷移の1-step reward、done／truncate
 
 window指定時のsampleable範囲は未来側に`max(1, n_step, J)`の遅れを置く。Sample、一様非復元sample、抽選履歴probe、件数が同じ範囲を使う。容量下限にもこの遅れを含める。PER初期優先度の完成とeviction統計は従来のn-step ready範囲を使う。規則が無ければwindowは空で、追加の乱数を使わない。
 
-可変長windowの追加規則は `CreateActionChangeWindowRule(J)`（起点と同じ行動の連続区間）と `CreateEpisodeEndWindowRule(J)`（行動も判断も問わない区間）で構築する。前者は異なる行動のslotの直前で閉じ、後者は行動変化でも閉じない。いずれも判断の旗を無視し、done/truncatedの遷移を含めて閉じ、上限Jで止まる。区間内のdummyはエラー。samplingの候補範囲・kの一様抽選・PER・転送の契約は規則間で共通である。[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)に境界・短縮Runの確認手順がある。
+可変長windowの追加規則は `CreateActionChangeWindowRule(J)`（起点と同じ行動の連続区間）と `CreateEpisodeEndWindowRule(J)`（行動も判断も問わない区間）で構築する。前者は異なる行動のslotの直前で閉じ、後者は行動変化でも閉じない。いずれも判断の旗を無視し、done/truncatedの遷移を含めて閉じ、上限Jで止まる。区間内のdummyはエラー。samplingの候補範囲・kの一様抽選・PER・転送の契約は規則間で共通である。[PRD104検証資材](../../src/core/base/testdata/prd104/README.md)に境界・短縮Runの確認手順がある。
 
 ### 6.2 1-deep prefetchとCUDA転送
 
@@ -357,16 +357,16 @@ Prefetching版は既存probeと同じFIFO待機を行い、受理済みPushとpr
 
 ## 8. テストと拡張時の確認事項
 
-- [PRD121検証資材](../../core/anet-core/testdata/prd121/README.md): 成分ごとの収益と割引、定数の保持とscheduleの再計算、初期優先度、窓拒否、1成分の同一性。
+- [PRD121検証資材](../../src/core/base/testdata/prd121/README.md): 成分ごとの収益と割引、定数の保持とscheduleの再計算、初期優先度、窓拒否、1成分の同一性。
 
-- [PRD128検証資材](../../core/anet-core/testdata/prd128/README.md): 全フィールドの転送・走査・文字列化、CPU/CUDAでの未定義保持、変更前の実行体との比較。
-- [PRD104検証資材](../../core/anet-core/testdata/prd104/README.md): action_change・episode_endの窓、終了・dummy・ring wrap・転送の確認。
+- [PRD128検証資材](../../src/core/base/testdata/prd128/README.md): 全フィールドの転送・走査・文字列化、CPU/CUDAでの未定義保持、変更前の実行体との比較。
+- [PRD104検証資材](../../src/core/base/testdata/prd104/README.md): action_change・episode_endの窓、終了・dummy・ring wrap・転送の確認。
 
-PRD101の段階別比較・短い実Run・7環境全キー比較は[PRD101検証資材](../../core/anet-core/testdata/prd101/README.md)を使う。
+PRD101の段階別比較・短い実Run・7環境全キー比較は[PRD101検証資材](../../src/core/base/testdata/prd101/README.md)を使う。
 
-可変窓の判断境界・終端・truncated・stack・ring折返し・一様抽選・sampleable遅延は [PRD098検証資材](../../core/anet-core/testdata/prd098/README.md) の公開 ReplayBuffer テストを使う。window を追加する実装は通常転送・prefetch・probe経路も含め、規則無しのRNGとsample列を維持する。
+可変窓の判断境界・終端・truncated・stack・ring折返し・一様抽選・sampleable遅延は [PRD098検証資材](../../src/core/base/testdata/prd098/README.md) の公開 ReplayBuffer テストを使う。window を追加する実装は通常転送・prefetch・probe経路も含め、規則無しのRNGとsample列を維持する。
 
-[replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)には、現行source上で次のtest caseが置かれている。
+[replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)には、現行source上で次のtest caseが置かれている。
 
 - multi-envのPush/Sampleとvalid index
 - N-step、terminal、frame stack、unroll
@@ -381,7 +381,7 @@ PRD101の段階別比較・短い実Run・7環境全キー比較は[PRD101検証
 
 変更時は公開`ReplayBuffer` contractを保ち、同じseedに対するsample列、PER metadata、CPU path、CUDAが利用可能な場合の非同期pathを確認する。capacityとlane数を変更するtestでは要求容量ではなく`actual_capacity`も確認する。background workerの例外伝播やshutdown順序を変更する場合は、既存test範囲に含まれると仮定せず専用回帰testを追加する。
 
-384条件のmatrixは`[.][integrity_assay]`で通常suiteと`[replay_buffer]`から除外する。全条件は`core/anet-core/testdata/prd078/run_integrity_assay.py`でcase別processとして実行し、固定seed、完了標記、timeout、終了コードを記録する。手順は[testdata/prd078/README.md](../../core/anet-core/testdata/prd078/README.md)を参照する。
+384条件のmatrixは`[.][integrity_assay]`で通常suiteと`[replay_buffer]`から除外する。全条件は`src/core/base/testdata/prd078/run_integrity_assay.py`でcase別processとして実行し、固定seed、完了標記、timeout、終了コードを記録する。手順は[testdata/prd078/README.md](../../src/core/base/testdata/prd078/README.md)を参照する。
 
 ## 9. 関連文書
 

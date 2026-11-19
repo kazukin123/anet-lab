@@ -45,12 +45,12 @@ target の動き、生成方策やデータの新しさ、PER の選択、分布
 
 | 事実 | 根拠・設計への含意 |
 |---|---|
-| `sampled_once_` は通常 `Sample` の抽選時に立ち、slot の再利用時に戻る | [ReplayBuffer 実装](../../../core/anet-core/src/replay_buffer_impl.cpp)の `MarkSampledOnce`、`Push`。optimizer 完了や観測の既知・未知を表さない |
+| `sampled_once_` は通常 `Sample` の抽選時に立ち、slot の再利用時に戻る | [ReplayBuffer 実装](../../../src/core/base/src/replay_buffer_impl.cpp)の `MarkSampledOnce`、`Push`。optimizer 完了や観測の既知・未知を表さない |
 | `07_evicted_unsampled_ratio` は退去時の集計である | `RecordEvictionIfSampleable` は上書き対象の ready 判定を使う。現在の sampleable 集合内の未抽選率ではなく、RR4 の未抽選群が不足するという判断には使えない |
 | PER は各抽選で優先度総量に対する乱数を引く | `SampleIndices` の現行処理を層化抽出と説明しない |
 | 保存済み RR4 構成は `per_initial_priority_mode = max` | [実効設定の保存記録](../../experiments/default-dqn/atari/config/run_20260908-073326_rr4_capall_munch.txt)。一様抽選を仮定した「直近1万件の約96%が未学習」という算術は保証にならない |
 | `SampleUniqueUniform` は caller-owned RNG を使い、通常抽選の履歴・優先度を変更しない | 既存の抽出・snapshot・prefetch の非干渉契約を新 API に引き継ぐ |
-| plasticity は特徴までの部分 forward、policy churn は専用バッチの FP32 評価である | [DQN 実装](../../../core/anet-core/src/dqn_based_agent.cpp)の `CapturePlasticityProbe`、`ForwardPolicyChurnExpectedQ`。TD 計算済みの経路があるとはみなさない |
+| plasticity は特徴までの部分 forward、policy churn は専用バッチの FP32 評価である | [DQN 実装](../../../src/core/base/src/dqn_based_agent.cpp)の `CapturePlasticityProbe`、`ForwardPolicyChurnExpectedQ`。TD 計算済みの経路があるとはみなさない |
 | QR / IQN の期待値 TD と分位点回帰損失は別の量である | `UpdateFromSamples` と方式別の loss helper。期待値 TD は PER 更新に使われ、分布回帰の目的関数ではない |
 | 群番号41は使用済みである | [現行 scalar 定義](../../../apps/runner/config/metrics_scalar.txt)の `41_agent_on`。本機能は `46_agent_replay_fit` を使う |
 

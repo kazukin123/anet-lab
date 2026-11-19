@@ -102,7 +102,7 @@ flowchart TB
         tools["補助ツール<br/>Optuna / TensorBoard / MLflow"]
     end
 
-    subgraph core["core/anet-core"]
+    subgraph core["src/core/base"]
         config["設定管理"]
         runtime["RunManager / Runner"]
         agent["Agent / Actor / Learner"]
@@ -143,15 +143,28 @@ flowchart TB
 
 | パス | 主な内容 |
 |---|---|
-| `core/anet-core/include/anet/` | フレームワークの公開ヘッダ |
-| `core/anet-core/src/` | 共通基盤、Agent、NN、ReplayBuffer、Observer、テスト |
-| `core/envs/` | CartPole、LunarLander、DropMerge、GridMaze、ImageCls の Env 実装 |
+| `src/core/base/include/anet/` | フレームワークの公開ヘッダ |
+| `src/core/base/src/` | 共通基盤、Agent、NN、ReplayBuffer、Observer、テスト |
+| `src/algo/` | DQN、MuZero、ImageCls の Agent 実装と系統別テスト |
+| `src/env/` | CartPole、LunarLander、DropMerge、GridMaze、ImageCls の Env 実装 |
 | `apps/runner/` | `AnetRLRunner`、画面パネル、設定、起動・分析用スクリプト |
 | `apps/metrics-viewer/` | Java/Spring 製 Metrics Viewer |
-| `viewers/metrics-tools/` | Python 製 viewer、TensorBoard・MLflow bridge |
+| `apps/tools/` | Python 製 viewer、TensorBoard・MLflow bridge |
 | `docs/design/` | 現行の概要、利用方法、設計 |
 | `docs/adr/` | 採用した設計判断 |
 | `docs/memo/` | 要求、計画、検討中の変更 |
+
+### 4.3 拡張点
+
+| 拡張点 | interface | 部品 | 登録口 | 基盤の外で書けるか | 実例 |
+|---|---|---|---|---|---|
+| Env | `EnvFactory`、`Env` | `anet/env.hpp` の基底型 | `EnvRepository::Regist` | 書ける | GridMaze |
+| View | `ViewCreator` | `anet/gui.hpp` の View | `RegisterViewCreator` | 書ける | GridMaze の View |
+| Agent | `AgentFactory`、`Agent`、`Actor` | `anet/agent.hpp`、`anet/rl.hpp` | `RegisterAgentFactory` | 書ける | DefaultDQN |
+| NN Head | `NetworkHead`、`NetworkHeadFactory` | `anet/nn_head.hpp` の実行器、初期化、汎用 Head | `NetworkBuilder::BuildNetwork` の Head factory | 書ける | Dueling Head |
+| NN module | `NetworkModule` | `anet/nn_head.hpp` に見える基底型 | 内部の module 登録口 | 登録口が非公開のため書けない | Linear module |
+| Observer | `Observer` | `anet/rl.hpp`、`anet/observers.hpp` | `Notifier::Attach` | コードで付けるなら書ける | ScalarObserver |
+| ReplayBuffer | `ReplayBuffer` | `anet/replay_buffer.hpp`、`anet/replay_experience.hpp` | 共通 ReplayBuffer の実装内部 | 差し替えはできない | N-step の ReplayBuffer |
 
 ## 5. 機能一覧
 

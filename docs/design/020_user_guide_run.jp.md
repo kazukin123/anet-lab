@@ -35,7 +35,7 @@
 引数を省略したrunnerはworkspace選択ダイアログを表示し、選択したworkspaceの`config/_main.txt`からEnvを選ぶ。共通の`apps/runner/config/_main.txt`はAgent、Network、metric等だけを読み、Env選択はworkspace側へ分離される。新規workspace、および既存ディレクトリの初回選択時に不足しているworkspace configは、`apps/runner/config/_workspace_template.txt`を`config/_main.txt`へコピーして作成される。テンプレートの既定Envは`LunarLander_cpu.txt`で、`LunarLander.txt`を読み込んだうえでCPUでも軽い`run.@cpu`(QR、BF16なし)を選ぶ。GPU向けの構成は`LunarLander.txt`を直接選ぶ。
 
 ```text
-# apps/runner/workspaces/<workspace>/config/_main.txt
+# data/workspaces/<workspace>/config/_main.txt
 #$include <LunarLander.txt>
 $include <DropMerge.txt>
 ```
@@ -304,7 +304,7 @@ X.key ?= v              既定キー。X.$ に負ける
 運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な設定キーだけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
 
 ```bash
-.\.venv\Scripts\python.exe core/anet-core/testdata/prd072/check_default_leaves.py
+.\.venv\Scripts\python.exe src/core/base/testdata/prd072/check_default_leaves.py
 ```
 
 `rg`(ripgrep)がPATHに必要である。意図的に`=`で書く既定値(`DropMerge_optuna.txt`のseed等)は検査器の分類理由に登録する。
@@ -403,7 +403,7 @@ run.@breakout : app.run_name = run_{t}_breakout
 10_run.bat
 ```
 
-履歴が空の初回起動では、同梱のENV別workspaceがあっても`_default`が新規名として入力済みの選択ダイアログが開く。履歴、`workspaces/`直下の全ディレクトリ一覧、任意パス参照、新規名から選択できる。過去Runだけを移動したフォルダなど`config/_main.txt`が無い既存ディレクトリも一覧に出て、選択時に不足configだけが補完される。新規名は入力中に検証され、不正理由が入力欄の下へ表示されている間はOKを選択できない。`--workspace dm_long`で相対workspaceを直接指定し、`--select-workspace`でスキップ設定に関係なくダイアログを表示できる。相対パスは`apps/runner/workspaces/`基準、絶対パスも使用できる。入力の外側空白は除去され、`#`、`//`、末尾`;`、UNC pathは拒否される。
+履歴が空の初回起動では、同梱のENV別workspaceがあっても`_default`が新規名として入力済みの選択ダイアログが開く。履歴、`workspaces/`直下の全ディレクトリ一覧、任意パス参照、新規名から選択できる。過去Runだけを移動したフォルダなど`config/_main.txt`が無い既存ディレクトリも一覧に出て、選択時に不足configだけが補完される。新規名は入力中に検証され、不正理由が入力欄の下へ表示されている間はOKを選択できない。`--workspace dm_long`で相対workspaceを直接指定し、`--select-workspace`でスキップ設定に関係なくダイアログを表示できる。相対パスは`data/workspaces/`基準、絶対パスも使用できる。入力の外側空白は除去され、`#`、`//`、末尾`;`、UNC pathは拒否される。
 
 または、リポジトリルートから実行ファイルとmain configを明示する。
 
@@ -611,7 +611,9 @@ FPSが0のときは再生を開始できません。再生中に0へ変更した
 
 ## 7. 成果物
 
-workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`apps/runner/workspaces/dm_long/runs/<run_name>/`へ保存される。絶対パスworkspaceでも同様に、そのworkspaceの`runs/`配下へ保存される。
+workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`data/workspaces/dm_long/runs/<run_name>/`へ保存される。絶対パスworkspaceでも同様に、そのworkspaceの`runs/`配下へ保存される。
+
+設定ファイルを直接指定して起動した場合、相対の `app.runs_dir` は `data/` を基準に解決します。既定の出力先は `data/runs/` です。
 
 | 成果物 | 内容 |
 |---|---|

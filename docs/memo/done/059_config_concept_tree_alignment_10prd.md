@@ -513,7 +513,7 @@ grill スキルの final simplification pass(done/058_grill_simplification_pass_
 
 ## 付録 A. 現行機構の事実(v1 §1.3 / §1.4、コード確認済み)
 
-合成機構は `ConfigManager::AutoMerge`([config.cpp](../../../core/anet-core/src/config.cpp) の `MERGE_KEYWORD = ".$"` 以下、約 60 行)が全て。
+合成機構は `ConfigManager::AutoMerge`([config.cpp](../../../src/core/base/src/config.cpp) の `MERGE_KEYWORD = ".$"` 以下、約 60 行)が全て。
 
 | 事実 | 根拠 |
 |---|---|

@@ -62,7 +62,7 @@
 - 2026-10-28: skipの合算・遮断に加え、loss別のAdamで更新するsplitと評価セッションの集約値を接続した（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§5.2・§5.4・§5.8）。
 - 2026-10-29: Actorごとに毎step判断するsingleと上限を時間で変えるvariableを選べるようにした（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.1・§5.3・§5.9）。
 - 2026-10-30: Actor共通の設定へskip側のNN実行設定のモードとキーを足した（出典: [PRD106](../../memo/done/106_temporl_skip_forward_noise_key_10prd.md)、§5.1・§5.6）。
-- 2026-11-10: dqn_based_agent.hppに`#pragma once`を足し、`BatchUpdateResult::GetScalar`の本体と補助を.cppへ移して、名前を解析して受ける群の関数と、直接比べるkeyの表に分ける仕様を定めた（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D5〜D8）。
+- 2026-11-10: DQN共用ヘッダに`#pragma once`を足し、`BatchUpdateResult::GetScalar`の本体と補助を.cppへ移して、名前を解析して受ける群の関数と、直接比べるkeyの表に分ける仕様を定めた（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D5〜D8）。
 - 2026-11-11: RNDのwhitenで、warm-up中の誤差を誤差の統計から外す既定と、誤差の統計の取り方（累積・直近重み）、平均を引くかの選択を足す仕様をグリルで決めた（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、題・§1・§4 D2・D4・D7）。
 - 2026-11-12: TD・QR・IQNの1回の更新の進行を基底の学習器の1か所へ寄せ、Munchausenの評価とtargetの式を共通の関数にする仕様をグリルで決めた（出典: [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md)、題・§1・§4 D1・D2・D10・D11）。
 - 2026-11-12: Actorがnn_traceを要求された呼び出しだけcaptureで取り出し、SelectAction系がcallbackの代わりにcaptureを受ける仕様をグリルで決めた（出典: [PRD170](../../memo/170_nn_trace_capture_unification_10prd.md)、§4 D7・D9・D11・D12）。
@@ -194,16 +194,25 @@
 
 点検が作り直す。手で直さない。
 
-- [agent.hpp](../../../core/anet-core/include/anet/agent.hpp)
-- [intrinsic.hpp](../../../core/anet-core/include/anet/intrinsic.hpp)
-- [agent.cpp](../../../core/anet-core/src/agent.cpp)
-- [dqn_based_test.cpp](../../../core/anet-core/src/dqn_based_test.cpp)
-- [dqn_based_agent.cpp](../../../core/anet-core/src/dqn_based_agent.cpp) / [dqn_based_agent.hpp](../../../core/anet-core/src/dqn_based_agent.hpp) / [dqn_based_agent_test.cpp](../../../core/anet-core/src/dqn_based_agent_test.cpp)
-- [dqn_based_heads.cpp](../../../core/anet-core/src/dqn_based_heads.cpp) / [dqn_based_heads.hpp](../../../core/anet-core/src/dqn_based_heads.hpp)
-- [dqn_munchausen_test.cpp](../../../core/anet-core/src/dqn_munchausen_test.cpp)
-- [intrinsic.cpp](../../../core/anet-core/src/intrinsic.cpp) / [intrinsic_test.cpp](../../../core/anet-core/src/intrinsic_test.cpp)
-- [intrinsic_rnd.cpp](../../../core/anet-core/src/intrinsic_rnd.cpp) / [intrinsic_rnd.hpp](../../../core/anet-core/src/intrinsic_rnd.hpp)
-- [muzero_based_agent.cpp](../../../core/anet-core/src/muzero_based_agent.cpp) / [muzero_based_agent.hpp](../../../core/anet-core/src/muzero_based_agent.hpp)
+- [dqn_based_test.cpp](../../../src/algo/dqn/src/dqn_based_test.cpp)
+- [dqn_based_actor.cpp](../../../src/algo/dqn/src/dqn_based_actor.cpp) / [dqn_based_actor.hpp](../../../src/algo/dqn/src/dqn_based_actor.hpp) / [dqn_based_actor_test.cpp](../../../src/algo/dqn/src/dqn_based_actor_test.cpp)
+- [dqn_based_assembler.cpp](../../../src/algo/dqn/src/dqn_based_assembler.cpp) / [dqn_based_assembler.hpp](../../../src/algo/dqn/src/dqn_based_assembler.hpp) / [dqn_based_assembler_test.cpp](../../../src/algo/dqn/src/dqn_based_assembler_test.cpp)
+- [dqn_based_config.cpp](../../../src/algo/dqn/src/dqn_based_config.cpp) / [dqn_based_config.hpp](../../../src/algo/dqn/src/dqn_based_config.hpp)
+- [dqn_based_heads.cpp](../../../src/algo/dqn/src/dqn_based_heads.cpp) / [dqn_based_heads.hpp](../../../src/algo/dqn/src/dqn_based_heads.hpp)
+- [dqn_based_learner.cpp](../../../src/algo/dqn/src/dqn_based_learner.cpp) / [dqn_based_learner.hpp](../../../src/algo/dqn/src/dqn_based_learner.hpp) / [dqn_based_learner_test.cpp](../../../src/algo/dqn/src/dqn_based_learner_test.cpp)
+- [dqn_based_math.cpp](../../../src/algo/dqn/src/dqn_based_math.cpp) / [dqn_based_math.hpp](../../../src/algo/dqn/src/dqn_based_math.hpp) / [dqn_based_math_test.cpp](../../../src/algo/dqn/src/dqn_based_math_test.cpp)
+- [dqn_based_network_model.cpp](../../../src/algo/dqn/src/dqn_based_network_model.cpp) / [dqn_based_network_model.hpp](../../../src/algo/dqn/src/dqn_based_network_model.hpp) / [dqn_based_network_model_test.cpp](../../../src/algo/dqn/src/dqn_based_network_model_test.cpp)
+- [dqn_munchausen_test.cpp](../../../src/algo/dqn/src/dqn_munchausen_test.cpp)
+- [muzero_based_agent.cpp](../../../src/algo/muzero/src/muzero_based_agent.cpp) / [muzero_based_agent.hpp](../../../src/algo/muzero/src/muzero_based_agent.hpp)
+- [agent.hpp](../../../src/core/base/include/anet/agent.hpp)
+- [intrinsic.hpp](../../../src/core/base/include/anet/intrinsic.hpp)
+- [agent.hpp](../../../src/core/base/include/anet/test/agent.hpp)
+- [intrinsic.hpp](../../../src/core/base/include/anet/test/intrinsic.hpp)
+- [agent.cpp](../../../src/core/base/src/agent.cpp)
+- [intrinsic.cpp](../../../src/core/base/src/intrinsic.cpp) / [intrinsic_test.cpp](../../../src/core/base/src/intrinsic_test.cpp)
+- [intrinsic_rnd.cpp](../../../src/core/base/src/intrinsic_rnd.cpp) / [intrinsic_rnd.hpp](../../../src/core/base/src/intrinsic_rnd.hpp)
+- [agent.cpp](../../../src/core/base/src/test/agent.cpp)
+- [intrinsic.cpp](../../../src/core/base/src/test/intrinsic.cpp)
 
 ## PRD の一覧
 
@@ -244,6 +253,7 @@
 - [PRD129](../../memo/129_eval_trace_bonus_beta_before_learning_10prd.md) — Evaluation Trace のボーナスの β を、学習の入口を通る前から用意する PRD
 - [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) — PRD130: RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける PRD
 - [PRD170](../../memo/170_nn_trace_capture_unification_10prd.md) — PRD170: forward の名前付き出力を capture に一本化し、nn_trace を要求した step だけ作る PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 
@@ -294,7 +304,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-4a2b5e](../../management/issues/issue-20261103-4a2b5e.md) | 未着手 | 0.5 | — | 成果物 | PRD | 315_nn, 321_agent_core | アルゴリズム | リファクタリング | [PRD165](../../memo/165_nn_head_projection_separation_10prd.md) | 残件有り | NN Head の最終射影と出力変換の責務分離 |
 | [issue-20261103-f993bc](../../management/issues/issue-20261103-f993bc.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 325_muzero, 315_nn | 学習基盤 | リファクタリング | [PRD164](../../memo/164_nn_forward_amp_consolidation_10prd.md) | 残件有り | NN 実行設定への AMP の集約（全 Agent 対象） |
 | [issue-20261115-d3e094](../../management/issues/issue-20261115-d3e094.md) | 未着手 | 0.5 | — | 成果物 | その他 | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDの改良版のSND（targetも自己教師で学ぶ蒸留）を、RNDの評価が落ち着いたあとに試すかを検討する |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 調査中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [PRD142](../../memo/142_agent_prev_action_obs_10prd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
 | [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 成果物 | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD167](../../memo/167_smdp_transition_duration_10prd.md) | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す） |

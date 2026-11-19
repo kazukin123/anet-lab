@@ -66,31 +66,32 @@
 
 点検が作り直す。手で直さない。
 
-- [app_util.hpp](../../../core/anet-core/include/anet/app_util.hpp)
-- [common.hpp](../../../core/anet-core/include/anet/common.hpp)
-- [diag.hpp](../../../core/anet-core/include/anet/diag.hpp)
-- [exception.hpp](../../../core/anet-core/include/anet/exception.hpp)
-- [init.hpp](../../../core/anet-core/include/anet/init.hpp)
-- [json_util.hpp](../../../core/anet-core/include/anet/json_util.hpp)
-- [log.hpp](../../../core/anet-core/include/anet/log.hpp)
-- [random.hpp](../../../core/anet-core/include/anet/random.hpp)
-- [schedule.hpp](../../../core/anet-core/include/anet/schedule.hpp)
-- [str_util.hpp](../../../core/anet-core/include/anet/str_util.hpp)
-- [thread.hpp](../../../core/anet-core/include/anet/thread.hpp)
-- [util.hpp](../../../core/anet-core/include/anet/util.hpp)
-- [app_util.cpp](../../../core/anet-core/src/app_util.cpp) / [app_util_test.cpp](../../../core/anet-core/src/app_util_test.cpp)
-- [app_util_impl.hpp](../../../core/anet-core/src/app_util_impl.hpp)
-- [common.cpp](../../../core/anet-core/src/common.cpp)
-- [diag.cpp](../../../core/anet-core/src/diag.cpp)
-- [exception.cpp](../../../core/anet-core/src/exception.cpp) / [exception_test.cpp](../../../core/anet-core/src/exception_test.cpp)
-- [init.cpp](../../../core/anet-core/src/init.cpp) / [init_test.cpp](../../../core/anet-core/src/init_test.cpp)
-- [json_util.cpp](../../../core/anet-core/src/json_util.cpp)
-- [log.cpp](../../../core/anet-core/src/log.cpp) / [log_test.cpp](../../../core/anet-core/src/log_test.cpp)
-- [random.cpp](../../../core/anet-core/src/random.cpp)
-- [schedule.cpp](../../../core/anet-core/src/schedule.cpp) / [schedule_test.cpp](../../../core/anet-core/src/schedule_test.cpp)
-- [str_util.cpp](../../../core/anet-core/src/str_util.cpp)
-- [thread.cpp](../../../core/anet-core/src/thread.cpp) / [thread_test.cpp](../../../core/anet-core/src/thread_test.cpp)
-- [util.cpp](../../../core/anet-core/src/util.cpp) / [util_test.cpp](../../../core/anet-core/src/util_test.cpp)
+- [app_util.hpp](../../../src/core/base/include/anet/app_util.hpp)
+- [common.hpp](../../../src/core/base/include/anet/common.hpp)
+- [diag.hpp](../../../src/core/base/include/anet/diag.hpp)
+- [exception.hpp](../../../src/core/base/include/anet/exception.hpp)
+- [init.hpp](../../../src/core/base/include/anet/init.hpp)
+- [json_util.hpp](../../../src/core/base/include/anet/json_util.hpp)
+- [log.hpp](../../../src/core/base/include/anet/log.hpp)
+- [random.hpp](../../../src/core/base/include/anet/random.hpp)
+- [schedule.hpp](../../../src/core/base/include/anet/schedule.hpp)
+- [str_util.hpp](../../../src/core/base/include/anet/str_util.hpp)
+- [util.hpp](../../../src/core/base/include/anet/test/util.hpp)
+- [thread.hpp](../../../src/core/base/include/anet/thread.hpp)
+- [util.hpp](../../../src/core/base/include/anet/util.hpp)
+- [app_util.cpp](../../../src/core/base/src/app_util.cpp) / [app_util_test.cpp](../../../src/core/base/src/app_util_test.cpp)
+- [app_util_impl.hpp](../../../src/core/base/src/app_util_impl.hpp)
+- [common.cpp](../../../src/core/base/src/common.cpp)
+- [diag.cpp](../../../src/core/base/src/diag.cpp)
+- [exception.cpp](../../../src/core/base/src/exception.cpp) / [exception_test.cpp](../../../src/core/base/src/exception_test.cpp)
+- [init.cpp](../../../src/core/base/src/init.cpp) / [init_test.cpp](../../../src/core/base/src/init_test.cpp)
+- [json_util.cpp](../../../src/core/base/src/json_util.cpp)
+- [log.cpp](../../../src/core/base/src/log.cpp) / [log_test.cpp](../../../src/core/base/src/log_test.cpp)
+- [random.cpp](../../../src/core/base/src/random.cpp)
+- [schedule.cpp](../../../src/core/base/src/schedule.cpp) / [schedule_test.cpp](../../../src/core/base/src/schedule_test.cpp)
+- [str_util.cpp](../../../src/core/base/src/str_util.cpp)
+- [thread.cpp](../../../src/core/base/src/thread.cpp) / [thread_test.cpp](../../../src/core/base/src/thread_test.cpp)
+- [util.cpp](../../../src/core/base/src/util.cpp) / [util_test.cpp](../../../src/core/base/src/util_test.cpp)
 
 ## PRD の一覧
 
@@ -106,6 +107,7 @@
 - [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
 - [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md) — PRD122: 小さなリファクタリングとテストの空白をまとめて片づける
 - [PRD170](../../memo/170_nn_trace_capture_unification_10prd.md) — PRD170: forward の名前付き出力を capture に一本化し、nn_trace を要求した step だけ作る PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 
@@ -123,7 +125,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-df24e5](../../management/issues/issue-20261103-df24e5.md) | 未着手 | 1.4 | — | 成果物 | 監査 | 312_util | 基盤 | 不具合 | — | 判定不能 | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | 成果物 | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD154](../../memo/154_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | 成果物 | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | アルゴリズム | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 調査中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 
 着手できる 9 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

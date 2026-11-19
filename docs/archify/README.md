@@ -31,12 +31,12 @@ ActorRequest による生成、学習側 counts、評価セッション、背景
 
 ## 主なコード根拠
 
-- 起動と終了: [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) の `OnInit`、`OnRun`、`OnExit`、`OnExceptionInMainLoop`。
-- Actor 生成と実行: [trainer.cpp](../../core/anet-core/src/trainer.cpp) の `RunManager`、`SerialTrainRunner::DoStep`、`EvalRunner::RunSession`。
-- Actor カタログ: [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) の `CreateActor`、[rl.hpp](../../core/anet-core/include/anet/rl.hpp) の `ActorRequest`。
-- 行動と学習: [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の `Actor::MakeAction`、`Learner::UpdateFromBatch`。
-- 評価と通知: [observers.cpp](../../core/anet-core/src/observers.cpp) の `EpisodeEvalObserver`、[util.hpp](../../core/anet-core/include/anet/util.hpp) の `IntervalGate`。
-- Metrics の書き手: [metrics_logger.cpp](../../core/anet-core/src/metrics_logger.cpp)。読み手: [MetricsSource.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java)。cache の扱い: [ADR0015](../adr/0015-metrics-cache-disposable-derivative.md)。
+- 起動と終了: [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) の `OnInit`、`OnRun`、`OnExit`、`OnExceptionInMainLoop`。
+- Actor 生成と実行: [trainer.cpp](../../src/core/base/src/trainer.cpp) の `RunManager`、`SerialTrainRunner::DoStep`、`EvalRunner::RunSession`。
+- Actor カタログ: [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) の `CreateActor`、[rl.hpp](../../src/core/base/include/anet/rl.hpp) の `ActorRequest`。
+- 行動と学習: [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `Actor::MakeAction`、`Learner::UpdateFromBatch`。
+- 評価と通知: [observers.cpp](../../src/core/base/src/observers.cpp) の `EpisodeEvalObserver`、[util.hpp](../../src/core/base/include/anet/util.hpp) の `IntervalGate`。
+- Metrics の書き手: [metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp)。読み手: [MetricsSource.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java)。cache の扱い: [ADR0015](../adr/0015-metrics-cache-disposable-derivative.md)。
 
 ## doc/code drift
 

@@ -130,4 +130,4 @@ AMP 集約、Head 分離、ノイズ込み重みの SN、完全な Run 再開は
 - Atari結合: AMP継承call/batch・FP32 episode/sampleの2本は500k経験・exit0・eval各2回・probe各10回。readout4統計とfeatureの正常なNaNを確認。
 - 性能: 11比較を2反復のA/B/A/B、計44Runで実測し、全Run exit0。比較軸以外の全設定、実行体、交互順、診断の実行有無を照合。速度・スコアの改善を合否条件にしていない。
 
-実行体SHA・Run名・数値比較・性能表は[専用検証記録](../../../core/anet-core/testdata/prd084/verification.md)。基準・Run・checkpoint・設定・ログは `.scratch/prd084/old/` / `new/final-verified/` / `performance-final/` に保持する。
+実行体SHA・Run名・数値比較・性能表は[専用検証記録](../../../src/core/base/testdata/prd084/verification.md)。基準・Run・checkpoint・設定・ログは `.scratch/prd084/old/` / `new/final-verified/` / `performance-final/` に保持する。

@@ -15,7 +15,7 @@ server、Metrics キャッシュ、HTTP API は変更しない。
 
 ## 主な変更
 
-### 1. [index.html](../../../apps/metrics-viewer/src/main/resources/static/index.html)
+### 1. [index.html](../../../src/apps/metrics-viewer/src/main/resources/static/index.html)
 
 `#run-section .section-controls` へ、`Select All` / `Latest Only` の右に 2 要素を足す。チェックボックスは Tags の `Filter` と同じ inline style 形式にする。
 
@@ -27,7 +27,7 @@ server、Metrics キャッシュ、HTTP API は変更しない。
 </label>
 ```
 
-### 2. [metrics-viewer.js](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)
+### 2. [metrics-viewer.js](../../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)
 
 | 箇所 | 変更 |
 |---|---|
@@ -68,7 +68,7 @@ browser から観測できる面だけを検証し、内部関数を直接呼ば
 - Plotly の trace 色（既存の `readTraceColor`）。
 - `localStorage` の `anet.metricsviewer.autoRecolorEnabled`。
 
-追加先は [RunListPlaywrightTest](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java)。
+追加先は [RunListPlaywrightTest](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java)。
 
 ### fixture
 

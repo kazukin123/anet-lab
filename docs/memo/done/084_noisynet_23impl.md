@@ -100,7 +100,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 ```
 
 - 設定6構成の全解決値比較、BOM/LF、NN指定6ファイルのRL語0件、git diff --checkを確認する。共通部品のDQN/Noisy非依存、6Prepared削除、計算本体と直接経路の維持、Forwardからの設定解釈/検索/設定用ロック除去を監査する。
-- 元のOFF3構成と代表ON3反復の結果は[検証記録](../../../core/anet-core/testdata/prd084/forward_refactor_verification.md)に保持する。
+- 元のOFF3構成と代表ON3反復の結果は[検証記録](../../../src/core/base/testdata/prd084/forward_refactor_verification.md)に保持する。
 - 今回は最終ReleaseでOFF3本+ON1本を各500k経験で実行する。OFFは旧checksumと点数、ONは代表構成のNoisy込み109941点と完全一致を要求する。旧OFF checkpoint読込も確認する。
 - Run資材に明示出力先とON単発を追加し、.scratch/prd084/forward-refactor/review-followup-20261010/after/へ分離する。ON条件は既存代表構成と同一。全診断の成立値/NaN、複数eval/probe、正常終了を確認する。同じGPUの別学習Runがあれば測定は保留し、既存プロセスは停止しない。
 - 今回の実行体SHA、結果、変更ファイルを検証記録に追記する。以前の性能6Runは当時の実行体による測定として区別する。

@@ -6,7 +6,7 @@
 
 ## 背景と問題
 
-[observers.cpp](../../../core/anet-core/src/observers.cpp)の`MetricsLogObserverBase::GetMetricsData`、`EventField::ACTION_INFO`分岐（記録時917行）に、`BatchActionInfo`から`anet::Module`へのproduction `dynamic_cast`が残っている。[AGENTS.md](../../../AGENTS.md)のコーディング規約は、productionの`dynamic_cast`を禁止し、仮想関数・明示的interface・既存APIの拡張等による表現を求めている。
+[observers.cpp](../../../src/core/base/src/observers.cpp)の`MetricsLogObserverBase::GetMetricsData`、`EventField::ACTION_INFO`分岐（記録時917行）に、`BatchActionInfo`から`anet::Module`へのproduction `dynamic_cast`が残っている。[AGENTS.md](../../../AGENTS.md)のコーディング規約は、productionの`dynamic_cast`を禁止し、仮想関数・明示的interface・既存APIの拡張等による表現を求めている。
 
 [PRD097実装記録](097_env_auto_reset_after_notification_21impl.md)の独立レビューで見つかった既存コードで、今回の変更hunk外。PRD097の受入結果に影響する新規不具合としては扱っていない。
 

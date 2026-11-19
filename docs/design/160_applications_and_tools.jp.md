@@ -16,7 +16,7 @@
 
 ### 1.3 記載範囲
 
-現行の`apps/runner`、`apps/metrics-viewer`、`apps/runner/tools`と起動launcherを扱う。Agent、Env、学習loop、metric生成の内部は各設計文書を参照する。
+実行時の配置と起動方法を扱う。Runner と Metrics Viewer のソースは `src/apps/`、実行体と jar、設定、起動 launcher、道具は `apps/` に置く。Agent、Env、学習loop、metric生成の内部は各設計文書を参照する。
 Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存ライブラリ）は[Metrics Viewer](210_metrics_viewer.jp.md)を正本とし、本書ではprocess境界と接続だけを扱う。
 
 ## 2. コンポーネント定義
@@ -73,14 +73,14 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 
 | 領域 | 主なファイル |
 |---|---|
-| application entry、config、logging | [RunnerApp.hpp](../../apps/runner/src/RunnerApp.hpp)、[RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) |
-| workspace共通基盤 | [app_util.hpp](../../core/anet-core/include/anet/app_util.hpp)、[app_util.cpp](../../core/anet-core/src/app_util.cpp) |
-| workspace選択GUI | [WorkspaceDialog.hpp](../../apps/runner/src/WorkspaceDialog.hpp)、[WorkspaceDialog.cpp](../../apps/runner/src/WorkspaceDialog.cpp) |
-| main frame、pane、入力操作 | [RunnerFrame.hpp](../../apps/runner/src/RunnerFrame.hpp)、[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) |
-| Train View | [TrainPanel.hpp](../../apps/runner/src/TrainPanel.hpp)、[TrainPanel.cpp](../../apps/runner/src/TrainPanel.cpp) |
-| Eval View、model同期 | [EvalPanel.hpp](../../apps/runner/src/EvalPanel.hpp)、[EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) |
-| Q値・ログ・補助pane | [QValuePanel.cpp](../../apps/runner/src/QValuePanel.cpp)、[LogPanel.cpp](../../apps/runner/src/LogPanel.cpp) |
-| runtime接続 | [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp)、[trainer.cpp](../../core/anet-core/src/trainer.cpp) |
+| application entry、config、logging | [RunnerApp.hpp](../../src/apps/runner/src/RunnerApp.hpp)、[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) |
+| workspace共通基盤 | [app_util.hpp](../../src/core/base/include/anet/app_util.hpp)、[app_util.cpp](../../src/core/base/src/app_util.cpp) |
+| workspace選択GUI | [WorkspaceDialog.hpp](../../src/apps/runner/src/WorkspaceDialog.hpp)、[WorkspaceDialog.cpp](../../src/apps/runner/src/WorkspaceDialog.cpp) |
+| main frame、pane、入力操作 | [RunnerFrame.hpp](../../src/apps/runner/src/RunnerFrame.hpp)、[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) |
+| Train View | [TrainPanel.hpp](../../src/apps/runner/src/TrainPanel.hpp)、[TrainPanel.cpp](../../src/apps/runner/src/TrainPanel.cpp) |
+| Eval View、model同期 | [EvalPanel.hpp](../../src/apps/runner/src/EvalPanel.hpp)、[EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) |
+| Q値・ログ・補助pane | [QValuePanel.cpp](../../src/apps/runner/src/QValuePanel.cpp)、[LogPanel.cpp](../../src/apps/runner/src/LogPanel.cpp) |
+| runtime接続 | [trainer.hpp](../../src/core/base/include/anet/trainer.hpp)、[trainer.cpp](../../src/core/base/src/trainer.cpp) |
 | default config | [apps/runner/config](../../apps/runner/config) |
 
 離散の強制行動は、EvalPanelが初期化時に保持したActionSpecで有効範囲を確認する。範囲外なら指定値と有効範囲をstatus field 0へ英語で表示し、Runログには出さない。Live復帰・model同期より前に戻るため、環境、step数、Trace選択は変わらない。EvalRunnerも両コンストラクタで対象環境のActionSpecを保持し、直接渡された範囲外の強制行動はReset・Actor実行・Stepより前にfail-fastする。判定時にEnvSpecを再取得しない。
@@ -89,21 +89,21 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 
 | 領域 | 主なファイル |
 |---|---|
-| Spring entry/config | [MetricsViewerApplication.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java)、[application.properties](../../apps/metrics-viewer/src/main/resources/application.properties) |
-| scan/source identity | [RunScanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsSource.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
-| SQLite cache | [MetricsCacheDatabase.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java)、[MetricsIngestor.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java) |
-| scheduling/query | [IngestScheduler.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java)、[MetricsRepository.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsService.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java) |
-| REST API | [MetricsViewerController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java) |
-| browser UI | [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
+| Spring entry/config | [MetricsViewerApplication.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java)、[application.properties](../../src/apps/metrics-viewer/src/main/resources/application.properties) |
+| scan/source identity | [RunScanner.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsSource.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
+| SQLite cache | [MetricsCacheDatabase.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java)、[MetricsIngestor.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java) |
+| scheduling/query | [IngestScheduler.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java)、[MetricsRepository.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsService.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java) |
+| REST API | [MetricsViewerController.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java) |
+| browser UI | [index.html](../../src/apps/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
 
 ### 3.3 Optunaとlauncher
 
 | 領域 | 主なファイル |
 |---|---|
-| DropMerge CLI/domain | [dropmerge_optuna.py](../../apps/runner/tools/dropmerge_optuna.py) |
-| harness共通runtime | [optuna_common.py](../../apps/runner/tools/optuna_common.py) |
+| DropMerge CLI/domain | [dropmerge_optuna.py](../../apps/tools/dropmerge_optuna.py) |
+| harness共通runtime | [optuna_common.py](../../apps/tools/optuna_common.py) |
 | Runner launcher | [10_run.bat](../../apps/10_run.bat) |
-| workspace対応補助launcher | [resolve_workspace.bat](../../apps/runner/tools/resolve_workspace.bat)、[31_tb_bridge.bat](../../apps/31_tb_bridge.bat)、[41_mlflow_bridge.bat](../../apps/41_mlflow_bridge.bat) |
+| workspace対応補助launcher | [resolve_workspace.bat](../../apps/tools/resolve_workspace.bat)、[31_tb_bridge.bat](../../apps/31_tb_bridge.bat)、[41_mlflow_bridge.bat](../../apps/41_mlflow_bridge.bat) |
 | Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat) |
 | Dashboard launcher | [23_optuna_dashboard.bat](../../apps/23_optuna_dashboard.bat) |
 | 詳細運用仕様 | [optuna.md](optuna.md) |
@@ -136,7 +136,7 @@ TraceモードはTracePlayerの選択の有無で判定する。RunnerFrameはan
 
 行のダブルクリックは行選択と通知内容のダンプを行う。`TraceDumpFormatter`はGUIに依らず、`Trace dump step=... lane=...:`で始まるINFOの1行とVERBOSEの複数行1件を作る。INFOには全列（表の書式、未確定はpending）と、名前・countsの全欄・実行行動・forced・報酬・終端・action_infoのinfo/aux・step_resultのauxを出す。通知項目は列の構成によらず出す。単一要素Tensorは値、複数要素と空Tensorは形・型・元deviceのみ、未定義はundefinedとする。VERBOSEは状態・行動情報・Step結果の既存の文字列化にinfoと不透明なReplay初期優先度ヒントを加える。転送と文字列化はダンプ時だけ行い、GPUの内容はCPUへ写して書く。追従paneのsnapshotは出さない。ログ欄の既存のlevel処理を維持する。
 
-[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)に、pane同期・プレイヤー・速度とメモリの受入手順を置く。[PRD105検証資材](../../core/anet-core/testdata/prd105/README.md)に、矢印・forced・並べ替え・再生順・ダンプと4環境の学習値比較の手順を置く。
+[PRD094検証資材](../../src/core/base/testdata/prd094/README.md)に、pane同期・プレイヤー・速度とメモリの受入手順を置く。[PRD105検証資材](../../src/core/base/testdata/prd105/README.md)に、矢印・forced・並べ替え・再生順・ダンプと4環境の学習値比較の手順を置く。
 
 ### 3.5 Logs
 
@@ -360,10 +360,10 @@ sequenceDiagram
 | GUI Run | `apps/10_run.bat [--workspace <path>]` | `<workspace>/runs` |
 | 通常Runの可視化 | `apps/22_metrics_viewer_java.bat` | `http://localhost:8082` |
 | Optuna study/artifact | `apps/23_optuna_dashboard.bat <workspace_path>` | `<workspace>/optuna`、`http://127.0.0.1:8088` |
-| DropMerge探索 | `.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py run-study --workspace <path> ...` | `<workspace>/runs`、`<workspace>/optuna` |
+| DropMerge探索 | `.venv\Scripts\python.exe apps\tools\dropmerge_optuna.py run-study --workspace <path> ...` | `<workspace>/runs`、`<workspace>/optuna` |
 
 - 通常Runnerはworkspaceを選び、実験差分は末尾の`key=value` overrideで渡す。`--config`はworkspaceを使わない完全自己記述起動に限定する。
-- Viewerは`apps/runner/workspaces`を既定の親directoryとし、画面のselectorでcurrent workspaceを切り替える。親directoryは`--metricsviewer.workspaces-dir`で差し替える。
+- Viewerは`data/workspaces`を既定の親directoryとし、画面のselectorでcurrent workspaceを切り替える。親directoryは`--metricsviewer.workspaces-dir`で差し替える。
 - Optuna harnessは既存workspaceと`config/_main.txt`をpreflightし、Runを`runs/`、SQLite storage・artifact store・harness logを`optuna/`へ固定する。run系の出力overrideは選択workspaceの`optuna/`配下だけを許可する。
 - Optuna harnessのPythonはrepository rootの`.venv`を使う。
 - Viewer frontendはbuild工程を持たず、外部依存はCDNのPlotlyだけを読む。完全offline環境ではasset取得方法を別途用意する必要がある。
@@ -419,19 +419,19 @@ sequenceDiagram
 
 ## 8. テストと変更時の確認事項
 
-- [PRD122検証資材](../../core/anet-core/testdata/prd122/README.md): windowを作らないQ-Values加工の単体テスト、Panelのキー転送の特性テスト、coreの9箇所の破壊検査と4環境の全scalar比較。GUIの表示・フォーカス・実キーの動作は人が確認する。
+- [PRD122検証資材](../../src/core/base/testdata/prd122/README.md): windowを作らないQ-Values加工の単体テスト、Panelのキー転送の特性テスト、coreの9箇所の破壊検査と4環境の全scalar比較。GUIの表示・フォーカス・実キーの動作は人が確認する。
 
-- [PRD114検証資材](../../core/anet-core/testdata/prd114/README.md): issueからINDEX・トピック別まとめ・統計への公開CLI、依存とWSJF継承、不正入力時の全出力不変、同blobの実装済み検出、隔離したskill試走と移行の検証。
+- [PRD114検証資材](../../src/core/base/testdata/prd114/README.md): issueからINDEX・トピック別まとめ・統計への公開CLI、依存とWSJF継承、不正入力時の全出力不変、同blobの実装済み検出、隔離したskill試走と移行の検証。
 
-- [PRD110検証資材](../../core/anet-core/testdata/prd110/README.md): 主paneの初期表示・Centre昇格とdock位置復帰、三導線の開閉制限、最大化中の開閉、Train描画timer、未知経路の保険とWARN、既定スイートの失敗集合を確認する。captionのドラッグと実画面の幅は人が確認する。
+- [PRD110検証資材](../../src/core/base/testdata/prd110/README.md): 主paneの初期表示・Centre昇格とdock位置復帰、三導線の開閉制限、最大化中の開閉、Train描画timer、未知経路の保険とWARN、既定スイートの失敗集合を確認する。captionのドラッグと実画面の幅は人が確認する。
 
-- [PRD109検証資材](../../core/anet-core/testdata/prd109/README.md): 構築中のtimer・ログ・pane操作、初期化中のCloseとOS終了問い合わせ、失敗と不完全な構築、ウィンドウ先行破棄、既定スイートの失敗集合、4環境の全scalar点の完全一致。実機の描画とOSの「応答なし」は人が確認する。
+- [PRD109検証資材](../../src/core/base/testdata/prd109/README.md): 構築中のtimer・ログ・pane操作、初期化中のCloseとOS終了問い合わせ、失敗と不完全な構築、ウィンドウ先行破棄、既定スイートの失敗集合、4環境の全scalar点の完全一致。実機の描画とOSの「応答なし」は人が確認する。
 
-- [PRD105検証資材](../../core/anet-core/testdata/prd105/README.md): Traceモードの転送矢印、forcedの通知時点、並べ替えと再生順、ダンプの書式と実画面での表示時間、4環境の数値等価性。
+- [PRD105検証資材](../../src/core/base/testdata/prd105/README.md): Traceモードの転送矢印、forcedの通知時点、並べ替えと再生順、ダンプの書式と実画面での表示時間、4環境の数値等価性。
 
-- [PRD095検証資材](../../core/anet-core/testdata/prd095/README.md): トピック別まとめ・blob・リンクの読み取りと、取り込み・点検・housekeepingの試走を確認する。
+- [PRD095検証資材](../../src/core/base/testdata/prd095/README.md): トピック別まとめ・blob・リンクの読み取りと、取り込み・点検・housekeepingの試走を確認する。
 
-- [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
+- [PRD094検証資材](../../src/core/base/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
 
 - Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。 step数の変更は`AnetRLRunner-gui-test "[eval_steps]"`で設定検証・Trace保持を確認し、実RunnerAppのメニュー・Custom入力・キャンセル・自動評価・手動Stepは`AnetRLRunner-gui-test "[eval_steps_menu]"`を単独processで実行する。後者は通常スイートには含めない。Frame close時に背景評価の排水の後でtrain observerをDetachすることは、`AnetRLRunner-gui-test "[runner_close_drain]"`を単独processで実行して確認する。これも通常スイートには含めない。Logs paneは`AnetRLRunner-gui-test "[log_panel]"`で末尾の空行・時刻の形と色・選択と表示位置・未読の行数と`+N`の読み進め・Auto-scrollの自動解除と再開・設定からの既定・Wrap・Indent・検索・未確認の警告を確認する。Copy allは利用者のクリップボードを書き換えるため、`"[log_panel_clipboard]"`を明示したときだけ実行する。`"[log_panel_demo]"`はRunを起こさずに各levelの行を1秒ごとに足す窓を開き、閉じるまで手で操作を試せる（Panels toolbarの印はRunnerで確かめる）。
 - Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。

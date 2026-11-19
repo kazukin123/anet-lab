@@ -26,15 +26,15 @@ anet-core の外（同じリポジトリの別ターゲット）で何を実装�
 
 | 拡張点 | interface | 部品 | 登録口 | 外で書けるか | 実例 |
 |---|---|---|---|---|---|
-| Env | 公開（[rl.hpp](../../core/anet-core/include/anet/rl.hpp) の `SingleDiscreteEnv`／`BatchEnv`、[env.hpp](../../core/anet-core/include/anet/env.hpp)） | 不要 | 公開（`EnvRepository`、`RegistEnvFactory`） | 書ける | `core/envs/` の 6 本。公開ヘッダだけを include し、各ライブラリが `Init<Env>()` を公開して [RunnerApp.cpp:371](../../apps/runner/src/RunnerApp.cpp) が呼ぶ。テストも公開の `test_util.hpp`／`catch_test.hpp` で書いている |
-| View | 公開（[gui.hpp](../../core/anet-core/include/anet/gui.hpp) の `ViewCreator`） | 不要 | 公開（`ViewRepository`、`RegisterViewCreator`） | 書ける | Env ライブラリが `Init<Env>()` の中で登録する（[LunarLander.cpp:12](../../core/envs/lunarlander1/src/LunarLander.cpp)） |
-| Agent | 公開（[agent.hpp](../../core/anet-core/include/anet/agent.hpp) の `Agent`／`AgentFactory`、rl.hpp の `Actor`／`Learner`） | 公開: NN の構築と forward（nn.hpp）、ReplayBuffer の生成（replay_buffer.hpp）、stacker・transfer・scaler・schedule・probe。内部: `ActionPolicy`・DQN 系 `Actor`／`Learner`（`dqn_based_agent.hpp`、41 型）、正規化の実装（`scaler_impl.hpp`） | 公開の `AgentRepository` があるが、登録は [init.cpp:173](../../core/anet-core/src/init.cpp) の `InitRL()` に固定。[110 §8](../design/110_agents_and_learning.jp.md) の手順 1 も「`InitRL()` へ登録する」 | 書けるが、登録に anet-core の編集が要る | 無し。具象 Agent 4 本（DefaultDQN、Rainbow、ImageCls、MuZero 試作）は anet-core の中で、ヘッダは公開だが外からの include は 0 |
-| NN module | 内部（[nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp) の `NetworkModuleExecutor`／`NetworkModule`） | 内部（`WeightInitializer`、`LinearProjectionModule`、`SpectralNormState`、箱の内部型 `NetworkForwardState`） | 内部（`NetworkModuleRepository`、登録は [nn_modules.cpp:3267](../../core/anet-core/src/nn_modules.cpp) の `InitNN()`） | 書けない | — |
-| NN Head | 内部（[nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp) の `NetworkHead`／`NetworkHeadExecutor`／`NetworkHeadFactory`。nn.hppには必要な前方宣言だけ） | 内部（NN module と同じ部品） | 無し。DefaultDQN は [default_dqn_agent.cpp:92](../../core/anet-core/src/default_dqn_agent.cpp) の switch で anet-core 内の factory から選ぶ | 書けない。interfaceも内部ヘッダにあり、Agentに差し込めない | 独自 Head はテストの 7 本だけで、全部 anet-core の中 |
-| Observer | 公開（rl.hpp の `TrainObserver` 等、`Notifier::Attach`） | 不要 | 無し。設定からの生成は [observers.hpp:466](../../core/anet-core/include/anet/observers.hpp) の `ObserverFactory` に固定 | コードで attach する形なら書ける。設定からは生成できない | 無し |
-| ReplayBuffer | 公開（rl.hpp）。生成は [replay_buffer.hpp:78](../../core/anet-core/include/anet/replay_buffer.hpp) の `CreateReplayBuffer` | 内部（`replay_buffer_impl.hpp`、20 型） | 無し | 差し替えられない | — |
+| Env | 公開（[rl.hpp](../../src/core/base/include/anet/rl.hpp) の `SingleDiscreteEnv`／`BatchEnv`、[env.hpp](../../src/core/base/include/anet/env.hpp)） | 不要 | 公開（`EnvRepository`、`RegistEnvFactory`） | 書ける | `core/envs/` の 6 本。公開ヘッダだけを include し、各ライブラリが `Init<Env>()` を公開して [RunnerApp.cpp:371](../../src/apps/runner/src/RunnerApp.cpp) が呼ぶ。テストも公開の `test_util.hpp`／`catch_test.hpp` で書いている |
+| View | 公開（[gui.hpp](../../src/core/base/include/anet/gui.hpp) の `ViewCreator`） | 不要 | 公開（`ViewRepository`、`RegisterViewCreator`） | 書ける | Env ライブラリが `Init<Env>()` の中で登録する（[LunarLander.cpp:12](../../src/env/lunarlander/src/LunarLander.cpp)） |
+| Agent | 公開（[agent.hpp](../../src/core/base/include/anet/agent.hpp) の `Agent`／`AgentFactory`、rl.hpp の `Actor`／`Learner`） | 公開: NN の構築と forward（nn.hpp）、ReplayBuffer の生成（replay_buffer.hpp）、stacker・transfer・scaler・schedule・probe。内部: `ActionPolicy`・DQN 系 `Actor`／`Learner`（`dqn_based_agent.hpp`、41 型）、正規化の実装（`scaler_impl.hpp`） | 公開の `AgentRepository` があるが、登録は [init.cpp:173](../../src/core/base/src/init.cpp) の `InitRL()` に固定。[110 §8](../design/110_agents_and_learning.jp.md) の手順 1 も「`InitRL()` へ登録する」 | 書けるが、登録に anet-core の編集が要る | 無し。具象 Agent 4 本（DefaultDQN、Rainbow、ImageCls、MuZero 試作）は anet-core の中で、ヘッダは公開だが外からの include は 0 |
+| NN module | 内部（[nn_impl.hpp](../../src/core/base/src/nn_impl.hpp) の `NetworkModuleExecutor`／`NetworkModule`） | 内部（`WeightInitializer`、`LinearProjectionModule`、`SpectralNormState`、箱の内部型 `NetworkForwardState`） | 内部（`NetworkModuleRepository`、登録は [nn_modules.cpp:3267](../../src/core/base/src/nn_modules.cpp) の `InitNN()`） | 書けない | — |
+| NN Head | 内部（[nn_impl.hpp](../../src/core/base/src/nn_impl.hpp) の `NetworkHead`／`NetworkHeadExecutor`／`NetworkHeadFactory`。nn.hppには必要な前方宣言だけ） | 内部（NN module と同じ部品） | 無し。DefaultDQN は [default_dqn_agent.cpp:92](../../src/algo/dqn/src/default_dqn_agent.cpp) の switch で anet-core 内の factory から選ぶ | 書けない。interfaceも内部ヘッダにあり、Agentに差し込めない | 独自 Head はテストの 7 本だけで、全部 anet-core の中 |
+| Observer | 公開（rl.hpp の `TrainObserver` 等、`Notifier::Attach`） | 不要 | 無し。設定からの生成は [observers.hpp:466](../../src/core/base/include/anet/observers.hpp) の `ObserverFactory` に固定 | コードで attach する形なら書ける。設定からは生成できない | 無し |
+| ReplayBuffer | 公開（rl.hpp）。生成は [replay_buffer.hpp:78](../../src/core/base/include/anet/replay_buffer.hpp) の `CreateReplayBuffer` | 内部（`replay_buffer_impl.hpp`、20 型） | 無し | 差し替えられない | — |
 
-境界は [CMakeLists.txt:46](../../core/anet-core/CMakeLists.txt) が決めている。`include/` が PUBLIC、`src/` が PRIVATE で、`src/` を見られるのは anet-core 自身と `anet-core-test` だけである。公開ヘッダが内部ヘッダを include している箇所は無く、`apps/` と `core/envs/` が `src/` を相対パスで include している箇所も無い。
+境界は [CMakeLists.txt:46](../../src/core/base/CMakeLists.txt) が決めている。`include/` が PUBLIC、`src/` が PRIVATE で、`src/` を見られるのは anet-core 自身と `anet-core-test` だけである。公開ヘッダが内部ヘッダを include している箇所は無く、`apps/` と `core/envs/` が `src/` を相対パスで include している箇所も無い。
 
 ### 2.2 公開ヘッダの到達状況
 
@@ -48,7 +48,7 @@ anet-core の外（同じリポジトリの別ターゲット）で何を実装�
 
 ### 2.3 登録の仕組み
 
-- Env と View は、各ライブラリが公開する `Init<Env>()` を app が明示的に呼ぶ（[LunarLander.hpp](../../core/envs/lunarlander1/include/anet/env/LunarLander.hpp)）。静的ライブラリでは、参照されないオブジェクトの静的初期化子はリンクされないので、自己登録では落ちる。Agent 用の自己登録マクロ `ANET_REGISTER_AGENT_FACTORY` は [agent.hpp:332](../../core/anet-core/include/anet/agent.hpp) にあるが、呼び出しは 2 か所ともコメントアウトされている。
+- Env と View は、各ライブラリが公開する `Init<Env>()` を app が明示的に呼ぶ（[LunarLander.hpp](../../src/env/lunarlander/include/anet/env/LunarLander.hpp)）。静的ライブラリでは、参照されないオブジェクトの静的初期化子はリンクされないので、自己登録では落ちる。Agent 用の自己登録マクロ `ANET_REGISTER_AGENT_FACTORY` は [agent.hpp:332](../../src/core/base/include/anet/agent.hpp) にあるが、呼び出しは 2 か所ともコメントアウトされている。
 - Agent は `InitRL()` が 4 本を登録し、NN module は `InitNN()` が登録する。どちらも anet-core の中の固定の列挙である。
 
 ### 2.4 次に増えるもの
@@ -172,5 +172,5 @@ anet-core の外（同じリポジトリの別ターゲット）で何を実装�
 
 - [AGENTS.md](../../AGENTS.md) の「基本方針」。
 - [010 §4.2](../design/010_framework_overview.jp.md)、[110 §8](../design/110_agents_and_learning.jp.md)、[120 §8](../design/120_environments.jp.md)、[130 §4](../design/130_neural_networks.jp.md)。
-- [core/anet-core/CMakeLists.txt](../../core/anet-core/CMakeLists.txt) の `target_include_directories`。
+- [core/anet-core/CMakeLists.txt](../../src/core/base/CMakeLists.txt) の `target_include_directories`。
 - [ownership_guideline.md](../ownership_guideline.md)（Agent の変数の所有。置き場の規約とは別）。

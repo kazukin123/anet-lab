@@ -33,7 +33,7 @@ target の式の後半（n-step の割引 → 終端のマスク → h 空間へ
 
 ## 2. 現状（2026-11-12 に確認したこと）
 
-対象は [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) と [dqn_based_agent.hpp](../../core/anet-core/src/dqn_based_agent.hpp) である。
+対象は [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) と [dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp) である。
 
 ### 2.1 3 つの関数の進行と、分布ごとの違い
 
@@ -68,9 +68,9 @@ target の式の後半（n-step の割引 → 終端のマスク → h 空間へ
 - skip の loss は、PER が無効のとき重みを掛けない（4687 行）。TD と同じ形である。TD は、重みを loss の device へ移す呼び出しを挟むが、同じ device なので何もしない。
 - 分位点の要素 loss は float32 である。Head が FP32 で動くので（§2.3）、current の分位点も target も FP32 で届く。1 を並べた float32 の Tensor を掛けても、値も型も変わらない。重み付けした要素 loss は、最適化と勾配ノイズの測定へ渡るが、1 を掛ける演算が無くなっても、勾配の値は同じである。
 - 学習の経路では、`UpdateFromSamples` の直前に、行動・target return・終端の行数と型の検査がある（`ValidateDeviceSamples`。3972 行から。`UpdateFromBatch` が 4068 行で呼ぶ）。QR と IQN の入力の検査は、これと重なる。重ならないのは、テストが `UpdateFromSamples` を直接呼ぶときだけである。
-- 検査は、Debug と RelWithDebInfo のビルドでだけ動く。NaN の検査は Debug だけである（[tensor_check.hpp](../../core/anet-core/include/anet/tensor_check.hpp) の 11〜51 行）。Release では何もしない。
-- DEBUG ログは、デバッグログを有効にしたビルドを、デバッガを付けて動かしているときだけ出る（[log.hpp](../../core/anet-core/include/anet/log.hpp) の 379〜392 行）。
-- プロファイルの区間の名前は、区間を書いた関数の名前と、区間の名前から作る（[profile.hpp](../../core/anet-core/include/anet/profile.hpp) の 269〜287 行）。区間の名前を読む設定・スクリプト・現行の文書は無い（§5.5）。
+- 検査は、Debug と RelWithDebInfo のビルドでだけ動く。NaN の検査は Debug だけである（[tensor_check.hpp](../../src/core/base/include/anet/tensor_check.hpp) の 11〜51 行）。Release では何もしない。
+- DEBUG ログは、デバッグログを有効にしたビルドを、デバッガを付けて動かしているときだけ出る（[log.hpp](../../src/core/base/include/anet/log.hpp) の 379〜392 行）。
+- プロファイルの区間の名前は、区間を書いた関数の名前と、区間の名前から作る（[profile.hpp](../../src/core/base/include/anet/profile.hpp) の 269〜287 行）。区間の名前を読む設定・スクリプト・現行の文書は無い（§5.5）。
 
 ### 2.3 Munchausen の target と、target の式
 
@@ -97,24 +97,24 @@ target の式は 4 か所にある。
 
 - 4 か所とも、γ の n 乗と「終端でない」旗を先に掛け、その積に bootstrap 価値を掛ける。掛ける 2 つの順は箇所で違うが、2 つの数の積は順によらない。
 - Munchausen項のある 2 か所は、target return に Munchausen項を足してから、bootstrap の項を足す。
-- target return は float32 で保存されている（[replay_buffer_impl.cpp](../../core/anet-core/src/replay_buffer_impl.cpp) の 634 行）。学習の経路では、更新の直前の検査 `ValidateDeviceSamples`（3972 行から）も、float32 であることを確かめる。Munchausen の 2 か所は target return を float32 へ変換するが、もとから float32 なので何もしない。
-- Network の出力 `q`・`q_dist` は、AMP が有効でも FP32 である。Head が AMP を切って FP32 で動くためである（[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) の 1797〜1803 行）。分位点の通常の target は、h の逆変換を FP32 の値にそのまま掛けている。
+- target return は float32 で保存されている（[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) の 634 行）。学習の経路では、更新の直前の検査 `ValidateDeviceSamples`（3972 行から）も、float32 であることを確かめる。Munchausen の 2 か所は target return を float32 へ変換するが、もとから float32 なので何もしない。
+- Network の出力 `q`・`q_dist` は、AMP が有効でも FP32 である。Head が AMP を切って FP32 で動くためである（[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) の 1797〜1803 行）。分位点の通常の target は、h の逆変換を FP32 の値にそのまま掛けている。
 - 4 か所とも、勾配を作らない範囲の中か、勾配を切った値で計算している。
 - 分位点の通常の target（`CalcTargetQuantiles`）には、target の形と NaN の検査がある。
 - Munchausen の計算は実空間で行い、完成した target にだけ h を掛ける。h の逆変換を中で行う `CalcTargetQuantiles` は通常の target 専用で、逆変換を 2 回掛けないための決まりである（[ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md) の 45 行）。
 
 ### 2.4 呼び出し元とテスト
 
-- テスト用の派生クラスが 3 つあり、`UpdateFromSamples` を丸ごと上書きしている。`TestLearner`（[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) の 370 行から）、`CapturingLearner`（同 1024 行から）、`SoftHardSelector`（[dqn_munchausen_test.cpp](../../core/anet-core/src/dqn_munchausen_test.cpp) の 154 行から）である。前の 2 つは `dqn::Learner` の、最後の 1 つは `QuantileLearnerBase` の派生である。
+- テスト用の派生クラスが 3 つあり、`UpdateFromSamples` を丸ごと上書きしている。`TestLearner`（[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) の 370 行から）、`CapturingLearner`（同 1024 行から）、`SoftHardSelector`（[dqn_munchausen_test.cpp](../../src/algo/dqn/src/dqn_munchausen_test.cpp) の 154 行から）である。前の 2 つは `dqn::Learner` の、最後の 1 つは `QuantileLearnerBase` の派生である。
 - テストは、`UpdateFromSamples` を 14 行で直接呼んでいる。`TDLearner`・`QRLearner`・`IQNLearner` の型に変換して呼ぶ行を含む（dqn_based_agent_test.cpp の 4618〜4620 行）。
 - replay fit の診断（`Learner::EvaluateReplayFit`。2978 行から）は、進行の前半を別に書いている。正規化 → IQN の τ → forward → 選んだ行動の値 → `MakeTarget` → `ComputeElementError` の順である。学習の進行とは、forward を eval で行うこと、τ を等間隔に置くこと、AMP の範囲と指標と PER の重みを持たないことが違う。`MakeTarget` を診断用の指定で呼ぶので、Munchausen の評価と target の式（§2.3）を通る。
-- target の式の 4 か所と、Munchausen の前半を、名指しで呼ぶテストは無い。`MakeMunchausenTargetTerms`（方策と Munchausen項を作る関数。今回は変えない）を呼ぶテストが 1 つある。3 つの学習器の更新の全体は、`[dqn]`・`[munchausen]`・`[prd098]`・`[prd103]` のテストが通る（[PRD098 の検証資材](../../core/anet-core/testdata/prd098/README.md)、[PRD103 の検証資材](../../core/anet-core/testdata/prd103/README.md)）。
+- target の式の 4 か所と、Munchausen の前半を、名指しで呼ぶテストは無い。`MakeMunchausenTargetTerms`（方策と Munchausen項を作る関数。今回は変えない）を呼ぶテストが 1 つある。3 つの学習器の更新の全体は、`[dqn]`・`[munchausen]`・`[prd098]`・`[prd103]` のテストが通る（[PRD098 の検証資材](../../src/core/base/testdata/prd098/README.md)、[PRD103 の検証資材](../../src/core/base/testdata/prd103/README.md)）。
 
 ### 2.5 規約と過去の判断
 
 - 挙動を変えない直しでは、hot path の速さが変わらないことを Run のブレ幅で確かめる。乱数の呼び出し順に触るなら、同 seed の再現性を確かめる。テストの無い箇所は、特性テストを先に足す（[リファクタリング観点](../quality/refactor.md) の「ガードレール」）。「挙動を変えない」には、ログの文言を含める（同「運用ルール」）。
 - 学習器を変えるときは、乱数の派生と消費の順を変えず、同 seed・決定的モードの短い Run のメトリクスを、実装の前に保存した実行体と比べる。checkpoint のバイト列は比べない（[地図 321](../wiki/categories/321_agent_core.md) の「変えるときの条件」）。
-- 短い Run の前後比較は、PRD122 が同じファイルで行った。変更前の実行体と設定を保存し、4 環境を seed 1・決定的モードで流して、時間と資源の tag を除く全 scalar の点を比べる（[PRD122 の検証資材](../../core/anet-core/testdata/prd122/README.md)）。
+- 短い Run の前後比較は、PRD122 が同じファイルで行った。変更前の実行体と設定を保存し、4 環境を seed 1・決定的モードで流して、時間と資源の tag を除く全 scalar の点を比べる（[PRD122 の検証資材](../../src/core/base/testdata/prd122/README.md)）。
 - もとからある死にコードは、消さずに報告する（[AGENTS.md](../../AGENTS.md) の「LLM コーディング規律」）。
 
 ### 2.6 既定の設定が通る経路
@@ -191,7 +191,7 @@ G3 の例外は、検査・ログ・プロファイルの 3 つである。ど�
 | D13 | **学習の中身が同じことの確かめ方。** §5.4 の 31 組の短い Run を、保存した実行体と、直した後の実行体で流し、時間と資源の tag を除く全 scalar の点が一致することを受入にする（A2・A4）。変種の組は、IQN・Munchausen・replay fit の診断の値も記録する設定にして、比べる点に含める。一致しない組が出たら、原因を突き止めて、一致する形へ直す。寄せ方では一致させられないと分かったら、その組と原因を実装記録に書いて作業を止め、扱いを開発者に聞く | 骨格は PER と skip で分かれ、Munchausen の target は方式と TBO で分かれる。分かれ目を 1 回ずつ通す。既定の設定だけでは、通常 Q と PER 無効を通らない（§2.6）。online 方式と skip を重ねた組を置くのは、current の行数が batch の件数と違うときの online の forward を通すため。診断の値は、metrics で購読しないと点にならない。購読しないと、追加の診断の口（D3）や、診断の経路（replay fit の診断は、target を作る関数を診断用に呼ぶ）を書き違えても、一致して見える。時間と資源の tag を除くのは、実行ごとに変わるため。止まる決まりを置くのは、値が変わる寄せ方を G3 の例外として黙って入れないため。依存: D17 |
 | D14 | **BF16 の確かめ方。** 31 組は FP32 で流す。加えて、BF16 の組を 4 つ置く。3 つは、LunarLander の「target と TBO と skip」の組（§5.4 の表の最後の行）を BF16 にしたもので、分布の表し方ごとに 1 つ。1 つは、既定の 4 組の Atari の組を BF16 にしたもの。ステージ 0 で、保存した実行体で 2 回ずつ流し、2 回が一致した組だけを前後比較に足す。Atari の組は CUDA で流す。LunarLander の 3 組は、先に CPU で流す。CPU で流せないか、2 回が一致しなければ、CUDA で同じことを試す。流した device のどれでも一致しない組は、前後比較に入れず、今ある単体テスト（`[prd103]` の TD・QR・IQN × Munchausen × BF16）で確かめ、一致しなかったことを実装記録に書く | ユーザーが、Atari の 1 組だけにする形と比べて選んだ（別モデルの検討で出た案）。31 組は AMP が無効なので、AMP の範囲の端を誤って動かしても（skip の forward や PER の重み付けを範囲の外へ出すなど。D5）、値が変わらない。見つけられるのは BF16 の組だけである。Atari の 1 組は IQN だけで、skip の forward を通らない。LunarLander の「target と TBO と skip」の組は、3 つの分布と、skip・Munchausen・TBO を通る。CPU を先に試すのは、小さい Network で、同 seed で再現する見込みが高いため。再現するかは流すまで分からないので、再現しないものは前後比較に入れない。入れると、差の原因を分けられない。依存: D5・D17 |
 | D15 | **単体テスト。** 先に固めるテストは、ステージ 0 の 31 組とする。加えて、ステージ 2 で、target の式の共通の関数に、手で計算した値と比べるテストを足す。通す場合は、通常 Q の形と分位点の形、Munchausen項の有無、TBO の有無、終端かどうかの組み合わせの全部である。今あるテストケースの断定は変えない | 丸ごとの値は Run の比較が固める。式の入出力は、名指しで呼ぶテストが今は無いので（§2.4）、足す。Munchausen の評価の関数（D10）は、Network の forward を含むので、Run の比較と今あるテストで確かめる。依存: D11・D13 |
-| D16 | **速さの確かめ方。** Release のビルドで、PRD103 の検証資材の性能の測定と同じ構成（Atari の qbert、IQN、Munchausen、BF16、prefetch、評価は止める）を、skip は無効にして、保存した実行体と直した後の実行体で交互に 3 巡以上流す。learn step 1 回あたりの実時間（Actor と Env の時間を含む）を Run ごとに取り、直した後の中央値が、直す前の Run の最大値を超えないことを受入にする（A9）。超えたら、原因を調べて直し、測り直す | 更新は hot path なので、速さが変わらないことをブレ幅で確かめる（§2.5）。交互に流すのは、マシンの速さが時間で動くため。TD と QR も同じ進行を通るので、1 構成で足りる。Munchausen を含む構成にするのは、ステージ 2 が直す経路を通すため。増える処理の見積もりは次のとおり。頻度は、更新 1 回につき 1 回。単価は、仮想関数の呼び出し 2 回と、Tensor の参照 10 個ほどの受け渡しで、合わせて 100 ns に届かない。TD では、プロファイルの区間が 3 つ増える（D9）。QR と IQN が今も持つ区間で、範囲の出入りを記録するだけである。同じ構成の learn step 1 回は 0.04〜0.05 秒で、Run ごとに 15% ほどばらつく（[PRD103 の検証資材](../../core/anet-core/testdata/prd103/README.md) の「性能」の、skip 無効の実測）。増える分は、その 10 万分の 1 に届かない。この判定で拾うのは、Run のばらつきを超える遅れ、つまり作りの誤り（余計な forward、同期の追加など）による遅れである。PER が無効のときは、Tensor の確保と掛け算が 1 回ずつ減る（D6）。依存: D2・D17 |
+| D16 | **速さの確かめ方。** Release のビルドで、PRD103 の検証資材の性能の測定と同じ構成（Atari の qbert、IQN、Munchausen、BF16、prefetch、評価は止める）を、skip は無効にして、保存した実行体と直した後の実行体で交互に 3 巡以上流す。learn step 1 回あたりの実時間（Actor と Env の時間を含む）を Run ごとに取り、直した後の中央値が、直す前の Run の最大値を超えないことを受入にする（A9）。超えたら、原因を調べて直し、測り直す | 更新は hot path なので、速さが変わらないことをブレ幅で確かめる（§2.5）。交互に流すのは、マシンの速さが時間で動くため。TD と QR も同じ進行を通るので、1 構成で足りる。Munchausen を含む構成にするのは、ステージ 2 が直す経路を通すため。増える処理の見積もりは次のとおり。頻度は、更新 1 回につき 1 回。単価は、仮想関数の呼び出し 2 回と、Tensor の参照 10 個ほどの受け渡しで、合わせて 100 ns に届かない。TD では、プロファイルの区間が 3 つ増える（D9）。QR と IQN が今も持つ区間で、範囲の出入りを記録するだけである。同じ構成の learn step 1 回は 0.04〜0.05 秒で、Run ごとに 15% ほどばらつく（[PRD103 の検証資材](../../src/core/base/testdata/prd103/README.md) の「性能」の、skip 無効の実測）。増える分は、その 10 万分の 1 に届かない。この判定で拾うのは、Run のばらつきを超える遅れ、つまり作りの誤り（余計な forward、同期の追加など）による遅れである。PER が無効のときは、Tensor の確保と掛け算が 1 回ずつ減る（D6）。依存: D2・D17 |
 | D17 | **着手前の保存と検証資材。** ステージ 0 で、着手した時点の作業ツリーから作った Debug と Release の実行体・DLL・設定を `.scratch/prd125/baseline/` に保存する。Git では管理しない。前後比較は Debug で、速さは Release で行う。`core/anet-core/testdata/prd125/` に README と比較のスクリプトを置き、今ある部品（短い条件、隔離した実行、メトリクスの正規化）を呼ぶ | PRD122 と同じ置き方である（§2.5）。比べる相手は、実装の前に保存した実行体にする決まりによる。Debug で比べるのは、検査が動き、形や NaN の誤りをその場で止められるため。部品を呼ぶ形にするのは、写しを増やさないため。依存: なし |
 | D18 | **ステージ 0 の確かめ。** 31 組を、保存した実行体で 2 回ずつ流し、どの組も 2 回が一致することを確かめる。一致しない組は、比べる組から外さない。原因を調べ、変種の設定で決定的にできるなら、そうする。できなければ、その組と原因を実装記録に書いて作業を止め、扱いを開発者に聞く | 組が決定的に流れないと、前後の差が直しによるものか分からない。比較の道具が動くことも、直す前に確かめられる。組から外すと、その分かれ目を確かめないまま直すことになる。依存: D13・D17 |
 | D19 | **変えないものと文書。** 設定キー、メトリクスの名前と値、公開ヘッダ、checkpoint の形は変えない。設計文書 200 の日英は、`dqn::Learner` の責務の行に、更新の進行と通常 Q の計算を足す。クラス図と、ほかの行は直さない | 直すのは `src/` の内部のヘッダと本体だけである（§2）。クラスと継承は変わらないので、クラス図は今のままで正しい。`TDLearner` などの行は、どの学習器がどの計算を受け持つかを書いていて、直したあとも成り立つ（§5.5）。依存: D2 |
@@ -327,7 +327,7 @@ target の式の関数は、次の形で計算する（D11）。4 か所の今�
 
 | issue | 題 | area | 現在のコードで確かめた根拠の位置 | 直す確定事項 | 確かめる受入 |
 | --- | --- | --- | --- | --- | --- |
-| [issue-20261103-ab98b7](../management/issues/issue-20261103-ab98b7.md) | TD・QR・IQN の UpdateFromSamples が同じ骨格を丸写ししている | 321_agent_core | [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の 4855・4995・5124 行から（3 つの関数）、4364・4769 行から（Munchausen の前半）、4355・4440・4814・4846 行（target の式） | D2〜D11 | A2〜A5 |
+| [issue-20261103-ab98b7](../management/issues/issue-20261103-ab98b7.md) | TD・QR・IQN の UpdateFromSamples が同じ骨格を丸写ししている | 321_agent_core | [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の 4855・4995・5124 行から（3 つの関数）、4364・4769 行から（Munchausen の前半）、4355・4440・4814・4846 行（target の式） | D2〜D11 | A2〜A5 |
 
 ## 6. 検証と受入
 
@@ -451,4 +451,4 @@ target の式の関数は、次の形で計算する（D11）。4 か所の今�
 - [地図 321 Agent 共通基盤](../wiki/categories/321_agent_core.md)（変えるときの条件）
 - [ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md)（Munchausen の target の決まり）
 - [設計文書 200 DQN 系 Agent](../design/200_dqn_agents.jp.md)（責務の表）
-- [PRD122 の検証資材](../../core/anet-core/testdata/prd122/README.md)、[PRD103 の検証資材](../../core/anet-core/testdata/prd103/README.md)、[PRD098 の検証資材](../../core/anet-core/testdata/prd098/README.md)
+- [PRD122 の検証資材](../../src/core/base/testdata/prd122/README.md)、[PRD103 の検証資材](../../src/core/base/testdata/prd103/README.md)、[PRD098 の検証資材](../../src/core/base/testdata/prd098/README.md)

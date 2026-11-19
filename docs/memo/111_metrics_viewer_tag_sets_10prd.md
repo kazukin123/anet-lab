@@ -12,22 +12,22 @@
 
 | # | 事実 | 位置 |
 |---|---|---|
-| 1 | 選択中の tag は `activeTags` として localStorage に保存する。Workspace 名をキーに含めないので Workspace をまたいで 1 つで、Tags 一覧に出ていない tag（他の Workspace や選んでいない Run の tag）も選択に残る。`Clear All` は見えている tag しか外さないので、残った tag は消えない | [metrics-viewer.js:2864-2866](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、:2919-2922、:1835-1841、[210 §7.4](../design/210_metrics_viewer.jp.md) |
-| 2 | 一度も見たことのない tag（`knownTags` に無いもの）が見えると、自動で選択に入れる | [metrics-viewer.js:2548-2558](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
-| 3 | Tags 一覧は tag 名の UTF-16 コード単位順に並び、クリックで選択を切り替える。`Select All` / `Clear All` は今見えている tag だけに効き、`Selected Only` を解除する | [metrics-viewer.js:1775-1847](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
-| 4 | 「見えている tag」は、選択中の Run の tag の和集合である。Tags 一覧はこれを描き、グラフは見えている選択中の tag を名前順に描く。Workspace 全体の tag の和集合はクライアントに無い | [metrics-viewer.js:2535-2546](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、:2192 |
-| 5 | Workspace selector は、開く（フォーカス）たびに一覧をサーバーから取り直す | [metrics-viewer.js:1852](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、:2111 |
-| 6 | localStorage へ保存する state は 8 件と定めている。選択中の workspace が無いときは、そのキーを消して表す | [210 §7.4](../design/210_metrics_viewer.jp.md)、[metrics-viewer.js:2018-2019](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
-| 7 | HTTP API は workspace・runs・metrics・prioritize だけで、利用者が作るデータを保存する API と保存先は無い。workspace 切替の不正 JSON を 400 `invalid_request` に変える処理は `WorkspaceController` の中に限り、metrics・prioritize の失敗の形には影響させない | [210 §9.1](../design/210_metrics_viewer.jp.md)、[WorkspaceController.java:50-57](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceController.java) |
-| 8 | エラー応答の body は `{"code","message"}`（`ApiError`） | [ApiError.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/ApiError.java) |
-| 9 | Viewer は `apps/runner` を作業ディレクトリにして起動し、`metricsviewer.workspaces-dir` の既定は `workspaces`。別の Workspace 群を見るときは起動引数でこれを差し替える。設定の契約違反は起動を止める | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)、[210 §7.1・§7.3](../design/210_metrics_viewer.jp.md)、[MetricsViewerSettings.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/config/MetricsViewerSettings.java) |
-| 10 | `metricsviewer.workspaces-dir` が存在しなくても Viewer は止まらず、Workspace の一覧が空のまま起動する | [WorkspaceManager.java:114](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java) |
-| 11 | Workspace の一覧は、Runner・Viewer のどちらも Workspace 群の親の直下の**ディレクトリ**だけを数える。直下のファイルはどちらの一覧にも入らない | [app_util.cpp:423-438](../../core/anet-core/src/app_util.cpp)、[WorkspaceManager.java:114-118](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java)、:311-313 |
+| 1 | 選択中の tag は `activeTags` として localStorage に保存する。Workspace 名をキーに含めないので Workspace をまたいで 1 つで、Tags 一覧に出ていない tag（他の Workspace や選んでいない Run の tag）も選択に残る。`Clear All` は見えている tag しか外さないので、残った tag は消えない | [metrics-viewer.js:2864-2866](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、:2919-2922、:1835-1841、[210 §7.4](../design/210_metrics_viewer.jp.md) |
+| 2 | 一度も見たことのない tag（`knownTags` に無いもの）が見えると、自動で選択に入れる | [metrics-viewer.js:2548-2558](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
+| 3 | Tags 一覧は tag 名の UTF-16 コード単位順に並び、クリックで選択を切り替える。`Select All` / `Clear All` は今見えている tag だけに効き、`Selected Only` を解除する | [metrics-viewer.js:1775-1847](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
+| 4 | 「見えている tag」は、選択中の Run の tag の和集合である。Tags 一覧はこれを描き、グラフは見えている選択中の tag を名前順に描く。Workspace 全体の tag の和集合はクライアントに無い | [metrics-viewer.js:2535-2546](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、:2192 |
+| 5 | Workspace selector は、開く（フォーカス）たびに一覧をサーバーから取り直す | [metrics-viewer.js:1852](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、:2111 |
+| 6 | localStorage へ保存する state は 8 件と定めている。選択中の workspace が無いときは、そのキーを消して表す | [210 §7.4](../design/210_metrics_viewer.jp.md)、[metrics-viewer.js:2018-2019](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
+| 7 | HTTP API は workspace・runs・metrics・prioritize だけで、利用者が作るデータを保存する API と保存先は無い。workspace 切替の不正 JSON を 400 `invalid_request` に変える処理は `WorkspaceController` の中に限り、metrics・prioritize の失敗の形には影響させない | [210 §9.1](../design/210_metrics_viewer.jp.md)、[WorkspaceController.java:50-57](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceController.java) |
+| 8 | エラー応答の body は `{"code","message"}`（`ApiError`） | [ApiError.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/ApiError.java) |
+| 9 | Viewer は `apps/runner` を作業ディレクトリにして起動し、`metricsviewer.workspaces-dir` の既定は `workspaces`。別の Workspace 群を見るときは起動引数でこれを差し替える。設定の契約違反は起動を止める | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)、[210 §7.1・§7.3](../design/210_metrics_viewer.jp.md)、[MetricsViewerSettings.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/config/MetricsViewerSettings.java) |
+| 10 | `metricsviewer.workspaces-dir` が存在しなくても Viewer は止まらず、Workspace の一覧が空のまま起動する | [WorkspaceManager.java:114](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java) |
+| 11 | Workspace の一覧は、Runner・Viewer のどちらも Workspace 群の親の直下の**ディレクトリ**だけを数える。直下のファイルはどちらの一覧にも入らない | [app_util.cpp:423-438](../../src/core/base/src/app_util.cpp)、[WorkspaceManager.java:114-118](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java)、:311-313 |
 | 12 | `apps/runner/workspaces` は `.gitignore` の対象だが、各 Workspace の `config/_main.txt` は強制追加で追跡している。リリースの梱包は `apps/runner/workspaces` を丸ごとコピーし、`apps/metrics-viewer` からは jar だけをコピーする | [.gitignore:66](../../.gitignore)、[release.yml:211](../../.github/workflows/release.yml)、:219-221 |
-| 13 | Spring を起動する既存のテストは、`metricsviewer.workspaces-dir` を一時ディレクトリか `target/playwright-test-empty-workspaces`（存在しないことがある）へ向けて走る。`mvn test` の作業ディレクトリは `apps/metrics-viewer` で、そこに `workspaces/` は無い | 例 [TagListPlaywrightTest.java:20](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/TagListPlaywrightTest.java)、[WorkspaceApiIntegrationTest.java:46](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceApiIntegrationTest.java) |
-| 14 | browser の control は即時実行・トグル・巡回の 3 種類だけで、どれも button で作る。サイドパネルの button は同じ寸法にし、巡回のラベルは最長に合わせた固定幅にする。一括操作は無効化しない。サイドパネルで無効（disabled）になる control は、切替中の workspace selector だけ | [210 §3.3](../design/210_metrics_viewer.jp.md)、[metrics-viewer.js:2046](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、:2073 |
-| 15 | 左パネルのタグ一覧そのものを「Tag list」と呼んでいる（`#tag-list`、`renderTagList`、`TagListPlaywrightTest`、210 §3.2 の `UIController`） | [index.html:55-64](../../apps/metrics-viewer/src/main/resources/static/index.html)、[210 §3.2](../design/210_metrics_viewer.jp.md) |
-| 16 | `html, body` と `#tag-section` は `overflow: hidden` である | [metrics-viewer.css:23-32](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css)、:314-318 |
+| 13 | Spring を起動する既存のテストは、`metricsviewer.workspaces-dir` を一時ディレクトリか `target/playwright-test-empty-workspaces`（存在しないことがある）へ向けて走る。`mvn test` の作業ディレクトリは `apps/metrics-viewer` で、そこに `workspaces/` は無い | 例 [TagListPlaywrightTest.java:20](../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/TagListPlaywrightTest.java)、[WorkspaceApiIntegrationTest.java:46](../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceApiIntegrationTest.java) |
+| 14 | browser の control は即時実行・トグル・巡回の 3 種類だけで、どれも button で作る。サイドパネルの button は同じ寸法にし、巡回のラベルは最長に合わせた固定幅にする。一括操作は無効化しない。サイドパネルで無効（disabled）になる control は、切替中の workspace selector だけ | [210 §3.3](../design/210_metrics_viewer.jp.md)、[metrics-viewer.js:2046](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、:2073 |
+| 15 | 左パネルのタグ一覧そのものを「Tag list」と呼んでいる（`#tag-list`、`renderTagList`、`TagListPlaywrightTest`、210 §3.2 の `UIController`） | [index.html:55-64](../../src/apps/metrics-viewer/src/main/resources/static/index.html)、[210 §3.2](../design/210_metrics_viewer.jp.md) |
+| 16 | `html, body` と `#tag-section` は `overflow: hidden` である | [metrics-viewer.css:23-32](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.css)、:314-318 |
 
 ### 1.2 困っていること
 
@@ -109,7 +109,7 @@
 | E2 | エラーは既存の Toast で知らせる | [210 §3.2](../design/210_metrics_viewer.jp.md) |
 | E3 | API は閉じた schema で、未知の field・型違反は 400 `invalid_request`、名前と tag は JSON string だけを受け付ける | [210 §7.2](../design/210_metrics_viewer.jp.md) |
 | E4 | タグセットを Metricsキャッシュにも Run フォルダにも置かない。作業用ファイルを Workspace 群の親の直下に置くのは Run の分類ではないので、ADR 0021 の「workspace フォルダ外に分類のメタデータを持たない」とは矛盾しない | [ADR 0015](../adr/0015-metrics-cache-disposable-derivative.md)、[ADR 0021](../adr/0021-run-classification-by-workspace-folder.md) |
-| E5 | localStorage の値が読めない・形が不正なら、警告して「選択中のタグセットなし」で起動する | 既存の読み込み（[metrics-viewer.js:2878-2891](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)） |
+| E5 | localStorage の値が読めない・形が不正なら、警告して「選択中のタグセットなし」で起動する | 既存の読み込み（[metrics-viewer.js:2878-2891](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)） |
 | E6 | Workspace を切り替えても、選択中のタグセットは変えない | G3 |
 | E7 | 同時に書いたら後勝ち | NG5 |
 | E8 | 変更の印は、選択全体とタグセットの中身の差で決まる | D2 |
@@ -269,7 +269,7 @@
 | `apps/metrics-viewer/src/main/resources/initial_tag_sets.json` | 新規。中身は `{}`（D18） |
 | `apps/metrics-viewer/src/main/resources/static/index.html`・`metrics-viewer.css`・`metrics-viewer.js` | 行と一覧。`_visibleTagSet()` を紛れない名前（例 `_visibleTagKeys()`）へ改名し、呼び出し元を追随（D6） |
 | [.github/workflows/release.yml](../../.github/workflows/release.yml) | Workspace のコピーのあとで、ステージの `apps/runner/workspaces/metrics_viewer_tag_sets.json` を消し、無いことを確かめる（残っていれば失敗） |
-| [RunListPlaywrightTest.java](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java) の `sidePanelControlRowsFitOnOneLineWithoutShrinkingButtons`（:719-739） | サイドパネルの操作行の一覧の期待に、Tags の新しい行 `tag-section/controls:false:false` を `tag-section/header` のあとへ足す（新しい行もこの溢れ・押し潰れの検査に入れる。§6.4、E17） |
+| [RunListPlaywrightTest.java](../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java) の `sidePanelControlRowsFitOnOneLineWithoutShrinkingButtons`（:719-739） | サイドパネルの操作行の一覧の期待に、Tags の新しい行 `tag-section/controls:false:false` を `tag-section/header` のあとへ足す（新しい行もこの溢れ・押し潰れの検査に入れる。§6.4、E17） |
 | [CONTEXT.md](../../CONTEXT.md) | 「タグセット」を追加済み（起草の前に足した） |
 | [wiki の Metrics Viewer のページ](../wiki/apps/120_metrics_viewer.md) | 起草で書き戻し済み |
 

@@ -83,12 +83,12 @@ Registration occurs in `InitRL()`, and `AgentRepository` resolves class IDs to `
 
 | Area | Main files |
 |---|---|
-| Shared contracts | [rl.hpp](../../core/anet-core/include/anet/rl.hpp) |
-| Agent infrastructure, repository, factories | [agent.hpp](../../core/anet-core/include/anet/agent.hpp), [agent.cpp](../../core/anet-core/src/agent.cpp) |
+| Shared contracts | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
+| Agent infrastructure, repository, factories | [agent.hpp](../../src/core/base/include/anet/agent.hpp), [agent.cpp](../../src/core/base/src/agent.cpp) |
 | DQN family | [DQN Agents](200_dqn_agents.en.md) |
-| ImageCls | [image_cls_agent.hpp](../../core/anet-core/include/anet/image_cls_agent.hpp), [image_cls_agent.cpp](../../core/anet-core/src/image_cls_agent.cpp) |
-| MuZero prototype | [muzero_proto_agent.hpp](../../core/anet-core/include/anet/muzero_proto_agent.hpp), [muzero_proto_agent.cpp](../../core/anet-core/src/muzero_proto_agent.cpp) |
-| Initial registration | [init.cpp](../../core/anet-core/src/init.cpp) |
+| ImageCls | [image_cls_agent.hpp](../../src/algo/imagecls/src/image_cls_agent.hpp), [image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp) |
+| MuZero prototype | [muzero_proto_agent.hpp](../../src/algo/muzero/src/muzero_proto_agent.hpp), [muzero_proto_agent.cpp](../../src/algo/muzero/src/muzero_proto_agent.cpp) |
+| Initial registration | [init.cpp](../../src/core/base/src/init.cpp) |
 
 ## 5. Static Structure
 
@@ -159,7 +159,7 @@ DefaultDQN selects the skip network configuration with `skip.network_mode=action
 
 With DefaultDQN skip enabled, Actor owns each lane's ongoing action, selected length, and remaining count. `episode_start` clears continuation, and `decision` in info marks a new decision. Runner steps and Env frame skip remain unchanged, and the primary forward still runs every step. Primary and skip cloning and synchronization occur under the same Agent lock. The forced-action operation `WithAction` replaces the executed action and Q hint without updating Actor's continuation state.
 
-DefaultDQN Actors choose full, single or variable through `skip.max_length_mode`. Full/variable own continuation state; single decides every step and uses the primary proposal directly. Variable advances its integer ProfiledValue with the training exp_step supplied to MakeAction (evaluation uses the latest synchronized counts). Every mode retains skip forward and J-wide auxiliary values. The Agent validates the entire Actor catalog against the auxiliary target-window choice without inferring Runner roles. See [DQN skip policy](200_dqn_agents.en.md) and [PRD104 validation](../../core/anet-core/testdata/prd104/README.md).
+DefaultDQN Actors choose full, single or variable through `skip.max_length_mode`. Full/variable own continuation state; single decides every step and uses the primary proposal directly. Variable advances its integer ProfiledValue with the training exp_step supplied to MakeAction (evaluation uses the latest synchronized counts). Every mode retains skip forward and J-wide auxiliary values. The Agent validates the entire Actor catalog against the auxiliary target-window choice without inferring Runner roles. See [DQN skip policy](200_dqn_agents.en.md) and [PRD104 validation](../../src/core/base/testdata/prd104/README.md).
 
 ### 6.2 Accepting Experiences and Returning Updates
 
@@ -219,7 +219,7 @@ When adding or changing checkpoint support, identify unsaved State and check the
 
 ## 8. Tests and Extension Checks
 
-Shared factory registration and Runner integration are checked in [init_test.cpp](../../core/anet-core/src/init_test.cpp) and [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp); algorithm internals are checked by each concrete Agent's tests. The Actor catalog contract tests `[prd061]` and the comparison procedure for the configuration rename and catalog migration are described in [testdata/prd061/README.md](../../core/anet-core/testdata/prd061/README.md).
+Shared factory registration and Runner integration are checked in [init_test.cpp](../../src/core/base/src/init_test.cpp) and [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp); algorithm internals are checked by each concrete Agent's tests. The Actor catalog contract tests `[prd061]` and the comparison procedure for the configuration rename and catalog migration are described in [testdata/prd061/README.md](../../src/core/base/testdata/prd061/README.md).
 
 When adding or modifying an Agent, check at least the following:
 

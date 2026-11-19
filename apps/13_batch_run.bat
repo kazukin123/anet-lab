@@ -2,6 +2,7 @@
 title %~nx0
 
 cd /d "%~dp0runner"
+for %%I in ("%~dp0..\data\workspaces") do SET "DATA_WORKSPACES=%%~fI"
 
 SET "BUILD=Release"
 
@@ -148,11 +149,12 @@ goto :beep_forever
 
 
 :use_ws
-SET "WS=--workspace %~1"
-SET "RUNS=workspaces\%~1\runs"
-if exist "workspaces\%~1\config\_main.txt" exit /b 0
-mkdir "workspaces\%~1\config" 2>nul
->"workspaces\%~1\config\_main.txt" echo $include ^<%~2^>
+SET "WORKSPACE_ROOT=%DATA_WORKSPACES%\%~1"
+SET "WS=--workspace "%WORKSPACE_ROOT%""
+SET "RUNS=%WORKSPACE_ROOT%\runs"
+if exist "%WORKSPACE_ROOT%\config\_main.txt" exit /b 0
+mkdir "%WORKSPACE_ROOT%\config" 2>nul
+>"%WORKSPACE_ROOT%\config\_main.txt" echo $include ^<%~2^>
 exit /b 0
 
 :find_done

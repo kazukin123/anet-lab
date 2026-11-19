@@ -36,7 +36,7 @@ PRD170 の実装で、変更前後の既定テスト一式を比較した際に�
 
 ## 事象
 
-- [EvalTracePanel_test.cpp](../../../apps/runner/src/EvalTracePanel_test.cpp) の `Trace keeps one selected row and fixed row heights`（`[trace_ui_single_row]`）が失敗する。
+- [EvalTracePanel_test.cpp](../../../src/apps/runner/src/EvalTracePanel_test.cpp) の `Trace keeps one selected row and fixed row heights`（`[trace_ui_single_row]`）が失敗する。
 - テストは3行を追加したGridで、0行目のセルに合成した左ボタン押下を送り、押したまま1行目・2行目へ移動し、2行目でボタンを離す。その直後の `REQUIRE(ui.panel->IsTraceMode())` が false になる。
 - PRD170 の着手前と最終実装後の通常 GUI 一式を、同じ Catch seed `3413744419` で実行すると、両方とも39 cases中38 pass / 1 fail、894 assertions中893 pass / 1 fail。失敗する条件は同じで、着手前は576行目、最終実装後は581行目だった。
 - 実画面の同じ操作が失敗するか、合成イベントの準備に原因があるかは未確認。製品の選択処理とテスト側のどちらを直すべきかは、まだ特定していない。

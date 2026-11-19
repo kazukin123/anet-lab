@@ -33,23 +33,23 @@ Logs pane は表示した WARN 以上の記録を「未確認の警告」とし�
 | 文言（要点） | 出た Run 数 | 出た期間 | 今のコード |
 |---|---|---|---|
 | `ActionPolicy spatial log scale received non-positive boundary value. Clamping to 1e-4 …` | 213 | 2026-07-27〜11-02 | 今のコードに無い（ProfiledValue 化で消えた） |
-| `Skipping metrics for unscheduled eval tag. tag='eval_target'. …` | 145 | 2026-09-17〜11-07 | [trainer.cpp](../../core/anet-core/src/trainer.cpp) 866 行 |
-| `ActionPolicy spatial exploration is enabled with num_envs < 32. num_envs=1` | 79 | 2026-09-18〜11-07 | [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) 1525 行 |
-| `net.config_profile.[…] is defined but not used by any branch.` | 17 | 2026-07-03〜07-08 | [nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) 1847 行 |
+| `Skipping metrics for unscheduled eval tag. tag='eval_target'. …` | 145 | 2026-09-17〜11-07 | [trainer.cpp](../../src/core/base/src/trainer.cpp) 866 行 |
+| `ActionPolicy spatial exploration is enabled with num_envs < 32. num_envs=1` | 79 | 2026-09-18〜11-07 | [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) 1525 行 |
+| `net.config_profile.[…] is defined but not used by any branch.` | 17 | 2026-07-03〜07-08 | [nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) 1847 行 |
 | `Skipping metrics for unscheduled eval tag. tag='eval1'. … train.eval …` | 6 | 2026-08-27 | 旧文言（`train.eval` は `run.eval` へ移った） |
 | `Learner::Load: optimizer option differs from checkpoint; config applied. …` | 6 | 2026-10-16〜10-22 | dqn_based_agent.cpp 4270〜4295 行 |
 | `Eval session has fewer adopted episodes than episode groups. …` | 5 | 2026-09-22 | trainer.cpp 1150 行 |
-| `DefaultDQNAgent.intrinsic.learn_batch_size=32 exceeds num_envs=1; …` | 1 | 2026-11-07 | [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) 110 行 |
+| `DefaultDQNAgent.intrinsic.learn_batch_size=32 exceeds num_envs=1; …` | 1 | 2026-11-07 | [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 110 行 |
 | `DefaultDQNAgent.intrinsic.enabled=true with learner.enabled=false: …` | 1 | 2026-11-07 | default_dqn_agent.cpp 119 行 |
-| `MetricsLogObserverBase::OnUpdate(): value not found. tag=56_agent_in/32_learn_count …` | 1 | 2026-11-07 | [observers.cpp](../../core/anet-core/src/observers.cpp) 1115 行 |
+| `MetricsLogObserverBase::OnUpdate(): value not found. tag=56_agent_in/32_learn_count …` | 1 | 2026-11-07 | [observers.cpp](../../src/core/base/src/observers.cpp) 1115 行 |
 | `Checkpoint has no skip networks; …` | 1 | 2026-10-23 | default_dqn_agent.cpp 440 行 |
 
 各 workspace の直近 3 本では、Atari の Run（Atari-04・Atari5-01・AtariRnd-01・AtariTube-01）が全部 `eval_target` の WARN を 1 件ずつ出し、LunarLander・GridMaze・DropMerge-01 の直近の Run は 0 件だった。Atari の `eval_target` は `run.@eval2ch_r1` が `interval = 0` で意図して止めており（[Atari.txt](../../apps/runner/config/Atari.txt) 517 行）、WARN は PRD052 の D9 と PRD081（92 行）の契約どおりに出ている。評価だけの Run（`mz_nm_rnd_ev_taurnd`）の 4 件の分析は [issue-20261107-a9a0e3](../management/issues/issue-20261107-a9a0e3.md) の事象にある。
 
 ### 2.2 WARN の出し方と表示
 
-- ログは [log.hpp](../../core/anet-core/include/anet/log.hpp) の `anet::log::warn()`（216 行）と、prefix 付きの `Logger::warn()`（196 行）で出す。レベルは info・verbose・warn・error・fatal の 5 つで、WARN と ERROR の間のレベルは無い。Run のログには `[W]` で残る。
-- 「対象ごとに 1 回だけ出す」共通の部品は無い。メンバの真偽値（`grad_noise_intervals_warned_`）、メンバの集合（`warned_dormant_metric_tags_`、`policy_churn_warned_intervals_`、`warned_unsupported_env_config_names_`）、状態での固定（`ImageData.cpp` の `cache_prepare_state_`）、構築が 1 回であることへの依存（[default_dqn_agent.hpp](../../core/anet-core/include/anet/default_dqn_agent.hpp) 482 行のコメントは「1度だけWARN」だがフラグは無い）が、箇所ごとに書かれている。
+- ログは [log.hpp](../../src/core/base/include/anet/log.hpp) の `anet::log::warn()`（216 行）と、prefix 付きの `Logger::warn()`（196 行）で出す。レベルは info・verbose・warn・error・fatal の 5 つで、WARN と ERROR の間のレベルは無い。Run のログには `[W]` で残る。
+- 「対象ごとに 1 回だけ出す」共通の部品は無い。メンバの真偽値（`grad_noise_intervals_warned_`）、メンバの集合（`warned_dormant_metric_tags_`、`policy_churn_warned_intervals_`、`warned_unsupported_env_config_names_`）、状態での固定（`ImageData.cpp` の `cache_prepare_state_`）、構築が 1 回であることへの依存（[default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp) 482 行のコメントは「1度だけWARN」だがフラグは無い）が、箇所ごとに書かれている。
 - Logs pane は表示 level 以上の WARN を数え、▾の `Mark all as viewed` で確認済みにする。表示しない level の記録と Clear した記録は数えない（160 §3.5）。
 
 ### 2.3 WARN を出す箇所の棚卸し
@@ -62,34 +62,34 @@ Logs pane は表示した WARN 以上の記録を「未確認の警告」とし�
 | B 設定の組み合わせや値が推奨外 | 14 | dqn_based_agent.cpp 1525 行の spatial と num_envs |
 | C 自動の代替・置き換え | 8 | default_dqn_agent.cpp 110 行の `learn_batch_size` の切り詰め |
 | D 実行時のデータや状態の異常 | 18 | observers.cpp 1115 行の値の欠け |
-| E 旧キーの案内 | 1 | [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) 131〜145 行の `app.metrics_logger.runs_dir`（[issue-20261103-2c9a07](../management/issues/issue-20261103-2c9a07.md) で起票済み） |
+| E 旧キーの案内 | 1 | [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) 131〜145 行の `app.metrics_logger.runs_dir`（[issue-20261103-2c9a07](../management/issues/issue-20261103-2c9a07.md) で起票済み） |
 | F そのほか | 2 | LogPanel のクリップボードの失敗、Env の設定 dump の非対応 |
 
 [AGENTS.md](../../AGENTS.md) の Fail-Fast 原則・設定値の扱いと食い違う箇所:
 
-- 未知の値を WARN だけで流す: [scaler_impl.cpp](../../core/anet-core/src/scaler_impl.cpp) 420 行（`Unknown squash_type.`。正規化を呼ぶたびに出る。DefaultDQNAgent の観測の正規化は `post_process_type` の値域を構築時に検証していない）と、observers.cpp 1374・1379・1384・1404・1633・1640 行（metrics の定義の未知の event・step・target・属性）。表は未知の列挙値と閉じたスキーマ内の未知フィールドを fail-fast とする（190 行）。
-- 互換性の無い組み合わせを読み替える: [rainbow_agent.cpp](../../core/anet-core/src/rainbow_agent.cpp) 54 行（`use_qr=true` かつ `num_quantiles<=1` を scalar DQN として扱う）。
-- 明示要求の一部を別の方法で代える: [replay_buffer_impl.cpp](../../core/anet-core/src/replay_buffer_impl.cpp) 1213 行（PER の rejection sampling が埋まらないと残りを一様に引く。固定も回数の抑えも無い）。
+- 未知の値を WARN だけで流す: [scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp) 420 行（`Unknown squash_type.`。正規化を呼ぶたびに出る。DefaultDQNAgent の観測の正規化は `post_process_type` の値域を構築時に検証していない）と、observers.cpp 1374・1379・1384・1404・1633・1640 行（metrics の定義の未知の event・step・target・属性）。表は未知の列挙値と閉じたスキーマ内の未知フィールドを fail-fast とする（190 行）。
+- 互換性の無い組み合わせを読み替える: [rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp) 54 行（`use_qr=true` かつ `num_quantiles<=1` を scalar DQN として扱う）。
+- 明示要求の一部を別の方法で代える: [replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) 1213 行（PER の rejection sampling が埋まらないと残りを一様に引く。固定も回数の抑えも無い）。
 - 指定値を切り詰める: default_dqn_agent.cpp 110 行（`learn_batch_size` を num_envs に切り詰める。既定の 32 のままでも num_envs<32 なら出る）。
-- auto の代替で選択を固定しない: [metrics_logger.cpp](../../core/anet-core/src/metrics_logger.cpp) 327 行（nvenc が起動しないと動画ごとに libx264 で試し直し、WARN も動画ごとに出る）。
-- 明示した入力が無くても続ける: [config.cpp](../../core/anet-core/src/config.cpp) 555 行（ファイルが開けない）・640 行（`$include` 先が無い）は WARN で続け、605・626・632 行（include 行の解析の失敗）は ERROR のログを出して次の行へ進む。[Run 実行ガイド](../design/020_user_guide_run.jp.md) の 379 行はこれを「エラーにならず続行する」と案内している。
-- 重複を除かずに繰り返す: observers.cpp 91・1115 行、[probe.cpp](../../core/anet-core/src/probe.cpp) 251 行、scaler_impl.cpp 541 行（`// DEBUG` のブロックで生の観測を出す）、replay_buffer_impl.cpp 1213 行。NN を構築・複製するたびに出る nn_impl.cpp 1838・1847・1923 行と [nn_modules.cpp](../../core/anet-core/src/nn_modules.cpp) 1676 行も、target・Actor 用の複製の数だけ重なる。
+- auto の代替で選択を固定しない: [metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp) 327 行（nvenc が起動しないと動画ごとに libx264 で試し直し、WARN も動画ごとに出る）。
+- 明示した入力が無くても続ける: [config.cpp](../../src/core/base/src/config.cpp) 555 行（ファイルが開けない）・640 行（`$include` 先が無い）は WARN で続け、605・626・632 行（include 行の解析の失敗）は ERROR のログを出して次の行へ進む。[Run 実行ガイド](../design/020_user_guide_run.jp.md) の 379 行はこれを「エラーにならず続行する」と案内している。
+- 重複を除かずに繰り返す: observers.cpp 91・1115 行、[probe.cpp](../../src/core/base/src/probe.cpp) 251 行、scaler_impl.cpp 541 行（`// DEBUG` のブロックで生の観測を出す）、replay_buffer_impl.cpp 1213 行。NN を構築・複製するたびに出る nn_impl.cpp 1838・1847・1923 行と [nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) 1676 行も、target・Actor 用の複製の数だけ重なる。
 - 旧キー専用の WARN: RunnerApp.cpp の `WarnDeprecatedRunsDirConfig`。クリーンブレーク方針（82・92 行）に反する。
 
 INFO で休止や選択の結果を知らせている箇所も既にある（trainer.cpp 1095・1107 行の `eval.[<tag>]: definition-only`、dqn_based_agent.cpp 2684 行の `Learner: learning is disabled …`、metrics_logger.cpp 313 行の `VideoLogger(auto): …`）。
 
 ### 2.4 設定の読み方と、読まれない設定キー
 
-- `ConfigData` は文字列の key/value の平らな集まりで、`Read` はキーがあればその値を、無ければ呼び出し側の既定を使う（[config.hpp](../../core/anet-core/include/anet/config.hpp) 95〜105 行）。どの設定キーが読まれたかは残さない。
-- `Config` の `ReadConfig` は default prefix と override prefix の順に読み、読んだ値をモジュールごとの記録へ残す（config.hpp 184〜209 行）。この記録が Run の `config/<module>.txt` になる。ただし記録は「読んだ設定キー」ではない。ProfiledValue は全欄を記録せずに読み、実効の type が使う欄だけを記録する（[schedule.hpp](../../core/anet-core/include/anet/schedule.hpp) 284〜349 行）。
-- 読み口は、`Config` の派生が 75、`ReadConfig`・`ANET_READ_CONFIG` の呼び出しが 610 ある。ほかに `ConfigData` の全キーを走査する読み口が 29 か所（`net.block` などのカタログの読み口）、`ConfigData` を直接 `Get`・`Read` する読み口がコアに 16 か所、アプリに約 10 か所（[EvalTracePanel.cpp](../../apps/runner/src/EvalTracePanel.cpp) 84・85 行など）ある。
+- `ConfigData` は文字列の key/value の平らな集まりで、`Read` はキーがあればその値を、無ければ呼び出し側の既定を使う（[config.hpp](../../src/core/base/include/anet/config.hpp) 95〜105 行）。どの設定キーが読まれたかは残さない。
+- `Config` の `ReadConfig` は default prefix と override prefix の順に読み、読んだ値をモジュールごとの記録へ残す（config.hpp 184〜209 行）。この記録が Run の `config/<module>.txt` になる。ただし記録は「読んだ設定キー」ではない。ProfiledValue は全欄を記録せずに読み、実効の type が使う欄だけを記録する（[schedule.hpp](../../src/core/base/include/anet/schedule.hpp) 284〜349 行）。
+- 読み口は、`Config` の派生が 75、`ReadConfig`・`ANET_READ_CONFIG` の呼び出しが 610 ある。ほかに `ConfigData` の全キーを走査する読み口が 29 か所（`net.block` などのカタログの読み口）、`ConfigData` を直接 `Get`・`Read` する読み口がコアに 16 か所、アプリに約 10 か所（[EvalTracePanel.cpp](../../src/apps/runner/src/EvalTracePanel.cpp) 84・85 行など）ある。
 - NN の block は、`net.block.[<名前>].*` を全体とAgent の下から集め、`type` を除いた設定キーを相対のキーで block ごとの設定にまとめる（nn_impl.cpp 787〜845 行）。構造に現れた block だけを、module の factory がその設定から自分のキーを読んで作る（nn_impl.cpp 1776〜1806 行。Conv2d は `conv.out_channels` などを読む。nn_modules.cpp 2969 行・3050 行付近）。factory が読まない設定キーは、構築時にエラーにも WARN にもならない（0c34dd）。
 - 実際の Run（`mz_rbw_imp_s1`）の `config_data.txt` は 1,362 件、モジュールごとの記録は 671 件で、差の 1,009 件の内訳は `net.block` 447、`metrics.scalar` 123、`M1` 110、`RainbowAgent` 57、`A3` 56、`MuZeroAgent` 44、`A1` 35、`DefaultDQNAgent.actor` 17、`app.eval_trace_panel` 15、`DefaultDQNAgent.net` 14、`run.eval` 14、`A2` 12、`DefaultDQNAgent.intrinsic` 9 などだった。この差には、記録に残らない読み方（NN の branch、ProfiledValue の type、GUI の panel）で読まれた設定キーも含まれるので、記録は読まれたかの判定に使えない。
 - 実効側に残る、読まれなくてよい設定キーの種類は既に整理されている。プロファイル（`@` を持つ定義）は `ConfigData` から除かれる（[100](../design/100_runtime_and_configuration.jp.md) §2.1 の手順 7）。上書き層（A1・E1・M1 など）と mode（`app.online`・`app.batchrun`）は選択の源として残り、「既知 prefix として機械識別でき」る（[PRD059](done/059_config_concept_tree_alignment_10prd.md) の 36 行、D20・D25）。カタログの項目は名前で参照される部品の定義である（[CONTEXT.md](../../CONTEXT.md)「カタログ」）。共通の設定には、その Run で作らない Agent の既定（`RainbowAgent.*` は `?=` が 51 行、`=` が 6 行）も入る。
 - 既定キー `?=` の集合は `Properties`・`ConfigManager` が解決の途中で持つが、`ConfigData` には渡さない（config.hpp 154〜160 行、config.cpp 675〜803 行）。
-- 遅れて設定を読む読み口がある。`Conv2dPanel` は View の menu で開いたときに作られ、そこで `Conv2dPanel.conv2d.*` を読む（[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) 1519 行、[Conv2dPanel.cpp](../../apps/runner/src/Conv2dPanel.cpp) 20〜30 行）。
+- 遅れて設定を読む読み口がある。`Conv2dPanel` は View の menu で開いたときに作られ、そこで `Conv2dPanel.conv2d.*` を読む（[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) 1519 行、[Conv2dPanel.cpp](../../src/apps/runner/src/Conv2dPanel.cpp) 20〜30 行）。
 - 綴り違いの `Conv2dPanel.conv2d.mergin_x ?= 2` は既定キーで書かれている（[common.txt](../../apps/runner/config/common.txt) 75・76 行。[metrics_image.txt](../../apps/runner/config/metrics_image.txt) 96・97 行も同じ）。`=` だけを見る検出では拾えない。
-- 静的な検査は `?=` と `=` の使い分けを見る [check_default_leaves.py](../../core/anet-core/testdata/prd072/check_default_leaves.py) と、`[shipped_config]` のテストだけで、書いた設定キーが読まれたかは見ない。
+- 静的な検査は `?=` と `=` の使い分けを見る [check_default_leaves.py](../../src/core/base/testdata/prd072/check_default_leaves.py) と、`[shipped_config]` のテストだけで、書いた設定キーが読まれたかは見ない。
 - 起票時点の作業ツリー（PRD116 の実装）の `nn.txt` は、`Conv1d_S`・`Conv1d_M`・`Conv2d_S` などの設定キーを `conv.*` の下に書いていた。この直しは PRD116 でコミットされた（§2.6）。
 
 ### 2.5 規約・文書・過去の判断の今の記述
@@ -112,20 +112,20 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 ### 2.6 再グリルで確かめた事実（2026-11-10）
 
 - PRD116 のコミット（66d3e411）で、`nn.txt` の `Conv2d_S` などの設定キーは `conv.*` の下に直った（[nn.txt](../../apps/runner/config/nn.txt) 151〜155 行）。同じ名前の block の `type` を 2 通りに書いた箇所と、プロファイルで block の `type` を上書きした行は、出荷設定に 0 件。
-- 出荷設定（`apps/runner/config/*.txt`）の代入の行は約 3,800 行で、うち `?=` は約 1,200 行。名前の違う block は 224 個（`nn.txt` だけで 43 個）。block の設定キーを読む処理は module を作る処理と一体で（[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) 1784〜1799 行）、module の種類は 28。module は block の設定だけで作れ、最初の入力が来るまで重みを確保しない（[nn_modules.cpp](../../core/anet-core/src/nn_modules.cpp) の `Conv2dModule` など）。
-- 出荷設定の `$include` は 167 行で、先の無いものは 0 件。無くてよいファイル（workspace の `history.txt`・`prefs.txt`）は、呼ぶ側が先に有無を確かめてから読む（[app_util.cpp](../../core/anet-core/src/app_util.cpp) 445 行、[WorkspaceDialog.cpp](../../apps/runner/src/WorkspaceDialog.cpp) 227 行）。
-- checkpoint の読み込みは、内的報酬の有無が設定と合わないときと、skip の Network を持つ checkpoint を skip 無効で読むときは ERROR で止め、skip 有効の設定で skip の Network を持たない checkpoint を読むときは初期化して WARN を出す（[default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) 406〜409・439〜441 行）。
+- 出荷設定（`apps/runner/config/*.txt`）の代入の行は約 3,800 行で、うち `?=` は約 1,200 行。名前の違う block は 224 個（`nn.txt` だけで 43 個）。block の設定キーを読む処理は module を作る処理と一体で（[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) 1784〜1799 行）、module の種類は 28。module は block の設定だけで作れ、最初の入力が来るまで重みを確保しない（[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) の `Conv2dModule` など）。
+- 出荷設定の `$include` は 167 行で、先の無いものは 0 件。無くてよいファイル（workspace の `history.txt`・`prefs.txt`）は、呼ぶ側が先に有無を確かめてから読む（[app_util.cpp](../../src/core/base/src/app_util.cpp) 445 行、[WorkspaceDialog.cpp](../../src/apps/runner/src/WorkspaceDialog.cpp) 227 行）。
+- checkpoint の読み込みは、内的報酬の有無が設定と合わないときと、skip の Network を持つ checkpoint を skip 無効で読むときは ERROR で止め、skip 有効の設定で skip の Network を持たない checkpoint を読むときは初期化して WARN を出す（[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 406〜409・439〜441 行）。
 - PRD116 は、`intrinsic.learn_batch_size` が lane の数 N より大きいときに N 件へ縮めて WARN を 1 回出すと決めている（[212](../design/212_rnd_lifelong_novelty.jp.md) §3.5 の 262 行、379 行の表、[200](../design/200_dqn_agents.jp.md) 402 行）。既定は 32（[agent.txt](../../apps/runner/config/agent.txt) 14 行）。出荷設定で RND を使う Run の lane は 256（LunarLander・GridMaze）と 128・64（Atari）で、縮む構成は無い。縮めたときも、Run の設定の dump（`config/config_data.txt`）には 32 が残る。
 - PER の抽選の代替の WARN（replay_buffer_impl.cpp の `PER Rejection Sampling failed to fill batch. Falling back to uniform.`）は、§2.1 の 616 本に 1 件も無い。試行の上限は batch の大きさの 10 倍で、回数の抑えは無い。
-- `GetScalar()` の契約は既にある。未知の鍵は値なし、既知の鍵で今は値が成立しないときは `NaN` を返し、Observer は値なしを未知の鍵として扱う（[140](../design/140_observability.jp.md) 238・316 行）。PER の鍵は、PER を無効にしても、既知の鍵として `NaN` を返す（[replay_buffer_impl.cpp](../../core/anet-core/src/replay_buffer_impl.cpp) の `DefaultReplayBuffer::GetScalar`。コメントは「PER を切っただけで metrics 定義を書き換えずに済むよう、既知キーは PER 無効でも NaN を返す」とする。2026-08-27 から）。140 の 238 行も、0 や既定値へ読み替えない状態の例に「PER無効」を挙げる。[150](../design/150_replay_buffer.jp.md) §7.5 の 314 行（en は 315 行）は「uniform sampler では PER の鍵を値なしで表す」と書いていて、実装と食い違う。RND は、無効のとき鍵が無く値なしで（[212](../design/212_rnd_lifelong_novelty.jp.md) 442 行、[200](../design/200_dqn_agents.jp.md) §9.1 の 633 行。intrinsic_test.cpp 390 行が断定している）、140 の決まりから外れている。
-- `run.train.runner_type` は、`pipeline`（大文字小文字を無視）と一致するかだけを見て、ほかの文字列をすべて serial として扱う（[trainer.cpp](../../core/anet-core/src/trainer.cpp) の `RunnerFactory::CreateMainRunner`。読み取りは 816 行）。WARN は出さない。出荷設定の値は `serial` が 2 か所、`pipeline` が 1 か所だけ。
+- `GetScalar()` の契約は既にある。未知の鍵は値なし、既知の鍵で今は値が成立しないときは `NaN` を返し、Observer は値なしを未知の鍵として扱う（[140](../design/140_observability.jp.md) 238・316 行）。PER の鍵は、PER を無効にしても、既知の鍵として `NaN` を返す（[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) の `DefaultReplayBuffer::GetScalar`。コメントは「PER を切っただけで metrics 定義を書き換えずに済むよう、既知キーは PER 無効でも NaN を返す」とする。2026-08-27 から）。140 の 238 行も、0 や既定値へ読み替えない状態の例に「PER無効」を挙げる。[150](../design/150_replay_buffer.jp.md) §7.5 の 314 行（en は 315 行）は「uniform sampler では PER の鍵を値なしで表す」と書いていて、実装と食い違う。RND は、無効のとき鍵が無く値なしで（[212](../design/212_rnd_lifelong_novelty.jp.md) 442 行、[200](../design/200_dqn_agents.jp.md) §9.1 の 633 行。intrinsic_test.cpp 390 行が断定している）、140 の決まりから外れている。
+- `run.train.runner_type` は、`pipeline`（大文字小文字を無視）と一致するかだけを見て、ほかの文字列をすべて serial として扱う（[trainer.cpp](../../src/core/base/src/trainer.cpp) の `RunnerFactory::CreateMainRunner`。読み取りは 816 行）。WARN は出さない。出荷設定の値は `serial` が 2 か所、`pipeline` が 1 か所だけ。
 - テストは自動では流れない。CI（`.github/workflows/windows-ci.yml`）は pull request と手動の起動だけで動き、`anet-core-test` を流す段を持たない。`[shipped_config]` のテストは既定のテストスイートに入っていて、設定を変えたときに流す決まりがある（[実装 品質確認観点](../quality/impl.md) 156 行）。同じ観点は「Run の構築時に止まる検査を前倒しするだけのテストは作らない」とする（417 行、項番 73）。
 - 選ばれなかった mode の設定キーは実効設定に残る。bat から流した Run（`app.$=app.batchrun>P1`）の `config/config_data.txt` には `app.online.*` と `app.batchrun.*` の両方があり、解決の記録（`json/config_resolution.json`）の選択に現れるのは `app.batchrun` だけだった（AtariRnd-01 の `run_20261110-120903_mz_tg_nmdd_b01_s1`）。Env の設定は `app.$ = app.online > P1` と書き、bat の引数がそれを置き換える（[GridMaze.txt](../../apps/runner/config/GridMaze.txt) 6 行、`apps/12_batch_run.bat` 66 行）。
-- RunnerApp は RunManager を裏のスレッドで作り、そのあと main のスレッドの `CompleteRunInitialization` で、view の factory、画像の metrics の登録（`ImageProviderManager::CreateAndRegister` が `metrics.image.[<tag>]` を読む）、RunnerFrame の初期化（panel が `app.eval_trace_panel.*` などを読む）を行う（[RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) 431〜435・509〜529 行、[image.cpp](../../core/anet-core/src/image.cpp) 693〜754 行）。RunnerFrame は mode によらず作られる（RunnerApp.cpp 400 行）。
+- RunnerApp は RunManager を裏のスレッドで作り、そのあと main のスレッドの `CompleteRunInitialization` で、view の factory、画像の metrics の登録（`ImageProviderManager::CreateAndRegister` が `metrics.image.[<tag>]` を読む）、RunnerFrame の初期化（panel が `app.eval_trace_panel.*` などを読む）を行う（[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) 431〜435・509〜529 行、[image.cpp](../../src/core/base/src/image.cpp) 693〜754 行）。RunnerFrame は mode によらず作られる（RunnerApp.cpp 400 行）。
 - block の設定は、全体の `net.block.[<名前>].*` を Agent の下の同じ block の設定キーで設定キーごとに上書きしてから作る（nn_impl.cpp 806〜822 行）。上書きされた全体の側の設定キーは、factory に渡る前に捨てられる。出荷設定に、Agent の下で block の設定キーを上書きした行は 0 件。
 - `app.save_agent_on_close` の既定は true で（RunnerApp.cpp 66 行）、`GridMaze_muzero.txt` は上書きしていない。MuZero の試作の Agent は保存で常に 0 を返すので（muzero_proto_agent.hpp 184 行）、その既定の Run は閉じるたびに 0 byte の WARN を出す。Atari の `run.@evalonly`（[Atari.txt](../../apps/runner/config/Atari.txt) 541〜557 行）は `auto_load_file` を持たない。
 - 設定の値は `${完全なキー}` で別の設定キーを 1 段だけ参照できる（[100](../design/100_runtime_and_configuration.jp.md) §2.1 の手順 7）。
-- カタログの読み口には、定義した全部の項目を読むものと、参照された項目だけを読むものがある。Actor 設定は、全部の項目を構築時に型付きの設定へ変える（[default_dqn_agent.hpp](../../core/anet-core/include/anet/default_dqn_agent.hpp) 193〜195 行）。scalar・trace・画像の metrics の定義と、評価の定義・schedule も、定義した全部を読む（observers.cpp の `ObserverFactory`、image.cpp 697〜754 行）。参照された項目だけを読むのは、構造に現れた block、branch が使う config_profile、参照された NN 実行設定（default_dqn_agent.hpp 650 行）である。
+- カタログの読み口には、定義した全部の項目を読むものと、参照された項目だけを読むものがある。Actor 設定は、全部の項目を構築時に型付きの設定へ変える（[default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp) 193〜195 行）。scalar・trace・画像の metrics の定義と、評価の定義・schedule も、定義した全部を読む（observers.cpp の `ObserverFactory`、image.cpp 697〜754 行）。参照された項目だけを読むのは、構造に現れた block、branch が使う config_profile、参照された NN 実行設定（default_dqn_agent.hpp 650 行）である。
 - 「葉」は、[CONTEXT.md](../../CONTEXT.md) の「既定葉」「個別葉」「葉キー」（PRD072）に始まる。現用の範囲（[実装 品質確認観点](../quality/impl.md) の項番 71 が定める範囲と、規約・品質確認観点・プロセス・skill）の、Git が追跡しているファイルの 52 ファイル 151 行に出る（2026-11-11 の `git grep`。うち 2 行は「言葉」）。「既定葉」が 60 か所、「個別葉」が 20 か所、「葉キー」が 1 か所で、ほかに「葉値」「確定葉」、数え方の「6葉」などがある。用語集では、`=` で書く側の正式な語は「個別指定」で、「個別葉」はその括弧書きの別名である。
 - 課題と PRD の結び付けは課題の `prd` 欄で表す（PRD120、[ADR 0069](../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md)）。
 
@@ -421,7 +421,7 @@ RND の補助学習が動く Run（learner が有効）で、`DefaultDQNAgent.in
 | LogPanel.cpp 658 | Log copy failed: the clipboard could not be opened. | F | 残す（操作のたびに出す） | 3 の (h) | 補助の操作の失敗。操作 1 回が対象（§5.1） |
 | RunnerApp.cpp 407 | Last workspace is unavailable; falling back to _default. | C | 残す | 3 の (d) | 自動の選択の代替 |
 | RunnerApp.cpp 131〜145・414 | Config key app.metrics_logger.runs_dir／root_dir is deprecated and ignored. | E | 消す | 通知を消す（旧キーは 3 の (a) の一覧に出る） | D6 |
-| RunnerApp.cpp 732 | Agent save produced zero bytes; … | D | 残す | 3 の (f) | 終了時の保存が 0 byte で、止めずに続ける。MuZero の試作の Agent は Save で 0 を返す（[muzero_proto_agent.hpp](../../core/anet-core/include/anet/muzero_proto_agent.hpp) 184 行）ので、`GridMaze_muzero.txt` は終了時の保存を切る（§5.8） |
+| RunnerApp.cpp 732 | Agent save produced zero bytes; … | D | 残す | 3 の (f) | 終了時の保存が 0 byte で、止めずに続ける。MuZero の試作の Agent は Save で 0 を返す（[muzero_proto_agent.hpp](../../src/algo/muzero/src/muzero_proto_agent.hpp) 184 行）ので、`GridMaze_muzero.txt` は終了時の保存を切る（§5.8） |
 | RunnerFrame.cpp 1029・1036 | No main pane occupies the centre. … / Both main panes occupy the centre. … | D | 残す・1 回 | 3 の (f) | 想定外の経路を GUI の配置の修復で正しい状態へ戻し、Run の結果は変わらない（PRD110）。修復のたびに出ている |
 | default_dqn_agent.hpp 234 | use_optimistic_target=true copies … without optimism | B | 残す | 3 の (c) | 効き目が無くなる組み合わせ |
 | default_dqn_agent.hpp 381 | learner.use_tbo … double-compressed | B | 残す | 3 の (c) | 同上 |
@@ -510,17 +510,17 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 | [220](../design/220_atari_env.jp.md) §4.2（167 行、68・143 行の表）・[040](../design/040_development_environment.jp.md) §3.6（185 行） | WARN を Run ごとに 1 回にするだけなら変えない。§9 の 9 で併用を止める形になったら追随させる |
 | 上の設計文書の `.en.md`（100・130・140・200・212・020。220・040 は §9 の 9 による） | 同じ章を追随させる。D12 の RND の鍵は、200 の en の 635 行（Disabled keys return nullopt）と、212 の en の 406 行 |
 | ADR 0027・0047・0053 | 先頭へ注記する（本文は書き換えない）。判断は ADR 0071 に書く。本 PRD の改訂で済ませる |
-| [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp) 1056 行 | dormant のレベルの断定を INFO へ |
-| [intrinsic_test.cpp](../../core/anet-core/src/intrinsic_test.cpp) 1259・1315 行 | `exceeds num_envs` の断定を、learner が有効なら ERROR、無効なら検査なし、へ |
+| [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp) 1056 行 | dormant のレベルの断定を INFO へ |
+| [intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp) 1259・1315 行 | `exceeds num_envs` の断定を、learner が有効なら ERROR、無効なら検査なし、へ |
 | intrinsic_test.cpp の補助 `IntrinsicAgentData`（112〜131 行）と `MakeIntrinsicAgent`（132 行。既定の lane は 2） | 補助は `learn_batch_size` を設定しないので、コードの既定の 32（default_dqn_agent.hpp 88 行）が lane の数を超え、learner が有効なテストが D11 で構築時に止まる。当たるのは、`MakeIntrinsicAgent` の呼び出し 15 か所のうち、`learn_batch_size` を明示する 326・1134・1170・1259 行のテストと、RND を無効にした Agent を作る 389 行のテストを除くもの。補助が `learn_batch_size` を lane の数以下に設定するように直す |
 | 実体化したカタログ項目に読まれない設定キーを持つ、既存のテストの設定 | 検索では挙げられない（読まれない設定キーは、§5.2 の記録を作るまで分からない）。記録と D3(a) の検査を入れたあと、既定のテストスイートを流して、止まった設定を直す（A8） |
 | intrinsic_test.cpp 389〜390 行 | RND を無効にした Agent の鍵が値なしであるという断定を、`NaN` を返す断定へ（D12） |
 | config_test.cpp 1534 行 | `Properties: Failed to open include file` の WARN の断定を、ERROR で止まる断定へ |
-| [observers_test.cpp](../../core/anet-core/src/observers_test.cpp) 1953 行 | `value not found` の断定を、tag ごとに 1 回へ |
-| WARN のレベルを断定するテスト（[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) 24 か所、[config_test.cpp](../../core/anet-core/src/config_test.cpp) 3、[nn_test.cpp](../../core/anet-core/src/nn_test.cpp) 2、trainer_test.cpp 4、[GridMazeEnv_test.cpp](../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp) 1 の `wxLOG_Warning`） | §5.5 の扱いに合わせて見直す（`optimizer option differs` は INFO へ、`no primary_skip optimizer role` は WARN のまま）。新しく止まる設定を入力に使うテストは、この表の intrinsic_test.cpp と config_test.cpp の行に挙げた。未知の `runner_type` と未知の属性を入力に使うテストは、2026-11-10 の検索では無かった（実装計画で引き直す）。`wxLOG_Warning` を持つ `LogPanel_test.cpp`（7 か所）と `log_test.cpp`（1 か所）は、Logs pane とログ基盤自身のテストで対象外 |
+| [observers_test.cpp](../../src/core/base/src/observers_test.cpp) 1953 行 | `value not found` の断定を、tag ごとに 1 回へ |
+| WARN のレベルを断定するテスト（[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) 24 か所、[config_test.cpp](../../src/core/base/src/config_test.cpp) 3、[nn_test.cpp](../../src/core/base/src/nn_test.cpp) 2、trainer_test.cpp 4、[GridMazeEnv_test.cpp](../../src/env/gridmaze/src/GridMazeEnv_test.cpp) 1 の `wxLOG_Warning`） | §5.5 の扱いに合わせて見直す（`optimizer option differs` は INFO へ、`no primary_skip optimizer role` は WARN のまま）。新しく止まる設定を入力に使うテストは、この表の intrinsic_test.cpp と config_test.cpp の行に挙げた。未知の `runner_type` と未知の属性を入力に使うテストは、2026-11-10 の検索では無かった（実装計画で引き直す）。`wxLOG_Warning` を持つ `LogPanel_test.cpp`（7 か所）と `log_test.cpp`（1 か所）は、Logs pane とログ基盤自身のテストで対象外 |
 | 出荷設定（`apps/runner/config/*.txt`、番号付き bat） | A2 の一覧に出た設定キーを直す（綴り違い・旧キー・持ち主のない設定キー）。綴り違いの `mergin_x`（66100f。common.txt 75・76 行、metrics_image.txt 96・97 行）を含む。`GridMaze_muzero.txt` に `app.save_agent_on_close = false` を足す（保存に対応していない Agent に、終了時の保存を求めているため）。新しく止まる書き方（metrics の定義の未知の属性など）が見つかれば直す |
-| [config_baseline_test.cpp](../../core/anet-core/src/config_baseline_test.cpp) | 出荷設定の検査のテスト（D13、A9）を足す |
-| [check_default_leaves.py](../../core/anet-core/testdata/prd072/check_default_leaves.py) | 変えない（演算子の検査で、本 PRD の検出とは別） |
+| [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp) | 出荷設定の検査のテスト（D13、A9）を足す |
+| [check_default_leaves.py](../../src/core/base/testdata/prd072/check_default_leaves.py) | 変えない（演算子の検査で、本 PRD の検出とは別） |
 | `core/anet-core/testdata/prd117/README.md`（新規） | A2 の Run の組み合わせ、止める条件、WARN を数える手順 |
 | 設定の用語の「葉」を使う、現用の文書・コード・設定（D14。2026-11-11 の検索で 52 ファイル 151 行） | D14 の表のとおり言い換える。多いのは、[020](../design/020_user_guide_run.jp.md)（jp 35 行、en 5 行）、[100](../design/100_runtime_and_configuration.jp.md)（8 行）、wiki の [316](../wiki/categories/316_config.md)（6 行。ほかに課題の区画の 1 行があり、これは除く）、[CONTEXT.md](../../CONTEXT.md)（6 行）、[実装 品質確認観点](../quality/impl.md)（5 行）、[212](../design/212_rnd_lifelong_novelty.jp.md)（5 行）、config_impl.cpp（4 行）、`core/anet-core/testdata/` の README とスクリプト、`apps/runner/config/` のコメント。設定のキーと値は変えない |
 | [AGENTS.md](../../AGENTS.md) の応答言語ルールの「避ける語」の表 | 「既定葉」「個別葉」「葉キー」の行と、単独の「葉」の行を足す（D14） |
@@ -571,12 +571,12 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 
 | issueのID | 題 | area | 現在のコードで確認した根拠の位置 | 直す確定事項 | 確かめる受入 |
 |---|---|---|---|---|---|
-| [issue-20261107-c17068](../management/issues/issue-20261107-c17068.md) | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し） | `316_config`, `312_util`, `315_nn`, `317_metrics`, `318_rl_core`, `324_dqn`, `110_runner_app` | [AGENTS.md](../../AGENTS.md) 85・93・188〜200 行、[config.hpp](../../core/anet-core/include/anet/config.hpp) 95〜105 行 | D1・D2・D3・D4・D5・D6・D7・D9・D10・D11・D12・D13・D14 | A1・A2・A4・A7・A8・A9・A10・A11 |
-| [issue-20261107-0c34dd](../management/issues/issue-20261107-0c34dd.md) | net.blockの未知の葉（conv.なしのout_channelsなど）が構築時に検出されず黙って無視される | `316_config`, `315_nn` | [nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) 787〜845・1776〜1806 行、[nn_modules.cpp](../../core/anet-core/src/nn_modules.cpp) 2969・3022〜3075 行 | D3・D4・D5・D6・D13 | A3・A4・A9 |
-| [issue-20261107-a9a0e3](../management/issues/issue-20261107-a9a0e3.md) | Atariの正常なRunで毎回出るWARN（eval_targetの未スケジュール、評価だけのRunのRND）で本物のWARNが埋もれる | `318_rl_core`, `317_metrics`, `324_dqn` | [trainer.cpp](../../core/anet-core/src/trainer.cpp) 860〜870 行、[default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) 109〜119 行 | D1・D2・D8・D11・D12 | A2・A5・A6 |
-| [issue-20261103-2c9a07](../management/issues/issue-20261103-2c9a07.md) | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する | `110_runner_app` | [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) 131〜145・414 行 | D6 | A1・A4 |
-| [issue-20261103-66100f](../management/issues/issue-20261103-66100f.md) | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない | `316_config`, `110_runner_app`, `317_metrics` | [common.txt](../../apps/runner/config/common.txt) 75・76 行、[metrics_image.txt](../../apps/runner/config/metrics_image.txt) 96・97 行、[Conv2dPanel.cpp](../../apps/runner/src/Conv2dPanel.cpp) 22・23 行 | D2・D4・D5 | A2・A4 |
-| [issue-20261103-582880](../management/issues/issue-20261103-582880.md) | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う | `318_rl_core` | [trainer.cpp](../../core/anet-core/src/trainer.cpp) 805・816・1066 行 | D7 | A7 |
+| [issue-20261107-c17068](../management/issues/issue-20261107-c17068.md) | WARN の意味の線引きと、読まれない設定の検出（NoCare の見直し） | `316_config`, `312_util`, `315_nn`, `317_metrics`, `318_rl_core`, `324_dqn`, `110_runner_app` | [AGENTS.md](../../AGENTS.md) 85・93・188〜200 行、[config.hpp](../../src/core/base/include/anet/config.hpp) 95〜105 行 | D1・D2・D3・D4・D5・D6・D7・D9・D10・D11・D12・D13・D14 | A1・A2・A4・A7・A8・A9・A10・A11 |
+| [issue-20261107-0c34dd](../management/issues/issue-20261107-0c34dd.md) | net.blockの未知の葉（conv.なしのout_channelsなど）が構築時に検出されず黙って無視される | `316_config`, `315_nn` | [nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) 787〜845・1776〜1806 行、[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) 2969・3022〜3075 行 | D3・D4・D5・D6・D13 | A3・A4・A9 |
+| [issue-20261107-a9a0e3](../management/issues/issue-20261107-a9a0e3.md) | Atariの正常なRunで毎回出るWARN（eval_targetの未スケジュール、評価だけのRunのRND）で本物のWARNが埋もれる | `318_rl_core`, `317_metrics`, `324_dqn` | [trainer.cpp](../../src/core/base/src/trainer.cpp) 860〜870 行、[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 109〜119 行 | D1・D2・D8・D11・D12 | A2・A5・A6 |
+| [issue-20261103-2c9a07](../management/issues/issue-20261103-2c9a07.md) | 旧キーapp.metrics_logger.runs_dir/root_dir専用のWARNが残り、クリーンブレーク方針に反する | `110_runner_app` | [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) 131〜145・414 行 | D6 | A1・A4 |
+| [issue-20261103-66100f](../management/issues/issue-20261103-66100f.md) | Conv2dPanel.conv2d.mergin_x/yとimage.@conv2d.conv2d.mergin_x/yが綴りの誤りで読まれない | `316_config`, `110_runner_app`, `317_metrics` | [common.txt](../../apps/runner/config/common.txt) 75・76 行、[metrics_image.txt](../../apps/runner/config/metrics_image.txt) 96・97 行、[Conv2dPanel.cpp](../../src/apps/runner/src/Conv2dPanel.cpp) 22・23 行 | D2・D4・D5 | A2・A4 |
+| [issue-20261103-582880](../management/issues/issue-20261103-582880.md) | train.runner_typeがpipeline以外の任意の文字列を黙ってserialとして扱う | `318_rl_core` | [trainer.cpp](../../src/core/base/src/trainer.cpp) 805・816・1066 行 | D7 | A7 |
 
 ## 6. 細部
 

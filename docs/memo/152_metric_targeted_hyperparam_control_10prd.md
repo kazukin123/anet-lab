@@ -33,7 +33,7 @@
 
 ### 3. 既存の「適応」は controller ではなくラチェット
 
-`mode = max` は分布に追従するが、`max_prio_` は `1.0` 初期・`std::max` でしか更新されない**単調高水位**である（[replay_buffer_impl.cpp:961,1062](../../core/anet-core/src/replay_buffer_impl.cpp)）。上にしか動かないので、一度でも極端な TD 誤差が出ると挿入水準がそこに張り付く。DropMerge の長年の `fixed 1.0` は、**`max` を t=0 の値で凍結したもの**にあたる。
+`mode = max` は分布に追従するが、`max_prio_` は `1.0` 初期・`std::max` でしか更新されない**単調高水位**である（[replay_buffer_impl.cpp:961,1062](../../src/core/base/src/replay_buffer_impl.cpp)）。上にしか動かないので、一度でも極端な TD 誤差が出ると挿入水準がそこに張り付く。DropMerge の長年の `fixed 1.0` は、**`max` を t=0 の値で凍結したもの**にあたる。
 
 ### 4. 観測量には内部最適がある
 

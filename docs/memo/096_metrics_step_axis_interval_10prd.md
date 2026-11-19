@@ -39,15 +39,15 @@
 
 | 事実 | 位置 |
 |---|---|
-| 記録のイベントは全部の軸の値（train / exp / update / learn / episode / sim）を持っている | [rl.hpp](../../core/anet-core/include/anet/rl.hpp) `:100-131`（`StepCounts`） |
-| 記録する step は、定義の軸の 1 つだけ（`counts.GetByAxis(step_axis_)`） | [observers.cpp](../../core/anet-core/src/observers.cpp) `:925` |
-| `$update_result` を学習ステップの軸で読むと、更新 1 回ごとに 1 記録（学習ステップを 1 ずつ進める）。他の軸では、そのイベントに入った更新の有限値を平均して 1 記録 | [observers.cpp](../../core/anet-core/src/observers.cpp) `:938-990` |
-| 学習時の診断の「この更新で測る」は、購読行の `interval` を `vars_.learn_step` で数えて決める | [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) `:2280`、`:2381`、`:2428`、`:2500`、`:3279`、`:3284-3286` |
+| 記録のイベントは全部の軸の値（train / exp / update / learn / episode / sim）を持っている | [rl.hpp](../../src/core/base/include/anet/rl.hpp) `:100-131`（`StepCounts`） |
+| 記録する step は、定義の軸の 1 つだけ（`counts.GetByAxis(step_axis_)`） | [observers.cpp](../../src/core/base/src/observers.cpp) `:925` |
+| `$update_result` を学習ステップの軸で読むと、更新 1 回ごとに 1 記録（学習ステップを 1 ずつ進める）。他の軸では、そのイベントに入った更新の有限値を平均して 1 記録 | [observers.cpp](../../src/core/base/src/observers.cpp) `:938-990` |
+| 学習時の診断の「この更新で測る」は、購読行の `interval` を `vars_.learn_step` で数えて決める | [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) `:2280`、`:2381`、`:2428`、`:2500`、`:3279`、`:3284-3286` |
 | 書き方の例: `@learn $learn_step $update_result interval:503`（勾配ノイズ）、`@learn $exp_step $ema interval:100`（IQN の診断） | [metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt) `:344-358`、[DropMerge.txt](../../apps/runner/config/DropMerge.txt) `:1253-1260` |
-| `metrics.defs` は指標ごとに `step_axis` を 1 つ持つ | [observers.cpp](../../core/anet-core/src/observers.cpp) `:1302`、`:1326` |
-| Viewer は記録の `step` を 1 つだけ取り込み、横軸の種類を区別・表示しない | [MetricsIngestor.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java) `:380-386` |
-| inspect_run の範囲は、各指標の自分の軸（runner と step_axis の組）で解釈する | [inspect_run.py](../../viewers/metrics-tools/inspect_run.py) `:318-340` |
-| trace チャネルも記録の軸は 1 つ | [observers.cpp](../../core/anet-core/src/observers.cpp) `:869` |
+| `metrics.defs` は指標ごとに `step_axis` を 1 つ持つ | [observers.cpp](../../src/core/base/src/observers.cpp) `:1302`、`:1326` |
+| Viewer は記録の `step` を 1 つだけ取り込み、横軸の種類を区別・表示しない | [MetricsIngestor.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java) `:380-386` |
+| inspect_run の範囲は、各指標の自分の軸（runner と step_axis の組）で解釈する | [inspect_run.py](../../apps/tools/inspect_run.py) `:318-340` |
+| trace チャネルも記録の軸は 1 つ | [observers.cpp](../../src/core/base/src/observers.cpp) `:869` |
 
 記録の内訳（DropMerge 本線の 42A、60M、metrics.jsonl 2.22GB・2,306 万行）: 経験数の軸 80.4%、train_step 18.4%、episode 1.2%、**学習ステップの軸 0.1%（約 2.3 万行）**。1 行は平均 約 96 バイト。
 

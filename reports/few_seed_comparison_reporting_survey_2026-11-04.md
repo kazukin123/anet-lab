@@ -200,7 +200,7 @@ max(K=10) の列は 10 回の取り方で動く。取り始めをずらすと、
 
 BeamRider の 151M フレーム以降は、100 エピソードの平均でも 1 回ごとに 39,440〜138,102 の幅で動く。
 
-集約では偏りが小さくなる。ただしこの 5 ゲームは 3 seed 平均と推定した系列なので、次の表の差は平滑化された系列の値で、1 seed の Run にはそのまま当てはまらない。手元の Atari-5 回帰の式([atari5.py](../viewers/metrics-tools/atari5.py)、係数は [Atari-5 (2022/10), 付録 E, Table 9])で CSV を計算した。この式は手元の記録の 555.2 と 458.3 を再現することを確かめた(BTR 側は 555.1 になり、差は丸めの範囲)。
+集約では偏りが小さくなる。ただしこの 5 ゲームは 3 seed 平均と推定した系列なので、次の表の差は平滑化された系列の値で、1 seed の Run にはそのまま当てはまらない。手元の Atari-5 回帰の式([atari5.py](../apps/tools/atari5.py)、係数は [Atari-5 (2022/10), 付録 E, Table 9])で CSV を計算した。この式は手元の記録の 555.2 と 458.3 を再現することを確かめた(BTR 側は 555.1 になり、差は丸めの範囲)。
 
 | CSV から取る統計量 | Atari-5 回帰 | K=200 の max に対する比 |
 |---|---:|---:|
@@ -497,6 +497,6 @@ BTR との比較は、max の K の違いだけで Atari-5 回帰に 3〜10% の
 - [実時間優先の実験記録](../docs/experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)
 - [wiki qbert](../docs/wiki/subjects/qbert.md)
 - [PRD103](../docs/memo/done/103_temporl_reference_alignment_10prd.md)
-- [atari5.py](../viewers/metrics-tools/atari5.py)
+- [atari5.py](../apps/tools/atari5.py)
 - [btr_hyperparams_survey](btr_hyperparams_survey_2026-08-26.md)、[btr_code_reading](btr_code_reading_2026-08-31.md)
 - 作業メモ: Claude の memory のうち `project_temporl_reference_alignment_prd103`、`project_prd104_stop_vs_off_investigation`、`feedback_judge_on_eval_side`(リポジトリの外にあり、正本ではない)

@@ -1,7 +1,8 @@
 @echo off
+title %~nx0
 setlocal enabledelayedexpansion
 
-call "%~dp0runner\tools\resolve_workspace.bat" "%~1"
+call "%~dp0tools\resolve_workspace.bat" "%~1"
 if errorlevel 1 exit /b 1
 pushd "%~dp0runner" >nul || exit /b 1
 

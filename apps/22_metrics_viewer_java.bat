@@ -1,18 +1,19 @@
 @echo off
+title %~nx0
 setlocal
 
 rem === batファイルの場所を基準にパスを構築 ===
 set ROOT=%~dp0..
 rem cd /d "%ROOT%"
 
-set VIEWER_JAR=%~dp0metrics-viewer\target\metrics-viewer.jar
+set "VIEWER_JAR=%~dp0metrics-viewer\bin\metrics-viewer.jar"
 set VIEWER_PORT=8082
 cd /d "%~dp0runner"
 
 echo.
 echo [1/2] Starting Metrics Viewer (port %VIEWER_PORT%)...
 start "MetricsViewer" cmd /c ^
-   "java -Xmx1g -Xverify:none -jar %VIEWER_JAR% --server.port=%VIEWER_PORT%"
+   "java -Xmx1g -Xverify:none -jar "%VIEWER_JAR%" --server.port=%VIEWER_PORT%"
 
 rem === Spring Boot起動待機（Tomcat初期化） ===
 timeout /t 20 /nobreak >nul

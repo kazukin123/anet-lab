@@ -12,7 +12,7 @@
 `EpisodeEndEvent` は、終わった lane（episode group）ごとに 1 本ずつ出る。その通知の中で読む target のうち、次の 2 つは「そのエピソードの値」にならない。
 
 - **`$env`**: 097 の実装のあと、env への問い合わせは今の env の状態を返す。自動リセットは `Step` の中で済んでいるので、終わった lane はリセット後の値になる。例えば `$env lives @episode_end` は、次のゲームの残機を黙って読む。遷移の結果は `$env_step` で読むのが正しい（097 の D1）。
-- **`$runner` の集計**（`mean.episode_return`・`max.episode_steps` など）: Runner は、終わったエピソードを集計に 1 本加えるたびに通知を出す（[trainer.cpp:90-103](../../core/anet-core/src/trainer.cpp)）。同じ step に 2 本が終わると、1 本目の通知の中では集計に 1 本分しか入っていない。`$runner mean.episode_return @episode_end` は、1 本目の通知で 1 本目だけの平均を、2 本目の通知で 2 本の平均を読む。EMA は両方を取り込む。`$runner` の集計は lane の指定を受け取らない（[trainer.cpp:171-188](../../core/anet-core/src/trainer.cpp)、ADR 0037 の「`$runner` は index を無視してカウンタ等を返せる」）。
+- **`$runner` の集計**（`mean.episode_return`・`max.episode_steps` など）: Runner は、終わったエピソードを集計に 1 本加えるたびに通知を出す（[trainer.cpp:90-103](../../src/core/base/src/trainer.cpp)）。同じ step に 2 本が終わると、1 本目の通知の中では集計に 1 本分しか入っていない。`$runner mean.episode_return @episode_end` は、1 本目の通知で 1 本目だけの平均を、2 本目の通知で 2 本の平均を読む。EMA は両方を取り込む。`$runner` の集計は lane の指定を受け取らない（[trainer.cpp:171-188](../../src/core/base/src/trainer.cpp)、ADR 0037 の「`$runner` は index を無視してカウンタ等を返せる」）。
 
 今のリポジトリの設定には、どちらに当たる宣言も無い（`@episode_end` の scalar は 0 行。`@episode_end` の trace は Atari の 4 行で、097 が `$env_step` へ移す）。実害は今は無いが、宣言すると黙って違う値になる。
 
@@ -28,9 +28,9 @@
 
 ## 2. 現状（2026-10-20 にコードで確かめたこと）
 
-- `RunnerBase` は、Step の結果からエピソードの集計を作り、終わった group を昇順に 1 本ずつ集計へ加えては `EpisodeEndEvent` を出す（[trainer.cpp:90-103](../../core/anet-core/src/trainer.cpp)）。
-- `RunnerBase::GetScalar` の `episode_return`・`episode_steps` の集計は、その集計を返す（[trainer.cpp:182-187](../../core/anet-core/src/trainer.cpp)）。
-- `@episode_end` の scalar の読み口は、通知のたびに値を取って EMA を更新し、そのあとで間隔の判定を見る（[observers.cpp:1110-1127](../../core/anet-core/src/observers.cpp)）。
+- `RunnerBase` は、Step の結果からエピソードの集計を作り、終わった group を昇順に 1 本ずつ集計へ加えては `EpisodeEndEvent` を出す（[trainer.cpp:90-103](../../src/core/base/src/trainer.cpp)）。
+- `RunnerBase::GetScalar` の `episode_return`・`episode_steps` の集計は、その集計を返す（[trainer.cpp:182-187](../../src/core/base/src/trainer.cpp)）。
+- `@episode_end` の scalar の読み口は、通知のたびに値を取って EMA を更新し、そのあとで間隔の判定を見る（[observers.cpp:1110-1127](../../src/core/base/src/observers.cpp)）。
 - 097 は、1 step に 1 回だけ読む規則を `$env_step` の scalar に限った（097 の §4.2 の 12）。ほかの target は今のまま、通知のたびに読む。
 
 ## 3. 提案の骨子（暫定）

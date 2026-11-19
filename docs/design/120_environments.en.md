@@ -93,20 +93,20 @@ Both Bases also hold protected `anet::log::Logger log`, constructing the prefix 
 
 | Area | Main files |
 |---|---|
-| State/Action/Env interfaces | [rl.hpp](../../core/anet-core/include/anet/rl.hpp), [rl.cpp](../../core/anet-core/src/rl.cpp) |
-| Batch wrappers/repository | [env.hpp](../../core/anet-core/include/anet/env.hpp), [env.cpp](../../core/anet-core/src/env.cpp) |
-| View interfaces/repository and AUI layout base Frame (`AuiLayoutFrame`) | [gui.hpp](../../core/anet-core/include/anet/gui.hpp), [gui.cpp](../../core/anet-core/src/gui.cpp) |
+| State/Action/Env interfaces | [rl.hpp](../../src/core/base/include/anet/rl.hpp), [rl.cpp](../../src/core/base/src/rl.cpp) |
+| Batch wrappers/repository | [env.hpp](../../src/core/base/include/anet/env.hpp), [env.cpp](../../src/core/base/src/env.cpp) |
+| View interfaces/repository and AUI layout base Frame (`AuiLayoutFrame`) | [gui.hpp](../../src/core/base/include/anet/gui.hpp), [gui.cpp](../../src/core/base/src/gui.cpp) |
 
 ### 4.2 Concrete Envs
 
 | Env | Implementation | Main Observation characteristics |
 |---|---|---|
-| CartPole | [core/envs/cartpole2](../../core/envs/cartpole2) | Vector |
-| LunarLander | [core/envs/lunarlander1](../../core/envs/lunarlander1) | Vector, Box2D physical state |
-| DropMerge | [core/envs/dropmerge1](../../core/envs/dropmerge1) | Grid and vector, Box2D physical state |
-| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | Vector-based maze state with guaranteed reachability; unsolvable seeds are deterministically resampled |
-| ImageCls | [core/envs/imagecls1](../../core/envs/imagecls1) | Image grid and classification target |
-| Atari | [core/envs/atari1](../../core/envs/atari1) | Single-frame uint8 grid from ALE |
+| CartPole | [core/envs/cartpole2](../../src/env/cartpole) | Vector |
+| LunarLander | [core/envs/lunarlander1](../../src/env/lunarlander) | Vector, Box2D physical state |
+| DropMerge | [core/envs/dropmerge1](../../src/env/dropmerge) | Grid and vector, Box2D physical state |
+| GridMaze | [core/envs/gridmaze1](../../src/env/gridmaze) | Vector-based maze state with guaranteed reachability; unsolvable seeds are deterministically resampled |
+| ImageCls | [core/envs/imagecls1](../../src/env/imagecls) | Image grid and classification target |
+| Atari | [core/envs/atari1](../../src/env/atari) | Single-frame uint8 grid from ALE |
 
 Each Env directory groups the Env implementation, factory, and optional View and tests by function.
 
@@ -260,7 +260,7 @@ Arcs are centered directly above the lander, with positive values drawn counterc
 
 ## 8. Tests and Extension Checks
 
-The DropMerge `[noop_penalty]` tests compare two instances with the same seed and action sequence, changing only the penalty. They cover all four action modes, NOOP overrides, rejected DROP commands, terminal steps, cumulative rewards, and multiple physics steps. Execution conditions are described in the [PRD115 verification materials](../../core/anet-core/testdata/prd115/README.md).
+The DropMerge `[noop_penalty]` tests compare two instances with the same seed and action sequence, changing only the penalty. They cover all four action modes, NOOP overrides, rejected DROP commands, terminal steps, cumulative rewards, and multiple physics steps. Execution conditions are described in the [PRD115 verification materials](../../src/core/base/testdata/prd115/README.md).
 
 When adding or modifying an Env, check the following:
 
@@ -272,21 +272,21 @@ When adding or modifying an Env, check the following:
 6. An added View's Env class ID matches its `ViewRepository` registration.
 7. Frequently called Reset/Step operations have meaningful profiling ranges.
 
-See the [PRD097 validation resources](../../core/anet-core/testdata/prd097/README.md) for acceptance procedures covering scalar/tensor values during notifications, aux lane alignment, result immutability, notification order by Runner type, reproducibility, and performance.
+See the [PRD097 validation resources](../../src/core/base/testdata/prd097/README.md) for acceptance procedures covering scalar/tensor values during notifications, aux lane alignment, result immutability, notification order by Runner type, reproducibility, and performance.
 
 These Envs have dedicated tests:
 
-- [LunarLanderEnv_test.cpp](../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
-- [DropMergeEnv_test.cpp](../../core/envs/dropmerge1/src/DropMergeEnv_test.cpp)
-- [GridMazeEnv_test.cpp](../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp)
-- [ImageClsEnv_test.cpp](../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
-- [AtariEnv_test.cpp](../../core/envs/atari1/src/AtariEnv_test.cpp)
+- [LunarLanderEnv_test.cpp](../../src/env/lunarlander/src/LunarLanderEnv_test.cpp)
+- [DropMergeEnv_test.cpp](../../src/env/dropmerge/src/DropMergeEnv_test.cpp)
+- [GridMazeEnv_test.cpp](../../src/env/gridmaze/src/GridMazeEnv_test.cpp)
+- [ImageClsEnv_test.cpp](../../src/env/imagecls/src/ImageClsEnv_test.cpp)
+- [AtariEnv_test.cpp](../../src/env/atari/src/AtariEnv_test.cpp)
 
 Concrete single-Env tests also include paths through `VectorizedDiscreteBatchEnv`. ImageCls tests directly validate native batches, Dataset catalogs/caches, eval windows, and worker modes. When changing an Env or wrapper, add regression tests explicitly selecting the required worker modes.
 
-See the [PRD100 validation assets](../../core/anet-core/testdata/prd100/README.md) for GridMaze golden maps, reachability, coordinate errors, log counts and exact short-Run scalar comparisons.
+See the [PRD100 validation assets](../../src/core/base/testdata/prd100/README.md) for GridMaze golden maps, reachability, coordinate errors, log counts and exact short-Run scalar comparisons.
 
-See the [PRD102 validation assets](../../core/anet-core/testdata/prd102/README.md) for seed precedence, automatic scope, concurrent initialization, recreation, RunManager integration, optional configuration and resolved-value differences.
+See the [PRD102 validation assets](../../src/core/base/testdata/prd102/README.md) for seed precedence, automatic scope, concurrent initialization, recreation, RunManager integration, optional configuration and resolved-value differences.
 
 ## 9. Related Documents
 

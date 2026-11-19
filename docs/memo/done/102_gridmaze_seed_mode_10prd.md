@@ -15,13 +15,13 @@
 
 ## 2. 現行の事実と既存部品
 
-- [GridMazeEnvConfig](../../../core/envs/gridmaze1/src/GridMazeEnv.hpp)と[Reset](../../../core/envs/gridmaze1/src/GridMazeEnv.cpp)の変更前は、seedの既定0とrandomize_seedで固定・毎Resetの自動採番を選んでいた。コンストラクタもResetする。
-- seedは[seed_t](../../../core/anet-core/include/anet/random.hpp)で表す符号なし64bit整数。NaNは表せず、浮動小数点へ変えると大きな値の精度を失う。未指定を別に表し、値域を削らない。
-- [ConfigDataの数値変換](../../../core/anet-core/src/config.cpp)は負数・範囲外・非整数を拒否する。この共通契約を使う。[Configの読み取り](../../../core/anet-core/include/anet/config.hpp)には未指定を保持する共通処理を足し、GridMazeに重複する数値パーサーを作らない。
-- [SeedMaker::MakeAutoSeed](../../../core/anet-core/src/random.cpp)は既存の自動採番入口で、run.seedからの派生とは別。[実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)のRun seed契約を変更しない。
+- [GridMazeEnvConfig](../../../src/env/gridmaze/src/GridMazeEnv.hpp)と[Reset](../../../src/env/gridmaze/src/GridMazeEnv.cpp)の変更前は、seedの既定0とrandomize_seedで固定・毎Resetの自動採番を選んでいた。コンストラクタもResetする。
+- seedは[seed_t](../../../src/core/base/include/anet/random.hpp)で表す符号なし64bit整数。NaNは表せず、浮動小数点へ変えると大きな値の精度を失う。未指定を別に表し、値域を削らない。
+- [ConfigDataの数値変換](../../../src/core/base/src/config.cpp)は負数・範囲外・非整数を拒否する。この共通契約を使う。[Configの読み取り](../../../src/core/base/include/anet/config.hpp)には未指定を保持する共通処理を足し、GridMazeに重複する数値パーサーを作らない。
+- [SeedMaker::MakeAutoSeed](../../../src/core/base/src/random.cpp)は既存の自動採番入口で、run.seedからの派生とは別。[実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)のRun seed契約を変更しない。
 - [PRD100](100_gridmaze_solvable_maze_10prd.md) §4・§5と[環境設計](../../design/120_environments.jp.md) §7.4の到達可能性保証・決定的な最大1000回の引き直し・採用seedの公開を維持する。PRD100 D8の通知抑制だけの共有から、今回は入力seedの共有だけを追加する。盤面と乱数器は個体所有のまま。
 - [GridMaze.txt](../../../apps/runner/config/GridMaze.txt)にはユーザーの有効な実験用seed指定がある。これは保持し、新契約では固定として働く。[GridMaze_muzero.txt](../../../apps/runner/config/GridMaze_muzero.txt)のseed既定行は外す。共通のseed既定値が残ると「未指定」がなくなり、process既定が働かないため。
-- [DropMerge](../../../core/envs/dropmerge1/src/DropMergeEnv.cpp)のseed_modeはそのEnv固有の契約であり、変更しない。
+- [DropMerge](../../../src/env/dropmerge/src/DropMergeEnv.cpp)のseed_modeはそのEnv固有の契約であり、変更しない。
 
 参照した地図は[322 Env個別実装](../../wiki/categories/322_env_individual.md)、[320 Env共通基盤](../../wiki/categories/320_env_core.md)、[312 ユーティリティ](../../wiki/categories/312_util.md)。PRD100由来の盤面golden・採用seed復元・固定条件の短Run比較を継続する。
 
@@ -106,10 +106,10 @@ processの共通入力seedの確定時にINFO本文`GridMaze process seed initia
 
 ## 6. 移行対象と合意した細部
 
-- [Config共通読み取り](../../../core/anet-core/include/anet/config.hpp)と[設定テスト](../../../core/anet-core/src/config_test.cpp): 未指定・0・最大値・prefixの上書き・不正値を検証する。
-- [GridMazeEnv.hpp](../../../core/envs/gridmaze1/src/GridMazeEnv.hpp)・[cpp](../../../core/envs/gridmaze1/src/GridMazeEnv.cpp)・[テスト](../../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp): 旧boolを削除し、seed指定有無と2モードへ移行する。
+- [Config共通読み取り](../../../src/core/base/include/anet/config.hpp)と[設定テスト](../../../src/core/base/src/config_test.cpp): 未指定・0・最大値・prefixの上書き・不正値を検証する。
+- [GridMazeEnv.hpp](../../../src/env/gridmaze/src/GridMazeEnv.hpp)・[cpp](../../../src/env/gridmaze/src/GridMazeEnv.cpp)・[テスト](../../../src/env/gridmaze/src/GridMazeEnv_test.cpp): 旧boolを削除し、seed指定有無と2モードへ移行する。
 - [GridMaze.txt](../../../apps/runner/config/GridMaze.txt)・[GridMaze_muzero.txt](../../../apps/runner/config/GridMaze_muzero.txt): mode既定をprocessへ移し、共有seed既定を外す。ユーザーの明示的な実験用seedは保持して固定として扱う。
-- [PRD100 driver](../../../core/anet-core/testdata/prd100/run_validation.py)・[README](../../../core/anet-core/testdata/prd100/README.md): 固定条件はseedだけを指定する現行手順へ移す。
+- [PRD100 driver](../../../src/core/base/testdata/prd100/run_validation.py)・[README](../../../src/core/base/testdata/prd100/README.md): 固定条件はseedだけを指定する現行手順へ移す。
 - [実行基盤・設定設計日本語](../../design/100_runtime_and_configuration.jp.md)・[英語](../../design/100_runtime_and_configuration.en.md): 共通optionalの初期値・省略記録・型変換・対応範囲を更新する。
 - [環境設計日本語](../../design/120_environments.jp.md)・[英語](../../design/120_environments.en.md): 2モードとseed優先、共有寿命、再現例、領域テストへの参照を更新する。
 - 現用の追加検索結果も同じ変更で移す。PRD固有の検証手順は正式番号のtestdata/prd102へ置く。

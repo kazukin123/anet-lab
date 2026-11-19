@@ -52,21 +52,21 @@ Evaluation Trace の `rnd_bonus`（鍵 `intrinsic.bonus`）は、学習の報酬
 
 ### 2.1 β の評価と、Trace のボーナス
 
-- β は設定 `intrinsic.beta` の予定（ProfiledValue。型は `constant`・`exponential`・`linear`・`cosine`・`cosine_restart`・`phased`。[schedule.hpp:52-60](../../core/anet-core/include/anet/schedule.hpp)）で、Agent が構築時に作る（[default_dqn_agent.cpp:122](../../core/anet-core/src/default_dqn_agent.cpp)）。予定は、作るときに設定を検証し、exp step 0 で一度評価する（[schedule.hpp:358-363](../../core/anet-core/include/anet/schedule.hpp)）。
-- 学習の入口 `DefaultDQNAgent::UpdateFromBatch` は、RND が有効で `learner.enabled` が真のときだけ（[default_dqn_agent.cpp:851](../../core/anet-core/src/default_dqn_agent.cpp)）、入口の exp step で β を評価して直近の β として覚え（同 858）、評価したその値でボーナスを作る（同 859）。
+- β は設定 `intrinsic.beta` の予定（ProfiledValue。型は `constant`・`exponential`・`linear`・`cosine`・`cosine_restart`・`phased`。[schedule.hpp:52-60](../../src/core/base/include/anet/schedule.hpp)）で、Agent が構築時に作る（[default_dqn_agent.cpp:122](../../src/algo/dqn/src/default_dqn_agent.cpp)）。予定は、作るときに設定を検証し、exp step 0 で一度評価する（[schedule.hpp:358-363](../../src/core/base/include/anet/schedule.hpp)）。
+- 学習の入口 `DefaultDQNAgent::UpdateFromBatch` は、RND が有効で `learner.enabled` が真のときだけ（[default_dqn_agent.cpp:851](../../src/algo/dqn/src/default_dqn_agent.cpp)）、入口の exp step で β を評価して直近の β として覚え（同 858）、評価したその値でボーナスを作る（同 859）。
 - Trace の採点は、Actor が network を写し直すロックの中で推定器と直近の β を写し（同 692-718・797-799）、β が無ければボーナスを NaN にする（同 801-815）。写しを持たない Actor では、step ごとに読み取りロックの中で直近の β を読む（同 823-825）。
 - 直近の β を読むのは、上の 2 か所（写しを作るときと、写しを持たない Actor の採点）だけである。`GetScalar` にもメトリクスにも出ない。学習のボーナスは、入口で評価し直した値で作る（同 858-859）。
 
 ### 2.2 Run の step と checkpoint
 
-- checkpoint には、設定の文字列、Network、Optimizer、RND の本体と facade の状態（補助学習の credit、lane の抽選の乱数、成功回数）が入り、β も Run の step 数も入らない（[default_dqn_agent.cpp:334-383・385-448](../../core/anet-core/src/default_dqn_agent.cpp)）。設計文書 200 も、checkpoint に保存しないものに「Run の StepCounts と metric 系列」を挙げ、checkpoint の読み込みを「旧 Run の完全再開ではなく、新しい Run へ Network と Optimizer を引き継ぐ操作」と書いている（[200_dqn_agents.jp.md:620・623](../design/200_dqn_agents.jp.md)）。
-- Run の step は 0 から数え、外から入れる口は無い（学習の Runner がカウンタを書くのは step を進めるときだけ。[trainer.cpp:152](../../core/anet-core/src/trainer.cpp)）。継続 Run（`run_20261113-113201_mz_tg_r123_s1_c50m`）も、前の Run の `agent_close.anet` を `auto_load_file` で読んで始めた新しい Run で（[実効設定の写し:816-817](../experiments/default-dqn/atari/config/run_20261113-113201_mz_tg_r123_s1_c50m.txt)）、step は 0 から数える。
+- checkpoint には、設定の文字列、Network、Optimizer、RND の本体と facade の状態（補助学習の credit、lane の抽選の乱数、成功回数）が入り、β も Run の step 数も入らない（[default_dqn_agent.cpp:334-383・385-448](../../src/algo/dqn/src/default_dqn_agent.cpp)）。設計文書 200 も、checkpoint に保存しないものに「Run の StepCounts と metric 系列」を挙げ、checkpoint の読み込みを「旧 Run の完全再開ではなく、新しい Run へ Network と Optimizer を引き継ぐ操作」と書いている（[200_dqn_agents.jp.md:620・623](../design/200_dqn_agents.jp.md)）。
+- Run の step は 0 から数え、外から入れる口は無い（学習の Runner がカウンタを書くのは step を進めるときだけ。[trainer.cpp:152](../../src/core/base/src/trainer.cpp)）。継続 Run（`run_20261113-113201_mz_tg_r123_s1_c50m`）も、前の Run の `agent_close.anet` を `auto_load_file` で読んで始めた新しい Run で（[実効設定の写し:816-817](../experiments/default-dqn/atari/config/run_20261113-113201_mz_tg_r123_s1_c50m.txt)）、step は 0 から数える。
 - そのため、課題の対応方針の案 a（β の予定を、読み込んだ重みの exp step で評価する）は、その step が手に入らないので、今は作れない。
 - Run の step 数と予定の進行位置を保存して続ける形は、暫定の [PRD143](143_serialize_10prd.md) が要求として持っている（同 PRD の「Run の `StepCounts` と schedule の進行位置」と、`StepCounts` を Run の継続の中核の状態として扱うという記述）。
 
 ### 2.3 学習を止めた Run と、checkpoint を見るだけの使い方
 
-- `learner.enabled=false` でも、学習の Runner は train step ごとに学習の入口を呼ぶ（[trainer.cpp:613](../../core/anet-core/src/trainer.cpp)）。入口は、報酬のスケール、観測の正規化の統計の更新、目標の方策の予定の更新を今までどおり行い（[default_dqn_agent.cpp:848-849・909-911・927](../../core/anet-core/src/default_dqn_agent.cpp)）、内的報酬の部分（採点、ボーナス、補助学習、β の評価）だけを飛ばす（同 851）。設計文書 200 も「外側 Agent の前処理（Reward scale と ObservationNormalizer 統計、ActionPolicy の schedule）は無効時も従来どおり動く」と書いている（[200_dqn_agents.jp.md:450](../design/200_dqn_agents.jp.md)）。
+- `learner.enabled=false` でも、学習の Runner は train step ごとに学習の入口を呼ぶ（[trainer.cpp:613](../../src/core/base/src/trainer.cpp)）。入口は、報酬のスケール、観測の正規化の統計の更新、目標の方策の予定の更新を今までどおり行い（[default_dqn_agent.cpp:848-849・909-911・927](../../src/algo/dqn/src/default_dqn_agent.cpp)）、内的報酬の部分（採点、ボーナス、補助学習、β の評価）だけを飛ばす（同 851）。設計文書 200 も「外側 Agent の前処理（Reward scale と ObservationNormalizer 統計、ActionPolicy の schedule）は無効時も従来どおり動く」と書いている（[200_dqn_agents.jp.md:450](../design/200_dqn_agents.jp.md)）。
 - PRD127 の §2.6 は「学習の入口は呼ばれないので、β は評価されない」と書いている。「学習の入口は呼ばれない」の部分は誤りで、入口は呼ばれる。「β は評価されない」の部分は正しい。
 - 出荷の評価専用の組 `run.@evalonly` は、学習の Runner を動かし、1 train step を 1 learn step として評価の間隔を数える（[Atari.txt:541-560](../../apps/runner/config/Atari.txt)、[200_dqn_agents.jp.md:450](../design/200_dqn_agents.jp.md)）。
 - checkpoint を見るだけの組は、[Atari.txt:334-336](../../apps/runner/config/Atari.txt) にコメントで置いてある（`learner.enabled = false`・`auto_load_file`・`app.train_auto_start = false`）。学習を始めないので、学習の入口は一度も呼ばれない。`app.train_auto_start` の既定は true である（[common.txt:123](../../apps/runner/config/common.txt)）。
@@ -78,14 +78,14 @@ Evaluation Trace の `rnd_bonus`（鍵 `intrinsic.bonus`）は、学習の報酬
 
 ### 2.5 今のテストと検証資材
 
-- [intrinsic_test.cpp](../../core/anet-core/src/intrinsic_test.cpp) の `DQN trace scores its Actor snapshot after synchronization`（1834 行）は、学習の入口を通る前に Actor を同期した行のボーナスが NaN であることを断定する（1856 行）。
-- 同ファイルの `Evaluation-only checkpoint scores errors without a training beta`（2201 行）は、学習を止めた Agent が checkpoint を読んだときのボーナスが NaN であることを断定する（2237 行）。回すのは `learner.enabled` が偽の場合だけである（2225 行）。PRD127 の検証資材の受入の表が、このテストを名前で引く（[testdata/prd127/README.md:38](../../core/anet-core/testdata/prd127/README.md)）。
+- [intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp) の `DQN trace scores its Actor snapshot after synchronization`（1834 行）は、学習の入口を通る前に Actor を同期した行のボーナスが NaN であることを断定する（1856 行）。
+- 同ファイルの `Evaluation-only checkpoint scores errors without a training beta`（2201 行）は、学習を止めた Agent が checkpoint を読んだときのボーナスが NaN であることを断定する（2237 行）。回すのは `learner.enabled` が偽の場合だけである（2225 行）。PRD127 の検証資材の受入の表が、このテストを名前で引く（[testdata/prd127/README.md:38](../../src/core/base/testdata/prd127/README.md)）。
 
 ### 2.6 移行対象を洗った検索
 
 2026-11-13 に `git grep -l -i -F`（追跡しているファイルの全体）で引いた。検索語と、当たったファイルの数は次のとおりである。
 
-- コードの名前: `last_intrinsic_beta`（直近の β を持つ DefaultDQNAgent の非公開の状態）3（[default_dqn_agent.hpp](../../core/anet-core/include/anet/default_dqn_agent.hpp) と [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp)、PRD128）、`intrinsic_beta_`（β の予定を持つ非公開の状態）4（同じコード 2、課題 08d557、PRD128）。ヘッダの 730 行には、直近の β の注記「学習の入口が直近に評価した値。checkpointには保存しない。」がある。
+- コードの名前: `last_intrinsic_beta`（直近の β を持つ DefaultDQNAgent の非公開の状態）3（[default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp) と [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp)、PRD128）、`intrinsic_beta_`（β の予定を持つ非公開の状態）4（同じコード 2、課題 08d557、PRD128）。ヘッダの 730 行には、直近の β の注記「学習の入口が直近に評価した値。checkpointには保存しない。」がある。
 - テストの名前: `without a training beta` 2（テスト、PRD127 の検証資材）。
 - 文書の言い回し: `βが無い` 2（設計文書 212、wiki の内的報酬のページ）、`β が無い` 2（実験記録、PRD127）、`βがまだ` 1（ユーザーガイド 020）、`ボーナスだけが未成立` 1（212）、`No beta because` 1（212 の英訳）、`until beta is established` 1（020 の英訳）、`have an unavailable bonus` 1（212 の英訳）、`It is not checkpointed` 1（212 の英訳）、`学習の入口を通らない` 1（実験記録）、`学習の入口は呼ばれない` 1（PRD127）、`学習の入口を通らず` 1（wiki の内的報酬のページ）、`再開直後`・`freshly resumed` 合わせて 4（020・212 の日英）。
 
@@ -172,7 +172,7 @@ PRD127 の冒頭に、次を 1 行で足す。§9 の置き換える範囲（PRD
 
 ボーナスの NaN を断定している 2 本のテスト（§2.5）を、次のとおり直す。
 
-- (a) 2201 行のテスト（評価専用の checkpoint）: `learner.enabled` の偽と真（再開直後）の両方で回し、ボーナスの NaN の断定を、§7 の 1 の断定に置き換える。名前から「without a training beta」を外し、PRD127 の検証資材の表（[testdata/prd127/README.md:38](../../core/anet-core/testdata/prd127/README.md)）の名前も同じに直す。
+- (a) 2201 行のテスト（評価専用の checkpoint）: `learner.enabled` の偽と真（再開直後）の両方で回し、ボーナスの NaN の断定を、§7 の 1 の断定に置き換える。名前から「without a training beta」を外し、PRD127 の検証資材の表（[testdata/prd127/README.md:38](../../src/core/base/testdata/prd127/README.md)）の名前も同じに直す。
 - (b) 1834 行のテスト（同期のあとの採点）: 学習の入口を通る前に同期した行の、ボーナスの NaN の断定（1856 行）を、§7 の 3 の断定（標準化した値が NaN、ボーナスが 0）に置き換える。
 
 理由: D1 で、今の断定が成り立たなくなるため（D3）。どちらのテストも、§7 の 1・3 の場面をすでに組んでいる。
@@ -268,11 +268,11 @@ DefaultDQN の step 診断の 3 つの鍵の値は、次の表を上から順に
 
 検索の語と件数は、本 PRD の §2.6 にある。
 
-- コード: [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) の構築（RND の推定器と β の予定を作る所。122 行付近）と、学習の入口の内的報酬の分岐（851・858 行付近）。[default_dqn_agent.hpp](../../core/anet-core/include/anet/default_dqn_agent.hpp) の直近の β の注記（730 行。「学習の入口が直近に評価した値」）を、構築時の評価も含む言い方に直す。checkpoint に保存しない旨は残す。PRD128 が先に入っていれば、移した先のクラス（D8）。
-- テスト（直すもの）: [intrinsic_test.cpp](../../core/anet-core/src/intrinsic_test.cpp) の 2201 行のテスト（D10 の (a)。§7 の 1。`learner.enabled` の偽と真の両方で回し、2237 行の NaN の断定を置き換え、名前を直す）と、1834 行のテスト（D10 の (b)。§7 の 3。1856 行の NaN の断定を置き換える）。
+- コード: [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) の構築（RND の推定器と β の予定を作る所。122 行付近）と、学習の入口の内的報酬の分岐（851・858 行付近）。[default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp) の直近の β の注記（730 行。「学習の入口が直近に評価した値」）を、構築時の評価も含む言い方に直す。checkpoint に保存しない旨は残す。PRD128 が先に入っていれば、移した先のクラス（D8）。
+- テスト（直すもの）: [intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp) の 2201 行のテスト（D10 の (a)。§7 の 1。`learner.enabled` の偽と真の両方で回し、2237 行の NaN の断定を置き換え、名前を直す）と、1834 行のテスト（D10 の (b)。§7 の 3。1856 行の NaN の断定を置き換える）。
 - テスト（足すもの）: §7 の 2 と 5 の 2 本（D9）。タグは、足すテストと直すテストのすべてに `[prd129]`（D14）。
-- テスト（直さないもの）: §7 の 4 の 2 本は、断定を変えずに通す。学習を止めた Agent を使うほかのテスト（[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) の `learner.enabled` に偽を入れるテスト）は、直近の β を読まないので断定は変わらない。
-- 検証資材: [testdata/prd127/README.md](../../core/anet-core/testdata/prd127/README.md) の受入の表の行 8 のテストの名前（D10）。
+- テスト（直さないもの）: §7 の 4 の 2 本は、断定を変えずに通す。学習を止めた Agent を使うほかのテスト（[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) の `learner.enabled` に偽を入れるテスト）は、直近の β を読まないので断定は変わらない。
+- 検証資材: [testdata/prd127/README.md](../../src/core/base/testdata/prd127/README.md) の受入の表の行 8 のテストの名前（D10）。
 - 設計文書 [212](../design/212_rnd_lifelong_novelty.jp.md) §4.6: 表の「学習の入口をまだ通っておらずβが無い」行（486 行）を消し、その下の段落（490 行。「checkpointへ保存せず、評価専用・再開直後にはボーナスだけが未成立となる」）を、§5.1 の直近の β の決まり方に合わせて書き直す。β を checkpoint に保存しないことは書き残し、ボーナスが未成立になる部分だけを消す。英訳 [212 en](../design/212_rnd_lifelong_novelty.en.md) の同じ箇所（487 行の表の行と、491 行の段落。「It is not checkpointed」は残し、「so evaluation-only and freshly resumed Runs have an unavailable bonus」を消す）。
 - ユーザーガイド [020](../design/020_user_guide_run.jp.md) §6.5: 「βがまだ決まっていない評価専用・再開直後は、ボーナスが空欄になります」（559 行）を、評価専用の Run でもボーナスが出ることと、起動直後と warm-up 中は 0 と出ることに改める。英訳 [020 en](../design/020_user_guide_run.en.md) の同じ文（560 行）。
 - 設計文書 [200](../design/200_dqn_agents.jp.md) §6.2: `learner.enabled=false` の段落（450 行）の、無効時も動く外側の Agent の前処理の列挙に、β の評価を足す。英訳 [200 en](../design/200_dqn_agents.en.md) の同じ段落（452 行）。
@@ -316,7 +316,7 @@ DefaultDQN の step 診断の 3 つの鍵の値は、次の表を上から順に
 
 | ID | 題 | area | 現在のコードで確かめた根拠の位置 | 直す確定事項 | 確かめる受入 |
 |---|---|---|---|---|---|
-| issue-20261113-317d32 | 評価専用の Run では Evaluation Trace の rnd_bonus 列がずっと空欄になり、内的報酬を学習の報酬の単位で読めない | 324_dqn、110_runner_app | [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) の 851 行（β は `learner.enabled` が真の入口でだけ評価）・858 行（β の評価）・801-815 行（β が無ければボーナスを NaN） | D1・D2 | §7 の 1・2・6 |
+| issue-20261113-317d32 | 評価専用の Run では Evaluation Trace の rnd_bonus 列がずっと空欄になり、内的報酬を学習の報酬の単位で読めない | 324_dqn、110_runner_app | [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) の 851 行（β は `learner.enabled` が真の入口でだけ評価）・858 行（β の評価）・801-815 行（β が無ければボーナスを NaN） | D1・D2 | §7 の 1・2・6 |
 
 ## 11. 参照
 

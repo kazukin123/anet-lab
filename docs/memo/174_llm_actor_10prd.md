@@ -66,14 +66,14 @@ LLM（画像を読めるもの）がゲームの常識で行動を選ぶ Actor �
 ## 3. 現状（2026-10-18 に確認したこと）
 
 - anet の実行系（core・runner）に LLM や HTTP の呼び出しは無い（LLM を使うのは CI のレビューだけ）。
-- Train の 1 step は `actor_->MakeAction(step_counts_, state_)` → `env_->Step` → `BatchExperience` → `learner_->UpdateFromBatch` の直線で、全 lane を一度に進める（[trainer.cpp](../../core/anet-core/src/trainer.cpp)）。1 つの lane だけ遅い Actor を待たせると、全 lane が止まる。
+- Train の 1 step は `actor_->MakeAction(step_counts_, state_)` → `env_->Step` → `BatchExperience` → `learner_->UpdateFromBatch` の直線で、全 lane を一度に進める（[trainer.cpp](../../src/core/base/src/trainer.cpp)）。1 つの lane だけ遅い Actor を待たせると、全 lane が止まる。
 - Actor は Agent の Actor 設定カタログ（`<AgentPrefix>.actor.[key]`）から作られ、Runner は Actor キー（`run.train.actor` / `run.eval.[tag].actor`）で選ぶ。
 - 強制行動の口は Eval 側にしか無い。Train 側の強制行動は [160_input_target_train_forced_action](160_input_target_train_forced_action_10prd.md) が「`MakeAction` の入力（lane mask と行動）」として計画している（決定点を 1 つにし、Actor の出力と実行した行動を常に一致させる）。人間の操作が最初の利用者で、LLM はその 2 番目の利用者になる。
-- Atari の env は、表示用に元の RGB 画面（210×160）を保持できる（`AtariEnv.retain_rgb_frame`、既定 true。[AtariEnv.cpp](../../core/envs/atari1/src/AtariEnv.cpp) の `rgb_frame`）。LLM に渡す画面はここから取れる。行動の一覧は ALE の最小行動集合（`getMinimalActionSet`）。
+- Atari の env は、表示用に元の RGB 画面（210×160）を保持できる（`AtariEnv.retain_rgb_frame`、既定 true。[AtariEnv.cpp](../../src/env/atari/src/AtariEnv.cpp) の `rgb_frame`）。LLM に渡す画面はここから取れる。行動の一覧は ALE の最小行動集合（`getMinimalActionSet`）。
 - 実時間優先の学習は RTX 4060 機で毎秒約 1,900 遷移、128 lane なので 1 lane あたり毎秒約 15 step で、ゲームの実時間（60 fps ÷ 4 = 15 step/s）とほぼ同じ。LLM の 1 回の呼び出しは、1 step の間隔（約 67 ms）より桁で遅いと見込む（見込み。§8 で測る）。
 - replay は 1 つの FIFO で、デモを消さずに残す別枠は無い。PER では、押し出された遷移は戻せない。
 - Munchausen の log π 項は、方策が選ばない行動（デモの行動）を罰する向きに働く。ただし clip −1 で、1 step あたり −0.027（α 0.9 × τ 0.03）が下限。
-- ε-greedy のランダムな行動は、全行動から一様に選ぶ（[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の `MakeEpsilonGreedyAction`）。spatial exploration では lane ごとに ε が決まっている。
+- ε-greedy のランダムな行動は、全行動から一様に選ぶ（[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `MakeEpsilonGreedyAction`）。spatial exploration では lane ごとに ε が決まっている。
 - サーベイ（[LLM の事前知識で RL の探索と報酬を補助する手法](../../reports/llm_prior_knowledge_rl_survey_2026-10-18.md)、2026-10-18）の要点:
   - Atari での正の実証はあるが、ゲーム・報酬・観測の条件付きである。KFM のボス攻略や qbert の 8 面到達を直接改善した実証は見つからなかった（同 §9）。
   - step ごとに大きなモデルを呼ばないための実証済みの設計は、オフラインでの蒸留、応答のキャッシュ、エピソード単位の更新、生成したコードへの移行の 4 つ（同 §4・§9）。

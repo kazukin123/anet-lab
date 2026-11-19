@@ -10,11 +10,11 @@ anet-core-test の main で Catch2 を回す前に、`at::globalContext().setUse
 
 | ファイル | 変更 | PRD |
 | --- | --- | --- |
-| [main_test.cpp](../../core/anet-core/src/main_test.cpp) | `SetupTestFailureDialog` と `StderrLogGuard` のあと、`Catch::Session` を作る前に MKLDNN を切る。理由のコメントを添える | D1・D2・D6 |
-| [nn_test.cpp](../../core/anet-core/src/nn_test.cpp) | `EnsureNNInitialized` から切る行とそのコメントを消す。`InitNN` を 1 回だけ呼ぶ働きは残す | D1 |
-| [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) | `PrepareNativeStackNetworkTest` から切る行とそのコメントを消す。`InitNN` を呼ぶ働きは残す | D1 |
-| [test_util_test.cpp](../../core/anet-core/src/test_util_test.cpp) | `TEST_CASE("anet-core-test disables MKLDNN before any test runs", "[test_util]")` を足し、`CHECK_FALSE(at::globalContext().userEnabledMkldnn())` を断定する | D5 |
-| [PRD116 の検証資材の README](../../core/anet-core/testdata/prd116/README.md) | 17 行から `OMP_NUM_THREADS=1` とする文を消す。「本番コードのbackend設定は変更しない」は残す | D7 |
+| [main_test.cpp](../../src/core/base/src/test/main.cpp) | `SetupTestFailureDialog` と `StderrLogGuard` のあと、`Catch::Session` を作る前に MKLDNN を切る。理由のコメントを添える | D1・D2・D6 |
+| [nn_test.cpp](../../src/core/base/src/nn_test.cpp) | `EnsureNNInitialized` から切る行とそのコメントを消す。`InitNN` を 1 回だけ呼ぶ働きは残す | D1 |
+| [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) | `PrepareNativeStackNetworkTest` から切る行とそのコメントを消す。`InitNN` を呼ぶ働きは残す | D1 |
+| [test_util_test.cpp](../../src/core/base/src/test_util_test.cpp) | `TEST_CASE("anet-core-test disables MKLDNN before any test runs", "[test_util]")` を足し、`CHECK_FALSE(at::globalContext().userEnabledMkldnn())` を断定する | D5 |
+| [PRD116 の検証資材の README](../../src/core/base/testdata/prd116/README.md) | 17 行から `OMP_NUM_THREADS=1` とする文を消す。「本番コードのbackend設定は変更しない」は残す | D7 |
 | [題材の課題](../management/issues/issue-20261109-fa2f69.md) | 計画の保存で対応中にする。レビューの前に対応内容を書き、完了の報告の前に AI の判定を「残件無し」にする | A8 |
 
 ## テスト

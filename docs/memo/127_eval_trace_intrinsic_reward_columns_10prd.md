@@ -64,14 +64,14 @@ G2 の保証は、写しを持つ Actor では forward で乱数を引く層を�
 
 ### 2.1 学習の採点
 
-- `DefaultDQNAgent::UpdateFromBatch` が、Agent の書き込みロックの中で、報酬スケーラのあとに推定器の `Estimate` を呼ぶ。採点する観測は `intrinsic.observation` で選ぶ（既定は遷移のあとの観測 `next_state`、`state` なら行動した観測）。ボーナスは β × (倍率 − 1) で、`next_state` を採点して `intrinsic.use_done_mask` が真のとき、done の lane は 0 にする。β は `intrinsic.beta`（ProfiledValue）を、学習の Runner が渡した exp step で評価する（[default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) の 713〜741 行付近）。
+- `DefaultDQNAgent::UpdateFromBatch` が、Agent の書き込みロックの中で、報酬スケーラのあとに推定器の `Estimate` を呼ぶ。採点する観測は `intrinsic.observation` で選ぶ（既定は遷移のあとの観測 `next_state`、`state` なら行動した観測）。ボーナスは β × (倍率 − 1) で、`next_state` を採点して `intrinsic.use_done_mask` が真のとき、done の lane は 0 にする。β は `intrinsic.beta`（ProfiledValue）を、学習の Runner が渡した exp step で評価する（[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) の 713〜741 行付近）。
 - 書き込みロックは、採点・補助学習・Replay への追加・Q の更新が終わるまで持ち続ける（同 711〜794 行付近）。
 - 推定器を書き換えるのは、この入口と、checkpoint の読み込みだけである。読み込み（`LoadNetwork`）は Agent のコンストラクタからだけ呼ばれ、その時点に step 診断の部品はまだ無い。
 - Taiga 式の Atari（`run.@rnd_taiga`。128 lane、`learn_batch_size = 1`、`learn_ratio = 1`）では、入口 1 回に採点 1 回と補助学習 128 回が入る（[Atari.txt](../../apps/runner/config/Atari.txt) の `run.@rnd_taiga` と `run.train.num_envs`）。
 
 ### 2.2 RND の採点が変えるもの
 
-`RndNoveltyEstimator::Estimate`（[intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp)）は、呼ぶたびに次を更新する。
+`RndNoveltyEstimator::Estimate`（[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp)）は、呼ぶたびに次を更新する。
 
 - 誤差の統計（whiten では warm-up の条件による。`variance_feedback` では lane の順に 1 件ずつ）。
 - 観測の統計（whiten は採点のあとに更新する。`variance_feedback` は lane の順に 1 件ずつ更新しながら正規化する）。
@@ -83,24 +83,24 @@ whiten の採点は、今回の batch を入れる前の統計で倍率を作る
 
 ### 2.3 Evaluation Trace と step 診断
 
-- Evaluation Trace の行は `StepTraceBuilder::OnTrain`（[metrics.cpp](../../core/anet-core/src/metrics.cpp)）が作る。step ごとに Agent の step 診断（`AgentStepDiagnosticsProvider::Observe`）を 1 回呼び、`$agent_step <鍵>` の列を `GetScalar(鍵, lane)` で読む。値は行を作るときに行へ持たせ、あとで行を選んでも計算し直さない。
-- step 診断の部品は `Agent::CreateStepDiagnosticsProvider(num_lanes)` で作る（[rl.hpp](../../core/anet-core/include/anet/rl.hpp)）。列に何が宣言されているかも、どの Actor の Runner かも受け取らない。DQN の部品（[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の `DqnAgentStepDiagnosticsProvider`）は DefaultDQN と Rainbow が共用し、`q_sa`・`state_value`・`approx_priority` を必ず計算する。
+- Evaluation Trace の行は `StepTraceBuilder::OnTrain`（[metrics.cpp](../../src/core/base/src/metrics.cpp)）が作る。step ごとに Agent の step 診断（`AgentStepDiagnosticsProvider::Observe`）を 1 回呼び、`$agent_step <鍵>` の列を `GetScalar(鍵, lane)` で読む。値は行を作るときに行へ持たせ、あとで行を選んでも計算し直さない。
+- step 診断の部品は `Agent::CreateStepDiagnosticsProvider(num_lanes)` で作る（[rl.hpp](../../src/core/base/include/anet/rl.hpp)）。列に何が宣言されているかも、どの Actor の Runner かも受け取らない。DQN の部品（[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `DqnAgentStepDiagnosticsProvider`）は DefaultDQN と Rainbow が共用し、`q_sa`・`state_value`・`approx_priority` を必ず計算する。
 - 知らない鍵は、最初の読み出しで列番号と鍵つきで止まる。この検査は 5 つの target（`$runner`・`$actor`・`$env_step`・`$action_info`・`$agent_step`）に共通の 1 か所にある（metrics.cpp の `OnTrain`）。既知で値が成立しない鍵は NaN で、表は空欄になる（[140 §6.1](../design/140_observability.jp.md)）。
-- 行を作る部品は Runner の起動時に作る（[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) が `EvalTracePanel::Initialize` を呼ぶ）。行を作るのは Evaluation Trace の pane が開いている間だけである（[EvalTracePanel.cpp](../../apps/runner/src/EvalTracePanel.cpp) の `FunctionTrainObserver` の中の `IsPaneOpen`）。列の宣言は設定（`app.eval_trace_panel.columns.[番号]`）で、Run の間は変わらない。
+- 行を作る部品は Runner の起動時に作る（[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) が `EvalTracePanel::Initialize` を呼ぶ）。行を作るのは Evaluation Trace の pane が開いている間だけである（[EvalTracePanel.cpp](../../src/apps/runner/src/EvalTracePanel.cpp) の `FunctionTrainObserver` の中の `IsPaneOpen`）。列の宣言は設定（`app.eval_trace_panel.columns.[番号]`）で、Run の間は変わらない。
 - pane の開閉の切り替わりは EvalTracePanel が知っていて、切り替わるたびに行を消し、行を作る部品をやり直す（EvalTracePanel.cpp の `SetActive`）。EvalTracePanel は EvalPanel への参照を持つ。
 - 行の画面は、行動の結果の画面である。Q の列は、その行動を決めた時点の値である（[020 §6.5](../design/020_user_guide_run.jp.md) の注）。
-- 表の数値は有効数字 4 桁で出る（[gui.cpp](../../core/anet-core/src/gui.cpp) の `FormatTraceValue`）。1e-4 台の値も読める。
+- 表の数値は有効数字 4 桁で出る（[gui.cpp](../../src/core/base/src/gui.cpp) の `FormatTraceValue`）。1e-4 台の値も読める。
 
 ### 2.4 学習と EvalPanel の関係、Actor の写し
 
 - 学習の Runner と EvalPanel の Runner は別だが、Agent は 1 つで、Evaluation Trace は同じ Agent から step 診断の部品を作る（EvalTracePanel.cpp が `manager->GetAgent()` を渡す）。Runner は自分の Actor を公開している（rl.hpp の `Runner::GetActor`）。
 - Actor ごとの設定 `actor.[鍵].clone_model` が、Actor が network の写しを持つかを決める。評価用の Actor（`actor.@eval_base`）の既定は true、学習用の Actor（`actor.[train]`）の既定は false である（[agent.txt](../../apps/runner/config/agent.txt)）。写しは Actor が持つ（[ADR 0013](../adr/0013-actor-network-resource-policy.md)）。
 - 写しを持つ Actor は、同期のとき（`Actor::Sync`、および `sync_interval` による定期の写し直し）だけ、Agent の読み取りロックの中で network を写し直す（dqn_based_agent.cpp の `Actor::CopySourceNetwork`。skip の network も同じロックの中で写す）。最初の写しは、Actor を作るときに同じロックの中で作る（default_dqn_agent.cpp の `CreateActor`）。写しを持たない Actor は、forward のたびに Agent の読み取りロックを取る（同 `Actor::MakeAction`）。
-- EvalPanel は、`app.eval_panel.model_sync.*`（既定は 10 秒ごと。[common.txt](../../apps/runner/config/common.txt)）で Actor を同期する。既定の設定では、最初の frame でも同期する。評価 session は開始のときに同期する。同期のとき、評価の Runner は学習側の step も控え、以後の行動選択にその step を渡す（[trainer.cpp](../../core/anet-core/src/trainer.cpp) の `EvalRunner::Sync` と `DoStepInternal`）。γ などの時間で変わる値は、この「同期した時点の学習の step」で評価されている。表の `step` の列は EvalPanel 自身のカウンタである。
-- EvalPanel の同期は GUI のタイマーから呼ばれる（[EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) の `OnTimer` から `SyncModel`）。network を写すのは UI スレッドで、UI スレッドが Agent の読み取りロックを取る。
+- EvalPanel は、`app.eval_panel.model_sync.*`（既定は 10 秒ごと。[common.txt](../../apps/runner/config/common.txt)）で Actor を同期する。既定の設定では、最初の frame でも同期する。評価 session は開始のときに同期する。同期のとき、評価の Runner は学習側の step も控え、以後の行動選択にその step を渡す（[trainer.cpp](../../src/core/base/src/trainer.cpp) の `EvalRunner::Sync` と `DoStepInternal`）。γ などの時間で変わる値は、この「同期した時点の学習の step」で評価されている。表の `step` の列は EvalPanel 自身のカウンタである。
+- EvalPanel の同期は GUI のタイマーから呼ばれる（[EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) の `OnTimer` から `SyncModel`）。network を写すのは UI スレッドで、UI スレッドが Agent の読み取りロックを取る。
 - 同じ Actor の `MakeAction` と `Sync` は、並行に呼ばない契約である（rl.hpp の `Actor`）。Evaluation Trace の行は、Runner の step の通知の中で同期に作る。そのため、Actor の同期、行動選択、step 診断の `Observe` は、その Runner を進める 1 つのスレッドで順に走る。
 - EvalPanel の既定の進みは毎秒 15 step である（common.txt の `app.online.eval_panel.fps`・`app.batchrun.eval_panel.fps`）。
-- 既存の step 診断は Agent のロックを待たない。報酬スケーラは、学習が使った標準偏差を値 1 つとして公開し、診断側はそれを読む（[scaler_impl.cpp](../../core/anet-core/src/scaler_impl.cpp) の `RunningStdRewardScaler::ScaleWithoutUpdate`）。テスト `[diagnostic_no_wait]`（[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)）がこれを確かめている。[PRD094](done/094_evalpanel_step_history_10prd.md) は「step trace は UI スレッドで同期に作り、ロックを持たない」と書いている。
+- 既存の step 診断は Agent のロックを待たない。報酬スケーラは、学習が使った標準偏差を値 1 つとして公開し、診断側はそれを読む（[scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp) の `RunningStdRewardScaler::ScaleWithoutUpdate`）。テスト `[diagnostic_no_wait]`（[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp)）がこれを確かめている。[PRD094](done/094_evalpanel_step_history_10prd.md) は「step trace は UI スレッドで同期に作り、ロックを持たない」と書いている。
 - 規約は、毎 step・毎 tick の経路に、別のスレッドのロック待ちと device 間の同期の転送を足さないこと、足すなら頻度と 1 回の時間の見積もりを書くことを求める（[impl.md](../quality/impl.md) の「計測」の規約）。[212 §5.1](../design/212_rnd_lifelong_novelty.jp.md) も「画面表示のために新しい学習ロック待ちを追加しない」と書いている。
 - 規約は、UI スレッド（GUI のイベントとタイマー）から、学習のスレッドが更新の間ずっと持つロックを取らないこと、学習側の可変状態は、学習のスレッドで作った写しか、atomic に公開した値を通して読むことも求める（impl.md の「C++ コード」の規約）。PRD094 の実装で UI スレッドが学習のロックを待った反省から入った。上の EvalPanel の Actor の同期は、この規約より前からある動きで、UI スレッドから同じロックを取っている。
 
@@ -116,7 +116,7 @@ whiten の採点は、今回の batch を入れる前の統計で倍率を作る
 
 ### 2.7 forward が変えるもの
 
-- スペクトル正規化の内部状態は、学習モードで勾配が有効な forward でだけ更新する（[nn_modules.cpp](../../core/anet-core/src/nn_modules.cpp) の `MakeEffectiveWeight`）。採点は勾配なしで forward するので、状態は動かない。
+- スペクトル正規化の内部状態は、学習モードで勾配が有効な forward でだけ更新する（[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) の `MakeEffectiveWeight`）。採点は勾配なしで forward するので、状態は動かない。
 - predictor は学習モードのままである。dropout・droppath は、学習モードなら勾配なしでも乱数を引く。BatchNorm（同ファイルの `BatchNorm2dModule`）は、学習モードなら勾配なしでも内部の統計を書き換える。RND の Network にこれらを入れた構成では、学習の採点もそう動いている。出荷設定の RND の Network（Atari の Conv の構成、`RndMlp`）には無い。
 
 ### 2.8 設定
@@ -513,10 +513,10 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 
 - コード: §6.4 の各ファイル。`CreateStepDiagnosticsProvider` の宣言と実装（rl.hpp、default_dqn_agent.hpp・.cpp、rainbow_agent.hpp・.cpp、dqn_based_agent.hpp・.cpp）と、呼び出し（metrics.cpp）。`StepTraceBuilder` のコンストラクタ（metrics.hpp・.cpp）と、それを作る EvalTracePanel.cpp。`ActorSyncFollower` と `Actor::AttachSyncFollower`（rl.hpp）、DQN 系の `Actor` の実装と `CopySourceNetwork`（dqn_based_agent.hpp・.cpp）。`MuZeroActor`・`ImageClsActor`・テスト用の Actor は、基底の既定（つながない）のままで、変えない。`AgentStepDiagnosticsProvider` の `Suspend`・`Resume`（rl.hpp）と、DQN の部品の実装（dqn_based_agent.cpp）。`AgentStepDiagnosticsProvider` を継ぐクラスは 3 つ（DQN の部品と、テスト用の 2 つ）で、テスト用は基底の既定のままでよい。`StepTraceBuilder` の `Suspend`・`Resume`（metrics.hpp・.cpp）。pane の開閉の切り替え（EvalTracePanel.cpp の `SetActive` と `Initialize`）と、EvalPanel の同期の公開の口（EvalPanel.hpp・.cpp）。
 - 設定: Atari.txt・GridMaze.txt・LunarLander.txt の `run.@rnd` に §5.5 の 3 行を足す。common.txt の既定の列は変えない。
-- テスト（引数が変わるので直すもの）: [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) の `CreateStepDiagnosticsProvider` の呼び出し 4 か所（`[step_diagnostics]`・`[diagnostic_replay]`・`[diagnostic_no_wait]` と、`dqn::CreateStepDiagnosticsProvider` を直接呼ぶ `[prd101]` のテスト）、[metrics_test.cpp](../../core/anet-core/src/metrics_test.cpp) と [EvalTracePanel_test.cpp](../../apps/runner/src/EvalTracePanel_test.cpp) のテスト用の Agent の override（各 1 か所）、`StepTraceBuilder` を作る箇所（dqn_based_agent_test.cpp の 2 か所、[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp) の 3 か所、metrics_test.cpp の 8 か所）。どれも断定は変わらない。
-- テスト（足すもの）: §7 の 1〜10・12・15。タグ `[prd127]` を付ける。15 は [EvalTracePanel_test.cpp](../../apps/runner/src/EvalTracePanel_test.cpp) に足す。同ファイルの既存のテストは `SetActive` を呼んで pane の開閉を切り替えており（呼び出し 11 か所）、その断定は変わらない。
-- 出荷設定のテスト: `[shipped_config]` に §7 の 12 を足す。既定の列の検査（[config_test.cpp](../../core/anet-core/src/config_test.cpp) の `app.eval_trace_panel.columns` の一致）は変わらない。
-- 検証資材: `core/anet-core/testdata/prd127/README.md` を新設し、§7 の 11 の比較の手順と、§7 の 14 の測定の手順を書く。[PRD123 の検証資材](../../core/anet-core/testdata/prd123/README.md)の比較の道具を使えるなら使う。
+- テスト（引数が変わるので直すもの）: [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) の `CreateStepDiagnosticsProvider` の呼び出し 4 か所（`[step_diagnostics]`・`[diagnostic_replay]`・`[diagnostic_no_wait]` と、`dqn::CreateStepDiagnosticsProvider` を直接呼ぶ `[prd101]` のテスト）、[metrics_test.cpp](../../src/core/base/src/metrics_test.cpp) と [EvalTracePanel_test.cpp](../../src/apps/runner/src/EvalTracePanel_test.cpp) のテスト用の Agent の override（各 1 か所）、`StepTraceBuilder` を作る箇所（dqn_based_agent_test.cpp の 2 か所、[trainer_test.cpp](../../src/core/base/src/trainer_test.cpp) の 3 か所、metrics_test.cpp の 8 か所）。どれも断定は変わらない。
+- テスト（足すもの）: §7 の 1〜10・12・15。タグ `[prd127]` を付ける。15 は [EvalTracePanel_test.cpp](../../src/apps/runner/src/EvalTracePanel_test.cpp) に足す。同ファイルの既存のテストは `SetActive` を呼んで pane の開閉を切り替えており（呼び出し 11 か所）、その断定は変わらない。
+- 出荷設定のテスト: `[shipped_config]` に §7 の 12 を足す。既定の列の検査（[config_test.cpp](../../src/core/base/src/config_test.cpp) の `app.eval_trace_panel.columns` の一致）は変わらない。
+- 検証資材: `core/anet-core/testdata/prd127/README.md` を新設し、§7 の 11 の比較の手順と、§7 の 14 の測定の手順を書く。[PRD123 の検証資材](../../src/core/base/testdata/prd123/README.md)の比較の道具を使えるなら使う。
 - 設計文書 [140](../design/140_observability.jp.md): §5 に、Evaluation Trace の行を作る流れのシーケンス図を足す（D19）。§6.1 の target の表の `$agent_step` の行（DQN の鍵に内的報酬の 3 つを足す）と、`CreateStepDiagnosticsProvider` の段落（入力の型、鍵の一覧は計算するかどうかだけを決めること）を直す。英訳 [140 en](../design/140_observability.en.md) の同じ箇所。
 - 設計文書 [212](../design/212_rnd_lifelong_novelty.jp.md): Evaluation Trace で見る値の節を足す（3 つの値の意味、§5.1・§5.2 の表、値の時点（D4 の帰結）、どの画面の値か（D15 の帰結）、`variance_feedback` の値の単位（§5.1）、forward で乱数を引く層・状態を変える層の制約（D11））。§5.1 の「画面表示のために新しい学習ロック待ちを追加しない」の文を、D4・D20・§5.4 に合わせて直す（写しを持つ Actor では、Actor の同期と同じロックの中で写すので、定期の同期のロック待ちの回数は増えない。pane を開いて写しが無かったときに、同期が 1 回入り、GUI のスレッドが学習の入口 1 回の終わりを待つ。写しを持たない Actor では、step ごとに待つ。実装の規約の例外であることと、変えるときの条件も書く）。§7 の 14 の測定値を書く。英訳 [212 en](../design/212_rnd_lifelong_novelty.en.md) の同じ箇所。
 - 設計文書 [200](../design/200_dqn_agents.jp.md): §6.2 の RND の段落（読むだけの採点と、step 診断が持つ写し）、§9.1 の群 56 の段落の近くに step 診断の鍵を書く。Actor の `clone_model` を説明する箇所（同書に 2 か所）に、同期に従うもの（`ActorSyncFollower`）を network と同じ読み取りロックの中で呼ぶことと、step 診断の推定器の写しがそれに当たることを足す。英訳 [200 en](../design/200_dqn_agents.en.md) の同じ箇所。
@@ -575,7 +575,7 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 
 | ID | 題 | area | 現在のコードで確かめた根拠の位置 | 直す確定事項 | 確かめる受入 |
 |---|---|---|---|---|---|
-| issue-20261107-1226e5 | Evaluation Traceで内的報酬（RNDの新しさ）を見られない | 324_dqn、110_runner_app | [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) の `UpdateFromBatch`（採点は学習の入口だけ）、[intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp) の `Estimate`（呼ぶたびに統計を更新）、[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の `DqnAgentStepDiagnosticsValues`（内的報酬の鍵が無い） | D1〜D5・D12 | §7 の 1・5・10・12・13 |
+| issue-20261107-1226e5 | Evaluation Traceで内的報酬（RNDの新しさ）を見られない | 324_dqn、110_runner_app | [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) の `UpdateFromBatch`（採点は学習の入口だけ）、[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp) の `Estimate`（呼ぶたびに統計を更新）、[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `DqnAgentStepDiagnosticsValues`（内的報酬の鍵が無い） | D1〜D5・D12 | §7 の 1・5・10・12・13 |
 
 ## 11. 参照
 

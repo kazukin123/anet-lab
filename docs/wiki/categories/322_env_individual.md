@@ -97,32 +97,32 @@
 
 点検が作り直す。手で直さない。
 
-- [Atari.hpp](../../../core/envs/atari1/include/anet/env/Atari.hpp)
-- [Atari.cpp](../../../core/envs/atari1/src/Atari.cpp)
-- [AtariEnv.cpp](../../../core/envs/atari1/src/AtariEnv.cpp) / [AtariEnv.hpp](../../../core/envs/atari1/src/AtariEnv.hpp) / [AtariEnv_test.cpp](../../../core/envs/atari1/src/AtariEnv_test.cpp)
-- [AtariPreprocess.cpp](../../../core/envs/atari1/src/AtariPreprocess.cpp) / [AtariPreprocess.hpp](../../../core/envs/atari1/src/AtariPreprocess.hpp)
-- [pch.hpp](../../../core/envs/atari1/src/pch.hpp)
-- [CartPole.hpp](../../../core/envs/cartpole2/include/anet/env/CartPole.hpp)
-- [CartPole.cpp](../../../core/envs/cartpole2/src/CartPole.cpp)
-- [CartPoleEnv.cpp](../../../core/envs/cartpole2/src/CartPoleEnv.cpp) / [CartPoleEnv.hpp](../../../core/envs/cartpole2/src/CartPoleEnv.hpp)
-- [pch.hpp](../../../core/envs/cartpole2/src/pch.hpp)
-- [DropMerge.hpp](../../../core/envs/dropmerge1/include/anet/env/DropMerge.hpp)
-- [DropMerge.cpp](../../../core/envs/dropmerge1/src/DropMerge.cpp)
-- [DropMergeEnv.cpp](../../../core/envs/dropmerge1/src/DropMergeEnv.cpp) / [DropMergeEnv.hpp](../../../core/envs/dropmerge1/src/DropMergeEnv.hpp) / [DropMergeEnv_test.cpp](../../../core/envs/dropmerge1/src/DropMergeEnv_test.cpp)
-- [pch.hpp](../../../core/envs/dropmerge1/src/pch.hpp)
-- [GridMaze.hpp](../../../core/envs/gridmaze1/include/anet/env/GridMaze.hpp)
-- [GridMaze.cpp](../../../core/envs/gridmaze1/src/GridMaze.cpp)
-- [GridMazeEnv.cpp](../../../core/envs/gridmaze1/src/GridMazeEnv.cpp) / [GridMazeEnv.hpp](../../../core/envs/gridmaze1/src/GridMazeEnv.hpp) / [GridMazeEnv_test.cpp](../../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp)
-- [pch.hpp](../../../core/envs/gridmaze1/src/pch.hpp)
-- [ImageCls.hpp](../../../core/envs/imagecls1/include/anet/env/ImageCls.hpp)
-- [ImageCls.cpp](../../../core/envs/imagecls1/src/ImageCls.cpp)
-- [ImageClsEnv.cpp](../../../core/envs/imagecls1/src/ImageClsEnv.cpp) / [ImageClsEnv.hpp](../../../core/envs/imagecls1/src/ImageClsEnv.hpp) / [ImageClsEnv_test.cpp](../../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
-- [ImageData.cpp](../../../core/envs/imagecls1/src/ImageData.cpp) / [ImageData.hpp](../../../core/envs/imagecls1/src/ImageData.hpp)
-- [pch.hpp](../../../core/envs/imagecls1/src/pch.hpp)
-- [LunarLander.hpp](../../../core/envs/lunarlander1/include/anet/env/LunarLander.hpp)
-- [LunarLander.cpp](../../../core/envs/lunarlander1/src/LunarLander.cpp)
-- [LunarLanderEnv.cpp](../../../core/envs/lunarlander1/src/LunarLanderEnv.cpp) / [LunarLanderEnv.hpp](../../../core/envs/lunarlander1/src/LunarLanderEnv.hpp) / [LunarLanderEnv_test.cpp](../../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
-- [pch.hpp](../../../core/envs/lunarlander1/src/pch.hpp)
+- [Atari.hpp](../../../src/env/atari/include/anet/env/Atari.hpp)
+- [Atari.cpp](../../../src/env/atari/src/Atari.cpp)
+- [AtariEnv.cpp](../../../src/env/atari/src/AtariEnv.cpp) / [AtariEnv.hpp](../../../src/env/atari/src/AtariEnv.hpp) / [AtariEnv_test.cpp](../../../src/env/atari/src/AtariEnv_test.cpp)
+- [AtariPreprocess.cpp](../../../src/env/atari/src/AtariPreprocess.cpp) / [AtariPreprocess.hpp](../../../src/env/atari/src/AtariPreprocess.hpp)
+- [pch.hpp](../../../src/env/atari/src/pch.hpp)
+- [CartPole.hpp](../../../src/env/cartpole/include/anet/env/CartPole.hpp)
+- [CartPole.cpp](../../../src/env/cartpole/src/CartPole.cpp)
+- [CartPoleEnv.cpp](../../../src/env/cartpole/src/CartPoleEnv.cpp) / [CartPoleEnv.hpp](../../../src/env/cartpole/src/CartPoleEnv.hpp)
+- [pch.hpp](../../../src/env/cartpole/src/pch.hpp)
+- [DropMerge.hpp](../../../src/env/dropmerge/include/anet/env/DropMerge.hpp)
+- [DropMerge.cpp](../../../src/env/dropmerge/src/DropMerge.cpp)
+- [DropMergeEnv.cpp](../../../src/env/dropmerge/src/DropMergeEnv.cpp) / [DropMergeEnv.hpp](../../../src/env/dropmerge/src/DropMergeEnv.hpp) / [DropMergeEnv_test.cpp](../../../src/env/dropmerge/src/DropMergeEnv_test.cpp)
+- [pch.hpp](../../../src/env/dropmerge/src/pch.hpp)
+- [GridMaze.hpp](../../../src/env/gridmaze/include/anet/env/GridMaze.hpp)
+- [GridMaze.cpp](../../../src/env/gridmaze/src/GridMaze.cpp)
+- [GridMazeEnv.cpp](../../../src/env/gridmaze/src/GridMazeEnv.cpp) / [GridMazeEnv.hpp](../../../src/env/gridmaze/src/GridMazeEnv.hpp) / [GridMazeEnv_test.cpp](../../../src/env/gridmaze/src/GridMazeEnv_test.cpp)
+- [pch.hpp](../../../src/env/gridmaze/src/pch.hpp)
+- [ImageCls.hpp](../../../src/env/imagecls/include/anet/env/ImageCls.hpp)
+- [ImageCls.cpp](../../../src/env/imagecls/src/ImageCls.cpp)
+- [ImageClsEnv.cpp](../../../src/env/imagecls/src/ImageClsEnv.cpp) / [ImageClsEnv.hpp](../../../src/env/imagecls/src/ImageClsEnv.hpp) / [ImageClsEnv_test.cpp](../../../src/env/imagecls/src/ImageClsEnv_test.cpp)
+- [ImageData.cpp](../../../src/env/imagecls/src/ImageData.cpp) / [ImageData.hpp](../../../src/env/imagecls/src/ImageData.hpp)
+- [pch.hpp](../../../src/env/imagecls/src/pch.hpp)
+- [LunarLander.hpp](../../../src/env/lunarlander/include/anet/env/LunarLander.hpp)
+- [LunarLander.cpp](../../../src/env/lunarlander/src/LunarLander.cpp)
+- [LunarLanderEnv.cpp](../../../src/env/lunarlander/src/LunarLanderEnv.cpp) / [LunarLanderEnv.hpp](../../../src/env/lunarlander/src/LunarLanderEnv.hpp) / [LunarLanderEnv_test.cpp](../../../src/env/lunarlander/src/LunarLanderEnv_test.cpp)
+- [pch.hpp](../../../src/env/lunarlander/src/pch.hpp)
 
 ## PRD の一覧
 
@@ -139,6 +139,7 @@
 - [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md) — PRD115: 画像メモリの所有権とDropMergeのNOOP判定の修正
 - [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
 - [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) — Atari の RAM メトリクスに値の種類数とビットの変化を数える畳み方を足し、RAM 定義と縮小方式の読み取りを整理する PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 
@@ -168,7 +169,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-c5c791](../../management/issues/issue-20261103-c5c791.md) | 未着手 | 0.9 | — | 成果物 | PRD | 322_env_individual, 318_rl_core | 学習基盤 | 調査 | [PRD179](../../memo/179_prd097_performance_remeasurement_10prd.md) | 残件有り | PRD097: 判定不能4構成の性能再測定とDropMerge serial追加費用の調査 |
 | [issue-20261103-969184](../../management/issues/issue-20261103-969184.md) | 未着手 | 0.6 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD174](../../memo/174_llm_actor_10prd.md) | 残件有り | LLM Actor（LLM の事前知識で行動する Actor。単独 Agent と DQN ハイブリッド） |
 | [issue-20261116-cc631d](../../management/issues/issue-20261116-cc631d.md) | 未着手 | 0.6 | — | 成果物 | その他 | 322_env_individual | Env | 機能追加 | — | 未確認 | ImageClsでFood-101以外のデータセット（CIFAR-100・ImageNetなど）を学習・評価に使えるようにする |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 調査中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD167](../../memo/167_smdp_transition_duration_10prd.md) | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す） |
 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md), [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md), [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md), [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) | 成果物 | PRD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [PRD173](../../memo/173_intrinsic_reward_novelty_10prd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 未着手 | 1.3 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 成果物 | PRD | 110_runner_app, 318_rl_core, 322_env_individual | UI | 機能追加 | [PRD159](../../memo/159_input_mapping_joystick_10prd.md) | 残件有り | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel） |

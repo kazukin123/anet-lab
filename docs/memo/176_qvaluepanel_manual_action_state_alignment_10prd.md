@@ -24,9 +24,9 @@ QValuePanel で行動をクリックして EvalPanel を手動で進めるとき
 
 ## 2. 現状（2026-10-19 にコードで確かめたこと）
 
-- EvalRunner の 1 回の step は、`MakeAction(s_t)` → 行動の強制があれば `WithAction` → `env->Step(a_t)` → `TrainEvent` の通知 → `state_ = continue_state` の順に進む（[trainer.cpp:231-298](../../core/anet-core/src/trainer.cpp)）。
-- QValuePanel は、この通知の `action_info` の aux から Q(s_t, ·) と a_t を出す（[QValuePanel.cpp:281-308](../../apps/runner/src/QValuePanel.cpp)、同 315-397）。EvalPanel の画面は、同じ通知の時点の env の画面 s_{t+1} を出す（[AtariView.cpp:218-257](../../core/envs/atari1/src/AtariView.cpp)）。待っている間、画面は s_{t+1}、Q は s_t のものである。
-- QValuePanel で行動をクリックすると `EvalPanel::DoStep(action)` が呼ばれ（[RunnerFrame.cpp:484-487](../../apps/runner/src/RunnerFrame.cpp)、[EvalPanel.cpp:161-168](../../apps/runner/src/EvalPanel.cpp)）、`MakeAction(s_{t+1})` のあとに、その行動が s_{t+1} に強制される。クリックしたときに見ていた Q は、s_{t+1} の Q ではない。
+- EvalRunner の 1 回の step は、`MakeAction(s_t)` → 行動の強制があれば `WithAction` → `env->Step(a_t)` → `TrainEvent` の通知 → `state_ = continue_state` の順に進む（[trainer.cpp:231-298](../../src/core/base/src/trainer.cpp)）。
+- QValuePanel は、この通知の `action_info` の aux から Q(s_t, ·) と a_t を出す（[QValuePanel.cpp:281-308](../../src/apps/runner/src/QValuePanel.cpp)、同 315-397）。EvalPanel の画面は、同じ通知の時点の env の画面 s_{t+1} を出す（[AtariView.cpp:218-257](../../src/env/atari/src/AtariView.cpp)）。待っている間、画面は s_{t+1}、Q は s_t のものである。
+- QValuePanel で行動をクリックすると `EvalPanel::DoStep(action)` が呼ばれ（[RunnerFrame.cpp:484-487](../../src/apps/runner/src/RunnerFrame.cpp)、[EvalPanel.cpp:161-168](../../src/apps/runner/src/EvalPanel.cpp)）、`MakeAction(s_{t+1})` のあとに、その行動が s_{t+1} に強制される。クリックしたときに見ていた Q は、s_{t+1} の Q ではない。
 - 行動の決定と env の step は同じ呼び出しの中で続けて起きるので、「s_{t+1} の Q を出して、行動を待つ」状態は今は無い。
 - PRD 097 の実装のあとも、自動リセットは `Step` の中で行い、Runner は次の状態を Step の結果の `continue_state` で受け取る（097 の D2）。画面は Step の結果から読むので、終端の step の通知では、画面は終端の画面 s_T になる（097 の D1）。次のクリックが当たるリセット後の s_0 は、画面に出ない（097 の D4。今は終端の step でだけ、リセット後の s_0 が偶然出ている）。手動で進めると、エピソードの境目では s_0 を見ずに最初の行動を選ぶことになる。
 

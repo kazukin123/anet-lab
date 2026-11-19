@@ -332,17 +332,17 @@ Auto Reloadも手動Reloadも通常と同じに効き、side panelが隠れてRe
 
 | 領域 | 主なファイル |
 |---|---|
-| entry / 設定 | [MetricsViewerApplication.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java)、[MetricsViewerSettings.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/config/MetricsViewerSettings.java)、[application.properties](../../apps/metrics-viewer/src/main/resources/application.properties) |
-| scan / source同一性 | [RunScanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsSource.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
-| cache DB | [MetricsCacheDatabase.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java) |
-| source読み出し | [SourceReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SourceReader.java)、[RawFileReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RawFileReader.java)、[GzipSessionReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipSessionReader.java)、[GzipInputSessions.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipInputSessions.java) |
-| 取り込み | [MetricsIngestor.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java)、[LodBucket.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java) |
-| workspace / scheduling | [WorkspaceManager.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java)、[IngestScheduler.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java) |
-| query | [MetricsQueryCoordinator.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryCoordinator.java)、[QueryCancelledException.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/QueryCancelledException.java)、[MetricsRepository.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsQueryPlanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlanner.java)、[MetricsRangeProjector.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRangeProjector.java)、[LodPageCache.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java) |
-| API | [MetricsService.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java)、[MetricsViewerController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java)、[WorkspaceController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceController.java)、[view/model](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model)、[MetricTraceEncoder.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/util/MetricTraceEncoder.java) |
-| browser UI | [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
-| test | [src/test/java](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer) |
-| build | [pom.xml](../../apps/metrics-viewer/pom.xml)、[checkstyle.xml](../../apps/metrics-viewer/checkstyle.xml) |
+| entry / 設定 | [MetricsViewerApplication.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java)、[MetricsViewerSettings.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/config/MetricsViewerSettings.java)、[application.properties](../../src/apps/metrics-viewer/src/main/resources/application.properties) |
+| scan / source同一性 | [RunScanner.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)、[MetricsSource.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
+| cache DB | [MetricsCacheDatabase.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java) |
+| source読み出し | [SourceReader.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SourceReader.java)、[RawFileReader.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RawFileReader.java)、[GzipSessionReader.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipSessionReader.java)、[GzipInputSessions.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipInputSessions.java) |
+| 取り込み | [MetricsIngestor.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java)、[LodIngestWriter.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java)、[LodBucket.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java) |
+| workspace / scheduling | [WorkspaceManager.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java)、[IngestScheduler.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)、[LoadingThread.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java) |
+| query | [MetricsQueryCoordinator.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryCoordinator.java)、[QueryCancelledException.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/QueryCancelledException.java)、[MetricsRepository.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)、[MetricsQueryPlanner.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlanner.java)、[MetricsRangeProjector.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRangeProjector.java)、[LodPageCache.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java) |
+| API | [MetricsService.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java)、[MetricsViewerController.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java)、[WorkspaceController.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceController.java)、[view/model](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model)、[MetricTraceEncoder.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/util/MetricTraceEncoder.java) |
+| browser UI | [index.html](../../src/apps/metrics-viewer/src/main/resources/static/index.html)、[metrics-viewer.js](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、[metrics-viewer.css](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
+| test | [src/test/java](../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer) |
+| build | [pom.xml](../../src/apps/metrics-viewer/pom.xml)、[checkstyle.xml](../../src/apps/metrics-viewer/checkstyle.xml) |
 
 タグセットのコード: server は `service/TagSetStore.java`・`view/TagSetController.java` と `view/model` の request/response 型、browser は `metrics-viewer.js` の `TagSetMenu`。初期値は `src/main/resources/initial_tag_sets.json`。
 
@@ -591,7 +591,7 @@ Plotlyの再描画はgraph 1枚あたり数十msかかり（従来の実測で13
 | key | 既定 | 有効範囲 | 意味 |
 |---|---:|---|---|
 | `metricsviewer.tag-sets-file` | `${metricsviewer.workspaces-dir}/metrics_viewer_tag_sets.json` | local file path | 作業用タグセット。相対パスは作業ディレクトリ基準。`TagSetStore` が親を作り、ディレクトリ指定・作成不能・壊れた内容では起動を止める |
-| `metricsviewer.workspaces-dir` | `workspaces` | local path | workspace群の親directory。UNC rootは起動時に拒否する |
+| `metricsviewer.workspaces-dir` | `../../data/workspaces` | local path | workspace群の親directory。起動batは作業ディレクトリを `apps/runner` に設定する。UNC rootは起動時に拒否する |
 | `metricsviewer.initial-workspace` | `_default` | 直下directory名 | 起動時のcurrent workspace。妥当だが不在ならWARNと空のRun一覧で起動する |
 | `metricsviewer.target-points-per-series` | `8000` | 3 〜 `max-points-per-request` | requestが`maxPoints`を省略したときの1系列あたり既定vertex予算 |
 | `metricsviewer.max-points-per-request` | `500000` | 3 〜 1,000,000 | 1 requestで返せるvertex総数 |
@@ -613,17 +613,19 @@ Plotlyの再描画はgraph 1枚あたり数十msかかり（従来の実測で13
 | `spring.mvc.async.request-timeout` | `600000` | 同上 |
 | `spring.jackson.mapper.allow-coercion-of-scalars` | `false` | `"123"`のような型の緩い入力をfail-fastさせる |
 | `spring.jackson.deserialization.accept-float-as-int` | `false` | step等へ小数を渡した場合にfail-fastさせる |
-| `logging.file.path` | `logs` | 起動ディレクトリ配下へlogを出す |
+| `logging.file.path` | `../../data/logs` | 作業ディレクトリ `apps/runner` から配布位置の `data/logs` にログを出す |
 
 request bodyは上記に加えて、`@JsonAnySetter`で未知fieldを捕捉し、1つでもあれば`invalid_request`にする。
 `runId`と`tagKey`は`StrictStringDeserializer`によりJSON stringだけを受け付ける。
 
 ### 7.3 起動引数
 
+以下は `apps/runner` から起動する例です。
+
 | 用途 | 例 |
 |---|---|
-| 既定workspace群の可視化 | `java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082` |
-| 別のworkspace群の可視化 | `java -Xmx1g -jar target\metrics-viewer.jar --metricsviewer.workspaces-dir=<path> --metricsviewer.initial-workspace=<name>` |
+| 既定workspace群の可視化 | `java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --server.port=8082` |
+| 別のworkspace群の可視化 | `java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --metricsviewer.workspaces-dir=<path> --metricsviewer.initial-workspace=<name>` |
 
 既定pathとportは[22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)が固定する。Optuna用の別Viewer launcherは持たず、同じworkspace selectorを使う。
 
@@ -631,7 +633,7 @@ request bodyは上記に加えて、`@JsonAnySetter`で未知fieldを捕捉し�
 
 ### 7.4 browser側の定数と永続state
 
-serverから配布しないclient定数は[metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)の先頭で定義する。
+serverから配布しないclient定数は[metrics-viewer.js](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)の先頭で定義する。
 
 | 定数 | 値 | 意味 |
 |---|---:|---|
@@ -1037,15 +1039,16 @@ gzip streamは全体16本まで。新しい非優先Runは、非優先の開始�
 | `spring-boot-maven-plugin` | 3.5.7 | `repackage`実行可能JARを生成する |
 | `maven-compiler-plugin` | 3.15.0 | `release=17`、`parameters=true`、`proc=full`、annotation processorにlombokを指定 |
 
-Java側のコード規約は[checkstyle.xml](../../apps/metrics-viewer/checkstyle.xml)で定義する。行頭indentはtab（tab幅4、継続行8）、行長上限120、`FinalLocalVariable`と標準の命名規則を要求する。Eclipse用の設定は`.checkstyle`とformatter定義に置く。
+Java側のコード規約は[checkstyle.xml](../../src/apps/metrics-viewer/checkstyle.xml)で定義する。行頭indentはtab（tab幅4、継続行8）、行長上限120、`FinalLocalVariable`と標準の命名規則を要求する。Eclipse用の設定は`.checkstyle`とformatter定義に置く。
 
 ### 11.4 build・実行
 
 ```powershell
-cd apps\metrics-viewer
+Set-Location src\apps\metrics-viewer
 mvn -B test
 mvn -B package
-java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082
+Set-Location ..\..\..\apps\runner
+java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --server.port=8082
 ```
 
 ### 11.5 frontend asset
@@ -1056,7 +1059,7 @@ frontendはnpm等のbuild工程を持たず、`src/main/resources/static`をそ�
 
 ## 12. テストと拡張時の確認事項
 
-タグセットは `TagSetStoreTest`・`TagSetApiIntegrationTest`・`TagSetPlaywrightTest` で検証する。梱包を含む手順は [PRD111検証README](../../core/anet-core/testdata/prd111/README.md)。
+タグセットは `TagSetStoreTest`・`TagSetApiIntegrationTest`・`TagSetPlaywrightTest` で検証する。梱包を含む手順は [PRD111検証README](../../src/core/base/testdata/prd111/README.md)。
 
 ### 12.1 テストの構成
 
@@ -1076,14 +1079,14 @@ Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環�
 
 ### 12.2 変更時の確認事項
 
-検証手順・性能比較・データ一致の記録は[PRD090検証README](../../core/anet-core/testdata/prd090/README.md)を参照する。
+検証手順・性能比較・データ一致の記録は[PRD090検証README](../../src/core/base/testdata/prd090/README.md)を参照する。
 
 1. cache schemaを変えるときは`SCHEMA_VERSION`を上げる。migrationは書かず、旧cacheが警告なしで破棄・再構築されることをtestする。
 2. `IngestState`と`SeriesAvailability`のexternalNameは永続値かつHTTP公開値である。値の追加は可、既存値の改名・削除は非互換とみなす。
 3. 取り込みの新しい処理は同一transactionへ入れる。L0、LOD、`TagStats`、`source_meta`が別commitへ分かれるとcrash時に整合が壊れる。
 4. LODを触るときは、完成bucketだけ永続化する契約と、端の部分bucketを下位levelから再集約する経路の両方を検証する。`LodPageCache`は完成bucket数をtag点数から導くので、親を書く契機を変えるときはこの導出も合わせて変える。
 5. 統計をLODから導出しない。範囲非依存の統計はcommit済みL0全点から作る。
-6. Step粒度または点数上限を変えたら、1〜4Runの幅一致、選択順序・zoom/pan/reset/resize、422と503をtestする。PRD089の手順は[検証README](../../core/anet-core/testdata/prd089/README.md)を参照する。
+6. Step粒度または点数上限を変えたら、1〜4Runの幅一致、選択順序・zoom/pan/reset/resize、422と503をtestする。PRD089の手順は[検証README](../../src/core/base/testdata/prd089/README.md)を参照する。
 7. clientへ新しい状態を足すときは、Reload時にPlotly DOMを再構築しても保たれるようclient app側に持たせる。
    graphの見た目を決める入力なら、共通表示モデルの描画key（`PlotlyController._graphModel` / `_graphDisplayKey`）へ加える。Plotly上で直接変わる状態も`capturePlotState`で読み戻してモデルへ反映する。モデルへ反映されない入力は、変わっても描画更新や遅着結果の排除に使われない。
    windowの中身を左右する条件なら、Reloadの鮮度判定（`DataCache.isOutdated`）にも反映する。

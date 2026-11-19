@@ -74,14 +74,14 @@ This document covers current `apps/runner`, `apps/metrics-viewer`, `apps/runner/
 
 | Area | Main files |
 |---|---|
-| Application entry, configuration, logging | [RunnerApp.hpp](../../apps/runner/src/RunnerApp.hpp), [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) |
-| Shared workspace infrastructure | [app_util.hpp](../../core/anet-core/include/anet/app_util.hpp), [app_util.cpp](../../core/anet-core/src/app_util.cpp) |
-| Workspace selection GUI | [WorkspaceDialog.hpp](../../apps/runner/src/WorkspaceDialog.hpp), [WorkspaceDialog.cpp](../../apps/runner/src/WorkspaceDialog.cpp) |
-| Main frame, panes, input operations | [RunnerFrame.hpp](../../apps/runner/src/RunnerFrame.hpp), [RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) |
-| Train View | [TrainPanel.hpp](../../apps/runner/src/TrainPanel.hpp), [TrainPanel.cpp](../../apps/runner/src/TrainPanel.cpp) |
-| Eval View, model synchronization | [EvalPanel.hpp](../../apps/runner/src/EvalPanel.hpp), [EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) |
-| Q values, logs, auxiliary panes | [QValuePanel.cpp](../../apps/runner/src/QValuePanel.cpp), [LogPanel.cpp](../../apps/runner/src/LogPanel.cpp) |
-| Runtime integration | [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp), [trainer.cpp](../../core/anet-core/src/trainer.cpp) |
+| Application entry, configuration, logging | [RunnerApp.hpp](../../src/apps/runner/src/RunnerApp.hpp), [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) |
+| Shared workspace infrastructure | [app_util.hpp](../../src/core/base/include/anet/app_util.hpp), [app_util.cpp](../../src/core/base/src/app_util.cpp) |
+| Workspace selection GUI | [WorkspaceDialog.hpp](../../src/apps/runner/src/WorkspaceDialog.hpp), [WorkspaceDialog.cpp](../../src/apps/runner/src/WorkspaceDialog.cpp) |
+| Main frame, panes, input operations | [RunnerFrame.hpp](../../src/apps/runner/src/RunnerFrame.hpp), [RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) |
+| Train View | [TrainPanel.hpp](../../src/apps/runner/src/TrainPanel.hpp), [TrainPanel.cpp](../../src/apps/runner/src/TrainPanel.cpp) |
+| Eval View, model synchronization | [EvalPanel.hpp](../../src/apps/runner/src/EvalPanel.hpp), [EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) |
+| Q values, logs, auxiliary panes | [QValuePanel.cpp](../../src/apps/runner/src/QValuePanel.cpp), [LogPanel.cpp](../../src/apps/runner/src/LogPanel.cpp) |
+| Runtime integration | [trainer.hpp](../../src/core/base/include/anet/trainer.hpp), [trainer.cpp](../../src/core/base/src/trainer.cpp) |
 | default config | [apps/runner/config](../../apps/runner/config) |
 
 For discrete forced actions, EvalPanel checks the ActionSpec retained at initialization. Out-of-range input displays the requested value and valid range in English in status field 0 without writing to the Run log. Rejection precedes Live restoration and model synchronization, preserving the environment, step counts, and Trace selection. Both EvalRunner constructors also retain the target environment's ActionSpec; directly supplied out-of-range forced actions fail fast before Reset, Actor execution, or Step. Validation does not retrieve EnvSpec again.
@@ -90,21 +90,21 @@ For discrete forced actions, EvalPanel checks the ActionSpec retained at initial
 
 | Area | Main files |
 |---|---|
-| Spring entry/config | [MetricsViewerApplication.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java), [application.properties](../../apps/metrics-viewer/src/main/resources/application.properties) |
-| scan/source identity | [RunScanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java), [MetricsSource.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
-| SQLite cache | [MetricsCacheDatabase.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java), [MetricsIngestor.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java), [LodIngestWriter.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java) |
-| scheduling/query | [IngestScheduler.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java), [LoadingThread.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java), [MetricsRepository.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java), [MetricsService.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java) |
-| REST API | [MetricsViewerController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java) |
-| browser UI | [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html), [metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js), [metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
+| Spring entry/config | [MetricsViewerApplication.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java), [application.properties](../../src/apps/metrics-viewer/src/main/resources/application.properties) |
+| scan/source identity | [RunScanner.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java), [MetricsSource.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
+| SQLite cache | [MetricsCacheDatabase.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java), [MetricsIngestor.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java), [LodIngestWriter.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java) |
+| scheduling/query | [IngestScheduler.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java), [LoadingThread.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java), [MetricsRepository.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java), [MetricsService.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java) |
+| REST API | [MetricsViewerController.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java) |
+| browser UI | [index.html](../../src/apps/metrics-viewer/src/main/resources/static/index.html), [metrics-viewer.js](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js), [metrics-viewer.css](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
 
 ### 3.3 Optuna and Launchers
 
 | Area | Main files |
 |---|---|
-| DropMerge CLI/domain | [dropmerge_optuna.py](../../apps/runner/tools/dropmerge_optuna.py) |
-| Shared harness runtime | [optuna_common.py](../../apps/runner/tools/optuna_common.py) |
+| DropMerge CLI/domain | [dropmerge_optuna.py](../../apps/tools/dropmerge_optuna.py) |
+| Shared harness runtime | [optuna_common.py](../../apps/tools/optuna_common.py) |
 | Runner launcher | [10_run.bat](../../apps/10_run.bat) |
-| Workspace-aware supporting launchers | [resolve_workspace.bat](../../apps/runner/tools/resolve_workspace.bat), [31_tb_bridge.bat](../../apps/31_tb_bridge.bat), [41_mlflow_bridge.bat](../../apps/41_mlflow_bridge.bat) |
+| Workspace-aware supporting launchers | [resolve_workspace.bat](../../apps/tools/resolve_workspace.bat), [31_tb_bridge.bat](../../apps/31_tb_bridge.bat), [41_mlflow_bridge.bat](../../apps/41_mlflow_bridge.bat) |
 | Metrics Viewer launcher | [22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat) |
 | Dashboard launcher | [23_optuna_dashboard.bat](../../apps/23_optuna_dashboard.bat) |
 | Detailed operating specification | [optuna.md](optuna.md) |
@@ -138,7 +138,7 @@ Trace mode is determined by whether TracePlayer has a selection. RunnerFrame rou
 
 Double-clicking a row selects it and dumps notification contents. GUI-independent `TraceDumpFormatter` produces one INFO line beginning `Trace dump step=... lane=...:` and one multiline VERBOSE entry. INFO contains all columns in table format (pending for unresolved values), names, every counts field, executed action, forced status, reward, terminal flags, action_info info/aux, and step_result aux. Notification fields are included regardless of column configuration. Single-element Tensors show their value; multi-element and empty Tensors show only shape, dtype, and original device; undefined Tensors show undefined. VERBOSE extends existing state/action-info/Step-result stringification with info and the opaque Replay initial-priority hint. Transfers and stringification occur only on dump, copying GPU contents to the CPU. Follower-pane snapshots are excluded. Existing log-level handling is retained.
 
-The [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md) define acceptance procedures for pane synchronization, player behavior, speed, and memory. [PRD105 validation assets](../../core/anet-core/testdata/prd105/README.md) cover arrows, forced status, sorting, playback order, dumps, and learning-value comparisons across four Envs.
+The [PRD094 validation resources](../../src/core/base/testdata/prd094/README.md) define acceptance procedures for pane synchronization, player behavior, speed, and memory. [PRD105 validation assets](../../src/core/base/testdata/prd105/README.md) cover arrows, forced status, sorting, playback order, dumps, and learning-value comparisons across four Envs.
 
 ### 3.5 Logs
 
@@ -420,19 +420,19 @@ sequenceDiagram
 
 ## 8. Tests and Change Checks
 
-- [PRD122 validation assets](../../core/anet-core/testdata/prd122/README.md): window-free Q-Values processing tests, Panel key-forwarding characterization, nine core mutation checks, and exact scalar comparison across four Envs. Display, focus, and physical-key behavior require human checks.
+- [PRD122 validation assets](../../src/core/base/testdata/prd122/README.md): window-free Q-Values processing tests, Panel key-forwarding characterization, nine core mutation checks, and exact scalar comparison across four Envs. Display, focus, and physical-key behavior require human checks.
 
-- [PRD114 validation](../../core/anet-core/testdata/prd114/README.md): public CLIs from issues to INDEX, topic summaries, and statistics; dependency and WSJF inheritance; all outputs unchanged on invalid input; same-blob implementation detection; isolated skill trials and migration checks.
+- [PRD114 validation](../../src/core/base/testdata/prd114/README.md): public CLIs from issues to INDEX, topic summaries, and statistics; dependency and WSJF inheritance; all outputs unchanged on invalid input; same-blob implementation detection; isolated skill trials and migration checks.
 
-- [PRD110 validation](../../core/anet-core/testdata/prd110/README.md): initial main-pane display, Centre promotion and dock-position restoration, open/close restrictions on the three paths, opening and closing during maximize, Train rendering timer, unknown-path safeguards and their warnings, and default-suite failure sets. Caption dragging and actual screen widths require manual confirmation.
+- [PRD110 validation](../../src/core/base/testdata/prd110/README.md): initial main-pane display, Centre promotion and dock-position restoration, open/close restrictions on the three paths, opening and closing during maximize, Train rendering timer, unknown-path safeguards and their warnings, and default-suite failure sets. Caption dragging and actual screen widths require manual confirmation.
 
-- [PRD109 validation assets](../../core/anet-core/testdata/prd109/README.md): timers, logs, and pane operations during construction; Close and OS shutdown queries during initialization; failures and partial construction; early window destruction; default-suite failure sets; and exact equality of every scalar point across four Envs. Actual rendering and OS “not responding” behavior require human checks.
+- [PRD109 validation assets](../../src/core/base/testdata/prd109/README.md): timers, logs, and pane operations during construction; Close and OS shutdown queries during initialization; failures and partial construction; early window destruction; default-suite failure sets; and exact equality of every scalar point across four Envs. Actual rendering and OS “not responding” behavior require human checks.
 
-- [PRD105 validation assets](../../core/anet-core/testdata/prd105/README.md): forwarded arrows in Trace, forced-status notification timing, sorting and playback order, dump formatting and actual display time, and numerical equivalence across four Envs.
+- [PRD105 validation assets](../../src/core/base/testdata/prd105/README.md): forwarded arrows in Trace, forced-status notification timing, sorting and playback order, dump formatting and actual display time, and numerical equivalence across four Envs.
 
-- [PRD095 validation assets](../../core/anet-core/testdata/prd095/README.md): read-only topic-summary/blob/link inspection and ingestion/lint/housekeeping trials.
+- [PRD095 validation assets](../../src/core/base/testdata/prd095/README.md): read-only topic-summary/blob/link inspection and ingestion/lint/housekeeping trials.
 
-- [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations. For display/operation changes, verify widths, colors, toggles, and the red border with the real wxWidget `AnetRLRunner-gui-test`, distinguishing UI instrumentation from actual Run speed.
+- [PRD094 validation resources](../../src/core/base/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations. For display/operation changes, verify widths, colors, toggles, and the red border with the real wxWidget `AnetRLRunner-gui-test`, distinguishing UI instrumentation from actual Run speed.
 
 - Runner UI changes: check Frame close order, toolbar dock/float/reset, pane/menu/toolbar linkage, Train/Eval inputs, model synchronization, FPS, status snapshots, and SVG replacement on theme changes. For step-count changes, use `AnetRLRunner-gui-test "[eval_steps]"` to check configuration validation and Trace preservation. Run `AnetRLRunner-gui-test "[eval_steps_menu]"` in a separate process for the actual RunnerApp menu, Custom input, cancellation, automatic evaluation, and manual Step; it is excluded from the default suite. Run `AnetRLRunner-gui-test "[runner_close_drain]"` in a separate process to check that Frame close detaches train observers only after draining background evaluation; it is also excluded from the default suite. For Logs, `AnetRLRunner-gui-test "[log_panel]"` checks trailing blank lines, timestamp format/colors, selection and viewport position, unread counts and reading through `+N`, Auto-scroll disengagement/resumption, configured defaults, Wrap, Indent, search, and unviewed alerts. Copy all changes the user's clipboard, so run `"[log_panel_clipboard]"` only when explicitly specified. `"[log_panel_demo]"` opens a window that appends each log level every second without starting a Run, allowing manual interaction until closed; check the Panels toolbar indicator in Runner.
 - Metrics Viewer backend changes: run integration tests for SQLite/source identity, ingestion/LOD, range APIs, scheduler, and query concurrency.

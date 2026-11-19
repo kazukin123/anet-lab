@@ -1,17 +1,18 @@
 @echo off
+title %~nx0
 REM ============================================================
 REM mlflow_bridge 起動スクリプト
 REM ============================================================
 
 setlocal
 
-call "%~dp0runner\tools\resolve_workspace.bat" "%~1"
+call "%~dp0tools\resolve_workspace.bat" "%~1"
 if errorlevel 1 exit /b 1
 
 REM ---- 設定 ----
 set PORT=8000
 set VENV_PYTHON=..\..\.venv\Scripts\python.exe
-set MLFLOW_REQUIREMENTS=..\..\viewers\metrics-tools\requirements.txt
+set MLFLOW_REQUIREMENTS=..\tools\requirements.txt
 
 REM ---- 作業ディレクトリをプロジェクトルートへ移動 ----
 cd /d "%~dp0runner"
@@ -34,7 +35,7 @@ if errorlevel 1 (
 REM ---- ブリッジ起動 ----
 cd
 echo [INFO] Starting MLflow bridge. Initial import may take a while...
-"%VENV_PYTHON%" -u ..\..\viewers\metrics-tools\mlflow_bridge.py --logdir "%RUNS_DIR%" --tracking-db "%RUNS_DIR%\mlflow.db"
+"%VENV_PYTHON%" -u ..\tools\mlflow_bridge.py --logdir "%RUNS_DIR%" --tracking-db "%RUNS_DIR%\mlflow.db"
 
 REM ---- 自動ブラウザオープン ----
 REM start http://127.0.0.1:%PORT%

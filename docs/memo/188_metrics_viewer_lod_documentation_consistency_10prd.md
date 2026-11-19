@@ -26,8 +26,8 @@
 
 実装（2026-11-09 に読み直した）:
 
-- [LodBucket.java:21](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java#L21) の `LOD_FACTOR` は `4` である。
-- [LodIngestWriter.java:109](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java#L109) の `appendChild` は、同じ level の子が `LOD_FACTOR` 件そろうと親を合成して書く。そろうまでは書かない。
+- [LodBucket.java:21](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java#L21) の `LOD_FACTOR` は `4` である。
+- [LodIngestWriter.java:109](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java#L109) の `appendChild` は、同じ level の子が `LOD_FACTOR` 件そろうと親を合成して書く。そろうまでは書かない。
 - 同 120〜122 行の `combine` は、子がちょうど `LOD_FACTOR` 件であることを確かめ、違えば例外を投げる。
 
 関係する決定と、すでに合っている文書:

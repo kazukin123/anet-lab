@@ -5,7 +5,7 @@ from google import genai
 from github import Github, Auth
 
 # --- 設定エリア ---
-TARGET_PATHS = ["core/anet-core", "core/envs", "apps"]
+TARGET_PATHS = ["src", "apps"]
 EXCLUDE_KEYWORDS = []
 # RPDとTPMの制限を考慮した1リクエストあたりの文字数制限
 CHUNK_CHAR_LIMIT = 600000

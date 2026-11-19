@@ -41,14 +41,14 @@ Agent共通contractは[Agentと学習](110_agents_and_learning.jp.md)、ReplayBu
 | Rainbow | DQNの6つの拡張を組み合わせる | `RainbowAgent`は共通部品の責務分担を確かめるために残す。Run では使わない。原論文との相違は[2.1.3節](#213-rainbowの構成要素) | [Rainbow (2017/10)][paper-rainbow] |
 | QR-DQN | 固定した分位レベルごとの収益を学び、収益分布を表す | 両Agentの`QRLearner` | [QR-DQN (2017/10)][paper-qr] |
 | Implicit Quantile Network（IQN） | 分位レベルτを入力とし、分位関数を学ぶ | DefaultDQNの`IQNLearner` | [IQN (2018/06)][paper-iqn] |
-| Upper Quantile Exploration（UQE） | 平均収益の代わりに上位分位または上側の平均で行動を比較する | DefaultDQNのQR・IQN方策（[2.1.5節](#215-uqe上位分位を使う行動選択)） | [方策の実装](../../core/anet-core/src/dqn_based_agent.cpp)。関連：[IQN (2018/06), Section 4][paper-iqn] |
+| Upper Quantile Exploration（UQE） | 平均収益の代わりに上位分位または上側の平均で行動を比較する | DefaultDQNのQR・IQN方策（[2.1.5節](#215-uqe上位分位を使う行動選択)） | [方策の実装](../../src/algo/dqn/src/dqn_based_actor.cpp)。関連：[IQN (2018/06), Section 4][paper-iqn] |
 | Thompson Sampling | 不確かさを表す分布から標本を取り、その標本で最良の行動を選ぶ | DefaultDQNの`ThompsonSampling`。収益分位を使う実装との差は[2.1.6節](#216-thompson-samplingと本実装の分位サンプリング) | [Thompson Sampling (2017/07), Chapter 4][paper-thompson] |
 | Munchausen RL | 対数方策項を報酬へ加え、softな価値の更新と組み合わせる | DefaultDQNのTD・QR・IQN（[6.3節](#63-munchausen-rl)） | [Munchausen (2020/07)][paper-munchausen] |
 | TempoRL | 行動に加えて、その行動を続ける長さを学ぶ | DefaultDQNのskip方策（[6.5節](#65-defaultdqnのskip方策)） | [TempoRL (2021/06)][paper-temporl] |
 | Random Network Distillation（RND）・内的報酬 | 固定したランダムNetworkの出力を予測する誤差を、新しさの手掛かりとして報酬へ加える | DefaultDQNの`intrinsic.enabled`（[2.1.9節](#219-rndと内的報酬)） | [RND (2018/10)][paper-rnd]、[212の解説](212_rnd_lifelong_novelty.jp.md) |
 | Transformed Bellman Operator（TBO） | 可逆変換hでQ値とBellman targetを圧縮し、値のスケールを扱いやすくする | DefaultDQNの`learner.use_tbo`（[2.1.10節](#2110-tboq値とtargetの圧縮)） | [TBO (2018/05), Section 3.2][paper-tbo] |
-| 楽観ターゲット | bootstrap方策を、平均だけでなく収益分布の上側を見るscoreで決める | DefaultDQNの`target_policy`と`use_optimistic_target`（[2.1.11節](#2111-楽観ターゲット)） | [設定・方策解決](../../core/anet-core/include/anet/default_dqn_agent.hpp)、[target計算](../../core/anet-core/src/dqn_based_agent.cpp) |
-| spatial exploration（Ape-X由来） | 同時に動くlaneごとに探索強度を変える | 両AgentのActorでεを配置。UQE用τはDefaultDQN（[2.1.12節](#2112-spatial-explorationlaneごとの探索強度)） | [Ape-X (2018/03), Section 3.1][paper-apex]、[SpatialLadderSchedule / ActionPolicy](../../core/anet-core/src/dqn_based_agent.cpp) |
+| 楽観ターゲット | bootstrap方策を、平均だけでなく収益分布の上側を見るscoreで決める | DefaultDQNの`target_policy`と`use_optimistic_target`（[2.1.11節](#2111-楽観ターゲット)） | [設定・方策解決](../../src/algo/dqn/src/default_dqn_agent.hpp)、[target計算](../../src/algo/dqn/src/dqn_based_learner.cpp) |
+| spatial exploration（Ape-X由来） | 同時に動くlaneごとに探索強度を変える | 両AgentのActorでεを配置。UQE用τはDefaultDQN（[2.1.12節](#2112-spatial-explorationlaneごとの探索強度)） | [Ape-X (2018/03), Section 3.1][paper-apex]、[SpatialLadderSchedule / ActionPolicy](../../src/algo/dqn/src/dqn_based_actor.cpp) |
 
 探索方策の設定とtau生成は[2.4節](#24-actionpolicyとdqnactioninfo)、RNDによる内的報酬の組込みは[6.2節](#62-experience受入れと学習更新)を参照する。
 
@@ -111,7 +111,7 @@ flowchart LR
 
 #### 2.1.5 UQE：上位分位を使う行動選択
 
-本実装のUQEは、平均Qの代わりに収益分布の上側で行動を比較する。τ=0.9なら、指定分位は90パーセンタイル、上側の平均は上位約10%の平均になる。[実装：UQEActionPolicy / MakeRiskBiasedScore](../../core/anet-core/src/dqn_based_agent.cpp)
+本実装のUQEは、平均Qの代わりに収益分布の上側で行動を比較する。τ=0.9なら、指定分位は90パーセンタイル、上側の平均は上位約10%の平均になる。[UQEActionPolicy](../../src/algo/dqn/src/dqn_based_actor.cpp)、[MakeRiskBiasedScore](../../src/algo/dqn/src/dqn_based_math.cpp)
 
 ```mermaid
 flowchart LR
@@ -123,18 +123,18 @@ flowchart LR
     T --> A
 ```
 
-QRは分位点をソートして抽出し、IQNは指定分位または`[τ,1]`を問い合わせる。τの時間変化・lane配置と、選択後の`uqe.epsilon`探索は[2.4節](#24-actionpolicyとdqnactioninfo)を参照する。[実装：MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp) 分位を使う方策の一般的な説明は[IQN (2018/06), Sections 3–4][paper-iqn]を参照する。
+QRは分位点をソートして抽出し、IQNは指定分位または`[τ,1]`を問い合わせる。τの時間変化・lane配置と、選択後の`uqe.epsilon`探索は[2.4節](#24-actionpolicyとdqnactioninfo)を参照する。[実装：MakeUQEActionInfo](../../src/algo/dqn/src/dqn_based_actor.cpp) 分位を使う方策の一般的な説明は[IQN (2018/06), Sections 3–4][paper-iqn]を参照する。
 
 #### 2.1.6 Thompson Samplingと本実装の分位サンプリング
 
 一般的なThompson Samplingは、観測した経験を踏まえたモデルの不確かさを事後分布で表し、そこからモデルの標本を1つ取り、その標本の下で最良の行動を選ぶ。行動自体を一様に乱択するepsilon-greedyに対し、標本化した価値の比較を通じて探索する。[Thompson Sampling (2017/07), Chapters 3–4][paper-thompson]
 
-本実装の`ThompsonSampling`は、ベイズモデルの事後分布を保持する方式ではなく、学習した収益分布の分位を利用する方策名である。非spatial時の動作は次のとおりで、QRとIQNではscoreの作り方が異なる。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp)
+本実装の`ThompsonSampling`は、ベイズモデルの事後分布を保持する方式ではなく、学習した収益分布の分位を利用する方策名である。非spatial時の動作は次のとおりで、QRとIQNではscoreの作り方が異なる。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/algo/dqn/src/dqn_based_actor.cpp)
 
 - **QR**：呼出しごと・laneごとにτを`[0,1]`から一様に1つ引き、同じτを全行動へ使う。`uqe.use_tail_mean=false`ではその分位、`true`ではその分位から上側の平均で比較する。
 - **IQN**：`tau_rule`に従って`[0,1]`全体へ複数のτを配置し、各行動の出力平均で比較する。random配置なら標本平均であり、1本なら1分位の比較になる。fixed配置ならτ生成自体に乱数を使わない。
 
-spatial有効時は、両方式ともlaneごとのτを下限または指定分位としてUQEと同じ計算へ渡す。epsilonによる乱択も別に適用する。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp) 収益分布が表す結果のばらつきと、一般的なThompson Samplingが扱うモデルの不確かさは区別して読む。[IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
+spatial有効時は、両方式ともlaneごとのτを下限または指定分位としてUQEと同じ計算へ渡す。epsilonによる乱択も別に適用する。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/algo/dqn/src/dqn_based_actor.cpp) 収益分布が表す結果のばらつきと、一般的なThompson Samplingが扱うモデルの不確かさは区別して読む。[IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
 
 #### 2.1.7 Munchausen RL
 
@@ -183,17 +183,17 @@ flowchart LR
     V --> H["変換 h"] --> Y["target<br/>h空間"]
 ```
 
-`learner.use_tbo`で選び、QR/IQNでは各分位を逆変換する。報酬スケーラは**報酬の尺度**、TBOは**Q値とtargetの表現**を変える。逆変換は`TransformHInv`、圧縮は`TransformH`に対応する。[実装：TDLearner / QuantileLearnerBase](../../core/anet-core/src/dqn_based_agent.cpp)
+`learner.use_tbo`で選び、QR/IQNでは各分位を逆変換する。報酬スケーラは**報酬の尺度**、TBOは**Q値とtargetの表現**を変える。逆変換は`TransformHInv`、圧縮は`TransformH`に対応する。[実装：TDLearner / QuantileLearnerBase](../../src/algo/dqn/src/dqn_based_learner.cpp)
 
 #### 2.1.11 楽観ターゲット
 
-楽観ターゲットは、次状態でbootstrapする方策を、収益分布の上側を見るscoreで決める構成である。UQEをActorだけで使えば実際の行動が変わり、target方策でも使えば学習の教師値を組み立てる際の選択も変わる。Munchausen OFFではscoreが最大の行動を選び、選択した行動の価値・分布をtarget Networkで評価する。選択に使った上位分位のscore自体を、そのままbootstrap値に置き換える処理ではない。Munchausen ONでは、そのscoreから作るsoft方策で混合する（[6.3節](#63-munchausen-rl)）。[実装：targetの行動選択・価値評価](../../core/anet-core/src/dqn_based_agent.cpp)
+楽観ターゲットは、次状態でbootstrapする方策を、収益分布の上側を見るscoreで決める構成である。UQEをActorだけで使えば実際の行動が変わり、target方策でも使えば学習の教師値を組み立てる際の選択も変わる。Munchausen OFFではscoreが最大の行動を選び、選択した行動の価値・分布をtarget Networkで評価する。選択に使った上位分位のscore自体を、そのままbootstrap値に置き換える処理ではない。Munchausen ONでは、そのscoreから作るsoft方策で混合する（[6.3節](#63-munchausen-rl)）。[実装：targetの行動選択・価値評価](../../src/algo/dqn/src/dqn_based_learner.cpp)
 
-DefaultDQNの`use_optimistic_target=true`は、`actor.[train].policy`をtarget方策の既定へコピーし、epsilonを0にする。その後の`target_policy.*`指定で上書きできるため、有効な方式は解決後の方策で確認する。コピー元が平均Qのgreedyなら、このフラグだけで上側を見る方策にはならない。[実装：DefaultDQNAgentConfig](../../core/anet-core/include/anet/default_dqn_agent.hpp)
+DefaultDQNの`use_optimistic_target=true`は、`actor.[train].policy`をtarget方策の既定へコピーし、epsilonを0にする。その後の`target_policy.*`指定で上書きできるため、有効な方式は解決後の方策で確認する。コピー元が平均Qのgreedyなら、このフラグだけで上側を見る方策にはならない。[実装：DefaultDQNAgentConfig](../../src/algo/dqn/src/default_dqn_agent.hpp)
 
 #### 2.1.12 spatial exploration：laneごとの探索強度
 
-Ape-XのActorごとに異なるεを使う考え方を、同じActor内のlaneへ適用している。[Ape-X (2018/03), Section 3.1][paper-apex] [実装：ActionPolicy / SpatialLadderSchedule](../../core/anet-core/src/dqn_based_agent.cpp)
+Ape-XのActorごとに異なるεを使う考え方を、同じActor内のlaneへ適用している。[Ape-X (2018/03), Section 3.1][paper-apex] [実装：ActionPolicy / SpatialLadderSchedule](../../src/algo/dqn/src/dqn_based_actor.cpp)
 
 ```mermaid
 flowchart LR
@@ -209,13 +209,13 @@ flowchart LR
     A1 -.-> L1
 ```
 
-Ape-XのAtari実験はεを学習中固定する。[Ape-X (2018/03), Section 4.1][paper-apex] 本実装は`spatial.enabled`で選び、`first`・`last`の両端を`linear`または`log`で配置する。両端には時間変化も指定でき、DefaultDQNではUQEのε・τにも広げている。時間の変化とlane間の配置は独立に指定する（[2.4節](#24-actionpolicyとdqnactioninfo)）。[実装：epsilon-greedy / UQEのlane別設定](../../core/anet-core/src/dqn_based_agent.cpp)
+Ape-XのAtari実験はεを学習中固定する。[Ape-X (2018/03), Section 4.1][paper-apex] 本実装は`spatial.enabled`で選び、`first`・`last`の両端を`linear`または`log`で配置する。両端には時間変化も指定でき、DefaultDQNではUQEのε・τにも広げている。時間の変化とlane間の配置は独立に指定する（[2.4節](#24-actionpolicyとdqnactioninfo)）。[実装：epsilon-greedy / UQEのlane別設定](../../src/algo/dqn/src/dqn_based_actor.cpp)
 
 ### 2.2 実装レイヤー
 
 `DefaultDQNAgent`と`RainbowAgent`は、どちらも`AgentBase`と共通`rl::Learner`を実装する具象Agentである。`CreateLearner()`は外側のAgent自身を返し、外側が共有mutexや前後処理を管理したうえで、内側の`dqn::Learner`へ更新を委譲する。 両 Agent は `DqnComponentAssembler` を呼び、Head の初期化と射影は呼び出しごとに渡す。DefaultDQN の構築は `SelectHeadFactory`・`MakeNetworkInputSpec`・`RecordNetworkStructure`・`InitializeLearner` に分かれる。
 
-`dqn_based_agent.*`は、`NetworkModel`、`ActionPolicy`、`Actor`、`Learner`、`TDLearner`、`QRLearner`、`IQNLearner`などを提供する内部component群である。両具象Agentはこれらを合成しており、`DefaultDQNAgent`または`RainbowAgent`が内側の`dqn::Learner`を継承する構造ではない。
+DQNの共用部品は、学習、行動、Network、組み立て、共通の計算の5つに分かれる。両具象Agentはこれらを合成しており、`DefaultDQNAgent`または`RainbowAgent`が内側の`dqn::Learner`を継承する構造ではない。
 
 ### 2.3 Online NetworkとTarget Network
 
@@ -299,13 +299,13 @@ PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存
 
 | 領域 | 主なファイル |
 |---|---|
-| DQN共通component | [dqn_based_agent.hpp](../../core/anet-core/src/dqn_based_agent.hpp)、[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) |
-| DQN Head | [dqn_based_heads.hpp](../../core/anet-core/src/dqn_based_heads.hpp)、[dqn_based_heads.cpp](../../core/anet-core/src/dqn_based_heads.cpp) |
-| DefaultDQN | [default_dqn_agent.hpp](../../core/anet-core/include/anet/default_dqn_agent.hpp)、[default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) |
-| Rainbow | [rainbow_agent.hpp](../../core/anet-core/include/anet/rainbow_agent.hpp)、[rainbow_agent.cpp](../../core/anet-core/src/rainbow_agent.cpp) |
-| ReplayBuffer | [replay_buffer.hpp](../../core/anet-core/include/anet/replay_buffer.hpp)、[replay_buffer_impl.hpp](../../core/anet-core/src/replay_buffer_impl.hpp)、[replay_buffer_impl.cpp](../../core/anet-core/src/replay_buffer_impl.cpp) |
+| DQN共通部品 | [学習](../../src/algo/dqn/src/dqn_based_learner.hpp)、[行動](../../src/algo/dqn/src/dqn_based_actor.hpp)、[Network](../../src/algo/dqn/src/dqn_based_network_model.hpp)、[組み立て](../../src/algo/dqn/src/dqn_based_assembler.hpp)、[共通の計算](../../src/algo/dqn/src/dqn_based_math.hpp) |
+| DQN Head | [dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp)、[dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp) |
+| DefaultDQN | [default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp)、[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) |
+| Rainbow | [rainbow_agent.hpp](../../src/algo/dqn/src/rainbow_agent.hpp)、[rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp) |
+| ReplayBuffer | [replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp)、[replay_buffer_impl.hpp](../../src/core/base/src/replay_buffer_impl.hpp)、[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) |
 | Runner設定例 | [apps/runner/config](../../apps/runner/config) |
-| DQN test | [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)、[dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp) |
+| DQN test | DQNの各役割と具象Agentの `dqn_based_*_test.cpp`、[dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp) |
 
 ## 5. 静的構造
 
@@ -526,7 +526,7 @@ Actorごとの `actor.[key].skip.max_length_mode` は `full`（既定、1〜J）
 
 Learnerの `learner.skip.target_window` は `decision`（既定）・`action_change`・`episode_end` を選ぶ。後者2つは補助学習用で、skipとLearnerが有効なら宣言された全Actorがsingle、またはvariableで常に1であることを構築時に検証する。用途名から学習Actorを推測しない。違反するActorはすべてエラーに含める。feature_gradient=stopは対照群として許し、共有部へ勾配が届かないこととpriority_lambdaによる優先度への影響をRunに1回INFOで説明する。Learner無効時は組み合わせを検査しない。
 
-max_lengthを指定した場合はモードによらずProfiledValueの共通検証で下限1、有効時は上限Jも検査する。variableの値はskip有効時に必須。full/singleで指定した値は使わず、skip有効ならActorごとに一度WARNする。skip無効では必須・上限Jの検査とWARNを行わない。既定の等価性・3モード・窓・短縮Run・実験の手順は[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)を参照する。
+max_lengthを指定した場合はモードによらずProfiledValueの共通検証で下限1、有効時は上限Jも検査する。variableの値はskip有効時に必須。full/singleで指定した値は使わず、skip有効ならActorごとに一度WARNする。skip無効では必須・上限Jの検査とWARNを行わない。既定の等価性・3モード・窓・短縮Run・実験の手順は[PRD104検証資材](../../src/core/base/testdata/prd104/README.md)を参照する。
 
 共通のskip設定はagent.txtの `DefaultDQNAgent.@baseline` に無効のまま `?=` で置く。共有網はnn.txtの `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` を使い、枝は `skip_context` をbindする。envは `skip.max_length ?= J` とIQNの融合済み `skip_context` を指定する。`run.@skip` はenabled・指標・Trace列・greedy評価を選び、Agentのチェーンを書き直さない。GridMazeはskip専用のepsilon-greedy（0.60→0.05）も選ぶ。feature_gradient・Dueling・action_in・層幅はCLIの設定キーで指定する。
 
@@ -552,7 +552,7 @@ skip currentの入力特徴量は`learner.skip.feature_gradient=stop`でdetach�
 
 Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期snapshotの同期も含む）で消す。`GetScalar()`の`skip_session_decision_rate`は判断回数／lane step数、`skip_session_length_mean`は選択長の平均、`skip_session_length_rate.[j]`は判断回数中の長さjの割合である。初回読出し時だけCPUへ転送し、stepごとの同期を増やさない。skip無効・未成立はNaN、添字範囲外はfail-fast。判断がないsessionでは判断率0、長さの平均・割合はNaNになる。`$eval.[greedy] $actor @session_end`の購読は学習側の座標に記録される。
 
-畳み込みまでの共有と完全非共有を比べる独立profile、数値例、checkpoint・設定移行・Run等価性の確認は[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)を参照する。これらのprofileは既定のNetwork構造を変えず、既定構造のcheckpointとは互換にしない。
+畳み込みまでの共有と完全非共有を比べる独立profile、数値例、checkpoint・設定移行・Run等価性の確認は[PRD103検証資材](../../src/core/base/testdata/prd103/README.md)を参照する。これらのprofileは既定のNetwork構造を変えず、既定構造のcheckpointとは互換にしない。
 
 ## 7. DefaultDQNとRainbowの構成・設定
 
@@ -606,7 +606,7 @@ Learner の forward_resources は必須の初期化入力である。有効時�
 
 通常/Fused AdamW は Noisy ON のとき σ 専用 group を使い、`learner.noisy_weight_decay=0` が既定。OFF は従来の単一 group と順序を維持する。μ-only の current は σ の gradient を作らず、σ を更新・decay しない。sample で成立した σ gradient は既存の全体 norm/clip に含まれる。checkpoint と snapshot の parameter に σ を含め、ε・時計・RNG は保存しない。checkpoint 引き継ぎ時は σ 専用 group にも現在の optimizer 設定を適用し、weight_decay は learner.noisy_weight_decay で決める。
 
-Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_reference` と `nz_reference_off` は4射影の default 初期化・σ0=0.5、Body2FCの force_fp32=true、既存チェーンのAMPと標準call/batchを揃え、Noisy enabled だけを変える。episode/sample は結合 Run の Actor 上書き条件として指定する。指定チェーン末尾へ profile を追加する実行例と受け入れ手順は [専用検証手順](../../core/anet-core/testdata/prd084/README.md)を参照する。
+Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_reference` と `nz_reference_off` は4射影の default 初期化・σ0=0.5、Body2FCの force_fp32=true、既存チェーンのAMPと標準call/batchを揃え、Noisy enabled だけを変える。episode/sample は結合 Run の Actor 上書き条件として指定する。指定チェーン末尾へ profile を追加する実行例と受け入れ手順は [専用検証手順](../../src/core/base/testdata/prd084/README.md)を参照する。
 
 ## 8. lifetime・同期・保存読込
 
@@ -790,7 +790,7 @@ DefaultDQNのTD/QR/IQN共通Learnerは、`attention_entropy.[n]`の`@learn $upda
 
 captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各moduleの層数長Tensorを連結して全層まとめて1回CPUへ転送する。0始まりの通し番号で`BatchUpdateResult`へ格納し、再平均・再正規化しない。測らない更新とsample不足は`GetScalar`でNaNとなり、前回値は持ち越さない。非整数・負の番号は購読時、層数以上は最初の測定で鍵・層数・許容範囲・記入済み鍵ごとの層数を添えてfail-fastする。Transformer無しの閉包はcaptureの接頭辞未達で止まる。購読ゼロでは抽出・追加forward・エントロピー計算を行わない。
 
-値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../core/anet-core/testdata/prd093/README.md)を参照する。
+値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../src/core/base/testdata/prd093/README.md)を参照する。
 
 ### 9.10 価値の分解
 
@@ -798,25 +798,27 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 
 ## 10. テストと拡張時の確認事項
 
-価値の分解と報酬スケーラを変えるときは、[PRD121検証資材](../../core/anet-core/testdata/prd121/README.md)の数値検査、checkpoint判定表、既定5構成の前後比較とAtari性能測定を確認する。
+[PRD182の検証資材](../../src/core/base/testdata/prd182/README.md)で、ファイル分割の前後で定義とテストの本体が一致することと、Runnerの学習結果が一致することを確認する。
 
-構築・設定読み込み・内的報酬・診断の責務を変えるときは、[PRD128検証資材](../../core/anet-core/testdata/prd128/README.md)の34構成の前後比較、旧checkpointの継続、Releaseの速度、指標の並びの破壊検査を確認する。
+価値の分解と報酬スケーラを変えるときは、[PRD121検証資材](../../src/core/base/testdata/prd121/README.md)の数値検査、checkpoint判定表、既定5構成の前後比較とAtari性能測定を確認する。
 
-TD・QR・IQN の更新の進行、Munchausen の評価、Bellmanターゲットの組み立てを変えるときは、[PRD125 検証資材](../../core/anet-core/testdata/prd125/README.md)の基準保存、31 組と BF16 の前後比較、target の式の数値検査、Release の性能比較を確認する。
+構築・設定読み込み・内的報酬・診断の責務を変えるときは、[PRD128検証資材](../../src/core/base/testdata/prd128/README.md)の34構成の前後比較、旧checkpointの継続、Releaseの速度、指標の並びの破壊検査を確認する。
 
-内的報酬の倍率・補助学習・保存再開・無効時の同一性・設定群・smoke は [PRD116 検証資材](../../core/anet-core/testdata/prd116/README.md)を参照する。性能測定は他の Run と競合しない条件で別途行う。
+TD・QR・IQN の更新の進行、Munchausen の評価、Bellmanターゲットの組み立てを変えるときは、[PRD125 検証資材](../../src/core/base/testdata/prd125/README.md)の基準保存、31 組と BF16 の前後比較、target の式の数値検査、Release の性能比較を確認する。
 
-Actorのskip側のNN実行設定、既定7構成の完全一致、4 env×既定/skipの全キー比較とqbertの評価による切り分けは[PRD106検証資材](../../core/anet-core/testdata/prd106/README.md)を参照する。
+内的報酬の倍率・補助学習・保存再開・無効時の同一性・設定群・smoke は [PRD116 検証資材](../../src/core/base/testdata/prd116/README.md)を参照する。性能測定は他の Run と競合しない条件で別途行う。
 
-- [PRD104検証資材](../../core/anet-core/testdata/prd104/README.md): Actorの幅、補助学習の窓、既定6構成の等価性、ステージ0・ステージ1の実行と集計。
+Actorのskip側のNN実行設定、既定7構成の完全一致、4 env×既定/skipの全キー比較とqbertの評価による切り分けは[PRD106検証資材](../../src/core/base/testdata/prd106/README.md)を参照する。
 
-skipの更新方式・重み・session指標・構造の群を変えるときは[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)の数値、checkpoint、設定・Run比較を確認する。
+- [PRD104検証資材](../../src/core/base/testdata/prd104/README.md): Actorの幅、補助学習の窓、既定6構成の等価性、ステージ0・ステージ1の実行と集計。
 
-PRD101の比較・実Run手順は[PRD101検証資材](../../core/anet-core/testdata/prd101/README.md)を参照する。
+skipの更新方式・重み・session指標・構造の群を変えるときは[PRD103検証資材](../../src/core/base/testdata/prd103/README.md)の数値、checkpoint、設定・Run比較を確認する。
 
-TempoRL の window・Actor・learner・checkpoint・指標を変える場合は、[PRD098検証資材](../../core/anet-core/testdata/prd098/README.md) の契約テスト、4環境の無効時等価性、smoke、Atari性能比較を実行する。長時間学習の合否は短い検証とは分けて記録する。
+PRD101の比較・実Run手順は[PRD101検証資材](../../src/core/base/testdata/prd101/README.md)を参照する。
 
-主なDQN testは[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)と[dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp)に置く。
+TempoRL の window・Actor・learner・checkpoint・指標を変える場合は、[PRD098検証資材](../../src/core/base/testdata/prd098/README.md) の契約テスト、4環境の無効時等価性、smoke、Atari性能比較を実行する。長時間学習の合否は短い検証とは分けて記録する。
+
+主なDQN testはDQNの各役割と具象Agentの `dqn_based_*_test.cpp`と[dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)に置く。
 
 DQN系Agentを追加・変更する場合は、少なくとも次を確認する。
 
@@ -829,9 +831,9 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 7. 保存対象と非保存Stateを列挙し、互換checkpointと非互換checkpointの結果をtestする。
 8. 追加metricのsource、step軸、未対応Agentでの`nullopt`または`NaN`条件を定義する。
 9. policy churnを変更する場合は、zero update、online差分、hard/soft target、FP32 autocast境界、IQN fixed taus、購読ゲート、caller-owned probe RNGの非干渉を確認する。
-10. 勾配ノイズ計測を変更する場合は、`Optimize`の第2引数の平均とlossの一致、推定式、群別の成立条件、購読の和集合と共有EMA、決定論環境のON/OFF非干渉を確認する。本線BF16 smoke・実時間/追加メモリ・値の未成立率を含む手順は [PRD092検証資材](../../core/anet-core/testdata/prd092/README.md) を参照する。
+10. 勾配ノイズ計測を変更する場合は、`Optimize`の第2引数の平均とlossの一致、推定式、群別の成立条件、購読の和集合と共有EMA、決定論環境のON/OFF非干渉を確認する。本線BF16 smoke・実時間/追加メモリ・値の未成立率を含む手順は [PRD092検証資材](../../src/core/base/testdata/prd092/README.md) を参照する。
 
-11. attention診断を変更する場合は、購読の和集合・更新前の層平均・captureの位置順・未測定NaN・RNG/統計/buffer/modeの非干渉を確認する。両smokeとGPU/性能受入の手順は [PRD093検証資材](../../core/anet-core/testdata/prd093/README.md) を参照する。
+11. attention診断を変更する場合は、購読の和集合・更新前の層平均・captureの位置順・未測定NaN・RNG/統計/buffer/modeの非干渉を確認する。両smokeとGPU/性能受入の手順は [PRD093検証資材](../../src/core/base/testdata/prd093/README.md) を参照する。
 
 ## 11. 関連文書
 

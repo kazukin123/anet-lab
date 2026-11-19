@@ -198,6 +198,40 @@ function(anet_copy_wx_dlls target)
 endfunction()
 
 
+# テスト実行体が共有するフォルダへ、実行時 DLL を一度だけ配備する。
+set(ANET_TEST_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/out/test/$<CONFIG>")
+if(MSVC)
+    get_filename_component(ANET_TORCH_ROOT "${Torch_DIR}/../../../" ABSOLUTE)
+    file(GLOB ANET_TEST_DLLS "${ANET_TORCH_ROOT}/lib/*.dll")
+
+    get_target_property(ANET_WX_CORE_TYPE wx::core TYPE)
+    if(ANET_WX_CORE_TYPE STREQUAL "SHARED_LIBRARY")
+        list(APPEND ANET_TEST_DLLS
+            $<TARGET_FILE:wx::base>
+            $<TARGET_FILE:wx::core>
+            $<TARGET_FILE:wx::gl>
+            $<TARGET_FILE:wx::aui>)
+    endif()
+
+    if(ANET_TEST_DLLS)
+        add_custom_target(anet-test-runtime
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${ANET_TEST_RUNTIME_DIR}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${ANET_TEST_DLLS} "${ANET_TEST_RUNTIME_DIR}"
+            COMMENT "Copying shared test runtime DLLs"
+            VERBATIM)
+    endif()
+endif()
+
+function(anet_set_test_runtime target)
+    set_target_properties(${target} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${ANET_TEST_RUNTIME_DIR}")
+    if(TARGET anet-test-runtime)
+        add_dependencies(${target} anet-test-runtime)
+    endif()
+endfunction()
+
+
 # ---------------------------------------------------------------------
 # third_party
 # ---------------------------------------------------------------------
@@ -213,16 +247,19 @@ add_subdirectory(third_party/box2d-2.4.2)
 add_subdirectory(third_party/tracy)
 add_subdirectory(third_party/catch2)
 
-add_subdirectory(core/anet-core)
-add_subdirectory(core/envs/lunarlander1)
-add_subdirectory(core/envs/cartpole2)
-add_subdirectory(core/envs/dropmerge1)
-add_subdirectory(core/envs/gridmaze1)
-add_subdirectory(core/envs/imagecls1)
+add_subdirectory(src/core/base)
+add_subdirectory(src/algo/dqn)
+add_subdirectory(src/algo/muzero)
+add_subdirectory(src/algo/imagecls)
+add_subdirectory(src/env/lunarlander)
+add_subdirectory(src/env/cartpole)
+add_subdirectory(src/env/dropmerge)
+add_subdirectory(src/env/gridmaze)
+add_subdirectory(src/env/imagecls)
 if(ANET_ATARI_ENABLED)
-    add_subdirectory(core/envs/atari1)
+    add_subdirectory(src/env/atari)
 endif()
-add_subdirectory(apps/runner)
+add_subdirectory(src/apps/runner)
 
 
 # ---------------------------------------------------------------------

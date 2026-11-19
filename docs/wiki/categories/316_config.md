@@ -78,10 +78,10 @@
 
 点検が作り直す。手で直さない。
 
-- [config.hpp](../../../core/anet-core/include/anet/config.hpp)
-- [config.cpp](../../../core/anet-core/src/config.cpp) / [config_test.cpp](../../../core/anet-core/src/config_test.cpp)
-- [config_baseline_test.cpp](../../../core/anet-core/src/config_baseline_test.cpp)
-- [config_impl.cpp](../../../core/anet-core/src/config_impl.cpp) / [config_impl.hpp](../../../core/anet-core/src/config_impl.hpp)
+- [config.hpp](../../../src/core/base/include/anet/config.hpp)
+- [config.cpp](../../../src/core/base/src/config.cpp) / [config_test.cpp](../../../src/core/base/src/config_test.cpp)
+- [config_baseline_test.cpp](../../../src/core/base/src/config_baseline_test.cpp)
+- [config_impl.cpp](../../../src/core/base/src/config_impl.cpp) / [config_impl.hpp](../../../src/core/base/src/config_impl.hpp)
 
 ## PRD の一覧
 
@@ -102,6 +102,7 @@
 - [PRD121](../../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md) — 外的と内的の価値の分解（Q を外的報酬と内的報酬の 2 つの Head で学ぶ） PRD
 - [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md) — PRD131: 9xx の番号の PRD 57 本を、起票の日の順に 900 未満の連番へ振り直す PRD
 - [PRD158](../../memo/158_eval_schedule_first_fire_10prd.md) — PRD158: eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 

@@ -16,17 +16,17 @@
 ### 1.1 現行の経路（2026-09-26 確認）
 
 - キー入力は、`anet::rl::gui::Panel` を継承する全パネル（`TrainPanel`、各 Env の View パネル `AtariPanel` / `LunarLanderPanel` 等）が
-  `wxEVT_CHAR_HOOK` を `ForwardedKeyEvent` に包んで Frame へ転送し（[gui.cpp](../../core/anet-core/src/gui.cpp) の `Panel::OnKey`）、
-  `RunnerFrame::OnKey`（[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp)）が 1 つの `switch` で解釈する。
+  `wxEVT_CHAR_HOOK` を `ForwardedKeyEvent` に包んで Frame へ転送し（[gui.cpp](../../src/core/base/src/gui.cpp) の `Panel::OnKey`）、
+  `RunnerFrame::OnKey`（[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp)）が 1 つの `switch` で解釈する。
   **どのパネルにフォーカスがあってもキーは EvalPanel 行き**である。
 - 対応表はコード直書き。`WXK_UP/DOWN/LEFT/RIGHT` → 0/2/1/3（コメントは LunarLander の NOOP / MAIN / LEFT / RIGHT）、
   `WXK_NUMPAD0`〜`9` → 0〜9。`SHIFT` = Train トグル、`SPACE` = Eval pause トグル、`CTRL` = Eval 1 step は行動ではなくシステム操作。
 - 行動キーは `eval_panel_->DoStep(action)` を 1 回呼ぶ。つまり **1 押下 = 1 強制 step** で、EvalPanel が timer で回っていても
   pause 中でも同じ（timer の step は Actor が選び、押下のたびに強制 step が割り込む）。
-- `QValuePanel` のグリッド行クリックも同じ `action_handler_` 経由で `EvalPanel::DoStep(action)` に入る（[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) の `Initialize`）。
+- `QValuePanel` のグリッド行クリックも同じ `action_handler_` 経由で `EvalPanel::DoStep(action)` に入る（[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) の `Initialize`）。
 - `EvalPanel::DoStep(action)` → `EvalRunner::DoStep(action)` → `DoStepInternal` が `actor_->MakeAction(source_counts_, state_)` を呼んだ後、
-  `action >= 0` なら `action_info_raw->WithAction(tensor{action})` で差し替える（[trainer.cpp](../../core/anet-core/src/trainer.cpp)）。
-  DQN の `WithAction` は Actor Q ヒントの行動 Q と Munchausen bonus を強制行動へ再 gather する（[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の `DQNActionInfo::WithAction`）。
+  `action >= 0` なら `action_info_raw->WithAction(tensor{action})` で差し替える（[trainer.cpp](../../src/core/base/src/trainer.cpp)）。
+  DQN の `WithAction` は Actor Q ヒントの行動 Q と Munchausen bonus を強制行動へ再 gather する（[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `DQNActionInfo::WithAction`）。
   この事後差し替えは 142 の D1（2026-09-26）で「`MakeAction` の入力にする」と方針が決まっており、[083](done/083_action_context_retire_10prd.md) の後続 PRD が引き受ける。
 - EvalPanel は 1 lane。timer は `app.eval_panel.fps` × `step_per_frame`（Atari は 14.5 fps × 1 = 実機速度）。
 
@@ -79,7 +79,7 @@
 - enum にはほかに 2P 用（`PLAYER_B_*`、18〜35）とシステム操作（`RESET` 等、40〜45）があるが、AtariEnv の行動集合には入らない。
 - AtariEnv は既定で minimal action set を使う（`AtariEnv.full_action_space ?= false`、[Atari.txt](../../apps/runner/config/Atari.txt)）。
   enum 順から効かない行動を抜いて詰めた順なので、**同じ行動の番号がゲームで変わる**。`full_action_space = true` なら全ゲーム 18 個で enum の番号どおり。
-- ラベルは ALE の enum 名から `PLAYER_A_` を除いたもの（[AtariEnv.cpp](../../core/envs/atari1/src/AtariEnv.cpp)）。ゲームにも ALE の版にも依らず綴りは固定。
+- ラベルは ALE の enum 名から `PLAYER_A_` を除いたもの（[AtariEnv.cpp](../../src/env/atari/src/AtariEnv.cpp)）。ゲームにも ALE の版にも依らず綴りは固定。
 
 主なゲームの行動集合（ALE の `getMinimalActionSet` を直接読んだ値）:
 
@@ -345,13 +345,13 @@ Atari の 2P 操作（`PLAYER_B_*`）とコンソールスイッチ（`RESET` / 
 
 ## 8. 実装に触れる見込みの箇所
 
-- [RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) `OnKey` の行動 `switch` の撤去、入力層の生成と EvalPanel への接続。
-- [EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) `OnTimer` の保持型サンプリング（`DoUpdateFrame` の `pre_step_func` 経由か、
+- [RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) `OnKey` の行動 `switch` の撤去、入力層の生成と EvalPanel への接続。
+- [EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) `OnTimer` の保持型サンプリング（`DoUpdateFrame` の `pre_step_func` 経由か、
   観測パイプライン PRD 後は `MakeAction` 入力）。
-- [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) `Config` の `app.input.*` 読み込みと検証（`MakeSubConfigData`）。
+- [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) `Config` の `app.input.*` 読み込みと検証（`MakeSubConfigData`）。
 - 入力層の新規ファイル（`apps/runner/src/` 配下。装置層・マッピング層・解決層。機能グループ単位で 1 組の `.hpp/.cpp`）。
-- [rl.hpp](../../core/anet-core/include/anet/rl.hpp) の `ActionSpec` に別名表の欄（§3.8）。
-- [AtariEnv.cpp](../../core/envs/atari1/src/AtariEnv.cpp) の別名表の構築（汎用規則 + `AtariEnv.action_alias.[<game>]` の上書き、検証、起動ログ）。
+- [rl.hpp](../../src/core/base/include/anet/rl.hpp) の `ActionSpec` に別名表の欄（§3.8）。
+- [AtariEnv.cpp](../../src/env/atari/src/AtariEnv.cpp) の別名表の構築（汎用規則 + `AtariEnv.action_alias.[<game>]` の上書き、検証、起動ログ）。
 - [common.txt](../../apps/runner/config/common.txt) の既定マッピング、[Atari.txt](../../apps/runner/config/Atari.txt) の 18 ラベルのマッピングと上書き表（Q11）、
   [LunarLander.txt](../../apps/runner/config/LunarLander.txt) の Env 別マッピング。
 - [020 §6.2](../design/020_user_guide_run.jp.md)、[160](../design/160_applications_and_tools.jp.md)、CONTEXT.md（§4 の用語）。

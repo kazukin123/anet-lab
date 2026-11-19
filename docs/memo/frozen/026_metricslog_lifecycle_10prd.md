@@ -24,10 +24,10 @@ EpisodeEvalObserver::OnLearn::<lambda>()      (背景プール上)
 
 **確定した原因（実証済み）:**
 
-1. `MetricsLogger::Instance()` は `shared_ptr<MetricsLogger>` を**値返し**する（[metrics_logger.cpp:467-470](../../../core/anet-core/src/metrics_logger.cpp)）。本来はローカルに受けて使えば呼び出し中の生存が保証される。だが [observers.cpp:966](../../../core/anet-core/src/observers.cpp) 等の呼び出し側は戻り値を受けず `Instance()->LogScalar(...)` と**直呼び**している。
-2. `EpisodeEvalObserver::OnLearn` は評価エピソードを**背景プール `eval_pool_`** に投げる（[observers.cpp:537](../../../core/anet-core/src/observers.cpp)）。エピソードは終端まで多数ステップ走るため、しばらく実行が続く。
-3. その in-flight エピソードが終了時に episode-end 通知経由でログ出力する。ところが `MetricsLogger::Reset()`（[RunnerApp.cpp OnExit](../../../apps/runner/src/RunnerApp.cpp)）が `instance_` を先に null 化していると、`Instance()` は**null shared_ptr** を返し、`->LogScalar` が nullptr に対して呼ばれて `this==nullptr` → クラッシュ（`LogScalar` 本体で `backend_->` を触った瞬間、[metrics_logger.hpp:131](../../../core/anet-core/include/anet/metrics_logger.hpp)）。
-4. `eval_pool_` の排水は `~EpisodeEvalObserver`（`eval_future_.wait()`+`eval_pool_->Stop()`、[observers.cpp:500-511](../../../core/anet-core/src/observers.cpp)）**のみ**＝`run_manager_` 破棄時＝`OnExit` の `Reset()` **より後**。→ Reset と eval が競合する。
+1. `MetricsLogger::Instance()` は `shared_ptr<MetricsLogger>` を**値返し**する（[metrics_logger.cpp:467-470](../../../src/core/base/src/metrics_logger.cpp)）。本来はローカルに受けて使えば呼び出し中の生存が保証される。だが [observers.cpp:966](../../../src/core/base/src/observers.cpp) 等の呼び出し側は戻り値を受けず `Instance()->LogScalar(...)` と**直呼び**している。
+2. `EpisodeEvalObserver::OnLearn` は評価エピソードを**背景プール `eval_pool_`** に投げる（[observers.cpp:537](../../../src/core/base/src/observers.cpp)）。エピソードは終端まで多数ステップ走るため、しばらく実行が続く。
+3. その in-flight エピソードが終了時に episode-end 通知経由でログ出力する。ところが `MetricsLogger::Reset()`（[RunnerApp.cpp OnExit](../../../src/apps/runner/src/RunnerApp.cpp)）が `instance_` を先に null 化していると、`Instance()` は**null shared_ptr** を返し、`->LogScalar` が nullptr に対して呼ばれて `this==nullptr` → クラッシュ（`LogScalar` 本体で `backend_->` を触った瞬間、[metrics_logger.hpp:131](../../../src/core/base/include/anet/metrics_logger.hpp)）。
+4. `eval_pool_` の排水は `~EpisodeEvalObserver`（`eval_future_.wait()`+`eval_pool_->Stop()`、[observers.cpp:500-511](../../../src/core/base/src/observers.cpp)）**のみ**＝`run_manager_` 破棄時＝`OnExit` の `Reset()` **より後**。→ Reset と eval が競合する。
 
 当初は「Optuna の run 切替（`Reset()`+`Init()`）でも同根で再発し得る」と書いたが、in-process の Optuna の run 切替は無く、`Reset()` を呼ぶのは `OnExit()` とテストだけだった（[done/076](../done/076_eval_session_drain_on_exit_10prd.md) の確認で訂正）。本質は「**Reset 可能なシングルトンを背景スレッドから `Instance()->X()` 直呼びする**」無防備さ（systemic）。
 
@@ -80,8 +80,8 @@ private:
 
 > **PRD 076で実装済み。** 以下は当初案の記録であり、現行契約は[PRD 076](../done/076_eval_session_drain_on_exit_10prd.md)を正本とする。現行は4種のObserver基底と`RunnerScoped*Observer`へ`Shutdown(deadline, mode)` / `WillBlockOnShutdown()`を持たせ、`Notifier`が一括排水する。`EpisodeEvalObserver`は既定で完走待ちし、設定・手動選択・共有deadline超過では`std::stop_token`で協調キャンセルする。明示Shutdownはworker例外を再送出し、デストラクタ安全網だけがFATALを記録して例外を捕捉する。
 
-- observer 基底 3 種（`TrainObserver` / `LearnObserver` / `EpisodeEndObserver`、[rl.hpp:825/832/839](../../../core/anet-core/include/anet/rl.hpp)。共通基底なし）に `virtual void Shutdown() {}`（default no-op）を追加。
-  - ※ `Runner::Shutdown()`([rl.hpp:988](../../../core/anet-core/include/anet/rl.hpp)) / `BatchEnv::Shutdown()`([rl.hpp:639](../../../core/anet-core/include/anet/rl.hpp)) とは**別クラスの別物**（同名だが無関係）。
+- observer 基底 3 種（`TrainObserver` / `LearnObserver` / `EpisodeEndObserver`、[rl.hpp:825/832/839](../../../src/core/base/include/anet/rl.hpp)。共通基底なし）に `virtual void Shutdown() {}`（default no-op）を追加。
+  - ※ `Runner::Shutdown()`([rl.hpp:988](../../../src/core/base/include/anet/rl.hpp)) / `BatchEnv::Shutdown()`([rl.hpp:639](../../../src/core/base/include/anet/rl.hpp)) とは**別クラスの別物**（同名だが無関係）。
 - `EpisodeEvalObserver`（`LearnObserver` 派生）が override（`~EpisodeEvalObserver` の中身を抽出し冪等化）:
   ```cpp
   void Shutdown() override {
@@ -90,7 +90,7 @@ private:
   }
   ~EpisodeEvalObserver() override { Shutdown(); }   // 二重停止で安全
   ```
-- `Notifier::Shutdown()` を追加（全 observer の `Shutdown()` を呼ぶ。[rl.hpp:890 Notifier](../../../core/anet-core/include/anet/rl.hpp) / rl.cpp 実装）:
+- `Notifier::Shutdown()` を追加（全 observer の `Shutdown()` を呼ぶ。[rl.hpp:890 Notifier](../../../src/core/base/include/anet/rl.hpp) / rl.cpp 実装）:
   ```cpp
   void Notifier::Shutdown() {
       for (auto& o : learn_observers_)       o->Shutdown();

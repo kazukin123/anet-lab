@@ -15,28 +15,28 @@ Runner は起動した時点の OS のアプリのモード（ライト／ダー
 
 ## 2. 現状（2026-10-31 に確認したこと）
 
-1. 起動時: [RunnerApp.cpp:267](../../apps/runner/src/RunnerApp.cpp) が `SetAppearance(Appearance::System)` を呼び、起動した時点の OS のアプリのモードに合わせる。wxWidgets は 3.3.3 をソースからビルドして使う（[040 開発環境構築ガイド](../design/040_development_environment.jp.md) §3.4）。
+1. 起動時: [RunnerApp.cpp:267](../../src/apps/runner/src/RunnerApp.cpp) が `SetAppearance(Appearance::System)` を呼び、起動した時点の OS のアプリのモードに合わせる。wxWidgets は 3.3.3 をソースからビルドして使う（[040 開発環境構築ガイド](../design/040_development_environment.jp.md) §3.4）。
 2. wx の切替の仕組み: wx は 3.3.3 でライト／ダークの切替への対応を足した（wx の `docs/changes.txt` の 303 行）。MSW では、OS が送る設定の変更の通知（`ImmersiveColorSet`）を色の変更として扱い、`wxSysColourChangedEvent` を送る（`src/msw/window.cpp` の 3555〜3562 行、`include/wx/msw/private.h` の 1192〜1204 行）。通知は、アプリが登録した処理を先に、wx の既定の処理を後に回し、そのあとで Windows 自身の既定の処理へ渡す（`src/msw/window.cpp` の 5078〜5094 行）。wx の既定の処理は、アプリのモードが起動時と変わっていれば、既存のウィンドウ（タイトルバー・スクロールバー・標準コントロール）を新しいモードへ切り替え、子のウィンドウへ通知を回す（同 5266〜5300 行、`src/msw/darkmode.cpp` の 782〜786 行）。この切替の処理は wx のウィンドウの protected な仮想関数で（`include/wx/msw/window.h` の 604・648 行）、アプリから部分ごとに呼ぶ公開の API は無い。
 3. 通知の時点の色: 色を返す関数は、ダークかどうかをそのつど OS に問い合わせて決める（`src/msw/settings.cpp` の 99〜107 行、`src/msw/darkmode.cpp` の 240〜260・454〜457 行）。wx の `src/msw/textctrl.cpp` の切替の処理（2949〜2968 行）は、切替がまだ終わっていない場合に備えて、新旧両方のモードの既定の文字色と比べている。通知を受けたその場で読んだ色が、切替の前のものである可能性がある。確かめてはいない（§5.3 の段 0）。
-4. テストの制約: wx は MSW では、ウィンドウを作ったあとに `SetAppearance` で外観を変えられない（wx の `interface/wx/app.h` の 1171〜1173 行、`src/msw/darkmode.cpp` の 299〜306 行）。GUI テストはテーマごとに別の process で起動して確かめている（[EvalTracePanel_test.cpp:814](../../apps/runner/src/EvalTracePanel_test.cpp)・1292 行、環境変数 `PRD094_UI_DARK`）。1 つの process の中でライトとダークを切り替えるテストは書けない。RunnerApp を起動するテストは、テストの main が外観を指定したあとで RunnerApp の起動の処理を呼ぶ（同 1292 行のあとに 908・1082 行）。ダークを指定すると外観が固定され、起動の処理の「OS に合わせる」指定は効かない（wx の `src/msw/darkmode.cpp` の 299〜306 行）。ライトの指定は何もしない（同 315〜317 行）ので、起動の処理の指定で OS のアプリのモードに従う。OS がダークの機械では、RunnerApp を起動するライトの process は作れない。
+4. テストの制約: wx は MSW では、ウィンドウを作ったあとに `SetAppearance` で外観を変えられない（wx の `interface/wx/app.h` の 1171〜1173 行、`src/msw/darkmode.cpp` の 299〜306 行）。GUI テストはテーマごとに別の process で起動して確かめている（[EvalTracePanel_test.cpp:814](../../src/apps/runner/src/EvalTracePanel_test.cpp)・1292 行、環境変数 `PRD094_UI_DARK`）。1 つの process の中でライトとダークを切り替えるテストは書けない。RunnerApp を起動するテストは、テストの main が外観を指定したあとで RunnerApp の起動の処理を呼ぶ（同 1292 行のあとに 908・1082 行）。ダークを指定すると外観が固定され、起動の処理の「OS に合わせる」指定は効かない（wx の `src/msw/darkmode.cpp` の 299〜306 行）。ライトの指定は何もしない（同 315〜317 行）ので、起動の処理の指定で OS のアプリのモードに従う。OS がダークの機械では、RunnerApp を起動するライトの process は作れない。
 5. Runner の今の受け方: どの部分も、通知を受けたその場で色を読み、決め直す。
 
    | 部分 | 受け方 | 決め直すもの |
    |---|---|---|
-   | RunnerFrame | 通知を受ける（[RunnerFrame.cpp:696](../../apps/runner/src/RunnerFrame.cpp)、1352〜1356 行） | Run 制御ツールバーの再生・Step のアイコン（670〜685 行）。実行状態を保って作り直す |
-   | pane の見出しと枠 | wxAuiManager が frame への通知を自分でも受ける（wx の `src/aui/framemanager.cpp` の 612〜617・813 行） | Runner 用の配色（[RunnerFrame.cpp:111-117](../../apps/runner/src/RunnerFrame.cpp)）を含む見出し・枠の色 |
+   | RunnerFrame | 通知を受ける（[RunnerFrame.cpp:696](../../src/apps/runner/src/RunnerFrame.cpp)、1352〜1356 行） | Run 制御ツールバーの再生・Step のアイコン（670〜685 行）。実行状態を保って作り直す |
+   | pane の見出しと枠 | wxAuiManager が frame への通知を自分でも受ける（wx の `src/aui/framemanager.cpp` の 612〜617・813 行） | Runner 用の配色（[RunnerFrame.cpp:111-117](../../src/apps/runner/src/RunnerFrame.cpp)）を含む見出し・枠の色 |
    | 4 本のツールバー pane | 各ツールバーが自分で受ける（wx の `src/aui/auibar.cpp` の 2514〜2520 行） | 地の色と、テーマの描き方を使うか（wx の `src/aui/barartmsw.cpp` の 432〜438 行） |
-   | Logs | [LogPanel.cpp:295](../../apps/runner/src/LogPanel.cpp) で受け、`UpdateAppearance`（810〜838 行）を呼ぶ | ログ欄の地と文字、既にある行の色、検索欄、ゴミ箱のアイコン |
-   | Evaluation Trace | [EvalTracePanel.cpp:156](../../apps/runner/src/EvalTracePanel.cpp) で受け、`UpdateAppearance`（666〜704 行）を呼ぶ | 操作帯の地とアイコン、表のセル・見出し・罫線・選択の色、列幅 |
+   | Logs | [LogPanel.cpp:295](../../src/apps/runner/src/LogPanel.cpp) で受け、`UpdateAppearance`（810〜838 行）を呼ぶ | ログ欄の地と文字、既にある行の色、検索欄、ゴミ箱のアイコン |
+   | Evaluation Trace | [EvalTracePanel.cpp:156](../../src/apps/runner/src/EvalTracePanel.cpp) で受け、`UpdateAppearance`（666〜704 行）を呼ぶ | 操作帯の地とアイコン、表のセル・見出し・罫線・選択の色、列幅 |
    | QValue の表 | 受けない | なし |
    | タイトルバー・メニュー・ステータスバー・スクロールバー | wx が受ける（2 の項） | wx の切替の処理による |
 
-6. 作ったときの色が残る部分: wxGrid は作るときに、表の行の無い部分（セルを描かない地）の色を、セルの既定の背景と同じシステムの色に決める（wx の `src/generic/grid.cpp` の 2985〜3001 行）。あとでセルの既定の背景を変えても、MSW ではこの地の色は変わらない（同 9744〜9750 行。変えるのは GTK と Qt だけ）。Evaluation Trace の `UpdateAppearance` は、この地の色を決め直さない（[EvalTracePanel.cpp:675-681](../../apps/runner/src/EvalTracePanel.cpp)）。QValue の表（[QValuePanel.cpp:164](../../apps/runner/src/QValuePanel.cpp)）は、セル・見出し・罫線・地のどれも作ったときの色のまま残る。選んだ行の強調の色は、選ぶ行が変わったときにだけ読む（同 500〜518 行）。wxGrid が作るときに使う色は、セルの背景が WINDOW、文字が WINDOWTEXT、見出しの地が BTNFACE、罫線が GRIDLINES、選択が HIGHLIGHT である（wx の `src/generic/grid.cpp` の 2960〜3004・3222〜3269 行）。
-7. 描くたびに色を読む部分と、テーマに合わせない固定の色: Evaluation Trace の報酬と終端の行の色は、描くたびにセルの既定の背景へ薄く混ぜて作る（[EvalTracePanel.cpp:61-74](../../apps/runner/src/EvalTracePanel.cpp)）。DropMerge の View は描くたびにシステムの色を読む（[DropMergeView.cpp:185](../../core/envs/dropmerge1/src/DropMergeView.cpp) など）。テーマに合わせない固定の色は、Train View の枠（デスクトップの色。[TrainPanel.cpp:38](../../apps/runner/src/TrainPanel.cpp)）、QValue のヒートマップの地（黒。[QValuePanel.cpp:55](../../apps/runner/src/QValuePanel.cpp)）、HeatMap の step の文字（黒。[HeatMapPanel.cpp:352](../../apps/runner/src/HeatMapPanel.cpp)）、Atari の重ね書き（黒地に白。[AtariView.cpp:46-47](../../core/envs/atari1/src/AtariView.cpp)）、Env の View が描く盤面の色である。
-8. 観測（2026-10-31 のユーザーのスクリーンショット 1 枚）: タイトルバーとメニューがライトなので、ダークで起動してライトへ切り替えたあとと読める。ライトになっていたのは、タイトルバー、メニュー、ツールバーの地とアイコン（黒）、Evaluation Trace の操作帯・アイコン・列見出し、Logs の操作帯と検索欄である。ダークのまま残ったのは、pane の見出しと枠、ステータスバー、Evaluation Trace のセル（暗い緑の行。暗い既定の背景に緑を混ぜた色）・行の無い部分・横スクロールバー、Logs のログ欄である。Evaluation Trace のアイコン・列見出しとセルの既定の背景は、同じ `UpdateAppearance` の中で決めている（[EvalTracePanel.cpp:669-681](../../apps/runner/src/EvalTracePanel.cpp)）のに、テーマが分かれた。1 回の呼び出しでは説明がつかないので、通知が違う状態で複数回届いた可能性がある。どの経路でそうなったかは確かめていない（§5.3 の段 0）。
+6. 作ったときの色が残る部分: wxGrid は作るときに、表の行の無い部分（セルを描かない地）の色を、セルの既定の背景と同じシステムの色に決める（wx の `src/generic/grid.cpp` の 2985〜3001 行）。あとでセルの既定の背景を変えても、MSW ではこの地の色は変わらない（同 9744〜9750 行。変えるのは GTK と Qt だけ）。Evaluation Trace の `UpdateAppearance` は、この地の色を決め直さない（[EvalTracePanel.cpp:675-681](../../src/apps/runner/src/EvalTracePanel.cpp)）。QValue の表（[QValuePanel.cpp:164](../../src/apps/runner/src/QValuePanel.cpp)）は、セル・見出し・罫線・地のどれも作ったときの色のまま残る。選んだ行の強調の色は、選ぶ行が変わったときにだけ読む（同 500〜518 行）。wxGrid が作るときに使う色は、セルの背景が WINDOW、文字が WINDOWTEXT、見出しの地が BTNFACE、罫線が GRIDLINES、選択が HIGHLIGHT である（wx の `src/generic/grid.cpp` の 2960〜3004・3222〜3269 行）。
+7. 描くたびに色を読む部分と、テーマに合わせない固定の色: Evaluation Trace の報酬と終端の行の色は、描くたびにセルの既定の背景へ薄く混ぜて作る（[EvalTracePanel.cpp:61-74](../../src/apps/runner/src/EvalTracePanel.cpp)）。DropMerge の View は描くたびにシステムの色を読む（[DropMergeView.cpp:185](../../src/env/dropmerge/src/DropMergeView.cpp) など）。テーマに合わせない固定の色は、Train View の枠（デスクトップの色。[TrainPanel.cpp:38](../../src/apps/runner/src/TrainPanel.cpp)）、QValue のヒートマップの地（黒。[QValuePanel.cpp:55](../../src/apps/runner/src/QValuePanel.cpp)）、HeatMap の step の文字（黒。[HeatMapPanel.cpp:352](../../src/apps/runner/src/HeatMapPanel.cpp)）、Atari の重ね書き（黒地に白。[AtariView.cpp:46-47](../../src/env/atari/src/AtariView.cpp)）、Env の View が描く盤面の色である。
+8. 観測（2026-10-31 のユーザーのスクリーンショット 1 枚）: タイトルバーとメニューがライトなので、ダークで起動してライトへ切り替えたあとと読める。ライトになっていたのは、タイトルバー、メニュー、ツールバーの地とアイコン（黒）、Evaluation Trace の操作帯・アイコン・列見出し、Logs の操作帯と検索欄である。ダークのまま残ったのは、pane の見出しと枠、ステータスバー、Evaluation Trace のセル（暗い緑の行。暗い既定の背景に緑を混ぜた色）・行の無い部分・横スクロールバー、Logs のログ欄である。Evaluation Trace のアイコン・列見出しとセルの既定の背景は、同じ `UpdateAppearance` の中で決めている（[EvalTracePanel.cpp:669-681](../../src/apps/runner/src/EvalTracePanel.cpp)）のに、テーマが分かれた。1 回の呼び出しでは説明がつかないので、通知が違う状態で複数回届いた可能性がある。どの経路でそうなったかは確かめていない（§5.3 の段 0）。
 9. 設計と受入の記述: [160](../design/160_applications_and_tools.jp.md) §3.4（114 行）は Evaluation Trace が「テーマ・フォント・DPI変更には追従」すると、§3.5（142 行）は Logs が「テーマ変更の通知で全行を塗り直す」と書く。[PRD094](done/094_evalpanel_step_history_10prd.md) §8 の受入 10（416 行）は、開いたままテーマを変えても配色とアイコンが追従することを求めた。その実装の記録は、OS のテーマの切替を実機では確かめておらず、通知を pane へ送るテストで代えた（[094 の 21impl:100](done/094_evalpanel_step_history_21impl.md)、[22impl:53](done/094_evalpanel_step_history_22impl.md)）。[PRD055](done/055_runner_toolbar_10prd.md) の受入 10（269 行）は、ツールバーのアイコンの追従を求めた。
 10. 対象の OS: Runner は Windows で使っている。Linux・macOS は未検証である（[040](../design/040_development_environment.jp.md) の 39 行）。
-11. 既存のテスト: [LogPanel_test.cpp:214-217](../../apps/runner/src/LogPanel_test.cpp) と [EvalTracePanel_test.cpp:814-819](../../apps/runner/src/EvalTracePanel_test.cpp) は、pane へ通知を直接送り、塗り直しを確かめている。GUI テストの実行ファイルは `AnetRLRunner-gui-test`（[apps/runner/CMakeLists.txt:148](../../apps/runner/CMakeLists.txt)）。
+11. 既存のテスト: [LogPanel_test.cpp:214-217](../../src/apps/runner/src/LogPanel_test.cpp) と [EvalTracePanel_test.cpp:814-819](../../src/apps/runner/src/EvalTracePanel_test.cpp) は、pane へ通知を直接送り、塗り直しを確かめている。GUI テストの実行ファイルは `AnetRLRunner-gui-test`（[apps/runner/CMakeLists.txt:148](../../src/apps/runner/CMakeLists.txt)）。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -55,7 +55,7 @@ Runner は起動した時点の OS のアプリのモード（ライト／ダー
 - 開いている modal ダイアログ（workspace の選択、エラーの表示）を追従させること。消える案は、ダイアログも決め直す案である。本当の制約ではないが、表示が短く、開き直せば新しいテーマで出る。
 - ハイコントラストへの切替。消える案は、ハイコントラストへの切替でも決め直しを確かめる案である。wx は同じ通知を送る（`include/wx/msw/private.h` の注記）ので本当の制約ではないが、要求が無い。
 - Linux・macOS で確かめること。消える案は、Linux・macOS でも受入を通す案である。本当の制約ではない（wx の汎用の仕組みで書く。D8）が、Runner がそこで未検証である（§2 の 10）。
-- 表示の DPI とフォントの変更の扱いを変えること。消える案は、DPI とフォントの変更もテーマの切替と同じ入口で受ける案である。本当の制約ではない（同じ入口で受けることもできる）が、Evaluation Trace は別の経路で受けていて（[EvalTracePanel.cpp:157](../../apps/runner/src/EvalTracePanel.cpp)・588〜594 行）、別の関心である。
+- 表示の DPI とフォントの変更の扱いを変えること。消える案は、DPI とフォントの変更もテーマの切替と同じ入口で受ける案である。本当の制約ではない（同じ入口で受けることもできる）が、Evaluation Trace は別の経路で受けていて（[EvalTracePanel.cpp:157](../../src/apps/runner/src/EvalTracePanel.cpp)・588〜594 行）、別の関心である。
 
 **成功の測り方**
 
@@ -69,7 +69,7 @@ Runner は起動した時点の OS のアプリのモード（ライト／ダー
 - **D3. 決め直しは、起動時に外観を決めるのと同じ決め方で、その時点のシステムの色から決める。** 理由: 起動し直したときと同じ見た目になり、それを受入の物差しにできる（G1）。起動時と切替時で 2 つの決め方を持たない。依存: なし。
 - **D4. 決め直す領域は §5.2 の表とする。新たに対象にするのは、QValue の表と、Evaluation Trace の表の行の無い部分である。** 理由: この 2 つは、決め直しが正しい時点に走っても作ったときの色が残る（§2 の 6）。依存: D3。
 - **D5. wx が持つ部分（タイトルバー・メニュー・ステータスバー・スクロールバー・標準コントロール）は、wx の切替の処理に任せ、アプリからは決め直さない。段 0 で、アプリの決め直しのあとも wx の部分に古いテーマが残れば、§9 の 2 の既定を入れて確かめる。それでも残る部分は wx の不具合として §8 に記録する。** 理由: wx の部分を切り替える処理は wx の公開の API に無く、アプリから部分ごとに呼べない（§2 の 2）。依存: §5.3 の段 0。
-- **D6. 決め直しで表示の状態（§5.5）を変えない。** 理由: テーマの切替は見た目だけの変更である（G3）。今の Logs と Evaluation Trace の決め直しは、表示の位置と手で変えた列幅を保っている（[LogPanel.cpp:823-831](../../apps/runner/src/LogPanel.cpp)、[EvalTracePanel.cpp:690](../../apps/runner/src/EvalTracePanel.cpp)）。依存: なし。
+- **D6. 決め直しで表示の状態（§5.5）を変えない。** 理由: テーマの切替は見た目だけの変更である（G3）。今の Logs と Evaluation Trace の決め直しは、表示の位置と手で変えた列幅を保っている（[LogPanel.cpp:823-831](../../src/apps/runner/src/LogPanel.cpp)、[EvalTracePanel.cpp:690](../../src/apps/runner/src/EvalTracePanel.cpp)）。依存: なし。
 - **D7. 通知と決め直しを、それぞれ VERBOSE のログに 1 行ずつ出す（§5.4）。** 理由: 段 0 の観測（通知の時点と決め直しの時点の色）と、受入 2・4 の「1 回の切替で決め直しは 1 回」を、外から確かめられるようにする。依存: D2。
 - **D8. 遅らせ方とまとめ方は wx の汎用の仕組みで書く。MSW に限る処理（§9 の 2 を入れた場合の再送）は MSW の条件付きにする。** 理由: wx のほかの port は、既存のウィンドウにも外観の変更を反映する（wx の `interface/wx/app.h` の `SetAppearance` の説明）。そこでは決め直しが二度塗りになるだけで害が無い。依存: D5。
 - ADR は起こさない。決め直しの入口と時点は戻しやすく、ADR の 3 条件（戻しにくい・文脈が無いと意外・本当の比較の結果）を満たさない。
@@ -131,11 +131,11 @@ VERBOSE で、英語で出す。色は `#RRGGBB`、外観はその時点の wx �
 
 ### 5.6 移行対象
 
-- [RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp)・[RunnerFrame.hpp](../../apps/runner/src/RunnerFrame.hpp): 通知の受け方（§5.1）、決め直しの入口、§5.2 の 1・2、ログ（§5.4）。
-- [LogPanel.cpp](../../apps/runner/src/LogPanel.cpp)・[LogPanel.hpp](../../apps/runner/src/LogPanel.hpp): 自分で通知を受ける登録（295 行）を消し、決め直しを RunnerFrame から呼べるようにする。
-- [EvalTracePanel.cpp](../../apps/runner/src/EvalTracePanel.cpp)・[EvalTracePanel.hpp](../../apps/runner/src/EvalTracePanel.hpp): 同じく 156 行の登録を消す（157 行の DPI の登録は残す）。表の行の無い部分の地の色を足す。
-- [QValuePanel.cpp](../../apps/runner/src/QValuePanel.cpp)・[QValuePanel.hpp](../../apps/runner/src/QValuePanel.hpp): 表の決め直しを足す。
-- テスト: [LogPanel_test.cpp:214-217](../../apps/runner/src/LogPanel_test.cpp) と [EvalTracePanel_test.cpp:814-819](../../apps/runner/src/EvalTracePanel_test.cpp) の、pane へ通知を送るところを、決め直しの入口を呼ぶ形に直す。受入 1〜3 のテストを足す。
+- [RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp)・[RunnerFrame.hpp](../../src/apps/runner/src/RunnerFrame.hpp): 通知の受け方（§5.1）、決め直しの入口、§5.2 の 1・2、ログ（§5.4）。
+- [LogPanel.cpp](../../src/apps/runner/src/LogPanel.cpp)・[LogPanel.hpp](../../src/apps/runner/src/LogPanel.hpp): 自分で通知を受ける登録（295 行）を消し、決め直しを RunnerFrame から呼べるようにする。
+- [EvalTracePanel.cpp](../../src/apps/runner/src/EvalTracePanel.cpp)・[EvalTracePanel.hpp](../../src/apps/runner/src/EvalTracePanel.hpp): 同じく 156 行の登録を消す（157 行の DPI の登録は残す）。表の行の無い部分の地の色を足す。
+- [QValuePanel.cpp](../../src/apps/runner/src/QValuePanel.cpp)・[QValuePanel.hpp](../../src/apps/runner/src/QValuePanel.hpp): 表の決め直しを足す。
+- テスト: [LogPanel_test.cpp:214-217](../../src/apps/runner/src/LogPanel_test.cpp) と [EvalTracePanel_test.cpp:814-819](../../src/apps/runner/src/EvalTracePanel_test.cpp) の、pane へ通知を送るところを、決め直しの入口を呼ぶ形に直す。受入 1〜3 のテストを足す。
 - [160 アプリケーションとツール](../design/160_applications_and_tools.jp.md): §2.1 の RunnerFrame の行に、OS のテーマの切替を 1 か所で受けて落ち着いてから決め直すことを足す。§3.4（114 行）の「テーマ・フォント・DPI変更には追従し」を、テーマ（OS のアプリのモードの切替）には RunnerFrame からの決め直しで追従し、フォントと DPI の変更には今のとおり pane が自分で受けて追従する、と分けて書く。§3.5（142 行）の「テーマ変更の通知で全行を塗り直す」を、「RunnerFrame からの外観の決め直しで全行を塗り直す」に直す。§8 の「Runner UI変更」の行の「theme変更時のSVG差し替え」を、受入 1〜3 のテストと受入 4 の手順の所在に直す。英語版（[160.en](../design/160_applications_and_tools.en.md)）は翻訳の手順で追う。
 - 正式に採番するときに、`core/anet-core/testdata/prd<番号>/README.md` を作り、段 0 と受入 4 の手順・領域の一覧・結果の表を置く。160 §8 から参照する。
 - 変えないもの: [020 Run 実行ガイド](../design/020_user_guide_run.jp.md)（515 行の「通常・選択の配色はシステムのテーマに従い」は切替のあとも成り立つ）。PRD094・PRD055 の本文も変えない。消える案は、両 PRD の本文（PRD094 §8 の受入 10 など）を新しい受け方に合わせて直す案である。本当の制約ではない（直すことはできる）が、今の仕様の正本は設計文書（160）で（[AGENTS.md](../../AGENTS.md) §設計判断の記録(ADR)を読む条件）、PRD は当時の決定として残す。
@@ -175,7 +175,7 @@ VERBOSE で、英語で出す。色は `#RRGGBB`、外観はその時点の wx �
 
 **受入（外から観測できるもの）**
 
-受入 1〜3 と 5 の process の作り方: ダークの process は、環境変数 `PRD094_UI_DARK` を置いて `AnetRLRunner-gui-test` を起動する（テストの main が RunnerApp の起動の処理より前にダークへ固定する。§2 の 4）。ライトの process は `PRD094_UI_DARK` を置かずに起動する。RunnerApp を起動しないテスト（`[log_panel]`・`[prd094]`・`[trace_ui_visual]`・`[prd105]`）は、OS のモードによらずライトになる。RunnerApp を起動するテスト（`[theme_follow]`・`[prd105_ui_keys]`）は、起動の処理が OS のモードに従うので、OS のアプリのモードがライトの機械でだけライトになる（§2 の 4）。どちらの process も、最初に外観が意図したもの（ダークかライト）かを確かめ、違えば失敗にする（既存の [LogPanel_test.cpp:188-189](../../apps/runner/src/LogPanel_test.cpp) と同じ）。RunnerApp を起動するテストのライトの回は OS がライトの機械で回し、OS がダークで回せなかったときは、失敗ではなく未実施と報告する（AI はシステムの設定を変えない）。受入 1〜3 は、RunnerApp を起動する別の process で `AnetRLRunner-gui-test "[theme_follow]"` を回し、Logs の表示 level を verbose にしてから（LogPanel の表示 level を変える公開の操作で）確かめる。
+受入 1〜3 と 5 の process の作り方: ダークの process は、環境変数 `PRD094_UI_DARK` を置いて `AnetRLRunner-gui-test` を起動する（テストの main が RunnerApp の起動の処理より前にダークへ固定する。§2 の 4）。ライトの process は `PRD094_UI_DARK` を置かずに起動する。RunnerApp を起動しないテスト（`[log_panel]`・`[prd094]`・`[trace_ui_visual]`・`[prd105]`）は、OS のモードによらずライトになる。RunnerApp を起動するテスト（`[theme_follow]`・`[prd105_ui_keys]`）は、起動の処理が OS のモードに従うので、OS のアプリのモードがライトの機械でだけライトになる（§2 の 4）。どちらの process も、最初に外観が意図したもの（ダークかライト）かを確かめ、違えば失敗にする（既存の [LogPanel_test.cpp:188-189](../../src/apps/runner/src/LogPanel_test.cpp) と同じ）。RunnerApp を起動するテストのライトの回は OS がライトの機械で回し、OS がダークで回せなかったときは、失敗ではなく未実施と報告する（AI はシステムの設定を変えない）。受入 1〜3 は、RunnerApp を起動する別の process で `AnetRLRunner-gui-test "[theme_follow]"` を回し、Logs の表示 level を verbose にしてから（LogPanel の表示 level を変える公開の操作で）確かめる。
 
 1. 決め直しの領域（自動。ライトとダークの process で 1 回ずつ）: §5.2 の 1・2・4〜6 の領域のうち、公開の API で色を変えられるものを、テストから別の色（赤）に変えてから、frame に OS の色の変更の通知を 3 回送り、イベントを処理させる。決め直しのあと、各領域の色が、その process のシステムの色から起動時と同じ決め方で決まる色と一致する。確かめる値は、pane の見出しの地と文字、各ツールバーの地（描いた画素で確かめる）、アイコン（Run 制御ツールバーの再生・Step、Logs のゴミ箱、Evaluation Trace の操作帯の 6 つ。描いた画素に、その process の BTNTEXT と同じ色の画素がある）、Logs のログ欄の地と文字、Evaluation Trace のセルの既定の背景と文字・見出しの地と文字・罫線・行の無い部分の地、QValue の表のセルの既定の背景と文字・見出しの地と文字・罫線・行の無い部分の地・選んだ行の強調である。Evaluation Trace を閉じた状態と、浮かせた状態でも同じ。
 2. 1 回にまとめる（自動。受入 1 と同じ process）: 受入 1 で通知を 3 回送ったとき、Logs のログ欄に `Appearance updated` の行が 1 行だけ出て、`notifications=3` である。`Appearance change notified` の行は 3 行で、`pending=` が 1・2・3 である（§9 の 2 を入れても、RunnerFrame が自分で送った通知の行は出ないので変わらない）。通知を送らなければ、どちらの行も出ない。frame の破棄が始まってから通知を送っても、決め直さず、落ちない。
@@ -198,7 +198,7 @@ VERBOSE で、英語で出す。色は `#RRGGBB`、外観はその時点の wx �
 | 開いている modal ダイアログの追従 | 範囲外 | 表示が短く、開き直せば新しいテーマで出る。再開条件: ダイアログを開いたまま切り替える場面が出たとき |
 | ハイコントラストへの切替 | 範囲外 | 要求が無い。再開条件: 要求が出たとき |
 | Linux・macOS での確認 | 範囲外 | Runner がそこで未検証（§2 の 10）。再開条件: Linux で Runner のビルドが通ったとき |
-| 表示の DPI・フォントの変更も、テーマの切替と同じ入口で受ける | 範囲外 | 今は別の経路で追従していて（[EvalTracePanel.cpp:157](../../apps/runner/src/EvalTracePanel.cpp)・588〜594 行）、別の関心である。再開条件: DPI かフォントの変更で、半端な反映が見つかったとき |
+| 表示の DPI・フォントの変更も、テーマの切替と同じ入口で受ける | 範囲外 | 今は別の経路で追従していて（[EvalTracePanel.cpp:157](../../src/apps/runner/src/EvalTracePanel.cpp)・588〜594 行）、別の関心である。再開条件: DPI かフォントの変更で、半端な反映が見つかったとき |
 
 段 0 で wx の不具合と分かった部分は、この表に「wx の不具合」として足す（再開条件: wx の更新）。
 

@@ -22,7 +22,7 @@ anet では Transformer を含むネットが本線と常設の構成に入っ�
 
 ## 2. 現状
 
-- TransformerEncoder は `CustomTransformerEncoderLayer` を層とする module で、設定キーは `tf.d_model`、`tf.nhead`、`tf.num_layers`、`tf.dim_feedforward`、`tf.norm_first`、`tf.activation`、`tf.use_sdpa` と dropout 系である（[nn_modules.cpp](../../../core/anet-core/src/nn_modules.cpp) の `TransformerEncoderModule`）。層は `layer_0` から番号を持ち、SN 診断の名前も `layer_0.q` のように 0 始まりである。
+- TransformerEncoder は `CustomTransformerEncoderLayer` を層とする module で、設定キーは `tf.d_model`、`tf.nhead`、`tf.num_layers`、`tf.dim_feedforward`、`tf.norm_first`、`tf.activation`、`tf.use_sdpa` と dropout 系である（[nn_modules.cpp](../../../src/core/base/src/nn_modules.cpp) の `TransformerEncoderModule`）。層は `layer_0` から番号を持ち、SN 診断の名前も `layer_0.q` のように 0 始まりである。
 - self-attention は `at::scaled_dot_product_attention` で計算していて（[ADR 0004](../../adr/0004-sdpa-attention-via-aten.md)）、attention の重みを返さない。重みの保持器としての `MultiheadAttention` は残っているので、Q と K は同じ重みから計算し直せる。SN 有効時は `ForwardAttention` が実効重みを使う。
 - DropMerge の本線の Transformer は `DMImpalaTrans128` で、d_model 128、nhead 8、4 層、dim_feedforward 512、pre-LN、GELU、SDPA である（[DropMerge.txt](../../../apps/runner/config/DropMerge.txt)）。トークンは CNN 出力の空間位置で、[VALUE] のような専用トークンは無い。全トークンを Flatten して head へ渡す。
 - Atari の ViT 混成は `AtariImpalaTrans64`（d_model 64、nhead 4、4 層）で、`run.@vitva`（`@AtariImpalaX2ViT64LN`）は 11×11 = 121 トークン、`run.@vitbtr`（`@AtariImpalaX2SN12ViT64Pool6Flat`）は Pool6 で 6×6 = 36 トークンである（[Atari.txt](../../../apps/runner/config/Atari.txt)）。

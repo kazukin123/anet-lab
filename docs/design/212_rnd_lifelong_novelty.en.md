@@ -167,7 +167,7 @@ $$
 
 `RndHeadFactory` checks during construction's trial calculation that Body output has two axes. An extra axis such as `[B, T, F]` would leave `[B, T]` after averaging the last axis, which cannot be used as per-lane reward.
 
-The entry point is [`RndNoveltyEstimator::Estimate`](../../core/anet-core/src/intrinsic_rnd.cpp). Target and predictor have separate weights. Target gradient computation is disabled, and it uses a mode without training-state updates. Neither shares weights with the Q-value Network.
+The entry point is [`RndNoveltyEstimator::Estimate`](../../src/core/base/src/intrinsic_rnd.cpp). Target and predictor have separate weights. Target gradient computation is disabled, and it uses a mode without training-state updates. Neither shares weights with the Q-value Network.
 
 Target and predictor are built separately from the required `intrinsic.rnd.target.net.*` and `intrinsic.rnd.predictor.net.*`. Their Body depth and feature counts may differ, but both project to the shared `head.output_dim` dimensions through a Head. Head initialization is selected by `intrinsic.rnd.head.init.*`, with xavier as the implementation default. Initialization uses different named seeds, and teacher weights are not copied into the predictor: identical initial mappings would match before practice and eliminate error as a novelty signal.
 
@@ -182,7 +182,7 @@ RND maintains two statistics with different purposes.
 
 Default observation normalization approximately computes `(value − mean) / standard deviation` per component, clipping to `[-5, 5]`. This adjusts component scales without removing intercomponent correlations. Statistics belong to RND, so changing Q-input normalization does not modify shared RND statistics.
 
-The actual divisor is `sqrt(var) + epsilon` in [`RunningMeanStd::GetStd`](../../core/anet-core/src/scaler_impl.hpp). RND observation normalization also defaults to the common `epsilon=1.0`. Do not substitute a textbook formula assuming a tiny epsilon. Initial mean and variance are 0 and 1.
+The actual divisor is `sqrt(var) + epsilon` in [`RunningMeanStd::GetStd`](../../src/core/base/src/scaler_impl.hpp). RND observation normalization also defaults to the common `epsilon=1.0`. Do not substitute a textbook formula assuming a tiny epsilon. Initial mean and variance are 0 and 1.
 
 Noncategorical `uint8` observations, such as pixels, are converted to floating point inside RND before normalization. Categorical observations follow existing observation-specification and normalization handling.
 
@@ -368,15 +368,15 @@ This avoids changing Replay's format but prevents later separate handling of ext
 
 | Question | File or operation | Connection to the background |
 | --- | --- | --- |
-| What callers can access | `LifelongNoveltyEstimator` and Factory in [`intrinsic.hpp`](../../core/anet-core/include/anet/intrinsic.hpp) | Expose multiplier scoring, auxiliary learning, diagnostics, and persistence while hiding RND-specific composition |
-| Where reward is added | `UpdateFromBatch` in [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) | Add after existing reward scaling |
-| Learning cadence and sampling | `IntrinsicRewardCoordinator::Learn` in [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) | Coordinator owns credit and the RNG with named seed `intrinsic.learn`, supplying k observations at a time |
+| What callers can access | `LifelongNoveltyEstimator` and Factory in [`intrinsic.hpp`](../../src/core/base/include/anet/intrinsic.hpp) | Expose multiplier scoring, auxiliary learning, diagnostics, and persistence while hiding RND-specific composition |
+| Where reward is added | `UpdateFromBatch` in [`default_dqn_agent.cpp`](../../src/algo/dqn/src/default_dqn_agent.cpp) | Add after existing reward scaling |
+| Learning cadence and sampling | `IntrinsicRewardCoordinator::Learn` in [`default_dqn_agent.cpp`](../../src/algo/dqn/src/default_dqn_agent.cpp) | Coordinator owns credit and the RNG with named seed `intrinsic.learn`, supplying k observations at a time |
 | Intrinsic diagnostics, Trace, and persistence | `IntrinsicRewardCoordinator` in the same file | `ScoreBonus` and `ScoreTrace` share the bonus formula; `GetScalar`, `Save`, and `Load` handle diagnostics and persistence |
-| What RND owns | [`intrinsic_rnd.hpp`](../../core/anet-core/src/intrinsic_rnd.hpp) | Target, predictor, optimizer, selected-mode statistics, common target-output statistics, and scored-observation count |
-| Scoring and learning order | `Estimate` / `Learn` in [`intrinsic_rnd.cpp`](../../core/anet-core/src/intrinsic_rnd.cpp) | Update statistics after scoring; learning computes independently from supplied observations and current statistics |
+| What RND owns | [`intrinsic_rnd.hpp`](../../src/core/base/src/intrinsic_rnd.hpp) | Target, predictor, optimizer, selected-mode statistics, common target-output statistics, and scored-observation count |
+| Scoring and learning order | `Estimate` / `Learn` in [`intrinsic_rnd.cpp`](../../src/core/base/src/intrinsic_rnd.cpp) | Update statistics after scoring; learning computes independently from supplied observations and current statistics |
 | Statistics-mode responsibilities | `RndStatistics`, `WhitenStatistics`, and `VarianceFeedbackStatistics` in the same file | Select the mode at construction and delegate normalization placement, warm-up, statistics updates, saving, loading, and cloning |
-| Exact normalization | [`scaler_impl.cpp`](../../core/anet-core/src/scaler_impl.cpp) and [`scaler_impl.hpp`](../../core/anet-core/src/scaler_impl.hpp) | Use `UpdateStats` for statistics updates, read-only normalization, cumulative statistics, and persistence |
-| Contract verification | [`intrinsic_test.cpp`](../../core/anet-core/src/intrinsic_test.cpp) | Test fixed teacher, learning, update order, reward addition, and restoration through public paths |
+| Exact normalization | [`scaler_impl.cpp`](../../src/core/base/src/scaler_impl.cpp) and [`scaler_impl.hpp`](../../src/core/base/src/scaler_impl.hpp) | Use `UpdateStats` for statistics updates, read-only normalization, cumulative statistics, and persistence |
+| Contract verification | [`intrinsic_test.cpp`](../../src/core/base/src/intrinsic_test.cpp) | Test fixed teacher, learning, update order, reward addition, and restoration through public paths |
 
 DefaultDQN interprets `intrinsic.enabled`, `intrinsic.beta`, `intrinsic.observation`, `intrinsic.use_done_mask`, `intrinsic.learn_ratio`, and `intrinsic.learn_batch_size`. RND-specific settings go to the Factory and are interpreted by `RndNoveltyEstimatorConfig`. Reward composition and learning cadence are separated from novelty computation and auxiliary learning itself.
 
@@ -555,7 +555,7 @@ With a cloned Actor, values use the training predictor, statistics, and beta at 
 
 Dropout and DropPath consume shared randomness, so configurations containing them are outside the learning-invariance guarantee even with a cloned Actor. BatchNorm updates stay in a snapshot, but alter training statistics when the Actor does not clone; that case is also outside the guarantee. These layers are neither detected nor warned about. Shipped RND networks contain none of them.
 
-See the [PRD127 validation assets](../../core/anet-core/testdata/prd127/README.md) for acceptance and measurement procedures. With KFM's real-time-priority configuration plus `run.@rnd` (128 lanes, CUDA, Release), and the same configuration with `run.@rainbow_like` and `run.@rnd_taiga` layered on top, the pane was measured closed and open three times each, alternating, while EvalPanel kept playing. Each state measured training exp steps/s over 90 seconds starting 25 seconds after the switch, followed by 12 seconds of Tracy zone timings.
+See the [PRD127 validation assets](../../src/core/base/testdata/prd127/README.md) for acceptance and measurement procedures. With KFM's real-time-priority configuration plus `run.@rnd` (128 lanes, CUDA, Release), and the same configuration with `run.@rainbow_like` and `run.@rnd_taiga` layered on top, the pane was measured closed and open three times each, alternating, while EvalPanel kept playing. Each state measured training exp steps/s over 90 seconds starting 25 seconds after the switch, followed by 12 seconds of Tracy zone timings.
 
 | Configuration | Training exp steps/s, closed (median, range) | Open | Observe per call (mean, max) | Of which scoring (`EstimateWithoutUpdate`, mean) | Estimator and β copy per sync |
 |---|---|---|---|---|---|
@@ -582,15 +582,15 @@ With `learner.enabled=false`, scoring and auxiliary learning pause with one INFO
 
 ### 5.2 Verified Scope
 
-PRD130 functional-validation and performance-measurement procedures are in the [validation assets](../../core/anet-core/testdata/prd130/README.md); results and unperformed checks are in the [implementation memo](../memo/130_rnd_estimate_statistics_perf_20impl.md). Performance figures below record the executables used at the time of each measurement.
+PRD130 functional-validation and performance-measurement procedures are in the [validation assets](../../src/core/base/testdata/prd130/README.md); results and unperformed checks are in the [implementation memo](../memo/130_rnd_estimate_statistics_perf_20impl.md). Performance figures below record the executables used at the time of each measurement.
 
-See [PRD121 validation assets](../../core/anet-core/testdata/prd121/README.md) for value decomposition, intrinsic scaling, and dynamic-scaler save/restore checks.
+See [PRD121 validation assets](../../src/core/base/testdata/prd121/README.md) for value decomposition, intrinsic scaling, and dynamic-scaler save/restore checks.
 
-See the [PRD128 validation assets](../../core/anet-core/testdata/prd128/README.md) for before/after comparisons after the structural separation, continuation from an old checkpoint, and Release performance.
+See the [PRD128 validation assets](../../src/core/base/testdata/prd128/README.md) for before/after comparisons after the structural separation, continuation from an old checkpoint, and Release performance.
 
-Validation procedures for error statistics, warm-up, centering, and terminal masking are in the [PRD123 validation assets](../../core/anet-core/testdata/prd123/README.md). They distinguish before/after comparisons for collect_errors (which selects the old behavior), variance_feedback, and disabled RND from hand-calculated EMA and save/restore checks. KFM effectiveness checks are performed only after separate approval.
+Validation procedures for error statistics, warm-up, centering, and terminal masking are in the [PRD123 validation assets](../../src/core/base/testdata/prd123/README.md). They distinguish before/after comparisons for collect_errors (which selects the old behavior), variance_feedback, and disabled RND from hand-calculated EMA and save/restore checks. KFM effectiveness checks are performed only after separate approval.
 
-Validation of the 2026-11-07 changes that added the public-implementation form and options is in [23impl](../memo/116_rnd_lifelong_novelty_23impl.md), with rerun entry points in [PRD116 validation assets](../../core/anet-core/testdata/prd116/README.md). For earlier validation, see [20impl](../memo/116_rnd_lifelong_novelty_20impl.md), [21impl](../memo/116_rnd_lifelong_novelty_21impl.md), and [22impl](../memo/116_rnd_lifelong_novelty_22impl.md). Enabled-mode learning sequences differ from past Runs because of Network and configuration changes.
+Validation of the 2026-11-07 changes that added the public-implementation form and options is in [23impl](../memo/116_rnd_lifelong_novelty_23impl.md), with rerun entry points in [PRD116 validation assets](../../src/core/base/testdata/prd116/README.md). For earlier validation, see [20impl](../memo/116_rnd_lifelong_novelty_20impl.md), [21impl](../memo/116_rnd_lifelong_novelty_21impl.md), and [22impl](../memo/116_rnd_lifelong_novelty_22impl.md). Enabled-mode learning sequences differ from past Runs because of Network and configuration changes.
 
 | Check | Result and scope |
 | --- | --- |

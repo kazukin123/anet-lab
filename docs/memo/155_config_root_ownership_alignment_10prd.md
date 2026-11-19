@@ -11,9 +11,9 @@
 
 ### 1.1 起点の 2 件
 
-**`train.*` の読み手は RunManager である。** [trainer.cpp:765](../../core/anet-core/src/trainer.cpp) の `RunManager::Config` は `config_prefix = "train"` で `seed` / `num_envs` / `main_runner_type` / `eval_device_type` / `eval_device_index` を読み、同 ctor が `MakeSubConfigData("train.eval")` / `("train.eval_schedule")` で configured eval の定義とスケジュールを読む。コード自身に `/// @todo config_prefixをrunに変更` が 2 箇所残っている。`train` は BatchEnv name `train`(主 Train Runner)の名前であり、eval の定義まで `train.` 配下に入っているのは概念と合わない。
+**`train.*` の読み手は RunManager である。** [trainer.cpp:765](../../src/core/base/src/trainer.cpp) の `RunManager::Config` は `config_prefix = "train"` で `seed` / `num_envs` / `main_runner_type` / `eval_device_type` / `eval_device_index` を読み、同 ctor が `MakeSubConfigData("train.eval")` / `("train.eval_schedule")` で configured eval の定義とスケジュールを読む。コード自身に `/// @todo config_prefixをrunに変更` が 2 箇所残っている。`train` は BatchEnv name `train`(主 Train Runner)の名前であり、eval の定義まで `train.` 配下に入っているのは概念と合わない。
 
-**`app.run_name` の実体は Run の identity である。** [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) の `RunnerApp::Config`(prefix `app`)が `run_name` を読んで `MetricsLoggerConfig::run_name_tmpl` へ転記し、[metrics_logger.cpp](../../core/anet-core/src/metrics_logger.cpp) の `MetricsLogger` ctor が `{t}` を展開して Run フォルダ名にする。Run プロファイルには次のように書かれており、Run の名前を app 経由で指定している形になっている。
+**`app.run_name` の実体は Run の identity である。** [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) の `RunnerApp::Config`(prefix `app`)が `run_name` を読んで `MetricsLoggerConfig::run_name_tmpl` へ転記し、[metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp) の `MetricsLogger` ctor が `{t}` を展開して Run フォルダ名にする。Run プロファイルには次のように書かれており、Run の名前を app 経由で指定している形になっている。
 
 ```properties
 run.@a5_base : app.run_name = run_{t}_a5_${E1.game}_base
@@ -25,24 +25,24 @@ run.@a5_base : app.run_name = run_{t}_a5_${E1.game}_base
 
 | root | 読み口 | 所有者 | 概念(設計文書の章) | 判定 |
 |---|---|---|---|---|
-| `app` | `RunnerApp::Config("app")`。ほかに `app.show_error_dialog`([RunnerApp.cpp:337](../../apps/runner/src/RunnerApp.cpp))の直読みと、`app.eval_trace_panel.*` / `app.log_panel.*`（LogPanel が直読み。2026-10-31 に `app.log_level` を `app.log_panel.level` へ改名）| process | アプリ(160) | `run_name` が Run の identity(§3.2)。`metrics_logger.*` / `train_panel.*` / `eval_panel.*` / `eval_trace_panel.*` / `log_panel.*` は app が所有する部品の設定を入れ子にしており規約どおり |
+| `app` | `RunnerApp::Config("app")`。ほかに `app.show_error_dialog`([RunnerApp.cpp:337](../../src/apps/runner/src/RunnerApp.cpp))の直読みと、`app.eval_trace_panel.*` / `app.log_panel.*`（LogPanel が直読み。2026-10-31 に `app.log_level` を `app.log_panel.level` へ改名）| process | アプリ(160) | `run_name` が Run の identity(§3.2)。`metrics_logger.*` / `train_panel.*` / `eval_panel.*` / `eval_trace_panel.*` / `log_panel.*` は app が所有する部品の設定を入れ子にしており規約どおり |
 | `app.online` / `app.batchrun` | 読み口なし。`app.$ = app.online > P1` で `app.*` へ複製 | – | 実行モード | 059 D25 で「選択の源」として仕様化済み |
 | `train` | `RunManager::Config("train")` + `train.eval` / `train.eval_schedule` の sub config | RunnerApp | Run(100) | **root 名が概念(Run)と一致しない**。061 P1 で `run` へ(§3.1) |
-| `env` | `BatchEnvBuilderConfig("env")`([env.hpp:350](../../core/anet-core/include/anet/env.hpp)) | RunManager | Env スロット(120) | `class_id` + 実行方式(worker)+ device。規約どおり |
+| `env` | `BatchEnvBuilderConfig("env")`([env.hpp:350](../../src/core/base/include/anet/env.hpp)) | RunManager | Env スロット(120) | `class_id` + 実行方式(worker)+ device。規約どおり |
 | `<Env>`(`AtariEnv` 等) | `<Env>::Config(config_data, "AtariEnv", override_prefix)`。override は `train.eval.[tag].env` | BatchEnvBuilder | 具象 Env | 規約どおり(`class_id` の値 = 具象 prefix) |
-| `agent` | `DefaultAgentFactoryConfig("agent")`([agent.hpp:330](../../core/anet-core/include/anet/agent.hpp)) | RunManager | Agent スロット(110) | 規約どおり |
+| `agent` | `DefaultAgentFactoryConfig("agent")`([agent.hpp:330](../../src/core/base/include/anet/agent.hpp)) | RunManager | Agent スロット(110) | 規約どおり |
 | `<Agent>`(`DefaultDQNAgent` 等)、`<Agent>.net` | `DefaultDQNAgent::Config`、`NetworkConfig("<Agent>.net")` | DefaultAgentFactory | 具象 Agent と所有 NN(130) | 規約どおり(ADR 0030) |
 | `net.block.[*]` / `net.branch.@*` / `net.body.@*` / `net.@qr` | `NetworkConfig` が `<Agent>.net` へ merge | – | NN の共有カタログ・プロファイル(130) | 規約どおり |
-| `backend` | `BackendConfig("backend")`([init.hpp:26](../../core/anet-core/include/anet/init.hpp)) | RunnerApp(`InitRL`) | libtorch backend | 規約どおり |
-| `metrics.scalar/graph/trace.[tag]`、`metrics.image.[tag]`、`metrics.image.interval` | [observers.cpp:1174-1177](../../core/anet-core/src/observers.cpp)、[image.cpp:693-694](../../core/anet-core/src/image.cpp) の literal prefix | RunManager(Observer 構築) | メトリクス定義(140) | 規約どおり |
+| `backend` | `BackendConfig("backend")`([init.hpp:26](../../src/core/base/include/anet/init.hpp)) | RunnerApp(`InitRL`) | libtorch backend | 規約どおり |
+| `metrics.scalar/graph/trace.[tag]`、`metrics.image.[tag]`、`metrics.image.interval` | [observers.cpp:1174-1177](../../src/core/base/src/observers.cpp)、[image.cpp:693-694](../../src/core/base/src/image.cpp) の literal prefix | RunManager(Observer 構築) | メトリクス定義(140) | 規約どおり |
 | `image.thg.@…` / `image.phm.@…` / `image.shm.@…` / `image.@conv2d` | 読み口なし。`metrics.image.[tag].$ = image.phm.@per-prio > …` のチェーン元 | – | image provider のプロファイル | **所有者 `metrics.image` の外に別 root**(§3.6) |
-| `ImageDataset.[key]` | [ImageData.hpp](../../core/envs/imagecls1/src/ImageData.hpp) | ImageDatasetManager(process) | データセットカタログ | 境界例。差し替わらない部品が class 名 root(§3.7) |
-| `QValuePanel` / `Conv2dPanel` | `Config("QValuePanel")` / `Config("Conv2dPanel")`([QValuePanel.cpp:34](../../apps/runner/src/QValuePanel.cpp)、[Conv2dPanel.cpp:18](../../apps/runner/src/Conv2dPanel.cpp)) | RunnerFrame | GUI パネル(160) | **同じ GUI パネルでも `app.train_panel` / `app.eval_panel` は app 配下、こちらは root 直下の class 名。2 流儀が混在**(§3.5) |
+| `ImageDataset.[key]` | [ImageData.hpp](../../src/env/imagecls/src/ImageData.hpp) | ImageDatasetManager(process) | データセットカタログ | 境界例。差し替わらない部品が class 名 root(§3.7) |
+| `QValuePanel` / `Conv2dPanel` | `Config("QValuePanel")` / `Config("Conv2dPanel")`([QValuePanel.cpp:34](../../src/apps/runner/src/QValuePanel.cpp)、[Conv2dPanel.cpp:18](../../src/apps/runner/src/Conv2dPanel.cpp)) | RunnerFrame | GUI パネル(160) | **同じ GUI パネルでも `app.train_panel` / `app.eval_panel` は app 配下、こちらは root 直下の class 名。2 流儀が混在**(§3.5) |
 | `A1` `A2` `A3` / `E1` / `M1` `M2` / `P1` | 読み口なし | – | 上書き層 | 059 D20 改で規約化済み |
 | `@vars` | 読み口なし | – | 定数置き場(命名慣習) | 規約どおり |
-| `run.$` / `run.@<name>` | resolver([config_impl.cpp:83-84](../../core/anet-core/src/config_impl.cpp) `kNamedTrunkOwner = "run"`) | – | Run プロファイル | `run.` root は既に Run の意味で使われている。素の `run.*` は通常キーとして通る(059 §2.2) |
+| `run.$` / `run.@<name>` | resolver([config_impl.cpp:83-84](../../src/core/base/src/config_impl.cpp) `kNamedTrunkOwner = "run"`) | – | Run プロファイル | `run.` root は既に Run の意味で使われている。素の `run.*` は通常キーとして通る(059 §2.2) |
 
-Module Config の dump は prefix 名がそのままファイル名になる(`config/<prefix>.txt`。[metrics_logger.cpp](../../core/anet-core/src/metrics_logger.cpp) `Log(const Config&)` が `GetConfigPrefix()` を tag にする)。root を変えると dump のファイル名も変わる。
+Module Config の dump は prefix 名がそのままファイル名になる(`config/<prefix>.txt`。[metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp) `Log(const Config&)` が `GetConfigPrefix()` を tag にする)。root を変えると dump のファイル名も変わる。
 
 ## 2. 規約案(裁定対象)
 
@@ -88,19 +88,19 @@ R4 は「差し替わらない部品(GUI パネル、ImageDataset)が class 名 
 
 - **理由**: Run の identity であり、所有者は Run(R2)。Run プロファイルに書いたとき、`run.@a5_base : run.name = run_{t}_a5_${E1.game}_base` と Run 自身の属性として読める。CONTEXT「Run プロファイル」は `run.seed` を反復軸として除外しているが、`run.name` は逆にプロファイル固有の値なので含めて自然。
 - **読み口の置き場(Q2-b)**: `MetricsLogger::Init` は `RunManager` より先に走るので、`RunManager::Config` に `name` を足すだけでは間に合わない。候補は (a) RunnerApp が `config_data.Get("run.name")` で直読みして `MetricsLoggerConfig` へ渡し、`RunManager::Config` も `name` を読んで dump に残す、(b) prefix `run` の小さな Config を app 側に置く。(b) は `RunManager::Config("run")` と prefix が重なり、`MetricsLogger::Log(const Config&)` が同じ tag `run` で 2 回 dump して `config/run.txt` が後勝ちになる。同一 prefix の Config 二重化は避ける。
-- **影響(2026-09-16 実測、literal 出現数)**: config 29 行(8 ファイル。Run プロファイル行を含む)、bat 11 行(`apps/11_batch_run.bat` / `12_batch_run.bat` の `"app.run_name=…"` CLI。bat はランチャーなので上書き)、C++ は `RunnerApp::Config` の `run_name` 1 経路、テスト 17、Python 4([dropmerge_optuna.py:376](../../apps/runner/tools/dropmerge_optuna.py) の生成行、[check_default_leaves.py:94](../../core/anet-core/testdata/prd072/check_default_leaves.py) の optuna 例外登録)、docs 10([020](../design/020_user_guide_run.jp.md) §2.3、[optuna.md](../design/optuna.md)、[AGENTS.md](../../AGENTS.md)「Run 命名・後片付けルール」「実験記録と実効 config の保存ルール」)。
+- **影響(2026-09-16 実測、literal 出現数)**: config 29 行(8 ファイル。Run プロファイル行を含む)、bat 11 行(`apps/11_batch_run.bat` / `12_batch_run.bat` の `"app.run_name=…"` CLI。bat はランチャーなので上書き)、C++ は `RunnerApp::Config` の `run_name` 1 経路、テスト 17、Python 4([dropmerge_optuna.py:376](../../apps/tools/dropmerge_optuna.py) の生成行、[check_default_leaves.py:94](../../src/core/base/testdata/prd072/check_default_leaves.py) の optuna 例外登録)、docs 10([020](../design/020_user_guide_run.jp.md) §2.3、[optuna.md](../design/optuna.md)、[AGENTS.md](../../AGENTS.md)「Run 命名・後片付けルール」「実験記録と実効 config の保存ルール」)。
 - **同乗(Q2-c)**: 061 P1 の `train.` → `run.` は 8 config ファイルと bat・docs を機械走査する。同じ走査に `app.run_name` を載せれば走査は 1 回で済む。
 
 ### 3.3 `app.runs_dir` は据え置き
 
-- workspace 機構が注入し([app_util.cpp:532](../../core/anet-core/src/app_util.cpp))、`ValidateWorkspaceRunsDir` が注入値との完全一致を要求する。020 §2.3 は「設定や CLI からの変更は禁止」、CONTEXT「ワークスペース」の _Avoid_ は「runs_dir(出力先設定であって箱ではない)」。
+- workspace 機構が注入し([app_util.cpp:532](../../src/core/base/src/app_util.cpp))、`ValidateWorkspaceRunsDir` が注入値との完全一致を要求する。020 §2.3 は「設定や CLI からの変更は禁止」、CONTEXT「ワークスペース」の _Avoid_ は「runs_dir(出力先設定であって箱ではない)」。
 - Run の置き場を決めるのは workspace(設定の外、059 D2)で、Run の属性ではない。`run.name` と対にして `run.dir` へ寄せると、Run プロファイルから書き換えられるように見える(禁止事項)。R2 でも app 側の出力先なので `app.runs_dir` のまま。
 
 ### 3.4 `app.metrics_logger.*` は据え置き、表記ずれだけ直す
 
 - MetricsLogger は app が所有する process singleton で、R2 のとおり `app.` 配下が正しい。
-- [metrics_logger.cpp:94-98](../../core/anet-core/src/metrics_logger.cpp) のエラー文言が root 抜きの `metrics_logger.video_codec` になっている。利用者が検索する実キーは `app.metrics_logger.video_codec`。
-- [RunnerApp.cpp:111-127](../../apps/runner/src/RunnerApp.cpp) の `WarnDeprecatedRunsDirConfig` は旧キー `app.metrics_logger.runs_dir` / `root_dir` 専用の WARN tripwire。AGENTS.md クリーンブレーク方針(旧キー専用の WARN・tripwire は残さない)に反するので削除候補。
+- [metrics_logger.cpp:94-98](../../src/core/base/src/metrics_logger.cpp) のエラー文言が root 抜きの `metrics_logger.video_codec` になっている。利用者が検索する実キーは `app.metrics_logger.video_codec`。
+- [RunnerApp.cpp:111-127](../../src/apps/runner/src/RunnerApp.cpp) の `WarnDeprecatedRunsDirConfig` は旧キー `app.metrics_logger.runs_dir` / `root_dir` 専用の WARN tripwire。AGENTS.md クリーンブレーク方針(旧キー専用の WARN・tripwire は残さない)に反するので削除候補。
 
 ### 3.5 GUI パネル: `QValuePanel.*` / `Conv2dPanel.*` と `app.train_panel.*` / `app.eval_panel.*`
 
@@ -122,14 +122,14 @@ R4 は「差し替わらない部品(GUI パネル、ImageDataset)が class 名 
 
 - `env.*` / `agent.*`: スロット(`class_id` + 実行方式・device)。R1 により root は概念単位なので、RunManager 所有でも `run.env` にはしない。
 - `app.online` / `app.batchrun`: 059 D25 で無印の「選択の源」として仕様化済み。
-- `app.exp_pause_step` / `app.exp_exit_step` / `app.train_pause_step` / `app.train_exit_step` / `app.train_auto_start`: RunnerApp が Runner thread を pause / exit させる監督動作([RunnerApp.cpp:425-460](../../apps/runner/src/RunnerApp.cpp))。予算値は Run の性質にも見えるが、pause(online)か exit(batchrun)かは app の挙動であり、059 D11 / S1 が RUN_BUDGET を app 配下と裁定している。据え置き(蒸し返すなら Q5)。
+- `app.exp_pause_step` / `app.exp_exit_step` / `app.train_pause_step` / `app.train_exit_step` / `app.train_auto_start`: RunnerApp が Runner thread を pause / exit させる監督動作([RunnerApp.cpp:425-460](../../src/apps/runner/src/RunnerApp.cpp))。予算値は Run の性質にも見えるが、pause(online)か exit(batchrun)かは app の挙動であり、059 D11 / S1 が RUN_BUDGET を app 配下と裁定している。据え置き(蒸し返すなら Q5)。
 - `run.eval.[tag].eval_batch_size` / `eval_episodes`: `eval.[tag]` 配下で `eval_` が冗長だが、[060](done/060_eval_batch_episodes_10prd.md) の決定で metrics・inspect_run のテスト参照が多い。`clone_model` は 061 P2 で Actor 設定へ移る。削るなら P1 の走査に同乗させる以外に安い機会がない(Q6)。
 - `ImageDataset.[key]`: process 横断のカタログで、差し替わらない部品の class 名 root(R4 の境界例)。ImageCls 以外の利用者が出るまで据え置き。
 - `@vars`、上書き層、`net.*` 共有定義、`backend`、`metrics.*`: 規約どおり。
 
 ### 3.8 Head の設定: `<Agent>.head.*` → `<Agent>.net.head.*`（候補）
 
-[130](../design/130_neural_networks.jp.md) では Network は Body と Head をまとめた単位だが、Head の設定（init・projection・dueling、skip の action_input）は Agent が読み、factory を `BuildNetwork` に別引数で渡している（[dqn_based_agent.cpp:631](../../core/anet-core/src/dqn_based_agent.cpp)・688）。R2 なら Head は `net` の下、R3 なら読み口は NetworkConfig であるべきで、今は両方を満たしていない。[PRD098](098_temporl_skip_policy_10prd.md) の設定見直しでは Agent 直下の `head.*` に統一し（案 C）、`net.head.*` は取らなかった（2026-10-24）。
+[130](../design/130_neural_networks.jp.md) では Network は Body と Head をまとめた単位だが、Head の設定（init・projection・dueling、skip の action_input）は Agent が読み、factory を `BuildNetwork` に別引数で渡している（[dqn_based_agent.cpp:631](../../src/core/base/src/dqn_based_agent.cpp)・688）。R2 なら Head は `net` の下、R3 なら読み口は NetworkConfig であるべきで、今は両方を満たしていない。[PRD098](098_temporl_skip_policy_10prd.md) の設定見直しでは Agent 直下の `head.*` に統一し（案 C）、`net.head.*` は取らなかった（2026-10-24）。
 
 候補の形: NetworkConfig が `head` の子木を opaque に運び（`nn_forward.[key]` の先例、[200 §7](../design/200_dqn_agents.jp.md)）、Agent の HeadFactory だけが解釈する。読み口は NetworkConfig 1 つになり、`net.head.*`・`skip.net.head.*` と書ける。`quantile_mode` は Learner と方策にも効くので Agent 直下に残す。
 
@@ -154,7 +154,7 @@ R4 は「差し替わらない部品(GUI パネル、ImageDataset)が class 名 
 
 ## 付録: 棚卸し中に見つけた表記ずれ(本 PRD の対象外)
 
-- `RunnerApp::Config::run_name` の C++ 既定値が `"run_{%t}"`([RunnerApp.cpp:56](../../apps/runner/src/RunnerApp.cpp))。`MetricsLogger::CreateRunName` は `{t}` しか展開しない。`common.txt` が `app.run_name ?= run_{t}` を常に供給するため露見していない。
-- `Conv2dPanel.conv2d.mergin_x` / `mergin_y`([common.txt](../../apps/runner/config/common.txt)、[metrics_image.txt](../../apps/runner/config/metrics_image.txt) の `image.@conv2d.conv2d.mergin_*`)に対し、読み口は `conv2d.margin_x` / `margin_y`([Conv2dPanel.cpp:19-20](../../apps/runner/src/Conv2dPanel.cpp))。設定行は NoCare で、C++ 既定値が使われている。
-- [dropmerge_optuna.py:375](../../apps/runner/tools/dropmerge_optuna.py) が生成する `app.$ = app.batchrun > P` は、059 の上書き層 rename(`P` → `P1`)から取り残されている。未定義 prefix は no-op なので実害はない。
+- `RunnerApp::Config::run_name` の C++ 既定値が `"run_{%t}"`([RunnerApp.cpp:56](../../src/apps/runner/src/RunnerApp.cpp))。`MetricsLogger::CreateRunName` は `{t}` しか展開しない。`common.txt` が `app.run_name ?= run_{t}` を常に供給するため露見していない。
+- `Conv2dPanel.conv2d.mergin_x` / `mergin_y`([common.txt](../../apps/runner/config/common.txt)、[metrics_image.txt](../../apps/runner/config/metrics_image.txt) の `image.@conv2d.conv2d.mergin_*`)に対し、読み口は `conv2d.margin_x` / `margin_y`([Conv2dPanel.cpp:19-20](../../src/apps/runner/src/Conv2dPanel.cpp))。設定行は NoCare で、C++ 既定値が使われている。
+- [dropmerge_optuna.py:375](../../apps/tools/dropmerge_optuna.py) が生成する `app.$ = app.batchrun > P` は、059 の上書き層 rename(`P` → `P1`)から取り残されている。未定義 prefix は no-op なので実害はない。
 - `metrics_logger.cpp` のエラー文言の root 抜き(§3.4)。

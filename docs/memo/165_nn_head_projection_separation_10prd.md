@@ -127,7 +127,7 @@ Head を重み無しにすること自体、クラス数を減らすこと自体
 
 - [NN 設計](../design/130_neural_networks.jp.md)、[DQN 系 Agent 設計](../design/200_dqn_agents.jp.md)。
 - [ADR 0018: IQN を bind / product DAG で表す](../adr/0018-iqn-via-bind-product-dag.md)。
-- [NetworkHead interface](../../core/anet-core/include/anet/nn.hpp)、[Body Linear と module Factory](../../core/anet-core/src/nn_modules.cpp)。
-- [DQN Head 群](../../core/anet-core/src/dqn_based_heads.cpp)、[PassThroughHead・汎用 LinearHead](../../core/anet-core/src/nn_heads.cpp)。
-- [Network の FP32 境界と診断](../../core/anet-core/src/nn_impl.cpp)。
+- [NetworkHead interface](../../src/core/base/include/anet/nn.hpp)、[Body Linear と module Factory](../../src/core/base/src/nn_modules.cpp)。
+- [DQN Head 群](../../src/algo/dqn/src/dqn_based_heads.cpp)、[PassThroughHead・汎用 LinearHead](../../src/core/base/src/nn_head.cpp)。
+- [Network の FP32 境界と診断](../../src/core/base/src/nn_impl.cpp)。
 - [NoisyNet PRD](done/084_noisynet_10prd.md): 現行 Head を維持して演算を共用する、独立した先行課題。

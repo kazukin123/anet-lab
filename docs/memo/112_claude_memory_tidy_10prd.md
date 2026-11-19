@@ -326,5 +326,5 @@ skill の引数は `full` だけである。ほかの語が付いたときは、
 
 - [PRD095 LLM-Wiki](done/095_llm_wiki_10prd.md)、[段階 3 の記録](done/095_llm_wiki_22impl.md)、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)
 - [anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)、[skills README](../../.agents/skills/README.md)
-- [wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md)、[PRD095 の検証資材](../../core/anet-core/testdata/prd095/README.md)
+- [wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md)、[PRD095 の検証資材](../../src/core/base/testdata/prd095/README.md)
 - [How Claude remembers your project](https://code.claude.com/docs/en/memory)、[Claude Code power user tips](https://support.claude.com/en/articles/14554000-claude-code-power-user-tips)、[Dreams](https://platform.claude.com/docs/en/managed-agents/dreams)、[LangMem Background Quickstart](https://langchain-ai.github.io/langmem/background_quickstart)

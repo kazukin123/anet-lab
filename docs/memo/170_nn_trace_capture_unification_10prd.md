@@ -29,23 +29,23 @@ forward の途中で作った Tensor を外へ持ち出す口が 2 つある。
 
 ### 2.1 nn_trace の今の経路（`TraceCallback`）
 
-- 型は `TraceCallback`（[common.hpp](../../core/anet-core/include/anet/common.hpp)）。
-- 書き手は `NetworkStruct::Forward`（[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp)）。次の 2 種類を渡す。
+- 型は `TraceCallback`（[common.hpp](../../src/core/base/include/anet/common.hpp)）。
+- 書き手は `NetworkStruct::Forward`（[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp)）。次の 2 種類を渡す。
   - branch の入力を `00_Input` で渡す。形を問わず、全 branch で出る（IQN の `tau_embedding` の 2 次元の入力も出る）。
   - block の出力のうち、可視化できる block（`IsConv2dVisualizable`）の、4 次元・浮動小数・縦横が 2 以上のものを `<2 桁の番号>_<block 名>` で渡す。番号は、渡した出力だけを 1 から数えた通し番号で、block の位置ではない。
 - `NetworkBranch::Execute` が、鍵の頭に `<branch>/` を付ける。
-- Actor の側は、`dqn::Actor::MakeAction`（Rainbow も同じ Actor。[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp)）と `ImageClsActor::MakeAction`（[image_cls_agent.cpp](../../core/anet-core/src/image_cls_agent.cpp)）が、呼び出しのたびに `MakeActionTraceCallback` で callback を作る（[rl.cpp](../../core/anet-core/src/rl.cpp)）。callback は env 0 の行を切り出し、勾配を切り、FP32 にして複製する。行動選択の forward は autocast の下で走るので FP32 にする必要があり、切り出しただけでは batch 全体の記憶域を持ち続けるので複製が要る（[PRD006](done/006_conv2d_visual_trace_10prd.md) §7 の 1・2）。
-- `AppendTraceAux` が鍵の頭に `nn_trace/` を付けて AuxData に入れる。AuxData の鍵は `nn_trace/<branch>/00_Input` と `nn_trace/<branch>/<2 桁の番号>_<block 名>` である。接頭辞の定数 `kNnTracePrefix` と、読む側の `ExtractNnTrace` は rl 層にある（[rl.hpp](../../core/anet-core/include/anet/rl.hpp)）。
+- Actor の側は、`dqn::Actor::MakeAction`（Rainbow も同じ Actor。[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp)）と `ImageClsActor::MakeAction`（[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp)）が、呼び出しのたびに `MakeActionTraceCallback` で callback を作る（[rl.cpp](../../src/core/base/src/rl.cpp)）。callback は env 0 の行を切り出し、勾配を切り、FP32 にして複製する。行動選択の forward は autocast の下で走るので FP32 にする必要があり、切り出しただけでは batch 全体の記憶域を持ち続けるので複製が要る（[PRD006](done/006_conv2d_visual_trace_10prd.md) §7 の 1・2）。
+- `AppendTraceAux` が鍵の頭に `nn_trace/` を付けて AuxData に入れる。AuxData の鍵は `nn_trace/<branch>/00_Input` と `nn_trace/<branch>/<2 桁の番号>_<block 名>` である。接頭辞の定数 `kNnTracePrefix` と、読む側の `ExtractNnTrace` は rl 層にある（[rl.hpp](../../src/core/base/include/anet/rl.hpp)）。
 - callback を forward まで運ぶだけの引数が、次にある。
-  - forward の公開の口: `Network::Forward`、`NetworkForwardExecutor::Forward`（[nn.hpp](../../core/anet-core/include/anet/nn.hpp)）。
-  - forward の内部: `RunForward`、`NetworkBody::Forward`、`NetworkBranch::Execute`、`NetworkStruct::Forward`（[nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp)、[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp)）。
-  - DQN 系の行動方策: `ActionPolicy::SelectAction`（基底と、`EpsilonGreedyActionPolicy`・`UQEActionPolicy`・`ThompsonSamplingActionPolicy` の実装）と、補助の `ForwardForAction`・`ForwardForActionWithTaus`・`MakeUQEActionInfo`（[dqn_based_agent.hpp](../../core/anet-core/src/dqn_based_agent.hpp)）。宣言は 7 つ。
+  - forward の公開の口: `Network::Forward`、`NetworkForwardExecutor::Forward`（[nn.hpp](../../src/core/base/include/anet/nn.hpp)）。
+  - forward の内部: `RunForward`、`NetworkBody::Forward`、`NetworkBranch::Execute`、`NetworkStruct::Forward`（[nn_impl.hpp](../../src/core/base/src/nn_impl.hpp)、[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp)）。
+  - DQN 系の行動方策: `ActionPolicy::SelectAction`（基底と、`EpsilonGreedyActionPolicy`・`UQEActionPolicy`・`ThompsonSamplingActionPolicy` の実装）と、補助の `ForwardForAction`・`ForwardForActionWithTaus`・`MakeUQEActionInfo`（[dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp)）。宣言は 7 つ。
 - `SelectAction` は 1 回の呼び出しで forward を 1 回だけ行う。TempoRL の skip 側の forward と、Learner が target の方策を呼ぶ `SelectAction` は callback を渡していない。
 
 ### 2.2 capture の経路（`NetworkForwardCapture`、093）
 
-- 要求は、完全一致の鍵か、末尾が `/` の接頭辞である。`GetAll` は、接頭辞に一致した鍵と Tensor を書かれた順に返す。要求していない鍵の書き込みと、同じ鍵への 2 回目の書き込みは即エラーになる。forward の出口で、満たされなかった要求（完全一致が書かれない、接頭辞に 1 件も一致しない）は即エラーになる（[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) の `MatchesCaptureRequest`、`NetworkForwardCapture::Add`、`ValidateForwardCapture`）。起票時の未決表 1（接頭辞要求の記法）はここで済んでいる。
-- 鍵は 2 系統ある。body が書く branch 名そのままの鍵（例 `main_feature`）と、module が書く `<型名>/<診断名>` の後ろに `/<branch>/<block>` が付いた鍵（例 `TransformerEncoder/attention_entropy/main_feature/encoder1`）である（`NetworkForwardContext::MakeCaptureKey`、[nn.hpp](../../core/anet-core/include/anet/nn.hpp) の `kTransformerEncoderAttentionEntropyCaptureKey`）。
+- 要求は、完全一致の鍵か、末尾が `/` の接頭辞である。`GetAll` は、接頭辞に一致した鍵と Tensor を書かれた順に返す。要求していない鍵の書き込みと、同じ鍵への 2 回目の書き込みは即エラーになる。forward の出口で、満たされなかった要求（完全一致が書かれない、接頭辞に 1 件も一致しない）は即エラーになる（[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) の `MatchesCaptureRequest`、`NetworkForwardCapture::Add`、`ValidateForwardCapture`）。起票時の未決表 1（接頭辞要求の記法）はここで済んでいる。
+- 鍵は 2 系統ある。body が書く branch 名そのままの鍵（例 `main_feature`）と、module が書く `<型名>/<診断名>` の後ろに `/<branch>/<block>` が付いた鍵（例 `TransformerEncoder/attention_entropy/main_feature/encoder1`）である（`NetworkForwardContext::MakeCaptureKey`、[nn.hpp](../../src/core/base/include/anet/nn.hpp) の `kTransformerEncoderAttentionEntropyCaptureKey`）。
 - capture を渡さない forward は、null の判定 1 回だけで、ほかは変わらない（ADR 0055）。
 - 受け渡しは 2 通りが混ざっている。module へは `NetworkForwardContext` が運ぶが、`Network::Forward`・`NetworkForwardExecutor::Forward` から `NetworkBody::Forward`・`ForwardUpTo` までは別の引数で運び、Body の入口で Context に入れている。`NetworkBody::Forward` の引数は 5 つ、`RunForward` は 7 つである（課題 [issue-20261103-6a32b4](../management/issues/issue-20261103-6a32b4.md) の 2026-11-11 の追記）。
 
@@ -57,10 +57,10 @@ forward の途中で作った Tensor を外へ持ち出す口が 2 つある。
 
 | 読む側 | 付く Runner | 読み方 |
 |---|---|---|
-| Conv2d の pane（`Conv2dPanel`） | EvalPanel の Runner だけ。メニューの Conv2d で開く（[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) の `OnConv2d`）。何枚でも開ける | Runner 限定の Observer で受けて描く。Trace の pane が追従する pane として、行ごとの控えも作る（[Conv2dPanel.cpp](../../apps/runner/src/Conv2dPanel.cpp)） |
-| メトリクスの画像記録（`Conv2dVisualizationObserver`） | 学習側の Runner だけ。`metrics.image.*` に Conv2d の記録を書いた Run で、開始前に 1 回登録する（[RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) の `ImageProviderManager::CreateAndRegister`）。出荷設定では [DropMerge.txt](../../apps/runner/config/DropMerge.txt) と [ImageCls.txt](../../apps/runner/config/ImageCls.txt) が 1 件ずつ登録しているが、どちらも `interval = 0` である。`interval` が 0 以下の記録は、Observer が作られて付くだけで録画を始めないので、nn_trace を読まない | `episode_interval` エピソードごとに 1 エピソードを録画する。録画するかは、エピソードの最初の step の通知を受けてから決め、その step から描く（[observers.cpp](../../core/anet-core/src/observers.cpp) の `Conv2dVisualizationObserver::OnTrain`） |
-| Trace のダンプ | EvalPanel の Runner | Trace の各行は通知の `action_info` を丸ごと持ち（最大 `app.eval_trace_panel.max_rows` 行、既定 1000）、ダンプは AuxData の鍵を全部書く。1 行のダンプは各 Tensor の形・型・置き場所だけ、詳しいダンプは全体を文字にする（[EvalTracePanel.cpp](../../apps/runner/src/EvalTracePanel.cpp)、[gui.cpp](../../core/anet-core/src/gui.cpp) の `TraceDumpFormatter`）。nn_trace に固有の読み方はしていない |
-| テスト | — | `[native_stack]` の 5 件（[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp)）と ImageCls の 1 件（[image_cls_agent_test.cpp](../../core/anet-core/src/image_cls_agent_test.cpp) の `[image_cls][trace]`）が、`ExtractNnTrace` で鍵と形を見る。このほか [nn_test.cpp](../../core/anet-core/src/nn_test.cpp) の 2 件が、`Network::Forward` に callback の関数を直接渡して、押し出された Tensor を見る（3 か所） |
+| Conv2d の pane（`Conv2dPanel`） | EvalPanel の Runner だけ。メニューの Conv2d で開く（[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) の `OnConv2d`）。何枚でも開ける | Runner 限定の Observer で受けて描く。Trace の pane が追従する pane として、行ごとの控えも作る（[Conv2dPanel.cpp](../../src/apps/runner/src/Conv2dPanel.cpp)） |
+| メトリクスの画像記録（`Conv2dVisualizationObserver`） | 学習側の Runner だけ。`metrics.image.*` に Conv2d の記録を書いた Run で、開始前に 1 回登録する（[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) の `ImageProviderManager::CreateAndRegister`）。出荷設定では [DropMerge.txt](../../apps/runner/config/DropMerge.txt) と [ImageCls.txt](../../apps/runner/config/ImageCls.txt) が 1 件ずつ登録しているが、どちらも `interval = 0` である。`interval` が 0 以下の記録は、Observer が作られて付くだけで録画を始めないので、nn_trace を読まない | `episode_interval` エピソードごとに 1 エピソードを録画する。録画するかは、エピソードの最初の step の通知を受けてから決め、その step から描く（[observers.cpp](../../src/core/base/src/observers.cpp) の `Conv2dVisualizationObserver::OnTrain`） |
+| Trace のダンプ | EvalPanel の Runner | Trace の各行は通知の `action_info` を丸ごと持ち（最大 `app.eval_trace_panel.max_rows` 行、既定 1000）、ダンプは AuxData の鍵を全部書く。1 行のダンプは各 Tensor の形・型・置き場所だけ、詳しいダンプは全体を文字にする（[EvalTracePanel.cpp](../../src/apps/runner/src/EvalTracePanel.cpp)、[gui.cpp](../../src/core/base/src/gui.cpp) の `TraceDumpFormatter`）。nn_trace に固有の読み方はしていない |
+| テスト | — | `[native_stack]` の 5 件（[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp)）と ImageCls の 1 件（[image_cls_agent_test.cpp](../../src/algo/imagecls/src/image_cls_agent_test.cpp) の `[image_cls][trace]`）が、`ExtractNnTrace` で鍵と形を見る。このほか [nn_test.cpp](../../src/core/base/src/nn_test.cpp) の 2 件が、`Network::Forward` に callback の関数を直接渡して、押し出された Tensor を見る（3 か所） |
 
 背景評価の Runner には、Conv2d の pane も画像記録も付かない。
 
@@ -70,16 +70,16 @@ step を進めているのは次の 3 者である。
 
 | 進める側 | 呼び方 |
 |---|---|
-| EvalPanel（GUI のスレッド） | タイマーが `DoUpdateFrame`、手動の step が `DoStep()`、手動の行動が `EvalRunner::DoStep(action)`（[EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp)） |
-| 学習側（`RunnerThread` のスレッド） | `DoUpdateFrame(1, …)` を繰り返す（[trainer.cpp](../../core/anet-core/src/trainer.cpp) の `RunnerThread::ProcessStep`）。`RunnerThread` は RunnerApp が作る |
+| EvalPanel（GUI のスレッド） | タイマーが `DoUpdateFrame`、手動の step が `DoStep()`、手動の行動が `EvalRunner::DoStep(action)`（[EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp)） |
+| 学習側（`RunnerThread` のスレッド） | `DoUpdateFrame(1, …)` を繰り返す（[trainer.cpp](../../src/core/base/src/trainer.cpp) の `RunnerThread::ProcessStep`）。`RunnerThread` は RunnerApp が作る |
 | 背景評価 | `EvalRunner::RunSession` |
 
-このほか、Q-Values の pane（[QValuePanel.cpp](../../apps/runner/src/QValuePanel.cpp)）に、行動の受け口が設定されていないときに `EvalRunner::DoStep(action)` を直接呼ぶ予備の経路がある。本番では RunnerFrame が受け口を設定するので通らない。
+このほか、Q-Values の pane（[QValuePanel.cpp](../../src/apps/runner/src/QValuePanel.cpp)）に、行動の受け口が設定されていないときに `EvalRunner::DoStep(action)` を直接呼ぶ予備の経路がある。本番では RunnerFrame が受け口を設定するので通らない。
 
 呼び出し側には、向きの違う 2 つの仕組みがある。
 
 - 出力（結果を配る）: 読む側が `Notifier` に Observer を付けておくと、step のたびに通知が届く。
-- 入力（step に渡す）: `EvalRunner::DoStep(action)` が、手動の行動を呼び出しごとの引数で受ける。基底の `Runner::DoStep`・`DoUpdateFrame` には無く、`EvalRunner` の `DoStep` はオーバーロードが 4 本ある（[trainer.hpp](../../core/anet-core/include/anet/trainer.hpp)）。
+- 入力（step に渡す）: `EvalRunner::DoStep(action)` が、手動の行動を呼び出しごとの引数で受ける。基底の `Runner::DoStep`・`DoUpdateFrame` には無く、`EvalRunner` の `DoStep` はオーバーロードが 4 本ある（[trainer.hpp](../../src/core/base/include/anet/trainer.hpp)）。
 
 Learner の診断は、学習の前に 1 回だけ渡す購読ヒント（`Agent::ConfigureScalarMetricSubscriptions`、ADR 0031）で「何が要るか」を受ける。Conv2d の pane は Run の途中で開閉するので、この経路には乗らない。
 
@@ -394,18 +394,18 @@ Conv2d の pane を開いた直後は、次の `MakeAction` から nn_trace が�
 
 | 対象 | すること |
 |---|---|
-| [common.hpp](../../core/anet-core/include/anet/common.hpp) | `TraceCallback` を消す |
-| [nn.hpp](../../core/anet-core/include/anet/nn.hpp)、[nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp)、[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) | callback の引数を消す（D9）。capture を入口で Context に入れる（D10）。`NetworkStruct` が nn_trace を capture に書く（D5・D8）。接頭辞の定数を置く |
-| [rl.hpp](../../core/anet-core/include/anet/rl.hpp)、[rl.cpp](../../core/anet-core/src/rl.cpp) | `MakeActionOptions` を足す。`Actor::MakeAction`、`Runner::DoStep`・`DoUpdateFrame` の引数。`MakeActionTraceCallback` を消す。`kNnTracePrefix` を NN 層の定数に替える |
-| [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp)、[trainer.cpp](../../core/anet-core/src/trainer.cpp) | Runner の各クラスと `RunnerThread`（§5.3） |
-| [dqn_based_agent.hpp](../../core/anet-core/src/dqn_based_agent.hpp)、[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) | `dqn::Actor::MakeAction`、`SelectAction` 系の宣言 7 つとその呼び出し |
-| [image_cls_agent.hpp](../../core/anet-core/include/anet/image_cls_agent.hpp)、[image_cls_agent.cpp](../../core/anet-core/src/image_cls_agent.cpp) | `ImageClsActor::MakeAction` |
-| [muzero_based_agent.hpp](../../core/anet-core/src/muzero_based_agent.hpp)、[muzero_based_agent.cpp](../../core/anet-core/src/muzero_based_agent.cpp) | `MuZeroActor::MakeAction` の引数と、`nn_trace` を求められたときの WARN（D12） |
-| [EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp)、[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp)、[RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) | §5.4 の値を渡す |
-| テスト: [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) | `[native_stack]` の 5 件は、`nn_trace` を真にして呼ぶ形に直す。`SelectAction` の差し替え部品 2 つと `MakeAction` の差し替え部品 1 つの引数を合わせる |
-| テスト: [image_cls_agent_test.cpp](../../core/anet-core/src/image_cls_agent_test.cpp) | `[image_cls][trace]` の 1 件は、`nn_trace` を真にして呼ぶ形に直す |
-| テスト: [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp)、[observers_test.cpp](../../core/anet-core/src/observers_test.cpp)、[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp) | `MakeAction` の差し替え部品と、Runner の差し替え部品（`TestRunner`・`ThrowingRunner`）の引数を合わせる |
-| テスト: [nn_test.cpp](../../core/anet-core/src/nn_test.cpp) | `Network::Forward` に callback の関数を直接渡している呼び出しが 3 か所ある（`[nn][trace]` の「Network forward trace captures branch-prefixed visual layers」に 1 か所、`[nn][branch_capture][plasticity]` の「Network branch capture returns the actual forward feature without changing outputs」に 2 か所）。`nn_trace/` を要求する capture で書き直し、確かめている中身（鍵の頭に branch 名が付くこと、capture の有無で値が変わらないこと）を保つ |
+| [common.hpp](../../src/core/base/include/anet/common.hpp) | `TraceCallback` を消す |
+| [nn.hpp](../../src/core/base/include/anet/nn.hpp)、[nn_impl.hpp](../../src/core/base/src/nn_impl.hpp)、[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) | callback の引数を消す（D9）。capture を入口で Context に入れる（D10）。`NetworkStruct` が nn_trace を capture に書く（D5・D8）。接頭辞の定数を置く |
+| [rl.hpp](../../src/core/base/include/anet/rl.hpp)、[rl.cpp](../../src/core/base/src/rl.cpp) | `MakeActionOptions` を足す。`Actor::MakeAction`、`Runner::DoStep`・`DoUpdateFrame` の引数。`MakeActionTraceCallback` を消す。`kNnTracePrefix` を NN 層の定数に替える |
+| [trainer.hpp](../../src/core/base/include/anet/trainer.hpp)、[trainer.cpp](../../src/core/base/src/trainer.cpp) | Runner の各クラスと `RunnerThread`（§5.3） |
+| [dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp)、[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) | `dqn::Actor::MakeAction`、`SelectAction` 系の宣言 7 つとその呼び出し |
+| [image_cls_agent.hpp](../../src/algo/imagecls/src/image_cls_agent.hpp)、[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp) | `ImageClsActor::MakeAction` |
+| [muzero_based_agent.hpp](../../src/algo/muzero/src/muzero_based_agent.hpp)、[muzero_based_agent.cpp](../../src/algo/muzero/src/muzero_based_agent.cpp) | `MuZeroActor::MakeAction` の引数と、`nn_trace` を求められたときの WARN（D12） |
+| [EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp)、[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp)、[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) | §5.4 の値を渡す |
+| テスト: [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) | `[native_stack]` の 5 件は、`nn_trace` を真にして呼ぶ形に直す。`SelectAction` の差し替え部品 2 つと `MakeAction` の差し替え部品 1 つの引数を合わせる |
+| テスト: [image_cls_agent_test.cpp](../../src/algo/imagecls/src/image_cls_agent_test.cpp) | `[image_cls][trace]` の 1 件は、`nn_trace` を真にして呼ぶ形に直す |
+| テスト: [episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp)、[observers_test.cpp](../../src/core/base/src/observers_test.cpp)、[trainer_test.cpp](../../src/core/base/src/trainer_test.cpp) | `MakeAction` の差し替え部品と、Runner の差し替え部品（`TestRunner`・`ThrowingRunner`）の引数を合わせる |
+| テスト: [nn_test.cpp](../../src/core/base/src/nn_test.cpp) | `Network::Forward` に callback の関数を直接渡している呼び出しが 3 か所ある（`[nn][trace]` の「Network forward trace captures branch-prefixed visual layers」に 1 か所、`[nn][branch_capture][plasticity]` の「Network branch capture returns the actual forward feature without changing outputs」に 2 か所）。`nn_trace/` を要求する capture で書き直し、確かめている中身（鍵の頭に branch 名が付くこと、capture の有無で値が変わらないこと）を保つ |
 | 設計文書 [130_neural_networks.jp.md](../design/130_neural_networks.jp.md) | `TraceCallback` を書いている 3 か所を直す。(1) forward の説明の「`TraceCallback` を渡すと中間 Tensor を収集できる」は、capture で `nn_trace/` を要求する記述にする。(2)「`GetTensorDictFunction` と TraceCallback が Network 内部へ到達する口」は、capture にする。(3) capture の節の「capture を渡さない forward は、TraceCallback と Actor の数値経路も維持する」は、`TraceCallback` への言及を外す。あわせて capture の節に、nn_trace の鍵と書き手（`NetworkStruct`）を足す |
 | 設計文書 [110_agents_and_learning.jp.md](../design/110_agents_and_learning.jp.md) | Actor の契約とクラス図に、`MakeAction` の 3 つ目の入力と、nn_trace を要求した呼び出しだけ作ることを足す |
 | 設計文書 [100_runtime_and_configuration.jp.md](../design/100_runtime_and_configuration.jp.md) | Runner の `DoStep`・`DoUpdateFrame` が `MakeActionOptions` を受け、そのまま Actor へ渡すことを足す |
@@ -422,7 +422,7 @@ Conv2d の pane を開いた直後は、次の `MakeAction` から nn_trace が�
 
 | issue | 題 | area | 根拠の位置 | 確定事項 | 受入 |
 |---|---|---|---|---|---|
-| [issue-20261103-6a32b4](../management/issues/issue-20261103-6a32b4.md) | forward の名前付き出力を NetworkForwardCapture に一本化する | 315_nn、321_agent_core、318_rl_core、312_util | [nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) の `NetworkStruct::Forward`・`NetworkBody::Forward`・`RunForward`、[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の `Actor::MakeAction` | D1〜D18（2026-11-11 の追記は D10） | A1〜A13 |
+| [issue-20261103-6a32b4](../management/issues/issue-20261103-6a32b4.md) | forward の名前付き出力を NetworkForwardCapture に一本化する | 315_nn、321_agent_core、318_rl_core、312_util | [nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) の `NetworkStruct::Forward`・`NetworkBody::Forward`・`RunForward`、[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `Actor::MakeAction` | D1〜D18（2026-11-11 の追記は D10） | A1〜A13 |
 
 ## 7. 受入
 
@@ -440,8 +440,8 @@ Conv2d の pane を開いた直後は、次の `MakeAction` から nn_trace が�
 - **A7（D14）**: `interval` が 1 以上の Conv2d の画像記録を `metrics.image.*` に登録した構成で起動するテストで、学習側の通知の `action_info` に `nn_trace/` で始まる鍵がある。`interval = 0` の Conv2d の画像記録だけを登録した構成（出荷の DropMerge・ImageCls と同じ形）と、登録しない構成では無い。
 - **A8（D12）**: テストが、作ったばかりの `MuZeroActor` 1 つに、次の順で 3 回 `MakeAction` を呼んで確かめる。(1) まず `nn_trace` を偽で呼ぶ。WARN のログは出ない。(2) 続けて真で呼ぶ。AuxData に `nn_trace/` で始まる鍵が無く、WARN のログが 1 件出る。(3) もう一度真で呼ぶ。AuxData に `nn_trace/` で始まる鍵が無く、WARN のログは増えない。
 - **A9（G1）**: `git grep -n "TraceCallback"` と `git grep -n "MakeActionTraceCallback"` を `core/`・`apps/`・`CONTEXT.md`・`docs/design/` の範囲で引き、どちらも 0 件である。`docs/memo/`・`docs/adr/`・`docs/wiki/`・`docs/management/` は過去の記録と経緯を含むので、範囲に入れない。
-- **A10（D10）**: [nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp) の `NetworkBody` の `Forward`・`ForwardUpTo` の宣言と、[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) の `RunForward` の宣言に、`NetworkForwardCapture` が現れない。
-- **A11（093 を変えない）**: capture を渡さない forward の数値が変わらない。着手前に保存した実行体と実装後の実行体に同じ設定を渡し、[PRD103 の検証資材](../../core/anet-core/testdata/prd103/README.md)の 6 構成（seed 1 つ、決定的なモード、同じ短縮条件と比べ方）で、metrics checksum が前後で一致する。比べる対象から除くのは、検証資材が除いている性能と資源の群だけである（Run ごとに変わるため）。checkpoint のファイルの SHA は比べない（直列化が決定的でないため）。093 の attention 診断と可塑性メトリクスの既存のテストが通る。
+- **A10（D10）**: [nn_impl.hpp](../../src/core/base/src/nn_impl.hpp) の `NetworkBody` の `Forward`・`ForwardUpTo` の宣言と、[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) の `RunForward` の宣言に、`NetworkForwardCapture` が現れない。
+- **A11（093 を変えない）**: capture を渡さない forward の数値が変わらない。着手前に保存した実行体と実装後の実行体に同じ設定を渡し、[PRD103 の検証資材](../../src/core/base/testdata/prd103/README.md)の 6 構成（seed 1 つ、決定的なモード、同じ短縮条件と比べ方）で、metrics checksum が前後で一致する。比べる対象から除くのは、検証資材が除いている性能と資源の群だけである（Run ごとに変わるため）。checkpoint のファイルの SHA は比べない（直列化が決定的でないため）。093 の attention 診断と可塑性メトリクスの既存のテストが通る。
 - **A12**: 着手前に既定のテスト一式を流して結果を控え、実装後に流した結果と比べて、失敗するテストが増えていない。
 - **A13（流れの図）**: [140_observability.jp.md](../design/140_observability.jp.md) の §5 に、nn_trace の要求の流れのシーケンス図がある。図の登場者に、step を進める側（EvalPanel）、Runner、Actor、NN の forward、`Notifier`、読む側（Conv2d の pane）があり、`MakeActionOptions` が step を進める側から Runner、Actor へ渡ること、capture で取り出した nn_trace が AuxData に載って通知で読む側へ届くこと、要求しない step では作らないことが、図から読める。
 

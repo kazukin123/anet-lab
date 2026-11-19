@@ -1,0 +1,224 @@
+#include "anet/test/catch.hpp"
+
+#include "anet/init.hpp"
+#include "anet/test/util.hpp"
+#include "anet/metrics_logger.hpp"
+#include "anet/tensor_util.hpp"
+
+#include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace {
+
+constexpr const char* kCudaLaunchBlockingEnv = "CUDA_LAUNCH_BLOCKING";
+
+class CapturingBackend final : public anet::IBackend {
+public:
+    void Open(const std::filesystem::path&, const std::string&) override {}
+    void WriteJsonl(const anet::json& obj) override { records.push_back(obj); }
+    void Flush() override {}
+
+    std::vector<anet::json> records;
+};
+
+std::optional<std::string> GetEnvValue(const char* name)
+{
+    const char* value = std::getenv(name);
+    if (value == nullptr) return std::nullopt;
+    return std::string(value);
+}
+
+int SetEnvValue(const char* name, const std::optional<std::string>& value)
+{
+#ifdef _WIN32
+    return _putenv_s(name, value.has_value() ? value->c_str() : "");
+#else
+    return value.has_value() ? setenv(name, value->c_str(), 1) : unsetenv(name);
+#endif
+}
+
+class EnvVarGuard {
+public:
+    explicit EnvVarGuard(const char* name)
+        : name_(name)
+        , old_value_(GetEnvValue(name))
+    {
+    }
+
+    ~EnvVarGuard()
+    {
+        (void)SetEnvValue(name_, old_value_);
+    }
+
+    EnvVarGuard(const EnvVarGuard&) = delete;
+    EnvVarGuard& operator=(const EnvVarGuard&) = delete;
+
+private:
+    const char* name_;
+    std::optional<std::string> old_value_;
+};
+
+anet::rl::BackendConfig MakeBackendConfig(const std::string& value)
+{
+    anet::ConfigData config_data;
+    config_data.Set("backend.cuda_launch_blocking", value);
+    return anet::rl::BackendConfig(config_data);
+}
+
+void InitCapturingLogger(CapturingBackend*& backend_raw, const std::string& run_name)
+{
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "anet-core-init-test";
+    std::filesystem::remove_all(root);
+
+    anet::MetricsLogger::Reset();
+    auto backend = std::make_unique<CapturingBackend>();
+    backend_raw = backend.get();
+
+    anet::MetricsLoggerConfig logger_config;
+    logger_config.run_name_tmpl = run_name;
+    anet::MetricsLogger::Init(std::move(backend), logger_config, root);
+}
+
+bool ContainsText(const std::string& text, const std::string& pattern)
+{
+    return text.find(pattern) != std::string::npos;
+}
+
+} // namespace
+
+TEST_CASE("BackendConfig normalizes cuda_launch_blocking values", "[backend][config]")
+{
+    CHECK(anet::rl::BackendConfig().cuda_launch_blocking == "inherit");
+
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"on", "on"},
+        {"true", "on"},
+        {"1", "on"},
+        {"off", "off"},
+        {"false", "off"},
+        {"0", "off"},
+        {"inherit", "inherit"},
+        {" ON ", "on"},
+        {" FALSE ", "off"},
+    };
+
+    for (const auto& [input, expected] : cases) {
+        const auto config = MakeBackendConfig(input);
+        CHECK(config.cuda_launch_blocking == expected);
+        CHECK(config.ToJson().at("cuda_launch_blocking") == expected);
+    }
+}
+
+TEST_CASE("BackendConfig rejects invalid cuda_launch_blocking values", "[backend][config]")
+{
+    try {
+        (void)MakeBackendConfig("debug");
+        FAIL("BackendConfig should reject invalid backend.cuda_launch_blocking");
+    } catch (const std::exception& e) {
+        const std::string message = e.what();
+        CHECK(ContainsText(message, "backend.cuda_launch_blocking"));
+        CHECK(ContainsText(message, "debug"));
+        CHECK(ContainsText(message, "expected on, off, inherit"));
+    }
+}
+
+TEST_CASE("PRD070 parses device specifications and preserves current CUDA index", "[device][prd070]")
+{
+    // 値の文法とautoの選択を公開パーサ経由で確認する。
+    CHECK(anet::ParseDevice(" CPU ").str() == "cpu");
+    CHECK(anet::ParseDevice("CuDa").is_cuda());
+    CHECK(anet::ParseDevice("CuDa").index() == -1);
+    CHECK(anet::ParseDevice(" CUDA:1 ").index() == 1);
+    CHECK(anet::ParseDevice("auto").is_cuda() == torch::cuda::is_available());
+
+    for (const auto* invalid : {"", "cpu:0", "cuda:", "cuda:-1", "cuda:+1", "cuda:x", "mps"}) {
+        INFO(invalid);
+        CHECK_THROWS(anet::ParseDevice(invalid));
+    }
+}
+
+TEST_CASE("PRD070 reports every explicit CUDA key before NN initialization", "[device][prd070]")
+{
+    if (torch::cuda::is_available()) SKIP("CUDA is available");
+
+    CapturingBackend* backend_raw = nullptr;
+    InitCapturingLogger(backend_raw, "explicit_cuda_unavailable_test");
+    anet::ConfigData config_data;
+    config_data.Set("agent.device", "cuda");
+    config_data.Set("env.device", "cuda:1");
+    config_data.Set("run.eval_device", "cpu");
+    try {
+        anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
+        FAIL("Explicit CUDA must fail before NN initialization");
+    } catch (const std::exception& e) {
+        const std::string message = e.what();
+        CHECK(ContainsText(message, "agent.device"));
+        CHECK(ContainsText(message, "env.device"));
+        CHECK(ContainsText(message, "auto"));
+    }
+    CHECK(config_data.Get("agent.device") == "cuda");
+    anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("InitRL applies cuda_launch_blocking off and records the effective environment", "[backend][env]")
+{
+    EnvVarGuard guard(kCudaLaunchBlockingEnv);
+    REQUIRE(SetEnvValue(kCudaLaunchBlockingEnv, std::string("1")) == 0);
+
+    CapturingBackend* backend_raw = nullptr;
+    InitCapturingLogger(backend_raw, "cuda_launch_blocking_off_test");
+
+    anet::ConfigData config_data;
+    config_data.Set("backend.cuda_launch_blocking", "off");
+    anet::test::LogCaptureGuard logs;
+    anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
+    // 1回目の上書き後に同じ不一致を作り直し、通知だけが重複しないことを確認する。
+    REQUIRE(SetEnvValue(kCudaLaunchBlockingEnv, std::string("1")) == 0);
+    anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
+    logs.Flush();
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+        {"CUDA_LAUNCH_BLOCKING overridden", "previous=1", "requested=off", "effective=0"}));
+    CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [](const auto& record) {
+        return record.level == wxLOG_Message && record.message.find("CUDA_LAUNCH_BLOCKING overridden") != std::string::npos;
+    }) == 1);
+    CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
+
+    REQUIRE(GetEnvValue(kCudaLaunchBlockingEnv).has_value());
+    CHECK(*GetEnvValue(kCudaLaunchBlockingEnv) == "0");
+
+    anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("InitRL leaves CUDA_LAUNCH_BLOCKING unchanged for inherit", "[backend][env]")
+{
+    EnvVarGuard guard(kCudaLaunchBlockingEnv);
+    REQUIRE(SetEnvValue(kCudaLaunchBlockingEnv, std::string("1")) == 0);
+
+    CapturingBackend* backend_raw = nullptr;
+    InitCapturingLogger(backend_raw, "cuda_launch_blocking_inherit_test");
+
+    anet::rl::InitRL(anet::rl::BackendConfig(), anet::EmptyConfigData);
+
+    REQUIRE(GetEnvValue(kCudaLaunchBlockingEnv).has_value());
+    CHECK(*GetEnvValue(kCudaLaunchBlockingEnv) == "1");
+
+    anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("InitRL rejects an invalid device when only that key is specified", "[prd122][prd070][device]")
+{
+    // 未指定の2キーを足さず、書かれた1キーの失敗が識別できることを確認する。
+    const auto* key = GENERATE("agent.device", "env.device", "run.eval_device");
+    CapturingBackend* backend = nullptr;
+    InitCapturingLogger(backend, "prd122_explicit_device");
+    anet::ConfigData data;
+    data.Set(key, "invalid-device");
+    CHECK_THROWS_WITH(anet::rl::InitRL(anet::rl::BackendConfig(), data),
+        Catch::Matchers::ContainsSubstring(key));
+    anet::MetricsLogger::Reset();
+}

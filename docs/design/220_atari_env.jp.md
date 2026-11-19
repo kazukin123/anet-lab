@@ -102,21 +102,21 @@ ALE の設定は `setBool/setInt/setFloat/setString` で行い、**未登録キ�
 
 ### 3.4 ライセンス（ADR 0025）
 
-ALE は GPL-2.0。①非同梱（外部参照）②オプショナルビルド ③リリースパッケージ除外（リリースビルドは `ANET_ENABLE_ATARI=OFF`）④`core/envs/atari1/NOTICE.md` に GPL 注意書き、で本体 Apache-2.0 を維持する。
+ALE は GPL-2.0。①非同梱（外部参照）②オプショナルビルド ③リリースパッケージ除外（リリースビルドは `ANET_ENABLE_ATARI=OFF`）④`src/env/atari/NOTICE.md` に GPL 注意書き、で本体 Apache-2.0 を維持する。
 
 ## 4. AtariEnv 仕様
 
 ### 4.1 モジュール構成
 
 ```
-core/envs/atari1/include/anet/env/Atari.hpp   … void InitAtari();
-core/envs/atari1/src/Atari.cpp                … factory + view creator 登録
-core/envs/atari1/src/AtariEnv.hpp/.cpp        … AtariEnvConfig / AtariEnv / AtariEnvFactory
-core/envs/atari1/src/AtariPreprocess.hpp/.cpp … 前処理関数とGrayscaleResizer（named namespace、ALE非依存）
-core/envs/atari1/src/AtariView.hpp/.cpp       … AtariView（§5）
-core/envs/atari1/src/AtariEnv_test.cpp
-core/envs/atari1/src/pch.hpp
-core/envs/atari1/NOTICE.md
+src/env/atari/include/anet/env/Atari.hpp   … void InitAtari();
+src/env/atari/src/Atari.cpp                … factory + view creator 登録
+src/env/atari/src/AtariEnv.hpp/.cpp        … AtariEnvConfig / AtariEnv / AtariEnvFactory
+src/env/atari/src/AtariPreprocess.hpp/.cpp … 前処理関数とGrayscaleResizer（named namespace、ALE非依存）
+src/env/atari/src/AtariView.hpp/.cpp       … AtariView（§5）
+src/env/atari/src/AtariEnv_test.cpp
+src/env/atari/src/pch.hpp
+src/env/atari/NOTICE.md
 ```
 
 class_id は `AtariEnv`。`AtariEnv : public SingleDiscreteEnvBase, public anet::RandomHolder`。
@@ -246,7 +246,7 @@ Step結果は生成時の値を保持し、Resetや通知後も変わらない�
 
 **ゲーム完了の verbose ログ。** 上表の確定と同じ時点・同じ値で 1 行出す（`Game over.` または `Game truncated by max_episode_frames.` に `game_score` / `game_len` / `game_frames` が続く）。番号付き RAM 定義がある場合は末尾へ ` ram_metric: floor_clear=0 boss_kill=0` を番号順で足す。prefix は lane 名（`env.[train].[0]:` / `env.[EvalPanel].[0]:` など）。Run のログファイルには常に残り、`app.log_panel.level` は LogPanel の表示だけを絞る。metrics / trace を持たない EvalPanel のゲームも、ここからミリ秒の時刻付きで追える。
 
-**集約の分母に注意。** ゲーム単位のキーはlife-only終端でNaNを返し、episode_endでは実game over/truncationだけが集約に入るため、バッチ集約は NaN を分母から除外する（`core/anet-core/src/util.cpp`。全 env が NaN なら結果も NaN）。したがって `mean.game_score` の分母は num_envs ではなく **その step で実際にゲームを終えた env の数**であり、複数 env が同時に終えたときだけ複数ゲームの平均になる。同時完了率は λ = num_envs / 平均ゲーム長 で決まり、Breakout（128 env / 約 1,900 step、λ ≈ 0.07）では実測 97% が単独完了なので、`mean.` の系列は事実上「ゲーム 1 回の素点の列」である。ゲーム長が短い題材ほど平均化が効いてピークが潰れるため、ゲーム横断の比較では `max.` を併置して読む。`lives` だけは常時確定なので分母は num_envs であり、これは本物のバッチ平均になる。
+**集約の分母に注意。** ゲーム単位のキーはlife-only終端でNaNを返し、episode_endでは実game over/truncationだけが集約に入るため、バッチ集約は NaN を分母から除外する（`src/core/base/src/util.cpp`。全 env が NaN なら結果も NaN）。したがって `mean.game_score` の分母は num_envs ではなく **その step で実際にゲームを終えた env の数**であり、複数 env が同時に終えたときだけ複数ゲームの平均になる。同時完了率は λ = num_envs / 平均ゲーム長 で決まり、Breakout（128 env / 約 1,900 step、λ ≈ 0.07）では実測 97% が単独完了なので、`mean.` の系列は事実上「ゲーム 1 回の素点の列」である。ゲーム長が短い題材ほど平均化が効いてピークが潰れるため、ゲーム横断の比較では `max.` を併置して読む。`lives` だけは常時確定なので分母は num_envs であり、これは本物のバッチ平均になる。
 
 `game_score.ge.[N]` はこの分母を `game_score` と共有する 0/1 指標で、`mean.` を取ると「その step でゲームを終えた env のうち N 点以上だった割合」になる。窓平均すれば発火イベント単位ではなく**ゲーム 1 回単位の割合**が得られるため、閾値越えの頻度を見る用途では `mean.` の潰れと `max.` の飽和の両方を避けられる（`mean.` は二山分布の両端を潰し、`max.` は評価セッションの episode 数を増やすほど飽和する）。Breakout の 1 画面 = 432 のようにゲーム依存の閾値は §4.8 の HNS 表と違いキー側のパラメータで持つ。1 Run で複数の閾値を同時に測るためと、閾値がゲームの物理定数ではなく解析上の判定基準だからである。
 
@@ -331,15 +331,15 @@ montezuma_revenge には面の区切りが無いので、1 には到達した最
 ## 6. ビルド統合
 
 - 三値 cache 変数 `ANET_ENABLE_ATARI` = `AUTO`（既定）/`ON`/`OFF`。AUTO は `ALE_ROOT` の存在と `src/ale/ale_interface.hpp` の実在で判定。ON で不備なら configure エラー。判定結果は STATUS ログへ。
-- 有効時のみ: `add_subdirectory(core/envs/atari1)`、runner へ `AtariEnv` リンク + `ANET_HAS_ATARI` 定義、`RunnerApp.cpp` の `#ifdef ANET_HAS_ATARI` で `InitAtari()`。
+- 有効時のみ: `add_subdirectory(src/env/atari)`、runner へ `AtariEnv` リンク + `ANET_HAS_ATARI` 定義、`RunnerApp.cpp` の `#ifdef ANET_HAS_ATARI` で `InitAtari()`。
 - ale.lib は `$<IF:$<CONFIG:Debug>,Debug,Release>` で選択（RelWithDebInfo は Release 側。IDL/CRT 整合）。
 - テストは module と同時ビルド。通常の ROM 依存ケースは `ATARI_ROM_DIR` 未解決なら Catch2 `SKIP()`。PRD097 の必須受入 `[prd097_atari]` は Asterix ROM の利用を `REQUIRE` で検査し、未解決を合格・skip扱いにしない。前処理 golden テストは常時実行。
 
 ### 6.1 テストと拡張時の確認事項
 
-縮小方式の変更時は[PRD099検証手順](../../core/anet-core/testdata/prd099/README.md)を参照する。固定24画像は各画像で全画素差1以下・99.9%以上一致を要求し、既定の学習系列のchecksumを保持する。性能受入は84×84・64 envの交互比較で速度比中央値0.98以上、現行同士の対照が1%以内に収まらない場合は判定保留とする。
+縮小方式の変更時は[PRD099検証手順](../../src/core/base/testdata/prd099/README.md)を参照する。固定24画像は各画像で全画素差1以下・99.9%以上一致を要求し、既定の学習系列のchecksumを保持する。性能受入は84×84・64 envの交互比較で速度比中央値0.98以上、現行同士の対照が1%以内に収まらない場合は判定保留とする。
 
-RAM 定義の番号や畳み方を変更するときは [PRD082 検証手順](../../core/anet-core/testdata/prd082/README.md) の ROM 不要テストと ROM 依存テストを確認する。未番号付け定義は検証のみ行い、AuxData・ログ・`GetScalar` へ出さない。既定 `Atari.txt` の群ごとの RAM 指標の揃いとプロトコルプリセットの値は、anet-core-test の `[shipped_config][atari]`（`config_baseline_test.cpp`）が検査する。
+RAM 定義の番号や畳み方を変更するときは [PRD082 検証手順](../../src/core/base/testdata/prd082/README.md) の ROM 不要テストと ROM 依存テストを確認する。未番号付け定義は検証のみ行い、AuxData・ログ・`GetScalar` へ出さない。既定 `Atari.txt` の群ごとの RAM 指標の揃いとプロトコルプリセットの値は、anet-core-base-test の `[shipped_config][atari]`（`config_baseline_test.cpp`）が検査する。
 
 ## 7. 関連文書
 
@@ -349,4 +349,4 @@ RAM 定義の番号や畳み方を変更するときは [PRD082 検証手順](..
 - `reports/atari_env_survey_2026-08-13.md` — ALE サーベイ（プロトコル・ベンチマーク動向）
 - `CONTEXT.md` — 用語（sticky actions / flavor / 生スコア / プロトコルプリセット）
 
-遷移の観測・RGB・auxは残機喪失時の補助NOOPより前に作る。NOOPでゲームが終わったとき、Step結果のゲーム確定値にはNOOPの得点とframeを含めるが、返すreward/next_state/RGB/livesは置き換えない。AtariViewは結果のrgb_frameを表示するため、自動Reset後の画面へずれない。結果は後続StepやResetから独立し、envへ完了値を持ち越さない。受入AsterixのRAM条件と公開API試験は[PRD097検証手順](../../core/anet-core/testdata/prd097/README.md)を参照する。
+遷移の観測・RGB・auxは残機喪失時の補助NOOPより前に作る。NOOPでゲームが終わったとき、Step結果のゲーム確定値にはNOOPの得点とframeを含めるが、返すreward/next_state/RGB/livesは置き換えない。AtariViewは結果のrgb_frameを表示するため、自動Reset後の画面へずれない。結果は後続StepやResetから独立し、envへ完了値を持ち越さない。受入AsterixのRAM条件と公開API試験は[PRD097検証手順](../../src/core/base/testdata/prd097/README.md)を参照する。

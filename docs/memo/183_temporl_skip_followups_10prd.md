@@ -27,12 +27,12 @@ PRD098 で入れたスキップ（選んだ行動を続ける長さの学習）�
 
 - skip Network（Head を含む）は primary と別の Network である。スキップの目標値の終点の価値は行動価値（primary）で測り、スキップ価値自身の target は Learner で使わない（[PRD098](098_temporl_skip_policy_10prd.md) D3・§5.4）。このため、skip Head の出力を何組に増やしても、目標値はどの組でも同じになる。
 - スキップの目標値の終点の価値は、Q と同じ target 方策に従う。Double DQN が有効なら online の argmax と target の値、Munchausen なら soft value（PRD098 §5.4）。
-- skip Head の出力は、分離型が全行動分のスキップ長ごとの値、包含型が入力した行動のスキップ長ごとの値で、分布型では分位の分布（`skip_q_dist`）とその平均（`skip_q`）を出す（[dqn_based_heads.cpp:87-125](../../core/anet-core/src/dqn_based_heads.cpp)、PRD098 §5.3）。
-- Actor は lane ごとに「続けている行動」と「残りの step 数」を持つ。`episode_start` か残り 0 の lane だけが判断し、続けている lane は方策の提案を捨てて続けている行動で上書きする。j は skip の方策が選ぶ（[dqn_based_agent.cpp:2469-2526](../../core/anet-core/src/dqn_based_agent.cpp) の `Actor::ApplySkip`）。skip の方策は、既定で行動の方策と同じ規則・同じ値、`actor.[key].skip.policy.*` を書けば専用（PRD098 D9）。
+- skip Head の出力は、分離型が全行動分のスキップ長ごとの値、包含型が入力した行動のスキップ長ごとの値で、分布型では分位の分布（`skip_q_dist`）とその平均（`skip_q`）を出す（[dqn_based_heads.cpp:87-125](../../src/algo/dqn/src/dqn_based_heads.cpp)、PRD098 §5.3）。
+- Actor は lane ごとに「続けている行動」と「残りの step 数」を持つ。`episode_start` か残り 0 の lane だけが判断し、続けている lane は方策の提案を捨てて続けている行動で上書きする。j は skip の方策が選ぶ（[dqn_based_agent.cpp:2469-2526](../../src/core/base/src/dqn_based_agent.cpp) の `Actor::ApplySkip`）。skip の方策は、既定で行動の方策と同じ規則・同じ値、`actor.[key].skip.policy.*` を書けば専用（PRD098 D9）。
 - replay の窓は、判断の旗で区切った区間の中だけから作る。サンプルは起点の k_max 以下から 1 点 k を一様に引く（PRD098 D13）。全 k をマスク付きで一括するサンプルは、target の forward が J 倍になるので先送り（PRD098 §8）。k_max に比例する重みも先送り（同）。
 - スキップ中も全 lane で primary を forward する（PRD098 §5.5）。全 lane の行を前提にする読み手（step 診断、Actor Q ヒントと PER の初期優先度、margin 診断、spatial、Noisy の share=sample、stacker、replay の Push、QValuePanel、Evaluation Trace）がいて、一部の lane だけ forward を省く口は無い（PRD098 §2.3）。省略は範囲外（PRD098 §3・§8）。
 - skip Head の Dueling は、primary の Q(s,a) を基準にする形が実装済み（`skip.head.use_dueling`、PRD098 D8）。
-- Evaluation Trace は aux の `q_values` から、実行した行動の Q（q_sa）と状態価値 V を作る（PRD098 §2.3）。スキップを続けている step では、実行した行動は続けている行動なので、Munchausen が無効なら V − q_sa が D5 の G に当たる（Munchausen が有効なとき V は soft value になる。[dqn_based_agent.cpp:372-381](../../core/anet-core/src/dqn_based_agent.cpp)）。
+- Evaluation Trace は aux の `q_values` から、実行した行動の Q（q_sa）と状態価値 V を作る（PRD098 §2.3）。スキップを続けている step では、実行した行動は続けている行動なので、Munchausen が無効なら V − q_sa が D5 の G に当たる（Munchausen が有効なとき V は soft value になる。[dqn_based_agent.cpp:372-381](../../src/core/base/src/dqn_based_agent.cpp)）。
 
 ### 2.2 論文と後続の手法について分かっていること
 
@@ -260,7 +260,7 @@ Run は GridMaze-01 にある。
 
 受入（外から観測できるもの）。受入 1 は常に当て、受入 2〜4 は段 0 の結果で作った拡張の分だけに当てる（作らなかった拡張の単体テスト・tag・性能は問わない）。
 
-1. 3 つとも無効で、次の 6 つの比較の metrics checksum が、本書の前のビルドと一致する。比べ方と短縮条件は PRD098 の検証資材（[README](../../core/anet-core/testdata/prd098/README.md)）の段 0 と同じ（`90_perf/`・`91_resource/`・`92_resource/` を除く全 scalar 点の完全一致）。
+1. 3 つとも無効で、次の 6 つの比較の metrics checksum が、本書の前のビルドと一致する。比べ方と短縮条件は PRD098 の検証資材（[README](../../src/core/base/testdata/prd098/README.md)）の段 0 と同じ（`90_perf/`・`91_resource/`・`92_resource/` を除く全 scalar 点の完全一致）。
    - skip 無効: GridMaze、LunarLander、Atari BTR 基準、DropMerge nzrep 基準（PRD098 §7 の段 0 の 4 構成）。
    - skip 有効: GridMaze（現行の GridMaze.txt の既定。QR、分離型×遮断）、LunarLander（現行の LunarLander.txt の既定。IQN、分離型×遮断）。
 2. 単体テスト: E=1 の skip Head の形が今と同じ。E>1 の出力の形と平均。λ の加算（分布型のずらし）と E=1 の WARN。割り込みの判定（G と η、`episode_start`、残り 0 との重なり）と判断の旗。`all_k` の目標値の数値例（有効な k の印、done、truncated、判断の旗での区切り）。§5.1 の不正値と、`q_gap` で η が無いときのエラー。
@@ -303,7 +303,7 @@ Run は GridMaze-01 にある。
 
 ## 11. 参照
 
-- [PRD098 TempoRL 対応](098_temporl_skip_policy_10prd.md)、[PRD098 実装メモ](098_temporl_skip_policy_20impl.md)、[PRD098 の検証資材](../../core/anet-core/testdata/prd098/README.md)
+- [PRD098 TempoRL 対応](098_temporl_skip_policy_10prd.md)、[PRD098 実装メモ](098_temporl_skip_policy_20impl.md)、[PRD098 の検証資材](../../src/core/base/testdata/prd098/README.md)
 - [TempoRL 論文解説](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md)
 - [Atari の baseline（lane 数）](../experiments/default-dqn/atari/2026-08-17_baseline.md)、[Atari の lane 窓](../experiments/default-dqn/atari/2026-09-15_replay-lane-window.md)
 - [行動の時間尺度（wiki）](../wiki/mechanisms/temporal_abstraction.md)

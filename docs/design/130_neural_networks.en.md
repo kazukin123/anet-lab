@@ -125,15 +125,15 @@ net.branch.[merged].bind_concat_dim = -1
 
 | Area | Main files |
 |---|---|
-| Public consumer Config, CallInfo, Network, Executor, diagnostics, Builder | [nn.hpp](../../core/anet-core/include/anet/nn.hpp) |
-| Module/Head author interfaces, Body/Branch/Block/Repository | [nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp), [nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) |
-| Module implementations and registration | [nn_modules.cpp](../../core/anet-core/src/nn_modules.cpp) |
-| Agent Heads | [nn_heads.hpp](../../core/anet-core/src/nn_heads.hpp), [nn_heads.cpp](../../core/anet-core/src/nn_heads.cpp) |
-| DQN Heads | [dqn_based_heads.hpp](../../core/anet-core/src/dqn_based_heads.hpp), [dqn_based_heads.cpp](../../core/anet-core/src/dqn_based_heads.cpp) |
-| Shared TensorDict operations | [common.hpp](../../core/anet-core/include/anet/common.hpp), [common.cpp](../../core/anet-core/src/common.cpp) |
-| Tensor utilities | [tensor_util.hpp](../../core/anet-core/include/anet/tensor_util.hpp), [tensor_check.hpp](../../core/anet-core/include/anet/tensor_check.hpp) |
+| Public consumer Config, CallInfo, Network, Executor, diagnostics, Builder | [nn.hpp](../../src/core/base/include/anet/nn.hpp) |
+| Module/Head author interfaces, Body/Branch/Block/Repository | [nn_impl.hpp](../../src/core/base/src/nn_impl.hpp), [nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) |
+| Module implementations and registration | [nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) |
+| Agent Heads | [nn_heads.hpp](../../src/core/base/include/anet/nn_head.hpp), [nn_heads.cpp](../../src/core/base/src/nn_head.cpp) |
+| DQN Heads | [dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp), [dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp) |
+| Shared TensorDict operations | [common.hpp](../../src/core/base/include/anet/common.hpp), [common.cpp](../../src/core/base/src/common.cpp) |
+| Tensor utilities | [tensor_util.hpp](../../src/core/base/include/anet/tensor_util.hpp), [tensor_check.hpp](../../src/core/base/include/anet/tensor_check.hpp) |
 | Configuration examples | [nn.txt](../../apps/runner/config/nn.txt), [nn_cnx.txt](../../apps/runner/config/nn_cnx.txt) |
-| Unit tests | [nn_test.cpp](../../core/anet-core/src/nn_test.cpp) |
+| Unit tests | [nn_test.cpp](../../src/core/base/src/nn_test.cpp) |
 
 ### 4.1 Registered Module Categories
 
@@ -370,7 +370,7 @@ Cloning, hard/soft copying, and serialization include μ/σ parameters and exist
 
 ## 8. Tests and Extension Checks
 
-- [PRD117 validation resources](../../core/anet-core/testdata/prd117/README.md): closed validation of referenced blocks/profiles, handling of unreferenced definitions, and checks of the shipped configuration.
+- [PRD117 validation resources](../../src/core/base/testdata/prd117/README.md): closed validation of referenced blocks/profiles, handling of unreferenced definitions, and checks of the shipped configuration.
 
 When changing Networks, check the following:
 
@@ -383,11 +383,11 @@ When changing Networks, check the following:
 7. Preserve GraphViz/Trace and expose visualization support where needed.
 8. When extending bind, validate parsing, dependency order, cycles, runtime shapes, ToJson, GraphViz, and unused-input warnings under the same term/factor contract.
 
-See the [PRD 084 validation instructions](../../core/anet-core/testdata/prd084/README.md) for execution-setting ownership and independent Module / Head extension tests.
+See the [PRD 084 validation instructions](../../src/core/base/testdata/prd084/README.md) for execution-setting ownership and independent Module / Head extension tests.
 
-Main unit tests are in [nn_test.cpp](../../core/anet-core/src/nn_test.cpp); DQN/ImageCls tests also validate Agent integration.
+Main unit tests are in [nn_test.cpp](../../src/core/base/src/nn_test.cpp); DQN/ImageCls tests also validate Agent integration.
 
-- See the [PRD170 validation assets](../../core/anet-core/testdata/prd170/README.md) for nn_trace requests, full-value comparison, and propagation through Runner.
+- See the [PRD170 validation assets](../../src/core/base/testdata/prd170/README.md) for nn_trace requests, full-value comparison, and propagation through Runner.
 
 ## 9. Related Documents
 

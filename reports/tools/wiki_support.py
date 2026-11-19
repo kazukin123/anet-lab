@@ -24,8 +24,8 @@ class CategoryRules:
 
 def application_paths(key):
     # アプリケーションのページは分類keyより広い置き場全体を持つ。
-    return {'110_runner_app': ('apps/runner/',),
-            '120_metrics_viewer': ('apps/metrics-viewer/', 'viewers/metrics-viewer/')}[key]
+    return {'110_runner_app': ('src/apps/runner/', 'apps/runner/'),
+            '120_metrics_viewer': ('src/apps/metrics-viewer/', 'apps/metrics-viewer/')}[key]
 
 # 材料の集合はPRD095の契約どおりに限定する。英訳と派生ビューは含めない。
 MATERIAL_GLOBS = ('docs/experiments/**/*.md', 'reports/*.md',

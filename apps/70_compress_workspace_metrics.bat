@@ -1,4 +1,5 @@
 @echo off
+title %~nx0
 setlocal EnableExtensions DisableDelayedExpansion
 
 set "WORKSPACE_ARGUMENT="
@@ -46,11 +47,11 @@ if not defined WORKSPACE_ARGUMENT set "INTERACTIVE_MODE=1"
 set "WORKSPACE_SELECTION_EXIT="
 if defined WORKSPACE_ARGUMENT (
     echo [INFO] Resolving workspace: "%WORKSPACE_ARGUMENT%"
-    call "%~dp0runner\tools\resolve_workspace.bat" "%WORKSPACE_ARGUMENT%"
+    call "%~dp0tools\resolve_workspace.bat" "%WORKSPACE_ARGUMENT%"
 ) else (
     echo.
     echo Available workspaces:
-    call "%~dp0runner\tools\resolve_workspace.bat" --select-if-empty
+    call "%~dp0tools\resolve_workspace.bat" --select-if-empty
 )
 if errorlevel 1 (
     set "RESULT=1"
@@ -70,7 +71,7 @@ if not exist "%VENV_PYTHON%" (
     goto :finish
 )
 
-"%VENV_PYTHON%" "%~dp0runner\tools\compress_workspace_metrics.py" --workspace-root "%WORKSPACE_ROOT%" %DRY_RUN_ARGUMENT%
+"%VENV_PYTHON%" "%~dp0tools\compress_workspace_metrics.py" --workspace-root "%WORKSPACE_ROOT%" %DRY_RUN_ARGUMENT%
 set "RESULT=%ERRORLEVEL%"
 if defined INTERACTIVE_MODE (
     if not defined NO_PAUSE pause

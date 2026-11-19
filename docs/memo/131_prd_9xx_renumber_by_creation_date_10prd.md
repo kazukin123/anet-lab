@@ -64,9 +64,9 @@
 
    `PRD` を付けない番号だけの表記（「924 の採点」「[924](173_intrinsic_reward_novelty_10prd.md)」「912 に着手」など）も、今使っている文書に少なくとも 400 か所ある。件数や行番号などの別の意味の数を含むので、正確な数は実装の時点で 1 か所ずつ見て決める（§5.2）。
 10. コードに入った番号は次のとおり（`git grep -i prd918` を `core`・`apps`・`viewers`・`reports/tools`・`.agents`・`.claude` で引いた）。
-    - [config_baseline_test.cpp:665](../../core/anet-core/src/config_baseline_test.cpp)（テスト名の `PRD918` とタグ `[.][prd918-config]`）、同 667 行（環境変数 `ANET_PRD918_OUTPUT`）
-    - [episode_end_test.cpp:567](../../core/anet-core/src/episode_end_test.cpp)・607 行、[trainer_test.cpp:1250](../../core/anet-core/src/trainer_test.cpp)（タグ `[prd918]`）
-    - 検証資材 `core/anet-core/testdata/prd918/` の [README.md](../../core/anet-core/testdata/prd158/README.md) と [validate.py](../../core/anet-core/testdata/prd158/validate.py)（出力先 `.scratch/prd918`（12 行）、Run 名 `run_{t}_prd918_ll`（82・95 行））
+    - [config_baseline_test.cpp:665](../../src/core/base/src/config_baseline_test.cpp)（テスト名の `PRD918` とタグ `[.][prd918-config]`）、同 667 行（環境変数 `ANET_PRD918_OUTPUT`）
+    - [episode_end_test.cpp:567](../../src/core/base/src/episode_end_test.cpp)・607 行、[trainer_test.cpp:1250](../../src/core/base/src/trainer_test.cpp)（タグ `[prd918]`）
+    - 検証資材 `core/anet-core/testdata/prd918/` の [README.md](../../src/core/base/testdata/prd158/README.md) と [validate.py](../../src/core/base/testdata/prd158/validate.py)（出力先 `.scratch/prd918`（12 行）、Run 名 `run_{t}_prd918_ll`（82・95 行））
     - 設計文書 [140_observability.jp.md:417](../design/140_observability.jp.md)・en 418 行が、今の確かめ方としてこの検証資材を指す
 11. 番号を題の先頭に持つ PRD は、918（「PRD918:」と実装計画の「PRD918」）、938（「PRD938:」）、941（「PRD 999:」）、910（「999:」）である。941 の題を写した課題 [issue-20261103-a39330](../management/issues/issue-20261103-a39330.md) の `title` と `scope` も「PRD 999:」である。
 12. [CONTEXT.md:342](../../CONTEXT.md) の「PRD900」は、ファイルとして存在したことの無い番号で、921「直前行動観測の共通部品」の起票前の呼び名である（[done/040](done/040_dropmerge_prev_action_obs_10prd.md) の 5・175 行の「PRD900(Agent 側共通部品)」と、921 の題から読んだ）。

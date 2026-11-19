@@ -333,17 +333,17 @@ Only when the graph of the remembered tag has disappeared is the position restor
 
 | Area | Main files |
 |---|---|
-| Entry / configuration | [MetricsViewerApplication.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java), [MetricsViewerSettings.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/config/MetricsViewerSettings.java), [application.properties](../../apps/metrics-viewer/src/main/resources/application.properties) |
-| Scan / source identity | [RunScanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java), [MetricsSource.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
-| cache DB | [MetricsCacheDatabase.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java) |
-| Source reading | [SourceReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SourceReader.java), [RawFileReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RawFileReader.java), [GzipSessionReader.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipSessionReader.java), [GzipInputSessions.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipInputSessions.java) |
-| Ingestion | [MetricsIngestor.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java), [LodIngestWriter.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java), [LodBucket.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java) |
-| workspace / scheduling | [WorkspaceManager.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java), [IngestScheduler.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java), [LoadingThread.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java) |
-| query | [MetricsQueryCoordinator.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryCoordinator.java), [QueryCancelledException.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/QueryCancelledException.java), [MetricsRepository.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java), [MetricsQueryPlanner.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlanner.java), [MetricsRangeProjector.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRangeProjector.java), [LodPageCache.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java) |
-| API | [MetricsService.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java), [MetricsViewerController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java), [WorkspaceController.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceController.java), [view/model](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model), [MetricTraceEncoder.java](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/util/MetricTraceEncoder.java) |
-| browser UI | [index.html](../../apps/metrics-viewer/src/main/resources/static/index.html), [metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js), [metrics-viewer.css](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
-| test | [src/test/java](../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer) |
-| build | [pom.xml](../../apps/metrics-viewer/pom.xml), [checkstyle.xml](../../apps/metrics-viewer/checkstyle.xml) |
+| Entry / configuration | [MetricsViewerApplication.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/MetricsViewerApplication.java), [MetricsViewerSettings.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/config/MetricsViewerSettings.java), [application.properties](../../src/apps/metrics-viewer/src/main/resources/application.properties) |
+| Scan / source identity | [RunScanner.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java), [MetricsSource.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java) |
+| cache DB | [MetricsCacheDatabase.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java) |
+| Source reading | [SourceReader.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SourceReader.java), [RawFileReader.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RawFileReader.java), [GzipSessionReader.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipSessionReader.java), [GzipInputSessions.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipInputSessions.java) |
+| Ingestion | [MetricsIngestor.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java), [LodIngestWriter.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodIngestWriter.java), [LodBucket.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodBucket.java) |
+| workspace / scheduling | [WorkspaceManager.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/WorkspaceManager.java), [IngestScheduler.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java), [LoadingThread.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThread.java) |
+| query | [MetricsQueryCoordinator.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryCoordinator.java), [QueryCancelledException.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/QueryCancelledException.java), [MetricsRepository.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java), [MetricsQueryPlanner.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsQueryPlanner.java), [MetricsRangeProjector.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRangeProjector.java), [LodPageCache.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCache.java) |
+| API | [MetricsService.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java), [MetricsViewerController.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java), [WorkspaceController.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/WorkspaceController.java), [view/model](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model), [MetricTraceEncoder.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/util/MetricTraceEncoder.java) |
+| browser UI | [index.html](../../src/apps/metrics-viewer/src/main/resources/static/index.html), [metrics-viewer.js](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js), [metrics-viewer.css](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
+| test | [src/test/java](../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer) |
+| build | [pom.xml](../../src/apps/metrics-viewer/pom.xml), [checkstyle.xml](../../src/apps/metrics-viewer/checkstyle.xml) |
 
 
 Tag set code: server `service/TagSetStore.java`, `view/TagSetController.java`, and request/response types in `view/model`; browser `TagSetMenu` in `metrics-viewer.js`; initial file `src/main/resources/initial_tag_sets.json`.
@@ -633,7 +633,7 @@ Selecting a different workspace group through startup arguments also creates the
 
 ### 7.4 Browser Constants and Persistent State
 
-Client constants not supplied by the server are defined at the beginning of [metrics-viewer.js](../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js).
+Client constants not supplied by the server are defined at the beginning of [metrics-viewer.js](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js).
 
 | Constant | Value | Meaning |
 |---|---:|---|
@@ -1039,7 +1039,7 @@ Write connections use `PRAGMA cache_size=-16384`, a 16MiB page-cache target, to 
 | `spring-boot-maven-plugin` | 3.5.7 | `repackage` generates an executable JAR |
 | `maven-compiler-plugin` | 3.15.0 | `release=17`, `parameters=true`, `proc=full`, with lombok as annotation processor |
 
-Java coding conventions are defined in [checkstyle.xml](../../apps/metrics-viewer/checkstyle.xml): tab indentation (width 4, continuation 8), maximum line length 120, `FinalLocalVariable`, and standard naming rules. Eclipse settings reside in `.checkstyle` and formatter definitions.
+Java coding conventions are defined in [checkstyle.xml](../../src/apps/metrics-viewer/checkstyle.xml): tab indentation (width 4, continuation 8), maximum line length 120, `FinalLocalVariable`, and standard naming rules. Eclipse settings reside in `.checkstyle` and formatter definitions.
 
 ### 11.4 Build and Run
 
@@ -1058,7 +1058,7 @@ A separate asset retrieval arrangement is needed for fully offline environments.
 
 ## 12. Tests and Extension Checklist
 
-Tag sets are covered by `TagSetStoreTest`, `TagSetApiIntegrationTest`, and `TagSetPlaywrightTest`. See the [PRD111 validation README](../../core/anet-core/testdata/prd111/README.md) for procedures including packaging.
+Tag sets are covered by `TagSetStoreTest`, `TagSetApiIntegrationTest`, and `TagSetPlaywrightTest`. See the [PRD111 validation README](../../src/core/base/testdata/prd111/README.md) for procedures including packaging.
 
 ### 12.1 Test Organization
 
@@ -1078,14 +1078,14 @@ Each test opens a fresh context; routes, `localStorage`, and Plotly state are no
 
 ### 12.2 Change Checklist
 
-See the [PRD090 validation README](../../core/anet-core/testdata/prd090/README.md) for procedures, performance comparisons, and persistent-data equality evidence.
+See the [PRD090 validation README](../../src/core/base/testdata/prd090/README.md) for procedures, performance comparisons, and persistent-data equality evidence.
 
 1. Increment `SCHEMA_VERSION` when changing the cache schema. Do not write migrations; test that old caches are silently discarded and rebuilt.
 2. The externalName values of `IngestState` and `SeriesAvailability` are persistent and exposed over HTTP. Adding values is allowed; renaming or removing existing values is incompatible.
 3. Add new ingestion work to the same transaction. Splitting L0, LOD, `TagStats`, and `source_meta` across commits breaks consistency on crashes.
 4. When changing LOD, verify both persistence of completed buckets only and reaggregation of partial edge buckets from lower levels. `LodPageCache` derives the completed-bucket count from the tag point count, so when changing when parents are written, change this derivation as well.
 5. Do not derive statistics from LOD. Build range-independent statistics from all committed L0 points.
-6. After changing Step resolution or point caps, test width consistency across 1–4 Runs, selection order, zoom/pan/reset/resize, and 422/503 boundaries. See the [validation README](../../core/anet-core/testdata/prd089/README.md) for PRD089 procedures.
+6. After changing Step resolution or point caps, test width consistency across 1–4 Runs, selection order, zoom/pan/reset/resize, and 422/503 boundaries. See the [validation README](../../src/core/base/testdata/prd089/README.md) for PRD089 procedures.
 7. Keep new client state in the client app so it survives Plotly DOM reconstruction during Reload.
    If the input determines a graph's appearance, add it to the shared display model render key (`PlotlyController._graphModel` / `_graphDisplayKey`). State changed directly in Plotly must also be read back with `capturePlotState` and reflected in the model. An input omitted from the model cannot invalidate drawing or reject late results when it changes.
    If the condition affects a window's contents, also reflect it in the Reload freshness check (`DataCache.isOutdated`).
@@ -1101,4 +1101,4 @@ See the [PRD090 validation README](../../core/anet-core/testdata/prd090/README.m
 - [ADR: Metrics Cache as a Disposable Derivative](../adr/0015-metrics-cache-disposable-derivative.md)
 - [Domain Glossary](../../CONTEXT.md)
 
-PRD089 comparison-resolution regression procedure: [README](../../core/anet-core/testdata/prd089/README.md).
+PRD089 comparison-resolution regression procedure: [README](../../src/core/base/testdata/prd089/README.md).

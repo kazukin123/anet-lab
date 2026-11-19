@@ -27,12 +27,13 @@ output paths and encodings in this environment.
 
 anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェクトです。
 
-- `core/anet-core`: 強化学習フレームワーク、Agent、NN、設定、メトリクスなどの共通実装
-- `core/envs`: 環境実装
-- `apps/runner`: 実行アプリケーションと設定
-- `apps/metrics-viewer`: Java/Spring 製 Metrics Viewer(リリース配布対象)
-- `apps/*.bat`: 起動 launcher 群(開発・リリース共通)
-- `viewers`: メトリクス可視化の開発用補助ツール(Python 等)
+- `src/core/base`: 強化学習フレームワーク、Agent、NN、設定、メトリクスなどの共通実装
+- `src/env`: 環境実装
+- `src/apps`: Runner と Java/Spring 製 Metrics Viewer のソース
+- `apps/runner`: Runner の実行体と設定
+- `apps/metrics-viewer/bin`: Metrics Viewer の配布用 jar
+- `apps/*.bat`: 開発・リリース共通の起動 launcher
+- `apps/tools`: 実行と分析の補助ツール
 - `docs`: 設計資料、Doxygen 設定、実行結果
 - `third_party`: 外部依存ライブラリ
 
@@ -43,7 +44,12 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 
 - 既存の設計、命名、ファイル配置を尊重する。
 - 変更範囲は要求された目的に必要な範囲へ絞る。
-- 公開ヘッダへの変更は慎重に行う。
+- 公開ヘッダには、基盤の外で書けると宣言した拡張点の interface・部品・登録口を置く。
+- ほかの定義は内部ヘッダに置く。公開ヘッダは内部ヘッダを読まない。内部ヘッダを読めるのは、そのライブラリ自身、その単体テスト、そのライブラリのテスト用の口の実装である。
+- 登録は、ライブラリが公開する初期化関数をアプリが呼んで行う。自己登録マクロは使わない。
+- 拡張点を基盤の外で書けるようにする変更では、interface・部品・登録口を公開し、[拡張点の表](docs/design/010_framework_overview.jp.md#43-拡張点)と設計文書を同時に更新する。
+- 公開ヘッダを置く `include/anet/` の下では、Agent の系統と Env にそれぞれ `algo/` と `env/` を使う。実装と内部ヘッダは各ライブラリの `src/` に置く。テスト用の口のヘッダは `include/anet/test/`、実装は `src/test/` に置く。
+- 単体テストは対象の内部ヘッダを読める。ほかのライブラリは公開ヘッダとテスト用の口を使い、上位と兄弟のライブラリへは依存しない。組み合わせ自体を検証する場合は `src/apps/` の専用アプリで行う。出荷設定と検証資材は、どのテストからもリポジトリの根からのパスで読める。
 - 依存方向を単純に保ち、循環依存を避ける。
 - 暗黙のグローバル状態を増やさない。
 - 生成物やローカル環境ファイルを不用意に編集・追加しない。
@@ -286,20 +292,20 @@ cmake --build --preset x64-Debug --target doc
 Runner workspace 機構と補助 launcher、MLflow bridge の標準テスト手順:
 
 ```powershell
-core\anet-core\bin\Debug\anet-core-test.exe "[workspace]"
-powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\resolve_workspace_test.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File apps\runner\tools\batchrun_fatal_error_handling_test.ps1
-.\.venv\Scripts\python.exe apps\runner\tools\compress_workspace_metrics_test.py
-.\.venv\Scripts\python.exe viewers\metrics-tools\mlflow_bridge_test.py
-.\.venv\Scripts\python.exe viewers\metrics-tools\metrics_source_test.py
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run_test.py
-.\.venv\Scripts\python.exe viewers\metrics-tools\tb_bridge_test.py
-.\.venv\Scripts\python.exe apps\runner\tools\optuna_workspace_test.py
-.\.venv\Scripts\python.exe apps\runner\tools\optuna_metrics_gzip_test.py
+out\test\Debug\anet-core-base-test.exe "[workspace]"
+powershell -NoProfile -ExecutionPolicy Bypass -File apps\tools\resolve_workspace_test.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File apps\tools\batchrun_fatal_error_handling_test.ps1
+.\.venv\Scripts\python.exe apps\tools\compress_workspace_metrics_test.py
+.\.venv\Scripts\python.exe apps\tools\mlflow_bridge_test.py
+.\.venv\Scripts\python.exe apps\tools\metrics_source_test.py
+.\.venv\Scripts\python.exe apps\tools\inspect_run_test.py
+.\.venv\Scripts\python.exe apps\tools\tb_bridge_test.py
+.\.venv\Scripts\python.exe apps\tools\optuna_workspace_test.py
+.\.venv\Scripts\python.exe apps\tools\optuna_metrics_gzip_test.py
 ```
 
 この節には既定スイート相当の標準手順だけを書く。PRD 固有・領域固有の検証資材（golden 比較、網羅アッセイ、契約テストの実行手順）は
-`core/anet-core/testdata/prdNNN/README.md` に置き、当該領域の設計文書の「テストと拡張時の確認事項」章から参照する。この節へは追記しない。
+`src/core/base/testdata/prdNNN/README.md` に置き、当該領域の設計文書の「テストと拡張時の確認事項」章から参照する。この節へは追記しない。
 
 ## Python 補助ツールの実行
 
@@ -428,7 +434,7 @@ LLM がコードを書く際に起こしやすい失敗を減らすための行�
 
 探すとき:
 
-- repo の中は `rg`・`git grep`・`git ls-files` で探す。`.gitignore` を見るので、Run フォルダ（`apps/runner/workspaces/*/runs/`）とビルドの出力（`out/`）に入らない。`grep -r`・`find`・`Get-ChildItem -Recurse` は、絞ったディレクトリにだけ使う。
+- repo の中は `rg`・`git grep`・`git ls-files` で探す。`.gitignore` を見るので、Run フォルダ（`data/workspaces/*/runs/`）とビルドの出力（`out/`）に入らない。`grep -r`・`find`・`Get-ChildItem -Recurse` は、絞ったディレクトリにだけ使う。
 - 外部ライブラリ（wxWidgets・libtorch・vcpkg・CUDA・ALE）の場所は、`out/build/<preset>/CMakeCache.txt` の `*_DIR`（`wxWidgets_DIR`・`VCPKG_INSTALLED_DIR`・`CUDA_TOOLKIT_ROOT_DIR`）と、環境変数（`Torch_DIR`・`ALE_ROOT`）から引く。ディスク全体（`/`・`C:\`・ホーム）は探さない。終わらないことがあり、ツールの打ち切りや停止のあとも検索のプロセスが残って、端末全体が重くなる（`.agents/hooks/search_guard.py` が止める）。
 
 編集中:
@@ -582,12 +588,12 @@ Run はフォルダがそのまま管理単位なので、**「消してよい�
 - **成果物として残す Run には付けない。** PRD の受入条件を満たした証拠として保存する smoke Run などは正規 Run です。
   この線引きを `tmp` の有無で表現します。
 - **`tmp` はタイムスタンプの後に置く。** Run フォルダ名の先頭は `run_` のままにしてください
-  （`viewers/metrics-tools/mlflow_bridge.py` が `run_*` で glob しており、prefix を変えると発見できなくなります）。
+  （`apps/tools/mlflow_bridge.py` が `run_*` で glob しており、prefix を変えると発見できなくなります）。
 - **Run フォルダ名は全体で 40 文字以内を目安にする。** Metrics Viewer の Run 一覧は末尾を省略して表示するため、長いと見分けられなくなります。
 - 一括削除は次で行えます。実行はユーザーが行い、AI エージェントは削除しません。削除する場合はユーザの指示もしくは同意が必須。
 
 ```powershell
-Get-ChildItem apps\runner\workspaces\*\runs\*_tmp_* -Directory
+Get-ChildItem data\workspaces\*\runs\*_tmp_* -Directory
 ```
 
 ### 重要 Run のマーク（★）と、記録との分離
@@ -604,12 +610,12 @@ Get-ChildItem apps\runner\workspaces\*\runs\*_tmp_* -Directory
 - **`★` はタイムスタンプ以降の末尾に置きます。** `tmp` と同じく先頭の `run_` は変えません。
 
 ```powershell
-Get-ChildItem apps\runner\workspaces\*\runs\*★ -Directory
+Get-ChildItem data\workspaces\*\runs\*★ -Directory
 ```
 
 ## 実験記録と実効 config の保存ルール
 
-`apps/runner/workspaces` は `.gitignore` 済みで Run artifact は失われうるため、
+`data/workspaces` は `.gitignore` 済みで Run artifact は失われうるため、
 実験記録の再現性と再見性は記録側だけで完結させます。
 **実験記録が参照する Run の実効 config を、記録と同じ場所へ複製してください。**
 
@@ -651,17 +657,17 @@ Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design
 このtoolはread-onlyで、実行中のRunへ当てても artifact を変更しません。
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py runs
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py tags RUN
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py config RUN [RUN ...] --diff
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py metrics RUN [RUN ...] --metric TAG --range -4M:
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py trace-csv RUN [RUN ...] --tag TAG
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py runs
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py tags RUN
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py config RUN [RUN ...] --diff
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py metrics RUN [RUN ...] --metric TAG --range -4M:
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py trace-csv RUN [RUN ...] --tag TAG
 ```
 
 - `runs` はRun発見とartifact・Metricsマスタ・Metricsキャッシュの状態、`tags` はmetric tagの一覧と定義・到達step、`config` は実効設定と差分、`metrics` はscalar抽出と比較、`trace-csv` はtraceチャネルの個体行のCSV出力。
 - **分位点・閾値越え率・同時分布はscalarから復元できない。** scalarは集約後の統計で、評価セッション1回が1点に畳まれている。個体単位で見たい場合は `trace-csv` を使い、集計はCSVを受け取った側で行う。
 - **metricは1回の呼び出しへ束ねる。** Metricsマスタの走査はRunごとに1 passで、tag数には比例しない。tagごとに呼び分けるとpassの回数だけ時間が増える。
-- Run名の探索範囲は `apps/runner/workspaces/*/runs/` 直下だけ。`apps/runner/runs_*` のlegacy配置は明示pathでのみ指定できる。同名Runが複数workspaceにあるときは候補を示して終了値2で止まる。
+- Run名の探索範囲は `data/workspaces/*/runs/` 直下だけ。`apps/runner/runs_*` のlegacy配置は明示pathでのみ指定できる。同名Runが複数workspaceにあるときは候補を示して終了値2で止まる。
 - 正本の関係は「実効設定=`config/config_data.txt`」「メトリクス=Metricsマスタ（`metrics.jsonl`優先、無ければ`metrics.jsonl.gz`）」「`metrics_cache.db`=マスタへ完全追随しているときだけ使える高速経路」。cacheが追随していなければ自動でマスタへfallbackするので、cacheを正本として読まない。
 - **`config_data.txt` には実効値のほかにマージ元と未選択のprofileが同居する。** `AS.*`、`A.*`、`R.*`、`X.*`、`M.*`、`metrics.scalar.baseline.*`、`metrics.scalar.full.*` のような定義namespaceは、選ばれたかどうかがdumpからは区別できない（`.$` の選択行はAutoMergeで消える）。実効値の確認には `config --effective-only` を使い、`config/<module>.txt` で裏が取れたkeyだけを見る。
 - **`51_eval1/*` や `52_eval2/*` は単一の軸ではない。** `@session_end` 系はtrain runnerのstep、`@train $action_info` 系はeval runner自身のstepに載る。同じ `exp_step` と書かれていても座標系が違うので、train側のstep範囲をeval側へ当てると黙って空になる。`tags` の `runner` 列と到達stepを先に見る。
@@ -671,11 +677,11 @@ Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design
 Atari-5（battle_zone / double_dunk / name_this_game / phoenix / qbert の5本）を1つのベンチマーク結果として読む場合は `atari5.py` を使ってください。`inspect_run.py` と同じRun解決・cache経路のread-only toolで、5本を個別に集計して手で合成しないでください。
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py score RUN RUN RUN RUN RUN
-.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py curve RUN... --bins 10
-.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py compare RUN... --ref btr --stat max
-.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py refs
-.\.venv\Scripts\python.exe viewers\metrics-tools\atari5.py export RUN... --name atari5_rr1_50m --ref btr
+.\.venv\Scripts\python.exe apps\tools\atari5.py score RUN RUN RUN RUN RUN
+.\.venv\Scripts\python.exe apps\tools\atari5.py curve RUN... --bins 10
+.\.venv\Scripts\python.exe apps\tools\atari5.py compare RUN... --ref btr --stat max
+.\.venv\Scripts\python.exe apps\tools\atari5.py refs
+.\.venv\Scripts\python.exe apps\tools\atari5.py export RUN... --name atari5_rr1_50m --ref btr
 ```
 
 - `score` はゲーム別スコアと集約、`curve` は予算・実時間に対する推移、`compare` は公表エージェントとの突き合わせ、`refs` は参照テーブルと出典。`--format json` で機械可読になる（既定は `md`）。
@@ -711,7 +717,7 @@ AI エージェントから C++ ビルドを試す場合は、PowerShell では�
 `cmake --build` を実行しないでください。
 
 ```powershell
-cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target anet-core-test'
+cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug --target anet-core-base-test'
 ```
 
 他のターゲットをビルドする場合も同じ形式を使います。
@@ -733,15 +739,14 @@ PowerShell の実行ポリシーでブロックされることがあり、この
 AI エージェントからビルドする場合、MSVC、Windows SDK、CUDA、libtorch、vcpkg が
 ワークスペース外にあるため、サンドボックス外実行の承認が必要になることがあります。
 
-`anet-core-test` をビルドした後は、リポジトリルートから次のように実行します。
+`anet-core-base-test` をビルドした後は、リポジトリルートから次のように実行します。
 
 ```powershell
-core\anet-core\bin\Debug\anet-core-test.exe
+out\test\Debug\anet-core-base-test.exe
 ```
 
-テスト実行ファイルは意図的に `core/anet-core/bin/<Config>` 配下へ出力します。
-CMake の post-build 処理で libtorch と wxWidgets の DLL を実行ファイルの隣へコピーし、
-runner アプリと同じ実行時配置に揃えています。
+テスト実行ファイルは意図的に `out/test/<Config>` 配下へ出力します。
+CMake は libtorch と wxWidgets の DLL を、同じ構成のテストが共有するフォルダへまとめて配置します。
 
 ## Agent skills
 

@@ -30,13 +30,14 @@
 
 点検が作り直す。手で直さない。
 
-- [profile.hpp](../../../core/anet-core/include/anet/profile.hpp)
-- [profile.cpp](../../../core/anet-core/src/profile.cpp) / [profile_test.cpp](../../../core/anet-core/src/profile_test.cpp)
+- [profile.hpp](../../../src/core/base/include/anet/profile.hpp)
+- [profile.cpp](../../../src/core/base/src/profile.cpp) / [profile_test.cpp](../../../src/core/base/src/profile_test.cpp)
 
 ## PRD の一覧
 
 点検が作り直す。手で直さない。
-なし
+
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 

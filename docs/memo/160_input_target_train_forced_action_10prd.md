@@ -18,15 +18,15 @@
 ### 1.1 Eval 側にしか強制行動が無い（2026-09-26 確認）
 
 - 行動上書きの経路は `RunnerFrame::OnKey` / `QValuePanel` → `EvalPanel::DoStep(action)` → `EvalRunner::DoStep(action)` の 1 本で、
-  EvalRunner が `MakeAction` の結果を `WithAction` で差し替える（[trainer.cpp](../../core/anet-core/src/trainer.cpp) の `EvalRunner::DoStepInternal`）。
+  EvalRunner が `MakeAction` の結果を `WithAction` で差し替える（[trainer.cpp](../../src/core/base/src/trainer.cpp) の `EvalRunner::DoStepInternal`）。
   EvalRunner は Learner を呼ばないので、強制行動の遷移は学習に一切入らない（[100 §Runner 表](../design/100_runtime_and_configuration.jp.md)「Learner を呼ばず、Actor と Env で評価または手動操作を進める」）。
 - Train 側には強制行動の口が無い。`SerialTrainRunner::DoStep` / `PipelineTrainRunner::DoStep` は
   `actor_->MakeAction(step_counts_, state_)` → `env_->Step(action_info)` → `BatchExperience{state, action_info, reward, next_state}` → `learner_->UpdateFromBatch`
   （Pipeline は 1 step 遅れで非同期投入）の直線で、`action_info` がそのまま経験になる。
-- Train ループは `RunnerThread`（学習スレッド）が `DoUpdateFrame(1, pre_step_func, post_step_func)` を回し続ける（[trainer.cpp](../../core/anet-core/src/trainer.cpp) の `RunnerThread::ProcessStep`、
-  [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) の `pre_train_step_func`）。GUI スレッドとの既存の連絡路は `pre_step_func` の atomic 参照と `wxQueueEvent` だけ。
+- Train ループは `RunnerThread`（学習スレッド）が `DoUpdateFrame(1, pre_step_func, post_step_func)` を回し続ける（[trainer.cpp](../../src/core/base/src/trainer.cpp) の `RunnerThread::ProcessStep`、
+  [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) の `pre_train_step_func`）。GUI スレッドとの既存の連絡路は `pre_step_func` の atomic 参照と `wxQueueEvent` だけ。
 - Train の BatchEnv は多 lane（Atari 128、LunarLander 256。`run.train.num_envs`）。TrainPanel の View は全 lane のモザイクで、
-  スコア等の代表値は lane 0 の aux から取っている（[AtariView.cpp](../../core/envs/atari1/src/AtariView.cpp) `CreateViewData` の `aux_list[0]`、LunarLanderView も同様）。
+  スコア等の代表値は lane 0 の aux から取っている（[AtariView.cpp](../../src/env/atari/src/AtariView.cpp) `CreateViewData` の `aux_list[0]`、LunarLanderView も同様）。
 - Train ループの速さは制御されていない。人が操作できる上限は実機速度（Atari は 60 fps / frame_skip 4 = 15 step/s）で、
   Train の step/s はそれを上回りうる（LunarLander 256 lane で 2M exp step ≈ 5 分 ≈ 26 train step/s）。
 
@@ -167,11 +167,11 @@ NG1〜NG6。特にデモバッファ・模倣損失・人間遷移の別扱い�
 
 ## 8. 実装に触れる見込みの箇所
 
-- [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp) / [trainer.cpp](../../core/anet-core/src/trainer.cpp) — `SerialTrainRunner::DoStep` / `PipelineTrainRunner::DoStep` の `MakeAction` 直前（lane mask + action の取り出し）。Q2 の形で注入口。
+- [trainer.hpp](../../src/core/base/include/anet/trainer.hpp) / [trainer.cpp](../../src/core/base/src/trainer.cpp) — `SerialTrainRunner::DoStep` / `PipelineTrainRunner::DoStep` の `MakeAction` 直前（lane mask + action の取り出し）。Q2 の形で注入口。
 - Actor 側の `MakeAction` 入力（観測パイプライン PRD の成果物。Q1 次第で本 PRD）。
-- [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) — `train_lane` / `train_min_step_interval_ms`（Q10 で残すなら `app.input.target` も）の読み込みと検証、`pre_train_step_func` のペース制御。
-- [RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) — 入力先トグル（キー + ツールバー）、ステータスバー表示、対 PRD の入力層の出力を入力先へ振り分け。
-- View（[AtariView.cpp](../../core/envs/atari1/src/AtariView.cpp) 等） — Q3 の見せ方。
+- [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) — `train_lane` / `train_min_step_interval_ms`（Q10 で残すなら `app.input.target` も）の読み込みと検証、`pre_train_step_func` のペース制御。
+- [RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) — 入力先トグル（キー + ツールバー）、ステータスバー表示、対 PRD の入力層の出力を入力先へ振り分け。
+- View（[AtariView.cpp](../../src/env/atari/src/AtariView.cpp) 等） — Q3 の見せ方。
 - [common.txt](../../apps/runner/config/common.txt) の既定、[020](../design/020_user_guide_run.jp.md) / [100](../design/100_runtime_and_configuration.jp.md) / [160](../design/160_applications_and_tools.jp.md)、CONTEXT.md（§4）。
 
 ## 9. 関連

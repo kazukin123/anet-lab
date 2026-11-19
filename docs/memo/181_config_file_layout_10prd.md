@@ -37,7 +37,7 @@ PRD098 の skip は、本書とは別に案 A（関心ごとに既存ファイ�
 
 ### 2.3 include の解決
 
-[config.cpp:191〜207](../../core/anet-core/src/config.cpp) は、絶対パス → 含むファイルの隣（親ディレクトリ） → 設定の検索ディレクトリの順に解決する。深さは 10 まで（549 行）。同じフォルダなら `$include <name.txt>`、サブフォルダなら `$include <sub/name.txt>` で届くので、フォルダ分けに仕組みの変更は要らない。
+[config.cpp:191〜207](../../src/core/base/src/config.cpp) は、絶対パス → 含むファイルの隣（親ディレクトリ） → 設定の検索ディレクトリの順に解決する。深さは 10 まで（549 行）。同じフォルダなら `$include <name.txt>`、サブフォルダなら `$include <sub/name.txt>` で届くので、フォルダ分けに仕組みの変更は要らない。
 
 ### 2.4 `agent.txt` の節
 
@@ -49,8 +49,8 @@ MuZeroAgent 7〜58 行、DefaultDQNAgent 59〜301 行（ALGO プロファイル 
 
 ### 2.6 道具
 
-- [check_default_leaves.py](../../core/anet-core/testdata/prd072/): 演算子の規約検査。
-- 7 env の解決済み設定（全キーと文字列値）の前後比較。PRD098 の実装で `config-equivalence.json` として使った（[prd098 の README](../../core/anet-core/testdata/prd098/README.md)）。
+- [check_default_leaves.py](../../src/core/base/testdata/prd072/): 演算子の規約検査。
+- 7 env の解決済み設定（全キーと文字列値）の前後比較。PRD098 の実装で `config-equivalence.json` として使った（[prd098 の README](../../src/core/base/testdata/prd098/README.md)）。
 - Run の `json/config_data.json` と `config/config_data.txt`（Run 設定の正本）。
 
 ## 3. ゴールと非ゴール
@@ -162,7 +162,7 @@ run.@skip : DefaultDQNAgent.skip.max_length = 7
 
 - [020 §3.6 どのファイルに何を書くか](../design/020_user_guide_run.jp.md#36-どのファイルに何を書くか)
 - [impl.md 設定ファイル](../quality/impl.md#設定ファイル)
-- [config.cpp](../../core/anet-core/src/config.cpp)（include の解決）
+- [config.cpp](../../src/core/base/src/config.cpp)（include の解決）
 - [PRD098 §5.6](098_temporl_skip_policy_10prd.md)、`apps/runner/config/skip.txt`、`agent.txt`、`common.txt`
 - [999 設定 root 所有](155_config_root_ownership_alignment_10prd.md)、[999 ソース配置](182_source_layout_10prd.md)
 - [059](done/059_config_concept_tree_alignment_10prd.md)、[072](done/072_config_selection_final_value_10prd.md)、[061](done/061_eval_slot_policy_override_10prd.md)

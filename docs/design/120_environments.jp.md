@@ -92,20 +92,20 @@ nameは不透明な表示文字列であり、Env class ID、RunMode、config pr
 
 | 領域 | 主なファイル |
 |---|---|
-| State/Action/Env interface | [rl.hpp](../../core/anet-core/include/anet/rl.hpp)、[rl.cpp](../../core/anet-core/src/rl.cpp) |
-| batch wrapper・repository | [env.hpp](../../core/anet-core/include/anet/env.hpp)、[env.cpp](../../core/anet-core/src/env.cpp) |
-| View interface・repository、AUIレイアウト基底Frame（`AuiLayoutFrame`） | [gui.hpp](../../core/anet-core/include/anet/gui.hpp)、[gui.cpp](../../core/anet-core/src/gui.cpp) |
+| State/Action/Env interface | [rl.hpp](../../src/core/base/include/anet/rl.hpp)、[rl.cpp](../../src/core/base/src/rl.cpp) |
+| batch wrapper・repository | [env.hpp](../../src/core/base/include/anet/env.hpp)、[env.cpp](../../src/core/base/src/env.cpp) |
+| View interface・repository、AUIレイアウト基底Frame（`AuiLayoutFrame`） | [gui.hpp](../../src/core/base/include/anet/gui.hpp)、[gui.cpp](../../src/core/base/src/gui.cpp) |
 
 ### 4.2 具象Env
 
 | Env | 実装場所 | Observationの主な性質 |
 |---|---|---|
-| CartPole | [core/envs/cartpole2](../../core/envs/cartpole2) | vector |
-| LunarLander | [core/envs/lunarlander1](../../core/envs/lunarlander1) | vector、Box2D物理状態 |
-| DropMerge | [core/envs/dropmerge1](../../core/envs/dropmerge1) | gridとvector、Box2D物理状態 |
-| GridMaze | [core/envs/gridmaze1](../../core/envs/gridmaze1) | vector中心の迷路状態。開始からゴールへの到達可能性を保証し、解けないseedは派生seedで引き直す |
-| ImageCls | [core/envs/imagecls1](../../core/envs/imagecls1) | 画像gridと分類target |
-| Atari | [core/envs/atari1](../../core/envs/atari1) | ALE由来の単フレームuint8 grid |
+| CartPole | [src/env/cartpole](../../src/env/cartpole) | vector |
+| LunarLander | [src/env/lunarlander](../../src/env/lunarlander) | vector、Box2D物理状態 |
+| DropMerge | [src/env/dropmerge](../../src/env/dropmerge) | gridとvector、Box2D物理状態 |
+| GridMaze | [src/env/gridmaze](../../src/env/gridmaze) | vector中心の迷路状態。開始からゴールへの到達可能性を保証し、解けないseedは派生seedで引き直す |
+| ImageCls | [src/env/imagecls](../../src/env/imagecls) | 画像gridと分類target |
+| Atari | [src/env/atari](../../src/env/atari) | ALE由来の単フレームuint8 grid |
 
 各Env directoryは、Env本体、factory、必要に応じてViewとtestを機能グループとしてまとめる。
 
@@ -259,7 +259,9 @@ LunarLanderViewは機体のまわりの矢印を3段で出す。中クリック�
 
 ## 8. テストと拡張時の確認事項
 
-DropMergeの`[noop_penalty]`テストは、同seed・同行動列の2個体で罰だけを変え、4行動モード、NOOP変換、未実行DROP、終了stepと累積報酬、複数物理stepを比較する。関連する[PRD115検証資材](../../core/anet-core/testdata/prd115/README.md)に実行条件をまとめる。
+公開の拡張点は[フレームワーク全体概要の拡張点の表](010_framework_overview.jp.md#43-拡張点)を参照。
+
+DropMergeの`[noop_penalty]`テストは、同seed・同行動列の2個体で罰だけを変え、4行動モード、NOOP変換、未実行DROP、終了stepと累積報酬、複数物理stepを比較する。関連する[PRD115検証資材](../../src/core/base/testdata/prd115/README.md)に実行条件をまとめる。
 
 Envを追加・変更する場合は次を確認する。
 
@@ -271,21 +273,21 @@ Envを追加・変更する場合は次を確認する。
 6. Viewを追加する場合はEnv class IDと`ViewRepository`登録を一致させる。
 7. 頻繁に呼ばれるReset/Stepへ意味のあるprofile rangeを置く。
 
-通知中のscalar・tensor、auxのlane対応、結果の不変性、Runner種別ごとの通知順序と再現性・性能の受入手順は[PRD097検証資材](../../core/anet-core/testdata/prd097/README.md)を参照する。
+通知中のscalar・tensor、auxのlane対応、結果の不変性、Runner種別ごとの通知順序と再現性・性能の受入手順は[PRD097検証資材](../../src/core/base/testdata/prd097/README.md)を参照する。
 
-GridMazeの盤面golden、到達可能性、座標検証、ログ件数、短いRunの全scalar一致の手順は[PRD100検証資材](../../core/anet-core/testdata/prd100/README.md)を参照する。
+GridMazeの盤面golden、到達可能性、座標検証、ログ件数、短いRunの全scalar一致の手順は[PRD100検証資材](../../src/core/base/testdata/prd100/README.md)を参照する。
 
 専用testがあるEnvは次のとおりである。
 
-- [LunarLanderEnv_test.cpp](../../core/envs/lunarlander1/src/LunarLanderEnv_test.cpp)
-- [DropMergeEnv_test.cpp](../../core/envs/dropmerge1/src/DropMergeEnv_test.cpp)
-- [GridMazeEnv_test.cpp](../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp)
-- [ImageClsEnv_test.cpp](../../core/envs/imagecls1/src/ImageClsEnv_test.cpp)
-- [AtariEnv_test.cpp](../../core/envs/atari1/src/AtariEnv_test.cpp)
+- [LunarLanderEnv_test.cpp](../../src/env/lunarlander/src/LunarLanderEnv_test.cpp)
+- [DropMergeEnv_test.cpp](../../src/env/dropmerge/src/DropMergeEnv_test.cpp)
+- [GridMazeEnv_test.cpp](../../src/env/gridmaze/src/GridMazeEnv_test.cpp)
+- [ImageClsEnv_test.cpp](../../src/env/imagecls/src/ImageClsEnv_test.cpp)
+- [AtariEnv_test.cpp](../../src/env/atari/src/AtariEnv_test.cpp)
 
 single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。ImageCls testはnative batch、Dataset catalog/cache、eval window、worker方式を直接検証する。Envまたはwrapperを変更する場合は、必要なworker方式を明示して回帰testを追加する。
 
-採番単位・指定seed優先・並行初期化・構築し直し・RunManager経路・共通optional設定・設定値差分の検証手順は[PRD102検証資材](../../core/anet-core/testdata/prd102/README.md)を参照する。
+採番単位・指定seed優先・並行初期化・構築し直し・RunManager経路・共通optional設定・設定値差分の検証手順は[PRD102検証資材](../../src/core/base/testdata/prd102/README.md)を参照する。
 
 ## 9. 関連文書
 

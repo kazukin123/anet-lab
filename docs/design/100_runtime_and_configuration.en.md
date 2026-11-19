@@ -122,15 +122,15 @@ Runner passes the Actor name, spec, device, and seed to Agent in `ActorRequest`.
 
 | Area | Main files |
 |---|---|
-| Configuration interface | [config.hpp](../../core/anet-core/include/anet/config.hpp) |
-| Configuration parser/management | [config.cpp](../../core/anet-core/src/config.cpp) |
-| Configuration resolution | [config_impl.hpp](../../core/anet-core/src/config_impl.hpp), [config_impl.cpp](../../core/anet-core/src/config_impl.cpp) |
-| Runner interfaces/Events | [rl.hpp](../../core/anet-core/include/anet/rl.hpp) |
-| RunManager/Runners | [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp), [trainer.cpp](../../core/anet-core/src/trainer.cpp) |
-| Seed management | [random.hpp](../../core/anet-core/include/anet/random.hpp), [random.cpp](../../core/anet-core/src/random.cpp) |
-| Thread infrastructure | [thread.hpp](../../core/anet-core/include/anet/thread.hpp), [thread.cpp](../../core/anet-core/src/thread.cpp) |
-| Backend initialization | [init.hpp](../../core/anet-core/include/anet/init.hpp), [init.cpp](../../core/anet-core/src/init.cpp) |
-| Application startup/shutdown | [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp), [RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) |
+| Configuration interface | [config.hpp](../../src/core/base/include/anet/config.hpp) |
+| Configuration parser/management | [config.cpp](../../src/core/base/src/config.cpp) |
+| Configuration resolution | [config_impl.hpp](../../src/core/base/src/config_impl.hpp), [config_impl.cpp](../../src/core/base/src/config_impl.cpp) |
+| Runner interfaces/Events | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
+| RunManager/Runners | [trainer.hpp](../../src/core/base/include/anet/trainer.hpp), [trainer.cpp](../../src/core/base/src/trainer.cpp) |
+| Seed management | [random.hpp](../../src/core/base/include/anet/random.hpp), [random.cpp](../../src/core/base/src/random.cpp) |
+| Thread infrastructure | [thread.hpp](../../src/core/base/include/anet/thread.hpp), [thread.cpp](../../src/core/base/src/thread.cpp) |
+| Backend initialization | [init.hpp](../../src/core/base/include/anet/init.hpp), [init.cpp](../../src/core/base/src/init.cpp) |
+| Application startup/shutdown | [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp), [RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) |
 | Standard configuration | [apps/runner/config](../../apps/runner/config) |
 
 ## 5. Static Structure
@@ -177,7 +177,7 @@ TrainRunner uses the main Train Env; each EvalRunner gets its own Env and Actor.
 
 `RunManager` owns the private nested `MetricsWiring` and delegates scope resolution, INFO notifications once per Run for dormant tags, Observer registration by event, output of attached scalar/trace definitions, and notification of scalar subscription hints during Run construction. Its declaration is inside RunManager in trainer.hpp, and its definition is in trainer.cpp. Parsing by `ObserverFactory` and value retrieval/aggregation by Observers remain separate responsibilities. Trace wiring to mirror instances created after construction is outside this mechanism.
 
-See the [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md) for validation procedures in this area.
+See the [PRD094 validation resources](../../src/core/base/testdata/prd094/README.md) for validation procedures in this area.
 
 ## 6. Processing Flows
 
@@ -379,18 +379,18 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` value type
 
 ## 8. Tests and Extension Checks
 
-- [PRD117 validation resources](../../core/anet-core/testdata/prd117/README.md): original-key tracking, closed catalogs, unread config key lists, notifications per Run, and the configurations and stop conditions for normal Runs with zero WARNs.
+- [PRD117 validation resources](../../src/core/base/testdata/prd117/README.md): original-key tracking, closed catalogs, unread config key lists, notifications per Run, and the configurations and stop conditions for normal Runs with zero WARNs.
 
-- [PRD094 validation resources](../../core/anet-core/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
+- [PRD094 validation resources](../../src/core/base/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 
-- [config_test.cpp](../../core/anet-core/src/config_test.cpp): conversion fail-fast, missing-key defaults, structured configuration, includes, selections, two-phase CLI handling, value references, and golden equivalence with old AutoMerge
-- [config_baseline_test.cpp](../../core/anet-core/src/config_baseline_test.cpp): checks of the shipped configuration (`[shipped_config]`): common-layer defaults, resolution of every Actor reference, and the Atari protocol presets and per-group RAM metric alignment. What a test that reads the shipped configuration may pin is defined in the Tests rules of [Implementation Quality Viewpoints](../quality/impl.md#%E3%83%86%E3%82%B9%E3%83%88)
-- [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): file/Metrics master output boundaries for config text and JSON resolution metadata
-- [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp): delegation of Train clone policy to Agent, prohibition of implicit Pipeline synchronization, and Eval Actor/Agent device consistency
-- [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runner episode-end notifications and forced actions in Eval
-- [init_test.cpp](../../core/anet-core/src/init_test.cpp): initialization and backend settings
-- [app_util_test.cpp](../../core/anet-core/src/app_util_test.cpp): executable root and output paths
-- [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): procedure for the fixed 17-input golden comparison of the configuration resolver and the default-key `?=` audit
+- [config_test.cpp](../../src/core/base/src/config_test.cpp): conversion fail-fast, missing-key defaults, structured configuration, includes, selections, two-phase CLI handling, value references, and golden equivalence with old AutoMerge
+- [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): checks of the shipped configuration (`[shipped_config]`): common-layer defaults, resolution of every Actor reference, and the Atari protocol presets and per-group RAM metric alignment. What a test that reads the shipped configuration may pin is defined in the Tests rules of [Implementation Quality Viewpoints](../quality/impl.md#%E3%83%86%E3%82%B9%E3%83%88)
+- [metrics_logger_test.cpp](../../src/core/base/src/metrics_logger_test.cpp): file/Metrics master output boundaries for config text and JSON resolution metadata
+- [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp): delegation of Train clone policy to Agent, prohibition of implicit Pipeline synchronization, and Eval Actor/Agent device consistency
+- [episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp): Runner episode-end notifications and forced actions in Eval
+- [init_test.cpp](../../src/core/base/src/init_test.cpp): initialization and backend settings
+- [app_util_test.cpp](../../src/core/base/src/app_util_test.cpp): executable root and output paths
+- [testdata/prd072/README.md](../../src/core/base/testdata/prd072/README.md): procedure for the fixed 17-input golden comparison of the configuration resolver and the default-key `?=` audit
 
 Current `trainer_test.cpp` does not broadly cover complete Serial/Pipeline behavior, counts, or shutdown. When changing these areas, add regression tests for matching Serial/Pipeline action/snapshot boundaries, counts for B=1 and multiple lanes, Eval scope, and worker collection on shutdown.
 

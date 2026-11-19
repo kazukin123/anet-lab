@@ -39,11 +39,11 @@ copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab.exe" >nul
 
 **この 5 点により、必要な新規実装は「解決だけして学習を始めないモード」と「キューの監督」の 2 つに縮む。**
 
-1. **`--config <path>` が完全自己記述モード**で、workspace 解決を丸ごとバイパスする（[RunnerApp.cpp:235-244](../../apps/runner/src/RunnerApp.cpp)、[CONTEXT.md:257](../../CONTEXT.md)）。スナップショットを食わせる口が既にある。
+1. **`--config <path>` が完全自己記述モード**で、workspace 解決を丸ごとバイパスする（[RunnerApp.cpp:235-244](../../src/apps/runner/src/RunnerApp.cpp)、[CONTEXT.md:257](../../CONTEXT.md)）。スナップショットを食わせる口が既にある。
 2. **`config/config_data.txt` は解決後の実効設定**で、`$include` も `.$` 選択もプロファイルも含まない（実測 843 行、選択キー 0 件）。値参照 `${}` も展開済み。**そのまま `--config` へ渡せば冪等になるはず**（未検証。受入条件 1 へ）。
 3. **`app.run_name` の `{t}` は config 解決では展開されず literal のまま残る**（実測 `run_{t}_i_rr4_ln512_breakout`）。同じスナップショットを再投入しても Run フォルダは衝突しない。
 4. **batchrun モードは `app.exp_exit_step` で自己終了する**。監督側はプロセス終了を待つだけでよく、進捗を解釈する必要がない。
-5. **CLI 位置引数 `key=value` は解決の最優先層**（[config_impl.cpp:60-65](../../core/anet-core/src/config_impl.cpp)）。スナップショットに対する最終上書きとして安全に使える。
+5. **CLI 位置引数 `key=value` は解決の最優先層**（[config_impl.cpp:60-65](../../src/core/base/src/config_impl.cpp)）。スナップショットに対する最終上書きとして安全に使える。
 
 ## 提案
 

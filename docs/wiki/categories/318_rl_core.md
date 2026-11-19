@@ -149,19 +149,21 @@
 
 点検が作り直す。手で直さない。
 
-- [observers.hpp](../../../core/anet-core/include/anet/observers.hpp)
-- [replay_buffer.hpp](../../../core/anet-core/include/anet/replay_buffer.hpp)
-- [rl.hpp](../../../core/anet-core/include/anet/rl.hpp)
-- [serialize.hpp](../../../core/anet-core/include/anet/serialize.hpp)
-- [trainer.hpp](../../../core/anet-core/include/anet/trainer.hpp)
-- [episode_end_test.cpp](../../../core/anet-core/src/episode_end_test.cpp)
-- [muzero_rb.cpp](../../../core/anet-core/src/muzero_rb.cpp) / [muzero_rb.hpp](../../../core/anet-core/src/muzero_rb.hpp)
-- [observers.cpp](../../../core/anet-core/src/observers.cpp) / [observers_test.cpp](../../../core/anet-core/src/observers_test.cpp)
-- [replay_buffer_test.cpp](../../../core/anet-core/src/replay_buffer_test.cpp)
-- [replay_buffer_impl.cpp](../../../core/anet-core/src/replay_buffer_impl.cpp) / [replay_buffer_impl.hpp](../../../core/anet-core/src/replay_buffer_impl.hpp)
-- [rl.cpp](../../../core/anet-core/src/rl.cpp)
-- [serialize.cpp](../../../core/anet-core/src/serialize.cpp)
-- [trainer.cpp](../../../core/anet-core/src/trainer.cpp) / [trainer_test.cpp](../../../core/anet-core/src/trainer_test.cpp)
+- [muzero_rb.cpp](../../../src/algo/muzero/src/muzero_rb.cpp) / [muzero_rb.hpp](../../../src/algo/muzero/src/muzero_rb.hpp)
+- [observers.hpp](../../../src/core/base/include/anet/observers.hpp)
+- [replay_buffer.hpp](../../../src/core/base/include/anet/replay_buffer.hpp)
+- [replay_experience.hpp](../../../src/core/base/include/anet/replay_experience.hpp)
+- [rl.hpp](../../../src/core/base/include/anet/rl.hpp)
+- [serialize.hpp](../../../src/core/base/include/anet/serialize.hpp)
+- [trainer.hpp](../../../src/core/base/include/anet/trainer.hpp)
+- [episode_end_test.cpp](../../../src/core/base/src/episode_end_test.cpp)
+- [observers.cpp](../../../src/core/base/src/observers.cpp) / [observers_test.cpp](../../../src/core/base/src/observers_test.cpp)
+- [replay_buffer_test.cpp](../../../src/core/base/src/replay_buffer_test.cpp)
+- [replay_buffer_impl.cpp](../../../src/core/base/src/replay_buffer_impl.cpp) / [replay_buffer_impl.hpp](../../../src/core/base/src/replay_buffer_impl.hpp)
+- [replay_experience.cpp](../../../src/core/base/src/replay_experience.cpp)
+- [rl.cpp](../../../src/core/base/src/rl.cpp)
+- [serialize.cpp](../../../src/core/base/src/serialize.cpp)
+- [trainer.cpp](../../../src/core/base/src/trainer.cpp) / [trainer_test.cpp](../../../src/core/base/src/trainer_test.cpp)
 
 ## PRD の一覧
 
@@ -200,6 +202,7 @@
 - [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md) — PRD131: 9xx の番号の PRD 57 本を、起票の日の順に 900 未満の連番へ振り直す PRD
 - [PRD158](../../memo/158_eval_schedule_first_fire_10prd.md) — PRD158: eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする
 - [PRD170](../../memo/170_nn_trace_capture_unification_10prd.md) — PRD170: forward の名前付き出力を capture に一本化し、nn_trace を要求した step だけ作る PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 
@@ -252,7 +255,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-afe841](../../management/issues/issue-20261103-afe841.md) | 未着手 | 0.8 | — | 成果物 | PRD | 321_agent_core, 324_dqn, 318_rl_core | 学習基盤 | 機能追加 | [PRD145](../../memo/145_staged_batch_replay_schedule_10prd.md) | 残件有り | DefaultDQN Staged Batch / Replay Schedule |
 | [issue-20261103-969184](../../management/issues/issue-20261103-969184.md) | 未着手 | 0.6 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD174](../../memo/174_llm_actor_10prd.md) | 残件有り | LLM Actor（LLM の事前知識で行動する Actor。単独 Agent と DQN ハイブリッド） |
 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD152](../../memo/152_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 調査中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261103-9df5c5](../../management/issues/issue-20261103-9df5c5.md) | 未着手 | 2.7 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 成果物 | PRD | 318_rl_core, 110_runner_app, 314_tensor | 学習基盤 | 不具合 | [PRD146](../../memo/146_notifier_scoped_detach_10prd.md) | 残件有り | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [PRD142](../../memo/142_agent_prev_action_obs_10prd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
 | [issue-20261103-ca1a85](../../management/issues/issue-20261103-ca1a85.md) | 未着手 | 1.6 | [issue-20261103-1beaf9](../../management/issues/issue-20261103-1beaf9.md) | 成果物 | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |

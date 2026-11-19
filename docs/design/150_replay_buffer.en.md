@@ -117,14 +117,14 @@ Concrete Agents decide whether to use the shared interface. ReplayBuffer is not 
 
 | Area | Main files |
 |---|---|
-| Experience/Replay interfaces | [rl.hpp](../../core/anet-core/include/anet/rl.hpp) |
-| Replay configuration/factory/prefetch | [replay_buffer.hpp](../../core/anet-core/include/anet/replay_buffer.hpp) |
-| Replay internals | [replay_buffer_impl.hpp](../../core/anet-core/src/replay_buffer_impl.hpp), [replay_buffer_impl.cpp](../../core/anet-core/src/replay_buffer_impl.cpp) |
-| Device transfer | [transfer.hpp](../../core/anet-core/include/anet/transfer.hpp), [transfer.cpp](../../core/anet-core/src/transfer.cpp) |
-| Frame stacking | [stacker.hpp](../../core/anet-core/include/anet/stacker.hpp), [stacker.cpp](../../core/anet-core/src/stacker.cpp) |
-| Runner Experience creation | [trainer.cpp](../../core/anet-core/src/trainer.cpp) |
+| Experience/Replay interfaces | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
+| Replay configuration/factory/prefetch | [replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp) |
+| Replay internals | [replay_buffer_impl.hpp](../../src/core/base/src/replay_buffer_impl.hpp), [replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) |
+| Device transfer | [transfer.hpp](../../src/core/base/include/anet/transfer.hpp), [transfer.cpp](../../src/core/base/src/transfer.cpp) |
+| Frame stacking | [stacker.hpp](../../src/core/base/include/anet/stacker.hpp), [stacker.cpp](../../src/core/base/src/stacker.cpp) |
+| Runner Experience creation | [trainer.cpp](../../src/core/base/src/trainer.cpp) |
 | DQN usage | [DQN Agents](200_dqn_agents.en.md) |
-| Tests | [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp) |
+| Tests | [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp) |
 
 ## 5. Static Structure
 
@@ -218,7 +218,7 @@ Independently of n-step finalization, Push retains each transition's one-step re
 
 With a window configured, the sampleable range has a future-side delay of `max(1, n_step, J)`. Sample, uniform sampling without replacement, sampling-history probes, and counts use the same range. The minimum capacity includes this delay. PER initial-priority completion and eviction statistics retain the existing n-step ready range. Without a rule, the window is empty and no additional randomness is consumed.
 
-Additional variable-window rules are constructed with `CreateActionChangeWindowRule(J)` (the continuous interval with the starting action) and `CreateEpisodeEndWindowRule(J)` (an interval ignoring both actions and decisions). The former stops immediately before a different-action slot; the latter does not stop at action changes. Both ignore decision flags, include a done/truncated transition before closing, and stop at J. A dummy inside the window is an error. Sampling candidate ranges, uniform selection of k, PER, and transfer contracts are shared across rules. See [PRD104 validation](../../core/anet-core/testdata/prd104/README.md) for boundary and shortened-Run checks.
+Additional variable-window rules are constructed with `CreateActionChangeWindowRule(J)` (the continuous interval with the starting action) and `CreateEpisodeEndWindowRule(J)` (an interval ignoring both actions and decisions). The former stops immediately before a different-action slot; the latter does not stop at action changes. Both ignore decision flags, include a done/truncated transition before closing, and stop at J. A dummy inside the window is an error. Sampling candidate ranges, uniform selection of k, PER, and transfer contracts are shared across rules. See [PRD104 validation](../../src/core/base/testdata/prd104/README.md) for boundary and shortened-Run checks.
 
 ### 6.2 One-Deep Prefetch and CUDA Transfer
 
@@ -358,16 +358,16 @@ The Prefetching version uses the same FIFO wait as existing probes, settling acc
 
 ## 8. Tests and Extension Checks
 
-- [PRD121 validation](../../core/anet-core/testdata/prd121/README.md): component returns and discounts, constant preservation and scheduled recomputation, initial priorities, window rejection, and single-component equivalence.
+- [PRD121 validation](../../src/core/base/testdata/prd121/README.md): component returns and discounts, constant preservation and scheduled recomputation, initial priorities, window rejection, and single-component equivalence.
 
-- [PRD128 validation](../../core/anet-core/testdata/prd128/README.md): transfer, traversal, and string formatting of every field; preservation of undefined Tensors on CPU/CUDA; comparison with the original executable.
-- [PRD104 validation](../../core/anet-core/testdata/prd104/README.md): action-change and episode-end windows, terminal/dummy boundaries, ring wrap and transfer.
+- [PRD128 validation](../../src/core/base/testdata/prd128/README.md): transfer, traversal, and string formatting of every field; preservation of undefined Tensors on CPU/CUDA; comparison with the original executable.
+- [PRD104 validation](../../src/core/base/testdata/prd104/README.md): action-change and episode-end windows, terminal/dummy boundaries, ring wrap and transfer.
 
-Use [PRD101 validation assets](../../core/anet-core/testdata/prd101/README.md) for staged comparisons, short actual Runs, and comparison of every key across seven Envs.
+Use [PRD101 validation assets](../../src/core/base/testdata/prd101/README.md) for staged comparisons, short actual Runs, and comparison of every key across seven Envs.
 
-Use the public ReplayBuffer tests in [PRD098 validation assets](../../core/anet-core/testdata/prd098/README.md) for decision boundaries, termination, truncation, stacking, ring wrap, uniform sampling, and sampleable delay in variable windows. Window additions also cover ordinary transfer, prefetch, and probe paths, preserving the RNG and sample sequence when no rule is configured.
+Use the public ReplayBuffer tests in [PRD098 validation assets](../../src/core/base/testdata/prd098/README.md) for decision boundaries, termination, truncation, stacking, ring wrap, uniform sampling, and sampleable delay in variable windows. Window additions also cover ordinary transfer, prefetch, and probe paths, preserving the RNG and sample sequence when no rule is configured.
 
-Current [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp) contains tests for:
+Current [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp) contains tests for:
 
 - Multi-Env Push/Sample and valid indices
 - N-step, terminals, frame stacks, unroll
@@ -382,7 +382,7 @@ Current [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp
 
 Preserve the public `ReplayBuffer` contract when changing it. Check same-seed sample sequences, PER metadata, CPU paths, and asynchronous paths when CUDA is available. Tests changing capacity and lane count must check `actual_capacity`, not just requested capacity. Add dedicated regression tests when changing background exception propagation or shutdown order rather than assuming existing coverage.
 
-The 384-case matrix uses `[.][integrity_assay]`, excluding it from the ordinary suite and `[replay_buffer]`. Run all cases as separate processes with `core/anet-core/testdata/prd078/run_integrity_assay.py`, which records the fixed seed, completion marker, timeout, and exit code per case. See [testdata/prd078/README.md](../../core/anet-core/testdata/prd078/README.md) for the procedure.
+The 384-case matrix uses `[.][integrity_assay]`, excluding it from the ordinary suite and `[replay_buffer]`. Run all cases as separate processes with `core/anet-core/testdata/prd078/run_integrity_assay.py`, which records the fixed seed, completion marker, timeout, and exit code per case. See [testdata/prd078/README.md](../../src/core/base/testdata/prd078/README.md) for the procedure.
 
 ## 9. Related Documents
 

@@ -431,7 +431,7 @@ PRD092の「勾配normだけでは平均とばらつきを分けられない」�
 
 ### 7.2 現在のmicrobatch案は共有ノイズを固定している
 
-PRD092の§5は一回のforwardからmicrobatch勾配を取る。§9の#11はNoisyNetの抽選をbatchで共有し、経験とτのばらつきを測ると明記している。基準設定もlearner.currentとlearner.targetにbatch共有のact_sampleを参照させる。[PRD092, §5・9](../docs/memo/done/092_gradient_noise_scale_10prd.md)、[agent.txt, 130–139付近](../apps/runner/config/agent.txt)、[nn_modules.cpp, 284–296付近](../core/anet-core/src/nn_modules.cpp)。
+PRD092の§5は一回のforwardからmicrobatch勾配を取る。§9の#11はNoisyNetの抽選をbatchで共有し、経験とτのばらつきを測ると明記している。基準設定もlearner.currentとlearner.targetにbatch共有のact_sampleを参照させる。[PRD092, §5・9](../docs/memo/done/092_gradient_noise_scale_10prd.md)、[agent.txt, 130–139付近](../apps/runner/config/agent.txt)、[nn_modules.cpp, 284–296付近](../src/core/base/src/nn_modules.cpp)。
 
 したがって現案を「NoisyNetも含む総更新ノイズ」と読むのは広すぎる。共有抽選Zを固定した条件付きのsample分散を主に測る案である。§3.3のノイズ床を別に観測しなければ、総ノイズがBでどれだけ減るかは分からない。
 
@@ -450,7 +450,7 @@ $$
 
 ### 7.3 PERの重みもbatchに依存する
 
-現在のPER実装は抽出確率から重みを作り、batch内最大値でweightsを割っている。[replay_buffer_impl.cpp:1062](../core/anet-core/src/replay_buffer_impl.cpp)。
+現在のPER実装は抽出確率から重みを作り、batch内最大値でweightsを割っている。[replay_buffer_impl.cpp:1062](../src/core/base/src/replay_buffer_impl.cpp)。
 
 本調査の考察では、この共通正規化係数はbatchの構成・大きさで変わり得るため、「B変更は分散だけ変え、期待勾配と有効歩幅は常に同じ」という前提に注意が要る。一回のbatch内で共通係数が固定ならその回の比への一様スケールは相殺されるが、係数が回ごとに変わるとEMAした信号と分散の比も別の重み付けになる。
 
@@ -466,7 +466,7 @@ PRD092は現在のAdamのv̂によるP=diag(1/(√v̂+ε))を勾配へ掛ける�
 
 ### 7.5 B・学習率・更新回数を分けて比較する
 
-現コードはreplay_ratioが正の場合、更新creditをnum_envs×RR/Bで計算する。従ってRR固定でBを倍にすると、経験あたりの更新数が半減する。[dqn_based_agent.cpp:2037](../core/anet-core/src/dqn_based_agent.cpp)。PRD092もこの交絡を記載している。[PRD092, §3](../docs/memo/done/092_gradient_noise_scale_10prd.md)。
+現コードはreplay_ratioが正の場合、更新creditをnum_envs×RR/Bで計算する。従ってRR固定でBを倍にすると、経験あたりの更新数が半減する。[dqn_based_agent.cpp:2037](../src/core/base/src/dqn_based_agent.cpp)。PRD092もこの交絡を記載している。[PRD092, §3](../docs/memo/done/092_gradient_noise_scale_10prd.md)。
 
 以下は、091によって継続Runの学習率変更が有効になった後の**提案**。実行していない。η₀は選んだ基準Runの実効学習率であり、新しい数値の指定ではない。
 

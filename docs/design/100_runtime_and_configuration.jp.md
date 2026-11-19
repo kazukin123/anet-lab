@@ -122,15 +122,15 @@ Runnerは`ActorRequest`にActor名・spec・device・seedをまとめてAgentへ
 
 | 領域 | 主なファイル |
 |---|---|
-| 設定interface | [config.hpp](../../core/anet-core/include/anet/config.hpp) |
-| 設定parser・管理 | [config.cpp](../../core/anet-core/src/config.cpp) |
-| 設定解決 | [config_impl.hpp](../../core/anet-core/src/config_impl.hpp)、[config_impl.cpp](../../core/anet-core/src/config_impl.cpp) |
-| Runner interface・Event | [rl.hpp](../../core/anet-core/include/anet/rl.hpp) |
-| RunManager・Runner | [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp)、[trainer.cpp](../../core/anet-core/src/trainer.cpp) |
-| seed管理 | [random.hpp](../../core/anet-core/include/anet/random.hpp)、[random.cpp](../../core/anet-core/src/random.cpp) |
-| thread基盤 | [thread.hpp](../../core/anet-core/include/anet/thread.hpp)、[thread.cpp](../../core/anet-core/src/thread.cpp) |
-| backend初期化 | [init.hpp](../../core/anet-core/include/anet/init.hpp)、[init.cpp](../../core/anet-core/src/init.cpp) |
-| application起動・終了 | [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp)、[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) |
+| 設定interface | [config.hpp](../../src/core/base/include/anet/config.hpp) |
+| 設定parser・管理 | [config.cpp](../../src/core/base/src/config.cpp) |
+| 設定解決 | [config_impl.hpp](../../src/core/base/src/config_impl.hpp)、[config_impl.cpp](../../src/core/base/src/config_impl.cpp) |
+| Runner interface・Event | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
+| RunManager・Runner | [trainer.hpp](../../src/core/base/include/anet/trainer.hpp)、[trainer.cpp](../../src/core/base/src/trainer.cpp) |
+| seed管理 | [random.hpp](../../src/core/base/include/anet/random.hpp)、[random.cpp](../../src/core/base/src/random.cpp) |
+| thread基盤 | [thread.hpp](../../src/core/base/include/anet/thread.hpp)、[thread.cpp](../../src/core/base/src/thread.cpp) |
+| backend初期化 | [init.hpp](../../src/core/base/include/anet/init.hpp)、[init.cpp](../../src/core/base/src/init.cpp) |
+| application起動・終了 | [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp)、[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) |
 | 標準設定 | [apps/runner/config](../../apps/runner/config) |
 
 ## 5. 静的構造
@@ -177,7 +177,7 @@ RunnerThread --> TrainRunner : stepを反復
 
 `RunManager`はprivateな入れ子`MetricsWiring`を所有し、Run構築時にscope解決、dormant tagのRunごとに一度だけのINFO、event別のObserver登録、attach済みのscalar/trace定義の出力、scalar購読ヒントの通知を委譲する。宣言はtrainer.hppのRunManager内部、定義はtrainer.cppに置く。`ObserverFactory`の解析と、Observerによる値の取得・集約は別の責務である。構築後の鏡写しinstanceへのtrace配線は本機構には含めない。
 
-領域の検証手順は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)を参照する。
+領域の検証手順は[PRD094検証資材](../../src/core/base/testdata/prd094/README.md)を参照する。
 
 ## 6. 処理フロー
 
@@ -379,18 +379,18 @@ sequenceDiagram
 
 ## 8. テストと拡張時の確認事項
 
-- [PRD117検証資材](../../core/anet-core/testdata/prd117/README.md): 元キーの追跡、閉じたカタログ、未読一覧、Run単位の通知、通常RunのWARN 0件の対象と停止条件。
+- [PRD117検証資材](../../src/core/base/testdata/prd117/README.md): 元キーの追跡、閉じたカタログ、未読一覧、Run単位の通知、通常RunのWARN 0件の対象と停止条件。
 
-- [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
+- [PRD094検証資材](../../src/core/base/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
-- [config_test.cpp](../../core/anet-core/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
-- [config_baseline_test.cpp](../../core/anet-core/src/config_baseline_test.cpp): 出荷設定の検査`[shipped_config]`（共通層の既定、全Actor参照の解決、Atariのプロトコルプリセットと群ごとのRAM指標の揃い）。本番設定を読むテストが固定してよいものの線引きは[実装 品質確認観点](../quality/impl.md#テスト)「テスト」の規約
-- [metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp): config textとJSON resolution metadataのfile / Metrics master出力境界
-- [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp): Train clone方針のAgent委譲、Pipelineの暗黙同期禁止、Eval ActorとAgentのdevice整合性
-- [episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制行動
-- [init_test.cpp](../../core/anet-core/src/init_test.cpp): 初期化とbackend設定
-- [app_util_test.cpp](../../core/anet-core/src/app_util_test.cpp): executable rootと出力path
-- [testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md): 設定resolverの固定17入力golden比較と既定キー`?=`検査の手順
+- [config_test.cpp](../../src/core/base/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
+- [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): 出荷設定の検査`[shipped_config]`（共通層の既定、全Actor参照の解決、Atariのプロトコルプリセットと群ごとのRAM指標の揃い）。本番設定を読むテストが固定してよいものの線引きは[実装 品質確認観点](../quality/impl.md#テスト)「テスト」の規約
+- [metrics_logger_test.cpp](../../src/core/base/src/metrics_logger_test.cpp): config textとJSON resolution metadataのfile / Metrics master出力境界
+- [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp): Train clone方針のAgent委譲、Pipelineの暗黙同期禁止、Eval ActorとAgentのdevice整合性
+- [episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制行動
+- [init_test.cpp](../../src/core/base/src/init_test.cpp): 初期化とbackend設定
+- [app_util_test.cpp](../../src/core/base/src/app_util_test.cpp): executable rootと出力path
+- [testdata/prd072/README.md](../../src/core/base/testdata/prd072/README.md): 設定resolverの固定17入力golden比較と既定キー`?=`検査の手順
 
 現行`trainer_test.cpp`はSerial/Pipeline全体、count、shutdownを広く覆うものではない。これらを変更する場合は、Serial/Pipelineのaction/snapshot境界が一致すること、B=1と複数laneのcount、Evalのscope、停止時のworker回収を対象とする回帰testを追加して確認する。
 

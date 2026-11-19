@@ -280,17 +280,17 @@ Visual Studio 上部の configure presetで `x64-Debug` を選択します。現
 | 生成物 | 出力先 |
 |---|---|
 | Runner | `apps/runner/bin/Debug/AnetRLRunner.exe` |
-| core test | `core/anet-core/bin/Debug/anet-core-test.exe` |
-| LunarLander test | `core/envs/lunarlander1/bin/Debug/LunarLanderEnv-test.exe` |
-| ImageCls test | `core/envs/imagecls1/bin/Debug/ImageClsEnv-test.exe` |
-| DropMerge test | `core/envs/dropmerge1/bin/Debug/DropMergeEnv-test.exe` |
-| Atari test（3.6節で ALE を用意した場合） | `core/envs/atari1/bin/Debug/AtariEnv-test.exe` |
+| core test | `out/test/Debug/anet-core-base-test.exe` |
+| LunarLander test | `out/test/Debug/anet-env-lunarlander-test.exe` |
+| ImageCls test | `out/test/Debug/anet-env-imagecls-test.exe` |
+| DropMerge test | `out/test/Debug/anet-env-dropmerge-test.exe` |
+| Atari test（3.6節で ALE を用意した場合） | `out/test/Debug/anet-env-atari-test.exe` |
 
 post-build処理により、libtorchとwxWidgetsの実行時DLLも実行ファイルの隣へコピーされます。
 
 ### 4.4 テストを実行する
 
-Visual Studio の `テスト` menuから CTest を実行します。すべてを実行する前に対象を絞る場合は、CMake Targets Viewから `anet-core-test` などのtest targetをビルドし、Test Explorerまたは生成された実行ファイルから実行します。
+Visual Studio の `テスト` menuから CTest を実行します。すべてを実行する前に対象を絞る場合は、CMake Targets Viewから `anet-core-base-test` などのtest targetをビルドし、Test Explorerまたは生成された実行ファイルから実行します。
 
 intentional failureを確認する場合を除き、通常の自動検証では失敗時ダイアログを無効にします。AIエージェント向けの具体的な実行方法は [開発・作業規約](../../AGENTS.md)に従います。
 
@@ -306,10 +306,10 @@ Metrics Viewer を使わない場合、この章は飛ばして構いません�
 
 ### 5.1 bat でビルドして起動する
 
-`apps\metrics-viewer\build.bat` を実行します。起動中の Metrics Viewer がある場合は、先に止めてから実行します。成功すると、次の JAR が生成されます。
+`src\apps\metrics-viewer\build.bat` を実行します。起動中の Metrics Viewer がある場合は、先に止めてから実行します。成功すると、次の JAR が生成されます。
 
 ```text
-apps/metrics-viewer/target/metrics-viewer.jar
+apps/metrics-viewer/bin/metrics-viewer.jar
 ```
 
 `apps\22_metrics_viewer_java.bat` を実行すると Metrics Viewer が起動し、ブラウザで `http://localhost:8082` が開きます。起動引数と Run directory の指定は [Run 分析ガイド](030_user_guide_analysis.jp.md)を参照してください。
@@ -332,7 +332,7 @@ Metrics Viewer を変更する場合だけ、5.2節以降を行います。
 1. Eclipseを起動します。
 2. `File > Import`を開きます。
 3. `Maven > Existing Maven Projects`を選択します。
-4. Root Directoryに `apps/metrics-viewer` を指定します。
+4. Root Directoryに `src/apps/metrics-viewer` を指定します。
 5. 検出された `pom.xml` を選択してimportします。
 
 `pom.xml` は Java 17 をtargetとします。projectのJREが JDK 17 より古い場合は、project propertiesまたはEclipseのInstalled JREsで3.7節の JDK へ変更します。
@@ -354,7 +354,7 @@ clean package
 成功すると、次のJARが生成されます。
 
 ```text
-apps/metrics-viewer/target/metrics-viewer.jar
+apps/metrics-viewer/bin/metrics-viewer.jar
 ```
 
 JARが生成されれば完了です。起動は5.1節と同じく `apps\22_metrics_viewer_java.bat` で行います。
@@ -411,24 +411,25 @@ ctest --preset x64-Debug --output-on-failure
 対象を絞る場合は、先にtargetをビルドしてから実行ファイルをリポジトリルートで起動します。
 
 ```powershell
-cmake --build --preset x64-Debug --target anet-core-test
-core\anet-core\bin\Debug\anet-core-test.exe
+cmake --build --preset x64-Debug --target anet-core-base-test
+out\test\Debug\anet-core-base-test.exe
 ```
 
-同様に `LunarLanderEnv-test`、`ImageClsEnv-test`、`DropMergeEnv-test` を個別実行できます。ALE を用意した場合は `AtariEnv-test` も同様です。AIエージェントはdialog抑止、MSVC初期化、対象を絞ったtest実行について [開発・作業規約](../../AGENTS.md)にも従います。
+同様に `anet-env-lunarlander-test`、`anet-env-imagecls-test`、`anet-env-dropmerge-test` を個別実行できます。ALE を用意した場合は `anet-env-atari-test` も同様です。AIエージェントはdialog抑止、MSVC初期化、対象を絞ったtest実行について [開発・作業規約](../../AGENTS.md)にも従います。
 
 ### 6.3 Metrics Viewer
 
 ```powershell
-cd apps\metrics-viewer
+Set-Location src\apps\metrics-viewer
 .\mvnw.cmd -B test
 .\mvnw.cmd -B package
 ```
 
-起動確認の例:
+起動確認はリポジトリルートから行います。
 
 ```powershell
-java -Xmx1g -jar target\metrics-viewer.jar --server.port=8082
+Set-Location apps\runner
+java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --server.port=8082
 ```
 
 ## 7. Python 補助ツール
@@ -448,7 +449,7 @@ C:\Python314\python.exe -m venv .venv
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install <必要なパッケージ>
-.\.venv\Scripts\python.exe apps\runner\tools\dropmerge_optuna.py --help
+.\.venv\Scripts\python.exe apps\tools\dropmerge_optuna.py --help
 ```
 
 `.venv` はローカル開発環境であり、Git管理対象にしません。
@@ -463,7 +464,7 @@ apps\70_compress_workspace_metrics.bat dm-iqn
 apps\70_compress_workspace_metrics.bat dm-iqn --dry-run --no-pause
 ```
 
-workspace指定を省略すると、`apps/runner/workspaces/`直下で`runs/`を持つ候補から番号選択する。
+workspace指定を省略すると、`data/workspaces/`直下で`runs/`を持つ候補から番号選択する。
 `[0] EXIT`は固定の終了選択肢である。各workspaceの処理結果を表示した後は、dry-runや取消を含めて
 pauseし、キー入力後にworkspace選択へ戻るため、複数workspaceを続けて処理できる。
 `--no-pause`指定時はpauseを省略する。workspaceを引数指定した場合は1回で終了する。
@@ -477,7 +478,7 @@ workspaceを引数指定して1回実行した場合の終了codeは、成功ま
 MLflow bridgeとMLflow serverは、リポジトリルートの `.venv` と選択workspaceの`runs/mlflow.db`を共有します。launcherの第1引数でworkspaceを指定し、省略時はRunnerが保存した`last_workspace.txt`、取得不能時は`_default`を使います。依存packageは次のコマンドで導入します。
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r viewers\metrics-tools\requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r apps\tools\requirements.txt
 ```
 
 `requirements.txt` はMLflowを `3.13.0` に固定しています。MLflow 3.14.0のserverはPython 3.14で削除された `importlib.abc.Traversable` をimportするため、この組み合わせでは起動できません。`apps/41_mlflow_bridge.bat` と `apps/42_start_mlflow.bat` は、要求versionが導入されていない場合にfail-fastします。`41_mlflow_bridge.bat`のversion確認はMLflow本体をimportせずpackage metadataを参照し、本体importの開始前に進捗をconsoleへ表示します。
@@ -529,4 +530,4 @@ libtorchのCUDA世代、NVIDIA driver、CUDA Toolkitの互換性を確認しま�
 
 ### 8.7 Maven が Java release 17 を扱えない
 
-EclipseのInstalled JREs、projectのJRE System Library、Maven runtimeがJDK 17以上を参照しているか確認します。CLIでは `java -version` と `apps\metrics-viewer\mvnw.cmd -version` が同じJDKを参照しているか確認し、必要に応じて `JAVA_HOME` と `PATH` を修正します。
+EclipseのInstalled JREs、projectのJRE System Library、Maven runtimeがJDK 17以上を参照しているか確認します。CLIでは `java -version` と `src\apps\metrics-viewer\mvnw.cmd -version` が同じJDKを参照しているか確認し、必要に応じて `JAVA_HOME` と `PATH` を修正します。

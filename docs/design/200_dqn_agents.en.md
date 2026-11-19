@@ -42,14 +42,14 @@ This section first outlines learning and exploration methods; [Section 2.2](#22-
 | Rainbow | Combine six DQN extensions | `RainbowAgent` remains to check shared component responsibilities and is not used for Runs; differences from the paper are in [Section 2.1.3](#213-rainbow-components) | [Rainbow (2017/10)][paper-rainbow] |
 | QR-DQN | Represent a return distribution by learning returns at fixed quantile levels | `QRLearner` in both Agents | [QR-DQN (2017/10)][paper-qr] |
 | Implicit Quantile Network (IQN) | Learn a quantile function with quantile level τ as input | DefaultDQN `IQNLearner` | [IQN (2018/06)][paper-iqn] |
-| Upper Quantile Exploration (UQE) | Compare actions using an upper quantile or upper-tail mean instead of mean return | DefaultDQN QR/IQN policies ([Section 2.1.5](#215-uqe-action-selection-with-upper-quantiles)) | [Policy implementation](../../core/anet-core/src/dqn_based_agent.cpp); related: [IQN (2018/06), Section 4][paper-iqn] |
+| Upper Quantile Exploration (UQE) | Compare actions using an upper quantile or upper-tail mean instead of mean return | DefaultDQN QR/IQN policies ([Section 2.1.5](#215-uqe-action-selection-with-upper-quantiles)) | [Policy implementation](../../src/core/base/src/dqn_based_agent.cpp); related: [IQN (2018/06), Section 4][paper-iqn] |
 | Thompson Sampling | Draw from an uncertainty distribution and choose the best action under that sample | DefaultDQN `ThompsonSampling`; see [Section 2.1.6](#216-thompson-sampling-and-return-quantile-sampling-in-this-implementation) for how return-quantile sampling differs | [Thompson Sampling (2017/07), Chapter 4][paper-thompson] |
 | Munchausen RL | Add a log-policy term to reward and combine it with a soft value update | DefaultDQN TD/QR/IQN ([Section 6.3](#63-munchausen-rl)) | [Munchausen (2020/07)][paper-munchausen] |
 | TempoRL | Learn how long to repeat an action as well as which action to take | DefaultDQN skip policy ([Section 6.5](#65-defaultdqn-skip-policy)) | [TempoRL (2021/06)][paper-temporl] |
 | Random Network Distillation (RND) and intrinsic reward | Use prediction error for a fixed random Network as a novelty signal added to reward | DefaultDQN `intrinsic.enabled` ([Section 2.1.9](#219-rnd-and-intrinsic-reward)) | [RND (2018/10)][paper-rnd], [explanation in 212](212_rnd_lifelong_novelty.en.md) |
 | Transformed Bellman Operator (TBO) | Compress Q values and Bellman targets with invertible h to make their scale easier to handle | DefaultDQN `learner.use_tbo` ([Section 2.1.10](#2110-tbo-compressing-q-values-and-targets)) | [TBO (2018/05), Section 3.2][paper-tbo] |
-| Optimistic target | Choose a bootstrap policy using scores from the upper return distribution, not only its mean | DefaultDQN `target_policy` and `use_optimistic_target` ([Section 2.1.11](#2111-optimistic-target)) | [Configuration and policy resolution](../../core/anet-core/include/anet/default_dqn_agent.hpp), [target computation](../../core/anet-core/src/dqn_based_agent.cpp) |
-| Spatial exploration (derived from Ape-X) | Assign different exploration strengths to concurrently running lanes | Per-lane ε in both Agents' Actors; UQE τ in DefaultDQN ([Section 2.1.12](#2112-spatial-exploration-per-lane-exploration-strength)) | [Ape-X (2018/03), Section 3.1][paper-apex], [SpatialLadderSchedule / ActionPolicy](../../core/anet-core/src/dqn_based_agent.cpp) |
+| Optimistic target | Choose a bootstrap policy using scores from the upper return distribution, not only its mean | DefaultDQN `target_policy` and `use_optimistic_target` ([Section 2.1.11](#2111-optimistic-target)) | [Configuration and policy resolution](../../src/algo/dqn/src/default_dqn_agent.hpp), [target computation](../../src/core/base/src/dqn_based_agent.cpp) |
+| Spatial exploration (derived from Ape-X) | Assign different exploration strengths to concurrently running lanes | Per-lane ε in both Agents' Actors; UQE τ in DefaultDQN ([Section 2.1.12](#2112-spatial-exploration-per-lane-exploration-strength)) | [Ape-X (2018/03), Section 3.1][paper-apex], [SpatialLadderSchedule / ActionPolicy](../../src/core/base/src/dqn_based_agent.cpp) |
 
 See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for exploration-policy configuration and tau generation, and [Section 6.2](#62-experience-acceptance-and-learning-updates) for integrating RND intrinsic reward.
 
@@ -112,7 +112,7 @@ DefaultDQN selects ordinary Q, QR, or IQN through `quantile_mode`; Rainbow selec
 
 #### 2.1.5 UQE: Action Selection with Upper Quantiles
 
-UQE here compares actions through the upper return distribution instead of mean Q. At τ=0.9, a point quantile is the 90th percentile and an upper-tail mean averages approximately the top 10%. [Implementation: UQEActionPolicy / MakeRiskBiasedScore](../../core/anet-core/src/dqn_based_agent.cpp)
+UQE here compares actions through the upper return distribution instead of mean Q. At τ=0.9, a point quantile is the 90th percentile and an upper-tail mean averages approximately the top 10%. [Implementation: UQEActionPolicy / MakeRiskBiasedScore](../../src/core/base/src/dqn_based_agent.cpp)
 
 ```mermaid
 flowchart LR
@@ -124,18 +124,18 @@ flowchart LR
     T --> A
 ```
 
-QR sorts and extracts quantile values; IQN queries a specified quantile or `[τ,1]`. See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for time variation and lane placement of τ and subsequent `uqe.epsilon` exploration. [Implementation: MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp) For a general explanation of quantile-based policies, see [IQN (2018/06), Sections 3–4][paper-iqn].
+QR sorts and extracts quantile values; IQN queries a specified quantile or `[τ,1]`. See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for time variation and lane placement of τ and subsequent `uqe.epsilon` exploration. [Implementation: MakeUQEActionInfo](../../src/core/base/src/dqn_based_agent.cpp) For a general explanation of quantile-based policies, see [IQN (2018/06), Sections 3–4][paper-iqn].
 
 #### 2.1.6 Thompson Sampling and Return-Quantile Sampling in This Implementation
 
 Standard Thompson Sampling represents model uncertainty given observed experience with a posterior distribution, samples one model, and selects the best action under it. Unlike epsilon-greedy's uniform random action selection, it explores by comparing sampled values. [Thompson Sampling (2017/07), Chapters 3–4][paper-thompson]
 
-Here, `ThompsonSampling` names a policy using quantiles of the learned return distribution, not a method maintaining a Bayesian model posterior. Non-spatial behavior differs between QR and IQN as follows. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp)
+Here, `ThompsonSampling` names a policy using quantiles of the learned return distribution, not a method maintaining a Bayesian model posterior. Non-spatial behavior differs between QR and IQN as follows. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/core/base/src/dqn_based_agent.cpp)
 
 - **QR**: Draw one uniform τ from `[0,1]` per call and lane, using it for all actions. Compare that quantile when `uqe.use_tail_mean=false`, or the mean above it when `true`.
 - **IQN**: Place multiple taus across `[0,1]` according to `tau_rule` and compare mean outputs per action. Random placement gives a sample mean; a single tau compares one quantile. Fixed placement uses no randomness for tau generation.
 
-With spatial exploration enabled, both pass each lane's τ to the UQE computation as a lower bound or point quantile. Epsilon randomization also applies separately. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../core/anet-core/src/dqn_based_agent.cpp) Distinguish outcome variability represented by a return distribution from model uncertainty in standard Thompson Sampling. [IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
+With spatial exploration enabled, both pass each lane's τ to the UQE computation as a lower bound or point quantile. Epsilon randomization also applies separately. [Implementation: ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/core/base/src/dqn_based_agent.cpp) Distinguish outcome variability represented by a return distribution from model uncertainty in standard Thompson Sampling. [IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
 
 #### 2.1.7 Munchausen RL
 
@@ -184,17 +184,17 @@ flowchart LR
     V --> H["変換 h"] --> Y["target<br/>h空間"]
 ```
 
-Select it with `learner.use_tbo`; QR/IQN invert each quantile. The reward scaler changes **reward scale**, while TBO changes **Q-value and target representations**. `TransformHInv` performs inversion and `TransformH` compression. [Implementation: TDLearner / QuantileLearnerBase](../../core/anet-core/src/dqn_based_agent.cpp)
+Select it with `learner.use_tbo`; QR/IQN invert each quantile. The reward scaler changes **reward scale**, while TBO changes **Q-value and target representations**. `TransformHInv` performs inversion and `TransformH` compression. [Implementation: TDLearner / QuantileLearnerBase](../../src/core/base/src/dqn_based_agent.cpp)
 
 #### 2.1.11 Optimistic Target
 
-An optimistic target chooses the next-state bootstrap policy using scores from the upper return distribution. Actor-only UQE changes actual actions; using it in the target policy also changes the selection used to construct learning targets. With Munchausen OFF, select the action with the largest score and evaluate its value/distribution using the target Network. The upper-quantile selection score itself does not directly replace the bootstrap value. With Munchausen ON, mix through a soft policy derived from that score ([Section 6.3](#63-munchausen-rl)). [Implementation: target action selection and value evaluation](../../core/anet-core/src/dqn_based_agent.cpp)
+An optimistic target chooses the next-state bootstrap policy using scores from the upper return distribution. Actor-only UQE changes actual actions; using it in the target policy also changes the selection used to construct learning targets. With Munchausen OFF, select the action with the largest score and evaluate its value/distribution using the target Network. The upper-quantile selection score itself does not directly replace the bootstrap value. With Munchausen ON, mix through a soft policy derived from that score ([Section 6.3](#63-munchausen-rl)). [Implementation: target action selection and value evaluation](../../src/core/base/src/dqn_based_agent.cpp)
 
-DefaultDQN `use_optimistic_target=true` copies `actor.[train].policy` as the target-policy default and sets epsilon to 0. Subsequent `target_policy.*` settings can override it, so inspect the resolved policy to determine the effective method. If the copied policy is greedy over mean Q, this flag alone does not make it look at upper returns. [Implementation: DefaultDQNAgentConfig](../../core/anet-core/include/anet/default_dqn_agent.hpp)
+DefaultDQN `use_optimistic_target=true` copies `actor.[train].policy` as the target-policy default and sets epsilon to 0. Subsequent `target_policy.*` settings can override it, so inspect the resolved policy to determine the effective method. If the copied policy is greedy over mean Q, this flag alone does not make it look at upper returns. [Implementation: DefaultDQNAgentConfig](../../src/algo/dqn/src/default_dqn_agent.hpp)
 
 #### 2.1.12 Spatial Exploration: Per-Lane Exploration Strength
 
-The idea of different ε values per Actor in Ape-X is applied to lanes within one Actor. [Ape-X (2018/03), Section 3.1][paper-apex] [Implementation: ActionPolicy / SpatialLadderSchedule](../../core/anet-core/src/dqn_based_agent.cpp)
+The idea of different ε values per Actor in Ape-X is applied to lanes within one Actor. [Ape-X (2018/03), Section 3.1][paper-apex] [Implementation: ActionPolicy / SpatialLadderSchedule](../../src/core/base/src/dqn_based_agent.cpp)
 
 ```mermaid
 flowchart LR
@@ -210,7 +210,7 @@ flowchart LR
     A1 -.-> L1
 ```
 
-Ape-X's Atari experiments keep ε fixed during training. [Ape-X (2018/03), Section 4.1][paper-apex] Here, select `spatial.enabled` and place endpoints `first`/`last` using `linear` or `log`. Endpoints can vary over time; DefaultDQN also extends this to UQE ε/τ. Time variation and lane placement are configured independently ([Section 2.4](#24-actionpolicy-and-dqnactioninfo)). [Implementation: per-lane epsilon-greedy / UQE settings](../../core/anet-core/src/dqn_based_agent.cpp)
+Ape-X's Atari experiments keep ε fixed during training. [Ape-X (2018/03), Section 4.1][paper-apex] Here, select `spatial.enabled` and place endpoints `first`/`last` using `linear` or `log`. Endpoints can vary over time; DefaultDQN also extends this to UQE ε/τ. Time variation and lane placement are configured independently ([Section 2.4](#24-actionpolicy-and-dqnactioninfo)). [Implementation: per-lane epsilon-greedy / UQE settings](../../src/core/base/src/dqn_based_agent.cpp)
 
 ### 2.2 Implementation Layers
 
@@ -300,13 +300,13 @@ Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `mun
 
 | Area | Main files |
 |---|---|
-| Shared DQN components | [dqn_based_agent.hpp](../../core/anet-core/src/dqn_based_agent.hpp), [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) |
-| DQN Head | [dqn_based_heads.hpp](../../core/anet-core/src/dqn_based_heads.hpp), [dqn_based_heads.cpp](../../core/anet-core/src/dqn_based_heads.cpp) |
-| DefaultDQN | [default_dqn_agent.hpp](../../core/anet-core/include/anet/default_dqn_agent.hpp), [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) |
-| Rainbow | [rainbow_agent.hpp](../../core/anet-core/include/anet/rainbow_agent.hpp), [rainbow_agent.cpp](../../core/anet-core/src/rainbow_agent.cpp) |
-| ReplayBuffer | [replay_buffer.hpp](../../core/anet-core/include/anet/replay_buffer.hpp), [replay_buffer_impl.hpp](../../core/anet-core/src/replay_buffer_impl.hpp), [replay_buffer_impl.cpp](../../core/anet-core/src/replay_buffer_impl.cpp) |
+| Shared DQN components | [dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp), [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) |
+| DQN Head | [dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp), [dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp) |
+| DefaultDQN | [default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp), [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) |
+| Rainbow | [rainbow_agent.hpp](../../src/algo/dqn/src/rainbow_agent.hpp), [rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp) |
+| ReplayBuffer | [replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp), [replay_buffer_impl.hpp](../../src/core/base/src/replay_buffer_impl.hpp), [replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) |
 | Runner configuration examples | [apps/runner/config](../../apps/runner/config) |
-| DQN test | [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp), [dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp) |
+| DQN test | [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp), [dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp) |
 
 
 ## 5. Static Structure
@@ -530,7 +530,7 @@ Each Actor selects its length range with `actor.[key].skip.max_length_mode`: `fu
 
 `learner.skip.target_window` selects `decision` (default), `action_change`, or `episode_end`. The latter two are for auxiliary-only learning: with skip and Learner enabled, construction requires every declared Actor to use single or variable with all active values equal to 1. It does not infer training Actors from role names and reports all offending Actors. feature_gradient=stop is allowed as a control group, with one INFO per Run explaining that gradients do not reach shared features and that priority_lambda may affect priorities. Disabled Learner skips combination checks.
 
-An explicit max_length receives shared ProfiledValue validation in every mode: lower bound 1, and upper bound J when skip is enabled. Enabled variable requires a value. Full/single ignore a supplied value and warn once per Actor when skip is enabled. Disabled skip performs neither required-value/J checks nor WARNs. See [PRD104 validation assets](../../core/anet-core/testdata/prd104/README.md) for default equivalence, all three modes, windows, shortened Runs, and experiments.
+An explicit max_length receives shared ProfiledValue validation in every mode: lower bound 1, and upper bound J when skip is enabled. Enabled variable requires a value. Full/single ignore a supplied value and warn once per Actor when skip is enabled. Disabled skip performs neither required-value/J checks nor WARNs. See [PRD104 validation assets](../../src/core/base/testdata/prd104/README.md) for default equivalence, all three modes, windows, shortened Runs, and experiments.
 
 Shared skip settings remain disabled under `DefaultDQNAgent.@baseline` in agent.txt, using `?=`. The shared network uses `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` in nn.txt, with the branch bound to `skip_context`. Each Env supplies `skip.max_length ?= J` and IQN's fused `skip_context`. `run.@skip` selects enabled, metrics, Trace columns, and greedy evaluation without replacing the Agent chain. GridMaze also selects a separate skip epsilon-greedy policy (0.60→0.05). feature_gradient, Dueling, action_in, and layer widths are selected through CLI configuration keys.
 
@@ -556,7 +556,7 @@ Learner creates Q's n-step target and the window's skip target from the same Rep
 
 Actor accumulates decision-length counts on device and clears them on `Sync()`, including periodic snapshot synchronization. `GetScalar()` exposes `skip_session_decision_rate` as decisions/lane steps, `skip_session_length_mean` as mean selected length, and `skip_session_length_rate.[j]` as the proportion of decisions selecting j. Only first access transfers to CPU, adding no per-step synchronization. Disabled/unavailable values are NaN; invalid indices fail fast. A session without decisions has rate 0 and NaN length means/proportions. `$eval.[greedy] $actor @session_end` subscriptions use training-side coordinates.
 
-See [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md) for independent profiles comparing sharing through convolution against fully separate networks, numerical examples, checkpoints, configuration migration, and Run equivalence. These profiles do not change the default Network topology and are incompatible with its checkpoints.
+See [PRD103 validation assets](../../src/core/base/testdata/prd103/README.md) for independent profiles comparing sharing through convolution against fully separate networks, numerical examples, checkpoints, configuration migration, and Run equivalence. These profiles do not change the default Network topology and are incompatible with its checkpoints.
 
 ## 7. DefaultDQN and Rainbow Composition and Configuration
 
@@ -610,7 +610,7 @@ Learner forward_resources is a required initialization argument. Before preparat
 
 Ordinary and Fused AdamW use a separate σ group when enabled, defaulting to `learner.noisy_weight_decay=0`. OFF retains the previous single group and ordering. μ-only current evaluation creates no σ gradient and performs no σ update/decay. Defined sample σ gradients join the existing global norm/clip. Checkpoints and snapshots include σ parameters but exclude ε, clocks, and RNGs. When loading a checkpoint into a new Run, the σ group also uses the current optimizer settings, with weight_decay determined by learner.noisy_weight_decay.
 
-Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` / `nz_reference_off` use four default-initialized projections with σ0=0.5, force_fp32=true for both Body FCs, inherited AMP, and standard call/batch; only Noisy enabled differs. Episode/sample is an Actor override for the integration run. Append these profiles to the specified chain; see the [validation guide](../../core/anet-core/testdata/prd084/README.md).
+Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` / `nz_reference_off` use four default-initialized projections with σ0=0.5, force_fp32=true for both Body FCs, inherited AMP, and standard call/batch; only Noisy enabled differs. Episode/sample is an Actor override for the integration run. Append these profiles to the specified chain; see the [validation guide](../../src/core/base/testdata/prd084/README.md).
 
 ## 8. Lifetime, Synchronization, and Save/Load
 
@@ -794,7 +794,7 @@ The shared DefaultDQN TD/QR/IQN Learner takes the union of updates due from `att
 
 Capture requests `TransformerEncoder/attention_entropy/`. Layer-count-length Tensors from each executed module are concatenated in execution order and transferred to CPU once for all layers. Results enter `BatchUpdateResult` with zero-based global indices, without further averaging or normalization. Unmeasured updates and insufficient samples return NaN through `GetScalar` without carrying values forward. Noninteger or negative indices fail fast during subscription; out-of-range indices fail at the first measurement with the key, layer count, valid range, and layer count for each populated capture key. A dependency closure without a Transformer stops because the capture prefix is unfulfilled. With no subscriptions, no sampling, extra forward, or entropy calculation occurs.
 
-Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../core/anet-core/testdata/prd093/README.md).
+Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../src/core/base/testdata/prd093/README.md).
 
 ### 9.10 Value decomposition
 
@@ -802,25 +802,25 @@ Each value averages over a layer's heads, queries, and samples and normalizes by
 
 ## 10. Tests and Extension Checklist
 
-When changing value decomposition or reward scalers, use [PRD121 validation assets](../../core/anet-core/testdata/prd121/README.md) for numerical checks, the checkpoint decision table, before/after comparison of five default configurations, and Atari performance measurements.
+When changing value decomposition or reward scalers, use [PRD121 validation assets](../../src/core/base/testdata/prd121/README.md) for numerical checks, the checkpoint decision table, before/after comparison of five default configurations, and Atari performance measurements.
 
-When changing construction, configuration reading, intrinsic reward, or diagnostic responsibilities, use the [PRD128 validation assets](../../core/anet-core/testdata/prd128/README.md) for before/after comparisons across 34 configurations, continuation from an old checkpoint, Release performance, and metric-order mutation checks.
+When changing construction, configuration reading, intrinsic reward, or diagnostic responsibilities, use the [PRD128 validation assets](../../src/core/base/testdata/prd128/README.md) for before/after comparisons across 34 configurations, continuation from an old checkpoint, Release performance, and metric-order mutation checks.
 
-When changing the TD/QR/IQN update flow, Munchausen evaluation, or Bellman target assembly, use the [PRD125 validation assets](../../core/anet-core/testdata/prd125/README.md) for baseline capture, comparisons across 31 configurations and BF16, numerical target checks, and Release performance comparisons.
+When changing the TD/QR/IQN update flow, Munchausen evaluation, or Bellman target assembly, use the [PRD125 validation assets](../../src/core/base/testdata/prd125/README.md) for baseline capture, comparisons across 31 configurations and BF16, numerical target checks, and Release performance comparisons.
 
-See [PRD116 validation](../../core/anet-core/testdata/prd116/README.md) for intrinsic scoring, training, checkpoint continuation, disabled equivalence, profiles, and smoke runs. Measure performance separately without competing runs.
+See [PRD116 validation](../../src/core/base/testdata/prd116/README.md) for intrinsic scoring, training, checkpoint continuation, disabled equivalence, profiles, and smoke runs. Measure performance separately without competing runs.
 
-See [PRD106 validation assets](../../core/anet-core/testdata/prd106/README.md) for Actor skip NN execution settings, exact equality across seven defaults, all-key comparisons of four Envs with default/skip configurations, and isolation through qbert evaluation.
+See [PRD106 validation assets](../../src/core/base/testdata/prd106/README.md) for Actor skip NN execution settings, exact equality across seven defaults, all-key comparisons of four Envs with default/skip configurations, and isolation through qbert evaluation.
 
-- [PRD104 validation](../../core/anet-core/testdata/prd104/README.md): Actor length ranges, auxiliary windows, six default-equivalence cases, and stage 0/1 execution and aggregation.
+- [PRD104 validation](../../src/core/base/testdata/prd104/README.md): Actor length ranges, auxiliary windows, six default-equivalence cases, and stage 0/1 execution and aggregation.
 
-For skip update modes, weights, session metrics and convolution-sharing arms, use the numerical, checkpoint, configuration and Run checks in [PRD103 validation assets](../../core/anet-core/testdata/prd103/README.md).
+For skip update modes, weights, session metrics and convolution-sharing arms, use the numerical, checkpoint, configuration and Run checks in [PRD103 validation assets](../../src/core/base/testdata/prd103/README.md).
 
-See [PRD101 validation assets](../../core/anet-core/testdata/prd101/README.md) for comparisons and actual-Run procedures.
+See [PRD101 validation assets](../../src/core/base/testdata/prd101/README.md) for comparisons and actual-Run procedures.
 
-Changes to TempoRL windows, Actor, Learner, checkpoints, or metrics require the contract tests, disabled-skip equivalence across four Envs, smoke checks, and Atari performance comparisons in [PRD098 validation assets](../../core/anet-core/testdata/prd098/README.md). Record long-learning acceptance separately from short validation.
+Changes to TempoRL windows, Actor, Learner, checkpoints, or metrics require the contract tests, disabled-skip equivalence across four Envs, smoke checks, and Atari performance comparisons in [PRD098 validation assets](../../src/core/base/testdata/prd098/README.md). Record long-learning acceptance separately from short validation.
 
-Main DQN tests reside in [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) and [dqn_based_test.cpp](../../core/anet-core/src/dqn_based_test.cpp); shared Replay tests are in [replay_buffer_test.cpp](../../core/anet-core/src/replay_buffer_test.cpp).
+Main DQN tests reside in [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) and [dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp); shared Replay tests are in [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp).
 
 When adding or modifying a DQN Agent, check at least the following:
 
@@ -834,9 +834,9 @@ When adding or modifying a DQN Agent, check at least the following:
 8. Define each added metric's source, step axis, and `nullopt` or `NaN` conditions for unsupported Agents.
 9. When modifying policy churn, check zero updates, online differences, hard/soft targets, the FP32 autocast boundary, IQN fixed taus, subscription gates, and non-interference from caller-owned probe RNGs.
 
-10. When changing gradient noise measurement, verify that the mean of `Optimize`'s second argument matches loss, the estimation formulas, per-group availability, subscription unions/shared EMA, and ON/OFF non-interference in a deterministic environment. See [PRD092 validation assets](../../core/anet-core/testdata/prd092/README.md) for mainline BF16 smoke, wall time/additional memory, and unavailable-value rates.
+10. When changing gradient noise measurement, verify that the mean of `Optimize`'s second argument matches loss, the estimation formulas, per-group availability, subscription unions/shared EMA, and ON/OFF non-interference in a deterministic environment. See [PRD092 validation assets](../../src/core/base/testdata/prd092/README.md) for mainline BF16 smoke, wall time/additional memory, and unavailable-value rates.
 
-11. When changing attention diagnostics, verify subscription unions, pre-update layer averages, capture positional order, unmeasured NaN, and non-interference with RNG/statistics/buffers/modes. See [PRD093 validation assets](../../core/anet-core/testdata/prd093/README.md) for both smoke runs and GPU/performance acceptance.
+11. When changing attention diagnostics, verify subscription unions, pre-update layer averages, capture positional order, unmeasured NaN, and non-interference with RNG/statistics/buffers/modes. See [PRD093 validation assets](../../src/core/base/testdata/prd093/README.md) for both smoke runs and GPU/performance acceptance.
 
 ## 11. Related Documents
 

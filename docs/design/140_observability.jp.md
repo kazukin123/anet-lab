@@ -46,16 +46,16 @@
 
 | 領域 | 主なファイル |
 |---|---|
-| event、Observer interface、Notifier | [rl.hpp](../../core/anet-core/include/anet/rl.hpp)、[rl.cpp](../../core/anet-core/src/rl.cpp) |
-| 具象Observer、Config parser | [observers.hpp](../../core/anet-core/include/anet/observers.hpp)、[observers.cpp](../../core/anet-core/src/observers.cpp) |
-| MetricsLogger contract | [metrics_logger.hpp](../../core/anet-core/include/anet/metrics_logger.hpp) |
-| JSONL、画像、動画、DOT出力 | [metrics_logger.cpp](../../core/anet-core/src/metrics_logger.cpp) |
-| text logging | [log.hpp](../../core/anet-core/include/anet/log.hpp) |
-| stdout/stderr capture | [app_util.hpp](../../core/anet-core/include/anet/app_util.hpp)、[app_util.cpp](../../core/anet-core/src/app_util.cpp) |
-| profiling | [profile.hpp](../../core/anet-core/include/anet/profile.hpp)、[profile.cpp](../../core/anet-core/src/profile.cpp) |
+| event、Observer interface、Notifier | [rl.hpp](../../src/core/base/include/anet/rl.hpp)、[rl.cpp](../../src/core/base/src/rl.cpp) |
+| 具象Observer、Config parser | [observers.hpp](../../src/core/base/include/anet/observers.hpp)、[observers.cpp](../../src/core/base/src/observers.cpp) |
+| MetricsLogger contract | [metrics_logger.hpp](../../src/core/base/include/anet/metrics_logger.hpp) |
+| JSONL、画像、動画、DOT出力 | [metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp) |
+| text logging | [log.hpp](../../src/core/base/include/anet/log.hpp) |
+| stdout/stderr capture | [app_util.hpp](../../src/core/base/include/anet/app_util.hpp)、[app_util.cpp](../../src/core/base/src/app_util.cpp) |
+| profiling | [profile.hpp](../../src/core/base/include/anet/profile.hpp)、[profile.cpp](../../src/core/base/src/profile.cpp) |
 | scalar metric設定例 | [metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt) |
 | image/graph metric設定例 | [metrics_image.txt](../../apps/runner/config/metrics_image.txt) |
-| runner側の初期化・flush | [RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp) |
+| runner側の初期化・flush | [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) |
 
 ## 4. 静的構造
 
@@ -354,7 +354,7 @@ Agentは`CreateStepDiagnosticsProvider`で`AgentStepDiagnosticsProvider`を生�
 
 DQNの具体的な提供元と鍵の認識はDQN実装内に閉じる。DQNのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。既存の3キーのQ計算はPERの有無によらず、追加のQ forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset・Load時のstdをatomicへ公開し、診断は可変Tensor統計を参照せず、この値だけを読む。動的な外的・内的報酬スケーラは統計をcheckpointへ保存する。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。non_episodicの終端の初期優先度の内的の見積もりもbootstrapなしである。
 
-生成器は行追加と遅延列確定を別々に知らせる。GUIの保持上限を超えた行の画像を保持し続けない。列解析・時点・診断・再生の公開経路と数値等価性は[PRD094検証資材](../../core/anet-core/testdata/prd094/README.md)で確かめる。
+生成器は行追加と遅延列確定を別々に知らせる。GUIの保持上限を超えた行の画像を保持し続けない。列解析・時点・診断・再生の公開経路と数値等価性は[PRD094検証資材](../../src/core/base/testdata/prd094/README.md)で確かめる。
 
 ## 7. 出力とlifetime
 
@@ -412,15 +412,15 @@ TimeHeatMapのScale描画、Histgram、SweepedHeatMapは、wxImage自身が確�
 
 ## 9. テストと拡張時の確認事項
 
-内的報酬の採点・同期・休止と学習不変性の検証は[PRD127検証資材](../../core/anet-core/testdata/prd127/README.md)を参照する。
+内的報酬の採点・同期・休止と学習不変性の検証は[PRD127検証資材](../../src/core/base/testdata/prd127/README.md)を参照する。
 
-画像の固定画素・所有権の回帰テストは`heat_map_test.cpp`で確認する。確保・解放の不一致と確保失敗は通常の描画成功だけで判定せず、[画像メモリの検証資材](../../core/anet-core/testdata/prd115/README.md)で実際のwxWidgets境界を通して確認する。
+画像の固定画素・所有権の回帰テストは`heat_map_test.cpp`で確認する。確保・解放の不一致と確保失敗は通常の描画成功だけで判定せず、[画像メモリの検証資材](../../src/core/base/testdata/prd115/README.md)で実際のwxWidgets境界を通して確認する。
 
-- nn_trace の受入は [PRD170 の検証資材](../../core/anet-core/testdata/prd170/README.md)を参照する。
+- nn_trace の受入は [PRD170 の検証資材](../../src/core/base/testdata/prd170/README.md)を参照する。
 
 ### TempoRL の scalar と Trace
 
-variableのActor上限は `$actor skip_max_length @learn $exp_step` で取得し、群の設定キーで `50_agent_skip/07_max_length` に出す。既定のmetrics連鎖には加えない。full/single/skip無効では既知キーのNaNとして扱う。singleでは判断率と長さ平均は1となり、Traceのskip_q.[j]は引き続き1..Jを参照する。窓の規則の比較には既存の13_sample_k_mean・14_kmax_mean・11_lossを使う。[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)を参照する。
+variableのActor上限は `$actor skip_max_length @learn $exp_step` で取得し、群の設定キーで `50_agent_skip/07_max_length` に出す。既定のmetrics連鎖には加えない。full/single/skip無効では既知キーのNaNとして扱う。singleでは判断率と長さ平均は1となり、Traceのskip_q.[j]は引き続き1..Jを参照する。窓の規則の比較には既存の13_sample_k_mean・14_kmax_mean・11_lossを使う。[PRD104検証資材](../../src/core/base/testdata/prd104/README.md)を参照する。
 
 DefaultDQN の skip 指標は `50_agent_skip` 群を使う。metrics_scalar.txtの `metrics.scalar.@skip` を選ぶと、Actor の decision_rate・判断laneの平均長・長さ別割合・選択長とj=1のQ差、および Learner の loss・平均絶対TD・k平均・k_max平均・clip前の勾配normを記録する。長さ別割合は `skip_length_rate.[j]` を1始まりで指定し、宣言したJを超える添字は fail-fast する。
 
@@ -428,11 +428,11 @@ scalar tag内にも添字を含められる。たとえば設定key `metrics.sca
 
 Actor 指標の `skip_length_mean`・`skip_length_rate.[j]`・`skip_q_gap` は判断laneだけを集計し、判断がないstepではNaNとなる。skip無効の場合も既知キーはNaNを返す。payloadはdevice上で集約し、初回の読出しでCPUへまとめて転送する。Learnerの7指標も結果オブジェクトが値を保持し、初回参照時に転送する。追加の`17_skip_primary_grad_norm`と`18_skip_primary_clip_ratio`はsplitのprimaryに入るskip勾配のclip前normと閾値超過の旗で、split以外はNaNになる。`19_primary_clip_ratio_ema`は18の旗の既定係数のEMAで、split以外は出力されない。
 
-評価は`skip_session_decision_rate`・`skip_session_length_mean`・`skip_session_length_rate.[j]`を`$eval.[greedy] $actor @session_end`で読む。ActorがSync間の判断回数・選択長・lane step数を保持し、判断率・平均・長さ別割合を返す。tagは`21_greedy_decision_rate`、`22_greedy_length_mean`、`23_greedy_length_rate.[01]`～で、`runner=train`の学習側座標に並ぶ。複数lane・途中終了のあるsessionでは判断回数の近似指標である。GridMaze/LunarLander/DropMergeのgreedy報酬は`21_eval/09_greedy_reward`、EMA・episode steps・最大stepsは`10`～`12`。Atariのsession名も`greedy`で、既存の`53_evalg`群・評価条件は維持する。数値例・短縮Run・metrics定義の確認は[PRD103検証資材](../../core/anet-core/testdata/prd103/README.md)を参照する。
+評価は`skip_session_decision_rate`・`skip_session_length_mean`・`skip_session_length_rate.[j]`を`$eval.[greedy] $actor @session_end`で読む。ActorがSync間の判断回数・選択長・lane step数を保持し、判断率・平均・長さ別割合を返す。tagは`21_greedy_decision_rate`、`22_greedy_length_mean`、`23_greedy_length_rate.[01]`～で、`runner=train`の学習側座標に並ぶ。複数lane・途中終了のあるsessionでは判断回数の近似指標である。GridMaze/LunarLander/DropMergeのgreedy報酬は`21_eval/09_greedy_reward`、EMA・episode steps・最大stepsは`10`～`12`。Atariのsession名も`greedy`で、既存の`53_evalg`群・評価条件は維持する。数値例・短縮Run・metrics定義の確認は[PRD103検証資材](../../src/core/base/testdata/prd103/README.md)を参照する。
 
-Evaluation Trace は `$action_info skip_decision` と `$action_info skip_length` で指定laneを読む。長さは継続中も最初に選んだjを示す。各envの `run.@skip` がこの2列を宣言する。追加の `skip_q.[j]` は指定laneの長さjのQ値を読み、jは1..J、範囲外はエラー、skip無効はNaNである。Q列は既定には足さず、envかCLIで `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1` のように指定する。初回のskip診断読取りでQ値も同じcacheへ転送するため、列ごとの同期は増えない。性能と4環境の等価性、学習確認の手順は [PRD098検証資材](../../core/anet-core/testdata/prd098/README.md) を参照する。
+Evaluation Trace は `$action_info skip_decision` と `$action_info skip_length` で指定laneを読む。長さは継続中も最初に選んだjを示す。各envの `run.@skip` がこの2列を宣言する。追加の `skip_q.[j]` は指定laneの長さjのQ値を読み、jは1..J、範囲外はエラー、skip無効はNaNである。Q列は既定には足さず、envかCLIで `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1` のように指定する。初回のskip診断読取りでQ値も同じcacheへ転送するため、列ごとの同期は増えない。性能と4環境の等価性、学習確認の手順は [PRD098検証資材](../../src/core/base/testdata/prd098/README.md) を参照する。
 
-- [PRD094検証資材](../../core/anet-core/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
+- [PRD094検証資材](../../src/core/base/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
 Observerまたは出力形式を変更する場合は次を確認する。
 
@@ -443,9 +443,9 @@ Observerまたは出力形式を変更する場合は次を確認する。
 5. `metrics.jsonl`の既存readerとMetrics Viewerが新recordを安全に無視または解釈できる。
 6. Run close後にfile handle、timer、ffmpeg processが残らない。
 
-主な回帰testは[observers_test.cpp](../../core/anet-core/src/observers_test.cpp)、[metrics_logger_test.cpp](../../core/anet-core/src/metrics_logger_test.cpp)、[log_test.cpp](../../core/anet-core/src/log_test.cpp)、[episode_end_test.cpp](../../core/anet-core/src/episode_end_test.cpp)に置く。
+主な回帰testは[observers_test.cpp](../../src/core/base/src/observers_test.cpp)、[metrics_logger_test.cpp](../../src/core/base/src/metrics_logger_test.cpp)、[log_test.cpp](../../src/core/base/src/log_test.cpp)、[episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp)に置く。
 
-eval schedule の発火列・設定移行・短い Run の確認手順は [PRD158 検証資材](../../core/anet-core/testdata/prd158/README.md) を参照する。
+eval schedule の発火列・設定移行・短い Run の確認手順は [PRD158 検証資材](../../src/core/base/testdata/prd158/README.md) を参照する。
 
 ## 10. 関連文書
 

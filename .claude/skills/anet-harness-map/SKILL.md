@@ -26,7 +26,7 @@ anet-lab の AI ハーネス(エージェントの振る舞いを決めるファ
 2. [Harness map contract](references/harness-map-contract.md) を全文読み、用語、公開マニフェスト、README の 6 節、2 図の契約、品質基準を確定する。
 3. 現在の Git revision を取得し、ハーネスを調査する。名称を決め打ちせず、役割と内容から発見する。
    - **入口**: `CLAUDE.md`、`AGENTS.md`(全 `##` 節の見出しと行数を取る)。
-   - **リポジトリ内の文書**: `docs/agents/*.md`、`docs/design/README.jp.md` の索引と各設計文書の最終 2 章、`CONTEXT.md`、`docs/adr/`(件数)、`docs/memo/`(直下 / `done` / `frozen` / `dropped` の件数)、`core/anet-core/testdata/*/README.md`、`docs/ownership_guideline.md`、`docs/experiments/README.md`、`.github/workflows/`、`AGENTS.md` が名指しする Python tool。
+   - **リポジトリ内の文書**: `docs/agents/*.md`、`docs/design/README.jp.md` の索引と各設計文書の最終 2 章、`CONTEXT.md`、`docs/adr/`(件数)、`docs/memo/`(直下 / `done` / `frozen` / `dropped` の件数)、`src/core/base/testdata/*/README.md`、`docs/ownership_guideline.md`、`docs/experiments/README.md`、`.github/workflows/`、`AGENTS.md` が名指しする Python tool。
    - **skill**: project の `.agents/skills` と `.claude/skills` を `diff -rq` で比較する。user-level の `~/.claude/skills`、`~/.agents/skills`、`~/.codex/skills` を一覧し、project と同名のものは `diff -rq` で中身を比較する。各 skill の `agents/openai.yaml` の有無を取る。
    - **ユーザー環境**: `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、memory `~/.claude/projects/<slug>/memory/`(件数と `MEMORY.md` の index 行数)。`<slug>` はリポジトリ絶対パスの `:` `\` `/` を `-` に置換した名前。見つからなければ evidence gap として記録して続行する。
    - **参照元**: 各ノードがどこからリンク・名指しされているかを `rg` で実測する。参照元が無い末端が「死んだ動線」になる。

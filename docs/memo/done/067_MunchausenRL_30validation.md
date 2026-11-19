@@ -134,7 +134,7 @@ PRD 受入基準 3 が指定するとおり `train_policy.policy_type=UQE` を�
 ### ProfileRange の取得条件
 
 `ProfileRange` は NVTX / Tracy 専用で、Run artifact にもログにも残らない
-（[profile.hpp](../../../core/anet-core/include/anet/profile.hpp)。Tracy は `ANET_ENABLE_TRACY` のコンパイル時スイッチ）。
+（[profile.hpp](../../../src/core/base/include/anet/profile.hpp)。Tracy は `ANET_ENABLE_TRACY` のコンパイル時スイッチ）。
 上記§「250k〜400k区間の計測」の値は Nsight Systems をアタッチして取得したものであり、
 **通常の launcher 実行では再現できない**。区間別内訳が必要になった時点で外部プロファイラで別途取得する。
 

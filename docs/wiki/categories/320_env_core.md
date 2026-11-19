@@ -55,8 +55,8 @@
 
 点検が作り直す。手で直さない。
 
-- [env.hpp](../../../core/anet-core/include/anet/env.hpp)
-- [env.cpp](../../../core/anet-core/src/env.cpp) / [env_test.cpp](../../../core/anet-core/src/env_test.cpp)
+- [env.hpp](../../../src/core/base/include/anet/env.hpp)
+- [env.cpp](../../../src/core/base/src/env.cpp) / [env_test.cpp](../../../src/core/base/src/env_test.cpp)
 
 ## PRD の一覧
 
@@ -72,6 +72,7 @@
 - [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
 - [PRD098](../../memo/098_temporl_skip_policy_10prd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD
 - [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 

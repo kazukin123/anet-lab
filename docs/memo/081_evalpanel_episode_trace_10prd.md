@@ -10,7 +10,7 @@
 
 ### 1.1 EvalPanel は記録を持たない
 
-EvalPanel はデモ用のパネルで、`RunnerFrame::Initialize` が `RunManager::CreateEvalRunner("EvalPanel", "eval_panel")` で専用の EvalRunner（1 lane）を RunManager 構築後に作って回す（[RunnerFrame.cpp](../../apps/runner/src/RunnerFrame.cpp) の `Initialize`、[trainer.cpp](../../core/anet-core/src/trainer.cpp) の `CreateEvalRunner`）。`eval_panel` は `run.eval_schedule` を持たない definition-only の eval 定義で、[Atari.txt](../../apps/runner/config/Atari.txt) は「eval_panel は metrics を 1 つも出さない（51/52/53 はいずれも別の eval 定義に紐づく）ので、記録側の値には混ざらない」と明記している。
+EvalPanel はデモ用のパネルで、`RunnerFrame::Initialize` が `RunManager::CreateEvalRunner("EvalPanel", "eval_panel")` で専用の EvalRunner（1 lane）を RunManager 構築後に作って回す（[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) の `Initialize`、[trainer.cpp](../../src/core/base/src/trainer.cpp) の `CreateEvalRunner`）。`eval_panel` は `run.eval_schedule` を持たない definition-only の eval 定義で、[Atari.txt](../../apps/runner/config/Atari.txt) は「eval_panel は metrics を 1 つも出さない（51/52/53 はいずれも別の eval 定義に紐づく）ので、記録側の値には混ざらない」と明記している。
 
 デモ用という位置付けは変えない。一方で、録画した EvalPanel のあるゲームで何が起きたかを後から調べたい。いま残るのは AtariEnv のゲーム完了ログ（220 §4.7）だけである。
 
@@ -28,21 +28,21 @@ EvalPanel はデモ用のパネルで、`RunnerFrame::Initialize` が `RunManage
 2. **definition-only の tag は捨てられる。** 対応する Runner が無く tag が definition-only（dormant）なら、`Skipping metrics for unscheduled eval tag` の WARN を tag ごとに 1 回出して observer を捨てる。`eval_panel` はこれに当たる。
 3. **後から作る Runner には何も付かない。** `CreateEvalRunner` は env と EvalRunner を作って登録するだけで、observer を attach しない。
 
-加えて、trace の定義（`metrics.trace.defs`）は起動時に 1 レコードだけ出し、dormant tag の定義は除く（`trainer.cpp` の `complete_metric_definition`）。[inspect_run.py](../../viewers/metrics-tools/inspect_run.py) は `metrics.trace.defs` を 1 レコードとして読む（master は最初の 1 件で読み終え、cache は序数最大の 1 件）。後から結び付く trace の定義をどう載せるかを決める必要がある（§3.3）。
+加えて、trace の定義（`metrics.trace.defs`）は起動時に 1 レコードだけ出し、dormant tag の定義は除く（`trainer.cpp` の `complete_metric_definition`）。[inspect_run.py](../../apps/tools/inspect_run.py) は `metrics.trace.defs` を 1 レコードとして読む（master は最初の 1 件で読み終え、cache は序数最大の 1 件）。後から結び付く trace の定義をどう載せるかを決める必要がある（§3.3）。
 
 ### 1.3 trace 行は時刻を持たない
 
 trace 行は `tag` / `step` / `lane` と `data` だけで、時刻を持たない（ADR 0037 / PRD 069 D6「scalar と同じ最小形」）。ログ行は時刻を持つが通し番号を持たない。序数（CONTEXT.md「序数」）で k 番目同士を対応させる手順は組めるが、録画の時刻から該当ゲームを引くたびにログと trace の両方を数えることになる。
 
-一方、`type:"json"` のレコードは既に `timestamp`（`MetricsLogger::GetCurrentTimeStr()`、`%Y-%m-%dT%H:%M:%S`、ローカル時刻、秒精度）を持ち（[metrics_logger.cpp:645](../../core/anet-core/src/metrics_logger.cpp:645)）、Metrics Viewer の cache は `json_lines.timestamp` 列を持ち、ingest は `timestamp` を汎用に拾う（[MetricsIngestor.java:329](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java:329)、同 351）。trace 行に同じ欄を足せば、trace 1 行で「いつ・何が」が閉じる。
+一方、`type:"json"` のレコードは既に `timestamp`（`MetricsLogger::GetCurrentTimeStr()`、`%Y-%m-%dT%H:%M:%S`、ローカル時刻、秒精度）を持ち（[metrics_logger.cpp:645](../../src/core/base/src/metrics_logger.cpp#L645)）、Metrics Viewer の cache は `json_lines.timestamp` 列を持ち、ingest は `timestamp` を汎用に拾う（[MetricsIngestor.java:329](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java#L329)、同 351）。trace 行に同じ欄を足せば、trace 1 行で「いつ・何が」が閉じる。
 
 ### 1.4 EvalPanel の trace `step` は定義レコードと食い違う（原案の前提の修正）
 
 原案は「EvalPanel はモデル同期のたびに学習側のカウンタをコピーするので、trace 行の `step` は方策スナップショットの学習 `exp_step` になる」と書いた。現行コードではそうならない。
 
-- EvalPanel の timer 経路は `DoUpdateFrame` → `DoStep()` → `DoStep(-1, step_counts_)` で、`EpisodeEndEvent.counts` は **EvalPanel runner 自身の `step_counts_`**（[trainer.cpp:146](../../core/anet-core/src/trainer.cpp:146)、[同 300-313](../../core/anet-core/src/trainer.cpp:300)）。手動行動の `DoStep(action)` も同じ。
-- `EvalRunner::Sync(source_counts)` は `source_counts_` を更新するだけで、それは `actor_->MakeAction(source_counts_, state_)` にしか渡らない（[同 219-224](../../core/anet-core/src/trainer.cpp:219)、CONTEXT.md「学習側 counts」）。
-- 一方、定義レコードの `runner`（座標系所有者）は `OwningRunner(EVAL, EPISODE_END)` = `"train"` 固定である（[observers.cpp:1288](../../core/anet-core/src/observers.cpp:1288)）。
+- EvalPanel の timer 経路は `DoUpdateFrame` → `DoStep()` → `DoStep(-1, step_counts_)` で、`EpisodeEndEvent.counts` は **EvalPanel runner 自身の `step_counts_`**（[trainer.cpp:146](../../src/core/base/src/trainer.cpp#L146)、[同 300-313](../../src/core/base/src/trainer.cpp#L300)）。手動行動の `DoStep(action)` も同じ。
+- `EvalRunner::Sync(source_counts)` は `source_counts_` を更新するだけで、それは `actor_->MakeAction(source_counts_, state_)` にしか渡らない（[同 219-224](../../src/core/base/src/trainer.cpp#L219)、CONTEXT.md「学習側 counts」）。
+- 一方、定義レコードの `runner`（座標系所有者）は `OwningRunner(EVAL, EPISODE_END)` = `"train"` 固定である（[observers.cpp:1288](../../src/core/base/src/observers.cpp#L1288)）。
 
 つまり結び付けだけを実装すると、trace の `step` は EvalPanel 自身の遷移数（EvalPanel 座標系）になり、定義レコードは train 座標系だと主張する。ADR 0029（解析側は定義を正本として読む）と CONTEXT.md「step座標系」（同じ eval tag でも `@episode_end` は train 側のカウンタに載る）の両方に反する。
 
@@ -50,10 +50,10 @@ configured eval は `RunSession(event_counts)` の冒頭で `Sync(event_counts)`
 
 ### 1.5 その他の確定事実（2026-09-26）
 
-- `CreateEvalRunner` の非テスト呼び出しは [RunnerFrame.cpp:471](../../apps/runner/src/RunnerFrame.cpp:471) の 1 箇所。online / batchrun とも常に生成する（batchrun は `auto_start=false` で止めているだけ）。
-- `eval_runners` は name キー（configured は tag、`CreateEvalRunner` は name）。`resolve_runner` は eval_name（tag）で検索する。`RunnerScopedEpisodeEndObserver` は `event.runner == target_runner_` のポインタ一致で振り分ける（[rl.cpp:890](../../core/anet-core/src/rl.cpp:890)）。
+- `CreateEvalRunner` の非テスト呼び出しは [RunnerFrame.cpp:471](../../src/apps/runner/src/RunnerFrame.cpp#L471) の 1 箇所。online / batchrun とも常に生成する（batchrun は `auto_start=false` で止めているだけ）。
+- `eval_runners` は name キー（configured は tag、`CreateEvalRunner` は name）。`resolve_runner` は eval_name（tag）で検索する。`RunnerScopedEpisodeEndObserver` は `event.runner == target_runner_` のポインタ一致で振り分ける（[rl.cpp:890](../../src/core/base/src/rl.cpp#L890)）。
 - trace observer は `ParsedEpisodeEndObserver{scope, eval_name, obs}` として `episode_end_observers_` に入る。eval scope の `@episode_end` scalar は ADR 0037 で fail-fast なので、**eval scope の episode_end observer は trace observer に限られる**。
-- trace 定義レコードは 9 欄（`step_axis / runner / scope / eval_name / eval_episodes / num_envs / event / target / keys`。[observers.cpp:1321](../../core/anet-core/src/observers.cpp:1321)）。`eval_episodes` / `num_envs` は `std::optional` で `null` を書ける。
+- trace 定義レコードは 9 欄（`step_axis / runner / scope / eval_name / eval_episodes / num_envs / event / target / keys`。[observers.cpp:1321](../../src/core/base/src/observers.cpp#L1321)）。`eval_episodes` / `num_envs` は `std::optional` で `null` を書ける。
 - `inspect_run.py trace-csv` の固定列は `row_no, run, tag, step, lane`（inspect_run.py:53）。`_trace_fields` は `tag / step / lane / data` を検証して返す（同 1005-1020）。
 - 手動行動の経路は RunnerFrame がハンドラを繋ぐ `EvalPanel::DoStep(action)` の 1 本（RunnerFrame.cpp:477-480 → EvalPanel.cpp:160-167）で、今は何もログしない（pause / resume は `LOG::info` で時刻付きに残る）。
 - ゲーム完了ログ（`RecordGameCompletion`、`Game over.` / `Game truncated by max_episode_frames.`、prefix は `env.[<Env name>].[<lane>]:`）と PRD 082 の `ram_metric.[n]` は未コミット差分にある。Atari.txt の trace 4 行へのキー追加はまだである。
@@ -143,11 +143,11 @@ metrics.trace.@atari.[54_evalpanel/episode] = $eval.[eval_panel] @episode_end $e
 
 ## 4. 実装ノート
 
-- [trainer.hpp](../../core/anet-core/include/anet/trainer.hpp) / [trainer.cpp](../../core/anet-core/src/trainer.cpp): `pending_trace_observers_`、`resolve_runner` の dormant 分岐（trace は保持、scalar は WARN）、`complete_metric_definition` の trace 側 dormant 許容（`null` 2 欄）、`CreateEvalRunner` 末尾の attach と INFO、`EvalRunner::DoStep(int64_t)` の counts。
-- [metrics_logger.hpp](../../core/anet-core/include/anet/metrics_logger.hpp): `LogTrace` に `{"timestamp", GetCurrentTimeStr()}`。
-- [inspect_run.py](../../viewers/metrics-tools/inspect_run.py): `TRACE_FIXED_COLUMNS` に `timestamp`、`_trace_fields` / `iter_trace_rows` / CSV 行の組み立てに 1 欄。
-- [EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp): ログ 1 行。[Atari.txt](../../apps/runner/config/Atari.txt): 54 行とコメント。
-- [trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)、`metrics_logger_test.cpp`、`inspect_run_test.py`: §5。
+- [trainer.hpp](../../src/core/base/include/anet/trainer.hpp) / [trainer.cpp](../../src/core/base/src/trainer.cpp): `pending_trace_observers_`、`resolve_runner` の dormant 分岐（trace は保持、scalar は WARN）、`complete_metric_definition` の trace 側 dormant 許容（`null` 2 欄）、`CreateEvalRunner` 末尾の attach と INFO、`EvalRunner::DoStep(int64_t)` の counts。
+- [metrics_logger.hpp](../../src/core/base/include/anet/metrics_logger.hpp): `LogTrace` に `{"timestamp", GetCurrentTimeStr()}`。
+- [inspect_run.py](../../apps/tools/inspect_run.py): `TRACE_FIXED_COLUMNS` に `timestamp`、`_trace_fields` / `iter_trace_rows` / CSV 行の組み立てに 1 欄。
+- [EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp): ログ 1 行。[Atari.txt](../../apps/runner/config/Atari.txt): 54 行とコメント。
+- [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp)、`metrics_logger_test.cpp`、`inspect_run_test.py`: §5。
 
 ## 5. テストの方針と受入条件
 

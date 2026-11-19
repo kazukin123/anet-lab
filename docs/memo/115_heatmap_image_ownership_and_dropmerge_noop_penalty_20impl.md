@@ -63,7 +63,7 @@ core\envs\dropmerge1\bin\Debug\DropMergeEnv-test.exe "[dropmerge]"
 - probeでは画像の100回検査と画素採取が完了した後にDLL終了処理でtimeoutすることを、PASS行と採取画素の出力から確認した。対象画像の破棄後にWindowsの自己終了を使う方式へ改めた。画素採取専用モードは画像を破棄せず終了するため、A2の合格には数えない。
 - 基準の実ソースは.scratch/prd115/baseline_heat_map.cpp（Git blob 1fff8bfb5629b1e23b4d732f3ddb3a7991286707）に保存した。
 - Debugビルドは上記2対象で成功。初回レビュー前の画像テストは657 assertions / 7 cases、DropMergeは2850 assertions / 32 casesですべて合格した。TimeHistogramの独立期待値にあった色の計算誤りは、既存の値1=中間色・値2=上限色の規則に沿って直し、全画素の一致を確認した。
-- [検証資材README](../../core/anet-core/testdata/prd115/README.md)の3コマンドを実行した。baseline ASanは4経路すべてでalloc-dealloc-mismatchを検出して終了値1、current ASanは各100回の生成・コピー・破棄を終了値0で完走した。current CRTは4経路の画素採取と4経路の実確保失敗注入がすべて終了値0だった。スクリプト自体の終了値はいずれも0。
+- [検証資材README](../../src/core/base/testdata/prd115/README.md)の3コマンドを実行した。baseline ASanは4経路すべてでalloc-dealloc-mismatchを検出して終了値1、current ASanは各100回の生成・コピー・破棄を終了値0で完走した。current CRTは4経路の画素採取と4経路の実確保失敗注入がすべて終了値0だった。スクリプト自体の終了値はいずれも0。
 - 実行結果とコマンドの原文は.scratch/prd115/memory-baseline-asan/、memory-current-asan/、memory-current-crt/のresult.jsonと各logに保存した。基準ソースのSHA-256は31d475ec625318444d035bb726d96dae158f1c6c668ac32ee44cee6d4ba453b3、修正後はcff7a887f31de7e990c6425f46984cff44dbbc0adc4b6c4e521b7910bbc321f2。
 
 ## 受入条件の確認

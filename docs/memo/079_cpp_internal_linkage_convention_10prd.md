@@ -135,7 +135,7 @@ Google 解は「namespace を書いてインデントしない」、anet 解は�
 
 ### パターン A: 型を含まないブロック → ブロックごと削除
 
-対象 20 ブロック。[app_util.cpp:36](../../core/anet-core/src/app_util.cpp) は無名 namespace と `static` 関数が
+対象 20 ブロック。[app_util.cpp:36](../../src/core/base/src/app_util.cpp) は無名 namespace と `static` 関数が
 同一ファイルに同居しており、規約が無いことがそのまま表れている。
 
 ```cpp
@@ -186,7 +186,7 @@ static std::string Trim(const std::string& value)
 
 ### パターン B: 型を含むブロック → 型だけ残してインデント
 
-対象 19 ブロック。[nn_impl.cpp:1333](../../core/anet-core/src/nn_impl.cpp) は 114 行のうち型が 4 つ、
+対象 19 ブロック。[nn_impl.cpp:1333](../../src/core/base/src/nn_impl.cpp) は 114 行のうち型が 4 つ、
 残りは既に `static` が付いた関数である（無名 namespace の中の `static` は冗長）。
 
 ```cpp
@@ -270,7 +270,7 @@ static void ValidateConfigProfileExpansionPlan(...)
 
 ### パターン C: 定数のみのブロック
 
-[metrics_logger.cpp:23](../../core/anet-core/src/metrics_logger.cpp) の冒頭は 5 つの `constexpr` で始まる。
+[metrics_logger.cpp:23](../../src/core/base/src/metrics_logger.cpp) の冒頭は 5 つの `constexpr` で始まる。
 
 ```cpp
 // 変更前
@@ -361,7 +361,7 @@ TEST_CASE("SumTree supports explicit floating-point value types", "[replay_buffe
 
 ### パターン E: .cpp 内の名前付き namespace
 
-[replay_buffer_test.cpp:3784](../../core/anet-core/src/replay_buffer_test.cpp) の
+[replay_buffer_test.cpp:3784](../../src/core/base/src/replay_buffer_test.cpp) の
 `replay_integrity_assay`（3784-4088）は非インデント。名前付き = 実在スコープなのでインデントする。
 
 ```cpp

@@ -392,19 +392,19 @@ A と B は互いに独立で、別々に実装・検証できる。142 は A �
 
 単位 A
 
-- [rl.hpp](../../core/anet-core/include/anet/rl.hpp) — `ForcedAction`、`Actor::MakeAction`、`BatchActionInfo::WithAction` の削除。
-- [dqn_based_agent.hpp](../../core/anet-core/src/dqn_based_agent.hpp) / [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) — `dqn::Actor::MakeAction`、`DQNActionInfo::WithAction` の削除、`munchausen_terms`。
-- [muzero_based_agent.hpp](../../core/anet-core/src/muzero_based_agent.hpp) / [muzero_based_agent.cpp](../../core/anet-core/src/muzero_based_agent.cpp)、
-  [image_cls_agent.hpp](../../core/anet-core/include/anet/image_cls_agent.hpp) / [image_cls_agent.cpp](../../core/anet-core/src/image_cls_agent.cpp) — `MakeAction`。
-- [trainer.cpp](../../core/anet-core/src/trainer.cpp) — `EvalRunner::DoStepInternal`。
+- [rl.hpp](../../src/core/base/include/anet/rl.hpp) — `ForcedAction`、`Actor::MakeAction`、`BatchActionInfo::WithAction` の削除。
+- [dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp) / [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) — `dqn::Actor::MakeAction`、`DQNActionInfo::WithAction` の削除、`munchausen_terms`。
+- [muzero_based_agent.hpp](../../src/algo/muzero/src/muzero_based_agent.hpp) / [muzero_based_agent.cpp](../../src/algo/muzero/src/muzero_based_agent.cpp)、
+  [image_cls_agent.hpp](../../src/algo/imagecls/src/image_cls_agent.hpp) / [image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp) — `MakeAction`。
+- [trainer.cpp](../../src/core/base/src/trainer.cpp) — `EvalRunner::DoStepInternal`。
 - テスト: `dqn_based_agent_test.cpp`、`dqn_munchausen_test.cpp`、`episode_end_test.cpp`、`observers_test.cpp`、`trainer_test.cpp`。
 
 単位 B
 
 - `core/anet-core/include/anet/observation_pipeline.hpp`、`core/anet-core/src/observation_pipeline.cpp`、`observation_pipeline_test.cpp`（新規。§9 Q6）。
-- [agent.hpp](../../core/anet-core/include/anet/agent.hpp) — `dqn::StuckerConfig` の削除。
-- [default_dqn_agent.hpp](../../core/anet-core/include/anet/default_dqn_agent.hpp) / [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) — コンストラクタ、`GetTensorDictFunction`、`CreateActor`、`UpdateFromBatch`、`GetScalar` / `GetTensor`。
-- [dqn_based_agent.hpp](../../core/anet-core/src/dqn_based_agent.hpp) / [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) — `dqn::Learner` の stack 定義の型。
+- [agent.hpp](../../src/core/base/include/anet/agent.hpp) — `dqn::StuckerConfig` の削除。
+- [default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp) / [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) — コンストラクタ、`GetTensorDictFunction`、`CreateActor`、`UpdateFromBatch`、`GetScalar` / `GetTensor`。
+- [dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp) / [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) — `dqn::Learner` の stack 定義の型。
 
 設定ファイルの変更は無い。設計文書は §8。
 

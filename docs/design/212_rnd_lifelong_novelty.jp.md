@@ -166,7 +166,7 @@ $$
 
 `RndHeadFactory` は構築時の試し計算で Body の出力が2軸であることを確認する。余分な軸を残した `[B, T, F]` では、最後の軸を平均しても `[B, T]` となり、lane ごとの報酬として扱えないためである。
 
-コードの入口は [`RndNoveltyEstimator::Estimate`](../../core/anet-core/src/intrinsic_rnd.cpp)。target と predictor は別の重みを持ち、target の勾配計算を止め、学習時の状態更新をしないモードに置く。Q 値を計算する Network とは共有しない。
+コードの入口は [`RndNoveltyEstimator::Estimate`](../../src/core/base/src/intrinsic_rnd.cpp)。target と predictor は別の重みを持ち、target の勾配計算を止め、学習時の状態更新をしないモードに置く。Q 値を計算する Network とは共有しない。
 
 targetとpredictorは、それぞれ必須の `intrinsic.rnd.target.net.*` と `intrinsic.rnd.predictor.net.*` から別々に組む。Bodyの深さや特徴数は異なってよいが、どちらもHeadで共通の `head.output_dim` 次元へ射影する。Headの初期値は `intrinsic.rnd.head.init.*` で選び、実装の既定はxavierである。初期重みには別の名前付きseedを使い、教師の重みをpredictorへコピーしない。同じ変換を初めから持たせれば、練習前から答えが一致し、誤差を新しさの手掛かりにできなくなるためである。
 
@@ -181,7 +181,7 @@ RND には、目的が異なる2つの統計がある。
 
 観測正規化の既定は、成分ごとに概ね `(値 − 平均) / 標準偏差` を計算し、`[-5, 5]` に制限する。これは成分ごとの尺度調整であり、成分どうしの相関まで取り除く処理は行わない。RND 専用の統計を持つので、Q 入力の正規化設定を変えても、RND の統計を共有して変えることにはならない。
 
-実際の除数は [`RunningMeanStd::GetStd`](../../core/anet-core/src/scaler_impl.hpp) の `sqrt(var) + epsilon` である。RND の観測正規化も共通設定の `epsilon=1.0` を既定で使う。小さい数を仮定した教科書的な式で実装を読み替えないこと。初期状態は平均0・分散1から始まる。
+実際の除数は [`RunningMeanStd::GetStd`](../../src/core/base/src/scaler_impl.hpp) の `sqrt(var) + epsilon` である。RND の観測正規化も共通設定の `epsilon=1.0` を既定で使う。小さい数を仮定した教科書的な式で実装を読み替えないこと。初期状態は平均0・分散1から始まる。
 
 画素などの非カテゴリの `uint8` 観測は、RND 内で浮動小数点へ変換してから正規化する。カテゴリを表す観測は、既存の観測仕様・正規化機構の扱いに従う。
 
@@ -367,15 +367,15 @@ sequenceDiagram
 
 | 確かめたいこと | ファイル・操作 | 背景との対応 |
 | --- | --- | --- |
-| 呼び出し側に何を公開するか | [`intrinsic.hpp`](../../core/anet-core/include/anet/intrinsic.hpp) の `LifelongNoveltyEstimator` と Factory | 倍率の採点、補助学習、診断、保存を公開し、RND 固有の構成を隠す |
-| 報酬をどこで加算するか | [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) の `UpdateFromBatch` | 既存の報酬スケール後に加算する |
-| 学習の刻みと抽選 | [`default_dqn_agent.cpp`](../../core/anet-core/src/default_dqn_agent.cpp) の `IntrinsicRewardCoordinator::Learn` | Coordinatorがcreditと名前付きseed `intrinsic.learn` の乱数を持ち、k件ずつ渡す |
+| 呼び出し側に何を公開するか | [`intrinsic.hpp`](../../src/core/base/include/anet/intrinsic.hpp) の `LifelongNoveltyEstimator` と Factory | 倍率の採点、補助学習、診断、保存を公開し、RND 固有の構成を隠す |
+| 報酬をどこで加算するか | [`default_dqn_agent.cpp`](../../src/algo/dqn/src/default_dqn_agent.cpp) の `UpdateFromBatch` | 既存の報酬スケール後に加算する |
+| 学習の刻みと抽選 | [`default_dqn_agent.cpp`](../../src/algo/dqn/src/default_dqn_agent.cpp) の `IntrinsicRewardCoordinator::Learn` | Coordinatorがcreditと名前付きseed `intrinsic.learn` の乱数を持ち、k件ずつ渡す |
 | 内的報酬の診断・Trace・保存 | 同ファイルの `IntrinsicRewardCoordinator` | `ScoreBonus` と `ScoreTrace` が共通のボーナス式を使い、`GetScalar`・`Save`・`Load`が診断と保存を受け持つ |
-| RND が何を所有するか | [`intrinsic_rnd.hpp`](../../core/anet-core/src/intrinsic_rnd.hpp) | target、predictor、optimizer、選択した方式の統計、target 出力の共通統計、採点した観測の件数を持つ |
-| 採点・学習の順番 | [`intrinsic_rnd.cpp`](../../core/anet-core/src/intrinsic_rnd.cpp) の `Estimate` / `Learn` | 採点後に統計を更新し、学習は渡された観測と現在の統計から独立して計算する |
+| RND が何を所有するか | [`intrinsic_rnd.hpp`](../../src/core/base/src/intrinsic_rnd.hpp) | target、predictor、optimizer、選択した方式の統計、target 出力の共通統計、採点した観測の件数を持つ |
+| 採点・学習の順番 | [`intrinsic_rnd.cpp`](../../src/core/base/src/intrinsic_rnd.cpp) の `Estimate` / `Learn` | 採点後に統計を更新し、学習は渡された観測と現在の統計から独立して計算する |
 | 統計方式の責任 | 同ファイルの `RndStatistics`・`WhitenStatistics`・`VarianceFeedbackStatistics` | 構築時に方式を選び、正規化の配置、warm-up、統計更新、保存・復元・複製を委ねる |
-| 正規化の具体的な計算 | [`scaler_impl.cpp`](../../core/anet-core/src/scaler_impl.cpp) と [`scaler_impl.hpp`](../../core/anet-core/src/scaler_impl.hpp) | `UpdateStats` による統計更新、読み取り専用の正規化、累積統計と保存処理を使う |
-| 契約をどう確かめるか | [`intrinsic_test.cpp`](../../core/anet-core/src/intrinsic_test.cpp) | 固定教師、学習、更新順序、報酬加算、保存再開などを公開経路から検証する |
+| 正規化の具体的な計算 | [`scaler_impl.cpp`](../../src/core/base/src/scaler_impl.cpp) と [`scaler_impl.hpp`](../../src/core/base/src/scaler_impl.hpp) | `UpdateStats` による統計更新、読み取り専用の正規化、累積統計と保存処理を使う |
+| 契約をどう確かめるか | [`intrinsic_test.cpp`](../../src/core/base/src/intrinsic_test.cpp) | 固定教師、学習、更新順序、報酬加算、保存再開などを公開経路から検証する |
 
 DefaultDQN側が解釈するのは `intrinsic.enabled`・`intrinsic.beta`・`intrinsic.observation`・`intrinsic.use_done_mask`・`intrinsic.learn_ratio`・`intrinsic.learn_batch_size`。RND固有の設定はFactoryへ渡し、`RndNoveltyEstimatorConfig` が解釈する。報酬の合成・学習の刻みを担当する側と、新しさの計算・補助学習そのものを担当する側を分けている。
 
@@ -554,7 +554,7 @@ Actorが写しを持つ場合、行の値は最後のActor同期時点の学習�
 
 forwardで乱数を引くdropout・droppathは共有乱数列を進めるので、Actorが写しを持つ場合も学習不変性の保証外である。BatchNormの更新は写しの中に閉じるが、写しを持たないActorでは学習側の統計も変わる。この場合も保証外である。これらの層は検出もWARNもしない。出荷のRND構成には含まれない。
 
-受入と費用の測定手順は[PRD127検証資材](../../core/anet-core/testdata/prd127/README.md)に置く。KFMの実時間優先＋`run.@rnd`（128 lane、CUDA、Release）と、それに`run.@rainbow_like`・`run.@rnd_taiga`を重ねた構成で、EvalPanelを再生したまま、paneを閉じた状態と開いた状態を交互に3回ずつ測った。各状態は、切り替えの25秒後から90秒の学習exp step/sと、続く12秒のTracyの区間時間である。
+受入と費用の測定手順は[PRD127検証資材](../../src/core/base/testdata/prd127/README.md)に置く。KFMの実時間優先＋`run.@rnd`（128 lane、CUDA、Release）と、それに`run.@rainbow_like`・`run.@rnd_taiga`を重ねた構成で、EvalPanelを再生したまま、paneを閉じた状態と開いた状態を交互に3回ずつ測った。各状態は、切り替えの25秒後から90秒の学習exp step/sと、続く12秒のTracyの区間時間である。
 
 | 構成 | 学習exp step/s、閉じた状態（中央値、範囲） | 開いた状態 | Observe 1回（平均、最大） | うち採点（`EstimateWithoutUpdate`、平均） | 推定器とβの写し 1回 |
 |---|---|---|---|---|---|
@@ -581,15 +581,15 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 
 ### 5.2 確認済みの範囲
 
-PRD130 の機能検証と性能測定の手順は [検証資材](../../core/anet-core/testdata/prd130/README.md)、実施結果と未実施の範囲は [実装メモ](../memo/130_rnd_estimate_statistics_perf_20impl.md) に置く。以下の性能値は、それぞれの測定当時の実行体による記録である。
+PRD130 の機能検証と性能測定の手順は [検証資材](../../src/core/base/testdata/prd130/README.md)、実施結果と未実施の範囲は [実装メモ](../memo/130_rnd_estimate_statistics_perf_20impl.md) に置く。以下の性能値は、それぞれの測定当時の実行体による記録である。
 
-価値の分解・内的スケーラ・動的スケーラの保存復元の検証は[PRD121検証資材](../../core/anet-core/testdata/prd121/README.md)に置く。
+価値の分解・内的スケーラ・動的スケーラの保存復元の検証は[PRD121検証資材](../../src/core/base/testdata/prd121/README.md)に置く。
 
-構造の分離後の前後比較、旧checkpointの継続、Releaseの速度は [PRD128検証資材](../../core/anet-core/testdata/prd128/README.md)を参照する。
+構造の分離後の前後比較、旧checkpointの継続、Releaseの速度は [PRD128検証資材](../../src/core/base/testdata/prd128/README.md)を参照する。
 
-誤差統計・warm-up・中心化・終端の mask の検証手順は [PRD123 検証資材](../../core/anet-core/testdata/prd123/README.md) にある。旧挙動を選ぶ collect_errors、variance_feedback、RND 無効の前後比較と、EMA の手計算・保存復元を区別する。KFM の効果確認は別の承認を受けてから行う。
+誤差統計・warm-up・中心化・終端の mask の検証手順は [PRD123 検証資材](../../src/core/base/testdata/prd123/README.md) にある。旧挙動を選ぶ collect_errors、variance_feedback、RND 無効の前後比較と、EMA の手計算・保存復元を区別する。KFM の効果確認は別の承認を受けてから行う。
 
-公開実装の形と選択肢を追加した2026-11-07の検証は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md)、再検証の入口は [PRD116 検証資材](../../core/anet-core/testdata/prd116/README.md) に置く。過去の検証は [20impl](../memo/116_rnd_lifelong_novelty_20impl.md)、[21impl](../memo/116_rnd_lifelong_novelty_21impl.md)、[22impl](../memo/116_rnd_lifelong_novelty_22impl.md) を参照する。有効時の学習系列はNetworkと設定の変更により過去のRunと異なる。
+公開実装の形と選択肢を追加した2026-11-07の検証は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md)、再検証の入口は [PRD116 検証資材](../../src/core/base/testdata/prd116/README.md) に置く。過去の検証は [20impl](../memo/116_rnd_lifelong_novelty_20impl.md)、[21impl](../memo/116_rnd_lifelong_novelty_21impl.md)、[22impl](../memo/116_rnd_lifelong_novelty_22impl.md) を参照する。有効時の学習系列はNetworkと設定の変更により過去のRunと異なる。
 
 | 確認 | 結果と範囲 |
 | --- | --- |

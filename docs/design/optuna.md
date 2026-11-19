@@ -3,7 +3,7 @@
 ## 概要
 
 DropMerge の NN 構成探索は、runner 本体ではなく Python harness
-`apps/runner/tools/dropmerge_optuna.py` から実行する。
+`apps/tools/dropmerge_optuna.py` から実行する。
 
 runner 側は `--config <path>` で trial 用 main config を受け取り、harness 側が trial ごとに
 config 生成、runner 起動、`metrics.jsonl` 集計、summary 保存を行う。
@@ -42,11 +42,11 @@ DropMerge domain v1 は `Flatten` 固定、探索対象は NN 構成のみ。
 
 ## Harness 共通仕様: 出力レイアウト
 
-`--workspace` は既定 `_default` で、相対値は `apps/runner/workspaces/` 基準、絶対 path も使用できる。
+`--workspace` は既定 `_default` で、相対値は `data/workspaces/` 基準、絶対 path も使用できる。
 出力は workspace 内の `runs/` と `optuna/` に分離する。
 
 ```text
-apps/runner/workspaces/<workspace>/
+data/workspaces/<workspace>/
   config/_main.txt                      # Env選択を含むworkspace config。
   optuna/
     optuna.db
@@ -82,9 +82,9 @@ seed run の `run_name` は `<study_name>_<trial_name>_s<seed>`。
 例:
 
 ```text
-apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001/trial/multiseed_summary.json
-apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001_s12345/metrics.jsonl
-apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001_s12345/trial/manifest.json
+data/workspaces/dm_opt/runs/dropmergeSmall_t00001/trial/multiseed_summary.json
+data/workspaces/dm_opt/runs/dropmergeSmall_t00001_s12345/metrics.jsonl
+data/workspaces/dm_opt/runs/dropmergeSmall_t00001_s12345/trial/manifest.json
 ```
 
 trial artifact には、主に次のファイルを保存する。
@@ -358,7 +358,7 @@ Optuna Dashboard では Study User Attributes と Trial User Attributes が見�
 Dashboard の `00_last_run_study_args` は、次回再開時に次のように貼り付けて使う。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py <00_last_run_study_args の値>
+python apps\tools\dropmerge_optuna.py <00_last_run_study_args の値>
 ```
 
 | Attribute | 更新契機 | 意味 |
@@ -529,7 +529,7 @@ import optuna
 
 study = optuna.load_study(
     study_name="dropmergeSmall",
-    storage="sqlite:///apps/runner/workspaces/dm_opt/optuna/optuna.db",
+    storage="sqlite:///data/workspaces/dm_opt/optuna/optuna.db",
 )
 
 df = study.trials_dataframe()
@@ -596,24 +596,24 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 ### 2. ヘルプを確認する
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py --help
-python apps\runner\tools\dropmerge_optuna.py dry-run --help
-python apps\runner\tools\dropmerge_optuna.py run-trial --help
-python apps\runner\tools\dropmerge_optuna.py run-study --help
+python apps\tools\dropmerge_optuna.py --help
+python apps\tools\dropmerge_optuna.py dry-run --help
+python apps\tools\dropmerge_optuna.py run-trial --help
+python apps\tools\dropmerge_optuna.py run-study --help
 ```
 
 ### 3. dry-run で config 生成を確認する
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py dry-run --workspace dm_opt --study-name dropmergeSmall --trial-name t00001 --budget small
+python apps\tools\dropmerge_optuna.py dry-run --workspace dm_opt --study-name dropmergeSmall --trial-name t00001 --budget small
 ```
 
 確認点:
 
 - `run_name` が `dropmergeSmall_t00001`。
 - `runs_dir` が `workspaces/dm_opt/runs`。
-- `run_dir` が `apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001`。
-- `artifact_dir` が `apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00001/trial`。
+- `run_dir` が `data/workspaces/dm_opt/runs/dropmergeSmall_t00001`。
+- `artifact_dir` が `data/workspaces/dm_opt/runs/dropmergeSmall_t00001/trial`。
 - `pruned_by_cost` が期待どおり。
 
 `--trial-name` を省略すると、同一 `study_name` の既存 `<study_name>_tNNNNN` 出力から次番号が採番される。
@@ -623,20 +623,20 @@ python apps\runner\tools\dropmerge_optuna.py dry-run --workspace dm_opt --study-
 短い step で runner 起動、metrics 生成、summary 生成まで確認する。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-trial --workspace dm_opt --study-name dropmergeSmoke --trial-name t00000 --budget small --exp-exit-step 2000 --window-start 0 --window-end 100% --timeout-sec 600
+python apps\tools\dropmerge_optuna.py run-trial --workspace dm_opt --study-name dropmergeSmoke --trial-name t00000 --budget small --exp-exit-step 2000 --window-start 0 --window-end 100% --timeout-sec 600
 ```
 
 確認点:
 
-- `apps/runner/workspaces/dm_opt/runs/dropmergeSmoke_t00000_s12345/metrics.jsonl` がある。
-- `apps/runner/workspaces/dm_opt/runs/dropmergeSmoke_t00000/trial/manifest.json` がある。
-- `apps/runner/workspaces/dm_opt/runs/dropmergeSmoke_t00000/trial/multiseed_summary.json` の `score` が `null` ではない。
+- `data/workspaces/dm_opt/runs/dropmergeSmoke_t00000_s12345/metrics.jsonl` がある。
+- `data/workspaces/dm_opt/runs/dropmergeSmoke_t00000/trial/manifest.json` がある。
+- `data/workspaces/dm_opt/runs/dropmergeSmoke_t00000/trial/multiseed_summary.json` の `score` が `null` ではない。
 - Optuna DB の `dropmergeSmoke` study に `COMPLETE` trial が登録される。
 
 cost prune だけ確認する場合:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-trial --workspace dm_opt --study-name dropmergeSmoke --trial-name tCost --cost-budget 1
+python apps\tools\dropmerge_optuna.py run-trial --workspace dm_opt --study-name dropmergeSmoke --trial-name tCost --cost-budget 1
 ```
 
 この場合 runner は起動せず、exit code `2` になる。
@@ -647,19 +647,19 @@ Optuna DB には `PRUNED` trial として残る。
 small study:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeSmall --budget small --n-trials 20 --n-jobs 1 --seeds 12345,23456,34567 --score-aggregate mean-minus-std --duplicate-params-policy reseed --duplicate-params-max-runs 3 --exp-exit-step 1000000
+python apps\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeSmall --budget small --n-trials 20 --n-jobs 1 --seeds 12345,23456,34567 --score-aggregate mean-minus-std --duplicate-params-policy reseed --duplicate-params-max-runs 3 --exp-exit-step 1000000
 ```
 
 medium study:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeMedium --budget medium --n-trials 20 --n-jobs 1 --seeds 12345,23456,34567 --score-aggregate mean-minus-std --exp-exit-step 1000000
+python apps\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeMedium --budget medium --n-trials 20 --n-jobs 1 --seeds 12345,23456,34567 --score-aggregate mean-minus-std --exp-exit-step 1000000
 ```
 
 一部の NN params を固定して探索する場合:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeStrong128 --budget medium --n-trials 20 --seeds 12345,23456,34567 --token-mode stronger --d-model 128
+python apps\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeStrong128 --budget medium --n-trials 20 --seeds 12345,23456,34567 --token-mode stronger --d-model 128
 ```
 
 この例では `token_mode=stronger` と `d_model=128` だけを固定し、`cnn_channels`、`res_blocks`、`transformer_layers`、`ff_mult`、`trunk_width`、`head_width` は通常どおり探索する。
@@ -667,7 +667,7 @@ python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --stud
 固定済み params の残り組み合わせを重複なしで総当たりする場合:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeGridD96 --budget medium --search-mode grid --n-jobs 2 --seeds 1,2,3 --cnn-channels 64 --token-mode current --d-model 96 --trunk-width 2048 --head-width 1024
+python apps\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeGridD96 --budget medium --search-mode grid --n-jobs 2 --seeds 1,2,3 --cnn-channels 64 --token-mode current --d-model 96 --trunk-width 2048 --head-width 1024
 ```
 
 この例では残りが `res_blocks x transformer_layers x ff_mult = 8` combo になる。
@@ -694,7 +694,7 @@ Debug runner を使う場合は、従来どおり `--runner-exe apps/runner/bin/
 seed 固定・決定論設定で duplicate params が完全に無駄になる場合は、次のように prune する。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeFixed --budget small --n-trials 20 --seeds 1,2,3 --duplicate-params-policy prune
+python apps\tools\dropmerge_optuna.py run-study --workspace dm_opt --study-name dropmergeFixed --budget small --n-trials 20 --seeds 1,2,3 --duplicate-params-policy prune
 ```
 
 有望 params を何度も seed を変えて再評価したい場合は、既定の `reseed` を使う。無制限に再評価を許す場合は `--duplicate-params-max-runs 0` を指定する。
@@ -706,12 +706,12 @@ python apps\runner\tools\dropmerge_optuna.py run-study --workspace dm_opt --stud
 既存の heartbeat 無し `RUNNING` や、すぐ手動確認したい場合は次の手順で後処理する。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py cleanup-running --workspace dm_opt --study-name dropmergeSmall --dry-run
-python apps\runner\tools\dropmerge_optuna.py cleanup-running --workspace dm_opt --study-name dropmergeSmall
+python apps\tools\dropmerge_optuna.py cleanup-running --workspace dm_opt --study-name dropmergeSmall --dry-run
+python apps\tools\dropmerge_optuna.py cleanup-running --workspace dm_opt --study-name dropmergeSmall
 ```
 
-実行中のどの段階で止まったかは、まず `apps/runner/workspaces/dm_opt/optuna/harness.log` を見る。
-seed run が runner 起動まで進んでいれば、`apps/runner/workspaces/dm_opt/runs/<run_name>/trial/process.json` が `status="running"` で先に作られる。
+実行中のどの段階で止まったかは、まず `data/workspaces/dm_opt/optuna/harness.log` を見る。
+seed run が runner 起動まで進んでいれば、`data/workspaces/dm_opt/runs/<run_name>/trial/process.json` が `status="running"` で先に作られる。
 親 Python が落ちた場合は `process.json` が `running` のまま残ることがあり、その場合は `runner_pid`、`started_at`、`command`、`config_path` が調査の手掛かりになる。
 
 ### 6. summary study を作る
@@ -719,17 +719,17 @@ seed run が runner 起動まで進んでいれば、`apps/runner/workspaces/dm_
 同じ params の reseed 結果を 1 trial として Dashboard で見る場合は、source study から summary study を作る。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py summarize-study --workspace dm_opt --source-study-name dropmergeSmall
+python apps\tools\dropmerge_optuna.py summarize-study --workspace dm_opt --source-study-name dropmergeSmall
 ```
 
-既定では `dropmergeSmall_summary` が同じ `apps/runner/workspaces/dm_opt/optuna/optuna.db` 内に作られる。
+既定では `dropmergeSmall_summary` が同じ `data/workspaces/dm_opt/optuna/optuna.db` 内に作られる。
 optuna-dashboard の study list で source study と summary study を切り替えて見る。
 
 target study が既にある場合は、誤って手作業メモや既存 summary を消さないように停止する。
 作り直す場合だけ明示する。
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py summarize-study --workspace dm_opt --source-study-name dropmergeSmall --overwrite-target-study
+python apps\tools\dropmerge_optuna.py summarize-study --workspace dm_opt --source-study-name dropmergeSmall --overwrite-target-study
 ```
 
 ### 7. metrics-viewer で見る
@@ -743,13 +743,13 @@ summary study は Dashboard 閲覧用であり、metrics-viewer の run には�
 ### 8. 既存 metrics を再集計する
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py summarize apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00000/metrics.jsonl --window-start 80% --window-end 100% --output-dir apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00000/trial
+python apps\tools\dropmerge_optuna.py summarize data/workspaces/dm_opt/runs/dropmergeSmall_t00000/metrics.jsonl --window-start 80% --window-end 100% --output-dir data/workspaces/dm_opt/runs/dropmergeSmall_t00000/trial
 ```
 
 相対 window で再集計する例:
 
 ```powershell
-python apps\runner\tools\dropmerge_optuna.py summarize apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00000/metrics.jsonl --exp-exit-step 1000000 --window-start -200000 --output-dir apps/runner/workspaces/dm_opt/runs/dropmergeSmall_t00000/trial
+python apps\tools\dropmerge_optuna.py summarize data/workspaces/dm_opt/runs/dropmergeSmall_t00000/metrics.jsonl --exp-exit-step 1000000 --window-start -200000 --output-dir data/workspaces/dm_opt/runs/dropmergeSmall_t00000/trial
 ```
 
 ## DropMerge Domain 仕様: 探索対象と制約

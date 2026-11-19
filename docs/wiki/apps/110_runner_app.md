@@ -6,7 +6,7 @@
 
 - RunnerAppはconfig、RunManager、RunnerThread、GUI、loggingのlifecycleを統括し、RunnerThreadが学習RunnerをUI threadから分離する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.1・§5.1）。
 - RunnerFrameは画面と操作を、TrainPanelは学習表示を、EvalPanelは専用EvalRunnerとmodel同期を受け持つ。QValuePanelは行動候補を可視化する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.1・§3.1）。
-- apps/runner/toolsのOptuna harnessはRunner子processとRun artifactの境界を扱い、workspace共通基盤と補助launcherを接続する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.3・§3.3・§6）。
+- apps/toolsのOptuna harnessはRunner子processとRun artifactの境界を扱い、workspace共通基盤と補助launcherを接続する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.3・§3.3・§6）。
 
 - EvalTracePanelはEvaluation Traceの行・表示履歴を保持し、EvalPanel・QValuePanel・Conv2dを選択した遷移へ追従させる（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§3.4）。
 - EvalTracePanelは行の並べ替え・再生・通知時点のデータのダンプを、LogPanelは警告の確認・表示・検索を受け持つ。終了時は背景評価の排水の後に状態表示用observerを外す（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§3.4・§3.5・§7.1；[可観測性](../../design/140_observability.jp.md)、§5.2）。
@@ -148,7 +148,7 @@
 - DPI対応の見直しで、100%の表示の寸法（すべて今と同じ画素のまま）・配置・振る舞い、PRD110の主paneの規則とそのGUIテストの判定（テストの中の固定の寸法をFromDIPで直すことは判定を変えないので行ってよい）、Closeの順序、設定のキー、学習と評価を変えない（出典: [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md)、§5.5）。
 - `QValuePanel::Update`を分けるときは、Gridの差分更新の2つの条件（選択が変わった行だけを塗り直す、値が広がった列だけ幅を当て直す）を残し、加工の前に値を写す回数を増やさない。切り出す前のコードで控えた加工後の値と、切り出したあとの単体テストの期待値が一致することを確かめる。加工の単体テストは`AnetRLRunner-gui-test`に置き、既定のテストスイートに入らないので、加工を変えたら流す（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D10〜D12・§6 A8）。
 - Conv2dのpaneが「開いている」の判定は、Traceが追従するpaneの判定と同じにする。別にすると、控えを取る行にnn_traceが無いという食い違いが起きる（出典: [PRD170](../../memo/170_nn_trace_capture_unification_10prd.md)、§4 D13）。
-- 旧い置き場（apps/runner/workspaces・apps/runner/appdata）は読まず、あっても知らせない。dataのステージでは置き場の決め方だけを変え、学習の結果は変えない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D22・§6 のS4-2・C3）。
+- workspace と portable appdata は配布位置を基準に `data/` に置く。指定した workspace の解決と相対 Run の配置は同じ根を使う（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D22・§6 のS4-2・C3）。
 
 ## 関係
 
@@ -160,37 +160,24 @@
 
 点検が作り直す。手で直さない。
 
-- [Conv2dPanel.cpp](../../../apps/runner/src/Conv2dPanel.cpp) / [Conv2dPanel.hpp](../../../apps/runner/src/Conv2dPanel.hpp)
-- [ErrorDialog.cpp](../../../apps/runner/src/ErrorDialog.cpp) / [ErrorDialog.hpp](../../../apps/runner/src/ErrorDialog.hpp)
-- [EvalPanel.cpp](../../../apps/runner/src/EvalPanel.cpp) / [EvalPanel.hpp](../../../apps/runner/src/EvalPanel.hpp)
-- [EvalTracePanel.cpp](../../../apps/runner/src/EvalTracePanel.cpp) / [EvalTracePanel.hpp](../../../apps/runner/src/EvalTracePanel.hpp) / [EvalTracePanel_test.cpp](../../../apps/runner/src/EvalTracePanel_test.cpp)
-- [HeatMapPanel.cpp](../../../apps/runner/src/HeatMapPanel.cpp) / [HeatMapPanel.hpp](../../../apps/runner/src/HeatMapPanel.hpp)
-- [LogPanel.cpp](../../../apps/runner/src/LogPanel.cpp) / [LogPanel.hpp](../../../apps/runner/src/LogPanel.hpp) / [LogPanel_test.cpp](../../../apps/runner/src/LogPanel_test.cpp)
-- [Panel_key_test.cpp](../../../apps/runner/src/Panel_key_test.cpp)
-- [PlotPanel.cpp](../../../apps/runner/src/PlotPanel.cpp) / [PlotPanel.hpp](../../../apps/runner/src/PlotPanel.hpp)
-- [QValuePanel.cpp](../../../apps/runner/src/QValuePanel.cpp) / [QValuePanel.hpp](../../../apps/runner/src/QValuePanel.hpp) / [QValuePanel_test.cpp](../../../apps/runner/src/QValuePanel_test.cpp)
-- [RunnerApp.cpp](../../../apps/runner/src/RunnerApp.cpp) / [RunnerApp.hpp](../../../apps/runner/src/RunnerApp.hpp) / [RunnerApp_test.cpp](../../../apps/runner/src/RunnerApp_test.cpp)
-- [RunnerFrame.cpp](../../../apps/runner/src/RunnerFrame.cpp) / [RunnerFrame.hpp](../../../apps/runner/src/RunnerFrame.hpp) / [RunnerFrame_test.cpp](../../../apps/runner/src/RunnerFrame_test.cpp)
-- [TrainPanel.cpp](../../../apps/runner/src/TrainPanel.cpp) / [TrainPanel.hpp](../../../apps/runner/src/TrainPanel.hpp)
-- [WorkspaceDialog.cpp](../../../apps/runner/src/WorkspaceDialog.cpp) / [WorkspaceDialog.hpp](../../../apps/runner/src/WorkspaceDialog.hpp)
-- [pch.hpp](../../../apps/runner/src/pch.hpp)
-- [runner.ico](../../../apps/runner/src/runner.ico) / [runner.manifest](../../../apps/runner/src/runner.manifest) / [runner.rc](../../../apps/runner/src/runner.rc)
-
-### 311 開発プロセス/開発ツール/テスト基盤
-
-- [batchrun_fatal_error_handling_test.ps1](../../../apps/runner/tools/batchrun_fatal_error_handling_test.ps1)
-- [compress_workspace_metrics.py](../../../apps/runner/tools/compress_workspace_metrics.py) / [compress_workspace_metrics_test.py](../../../apps/runner/tools/compress_workspace_metrics_test.py)
-- [dropmerge_optuna.py](../../../apps/runner/tools/dropmerge_optuna.py)
-- [optuna_common.py](../../../apps/runner/tools/optuna_common.py)
-- [optuna_metrics_gzip_test.py](../../../apps/runner/tools/optuna_metrics_gzip_test.py)
-- [optuna_workspace_test.py](../../../apps/runner/tools/optuna_workspace_test.py)
-- [resolve_workspace.bat](../../../apps/runner/tools/resolve_workspace.bat) / [resolve_workspace_test.ps1](../../../apps/runner/tools/resolve_workspace_test.ps1)
-- [symbolize.py](../../../apps/runner/tools/symbolize.py)
-- [watch_log.ps1](../../../apps/runner/tools/watch_log.ps1)
+- [Conv2dPanel.cpp](../../../src/apps/runner/src/Conv2dPanel.cpp) / [Conv2dPanel.hpp](../../../src/apps/runner/src/Conv2dPanel.hpp)
+- [ErrorDialog.cpp](../../../src/apps/runner/src/ErrorDialog.cpp) / [ErrorDialog.hpp](../../../src/apps/runner/src/ErrorDialog.hpp)
+- [EvalPanel.cpp](../../../src/apps/runner/src/EvalPanel.cpp) / [EvalPanel.hpp](../../../src/apps/runner/src/EvalPanel.hpp)
+- [EvalTracePanel.cpp](../../../src/apps/runner/src/EvalTracePanel.cpp) / [EvalTracePanel.hpp](../../../src/apps/runner/src/EvalTracePanel.hpp) / [EvalTracePanel_test.cpp](../../../src/apps/runner/src/EvalTracePanel_test.cpp)
+- [HeatMapPanel.cpp](../../../src/apps/runner/src/HeatMapPanel.cpp) / [HeatMapPanel.hpp](../../../src/apps/runner/src/HeatMapPanel.hpp)
+- [LogPanel.cpp](../../../src/apps/runner/src/LogPanel.cpp) / [LogPanel.hpp](../../../src/apps/runner/src/LogPanel.hpp) / [LogPanel_test.cpp](../../../src/apps/runner/src/LogPanel_test.cpp)
+- [Panel_key_test.cpp](../../../src/apps/runner/src/Panel_key_test.cpp)
+- [PlotPanel.cpp](../../../src/apps/runner/src/PlotPanel.cpp) / [PlotPanel.hpp](../../../src/apps/runner/src/PlotPanel.hpp)
+- [QValuePanel.cpp](../../../src/apps/runner/src/QValuePanel.cpp) / [QValuePanel.hpp](../../../src/apps/runner/src/QValuePanel.hpp) / [QValuePanel_test.cpp](../../../src/apps/runner/src/QValuePanel_test.cpp)
+- [RunnerApp.cpp](../../../src/apps/runner/src/RunnerApp.cpp) / [RunnerApp.hpp](../../../src/apps/runner/src/RunnerApp.hpp) / [RunnerApp_test.cpp](../../../src/apps/runner/src/RunnerApp_test.cpp)
+- [RunnerFrame.cpp](../../../src/apps/runner/src/RunnerFrame.cpp) / [RunnerFrame.hpp](../../../src/apps/runner/src/RunnerFrame.hpp) / [RunnerFrame_test.cpp](../../../src/apps/runner/src/RunnerFrame_test.cpp)
+- [TrainPanel.cpp](../../../src/apps/runner/src/TrainPanel.cpp) / [TrainPanel.hpp](../../../src/apps/runner/src/TrainPanel.hpp)
+- [WorkspaceDialog.cpp](../../../src/apps/runner/src/WorkspaceDialog.cpp) / [WorkspaceDialog.hpp](../../../src/apps/runner/src/WorkspaceDialog.hpp)
+- [pch.hpp](../../../src/apps/runner/src/pch.hpp)
+- [runner.ico](../../../src/apps/runner/src/runner.ico) / [runner.manifest](../../../src/apps/runner/src/runner.manifest) / [runner.rc](../../../src/apps/runner/src/runner.rc)
 
 ### 機能カテゴリなし
 
-- [CMakeLists.txt](../../../apps/runner/CMakeLists.txt)
 - [Atari.txt](../../../apps/runner/config/Atari.txt)
 - [CartPole.txt](../../../apps/runner/config/CartPole.txt)
 - [DropMerge.txt](../../../apps/runner/config/DropMerge.txt)
@@ -208,14 +195,7 @@
 - [metrics_scalar.txt](../../../apps/runner/config/metrics_scalar.txt)
 - [nn.txt](../../../apps/runner/config/nn.txt)
 - [nn_cnx.txt](../../../apps/runner/config/nn_cnx.txt)
-- [_main.txt](../../../apps/runner/workspaces/Atari-01/config/_main.txt)
-- [_main.txt](../../../apps/runner/workspaces/CartPole-01/config/_main.txt)
-- [_main.txt](../../../apps/runner/workspaces/DropMerge-01/config/_main.txt)
-- [_main.txt](../../../apps/runner/workspaces/GridMaze-01/config/_main.txt)
-- [_main.txt](../../../apps/runner/workspaces/GridMaze_muzero-01/config/_main.txt)
-- [_main.txt](../../../apps/runner/workspaces/ImageCls-01/config/_main.txt)
-- [_main.txt](../../../apps/runner/workspaces/LunarLander-01/config/_main.txt)
-- [metrics_viewer_tag_sets.json](../../../apps/runner/workspaces/metrics_viewer_tag_sets.json)
+- [CMakeLists.txt](../../../src/apps/runner/CMakeLists.txt)
 
 ## PRD の一覧
 
@@ -263,6 +243,7 @@
 - [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
 - [PRD158](../../memo/158_eval_schedule_first_fire_10prd.md) — PRD158: eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする
 - [PRD170](../../memo/170_nn_trace_capture_unification_10prd.md) — PRD170: forward の名前付き出力を capture に一本化し、nn_trace を要求した step だけ作る PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 
@@ -299,14 +280,14 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-206933](../../management/issues/issue-20261103-206933.md) | 未着手 | 1.1 | — | 成果物 | PRD | 110_runner_app | 学習基盤 | 機能追加 | [PRD175](../../memo/175_seed_population_early_stop_10prd.md) | 残件有り | 多数の seed で打席を稼ぐ（条件付きの打ち切りで、火が付かなかった Run を早く止める） |
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | 成果物 | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | アルゴリズム | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261103-53ed7a](../../management/issues/issue-20261103-53ed7a.md) | 未着手 | 0.8 | — | 成果物 | PRD | 110_runner_app, 319_gui | UI | 機能追加 | [PRD186](../../memo/186_runner_theme_switch_10prd.md) | 残件有り | 起動中の Runner を OS のテーマ（ライト／ダーク）の切替に追従させる |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 調査中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261103-9df5c5](../../management/issues/issue-20261103-9df5c5.md) | 未着手 | 2.7 | [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) | 成果物 | PRD | 318_rl_core, 110_runner_app, 314_tensor | 学習基盤 | 不具合 | [PRD146](../../memo/146_notifier_scoped_detach_10prd.md) | 残件有り | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す |
 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md), [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md), [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md), [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) | 成果物 | PRD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [PRD173](../../memo/173_intrinsic_reward_novelty_10prd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
 | [issue-20261103-6661d2](../../management/issues/issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](../../management/issues/issue-20261103-f39d10.md), [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) | 成果物 | PRD | 318_rl_core, 324_dqn, 110_runner_app | 学習基盤 | 機能追加 | [PRD136](../../memo/136_best_checkpoint_10prd.md) | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 未着手 | 1.3 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 成果物 | PRD | 110_runner_app, 318_rl_core, 322_env_individual | UI | 機能追加 | [PRD159](../../memo/159_input_mapping_joystick_10prd.md) | 残件有り | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel） |
 | [issue-20261103-578986](../../management/issues/issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md), [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 成果物 | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD160](../../memo/160_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 
-着手できる 27 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
+着手できる 28 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261103-80c355](../../management/issues/issue-20261103-80c355.md) — Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る

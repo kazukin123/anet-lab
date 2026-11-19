@@ -139,7 +139,7 @@ class Rules:
 
     def category_of(self, path):
         base = os.path.basename(path)
-        if base in self.test_infra:
+        if base in self.test_infra or path.startswith(("src/core/base/src/test/", "src/core/base/include/anet/test/")):
             return "test_infra"
         q = re.sub(r"_test\.cpp$", ".cpp", path)
         for k, _, _, _, rs in self.cats:
@@ -262,7 +262,7 @@ def collect_size(repo, rules: Rules, files, use_cloc):
     per_file = {}
     cloc_used = False
     if use_cloc and shutil.which("cloc"):
-        raw = sh(["cloc", "--vcs=git", "--by-file", "--json", "--quiet", "core", "apps", "viewers", "docs", ".github"], repo)
+        raw = sh(["cloc", "--vcs=git", "--by-file", "--json", "--quiet", "src", "apps", "docs", ".github"], repo)
         try:
             data = json.loads(raw) if raw.strip() else {}
         except json.JSONDecodeError:
@@ -344,7 +344,7 @@ def collect_tests(repo, rules: Rules, files, churn90, use_blame, cache_dir):
         p = line.split("\t")
         if len(p) == 2:
             blobs[p[1]] = p[0].split()[1]
-    cpp = [p for p in files if p.endswith(CPP_EXT) and (p.startswith("core/") or p.startswith("apps/runner/src/"))
+    cpp = [p for p in files if p.endswith(CPP_EXT) and (p.startswith(("src/core/", "src/env/", "src/algo/")) or p.startswith("src/apps/runner/src/"))
            and not p.endswith("pch.hpp") and not rules.is_excluded(p)]
     texts = {p: read_text(repo, p) for p in cpp}
     loc = {p: count_lines(t) for p, t in texts.items()}
@@ -402,7 +402,7 @@ def collect_tests(repo, rules: Rules, files, churn90, use_blame, cache_dir):
     other = {
         "java": {"prod": lines_of(lambda p: p.endswith(".java") and "/src/main/" in p),
                  "test": lines_of(lambda p: p.endswith(".java") and "/src/test/" in p)},
-        "python": {"prod": lines_of(lambda p: p.endswith(".py") and not re.search(r"(_test\.py$|/test_[^/]+\.py$)", p) and (p.startswith("apps/") or p.startswith("viewers/") or p.startswith("reports/"))),
+        "python": {"prod": lines_of(lambda p: p.endswith(".py") and not re.search(r"(_test\.py$|/test_[^/]+\.py$)", p) and (p.startswith("apps/") or p.startswith("reports/"))),
                    "test": lines_of(lambda p: p.endswith(".py") and re.search(r"(_test\.py$|/test_[^/]+\.py$)", p) is not None)},
     }
     return {"era_mode": era_mode, "boundary": rules.boundary.isoformat(), "categories": dict(cat), "total": tot,

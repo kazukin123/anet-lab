@@ -492,7 +492,7 @@ _Avoid_: 履歴表示, 再生表示, Eval 表示モード
 ### Run管理
 
 **ワークスペース (Workspace)**:
-Runの入力（workspace config）と成果物（`runs/`、`optuna/`）を一体で束ねる自己完結フォルダ。既定の置き場は`apps/runner/workspaces/`直下で、指定はパス（相対=`workspaces/`基準、絶対パスで任意の場所も可。Eclipseのworkspace指定と同形式）。実験系列の分類・退避・削除・復帰はworkspaceフォルダのOS操作だけで行い、フォルダ外に分類のメタデータを持たない。Runner・Metrics Viewer・optunaハーネスはいずれも「workspaceを選んで箱の中で完結する」。既定は`_default`。
+Runの入力（workspace config）と成果物（`runs/`、`optuna/`）を一体で束ねる自己完結フォルダ。既定の置き場は`data/workspaces/`直下で、指定はパス（相対=`workspaces/`基準、絶対パスで任意の場所も可。Eclipseのworkspace指定と同形式）。実験系列の分類・退避・削除・復帰はworkspaceフォルダのOS操作だけで行い、フォルダ外に分類のメタデータを持たない。Runner・Metrics Viewer・optunaハーネスはいずれも「workspaceを選んで箱の中で完結する」。既定は`_default`。
 _Avoid_: プロジェクト, プロファイル（`@` 側の語。ワークスペースには使わない）, runs_dir（出力先設定であって箱ではない）
 
 **workspace config**:

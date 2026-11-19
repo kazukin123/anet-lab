@@ -16,14 +16,14 @@ GridMazeEnv は seed から各セルを壁 20%・穴 10% で独立に引くだ�
 
 ## 2. 現状（2026-10-24 にコードで確認したこと）
 
-- 生成（[GridMazeEnv.cpp:125-178](../../../core/envs/gridmaze1/src/GridMazeEnv.cpp)）: `rnd_->SetSeed(current_seed_)` で mt19937_64 を初期化し、y 行 x 列の順に `Uniform01()` を引いて、`p < wall_density` なら壁、`p < wall_density + hole_density` なら穴にする。ゴールの座標（−1 なら乱数で選ぶ）にゴールを置き、開始の座標（−1 なら候補から乱数で選ぶ）のセルをゴールでなければ空ける。到達可能性は見ない。開始・ゴールの座標が盤の中かも見ない（盤の外なら範囲外アクセス）。
+- 生成（[GridMazeEnv.cpp:125-178](../../../src/env/gridmaze/src/GridMazeEnv.cpp)）: `rnd_->SetSeed(current_seed_)` で mt19937_64 を初期化し、y 行 x 列の順に `Uniform01()` を引いて、`p < wall_density` なら壁、`p < wall_density + hole_density` なら穴にする。ゴールの座標（−1 なら乱数で選ぶ）にゴールを置き、開始の座標（−1 なら候補から乱数で選ぶ）のセルをゴールでなければ空ける。到達可能性は見ない。開始・ゴールの座標が盤の中かも見ない（盤の外なら範囲外アクセス）。
 - `Reset`（同 180-208）: `randomize_seed` なら `MakeAutoSeed()`、そうでなければ設定の `seed` を `current_seed_` にして生成する。コンストラクタ（同 60）も `Reset()` を呼ぶので、最初の迷路は env の構築時に生成される。
-- 外に出す値（`MakeAuxData`、同 105-123）: aux の `seed`（`current_seed_`）・`width`・`height`・`pos_x`・`pos_y`・`ep_reward_sum`・`map`。GridMazeView は aux の `map` を盤面に、`seed` を「Seed:」の文字に描く（[GridMazeView.cpp:119](../../../core/envs/gridmaze1/src/GridMazeView.cpp)・152-160）。
+- 外に出す値（`MakeAuxData`、同 105-123）: aux の `seed`（`current_seed_`）・`width`・`height`・`pos_x`・`pos_y`・`ep_reward_sum`・`map`。GridMazeView は aux の `map` を盤面に、`seed` を「Seed:」の文字に描く（[GridMazeView.cpp:119](../../../src/env/gridmaze/src/GridMazeView.cpp)・152-160）。
 - `Step`（同 210-258）: 行動は上・左・下・右の 4 つ。盤の外と壁は衝突（`reward_wall`、位置は変わらない）。穴は `reward_hole` で終端、ゴールは `reward_goal` で終端。
-- 乱数（[random.cpp:48-78](../../../core/anet-core/src/random.cpp)）: `SetSeed` は `std::mt19937_64::seed`、`Uniform01` は `engine_()` を 2^64−1 で割って float にする。派生 seed の既存の作り方は `splitmix64(base_seed_ + index)`（同 197）。
+- 乱数（[random.cpp:48-78](../../../src/core/base/src/random.cpp)）: `SetSeed` は `std::mt19937_64::seed`、`Uniform01` は `engine_()` を 2^64−1 で割って float にする。派生 seed の既存の作り方は `splitmix64(base_seed_ + index)`（同 197）。
 - 解ける seed の割合: 上の手順を Python で再現し（seed 2 の迷路が 10/24 の画面と全セル一致）、5×5・密度 0.2/0.1・ゴール (4,4) で seed 1〜60 を数えると解けるのは 35 個。seed 2 は開始行の下が壁 3 つと穴、右端が穴で囲まれている。既定 seed（[GridMaze.txt](../../../apps/runner/config/GridMaze.txt) の `GridMazeEnv.seed`）は最短 8 で解ける。
 - 10/24 の実測（PRD098 §7「段 1 の途中経過」）: `GridMazeEnv.seed = 2` の 400k Run は skip 無効が −1.00（100 step うろつく）、有効が −1.03（穴へ落ちる）で、どちらも学習の成功率 0。
-- テスト（[GridMazeEnv_test.cpp](../../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp)）: 密度 0 か 1 の 2×2・3×2 で終端の読み取りを確かめる 1 件。穴のケース（3×2・穴密度 1.0・開始 (0,0)・ゴール (2,0)）は全セルが穴の解けない迷路で、「右へ 1 歩で穴」を前提にしている。到達可能性のテストは無い。
+- テスト（[GridMazeEnv_test.cpp](../../../src/env/gridmaze/src/GridMazeEnv_test.cpp)）: 密度 0 か 1 の 2×2・3×2 で終端の読み取りを確かめる 1 件。穴のケース（3×2・穴密度 1.0・開始 (0,0)・ゴール (2,0)）は全セルが穴の解けない迷路で、「右へ 1 歩で穴」を前提にしている。到達可能性のテストは無い。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -93,7 +93,7 @@ GridMazeEnv は seed から各セルを壁 20%・穴 10% で独立に引くだ�
 
 - `init_pos_x`・`init_pos_y`・`goal_pos_x`・`goal_pos_y` は、−1（乱数で選ぶ）か、盤の中の座標（0 以上、幅または高さ未満）。それ以外は `ANET_SYSTEM_ERROR`（キー・指定値・期待の範囲を含める）。
 - 開始とゴールの両方が固定で同じ座標なら `ANET_SYSTEM_ERROR`。
-- ランダム開始（`init_pos` のどちらかが −1）で、選んだゴールに対して開始の候補が無いとき（1 列や 1 行の盤でゴール以外のセルが無いなど）も `ANET_SYSTEM_ERROR`。今は (0,0) か固定側の値へ黙って落ちる（[GridMazeEnv.cpp:169-172](../../../core/envs/gridmaze1/src/GridMazeEnv.cpp)）が、同じ検証の経路なので一緒に止める。候補はゴールを決めたあとに検証し、構築中の初回生成だけでなく後続の Reset でも空なら止める。
+- ランダム開始（`init_pos` のどちらかが −1）で、選んだゴールに対して開始の候補が無いとき（1 列や 1 行の盤でゴール以外のセルが無いなど）も `ANET_SYSTEM_ERROR`。今は (0,0) か固定側の値へ黙って落ちる（[GridMazeEnv.cpp:169-172](../../../src/env/gridmaze/src/GridMazeEnv.cpp)）が、同じ検証の経路なので一緒に止める。候補はゴールを決めたあとに検証し、構築中の初回生成だけでなく後続の Reset でも空なら止める。
 - `wall_density + hole_density` が 1 を超える設定は、今と同じく止めない（穴の判定が残りの確率を全部取るだけで、動作不能ではない）。解ける迷路が出ないときは §5.2 の上限で止まる。
 
 ### 5.5 性能
@@ -103,7 +103,7 @@ GridMazeEnv は seed から各セルを壁 20%・穴 10% で独立に引くだ�
 ### 5.6 移行対象（クリーンブレーク）
 
 - 設定キーの追加・改名は無い。現用の設定（GridMaze.txt、GridMaze_muzero.txt、各 Workspace、`testdata/prd072/baseline/gridmaze*.json`）は既定 seed・5×5・密度 0.2/0.1・(0,0)→(4,4) の解ける迷路なのでそのまま。
-- 現用のテストで新しい契約に合わないものは [GridMazeEnv_test.cpp](../../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp) の穴のケース（§2）だけで、同じ変更内で移す。意図（右へ 1 歩で穴に落ちる終端の読み取り）は保ち、解ける迷路で開始の右隣が穴になる設定にする。例: 3×2・穴密度 0.5 で、aux の `map` を見て開始の右隣が穴かつ解ける seed を小さい順に探して使う。壊れる現用物はこのテストだけ（ほかの GridMaze の現用物は上の行のとおり解ける）。
+- 現用のテストで新しい契約に合わないものは [GridMazeEnv_test.cpp](../../../src/env/gridmaze/src/GridMazeEnv_test.cpp) の穴のケース（§2）だけで、同じ変更内で移す。意図（右へ 1 歩で穴に落ちる終端の読み取り）は保ち、解ける迷路で開始の右隣が穴になる設定にする。例: 3×2・穴密度 0.5 で、aux の `map` を見て開始の右隣が穴かつ解ける seed を小さい順に探して使う。壊れる現用物はこのテストだけ（ほかの GridMaze の現用物は上の行のとおり解ける）。
 - 過去の Run artifact・実験記録は触らない。解けない seed で取った 10/24 の `run_20261024-065353_t98_b3_m2_*` は記録として残す。
 
 ### 5.7 クラス一覧
@@ -119,7 +119,7 @@ GridMazeEnv は seed から各セルを壁 20%・穴 10% で独立に引くだ�
 
 ## 6. 細部（推奨の既定）
 
-1. 派生 seed の作り方: k 回目の引き直しは `splitmix64(seed₀ + k)`。[random.cpp:197](../../../core/anet-core/src/random.cpp) の `splitmix64(base_seed_ + index)` と同じ作りで、決定的かつ連続する seed でも無相関。
+1. 派生 seed の作り方: k 回目の引き直しは `splitmix64(seed₀ + k)`。[random.cpp:197](../../../src/core/base/src/random.cpp) の `splitmix64(base_seed_ + index)` と同じ作りで、決定的かつ連続する seed でも無相関。
 2. 引き直しの上限: 初回生成とは別に 1000 回（試す迷路は最大 1001 個）。5×5・密度 0.2/0.1 で解ける確率は約 0.58 なので、1000 回で解けないのは設定の問題と見てよい。探索 1 回は数十マイクロ秒で、上限まで回っても起動時に収まる。
 3. 上限で止めるときのメッセージ: 設定の seed、幅と高さ、壁と穴の密度、開始とゴールの座標、上限回数を含める（Fail-Fast 原則のメッセージの規約）。
 4. ログ: `randomize_seed = false` で引き直しが起きたら、設定の seed ごとにプロセスで 1 回だけ INFO（設定の seed、引き直した回数、実際の seed）。単位を seed にするのは AGENTS.md §Fail-Fast 原則の「WARN は対象ごと 1 回だけ出し、ログを spam しない」と同じ考えで、Run が同じ設定で作る env の個数によらず 1 回になるため。`randomize_seed = true` では出さない（エピソードごとの spam を避ける。実際の seed は aux で見える）。
@@ -129,7 +129,7 @@ GridMazeEnv は seed から各セルを壁 20%・穴 10% で独立に引くだ�
 
 ## 7. 検証と受入
 
-受入（外から観測できるもの。テストは [GridMazeEnv_test.cpp](../../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp) に `[gridmaze]` で足す）:
+受入（外から観測できるもの。テストは [GridMazeEnv_test.cpp](../../../src/env/gridmaze/src/GridMazeEnv_test.cpp) に `[gridmaze]` で足す）:
 
 1. 5×5・密度 0.2/0.1・開始 (0,0)・ゴール (4,4)・`seed = 2` で、Reset 後の aux の `map` が解ける迷路（開始からゴールへの経路がある）で、aux の `seed` が 2 ではない。
 2. 同じ設定で既定 seed（`6545537233705677626`）のとき、aux の `map` の 25 セルが §6 の 6 の golden と一致し、aux の `seed` が設定の値と同じ。
@@ -165,8 +165,8 @@ GridMazeEnv は seed から各セルを壁 20%・穴 10% で独立に引くだ�
 
 ## 11. 参照
 
-- [GridMazeEnv.cpp](../../../core/envs/gridmaze1/src/GridMazeEnv.cpp)・[GridMazeEnv.hpp](../../../core/envs/gridmaze1/src/GridMazeEnv.hpp)・[GridMazeView.cpp](../../../core/envs/gridmaze1/src/GridMazeView.cpp)・[GridMazeEnv_test.cpp](../../../core/envs/gridmaze1/src/GridMazeEnv_test.cpp)
-- [random.cpp](../../../core/anet-core/src/random.cpp)（`SetSeed`・`Uniform01`・`splitmix64`）
+- [GridMazeEnv.cpp](../../../src/env/gridmaze/src/GridMazeEnv.cpp)・[GridMazeEnv.hpp](../../../src/env/gridmaze/src/GridMazeEnv.hpp)・[GridMazeView.cpp](../../../src/env/gridmaze/src/GridMazeView.cpp)・[GridMazeEnv_test.cpp](../../../src/env/gridmaze/src/GridMazeEnv_test.cpp)
+- [random.cpp](../../../src/core/base/src/random.cpp)（`SetSeed`・`Uniform01`・`splitmix64`）
 - [GridMaze.txt](../../../apps/runner/config/GridMaze.txt)（env の既定）
 - [AGENTS.md](../../../AGENTS.md) §Fail-Fast 原則・§設定値の扱い・§クリーンブレーク方針
 - [PRD098](../098_temporl_skip_policy_10prd.md) §7「段 1 の途中経過」・§9 の 2

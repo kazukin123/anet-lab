@@ -51,7 +51,7 @@ Public surface: ConfigureScalarMetricSubscriptions、UpdateFromBatch、BatchUpda
 - 本線BF16 smokeは `run_20261015-174306_prd092_smoke`、exit0、実更新510回。15行の実効定義・購読・source keyとraw8指標を確認。
 - 同一Release・checkpoint・seed・warmup・1,006更新でOFF→ONを交互に各3回。時間中央値はOFF 68.764s（66.403〜71.776）、ON 69.106s（68.345〜69.424）、増加率+0.50%。既定k8・interval503・alpha0.05を維持。
 - メモリ中央値差はCPU PeakWorkingSet +14.97MiB、PrivateUsage最大観測値 -161.62MiB、GPU device memory.usedピーク観測値 -17MiB。GPUは0.5秒samplingであり瞬間ピーク・allocator単体値ではない。
-- 各keyの予定発火点・有限値数・未成立率、全6回の時間とメモリ、再現コマンド、証拠一覧は [検証README](../../../core/anet-core/testdata/prd092/README.md) に記録した。受入Runと入力checkpoint元Runの実効configは、検証fixtureとしてtestdata/prd092/configへ逐語保存した。
+- 各keyの予定発火点・有限値数・未成立率、全6回の時間とメモリ、再現コマンド、証拠一覧は [検証README](../../../src/core/base/testdata/prd092/README.md) に記録した。受入Runと入力checkpoint元Runの実効configは、検証fixtureとしてtestdata/prd092/configへ逐語保存した。
 - 設計200・分析ガイド030・設定3ファイル・CHANGELOG・検証READMEを同期した。因果を評価する長期分岐実験は範囲外、B/RR/学習率の成績効果は判定不能。
 
 ### 実行上の補足

@@ -11,15 +11,15 @@
 
 | 事実 | 根拠 |
 |---|---|
-| Run 色は 20 色固定の `RUN_COLORS` から取る | [metrics-viewer.js:34](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
+| Run 色は 20 色固定の `RUN_COLORS` から取る | [metrics-viewer.js:34](../../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) |
 | 色は Run list 描画時に **workspace 内の全 Run** へ runId 昇順で先着順に配り、index は `runColorMap.size % 20` で決まる | 同 `UIController.renderRunList`（1084-1092 行） |
 | 選択されているかどうかは色の決定に影響しない | 同上 |
 | graph の line 色と band の塗りは `runColorMap` を引く。trace 名は runId で、凡例には runId が出る | 同 `PlotlyController`（388、420-449 行） |
 | 消えた Run の色は削除し、workspace 切替では全消去する | 同 `refreshMetadata`（1561-1563 行）、`_resetWorkspaceState` |
 | Run 色は `localStorage` へ保存しない（保存 state は 8 件） | [210 §7.4](../../design/210_metrics_viewer.jp.md) |
 | `selectedRuns` は選択順の配列で、後から選んだ Run が末尾に付く。一度外して選び直すと末尾へ移動する | 同 `bindRunListEvents`（1182-1185 行）、`setSelectedRuns`（1601 行） |
-| `Select All` と初回選択は server 列挙順 = runId 昇順 | [RunScanner.java:45](../../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java) の `.sorted()` |
-| Run list の選択中の行は `.run-row.active` で行の背景自体が変わる | [metrics-viewer.css](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
+| `Select All` と初回選択は server 列挙順 = runId 昇順 | [RunScanner.java:45](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java) の `.sorted()` |
+| Run list の選択中の行は `.run-row.active` で行の背景自体が変わる | [metrics-viewer.css](../../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) |
 
 要点は **色が「workspace 内での位置」で決まり、「今の比較の構成」では決まらない**ことである。
 比較したい 2 本が palette 上で隣り合っていれば似た色になり、20 離れていれば完全に同じ色になる。
@@ -180,13 +180,13 @@ recolorKeepingExisting(selectedRuns, runColorMap):
 | 共通処理 | 2 つのパスは「候補から argmax を選ぶ」部分を共有する。維持判定の有無だけが違う |
 | 定数 | `RUN_COLOR_MIN_DISTANCE = 0.16` と `STORAGE_KEY_AUTO_RECOLOR` を先頭の定数群へ追加する |
 
-変更ファイルは [index.html](../../../apps/metrics-viewer/src/main/resources/static/index.html)、
-[metrics-viewer.js](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、
-必要なら [metrics-viewer.css](../../../apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) の少量追加に閉じる。
+変更ファイルは [index.html](../../../src/apps/metrics-viewer/src/main/resources/static/index.html)、
+[metrics-viewer.js](../../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js)、
+必要なら [metrics-viewer.css](../../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) の少量追加に閉じる。
 
 ## 5. 受入条件
 
-[RunListPlaywrightTest](../../../apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java) へ追加する。
+[RunListPlaywrightTest](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java) へ追加する。
 Run metadata は既存テストと同じく route の stub JSON で作る。
 
 1. 基本色が衝突する 4 Run を選び `Recolor` を押すと、chip 色が選択順に `#2F7DE1` / `#D1D83B` / `#E23B4F` / `#00B36B` になる。

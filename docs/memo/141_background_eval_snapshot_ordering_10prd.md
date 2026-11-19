@@ -22,7 +22,7 @@ eval worker 上の `EvalRunner::Sync()` / actor forward と LearnThread 上の l
 
 - **background eval（`use_background=true`）固有の問題である。** foreground eval は `OnLearn()` 内で
   `RunEvaluationEpisode()` を同期実行するため、eval は次 learner update の開始前に必ず完了し、順序は既に確定している
-  （[`observers.cpp:568-571`](../../core/anet-core/src/observers.cpp:568)）。foreground への切り替えは暫定回避策として機能する。
+  （[`observers.cpp:568-571`](../../src/core/base/src/observers.cpp#L568)）。foreground への切り替えは暫定回避策として機能する。
 - **Runner 実装には依存しない。** eval worker が別 thread である限り、`SerialTrainRunner`（learner update を
   TrainThread 上で同期実行）でも `PipelineTrainRunner`（LearnThread_0 上で非同期実行）でも成立する。
 
@@ -34,14 +34,14 @@ eval worker 上の `EvalRunner::Sync()` / actor forward と LearnThread 上の l
 
 - **TrainThread**: `PipelineTrainRunner::DoStep()` を駆動する Runner 本体。前回 learn の `future.get()`、
   `LearnEvent` の同期通知、train actor forward、次 learn の投入を順番に行う
-  （[`trainer.cpp:587-627`](../../core/anet-core/src/trainer.cpp:587)）。
+  （[`trainer.cpp:587-627`](../../src/core/base/src/trainer.cpp#L587)）。
 - **LearnThread_0**: `PipelineTrainRunner` が所有する 1 worker の `PinnedThreadPool`。
-  `ImageClsLearner::UpdateFromBatch()` を実行する（[`trainer.cpp:541-546`](../../core/anet-core/src/trainer.cpp:541)）。
+  `ImageClsLearner::UpdateFromBatch()` を実行する（[`trainer.cpp:541-546`](../../src/core/base/src/trainer.cpp#L541)）。
 - **EpisodeEvalObserver_0**: `EpisodeEvalObserver` が background eval 用に所有する 1 worker の `PinnedThreadPool`。
-  `RunEvaluationEpisode()` を実行する（[`observers.cpp:485-519`](../../core/anet-core/src/observers.cpp:485)）。
+  `RunEvaluationEpisode()` を実行する（[`observers.cpp:485-519`](../../src/core/base/src/observers.cpp#L485)）。
 
 `SerialTrainRunner` は LearnThread_0 を持たず、`ImageClsLearner::UpdateFromBatch()` を TrainThread 上で同期実行する
-（[`trainer.cpp:421`](../../core/anet-core/src/trainer.cpp:421), [`trainer.cpp:502`](../../core/anet-core/src/trainer.cpp:502)）。
+（[`trainer.cpp:421`](../../src/core/base/src/trainer.cpp#L421), [`trainer.cpp:502`](../../src/core/base/src/trainer.cpp#L502)）。
 この構成では eval worker の競合相手は LearnThread_0 ではなく TrainThread 自身になる。
 
 ### 2. 現行の時系列
@@ -65,7 +65,7 @@ EpisodeEvalObserver_0                      LearnThread_0
 ```
 
 `EpisodeEvalObserver::OnLearn()` は eval job を enqueue した時点で戻り、worker が `Sync()` を完了するまで TrainThread を待たせない
-（[`observers.cpp:539-567`](../../core/anet-core/src/observers.cpp:539)）。したがって、eval worker と次 LearnThread のどちらが先に
+（[`observers.cpp:539-567`](../../src/core/base/src/observers.cpp#L539)）。したがって、eval worker と次 LearnThread のどちらが先に
 network lock を取得するかは未規定である。
 
 `SerialTrainRunner` では `LearnEvent[n]` は Update[n] の同期完了直後に Notify され、Update[n+1] は次の `DoStep()` で
@@ -78,11 +78,11 @@ TrainThread 上で実行される。eval worker の競合相手が LearnThread_0
 ImageCls の共有 network には `std::shared_mutex` があり、次を保証する。
 
 - clone なし actor は `MakeAction()` の各 forward を `shared_lock` で保護する
-  （[`image_cls_agent.cpp:48-73`](../../core/anet-core/src/image_cls_agent.cpp:48)）。
+  （[`image_cls_agent.cpp:48-73`](../../src/algo/imagecls/src/image_cls_agent.cpp#L48)）。
 - learner は forward / backward / optimizer step を含む update 全体を `unique_lock` で保護する
-  （[`image_cls_agent.cpp:338-390`](../../core/anet-core/src/image_cls_agent.cpp:338)）。
+  （[`image_cls_agent.cpp:338-390`](../../src/algo/imagecls/src/image_cls_agent.cpp#L338)）。
 - clone あり actor の `Sync()` は source network を `shared_lock` で読み、clone network へコピーする
-  （[`image_cls_agent.cpp:93-100`](../../core/anet-core/src/image_cls_agent.cpp:93)）。
+  （[`image_cls_agent.cpp:93-100`](../../src/algo/imagecls/src/image_cls_agent.cpp#L93)）。
 
 この排他は、update 途中の parameter を actor が読むことや、同じ shared network に forward と optimizer step が同時アクセスすることを防ぐ。
 一方、各 forward / update 単位の排他であり、eval pass 全体の network version や、`LearnEvent[n]` と snapshot 取得の順序までは保証しない。
@@ -108,7 +108,7 @@ eval batch 2 -> weight[n+2]
 
 clone あり actor は一度 `Sync()` すれば、その後の eval pass を単一 clone network で実行できる。
 ただし現行 `Sync()` は background worker 上の `RunEvaluationEpisode()` 冒頭で呼ばれる
-（[`observers.cpp:514-519`](../../core/anet-core/src/observers.cpp:514)）。
+（[`observers.cpp:514-519`](../../src/core/base/src/observers.cpp#L514)）。
 
 eval job 投入後に TrainThread が次 learner update を投入するため、次の両方が成立し得る。
 
@@ -137,7 +137,7 @@ clone 後の pass 内一貫性は保たれるが、`LearnEvent[n]` がどの ver
 - trigger と snapshot version の対応を最も直接的に固定でき、learner との overlap も snapshot 完了後は維持できる。
 - clone network の所有権、複数 eval runner の同期順、snapshot copy の待ち時間を設計する必要がある。
 - 現行でも `WaitBackgroundEval()` による前回 eval の完了待ちは存在するため
-  （[`observers.cpp:552-553`](../../core/anet-core/src/observers.cpp:552)）、本候補が TrainThread に追加するブロックは
+  （[`observers.cpp:552-553`](../../src/core/base/src/observers.cpp#L552)）、本候補が TrainThread に追加するブロックは
   snapshot copy 時間のみである。
 - ただし copy 先の clone network は前回 eval が使用中であり得るため、snapshot copy は `WaitBackgroundEval()` の
   完了後に行うという順序制約が付く。

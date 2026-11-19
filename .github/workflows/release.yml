@@ -155,10 +155,11 @@ jobs:
         distribution: temurin
         java-version: '17'
         cache: maven
+        cache-dependency-path: src/apps/metrics-viewer/pom.xml
 
     - name: Build MetricsViewer jar
       shell: pwsh
-      run: mvn -B -f apps/metrics-viewer/pom.xml clean package "-Dmaven.test.skip=true"
+      run: mvn -B -f src/apps/metrics-viewer/pom.xml clean package "-Dmaven.test.skip=true"
 
     # ----------------------------------------------------------------
     # Doxygen ドキュメント生成
@@ -203,32 +204,29 @@ jobs:
         Copy-Item apps/*.bat "$stage/apps/" -Exclude *atari*
         Copy-Item apps/README.md "$stage/apps/"
 
-        # apps/runner: 実行バイナリ(.ilk/.pdb 除外) + config + tools
+        # apps/runner: 実行バイナリ(.ilk/.pdb 除外) + config
         New-Item -ItemType Directory -Force -Path "$stage/apps/runner/bin/Release" | Out-Null
         Copy-Item apps/runner/bin/Release/* "$stage/apps/runner/bin/Release/" -Exclude *.ilk,*.pdb
         Copy-Item apps/runner/config "$stage/apps/runner/config" -Recurse
-        # workspaces: ENV 別 workspace の枠 (追跡対象の config/_main.txt だけ。runs/ は実行時に Runner が生成)
-        Copy-Item apps/runner/workspaces "$stage/apps/runner/workspaces" -Recurse
-        # 普段のタグセットは配らず、jar内の初期値だけを配る (ADR 0067)
-        $tagSetsFile = Join-Path $stage "apps/runner/workspaces/metrics_viewer_tag_sets.json"
-        if (Test-Path -LiteralPath $tagSetsFile) {
-          Remove-Item -LiteralPath $tagSetsFile -Force -ErrorAction Stop
+        # 各workspaceの配布設定のみを格納する。
+        foreach ($config in @(Get-ChildItem -Path "data/workspaces/*/config/_main.txt" -File)) {
+          $workspace = $config.Directory.Parent.Name
+          $destination = Join-Path $stage "data/workspaces/$workspace/config"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Copy-Item -LiteralPath $config.FullName -Destination $destination
         }
-        if (Test-Path -LiteralPath $tagSetsFile) {
-          throw "Working tag sets file leaked into release stage: $tagSetsFile"
-        }
-        Copy-Item apps/runner/tools "$stage/apps/runner/tools" -Recurse
+        Copy-Item apps/tools "$stage/apps/tools" -Recurse
 
-        # wx DLL はビルド時の POST_BUILD コピー(apps/runner/CMakeLists.txt)で bin に入る前提。欠落は fail-fast
+        # wx DLL はビルド時の POST_BUILD コピー(src/apps/runner/CMakeLists.txt)で bin に入る前提。欠落は fail-fast
         if (-not (Test-Path "$stage/apps/runner/bin/Release/wxmsw*_core_*.dll")) {
-          throw "wx core DLL missing in bin (check wx POST_BUILD copy in apps/runner/CMakeLists.txt)"
+          throw "wx core DLL missing in bin (check wx POST_BUILD copy in src/apps/runner/CMakeLists.txt)"
         }
 
         # apps/metrics-viewer: jar のみ (パスは開発時と同一)
-        New-Item -ItemType Directory -Force -Path "$stage/apps/metrics-viewer/target" | Out-Null
-        Copy-Item apps/metrics-viewer/target/metrics-viewer.jar "$stage/apps/metrics-viewer/target/"
+        New-Item -ItemType Directory -Force -Path "$stage/apps/metrics-viewer/bin" | Out-Null
+        Copy-Item apps/metrics-viewer/bin/metrics-viewer.jar "$stage/apps/metrics-viewer/bin/"
         # 初回起動で作業用へ写す初期値が、配布するjarに同梱されていることを確かめる
-        $jarEntries = @(jar tf "$stage/apps/metrics-viewer/target/metrics-viewer.jar")
+        $jarEntries = @(jar tf "$stage/apps/metrics-viewer/bin/metrics-viewer.jar")
         if ($LASTEXITCODE -ne 0 -or $jarEntries -notcontains "BOOT-INF/classes/initial_tag_sets.json") {
           throw "initial_tag_sets.json missing from Metrics Viewer jar"
         }
@@ -242,7 +240,7 @@ jobs:
 
         # licenses (+ MetricsViewer の THIRD-PARTY 一覧)
         Copy-Item licenses "$stage/licenses" -Recurse
-        $tp = "apps/metrics-viewer/target/generated-sources/license/THIRD-PARTY.txt"
+        $tp = "out/build/metrics-viewer/generated-sources/license/THIRD-PARTY.txt"
         if (Test-Path $tp) {
           Copy-Item $tp "$stage/licenses/metrics-viewer_THIRD-PARTY.txt"
         } else {
@@ -253,7 +251,7 @@ jobs:
         $mainZip = "anet-lab-$ver-win64.zip"
         $docsZip = "anet-lab-doxygen-$ver.zip"
         Set-Location $stage
-        tar.exe -a -cf "../$mainZip" LICENSE NOTICE apps docs licenses
+        tar.exe -a -cf "../$mainZip" LICENSE NOTICE apps data docs licenses
         Set-Location ..
         Set-Location $docsStage
         tar.exe -a -cf "../$docsZip" LICENSE NOTICE html
@@ -261,7 +259,7 @@ jobs:
 
         # 配布zipのentryを読み、作業用タグセットが混入していないことを確かめる
         $mainEntries = @(tar.exe -tf $mainZip)
-        if ($mainEntries -contains "apps/runner/workspaces/metrics_viewer_tag_sets.json") {
+        if ($mainEntries -contains "data/workspaces/metrics_viewer_tag_sets.json") {
           throw "Working tag sets file leaked into release zip"
         }
         # 各配布物が単独でライセンス文書を持つことを archive entry で検証する

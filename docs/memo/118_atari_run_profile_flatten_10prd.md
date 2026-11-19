@@ -113,14 +113,14 @@ bat・テスト・文書のどれにも名前が出ないものは 17 個ある:
 | --- | --- |
 | bat | [11](../../apps/11_batch_run.bat)・[13](../../apps/13_batch_run.bat)（本流の部品・機能・予算） |
 | テスト（消える名前を書くもの） | `dqn_based_agent_test.cpp`（4370・9806〜9807 行）、`dqn_munchausen_test.cpp`（227・244 行）、`core/envs/atari1/src/AtariEnv_test.cpp`（1631 行） |
-| テスト（残る名前と既定の `run.$` を読むもの） | [config_baseline_test.cpp](../../core/anet-core/src/config_baseline_test.cpp)（既定の `run.$` を読み、`run.@skip` などを足す）、`intrinsic_test.cpp`（`run.@rnd`・`run.@rnd_taiga`） |
-| 固定入力 | `core/anet-core/testdata/prd072`（manifest の固定 commit を読む。[README](../../core/anet-core/testdata/prd072/README.md)） |
+| テスト（残る名前と既定の `run.$` を読むもの） | [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp)（既定の `run.$` を読み、`run.@skip` などを足す）、`intrinsic_test.cpp`（`run.@rnd`・`run.@rnd_taiga`） |
+| 固定入力 | `core/anet-core/testdata/prd072`（manifest の固定 commit を読む。[README](../../src/core/base/testdata/prd072/README.md)） |
 | 過去の PRD の検証資材 | `core/anet-core/testdata/prd084`・`prd094`・`prd097`・`prd099`・`prd102`・`prd103`・`prd104`・`prd106` のスクリプト・README・manifest。prd102 の manifest は今の設定を解決して比べる |
 | 文書 | [020](../design/020_user_guide_run.jp.md)（jp・en）137 行、ADR 0040、PRD117・172・181・158・161（`run.@aainit`、72 行）、実装済みの PRD098、wiki の breakout、issue-20261103-93f8a6・issue-20261107-a9a0e3、実験記録 |
 | 同じ名前の別 env のプロファイル | LunarLander.txt に `run.@munch`・`run.@rfit` がある（DropMerge.txt には無い）。12 の bat、[実装 品質確認観点](../quality/impl.md) 178 行の例、wiki の lunarlander はそちらを指す |
 | workspace の設定（追跡外） | `apps/runner/workspaces/AtariRnd-01/config/rnd_explore.txt` は、先頭（6・7 行）で 2026-11-07 の写し `frozen/_main.txt`・`frozen/Atari.txt` を読み、`run.@rnd_nn` を定義する。11 の bat はこのファイルを `CFG`（36 行）にして `--config` で渡す（130 行）。13 の bat は workspace の `config/_main.txt`（`$include <Atari.txt>`）を通して今の `Atari.txt` を読む |
 
-bat はステージを始めるたびに設定を読み直す。そのため、今の `Atari.txt` を読む bat（13）の後続のステージは、その時点の `Atari.txt` を読む。写しを読む bat（11）は、今の `Atari.txt` を変えても影響を受けないが、bat の名前だけを新しくすると写しに無い名前になる。`run.$` に無い名前を書くと、Run は起動時に `material selection target not found` で止まる（[config_test.cpp](../../core/anet-core/src/config_test.cpp) 965〜971 行）。
+bat はステージを始めるたびに設定を読み直す。そのため、今の `Atari.txt` を読む bat（13）の後続のステージは、その時点の `Atari.txt` を読む。写しを読む bat（11）は、今の `Atari.txt` を変えても影響を受けないが、bat の名前だけを新しくすると写しに無い名前になる。`run.$` に無い名前を書くと、Run は起動時に `material selection target not found` で止まる（[config_test.cpp](../../src/core/base/src/config_test.cpp) 965〜971 行）。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -270,7 +270,7 @@ Run 名の既定 `app.run_name = run_{t}_atari_${E1.game}`（今は `run.@a5_ape
 
 ### A2. 既定葉の検査
 
-[core/anet-core/testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md) の `check_default_leaves.py` が errors=0 で、`check_default_leaves_test.py` が通る。
+[core/anet-core/testdata/prd072/README.md](../../src/core/base/testdata/prd072/README.md) の `check_default_leaves.py` が errors=0 で、`check_default_leaves_test.py` が通る。
 
 ### A3. 出荷設定の検査と既存のテスト
 

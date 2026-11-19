@@ -30,7 +30,7 @@
 ```
 
 - URL: `http://localhost:8082`
-- workspace directory: `apps/runner/workspaces`
+- workspace directory: `data/workspaces`
 
 画面上部の`Workspace` selectorで、`runs/`または`config/`を持つworkspaceを切り替える。
 前回選択はbrowserへ保存され、次回起動時に同じworkspaceが存在すれば復元される。
@@ -365,7 +365,7 @@ late windowの`score_60_80`、`score_80_100`、`late_slope`は伸びや頭打ち
 Metrics Viewerは人間向けの可視化画面である。shellから構造化結果を取り出したい場合、特にAIエージェントへRun分析を依頼する場合は`inspect_run.py`を使う。Run artifactを一切変更しないread-onlyのCLIで、実行中のRunへ当てても安全である。
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py <subcommand> [RUN ...] [options]
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py <subcommand> [RUN ...] [options]
 ```
 
 | subcommand | 役割 |
@@ -381,17 +381,17 @@ Metrics Viewerは人間向けの可視化画面である。shellから構造化�
 ### 6.1 Runを見つける
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py runs --workspace dm-iqn
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py runs --workspace dm-iqn
 ```
 
-引数なしの`runs`は全workspaceのRunを列挙する。`RUN`を渡すとそのRunだけを詳しく返す。`RUN`はRun名、または既存の相対・絶対directory pathを取る。Run名の探索範囲は`apps/runner/workspaces/*/runs/`直下だけである。同名Runが複数workspaceにある場合は候補pathを示して終了値2で止まり、どのworkspaceも暗黙選択しない。`apps/runner/runs_*`のlegacy配置はdirectory pathで明示すれば読める。
+引数なしの`runs`は全workspaceのRunを列挙する。`RUN`を渡すとそのRunだけを詳しく返す。`RUN`はRun名、または既存の相対・絶対directory pathを取る。Run名の探索範囲は`data/workspaces/*/runs/`直下だけである。同名Runが複数workspaceにある場合は候補pathを示して終了値2で止まり、どのworkspaceも暗黙選択しない。`apps/runner/runs_*`のlegacy配置はdirectory pathで明示すれば読める。
 
 `runs`はMetricsマスタを開かない。artifactのpath・size・更新時刻、`config/config_data.txt`のSHA-256、Metricsマスタの選択結果、Metricsキャッシュの状態と理由、`*.log`と`agent_close.anet`の一覧を返す。`agent_close.anet`の有無と更新時刻は、Runが完了したか途中で止まったかの手がかりになる。ただし`app.save_agent_on_close=false`のRunでは正常終了しても作られないので、無いことだけを異常終了の根拠にしない。
 
 ### 6.2 何が取れるかを見る
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py tags run_A --format md
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py tags run_A --format md
 ```
 
 `tags`はtagごとに、解決済み定義（`step_axis`、`runner`、`scope`、`eval_name`、`eval_episodes`、`num_envs`、`event`、`target`、`source_key`、`ema_alpha`、`interval`、`clip`）と観測範囲（`count`、`min_step`、`max_step`）をJSON / Markdownで返す。`--metric`へ何を渡せるかと、各tagがどこまで到達しているかがこれで分かるので、range指定はこの結果を見てから決める。
@@ -420,7 +420,7 @@ master / cache の両経路で定義の追加情報を保持する。過去 Run 
 ### 6.4 metricを抽出する
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py metrics run_A run_B --metric "42_env/*" --range -4M:
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py metrics run_A run_B --metric "42_env/*" --range -4M:
 ```
 
 `--metric`は完全一致のtagかglobを取る。glob meta characterは`*`と`?`だけで、`[`と`]`はリテラルとして扱うため、`51_eval1/41_noop_uqe_win_rate`のような`[tag]`記法を含むキーもそのまま書ける。
@@ -464,7 +464,7 @@ Markdownでは比較表と詳細表の両方が出る。曲線の形を見たい
 ### 6.6 実効設定を確認する
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py config run_A run_B --diff
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py config run_A run_B --diff
 ```
 
 `config`は`config/config_data.txt`を読む。ただしこのfileには実効値だけでなく、上書き層（`A1`〜`A3`、`E1`、`M1`/`M2`、`P1`）や選択元の通常prefix（`app.online`、`app.batchrun`など）の定義も同居している。一方、`@`プロファイルと`.$`の選択行は含まれないため、**どのプロファイルが選ばれたかをこのfile単独から復元することはできない。**選択の記録は§6.7の`resolution`で確認する。記法と優先順位は[Run実行ユーザーガイド](020_user_guide_run.jp.md)の3章を参照する。
@@ -481,7 +481,7 @@ Markdownでは比較表と詳細表の両方が出る。曲線の形を見たい
 ### 6.7 設定の解決経路を確認する
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py resolution run_A run_B --format md
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py resolution run_A run_B --format md
 ```
 
 `resolution`は、selectionの記録と`${}`値参照をRunごとに表示する。先頭selectionが`run.$`ならRunプロファイルの選択として先に要約し、その後に各selectionの`key` / `term` / `resolved`と、各referenceの`source` / `target` / `value`を表示する。Runプロファイルを使っていないRunではその要約を出さない。
@@ -501,7 +501,7 @@ Runner実行中のRunも読める。rawは実行開始時のサイズまでを�
 ### 6.9 traceの個体行をCSVで取り出す
 
 ```powershell
-.\.venv\Scripts\python.exe viewers\metrics-tools\inspect_run.py trace-csv run_A --tag "51_eval1/*"
+.\.venv\Scripts\python.exe apps\tools\inspect_run.py trace-csv run_A --tag "51_eval1/*"
 ```
 
 `metrics`が扱うのはscalar、つまり集約後の統計である。評価セッション1回はscalarでは1点へ畳まれるため、分位点、閾値越え率、score×lenの同時分布は復元できない。`trace-csv`はtraceチャネルの行、つまり採用episode 1本を1行としてCSVへ落とし、そこから先の集計をExcelやpandasへ渡す。

@@ -291,6 +291,6 @@ single の参照 Run:
 
 ## 再現と残る判断
 
-[PRD106検証資材](../../../../core/anet-core/testdata/prd106/README.md)に実行・集計の手順、[実装メモ](../../../memo/done/106_temporl_skip_forward_noise_key_20impl.md)に検証結果を残した。実効設定は各Runのconfig dump、集計はmetricsマスタの採用episode traceを正とした。評価専用Runのconfigの写しは増やさず、学習元の写しと評価条件・hash・Run一覧で対応を残す。
+[PRD106検証資材](../../../../src/core/base/testdata/prd106/README.md)に実行・集計の手順、[実装メモ](../../../memo/done/106_temporl_skip_forward_noise_key_20impl.md)に検証結果を残した。実効設定は各Runのconfig dump、集計はmetricsマスタの採用episode traceを正とした。評価専用Runのconfigの写しは増やさず、学習元の写しと評価条件・hash・Run一覧で対応を残す。
 
 ステージ0の読みは、この2本のcheckpointの評価であり、中盤の学習の遅れが変わるかはまだ分からない。G4を流すか、どちらのcheckpointの値を重く見るかは、上の全体突破率の差を見てユーザーが決める。選んだあとに段取りの承認を得てから学習する。

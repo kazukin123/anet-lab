@@ -46,7 +46,7 @@ PRD に沿わない変更は、`impl` として、入力元を「なし」と書
 | 3 | TODO の形式 | 変更ファイルのうち `*.cpp` と `*.hpp` | `\bTODO\b`（大文字小文字を区別する） | 0 件 | 本書「コメントと TODO」の規約 |
 | 4 | 共有する契約の非依存 | `docs/process/protocol.md` と `.claude/agents/anet-review-agent.md`（変更ファイルに無くても検索する。課題の仕組みのファイルは対象外） | `rg -n -P -i 'anet(?!-[a-z0-9-]+)'` と `rg -n 'PRD'`。`anet-` で始まる skill・エージェント・アダプタの名前と作業用パスを前者のパターンで除く | どちらも 0 件 | [ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md) 先頭の注記 |
 | 5 | 実装計画の名前と場所 | `impl-plan` として渡された実装計画のファイル名。`impl-plan` を渡されたときだけ | `^\d{3}_.+_2[0-9]impl\.md$` | 一致する。同じディレクトリに、名前の `_2[0-9]impl.md` を `_10prd.md` に置き換えた PRD がある | [PRD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-prd/PRD-IMPLEMENTATION.md) §実装計画ファイル解決 |
-| 71 | 改名の旧名 | 現用の範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki のトピック別まとめ `docs/wiki/apps/` と `docs/wiki/categories/`）。過去の記録（`docs/experiments/`、`docs/adr/`、`docs/memo/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し（`core/anet-core/testdata/` の `run_*.txt` など））は除く。名前を変えた実装だけ | 実装計画か依頼に書いた旧 → 新の一覧の旧名のそれぞれを、固定文字列で（設定キーは `learner.alpha` のような完全なキーで） | 名前を変えた実装には旧 → 新の一覧があり、旧名がどれも 0 件 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針、本書「名前」の規約 |
+| 71 | 改名の旧名 | 現用の範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki のトピック別まとめ `docs/wiki/apps/` と `docs/wiki/categories/`）。過去の記録（`docs/experiments/`、`docs/adr/`、`docs/memo/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し（`src/core/base/testdata/` の `run_*.txt` など））は除く。名前を変えた実装だけ | 実装計画か依頼に書いた旧 → 新の一覧の旧名のそれぞれを、固定文字列で（設定キーは `learner.alpha` のような完全なキーで） | 名前を変えた実装には旧 → 新の一覧があり、旧名がどれも 0 件 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針、本書「名前」の規約 |
 | 76 | 直訳の語の不在 | 変更ファイルの差分の追加行（項番 6 で得た差分）。コード・コメント・設計文書・実装計画を含む | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルールの表で、「検索」が「する」の行の避ける語のそれぞれを、固定文字列で | 0 件。外部からの引用と外部の固有名の中は数えない | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルール |
 
 ### スクリプトによる検査
@@ -165,7 +165,7 @@ Tensor を組み合わせる処理では、入力と出力の rank・各軸の�
 
 運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。選択宣言`.$`・Runプロファイル・CLIは常に`=`。既存の実効値を保つために`?=`が必要な設定キーだけ、理由を添えてデフォルト設定へまとめる。
 
-この運用は設定編集・監査の規約であり、resolverの名前・位置による特別扱いではない。人向けの説明、ファイル別の一覧、DropMerge・Atariの例は[Run実行ユーザーガイド](../design/020_user_guide_run.jp.md)の§3.6・§3.7を参照する。設定変更時は`check_default_leaves.py`と全キー・文字列値の比較で意図しない変化がないことを確認し（手順は[core/anet-core/testdata/prd072/README.md](../../core/anet-core/testdata/prd072/README.md)）、あわせて `core\anet-core\bin\Debug\anet-core-test.exe "[shipped_config]"` で出荷設定の検査を通す（規約は本書「テスト」）。
+この運用は設定編集・監査の規約であり、resolverの名前・位置による特別扱いではない。人向けの説明、ファイル別の一覧、DropMerge・Atariの例は[Run実行ユーザーガイド](../design/020_user_guide_run.jp.md)の§3.6・§3.7を参照する。設定変更時は`check_default_leaves.py`と全キー・文字列値の比較で意図しない変化がないことを確認し（手順は[src/core/base/testdata/prd072/README.md](../../src/core/base/testdata/prd072/README.md)）、あわせて `out\test\Debug\anet-core-base-test.exe "[shipped_config]"` で出荷設定の検査を通す（規約は本書「テスト」）。
 
 **設定ファイルのプロファイル境界**
 
@@ -211,13 +211,13 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 
 - C++20 を前提とする。
 - ANET では、原則として 1 クラス 1 ファイルではなく、機能グループ単位で `.hpp` / `.cpp` を作る。
-  例: `dqn_based_agent.*` は DQN 系の Policy、Actor、Learner をまとめ、`nn_modules.*` は NN module 群をまとめ、`observers.*` は Observer 群をまとめる。
+  例: `dqn_based_actor.*` は DQN 系の Policy と Actor をまとめ、`nn_modules.*` は NN module 群をまとめ、`observers.*` は Observer 群をまとめる。
 - 新しいクラスを追加する場合も、まず既存の機能グループに属するかを確認し、独立したサブシステムとして分ける理由がある場合だけ新規ファイルを作る。
 - ヘッダオンリーで実装が完結する `.hpp` を新設する場合も、同じ機能グループ名の `.cpp` を作り、その `.cpp` では当該ヘッダの include だけを行う。
   例: `foo.hpp` を追加する場合は `foo.cpp` も追加し、公開ヘッダなら `#include "anet/foo.hpp"`、内部ヘッダなら周辺コードと同じ include 形式で当該ヘッダだけを include する。
 - C++20 の指示付き初期化（Designated Initializers）は原則使用し、可読性が極端に低下する場合のみ通常のコンストラクタ呼び出しや段階的な代入を優先する。
 - include は必要最小限にする。
-- include は、その `.cpp` 自身のヘッダ → 標準ライブラリ → ミドルウェア（libtorch・wxWidgets・ALE など外部依存）→ anet 系の順に書く。anet 系（`anet/…` の公開ヘッダと、`nn_heads.hpp` のような内部ヘッダ）の中は、依存の少ない基礎のヘッダ（`anet/profile.hpp`・`anet/log.hpp` など）を先に、それに依存する上位のヘッダを後に書く。テスト（`*_test.cpp`）は、自身のヘッダの位置に `anet/catch_test.hpp` を置く。既存ファイルの include を、この規約だけを理由に一括で並べ替えない。
+- include は、その `.cpp` 自身のヘッダ → 標準ライブラリ → ミドルウェア（libtorch・wxWidgets・ALE など外部依存）→ anet 系の順に書く。anet 系（`anet/…` の公開ヘッダと、`nn_impl.hpp` のような内部ヘッダ）の中は、依存の少ない基礎のヘッダ（`anet/profile.hpp`・`anet/log.hpp` など）を先に、それに依存する上位のヘッダを後に書く。テスト（`*_test.cpp`）は、自身のヘッダの位置に `anet/test/catch.hpp` を置く。既存ファイルの include を、この規約だけを理由に一括で並べ替えない。
   例:
   ```cpp
   #include "dqn_based_heads.hpp"
@@ -226,7 +226,7 @@ C++ コードは Google C++ スタイルガイドを前提とします。
   #include <string>
   #include <utility>
   #include "anet/profile.hpp"
-  #include "nn_heads.hpp"
+  #include "nn_impl.hpp"
   ```
 - C++ の `.hpp` 側では `using namespace` を使用しない。
 - C++ の `.cpp` 側では、`namespace ... {}` で全体を囲むのではなく `using namespace ...;` を使用。
@@ -302,7 +302,7 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 | 58 | interface の取り出し口 | `dynamic_cast` を避けるために取り出し口（`GetXxxSource`・`AsXxx` など）を足した場合、基底の型に interface を持たせない理由が実装計画にある | 本節の規約 |
 | 59 | クラス名と動詞 | 足したクラス名に、役割を表す接尾辞がある。既存の動詞を使う場合、同じ意味で使っている既存の箇所が実装計画に示されている | 本節の規約 |
 | 60 | 補助クラスの配置 | 外で使わない補助のクラスが、持ち主のクラスの内側（private な入れ子）か、.cpp の無名名前空間にあり、公開ヘッダの名前空間で宣言されていない | 本節の規約 |
-| 63 | include の順 | 新しく書いた `.cpp`・`.hpp` の include が、所在の節の順（自身のヘッダ → 標準 → ミドルウェア → anet 系。anet 系の中は基礎のヘッダが先。テストは先頭が `anet/catch_test.hpp`）に並んでいる。既存のファイルに足した include は、その順の該当する位置にある | 本節の規約 |
+| 63 | include の順 | 新しく書いた `.cpp`・`.hpp` の include が、所在の節の順（自身のヘッダ → 標準 → ミドルウェア → anet 系。anet 系の中は基礎のヘッダが先。テストは先頭が `anet/test/catch.hpp`）に並んでいる。既存のファイルに足した include は、その順の該当する位置にある | 本節の規約 |
 | 64 | 設定キーの読み取り | 足した・変えた設定の読み取りで、固定キーを `ANET_READ_CONFIG` で読み、メンバのパスが設定キーと一致している。`ReadConfig` へ文字列のキーを直接渡す箇所は、所在の節がいう例外に当たる | 本節の規約 |
 | 65 | 共通処理の置き場 | 足した処理のうち、扱う型・機構の情報だけで正誤や結果が決まるもの（設定の値域・整合の検証など）が、個別の利用側ではなく、その型・機構の共通処理にあって、利用側はそれを呼んでいる。既存の共通処理と同じ内容を、利用側に重ねて書いていない | [AGENTS.md](../../AGENTS.md) §汎用機構と利用側の責任境界 |
 | 66 | リテラルの定数化 | 足した・変えたコードで、2 か所以上で使う同じ値と、所在の節が挙げる外と取り決める識別子が名前つきの定数になっていて、使う箇所と診断のメッセージはその定数を参照している。テストと新規ファイルも確認する。設定キー・ログの文言・1 か所だけのテストの期待値と設定の列挙値は対象外 | 本節の規約 |
@@ -462,7 +462,7 @@ Agent 関連の変数・オブジェクト追加時は、必ず以下の資料�
 - 共通層（`_main.txt` が include するファイル）の、PRD が既定と宣言した設定キーの解決値。
 - 実行時に黙って通る規則（群ごとの指標の揃い、休眠 tag の Actor 参照、プロファイル連鎖で群を落とさない、など）。
 
-env 別ファイル（`Atari.txt` など）の値・本数・群やキーの列挙は等値比較しない。固定したいなら PRD072 の golden か hidden の採取テストにする。Run の構築時に止まる検査（未知の eval 名・未宣言の Actor）を前倒しするだけのテストは作らない。これらのテストはタグ `[shipped_config]` を持ち、設定を変えたあとに `anet-core-test.exe "[shipped_config]"` で走らせる。設定を変えてこの種のテストが落ちたら、テストを新しい値に書き換える前に、写しを規則に置き換えられないかを見る。env 別ファイルは実験のたびに変わる（Atari.txt の変更の半分は設定だけの変更）ので、写しを固定すると正当な設定変更のたびにテストが落ちるため。
+env 別ファイル（`Atari.txt` など）の値・本数・群やキーの列挙は等値比較しない。固定したいなら PRD072 の golden か hidden の採取テストにする。Run の構築時に止まる検査（未知の eval 名・未宣言の Actor）を前倒しするだけのテストは作らない。これらのテストはタグ `[shipped_config]` を持ち、設定を変えたあとに `anet-core-base-test.exe "[shipped_config]"` で走らせる。設定を変えてこの種のテストが落ちたら、テストを新しい値に書き換える前に、写しを規則に置き換えられないかを見る。env 別ファイルは実験のたびに変わる（Atari.txt の変更の半分は設定だけの変更）ので、写しを固定すると正当な設定変更のたびにテストが落ちるため。
 
 適用: テストを足した、または変えた実装。項番 73 は、`apps/runner/config` 配下のファイルを読むテストを足した・変えた実装。
 

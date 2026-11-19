@@ -21,6 +21,8 @@ Windows 11 x64とNVIDIA CUDAを主な実行環境とする、個人の学習・�
 - Java/Spring製Metrics Viewerによるメトリクスのリアルタイム表示とRun比較
 - メトリクス、動画、プロファイルを含むRun成果物の記録
 
+基盤と Env、Runner、Metrics Viewer のソースは `src/` にあります。実行体・設定・起動用の道具は `apps/`、ビルドの中間物と C++ のテスト実行体は `out/` に置きます。
+
 ## ガイド
 
 - 開発環境とビルド・テスト手順: [開発環境構築ガイド](docs/design/040_development_environment.jp.md)

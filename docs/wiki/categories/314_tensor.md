@@ -50,19 +50,19 @@
 
 点検が作り直す。手で直さない。
 
-- [image.hpp](../../../core/anet-core/include/anet/image.hpp)
-- [scaler.hpp](../../../core/anet-core/include/anet/scaler.hpp)
-- [stacker.hpp](../../../core/anet-core/include/anet/stacker.hpp)
-- [tensor_check.hpp](../../../core/anet-core/include/anet/tensor_check.hpp)
-- [tensor_util.hpp](../../../core/anet-core/include/anet/tensor_util.hpp)
-- [transfer.hpp](../../../core/anet-core/include/anet/transfer.hpp)
-- [image.cpp](../../../core/anet-core/src/image.cpp) / [image_test.cpp](../../../core/anet-core/src/image_test.cpp)
-- [scaler_test.cpp](../../../core/anet-core/src/scaler_test.cpp)
-- [scaler_impl.cpp](../../../core/anet-core/src/scaler_impl.cpp) / [scaler_impl.hpp](../../../core/anet-core/src/scaler_impl.hpp)
-- [stacker.cpp](../../../core/anet-core/src/stacker.cpp) / [stacker_test.cpp](../../../core/anet-core/src/stacker_test.cpp)
-- [tensor_check.cpp](../../../core/anet-core/src/tensor_check.cpp)
-- [tensor_util.cpp](../../../core/anet-core/src/tensor_util.cpp)
-- [transfer.cpp](../../../core/anet-core/src/transfer.cpp)
+- [image.hpp](../../../src/core/base/include/anet/image.hpp)
+- [scaler.hpp](../../../src/core/base/include/anet/scaler.hpp)
+- [stacker.hpp](../../../src/core/base/include/anet/stacker.hpp)
+- [tensor_check.hpp](../../../src/core/base/include/anet/tensor_check.hpp)
+- [tensor_util.hpp](../../../src/core/base/include/anet/tensor_util.hpp)
+- [transfer.hpp](../../../src/core/base/include/anet/transfer.hpp)
+- [image.cpp](../../../src/core/base/src/image.cpp) / [image_test.cpp](../../../src/core/base/src/image_test.cpp)
+- [scaler_test.cpp](../../../src/core/base/src/scaler_test.cpp)
+- [scaler_impl.cpp](../../../src/core/base/src/scaler_impl.cpp) / [scaler_impl.hpp](../../../src/core/base/src/scaler_impl.hpp)
+- [stacker.cpp](../../../src/core/base/src/stacker.cpp) / [stacker_test.cpp](../../../src/core/base/src/stacker_test.cpp)
+- [tensor_check.cpp](../../../src/core/base/src/tensor_check.cpp)
+- [tensor_util.cpp](../../../src/core/base/src/tensor_util.cpp)
+- [transfer.cpp](../../../src/core/base/src/transfer.cpp)
 
 ## PRD の一覧
 
@@ -79,6 +79,7 @@
 - [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md) — PRD122: 小さなリファクタリングとテストの空白をまとめて片づける
 - [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
 - [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) — PRD130: RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 

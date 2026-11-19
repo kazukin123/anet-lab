@@ -63,7 +63,7 @@ Agent系の所有権は次の原則に従う。
 | `MuZeroAgent` | MuZeroの試作実装 | 現行コードを参照 |
 | `ImageClsAgent` | 共通Run/Agent contract上で画像分類を学習する実装 | 現行コードを参照 |
 
-登録は`InitRL()`で行われ、`AgentRepository`がclass IDから`AgentFactory`を解決する。
+Runner が系統の公開初期化関数を呼んで登録し、`AgentRepository`がclass IDから`AgentFactory`を解決する。
 
 ## 3. コンポーネント定義
 
@@ -82,12 +82,12 @@ Agent系の所有権は次の原則に従う。
 
 | 領域 | 主なファイル |
 |---|---|
-| 共通contract | [rl.hpp](../../core/anet-core/include/anet/rl.hpp) |
-| Agent基盤・repository・factory | [agent.hpp](../../core/anet-core/include/anet/agent.hpp)、[agent.cpp](../../core/anet-core/src/agent.cpp) |
+| 共通contract | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
+| Agent基盤・repository・factory | [agent.hpp](../../src/core/base/include/anet/agent.hpp)、[agent.cpp](../../src/core/base/src/agent.cpp) |
 | DQN系 | [DQN系Agent](200_dqn_agents.jp.md) |
-| ImageCls | [image_cls_agent.hpp](../../core/anet-core/include/anet/image_cls_agent.hpp)、[image_cls_agent.cpp](../../core/anet-core/src/image_cls_agent.cpp) |
-| MuZero試作 | [muzero_proto_agent.hpp](../../core/anet-core/include/anet/muzero_proto_agent.hpp)、[muzero_proto_agent.cpp](../../core/anet-core/src/muzero_proto_agent.cpp) |
-| 初期登録 | [init.cpp](../../core/anet-core/src/init.cpp) |
+| ImageCls | [image_cls_agent.hpp](../../src/algo/imagecls/src/image_cls_agent.hpp)、[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp) |
+| MuZero試作 | [muzero_proto_agent.hpp](../../src/algo/muzero/src/muzero_proto_agent.hpp)、[muzero_proto_agent.cpp](../../src/algo/muzero/src/muzero_proto_agent.cpp) |
+| 初期登録 | [init.cpp](../../src/core/base/src/init.cpp) |
 
 ## 5. 静的構造
 
@@ -158,7 +158,7 @@ DefaultDQNのskip網は `skip.network_mode=action_out|action_in` で構成を選
 
 DefaultDQNのskip有効時は、Actorがlane別に継続行動・選択した長さ・残り回数を所有する。`episode_start`で継続を解除し、infoの`decision`で新しい判断を示す。RunnerのstepやEnvのframe skipは変えず、primaryのforwardも毎step行う。primary／skipのcloneと同期は同じAgentのロック内で行う。強制行動`WithAction`は実行行動とQヒントを差し替えるが、Actorの継続状態を更新しない。
 
-DefaultDQNのActorごとの `skip.max_length_mode` はfull・single・variableを選ぶ。full/variableは継続状態をActorが所有し、singleは毎step判断して方策の提案をそのまま使う。variableの整数ProfiledValueはMakeActionの学習側exp_stepで進める（評価側は直近Syncのcounts）。skip NetworkのforwardとJ本のauxはどのモードも維持する。幅と補助学習用の窓の組み合わせはAgentがカタログ全体に対して検証し、Runnerの用途を推測しない。具体的な契約は[DQN系列](200_dqn_agents.jp.md)のskip方策、確認手順は[PRD104検証資材](../../core/anet-core/testdata/prd104/README.md)を参照する。
+DefaultDQNのActorごとの `skip.max_length_mode` はfull・single・variableを選ぶ。full/variableは継続状態をActorが所有し、singleは毎step判断して方策の提案をそのまま使う。variableの整数ProfiledValueはMakeActionの学習側exp_stepで進める（評価側は直近Syncのcounts）。skip NetworkのforwardとJ本のauxはどのモードも維持する。幅と補助学習用の窓の組み合わせはAgentがカタログ全体に対して検証し、Runnerの用途を推測しない。具体的な契約は[DQN系列](200_dqn_agents.jp.md)のskip方策、確認手順は[PRD104検証資材](../../src/core/base/testdata/prd104/README.md)を参照する。
 
 ### 6.2 Experience受入れと更新結果
 
@@ -218,11 +218,13 @@ checkpoint対応を追加・変更するときは、保存しないStateを明�
 
 ## 8. テストと拡張時の確認事項
 
-共通のfactory登録とRunner連携は[init_test.cpp](../../core/anet-core/src/init_test.cpp)と[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)、アルゴリズム内部は各具象Agentのtestで確認する。Actorカタログの公開契約test `[prd061]` と、設定改名・カタログ移行の比較手順は[testdata/prd061/README.md](../../core/anet-core/testdata/prd061/README.md)を参照する。
+公開の拡張点は[フレームワーク全体概要の拡張点の表](010_framework_overview.jp.md#43-拡張点)を参照。
+
+共通のfactory登録とRunner連携は[init_test.cpp](../../src/core/base/src/init_test.cpp)と[trainer_test.cpp](../../src/core/base/src/trainer_test.cpp)、アルゴリズム内部は各具象Agentのtestで確認する。Actorカタログの公開契約test `[prd061]` と、設定改名・カタログ移行の比較手順は[testdata/prd061/README.md](../../src/core/base/testdata/prd061/README.md)を参照する。
 
 Agentを追加・変更する場合は、少なくとも次を確認する。
 
-1. factoryを一意なclass IDで`InitRL()`へ登録する。
+1. 系統の公開初期化関数から `RegisterAgentFactory` を呼び、一意な class ID で factory を登録する。
 2. EnvSpec/BatchEnvSpecとのshape・action数の整合を構築時に検証する。
 3. Trainと各Eval用途について、Actorの共有・複製・`Sync()`契約を定義する。
 4. `UpdateFromBatch()`が更新なしを空listで表し、1件以上の結果を正しい順序で返す。

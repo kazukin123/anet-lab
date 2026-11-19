@@ -67,18 +67,18 @@
 
 点検が作り直す。手で直さない。
 
-- [graphviz.hpp](../../../core/anet-core/include/anet/graphviz.hpp)
-- [heat_map.hpp](../../../core/anet-core/include/anet/heat_map.hpp)
-- [metrics.hpp](../../../core/anet-core/include/anet/metrics.hpp)
-- [metrics_logger.hpp](../../../core/anet-core/include/anet/metrics_logger.hpp)
-- [probe.hpp](../../../core/anet-core/include/anet/probe.hpp)
-- [graphviz.cpp](../../../core/anet-core/src/graphviz.cpp)
-- [heat_map.cpp](../../../core/anet-core/src/heat_map.cpp) / [heat_map_test.cpp](../../../core/anet-core/src/heat_map_test.cpp)
-- [metrics.cpp](../../../core/anet-core/src/metrics.cpp) / [metrics_test.cpp](../../../core/anet-core/src/metrics_test.cpp)
-- [metrics_impl.hpp](../../../core/anet-core/src/metrics_impl.hpp)
-- [metrics_logger.cpp](../../../core/anet-core/src/metrics_logger.cpp) / [metrics_logger_test.cpp](../../../core/anet-core/src/metrics_logger_test.cpp)
-- [metrics_logger_impl.hpp](../../../core/anet-core/src/metrics_logger_impl.hpp)
-- [probe.cpp](../../../core/anet-core/src/probe.cpp) / [probe_test.cpp](../../../core/anet-core/src/probe_test.cpp)
+- [graphviz.hpp](../../../src/core/base/include/anet/graphviz.hpp)
+- [heat_map.hpp](../../../src/core/base/include/anet/heat_map.hpp)
+- [metrics.hpp](../../../src/core/base/include/anet/metrics.hpp)
+- [metrics_logger.hpp](../../../src/core/base/include/anet/metrics_logger.hpp)
+- [probe.hpp](../../../src/core/base/include/anet/probe.hpp)
+- [graphviz.cpp](../../../src/core/base/src/graphviz.cpp)
+- [heat_map.cpp](../../../src/core/base/src/heat_map.cpp) / [heat_map_test.cpp](../../../src/core/base/src/heat_map_test.cpp)
+- [metrics.cpp](../../../src/core/base/src/metrics.cpp) / [metrics_test.cpp](../../../src/core/base/src/metrics_test.cpp)
+- [metrics_impl.hpp](../../../src/core/base/src/metrics_impl.hpp)
+- [metrics_logger.cpp](../../../src/core/base/src/metrics_logger.cpp) / [metrics_logger_test.cpp](../../../src/core/base/src/metrics_logger_test.cpp)
+- [metrics_logger_impl.hpp](../../../src/core/base/src/metrics_logger_impl.hpp)
+- [probe.cpp](../../../src/core/base/src/probe.cpp) / [probe_test.cpp](../../../src/core/base/src/probe_test.cpp)
 
 ## PRD の一覧
 
@@ -91,6 +91,7 @@
 - [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md) — PRD115: 画像メモリの所有権とDropMergeのNOOP判定の修正
 - [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
 - [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 
@@ -120,6 +121,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-f40ae8](../../management/issues/issue-20261103-f40ae8.md) | 未着手 | 0.9 | — | 成果物 | PRD | 317_metrics, 314_tensor, 318_rl_core | UI | 性能改善 | [PRD056](../../memo/056_timehistogram_fine_grid_10prd.md) | 残件有り | TimeHistogram fine-bin保持・描画時集約 |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [PRD142](../../memo/142_agent_prev_action_obs_10prd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
 
-着手できる 17 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 19 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) — 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化
 <!-- issues:end -->

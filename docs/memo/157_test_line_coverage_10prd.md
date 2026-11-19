@@ -4,7 +4,7 @@
 > 2026-11-03 番号を 999 から 959 へ振り直した（PRD114）。
 
 > 起点: 2026-09-17 の定点統計（anet-stats）設計。AI-Native 化以前のコードのテスト不足を機能カテゴリ別に見たい。テストコード比率（L0）と被テスト率（L1）は git 履歴から取れるが、L1 の参照ヒューリスティックは誤検出と見逃しを両方起こす。裁定者として行カバレッジ（L2）が要る。
-> 関連: [156_cicd_improvement_10prd.md](156_cicd_improvement_10prd.md)（CI 側の L2 定点ジョブ）、[AGENTS.md](../../AGENTS.md) のテスト実行規約、[core/anet-core/CMakeLists.txt](../../core/anet-core/CMakeLists.txt)（テスト実行体の定義）。
+> 関連: [156_cicd_improvement_10prd.md](156_cicd_improvement_10prd.md)（CI 側の L2 定点ジョブ）、[AGENTS.md](../../AGENTS.md) のテスト実行規約、[core/anet-core/CMakeLists.txt](../../src/core/base/CMakeLists.txt)（テスト実行体の定義）。
 
 ## Context / Problem Statement
 

@@ -37,10 +37,10 @@ PASSED = [
     # 探す文字列が / のもの。
     'grep -rn "/" src',
     'rg "path: /" docs',
-    'grep -rnE "\'/\'|\\"/\\"" apps/metrics-viewer/src/main/resources/static/*.js',
+    'grep -rnE "\'/\'|\\"/\\"" src/apps/metrics-viewer/src/main/resources/static/*.js',
     # 引用符の中の \| と \" で区切らない。
     'grep -rn "StampFly\\.pid\\|\\.pid\\." . ; grep -rn "PID \\|Filter " *.cpp',
-    'grep -rn "paused\\"\\|resumed\\"\\|paused automatically" apps/runner/src/*.cpp | head',
+    'grep -rn "paused\\"\\|resumed\\"\\|paused automatically" src/apps/runner/src/*.cpp | head',
     # 行の継続。
     'grep -rnE "TERA|PH1" \\\n  --include="*.md" README_kit.md kit_policy.md',
     # 引用符が閉じていないとき、空白で分けた切れ端の \ を / と見なさない。

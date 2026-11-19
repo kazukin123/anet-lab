@@ -514,7 +514,7 @@ DefaultDQNAgent.$ = A2 > A3
 
 ## 5. 実装時の責務
 
-実装の主対象は[config_impl.cpp](../../../core/anet-core/src/config_impl.cpp)と公開ConfigManager経由のテストである。選択元の最終値を、各設定の個別・部分指定より弱いベースとして合成する。依存の計算順と上書き順位を混同しない。既定葉はパーサで`?=`を受け付け、解決前の入力にだけ強弱を持たせ、resolverでベースより弱い段として扱う。解決後の値・ダンプ・公開APIに強弱は残さない。
+実装の主対象は[config_impl.cpp](../../../src/core/base/src/config_impl.cpp)と公開ConfigManager経由のテストである。選択元の最終値を、各設定の個別・部分指定より弱いベースとして合成する。依存の計算順と上書き順位を混同しない。既定葉はパーサで`?=`を受け付け、解決前の入力にだけ強弱を持たせ、resolverでベースより弱い段として扱う。解決後の値・ダンプ・公開APIに強弱は残さない。
 
 宣言を運ぶ入れ物かどうかの判定、上書き層専用のroot選択除外・禁止、コピー先を基準にした再実行を除去する。旧チェーンの葉を消すための親子由来追跡は追加しない。定義元の相対参照、内側プロファイルの休止と供給、Run・CLIの最終値伝播を同じ契約に収める。
 
@@ -696,7 +696,7 @@ DropMergeの`?=`はEnvデフォルト42行だけとする。NN部品・配線・
 
 ### 7.2 比較条件
 
-比較入力の正本は[manifest.json](../../../core/anet-core/testdata/prd072/manifest.json)。旧goldenは[testdata/prd072/baseline](../../../core/anet-core/testdata/prd072/baseline)に保持し、commit `107a62c8ae01cb758f3cd49d98e8424386160e5d`の固定config、CLI、注入値との対応を残す。
+比較入力の正本は[manifest.json](../../../src/core/base/testdata/prd072/manifest.json)。旧goldenは[testdata/prd072/baseline](../../../src/core/base/testdata/prd072/baseline)に保持し、commit `107a62c8ae01cb758f3cd49d98e8424386160e5d`の固定config、CLI、注入値との対応を残す。
 
 | Env設定 | 比較入力数と内容 |
 |---|---|

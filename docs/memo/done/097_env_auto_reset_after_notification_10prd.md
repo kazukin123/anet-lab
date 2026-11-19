@@ -58,45 +58,45 @@ BatchEnv の `Step` は、lane ごとに env を 1 step 進め、終端（done �
 
 ### 3.1 BatchEnv と Step の結果
 
-- 単一の env をまとめる BatchEnv は 2 つある。逐次の `VectorizedDiscreteBatchEnv`（[env.cpp:697-742](../../../core/anet-core/src/env.cpp)）と、スレッドの `ThreadPoolDiscreteEnv`（同 830-890）。
+- 単一の env をまとめる BatchEnv は 2 つある。逐次の `VectorizedDiscreteBatchEnv`（[env.cpp:697-742](../../../src/core/base/src/env.cpp)）と、スレッドの `ThreadPoolDiscreteEnv`（同 830-890）。
   - どちらも lane ごとに `envs_[i]->Step(a)` を呼び、done か truncated なら続けて `envs_[i]->Reset()` を呼ぶ。
   - `next_state` にはリセット前、`continue_state` にはリセット後の状態を詰める。
-  - lane ごとの Step の結果（aux を含む）は `single_results` として持つ（[env.cpp:424-447](../../../core/anet-core/src/env.cpp)）。リセットの aux は捨てている。
-- 単一の env の結果の型（`SingleEnvResult`）は `GetAuxData()` だけを持つ（[rl.hpp:355-381](../../../core/anet-core/include/anet/rl.hpp)）。env の型ごとの派生がある（`AtariStepResult` など。[AtariEnv.cpp:40-46](../../../core/envs/atari1/src/AtariEnv.cpp)）。
-- 自前でバッチを持つ `ImageClsEnv` は、`Step` の中で次のバッチを先読みし、エピソードの終わりで `continue_state` の `episode_start` を立てる（[ImageClsEnv.cpp:139-190](../../../core/envs/imagecls1/src/ImageClsEnv.cpp)）。
+  - lane ごとの Step の結果（aux を含む）は `single_results` として持つ（[env.cpp:424-447](../../../src/core/base/src/env.cpp)）。リセットの aux は捨てている。
+- 単一の env の結果の型（`SingleEnvResult`）は `GetAuxData()` だけを持つ（[rl.hpp:355-381](../../../src/core/base/include/anet/rl.hpp)）。env の型ごとの派生がある（`AtariStepResult` など。[AtariEnv.cpp:40-46](../../../src/env/atari/src/AtariEnv.cpp)）。
+- 自前でバッチを持つ `ImageClsEnv` は、`Step` の中で次のバッチを先読みし、エピソードの終わりで `continue_state` の `episode_start` を立てる（[ImageClsEnv.cpp:139-190](../../../src/env/imagecls/src/ImageClsEnv.cpp)）。
 
 ### 3.2 Runner の通知の時機
 
-- EvalRunner: `MakeAction` → `Step` → `TrainEvent` → `EpisodeEndEvent` → `state_ = continue_state`（[trainer.cpp:231-298](../../../core/anet-core/src/trainer.cpp)）。
+- EvalRunner: `MakeAction` → `Step` → `TrainEvent` → `EpisodeEndEvent` → `state_ = continue_state`（[trainer.cpp:231-298](../../../src/core/base/src/trainer.cpp)）。
 - 評価セッション（`RunSession`）: 採用 episode の `EpisodeEndEvent` は、Step の処理を抜けたあとに `LastAdoptedGroups()` から出す（同 315-342）。
 - 逐次の学習 Runner: `MakeAction` → `Step` → `EpisodeEndEvent` → 学習 → `LearnEvent` → `TrainEvent` → `state_ = continue_state`（同 509-566）。
-- 非同期の学習 Runner（既定。[common.txt:4](../../../apps/runner/config/common.txt)）: step t の `TrainEvent` は、次の DoStep の頭で学習の待ち合わせのあとに出す。`EpisodeEndEvent(t)` は Step の直後に出す（[trainer.cpp:634-700](../../../core/anet-core/src/trainer.cpp)）。
-- `EpisodeEndEvent` は runner・counts・agent・env・env_index だけを持ち、Step の結果は持たない（[rl.hpp:952-958](../../../core/anet-core/include/anet/rl.hpp)。通知は [trainer.cpp:96-103](../../../core/anet-core/src/trainer.cpp) で、終わった group ごとに出す）。`TrainEvent` は Step の結果（`step_result`）を持つ。
+- 非同期の学習 Runner（既定。[common.txt:4](../../../apps/runner/config/common.txt)）: step t の `TrainEvent` は、次の DoStep の頭で学習の待ち合わせのあとに出す。`EpisodeEndEvent(t)` は Step の直後に出す（[trainer.cpp:634-700](../../../src/core/base/src/trainer.cpp)）。
+- `EpisodeEndEvent` は runner・counts・agent・env・env_index だけを持ち、Step の結果は持たない（[rl.hpp:952-958](../../../src/core/base/include/anet/rl.hpp)。通知は [trainer.cpp:96-103](../../../src/core/base/src/trainer.cpp) で、終わった group ごとに出す）。`TrainEvent` は Step の結果（`step_result`）を持つ。
 
 ### 3.3 評価セッション
 
-- `EvalSessionEnv` は中の BatchEnv を包み、採用 episode が完了した Step のあとで、購読した鍵を中の env の `GetScalar` で読んで溜める（[env.cpp:336-390](../../../core/anet-core/src/env.cpp)）。`@session_end` の scalar は、その溜めた集約を `EvalSessionEnv::GetScalar(key, -1)` で読む（同 392-402）。
+- `EvalSessionEnv` は中の BatchEnv を包み、採用 episode が完了した Step のあとで、購読した鍵を中の env の `GetScalar` で読んで溜める（[env.cpp:336-390](../../../src/core/base/src/env.cpp)）。`@session_end` の scalar は、その溜めた集約を `EvalSessionEnv::GetScalar(key, -1)` で読む（同 392-402）。
 - セッションの継ぎ目では、前の Step の `continue_state` が全 group とも新しいエピソードなら、`Reset` を呼ばずに使い回す（同 317-334、ADR 0034）。
 
 ### 3.4 env の完了値と持ち越し
 
 - **Atari**
-  - aux には途中の値（`game_score`・`game_len`・`game_frames`・`lives`・`ram_metric.<ラベル>`）を毎 step 入れる（[AtariEnv.cpp:682-694](../../../core/envs/atari1/src/AtariEnv.cpp)）。
+  - aux には途中の値（`game_score`・`game_len`・`game_frames`・`lives`・`ram_metric.<ラベル>`）を毎 step 入れる（[AtariEnv.cpp:682-694](../../../src/env/atari/src/AtariEnv.cpp)）。
   - `GetScalar` の完了の鍵（`game_score`・`game_len`・`game_frames`・`hns57`・`hns49`・`game_score.ge.[N]`・`ram_metric.[n]`）は、完了時に写した `completed_*` から、完了した Step のあとだけ返す（同 696-717、839-891）。
   - `Reset` の中でもゲームの完了を記録することがある。残機を失った直後の NOOP でゲームオーバーになった場合である（同 725-733）。
   - `lives` は今の値。`ram_metric.[n]` の番号からラベルへの対応と、hns の基準表は env が持つ。
 - **DropMerge**
-  - 完了の鍵（`ep_*`・`term_reason_*`・`blocked_drop_on_candidate` など）は、`GetScalar` が `last_*` の写しやエピソードの統計から、完了した Step のあとだけ返す（[DropMergeEnv.cpp:1556-1670](../../../core/envs/dropmerge1/src/DropMergeEnv.cpp)）。
-  - aux は途中の値と、View の「前回の結果」の表示用の `last_score`・`last_step`・`last_term_reason` を持つ（同 1534-1547、[DropMergeView.cpp:447-500](../../../core/envs/dropmerge1/src/DropMergeView.cpp)）。
-- **GridMaze**: 完了の鍵（`reward_sum`・`wall_collisions`・`is_success`・`is_hole`）は `last_*` の写しから返す（[GridMazeEnv.cpp:233-273](../../../core/envs/gridmaze1/src/GridMazeEnv.cpp)）。aux は位置などの途中の値（同 94-107）。
-- **ImageCls**: `accuracy`（直近に確定した採点の snapshot）と `epoch_count`（累積）は env 全体の値で、index −1 だけを受け付ける（[ImageClsEnv.cpp:196-206](../../../core/envs/imagecls1/src/ImageClsEnv.cpp)）。採点の区切りで `Step` の中で更新され、リセットでは変わらない。
+  - 完了の鍵（`ep_*`・`term_reason_*`・`blocked_drop_on_candidate` など）は、`GetScalar` が `last_*` の写しやエピソードの統計から、完了した Step のあとだけ返す（[DropMergeEnv.cpp:1556-1670](../../../src/env/dropmerge/src/DropMergeEnv.cpp)）。
+  - aux は途中の値と、View の「前回の結果」の表示用の `last_score`・`last_step`・`last_term_reason` を持つ（同 1534-1547、[DropMergeView.cpp:447-500](../../../src/env/dropmerge/src/DropMergeView.cpp)）。
+- **GridMaze**: 完了の鍵（`reward_sum`・`wall_collisions`・`is_success`・`is_hole`）は `last_*` の写しから返す（[GridMazeEnv.cpp:233-273](../../../src/env/gridmaze/src/GridMazeEnv.cpp)）。aux は位置などの途中の値（同 94-107）。
+- **ImageCls**: `accuracy`（直近に確定した採点の snapshot）と `epoch_count`（累積）は env 全体の値で、index −1 だけを受け付ける（[ImageClsEnv.cpp:196-206](../../../src/env/imagecls/src/ImageClsEnv.cpp)）。採点の区切りで `Step` の中で更新され、リセットでは変わらない。
 
 ### 3.5 env を読む読み手
 
-- `$env` の scalar（`@train`）は、`TrainEvent` の中で BatchEnv の `GetScalar` を lane 方向に集約して読む（[observers.cpp:1078-1088](../../../core/anet-core/src/observers.cpp)、[env.cpp:617-640](../../../core/anet-core/src/env.cpp)）。間隔の既定は 1（[observers.cpp:1437](../../../core/anet-core/src/observers.cpp)）。そのため、完了の鍵の `@train` の宣言は、その step で完了した lane があるときだけ値が出る。
-- `@episode_end` の trace は、`EpisodeEndEvent` の中で env の `GetScalar(key, lane)` を読む（[observers.cpp:837-872](../../../core/anet-core/src/observers.cpp)、ADR 0037）。
-- AtariView は、終端の通知で env の `rgb_frame`（リセット後）を出す。一緒に出す得点・残機・RAM は、Step の結果の aux（リセット前）から取る（[AtariView.cpp:218-257](../../../core/envs/atari1/src/AtariView.cpp)）。
-- View は `TrainEvent` だけを受ける（[gui.hpp:259](../../../core/anet-core/include/anet/gui.hpp)）。Run の最初のエピソードの s_0 は、今も画面に出ない。
+- `$env` の scalar（`@train`）は、`TrainEvent` の中で BatchEnv の `GetScalar` を lane 方向に集約して読む（[observers.cpp:1078-1088](../../../src/core/base/src/observers.cpp)、[env.cpp:617-640](../../../src/core/base/src/env.cpp)）。間隔の既定は 1（[observers.cpp:1437](../../../src/core/base/src/observers.cpp)）。そのため、完了の鍵の `@train` の宣言は、その step で完了した lane があるときだけ値が出る。
+- `@episode_end` の trace は、`EpisodeEndEvent` の中で env の `GetScalar(key, lane)` を読む（[observers.cpp:837-872](../../../src/core/base/src/observers.cpp)、ADR 0037）。
+- AtariView は、終端の通知で env の `rgb_frame`（リセット後）を出す。一緒に出す得点・残機・RAM は、Step の結果の aux（リセット前）から取る（[AtariView.cpp:218-257](../../../src/env/atari/src/AtariView.cpp)）。
+- View は `TrainEvent` だけを受ける（[gui.hpp:259](../../../src/core/base/include/anet/gui.hpp)）。Run の最初のエピソードの s_0 は、今も画面に出ない。
 
 ### 3.6 乱数
 
@@ -224,7 +224,7 @@ env の確定の単位がフレームワークのエピソードより長いと�
 依存: D1、D3、§3.7。
 
 **D6 Atari の残機喪失直後の NOOP は `Step` の中で打つ。速報値は NOOP の前の値、ゲームが終わった step の確定値は NOOP のあとの値にする。**
-- NOOP を打つ条件は今と同じである。`episodic_life = true` で、その step で実ゲームは終わっておらず、残機が減って 0 より大きく、そのため done になった step（今の `life_loss_pending_` の条件。[AtariEnv.cpp:787-798](../../../core/envs/atari1/src/AtariEnv.cpp)）だけで打つ。`episodic_life = false` の step と、実ゲームが終わった step では打たない。
+- NOOP を打つ条件は今と同じである。`episodic_life = true` で、その step で実ゲームは終わっておらず、残機が減って 0 より大きく、そのため done になった step（今の `life_loss_pending_` の条件。[AtariEnv.cpp:787-798](../../../src/env/atari/src/AtariEnv.cpp)）だけで打つ。`episodic_life = false` の step と、実ゲームが終わった step では打たない。
 - その step では、観測と画面を作ったあとで NOOP を 1 フレーム打つ。それでゲームオーバーになれば、その `Step` の中でゲームの終わりを記録する。
 - Step の結果の速報値（`lives`、途中の得点・フレーム数・RAM。aux と同じ値）は、NOOP の前の値、つまり遷移の時点の値にする。
 - ゲームが終わった step（NOOP でゲームオーバーになった場合を含む）では、ゲーム単位の鍵は、ゲームの確定値（NOOP の報酬とフレームを含む）を返す。これは改修前の完了値と同じ値である。
@@ -232,10 +232,10 @@ env の確定の単位がフレームワークのエピソードより長いと�
 
 理由:
 - リセットは Step の中に戻るが、`Reset` の中で記録したゲームの終わりは、その step の Step の結果に載らない。NOOP を Step の中で打てば、確定値を Step の結果で運べる（G1・G3）。
-- 速報値を NOOP の前にするのは、遷移の時点の値という G1 の意味を守るためである（ユーザーの判断、2026-10-20）。改修前も、aux は `Step` の中で作られ、NOOP は `Reset` の中で打つので、aux の値は NOOP の前である（[AtariEnv.cpp:682-694](../../../core/envs/atari1/src/AtariEnv.cpp)・725-733）。aux の値は今と変わらない。
+- 速報値を NOOP の前にするのは、遷移の時点の値という G1 の意味を守るためである（ユーザーの判断、2026-10-20）。改修前も、aux は `Step` の中で作られ、NOOP は `Reset` の中で打つので、aux の値は NOOP の前である（[AtariEnv.cpp:682-694](../../../src/env/atari/src/AtariEnv.cpp)・725-733）。aux の値は今と変わらない。
 - NOOP でゲームが終わる経路は `episodic_life = true` の学習側にしか無く、その step のゲーム単位の鍵は確定値を返すので、速報値との衝突は起きない（D3）。
 
-依存: D1、D3、G3、[AtariEnv.cpp:725-733](../../../core/envs/atari1/src/AtariEnv.cpp)。
+依存: D1、D3、G3、[AtariEnv.cpp:725-733](../../../src/env/atari/src/AtariEnv.cpp)。
 
 **D7 学習の系列が変わらないことは、決定的モードでの完全一致で確かめる。**
 決定的モード（[common.txt:98-100](../../../apps/runner/config/common.txt) の `backend.@deterministic`）を使い、次の順で確かめる。
@@ -251,7 +251,7 @@ env の確定の単位がフレームワークのエピソードより長いと�
 設定の行を `$env_step` へ移しても、tag の名前は変えないので、tag ごとに比べられる。
 
 理由: G3 から、改修前後の値はビットまで一致するはずである。改修前どうしが一致しない構成では、ずれの原因を切り分けられない。
-前例: [PRD 084 の比較スクリプト](../../../core/anet-core/testdata/prd084/compare_metrics.py)。trace の比較は足す。
+前例: [PRD 084 の比較スクリプト](../../../src/core/base/testdata/prd084/compare_metrics.py)。trace の比較は足す。
 依存: G3。
 
 ### 4.2 規約・ADR・コードから導いたこと
@@ -267,12 +267,12 @@ env の確定の単位がフレームワークのエピソードより長いと�
 9. **メトリクスへの `$env_step` の追加は、本 PRD で行う。** 081 で予定していた追加のうち、残るのは `$agent_step` だけになる（根拠: G1、PRD094 §7 の 2）。
 10. **Step の結果の値にも、NaN・nullopt の決まりを当てる。** 知らない鍵は nullopt、知っている鍵で値が成り立たないときは NaN。集約は NaN を分母から外す（根拠: [AGENTS.md](../../../AGENTS.md) §GetScalar 実装ルール）。
 11. **リセットの aux は捨てる（今のまま）。** `continue_state` と一緒に Runner が受け取る情報は、状態だけで足りる（根拠: D4、§3.1）。
-12. **`$env_step` の `@episode_end` の scalar は、1 step に 1 回だけ読む。** 対象は `$env_step` の scalar に限る。ほかの target（`$runner`・`$agent`・`$actor`・`$env`）の `@episode_end` の scalar は今のまま、通知のたびに読む（リポジトリの設定に宣言が無く G3 に響かない。範囲を広げると、本 PRD の関心でない target の意味を変えることになる）。`EpisodeEndEvent` は終わった lane ごとに出る（[trainer.cpp:96-103](../../../core/anet-core/src/trainer.cpp)）。今の読み口は、値を取って EMA を更新してから間隔の判定を見る（[observers.cpp:1110-1127](../../../core/anet-core/src/observers.cpp)）。そのため、同じ step に 2 lane 以上が終わると、EMA が何回も更新されてしまう。同じ step の 2 つ目以降の通知では値を読まず、EMA も更新しない。終わった lane は `env_index` ではなく、Step の結果の done・truncated から取る（根拠: G3 の系列の一致、§4.2 の 2）。
-13. **step 軸を書いていない行は、軸を明示して移す。** 軸の既定は `@train` なら train_step、`@episode_end` なら exp_step である（[observers.cpp:1524-1536](../../../core/anet-core/src/observers.cpp)）。そのまま移すと座標が変わるので、軸を省略していた行（DropMerge の 28 行、GridMaze の 8 行）には `$train_step` を書いて移す（根拠: G3）。
-14. **lane 方向の集約は、lane の昇順で、今と同じ集約の部品に入れる。** ビットまで一致させるためである。Welford の計算は、加える順番で値が変わる（[util.cpp:39-60](../../../core/anet-core/src/util.cpp)）。今の `DiscreteBatchEnvBase::GetScalar` は lane 0 から順に加えている（[env.cpp:633-639](../../../core/anet-core/src/env.cpp)）（根拠: D7）。
+12. **`$env_step` の `@episode_end` の scalar は、1 step に 1 回だけ読む。** 対象は `$env_step` の scalar に限る。ほかの target（`$runner`・`$agent`・`$actor`・`$env`）の `@episode_end` の scalar は今のまま、通知のたびに読む（リポジトリの設定に宣言が無く G3 に響かない。範囲を広げると、本 PRD の関心でない target の意味を変えることになる）。`EpisodeEndEvent` は終わった lane ごとに出る（[trainer.cpp:96-103](../../../src/core/base/src/trainer.cpp)）。今の読み口は、値を取って EMA を更新してから間隔の判定を見る（[observers.cpp:1110-1127](../../../src/core/base/src/observers.cpp)）。そのため、同じ step に 2 lane 以上が終わると、EMA が何回も更新されてしまう。同じ step の 2 つ目以降の通知では値を読まず、EMA も更新しない。終わった lane は `env_index` ではなく、Step の結果の done・truncated から取る（根拠: G3 の系列の一致、§4.2 の 2）。
+13. **step 軸を書いていない行は、軸を明示して移す。** 軸の既定は `@train` なら train_step、`@episode_end` なら exp_step である（[observers.cpp:1524-1536](../../../src/core/base/src/observers.cpp)）。そのまま移すと座標が変わるので、軸を省略していた行（DropMerge の 28 行、GridMaze の 8 行）には `$train_step` を書いて移す（根拠: G3）。
+14. **lane 方向の集約は、lane の昇順で、今と同じ集約の部品に入れる。** ビットまで一致させるためである。Welford の計算は、加える順番で値が変わる（[util.cpp:39-60](../../../src/core/base/src/util.cpp)）。今の `DiscreteBatchEnvBase::GetScalar` は lane 0 から順に加えている（[env.cpp:633-639](../../../src/core/base/src/env.cpp)）（根拠: D7）。
 15. **`$env_step` を `@learn` か `@session_end` で使ったら、構築のときに止める。** `LearnEvent` は Step の結果を持たず、セッションは 1 つの step に属さないためである（根拠: AGENTS.md §Fail-Fast 原則）。
-16. **外した鍵を `$env` で読む古い宣言は、今の汎用の仕組みのまま扱う**（未知の鍵は WARN を出して進む。[observers.cpp:1120-1123](../../../core/anet-core/src/observers.cpp)）。特別な検出は足さない。リポジトリの設定は同じ変更で移す（根拠: [AGENTS.md](../../../AGENTS.md) §クリーンブレーク方針の「現行契約に含まれない識別子を特別扱いするためだけのコードは追加しない」）。
-17. **定義レコードの `target` に `env_step` が増える。** 読む側（`inspect_run.py` の `TARGET_TOKENS`、Viewer の target の検証）も同じ変更で移す（根拠: クリーンブレーク方針、[observers.cpp:1268-1280](../../../core/anet-core/src/observers.cpp)）。
+16. **外した鍵を `$env` で読む古い宣言は、今の汎用の仕組みのまま扱う**（未知の鍵は WARN を出して進む。[observers.cpp:1120-1123](../../../src/core/base/src/observers.cpp)）。特別な検出は足さない。リポジトリの設定は同じ変更で移す（根拠: [AGENTS.md](../../../AGENTS.md) §クリーンブレーク方針の「現行契約に含まれない識別子を特別扱いするためだけのコードは追加しない」）。
+17. **定義レコードの `target` に `env_step` が増える。** 読む側（`inspect_run.py` の `TARGET_TOKENS`、Viewer の target の検証）も同じ変更で移す（根拠: クリーンブレーク方針、[observers.cpp:1268-1280](../../../src/core/base/src/observers.cpp)）。
 
 ### 4.3 実装契約
 

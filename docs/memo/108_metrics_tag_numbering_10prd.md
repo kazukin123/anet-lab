@@ -13,7 +13,7 @@
 - **群の名前**: 群の番号と `_` を除いた残り（例 `evalg`）。
 - **群の中の番号**: `/` の後ろの先頭の 2 桁（例 `10_game_score_mean` の `10`）。
 
-Metrics Viewer は tag を文字列の順で並べる（[MetricsRepository.java:357](../../apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java) の `ORDER BY t.key`）ので、番号が並びと読み方を決める。
+Metrics Viewer は tag を文字列の順で並べる（[MetricsRepository.java:357](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java) の `ORDER BY t.key`）ので、番号が並びと読み方を決める。
 
 今の番号には次の問題がある（§2）。
 
@@ -39,7 +39,7 @@ Metrics Viewer は tag を文字列の順で並べる（[MetricsRepository.java:
 - 共通の群は `metrics_scalar.txt` が持ち、env 固有の群（`42_env`・評価の群・画像の群の一部）は env の設定ファイル（Atari・DropMerge・GridMaze・GridMaze_muzero・LunarLander・ImageCls・CartPole）が持つ。
 - `38_agent`・`39_agent` は ImageCls だけが使う（損失と学習率）。`37_agent_learn` は GridMaze_muzero だけが使う。
 - 評価の群は、Atari と DropMerge の `51_eval1`〜`54_evalgs` と、GridMaze・LunarLander・DropMerge の `21_eval`・`22_eval` の 2 通りがある。
-- 設定の外に、[atari5.py](../../viewers/metrics-tools/atari5.py) が Atari-5 の集約を疑似 Run として実 Run と同じ Workspace に書き出す群 `60_atari5` がある（1078 行の `EXPORT_GROUP`。[AGENTS.md](../../AGENTS.md) の Run 結果分析の節）。
+- 設定の外に、[atari5.py](../../apps/tools/atari5.py) が Atari-5 の集約を疑似 Run として実 Run と同じ Workspace に書き出す群 `60_atari5` がある（1078 行の `EXPORT_GROUP`。[AGENTS.md](../../AGENTS.md) の Run 結果分析の節）。
 
 ### 2.2 Atari の env・評価の群の中
 
@@ -48,8 +48,8 @@ Metrics Viewer は tag を文字列の順で並べる（[MetricsRepository.java:
 ### 2.3 tag 名を持つもの
 
 - 設定: `apps/runner/config/` の `metrics_scalar.txt`・`metrics_image.txt` と env の設定ファイル。
-- テスト: [config_baseline_test.cpp](../../core/anet-core/src/config_baseline_test.cpp)（RAM の tag の規則、`50_agent_skip` などの群の確認）、[observers_test.cpp](../../core/anet-core/src/observers_test.cpp)、[dqn_munchausen_test.cpp](../../core/anet-core/src/dqn_munchausen_test.cpp)（`36_agent_munchausen`）、[inspect_run_test.py](../../viewers/metrics-tools/inspect_run_test.py)、[atari5_test.py](../../viewers/metrics-tools/atari5_test.py)。
-- 解析ツール: [atari5.py](../../viewers/metrics-tools/atari5.py)（`60_atari5`）、[btr_to_metrics.py](../../viewers/metrics-tools/btr_to_metrics.py)。後者は RAM の max の tag を番号によらず `56_ram_metric_{n}_max` にしている（171〜183 行。1 以外では今の設定の tag と合わない）。
+- テスト: [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp)（RAM の tag の規則、`50_agent_skip` などの群の確認）、[observers_test.cpp](../../src/core/base/src/observers_test.cpp)、[dqn_munchausen_test.cpp](../../src/algo/dqn/src/dqn_munchausen_test.cpp)（`36_agent_munchausen`）、[inspect_run_test.py](../../apps/tools/inspect_run_test.py)、[atari5_test.py](../../apps/tools/atari5_test.py)。
+- 解析ツール: [atari5.py](../../apps/tools/atari5.py)（`60_atari5`）、[btr_to_metrics.py](../../apps/tools/btr_to_metrics.py)。後者は RAM の max の tag を番号によらず `56_ram_metric_{n}_max` にしている（171〜183 行。1 以外では今の設定の tag と合わない）。
 - PRD の検証資材: `core/anet-core/testdata/prd0xx/` と `prd1xx/` の解析スクリプト（prd084・092・093・097・098・100・101・103・104・106 など）。
 - 文書: [AGENTS.md](../../AGENTS.md)（Run 結果分析の節が群を挙げる）、[020 Run 実行ユーザーガイド](../design/020_user_guide_run.jp.md)、[030 分析ユーザーガイド](../design/030_user_guide_analysis.jp.md)、[140 可観測性](../design/140_observability.jp.md)、[200 DQN 系列](../design/200_dqn_agents.jp.md)（`35_agent_churn`・`46_agent_replay_fit`・`47_agent_noisy`・`48_agent_attention`・`49_agent_gradnoise`）と各 `.en.md`、[220 Atari 環境](../design/220_atari_env.jp.md)、`docs/memo/` の PRD と実装計画、ADR（[0033](../adr/0033-policy-churn-fixed-probe-and-target-lag.md) など）、wiki のページ。
 - 過去の記録: 実験記録と、その設定の写し（`docs/experiments/**/config/*.txt`）、Run のフォルダ。

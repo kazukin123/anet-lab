@@ -347,10 +347,10 @@ shutdown修正直後の1回で`_CrtIsValidHeapPointer` / `is_block_type_valid`�
 - [PRD050](050_replay_ring_stack_margin_10prd.md): 上書き履歴の除外と起動・実境界paddingの区別。
 - [ADR 0024](../../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)、[ADR 0034](../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、[ADR 0044](../../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)。
 - [ドメイン用語](../../../CONTEXT.md): ready range、sampleable range、history margin、履歴開始、slot index、replay item key、target return。
-- [ReplayBuffer実装](../../../core/anet-core/src/replay_buffer_impl.cpp): `ReplayExperienceStorage::Push` / `Update` / `PushTerminalDummy`、`ExperienceSampleExtractor`の実装。2026-09-20時点の初期値487〜488行付近、書込み・確定495〜545行付近、境界判定1168行付近、stack復元1195〜1222行付近、`DefaultReplayBuffer::Push` 1283〜1376行付近。
-- [ReplayBuffer内部宣言](../../../core/anet-core/src/replay_buffer_impl.hpp): `ForEachSampleableIndex`のhistory margin適用。
-- [Env構造契約の検証](../../../core/anet-core/src/env.cpp): `ValidateEpisodeStructure`（112〜175行付近）。Runner側の呼び出しは`trainer.cpp`の各step・reset経路。
+- [ReplayBuffer実装](../../../src/core/base/src/replay_buffer_impl.cpp): `ReplayExperienceStorage::Push` / `Update` / `PushTerminalDummy`、`ExperienceSampleExtractor`の実装。2026-09-20時点の初期値487〜488行付近、書込み・確定495〜545行付近、境界判定1168行付近、stack復元1195〜1222行付近、`DefaultReplayBuffer::Push` 1283〜1376行付近。
+- [ReplayBuffer内部宣言](../../../src/core/base/src/replay_buffer_impl.hpp): `ForEachSampleableIndex`のhistory margin適用。
+- [Env構造契約の検証](../../../src/core/base/src/env.cpp): `ValidateEpisodeStructure`（112〜175行付近）。Runner側の呼び出しは`trainer.cpp`の各step・reset経路。
 - [Catch2のhidden判定](../../../third_party/catch2/src/catch.cpp): `TestSpec::Filter::matches`（1901行付近）。正のフィルタに一致するhiddenテストは実行される。
-- [公開API回帰テスト](../../../core/anet-core/src/replay_buffer_test.cpp): `[integrity_assay]`、`[initial_fill]`、`[pending_metadata]`、`[wrapped_metadata]`。本書作成時点ではA/Bの再現は失敗する。
+- [公開API回帰テスト](../../../src/core/base/src/replay_buffer_test.cpp): `[integrity_assay]`、`[initial_fill]`、`[pending_metadata]`、`[wrapped_metadata]`。本書作成時点ではA/Bの再現は失敗する。
 - [継続結果レポート](../../../.scratch/rb-integrity-assay/remaining-20260920-041125/report.md)、[条件別終了コード・時間](../../../.scratch/rb-integrity-assay/remaining-20260920-041125/results.csv)、[Bの最小再現ログ](../../../.scratch/rb-integrity-assay/remaining-20260920-041125/pending-metadata-repro-final.log)。
 - [調査全体の検証記録](../../../.scratch/rb-integrity-assay/verification.md): 初回実行、Aの最小再現、shutdown修正、既存テスト結果、heap assertionの記録。

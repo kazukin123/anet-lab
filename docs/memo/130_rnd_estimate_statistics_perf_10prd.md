@@ -91,7 +91,7 @@
 
 ### 2.2 採点の処理の流れと、計算する場所
 
-`RndNoveltyEstimator::Estimate`（[intrinsic_rnd.cpp:504](../../core/anet-core/src/intrinsic_rnd.cpp) から）は、1 intake の N 件の観測をまとめて、次の順に処理する。
+`RndNoveltyEstimator::Estimate`（[intrinsic_rnd.cpp:504](../../src/core/base/src/intrinsic_rnd.cpp) から）は、1 intake の N 件の観測をまとめて、次の順に処理する。
 
 1. 観測を CPU へ移す（515 行）。
 2. CPU で、整数の画素を浮動小数点にし（518〜519 行）、正規化する（522〜528 行）。
@@ -110,24 +110,24 @@
 既定（whiten）では、統計の区間で次を CPU で行う。課題 f9790d が起票時に挙げた中身と、今のコードは同じである。
 
 - **α の計算と誤差の統計の更新**（556〜561 行）。誤差の統計の平均と標準偏差で α を作り、N 個の誤差で統計を更新する。
-- **観測の正規化統計の更新**（563 行）。`NormalizeAndUpdateStats` を呼び、戻り値は使わない（562 行の `@todo`）。この関数は、統計を更新したあと（[scaler_impl.cpp:553](../../core/anet-core/src/scaler_impl.cpp)）、渡された観測の全体を正規化し直して、clip した割合を数える（同 556〜557 行、425〜434 行）。
+- **観測の正規化統計の更新**（563 行）。`NormalizeAndUpdateStats` を呼び、戻り値は使わない（562 行の `@todo`）。この関数は、統計を更新したあと（[scaler_impl.cpp:553](../../src/core/base/src/scaler_impl.cpp)）、渡された観測の全体を正規化し直して、clip した割合を数える（同 556〜557 行、425〜434 行）。
 - **target の出力の統計の更新**（575 行）。N×出力次元の値で、次元ごとの累積の統計を更新する。
 - **診断値の読み出し**（576〜580 行）。target の出力の分散の平均と最大、誤差の平均、α が上限に当たった割合。
 
-統計の更新（`RunningMeanStd::Update`、[scaler_impl.cpp:149](../../core/anet-core/src/scaler_impl.cpp) から）は、batch の平均と分散を、渡された入力の device と精度で計算し（171 行）、結果を CPU の倍精度へ移して（179〜180 行）、累積へ合流する（197〜221 行）。正規化（同 374〜388 行）は、呼ぶたびに、累積の標準偏差と平均を、入力の device の単精度に作り直す（377・383 行）。
+統計の更新（`RunningMeanStd::Update`、[scaler_impl.cpp:149](../../src/core/base/src/scaler_impl.cpp) から）は、batch の平均と分散を、渡された入力の device と精度で計算し（171 行）、結果を CPU の倍精度へ移して（179〜180 行）、累積へ合流する（197〜221 行）。正規化（同 374〜388 行）は、呼ぶたびに、累積の標準偏差と平均を、入力の device の単精度に作り直す（377・383 行）。
 
-variance_feedback では、観測の統計も誤差の統計も、lane の順に 1 件ずつ更新する（[intrinsic_rnd.cpp:177-225](../../core/anet-core/src/intrinsic_rnd.cpp)）。この順は方式の定義である（[PRD116](116_rnd_lifelong_novelty_10prd.md) の D5）。
+variance_feedback では、観測の統計も誤差の統計も、lane の順に 1 件ずつ更新する（[intrinsic_rnd.cpp:177-225](../../src/core/base/src/intrinsic_rnd.cpp)）。この順は方式の定義である（[PRD116](116_rnd_lifelong_novelty_10prd.md) の D5）。
 
 ### 2.4 採点を呼ぶ側（PRD128・PRD121 のあと）
 
-- 採点を呼ぶのは `DefaultDQNAgent::IntrinsicRewardCoordinator::ScoreBonus`（[default_dqn_agent.cpp:110](../../core/anet-core/src/default_dqn_agent.cpp) から）である。α からボーナスを作り、内的報酬用の報酬スケーラを通し（117 行）、価値の分解のために、β を掛ける前の成分も返す（119 行）。
+- 採点を呼ぶのは `DefaultDQNAgent::IntrinsicRewardCoordinator::ScoreBonus`（[default_dqn_agent.cpp:110](../../src/algo/dqn/src/default_dqn_agent.cpp) から）である。α からボーナスを作り、内的報酬用の報酬スケーラを通し（117 行）、価値の分解のために、β を掛ける前の成分も返す（119 行）。
 - 同じ関数が、ボーナスの診断値を 6 回の `.item<float>()` で読み出す（122〜127 行）。ボーナスが CUDA にあれば、1 回ごとに同期の転送になる。PRD128 は、これを 1 回の転送にまとめる案を範囲の外に置き、RND の時間の内訳と合わせて測るときに決め直すとした（[PRD128](128_dqn_agent_refactor_bundle_10prd.md) の §1.3、[324 DQN のトピック別まとめ](../wiki/categories/324_dqn.md) の「選ばなかった形」）。
 - §2.1 の数値は、PRD121 より前の実行体のものである。価値の分解を入れたあとの基準は取り直す（§5.2 の Q6）。
 
 ### 2.5 2 つの統計方式の同居と、前半の重複
 
-- whiten は `normalizer_` と `error_stats_` を使い、variance_feedback は `feedback_stats_` を使う。どちらが有効かは、`feedback_stats_` が値を持つかだけで表される（[intrinsic_rnd.hpp:116-119](../../core/anet-core/src/intrinsic_rnd.hpp)）。
-- この分岐は、コンストラクタ（[intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp) の 456 行）、写し（478・487・492 行）、`Estimate`（522・549 行）、`EstimateWithoutUpdate`（594・604 行）、`Learn`（633・642 行）、`Save`（691 行）、`Load`（729・739・743 行）にある。課題の起票のあと、PRD127 の読むだけの採点と写しにも同じ分岐が入った。
+- whiten は `normalizer_` と `error_stats_` を使い、variance_feedback は `feedback_stats_` を使う。どちらが有効かは、`feedback_stats_` が値を持つかだけで表される（[intrinsic_rnd.hpp:116-119](../../src/core/base/src/intrinsic_rnd.hpp)）。
+- この分岐は、コンストラクタ（[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp) の 456 行）、写し（478・487・492 行）、`Estimate`（522・549 行）、`EstimateWithoutUpdate`（594・604 行）、`Learn`（633・642 行）、`Save`（691 行）、`Load`（729・739・743 行）にある。課題の起票のあと、PRD127 の読むだけの採点と写しにも同じ分岐が入った。
 - `RndErrorStatistics` も、累積と直近重みの 2 組のメンバを持ち、メンバ関数が `use_ema_` で分かれる（同 72・91・96・101・107・116 行）。
 - `VarianceFeedbackStatistics::UpdateErrors` は、直前に `NormalizeAndUpdate` が同じ件数で件数を進めていることを前提に、件数を逆算する（同 218 行）。この呼ぶ順の前提は、型にも名前にも出ていない。
 - `Estimate`（514〜546 行）と `Learn`（637〜661 行）の前半は、CPU への転送、浮動小数点への変換、正規化、device への転送、2 つの forward、誤差の計算、有限性の検査が同じ並びである。違いは、`Learn` が predictor の forward の前に勾配を有効にする 1 行である。`EstimateWithoutUpdate`（590〜600 行）も同じ並びを持つ。
@@ -223,7 +223,7 @@ variance_feedback では、観測の統計も誤差の統計も、lane の順に
 
 - 64×1×84×84 の今の式は 5.18 ms だった。同じ形の入力で、実行体の `batch_moments`（主 11.857 ms、副 6.140 ms、target の出力 0.745 ms）と近い。
 - 平均だけ（`mean`）は 0.07 ms で、時間がかかるのは分散の側である。相対差は、今の式の結果との最大の差である。
-- 同じ測定で、clip だけ（`clamp`）は 0.06 ms だった。実行体の clip の区間は、clip した割合を数える処理（[scaler_impl.cpp:440-441](../../core/anet-core/src/scaler_impl.cpp)）を含む。`Normalize` は、数えた割合を返さない（同 449〜453 行）。
+- 同じ測定で、clip だけ（`clamp`）は 0.06 ms だった。実行体の clip の区間は、clip した割合を数える処理（[scaler_impl.cpp:440-441](../../src/core/base/src/scaler_impl.cpp)）を含む。`Normalize` は、数えた割合を返さない（同 449〜453 行）。
 
 **Nsight Systems（主の RND あり。warm-up のあとの 10 秒）**
 
@@ -271,9 +271,9 @@ variance_feedback では、観測の統計も誤差の統計も、lane の順に
 
 この節と §2.10 の行番号は、計測の区間を足したあとの作業ツリーの位置である。
 
-- Runner（`PipelineTrainRunner::DoStep`、[trainer.cpp:672](../../core/anet-core/src/trainer.cpp) から）は、スレッド 2 本で回る。メインスレッドは、前回の学習の完了を待って学習と Train のイベントを通知し（702〜724 行）、行動を決め（729 行）、直前の経験の学習を、学習用のスレッド（1 本。657 行）へ投入し（734〜742 行）、Env を進める（747 行）。
-- 学習用のスレッドは、`DefaultDQNAgent::UpdateFromBatch`（[default_dqn_agent.cpp:939](../../core/anet-core/src/default_dqn_agent.cpp) から）を、Agent の書き込みロックの中で（947 行）、次の順に行う。外的報酬のスケール（950 行）、RND の採点（956 行）、RND の補助学習（960 行）、Q 入力用の観測の正規化の統計の更新（964〜965 行）、内側の Learner への受け渡し（977 行。replay への push と Q の学習）。
-- ある経験の採点は、次の行動を決めたあとに行われる（[trainer.cpp](../../core/anet-core/src/trainer.cpp) の 729 行と 739〜741 行の順）。
+- Runner（`PipelineTrainRunner::DoStep`、[trainer.cpp:672](../../src/core/base/src/trainer.cpp) から）は、スレッド 2 本で回る。メインスレッドは、前回の学習の完了を待って学習と Train のイベントを通知し（702〜724 行）、行動を決め（729 行）、直前の経験の学習を、学習用のスレッド（1 本。657 行）へ投入し（734〜742 行）、Env を進める（747 行）。
+- 学習用のスレッドは、`DefaultDQNAgent::UpdateFromBatch`（[default_dqn_agent.cpp:939](../../src/algo/dqn/src/default_dqn_agent.cpp) から）を、Agent の書き込みロックの中で（947 行）、次の順に行う。外的報酬のスケール（950 行）、RND の採点（956 行）、RND の補助学習（960 行）、Q 入力用の観測の正規化の統計の更新（964〜965 行）、内側の Learner への受け渡し（977 行。replay への push と Q の学習）。
+- ある経験の採点は、次の行動を決めたあとに行われる（[trainer.cpp](../../src/core/base/src/trainer.cpp) の 729 行と 739〜741 行の順）。
 - 主の Tracy の Run では、`DefaultDQNAgent::UpdateFromBatch` が 1 回 118.5 ms（うち RND 23.2 ms、内側の Learner 95.0 ms）、Env を進める処理（`ThreadPoolDiscreteEnv::Step`）が 12.9 ms だった。行動の決定（`Actor::MakeAction`）は、Nsight の NVTX で 4.5 ms だった。
 - 1 intake の長さは、学習用のスレッドの時間で決まる。Env を進める時間は学習の時間より短く、学習と重なる。RND の時間は、1 intake の長さにそのまま足される。GPU への処理は学習用のスレッドが出すので、RND の CPU の計算の間は、GPU の処理も出ない。
 
@@ -287,13 +287,13 @@ variance_feedback では、観測の統計も誤差の統計も、lane の順に
 | 統計更新 | `Estimate` の 560〜561 行（誤差の統計）、565 行（観測の統計）、573 行（件数）、579 行（target の出力の統計）、581〜585 行（診断値） | 観測、採点で出た誤差と target の出力 | 観測・誤差・target の出力の統計、件数、診断値 | 約 14.4 ms |
 | 補助学習 | `Learn`（632 行から） | 選んだ観測、観測の統計 | predictor、optimizer | 4.4 ms |
 
-- 位置は [intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp) の行である。採点の時間は、採点（18.631 ms）から、統計・target の出力の統計・診断値を引いた値である。α の計算は `statistics` の区間の中にあるが、128 件の演算で、区間の時間は統計更新に数えた。
+- 位置は [intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp) の行である。採点の時間は、採点（18.631 ms）から、統計・target の出力の統計・診断値を引いた値である。α の計算は `statistics` の区間の中にあるが、128 件の演算で、区間の時間は統計更新に数えた。
 - 読むだけの採点（`EstimateWithoutUpdate`、590 行から。PRD127）は、採点の単位だけを行う。
 - 今の順は、採点、統計更新、補助学習、replay への push、Q の学習である。
 
 | 関係 | 種類 | 根拠 |
 |---|---|---|
-| 採点 → push | データの依存 | ボーナス（価値の分解では内的報酬の成分）を報酬に載せてから、内側の Learner へ渡す（[default_dqn_agent.cpp:956-959](../../core/anet-core/src/default_dqn_agent.cpp)、977 行） |
+| 採点 → push | データの依存 | ボーナス（価値の分解では内的報酬の成分）を報酬に載せてから、内側の Learner へ渡す（[default_dqn_agent.cpp:956-959](../../src/algo/dqn/src/default_dqn_agent.cpp)、977 行） |
 | 採点 → 誤差の統計の更新 | データの依存 | 更新に入れる誤差は、採点の forward で出る |
 | 採点 → 観測の統計の更新 | 方式の定義 | 採点は更新前の統計で行い、採点のあとに更新する（[PRD116](116_rnd_lifelong_novelty_10prd.md) の D5） |
 | 採点 → 同じ intake の補助学習 | 方式の定義 | 設計文書の処理順（[212](../design/212_rnd_lifelong_novelty.jp.md) の §3.6 の図と、その説明） |
@@ -302,7 +302,7 @@ variance_feedback では、観測の統計も誤差の統計も、lane の順に
 | 統計更新・補助学習と、push・Q の学習 | 依存なし | Q の学習は、RND の重みと統計を読まない。RND の補助学習と DQN の更新は、別々の重みと optimizer を使う（[212](../design/212_rnd_lifelong_novelty.jp.md) の §3.6） |
 
 - variance_feedback は、lane ごとに正規化と統計の更新を交互に行い、誤差の z を更新後の統計で作る（[PRD116](116_rnd_lifelong_novelty_10prd.md) の D5、522〜525 行、549〜554 行）。採点と統計更新を分けられない。
-- warm-up の判定は、方式で違う。whiten は、採点した件数の累計（batch の先頭の値）と `warmup_steps` を比べる。variance_feedback は、lane ごとの件数で比べる。補助学習を休む条件は、variance_feedback か、`warmup_mode` が `collect_errors` のときだけ当たる（[intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp) の採点と補助学習。2026-11-16 に確認）。
+- warm-up の判定は、方式で違う。whiten は、採点した件数の累計（batch の先頭の値）と `warmup_steps` を比べる。variance_feedback は、lane ごとの件数で比べる。補助学習を休む条件は、variance_feedback か、`warmup_mode` が `collect_errors` のときだけ当たる（[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp) の採点と補助学習。2026-11-16 に確認）。
 
 NGU に関わる記録は次のとおり。
 
@@ -316,7 +316,7 @@ NGU に関わる記録は次のとおり。
 
 候補 C2 の時間を、試作で測った。試作は測るためのコードで、実装の形ではない。
 
-- **試作の中身**: 既定（whiten）の採点と補助学習で、観測を整数の画素のまま計算 device へ送り、浮動小数点への変換、正規化、batch の集計を計算 device で行う。target の出力も、計算 device に置いたまま統計に使う。累積の統計は CPU のままである。変えたのは [intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp) の採点と補助学習の入口だけで、正規化の部品は変えていない。C1・C3・C9 は入れていない。variance_feedback と読むだけの採点は、今の経路のままである。
+- **試作の中身**: 既定（whiten）の採点と補助学習で、観測を整数の画素のまま計算 device へ送り、浮動小数点への変換、正規化、batch の集計を計算 device で行う。target の出力も、計算 device に置いたまま統計に使う。累積の統計は CPU のままである。変えたのは [intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp) の採点と補助学習の入口だけで、正規化の部品は変えていない。C1・C3・C9 は入れていない。variance_feedback と読むだけの採点は、今の経路のままである。
 - **切り替え**: 環境変数 `ANET_PRD130_DEVICE_NORM` が 1 のときだけ試作の経路に入る。同じ実行体で、今の経路と試作の経路を交互に測った。試作の経路が動いたことは、Run のログの 1 行で、Run ごとに確かめた。
 - **条件**: 実行体は、HEAD 643d6f0a に試作を足した作業ツリーの Release の build を複製したものである。構成と測る区間は §2.8 と同じ（主 18,688 経験、副 122,688 経験）である。採取の道具は §2.8 と同じで、出力は `.scratch/prd130/stage0-20261115-r2/`（git の管理外）にある。起動した 29 本の Run に、失敗した段は無かった（Nsight の 1 本は、採取の終わりに Nsight が止める）。
 
@@ -381,13 +381,13 @@ Run は決定的モードではないので、同じ経路の Run どうしで�
 
 グリルの質疑で確かめた。
 
-- **前処理は 2 段ある。** NN の外（Agent と推定器）の正規化と、NN の中の前処理である。NN の中の前処理（`NetworkBoundaryPreprocessor::Format`、[nn_impl.cpp:1174](../../core/anet-core/src/nn_impl.cpp) から）は、離散の観測を one-hot にし（1203〜1237 行）、連続の byte の観測を浮動小数点にして 255 で割る（1240〜1241 行）。受け取った tensor の device の上で動く。Q の Network も、RND の target と predictor も、これを通る。
-- **Q の主の経路は、device へ送ってから正規化する。** Actor は、frame stack、device への転送、観測の正規化の順に行う（[dqn_based_agent.cpp:2701-2708](../../core/anet-core/src/dqn_based_agent.cpp)）。学習は、計算 device のサンプルを正規化する（同 3799〜3800 行）。正規化は NN の外にある。
-- **RND の正規化は、共通の観測の正規化の部品である。** 推定器は、自分用の設定と統計で、部品を 1 つ持つ（[intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp) のコンストラクタ）。RND 独自なのは、その手前で、連続の byte の観測を浮動小数点へ変える処理だけである。Network を組むときに、その観測の型を浮動小数点に書き換えるので、NN の中で 255 で割られない。
-- **観測の種類ごとの通り道。** 正規化の部品は、浮動小数点で離散でない観測にだけ統計を付ける（[scaler_impl.cpp:721-724](../../core/anet-core/src/scaler_impl.cpp)）。連続の byte（Atari の画素）と連続の浮動小数点（LunarLander の観測など）は白色化され、離散の観測（GridMaze のマスなど）は素通しで、NN の中で one-hot になる。観測が画像であることは、RND の制約ではない。どの観測を RND の Network に入れるかは、RND の Network の設定の、枝の `bind` で決まる。
-- **`RunningMeanStd` を持つもの。** 統計つきの観測の正規化（[scaler_impl.hpp:149](../../core/anet-core/src/scaler_impl.hpp)）、報酬スケーラ（同 213 行）、RND の誤差の統計と target の出力の統計（[intrinsic_rnd.hpp:80](../../core/anet-core/src/intrinsic_rnd.hpp)、118 行）である。batch 方向の集計の行（[scaler_impl.cpp:173](../../core/anet-core/src/scaler_impl.cpp)）を通るのは、観測の正規化と target の出力の統計で、全要素の集計の行（同 166 行）を通るのは、報酬スケーラと誤差の統計である。
+- **前処理は 2 段ある。** NN の外（Agent と推定器）の正規化と、NN の中の前処理である。NN の中の前処理（`NetworkBoundaryPreprocessor::Format`、[nn_impl.cpp:1174](../../src/core/base/src/nn_impl.cpp) から）は、離散の観測を one-hot にし（1203〜1237 行）、連続の byte の観測を浮動小数点にして 255 で割る（1240〜1241 行）。受け取った tensor の device の上で動く。Q の Network も、RND の target と predictor も、これを通る。
+- **Q の主の経路は、device へ送ってから正規化する。** Actor は、frame stack、device への転送、観測の正規化の順に行う（[dqn_based_agent.cpp:2701-2708](../../src/core/base/src/dqn_based_agent.cpp)）。学習は、計算 device のサンプルを正規化する（同 3799〜3800 行）。正規化は NN の外にある。
+- **RND の正規化は、共通の観測の正規化の部品である。** 推定器は、自分用の設定と統計で、部品を 1 つ持つ（[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp) のコンストラクタ）。RND 独自なのは、その手前で、連続の byte の観測を浮動小数点へ変える処理だけである。Network を組むときに、その観測の型を浮動小数点に書き換えるので、NN の中で 255 で割られない。
+- **観測の種類ごとの通り道。** 正規化の部品は、浮動小数点で離散でない観測にだけ統計を付ける（[scaler_impl.cpp:721-724](../../src/core/base/src/scaler_impl.cpp)）。連続の byte（Atari の画素）と連続の浮動小数点（LunarLander の観測など）は白色化され、離散の観測（GridMaze のマスなど）は素通しで、NN の中で one-hot になる。観測が画像であることは、RND の制約ではない。どの観測を RND の Network に入れるかは、RND の Network の設定の、枝の `bind` で決まる。
+- **`RunningMeanStd` を持つもの。** 統計つきの観測の正規化（[scaler_impl.hpp:149](../../src/core/base/src/scaler_impl.hpp)）、報酬スケーラ（同 213 行）、RND の誤差の統計と target の出力の統計（[intrinsic_rnd.hpp:80](../../src/core/base/src/intrinsic_rnd.hpp)、118 行）である。batch 方向の集計の行（[scaler_impl.cpp:173](../../src/core/base/src/scaler_impl.cpp)）を通るのは、観測の正規化と target の出力の統計で、全要素の集計の行（同 166 行）を通るのは、報酬スケーラと誤差の統計である。
 - **Q 入力用の観測の正規化は、既定が素通しである**（[agent.txt:304](../../apps/runner/config/agent.txt)）。`apps/runner/config/` の設定ファイルを `obs_norm` で検索したところ、素通しを切る指定は無かった。batch 方向の集計の行を通るのは、出荷の設定では RND だけである。
-- **統計つきの正規化を呼ぶコード**（テストを除く）は、Q 入力用の 2 か所（[default_dqn_agent.cpp:964-965](../../core/anet-core/src/default_dqn_agent.cpp)）と、RND の採点の 1 か所である。
+- **統計つきの正規化を呼ぶコード**（テストを除く）は、Q 入力用の 2 か所（[default_dqn_agent.cpp:964-965](../../src/algo/dqn/src/default_dqn_agent.cpp)）と、RND の採点の 1 か所である。
 - **計算 device が CPU の構成での統計の費用。** GridMaze（CPU、256 lane）の測定では、統計は RND の時間の 4.72% だった（[PRD116 の実装記録](116_rnd_lifelong_novelty_23impl.md)）。
 
 ## 3. 用語
@@ -403,7 +403,7 @@ Run は決定的モードではないので、同じ経路の Run どうしで�
 - 挙動を変えない直しでは、hot path の速さが変わらないことを Run のブレ幅で確かめる。「挙動を変えない」には、ログの文言と WARN の回数を含める（[リファクタリング観点](../quality/refactor.md) の「ガードレール」「運用ルール」）。
 - 汎用の部品の局所的な情報だけで結果が決まる処理は、個別の実装の中に書かず、その部品の共通処理として足して利用側から呼ぶ（[AGENTS.md](../../AGENTS.md) の「汎用機構と利用側の責任境界」）。
 - 課題 f9790d には、2026-11-14 の課題の整理での開発者の判断が記録されている。入れる時期は、PRD121 の実装のあと、Montezuma で確かめの Run を回す前とする。0ddffa と束ねて 1 回で直す。Run は非決定論の設定で回しているので、RND を有効にした Run の学習の系列が変わることは問題にしない。確かめは、RND 無効の構成で学習の値が変わらないことと、速さの 3 巡とする。本 PRD の確定事項（§5.1）は、この記録を理由に引く。
-- 速さの比較は、PRD116 の採取器（[run_performance_atari.py](../../core/anet-core/testdata/prd116/run_performance_atari.py)）で、群の順を入れ替えて 3 巡以上回し、群ごとの中央値で比べる（[PRD116 の検証資材](../../core/anet-core/testdata/prd116/README.md) の「性能測定」）。
+- 速さの比較は、PRD116 の採取器（[run_performance_atari.py](../../src/core/base/testdata/prd116/run_performance_atari.py)）で、群の順を入れ替えて 3 巡以上回し、群ごとの中央値で比べる（[PRD116 の検証資材](../../src/core/base/testdata/prd116/README.md) の「性能測定」）。
 
 性能の区分（リファクタリング観点の「ガードレール」）は次のとおり。
 
@@ -435,7 +435,7 @@ Run は決定的モードではないので、同じ経路の Run どうしで�
 | D2 | **読むだけの採点。** D1 と同じ置き場で正規化する | 読むだけの採点の倍率が、直後の採点の倍率と一致する条件（§4）を保つ。依存: D1 |
 | D3 | **正規化は NN の外のままにする。** NN の中の前処理は変えない。RND 独自の型の変換（連続の byte の観測を浮動小数点へ変える処理）は残し、置き場だけが計算 device になる | checkpoint の書式を変えない（§4）。Q の主の経路も、正規化は NN の外にある（§2.12）。観測の加工を 1 か所にまとめる話は、PRD161 の題材である（§10）。依存: D1 |
 | D4 | **統計だけを更新する口（C1）。** 共通の観測の正規化の部品に足し、RND の統計更新が使う。Q 入力用の正規化の 2 つの呼び出しは変えない | 部品の中の情報だけで決まる処理は、部品の共通処理として足す（§4）。捨てている正規化は、CPU で 1.519 ms、計算 device で 0.336 ms だった（§2.11）。Q 入力用の正規化は既定が素通しで（§2.12）、RND 以外の呼び出しを変えないのは非ゴールである（§1.3）。依存: なし |
-| D5 | **平均と標準偏差の写し（C3）。** 統計つきの正規化は、正規化に使う平均と標準偏差の写し（今の正規化が毎回作っているものと同じ値）を持つ。写しは、統計を更新した時点で、更新に使った入力の device に作る。正規化の入力の device が写しと違うときと、写しが無いとき（読み込みやリセットの直後）は、今と同じく、その場で作って使い、写しには書き込まない。読み込みとリセットで、写しを捨てる。統計を更新しない正規化（`Normalize`）は、写しを書き換えない。値は変えない | 計算 device では、作り直しのたびに CPU からの転送になり、試作で 3 回、合わせて 0.378 ms だった（§2.11）。D4 のあとは作り直しが 2 回に減り、得は 0.1〜0.2 ms の見積もりである。読むだけの採点は、読み取りロックで複数のスレッドから同時に呼ばれうるので（[default_dqn_agent.cpp:925](../../core/anet-core/src/default_dqn_agent.cpp)）、正規化の中では写しを書かない。部品は計算 device を知らず、Q 入力用に使うと、統計の更新は CPU、正規化は計算 device になりうるので、device が違うときの扱いを決めた。別モデルの検討は入れない案を推したが、開発者が、決まりを書いて入れると選んだ（§5.7）。依存: D1、D4 |
+| D5 | **平均と標準偏差の写し（C3）。** 統計つきの正規化は、正規化に使う平均と標準偏差の写し（今の正規化が毎回作っているものと同じ値）を持つ。写しは、統計を更新した時点で、更新に使った入力の device に作る。正規化の入力の device が写しと違うときと、写しが無いとき（読み込みやリセットの直後）は、今と同じく、その場で作って使い、写しには書き込まない。読み込みとリセットで、写しを捨てる。統計を更新しない正規化（`Normalize`）は、写しを書き換えない。値は変えない | 計算 device では、作り直しのたびに CPU からの転送になり、試作で 3 回、合わせて 0.378 ms だった（§2.11）。D4 のあとは作り直しが 2 回に減り、得は 0.1〜0.2 ms の見積もりである。読むだけの採点は、読み取りロックで複数のスレッドから同時に呼ばれうるので（[default_dqn_agent.cpp:925](../../src/algo/dqn/src/default_dqn_agent.cpp)）、正規化の中では写しを書かない。部品は計算 device を知らず、Q 入力用に使うと、統計の更新は CPU、正規化は計算 device になりうるので、device が違うときの扱いを決めた。別モデルの検討は入れない案を推したが、開発者が、決まりを書いて入れると選んだ（§5.7）。依存: D1、D4 |
 | D6 | **clip の割合（C9）。** 統計を更新しない正規化（`Normalize`）は、clip した割合を数えない。値は変えない | `Normalize` は割合を返さない（§2.8）。計算 device では、数えるたびに同期の読み出しになる。依存: D1 |
 | D7 | **集計の式（C8）。** `RunningMeanStd` の batch 方向の集計を、平均を出し、平均を引いてから二乗和を取る式にする。入力の精度のまま計算する。全要素の集計の行は替えない | 今の式（`var_mean`）は、参考測定で 9.69 ms かかり、替える式は 0.26 ms だった（§2.8）。開発者は、計算 device が CPU の場合でも遅い処理を避けると述べた（§5.7）。batch 方向の行を通るのは、出荷の設定では RND だけである（§2.12）。全要素の行は入力が小さく、替えなければ報酬スケーラの値が動かない。依存: 値の前提 |
 | D8 | **入れない候補。** C4（target の出力の統計と診断値の読み戻しをまとめる）、C5、C6、C7 は入れない。CPU への読み戻しはまとめず、観測の転送の形（固定メモリ、非同期）も変えない | C4 は、D1 だけで target の出力の統計が 0.772 ms から 0.151 ms になった。C5 は、ボーナスが CPU にあり、読み出しが 0.033 ms だった。C6 は、実時間が 1.874 倍と 13.486 倍に延びた。C7 は、得が合流と転送の 0.083 ms にとどまり、入れると、診断値を読むたびの同期と、推定器の写しの作りに触ることになる。読み戻しで増える分は約 0.2 ms（集計の結果の 0.074 ms と 0.087 ms、診断値の 0.053 ms）、観測の転送は 0.558 ms である（§2.8、§2.11）。依存: D1 |
@@ -625,7 +625,7 @@ D12 の中身である。
 
 - 線引きは要素数である。約 90 万要素の一括の演算は計算 device、数千要素以下の状態の更新は CPU に置く。
 - 今 CPU に置いているのは、既存の CPU の正規化と統計の部品を使うためだった（[PRD116 の実装計画](116_rnd_lifelong_novelty_21impl.md) の「入力 device と計算 device を分け」の行）。正しさの理由ではない。
-- 部品は、入力の device を問わない。正規化は入力の device で計算し（[scaler_impl.cpp:378](../../core/anet-core/src/scaler_impl.cpp)）、統計の更新は、入力の device で batch を集計してから、結果を CPU の倍精度へ移す（同 173 行、182〜183 行）。観測を先に計算 device へ送れば、CPU の `var_mean` を通らない。
+- 部品は、入力の device を問わない。正規化は入力の device で計算し（[scaler_impl.cpp:378](../../src/core/base/src/scaler_impl.cpp)）、統計の更新は、入力の device で batch を集計してから、結果を CPU の倍精度へ移す（同 173 行、182〜183 行）。観測を先に計算 device へ送れば、CPU の `var_mean` を通らない。
 - GPU には空きがある（§2.8 の Q4）。RND の CPU の計算の間に GPU が止まるのは、GPU への処理を出すのが同じスレッドだからである（§2.9）。CPU の計算を短くすると、その分だけ GPU の空きも減る。
 
 **AI の整理 2: 2 つの進め方の比較（CPU のまま無駄を除く形の時間は見積もり。計算 device へ寄せた形は、あとから試作で測った）**
@@ -663,7 +663,7 @@ D12 の中身である。
 - 採点は、NGU でも収集時（push の前）のままである（PRD173 の §4.6 の基準案）。エピソード内の新しさは、その lane のエピソードの記憶に照らして出すので、あとから Replay のサンプルだけで再計算できない。
 - PRD173 の §4.5 の基準案（Q の入力に直前の内的報酬）を採ると、採点は次の行動の決定より前に要る。今は、行動を決めたあとに学習用のスレッドで採点している（§2.9）ので、採点の置き場が動く。
 - 補助学習は、母集団が intake の観測から Replay へ変わりうる（§2.10）。
-- 本 PRD への含みは 4 つある。(1) 整理（ステージ 2）で、採点（読むだけ）、統計更新、補助学習の 3 つの単位に分ける。置き場が変わっても、部品は変わらない。(2) 採点と補助学習の間で、中間の結果（正規化した入力、target の出力）を使い回さない。補助学習が Replay の側へ移ると、使い回せない。(3) 採点から統計更新へは、同じ観測の誤差、target の出力、観測の集計を渡してよい。計算 device で集計すれば、統計更新は CPU での小さな合流だけになる。(4) 入力の device で正規化する形が合う。Replay のサンプルは計算 device にあり、今のコードは必ず CPU へ移す（[intrinsic_rnd.cpp:515](../../core/anet-core/src/intrinsic_rnd.cpp)、643 行）ので、往復の転送になる。
+- 本 PRD への含みは 4 つある。(1) 整理（ステージ 2）で、採点（読むだけ）、統計更新、補助学習の 3 つの単位に分ける。置き場が変わっても、部品は変わらない。(2) 採点と補助学習の間で、中間の結果（正規化した入力、target の出力）を使い回さない。補助学習が Replay の側へ移ると、使い回せない。(3) 採点から統計更新へは、同じ観測の誤差、target の出力、観測の集計を渡してよい。計算 device で集計すれば、統計更新は CPU での小さな合流だけになる。(4) 入力の device で正規化する形が合う。Replay のサンプルは計算 device にあり、今のコードは必ず CPU へ移す（[intrinsic_rnd.cpp:515](../../src/core/base/src/intrinsic_rnd.cpp)、643 行）ので、往復の転送になる。
 - 3 つの単位に分けるのは構造のためで、速さのためではない。無駄を除いたあとは、どの単位も数 ms の見積もりである。
 
 **AI の整理 6: 律速と、同期の待ちを遅らせる形（推定を含む）**
@@ -674,7 +674,7 @@ D12 の中身である。
 - 統計更新は、遅らせなくてよい。batch の集計の kernel を forward と同じ流れで出し、集計の結果を誤差と一緒に 1 回で読めば、採点に要る 1 回の読み戻しに相乗りできる。
 - GPU へ寄せたあとに残るのは、補助学習の kernel を出す時間である（forward 2 本 0.871 ms、backward 0.852 ms、optimizer 0.754 ms。合わせて約 2.5 ms）。これは学習用のスレッドの CPU の時間で、ストリームを分けても残る。無くすには、CPU の別のスレッドから出す形（§5.1 の D9）が要り、得は 1 intake の 2〜3% の見積もりである（試作の前の見積もりである。試作の測定では、補助学習は 3.612 ms で、1 intake の約 100 ms の 3〜4% に当たる。§2.11）。
 - ストリームは 1 本のままが扱いやすい。同じストリームの処理は、出した順に実行される。前回の補助学習の更新が、次の採点の forward より先に終わることは、待ち合わせを書かなくても成り立つ。ストリームを分けると、その順を明示の待ち合わせで作ることになる。ストリームを分ける効果が出るのは GPU が詰まっているときで、今は kernel が動く時間が最大 37.1% である。libtorch でストリームを分ける口の扱いは、確かめていない。
-- 補助学習の途中の読み戻し（誤差の有限性の検査と、loss の診断値。[intrinsic_rnd.cpp:658-667](../../core/anet-core/src/intrinsic_rnd.cpp)）を無くすと、検査が optimizer の更新のあとになる。今は、異常な誤差で重みを汚さないように、更新の前に検査している。得が 0.128 ms なので、変えない案とする。
+- 補助学習の途中の読み戻し（誤差の有限性の検査と、loss の診断値。[intrinsic_rnd.cpp:658-667](../../src/core/base/src/intrinsic_rnd.cpp)）を無くすと、検査が optimizer の更新のあとになる。今は、異常な誤差で重みを汚さないように、更新の前に検査している。得が 0.128 ms なので、変えない案とする。
 - 段階の案: (1) 無駄を除く（C1・C8・C9）。(2) 一括の演算を GPU へ寄せ、読み戻しを採点の 1 回にまとめる（C2）。(3) 補助学習を別のスレッドから出す（入れない。§5.1 の D9）。(2) の時間は、あとから試作で測った（§2.11）。
 
 **AI の整理 7: 試作の結果の読み（2026-11-15。見積もりを含む）**
@@ -762,12 +762,12 @@ D12 の中身である。
 
 経路の検索（2026-11-16、`git grep -l -i -F`、範囲は追跡しているファイルの全体）で、直す関数と型を名指す箇所を確かめた。検索語と、当たったファイルの数は、`NormalizeAndUpdateStats` 15、`RunningMeanStd` 14、`var_mean` 2、`statistics_transfer` 2、`last_clip_ratio_` 4、`EstimateWithoutUpdate` 14、`RndNoveltyEstimator` 36、`VarianceFeedbackStatistics` 7、`RndErrorStatistics` 6、`feedback_stats_` 4、`target_feature_stats_` 3、`ANET_PRD130_DEVICE_NORM` 2 である。過去の PRD・実装計画・ADR・課題・wiki・実験記録（書き換えない）を除くと、現用のものは次のとおり。
 
-- **変えるコード**: [intrinsic_rnd.hpp](../../core/anet-core/src/intrinsic_rnd.hpp)・[intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp)・[scaler.hpp](../../core/anet-core/include/anet/scaler.hpp)・[scaler_impl.hpp](../../core/anet-core/src/scaler_impl.hpp)・[scaler_impl.cpp](../../core/anet-core/src/scaler_impl.cpp)。
-- **試作のコード**: 作業ツリーの [intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp) にある、環境変数 `ANET_PRD130_DEVICE_NORM` の切り替えは、ステージ 1 の実装で、切り替えの無い経路に置き換える（D14）。
-- **検索に当たるが変えないコード**: [intrinsic.hpp](../../core/anet-core/include/anet/intrinsic.hpp)（一生の新しさの口は変えない）。[default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) の、Q 入力用の観測の正規化の 2 つの呼び出しと、読むだけの採点の呼び出し（D4、D12）。
-- **テスト**: [scaler_test.cpp](../../core/anet-core/src/scaler_test.cpp) に、統計だけを更新する口、統計を更新しない正規化が clip の割合を数えないこと、集計の式の値の近さのテストを足す。平均と標準偏差の写しは、3 つのテストを足す。読み込みの直後の正規化が、読み込んだ統計を使うこと。統計を更新したときと違う device の入力でも、正規化の値が正しいこと（CUDA が使える環境で）。統計を更新したあとの正規化が、更新後の統計を使うこと。統計を更新しない正規化が写しを書き換えないことは、実装のレビューで確かめる。[intrinsic_test.cpp](../../core/anet-core/src/intrinsic_test.cpp) に、§7 の 5 のテスト（ステージ 1）と、整理の前後で採点・補助学習・保存の結果が変わらないことの特性テスト（ステージ 2）を足す。どちらも、連続の byte の観測、離散の観測、浮動小数点の観測が混ざった辞書を入力に使う。出荷の設定の前後比較（§7 の 4・11）は LunarLander で行い、byte の観測を浮動小数点へ変える処理を通らないためである。既存の断定のうち、集計の式の差し替えで期待値が丸めの範囲でずれるものは、許す差を持つ断定へ直す。対象は、実装計画で `[scaler]`・`[prd116]` のテストを回して洗う。[dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) は、検索に当たるが変えない。
+- **変えるコード**: [intrinsic_rnd.hpp](../../src/core/base/src/intrinsic_rnd.hpp)・[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp)・[scaler.hpp](../../src/core/base/include/anet/scaler.hpp)・[scaler_impl.hpp](../../src/core/base/src/scaler_impl.hpp)・[scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp)。
+- **試作のコード**: 作業ツリーの [intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp) にある、環境変数 `ANET_PRD130_DEVICE_NORM` の切り替えは、ステージ 1 の実装で、切り替えの無い経路に置き換える（D14）。
+- **検索に当たるが変えないコード**: [intrinsic.hpp](../../src/core/base/include/anet/intrinsic.hpp)（一生の新しさの口は変えない）。[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) の、Q 入力用の観測の正規化の 2 つの呼び出しと、読むだけの採点の呼び出し（D4、D12）。
+- **テスト**: [scaler_test.cpp](../../src/core/base/src/scaler_test.cpp) に、統計だけを更新する口、統計を更新しない正規化が clip の割合を数えないこと、集計の式の値の近さのテストを足す。平均と標準偏差の写しは、3 つのテストを足す。読み込みの直後の正規化が、読み込んだ統計を使うこと。統計を更新したときと違う device の入力でも、正規化の値が正しいこと（CUDA が使える環境で）。統計を更新したあとの正規化が、更新後の統計を使うこと。統計を更新しない正規化が写しを書き換えないことは、実装のレビューで確かめる。[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp) に、§7 の 5 のテスト（ステージ 1）と、整理の前後で採点・補助学習・保存の結果が変わらないことの特性テスト（ステージ 2）を足す。どちらも、連続の byte の観測、離散の観測、浮動小数点の観測が混ざった辞書を入力に使う。出荷の設定の前後比較（§7 の 4・11）は LunarLander で行い、byte の観測を浮動小数点へ変える処理を通らないためである。既存の断定のうち、集計の式の差し替えで期待値が丸めの範囲でずれるものは、許す差を持つ断定へ直す。対象は、実装計画で `[scaler]`・`[prd116]` のテストを回して洗う。[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) は、検索に当たるが変えない。
 - **設定**: 変えない。
-- **検証資材**: 採取の道具（`.scratch/prd130/stage0.py`。git の管理外）を、`core/anet-core/testdata/prd130/` へ移して追跡する（D17）。試作の群と環境変数の切り替えは、移すときに外す。`core/anet-core/testdata/prd130/README.md` を新設する（実装前の実行体・設定・checkpoint の保存、前後比較、Tracy と Nsight の採り方）。[run_performance.py](../../core/anet-core/testdata/prd116/run_performance.py) と [run_performance_atari.py](../../core/anet-core/testdata/prd116/run_performance_atari.py) は、採取の道具が借りるだけで、変えない。
+- **検証資材**: 採取の道具（`.scratch/prd130/stage0.py`。git の管理外）を、`core/anet-core/testdata/prd130/` へ移して追跡する（D17）。試作の群と環境変数の切り替えは、移すときに外す。`core/anet-core/testdata/prd130/README.md` を新設する（実装前の実行体・設定・checkpoint の保存、前後比較、Tracy と Nsight の採り方）。[run_performance.py](../../src/core/base/testdata/prd116/run_performance.py) と [run_performance_atari.py](../../src/core/base/testdata/prd116/run_performance_atari.py) は、採取の道具が借りるだけで、変えない。
 - **設計文書**: [212_rnd_lifelong_novelty.jp.md](../design/212_rnd_lifelong_novelty.jp.md) の §3.2（2 種類の正規化）、§3.6 の図とその説明（転送の向きと、正規化の置き場）、§3.8（実装を読む順番）、§5.1（計算する場所と費用）、§5.2（確認済みの範囲）を追随させる。[200_dqn_agents.jp.md](../design/200_dqn_agents.jp.md) は、推定器と読むだけの採点を名指す箇所を確かめ、変わる記述があれば追随させる。新しい仕組みではないので、設計文書は新設しない（D18）。en は `anet-translate-docs` で作る。
 - **互換層**: 作らない。過去の Run・ADR・実験記録は書き換えない。
 
@@ -790,7 +790,7 @@ D12 の中身である。
 | 11 | 整理の同一性 | ステージ 1 のあとに保存した実行体と、seed 1・決定的モードの 100k exp step の Run で、metrics checksum が一致する。構成は、LunarLander の既定の連鎖に次を足した 5 つである。(a) 何も足さない（RND 無効）。(b) `run.@rnd`。(c) `run.@rnd` と `intrinsic.rnd.error_norm.average_mode = ema`。(d) `run.@rnd` と、Atari の `run.@rnd_taiga` の 8 つの設定値。(e) `run.@rnd` と `intrinsic.rnd.warmup_mode = collect_errors`。比べるのは全 scalar の点で、時間と資源の tag だけを除く |
 | 12 | 整理の checkpoint | ステージ 1 のあとの実行体が、11 の (b)(c)(d) で保存した checkpoint を、整理のあとの実行体が同じ設定で読める。続きの 100k exp step の metrics checksum が、ステージ 1 のあとの実行体で続けた場合と一致する。checkpoint は、seed 1 の 100k exp step の Run の終わりに保存したものを使う。比べる範囲は 11 と同じである |
 | 13 | 整理の速さ | 採取の道具で、主の構成と副の条件の既定 RND と、副の条件の Taiga 設定の実時間を、ステージ 1 のあとの実行体と整理のあとの実行体で、交互に 3 巡測る。群ごとの中央値の差が、ステージ 1 のあとの実行体どうしの最小〜最大の幅の内である |
-| 14 | 分岐 | `RndNoveltyEstimator` の中で、統計方式によって分かれる箇所が、構築時に型を選ぶ 1 か所だけである。実装のレビューで、[intrinsic_rnd.cpp](../../core/anet-core/src/intrinsic_rnd.cpp) と [intrinsic_rnd.hpp](../../core/anet-core/src/intrinsic_rnd.hpp) を読んで確かめる。補いとして、`git grep -n -F "feedback_stats_" -- core/anet-core/src/intrinsic_rnd.cpp core/anet-core/src/intrinsic_rnd.hpp` が 0 件であることを見る |
+| 14 | 分岐 | `RndNoveltyEstimator` の中で、統計方式によって分かれる箇所が、構築時に型を選ぶ 1 か所だけである。実装のレビューで、[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp) と [intrinsic_rnd.hpp](../../src/core/base/src/intrinsic_rnd.hpp) を読んで確かめる。補いとして、`git grep -n -F "feedback_stats_" -- core/anet-core/src/intrinsic_rnd.cpp core/anet-core/src/intrinsic_rnd.hpp` が 0 件であることを見る |
 | 15 | 既存のテスト（整理） | 10 と同じスイートが通る |
 
 4・6・11・12 の「決定的モード」は、`backend.$ = backend.@deterministic` を指定した Run である（[LunarLander.txt](../../apps/runner/config/LunarLander.txt) の `run.@repro` と同じ指定）。
@@ -827,8 +827,8 @@ D12 の中身である。
 
 | 課題 | 題 | area | 根拠の位置（2026-11-15） | 確定事項 | 受入 |
 |---|---|---|---|---|---|
-| [issue-20261112-f9790d](../management/issues/issue-20261112-f9790d.md) | RND の既定設定で、採点ごとの統計の更新が CPU の 1 スレッドで走り、RND の時間の 63% を占める | 324_dqn、321_agent_core | [intrinsic_rnd.cpp:547-580](../../core/anet-core/src/intrinsic_rnd.cpp)、[scaler_impl.cpp:149](../../core/anet-core/src/scaler_impl.cpp)、[default_dqn_agent.cpp:122-127](../../core/anet-core/src/default_dqn_agent.cpp) | D1〜D10、D14〜D17 | 1〜10 |
-| [issue-20261111-0ddffa](../management/issues/issue-20261111-0ddffa.md) | RndNoveltyEstimator に 2 つの統計方式が同居して分岐が散り、Estimate と Learn も前半を同じ形で書いている | 321_agent_core | [intrinsic_rnd.hpp:116-119](../../core/anet-core/src/intrinsic_rnd.hpp)、[intrinsic_rnd.cpp:504-670](../../core/anet-core/src/intrinsic_rnd.cpp) | D11、D12、D15 | 11〜15 |
+| [issue-20261112-f9790d](../management/issues/issue-20261112-f9790d.md) | RND の既定設定で、採点ごとの統計の更新が CPU の 1 スレッドで走り、RND の時間の 63% を占める | 324_dqn、321_agent_core | [intrinsic_rnd.cpp:547-580](../../src/core/base/src/intrinsic_rnd.cpp)、[scaler_impl.cpp:149](../../src/core/base/src/scaler_impl.cpp)、[default_dqn_agent.cpp:122-127](../../src/algo/dqn/src/default_dqn_agent.cpp) | D1〜D10、D14〜D17 | 1〜10 |
+| [issue-20261111-0ddffa](../management/issues/issue-20261111-0ddffa.md) | RndNoveltyEstimator に 2 つの統計方式が同居して分岐が散り、Estimate と Learn も前半を同じ形で書いている | 321_agent_core | [intrinsic_rnd.hpp:116-119](../../src/core/base/src/intrinsic_rnd.hpp)、[intrinsic_rnd.cpp:504-670](../../src/core/base/src/intrinsic_rnd.cpp) | D11、D12、D15 | 11〜15 |
 
 ## 10. ほかの PRD・課題との関係
 

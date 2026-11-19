@@ -32,19 +32,19 @@
 
 ### 2.1 画像生成の責務と呼び出し経路
 
-画像Observerが学習や訓練のイベントを受け、画像をMetricsLoggerへ渡す。例えば `TimeHistogramObserver::OnLearn` は [observers.cpp](../../core/anet-core/src/observers.cpp) の140〜170行、`SweepedHeatMapObserver::OnLearn` は392〜418行である。`MetricsLogger::Log` の [metrics_logger.cpp](../../core/anet-core/src/metrics_logger.cpp) の725〜732行から、`ImageSource::Render` の [image.cpp](../../core/anet-core/src/image.cpp) の18〜29行を通り、各 `RenderRaw()` に至る。保存経路以外の画像取得も同じ描画口を使う。
+画像Observerが学習や訓練のイベントを受け、画像をMetricsLoggerへ渡す。例えば `TimeHistogramObserver::OnLearn` は [observers.cpp](../../src/core/base/src/observers.cpp) の140〜170行、`SweepedHeatMapObserver::OnLearn` は392〜418行である。`MetricsLogger::Log` の [metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp) の725〜732行から、`ImageSource::Render` の [image.cpp](../../src/core/base/src/image.cpp) の18〜29行を通り、各 `RenderRaw()` に至る。保存経路以外の画像取得も同じ描画口を使う。
 
-[heat_map.cpp](../../core/anet-core/src/heat_map.cpp) の416・502・561・819行は、それぞれTimeHeatMapの空画像・通常画像、Histgram、SweepedHeatMapで、`new[]`した画像領域を `wxImage::SetData` へ渡している。TimeHistogramも同ファイル756行でTimeHeatMapの描画を利用する。基底のHeatMapの195・318行の確保はすでに `malloc` であり、同じ不一致には当たらない。
+[heat_map.cpp](../../src/core/base/src/heat_map.cpp) の416・502・561・819行は、それぞれTimeHeatMapの空画像・通常画像、Histgram、SweepedHeatMapで、`new[]`した画像領域を `wxImage::SetData` へ渡している。TimeHistogramも同ファイル756行でTimeHeatMapの描画を利用する。基底のHeatMapの195・318行の確保はすでに `malloc` であり、同じ不一致には当たらない。
 
 利用中のwxWidgets 3.3.3の `src/common/image.cpp` の125〜130行では、画像が所有する領域を破棄時に `free` する。同ライブラリの `interface/wx/image.h` の1791〜1802行も、SetDataへ所有権を渡す領域に `malloc` を要求している。公開の一次資料は [wxWidgets 3.3.3の画像仕様](https://github.com/wxWidgets/wxWidgets/blob/v3.3.3/interface/wx/image.h) と [画像実装](https://github.com/wxWidgets/wxWidgets/blob/v3.3.3/src/common/image.cpp) にある。通常の描画が成功しても、解放方法の一致を証明したことにはならない。
 
 ### 2.2 DropMergeの行動と報酬
 
-[DropMergeEnv.cpp](../../core/envs/dropmerge1/src/DropMergeEnv.cpp) の1004行からの `Step` は、1017〜1029行でモード別にDROPとNOOPを判定する。`direct`のすべての有効行動はDROPで、行動0は列0を選ぶ。対して1261〜1264行のNOOPへの罰は、生の行動番号が0かどうかだけで加算している。
+[DropMergeEnv.cpp](../../src/env/dropmerge/src/DropMergeEnv.cpp) の1004行からの `Step` は、1017〜1029行でモード別にDROPとNOOPを判定する。`direct`のすべての有効行動はDROPで、行動0は列0を選ぶ。対して1261〜1264行のNOOPへの罰は、生の行動番号が0かどうかだけで加算している。
 
 同ファイル653〜690行の `processAction` は、直接指定モードと移動モードを分ける。移動モードで `noop_override=true` なら、選択されたNOOPを中央方向への移動へ変換するが、呼び出し元が受けた命令の意味は変えていない。また、DROPは落下中などに実行されないことがある。
 
-[DropMergeEnv.hpp](../../core/envs/dropmerge1/src/DropMergeEnv.hpp) の102行の `noop_penalty` は既定が `-0.001`、[DropMerge.txt](../../apps/runner/config/DropMerge.txt) の1667行は `0.0`。したがってDirectモードの誤加算は、非ゼロの罰を使うときに報酬差として現れる。罰は最終的にStep報酬とエピソード累積報酬へ含まれるが、ゲームの生スコアを表す値とは区別される。
+[DropMergeEnv.hpp](../../src/env/dropmerge/src/DropMergeEnv.hpp) の102行の `noop_penalty` は既定が `-0.001`、[DropMerge.txt](../../apps/runner/config/DropMerge.txt) の1667行は `0.0`。したがってDirectモードの誤加算は、非ゼロの罰を使うときに報酬差として現れる。罰は最終的にStep報酬とエピソード累積報酬へ含まれるが、ゲームの生スコアを表す値とは区別される。
 
 ### 2.3 既存部品の境界
 
@@ -117,8 +117,8 @@ D3はEnvへ渡された命令の意味で判定する。`noop_override=true` の
 
 | issueのID | 題 | area | 現在のコードで確認した根拠の位置 | 直す確定事項 | 確かめる受入 |
 |---|---|---|---|---|---|
-| [issue-20261103-dd8058](../management/issues/issue-20261103-dd8058.md) | wxImage::SetDataにnew[]の配列を渡している（wxImageはfreeで解放する） | `317_metrics` | [heat_map.cpp](../../core/anet-core/src/heat_map.cpp) 416・502・561・819行。呼び出し口は§2.1 | D1・D2・D5 | A1・A2・A3・A7 |
-| [issue-20261103-be4cd5](../management/issues/issue-20261103-be4cd5.md) | Directモードで列0への落下にもNOOPペナルティが加算される | `322_env_individual` | [DropMergeEnv.cpp](../../core/envs/dropmerge1/src/DropMergeEnv.cpp) 1017〜1029・1261〜1267行 | D3・D4・D5 | A4・A5・A6・A7 |
+| [issue-20261103-dd8058](../management/issues/issue-20261103-dd8058.md) | wxImage::SetDataにnew[]の配列を渡している（wxImageはfreeで解放する） | `317_metrics` | [heat_map.cpp](../../src/core/base/src/heat_map.cpp) 416・502・561・819行。呼び出し口は§2.1 | D1・D2・D5 | A1・A2・A3・A7 |
+| [issue-20261103-be4cd5](../management/issues/issue-20261103-be4cd5.md) | Directモードで列0への落下にもNOOPペナルティが加算される | `322_env_individual` | [DropMergeEnv.cpp](../../src/env/dropmerge/src/DropMergeEnv.cpp) 1017〜1029・1261〜1267行 | D3・D4・D5 | A4・A5・A6・A7 |
 
 ## 5. 受入条件と成功の測り方
 
@@ -182,12 +182,12 @@ A2のメモリ検査を含め、未実施・検出できない・環境不足の
 
 | 対象 | 本件での扱い |
 |---|---|
-| [heat_map.cpp](../../core/anet-core/src/heat_map.cpp) | 画像生成の4経路をD1・D2へ移す。基底HeatMapの別の確保経路は本件の不一致ではない |
-| [heat_map.hpp](../../core/anet-core/include/anet/heat_map.hpp) | 既存の公開API・画像種別を確認する。新しい公開口を足さない |
-| [image_test.cpp](../../core/anet-core/src/image_test.cpp) と画像の回帰テスト | 既存の画像テストを維持し、A1〜A3を覆う。現行にHeatMap専用のテストファイルはない |
-| [DropMergeEnv.cpp](../../core/envs/dropmerge1/src/DropMergeEnv.cpp) | NOOPへの罰をD3・D4へ移す |
-| [DropMergeEnv.hpp](../../core/envs/dropmerge1/src/DropMergeEnv.hpp) | 行動集合と罰の既定値・説明がD3・D4と一致することを確認する |
-| [DropMergeEnv_test.cpp](../../core/envs/dropmerge1/src/DropMergeEnv_test.cpp) | 既存の行動・直前行動・終端のテストを保ち、A4〜A6を追加する。現行に非ゼロのNOOPへの罰をモード別に比較するテストはない |
+| [heat_map.cpp](../../src/core/base/src/heat_map.cpp) | 画像生成の4経路をD1・D2へ移す。基底HeatMapの別の確保経路は本件の不一致ではない |
+| [heat_map.hpp](../../src/core/base/include/anet/heat_map.hpp) | 既存の公開API・画像種別を確認する。新しい公開口を足さない |
+| [image_test.cpp](../../src/core/base/src/image_test.cpp) と画像の回帰テスト | 既存の画像テストを維持し、A1〜A3を覆う。現行にHeatMap専用のテストファイルはない |
+| [DropMergeEnv.cpp](../../src/env/dropmerge/src/DropMergeEnv.cpp) | NOOPへの罰をD3・D4へ移す |
+| [DropMergeEnv.hpp](../../src/env/dropmerge/src/DropMergeEnv.hpp) | 行動集合と罰の既定値・説明がD3・D4と一致することを確認する |
+| [DropMergeEnv_test.cpp](../../src/env/dropmerge/src/DropMergeEnv_test.cpp) | 既存の行動・直前行動・終端のテストを保ち、A4〜A6を追加する。現行に非ゼロのNOOPへの罰をモード別に比較するテストはない |
 | [DropMerge.txt](../../apps/runner/config/DropMerge.txt)、[metrics_image.txt](../../apps/runner/config/metrics_image.txt) | 既存の行動・罰・画像設定を利用する。キー・既定値・描画設定の書き換えは不要 |
 | [可観測性](../design/140_observability.jp.md) §7・§9、[環境](../design/120_environments.jp.md) §7・§8 | 実装時に画像の所有権・失敗の扱いと、選択命令に対する罰の規則を追随させ、テストの章から検証資材へリンクする。英訳の同じ章も追随させる |
 | `core/anet-core/testdata/prd115/README.md`（実装工程で新規作成） | A2・A3の実行条件、修正前後の判定、環境不足時の未達の扱いを置く。通常のテスト一覧をAGENTS.mdへ追記しない |

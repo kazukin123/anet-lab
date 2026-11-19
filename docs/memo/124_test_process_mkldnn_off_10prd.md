@@ -19,14 +19,14 @@ Debug 版の anet-core-test で、MKLDNN を切るのは一部のテストの中
 
 ### 2.1 事実
 
-1. 題材のテスト `RND shipped Atari networks and Taiga settings match their contracts`（[intrinsic_test.cpp](../../core/anet-core/src/intrinsic_test.cpp) の 157 行）は、`IntrinsicMetricsScope`（同 99〜108 行）で `InitNN` を呼ぶが、MKLDNN は切らない。Atari の RND の Network を CPU で組み、`Estimate` と `Learn` を回す。この Network は CNBlock を使わない普通の Conv の連なりである（[Atari.txt](../../apps/runner/config/Atari.txt) の 10・13 行の `AtariRndConv1 > … > AtariRndConv3`）。
+1. 題材のテスト `RND shipped Atari networks and Taiga settings match their contracts`（[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp) の 157 行）は、`IntrinsicMetricsScope`（同 99〜108 行）で `InitNN` を呼ぶが、MKLDNN は切らない。Atari の RND の Network を CPU で組み、`Estimate` と `Learn` を回す。この Network は CNBlock を使わない普通の Conv の連なりである（[Atari.txt](../../apps/runner/config/Atari.txt) の 10・13 行の `AtariRndConv1 > … > AtariRndConv3`）。
 2. MKLDNN を切るのは、テストの中の 2 か所である。どちらもビルド構成を問わず `at::globalContext().setUserEnabledMkldnn(false)` を呼ぶ。
-   - [nn_test.cpp](../../core/anet-core/src/nn_test.cpp) の 101〜112 行の `EnsureNNInitialized`（無名の名前空間にあり、`InitNN` を 1 回だけ呼んで切る）。nn_test.cpp の中の 59 か所から呼ぶ。
-   - [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) の 684〜690 行の `PrepareNativeStackNetworkTest`（`InitNN` を呼んで切る）。同じファイルの 5 か所から呼ぶ。
+   - [nn_test.cpp](../../src/core/base/src/nn_test.cpp) の 101〜112 行の `EnsureNNInitialized`（無名の名前空間にあり、`InitNN` を 1 回だけ呼んで切る）。nn_test.cpp の中の 59 か所から呼ぶ。
+   - [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) の 684〜690 行の `PrepareNativeStackNetworkTest`（`InitNN` を呼んで切る）。同じファイルの 5 か所から呼ぶ。
 
-   本番の `InitNN`（[nn_modules.cpp](../../core/anet-core/src/nn_modules.cpp) の 3274 行）と Run の初期化（[init.cpp](../../core/anet-core/src/init.cpp) の 172 行）は切らない。PRD028 で、本番は変えず、テストの中で切ると決めた（[PRD028 の実装記録](done/028_cnblock_convnext_20impl.md) の 15〜17 行）。
+   本番の `InitNN`（[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) の 3274 行）と Run の初期化（[init.cpp](../../src/core/base/src/init.cpp) の 172 行）は切らない。PRD028 で、本番は変えず、テストの中で切ると決めた（[PRD028 の実装記録](done/028_cnblock_convnext_20impl.md) の 15〜17 行）。
 3. Debug ビルドだけが `libtorch/debug` をリンクし、RelWithDebInfo と Release は `libtorch/release` をリンクする（[CMakeLists.txt](../../CMakeLists.txt) の 141〜165 行）。assert は Debug 版 libtorch のものである（[PRD028 の実装記録](done/028_cnblock_convnext_20impl.md) の 16 行。PyTorch issue #104421）。
-4. Catch2 は 3.14 で（[catch.hpp](../../third_party/catch2/include/catch.hpp) の 7539〜7540 行）、既定の実行順はランダム（同 3852 行）、順序を決める seed も既定で毎回作る（同 3836 行）。anet-core-test の main（[main_test.cpp](../../core/anet-core/src/main_test.cpp) の 24〜41 行）は順序を指定しない。既定の集合（899 本）では、題材のテストが、MKLDNN を切る約 60 本のどれよりも先に回ると止まる。約 60 本だけで数えた確率は約 1/61（約 1.6%）である。ほかに、切らずに CPU で Conv を組むテストがあれば、それが切るテストより先に回ったときにも止まりうる（その数は数えていない）。PRD119 の実装の検証で既定の集合が 2 回とも通ったのは、この確率の中のことである（[PRD119 の実装記録](119_small_doc_comment_config_fixes_20impl.md) の 59・62 行）。
+4. Catch2 は 3.14 で（[catch.hpp](../../third_party/catch2/include/catch.hpp) の 7539〜7540 行）、既定の実行順はランダム（同 3852 行）、順序を決める seed も既定で毎回作る（同 3836 行）。anet-core-test の main（[main_test.cpp](../../src/core/base/src/test/main.cpp) の 24〜41 行）は順序を指定しない。既定の集合（899 本）では、題材のテストが、MKLDNN を切る約 60 本のどれよりも先に回ると止まる。約 60 本だけで数えた確率は約 1/61（約 1.6%）である。ほかに、切らずに CPU で Conv を組むテストがあれば、それが切るテストより先に回ったときにも止まりうる（その数は数えていない）。PRD119 の実装の検証で既定の集合が 2 回とも通ったのは、この確率の中のことである（[PRD119 の実装記録](119_small_doc_comment_config_fixes_20impl.md) の 59・62 行）。
 5. 再現した。Debug の実行体（2026-11-11 01:09 のビルド）を、リポジトリのルートで、環境変数を足さずに回した。ログは `.scratch/prd124/` に置いた。
 
    | 回したもの | 結果 |
@@ -36,8 +36,8 @@ Debug 版の anet-core-test で、MKLDNN を切るのは一部のテストの中
    | `--order lex` で、切らない `DQN intrinsic state scoring ignores next observations and terminal masks` を先に置き、題材のテストと 2 本 | 終了コード 3。同じ assert |
 
    止まるかどうかは、先に回ったテストが MKLDNN を切ったかで決まる。PRD028 の実装記録（16 行）は、assert が CNBlock の演算の連鎖で出るとしていたが、CNBlock を使わない題材のテストでも出る（1 の Network）。
-6. テストの実行体は 7 つあり、それぞれが自分の main を持つ（anet-core-test の [main_test.cpp](../../core/anet-core/src/main_test.cpp)、5 つの Env のテスト（例: [AtariEnv_test.cpp](../../core/envs/atari1/src/AtariEnv_test.cpp) の 1395 行）、Runner の GUI のテスト）。CPU で NN を組むのは anet-core-test だけである。5 つの Env のテストのファイルは、Network や Agent を組む呼び出しを持たない。Runner の GUI のテストは偽の Agent を使う（[RunnerApp_test.cpp](../../apps/runner/src/RunnerApp_test.cpp) の 82 行、[EvalTracePanel_test.cpp](../../apps/runner/src/EvalTracePanel_test.cpp) の 90 行）。
-7. assert を避ける手順が、文書に残っている。PRD116 の検証資材の [README](../../core/anet-core/testdata/prd116/README.md) の 17 行は「CNN を含むテストはそのプロセスだけ `OMP_NUM_THREADS=1` とする」と指示する。過去の記録にも、同じ避け方で回した記録がある（PRD116 の 23impl の 38・88・118 行、PRD158 の 20impl の 96・112・200・231 行、[212 設計文書](../design/212_rnd_lifelong_novelty.jp.md) の §5.2 の確認の表の 478 行）。
+6. テストの実行体は 7 つあり、それぞれが自分の main を持つ（anet-core-test の [main_test.cpp](../../src/core/base/src/test/main.cpp)、5 つの Env のテスト（例: [AtariEnv_test.cpp](../../src/env/atari/src/AtariEnv_test.cpp) の 1395 行）、Runner の GUI のテスト）。CPU で NN を組むのは anet-core-test だけである。5 つの Env のテストのファイルは、Network や Agent を組む呼び出しを持たない。Runner の GUI のテストは偽の Agent を使う（[RunnerApp_test.cpp](../../src/apps/runner/src/RunnerApp_test.cpp) の 82 行、[EvalTracePanel_test.cpp](../../src/apps/runner/src/EvalTracePanel_test.cpp) の 90 行）。
+7. assert を避ける手順が、文書に残っている。PRD116 の検証資材の [README](../../src/core/base/testdata/prd116/README.md) の 17 行は「CNN を含むテストはそのプロセスだけ `OMP_NUM_THREADS=1` とする」と指示する。過去の記録にも、同じ避け方で回した記録がある（PRD116 の 23impl の 38・88・118 行、PRD158 の 20impl の 96・112・200・231 行、[212 設計文書](../design/212_rnd_lifelong_novelty.jp.md) の §5.2 の確認の表の 478 行）。
 
 ### 2.2 規約と過去の判断
 
@@ -96,11 +96,11 @@ Debug 版の anet-core-test で、MKLDNN を切るのは一部のテストの中
 
 | ファイル | 変えること | 決定 |
 | --- | --- | --- |
-| [main_test.cpp](../../core/anet-core/src/main_test.cpp) | Catch2 を回す前に MKLDNN を切る。理由のコメントを添える | D1・D2・D6 |
-| [nn_test.cpp](../../core/anet-core/src/nn_test.cpp) | `EnsureNNInitialized` から、切る行とそのコメントを消す。`InitNN` を 1 回だけ呼ぶ働きは残す | D1 |
-| [dqn_based_agent_test.cpp](../../core/anet-core/src/dqn_based_agent_test.cpp) | `PrepareNativeStackNetworkTest` から、切る行とそのコメントを消す。`InitNN` を呼ぶ働きは残す | D1 |
+| [main_test.cpp](../../src/core/base/src/test/main.cpp) | Catch2 を回す前に MKLDNN を切る。理由のコメントを添える | D1・D2・D6 |
+| [nn_test.cpp](../../src/core/base/src/nn_test.cpp) | `EnsureNNInitialized` から、切る行とそのコメントを消す。`InitNN` を 1 回だけ呼ぶ働きは残す | D1 |
+| [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) | `PrepareNativeStackNetworkTest` から、切る行とそのコメントを消す。`InitNN` を呼ぶ働きは残す | D1 |
 | 見張りのテスト（置くファイルとタグは実装計画で決める） | テストが始まった時点で MKLDNN が切れていることを確かめる | D5 |
-| [PRD116 の検証資材の README](../../core/anet-core/testdata/prd116/README.md) | 17 行から `OMP_NUM_THREADS=1` とする文を消す | D7 |
+| [PRD116 の検証資材の README](../../src/core/base/testdata/prd116/README.md) | 17 行から `OMP_NUM_THREADS=1` とする文を消す | D7 |
 | 題材の課題の記録 | 対応内容と AI の判定 | — |
 
 ### 5.2 移行対象と、触らないもの
@@ -111,7 +111,7 @@ Debug 版の anet-core-test で、MKLDNN を切るのは一部のテストの中
 
 - `git grep -n -i -E "mkldnn|onednn|dnnl|nthr_" -- ':!third_party'` の当たりは、本 PRD を除いて 34 行である。そのうち 9 行は、本 PRD の起票に合わせて足した行（wiki の 311 の 7 行と目録 index.md の 1 行、課題の一覧 INDEX.md の 156 行の本 PRD の行）で、移行の対象として数えない。残りの 25 行の扱いは次のとおり。dqn_based_agent_test.cpp の 687〜689 行と nn_test.cpp の 105・106・108 行（6 行）は移行対象である（D1）。PRD116 の検証資材の README の 17 行は移行対象である（D7）。題材の課題の記述（課題の単票の 4 行、INDEX.md の 8 行、wiki の 321 の課題の区画の 1 行。計 6 行）は、課題の記録として扱う。PRD116 の 23impl の 2 行、PRD119 の 20impl の 3 行、PRD158 の 20impl の 2 行、PRD028 の実装記録の 5 行は、過去の記録で触らない（D8）。
 - `git grep -n -E "EnsureNNInitialized|PrepareNativeStackNetworkTest"` の当たりは、nn_test.cpp（定義と 59 か所の呼び出し）、dqn_based_agent_test.cpp（定義と 5 か所の呼び出し）、題材の課題の 1 行、PRD028 の実装記録の 2 行である。名前と呼び出しは変えず、関数の中身だけを変える。
-- `git grep -n -E "OMP_NUM_THREADS|MKL_NUM_THREADS"` の当たりは 10 行である。PRD116 の検証資材の README の 17 行は移行対象である（D7）。[run_performance.py](../../core/anet-core/testdata/prd116/run_performance.py) の 97・165 行は、GridMaze の性能の採取器の実行条件で、2026-11-07 の測定と同じ条件で回し直すために残す。212 設計文書の 478 行、PRD116 の 23impl の 3 行、PRD158 の 20impl の 3 行は、過去の確かめ方の記録で触らない（D8）。
+- `git grep -n -E "OMP_NUM_THREADS|MKL_NUM_THREADS"` の当たりは 10 行である。PRD116 の検証資材の README の 17 行は移行対象である（D7）。[run_performance.py](../../src/core/base/testdata/prd116/run_performance.py) の 97・165 行は、GridMaze の性能の採取器の実行条件で、2026-11-07 の測定と同じ条件で回し直すために残す。212 設計文書の 478 行、PRD116 の 23impl の 3 行、PRD158 の 20impl の 3 行は、過去の確かめ方の記録で触らない（D8）。
 
 触らないもの:
 

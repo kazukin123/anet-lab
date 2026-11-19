@@ -35,7 +35,7 @@ Run の途中の決めた時点で、指標の条件を確かめ、満たさな�
 
 ## 3. 現状（2026-10-18 に確認したこと）
 
-- Run の終わりは、`app.*.train_exit_step` と `exp_exit_step` の 2 つだけで、RunnerApp の学習の 1 step 前の関数で判定し、`ControlSignal::STOP` と終了要求を出す（[RunnerApp.cpp](../../apps/runner/src/RunnerApp.cpp)）。指標の値で終える仕組みは無い。
+- Run の終わりは、`app.*.train_exit_step` と `exp_exit_step` の 2 つだけで、RunnerApp の学習の 1 step 前の関数で判定し、`ControlSignal::STOP` と終了要求を出す（[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp)）。指標の値で終える仕組みは無い。
 - チェックポイントからの再開（`A3.auto_load_file`）は、重みと optimizer だけを戻し、replay・step の数え方・評価の予定は戻らない（[143](143_serialize_10prd.md)、`docs/design/020_user_guide_run.jp.md`）。火が付いた Run を「10M で止めて、あとで続ける」と、火を支えていた replay の中身を失う。
 - KFM の RAM メトリクスは、学習側の 1 ゲームごとの平均として `42_env/54_ram_metric_3_mean`（ボス命中の回数）とその EMA（`55`）が出ている（[Atari.txt](../../apps/runner/config/Atari.txt) の `M1`）。「ボスに 1 回以上当てたゲームの割合」は指標に無く、Run ログの「Game over」行から数えている。閾値越え率の汎用化は [154_scalar_threshold_rate](154_scalar_threshold_rate_10prd.md) が扱う。
 - bat は、前の Run の終了コードとフォルダを見て次へ進む（`:run_exe` と `:find_ckpt`）。打ち切りで終えた Run も、終了コード 0 なら成功として数えられる。

@@ -66,7 +66,7 @@ NetworkForwardConfig はキーと選択済み ConfigData をコピーして保�
 
 CreateForwardExecutor は shared_ptr で所有された Network に対して呼ぶ。
 
-公開のnn.hppはNNを使う側の契約を置く。NetworkHead／NetworkHeadExecutor／NetworkHeadFactory、HeadGraphVizInfo、WeightNormConfigの定義は内部のnn_impl.hppへ置く。Module／HeadのCreateExecutorは、専用の実行器が不要ならnullptrを返し、通常の本体を直接呼ぶ。公開ヘッダには署名に必要な前方宣言だけを残す。State／Context・部品の実行interface・RunForwardは公開署名へ出さず、RunForwardはcpp内で既定／準備済みのBody・Head計算を共用する。
+公開のnn.hppはNNを使う側の契約を置く。Head の型、実行器、GraphViz 情報、重み初期化は公開の `anet/nn_head.hpp` に置く。Body の組み立てと標準 module の登録は `nn_impl.hpp` に置く。Module／HeadのCreateExecutorは、専用の実行器が不要ならnullptrを返し、通常の本体を直接呼ぶ。公開ヘッダには署名に必要な前方宣言だけを残す。Forward の実行状態は前方宣言で参照し、RunForwardはcpp内で既定／準備済みのBody・Head計算を共用する。
 
 NetworkForwardExecutor は対象Networkの寿命を保持する。CreateForwardExecutorは名前付き設定と時計種別を部品の準備時に使い、実行器は準備済み処理とNetwork別の内部Stateを保持する。既定設定では部品を準備せず、State・時計種別を持たず、clock_kindとseedを使用しない。重みは既存Moduleを参照し、clone先は別に準備する。実行中の設定切替は行わない。
 
@@ -124,15 +124,15 @@ net.branch.[merged].bind_concat_dim = -1
 
 | 領域 | 主なファイル |
 |---|---|
-| 利用側の公開Config・CallInfo・Network・Executor・診断・Builder | [nn.hpp](../../core/anet-core/include/anet/nn.hpp) |
-| Module／Head実装側のinterface・Body/Branch/Block/Repository | [nn_impl.hpp](../../core/anet-core/src/nn_impl.hpp)、[nn_impl.cpp](../../core/anet-core/src/nn_impl.cpp) |
-| module実装と登録 | [nn_modules.cpp](../../core/anet-core/src/nn_modules.cpp) |
-| Agent向けHead | [nn_heads.hpp](../../core/anet-core/src/nn_heads.hpp)、[nn_heads.cpp](../../core/anet-core/src/nn_heads.cpp) |
-| DQN系Head | [dqn_based_heads.hpp](../../core/anet-core/src/dqn_based_heads.hpp)、[dqn_based_heads.cpp](../../core/anet-core/src/dqn_based_heads.cpp) |
-| TensorDict共通処理 | [common.hpp](../../core/anet-core/include/anet/common.hpp)、[common.cpp](../../core/anet-core/src/common.cpp) |
-| Tensor補助処理 | [tensor_util.hpp](../../core/anet-core/include/anet/tensor_util.hpp)、[tensor_check.hpp](../../core/anet-core/include/anet/tensor_check.hpp) |
+| 利用側の公開Config・CallInfo・Network・Executor・診断・Builder | [nn.hpp](../../src/core/base/include/anet/nn.hpp) |
+| Module／Head実装側のinterface・Body/Branch/Block/Repository | [nn_impl.hpp](../../src/core/base/src/nn_impl.hpp)、[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) |
+| module実装と登録 | [nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) |
+| Agent向けHead | [nn_head.hpp](../../src/core/base/include/anet/nn_head.hpp)、[nn_head.cpp](../../src/core/base/src/nn_head.cpp) |
+| DQN系Head | [dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp)、[dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp) |
+| TensorDict共通処理 | [common.hpp](../../src/core/base/include/anet/common.hpp)、[common.cpp](../../src/core/base/src/common.cpp) |
+| Tensor補助処理 | [tensor_util.hpp](../../src/core/base/include/anet/tensor_util.hpp)、[tensor_check.hpp](../../src/core/base/include/anet/tensor_check.hpp) |
 | 設定例 | [nn.txt](../../apps/runner/config/nn.txt)、[nn_cnx.txt](../../apps/runner/config/nn_cnx.txt) |
-| unit test | [nn_test.cpp](../../core/anet-core/src/nn_test.cpp) |
+| unit test | [nn_test.cpp](../../src/core/base/src/nn_test.cpp) |
 
 ### 4.1 登録済みmoduleの分類
 
@@ -367,7 +367,9 @@ clone・hard/soft copy・保存読込は μ/σ を含む parameter と既存 buf
 
 ## 8. テストと拡張時の確認事項
 
-- [PRD117検証資材](../../core/anet-core/testdata/prd117/README.md): block/profileの参照時の閉じた検証、未参照の定義の扱い、出荷設定の検査。
+公開の拡張点は[フレームワーク全体概要の拡張点の表](010_framework_overview.jp.md#43-拡張点)を参照。
+
+- [PRD117検証資材](../../src/core/base/testdata/prd117/README.md): block/profileの参照時の閉じた検証、未参照の定義の扱い、出荷設定の検査。
 
 Networkを変更する場合は次を確認する。
 
@@ -380,11 +382,11 @@ Networkを変更する場合は次を確認する。
 7. GraphViz/Traceを壊さず、必要なら可視化可能性を公開する。
 8. bindを拡張する場合はparse、依存順、循環、実行shape、ToJson、GraphViz、未使用入力WARNを同じterm/factor契約で確認する。
 
-実行設定の責任境界・独自 Module / Head の拡張テストは [PRD 084 検証手順](../../core/anet-core/testdata/prd084/README.md)を参照する。
+実行設定の責任境界・独自 Module / Head の拡張テストは [PRD 084 検証手順](../../src/core/base/testdata/prd084/README.md)を参照する。
 
-主なunit testは[nn_test.cpp](../../core/anet-core/src/nn_test.cpp)にあり、Agentとの結合はDQN/ImageClsのtestでも検証する。
+主なunit testは[nn_test.cpp](../../src/core/base/src/nn_test.cpp)にあり、Agentとの結合はDQN/ImageClsのtestでも検証する。
 
-- nn_trace の要求と全値比較、Runner からの受け渡しの確認は [PRD170 の検証資材](../../core/anet-core/testdata/prd170/README.md)を参照する。
+- nn_trace の要求と全値比較、Runner からの受け渡しの確認は [PRD170 の検証資材](../../src/core/base/testdata/prd170/README.md)を参照する。
 
 ## 9. 関連文書
 

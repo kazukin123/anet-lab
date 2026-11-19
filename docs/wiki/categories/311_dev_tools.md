@@ -24,7 +24,7 @@
 - 2026-09-19: Actor 設定カタログと eval スロットごとの方策 / network 指定（出典: [PRD061](../../memo/done/061_eval_slot_policy_override_10prd.md)、題・目的）。
 - 2026-09-22: 終了時の評価セッション排水（出典: [PRD076](../../memo/done/076_eval_session_drain_on_exit_10prd.md)、題・目的）。
 - 2026-10-10: 比較粒度と保存LODを改める変更に合わせ、inspect_runの現用キャッシュ判定をschema2へ追随させた（出典: [PRD089](../../memo/done/089_metricsviewer_comparison_resolution_10prd.md)、確定事項）。
-- 2026-10-18: categories.jsonの対応を直し、apps/runner/srcのファイルを319 GUI共通基盤から110 RunnerAppへ分類するようにした（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§3「実装を分ける語」）。
+- 2026-10-18: categories.jsonの対応を直し、src/apps/runner/srcのファイルを319 GUI共通基盤から110 RunnerAppへ分類するようにした（出典: [PRD095](../../memo/done/095_llm_wiki_10prd.md)、§3「実装を分ける語」）。
 - 2026-10-20: 解析ツールが遷移結果のtarget env_stepを読むように移行した（出典: [PRD097](../../memo/done/097_env_auto_reset_after_notification_10prd.md)、§4.2の17・§9）。
 - 2026-10-22: Evaluation Traceの読み口と表示の検証資材を整えた（出典: [PRD094](../../memo/done/094_evalpanel_step_history_10prd.md)、§8・§10）。
 - 2026-10-28: TempoRLの等価性・性能比較用に、実行体と設定の着手前snapshotを使う検証資材を整えた（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§7）。
@@ -36,7 +36,7 @@
 - 2026-11-02: 共有コアにanet-で始まるskill・エージェント・アダプタの名前を置けると補足し、名前以外はプロジェクトに依存しない文面に保つ判断を維持した（出典: [ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、冒頭の2026-11-02注記）。
 - 2026-11-03: issueの一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）を、発番と同じ置き場の道具と一覧のskillの引数で作る案を暫定で起票した（出典: [187_issue_list_views](../../memo/187_issue_list_views_10prd.md)、題・§1・§4 D1〜D3）。
 - 2026-11-10: 課題のtypeを仕事の種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）にし、PRD専用の索引の課題をやめて各課題がprd欄でPRDを1本だけ指し（N:1）、PRDの実装済みを課題の判定と状態から導き、parent・depends・prdをObsidianのリンクで書き、domain・tags・resolutionを足す案を起票した（出典: [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md)、§1・§4 D1〜D8）。
-- 2026-11-11: Debug版libtorchのoneDNNのassertがテストの順序で出ないよう、anet-core-testが開始時に1回MKLDNNを切り、テストの中の切り替えを消す案を起票した（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、題・§3.1・§4 D1）。
+- 2026-11-11: Debug版libtorchのoneDNNのassertがテストの順序で出ないよう、基盤テストの実行体が開始時に1回MKLDNNを切り、テストの中の切り替えを消す案を起票した（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、題・§3.1・§4 D1）。
 - 2026-11-17: 9xxの番号のPRD 57本を、起票の日の順に132〜188へ振り直し、この振り直しを番号の不再利用の例外として9xxを再び使える番号に戻し、旧い番号を各PRDの題の直下の振り直しの行で引くようにした（wikiのPRDの一覧の道具もその行を読む）（出典: [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md)、題・§1.2・§4 D1〜D3・D7・D8）。
 - 2026-11-16: PRDの9xxの番号を、起票の日の順に900未満の連番へ振り直し、9xxを再び使える番号に戻す（出典: [ADR 0077](../../adr/0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable.md)）。
 - 2026-11-18: 置き場の規則（ビルドの入力はsrc、実行時の配置はapps、実行時にできるものはdata、配らないビルドの出力はout）、テストの参照範囲、基盤のテスト用の口、テスト実行体の出力先の1か所化、道具のapps/toolsへの集約を、グリルで決めた（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D2・D12・D13・D19・D20）。
@@ -98,7 +98,7 @@
 - .libをsrcの下のlibフォルダやout/libに出す形 — 不採用: 前者はsrcにビルドの出力が入り、どちらも.libのパスを人が使う場面が無い（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
 - テスト用の口を、別のライブラリのフォルダや、基盤の中の3つ目のフォルダにする形 — 不採用: 前者は別のフォルダのsrcを読む箇所が残り、後者はライブラリの形が3つになる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
 - 組み合わせのテストをsrc/tests/やRunnerのテストに置く形 — 不採用: テストは各フォルダの中という形から外れるか、Runner自身のテストと別物が混ざる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
-- 道具を2か所のまま、viewers/だけappsの下へ移す形 — 不採用: 探す場所が2つ残る（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
+- 一方の道具だけを apps の下へ移し、置き場を2か所に分ける形 — 不採用: 探す場所が2つ残る（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
 - ソース配置の受入の検査をCIに載せること — 範囲外: CIの整備のPRDが扱う。再開条件: CIの整備のPRD（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D25・§7）。
 
 ## 変えるときの条件
@@ -118,7 +118,7 @@
 - 課題の仕組みのファイルは共有コアに含めず、anetのskillと文書として持つ。プロセス契約の節とanetの値はskillに直接書き、レジストリの読み替えで当てない（出典: [PRD114](../../memo/114_findings_intake_and_fix_prd_10prd.md)、§4 D2・D4・D5）。
 - 共有コアの文面はskill・エージェント・アダプタの名前以外をプロジェクトに依存させず、anet固有のことはレジストリと観点に置く（出典: [ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、冒頭の2026-11-02注記）。
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§5.7・§7の受入1）。
-- anet-core-testでMKLDNNを切るのは実行体の開始時の1か所にし、テストの中で切らない。テストの開始時に切れていることを見張りのテストで確かめ、Release（assertが出ない）でも切り替えの消失に気づけるようにする（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§4 D1・D5・§6のA4）。
+- 基盤テストの実行体でMKLDNNを切るのは実行体の開始時の1か所にし、テストの中で切らない。テストの開始時に切れていることを見張りのテストで確かめ、Release（assertが出ない）でも切り替えの消失に気づけるようにする（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§4 D1・D5・§6のA4）。
 - テスト用の口の中身は、組み立ての補助と読むだけの口に限り、製品の処理を置かない。anet/test/の下のヘッダはガードを持ち、製品のコードは読まない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D13・§6 のS3-3）。
 - リリースのzipの中のパスを変えるときは、着手前の一覧と比べて、決めた差だけであることを確かめる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§6 のS1-4・S4-4）。
 
@@ -139,31 +139,32 @@
 - [pages.yml](../../../.github/workflows/pages.yml)
 - [release.yml](../../../.github/workflows/release.yml)
 - [windows-ci.yml](../../../.github/workflows/windows-ci.yml)
-- [batchrun_fatal_error_handling_test.ps1](../../../apps/runner/tools/batchrun_fatal_error_handling_test.ps1)
-- [compress_workspace_metrics.py](../../../apps/runner/tools/compress_workspace_metrics.py) / [compress_workspace_metrics_test.py](../../../apps/runner/tools/compress_workspace_metrics_test.py)
-- [dropmerge_optuna.py](../../../apps/runner/tools/dropmerge_optuna.py)
-- [optuna_common.py](../../../apps/runner/tools/optuna_common.py)
-- [optuna_metrics_gzip_test.py](../../../apps/runner/tools/optuna_metrics_gzip_test.py)
-- [optuna_workspace_test.py](../../../apps/runner/tools/optuna_workspace_test.py)
-- [resolve_workspace.bat](../../../apps/runner/tools/resolve_workspace.bat) / [resolve_workspace_test.ps1](../../../apps/runner/tools/resolve_workspace_test.ps1)
-- [symbolize.py](../../../apps/runner/tools/symbolize.py)
-- [watch_log.ps1](../../../apps/runner/tools/watch_log.ps1)
+- [.gitignore](../../../apps/tools/.gitignore)
+- [atari5.py](../../../apps/tools/atari5.py) / [atari5_test.py](../../../apps/tools/atari5_test.py)
+- [batchrun_fatal_error_handling_test.ps1](../../../apps/tools/batchrun_fatal_error_handling_test.ps1)
+- [btr_to_metrics.py](../../../apps/tools/btr_to_metrics.py)
+- [compress_workspace_metrics.py](../../../apps/tools/compress_workspace_metrics.py) / [compress_workspace_metrics_test.py](../../../apps/tools/compress_workspace_metrics_test.py)
+- [dropmerge_optuna.py](../../../apps/tools/dropmerge_optuna.py)
+- [inspect_run.py](../../../apps/tools/inspect_run.py) / [inspect_run_test.py](../../../apps/tools/inspect_run_test.py)
+- [metrics_source.py](../../../apps/tools/metrics_source.py) / [metrics_source_test.py](../../../apps/tools/metrics_source_test.py)
+- [metrics_viewer.py](../../../apps/tools/metrics_viewer.py)
+- [mlflow_bridge.py](../../../apps/tools/mlflow_bridge.py) / [mlflow_bridge_test.py](../../../apps/tools/mlflow_bridge_test.py)
+- [optuna_common.py](../../../apps/tools/optuna_common.py)
+- [optuna_metrics_gzip_test.py](../../../apps/tools/optuna_metrics_gzip_test.py)
+- [optuna_workspace_test.py](../../../apps/tools/optuna_workspace_test.py)
+- [requirements.txt](../../../apps/tools/requirements.txt)
+- [resolve_workspace.bat](../../../apps/tools/resolve_workspace.bat) / [resolve_workspace_test.ps1](../../../apps/tools/resolve_workspace_test.ps1)
+- [start_mlflow.bat](../../../apps/tools/start_mlflow.bat)
+- [start_tb.bat](../../../apps/tools/start_tb.bat)
+- [symbolize.py](../../../apps/tools/symbolize.py)
+- [tb_bridge.py](../../../apps/tools/tb_bridge.py) / [tb_bridge_test.py](../../../apps/tools/tb_bridge_test.py)
+- [reload.lua](../../../apps/tools/vlc/lua/extensions/reload.lua)
+- [watch_log.ps1](../../../apps/tools/watch_log.ps1)
 - [categories.json](../../../reports/tools/categories.json)
 - [requirements.txt](../../../reports/tools/requirements.txt)
 - [stage_issue_memos.py](../../../reports/tools/stage_issue_memos.py) / [stage_issue_memos_test.py](../../../reports/tools/stage_issue_memos_test.py)
 - [stats.py](../../../reports/tools/stats.py)
 - [wiki_support.py](../../../reports/tools/wiki_support.py)
-- [atari5.py](../../../viewers/metrics-tools/atari5.py) / [atari5_test.py](../../../viewers/metrics-tools/atari5_test.py)
-- [btr_to_metrics.py](../../../viewers/metrics-tools/btr_to_metrics.py)
-- [inspect_run.py](../../../viewers/metrics-tools/inspect_run.py) / [inspect_run_test.py](../../../viewers/metrics-tools/inspect_run_test.py)
-- [metrics_source.py](../../../viewers/metrics-tools/metrics_source.py) / [metrics_source_test.py](../../../viewers/metrics-tools/metrics_source_test.py)
-- [metrics_viewer.py](../../../viewers/metrics-tools/metrics_viewer.py)
-- [mlflow_bridge.py](../../../viewers/metrics-tools/mlflow_bridge.py) / [mlflow_bridge_test.py](../../../viewers/metrics-tools/mlflow_bridge_test.py)
-- [requirements.txt](../../../viewers/metrics-tools/requirements.txt)
-- [start_mlflow.bat](../../../viewers/metrics-tools/start_mlflow.bat)
-- [start_tb.bat](../../../viewers/metrics-tools/start_tb.bat)
-- [tb_bridge.py](../../../viewers/metrics-tools/tb_bridge.py) / [tb_bridge_test.py](../../../viewers/metrics-tools/tb_bridge_test.py)
-- [reload.lua](../../../viewers/metrics-tools/vlc/lua/extensions/reload.lua)
 
 ## PRD の一覧
 
@@ -183,6 +184,7 @@
 - [PRD116](../../memo/116_rnd_lifelong_novelty_10prd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD
 - [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md) — PRD120: 課題の種類を仕事の種類にし、PRD との結び付けを課題の prd 欄（Obsidian のリンク）に替える
 - [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md) — PRD131: 9xx の番号の PRD 57 本を、起票の日の順に 900 未満の連番へ振り直す PRD
+- [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
 
 ## 課題
 
@@ -211,7 +213,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | — | 成果物 | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261116-fe09dc](../../management/issues/issue-20261116-fe09dc.md) | 未着手 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | 成果物 | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD185](../../memo/185_release_packaging_cmake_10prd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 調査中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
+| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 成果物 | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 成果物 | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 
 着手できる 20 / 待ち 2 / 保留 0 / 次版 0 / 解決 0

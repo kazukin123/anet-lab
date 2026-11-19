@@ -157,7 +157,7 @@ Networkの保存には両Headを含む。splitは二つのAdam状態を保存す
 
 ## 7. テストと拡張時の確認事項
 
-受入手順と再実行の入口は[testdata/prd121](../../core/anet-core/testdata/prd121/README.md)、計画と検証の記録は[実装メモ](../memo/121_extrinsic_intrinsic_value_decomposition_20impl.md)を参照する。
+受入手順と再実行の入口は[testdata/prd121](../../src/core/base/testdata/prd121/README.md)、計画と検証の記録は[実装メモ](../memo/121_extrinsic_intrinsic_value_decomposition_20impl.md)を参照する。
 
 新しい方策や診断forwardを足すときは、Headの出力へ結合処理を適用してからq/q_distを読む。新しい報酬成分をReplayへ足すときは、1成分のshapeと計算順、定数収益の保存、schedule成分だけの再計算、初期優先度、prefetchの割引率の寿命を確認する。成分が複数のときの窓規則は未対応として構築時に拒否する。
 

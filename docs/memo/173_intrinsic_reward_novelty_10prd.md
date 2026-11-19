@@ -117,10 +117,10 @@
 
 **今の構成（2026-10-24 にコードと設定で確認）。**
 
-- 観測は位置の (x, y) を 0〜1 に正規化した 2 次元のベクトルだけ（[GridMazeEnv.cpp](../../core/envs/gridmaze1/src/GridMazeEnv.cpp) の `GetObservation`）。迷路は固定の seed で毎回同じなので（[GridMaze.txt](../../apps/runner/config/GridMaze.txt) の `GridMazeEnv.randomize_seed ?= false`）、壁の配置は観測に無く、ネットワークの重みに覚え込まれる。
+- 観測は位置の (x, y) を 0〜1 に正規化した 2 次元のベクトルだけ（[GridMazeEnv.cpp](../../src/env/gridmaze/src/GridMazeEnv.cpp) の `GetObservation`）。迷路は固定の seed で毎回同じなので（[GridMaze.txt](../../apps/runner/config/GridMaze.txt) の `GridMazeEnv.randomize_seed ?= false`）、壁の配置は観測に無く、ネットワークの重みに覚え込まれる。
 - 開始位置は (0, 0) に固定（同 `GridMazeEnv.init_pos_x ?= 0`・`GridMazeEnv.init_pos_y ?= 0`）。学習のデータは (0, 0) から出た軌跡だけになる。
 - 学習と評価の方策は UQE、Body は 2 層の MLP（同 `A1.actor.[train].policy.policy_type = UQE`・`A1.actor.[eval].policy.policy_type = UQE`・`DefaultDQNAgent.net.body.$ = net.body.@MLP2`）。
-- 手操作の step は、EvalPanel が eval の runner へ行動を渡すだけで（[EvalPanel.cpp](../../apps/runner/src/EvalPanel.cpp) の `DoStep(int64_t action)`）、eval の runner は Learner を呼ばないので、その遷移は学習に入らない（[160_input_target_train_forced_action §1.1](160_input_target_train_forced_action_10prd.md)）。
+- 手操作の step は、EvalPanel が eval の runner へ行動を渡すだけで（[EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) の `DoStep(int64_t action)`）、eval の runner は Learner を呼ばないので、その遷移は学習に入らない（[160_input_target_train_forced_action §1.1](160_input_target_train_forced_action_10prd.md)）。
 - 壁や盤の外へ向かう行動では位置が変わらない（GridMazeEnv.cpp の `Step`）。手操作の step もエピソードの step 数に数えられ、`max_steps`（既定 100）で打ち切られる。
 
 **見立て（Run では未確認）。**
@@ -159,13 +159,13 @@
 ## 3. 現状（2026-10-27 に関連文書・コードを確認）
 
 - 内的報酬は本 PRD で追加する機能である。[048](done/048_quantile_tail_metrics_10prd.md) の量子化分布の指標とは別の関心になる。既存 Q 学習の位置は [DQN 系 Agent 設計](../design/200_dqn_agents.jp.md) を参照する。
-- reward scaler を通してから Replay へ渡す経路がある（[default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) の UpdateFromBatch）。Atari の報酬クリップは [AtariEnv.cpp](../../core/envs/atari1/src/AtariEnv.cpp) の Env 側で行う。内的報酬をどこで合成し、どの尺度を保存するかは §8 の 7・11 で決める。
+- reward scaler を通してから Replay へ渡す経路がある（[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) の UpdateFromBatch）。Atari の報酬クリップは [AtariEnv.cpp](../../src/env/atari/src/AtariEnv.cpp) の Env 側で行う。内的報酬をどこで合成し、どの尺度を保存するかは §8 の 7・11 で決める。
 - Replay は **1 step ごとの報酬・終わり方・判断の旗を保持する**。[ADR 0063](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md) により、窓の規則から可変長の収益と窓の終点の観測をサンプル時に組める。旧記述の「1 step の報酬は後から取り出せない」は撤回する。
 - n-step の収益は、γ が定数なら Push 時の保存値を使い、schedule なら抽選後に保存済み step 報酬から現在の γ で作り直す（[ADR 0065](../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、[PRD101](done/101_exploration_schedule_profiled_value_10prd.md) D20）。これは共通の γ の経路であり、同じ学習バッチ内で方策ごとに異なる γ を使う契約は追加の検討が要る。
-- [ExperienceSamples](../../core/anet-core/include/anet/rl.hpp) の Q 用 next_state.next_obs は n-step 先で、window.next_obs は窓の長さ先である。unroll の行動・収益を得られることは、任意の未来観測列をそのまま取得できることを意味しない。SamplingHistoryProbeRequest は抽選履歴の診断であり、時系列観測の取得 API ではない。
-- [ReplayBufferConfig](../../core/anet-core/include/anet/replay_buffer.hpp) の window_rule は 1 つで、TempoRL が使っている。長さ 1 の窓を使う案だけでは、TempoRL と Embedding 学習を同時に満たす契約は決まらない。done の最終観測の保持と autoreset の境界も含め、§8 の 10 で調べる。MuZero の [専用 Replay](../../core/anet-core/src/muzero_rb.hpp) の系列取得を、共通 Replay に既に存在する機能とみなさない。
+- [ExperienceSamples](../../src/core/base/include/anet/rl.hpp) の Q 用 next_state.next_obs は n-step 先で、window.next_obs は窓の長さ先である。unroll の行動・収益を得られることは、任意の未来観測列をそのまま取得できることを意味しない。SamplingHistoryProbeRequest は抽選履歴の診断であり、時系列観測の取得 API ではない。
+- [ReplayBufferConfig](../../src/core/base/include/anet/replay_buffer.hpp) の window_rule は 1 つで、TempoRL が使っている。長さ 1 の窓を使う案だけでは、TempoRL と Embedding 学習を同時に満たす契約は決まらない。done の最終観測の保持と autoreset の境界も含め、§8 の 10 で調べる。MuZero の [専用 Replay](../../src/algo/muzero/src/muzero_rb.hpp) の系列取得を、共通 Replay に既に存在する機能とみなさない。
 - Actor の frame stack と Replay の stack 再構成は、使う時点が異なる。[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md) の履歴開始と [Replay 設計](../design/150_replay_buffer.jp.md) の境界を守る。短期記録用 Replay への統合は未決で、内的報酬の追加と同時に統合することは決めていない。
-- TempoRL は、現状では SKIP 継続中も full batch で primary と skip の forward を行い、継続 lane の提案行動を保持中の行動へ置き換える（[dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp) の MakeAction）。skip の学習は判断区間内の窓の収益と、終点の primary Q による bootstrap を使う。[ADR 0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md) の skip target は target Actor 用であり、skip 自身の bootstrap 用ではない。
+- TempoRL は、現状では SKIP 継続中も full batch で primary と skip の forward を行い、継続 lane の提案行動を保持中の行動へ置き換える（[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の MakeAction）。skip の学習は判断区間内の窓の収益と、終点の primary Q による bootstrap を使う。[ADR 0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md) の skip target は target Actor 用であり、skip 自身の bootstrap 用ではない。
 - Q の保存には online・target と、有効なら skip が含まれる。Actor の進行中状態と Replay 全体の保存は既存 checkpoint の範囲ではない（[DQN 系 Agent 設計](../design/200_dqn_agents.jp.md)）。本機能の学習済み状態とエピソード途中状態の保存を分けて決める。
 - KFM の RAM メトリクスは 1 = 面クリア、2 = 撃破、3 = 命中の回数（[Atari.txt](../../apps/runner/config/Atari.txt)）。ボス体力の最小を指標化する案と、群番号 56 を内的報酬へ使う旧案は残すが、現用設定・番号との衝突確認を §8 の 20 に置く。
 
@@ -382,13 +382,13 @@ Q^{ret}_t=Q(u_t,a_t,i)+
 
 | 既存部品・資料 | 働きと、精査する接続 |
 | --- | --- |
-| [default_dqn_agent.cpp](../../core/anet-core/src/default_dqn_agent.cpp) | Env の遷移を受ける。内的報酬の算出時点と Replay への保存内容 |
-| [dqn_based_agent.cpp](../../core/anet-core/src/dqn_based_agent.cpp)・[同ヘッダ](../../core/anet-core/src/dqn_based_agent.hpp) | Actor の条件付け、primary／skip の学習、補助ネットワークの更新・保存 |
-| [rl.hpp](../../core/anet-core/include/anet/rl.hpp)・[replay_buffer.hpp](../../core/anet-core/include/anet/replay_buffer.hpp)・[実装](../../core/anet-core/src/replay_buffer_impl.cpp) | 履歴・1-step 観測・方策ごとの割引を受け渡す。汎用 Replay に NGU／E3B の判定を持ち込まない |
+| [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) | Env の遷移を受ける。内的報酬の算出時点と Replay への保存内容 |
+| [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp)・[同ヘッダ](../../src/core/base/src/dqn_based_agent.hpp) | Actor の条件付け、primary／skip の学習、補助ネットワークの更新・保存 |
+| [rl.hpp](../../src/core/base/include/anet/rl.hpp)・[replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp)・[実装](../../src/core/base/src/replay_buffer_impl.cpp) | 履歴・1-step 観測・方策ごとの割引を受け渡す。汎用 Replay に NGU／E3B の判定を持ち込まない |
 | [DQN 設計](../design/200_dqn_agents.jp.md)・[Replay 設計](../design/150_replay_buffer.jp.md)・[Actor 設定 PRD](done/083_action_context_retire_10prd.md) | 現行契約との整合、Actor ごとの設定と学習側の責任 |
 | [TempoRL PRD](098_temporl_skip_policy_10prd.md)・[schedule PRD](done/101_exploration_schedule_profiled_value_10prd.md) | 窓の共有、方策別 γ と時間で変わる γ の組み合わせ |
 | [agent.txt](../../apps/runner/config/agent.txt)・[Atari.txt](../../apps/runner/config/Atari.txt)・[GridMaze.txt](../../apps/runner/config/GridMaze.txt) | 実装時の設定・実験腕と観測別 NN の定義。既存定義を今回編集する指示ではない |
-| [core のテスト](../../core/anet-core)・[設計文書](../design) | 現行契約に関わるテスト・利用手順も実装と同じ変更で更新する。具体的なテストファイルの一覧は接続契約を決めてから確定する（§8 の 22） |
+| [core のテスト](../../src/core/base)・[設計文書](../design) | 現行契約に関わるテスト・利用手順も実装と同じ変更で更新する。具体的なテストファイルの一覧は接続契約を決めてから確定する（§8 の 22） |
 
 ### 7.5 ホットパスの見積もりと計測
 

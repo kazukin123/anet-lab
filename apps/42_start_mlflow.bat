@@ -1,13 +1,14 @@
 @echo off
+title %~nx0
 
 setlocal
 
-call "%~dp0runner\tools\resolve_workspace.bat" "%~1"
+call "%~dp0tools\resolve_workspace.bat" "%~1"
 if errorlevel 1 exit /b 1
 
 set VENV_PYTHON=..\..\.venv\Scripts\python.exe
 set MLFLOW_EXE=..\..\.venv\Scripts\mlflow.exe
-set MLFLOW_REQUIREMENTS=..\..\viewers\metrics-tools\requirements.txt
+set MLFLOW_REQUIREMENTS=..\tools\requirements.txt
 
 cd /d "%~dp0runner"
 

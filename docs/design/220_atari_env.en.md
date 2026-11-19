@@ -338,9 +338,9 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 
 ### 6.1 Tests and Extension Checks
 
-For resize changes, follow the [PRD099 validation procedure](../../core/anet-core/testdata/prd099/README.md). Each of 24 fixed images must have absolute error at most 1 and at least 99.9% exact pixels. Preserve the default learning-series checksum. Performance acceptance requires a median speed ratio of at least 0.98 at 84×84 with 64 envs; defer judgment if baseline-versus-baseline controls do not stay within 1%.
+For resize changes, follow the [PRD099 validation procedure](../../src/core/base/testdata/prd099/README.md). Each of 24 fixed images must have absolute error at most 1 and at least 99.9% exact pixels. Preserve the default learning-series checksum. Performance acceptance requires a median speed ratio of at least 0.98 at 84×84 with 64 envs; defer judgment if baseline-versus-baseline controls do not stay within 1%.
 
-When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../core/anet-core/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`. The per-group alignment of RAM metrics and the protocol preset values in the shipped `Atari.txt` are checked by `[shipped_config][atari]` in anet-core-test (`config_baseline_test.cpp`).
+When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../src/core/base/testdata/prd082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`. The per-group alignment of RAM metrics and the protocol preset values in the shipped `Atari.txt` are checked by `[shipped_config][atari]` in anet-core-test (`config_baseline_test.cpp`).
 
 ## 7. Related Documents
 
@@ -350,4 +350,4 @@ When changing RAM definition numbers or reducers, check the ROM-independent and 
 - `reports/atari_env_survey_2026-08-13.md` — ALE survey (protocols and benchmark trends)
 - `CONTEXT.md` — Terminology (sticky actions / flavor / raw score / protocol preset)
 
-Transition observations, RGB, and aux are created before the auxiliary NOOP after life loss. If the NOOP ends the game, the Step result's finalized game values include its score and frames, but the returned reward/next_state/RGB/lives are not replaced. AtariView displays the result's rgb_frame, avoiding a shift to the screen after automatic Reset. Results are independent of later Steps and Resets, and the env carries no completion values forward. See [PRD097 validation](../../core/anet-core/testdata/prd097/README.md) for Asterix RAM acceptance conditions and public-API tests.
+Transition observations, RGB, and aux are created before the auxiliary NOOP after life loss. If the NOOP ends the game, the Step result's finalized game values include its score and frames, but the returned reward/next_state/RGB/lives are not replaced. AtariView displays the result's rgb_frame, avoiding a shift to the screen after automatic Reset. Results are independent of later Steps and Resets, and the env carries no completion values forward. See [PRD097 validation](../../src/core/base/testdata/prd097/README.md) for Asterix RAM acceptance conditions and public-API tests.
