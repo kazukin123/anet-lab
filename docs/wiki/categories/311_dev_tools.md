@@ -42,6 +42,7 @@
 - 2026-11-18: 置き場の規則（ビルドの入力はsrc、実行時の配置はapps、実行時にできるものはdata、配らないビルドの出力はout）、テストの参照範囲、基盤のテスト用の口、テスト実行体の出力先の1か所化、道具のapps/toolsへの集約を、グリルで決めた（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D2・D12・D13・D19・D20）。
 - 2026-11-18: トップの階層は、ビルドの入力・実行時の配置・実行時にできるもので分け、ビルドはappsへ直接出す（出典: [ADR 0078](../../adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md)、本文）。
 - 2026-11-18: テストは自分のライブラリの内部まで読み、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う（出典: [ADR 0080](../../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)、本文）。
+- 2026-11-19: PRDのグリルで、goal anchorの応答に共通の前提を並べ、ゴールの合意と同じ返事で説明が要る前提の番号を受けて理解を確かめ、欠けた前提は先にそろえるかをその都度選び、PRDに前提の表を置き、PRD品質確認観点に項番43を足す案を、グリルで決めた（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§1.2・§6.1 D2〜D8・§6.2 D13）。
 
 ## 選ばなかった形
 
@@ -100,6 +101,19 @@
 - 組み合わせのテストをsrc/tests/やRunnerのテストに置く形 — 不採用: テストは各フォルダの中という形から外れるか、Runner自身のテストと別物が混ざる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
 - 一方の道具だけを apps の下へ移し、置き場を2か所に分ける形 — 不採用: 探す場所が2つ残る（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
 - ソース配置の受入の検査をCIに載せること — 範囲外: CIの整備のPRDが扱う。再開条件: CIの整備のPRD（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D25・§7）。
+- グリルの前提を全部、最初に1つの応答で一覧にする形 — 不採用: 論点が多いと読み流され、問いでもう一度言い直して二重になる（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D2・§9）。
+- グリルの前提を問いごとに添えるだけにする形 — 不採用: 全体に効く前提が最初の問いまで欠けたまま進む（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D2・§9）。
+- 共通の前提を、足す仕組みの確認のあとの別の応答で示して確かめる形 — 不採用: 何も無いときの返事が承認だけの往復になり、改訂では前提の画面が2つ並ぶ（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D2・§9）。
+- 前提の理解を、前提ごとの申告、開発者自身の言葉での要約、AIの確認の問いで確かめる形 — 不採用: 質問欄に収まらないか、毎回、自由記述の答え（中央値4.4分）か複数の往復を足す（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D3・§9）。
+- 前提が欠けたら常にグリルを止めて暫定のPRDにする形 — 不採用: 小さな欠けでも止まり、それまでの決定が暫定の既定に下がって開き直しになる（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D4・§9）。
+- 欠けた前提を今のまま結果ごとの分かれ方だけで決める形 — 不採用: 全体に効く前提が欠けたままグリル全体が進む（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D4・§9）。
+- グリルの前提をPRDの既存の節（現状・規約と過去の判断）へ分けて書く形 — 不採用: 書き漏れを会話を知らないレビューで見つけにくく、確かめを飛ばした記録が散らばる（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D5・§9）。
+- 暫定の起票で、前提の表に加えて前提をそろえる段まで書く形 — 不採用: 開発者の選択（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D6・§9）。
+- 前提の段と、前提をそろえるための停止を、プロセス契約に中立の文面で足す形 — 先送り: 手順を試しておらず、anetの外のプロジェクトの工程にまで入る。再開条件: anetで手順を試し、開発者が中立の文面に上げてよいと判断したとき（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D7・§9）。
+- 前提の表の検査を、観点29の確認内容を広げて済ませる形 — 不採用: 表そのものが無くても見つからない（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D8・§9）。
+- 共通の前提の各行に、効く論点と、違うと推奨がどう変わるかを添える形 — 不採用: goal anchorの時点では論点が決まっていないことがあり、誤りやすい（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D30・§9）。
+- 実装の入口でレビューを受けるPRDに、前提をそろえるためにグリルを止めたPRDを足す形 — 範囲外: 課題が範囲をanet-create-prdに限っている。再開条件: 未決表のU1を起票し、その課題を扱うとき（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§1.3 NG3・§9・§10）。
+- グリルの手順の試走（実装のあとの最初のグリル1本）を受入に入れる形 — 不採用: 実装の完了が次のグリルを待つ（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D32・§9）。
 
 ## 変えるときの条件
 
@@ -121,6 +135,7 @@
 - 基盤テストの実行体でMKLDNNを切るのは実行体の開始時の1か所にし、テストの中で切らない。テストの開始時に切れていることを見張りのテストで確かめ、Release（assertが出ない）でも切り替えの消失に気づけるようにする（出典: [PRD124](../../memo/124_test_process_mkldnn_off_10prd.md)、§4 D1・D5・§6のA4）。
 - テスト用の口の中身は、組み立ての補助と読むだけの口に限り、製品の処理を置かない。anet/test/の下のヘッダはガードを持ち、製品のコードは読まない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D13・§6 のS3-3）。
 - リリースのzipの中のパスを変えるときは、着手前の一覧と比べて、決めた差だけであることを確かめる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§6 のS1-4・S4-4）。
+- PRDのグリルの手順を変えるときは、理解を深める往復（説明や具体例を求める返答と、その答え）を減らす対象にしない。前提の確かめと前提をそろえる段は、開発者が指定すれば飛ばせる形を保つ（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§1.3 NG1・§6.1 D1）。
 
 ## 関係
 
@@ -193,13 +208,13 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261116-6db0f2](../../management/issues/issue-20261116-6db0f2.md) | 調査中 | 1.5 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD189](../../memo/189_grill_premise_understanding_10prd.md) | 未確認 | グリルを始める前に、判断に要る前提を開発者が理解した状態にする工程と、その状態を確かめる工程が無い |
 | [issue-20261104-52ffba](../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD187](../../memo/187_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261111-3986b7](../../management/issues/issue-20261111-3986b7.md) | 未着手 | 3.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | テストを回す範囲・回数と、テストの控え・ログの置き場の決まりが無く、実装の時間と .scratch が膨らむ |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-58696c](../../management/issues/issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD112](../../memo/112_claude_memory_tidy_10prd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
-| [issue-20261116-6db0f2](../../management/issues/issue-20261116-6db0f2.md) | 未着手 | 1.5 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | グリルを始める前に、判断に要る前提を開発者が理解した状態にする工程と、その状態を確かめる工程が無い |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-61d771](../../management/issues/issue-20261103-61d771.md) | 未着手 | 1.6 | — | コード | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD156](../../memo/156_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
 | [issue-20261115-3e5b77](../../management/issues/issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 文書 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
