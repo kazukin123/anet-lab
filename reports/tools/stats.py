@@ -139,7 +139,9 @@ class Rules:
 
     def category_of(self, path):
         base = os.path.basename(path)
-        if base in self.test_infra or path.startswith(("src/core/base/src/test/", "src/core/base/include/anet/test/")):
+        if base in self.test_infra or path.startswith((
+            "src/core/base/src/test/", "src/core/base/src_testing/", "src/core/base/include/anet/test/",
+        )):
             return "test_infra"
         q = re.sub(r"_test\.cpp$", ".cpp", path)
         for k, _, _, _, rs in self.cats:

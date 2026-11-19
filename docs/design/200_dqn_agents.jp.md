@@ -309,7 +309,7 @@ PERが有効で初期優先度の方式が`actor_approx`の場合、カタログ
 | 内的報酬 | [intrinsic.hpp](../../src/core/base/include/anet/intrinsic.hpp)、[intrinsic.cpp](../../src/core/base/src/intrinsic.cpp)、[intrinsic_rnd.hpp](../../src/core/base/src/intrinsic_rnd.hpp)、[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp)。詳細は[内的報酬](212_rnd_lifelong_novelty.jp.md) |
 | frame stack | [stacker.hpp](../../src/core/base/include/anet/stacker.hpp)、[stacker.cpp](../../src/core/base/src/stacker.cpp) |
 | Runner設定例 | [apps/runner/config](../../apps/runner/config) |
-| DQN test | DQNの各役割と具象Agentの `dqn_*_test.cpp`、[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp)、[prd101_ladder_test.cpp](../../src/algo/dqn/src/prd101_ladder_test.cpp)、[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp)、[stacker_test.cpp](../../src/core/base/src/stacker_test.cpp) |
+| DQN test | DQNの各役割と具象Agentの `dqn_*_test.cpp`、[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp)、[dqn_actor_test.cpp](../../src/algo/dqn/src/dqn_actor_test.cpp)（探索ラダー）、[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp)、[stacker_test.cpp](../../src/core/base/src/stacker_test.cpp) |
 
 ## 5. 静的構造
 
@@ -823,7 +823,7 @@ PRD101の比較・実Run手順は[PRD101検証資材](../../src/core/base/testda
 
 TempoRL の window・Actor・learner・checkpoint・指標を変える場合は、[PRD098検証資材](../../src/core/base/testdata/prd098/README.md) の契約テスト、4環境の無効時等価性、smoke、Atari性能比較を実行する。長時間学習の合否は短い検証とは分けて記録する。
 
-主なDQN testはDQNの各役割と具象Agentの `dqn_*_test.cpp`と[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp)に置く。DQNの検証には[prd101_ladder_test.cpp](../../src/algo/dqn/src/prd101_ladder_test.cpp)、[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp)、[stacker_test.cpp](../../src/core/base/src/stacker_test.cpp)も使う。Replay共通testは[replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)に置く。
+主なDQN testはDQNの各役割と具象Agentの `dqn_*_test.cpp`と[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp)に置く。探索ラダーは[dqn_actor_test.cpp](../../src/algo/dqn/src/dqn_actor_test.cpp)で検証する。DQNの検証には[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp)、[stacker_test.cpp](../../src/core/base/src/stacker_test.cpp)も使う。Replay共通testは[replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)に置く。
 
 DQN系Agentを追加・変更する場合は、少なくとも次を確認する。
 

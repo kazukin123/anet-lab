@@ -17,7 +17,7 @@ file(GLOB_RECURSE ANET_PUBLIC_HEADERS CONFIGURE_DEPENDS "include/*.hpp")
 file(GLOB_RECURSE ANET_PRIVATE_SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.hpp")
 file(GLOB_RECURSE ANET_TEST_SOURCES CONFIGURE_DEPENDS "src/*test.cpp")
 
-list(FILTER ANET_PRIVATE_SOURCES EXCLUDE REGEX ".*test\\.cpp$|/src/test/")
+list(FILTER ANET_PRIVATE_SOURCES EXCLUDE REGEX ".*test\\.cpp$")
 
 
 # ---------------------------------------------------------------------
@@ -26,7 +26,7 @@ list(FILTER ANET_PRIVATE_SOURCES EXCLUDE REGEX ".*test\\.cpp$|/src/test/")
 add_library(anet-core-base STATIC)
 add_executable(anet-core-base-test)
 
-file(GLOB ANET_TEST_SUPPORT_SOURCES CONFIGURE_DEPENDS "src/test/*.cpp")
+file(GLOB ANET_TEST_SUPPORT_SOURCES CONFIGURE_DEPENDS "src_testing/*.cpp")
 add_library(anet-core-testing STATIC ${ANET_TEST_SUPPORT_SOURCES})
 target_include_directories(anet-core-testing PRIVATE src)
 target_compile_definitions(anet-core-testing PUBLIC ANET_TEST_SUPPORT)

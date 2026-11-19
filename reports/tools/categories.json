@@ -14,7 +14,7 @@
     "\\.(png|jpg|jpeg|gif|pdf|asta|bak|ico|zip|csv)$"
   ],
   "areas": [
-    ["tests", "(_test\\.(cpp|hpp)$)|(^src/core/base/src/(main_test|catch_test)\\.cpp$)|(^src/core/base/include/anet/(catch_test|test_util)\\.hpp$)|(^src/core/base/include/anet/test/)|(/src/test/)|(_test\\.py$)|(/test_[^/]+\\.py$)"],
+    ["tests", "(_test\\.(cpp|hpp)$)|(^src/core/base/src/(main_test|catch_test)\\.cpp$)|(^src/core/base/include/anet/(catch_test|test_util)\\.hpp$)|(^src/core/base/include/anet/test/)|(/src/test/)|(^src/core/base/src_testing/)|(_test\\.py$)|(/test_[^/]+\\.py$)"],
     ["core", "^src/(core/base|algo)/"],
     ["envs", "^src/env/"],
     ["config", "^apps/runner/config/"],

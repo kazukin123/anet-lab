@@ -58,7 +58,7 @@ def graph_violations(text):
     return results
 
 
-def include_violations(commands, core_source):
+def include_violations(commands, private_paths):
     results = set()
     permitted = {BASE, BASE + "-test", TESTING}
     for row in commands:
@@ -71,7 +71,7 @@ def include_violations(commands, core_source):
             continue
         for path in INCLUDES.finditer(command):
             include = (Path(row["directory"]) / (path[1] or path[2])).resolve()
-            if include == core_source or include.is_relative_to(core_source):
+            if any(include.is_relative_to(private_path) for private_path in private_paths):
                 results.add(f"Private base include path: {owner} -> {include}")
     return sorted(results)
 
@@ -83,9 +83,9 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[5]
     violations = graph_violations(args.graphviz.read_text(encoding="utf-8"))
-    violations.extend(include_violations(
-        json.loads(args.compile_commands.read_text(encoding="utf-8")),
-        (root / "src/core/base/src").resolve()))
+    private_paths = tuple((root / "src/core/base" / directory).resolve() for directory in ("src", "src_testing"))
+    commands = json.loads(args.compile_commands.read_text(encoding="utf-8"))
+    violations.extend(include_violations(commands, private_paths))
     for violation in violations:
         print(violation)
     print(f"Dependency or include path violations: {len(violations)}")

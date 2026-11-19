@@ -1,4 +1,4 @@
-<!-- translated-from: 011_source_layout.jp.md blob:cf9e107586306529d19a081edbcca9b69574f171 date:2026-11-19 progress:done -->
+<!-- translated-from: 011_source_layout.jp.md blob:870df61c32c979f106d8ca29930f751a2960af97 date:2026-11-20 progress:done -->
 # Source Layout and Library Boundaries
 
 ## Libraries and Applications
@@ -16,6 +16,7 @@ The contracts of the public headers placed in `include/anet/` are listed in the 
 ## Tests
 
 Unit tests are placed in the library they test. When a test uses another library, it goes through that library's public headers and test-only interface.
+Headers for the test-only interface live in `src/core/base/include/anet/test/`, and its implementation lives in `src/core/base/src_testing/`.
 `anet-core-testing` defines `ANET_TEST_SUPPORT` for the tests that link it, and provides small Network assembly, reference computations, and stand-in Agents.
 
 A test that uses multiple libraries is placed in the library that is its subject, with the other parties composed of stand-ins. When the combination itself is the subject, a dedicated test application is placed under `src/apps/`. Shipped configuration and validation resources are readable from the repository root.

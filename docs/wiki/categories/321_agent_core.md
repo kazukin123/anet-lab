@@ -215,8 +215,8 @@
 - [agent.cpp](../../../src/core/base/src/agent.cpp)
 - [intrinsic.cpp](../../../src/core/base/src/intrinsic.cpp) / [intrinsic_test.cpp](../../../src/core/base/src/intrinsic_test.cpp)
 - [intrinsic_rnd.cpp](../../../src/core/base/src/intrinsic_rnd.cpp) / [intrinsic_rnd.hpp](../../../src/core/base/src/intrinsic_rnd.hpp)
-- [agent.cpp](../../../src/core/base/src/test/agent.cpp)
-- [intrinsic.cpp](../../../src/core/base/src/test/intrinsic.cpp)
+- [agent.cpp](../../../src/core/base/src_testing/agent.cpp)
+- [intrinsic.cpp](../../../src/core/base/src_testing/intrinsic.cpp)
 
 ## PRD の一覧
 

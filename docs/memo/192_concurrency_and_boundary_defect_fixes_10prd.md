@@ -217,7 +217,7 @@ D12 の、`smooth_radius` の検証。上から順に当て、最初に当たっ
 
 - 1 回だけの登録は、初期化関数ごとに持つ。2 つのスレッドが同時に同じ初期化関数を呼んでも、登録は 1 回である。
 - `InitRL` は 1 回だけにしない。backend の設定を呼ぶたびに当て直す関数で、中で呼ぶ `InitNN` が 1 回だけになれば足りる。退けた案は、`InitRL` も 1 回だけにする形である。制約ではないが、設定を変えて呼び直すテストが、2 回目から設定を当てられなくなる。
-- テスト用の `RegisterStandardNetworkModules` は直さない。今も `InitNN` を呼ぶだけの関数で（[test/nn.cpp](../../src/core/base/src/test/nn.cpp) 28〜31 行）、D11 で `InitNN` の登録が 1 回だけになれば足りる。
+- テスト用の `RegisterStandardNetworkModules` は直さない。今も `InitNN` を呼ぶだけの関数で（[src_testing/nn.cpp](../../src/core/base/src_testing/nn.cpp) 28〜31 行）、D11 で `InitNN` の登録が 1 回だけになれば足りる。
 - `EnvRepository` の登録は、すでに重複を止めるので、直す箇所が無い。
 
 ### 6.6 QValuePanel
