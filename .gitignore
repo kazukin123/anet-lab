@@ -82,3 +82,4 @@ __pycache__/
 /apps/runner/*.dmp
 /.obsidian
 *.base
+/.eclipse-workspace
