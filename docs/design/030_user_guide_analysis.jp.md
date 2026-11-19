@@ -176,7 +176,7 @@ Run B: 0 - 70M exp_step
 
 ### 4.5 IQN探索P0診断を読む
 
-IQN探索では、解決済み`config/config_data.txt`に`metrics.scalar.iqn_search_p0`が合成されていることと、Policy/Learnerそれぞれのtau配置方式・本数`K/N/M`を先に確認する。診断値だけで採用を決めず、DropMergeのDouble Suika生成数・達成率、報酬、PER健全性、throughputを同じmatched `exp_step` windowで分けて読む。
+IQN探索では、§6.7の`resolution`で`metrics.scalar.@iqn_search_p0`の選択を確認する。解決済み`config/config_data.txt`で、Policy/Learnerそれぞれのtau配置方式・本数`K/N/M`を確認する。診断値だけで採用を決めず、DropMergeのDouble Suika生成数・達成率、報酬、PER健全性、throughputを同じmatched `exp_step` windowで分けて読む。
 
 - `iqn_policy_margin_mc_ratio`はUQE上位2行動のgapをrisk quantileの有限本数scaleで正規化する。`random`ではMonte Carlo平均の安定度、`fixed`および`stratified`ではforward間の乱数分散ではなく積分解像度のproxyとして扱う。
 - `iqn_current_mc_scale`と`iqn_target_mc_scale`は`N`と`M`を分けて読む。`iqn_priority_mc_ratio`は現行の平均TD priority信号が両側の有限tau scaleに対してどの程度大きいかを表す。

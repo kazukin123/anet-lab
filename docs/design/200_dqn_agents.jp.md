@@ -54,7 +54,7 @@ Agent共通contractは[Agentと学習](110_agents_and_learning.jp.md)、ReplayBu
 
 #### 2.1.2 DQNの基本
 
-DQNは、状態sで行動aを選んだ後の割引収益の期待値を`Q(s,a)`としてNetworkで近似する。経験`(s,a,r,s')`をReplayへ蓄え、そこから取り出したminibatchで、現在のQ値を次のTD targetへ近づける。以下は1-step・通常Qの基本形であり、dは真の終端で1、それ以外で0とする。[DQN (2015/02), Methods][paper-dqn]
+DQNは、状態sで行動aを選んだ後の割引収益の期待値を`Q(s,a)`としてNetworkで近似する。経験`(s,a,r,s')`をReplayへ蓄え、そこから取り出したminibatchで、現在のQ値をBellmanターゲットへ近づける。以下は1-step・通常Qの基本形であり、dは真の終端で1、それ以外で0とする。[DQN (2015/02), Methods][paper-dqn]
 
 $$
 y = r + \gamma(1-d)\max_{a'}Q_{\theta^-}(s',a')
@@ -62,7 +62,7 @@ $$
 
 `θ`は更新するonline Network、`θ⁻`はbootstrapに使うtarget Networkのパラメータである。Experience Replayは連続する経験の相関を弱めて経験を再利用し、Target Networkは更新対象と教師値の変化を切り離す。行動選択にはQ値が最大の行動とランダムな行動を混ぜるepsilon-greedyを使う。[DQN (2015/02), Methods][paper-dqn]
 
-本実装ではonline/targetの管理を`NetworkModel`、通常Qのlossを`TDLearner`、経験の保存と抽選を共通ReplayBufferが担当する。分布を学ぶQR/IQNでも、この経験受入れ・学習・target同期の骨格を共有する（[2.3節](#23-online-networkとtarget-network)・[2.5節](#25-dqnとreplaybuffer)）。
+本実装ではonline/targetの管理を`NetworkModel`、通常Qのlossを`dqn::Learner`、経験の保存と抽選を共通ReplayBufferが担当する。通常Qで選ばれる具象型は`TDLearner`である。分布を学ぶQR/IQNでも、この経験受入れ・学習・target同期の骨格を共有する（[2.3節](#23-online-networkとtarget-network)・[2.5節](#25-dqnとreplaybuffer)）。
 
 #### 2.1.3 Rainbowの構成要素
 
@@ -144,12 +144,12 @@ Munchausen RLは、Q値から得るsoftmax方策πの対数を使い、報酬に
 
 #### 2.1.8 TempoRLとskip方策
 
-TempoRLは「行動a」と「継続長j」を分けて学ぶ。skipの価値は、継続区間の割引報酬と区間末尾の行動価値から学習する。[TempoRL (2021/06), Sections 3.1–3.3][paper-temporl]
+TempoRLは「行動a」と「スキップ長j」を分けて学ぶ。skipの価値は、スキップの割引報酬と区間末尾の行動価値から学習する。[TempoRL (2021/06), Sections 3.1–3.3][paper-temporl]
 
 ```mermaid
 flowchart LR
     S["現在の状態"] --> A["primary方策<br/>行動aを選ぶ"]
-    A --> J["skip方策<br/>継続長jを選ぶ"]
+    A --> J["skip方策<br/>スキップ長jを選ぶ"]
     J --> R["同じaをj step返す"] --> N["次の判断"]
 ```
 
@@ -183,13 +183,15 @@ flowchart LR
     V --> H["変換 h"] --> Y["target<br/>h空間"]
 ```
 
-`learner.use_tbo`で選び、QR/IQNでは各分位を逆変換する。報酬スケーラは**報酬の尺度**、TBOは**Q値とtargetの表現**を変える。逆変換は`TransformHInv`、圧縮は`TransformH`に対応する。[実装：TDLearner / QuantileLearnerBase](../../src/algo/dqn/src/dqn_learner.cpp)
+`learner.use_tbo`で選び、QR/IQNでは各分位を逆変換する。報酬スケーラは**報酬の尺度**、TBOは**Q値とtargetの表現**を変える。逆変換は`TransformHInv`、圧縮は`TransformH`に対応する。[実装：dqn::Learner / QuantileLearnerBase](../../src/algo/dqn/src/dqn_learner.cpp)
 
 #### 2.1.11 楽観ターゲット
 
 楽観ターゲットは、次状態でbootstrapする方策を、収益分布の上側を見るscoreで決める構成である。UQEをActorだけで使えば実際の行動が変わり、target方策でも使えば学習の教師値を組み立てる際の選択も変わる。Munchausen OFFではscoreが最大の行動を選び、選択した行動の価値・分布をtarget Networkで評価する。選択に使った上位分位のscore自体を、そのままbootstrap値に置き換える処理ではない。Munchausen ONでは、そのscoreから作るsoft方策で混合する（[6.3節](#63-munchausen-rl)）。[実装：targetの行動選択・価値評価](../../src/algo/dqn/src/dqn_learner.cpp)
 
-DefaultDQNの`use_optimistic_target=true`は、`actor.[train].policy`をtarget方策の既定へコピーし、epsilonを0にする。その後の`target_policy.*`指定で上書きできるため、有効な方式は解決後の方策で確認する。コピー元が平均Qのgreedyなら、このフラグだけで上側を見る方策にはならない。[実装：DefaultDQNAgentConfig](../../src/algo/dqn/src/default_dqn_agent.hpp)
+DefaultDQNで`use_optimistic_target=true`のときは、`actor.[train].policy`からtarget方策の既定を作る。コピー後に`epsilon`と`uqe.epsilon`を0にし、`EpsilonGreedy`は`Greedy`にする。コピー元の種類がUQEまたはThompsonSampling以外の場合は、一度WARNを出す。`use_optimistic_target=false`のときは、`Greedy`と`epsilon` 0を既定とする。
+
+どちらの場合も、`tau_rule`はfixed×32、`full_distribution_query`は既定値から始め、その後で`target_policy.*`の上書きを適用する。上書き後は`spatial.enabled`をfalseに固定する。[実装：DefaultDQNAgentConfig](../../src/algo/dqn/src/default_dqn_agent.hpp)
 
 #### 2.1.12 spatial exploration：laneごとの探索強度
 
@@ -234,15 +236,15 @@ Double DQN、N-step、PER、勾配clip、AMPなどはLearner設定で組み合�
 
 ### 2.4 ActionPolicyとDQNActionInfo
 
-`ActionPolicy`はNetwork forwardとAction選択を担当し、Action、Q値、quantileなどを`DQNActionInfo`へまとめる。現行の共通部品にはepsilon-greedy、UQE、Thompson Samplingがある。DefaultDQNはTrain、Eval、target用Policyを分け、RainbowはAction用Policyと学習target用のgreedy Policyを構成する。
+`ActionPolicy`はNetwork forwardとAction選択を担当し、Action、Q値、quantileなどを`DQNActionInfo`へまとめる。現行の共通部品にはepsilon-greedy、UQE、Thompson Samplingがある。DefaultDQNとRainbowでは、`CreateActor`を呼ぶたびにカタログ項目の`policy`から方策を作り、そのActorが所有する。Agentが所有する方策は学習target用であり、Learnerが参照する。
 
-DefaultDQNのIQNでは、各Policyが`tau_rule`（`num_taus`と`random|fixed|stratified|systematic|antithetic`）に従ってtausを生成し、受領したObservationのshallow copyへ注入してからforwardする。`stratified`は各等幅層から独立に1点、`systematic`は行ごとに1つの位相を共有した等間隔点、`antithetic`は範囲中点に関する鏡映ペア（奇数本では末尾に独立点）を生成する。`fixed`は各等幅区間の中点へ固定配置する決定論的な方式で、RNGを消費しない。Trainの既定はrandom×32、Eval/targetはfixed×32である。UQEは減衰後の実効tauを下限とし、`uqe.use_tail_mean=true`では下限から1までの平均、`false`では全点を下限へ固定した`Zτ`をaction scoreにする。非spatial Thompsonは`[0,1]`、spatial Thompsonはlaneごとの下限を使う。tau配置方式と時間の値 `uqe.tau` は別の設定概念である。Thompsonの`uqe_tau`指標は常にNaNとなる。
+DefaultDQNのIQNでは、各Policyが`tau_rule`（`num_taus`と`random|fixed|stratified|systematic|antithetic`）に従ってtausを生成し、受領したObservationのshallow copyへ注入してからforwardする。`stratified`は各等幅層から独立に1点、`systematic`は行ごとに1つの位相を共有した等間隔点、`antithetic`は範囲中点に関する鏡映ペア（奇数本では末尾に独立点）を生成する。`fixed`は各等幅区間の中点へ固定配置する決定論的な方式で、RNGを消費しない。方策のコード上の既定はrandom×32である。target方策の既定を組み立てる際はfixed×32に戻す。evalのfixed×32は出荷設定`agent.txt`の`actor.@eval_base`で指定する。UQEは時間の値として評価した実効τを下限とし、`uqe.use_tail_mean=true`では下限から1までの平均、`false`では全点を下限へ固定した`Zτ`をaction scoreにする。非spatial Thompsonは`[0,1]`、spatial Thompsonはlaneごとの下限を使う。tau配置方式と時間の値 `uqe.tau` は別の設定概念である。Thompsonの`uqe_tau`指標は常にNaNとなる。
 
 IQN+UQEは任意の`full_distribution_query`を持つ。既定はdisabledで、enabled時はrisk tausとfull `[0,1]` tausを連結して1回だけforwardする。`q_values`/`uqe_values`/`q_quantiles`はrisk側、`full_q_values`/`full_q_quantiles`はfull側であり、Headが連結全体から返す平均`q`は使わない。point UQEのrisk側は同値なα 1本に縮約する。非IQN modeではenabled設定を休眠状態のまま保持して無視するため、quantile modeの切替時に同時変更する必要はない。IQNでenabledにしたままUQE以外のPolicyを選ぶ構成は設定エラーになる。
 
 Actorは、構成に応じて`DictFrameStacker`によるframe stackとdevice転送（stacker無しではdevice転送のみ）を行い、Observation正規化、Policy呼出し、補助情報の付与へ進む。PolicyはLearnerへ依存せず、NetworkとRNGだけでActionを決定する。
 
-`DefaultDQNAgent`のframe stackでは、`use_stacker=true`かつ`stack_count=S>1`のとき、stack対象ObservationのNetwork入力specをEnvSpecの特徴次元へ乗算せず、`[S, *original_shape]`として構築する。これによりdummy forward、Actor、Replay sampleの入力軸が一致する。`stack_keys`対象外のspecは変更せず、`stack_count==1`では追加のstack軸をNetwork specへ導入しない。このspec変換はDefaultDQN固有であり、EnvSpec、ObservationNormalizer、ReplayBuffer、`NetworkBuilder`、`RainbowAgent`のcontractは変更しない。moduleごとのshape変換と離散Gridのone-hot境界は[ニューラルネットワーク](130_neural_networks.jp.md#22-frame-stack入力の軸contract)を参照する。
+`DefaultDQNAgent`のframe stackでは、`stucker.use_stacker=true`かつ`stucker.stack_count=S>1`のとき、stack対象ObservationのNetwork入力specをEnvSpecの特徴次元へ乗算せず、`[S, *original_shape]`として構築する。これによりdummy forward、Actor、Replay sampleの入力軸が一致する。`stucker.stack_keys`対象外のspecは変更せず、`stucker.stack_count==1`では追加のstack軸をNetwork specへ導入しない。このspec変換はDefaultDQN固有であり、EnvSpec、ObservationNormalizer、ReplayBuffer、`NetworkBuilder`、`RainbowAgent`のcontractは変更しない。moduleごとのshape変換と離散Gridのone-hot境界は[ニューラルネットワーク](130_neural_networks.jp.md#22-frame-stack入力の軸contract)を参照する。
 
 ProfiledValueのrootの定数は `epsilon = 0.05` のようにbare値で指定し、`type` の既定は `constant` となる。実効typeがconstant以外の場合、bare値は `value` 欄に保持されるが、評価と型付きdumpには使われない。bare値だけで定数へ切り替えることはできないため、定数に戻す場合は `epsilon.type = constant` と意図するbare値を併記する。phase内の定数は `phase.[name].value` で指定する。
 
@@ -254,7 +256,7 @@ logラダーは `max(端, 1e-4)` の列を指定端へ線形に伸縮する。cl
 
 内側の`dqn::Learner`はCPU上の共通ReplayBufferを所有し、ExperienceをPushしてからwarmup、sample可能数、update creditを確認する。更新可能な間はminibatchをsampleし、学習deviceへ移してTDまたはquantile lossを計算する。N-step、frame stack、generation-aware item key、PER、prefetchの共通contractは[ReplayBuffer](150_replay_buffer.jp.md)を正本とする。
 
-PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存forwardからDQN固有の`float32[B,5]` hintを作る。combinedの列は次の順序である。分解時の前3列は外的Headの値とし、内的の2列も使う。
+PERが有効で初期優先度の方式が`actor_approx`の場合、カタログ項目の名前や用途にかかわらず、Agentが作るすべてのActorは既存forwardからDQN固有の`float32[B,5]` hintを作る。combinedの列は次の順序である。分解時の前3列は外的Headの値とし、内的の2列も使う。
 
 | 列 | 値 |
 |---:|---|
@@ -278,7 +280,7 @@ PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存
 
 | コンポーネント | 定義 |
 |---|---|
-| `DefaultDQNAgent` | scaler、複数Policy、Train Actor snapshotなどを組み合わせる設定可能なDQN系Agent |
+| `DefaultDQNAgent` | scaler、target用Policy、Train Actor snapshotなどを組み合わせる設定可能なDQN系Agent |
 | `IntrinsicRewardCoordinator` | DefaultDQNのprivateな入れ子。内的報酬の採点、β、補助学習、診断、保存・読込、Evaluation Traceの採点と写しをまとめる |
 | `RainbowAgent` | DQN 系の共通部品の責務分担を確かめる2つ目の Agent。Run では使わない |
 | `DqnComponentAssembler` | 具象 Agent の設定型を受け取らず、Head・方策・Actor・Learner の生成と値の振り分けを共通化する |
@@ -290,22 +292,24 @@ PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存
 | `ActionPolicy` | Network出力からActionを選択する基底component |
 | `dqn::Actor` | frame stacker、正規化、Policy、Network、RNG、同期StateをまとめるActor実装 |
 | `dqn::Learner` | 1 batch の更新の進行、通常 Q の計算、ReplayBuffer、optimizer、更新credit、target同期、PER更新をまとめる内部Learner |
-| `TDLearner` | scalar TD targetとTD lossを計算するLearner |
+| `TDLearner` | 通常Qのとき選ばれる具象型。上書きを持たず、ReplayBufferとoptimizerを準備する。target・誤差・forward・TBOの変換は基底の`dqn::Learner`が担当する |
 | `QuantileLearnerBase` / `QRLearner` / `IQNLearner` | target quantileと方式別のquantile Huber lossを計算するLearner |
-| `TauGenerator` | IQNの5種のtau配置方式を指定device上で生成するstateless component |
+| `GenerateTaus` | IQNの5種のtau配置方式に従い、指定のdevice上にτを生成する自由関数。固定の範囲を受ける形と、laneごとの下限を受ける形がある |
 | `RewardScaler` / `ObservationNormalizer` | DefaultDQNのExperience前処理とNetwork入力正規化を担当するcomponent |
 
 ## 4. コードマップ
 
 | 領域 | 主なファイル |
 |---|---|
-| DQN共通部品 | [学習](../../src/algo/dqn/src/dqn_learner.hpp)、[行動](../../src/algo/dqn/src/dqn_actor.hpp)、[Network](../../src/algo/dqn/src/dqn_network_model.hpp)、[組み立て](../../src/algo/dqn/src/dqn_assembler.hpp)、[共通の計算](../../src/algo/dqn/src/dqn_math.hpp) |
+| DQN共通部品 | [学習](../../src/algo/dqn/src/dqn_learner.hpp)、[行動](../../src/algo/dqn/src/dqn_actor.hpp)、[Network](../../src/algo/dqn/src/dqn_network_model.hpp)、[組み立て](../../src/algo/dqn/src/dqn_assembler.hpp)、[共通の計算](../../src/algo/dqn/src/dqn_math.hpp)、[設定の型（dqn_config.hpp）](../../src/algo/dqn/src/dqn_config.hpp) |
 | DQN Head | [dqn_heads.hpp](../../src/algo/dqn/src/dqn_heads.hpp)、[dqn_heads.cpp](../../src/algo/dqn/src/dqn_heads.cpp) |
 | DefaultDQN | [default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp)、[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) |
 | Rainbow | [rainbow_agent.hpp](../../src/algo/dqn/src/rainbow_agent.hpp)、[rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp) |
 | ReplayBuffer | [replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp)、[replay_buffer_impl.hpp](../../src/core/base/src/replay_buffer_impl.hpp)、[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) |
+| 内的報酬 | [intrinsic.hpp](../../src/core/base/include/anet/intrinsic.hpp)、[intrinsic.cpp](../../src/core/base/src/intrinsic.cpp)、[intrinsic_rnd.hpp](../../src/core/base/src/intrinsic_rnd.hpp)、[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp)。詳細は[内的報酬](212_rnd_lifelong_novelty.jp.md) |
+| frame stack | [stacker.hpp](../../src/core/base/include/anet/stacker.hpp)、[stacker.cpp](../../src/core/base/src/stacker.cpp) |
 | Runner設定例 | [apps/runner/config](../../apps/runner/config) |
-| DQN test | DQNの各役割と具象Agentの `dqn_*_test.cpp`、[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp) |
+| DQN test | DQNの各役割と具象Agentの `dqn_*_test.cpp`、[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp)、[prd101_ladder_test.cpp](../../src/algo/dqn/src/prd101_ladder_test.cpp)、[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp)、[stacker_test.cpp](../../src/core/base/src/stacker_test.cpp) |
 
 ## 5. 静的構造
 
@@ -351,8 +355,8 @@ DefaultDQNAgent *-- RuntimeVars
 RainbowAgent *-- RuntimeVars
 DefaultDQNAgent *-- DqnNetworkModel
 RainbowAgent *-- DqnNetworkModel
-DefaultDQNAgent *-- ActionPolicy
-RainbowAgent *-- ActionPolicy
+DefaultDQNAgent *-- ActionPolicy : target用
+RainbowAgent *-- ActionPolicy : target用
 DefaultDQNAgent *-- DqnLearner
 RainbowAgent *-- DqnLearner
 DefaultDQNAgent ..> DqnActor : 生成
@@ -364,7 +368,8 @@ QuantileLearnerBase <|-- IQNLearner
 DqnLearner *-- ReplayBuffer
 DqnLearner *-- Optimizer
 DqnLearner --> DqnNetworkModel
-DqnActor --> ActionPolicy
+DqnActor *-- ActionPolicy
+DqnLearner --> ActionPolicy : target用
 ```
 
 `LearnerInterface`は共通`anet::rl::Learner`、`DqnLearner`は内部`anet::rl::dqn::Learner`を表す。外側AgentはRunから見えるLearner facadeであり、共有mutexを取得してから内側Learnerを呼ぶ。
@@ -383,14 +388,14 @@ sequenceDiagram
     participant N as Actor Network
 
     R->>G: CreateActor(actor_request)
-    G->>G: Policyとsource Networkを選択
+    G->>G: カタログ項目のpolicyからPolicyを作り、source Networkを選ぶ
     opt modelを複製
         G->>N: sourceからcloneを作成
     end
     G-->>R: DQN Actor
     R->>A: MakeAction(step_counts, batch_state)
     A->>A: DefaultDQN Train snapshotを判定
-    opt use_stacker
+    opt stucker.use_stacker
         A->>S: Stack(obs, episode_start)
         S-->>A: stack済みObservation
     end
@@ -402,7 +407,7 @@ sequenceDiagram
     P->>N: forward
     N-->>P: q または q_dist
     P-->>A: DQNActionInfo
-    opt actor_approx
+    opt PER有効かつ初期優先度がactor_approx
         A->>A: Q hintをfloat32 Bx5でpack
     end
     A-->>R: DQNActionInfo
@@ -482,9 +487,9 @@ ONではhard action選択を呼ばない。IQNはcurrent N本、target M本、�
 
 方策・bonus・soft bootstrapはNoGrad・FP32実空間で計算する。TBO時は各分位点を個別に逆変換する。先頭状態のclip済みbonusをN-step returnへ1回加え、終端maskはbootstrapだけへ掛ける。TDはsoft state value、QR/IQNは各行動の全分布を方策確率で混合し、完成したtargetだけをh変換する。
 
-`target_policy->GetRiskScoreSpec()`がUQEの現在tauとtail-mean設定を返す場合、`MakeRiskBiasedScore`で実空間分位点をソートして方策scoreを求める。他の対応Policyは分位点平均を使う。QR hard経路も同じ抽出計算を使うが、IQN softは既存tau集合の経験分位近似であり、hard IQNとの厳密一致は保証しない。helperはcurrent/next scoreと別にnext平均Qを受け取り、`soft_gap`を常に平均Q基準で求める。UQEのtau減衰StateはPolicyが所有する。
+`target_policy->GetRiskScoreSpec()`がUQEの現在tauとtail-mean設定を返す場合、`MakeRiskBiasedScore`で実空間分位点をソートして方策scoreを求める。他の対応Policyは分位点平均を使う。QR hard経路も同じ抽出計算を使うが、IQN softは既存tau集合の経験分位近似であり、hard IQNとの厳密一致は保証しない。helperはcurrent/next scoreと別にnext平均Qを受け取り、`soft_gap`を常に平均Q基準で求める。UQEのτの時間の値のStateはPolicyが所有する。
 
-`forward_target`、`forward_munchausen_online`、`munchausen_target`を別々に計測する。後者は実空間化からtarget組立までを含む。初期化ログでmodeと平均/risk score源を確認できる。`@munchausen` agent profileはenabledとtarget mode、Double DQN OFFを設定し、Atariの`run.@munchausen`がIQN構成と診断購読を束ねる。
+`forward_target`、`forward_munchausen_online`、`munchausen_target`を別々に計測する。後者は実空間化からtarget組立までを含む。初期化ログでmodeと平均/risk score源を確認できる。`@munchausen` agent profileはenabledとtarget mode、Double DQN OFFを設定し、Atariの`run.@munch`がIQN構成と診断購読を束ねる。
 
 ### 6.4 DefaultDQN Train Actor snapshot
 
@@ -573,20 +578,20 @@ Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期s
 | グループ | 主な責務 |
 |---|---|
 | Network/Head | `quantile_mode=none|qr|iqn`、QR quantile数、Dueling、初期化、online/target同期 |
-| ActionPolicy | Policy種類、epsilon、UQE tau減衰、IQN tau配置方式、Train/Eval/targetの選択 |
+| ActionPolicy | Policy種類、epsilon、UQEのτの時間の値、IQN tau配置方式、Actorカタログ項目とtargetの方策 |
 | Train Actor | shared/clone、snapshot同期周期 |
 | Learner | 学習の有効化(`enabled`)、optimizer、update間隔・比率、AMP、Double DQN、N-step、PER、TBO |
 | Replay | capacity、batch size、warmup、prefetch、priority mode |
 | 前処理 | frame stack、Reward scale、Observation normalize |
 | 内的報酬 | `intrinsic.enabled`、ProfiledValueの `intrinsic.beta`、`intrinsic.observation`、`intrinsic.use_done_mask`、`intrinsic.learn_ratio`、`intrinsic.learn_batch_size`、Factoryが解釈する `intrinsic.rnd.*`（target.net / predictor.net、head.init、multiplier_mode、statistics_mode、warmup_mode、error_norm、adam_epsなど） |
 
-RNDの既定は `agent.txt` の `@baseline` に置く。学習ratio=0.25、batch size=32、観測next_state、倍率clipped、統計whiten、adam_eps=1e-8。whiten の warmup_mode=learn_predictor、error_norm.average_mode=cumulative、error_norm.ema_steps=1,000,000、error_norm.use_centering=true と、facade の use_done_mask=true が既定である。Atari・GridMaze・LunarLanderの `run.@rnd` は有効化、2つのBody、群56の13指標を選ぶ。Atariは専用3層CNNと512次元Head、predictorだけ2層FCを持ち、β=0.03とwarmup_steps=200,000も選ぶ。Atariの `run.@rnd_taiga` はstate・unclipped・variance_feedbackと毎経験1件の学習などを選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はRNDのNetwork・optimizer・統計を生成しない。分解と内的スケーラの認識した値は無効時も型・列挙・値域を検証し、未使用の明示的な非既定値を1回WARNする。既知の診断キーは無効時も保持してNaNを返す。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
+RNDの既定は `agent.txt` の `@baseline` に置く。学習ratio=0.25、batch size=32、観測next_state、倍率clipped、統計whiten、adam_eps=1e-8。whiten の warmup_mode=learn_predictor、error_norm.average_mode=cumulative、error_norm.ema_steps=1,000,000、error_norm.use_centering=true と、facade の use_done_mask=true が既定である。Atari・GridMaze・LunarLander・DropMergeの `run.@rnd` は有効化、2つのBody、群56の13指標を選ぶ。Atariは専用3層CNNと512次元Head、predictorだけ2層FCを持ち、β=0.03とwarmup_steps=200,000も選ぶ。DropMergeは盤面用のCNN（`DMRnd*`）、β=0.01、`warmup_steps`=200,000を選ぶ。`run.@rnd` の後ろに `run.@rnd_vec` を足すと、ベクトル観測もRNDへ入る。Atariの `run.@rnd_taiga` はstate・unclipped・variance_feedbackと毎経験1件の学習などを選ぶ。既存 `run.$` の末尾へ追加して使う。無効時はRNDのNetwork・optimizer・統計を生成しない。分解と内的スケーラの認識した値は無効時も型・列挙・値域を検証し、未使用の明示的な非既定値を1回WARNする。既知の診断キーは無効時も保持してNaNを返す。公開ヘッダは `intrinsic.hpp`、実装と設定DTOは `intrinsic_rnd.hpp/.cpp` に分離し、DQNは具体型を参照しない。
 
 Evaluation Traceのstep診断は`intrinsic.error`・`intrinsic.normalized_error`・`intrinsic.bonus`を出す。値の時点、未成立とdoneの扱い、統計方式ごとの単位、乱数層の制約は[212](212_rnd_lifelong_novelty.jp.md#46-evaluation-trace-で読む値)を参照する。これらは群56の集約診断とは別である。
 
 全keyと既定値の正本は`DefaultDQNAgentConfig`、`RainbowAgentConfig`、`LearnerConfig`、`ActionPolicyConfig`と[apps/runner/config](../../apps/runner/config)である。本書へ設定一覧を複製せず、Runの`config/config_data.txt`と`config/<tag>.txt`で解決結果を確認する。
 
-`DefaultDQNAgentConfig`は読み取り順を保った関心ごとの関数を呼ぶ。内的報酬は`ReadIntrinsic`、Headと共通の構築設定は`ReadHeadAndCommon`、学習設定は`ReadLearner`で読む。語と数値の範囲は`ValidateChoice`・`ValidateRange`、接頭辞配下の写しと記録は`CopyAndRecordPrefix`を使い、記録は基底の`RecordConfigValue`を通す。方策とτの検証は、型と同じ`agent.hpp`の`ValidateActionPolicy`・`ValidateTauRule`が持つ。
+`DefaultDQNAgentConfig`は読み取り順を保った関心ごとの関数を呼ぶ。内的報酬は`ReadIntrinsic`、Headと共通の構築設定は`ReadHeadAndCommon`、学習設定は`ReadLearner`で読む。語と数値の範囲は`ValidateChoice`・`ValidateRange`、接頭辞配下の写しと記録は`CopyAndRecordPrefix`を使い、記録は基底の`RecordConfigValue`を通す。方策とτの検証は、型と同じ[`dqn_config.hpp`](../../src/algo/dqn/src/dqn_config.hpp)の`ValidateActionPolicy`・`ValidateTauRule`が持つ。
 
 DefaultDQNでは`quantile_mode`の既定が`qr`、`qr.num_quantiles`の既定が51である。IQN learnerは勾配側`learner.iqn.current_taus`とtarget分布側`learner.iqn.target_taus`を独立に持ち、どちらも既定random×64でN≠Mを許す。target action選択はこの2系統とは別に`target_policy.tau_rule`を使う。旧DefaultDQN keyの`use_qr`と直下`num_quantiles`は現行契約に含めず、Rainbowの`use_qr`と`num_quantiles`は維持する。
 
@@ -616,7 +621,7 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 - Coordinatorは推定器、βの予定と直近値、補助学習のcredit・累計回数・lane抽選の乱数、診断値を所有する。TraceはAgentと同じ寿命でCoordinatorを参照し、推定器の写しを作るときと直接読むときの既存のロック境界を保つ。
 - inner Learnerは外側の`NetworkModel`と`RuntimeVars`を参照し、OptimizerとReplayBufferを直接所有する。
 - shared ActorはAgent所有Networkを参照し、clone Actorはprivate Networkを所有する。どちらもLearnerそのものは参照しない。
-- epsilonとUQE tau減衰scheduleはActionPolicy、update creditとwarmup latch、policy churnのupdate単位request/probe/Qはinner Learner、snapshot intervalとlast sync stepはclone Actorが更新・所有するStateである。IQNのtau配置方式は設定であり、各forwardのtausはPolicyまたはLearnerが所有するRNGから生成する一時入力である。policy churnのfixed midpoint tausは乱数を使わず、同じupdateの最大3 forwardで共有する。
+- epsilonとUQEのτの時間の値はActionPolicy、update creditとwarmup latch、policy churnのupdate単位request/probe/Qはinner Learner、snapshot intervalとlast sync stepはclone Actorが更新・所有するStateである。IQNのtau配置方式は設定であり、各forwardのtausはPolicyまたはLearnerが所有するRNGから生成する一時入力である。policy churnのfixed midpoint tausは乱数を使わず、同じupdateの最大3 forwardで共有する。
 - outer Agentの共有mutexはLearner更新、shared Actor forward、clone/sync copyの境界を直列化する。
 
 ### 8.2 checkpoint
@@ -703,7 +708,7 @@ Policyの`policy_upper_truncated_std`と`policy_lower_truncated_std`は最終実
 
 Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileから得たsample単位`upper_std`と、clip後かつ`per_alpha`適用前のraw PER priorityの平均順位Spearman相関である。QRはquantile index順、IQNは`current_taus`の昇順permutationをquantileにも適用する。tail値はPER有効時だけ既存priority readbackの末尾へ同梱し、pack先頭、clip件数、Replay更新順序、新しいwait境界なしという契約を維持する。PER無効、batch sizeが2未満、どちらかの順位列が定数、または`K < 2`では`NaN`とする。Policy側も必要なfull distributionがない場合と`K < 2`は`NaN`である。crossing深度p90はrangeで正規化した無次元量だが、TBO有効時は他のtail診断と同じくh空間内で算出し、real-spaceへ逆変換しない。すべてfloat32で学習graphからdetachする。
 
-現在のsnapshot metricは[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt)の`metrics.scalar.full`へ登録し、baselineには含めない。Event、step軸、targetの一般contractは[可観測性](140_observability.jp.md)を参照する。
+現在のsnapshot metricは[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt)の`metrics.scalar.@full`へ登録し、baselineには含めない。Event、step軸、targetの一般contractは[可観測性](140_observability.jp.md)を参照する。
 
 ### 9.2 性能
 
@@ -730,7 +735,7 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 
 DQNは2チャネルを持つ。actualはonline/targetのTD計算で使ったtrain-mode/autocast forwardから`main_feature`等の指定branchを捕捉し、target更新前の特徴を同じ`BatchUpdateResult`へ載せる。probeはReplayBufferの一様・非復元sampleを既存obs正規化へ通し、NoGrad・eval mode・learnerと同じautocastで`ForwardOnlineUpTo`を実行してAgent最新値として公開する。
 
-online actual、target actual、probeの有効化とcapture cadenceは、各plasticity scalar購読行の最小intervalで独立に決まる。さらに行ごとのintervalをObserverと同じbucket規則で評価し、そのlearn stepで発火する指標の和集合だけを計算する。このためdormant等のcadenceを維持したままsrank系だけを粗くでき、srank系が不要なstepではSVDを実行しない。同じstepのδ=0.01 / 0.05 / 0.20は1回のSVDを共有する。`final_feature_branch_key`は購読時だけ必須・branch存在検証し、購読ゼロでも設定値は構築時に読んで局所の値域を検証する。capture/sample/statsは行わない。baseline設定は`main_feature`を指定するが、DTOは未指定を空文字で保持し、設定不在を暗黙に補完しない。既知だがそのlearn stepで未計測のkeyは`NaN`、未知keyは`nullopt`である。probeは非capture stepやsample不足時に前回値を再利用しない。probe batch sizeは常に1以上を要求する。チャネル別の読み方は[Run分析ユーザーガイド4.7節](030_user_guide_analysis.jp.md#47-可塑性メトリクスを読む)を参照する。
+online actual、target actual、probeの有効化とcapture cadenceは、各plasticity scalar購読行の最小intervalで独立に決まる。さらに行ごとのintervalをObserverと同じbucket規則で評価し、そのlearn stepで発火する指標の和集合だけを計算する。このためdormant等のcadenceを維持したままsrank系だけを粗くでき、srank系が不要なstepではSVDを実行しない。同じstepのδ=0.01 / 0.05 / 0.20は1回のSVDを共有する。`final_feature_branch_key`は購読時だけ必須・branch存在検証し、購読ゼロでも設定値は構築時に読んで局所の値域を検証する。capture/sample/statsは行わない。baseline設定は`main_feature`を指定するが、DTOは未指定を空文字で保持し、設定不在を暗黙に補完しない。既知だがそのlearn stepで未計測のkeyは`NaN`、未知keyは`nullopt`である。probeは非capture stepやsample不足時に前回値を再利用しない。probeの件数は`learner.plasticity.probe.batch_size`で指定し、常に1以上を要求する。コードの既定値は512、出荷設定`@baseline`では4096である。チャネル別の読み方は[Run分析ユーザーガイド4.7節](030_user_guide_analysis.jp.md#47-可塑性メトリクスを読む)を参照する。
 
 parameter側は、online networkを`final_feature_branch_key`の依存閉包でfeature/readoutへ分け、生weight norm 2値、SN適用後の実効weight norm 2値、各群の最大sigma 2値を持つ。activation captureとは独立した購読cadenceでupdate適用前に測定し、online/targetのSN validity sentinelとともに固定長8要素packとして同じ`BatchUpdateResult`へ載せる。6公開値のいずれかを初めて読むときだけpack全体をCPUへ移し、同じevent内でcacheする。sentinelが異常を示した場合だけNetworkを再walkし、online/targetと完全layer名を含めてfail-fastする。SN layerがない群のsigmaは`NaN`、実効normは生normと同じである。購読が無ければparameter列挙もD2Hも行わない。
 
@@ -740,7 +745,7 @@ DefaultDQNは、ReplayBufferの一様・非復元probe上で1 learner updateに�
 
 測定順は次に固定する。
 
-1. Q由来keyがその`learn_step`で発火した場合だけ、caller-owned `policy_churn_probe` RNGで完全なprobe batchを1回取得し、既存Observation正規化を適用する。
+1. Q由来keyがその`learn_step`で発火した場合だけ、caller-owned `policy_churn_probe` RNGで完全なprobe batchを1回取得し、既存Observation正規化を適用する。件数は`learner.policy_churn.probe.batch_size`で指定する（既定1024）。
 2. 通常学習のforward、backward、grad clipを完了する。
 3. 実際のoptimizer step直前に`online-before`、直後に`online-after`を取得する。
 4. 通常のhard copyまたはsoft updateを実行する。
@@ -782,7 +787,7 @@ TD / QR / IQN は autocast 内で計算した長さ B の重み付き要素損�
 
 train scope の @learn / $update_result 購読をkey別IntervalGateで判定し、加算前learn_stepの発火点の和集合で1回測る。購読された版・群は測定点を共有し、成立した信号・分散のEMA対を1回更新する。有限の負の信号も取り込み、EMA信号が非正ならscale・ratioをNaNとする。未成立回はEMAを更新せず公開値を前回値で埋めない。空群はraw・scaleともNaNで、allへの寄与は0。各keyは自身の発火時だけ公開し、既知の未購読・未発火・未成立はNaN、未知だけnulloptとする。EMAはcheckpointに保存しない。
 
-公開は49_agent_gradnoiseの15指標で、metrics.scalar.@gradnoise（全行interval 503）で明示購読する。num_micro_batchesの既定8はBを割り切る2以上、ema_alphaの既定0.05は有限の(0,1]。num_micro_batchesが2以上であることとema_alphaの値域は購読がなくても構築時に検証する。Bを割り切る条件は購読時に検証し、FP16は学習前にfail-fastする。FP32 / BF16は対象で、BF16の丸めを測定に含める。群別購読時だけfinal_feature_branch_keyを検証する。異なるintervalは許容し起動時1回WARNする。共有Noisy epsilonに条件付けた値であり、BatchNorm等のサンプル間結合では独立抽出の解釈を保証しない。
+公開は49_agent_gradnoiseの15指標で、metrics.scalar.@gradnoise（全行interval 503）で明示購読する。`learner.grad_noise.num_micro_batches`の既定8はBを割り切る2以上、`learner.grad_noise.ema_alpha`の既定0.05は有限の(0,1]。`learner.grad_noise.num_micro_batches`が2以上であることと`learner.grad_noise.ema_alpha`の値域は購読がなくても構築時に検証する。Bを割り切る条件は購読時に検証し、FP16は学習前にfail-fastする。FP32 / BF16は対象で、BF16の丸めを測定に含める。群別購読時だけfinal_feature_branch_keyを検証する。異なるintervalは許容し起動時1回WARNする。共有Noisy epsilonに条件付けた値であり、BatchNorm等のサンプル間結合では独立抽出の解釈を保証しない。
 
 ### 9.9 Attention エントロピー診断
 
@@ -818,7 +823,7 @@ PRD101の比較・実Run手順は[PRD101検証資材](../../src/core/base/testda
 
 TempoRL の window・Actor・learner・checkpoint・指標を変える場合は、[PRD098検証資材](../../src/core/base/testdata/prd098/README.md) の契約テスト、4環境の無効時等価性、smoke、Atari性能比較を実行する。長時間学習の合否は短い検証とは分けて記録する。
 
-主なDQN testはDQNの各役割と具象Agentの `dqn_*_test.cpp`と[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)に置く。
+主なDQN testはDQNの各役割と具象Agentの `dqn_*_test.cpp`と[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp)に置く。DQNの検証には[prd101_ladder_test.cpp](../../src/algo/dqn/src/prd101_ladder_test.cpp)、[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp)、[stacker_test.cpp](../../src/core/base/src/stacker_test.cpp)も使う。Replay共通testは[replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)に置く。
 
 DQN系Agentを追加・変更する場合は、少なくとも次を確認する。
 
@@ -847,13 +852,33 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
 - [Agent実装の所有権ガイドライン](../ownership_guideline.md)
-- [Actor Network Resource Policy ADR](../adr/0013-actor-network-resource-policy.md)
-- [Actor priority近似 ADR](../adr/0010-actor-priority-mean-q-approx.md)
-- [Replay初期priority completion ADR](../adr/0012-replay-initial-priority-hint-completion.md)
-- [IQN bind積DAG ADR](../adr/0018-iqn-via-bind-product-dag.md)
-- [IQN+UQE score ADR](../adr/0019-iqn-uqe-score-without-extra-forward.md)
 
-### 11.2 参考論文
+### 11.2 ADR
+
+- [DefaultDQN の TBO 公開範囲 ADR](../adr/0001-default-dqn-tbo-scope.md)（§2.1.10・§7.1）
+- [Actor 初期優先度の近似 ADR](../adr/0010-actor-priority-mean-q-approx.md)（§2.5）
+- [Replay 初期優先度ヒントの分担 ADR](../adr/0012-replay-initial-priority-hint-completion.md)（§2.5）
+- [Actor Network の所有 ADR](../adr/0013-actor-network-resource-policy.md)（§6.1・§8.1）
+- [IQN の bind 積 DAG ADR](../adr/0018-iqn-via-bind-product-dag.md)（§2.1.4）
+- [IQN+UQE の action score ADR](../adr/0019-iqn-uqe-score-without-extra-forward.md)（§2.4・§2.5）
+- [可塑性メトリクスのチャネル ADR](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)（§9.4）
+- [Spectral Normalization ADR](../adr/0032-spectral-norm-self-impl-buffer-semantics.md)（§8.2・§9.3）
+- [Policy churn の測定 ADR](../adr/0033-policy-churn-fixed-probe-and-target-lag.md)（§9.5）
+- [Munchausen ターゲットの計算 ADR](../adr/0035-munchausen-target-learner-local-real-space.md)（§2.1.7・§6.3）
+- [Munchausen 用の Actor Q ヒント ADR](../adr/0036-actor-q-hint-three-columns-munchausen.md)（§2.5・§9.3）
+- [名前付き Actor カタログ ADR](../adr/0038-actor-config-catalog-without-runmode.md)（§2.4・§6.1・§6.4）
+- [Replay 当てはまり診断 ADR](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)（§9.6）
+- [NoisyNet の実行状態と設定キー ADR](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)（§7.3）
+- [checkpoint 読込時の optimizer 設定 ADR](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)（§8.2）
+- [勾配ノイズスケールの測定 ADR](../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md)（§9.8）
+- [step trace の近似優先度 ADR](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)（§6.2）
+- [補助 Network と target の用途 ADR](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)（§6.5・§8.2）
+- [Replay の可変長ウィンドウ ADR](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)（§6.5）
+- [ProfiledValue の定数記法 ADR](../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)（§2.4）
+- [時間で変わる割引率 ADR](../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)（§2.5）
+- [Actor Q ヒントの 5 列 ADR](../adr/0075-actor-q-hint-five-columns-carry-per-head-values.md)（§2.5・§9.3）
+
+### 11.3 参考論文
 
 年月は、DQNは掲載月、それ以外はarXiv初稿の公開月を示す。
 

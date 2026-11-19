@@ -398,7 +398,7 @@ TEST_CASE("IQN head factories reject incompatible feature shapes", "[dqn][head][
     }
 }
 
-TEST_CASE("TauGenerator samples reproducible taus within a common range", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus samples reproducible taus within a common range", "[dqn][iqn][tau]")
 {
     anet::RandomGenerator first_rng(123);
     anet::RandomGenerator second_rng(123);
@@ -418,7 +418,7 @@ TEST_CASE("TauGenerator samples reproducible taus within a common range", "[dqn]
         first.slice(1, 1, first.size(1)) < first.slice(1, 0, first.size(1) - 1)).item<bool>());
 }
 
-TEST_CASE("TauGenerator stratified mode covers every stratum reproducibly", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus stratified mode covers every stratum reproducibly", "[dqn][iqn][tau]")
 {
     anet::RandomGenerator first_rng(321);
     anet::RandomGenerator second_rng(321);
@@ -441,7 +441,7 @@ TEST_CASE("TauGenerator stratified mode covers every stratum reproducibly", "[dq
     CHECK(torch::equal(first, second));
 }
 
-TEST_CASE("TauGenerator systematic mode uses an independent phase per row", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus systematic mode uses an independent phase per row", "[dqn][iqn][tau]")
 {
     anet::RandomGenerator first_rng(987);
     anet::RandomGenerator second_rng(987);
@@ -460,7 +460,7 @@ TEST_CASE("TauGenerator systematic mode uses an independent phase per row", "[dq
     CHECK(torch::equal(first, second));
 }
 
-TEST_CASE("TauGenerator systematic mode maps per-environment ranges and consumes one draw per row", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus systematic mode maps per-environment ranges and consumes one draw per row", "[dqn][iqn][tau]")
 {
     const auto lower = torch::tensor({ 0.0f, 0.5f, 1.0f });
     anet::RandomGenerator sampled_after_systematic(988);
@@ -483,7 +483,7 @@ TEST_CASE("TauGenerator systematic mode maps per-environment ranges and consumes
     CHECK(torch::equal(after_systematic, after_direct_draw));
 }
 
-TEST_CASE("TauGenerator antithetic mode lays out mirrored pairs and an odd tail sample", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus antithetic mode lays out mirrored pairs and an odd tail sample", "[dqn][iqn][tau]")
 {
     anet::RandomGenerator even_rng(741);
     anet::RandomGenerator odd_rng(742);
@@ -509,7 +509,7 @@ TEST_CASE("TauGenerator antithetic mode lays out mirrored pairs and an odd tail 
     CHECK(torch::all(single <= 0.8f).item<bool>());
 }
 
-TEST_CASE("TauGenerator antithetic mode mirrors per-environment ranges and consumes ceil half draws", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus antithetic mode mirrors per-environment ranges and consumes ceil half draws", "[dqn][iqn][tau]")
 {
     const auto lower = torch::tensor({ 0.0f, 0.5f, 1.0f });
     anet::RandomGenerator sampled_after_antithetic(744);
@@ -532,7 +532,7 @@ TEST_CASE("TauGenerator antithetic mode mirrors per-environment ranges and consu
     CHECK(torch::equal(after_antithetic, after_direct_draw));
 }
 
-TEST_CASE("TauGenerator randomized placement modes follow their seeds", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus randomized placement modes follow their seeds", "[dqn][iqn][tau]")
 {
     for (const auto& mode : { "stratified", "systematic", "antithetic" }) {
         INFO("mode=" << mode);
@@ -553,7 +553,7 @@ TEST_CASE("TauGenerator randomized placement modes follow their seeds", "[dqn][i
     }
 }
 
-TEST_CASE("TauGenerator ordered modes allow float32 ties in narrow ranges", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus ordered modes allow float32 ties in narrow ranges", "[dqn][iqn][tau]")
 {
     for (const auto& mode : { "stratified", "systematic" }) {
         INFO("mode=" << mode);
@@ -569,7 +569,7 @@ TEST_CASE("TauGenerator ordered modes allow float32 ties in narrow ranges", "[dq
     }
 }
 
-TEST_CASE("TauGenerator fixed mode places midpoint grids without consuming RNG", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus fixed mode places midpoint grids without consuming RNG", "[dqn][iqn][tau]")
 {
     anet::RandomGenerator sampled_after_fixed(456);
     anet::RandomGenerator sampled_directly(456);
@@ -592,7 +592,7 @@ TEST_CASE("TauGenerator fixed mode places midpoint grids without consuming RNG",
     CHECK(torch::equal(after_fixed, direct));
 }
 
-TEST_CASE("TauGenerator supports per-environment lower bounds", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus supports per-environment lower bounds", "[dqn][iqn][tau]")
 {
     const auto lower = torch::tensor({ 0.0f, 0.5f });
     anet::RandomGenerator fixed_rng(10);
@@ -612,7 +612,7 @@ TEST_CASE("TauGenerator supports per-environment lower bounds", "[dqn][iqn][tau]
     CHECK(torch::equal(random, second_random));
 }
 
-TEST_CASE("TauGenerator stratified mode maps per-environment ranges", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus stratified mode maps per-environment ranges", "[dqn][iqn][tau]")
 {
     const auto lower = torch::tensor({ 0.0f, 0.5f, 1.0f });
     anet::RandomGenerator rng(654);
@@ -635,7 +635,7 @@ TEST_CASE("TauGenerator stratified mode maps per-environment ranges", "[dqn][iqn
     CHECK_FALSE(torch::equal(taus.slice(0, 0, 2), different.slice(0, 0, 2)));
 }
 
-TEST_CASE("TauGenerator stratified mode consumes one draw per row and stratum", "[dqn][iqn][tau]")
+TEST_CASE("GenerateTaus stratified mode consumes one draw per row and stratum", "[dqn][iqn][tau]")
 {
     anet::RandomGenerator sampled_after_stratified(656);
     anet::RandomGenerator sampled_after_direct_draw(656);
@@ -654,7 +654,7 @@ TEST_CASE("TauGenerator stratified mode consumes one draw per row and stratum", 
     CHECK(torch::equal(after_stratified, after_direct_draw));
 }
 
-TEST_CASE("TauGenerator rejects unknown placement modes", "[dqn][iqn][tau][validation]")
+TEST_CASE("GenerateTaus rejects unknown placement modes", "[dqn][iqn][tau][validation]")
 {
     anet::RandomGenerator rng(1);
     CHECK_THROWS_WITH(
@@ -669,7 +669,7 @@ TEST_CASE("TauGenerator rejects unknown placement modes", "[dqn][iqn][tau][valid
             && Catch::Matchers::ContainsSubstring("random, fixed, stratified, systematic, antithetic"));
 }
 
-TEST_CASE("TauGenerator creates taus on CUDA when available", "[dqn][iqn][tau][cuda]")
+TEST_CASE("GenerateTaus creates taus on CUDA when available", "[dqn][iqn][tau][cuda]")
 {
     if (!torch::cuda::is_available()) {
         return;

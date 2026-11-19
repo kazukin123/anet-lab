@@ -115,18 +115,18 @@ MunchausenTargetTerms anet::rl::dqn::MakeMunchausenTargetTerms(
     };
 }
 
-static void ValidateTauGeneratorArguments(int64_t batch_size, int64_t num_taus, const std::string& sample_mode)
+static void ValidateGenerateTausArguments(int64_t batch_size, int64_t num_taus, const std::string& sample_mode)
 {
     if (batch_size < 0) {
-        ANET_SYSTEM_ERROR("TauGenerator requires batch_size>=0, but batch_size=" << batch_size << ".");
+        ANET_SYSTEM_ERROR("GenerateTaus requires batch_size>=0, but batch_size=" << batch_size << ".");
     }
     if (num_taus <= 0) {
-        ANET_SYSTEM_ERROR("TauGenerator requires num_taus>0, but num_taus=" << num_taus << ".");
+        ANET_SYSTEM_ERROR("GenerateTaus requires num_taus>0, but num_taus=" << num_taus << ".");
     }
     if (sample_mode != "random" && sample_mode != "fixed"
         && sample_mode != "stratified" && sample_mode != "systematic"
         && sample_mode != "antithetic") {
-        ANET_SYSTEM_ERROR("TauGenerator received sample_mode=" << sample_mode
+        ANET_SYSTEM_ERROR("GenerateTaus received sample_mode=" << sample_mode
             << "; expected one of: random, fixed, stratified, systematic, antithetic.");
     }
 }
@@ -191,7 +191,7 @@ torch::Tensor anet::rl::dqn::GenerateTaus(
     anet::RandomGenerator& rnd)
 {
     ANET_PROFILE_FUNC();
-    ValidateTauGeneratorArguments(batch_size, num_taus, sample_mode);
+    ValidateGenerateTausArguments(batch_size, num_taus, sample_mode);
 
     // mode固有の正規化位置を、CPU同期を挟まず指定範囲へ写像する。
     const auto positions = MakeNormalizedTauPositions(batch_size, num_taus, sample_mode, device, rnd);
@@ -207,10 +207,10 @@ torch::Tensor anet::rl::dqn::GenerateTaus(
 {
     ANET_PROFILE_FUNC();
     if (tau_min_per_env.dim() != 1) {
-        ANET_SYSTEM_ERROR("TauGenerator requires tau_min_per_env rank=1 (B), but shape="
+        ANET_SYSTEM_ERROR("GenerateTaus requires tau_min_per_env rank=1 (B), but shape="
             << tau_min_per_env.sizes() << ".");
     }
-    ValidateTauGeneratorArguments(tau_min_per_env.size(0), num_taus, sample_mode);
+    ValidateGenerateTausArguments(tau_min_per_env.size(0), num_taus, sample_mode);
 
     const auto device = tau_min_per_env.device();
     const auto lower = tau_min_per_env.to(torch::kFloat32).unsqueeze(1);

@@ -162,3 +162,8 @@ Networkの保存には両Headを含む。splitは二つのAdam状態を保存す
 新しい方策や診断forwardを足すときは、Headの出力へ結合処理を適用してからq/q_distを読む。新しい報酬成分をReplayへ足すときは、1成分のshapeと計算順、定数収益の保存、schedule成分だけの再計算、初期優先度、prefetchの割引率の寿命を確認する。成分が複数のときの窓規則は未対応として構築時に拒否する。
 
 内的Headの重みもNetworkのreadout側に入る。可塑性・Noisy・policy churn・Replay fitの診断を拡張するときは、結合したQを使う経路と、各Headのパラメータを扱う経路を区別する。
+
+## 8. 関連文書
+
+- [Replay の報酬成分と割引率 ADR](../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)（§2.2・§3.1）
+- [内的価値 Head の置き場 ADR](../adr/0074-intrinsic-value-head-lives-in-primary-network-as-composite-head.md)（§2.1）

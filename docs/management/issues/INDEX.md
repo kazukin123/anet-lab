@@ -4,17 +4,9 @@
 
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261118-3aa088](issue-20261118-3aa088.md) | 調査中 | 6.0 | — | 文書 | 監査 | 324_dqn | アルゴリズム | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200がCONTEXT.mdで避ける語（継続長・TD target・減衰）を使っている |
-| [issue-20261118-8933e7](issue-20261118-8933e7.md) | 調査中 | 6.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200のコードマップに設定型・内的報酬・stackerの置き場が無く、run.@rndのenvの列挙からDropMergeが漏れている |
 | [issue-20261107-949e8a](issue-20261107-949e8a.md) | 対応中 | 5.0 | — | コード | その他 | 322_env_individual | Env | 機能追加 | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 残件有り | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
-| [issue-20261118-95f463](issue-20261118-95f463.md) | 調査中 | 5.0 | — | 文書 | 監査 | 324_dqn, 317_metrics | 基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200が実在しない名前（run.@munchausen、metrics.scalar.full）や接頭辞の無い設定キーを案内している |
-| [issue-20261118-83eb00](issue-20261118-83eb00.md) | 調査中 | 4.5 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200の方策の持ち主・Actor Q ヒントの送出・楽観ターゲットの記述がActorカタログ化（ADR 0038）と実装に合っていない |
-| [issue-20261118-9c6895](issue-20261118-9c6895.md) | 調査中 | 4.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200の部品表のTDLearnerとTauGeneratorが、計算を持たない型と存在しない名前を指している |
-| [issue-20261118-0fc0d7](issue-20261118-0fc0d7.md) | 調査中 | 3.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | ADR 0013・0010・0012に後発決定の注記が無く、置き換えたADR 0038・0075・0019へたどれない |
-| [issue-20261118-7f7757](issue-20261118-7f7757.md) | 調査中 | 3.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | DQN系のADR約20本が設計文書から一度もリンクされず、設計文書200の関連ADRが6本だけ |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | コード | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261117-eedd0c](issue-20261117-eedd0c.md) | 調査中 | 2.6 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | Evaluation Trace の単一行選択テストが合成ドラッグ後に失敗する |
-| [issue-20261119-20603e](issue-20261119-20603e.md) | 調査中 | 2.5 | — | コード | PRD | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | DQNのτの生成のエラー文・検証関数・テストの名前に、実在しない部品名TauGeneratorが残っている |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD187](../../memo/187_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
@@ -168,7 +160,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | コード | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD160](../../memo/160_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | コード | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD162](../../memo/162_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 150 / 待ち 13 / 保留 0 / 次版 0 / 解決 0
+着手できる 142 / 待ち 13 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 

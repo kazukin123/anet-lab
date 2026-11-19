@@ -2,6 +2,7 @@
 
 > **後発決定**: Actorヒントのtransport表現と有効性マスクに関する決定はADR 0012で置き換えた。本ADRの平均Q近似、追加forward禁止、`WithAction`、UQE再現見送りの判断は引き続き有効である。
 > **後発決定（2026-09-04）**: Actorヒントの列数と`WithAction`の再計算対象は [ADR 0036](0036-actor-q-hint-three-columns-munchausen.md) で3列（Munchausen項を追加）へ改訂した。追加forward禁止とUQE再現見送りは不変である。
+> **後発決定（2026-11-19）**: Actor Q ヒントは [ADR 0075](0075-actor-q-hint-five-columns-carry-per-head-values.md) で常時 5 列となり、価値の分解の内的 Head の Q_sa と V_s を運ぶ。IQN+UQE のヒントの Q 系値は、行動選択と同じ forward の risk-biased action score を使う（[ADR 0019](0019-iqn-uqe-score-without-extra-forward.md)）。ADR 0036 はこれを本 ADR の近似の範囲として扱う。追加 forward を行わない方針は引き続き有効である。
 
 PRD 035（`docs/memo/035_approx_actor_priority_per_10prd.md`）の近似Actor PER初期優先度は、行動選択で生成済みのonline出力から`actor_q_sa`（実行行動の平均Q）と`actor_state_value`（`max_a Q_online(s,a)`）だけを持ち出し、Learnerと同じ割引率・TBO変換・`per_eps`で近似TD誤差を作る。Learnerのtarget構成のうち次の2点は意図的に再現しない。理由が異なるため分けて記録する。
 
