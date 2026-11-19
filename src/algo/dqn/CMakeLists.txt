@@ -1,7 +1,7 @@
 file(GLOB_RECURSE ANET_ALGO_SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.hpp" "include/*.hpp")
 file(GLOB_RECURSE ANET_ALGO_TESTS CONFIGURE_DEPENDS "src/*_test.cpp")
 list(REMOVE_ITEM ANET_ALGO_SOURCES ${ANET_ALGO_TESTS})
-list(FILTER ANET_ALGO_SOURCES EXCLUDE REGEX "/src/test/")
+list(FILTER ANET_ALGO_SOURCES EXCLUDE REGEX "_test\\.hpp$")
 
 add_library(anet-algo-dqn STATIC ${ANET_ALGO_SOURCES})
 target_include_directories(anet-algo-dqn PUBLIC include PRIVATE src)

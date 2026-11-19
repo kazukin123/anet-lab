@@ -1,5 +1,5 @@
 #include "anet/test/catch.hpp"
-#include "test/dqn_fixture_test.hpp"
+#include "dqn_fixture_test.hpp"
 
 TEST_CASE("TBO transform is monotonic and invertible on representative values", "[dqn][tbo]")
 {

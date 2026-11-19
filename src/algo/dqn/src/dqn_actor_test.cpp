@@ -1,6 +1,6 @@
 #include "anet/test/catch.hpp"
 #include "anet/test/nn.hpp"
-#include "test/dqn_fixture_test.hpp"
+#include "dqn_fixture_test.hpp"
 
 #include <algorithm>
 #include <cmath>

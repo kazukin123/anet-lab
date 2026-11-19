@@ -1,5 +1,5 @@
 #include "anet/test/catch.hpp"
-#include "test/dqn_fixture_test.hpp"
+#include "dqn_fixture_test.hpp"
 
 TEST_CASE("PRD101 step diagnostics use the carried gamma at bootstrap completion", "[prd101][dqn][step_diagnostics]")
 {

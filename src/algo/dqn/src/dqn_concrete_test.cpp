@@ -1,6 +1,6 @@
 #include "anet/test/catch.hpp"
 #include "anet/test/nn.hpp"
-#include "test/dqn_fixture_test.hpp"
+#include "dqn_fixture_test.hpp"
 #include "anet/test/replay.hpp"
 
 TEST_CASE("DefaultDQN skip requires an explicit positive duration limit", "[dqn][config][prd098]")
