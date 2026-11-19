@@ -23,6 +23,7 @@
 
 - 2026-11-04: 画像メモリの所有権の不一致を、既存の寸法・画素値・画像種別を保って修正した（出典: [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md)、§1.2、[可観測性](../../design/140_observability.jp.md)、§7.3）。
 - 2026-11-12: Evaluation Traceの行を作る部品が、列の宣言から`$agent_step`の鍵を集め、RunnerのActorとあわせて、step診断の部品を作るときに渡す仕様をグリルで決めた（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D3・§5.3）。
+- 2026-11-19: VideoLoggerが、構築時と違う大きさの画像を動画に書かず、tagごとにRunで1回だけWARNを出して続ける仕様をグリルで決めた（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5 D8）。
 
 ## 選ばなかった形
 
@@ -43,6 +44,9 @@
 - 宣言した scalar の値が取れないことを INFO にする形 — 不採用: 鍵の綴り違いのような本物の誤りを INFO に埋める。休止した機能と、設定で無効にした機能は、鍵を保って NaN を返す（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D12・§8）。
 - step診断を呼ぶたびに列の鍵を渡す形 — 不採用: 列の宣言はRunの間変わらないので、部品を作るときの1回で足りる（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§2.3・§4.1）。
 - 知らない`$agent_step`の鍵を、step診断の部品を作るときに検査して起動時に止める形 — 不採用: 知らない鍵の検査は5つのtargetに共通の1か所にあり、`$agent_step`だけを早めると止まる時機がtargetごとに分かれる（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D10・§4.1）。
+- 動画の大きさ違いでRunを止める形 — 不採用: 失敗の扱いの表では、構築後にメトリクスの一部だけが欠ける異常はWARNを出して続ける行に当たり、止める形はその行と食い違う。診断用の動画のために学習を止めることにもなる（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5 D8・§5.1）。
+- 大きさが変わったら新しい動画ファイルに切り替える形 — 不採用: ファイル名の決まり、動画の記録の行、読む側の扱いが増え、使われる見込みが薄い（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5.1）。
+- 動画の最初の画像が無効なとき、最初の有効な画像が来るまでVideoLoggerを作らない形 — 範囲外: 題材の事象（作ったあとの読み）の外である（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§6.3・§9のU3）。
 
 ## 変えるときの条件
 
@@ -55,6 +59,7 @@
 
 - 画像の所有権を直すときは寸法・全画素・画像種別を固定入力で比較し、生成・破棄の不一致を修正前に検出するメモリ検査を修正後にも通す。通常Debugの完走だけで代替せず、環境不足の項目は未達として記録する（出典: [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md)、§5 A1〜A3・A7）。
 - step診断へ列の鍵の一覧を渡しても、既存の3つの値（`q_sa`・`state_value`・`approx_priority`）の計算と、知らない鍵が最初の読み出しで止まる時機を変えない（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D10・§5.3）。
+- 動画の大きさの確かめを足しても、PNGの個別保存、最初の画像が無効なときの挙動、ffmpegの異常でRunを止める扱いを変えない（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5 D8・§6.3）。
 
 ## 関係
 
@@ -100,8 +105,8 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261103-ba635a](../../management/issues/issue-20261103-ba635a.md) | 調査中 | 6.5 | — | コード | 監査 | 317_metrics | UI | 不具合 | [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md) | 残件有り | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
-| [issue-20261103-ba635a](../../management/issues/issue-20261103-ba635a.md) | 未着手 | 6.5 | — | コード | 監査 | 317_metrics | UI | 不具合 | — | 残件有り | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
 | [issue-20261115-ce0101](../../management/issues/issue-20261115-ce0101.md) | 未着手 | 5.0 | — | コード | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | — | 残件有り | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
 | [issue-20261115-e5a0eb](../../management/issues/issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | PRD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
 | [issue-20261111-be150a](../../management/issues/issue-20261111-be150a.md) | 未着手 | 3.0 | — | コード | 監査 | 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | StepTraceColumnSpec の target と display を文字列で持ち、metrics.cpp・gui.cpp・EvalTracePanel.cpp の 3 ファイル 17 か所で文字列を比べている |

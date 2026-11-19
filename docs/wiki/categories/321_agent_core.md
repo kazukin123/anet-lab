@@ -77,6 +77,7 @@
 - 2026-11-18: Agentを基盤の外の系統ごとのライブラリ（DQN・MuZero・ImageCls）へ出し、登録を各ライブラリの初期化関数に移す仕様を、グリルで決めた。公開ヘッダの規約（PRD169）も統合した（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§1・§4.1 D5・D7・D10）。
 - 2026-11-18: Agentは基盤の外の系統ごとのライブラリに置き、Headを書くための部品を基盤が公開する（出典: [ADR 0079](../../adr/0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public.md)、本文）。
 - 2026-11-19: RNDのwhitenに、誤差を誤差の統計で割らない倍率の式を足し、Burdaらの内的報酬の形にできるようにする仕様を、暫定で起票した（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、冒頭の起票の行）。
+- 2026-11-19: AgentRepositoryの登録が登録済みのclass IDを止め、初期化関数は何度呼んでも登録を1回だけ行う仕様をグリルで決めた（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5 D10・D11・§6.5）。
 
 ## 選ばなかった形
 
@@ -152,6 +153,8 @@
 - 系統のライブラリが基盤のsrcをincludeパスに足して内部ヘッダを読む形 — 不採用: Agentは基盤の公開ヘッダだけを読む、というゴールを満たさない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
 - テストを境界の対象にしない形、系統のテストが基盤のsrcを直接読む形 — 不採用: テストが基盤の公開面を素通りし、同じリポジトリにあることに頼る（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3；[ADR 0080](../../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)、Considered Options）。
 - Envのテストと系統のテストが互いのライブラリを使ってよいとする形 — 不採用: 置き場が主題しだいで割れ、相手が壊れると使う側のテスト実行体が作れない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
+- 初期化関数は1回しか呼べない形にして、テストを直す形 — 不採用: `InitRL`が中で`InitNN`を呼ぶので`InitRL`を2回呼ぶだけで止まり、`InitNN`を公開する変更とテスト46か所の書き換えが要る（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5.1）。
+- 同じ型のfactoryなら、重複登録を黙って通す形 — 不採用: 型の照会が要り、同じ型で中身の違う登録を見分けられない（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5.1）。
 
 ## 変えるときの条件
 
@@ -264,8 +267,8 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | コード | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
-| [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | 未着手 | 5.0 | — | コード | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
+| [issue-20261103-93f8a6](../../management/issues/issue-20261103-93f8a6.md) | 調査中 | 6.0 | — | コード | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md) | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
+| [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | 調査中 | 5.0 | — | コード | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md) | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
 | [issue-20261115-ce0101](../../management/issues/issue-20261115-ce0101.md) | 未着手 | 5.0 | — | コード | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | — | 残件有り | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
 | [issue-20261115-e5a0eb](../../management/issues/issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | PRD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
 | [issue-20261111-585e60](../../management/issues/issue-20261111-585e60.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |

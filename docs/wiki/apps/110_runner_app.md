@@ -39,6 +39,8 @@
 - 2026-11-12: RNDを選んだRun（Atari・GridMaze・LunarLanderの`run.@rnd`）のEvaluation Traceに、内的報酬の3列（`rnd_err`・`rnd_norm`・`rnd_bonus`）を600番台で足す仕様をグリルで決めた。→ 2026-11-13の改訂で`rnd_bonus`は235番（230 `reward`の直後）へ移し、240 `decision`との重複を避けた。誤差2列は600・610番を維持する（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D12・§5.5）。
 - 2026-11-12: Evaluation Traceのpaneを閉じている間はstep診断の部品を休ませ、開いたときに写しが無ければEvalPanelがその場でActorを同期する仕様をグリルで決めた（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D20・§5.4）。
 - 2026-11-18: Runnerのソースをsrc/apps/runnerへ移し、workspacesとappdataをトップのdata/へ移す仕様を、グリルで決めた。実行体の出力先とbatの作業ディレクトリは変えない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D11・D17・D18）。
+- 2026-11-19: `QValuePanel.smooth_radius`を1以上の整数として設定の読み込みで検証し、ヒートマップの加工への入力が平滑化の指定を重み1組で持つ仕様をグリルで決めた（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5 D12・D13）。
+- 2026-11-20: RunnerのPanelとRunnerFrameがObserverを付ける8か所に、そのObserverが動くスレッドと、PanelやFrameが先に壊れない理由をコメントで書く仕様をグリルで決めた（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§1.2・§5 D7）。
 
 ## 選ばなかった形
 
@@ -119,6 +121,7 @@
 - アプリのソースをappsに残す形 — 不採用: 置き場の規則が2つになる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3）。
 - 設定をソースの側に置き、ビルドでappsへ写す形 — 不採用: 設定を直してすぐ走らせる回し方に、写しの手順が挟まる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.3；[ADR 0078](../../adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md)、Considered Options）。
 - dataの根を探して見つける形、見つからないときの代替 — 不採用: 黙った代替を作らない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D18）。
+- `smooth_radius`の0以下を「平滑化なし」として扱う形 — 不採用: 特定の値に別の意味を持たせることになり、する・しないは`use_hist_smooth`が表す（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5.1）。
 
 ## 変えるときの条件
 
@@ -149,6 +152,8 @@
 - `QValuePanel::Update`を分けるときは、Gridの差分更新の2つの条件（選択が変わった行だけを塗り直す、値が広がった列だけ幅を当て直す）を残し、加工の前に値を写す回数を増やさない。切り出す前のコードで控えた加工後の値と、切り出したあとの単体テストの期待値が一致することを確かめる。加工の単体テストは`AnetRLRunner-gui-test`に置き、既定のテストスイートに入らないので、加工を変えたら流す（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D10〜D12・§6 A8）。
 - Conv2dのpaneが「開いている」の判定は、Traceが追従するpaneの判定と同じにする。別にすると、控えを取る行にnn_traceが無いという食い違いが起きる（出典: [PRD170](../../memo/170_nn_trace_capture_unification_10prd.md)、§4 D13）。
 - workspace と portable appdata は配布位置を基準に `data/` に置く。指定した workspace の解決と相対 Run の配置は同じ根を使う（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D22・§6 のS4-2・C3）。
+- `smooth_radius`の読み方を変えても、半径が1以上の設定では、平滑化あり・なしの加工の結果を今と同じ値に保ち、加工の今の単体テストが期待値を変えずに通ることを確かめる（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§6.6・§7のA11）。
+- 学習のRunnerの通知を受ける3つのObserver（TrainPanel、EvalPanelが学習側のstep数を受けるObserver、RunnerFrameの状態表示用のObserver）は、学習スレッドからPanelかFrameを触る。窓を閉じる処理で、学習の停止と背景評価の排水より前に、これらを外したりPanelを壊したりしない（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§1.2・§5 D6）。
 
 ## 関係
 
@@ -252,10 +257,10 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261110-3f4e63](../../management/issues/issue-20261110-3f4e63.md) | 調査中 | 4.5 | — | コード | PRD | 110_runner_app | UI | 不具合 | [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md) | 未確認 | QValuePanelで平滑化が有効なままsmooth_radiusが0以下だと、空の重みの範囲外を読む |
 | [issue-20261111-61ad60](../../management/issues/issue-20261111-61ad60.md) | 調査中 | 2.7 | — | コード | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261117-eedd0c](../../management/issues/issue-20261117-eedd0c.md) | 調査中 | 2.6 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | Evaluation Trace の単一行選択テストが合成ドラッグ後に失敗する |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
-| [issue-20261110-3f4e63](../../management/issues/issue-20261110-3f4e63.md) | 未着手 | 4.5 | — | コード | PRD | 110_runner_app | UI | 不具合 | — | 未確認 | QValuePanelで平滑化が有効なままsmooth_radiusが0以下だと、空の重みの範囲外を読む |
 | [issue-20261111-9e6e27](../../management/issues/issue-20261111-9e6e27.md) | 未着手 | 3.6 | — | コード | PRD | 110_runner_app | UI | 機能改善 | — | 未確認 | 無人で走るRun（番号付きbat）でWARNに気づけない |
 | [issue-20261103-c8fb06](../../management/issues/issue-20261103-c8fb06.md) | 未着手 | 3.0 | — | コード | PRD | 312_util, 110_runner_app | 基盤 | 機能改善 | [PRD071](../../memo/071_uncaught_fatal_visibility_10prd.md) | 残件有り | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
 | [issue-20261111-585e60](../../management/issues/issue-20261111-585e60.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
