@@ -591,7 +591,7 @@ Plotlyの再描画はgraph 1枚あたり数十msかかり（従来の実測で13
 | key | 既定 | 有効範囲 | 意味 |
 |---|---:|---|---|
 | `metricsviewer.tag-sets-file` | `${metricsviewer.workspaces-dir}/metrics_viewer_tag_sets.json` | local file path | 作業用タグセット。相対パスは作業ディレクトリ基準。`TagSetStore` が親を作り、ディレクトリ指定・作成不能・壊れた内容では起動を止める |
-| `metricsviewer.workspaces-dir` | `../../data/workspaces` | local path | workspace群の親directory。起動batは作業ディレクトリを `apps/runner` に設定する。UNC rootは起動時に拒否する |
+| `metricsviewer.workspaces-dir` | `../../../data/workspaces` | local path | workspace群の親directory。Eclipseの `src/apps/metrics-viewer` と起動batの `apps/metrics-viewer/bin` から同じ `data/workspaces` を参照する。UNC rootは起動時に拒否する |
 | `metricsviewer.initial-workspace` | `_default` | 直下directory名 | 起動時のcurrent workspace。妥当だが不在ならWARNと空のRun一覧で起動する |
 | `metricsviewer.target-points-per-series` | `8000` | 3 〜 `max-points-per-request` | requestが`maxPoints`を省略したときの1系列あたり既定vertex予算 |
 | `metricsviewer.max-points-per-request` | `500000` | 3 〜 1,000,000 | 1 requestで返せるvertex総数 |
@@ -613,21 +613,21 @@ Plotlyの再描画はgraph 1枚あたり数十msかかり（従来の実測で13
 | `spring.mvc.async.request-timeout` | `600000` | 同上 |
 | `spring.jackson.mapper.allow-coercion-of-scalars` | `false` | `"123"`のような型の緩い入力をfail-fastさせる |
 | `spring.jackson.deserialization.accept-float-as-int` | `false` | step等へ小数を渡した場合にfail-fastさせる |
-| `logging.file.path` | `../../data/logs` | 作業ディレクトリ `apps/runner` から配布位置の `data/logs` にログを出す |
+| `logging.file.path` | `../../../data/logs` | どちらの起動方法でも配置の根の `data/logs` にログを出す |
 
 request bodyは上記に加えて、`@JsonAnySetter`で未知fieldを捕捉し、1つでもあれば`invalid_request`にする。
 `runId`と`tagKey`は`StrictStringDeserializer`によりJSON stringだけを受け付ける。
 
 ### 7.3 起動引数
 
-以下は `apps/runner` から起動する例です。
+以下は `apps/metrics-viewer/bin` から起動する例です。
 
 | 用途 | 例 |
 |---|---|
-| 既定workspace群の可視化 | `java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --server.port=8082` |
-| 別のworkspace群の可視化 | `java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --metricsviewer.workspaces-dir=<path> --metricsviewer.initial-workspace=<name>` |
+| 既定workspace群の可視化 | `java -Xmx1g -jar metrics-viewer.jar --server.port=8082` |
+| 別のworkspace群の可視化 | `java -Xmx1g -jar metrics-viewer.jar --metricsviewer.workspaces-dir=<path> --metricsviewer.initial-workspace=<name>` |
 
-既定pathとportは[22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)が固定する。Optuna用の別Viewer launcherは持たず、同じworkspace selectorを使う。
+[22_metrics_viewer_java.bat](../../apps/22_metrics_viewer_java.bat)は作業ディレクトリをJARの置き場に揃え、portを固定する。Optuna用の別Viewer launcherは持たず、同じworkspace selectorを使う。
 
 別の Workspace 群を起動引数で指定すると、既定の作業用タグセットもその群の親直下に作る。`metricsviewer.tag-sets-file` の明示指定で保存先を変えられる。
 

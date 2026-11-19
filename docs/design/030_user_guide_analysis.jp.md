@@ -23,7 +23,7 @@
 
 本書はMetrics Viewerのjarがbuild済みであることを前提とする。Java、Maven、jarのbuild手順は[開発環境](040_development_environment.jp.md)を参照する。
 
-通常Runを見る場合は`apps/runner`から次を起動する。
+通常Runを見る場合は`apps`から次を起動する。
 
 ```powershell
 22_metrics_viewer_java.bat

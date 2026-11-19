@@ -9,7 +9,7 @@
     "name": "metricsviewer.workspaces-dir",
     "type": "java.lang.String",
     "description": "Workspace群を格納する親ディレクトリ",
-    "defaultValue": "workspaces"
+    "defaultValue": "../../../data/workspaces"
   },
   {
     "name": "metricsviewer.tag-sets-file",

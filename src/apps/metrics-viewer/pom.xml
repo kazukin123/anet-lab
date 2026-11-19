@@ -222,4 +222,19 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>eclipse-m2e</id>
+            <activation>
+                <property>
+                    <name>m2e.version</name>
+                </property>
+            </activation>
+            <properties>
+                <!-- m2e の JAR 設定はプロジェクト外のクラス出力先を解決できない。 -->
+                <anet.viewer.build.directory>${project.basedir}/target</anet.viewer.build.directory>
+            </properties>
+        </profile>
+    </profiles>
 </project>

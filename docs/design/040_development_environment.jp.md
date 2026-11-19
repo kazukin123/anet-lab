@@ -337,6 +337,8 @@ Metrics Viewer を変更する場合だけ、5.2節以降を行います。
 
 `pom.xml` は Java 17 をtargetとします。projectのJREが JDK 17 より古い場合は、project propertiesまたはEclipseのInstalled JREsで3.7節の JDK へ変更します。
 
+Eclipseから起動するには、`MetricsViewerApplication` を `Run As > Java Application` で実行します。作業ディレクトリはプロジェクトの既定値を使います。起動batと同じ `data/workspaces` を参照します。
+
 ### 5.4 Eclipse上でtestする
 
 Projectを右クリックし、`Run As > Maven test`を実行します。JavaScript表示testは、ローカルにMicrosoft Edgeがない場合はskipされます。

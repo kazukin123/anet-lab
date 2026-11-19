@@ -8,7 +8,7 @@ rem cd /d "%ROOT%"
 
 set "VIEWER_JAR=%~dp0metrics-viewer\bin\metrics-viewer.jar"
 set VIEWER_PORT=8082
-cd /d "%~dp0runner"
+cd /d "%~dp0metrics-viewer\bin" || exit /b 1
 
 echo.
 echo [1/2] Starting Metrics Viewer (port %VIEWER_PORT%)...
