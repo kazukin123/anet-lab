@@ -76,6 +76,7 @@
 - 2026-11-16: RNDの正規化と統計の集計を計算deviceで行い、統計方式の整理を性能の直しのあとに入れる仕様を、グリルで決めた（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1）。
 - 2026-11-18: Agentを基盤の外の系統ごとのライブラリ（DQN・MuZero・ImageCls）へ出し、登録を各ライブラリの初期化関数に移す仕様を、グリルで決めた。公開ヘッダの規約（PRD169）も統合した（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§1・§4.1 D5・D7・D10）。
 - 2026-11-18: Agentは基盤の外の系統ごとのライブラリに置き、Headを書くための部品を基盤が公開する（出典: [ADR 0079](../../adr/0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public.md)、本文）。
+- 2026-11-19: RNDのwhitenに、誤差を誤差の統計で割らない倍率の式を足し、Burdaらの内的報酬の形にできるようにする仕様を、暫定で起票した（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、冒頭の起票の行）。
 
 ## 選ばなかった形
 
@@ -280,7 +281,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-a39330](../../management/issues/issue-20261103-a39330.md) | 未着手 | 2.0 | — | コード | PRD | 321_agent_core, 324_dqn | アルゴリズム | 機能追加 | [PRD147](../../memo/147_iqn_first_priority_quantile_pair_10prd.md) | 残件有り | PRD147: IQN初回Learner priorityのquantile-pair方式 |
 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 未着手 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD161](../../memo/161_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
 | [issue-20261111-54c7e1](../../management/issues/issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
-| [issue-20261119-027698](../../management/issues/issue-20261119-027698.md) | 未着手 | 2.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | — | 未確認 | RNDに生の予測誤差を返す内的報酬の式が無く、Burdaらの「誤差を内的の収益の標準偏差で割るだけ」の形にできない |
+| [issue-20261119-027698](../../management/issues/issue-20261119-027698.md) | 未着手 | 2.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RNDに生の予測誤差を返す内的報酬の式が無く、Burdaらの「誤差を内的の収益の標準偏差で割るだけ」の形にできない |
 | [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | — | コード | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 未着手 | 1.5 | — | コード | PRD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [PRD168](../../memo/168_nstep_target_correction_10prd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
@@ -295,7 +296,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-1edf84](../../management/issues/issue-20261103-1edf84.md) | 未着手 | 1.1 | — | コード | PRD | 321_agent_core, 324_dqn, 315_nn | アルゴリズム | 機能追加 | [PRD172](../../memo/172_bootstrapped_multihead_q_10prd.md) | 残件有り | Bootstrapped DQN 型の複数の Head（1 本の Run の中に別々の価値関数を持つ） |
 | [issue-20261103-51220d](../../management/issues/issue-20261103-51220d.md) | 未着手 | 1.1 | — | コード | PRD | 318_rl_core, 321_agent_core, 322_env_individual, 317_metrics | 学習基盤 | 機能追加 | [PRD144](../../memo/144_episode_forensics_10prd.md) | 残件有り | Episode Forensics（特殊挙動エピソード自動捕捉・事後調査） |
 | [issue-20261116-cc5942](../../management/issues/issue-20261116-cc5942.md) | 未着手 | 1.1 | — | コード | その他 | 318_rl_core, 321_agent_core, 314_tensor, 324_dqn | 学習基盤 | 性能改善 | — | 残件有り | 同じデータを何度もdevice間で転送している箇所を洗い出して減らす（Replayのobsとnext_obsの重なるフレーム、RNDの採点とActorが別々に送る観測など） |
-| [issue-20261119-4976bf](../../management/issues/issue-20261119-4976bf.md) | 未着手 | 1.1 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | — | 未確認 | RNDのpredictorの補助学習が今のintakeの観測だけから引き、lane数を超えるバッチと同じ標本の再利用（Burdaらの4エポック）ができない |
+| [issue-20261119-4976bf](../../management/issues/issue-20261119-4976bf.md) | 未着手 | 1.1 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RNDのpredictorの補助学習が今のintakeの観測だけから引き、lane数を超えるバッチと同じ標本の再利用（Burdaらの4エポック）ができない |
 | [issue-20261103-6f6c73](../../management/issues/issue-20261103-6f6c73.md) | 未着手 | 1.0 | — | コード | PRD | 321_agent_core | アルゴリズム | 機能追加 | [PRD183](../../memo/183_temporl_skip_followups_10prd.md) | 残件有り | TempoRL の後続（長い j の不確かさ・閉ループの割り込み・全 k の一括学習） |
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261119-cb9a0f](../../management/issues/issue-20261119-cb9a0f.md) | 未着手 | 1.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | — | 未確認 | RNDの観測の正規化に、学習の前に一様乱数の行動で統計を作る前段（Burdaら）が無い |
