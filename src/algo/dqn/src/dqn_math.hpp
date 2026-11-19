@@ -17,7 +17,7 @@
 #include "anet/rl.hpp"
 #include "anet/scaler.hpp"
 #include "anet/replay_buffer.hpp"
-#include "dqn_based_config.hpp"
+#include "dqn_config.hpp"
 #include "anet/transfer.hpp"
 
 

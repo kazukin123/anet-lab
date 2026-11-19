@@ -4,7 +4,7 @@
 #include "anet/metrics_logger.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/test/util.hpp"
-#include "dqn_based_heads.hpp"
+#include "dqn_heads.hpp"
 #include "anet/test/nn.hpp"
 #include "anet/nn_head.hpp"
 #include <ATen/autocast_mode.h>

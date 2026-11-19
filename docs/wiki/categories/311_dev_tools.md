@@ -216,6 +216,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261119-25e4d0](../../management/issues/issue-20261119-25e4d0.md) | 未着手 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | 会話が要約されたあと、続ける工程の手順を読み直さずに進めてしまう（読み直しを促す仕掛けが無い） |
 | [issue-20261103-58696c](../../management/issues/issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD112](../../memo/112_claude_memory_tidy_10prd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
+| [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | — | コード | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-61d771](../../management/issues/issue-20261103-61d771.md) | 未着手 | 1.6 | — | コード | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD156](../../memo/156_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
 | [issue-20261115-3e5b77](../../management/issues/issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 文書 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
@@ -229,9 +230,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | — | コード | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261116-fe09dc](../../management/issues/issue-20261116-fe09dc.md) | 未着手 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | コード | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD185](../../memo/185_release_packaging_cmake_10prd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | コード | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
-| [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | コード | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 
-着手できる 20 / 待ち 2 / 保留 0 / 次版 0 / 解決 0
-- 関連する課題: [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) — anet-core の外で実装する拡張点とコード配置の規約
+着手できる 21 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

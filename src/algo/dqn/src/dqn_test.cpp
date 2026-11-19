@@ -1,8 +1,8 @@
 #include "anet/test/catch.hpp"
 #include "anet/test/nn.hpp"
 
-#include "dqn_based_heads.hpp"
-#include "dqn_based_math.hpp"
+#include "dqn_heads.hpp"
+#include "dqn_math.hpp"
 #include "anet/nn_head.hpp"
 
 #include <cmath>

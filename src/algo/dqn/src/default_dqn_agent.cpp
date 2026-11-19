@@ -23,8 +23,8 @@
 #include "anet/serialize.hpp"
 #include "anet/intrinsic.hpp"
 #include "anet/nn_head.hpp"
-#include "dqn_based_heads.hpp"
-#include "dqn_based_assembler.hpp"
+#include "dqn_heads.hpp"
+#include "dqn_assembler.hpp"
 
 
 using namespace anet::rl::dqn;

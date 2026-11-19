@@ -67,7 +67,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD169](../../memo/169_outside_core_extension_layout_10prd.md) | 残件有り | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261110-d21e5f](../../management/issues/issue-20261110-d21e5f.md) | 未着手 | 1.2 | — | コード | PRD | 318_rl_core, 325_muzero | 学習基盤 | 不具合 | — | 未確認 | MuZeroのReplayで、truncatedで終わるときに補う価値が、打ち切った次の状態ではなく最後のstep自身のroot_valueになっている |
 | [issue-20261103-f993bc](../../management/issues/issue-20261103-f993bc.md) | 未着手 | 0.5 | — | コード | PRD | 321_agent_core, 324_dqn, 325_muzero, 315_nn | 学習基盤 | リファクタリング | [PRD164](../../memo/164_nn_forward_amp_consolidation_10prd.md) | 残件有り | NN 実行設定への AMP の集約（全 Agent 対象） |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | コード | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 
-着手できる 6 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 6 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

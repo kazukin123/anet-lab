@@ -129,7 +129,7 @@ net.branch.[merged].bind_concat_dim = -1
 | Module/Head author interfaces, Body/Branch/Block/Repository | [nn_impl.hpp](../../src/core/base/src/nn_impl.hpp), [nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) |
 | Module implementations and registration | [nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) |
 | Agent Heads | [nn_head.hpp](../../src/core/base/include/anet/nn_head.hpp), [nn_head.cpp](../../src/core/base/src/nn_head.cpp) |
-| DQN Heads | [dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp), [dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp) |
+| DQN Heads | [dqn_heads.hpp](../../src/algo/dqn/src/dqn_heads.hpp), [dqn_heads.cpp](../../src/algo/dqn/src/dqn_heads.cpp) |
 | Shared TensorDict operations | [common.hpp](../../src/core/base/include/anet/common.hpp), [common.cpp](../../src/core/base/src/common.cpp) |
 | Tensor utilities | [tensor_util.hpp](../../src/core/base/include/anet/tensor_util.hpp), [tensor_check.hpp](../../src/core/base/include/anet/tensor_check.hpp) |
 | Configuration examples | [nn.txt](../../apps/runner/config/nn.txt), [nn_cnx.txt](../../apps/runner/config/nn_cnx.txt) |

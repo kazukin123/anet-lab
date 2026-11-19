@@ -1,10 +1,10 @@
-﻿// dqn_based_heads.hpp
+﻿// dqn_heads.hpp
 
 #pragma once
 
 #include <string>
 #include "anet/nn_head.hpp"
-#include "dqn_based_config.hpp"
+#include "dqn_config.hpp"
 
 namespace anet::rl::dqn {
 

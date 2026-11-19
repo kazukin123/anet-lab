@@ -213,3 +213,10 @@ Runnerの短いGridMaze Runを3回流し、workspace指定、設定直接指定�
 - ステージ1〜4の比較はそれぞれ34/34構成で一致した。ステージ4のDebug、RelWithDebInfo、Releaseのbuildと、専用worktreeの `[workspace],[app_util]` 22ケース、移行ツールの合成5ケース、隔離した道具のテスト8本が通った。最終差分の空白検査は終了値0。
 - 最終CTestはDQNを含む8/9実行体が通った。ImageCls Envは、初回に一時PNGの保存失敗と既知の閉じた設定カタログの失敗が出た。新しい一時先で再試験すると18/19件が通り、既知の1件だけが残った。Runner GUIは38/39件で、既知のEval Trace行選択だけが失敗した。番号付きbatの既存検査も従来と同じ `SET EXE` の前提で止まった。
 - 人が行うものは、各マシンでのworkspaceとappdataの改名とworkspaceの再選択、GitHub Actionsの実物ZIP、Viewerの実画面、C5の生成物と英訳。実機移行は[PRD182 §5.5](182_source_layout_10prd.md#55-ステージ-4-data)を参照。
+
+### 本体反映後の確認
+
+- 2026-11-19 実機の workspace と appdata の移動が完了した。開発者が Runner と Viewer の起動、および Viewer の実画面で Run 一覧を確認した（S4-3）。
+- C2 で残した3件は `db906214` で修正した。ImageCls は異なる seed 3本で各19件、Runner GUI は39件すべて成功した。番号付き bat の異常終了4ケースと 11・12 の集計検査も通った。
+- S1-4・S4-4。GitHub Actions の `anet-lab-prd182-check-win64.zip` の162ファイルと内包jarのCRCを検査した。移行前の梱包fixtureと追跡ファイル一覧を基準に、補助ツール27本とjarの配置、workspace設定7本と参照先、旧配置・Run履歴・作業用タグセットの除外を確認した。展開先の `10_run.bat` から CartPole が終了値0で完走し、`data/workspaces/CartPole-01/runs/` に metrics.jsonl を生成した。再試行1回の60秒タイムアウトは原因未特定。同梱jarでは workspace 7件と検証用Runの取得、トップページのHTTP 200、作業用タグセットの初期化を確認した。
+- C5。動線マップと architecture atlas を再生成した `ffc8f8da` の反映後、`docs/agents` と `docs/archify` の追跡ファイルを旧パス・旧ファイル名・旧ヘッダ名・旧dataパスで検索して両方0行だった。同コミットで設計文書の英訳を追随させ、新設した配置ガイドの英訳も追加した。

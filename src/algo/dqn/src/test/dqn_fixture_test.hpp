@@ -8,7 +8,7 @@
 #include "anet/test/util.hpp"
 #include "anet/trainer.hpp"
 #include "anet/metrics.hpp"
-#include "dqn_based_heads.hpp"
+#include "dqn_heads.hpp"
 #include "anet/test/nn.hpp"
 #include "anet/nn_head.hpp"
 #include "anet/replay_experience.hpp"
@@ -41,11 +41,11 @@
 #include <wx/cmdline.h>
 #include <wx/utils.h>
 #include "anet/tensor_check.hpp"
-#include "dqn_based_math.hpp"
-#include "dqn_based_network_model.hpp"
-#include "dqn_based_actor.hpp"
-#include "dqn_based_learner.hpp"
-#include "dqn_based_assembler.hpp"
+#include "dqn_math.hpp"
+#include "dqn_network_model.hpp"
+#include "dqn_actor.hpp"
+#include "dqn_learner.hpp"
+#include "dqn_assembler.hpp"
 
 namespace {
 

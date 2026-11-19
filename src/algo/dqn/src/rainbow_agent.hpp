@@ -6,7 +6,7 @@
 #include "anet/config.hpp"
 #include "anet/replay_buffer.hpp"
 #include "anet/rl.hpp"
-#include "dqn_based_config.hpp"
+#include "dqn_config.hpp"
 #include "anet/nn.hpp"
 
 namespace anet::rl::dqn {

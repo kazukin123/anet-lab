@@ -211,7 +211,7 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 
 - C++20 を前提とする。
 - ANET では、原則として 1 クラス 1 ファイルではなく、機能グループ単位で `.hpp` / `.cpp` を作る。
-  例: `dqn_based_actor.*` は DQN 系の Policy と Actor をまとめ、`nn_modules.*` は NN module 群をまとめ、`observers.*` は Observer 群をまとめる。
+  例: `dqn_actor.*` は DQN 系の Policy と Actor をまとめ、`nn_modules.*` は NN module 群をまとめ、`observers.*` は Observer 群をまとめる。
 - 新しいクラスを追加する場合も、まず既存の機能グループに属するかを確認し、独立したサブシステムとして分ける理由がある場合だけ新規ファイルを作る。
 - ヘッダオンリーで実装が完結する `.hpp` を新設する場合も、同じ機能グループ名の `.cpp` を作り、その `.cpp` では当該ヘッダの include だけを行う。
   例: `foo.hpp` を追加する場合は `foo.cpp` も追加し、公開ヘッダなら `#include "anet/foo.hpp"`、内部ヘッダなら周辺コードと同じ include 形式で当該ヘッダだけを include する。
@@ -220,7 +220,7 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 - include は、その `.cpp` 自身のヘッダ → 標準ライブラリ → ミドルウェア（libtorch・wxWidgets・ALE など外部依存）→ anet 系の順に書く。anet 系（`anet/…` の公開ヘッダと、`nn_impl.hpp` のような内部ヘッダ）の中は、依存の少ない基礎のヘッダ（`anet/profile.hpp`・`anet/log.hpp` など）を先に、それに依存する上位のヘッダを後に書く。テスト（`*_test.cpp`）は、自身のヘッダの位置に `anet/test/catch.hpp` を置く。既存ファイルの include を、この規約だけを理由に一括で並べ替えない。
   例:
   ```cpp
-  #include "dqn_based_heads.hpp"
+  #include "dqn_heads.hpp"
   #include <array>
   #include <cmath>
   #include <string>

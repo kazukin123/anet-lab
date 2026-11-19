@@ -194,15 +194,15 @@
 
 点検が作り直す。手で直さない。
 
-- [dqn_based_test.cpp](../../../src/algo/dqn/src/dqn_based_test.cpp)
-- [dqn_based_actor.cpp](../../../src/algo/dqn/src/dqn_based_actor.cpp) / [dqn_based_actor.hpp](../../../src/algo/dqn/src/dqn_based_actor.hpp) / [dqn_based_actor_test.cpp](../../../src/algo/dqn/src/dqn_based_actor_test.cpp)
-- [dqn_based_assembler.cpp](../../../src/algo/dqn/src/dqn_based_assembler.cpp) / [dqn_based_assembler.hpp](../../../src/algo/dqn/src/dqn_based_assembler.hpp) / [dqn_based_assembler_test.cpp](../../../src/algo/dqn/src/dqn_based_assembler_test.cpp)
-- [dqn_based_config.cpp](../../../src/algo/dqn/src/dqn_based_config.cpp) / [dqn_based_config.hpp](../../../src/algo/dqn/src/dqn_based_config.hpp)
-- [dqn_based_heads.cpp](../../../src/algo/dqn/src/dqn_based_heads.cpp) / [dqn_based_heads.hpp](../../../src/algo/dqn/src/dqn_based_heads.hpp)
-- [dqn_based_learner.cpp](../../../src/algo/dqn/src/dqn_based_learner.cpp) / [dqn_based_learner.hpp](../../../src/algo/dqn/src/dqn_based_learner.hpp) / [dqn_based_learner_test.cpp](../../../src/algo/dqn/src/dqn_based_learner_test.cpp)
-- [dqn_based_math.cpp](../../../src/algo/dqn/src/dqn_based_math.cpp) / [dqn_based_math.hpp](../../../src/algo/dqn/src/dqn_based_math.hpp) / [dqn_based_math_test.cpp](../../../src/algo/dqn/src/dqn_based_math_test.cpp)
-- [dqn_based_network_model.cpp](../../../src/algo/dqn/src/dqn_based_network_model.cpp) / [dqn_based_network_model.hpp](../../../src/algo/dqn/src/dqn_based_network_model.hpp) / [dqn_based_network_model_test.cpp](../../../src/algo/dqn/src/dqn_based_network_model_test.cpp)
+- [dqn_test.cpp](../../../src/algo/dqn/src/dqn_test.cpp)
+- [dqn_actor.cpp](../../../src/algo/dqn/src/dqn_actor.cpp) / [dqn_actor.hpp](../../../src/algo/dqn/src/dqn_actor.hpp) / [dqn_actor_test.cpp](../../../src/algo/dqn/src/dqn_actor_test.cpp)
+- [dqn_assembler.cpp](../../../src/algo/dqn/src/dqn_assembler.cpp) / [dqn_assembler.hpp](../../../src/algo/dqn/src/dqn_assembler.hpp) / [dqn_assembler_test.cpp](../../../src/algo/dqn/src/dqn_assembler_test.cpp)
+- [dqn_config.cpp](../../../src/algo/dqn/src/dqn_config.cpp) / [dqn_config.hpp](../../../src/algo/dqn/src/dqn_config.hpp)
+- [dqn_heads.cpp](../../../src/algo/dqn/src/dqn_heads.cpp) / [dqn_heads.hpp](../../../src/algo/dqn/src/dqn_heads.hpp)
+- [dqn_learner.cpp](../../../src/algo/dqn/src/dqn_learner.cpp) / [dqn_learner.hpp](../../../src/algo/dqn/src/dqn_learner.hpp) / [dqn_learner_test.cpp](../../../src/algo/dqn/src/dqn_learner_test.cpp)
+- [dqn_math.cpp](../../../src/algo/dqn/src/dqn_math.cpp) / [dqn_math.hpp](../../../src/algo/dqn/src/dqn_math.hpp) / [dqn_math_test.cpp](../../../src/algo/dqn/src/dqn_math_test.cpp)
 - [dqn_munchausen_test.cpp](../../../src/algo/dqn/src/dqn_munchausen_test.cpp)
+- [dqn_network_model.cpp](../../../src/algo/dqn/src/dqn_network_model.cpp) / [dqn_network_model.hpp](../../../src/algo/dqn/src/dqn_network_model.hpp) / [dqn_network_model_test.cpp](../../../src/algo/dqn/src/dqn_network_model_test.cpp)
 - [muzero_based_agent.cpp](../../../src/algo/muzero/src/muzero_based_agent.cpp) / [muzero_based_agent.hpp](../../../src/algo/muzero/src/muzero_based_agent.hpp)
 - [agent.hpp](../../../src/core/base/include/anet/agent.hpp)
 - [intrinsic.hpp](../../../src/core/base/include/anet/intrinsic.hpp)
@@ -281,6 +281,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD169](../../memo/169_outside_core_extension_layout_10prd.md) | 残件有り | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-a39330](../../management/issues/issue-20261103-a39330.md) | 未着手 | 2.0 | — | コード | PRD | 321_agent_core, 324_dqn | アルゴリズム | 機能追加 | [PRD147](../../memo/147_iqn_first_priority_quantile_pair_10prd.md) | 残件有り | PRD147: IQN初回Learner priorityのquantile-pair方式 |
 | [issue-20261111-54c7e1](../../management/issues/issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
+| [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | — | コード | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 未着手 | 1.5 | — | コード | PRD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [PRD168](../../memo/168_nstep_target_correction_10prd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
 | [issue-20261103-e29c92](../../management/issues/issue-20261103-e29c92.md) | 未着手 | 1.4 | — | コード | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 残件有り | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
@@ -304,16 +305,14 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-4a2b5e](../../management/issues/issue-20261103-4a2b5e.md) | 未着手 | 0.5 | — | コード | PRD | 315_nn, 321_agent_core | 基盤 | リファクタリング | [PRD165](../../memo/165_nn_head_projection_separation_10prd.md) | 残件有り | NN Head の最終射影と出力変換の責務分離 |
 | [issue-20261103-f993bc](../../management/issues/issue-20261103-f993bc.md) | 未着手 | 0.5 | — | コード | PRD | 321_agent_core, 324_dqn, 325_muzero, 315_nn | 学習基盤 | リファクタリング | [PRD164](../../memo/164_nn_forward_amp_consolidation_10prd.md) | 残件有り | NN 実行設定への AMP の集約（全 Agent 対象） |
 | [issue-20261115-d3e094](../../management/issues/issue-20261115-d3e094.md) | 未着手 | 0.5 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDの改良版のSND（targetも自己教師で学ぶ蒸留）を、RNDの評価が落ち着いたあとに試すかを検討する |
-| [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | 対応中 | 1.7（引継ぎ） | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | コード | PRD | 321_agent_core, 315_nn, 324_dqn, 312_util, 318_rl_core, 325_muzero, 110_runner_app, 311_dev_tools, 322_env_individual | 開発 | リファクタリング | [PRD182](../../memo/182_source_layout_10prd.md) | 残件有り | ソース配置の見直し（トップ階層を `src/` に、Env と同じ具象別のライブラリへ Agent を分ける） |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | コード | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [PRD142](../../memo/142_agent_prev_action_obs_10prd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
-| [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | [issue-20261103-2dd820](../../management/issues/issue-20261103-2dd820.md) | コード | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | コード | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD167](../../memo/167_smdp_transition_duration_10prd.md) | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す） |
 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md), [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md), [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md), [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) | コード | PRD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [PRD173](../../memo/173_intrinsic_reward_novelty_10prd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
 | [issue-20261109-adc5c4](../../management/issues/issue-20261109-adc5c4.md) | 未着手 | 1.4 | [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | コード | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 未確認 | Agent・Env・View・NNモジュールの4つのRepositoryが同じ形を別々に実装し、登録と取り出しの関数名もそろっていない |
 | [issue-20261108-227b05](../../management/issues/issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | コード | PRD | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | コード | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD162](../../memo/162_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 42 / 待ち 8 / 保留 0 / 次版 0 / 解決 0
+着手できる 43 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）

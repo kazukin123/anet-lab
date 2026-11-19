@@ -41,14 +41,14 @@ Agent共通contractは[Agentと学習](110_agents_and_learning.jp.md)、ReplayBu
 | Rainbow | DQNの6つの拡張を組み合わせる | `RainbowAgent`は共通部品の責務分担を確かめるために残す。Run では使わない。原論文との相違は[2.1.3節](#213-rainbowの構成要素) | [Rainbow (2017/10)][paper-rainbow] |
 | QR-DQN | 固定した分位レベルごとの収益を学び、収益分布を表す | 両Agentの`QRLearner` | [QR-DQN (2017/10)][paper-qr] |
 | Implicit Quantile Network（IQN） | 分位レベルτを入力とし、分位関数を学ぶ | DefaultDQNの`IQNLearner` | [IQN (2018/06)][paper-iqn] |
-| Upper Quantile Exploration（UQE） | 平均収益の代わりに上位分位または上側の平均で行動を比較する | DefaultDQNのQR・IQN方策（[2.1.5節](#215-uqe上位分位を使う行動選択)） | [方策の実装](../../src/algo/dqn/src/dqn_based_actor.cpp)。関連：[IQN (2018/06), Section 4][paper-iqn] |
+| Upper Quantile Exploration（UQE） | 平均収益の代わりに上位分位または上側の平均で行動を比較する | DefaultDQNのQR・IQN方策（[2.1.5節](#215-uqe上位分位を使う行動選択)） | [方策の実装](../../src/algo/dqn/src/dqn_actor.cpp)。関連：[IQN (2018/06), Section 4][paper-iqn] |
 | Thompson Sampling | 不確かさを表す分布から標本を取り、その標本で最良の行動を選ぶ | DefaultDQNの`ThompsonSampling`。収益分位を使う実装との差は[2.1.6節](#216-thompson-samplingと本実装の分位サンプリング) | [Thompson Sampling (2017/07), Chapter 4][paper-thompson] |
 | Munchausen RL | 対数方策項を報酬へ加え、softな価値の更新と組み合わせる | DefaultDQNのTD・QR・IQN（[6.3節](#63-munchausen-rl)） | [Munchausen (2020/07)][paper-munchausen] |
 | TempoRL | 行動に加えて、その行動を続ける長さを学ぶ | DefaultDQNのskip方策（[6.5節](#65-defaultdqnのskip方策)） | [TempoRL (2021/06)][paper-temporl] |
 | Random Network Distillation（RND）・内的報酬 | 固定したランダムNetworkの出力を予測する誤差を、新しさの手掛かりとして報酬へ加える | DefaultDQNの`intrinsic.enabled`（[2.1.9節](#219-rndと内的報酬)） | [RND (2018/10)][paper-rnd]、[212の解説](212_rnd_lifelong_novelty.jp.md) |
 | Transformed Bellman Operator（TBO） | 可逆変換hでQ値とBellman targetを圧縮し、値のスケールを扱いやすくする | DefaultDQNの`learner.use_tbo`（[2.1.10節](#2110-tboq値とtargetの圧縮)） | [TBO (2018/05), Section 3.2][paper-tbo] |
-| 楽観ターゲット | bootstrap方策を、平均だけでなく収益分布の上側を見るscoreで決める | DefaultDQNの`target_policy`と`use_optimistic_target`（[2.1.11節](#2111-楽観ターゲット)） | [設定・方策解決](../../src/algo/dqn/src/default_dqn_agent.hpp)、[target計算](../../src/algo/dqn/src/dqn_based_learner.cpp) |
-| spatial exploration（Ape-X由来） | 同時に動くlaneごとに探索強度を変える | 両AgentのActorでεを配置。UQE用τはDefaultDQN（[2.1.12節](#2112-spatial-explorationlaneごとの探索強度)） | [Ape-X (2018/03), Section 3.1][paper-apex]、[SpatialLadderSchedule / ActionPolicy](../../src/algo/dqn/src/dqn_based_actor.cpp) |
+| 楽観ターゲット | bootstrap方策を、平均だけでなく収益分布の上側を見るscoreで決める | DefaultDQNの`target_policy`と`use_optimistic_target`（[2.1.11節](#2111-楽観ターゲット)） | [設定・方策解決](../../src/algo/dqn/src/default_dqn_agent.hpp)、[target計算](../../src/algo/dqn/src/dqn_learner.cpp) |
+| spatial exploration（Ape-X由来） | 同時に動くlaneごとに探索強度を変える | 両AgentのActorでεを配置。UQE用τはDefaultDQN（[2.1.12節](#2112-spatial-explorationlaneごとの探索強度)） | [Ape-X (2018/03), Section 3.1][paper-apex]、[SpatialLadderSchedule / ActionPolicy](../../src/algo/dqn/src/dqn_actor.cpp) |
 
 探索方策の設定とtau生成は[2.4節](#24-actionpolicyとdqnactioninfo)、RNDによる内的報酬の組込みは[6.2節](#62-experience受入れと学習更新)を参照する。
 
@@ -111,7 +111,7 @@ flowchart LR
 
 #### 2.1.5 UQE：上位分位を使う行動選択
 
-本実装のUQEは、平均Qの代わりに収益分布の上側で行動を比較する。τ=0.9なら、指定分位は90パーセンタイル、上側の平均は上位約10%の平均になる。[UQEActionPolicy](../../src/algo/dqn/src/dqn_based_actor.cpp)、[MakeRiskBiasedScore](../../src/algo/dqn/src/dqn_based_math.cpp)
+本実装のUQEは、平均Qの代わりに収益分布の上側で行動を比較する。τ=0.9なら、指定分位は90パーセンタイル、上側の平均は上位約10%の平均になる。[UQEActionPolicy](../../src/algo/dqn/src/dqn_actor.cpp)、[MakeRiskBiasedScore](../../src/algo/dqn/src/dqn_math.cpp)
 
 ```mermaid
 flowchart LR
@@ -123,18 +123,18 @@ flowchart LR
     T --> A
 ```
 
-QRは分位点をソートして抽出し、IQNは指定分位または`[τ,1]`を問い合わせる。τの時間変化・lane配置と、選択後の`uqe.epsilon`探索は[2.4節](#24-actionpolicyとdqnactioninfo)を参照する。[実装：MakeUQEActionInfo](../../src/algo/dqn/src/dqn_based_actor.cpp) 分位を使う方策の一般的な説明は[IQN (2018/06), Sections 3–4][paper-iqn]を参照する。
+QRは分位点をソートして抽出し、IQNは指定分位または`[τ,1]`を問い合わせる。τの時間変化・lane配置と、選択後の`uqe.epsilon`探索は[2.4節](#24-actionpolicyとdqnactioninfo)を参照する。[実装：MakeUQEActionInfo](../../src/algo/dqn/src/dqn_actor.cpp) 分位を使う方策の一般的な説明は[IQN (2018/06), Sections 3–4][paper-iqn]を参照する。
 
 #### 2.1.6 Thompson Samplingと本実装の分位サンプリング
 
 一般的なThompson Samplingは、観測した経験を踏まえたモデルの不確かさを事後分布で表し、そこからモデルの標本を1つ取り、その標本の下で最良の行動を選ぶ。行動自体を一様に乱択するepsilon-greedyに対し、標本化した価値の比較を通じて探索する。[Thompson Sampling (2017/07), Chapters 3–4][paper-thompson]
 
-本実装の`ThompsonSampling`は、ベイズモデルの事後分布を保持する方式ではなく、学習した収益分布の分位を利用する方策名である。非spatial時の動作は次のとおりで、QRとIQNではscoreの作り方が異なる。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/algo/dqn/src/dqn_based_actor.cpp)
+本実装の`ThompsonSampling`は、ベイズモデルの事後分布を保持する方式ではなく、学習した収益分布の分位を利用する方策名である。非spatial時の動作は次のとおりで、QRとIQNではscoreの作り方が異なる。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/algo/dqn/src/dqn_actor.cpp)
 
 - **QR**：呼出しごと・laneごとにτを`[0,1]`から一様に1つ引き、同じτを全行動へ使う。`uqe.use_tail_mean=false`ではその分位、`true`ではその分位から上側の平均で比較する。
 - **IQN**：`tau_rule`に従って`[0,1]`全体へ複数のτを配置し、各行動の出力平均で比較する。random配置なら標本平均であり、1本なら1分位の比較になる。fixed配置ならτ生成自体に乱数を使わない。
 
-spatial有効時は、両方式ともlaneごとのτを下限または指定分位としてUQEと同じ計算へ渡す。epsilonによる乱択も別に適用する。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/algo/dqn/src/dqn_based_actor.cpp) 収益分布が表す結果のばらつきと、一般的なThompson Samplingが扱うモデルの不確かさは区別して読む。[IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
+spatial有効時は、両方式ともlaneごとのτを下限または指定分位としてUQEと同じ計算へ渡す。epsilonによる乱択も別に適用する。[実装：ThompsonSamplingActionPolicy / MakeUQEActionInfo](../../src/algo/dqn/src/dqn_actor.cpp) 収益分布が表す結果のばらつきと、一般的なThompson Samplingが扱うモデルの不確かさは区別して読む。[IQN (2018/06), Section 2.1][paper-iqn] [Thompson Sampling (2017/07), Chapter 4][paper-thompson]
 
 #### 2.1.7 Munchausen RL
 
@@ -183,17 +183,17 @@ flowchart LR
     V --> H["変換 h"] --> Y["target<br/>h空間"]
 ```
 
-`learner.use_tbo`で選び、QR/IQNでは各分位を逆変換する。報酬スケーラは**報酬の尺度**、TBOは**Q値とtargetの表現**を変える。逆変換は`TransformHInv`、圧縮は`TransformH`に対応する。[実装：TDLearner / QuantileLearnerBase](../../src/algo/dqn/src/dqn_based_learner.cpp)
+`learner.use_tbo`で選び、QR/IQNでは各分位を逆変換する。報酬スケーラは**報酬の尺度**、TBOは**Q値とtargetの表現**を変える。逆変換は`TransformHInv`、圧縮は`TransformH`に対応する。[実装：TDLearner / QuantileLearnerBase](../../src/algo/dqn/src/dqn_learner.cpp)
 
 #### 2.1.11 楽観ターゲット
 
-楽観ターゲットは、次状態でbootstrapする方策を、収益分布の上側を見るscoreで決める構成である。UQEをActorだけで使えば実際の行動が変わり、target方策でも使えば学習の教師値を組み立てる際の選択も変わる。Munchausen OFFではscoreが最大の行動を選び、選択した行動の価値・分布をtarget Networkで評価する。選択に使った上位分位のscore自体を、そのままbootstrap値に置き換える処理ではない。Munchausen ONでは、そのscoreから作るsoft方策で混合する（[6.3節](#63-munchausen-rl)）。[実装：targetの行動選択・価値評価](../../src/algo/dqn/src/dqn_based_learner.cpp)
+楽観ターゲットは、次状態でbootstrapする方策を、収益分布の上側を見るscoreで決める構成である。UQEをActorだけで使えば実際の行動が変わり、target方策でも使えば学習の教師値を組み立てる際の選択も変わる。Munchausen OFFではscoreが最大の行動を選び、選択した行動の価値・分布をtarget Networkで評価する。選択に使った上位分位のscore自体を、そのままbootstrap値に置き換える処理ではない。Munchausen ONでは、そのscoreから作るsoft方策で混合する（[6.3節](#63-munchausen-rl)）。[実装：targetの行動選択・価値評価](../../src/algo/dqn/src/dqn_learner.cpp)
 
 DefaultDQNの`use_optimistic_target=true`は、`actor.[train].policy`をtarget方策の既定へコピーし、epsilonを0にする。その後の`target_policy.*`指定で上書きできるため、有効な方式は解決後の方策で確認する。コピー元が平均Qのgreedyなら、このフラグだけで上側を見る方策にはならない。[実装：DefaultDQNAgentConfig](../../src/algo/dqn/src/default_dqn_agent.hpp)
 
 #### 2.1.12 spatial exploration：laneごとの探索強度
 
-Ape-XのActorごとに異なるεを使う考え方を、同じActor内のlaneへ適用している。[Ape-X (2018/03), Section 3.1][paper-apex] [実装：ActionPolicy / SpatialLadderSchedule](../../src/algo/dqn/src/dqn_based_actor.cpp)
+Ape-XのActorごとに異なるεを使う考え方を、同じActor内のlaneへ適用している。[Ape-X (2018/03), Section 3.1][paper-apex] [実装：ActionPolicy / SpatialLadderSchedule](../../src/algo/dqn/src/dqn_actor.cpp)
 
 ```mermaid
 flowchart LR
@@ -209,7 +209,7 @@ flowchart LR
     A1 -.-> L1
 ```
 
-Ape-XのAtari実験はεを学習中固定する。[Ape-X (2018/03), Section 4.1][paper-apex] 本実装は`spatial.enabled`で選び、`first`・`last`の両端を`linear`または`log`で配置する。両端には時間変化も指定でき、DefaultDQNではUQEのε・τにも広げている。時間の変化とlane間の配置は独立に指定する（[2.4節](#24-actionpolicyとdqnactioninfo)）。[実装：epsilon-greedy / UQEのlane別設定](../../src/algo/dqn/src/dqn_based_actor.cpp)
+Ape-XのAtari実験はεを学習中固定する。[Ape-X (2018/03), Section 4.1][paper-apex] 本実装は`spatial.enabled`で選び、`first`・`last`の両端を`linear`または`log`で配置する。両端には時間変化も指定でき、DefaultDQNではUQEのε・τにも広げている。時間の変化とlane間の配置は独立に指定する（[2.4節](#24-actionpolicyとdqnactioninfo)）。[実装：epsilon-greedy / UQEのlane別設定](../../src/algo/dqn/src/dqn_actor.cpp)
 
 ### 2.2 実装レイヤー
 
@@ -299,13 +299,13 @@ PERの初期priority modeが`actor_approx`の場合だけ、Train Actorは既存
 
 | 領域 | 主なファイル |
 |---|---|
-| DQN共通部品 | [学習](../../src/algo/dqn/src/dqn_based_learner.hpp)、[行動](../../src/algo/dqn/src/dqn_based_actor.hpp)、[Network](../../src/algo/dqn/src/dqn_based_network_model.hpp)、[組み立て](../../src/algo/dqn/src/dqn_based_assembler.hpp)、[共通の計算](../../src/algo/dqn/src/dqn_based_math.hpp) |
-| DQN Head | [dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp)、[dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp) |
+| DQN共通部品 | [学習](../../src/algo/dqn/src/dqn_learner.hpp)、[行動](../../src/algo/dqn/src/dqn_actor.hpp)、[Network](../../src/algo/dqn/src/dqn_network_model.hpp)、[組み立て](../../src/algo/dqn/src/dqn_assembler.hpp)、[共通の計算](../../src/algo/dqn/src/dqn_math.hpp) |
+| DQN Head | [dqn_heads.hpp](../../src/algo/dqn/src/dqn_heads.hpp)、[dqn_heads.cpp](../../src/algo/dqn/src/dqn_heads.cpp) |
 | DefaultDQN | [default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp)、[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) |
 | Rainbow | [rainbow_agent.hpp](../../src/algo/dqn/src/rainbow_agent.hpp)、[rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp) |
 | ReplayBuffer | [replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp)、[replay_buffer_impl.hpp](../../src/core/base/src/replay_buffer_impl.hpp)、[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) |
 | Runner設定例 | [apps/runner/config](../../apps/runner/config) |
-| DQN test | DQNの各役割と具象Agentの `dqn_based_*_test.cpp`、[dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp) |
+| DQN test | DQNの各役割と具象Agentの `dqn_*_test.cpp`、[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp) |
 
 ## 5. 静的構造
 
@@ -818,7 +818,7 @@ PRD101の比較・実Run手順は[PRD101検証資材](../../src/core/base/testda
 
 TempoRL の window・Actor・learner・checkpoint・指標を変える場合は、[PRD098検証資材](../../src/core/base/testdata/prd098/README.md) の契約テスト、4環境の無効時等価性、smoke、Atari性能比較を実行する。長時間学習の合否は短い検証とは分けて記録する。
 
-主なDQN testはDQNの各役割と具象Agentの `dqn_based_*_test.cpp`と[dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)に置く。
+主なDQN testはDQNの各役割と具象Agentの `dqn_*_test.cpp`と[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp)、Replay共通testは[replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)に置く。
 
 DQN系Agentを追加・変更する場合は、少なくとも次を確認する。
 

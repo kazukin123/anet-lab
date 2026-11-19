@@ -5,7 +5,7 @@
 #include <limits>
 #include <torch/cuda.h>
 
-#include "dqn_based_actor.hpp"
+#include "dqn_actor.hpp"
 
 using namespace anet;
 using namespace anet::rl::dqn;

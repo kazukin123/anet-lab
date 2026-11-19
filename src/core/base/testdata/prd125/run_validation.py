@@ -58,7 +58,7 @@ def snapshot():
     tests.mkdir()
     dqn_source = REPO / "src/algo/dqn/src"
     cases = ("actor", "assembler", "concrete", "learner", "math", "network_model")
-    names = [f"dqn_based_{role}_test.cpp" for role in cases]
+    names = [f"dqn_{role}_test.cpp" for role in cases]
     for name in (*names, "dqn_munchausen_test.cpp", "test/dqn_fixture_test.hpp"):
         shutil.copy2(dqn_source / name, tests / Path(name).name)
     core = BASELINE / "core"

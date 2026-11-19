@@ -19,8 +19,8 @@
 #include "anet/replay_buffer.hpp"
 #include "anet/agent.hpp"
 #include "anet/transfer.hpp"
-#include "dqn_based_network_model.hpp"
-#include "dqn_based_math.hpp"
+#include "dqn_network_model.hpp"
+#include "dqn_math.hpp"
 
 namespace anet::rl::dqn {
 

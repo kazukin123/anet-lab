@@ -1,7 +1,7 @@
 // dqn_agent.cpp
 
 #include "rainbow_agent.hpp"
-#include "dqn_based_assembler.hpp"
+#include "dqn_assembler.hpp"
 #include <memory>
 #include <torch/torch.h>
 #include <tuple>

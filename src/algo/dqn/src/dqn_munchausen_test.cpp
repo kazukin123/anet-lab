@@ -1,8 +1,8 @@
 #include "anet/test/catch.hpp"
 #include "default_dqn_agent.hpp"
-#include "dqn_based_heads.hpp"
+#include "dqn_heads.hpp"
 #include "rainbow_agent.hpp"
-#include "dqn_based_learner.hpp"
+#include "dqn_learner.hpp"
 #include "anet/test/nn.hpp"
 #include "anet/nn_head.hpp"
 #include <ATen/autocast_mode.h>

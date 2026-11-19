@@ -7,7 +7,7 @@
 #include <tuple>
 #include "anet/nn.hpp"
 #include "anet/test/nn.hpp"
-#include "dqn_based_learner.hpp"
+#include "dqn_learner.hpp"
 
 using namespace anet::rl::dqn;
 

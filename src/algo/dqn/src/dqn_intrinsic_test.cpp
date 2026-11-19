@@ -16,7 +16,7 @@
 #include "anet/intrinsic.hpp"
 #include "anet/test/intrinsic.hpp"
 #include "default_dqn_agent.hpp"
-#include "dqn_based_learner.hpp"
+#include "dqn_learner.hpp"
 #include "anet/metrics.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/observers.hpp"

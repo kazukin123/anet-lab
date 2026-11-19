@@ -1,6 +1,6 @@
-// dqn_based_heads.cpp
+// dqn_heads.cpp
 
-#include "dqn_based_heads.hpp"
+#include "dqn_heads.hpp"
 #include <array>
 #include <cmath>
 #include <string>

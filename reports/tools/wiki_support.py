@@ -15,9 +15,10 @@ class CategoryRules:
 
     def category_of(self, path):
         # 最初に当たるカテゴリだけを返す。
-        path = re.sub(r"_test(?=\.[^/.]+$)", "", path.replace("\\", "/"))
+        path = path.replace("\\", "/")
+        source_path = re.sub(r"_test(?=\.[^/.]+$)", "", path)
         for key, patterns in self.patterns:
-            if any(p.search(path) for p in patterns):
+            if any(p.search(path) or p.search(source_path) for p in patterns):
                 return key
         return None
 

@@ -115,7 +115,7 @@
       ],
       "sources": [
         {
-          "path": "src/algo/dqn/src/dqn_based_network_model.hpp",
+          "path": "src/algo/dqn/src/dqn_network_model.hpp",
           "line": 33,
           "label": "dqn::NetworkModel"
         },
@@ -211,7 +211,7 @@
           "label": "InitDqn"
         },
         {
-          "path": "src/algo/dqn/src/dqn_based_actor.cpp",
+          "path": "src/algo/dqn/src/dqn_actor.cpp",
           "line": 1521,
           "label": "dqn::Actor::MakeAction"
         },
@@ -302,7 +302,7 @@
           "label": "CreateReplayBuffer"
         },
         {
-          "path": "src/algo/dqn/src/dqn_based_learner.cpp",
+          "path": "src/algo/dqn/src/dqn_learner.cpp",
           "line": 888,
           "label": "Learner::SetupReplayBuffer"
         }

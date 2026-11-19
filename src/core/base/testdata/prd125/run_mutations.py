@@ -11,7 +11,7 @@ spec = importlib.util.spec_from_file_location("prd125_validation", HERE / "run_v
 validation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validation)
 REPO = validation.REPO
-SOURCE = REPO / "src/algo/dqn/src/dqn_based_learner.cpp"
+SOURCE = REPO / "src/algo/dqn/src/dqn_learner.cpp"
 MUTATIONS = {
     "omit_h": (
         "const auto target = config_.use_tbo ? TransformH(raw_target) : raw_target;",

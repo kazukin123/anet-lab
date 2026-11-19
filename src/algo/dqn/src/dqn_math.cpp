@@ -1,4 +1,4 @@
-#include "dqn_based_math.hpp"
+#include "dqn_math.hpp"
 #include <algorithm>
 #include <charconv>
 #include <tuple>
@@ -21,7 +21,7 @@
 #include "anet/image.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/nn_head.hpp"
-#include "dqn_based_heads.hpp"
+#include "dqn_heads.hpp"
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
