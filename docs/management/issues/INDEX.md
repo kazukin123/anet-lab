@@ -4,11 +4,19 @@
 
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261118-3aa088](issue-20261118-3aa088.md) | 調査中 | 6.0 | — | 文書 | 監査 | 324_dqn | アルゴリズム | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200がCONTEXT.mdで避ける語（継続長・TD target・減衰）を使っている |
+| [issue-20261118-8933e7](issue-20261118-8933e7.md) | 調査中 | 6.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200のコードマップに設定型・内的報酬・stackerの置き場が無く、run.@rndのenvの列挙からDropMergeが漏れている |
 | [issue-20261107-949e8a](issue-20261107-949e8a.md) | 対応中 | 5.0 | — | コード | その他 | 322_env_individual | Env | 機能追加 | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 残件有り | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
+| [issue-20261118-95f463](issue-20261118-95f463.md) | 調査中 | 5.0 | — | 文書 | 監査 | 324_dqn, 317_metrics | 基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200が実在しない名前（run.@munchausen、metrics.scalar.full）や接頭辞の無い設定キーを案内している |
+| [issue-20261118-83eb00](issue-20261118-83eb00.md) | 調査中 | 4.5 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200の方策の持ち主・Actor Q ヒントの送出・楽観ターゲットの記述がActorカタログ化（ADR 0038）と実装に合っていない |
+| [issue-20261118-9c6895](issue-20261118-9c6895.md) | 調査中 | 4.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | 設計文書200の部品表のTDLearnerとTauGeneratorが、計算を持たない型と存在しない名前を指している |
 | [issue-20261111-77ac3c](issue-20261111-77ac3c.md) | 対応中 | 3.0 | — | コード | PRD | 324_dqn, 321_agent_core | アルゴリズム | 機能改善 | [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md) | 残件有り | RNDの内的報酬が序盤の大きな誤差で膨らんだ累積の誤差統計に抑えられ、βが名目どおりに効かずRunの中で強まる |
+| [issue-20261118-0fc0d7](issue-20261118-0fc0d7.md) | 調査中 | 3.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | ADR 0013・0010・0012に後発決定の注記が無く、置き換えたADR 0038・0075・0019へたどれない |
+| [issue-20261118-7f7757](issue-20261118-7f7757.md) | 調査中 | 3.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | DQN系のADR約20本が設計文書から一度もリンクされず、設計文書200の関連ADRが6本だけ |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | コード | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261117-eedd0c](issue-20261117-eedd0c.md) | 調査中 | 2.6 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | Evaluation Trace の単一行選択テストが合成ドラッグ後に失敗する |
 | [issue-20261116-6db0f2](issue-20261116-6db0f2.md) | 調査中 | 1.5 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD189](../../memo/189_grill_premise_understanding_10prd.md) | 未確認 | グリルを始める前に、判断に要る前提を開発者が理解した状態にする工程と、その状態を確かめる工程が無い |
+| [issue-20261119-20603e](issue-20261119-20603e.md) | 調査中 | 2.5 | — | コード | PRD | 324_dqn | 学習基盤 | 不整合 | [PRD190](../../memo/190_dqn_design_doc_alignment_10prd.md) | 未確認 | DQNのτの生成のエラー文・検証関数・テストの名前に、実在しない部品名TauGeneratorが残っている |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD187](../../memo/187_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
@@ -16,14 +24,9 @@
 | [issue-20261103-ba635a](issue-20261103-ba635a.md) | 未着手 | 6.5 | — | コード | 監査 | 317_metrics | UI | 不具合 | — | 残件有り | VideoLoggerが最初の画像の大きさで固定され、以後の画像のサイズを確かめずに読む |
 | [issue-20261103-80c355](issue-20261103-80c355.md) | 未着手 | 6.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | Notifierが無ロックのvectorを、GUIスレッドのAttach/Detachと学習スレッドのNotifyで同時に触る |
 | [issue-20261103-93f8a6](issue-20261103-93f8a6.md) | 未着手 | 6.0 | — | コード | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | actor_approxのGPU推論のEval Actorに手動の行動を打つと、CPUの強制行動とGPUのq_valuesのdevice不一致でWithActionが止まる |
-| [issue-20261118-3aa088](issue-20261118-3aa088.md) | 未着手 | 6.0 | — | 文書 | 監査 | 324_dqn | アルゴリズム | 不整合 | — | 未確認 | 設計文書200がCONTEXT.mdで避ける語（継続長・TD target・減衰）を使っている |
-| [issue-20261118-8933e7](issue-20261118-8933e7.md) | 未着手 | 6.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | — | 未確認 | 設計文書200のコードマップに設定型・内的報酬・stackerの置き場が無く、run.@rndのenvの列挙からDropMergeが漏れている |
 | [issue-20261109-1499d0](issue-20261109-1499d0.md) | 未着手 | 5.0 | — | コード | 監査 | 321_agent_core, 319_gui, 315_nn | 基盤 | 不整合 | — | 未確認 | Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる |
 | [issue-20261115-ce0101](issue-20261115-ce0101.md) | 未着手 | 5.0 | — | コード | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | — | 残件有り | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
-| [issue-20261118-95f463](issue-20261118-95f463.md) | 未着手 | 5.0 | — | 文書 | 監査 | 324_dqn, 317_metrics | 基盤 | 不整合 | — | 未確認 | 設計文書200が実在しない名前（run.@munchausen、metrics.scalar.full）や接頭辞の無い設定キーを案内している |
 | [issue-20261110-3f4e63](issue-20261110-3f4e63.md) | 未着手 | 4.5 | — | コード | PRD | 110_runner_app | UI | 不具合 | — | 未確認 | QValuePanelで平滑化が有効なままsmooth_radiusが0以下だと、空の重みの範囲外を読む |
-| [issue-20261118-83eb00](issue-20261118-83eb00.md) | 未着手 | 4.5 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | — | 未確認 | 設計文書200の方策の持ち主・Actor Q ヒントの送出・楽観ターゲットの記述がActorカタログ化（ADR 0038）と実装に合っていない |
-| [issue-20261118-9c6895](issue-20261118-9c6895.md) | 未着手 | 4.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | — | 未確認 | 設計文書200の部品表のTDLearnerとTauGeneratorが、計算を持たない型と存在しない名前を指している |
 | [issue-20261111-9e6e27](issue-20261111-9e6e27.md) | 未着手 | 3.6 | — | コード | PRD | 110_runner_app | UI | 機能改善 | — | 未確認 | 無人で走るRun（番号付きbat）でWARNに気づけない |
 | [issue-20261110-546bdb](issue-20261110-546bdb.md) | 未着手 | 3.5 | — | コード | 実装 | 316_config | 開発 | 不整合 | — | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
 | [issue-20261115-e5a0eb](issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | PRD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
@@ -43,8 +46,6 @@
 | [issue-20261111-be150a](issue-20261111-be150a.md) | 未着手 | 3.0 | — | コード | 監査 | 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | StepTraceColumnSpec の target と display を文字列で持ち、metrics.cpp・gui.cpp・EvalTracePanel.cpp の 3 ファイル 17 か所で文字列を比べている |
 | [issue-20261111-c68178](issue-20261111-c68178.md) | 未着手 | 3.0 | — | コード | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | DropMerge のエピソード統計を 1 つ足すと、Env のメンバ・Reset・StepResult の初期化子とメンバ・GetScalar の 5 か所へ同じ形を足すことになる |
 | [issue-20261111-ea3483](issue-20261111-ea3483.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | scalar メトリクスの Observer が、イベントの中身を 6〜9 個の引数にばらして 3 段持ち回り、同じ 8 引数のコンストラクタを 4 回書いている |
-| [issue-20261118-0fc0d7](issue-20261118-0fc0d7.md) | 未着手 | 3.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | — | 未確認 | ADR 0013・0010・0012に後発決定の注記が無く、置き換えたADR 0038・0075・0019へたどれない |
-| [issue-20261118-7f7757](issue-20261118-7f7757.md) | 未着手 | 3.0 | — | 文書 | 監査 | 324_dqn | 学習基盤 | 不整合 | — | 未確認 | DQN系のADR約20本が設計文書から一度もリンクされず、設計文書200の関連ADRが6本だけ |
 | [issue-20261107-16ffd8](issue-20261107-16ffd8.md) | 未着手 | 2.7 | — | コード | PRD | 318_rl_core, 322_env_individual, 110_runner_app | 学習基盤 | 不整合 | — | 未確認 | ERROR のログを出したあとも Run を止めずに続ける箇所（Env・Agent の作成失敗、DropMerge の果物の範囲外）が Fail-Fast 原則と合わない |
 | [issue-20261111-15ba39](issue-20261111-15ba39.md) | 未着手 | 2.7 | — | コード | 監査 | 110_runner_app | UI | リファクタリング | — | 未確認 | EvalPanel のモデル同期が mode を文字列のまま step ごとに解釈し直し、EvalTracePanel は pane の開閉から導ける active_ を 4 通りの問い合わせで合わせている |
 | [issue-20261111-17fea4](issue-20261111-17fea4.md) | 未着手 | 2.7 | — | コード | 監査 | 324_dqn, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | 方策の種類（policy_type）と分布の表し方（quantile_mode）を文字列のまま持ち回り、数字の別名の受け付け方が関数ごとに違う |

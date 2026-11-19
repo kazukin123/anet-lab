@@ -973,3 +973,4 @@
 2026-11-19 ingest docs/adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md blob:9b33bfb7456ce7d8239b30010b8ef6933675075b → docs/wiki/categories/311_dev_tools.md、docs/wiki/categories/321_agent_core.md（PRD182 の書き戻しで、選ばなかった形の出典にした）
 2026-11-19 writeback docs/memo/189_grill_premise_understanding_10prd.md blob:c8412eaa95eb44ed8f77f3cbad5cea64e4cc11a6 → docs/wiki/categories/311_dev_tools.md（成立の経緯 1 行、選ばなかった形 13 行、変えるときの条件 1 行。グリル・別モデルの検討・レビューを終えた本文）
 2026-11-19 fix docs/memo/189_grill_premise_understanding_10prd.md blob:c8412eaa95eb44ed8f77f3cbad5cea64e4cc11a6 → docs/wiki/categories/311_dev_tools.md（成立の経緯の観点の項番を、PRD の改訂に合わせて 42 から 43 へ直した）
+2026-11-19 writeback docs/memo/190_dqn_design_doc_alignment_10prd.md blob:62f43cc9bae24813162274b337542832552b6d26 → docs/wiki/categories/324_dqn.md（選ばなかった形の DropMerge 用 `run.@rnd` の行に、2026-11-18 に PRD なしで追加された旨を書き添えた。§1.2・§4 の D4 と照合して一致）

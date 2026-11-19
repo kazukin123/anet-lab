@@ -38,7 +38,7 @@ Agentは、そのNetworkへの入力として使うspecを選ぶ。ImageClsAgent
 
 ### 2.2 frame stack入力の軸contract
 
-`DefaultDQNAgent`で`use_stacker=true`かつ`stack_count=S>1`の場合、stack対象キーのNetwork入力specは、EnvSpecの`original_shape`に先頭のstack軸を加えた`[S, *original_shape]`になる。Network構築時のdummy inputとActor／Learnerの実入力は、いずれもbatch軸を加えた`[B, S, *original_shape]`を使う。`stack_keys`対象外のキーにはstack軸を追加しない。GraphVizのinput spec表示もこのcontractを反映する。
+`DefaultDQNAgent`で`stucker.use_stacker=true`かつ`stucker.stack_count=S>1`の場合、stack対象キーのNetwork入力specは、EnvSpecの`original_shape`に先頭のstack軸を加えた`[S, *original_shape]`になる。Network構築時のdummy inputとActor／Learnerの実入力は、いずれもbatch軸を加えた`[B, S, *original_shape]`を使う。`stucker.stack_keys`対象外のキーにはstack軸を追加しない。GraphVizのinput spec表示もこのcontractを反映する。
 
 Network構成では、stack軸を暗黙に復元せず、目的に応じて次のmoduleを明示する。
 
@@ -128,7 +128,7 @@ net.branch.[merged].bind_concat_dim = -1
 | Module／Head実装側のinterface・Body/Branch/Block/Repository | [nn_impl.hpp](../../src/core/base/src/nn_impl.hpp)、[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) |
 | module実装と登録 | [nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) |
 | Agent向けHead | [nn_head.hpp](../../src/core/base/include/anet/nn_head.hpp)、[nn_head.cpp](../../src/core/base/src/nn_head.cpp) |
-| DQN系Head | [dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp)、[dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp) |
+| DQN系Head | [dqn_heads.hpp](../../src/algo/dqn/src/dqn_heads.hpp)、[dqn_heads.cpp](../../src/algo/dqn/src/dqn_heads.cpp) |
 | TensorDict共通処理 | [common.hpp](../../src/core/base/include/anet/common.hpp)、[common.cpp](../../src/core/base/src/common.cpp) |
 | Tensor補助処理 | [tensor_util.hpp](../../src/core/base/include/anet/tensor_util.hpp)、[tensor_check.hpp](../../src/core/base/include/anet/tensor_check.hpp) |
 | 設定例 | [nn.txt](../../apps/runner/config/nn.txt)、[nn_cnx.txt](../../apps/runner/config/nn_cnx.txt) |

@@ -669,7 +669,7 @@ Run結果を分析する場合は、[Run分析ユーザーガイド](docs/design
 - **metricは1回の呼び出しへ束ねる。** Metricsマスタの走査はRunごとに1 passで、tag数には比例しない。tagごとに呼び分けるとpassの回数だけ時間が増える。
 - Run名の探索範囲は `data/workspaces/*/runs/` 直下だけ。`apps/runner/runs_*` のlegacy配置は明示pathでのみ指定できる。同名Runが複数workspaceにあるときは候補を示して終了値2で止まる。
 - 正本の関係は「実効設定=`config/config_data.txt`」「メトリクス=Metricsマスタ（`metrics.jsonl`優先、無ければ`metrics.jsonl.gz`）」「`metrics_cache.db`=マスタへ完全追随しているときだけ使える高速経路」。cacheが追随していなければ自動でマスタへfallbackするので、cacheを正本として読まない。
-- **`config_data.txt` には実効値のほかにマージ元と未選択のprofileが同居する。** `AS.*`、`A.*`、`R.*`、`X.*`、`M.*`、`metrics.scalar.baseline.*`、`metrics.scalar.full.*` のような定義namespaceは、選ばれたかどうかがdumpからは区別できない（`.$` の選択行はAutoMergeで消える）。実効値の確認には `config --effective-only` を使い、`config/<module>.txt` で裏が取れたkeyだけを見る。
+- **`config_data.txt` には実効値のほかにマージ元が同居する。** `A1.*`、`A2.*`、`M1.*`、`E1.*` のような定義namespaceは、選ばれたかどうかがdumpからは区別できない（`.$` の選択行はAutoMergeで消える）。`@` で始まるprofileの定義（`metrics.scalar.@full.*` など）はdumpに出ない。実効値の確認には `config --effective-only` を使い、`config/<module>.txt` で裏が取れたkeyだけを見る。
 - **`51_eval1/*` や `52_eval2/*` は単一の軸ではない。** `@session_end` 系はtrain runnerのstep、`@train $action_info` 系はeval runner自身のstepに載る。同じ `exp_step` と書かれていても座標系が違うので、train側のstep範囲をeval側へ当てると黙って空になる。`tags` の `runner` 列と到達stepを先に見る。
 - 成績差はばらつき幅を物差しにする。同一設定の反復Runを `metrics` へまとめて渡すと、比較表に `population_std` と `range` が出るのでその場で物差しが得られる。
 - **現象を名前で呼ぶ（崩壊・停滞・発散など）ときは、その名前が前提にする経過を、評価と学習の両方の指標で確かめてから書き、確かめた指標を添える。** 崩壊なら「一度届いて、保てなかった」ことを確かめる。違う現象に同じ名前を使わない。
