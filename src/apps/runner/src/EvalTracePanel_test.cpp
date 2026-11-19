@@ -565,16 +565,21 @@ TEST_CASE("Trace keeps one selected row and fixed row heights", "[trace_ui_singl
     CHECK_FALSE(ui.panel->IsTraceMode());
 
     // セルを押したまま下の行へ動かしても、押した行だけを選んだままにする。
-    auto* cells = ui.grid->GetGridWindow();
-    const int row_height = ui.grid->GetRowSize(0);
+    auto* cells = ui.grid->GetFrozenColGridWindow();
+    REQUIRE(cells != nullptr);
     const auto mouse = [&](wxEventType type, int row, bool left_down) {
+        const auto cell = ui.grid->CellToRect(row, 0);
+        const auto scrolled = ui.grid->CalcScrolledPosition(cell.GetPosition());
+        const wxPoint position(cell.x + cell.width / 2, scrolled.y + cell.height / 2);
+        REQUIRE(cells->GetClientRect().Contains(position));
         wxMouseEvent event(type);
         event.SetEventObject(cells);
-        event.SetPosition(wxPoint(ui.grid->FromDIP(4), row * row_height + row_height / 2));
+        event.SetPosition(position);
         event.SetLeftDown(left_down);
         cells->GetEventHandler()->ProcessEvent(event);
     };
     mouse(wxEVT_LEFT_DOWN, 0, true);
+    CHECK(ui.panel->IsTraceMode());
     mouse(wxEVT_MOTION, 1, true);
     mouse(wxEVT_MOTION, 2, true);
     mouse(wxEVT_LEFT_UP, 2, false);

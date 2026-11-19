@@ -328,19 +328,26 @@ TEST_CASE("ImageClsEnv validates both standard manifests before selecting its Ru
         Catch::Matchers::ContainsSubstring("missing-eval-classes.txt"));
 }
 
-TEST_CASE("ImageCls config validation ignores unknown keys without manifest I/O", "[image_cls_env][config]")
+TEST_CASE("ImageCls validates config without manifest I/O", "[image_cls_env][config]")
 {
     EnsureWxImageSupport();
 
     TinyImageClsDataset dataset;
     anet::rl::env::ImageClsEnvFactory factory;
 
-    SECTION("unknown key") {
+    SECTION("unknown keys outside catalog entries are left unread") {
         auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
         config.Set("ImageClsEnv.unknown", "ignored");
         config.Set("ImageDataset.unknown", "ignored");
-        config.Set("ImageDataset.[" + dataset.GetDatasetKey() + "].unknown", "ignored");
         CHECK_NOTHROW(factory.ValidateConfig(config, anet::rl::RunMode::Train, ""));
+    }
+
+    SECTION("an unknown key in the selected dataset entry is rejected") {
+        auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
+        const auto key = "ImageDataset.[" + dataset.GetDatasetKey() + "].unknown";
+        config.Set(key, "unexpected");
+        CHECK_THROWS_WITH(factory.ValidateConfig(config, anet::rl::RunMode::Train, ""),
+            Catch::Matchers::ContainsSubstring(key + " = unexpected"));
     }
 
     SECTION("dormant-style schema validation remains I/O free") {
@@ -392,9 +399,16 @@ TEST_CASE("ImageDataset cache policies preserve explicit and auto failure semant
         CHECK_NOTHROW(env->Reset());
         CHECK_NOTHROW(env->Reset());
         logs.Flush();
-        CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
+        // 別テストの画像デコード警告が遅れて届くことがあるため、今回のキャッシュ通知を数える。
+        const auto dataset_tag = "dataset_key='" + dataset.GetDatasetKey() + "'";
+        const auto cache_warnings = std::ranges::count_if(logs.Records(), [&](const auto& record) {
+            return record.level == wxLOG_Warning
+                && record.message.starts_with("ImageDataset auto cache")
+                && record.message.find(dataset_tag) != std::string::npos;
+        });
+        CHECK(cache_warnings == 1);
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
-            {"cache", "max_bytes=1"}));
+            {"ImageDataset auto cache", dataset_tag, "max_bytes=1"}));
     }
 
     SECTION("full_ram succeeds within its declared cap") {
