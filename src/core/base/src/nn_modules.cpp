@@ -9,6 +9,7 @@
 #include "anet/log.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/profile.hpp"
+#include "anet/init.hpp"
 
 
 using namespace anet::nn;
@@ -3306,50 +3307,53 @@ public:
     }
 };
 
- void anet::nn::InitNN()
- {
-    auto& repo = NetworkModuleRepository::Instance();
+void anet::nn::InitNN()
+{
+    static const auto failure = anet::rl::detail::CaptureRegistrationFailure([] {
+        auto& repo = NetworkModuleRepository::Instance();
 
-	// 基本モジュール登録
-    repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
-    repo.Register("Permute", std::make_shared<PermuteModuleFactory>());
-    repo.Register("Reshape", std::make_shared<ReshapeModuleFactory>());
-    repo.Register("StackMerge", std::make_shared<StackMergeModuleFactory>());
-    repo.Register("Dropout", std::make_shared<DropoutModuleFactory>());
+        // 基本モジュール登録
+        repo.Register("Flatten", std::make_shared<FlattenModuleFactory>());
+        repo.Register("Permute", std::make_shared<PermuteModuleFactory>());
+        repo.Register("Reshape", std::make_shared<ReshapeModuleFactory>());
+        repo.Register("StackMerge", std::make_shared<StackMergeModuleFactory>());
+        repo.Register("Dropout", std::make_shared<DropoutModuleFactory>());
 
-	// 活性化関数モジュール登録
-    repo.Register("ReLU", std::make_shared<ReLUModuleFactory>());
-    repo.Register("GELU", std::make_shared<GELUModuleFactory>());
-    repo.Register("SiLU", std::make_shared<SiLUModuleFactory>());
-    repo.Register("Mish", std::make_shared<MishModuleFactory>());
-    repo.Register("LeakyReLU", std::make_shared<LeakyReLUModuleFactory>());
+        // 活性化関数モジュール登録
+        repo.Register("ReLU", std::make_shared<ReLUModuleFactory>());
+        repo.Register("GELU", std::make_shared<GELUModuleFactory>());
+        repo.Register("SiLU", std::make_shared<SiLUModuleFactory>());
+        repo.Register("Mish", std::make_shared<MishModuleFactory>());
+        repo.Register("LeakyReLU", std::make_shared<LeakyReLUModuleFactory>());
 
-    // 正規化・Pooling登録
-    repo.Register("GroupNorm", std::make_shared<GroupNormModuleFactory>());
-    repo.Register("LayerNorm", std::make_shared<LayerNormModuleFactory>());
-    repo.Register("LayerNorm2d", std::make_shared<LayerNorm2dModuleFactory>());
-    repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
-    repo.Register("GAP1D", std::make_shared<GlobalAveragePooling1DFactory>());
-    repo.Register("GAP2D", std::make_shared<GlobalAveragePooling2DFactory>());
-    repo.Register("MaxPool2d", std::make_shared<MaxPool2dFactory>());
+        // 正規化・Pooling登録
+        repo.Register("GroupNorm", std::make_shared<GroupNormModuleFactory>());
+        repo.Register("LayerNorm", std::make_shared<LayerNormModuleFactory>());
+        repo.Register("LayerNorm2d", std::make_shared<LayerNorm2dModuleFactory>());
+        repo.Register("BatchNorm2d", std::make_shared<BatchNorm2dModuleFactory>());
+        repo.Register("GAP1D", std::make_shared<GlobalAveragePooling1DFactory>());
+        repo.Register("GAP2D", std::make_shared<GlobalAveragePooling2DFactory>());
+        repo.Register("MaxPool2d", std::make_shared<MaxPool2dFactory>());
 
-    // データ加工系モジュール登録
-    repo.Register("HybridSpatialEmbedder", std::make_shared<HybridSpatialEmbedderModuleFactory>());
-    repo.Register("SpatialEmbedder", std::make_shared<SpatialEmbedderModuleFactory>());
-    repo.Register("SpatialPositionalEmbedding2D", std::make_shared<SpatialPositionalEmbedding2DFactory>());
-    repo.Register("CosineEmbedding", std::make_shared<CosineEmbeddingModuleFactory>());
+        // データ加工系モジュール登録
+        repo.Register("HybridSpatialEmbedder", std::make_shared<HybridSpatialEmbedderModuleFactory>());
+        repo.Register("SpatialEmbedder", std::make_shared<SpatialEmbedderModuleFactory>());
+        repo.Register("SpatialPositionalEmbedding2D", std::make_shared<SpatialPositionalEmbedding2DFactory>());
+        repo.Register("CosineEmbedding", std::make_shared<CosineEmbeddingModuleFactory>());
 
-    // レイヤー系モジュール登録
-    repo.Register("Linear", std::make_shared<LinearModuleFactory>());
-    repo.Register("Conv1d", std::make_shared<Conv1dModuleFactory>());
-    repo.Register("Conv2d", std::make_shared<Conv2dModuleFactory>());
-    repo.Register("ResBlock", std::make_shared<ResBlockModuleFactory>());
-    repo.Register("CNBlock", std::make_shared<CNBlockModuleFactory>());
-    repo.Register("TransformerEncoder", std::make_shared<TransformerEncoderModuleFactory>());
+        // レイヤー系モジュール登録
+        repo.Register("Linear", std::make_shared<LinearModuleFactory>());
+        repo.Register("Conv1d", std::make_shared<Conv1dModuleFactory>());
+        repo.Register("Conv2d", std::make_shared<Conv2dModuleFactory>());
+        repo.Register("ResBlock", std::make_shared<ResBlockModuleFactory>());
+        repo.Register("CNBlock", std::make_shared<CNBlockModuleFactory>());
+        repo.Register("TransformerEncoder", std::make_shared<TransformerEncoderModuleFactory>());
 
-    // Tokenモジュール登録
-    repo.Register("ClsAppend", std::make_shared<ClsTokenAppendFactory>());
-    repo.Register("ClsExtract", std::make_shared<ClsTokenExtractFactory>());
+        // Tokenモジュール登録
+        repo.Register("ClsAppend", std::make_shared<ClsTokenAppendFactory>());
+        repo.Register("ClsExtract", std::make_shared<ClsTokenExtractFactory>());
 
-    //RegisterNetworkModuleFactory<Module>("Linear");
- }
+        //RegisterNetworkModuleFactory<Module>("Linear");
+    });
+    if (failure) std::rethrow_exception(failure);
+}

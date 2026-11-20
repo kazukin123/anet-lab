@@ -604,6 +604,7 @@ void RunnerFrame::AttachTrainStatusObserver(const std::shared_ptr<anet::rl::RunM
     // AttachScoped() の返り値ではなく、Notifier が実際に保持する wrapper を保持して detach する。
     train_status_notifier_ = run_manager->GetNotifier();
     train_status_observer_ = std::make_shared<anet::rl::RunnerScopedTrainObserver>(observer, train_runner);
+    // 学習スレッドから Frame の状態を更新する。学習停止と背景評価の排水を終えてから解除し、Frame を閉じる。
     train_status_notifier_->Attach(train_status_observer_);
 }
 

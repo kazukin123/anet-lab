@@ -20,6 +20,8 @@
 #include <wx/cmdline.h>
 
 static constexpr anet::seed_t kTestAgentSeed = 6000;
+constexpr char kActionQValuesAuxKey[] = "q_values";
+constexpr char kMunchausenTermsAuxKey[] = "munchausen_terms";
 
 using namespace anet;
 using namespace anet::rl;
@@ -285,18 +287,49 @@ TEST_CASE("Munchausen Actor uses exactly one existing score forward", "[dqn][mun
     }
 }
 
+TEST_CASE("DQN forced actions keep the caller device while updating CUDA hints", "[dqn][forced_action][device]")
+{
+    if (!torch::cuda::is_available()) { SKIP("CUDA is unavailable"); }
+    const bool with_hint = GENERATE(false, true);
+    CAPTURE(with_hint);
+    const torch::Device device(torch::kCUDA, 0);
+    const auto selected = torch::tensor({1}, torch::kInt64).to(device);
+    const auto forced = torch::tensor({0}, torch::kInt64);
+    const AuxData aux{
+        {kActionQValuesAuxKey, torch::tensor({{1.0f, 4.0f}}).to(device)},
+        {kMunchausenTermsAuxKey, torch::tensor({{-0.7f, -0.2f}}).to(device)},
+    };
+    const auto hint = with_hint
+        ? std::optional{ReplayInitialPriorityHint(torch::tensor({{4.0f, 5.0f, -0.2f, 0.0f, 0.0f}}).to(device))}
+        : std::nullopt;
+    const DQNActionInfo original(selected, {}, aux, hint);
+
+    const auto from_cpu = original.WithAction(forced);
+    CHECK(from_cpu->GetAction().device().is_cpu());
+    CHECK(torch::equal(from_cpu->GetAction(), forced));
+    const auto cpu_hint = from_cpu->GetReplayInitialPriorityHint();
+    REQUIRE(cpu_hint.has_value() == with_hint);
+    if (with_hint) {
+        const auto from_cuda = original.WithAction(forced.to(device));
+        const auto cuda_hint = from_cuda->GetReplayInitialPriorityHint();
+        REQUIRE(cuda_hint.has_value());
+        CHECK(cpu_hint->GetPayload().device() == device);
+        CHECK(torch::equal(cpu_hint->GetPayload(), cuda_hint->GetPayload()));
+    }
+}
+
 TEST_CASE("Five-column Actor hints carry the selected start bonus into initial priorities", "[dqn][munchausen][hint]")
 {
     // 行動差し替え後のhintを公開推定器へ渡し、transport全体の列契約を検証する。
     AuxData aux;
-    aux["q_values"] = torch::tensor({ { 1.0f, 4.0f } });
-    aux["munchausen_terms"] = torch::tensor({ { -0.7f, -0.2f } });
+    aux[kActionQValuesAuxKey] = torch::tensor({ { 1.0f, 4.0f } });
+    aux[kMunchausenTermsAuxKey] = torch::tensor({ { -0.7f, -0.2f } });
     DQNActionInfo action(torch::tensor({ 1 }, torch::kInt64), {}, aux,
         ReplayInitialPriorityHint(torch::tensor({ { 4.0f, 5.0f, -0.2f, 0.0f, 0.0f } })));
     const auto replaced = action.WithAction(torch::tensor({ 0 }, torch::kInt64));
     REQUIRE(replaced->GetReplayInitialPriorityHint().has_value());
     CHECK(torch::equal(replaced->GetReplayInitialPriorityHint()->GetPayload(), torch::tensor({ { 1.0f, 5.0f, -0.7f, 0.0f, 0.0f } })));
-    aux.erase("munchausen_terms");
+    aux.erase(kMunchausenTermsAuxKey);
     DQNActionInfo missing(torch::tensor({ 1 }, torch::kInt64), {}, aux,
         ReplayInitialPriorityHint(torch::tensor({ { 4.0f, 5.0f, -0.2f, 0.0f, 0.0f } })));
     CHECK_THROWS(missing.WithAction(torch::tensor({ 0 }, torch::kInt64)));

@@ -1,6 +1,7 @@
 ﻿// GridMaze.cpp
 
 #include "anet/env/ImageCls.hpp"
+#include "anet/init.hpp"
 #include "anet/env.hpp"
 #include "anet/gui.hpp"
 #include "ImageClsEnv.hpp"
@@ -8,6 +9,9 @@
 
 void anet::rl::env::InitImageCls()
 {
-	anet::rl::RegistEnvFactory(std::make_shared<anet::rl::env::ImageClsEnvFactory>());
-	anet::rl::gui::RegisterViewCreator<anet::rl::env::ImageClsViewCreator>();
+    static const auto failure = anet::rl::detail::CaptureRegistrationFailure([] {
+        anet::rl::RegistEnvFactory(std::make_shared<anet::rl::env::ImageClsEnvFactory>());
+        anet::rl::gui::RegisterViewCreator<anet::rl::env::ImageClsViewCreator>();
+    });
+    if (failure) std::rethrow_exception(failure);
 }

@@ -136,7 +136,7 @@ net.branch.[merged].bind_concat_dim = -1
 
 ### 4.1 登録済みmoduleの分類
 
-現行`InitNN()`は次の種類を`NetworkModuleRepository`へ登録する。
+`InitNN()`は次の種類を`NetworkModuleRepository`へ1回だけ登録する。初回の登録が途中で失敗した場合は、以後の呼び出しも失敗する。Repositoryに同じtype名で直接登録すると例外になり、先に登録したfactoryが残る。
 
 | 分類 | type例 |
 |---|---|

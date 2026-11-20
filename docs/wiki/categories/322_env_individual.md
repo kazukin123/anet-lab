@@ -140,6 +140,7 @@
 - [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
 - [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) — Atari の RAM メトリクスに値の種類数とビットの変化を数える畳み方を足し、RAM 定義と縮小方式の読み取りを整理する PRD
 - [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
+- [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md) — PRD192: 監査で見つかった不具合 5 件をまとめて直す（Notifier の同時実行、動画の画像の大きさ、強制行動の device、重複登録、QValuePanel の平滑化）
 
 ## 課題
 

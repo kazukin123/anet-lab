@@ -32,7 +32,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `anet::rl::gui::Panel` | Env固有Viewなどの共通panel。構築時に明示styleにも`wxFULL_REPAINT_ON_RESIZE`を加え、停止中もresize後の画面全体を描き直す。Viewごとの指定は不要。別windowであるwxGLCanvasは各canvas側で設定する。`wxEVT_CHAR_HOOK`を`EVT_FORWARDED_KEY`へ転送し、`Skip`で標準のキー処理を続けながら`StopPropagation`で親への伝播を止める。Panelより上でキーを受ける部品は`EVT_FORWARDED_KEY`を使う。 |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは強制行動で駆動し、clone modelの同期を管理する |
-| `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする |
+| `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする。ヒストグラムの平滑化半径 `QValuePanel.smooth_radius` は1以上の整数で、コードの既定は4。平滑化を無効にする設定でも、起動時に半径を検証する |
 | `LogPanel` | wxLogの画面表示とlevel filterを提供する。WARN以上とVERBOSEの色分け、薄い時刻、未確認のWARN/ERRORの件数、Auto-scroll・Wrap・Indent・全体コピー・クリア・検索の操作帯を持つ |
 | `DefaultViewFactory` | Env class IDからTrain/Eval用Viewを生成する |
 | `ImageProviderManager` | configで定義された画像Provider/Observerを生成・登録する |

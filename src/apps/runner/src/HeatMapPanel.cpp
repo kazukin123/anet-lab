@@ -481,6 +481,7 @@ void SweepHeatMapPanel::CreateObserver(const SweepHeatMapSettings& settings,
     std::optional<anet::TensorDictFunction> policy_forward = agent->GetTensorDictFunction(settings.network_key.ToStdString());
     ANET_CHECK_MSG(policy_forward.has_value(),
         "SweepHeatMapPanel requires TensorDictFunction. key=" << settings.network_key.ToStdString());
+    // 通知元のスレッドで Observer 自身が画像を更新する。Panel は画像を読み出す側で、Observer は Panel に触らない。
     this->observer_ = notifier->Attach<anet::rl::SweepedHeatMapObserver>(
         settings.tag.ToStdString() , q_sweep_obs_config, processor, *policy_forward, processor);
 }

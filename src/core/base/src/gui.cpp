@@ -393,7 +393,9 @@ void ViewRepository::Register(std::shared_ptr<ViewCreator> creator)
 {
     std::lock_guard<std::mutex> lock(mtx_);
     auto class_id = creator->GetTargetClassId();
-    creators_[class_id] = creator;
+    if (!creators_.try_emplace(class_id, std::move(creator)).second) {
+        ANET_SYSTEM_ERROR("View creator is already registered. class_id='" << class_id << "'");
+    }
 }
 
 std::shared_ptr<ViewCreator> ViewRepository::GetViewCreator(const std::string& class_id) const

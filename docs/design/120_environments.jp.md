@@ -81,10 +81,12 @@ nameは不透明な表示文字列であり、Env class ID、RunMode、config pr
 | `VectorizedDiscreteBatchEnv` | single-threadでsingle Env群を駆動するbatch実装 |
 | `ThreadPoolDiscreteEnv` | thread poolでsingle Env群を駆動するbatch実装 |
 | `BatchEnvFactory` | native batch Envを生成するEnvクラス単位のfactory interface |
-| `EnvRepository` | class IDごとにsingle factoryまたはbatch factoryのどちらか一方を保持するprocess registry |
+| `EnvRepository` | class IDごとにsingle factoryまたはbatch factoryのどちらか一方を保持するprocess registry。同じclass IDの登録は例外になり、先に登録したfactoryが残る |
 | `BatchEnvBuilder` | repositoryからfactoryを解決し、native batchを直接生成するかsingle Env群をwrapperでbatch化する |
 | `ImageDatasetManager` | DatasetKey、manifest、pre-augment cacheをprocess内で共有するImageCls専用singleton |
 | Env View | Env固有のStateをRunner GUIへ表示する任意のView実装 |
+
+Envの公開初期化関数は、同じ関数が複数回呼ばれてもEnv factoryとView creatorを1回だけ登録する。途中で失敗した場合は、以後の呼び出しも失敗する。`ViewRepository`へ同じclass IDのcreatorを直接登録すると例外になり、先に登録したcreatorが残る。
 
 ## 4. コードマップ
 

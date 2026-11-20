@@ -66,8 +66,6 @@ struct QValueHeatMapRequest {
     bool auto_range;
     int hist_bins;
     float hist_range_k;
-    bool use_hist_smooth;
-    float smooth_radius;
     std::span<const float> hist_weights; ///< 呼び出し元の重みを、この同期呼び出し中だけ借用する。
 };
 
@@ -83,7 +81,7 @@ struct QValueHeatMapResult {
     float guide_line_ratio;
 };
 
-// 非空の格子値と有効なHistogram設定を受け、画面の部品を読まずに加工する。
+// 非空の格子値と有効なHistogram設定を受け、画面の部品を読まずに加工する。重みは空または奇数個。
 QValueHeatMapResult ComputeQValueHeatMap(const QValueData& input,
     const QValueHeatMapRequest& request, QValueHeatMapRangeState& range);
 

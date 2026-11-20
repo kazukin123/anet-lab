@@ -1646,6 +1646,22 @@ int main(int argc, char** argv)
     return result;
 }
 
+TEST_CASE("CartPole initialization keeps its first Env factory and View creator", "[init][idempotent]")
+{
+    constexpr char kClassId[] = "CartPoleEnv";
+    anet::rl::env::InitCartPole();
+    auto& envs = anet::rl::EnvRepository::Instance();
+    auto& views = anet::rl::gui::ViewRepository::Instance();
+    const auto factory = envs.GetSingleDiscreteEnvFactory(kClassId);
+    const auto creator = views.GetViewCreator(kClassId);
+    REQUIRE(factory);
+    REQUIRE(creator);
+
+    CHECK_NOTHROW(anet::rl::env::InitCartPole());
+    CHECK(envs.GetSingleDiscreteEnvFactory(kClassId) == factory);
+    CHECK(views.GetViewCreator(kClassId) == creator);
+}
+
 TEST_CASE("Trace pane forwards suspension and requests one Actor synchronization", "[.][prd127][prd127_ui_lifecycle]")
 {
     // SyncModelは実EvalPanelの公開初期化を通すため、View factoryを持つRunnerAppも起動する。

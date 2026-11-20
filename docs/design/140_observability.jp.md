@@ -25,7 +25,7 @@
 | `TrainEvent` | Env step後のExperience、ActionInfo、Env、Agent、Runner、countsを運ぶevent |
 | `LearnEvent` | Learner更新後のExperience、UpdateResult、Agent、Runner、countsを運ぶevent |
 | `EpisodeEndEvent` | episode終端group、Agent、Env、Runner、counts、step_resultを運ぶevent。return値はRunner scalarから取得する |
-| `Notifier` | 4種類のObserverを登録し、対応eventを同期的に配信するRun内hub。`RunManager`がTrain/Eval間で共有する |
+| `Notifier` | 4種類のObserverを登録し、対応するeventを呼び出し元のスレッドで登録順に配信する。登録・解除・通知・終了・一覧の操作を並行して呼べる。`RunManager`がTrain/Eval間で共有する |
 | Runner-scoped Observer | Trainまたは特定Eval Runnerのeventだけを実Observerへ通すwrapper |
 | `SessionEndEvent` | configured Eval の採用 N episode の集約が確定したことを運ぶ event。セッションごとに1回通知する |
 | `MetricsLogTraceObserver` | episode 完了 callback 内で個体値を取得し、1行の trace を記録する Observer |
@@ -144,7 +144,9 @@ sequenceDiagram
     end
 ```
 
-Observer callbackは`Notify()`を呼んだthread上で実行される。重いrender、device同期、I/Oを追加する場合はTrain/Learnのcritical pathへ入ることを前提にprofileする。`EpisodeEvalObserver`のbackground evalは専用poolを使う例外であり、worker例外は次のLearn境界または明示`Shutdown()`で呼び出し側へ再送出する。デストラクタ安全網だけは例外を捕捉してFATALを記録する。
+Observer callbackは、`Notify()`を呼んだスレッドで登録順に実行する。Notifierは呼び出し開始時の一覧を保持し、Observerを呼ぶ間はロックを持たない。Observer内から登録・解除・通知を呼べる。登録・解除は次に始まる通知から効く。`Detach()`と`Clear()`は進行中の通知を待たず、すでに始まった通知の一覧はその通知が終わるまでObserverを保持する。Observerが触る相手の寿命は、登録する側が管理する。`Shutdown()`、`WillBlockOnShutdown()`、`LogObservers()`も、呼び出し開始時の一覧を使い、ロックの外でObserverを呼ぶ。
+
+重いrender、device同期、I/Oを追加する場合はTrain/Learnのcritical pathへ入ることを前提にprofileする。`EpisodeEvalObserver`のbackground evalは専用poolを使う。worker例外は次のLearn境界または明示`Shutdown()`で呼び出し側へ再送出する。デストラクタ安全網だけは例外を捕捉してFATALを記録する。
 
 Runnerは直近Stepで完了したepisode returnとepisode_steps群を共通集約し、`mean.episode_return`、`max.episode_return`、`min.episode_return`、`std.episode_return`と同じprefixの`episode_steps`を公開する。episode_stepsは終端を含むEnvのStep回数で、SHAREDでもlane数を掛けない。trainの従来値は`max.episode_return`、configured Evalはsessionで採用したN本の集約である。`EvalSessionEnv`は解決済みmetric定義のうち対象Evalの`@session_end $env` source keyだけを購読し、episode完了Step直後に値をsnapshotする。`nullopt`が一つでもあれば集約も`nullopt`、NaNは除外する。有効値0件の集約と有効値1件のstdはNaN、2件以上のstdは母集団標準偏差とする。
 
@@ -177,7 +179,7 @@ sequenceDiagram
     A->>L: chainをdetachしてclose
 ```
 
-RunnerFrameは状態表示用のtrain observerを排水の後にDetachする。背景評価のworkerも学習と同じNotifierのtrain observer列を走査するため、排水の前に外すと走査中の要素を解放しうる。
+RunnerFrameは学習を停止し、背景評価を排水してから、状態表示用のtrain observerをDetachする。Detach前に始まった通知は解除後もそのObserverを呼びうるため、先に通知を終えてからFrameを破棄する。
 
 periodic timerは`RunName.log`だけをflushする。metrics、stdout、stderrはpause、save、shutdownなどの明示的な`FlushRunOutputs()`境界でまとめてflushする。
 
@@ -364,7 +366,7 @@ DQNの具体的な提供元と鍵の認識はDQN実装内に閉じる。DQNのst
 | `config/*.txt` | `MetricsLogger` | ConfigをLogした時点でtag別に書出し。Envは`env.<Env name>.txt` |
 | `json/*.json` | `MetricsLogger` | JSON metadataをLogした時点で上書きまたはstep別生成 |
 | `json/eval.[<tag>].session_cancelled.json` | `MetricsLogger` | 評価セッションの協調キャンセル時に座標、経過時間、完了episode数を記録。Metrics masterにも`type=json`で追記 |
-| `videos/<tag>.mkv` | `VideoLogger` | 最初のframeでloggerを作り、Run終了時にclose。ffmpegの終了通知を受けた側がwxProcessをdeleteする（所有者が先に手放せば通知時に自己削除） |
+| `videos/<tag>.mkv` | `VideoLogger` | 最初のframeの幅と高さでloggerを作り、Run終了時にclose。以降、幅か高さが違う画像と無効な画像（0x0）は動画から除き、tagごとにRunで1回WARNする。ffmpegの終了通知を受けた側がwxProcessをdeleteする（所有者が先に手放せば通知時に自己削除） |
 | `images/<tag>/*.png` | `MetricsLogger` | `use_png_dump=true`時にframeごとに生成 |
 | `dot/**/*.dot` | `MetricsLogger` | GraphViz eventごとに生成 |
 | `<run_name>.log` | `FileLogger` | periodic timer、warning以上、明示flush |

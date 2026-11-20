@@ -1,5 +1,23 @@
 #include "anet/test/catch.hpp"
+
+#include <algorithm>
 #include <array>
+#include <atomic>
+#include <barrier>
+#include <chrono>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <future>
+#include <iterator>
+#include <latch>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "anet/agent.hpp"
 #include "anet/env.hpp"
@@ -11,22 +29,6 @@
 #include "anet/metrics.hpp"
 #include "anet/gui.hpp"
 #include "nn_impl.hpp"
-
-#include <algorithm>
-#include <atomic>
-#include <chrono>
-#include <exception>
-#include <filesystem>
-#include <fstream>
-#include <future>
-#include <iterator>
-#include <memory>
-#include <mutex>
-#include <stdexcept>
-#include <string>
-#include <thread>
-#include <utility>
-#include <vector>
 
 TEST_CASE("Pane open state survives temporary maximize hiding", "[gui][prd094][pane_open]")
 {
@@ -787,6 +789,134 @@ TEST_CASE("Train runners preserve opaque K3 replay priority hints to the replay 
         REQUIRE(payload.defined());
         CHECK(torch::equal(payload, expected));
     }
+}
+
+TEST_CASE("Notifier calls observers in registration order when one detaches itself", "[notifier][contract]")
+{
+    rl::Notifier notifier;
+    const rl::BatchExperience experience;
+    const rl::TrainEvent event{{experience, {}, {}, {}, {}}, {}, {}, {}};
+    std::vector<int> calls;
+    std::shared_ptr<rl::TrainObserver> first;
+    first = notifier.Attach<rl::FunctionTrainObserver>([&](const rl::TrainEvent&) {
+        calls.push_back(1);
+        notifier.Detach(first);
+    });
+    notifier.Attach<rl::FunctionTrainObserver>([&](const rl::TrainEvent&) {
+        calls.push_back(2);
+    });
+
+    notifier.Notify(event);
+    CHECK(calls == std::vector<int>{1, 2});
+    notifier.Notify(event);
+    CHECK(calls == std::vector<int>{1, 2, 2});
+}
+
+TEST_CASE("Notifier calls a newly attached observer from the next notification", "[notifier][contract]")
+{
+    rl::Notifier notifier;
+    const rl::BatchExperience experience;
+    const rl::TrainEvent event{{experience, {}, {}, {}, {}}, {}, {}, {}};
+    int added_calls = 0;
+    const auto original = notifier.Attach<rl::FunctionTrainObserver>([&](const rl::TrainEvent&) {
+        notifier.Attach<rl::FunctionTrainObserver>([&](const rl::TrainEvent&) {
+            ++added_calls;
+        });
+    });
+
+    notifier.Notify(event);
+    CHECK(added_calls == 0);
+    notifier.Detach(original);
+    notifier.Notify(event);
+    CHECK(added_calls == 1);
+}
+
+TEST_CASE("Notifier keeps a detached observer alive through the current notification", "[notifier][contract]")
+{
+    rl::Notifier notifier;
+    const rl::BatchExperience experience;
+    const rl::TrainEvent event{{experience, {}, {}, {}, {}}, {}, {}, {}};
+    std::latch entered(1);
+    std::latch detached(1);
+    std::latch entered_next(1);
+    std::latch inspected(1);
+    bool completed = false;
+    auto observer = notifier.Attach<rl::FunctionTrainObserver>([&](const rl::TrainEvent&) {
+        entered.count_down();
+        detached.wait();
+        completed = true;
+    });
+    const std::weak_ptr weak = observer;
+    notifier.Attach<rl::FunctionTrainObserver>([&](const rl::TrainEvent&) {
+        entered_next.count_down();
+        inspected.wait();
+    });
+    std::jthread notifying([&] { notifier.Notify(event); });
+
+    entered.wait();
+    auto detach = std::async(std::launch::async, [&, observer = std::move(observer)]() mutable {
+        notifier.Detach(observer);
+        observer.reset();
+    });
+    const bool detached_during_callback =
+        detach.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    const bool alive_during_callback = !weak.expired();
+    detached.count_down();
+    entered_next.wait();
+    const bool alive_after_callback = !weak.expired();
+    inspected.count_down();
+    notifying.join();
+    detach.get();
+
+    CHECK(detached_during_callback);
+    CHECK(alive_during_callback);
+    CHECK(completed);
+    CHECK(alive_after_callback);
+    CHECK(weak.expired());
+}
+
+template<class Observer, class Event>
+static void CheckConcurrentNotifier(const Event& event, int num_notifications)
+{
+    rl::Notifier notifier;
+    std::barrier start(3);
+    int calls = 0;
+    notifier.Attach<Observer>([&](const Event&) { ++calls; });
+    const auto update_observers = [&] {
+        start.arrive_and_wait();
+        for (int i = 0; i < num_notifications; ++i) {
+            const auto observer = notifier.Attach<Observer>([](const Event&) {});
+            notifier.Detach(observer);
+        }
+    };
+    std::jthread first(update_observers);
+    std::jthread second(update_observers);
+    start.arrive_and_wait();
+    for (int i = 0; i < num_notifications; ++i) {
+        notifier.Notify(event);
+    }
+    first.join();
+    second.join();
+    CHECK(calls == num_notifications);
+}
+
+static void CheckConcurrentTrainAndLearnNotifications(int num_notifications)
+{
+    const rl::BatchExperience experience;
+    CheckConcurrentNotifier<rl::FunctionTrainObserver>(
+        rl::TrainEvent{{experience, {}, {}, {}, {}}, {}, {}, {}}, num_notifications);
+    CheckConcurrentNotifier<rl::FunctionLearnObserver>(
+        rl::LearnEvent{{experience, {}, {}, {}, {}}}, num_notifications);
+}
+
+TEST_CASE("Notifier retains its permanent observers during concurrent registration", "[notifier][concurrency]")
+{
+    CheckConcurrentTrainAndLearnNotifications(2'000);
+}
+
+TEST_CASE("Notifier retains its permanent observers under sustained concurrent registration", "[.][notifier_stress]")
+{
+    CheckConcurrentTrainAndLearnNotifications(2'000'000);
 }
 
 TEST_CASE("Train runners fire LearnEvent only for a non-empty update result list", "[trainer][learn_event]")

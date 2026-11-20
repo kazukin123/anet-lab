@@ -88,9 +88,8 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-182ca1](../../management/issues/issue-20261103-182ca1.md) | 未着手 | 1.4 | — | コード | PRD | 318_rl_core, 324_dqn, 315_nn, 320_env_core | 学習基盤 | 性能改善 | [PRD180](../../memo/180_core_perf_candidates_202607_10prd.md) | 残件有り | 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 |
 | [issue-20261103-50644a](../../management/issues/issue-20261103-50644a.md) | 未着手 | 1.4 | — | コード | PRD | 317_metrics, 320_env_core, 321_agent_core, 318_rl_core, 110_runner_app | UI | 機能追加 | [PRD184](../../memo/184_eval_session_step_trace_10prd.md) | 残件有り | 評価 session の step trace を Run の記録に残す |
 | [issue-20261103-aa8701](../../management/issues/issue-20261103-aa8701.md) | 未着手 | 1.4 | — | コード | PRD | 318_rl_core, 321_agent_core, 324_dqn, 320_env_core | 学習基盤 | 機能追加 | [PRD143](../../memo/143_serialize_10prd.md) | 残件有り | Run Serialization（Run 全体 Save / Load） |
+| [issue-20261109-adc5c4](../../management/issues/issue-20261109-adc5c4.md) | 未着手 | 1.4 | — | コード | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 未確認 | Agent・Env・View・NNモジュールの4つのRepositoryが同じ形を別々に実装し、登録と取り出しの関数名もそろっていない |
 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | コード | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD154](../../memo/154_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
-| [issue-20261109-adc5c4](../../management/issues/issue-20261109-adc5c4.md) | 未着手 | 1.4 | [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) | コード | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 未確認 | Agent・Env・View・NNモジュールの4つのRepositoryが同じ形を別々に実装し、登録と取り出しの関数名もそろっていない |
 
-着手できる 8 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
-- 関連する課題: [issue-20261109-1499d0](../../management/issues/issue-20261109-1499d0.md) — Agent・View・NNモジュールのRepositoryは同じ名前の重複登録を黙って上書きし、Envだけがエラーで止まる
+着手できる 9 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

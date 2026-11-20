@@ -10,10 +10,28 @@
 #include "anet/test/catch.hpp"
 #include "anet/test/util.hpp"
 #include "anet/env.hpp"
+#include "anet/env/LunarLander.hpp"
+#include "anet/gui.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+TEST_CASE("LunarLander initialization keeps its first Env factory and View creator", "[init][idempotent]")
+{
+    constexpr char kClassId[] = "LunarLanderEnv";
+    anet::rl::env::InitLunarLander();
+    auto& envs = anet::rl::EnvRepository::Instance();
+    auto& views = anet::rl::gui::ViewRepository::Instance();
+    const auto factory = envs.GetSingleDiscreteEnvFactory(kClassId);
+    const auto creator = views.GetViewCreator(kClassId);
+    REQUIRE(factory);
+    REQUIRE(creator);
+
+    CHECK_NOTHROW(anet::rl::env::InitLunarLander());
+    CHECK(envs.GetSingleDiscreteEnvFactory(kClassId) == factory);
+    CHECK(views.GetViewCreator(kClassId) == creator);
+}
 
 namespace {
 

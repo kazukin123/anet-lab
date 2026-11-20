@@ -2,12 +2,27 @@
 
 #pragma once
 
+#include <exception>
 #include <stdexcept>
 #include <string>
 
 #include "anet/config.hpp"
 
 namespace anet::rl {
+
+    namespace detail {
+        /// 初期化関数のローカル static に失敗を保存し、部分的な登録を再試行しない。
+        template <typename Registration>
+        std::exception_ptr CaptureRegistrationFailure(Registration&& register_factories) noexcept
+        {
+            try {
+                register_factories();
+                return {};
+            } catch (...) {
+                return std::current_exception();
+            }
+        }
+    } // namespace detail
 
 	struct BackendConfig : public anet::Config {
         bool use_tf32_cublas = true;

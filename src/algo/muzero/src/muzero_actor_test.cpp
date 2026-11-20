@@ -2,7 +2,20 @@
 #include "anet/test/nn.hpp"
 #include "anet/test/util.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/agent.hpp"
+#include "anet/algo/muzero.hpp"
 #include "muzero_proto_agent.hpp"
+
+TEST_CASE("MuZero initialization keeps its first Agent factory registrations", "[init][idempotent]")
+{
+    anet::rl::algo::InitMuZero();
+    auto& repository = anet::rl::AgentRepository::Instance();
+    constexpr char kClassId[] = "MuZeroAgent";
+    const auto factory = repository.GetAgentFactory(kClassId);
+    REQUIRE(factory);
+    CHECK_NOTHROW(anet::rl::algo::InitMuZero());
+    CHECK(repository.GetAgentFactory(kClassId) == factory);
+}
 
 namespace rl = anet::rl;
 constexpr auto kVectorKey = rl::ObsKeys::kVector;

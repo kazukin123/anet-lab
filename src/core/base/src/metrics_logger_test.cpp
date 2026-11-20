@@ -12,7 +12,9 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <wx/arrstr.h>
 #include <wx/image.h>
+#include <wx/init.h>
 #include <wx/utils.h>
 
 namespace {
@@ -295,6 +297,7 @@ TEST_CASE("MetricsLoggerConfig defaults video codec to auto", "[metrics][video]"
 
 TEST_CASE("VideoLogger writes large frames in chunks", "[metrics][video]")
 {
+    constexpr char kTag[] = "large_frame";
     const auto case_id = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
         ("anet-core-video-large-frame-test-" + std::to_string(case_id));
@@ -313,12 +316,89 @@ TEST_CASE("VideoLogger writes large frames in chunks", "[metrics][video]")
     }
 
     {
-        const auto video_path = root / "large_frame.mkv";
+        const auto video_path = root / (std::string(kTag) + ".mkv");
         anet::detail::VideoCodecSelection selection;
         anet::VideoLogger logger(video_path.string(), image.GetWidth(), image.GetHeight(), selection, "libx264", 15);
-        logger.WriteFrame(image);
-        logger.WriteFrame(image);
+        logger.WriteFrame(image, kTag);
+        logger.WriteFrame(image, kTag);
     }
+
+    std::error_code cleanup_error;
+    std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("MetricsLogger drops mismatched video frames and warns once per tag", "[metrics][video][frame_size]")
+{
+    const auto case_id = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" /
+        ("anet-core-video-frame-size-test-" + std::to_string(case_id));
+    constexpr int kVideoSize = 512;
+    constexpr int kSmallerSize = 256;
+    constexpr char kSmallerTag[] = "smaller_frame";
+    constexpr char kInvalidTag[] = "invalid_frame";
+    constexpr char kRunName[] = "frame_size";
+    const wxImage full(kVideoSize, kVideoSize);
+    const wxImage smaller(kSmallerSize, kSmallerSize);
+
+    anet::test::LogCaptureGuard logs;
+    anet::log::ResetNotifications();
+    {
+        anet::MetricsLoggerConfig config;
+        config.run_name_tmpl = kRunName;
+        config.video_codec = "libx264";
+        anet::MetricsLogger logger(std::make_unique<NullBackend>(), config, root);
+        logger.Log(kSmallerTag, 0, full);
+        logger.Log(kSmallerTag, 1, smaller);
+        logger.Log(kSmallerTag, 2, smaller);
+        logger.Log(kSmallerTag, 3, full);
+        logger.Log(kInvalidTag, 0, full);
+        logger.Log(kInvalidTag, 1, wxImage());
+        logger.Log(kInvalidTag, 2, wxImage());
+    }
+    logs.Flush();
+    const auto check_warning = [&](const char* tag, const char* actual_size) {
+        const auto matches = [&](const auto& record) {
+            return record.level == wxLOG_Warning && ContainsText(record.message, tag);
+        };
+        CHECK(std::ranges::count_if(logs.Records(), matches) == 1);
+        CHECK(std::ranges::any_of(logs.Records(), [&](const auto& record) {
+            return matches(record) && ContainsText(record.message, "512x512")
+                && ContainsText(record.message, actual_size);
+        }));
+    };
+    check_warning(kSmallerTag, "256x256");
+    check_warning(kInvalidTag, "0x0");
+
+    // 同期 wxExecute に必要な wx の初期化中は、テストのログの破棄を防ぐため退避する。
+    struct RestoreWxLogTarget {
+        wxLog* previous = wxLog::SetActiveTarget(nullptr); ///< LogCaptureGuard が所有するログを借用する。
+        ~RestoreWxLogTarget() { delete wxLog::SetActiveTarget(previous); }
+    } restore_log;
+    const wxInitializer wx;
+    REQUIRE(wx.IsOk());
+
+    const auto check_recorded_frames = [&](const char* tag, int expected) {
+        const auto path = root / "runs" / kRunName / "videos" / (std::string(tag) + ".mkv");
+        const auto command = wxString::Format(
+            "ffmpeg -hide_banner -loglevel error -i \"%s\" -f framecrc -", wxString(path.wstring()));
+        // ロガーが stdin を閉じたあと、ffmpeg が最後のフレームを書き終えるのを待つ。
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        int frames = 0;
+        long exit_code = -1;
+        do {
+            wxArrayString output, errors;
+            exit_code = wxExecute(command, output, errors);
+            frames = static_cast<int>(std::count_if(output.begin(), output.end(),
+                [](const wxString& line) { return line.StartsWith("0,"); }));
+            if (exit_code == 0 && frames >= expected) break;
+            wxMilliSleep(25);
+        } while (std::chrono::steady_clock::now() < deadline);
+        CAPTURE(tag);
+        CHECK(exit_code == 0);
+        CHECK(frames == expected);
+    };
+    check_recorded_frames(kSmallerTag, 2);
+    check_recorded_frames(kInvalidTag, 1);
 
     std::error_code cleanup_error;
     std::filesystem::remove_all(root, cleanup_error);

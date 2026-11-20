@@ -136,7 +136,9 @@ void EvalPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, st
 		}, "EvalPanelCounts");
 	source_counts_observer_ = std::make_shared<anet::rl::RunnerScopedTrainObserver>(
 		counts_observer, run_manager->GetTrainRunner());
+	// 学習スレッドで step 数を更新する。RunnerFrame は学習停止と背景評価の排水後にこの Panel を閉じる。
 	notifier->Attach(source_counts_observer_);
+	// この Eval Runner は GUI スレッドで進む。Panel の弱い参照の確認と破棄も同じスレッドで行う。
 	this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
 		runner,
         [weak = wxWeakRef<EvalPanel>(this)](const anet::rl::TrainEvent& event) {

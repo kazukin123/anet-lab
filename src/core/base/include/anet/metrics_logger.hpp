@@ -136,7 +136,7 @@ namespace anet {
             const std::string& codec = "auto", int fps = 30);
         ~VideoLogger() { Close(); }
 
-        void WriteFrame(const wxImage& img);
+        void WriteFrame(const wxImage& img, const std::string& tag);
     private:
         void LaunchFfmpeg(const std::string& codec);
         bool DiedAtStartup();

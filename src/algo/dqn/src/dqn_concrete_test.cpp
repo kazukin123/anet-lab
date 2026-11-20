@@ -1,7 +1,43 @@
 #include "anet/test/catch.hpp"
 #include "anet/test/nn.hpp"
-#include "dqn_fixture_test.hpp"
 #include "anet/test/replay.hpp"
+#include "anet/agent.hpp"
+#include "anet/algo/dqn.hpp"
+#include "dqn_fixture_test.hpp"
+
+constexpr char kDefaultDqnClassId[] = "DefaultDQNAgent";
+constexpr char kRainbowClassId[] = "RainbowAgent";
+
+TEST_CASE("DQN initialization keeps its first Agent factory registrations", "[init][idempotent]")
+{
+    anet::rl::algo::InitDqn();
+    auto& repository = anet::rl::AgentRepository::Instance();
+    const auto default_factory = repository.GetAgentFactory(kDefaultDqnClassId);
+    const auto rainbow_factory = repository.GetAgentFactory(kRainbowClassId);
+    REQUIRE(default_factory);
+    REQUIRE(rainbow_factory);
+    CHECK_NOTHROW(anet::rl::algo::InitDqn());
+    CHECK(repository.GetAgentFactory(kDefaultDqnClassId) == default_factory);
+    CHECK(repository.GetAgentFactory(kRainbowClassId) == rainbow_factory);
+}
+
+TEST_CASE("DQN initialization retains the original failure after partial registration", "[.][init_failure]")
+{
+    auto& repository = anet::rl::AgentRepository::Instance();
+    const auto existing_default = std::make_shared<dqn::DefaultDQNAgentFactory>();
+    repository.Register(existing_default);
+    REQUIRE_FALSE(repository.GetAgentFactory(kRainbowClassId));
+    const auto already_registered = Catch::Matchers::ContainsSubstring("already registered");
+    const auto default_id = Catch::Matchers::ContainsSubstring(kDefaultDqnClassId);
+    const auto duplicate_default = already_registered && default_id;
+
+    CHECK_THROWS_WITH(anet::rl::algo::InitDqn(), duplicate_default);
+    const auto rainbow = repository.GetAgentFactory(kRainbowClassId);
+    REQUIRE(rainbow);
+    CHECK_THROWS_WITH(anet::rl::algo::InitDqn(), duplicate_default);
+    CHECK(repository.GetAgentFactory(kRainbowClassId) == rainbow);
+    CHECK(repository.GetAgentFactory(kDefaultDqnClassId) == existing_default);
+}
 
 TEST_CASE("DefaultDQN skip requires an explicit positive duration limit", "[dqn][config][prd098]")
 {

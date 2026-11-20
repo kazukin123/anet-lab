@@ -16,6 +16,8 @@
 #include "anet/test/agent.hpp"
 #include "anet/agent.hpp"
 #include "anet/env.hpp"
+#include "anet/env/GridMaze.hpp"
+#include "anet/gui.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/trainer.hpp"
 #include "anet/test/util.hpp"
@@ -616,11 +618,27 @@ public:
 
 } // namespace
 
+TEST_CASE("GridMaze initialization keeps its first Env factory and View creator", "[init][idempotent]")
+{
+    constexpr char kClassId[] = "GridMazeEnv";
+    anet::rl::env::InitGridMaze();
+    auto& envs = anet::rl::EnvRepository::Instance();
+    auto& views = anet::rl::gui::ViewRepository::Instance();
+    const auto factory = envs.GetSingleDiscreteEnvFactory(kClassId);
+    const auto creator = views.GetViewCreator(kClassId);
+    REQUIRE(factory);
+    REQUIRE(creator);
+
+    CHECK_NOTHROW(anet::rl::env::InitGridMaze());
+    CHECK(envs.GetSingleDiscreteEnvFactory(kClassId) == factory);
+    CHECK(views.GetViewCreator(kClassId) == creator);
+}
+
 TEST_CASE("RunManager shares GridMaze process seed across training evaluation panels and Runs", "[.][prd102_runner]")
 {
     anet::test::LogCaptureGuard logs;
     GridMazeMetricsGuard metrics;
-    anet::rl::EnvRepository::Instance().Regist(std::make_shared<anet::rl::env::GridMazeEnvFactory>());
+    anet::rl::env::InitGridMaze();
     const auto repo = std::filesystem::current_path();
     const auto path = repo / ".scratch/prd102/runner-input.txt";
     std::filesystem::create_directories(path.parent_path());

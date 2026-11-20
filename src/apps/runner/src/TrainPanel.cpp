@@ -54,6 +54,7 @@ void TrainPanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
 	// Observer生成
 	auto train_runner = run_manager->GetTrainRunner();
 	auto notifier = run_manager->GetNotifier();
+	// 学習スレッドからこの Panel を触る。RunnerFrame は学習を止めてから Panel を破棄する。
 	this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
 		train_runner,
 		[this](const anet::rl::TrainEvent& event)

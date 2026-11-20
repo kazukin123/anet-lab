@@ -1,10 +1,5 @@
 #include "anet/test/catch.hpp"
 
-#include "anet/init.hpp"
-#include "anet/test/util.hpp"
-#include "anet/metrics_logger.hpp"
-#include "anet/tensor_util.hpp"
-
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
@@ -13,7 +8,40 @@
 #include <string>
 #include <vector>
 
+#include "anet/tensor_util.hpp"
+#include "anet/init.hpp"
+#include "anet/metrics_logger.hpp"
+#include "anet/agent.hpp"
+#include "anet/gui.hpp"
+#include "anet/test/util.hpp"
+#include "nn_impl.hpp"
+
+constexpr char kDuplicateAgentClassId[] = "DuplicateRegistrationTestAgent";
+constexpr char kDuplicateViewClassId[] = "DuplicateRegistrationTestView";
+constexpr char kFlattenModuleType[] = "Flatten";
+
 namespace {
+
+    class DuplicateRegistrationAgentFactory final : public anet::rl::AgentFactory {
+    public:
+        std::shared_ptr<anet::rl::Agent> CreateAgent(
+            const anet::rl::EnvSpec&, const anet::rl::BatchEnvSpec&, const torch::Device&,
+            const anet::ConfigData&, std::shared_ptr<anet::rl::Notifier>, std::optional<anet::seed_t>) const override
+        {
+            return nullptr;
+        }
+        std::string GetTargetAgentClassId() const override { return kDuplicateAgentClassId; }
+    };
+
+    class DuplicateRegistrationViewCreator final : public anet::rl::gui::ViewCreator {
+    public:
+        std::shared_ptr<anet::rl::gui::View> CreateView(
+            wxWindow*, const anet::ConfigData&, std::shared_ptr<anet::rl::Notifier>) const override
+        {
+            return nullptr;
+        }
+        std::string GetTargetClassId() const override { return kDuplicateViewClassId; }
+    };
 
 constexpr const char* kCudaLaunchBlockingEnv = "CUDA_LAUNCH_BLOCKING";
 
@@ -90,6 +118,51 @@ bool ContainsText(const std::string& text, const std::string& pattern)
 }
 
 } // namespace
+
+TEST_CASE("AgentRepository rejects duplicate names and retains the first factory", "[repository][duplicate]")
+{
+    auto& repository = anet::rl::AgentRepository::Instance();
+    const auto first = std::make_shared<DuplicateRegistrationAgentFactory>();
+    repository.Register(first);
+    CHECK_THROWS_WITH(repository.Register(std::make_shared<DuplicateRegistrationAgentFactory>()),
+        Catch::Matchers::ContainsSubstring("already registered")
+        && Catch::Matchers::ContainsSubstring(kDuplicateAgentClassId));
+    CHECK(repository.GetAgentFactory(kDuplicateAgentClassId) == first);
+}
+
+TEST_CASE("ViewRepository rejects duplicate names and retains the first creator", "[repository][duplicate]")
+{
+    auto& repository = anet::rl::gui::ViewRepository::Instance();
+    const auto first = std::make_shared<DuplicateRegistrationViewCreator>();
+    repository.Register(first);
+    CHECK_THROWS_WITH(repository.Register(std::make_shared<DuplicateRegistrationViewCreator>()),
+        Catch::Matchers::ContainsSubstring("already registered")
+        && Catch::Matchers::ContainsSubstring(kDuplicateViewClassId));
+    CHECK(repository.GetViewCreator(kDuplicateViewClassId) == first);
+}
+
+TEST_CASE("NetworkModuleRepository rejects duplicate names and retains the first factory", "[repository][duplicate]")
+{
+    constexpr char kDuplicateModuleType[] = "DuplicateRegistrationTestModule";
+    anet::nn::InitNN();
+    auto& repository = anet::nn::NetworkModuleRepository::Instance();
+    const auto first = repository.GetFactory(kFlattenModuleType);
+    repository.Register(kDuplicateModuleType, first);
+    CHECK_THROWS_WITH(repository.Register(kDuplicateModuleType, repository.GetFactory("ReLU")),
+        Catch::Matchers::ContainsSubstring("already registered")
+        && Catch::Matchers::ContainsSubstring(kDuplicateModuleType));
+    CHECK(repository.GetFactory(kDuplicateModuleType) == first);
+}
+
+TEST_CASE("InitNN preserves its first factory registrations when called again", "[init][idempotent]")
+{
+    anet::nn::InitNN();
+    auto& repository = anet::nn::NetworkModuleRepository::Instance();
+    const auto factory = repository.GetFactory(kFlattenModuleType);
+    REQUIRE(factory);
+    CHECK_NOTHROW(anet::nn::InitNN());
+    CHECK(repository.GetFactory(kFlattenModuleType) == factory);
+}
 
 TEST_CASE("BackendConfig normalizes cuda_launch_blocking values", "[backend][config]")
 {

@@ -1,15 +1,5 @@
 #include "anet/test/catch.hpp"
 
-#include "image_cls_agent.hpp"
-#include "anet/metrics_logger.hpp"
-#include "anet/random.hpp"
-#include "anet/serialize.hpp"
-#include "anet/test/util.hpp"
-#include "anet/test/nn.hpp"
-#include "anet/nn_head.hpp"
-
-#include <ATen/autocast_mode.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -21,6 +11,29 @@
 #include <tuple>
 #include <vector>
 
+#include <ATen/autocast_mode.h>
+
+#include "anet/random.hpp"
+#include "anet/serialize.hpp"
+#include "anet/metrics_logger.hpp"
+#include "anet/agent.hpp"
+#include "anet/algo/imagecls.hpp"
+#include "anet/nn_head.hpp"
+#include "anet/test/util.hpp"
+#include "anet/test/nn.hpp"
+#include "image_cls_agent.hpp"
+
+
+TEST_CASE("ImageCls Agent initialization keeps its first Agent factory registrations", "[init][idempotent]")
+{
+    anet::rl::algo::InitImageCls();
+    auto& repository = anet::rl::AgentRepository::Instance();
+    constexpr char kClassId[] = "ImageClsAgent";
+    const auto factory = repository.GetAgentFactory(kClassId);
+    REQUIRE(factory);
+    CHECK_NOTHROW(anet::rl::algo::InitImageCls());
+    CHECK(repository.GetAgentFactory(kClassId) == factory);
+}
 
 static void SavePrd170Trace(const anet::rl::AuxData& aux, const char* name)
 {

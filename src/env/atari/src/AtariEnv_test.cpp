@@ -20,9 +20,26 @@
 
 #include "anet/test/catch.hpp"
 #include "anet/profile.hpp"
+#include "anet/thread.hpp"
+#include "anet/gui.hpp"
 #include "anet/env/Atari.hpp"
 #include "anet/test/util.hpp"
-#include "anet/thread.hpp"
+
+TEST_CASE("Atari initialization keeps its first Env factory and View creator", "[init][idempotent]")
+{
+    constexpr char kClassId[] = "AtariEnv";
+    anet::rl::env::InitAtari();
+    auto& envs = anet::rl::EnvRepository::Instance();
+    auto& views = anet::rl::gui::ViewRepository::Instance();
+    const auto factory = envs.GetSingleDiscreteEnvFactory(kClassId);
+    const auto creator = views.GetViewCreator(kClassId);
+    REQUIRE(factory);
+    REQUIRE(creator);
+
+    CHECK_NOTHROW(anet::rl::env::InitAtari());
+    CHECK(envs.GetSingleDiscreteEnvFactory(kClassId) == factory);
+    CHECK(views.GetViewCreator(kClassId) == creator);
+}
 
 TEST_CASE("Atari factory validates local values without loading ROM resources", "[prd117][factory_config]")
 {

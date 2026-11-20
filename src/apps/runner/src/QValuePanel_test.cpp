@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <string>
 #include <vector>
+#include <wx/frame.h>
 #include "QValuePanel.hpp"
 
 // 入力8値の平均は-11/8、分散は527/64。Histogramの左端は平均-標準偏差となる。
@@ -17,11 +19,11 @@ static QValueData UnitQValueData(const std::vector<float>& values)
 }
 
 static QValueHeatMapRequest UnitHeatMapRequest(bool hist, bool adv, bool log, bool auto_range,
-    bool smooth, std::span<const float> weights = {})
+    std::span<const float> weights = {})
 {
     return QValueHeatMapRequest{ .histogram = hist, .advantage = adv, .log_scale = log,
         .auto_range = auto_range, .hist_bins = 5, .hist_range_k = 1.0f,
-        .use_hist_smooth = smooth, .smooth_radius = 1.0f, .hist_weights = weights };
+        .hist_weights = weights };
 }
 
 static void RequireHeatMapResult(const QValueHeatMapResult& actual, int width,
@@ -37,6 +39,38 @@ static void RequireHeatMapResult(const QValueHeatMapResult& actual, int width,
     }
 }
 
+TEST_CASE("QValuePanel accepts only positive integer smoothing radii", "[q_value_smooth]")
+{
+    constexpr char kRadiusKey[] = "QValuePanel.smooth_radius";
+    const std::string radius = GENERATE("0", "-1", "1.5", "1", "5");
+    const bool smoothing = GENERATE(false, true);
+    CAPTURE(radius, smoothing);
+    anet::ConfigData config;
+    config.Set(kRadiusKey, radius);
+    config.Set("QValuePanel.use_hist_smooth", smoothing ? "true" : "false");
+    wxFrame frame(nullptr, wxID_ANY, "QValuePanel smoothing");
+    const auto construct = [&] { new QValuePanel(&frame, config); };
+
+    const auto key_in_message = Catch::Matchers::ContainsSubstring(kRadiusKey);
+    if (radius == "0" || radius == "-1") {
+        CHECK_THROWS_WITH(construct(), key_in_message && Catch::Matchers::ContainsSubstring(radius));
+    } else if (radius == "1.5") {
+        CHECK_THROWS_WITH(construct(), key_in_message);
+    } else {
+        CHECK_NOTHROW(construct());
+    }
+}
+
+TEST_CASE("Q heat map rejects an even number of smoothing weights", "[q_value_smooth]")
+{
+    const auto input = UnitQValueData({2.0f, 2.0f, 2.0f, 2.0f});
+    QValueHeatMapRangeState range;
+    const std::array<float, 2> weights{1.0f, 1.0f};
+    CHECK_THROWS_WITH(ComputeQValueHeatMap(input,
+        UnitHeatMapRequest(true, false, false, false, weights), range),
+        Catch::Matchers::ContainsSubstring("count=2"));
+}
+
 TEST_CASE("Q heat map raw and advantage processing is independent of windows", "[prd122][qvalue_heatmap]")
 {
     // wxのwindowを作らず、共有snapshotを変更しない配列の加工だけを呼ぶ。
@@ -44,7 +78,7 @@ TEST_CASE("Q heat map raw and advantage processing is independent of windows", "
     const std::vector<float> values{-4.0f, -4.0f, -4.0f, -4.0f, 0.0f, 0.0f, 1.0f, 4.0f};
     const auto input = UnitQValueData(values);
     QValueHeatMapRangeState range;
-    const auto actual = ComputeQValueHeatMap(input, UnitHeatMapRequest(false, advantage, false, false, false), range);
+    const auto actual = ComputeQValueHeatMap(input, UnitHeatMapRequest(false, advantage, false, false), range);
     const std::vector<float> expected = advantage
         ? std::vector<float>{11.0f/43, 11.0f/43, 11.0f/43, 11.0f/43, 27.0f/43, 27.0f/43, 31.0f/43, 1.0f}
         : std::vector<float>{0.0f, 0.0f, 0.0f, 0.0f, 0.5f, 0.5f, 0.625f, 1.0f};
@@ -65,7 +99,8 @@ TEST_CASE("Q heat map histogram mode matrix matches hand counted bins", "[prd122
     const auto input = UnitQValueData({-4.0f, -4.0f, -4.0f, -4.0f, 0.0f, 0.0f, 1.0f, 4.0f});
     QValueHeatMapRangeState range;
     const auto actual = ComputeQValueHeatMap(input,
-        UnitHeatMapRequest(true, advantage, log, auto_range, smooth, weights), range);
+        UnitHeatMapRequest(true, advantage, log, auto_range,
+            smooth ? std::span<const float>(weights) : std::span<const float>{}), range);
 
     // 各行のbin件数と中央の最大値は手で数えた値。端の4件を色の基準へ混ぜない。
     std::vector<float> expected;
@@ -94,7 +129,7 @@ TEST_CASE("Q heat map handles constant values in raw and histogram modes", "[prd
     const auto input = UnitQValueData({2.0f, 2.0f, 2.0f, 2.0f});
     QValueHeatMapRangeState range;
     const auto actual = ComputeQValueHeatMap(input,
-        UnitHeatMapRequest(histogram, advantage, false, false, false), range);
+        UnitHeatMapRequest(histogram, advantage, false, false), range);
     const std::vector<float> expected = histogram ? std::vector<float>{1,0,0,0,0,1,0,0,0,0}
         : std::vector<float>{0.5f,0.5f,0.5f,0.5f};
     RequireHeatMapResult(actual, histogram ? 5 : 2, expected, histogram && advantage ? 0.0f : -1.0f);
@@ -111,7 +146,7 @@ TEST_CASE("Q heat map accumulated range grows immediately and shrinks only in au
         auto input_values = values;
         for (auto& value : input_values) value *= factors[step];
         const auto actual = ComputeQValueHeatMap(UnitQValueData(input_values),
-            UnitHeatMapRequest(true, false, false, auto_range, false), range);
+            UnitHeatMapRequest(true, false, false, auto_range), range);
         const std::vector<float> expected = step == 1 ? std::vector<float>{0,1,0,0,0,0,0,0.75f,0.25f,0}
             : std::vector<float>{1,0,0,0,0,0,0,1,0.5f,0.5f};
         RequireHeatMapResult(actual, 5, expected, kRawHistogramGuide);

@@ -2483,7 +2483,9 @@ void NetworkModuleRepository::Register(const std::string& type_name, std::shared
 {
     std::lock_guard<std::mutex> lock(mtx_);
 
-    registry_[type_name] = std::move(factory);
+    if (!registry_.try_emplace(type_name, std::move(factory)).second) {
+        ANET_SYSTEM_ERROR("Network module factory is already registered. type_name='" << type_name << "'");
+    }
 }
 
 std::shared_ptr<NetworkModuleFactory> NetworkModuleRepository::GetFactory(const std::string& type_name) const

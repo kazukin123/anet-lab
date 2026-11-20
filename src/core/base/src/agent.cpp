@@ -50,7 +50,9 @@ void AgentRepository::Register(std::shared_ptr<AgentFactory> factory)
 {
     std::lock_guard<std::mutex> lock(mtx_);
     auto class_id = factory->GetTargetAgentClassId();
-    factories_[class_id] = factory;
+    if (!factories_.try_emplace(class_id, std::move(factory)).second) {
+        ANET_SYSTEM_ERROR("Agent factory is already registered. class_id='" << class_id << "'");
+    }
 }
 
 std::shared_ptr<AgentFactory> AgentRepository::GetAgentFactory(const std::string& id) const

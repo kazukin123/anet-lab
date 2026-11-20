@@ -491,7 +491,7 @@ std::string VideoLogger::StderrExcerptLocked() const
     return captured_stderr_;
 }
 
-void VideoLogger::WriteFrame(const wxImage& img)
+void VideoLogger::WriteFrame(const wxImage& img, const std::string& tag)
 {
     std::lock_guard<std::mutex> lock(write_mutex_);
     UpdateFfmpegDeathFromPidLocked();
@@ -503,6 +503,16 @@ void VideoLogger::WriteFrame(const wxImage& img)
     if (!stream->IsOk()) {
         DrainStderrLocked();
         ANET_SYSTEM_ERROR(BuildFfmpegFailureMessageLocked("ffmpeg stdin stream is not OK before frame write"));
+    }
+
+    // ffmpeg の異常を確かめたうえで、入力サイズと一致する画像だけをパイプへ渡す。
+    const bool valid = img.IsOk();
+    const int width = valid ? img.GetWidth() : 0;
+    const int height = valid ? img.GetHeight() : 0;
+    if (width != width_ || height != height_) {
+        LOG::warn_once(tag) << "Skipping video frame for tag='" << tag << "': expected "
+            << width_ << "x" << height_ << ", got " << width << "x" << height << ".";
+        return;
     }
 
     const unsigned char* data = img.GetData();
@@ -813,7 +823,7 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
     }
 
     ANET_PROFILE_SCOPE_NEXT(write_frame);
-    target_logger->WriteFrame(image);
+    target_logger->WriteFrame(image, tag);
 
     /// @todo 動画フレーム情報Metrics出力
 

@@ -2,9 +2,6 @@
 
 #include "ImageClsEnv.hpp"
 
-#include "anet/env.hpp"
-#include "anet/test/util.hpp"
-
 #include <algorithm>
 #include <clocale>
 #include <cmath>
@@ -21,6 +18,27 @@
 
 #include <wx/image.h>
 #include <wx/init.h>
+
+#include "anet/env.hpp"
+#include "anet/env/ImageCls.hpp"
+#include "anet/gui.hpp"
+#include "anet/test/util.hpp"
+
+TEST_CASE("ImageCls initialization keeps its first Env factory and View creator", "[init][idempotent]")
+{
+    constexpr char kClassId[] = "ImageClsEnv";
+    anet::rl::env::InitImageCls();
+    auto& envs = anet::rl::EnvRepository::Instance();
+    auto& views = anet::rl::gui::ViewRepository::Instance();
+    const auto factory = envs.GetBatchEnvFactory(kClassId);
+    const auto creator = views.GetViewCreator(kClassId);
+    REQUIRE(factory);
+    REQUIRE(creator);
+
+    CHECK_NOTHROW(anet::rl::env::InitImageCls());
+    CHECK(envs.GetBatchEnvFactory(kClassId) == factory);
+    CHECK(views.GetViewCreator(kClassId) == creator);
+}
 
 TEST_CASE("Dataset catalog validates item keys independently of earlier reads", "[prd117][dataset_catalog]")
 {

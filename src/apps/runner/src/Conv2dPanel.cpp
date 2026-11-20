@@ -76,6 +76,7 @@ void Conv2dPanel::CreateObserver(anet::rl::RunManager& run_manager, std::shared_
 {
     // Observer生成&登録
     auto notifier = run_manager.GetNotifier();
+    // この Eval Runner の通知も Panel の破棄も GUI スレッドで行う。通知時に弱い参照を確認する。
     observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
         runner,
         [weak = wxWeakRef<Conv2dPanel>(this)](const anet::rl::TrainEvent& event) {

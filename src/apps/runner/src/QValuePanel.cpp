@@ -2,6 +2,7 @@
 #include "QValuePanel.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <utility>
 #include <wx/weakref.h>
 #include <wx/dcbuffer.h>
@@ -27,17 +28,22 @@ static constexpr bool kAutoRangeDefaultCheck = true;
 struct QValuePanel::Config : public anet::Config {
     int row_height = 24;
     bool use_hist_smooth = true;
-    float smooth_radius = 4.0f;
+    int smooth_radius = 4;
     int hist_bins = 510;
     float hist_range_k = 1.0;
 
     Config(const anet::ConfigData& config_data) : anet::Config("QValuePanel")
     {
+        constexpr int kMinSmoothRadius = 1;
         ANET_READ_CONFIG(config_data, row_height);
         ANET_READ_CONFIG(config_data, hist_bins);
         ANET_READ_CONFIG(config_data, hist_range_k);
         ANET_READ_CONFIG(config_data, use_hist_smooth);
         ANET_READ_CONFIG(config_data, smooth_radius);
+        if (smooth_radius < kMinSmoothRadius) {
+            ANET_SYSTEM_ERROR(GetConfigPrefix() << ".smooth_radius=" << smooth_radius
+                << " must be an integer >= " << kMinSmoothRadius << ".");
+        }
     }
 };
 
@@ -135,13 +141,14 @@ QValuePanel::QValuePanel(wxWindow* parent, const anet::ConfigData& config_data)
     config_ = std::make_unique<QValuePanel::Config>(config_data);
 
     // ガウス分布風の重みテーブルを事前に作っておく（高速化）
-    if (config_->use_hist_smooth && config_->smooth_radius > 0) {
-        hist_weights_.resize(config_->smooth_radius * 2 + 1);
-        float sigma = static_cast<float>(config_->smooth_radius) / 2.0f; // σ調整
-        for (int r = -config_->smooth_radius; r <= config_->smooth_radius; ++r) {
-            // e^(-x^2 / 2σ^2)
-            float w = std::exp(-(r * r) / (2 * sigma * sigma));
-            hist_weights_[r + config_->smooth_radius] = w;
+    if (config_->use_hist_smooth) {
+        // 半径から個数と距離の二乗を求める間は 64 bit で計算する。
+        const auto radius = static_cast<std::int64_t>(config_->smooth_radius);
+        hist_weights_.resize(static_cast<size_t>(2 * radius + 1));
+        const float sigma = static_cast<float>(radius) / 2.0f;
+        for (std::int64_t offset = -radius; offset <= radius; ++offset) {
+            const float distance_squared = static_cast<float>(offset * offset);
+            hist_weights_[static_cast<size_t>(offset + radius)] = std::exp(-distance_squared / (2.0f * sigma * sigma));
         }
     }
 
@@ -291,6 +298,7 @@ void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, 
 
 	// Observer生成&登録
     auto notifier = run_manager->GetNotifier();
+    // この Eval Runner の通知も Panel の破棄も GUI スレッドで行う。通知時に弱い参照を確認する。
     this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
         runner,
         [weak = wxWeakRef<QValuePanel>(this)](const anet::rl::TrainEvent& event) {
@@ -421,6 +429,12 @@ QValueHeatMapResult ComputeQValueHeatMap(const QValueData& input,
     const QValueHeatMapRequest& request, QValueHeatMapRangeState& range)
 {
     ANET_PROFILE_FUNC();
+    const auto weights = request.hist_weights;
+    if (!weights.empty() && weights.size() % 2 == 0) {
+        ANET_SYSTEM_ERROR("QValueHeatMap requires an empty or odd number of smoothing weights. count=" << weights.size());
+    }
+    const size_t radius = weights.size() / 2;
+
     // 共有snapshotは変更せず、加工用の格子値だけを1回写す。
     QValueHeatMapResult data{ .width = input.width, .height = input.height,
         .vv = input.vv, .guide_line_ratio = -1.0f };
@@ -542,19 +556,15 @@ QValueHeatMapResult ComputeQValueHeatMap(const QValueData& input,
             if (center_bin_idx < 0) center_bin_idx = 0;
             if (center_bin_idx >= n_bins) center_bin_idx = n_bins - 1;
 
-            if (request.use_hist_smooth) {
-                // ★本格スムージング (KDE: Kernel Density Estimation)
-                // そのビンを中心に、左右へ重みを配分する
-                int base_idx = action_idx * n_bins;
-
-                for (int r = -request.smooth_radius; r <= request.smooth_radius; ++r) {
-                    int target_bin = center_bin_idx + r;
-
-                    // 範囲チェック
-                    if (target_bin >= 0 && target_bin < n_bins) {
-                        // 重みを加算
-                        new_vv[base_idx + target_bin] += request.hist_weights[r + request.smooth_radius];
-                    }
+            if (!weights.empty()) {
+                // 中心ビンの左右で、ヒストグラムに収まる範囲の重みだけを加算する。
+                const auto base = static_cast<size_t>(action_idx) * n_bins;
+                const auto center = static_cast<size_t>(center_bin_idx);
+                const auto first = center - std::min(center, radius);
+                const auto last = center + std::min(static_cast<size_t>(n_bins - 1) - center, radius);
+                auto weight_index = radius - (center - first);
+                for (auto bin = first; bin <= last; ++bin, ++weight_index) {
+                    new_vv[base + bin] += weights[weight_index];
                 }
             } else {
                 // スムージングなし (点描画)
@@ -647,8 +657,7 @@ void QValuePanel::Update()
     const QValueHeatMapRequest request{
         .histogram = IsHistogram(), .advantage = IsAdvantage(), .log_scale = IsLogScale(),
         .auto_range = auto_range_check_->GetValue(), .hist_bins = config_->hist_bins,
-        .hist_range_k = config_->hist_range_k, .use_hist_smooth = config_->use_hist_smooth,
-        .smooth_radius = config_->smooth_radius, .hist_weights = hist_weights_ };
+        .hist_range_k = config_->hist_range_k, .hist_weights = hist_weights_ };
     UpdateGrid(*selected);
     const auto result = ComputeQValueHeatMap(*selected, request, heatmap_range_);
     RenderHeatMap(result);

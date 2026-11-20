@@ -64,6 +64,7 @@ Agent系の所有権は次の原則に従う。
 | `ImageClsAgent` | 共通Run/Agent contract上で画像分類を学習する実装 | 現行コードを参照 |
 
 Runner が系統の公開初期化関数を呼んで登録し、`AgentRepository`がclass IDから`AgentFactory`を解決する。
+公開初期化関数は、同じ関数が複数回呼ばれても登録を1回だけ行う。初回の登録が途中で失敗した場合は、以後の呼び出しも失敗する。Repositoryに同じclass IDのfactoryを直接登録すると例外になり、先に登録したfactoryが残る。
 
 ## 3. コンポーネント定義
 

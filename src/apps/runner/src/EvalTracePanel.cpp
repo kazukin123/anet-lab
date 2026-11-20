@@ -218,6 +218,7 @@ void EvalTracePanel::Initialize(std::shared_ptr<RunManager> manager, std::shared
     }, [weak = wxWeakRef<EvalTracePanel>(this)](const auto& row, std::span<const size_t> columns) {
         if (weak && weak->active_) weak->CompleteRow(row, columns);
     });
+    // この Eval Runner の通知も Panel の破棄も GUI スレッドで行う。通知時に弱い参照を確認する。
     observer_ = manager->GetNotifier()->AttachScoped<FunctionTrainObserver>(runner,
         [weak = wxWeakRef<EvalTracePanel>(this)](const TrainEvent& event) {
             if (!weak) return;

@@ -182,6 +182,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::To(torch::Device devic
 
 std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tensor action) const
 {
+    ANET_PROFILE_FUNC();
     auto hint = replay_initial_priority_hint_;
     if (hint.has_value()) {
         // 行動Qとbonusを同じ実行行動へ揃え、行動に依存しないstate valueは維持する。
@@ -201,16 +202,14 @@ std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tens
             ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires matching q_values/munchausen_terms shape and device. q_values="
                 << q_values.sizes() << " on " << q_values.device() << " terms=" << terms.sizes() << " on " << terms.device());
         }
-        if (action.device() != q_values.device()) {
-            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction cannot replace a hinted action across devices. action="
-                << action.device() << " q_values=" << q_values.device());
-        }
-        auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1).to(torch::kFloat32);
+        // ヒントの計算だけで Q と同じ device の行動を使い、返す行動は呼び出し側の device に置く。
+        const auto action_index = action.to(q_values.device(), torch::kInt64).unsqueeze(1);
+        auto q_sa = q_values.gather(1, action_index).squeeze(1).to(torch::kFloat32);
         const auto decoded = DecodeActorQHint(hint->GetPayload());
-        const auto bonus = terms.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
+        const auto bonus = terms.gather(1, action_index).squeeze(1);
         auto intrinsic_q_sa = decoded.intrinsic_q_sa;
         if (const auto intrinsic = aux_.find(kIntrinsicQValues); intrinsic != aux_.end()) {
-            intrinsic_q_sa = intrinsic->second.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
+            intrinsic_q_sa = intrinsic->second.gather(1, action_index).squeeze(1);
         }
         auto packed = PackActorQHint(q_sa, decoded.actor_state_value, bonus, intrinsic_q_sa, decoded.intrinsic_state_value);
         hint = ReplayInitialPriorityHint(std::move(packed));

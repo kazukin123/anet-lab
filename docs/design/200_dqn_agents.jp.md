@@ -272,7 +272,7 @@ PERが有効で初期優先度の方式が`actor_approx`の場合、カタログ
 
 学習側の `learning_rate`・`weight_decay`・`gamma`・`munchausen.alpha`・`munchausen.entropy_tau` と `model.soft_update_tau` は、`UpdateFromBatch`の先頭で`exp_step`から評価する。warmup中も評価し、全optimizer groupのlrと通常groupのdecayへ反映する。σ専用groupのdecayは固定の `noisy_weight_decay` を維持する。soft updateはその時点のτを受け取る。`per_beta`だけはstep 0の値で始め、各更新末尾に評価して次の抽選要求へ渡す。prefetchを含む抽選の要求順序は変えない。
 
-`MunchausenConfig`は時間の値の宣言、`MunchausenValues`は評価済みの値である。Actorも自身の`exp_step`でγ・α・entropy_tauを評価し、`DQNActionInfo`へ保持する。`To`・`WithAction`はこの値を引き継ぐ。step診断は既存の`GetScalar`でこれらを受け取り、現在のヒント、収益、bootstrap割引を計算する。schedule γでは完成待ちの報酬列も保持し、bootstrap時のγと揃える。
+`MunchausenConfig`は時間の値の宣言、`MunchausenValues`は評価済みの値である。Actorも自身の`exp_step`でγ・α・entropy_tauを評価し、`DQNActionInfo`へ保持する。`To`・`WithAction`はこの値を引き継ぐ。`WithAction`の結果は渡された行動をそのdeviceのまま保持し、ヒントを再計算するときに使う行動だけをQ値のdeviceへ移す。step診断は既存の`GetScalar`でこれらを受け取り、現在のヒント、収益、bootstrap割引を計算する。schedule γでは完成待ちの報酬列も保持し、bootstrap時のγと揃える。
 
 `$agent`は `learning_rate`・`weight_decay`・`soft_update_tau`・`gamma`・`munchausen_alpha`・`munchausen_entropy_tau` を公開する。checkpointのoptimizer optionsの比較と上書き、RewardScalerの初期化、初期ホライズン表示はstep 0の値を使う。endpointはProfiledValueのboundsで検証する。spectral normを使うsoft updateでは定数の1を許すが、scheduleの全端点は[0,0.1]に限る。
 

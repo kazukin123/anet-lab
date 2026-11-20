@@ -1,6 +1,8 @@
 #include "anet/rl.hpp"
+#include <algorithm>
 #include <stdexcept>
 #include <charconv>
+#include <utility>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
 
@@ -958,166 +960,140 @@ std::string RunnerScopedSessionEndObserver::ToString() const
 // Notifier
 // =============================================================
 
-Notifier::Notifier()
+Notifier::Notifier() = default;
+
+template <class Observer>
+Notifier::ObserverList<Observer> Notifier::GetObserverSnapshot(const ObserverList<Observer>& observers) const
 {
-    ;
+    const std::lock_guard lock(observers_mutex_);
+    return observers;
 }
 
-std::shared_ptr<TrainObserver> Notifier::Attach(std::shared_ptr<TrainObserver> obs)
+Notifier::ObserverLists Notifier::GetObserverSnapshot() const
 {
-    train_observers_.push_back(obs);
-    return obs;
+    const std::lock_guard lock(observers_mutex_);
+    return observers_;
 }
 
-std::shared_ptr<LearnObserver> Notifier::Attach(std::shared_ptr<LearnObserver> obs)
+template <class Observer>
+std::shared_ptr<Observer> Notifier::AttachObserver(
+    ObserverList<Observer>& observers, std::shared_ptr<Observer> observer)
 {
-    learn_observers_.push_back(obs);
-    return obs;
+    const std::lock_guard lock(observers_mutex_);
+    // 進行中の通知は取得済みの一覧を使う。追加した一覧は次の通知から見える。
+    auto updated = std::make_shared<std::vector<std::shared_ptr<Observer>>>(*observers);
+    updated->push_back(observer);
+    observers = std::move(updated);
+    return observer;
 }
 
-std::shared_ptr<EpisodeEndObserver> Notifier::Attach(std::shared_ptr<EpisodeEndObserver> obs)
+template <class Observer>
+void Notifier::DetachObserver(ObserverList<Observer>& observers, const Observer* observer)
 {
-    episode_end_observers_.push_back(obs);
-    return obs;
+    ObserverList<Observer> previous;
+    {
+        const std::lock_guard lock(observers_mutex_);
+        const auto matches = [observer](const auto& entry) { return entry.get() == observer; };
+        if (std::none_of(observers->begin(), observers->end(), matches)) return;
+
+        auto updated = std::make_shared<std::vector<std::shared_ptr<Observer>>>(*observers);
+        std::erase_if(*updated, matches);
+        previous = std::exchange(observers, std::move(updated));
+    }
+    // 最後の参照を手放すと Observer が破棄されるので、ロックの外で行う。
 }
 
-std::shared_ptr<SessionEndObserver> Notifier::Attach(std::shared_ptr<SessionEndObserver> obs)
+std::shared_ptr<TrainObserver> Notifier::Attach(std::shared_ptr<TrainObserver> observer)
 {
-    session_end_observers_.push_back(obs);
-    return obs;
+    return AttachObserver(observers_.train, std::move(observer));
 }
 
-void Notifier::Detach(std::shared_ptr<TrainObserver> obs)
+void Notifier::Detach(std::shared_ptr<TrainObserver> observer)
 {
-    train_observers_.erase(
-        std::remove_if(
-            train_observers_.begin(), train_observers_.end(),
-            [&](const std::shared_ptr<TrainObserver>& o) {
-                return o == obs;
-            }
-        ),
-        train_observers_.end()
-    );
-}
-
-void Notifier::Detach(std::shared_ptr<LearnObserver> obs)
-{
-    learn_observers_.erase(
-        std::remove_if(
-            learn_observers_.begin(), learn_observers_.end(),
-            [&](const std::shared_ptr<LearnObserver>& o) {
-                return o == obs;
-            }
-        ),
-        learn_observers_.end()
-    );
-}
-
-void Notifier::Detach(std::shared_ptr<EpisodeEndObserver> obs)
-{
-    episode_end_observers_.erase(
-        std::remove_if(
-            episode_end_observers_.begin(), episode_end_observers_.end(),
-            [&](const std::shared_ptr<EpisodeEndObserver>& o) {
-                return o == obs;
-            }
-        ),
-        episode_end_observers_.end()
-    );
-}
-
-void Notifier::Detach(std::shared_ptr<SessionEndObserver> obs)
-{
-    session_end_observers_.erase(
-        std::remove_if(
-            session_end_observers_.begin(), session_end_observers_.end(),
-            [&](const std::shared_ptr<SessionEndObserver>& o) {
-                return o == obs;
-            }
-        ),
-        session_end_observers_.end()
-    );
+    Detach(observer.get());
 }
 
 void Notifier::Detach(const TrainObserver* observer)
 {
-    train_observers_.erase(
-        std::remove_if(
-            train_observers_.begin(), train_observers_.end(),
-            [&](const std::shared_ptr<TrainObserver>& o) {
-                return o.get() == observer;
-            }
-        ),
-        train_observers_.end()
-    );
+    DetachObserver(observers_.train, observer);
+}
+
+std::shared_ptr<LearnObserver> Notifier::Attach(std::shared_ptr<LearnObserver> observer)
+{
+    return AttachObserver(observers_.learn, std::move(observer));
+}
+
+void Notifier::Detach(std::shared_ptr<LearnObserver> observer)
+{
+    Detach(observer.get());
 }
 
 void Notifier::Detach(const LearnObserver* observer)
 {
-    learn_observers_.erase(
-        std::remove_if(
-            learn_observers_.begin(), learn_observers_.end(),
-            [&](const std::shared_ptr<LearnObserver>& o) {
-                return o.get() == observer;
-            }
-        ),
-        learn_observers_.end()
-    );
+    DetachObserver(observers_.learn, observer);
+}
+
+std::shared_ptr<EpisodeEndObserver> Notifier::Attach(std::shared_ptr<EpisodeEndObserver> observer)
+{
+    return AttachObserver(observers_.episode_end, std::move(observer));
+}
+
+void Notifier::Detach(std::shared_ptr<EpisodeEndObserver> observer)
+{
+    Detach(observer.get());
 }
 
 void Notifier::Detach(const EpisodeEndObserver* observer)
 {
-    episode_end_observers_.erase(
-        std::remove_if(
-            episode_end_observers_.begin(), episode_end_observers_.end(),
-            [&](const std::shared_ptr<EpisodeEndObserver>& o) {
-                return o.get() == observer;
-            }
-        ),
-        episode_end_observers_.end()
-    );
+    DetachObserver(observers_.episode_end, observer);
+}
+
+std::shared_ptr<SessionEndObserver> Notifier::Attach(std::shared_ptr<SessionEndObserver> observer)
+{
+    return AttachObserver(observers_.session_end, std::move(observer));
+}
+
+void Notifier::Detach(std::shared_ptr<SessionEndObserver> observer)
+{
+    Detach(observer.get());
 }
 
 void Notifier::Detach(const SessionEndObserver* observer)
 {
-    session_end_observers_.erase(
-        std::remove_if(
-            session_end_observers_.begin(), session_end_observers_.end(),
-            [&](const std::shared_ptr<SessionEndObserver>& o) {
-                return o.get() == observer;
-            }
-        ),
-        session_end_observers_.end()
-    );
+    DetachObserver(observers_.session_end, observer);
 }
 
 void Notifier::Clear()
 {
-    train_observers_.clear();
-    learn_observers_.clear();
-    episode_end_observers_.clear();
-    session_end_observers_.clear();
+    ObserverLists previous;
+    {
+        const std::lock_guard lock(observers_mutex_);
+        std::swap(previous, observers_);
+    }
+    // 古い一覧の参照をロックの外で手放す。取得済みの通知は古い一覧を使い続ける。
 }
 
 void Notifier::Shutdown(std::chrono::steady_clock::time_point deadline, ShutdownMode mode)
 {
+    const auto observers = GetObserverSnapshot();
     // observer の登録列を順に排水する。例外は呼び出し元へそのまま伝える。
-    for (const auto& observer : train_observers_) observer->Shutdown(deadline, mode);
-    for (const auto& observer : learn_observers_) observer->Shutdown(deadline, mode);
-    for (const auto& observer : episode_end_observers_) observer->Shutdown(deadline, mode);
-    for (const auto& observer : session_end_observers_) observer->Shutdown(deadline, mode);
+    for (const auto& observer : *observers.train) observer->Shutdown(deadline, mode);
+    for (const auto& observer : *observers.learn) observer->Shutdown(deadline, mode);
+    for (const auto& observer : *observers.episode_end) observer->Shutdown(deadline, mode);
+    for (const auto& observer : *observers.session_end) observer->Shutdown(deadline, mode);
 }
 
 bool Notifier::WillBlockOnShutdown() const
 {
+    const auto observers = GetObserverSnapshot();
     // どれか一つでも WAIT を伴うなら、終了UIへ通知する。
-    for (const auto& observer : train_observers_)
+    for (const auto& observer : *observers.train)
         if (observer->WillBlockOnShutdown()) return true;
-    for (const auto& observer : learn_observers_)
+    for (const auto& observer : *observers.learn)
         if (observer->WillBlockOnShutdown()) return true;
-    for (const auto& observer : episode_end_observers_)
+    for (const auto& observer : *observers.episode_end)
         if (observer->WillBlockOnShutdown()) return true;
-    for (const auto& observer : session_end_observers_)
+    for (const auto& observer : *observers.session_end)
         if (observer->WillBlockOnShutdown()) return true;
     return false;
 }
@@ -1126,8 +1102,10 @@ void Notifier::Notify(const TrainEvent& event)
 {
     ANET_PROFILE_FUNC();
 
-    for (auto obs : train_observers_) {
-        obs->OnTrain(event);
+    // 一覧の取得にだけロックを使い、Observer はロックの外で呼ぶ。
+    const auto observers = GetObserverSnapshot(observers_.train);
+    for (const auto& observer : *observers) {
+        observer->OnTrain(event);
     }
 }
 
@@ -1135,8 +1113,10 @@ void Notifier::Notify(const LearnEvent& event)
 {
     ANET_PROFILE_FUNC();
 
-    for (auto obs : learn_observers_) {
-        obs->OnLearn(event);
+    // 一覧の取得にだけロックを使い、Observer はロックの外で呼ぶ。
+    const auto observers = GetObserverSnapshot(observers_.learn);
+    for (const auto& observer : *observers) {
+        observer->OnLearn(event);
     }
 }
 
@@ -1144,8 +1124,10 @@ void Notifier::Notify(const EpisodeEndEvent& event)
 {
     ANET_PROFILE_FUNC();
 
-    for (auto obs : episode_end_observers_) {
-        obs->OnEpisodeEnd(event);
+    // 一覧の取得にだけロックを使い、Observer はロックの外で呼ぶ。
+    const auto observers = GetObserverSnapshot(observers_.episode_end);
+    for (const auto& observer : *observers) {
+        observer->OnEpisodeEnd(event);
     }
 }
 
@@ -1153,33 +1135,27 @@ void Notifier::Notify(const SessionEndEvent& event)
 {
     ANET_PROFILE_FUNC();
 
-    for (auto obs : session_end_observers_) {
-        obs->OnSessionEnd(event);
+    // 一覧の取得にだけロックを使い、Observer はロックの外で呼ぶ。
+    const auto observers = GetObserverSnapshot(observers_.session_end);
+    for (const auto& observer : *observers) {
+        observer->OnSessionEnd(event);
     }
 }
 
 void Notifier::LogObservers() const
 {
-    int idx = 0;
-    for (auto obs : train_observers_) {
-        LOG::info() << "Notifier: TRAIN [" << idx << "] " << obs->ToString();
-        idx++;
-    }
-    idx = 0;
-    for (auto obs : learn_observers_) {
-        LOG::info() << "Notifier: LEARN [" << idx << "] " << obs->ToString();
-       idx++;
-    }
-    idx = 0;
-    for (auto obs : episode_end_observers_) {
-        LOG::info() << "Notifier: EPISODE_END [" << idx << "] " << obs->ToString();
-        idx++;
-    }
-    idx = 0;
-    for (auto obs : session_end_observers_) {
-        LOG::info() << "Notifier: SESSION_END [" << idx << "] " << obs->ToString();
-        idx++;
-    }
+    const auto observers = GetObserverSnapshot();
+    const auto log = [](const auto& list, const char* name) {
+        int index = 0;
+        for (const auto& observer : list) {
+            LOG::info() << "Notifier: " << name << " [" << index << "] " << observer->ToString();
+            ++index;
+        }
+    };
+    log(*observers.train, "TRAIN");
+    log(*observers.learn, "LEARN");
+    log(*observers.episode_end, "EPISODE_END");
+    log(*observers.session_end, "SESSION_END");
 }
 
 // 結果が所有するauxのスカラーだけを読み、非スカラーは未知の読出しとして扱う。

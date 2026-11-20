@@ -500,6 +500,8 @@ namespace anet::rl {
     };
 
     /// 学習Actorが既存forwardから取り出す、初期優先度推定用の不透明なpayload。
+    /// 同じ実体の GetPayloadCpu と読み取り・コピーを別スレッドで同時に行わない。
+    /// スレッドをまたぐ場合は、受け渡しが済んでから受け取った側で呼ぶ。
     class ReplayInitialPriorityHint {
     public:
         explicit ReplayInitialPriorityHint(torch::Tensor payload);
@@ -512,7 +514,9 @@ namespace anet::rl {
         mutable torch::Tensor payload_cpu_; ///< ReplayBufferへ渡す際に再利用するCPU cache
     };
 
-    // 行動選択時の情報
+    /// 行動選択時の情報。同じ実体の GetAction(device) や action を読む GetScalar と、
+    /// その実体の読み取り・コピーを別スレッドで同時に行わない。
+    /// スレッドをまたぐ場合は、受け渡しが済んでから受け取った側で呼ぶ。
     class BatchActionInfo : public anet::ModuleBase, public anet::graphviz::GraphVizProvider {
     public:
         /// 判断の境界をActorからReplayへ渡す共有info鍵。
@@ -596,6 +600,7 @@ namespace anet::rl {
         BatchStepResult(torch::Tensor reward_in, BatchState next_state_in, BatchState continue_state_in, uint32_t n_transitions_in, uint32_t n_episode_end_in);
         std::string ToString() const;
         virtual std::optional<float> GetScalar(const std::string& key, int64_t lane = -1) const;
+        /// 同じ実体に対して複数のスレッドから同時に呼べる。
         const torch::Tensor& GetEpisodeEndMask() const;
 
         virtual ~BatchStepResult() = default;
@@ -1174,6 +1179,11 @@ namespace anet::rl {
     // Notifier
     // =============================================================
 
+    /// 登録・解除・通知・全解除・終了・一覧の操作は同時に呼べる。
+    /// Observer は登録順に呼び出し元のスレッドで動き、その間 Notifier のロックを持たない。
+    /// Observer から登録・解除・通知を呼べる。登録・解除は次に始まる通知から効く。
+    /// Detach と Clear は進行中の通知を待たず、その通知が終わるまで取得済みの Observer は生きる。
+    /// Observer が触る相手の寿命は登録側で守る。Observer は最後の参照を手放したスレッドで破棄される。
     class Notifier {
     public:
         Notifier();
@@ -1259,10 +1269,26 @@ namespace anet::rl {
             return observer;
         }
     private:
-        std::vector<std::shared_ptr<TrainObserver>> train_observers_;
-        std::vector<std::shared_ptr<LearnObserver>> learn_observers_;
-        std::vector<std::shared_ptr<EpisodeEndObserver>> episode_end_observers_;
-        std::vector<std::shared_ptr<SessionEndObserver>> session_end_observers_;
+        template <class Observer>
+        using ObserverList = std::shared_ptr<const std::vector<std::shared_ptr<Observer>>>;
+
+        struct ObserverLists {
+            ObserverList<TrainObserver> train = std::make_shared<const std::vector<std::shared_ptr<TrainObserver>>>();
+            ObserverList<LearnObserver> learn = std::make_shared<const std::vector<std::shared_ptr<LearnObserver>>>();
+            ObserverList<EpisodeEndObserver> episode_end = std::make_shared<const std::vector<std::shared_ptr<EpisodeEndObserver>>>();
+            ObserverList<SessionEndObserver> session_end = std::make_shared<const std::vector<std::shared_ptr<SessionEndObserver>>>();
+        };
+
+        template <class Observer>
+        ObserverList<Observer> GetObserverSnapshot(const ObserverList<Observer>& observers) const;
+        ObserverLists GetObserverSnapshot() const;
+        template <class Observer>
+        std::shared_ptr<Observer> AttachObserver(ObserverList<Observer>& observers, std::shared_ptr<Observer> observer);
+        template <class Observer>
+        void DetachObserver(ObserverList<Observer>& observers, const Observer* observer);
+
+        mutable std::mutex observers_mutex_;
+        ObserverLists observers_;
     };
 
     // =============================================================
