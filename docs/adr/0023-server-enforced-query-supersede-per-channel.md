@@ -1,5 +1,7 @@
 # metrics query の latest-wins をサーバ側で強制し、その単位を query channel（ブラウザタブ）とする
 
+> **後発決定**: query channel の単位（1 つのブラウザタブ）は [ADR 0090](0090-query-channel-is-per-tab-and-query-kind.md) で、ブラウザタブと問い合わせの種類の組に改めた。サーバ側で latest-wins を強制すること、同じ channel の中だけで取り消すこと、違う channel が同時実行枠だけを共有することは、この ADR のまま残る。（2026-11-22 に注記を追加。PRD196）
+
 Metrics Viewer で Run や tag を素早く切り替えると `POST /api/metrics.json` が `503 query_busy` を返し、画面に `Update failed` が出ていた。frontend は既に latest-wins を実装しており、新しい request を出す前に直前の request を `AbortController` で打ち切っている。しかし HTTP 切断は Servlet スレッドから観測できないため、abort された query はサーバ側で最後まで走り続け、query 同時実行数を制限する fair semaphore の permit を保持し続ける。既定の 2 permit が「もう誰も結果を待っていない query」で占有され、最新の query だけが 5 秒待って 503 を受け取っていた。
 
 **frontend が既に表明している latest-wins の意図を、サーバ側で能動的に強制する**ことを決定する。新しい query が到着したら、同じ発行系列に属する古い query をサーバが取り消して permit を明け渡す。**その発行系列の単位を query channel = 1 つのブラウザタブ**とし、channel 識別子と channel 内で単調増加する連番を HTTP ヘッダ（`X-Query-Channel` / `X-Query-Sequence`、いずれも必須）で受け取る。異なる channel は相互に取り消さず、プロセス全体の同時実行枠だけを共有する。取り消された query は `409` + `{"code":"superseded"}` を返す。同時実行枠と supersede は `MetricsQueryCoordinator` が一体で所有し、semaphore・lock・`Statement` を外へ露出させない。

@@ -84,9 +84,9 @@ flowchart TD
 |---|---|
 | ①→② 取り込み | 6.1（フロー）、8.2〜8.3（格納先と再構築条件） |
 | ② データ構造 | 8.2（table定義） |
-| ②→④ range query | 6.2（フロー）、9.2（点予算とavailability） |
+| ②→④ range query | 6.2（フロー）、9.3（点予算とavailability） |
 | ③ LOD page cache | 10.1（lifetime）、10.4（性能） |
-| ④ 通信形式 | 9.4（binary符号化） |
+| ④ 通信形式 | 9.5（binary符号化） |
 | ⑤⑥ client | 6.3（フロー）、7.4（定数と永続state） |
 
 なお、Metrics ViewerはRunner processへ直接接続しない。`runs`ディレクトリのRunフォルダだけが入力である。
@@ -909,6 +909,8 @@ response（系列ごと）:
 | tagはあるが点が0 | `pending` | `empty` |
 | range内に点が無い | `pending` | `empty` |
 | range内に点がある | `ok` | `ok` |
+
+表の「取り込み中」はMetricsキャッシュの`state`（§8.2の`source_meta`）が`pending`か`converting`のとき、「取り込み完了」は`ready`か`error`のときである。`error`のRunはそれ以上取り込みが進まないので、確定値を返す。
 
 `MetricsQueryPlanner`は各`ok`系列の必要頂点数上界を計算する。各系列の`maxPoints`超過、または合計の`max-points-per-request`超過は422で拒否し、Step幅を変更しない。
 

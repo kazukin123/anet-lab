@@ -545,6 +545,10 @@ _Avoid_: schema version（様式の版であって内容の同一性ではない
 1つのscalar tagでcommit済みの有効な全点を対象とする正確な統計。表示rangeやLODに依存せず、無効値とtag隔離後の点は含まない。
 _Avoid_: viewport stats, LOD stats, range summary
 
+**範囲統計**:
+1つのscalar tagで、指定したstepの閉区間に入るcommit済みの有効な全点を対象とする、LODから作らない正確な統計。範囲によらないTagStatsとは別物である。
+_Avoid_: viewport stats（範囲を決めるのは表示の状態でなくstepの閉区間）, LOD stats, TagStats（全期間の統計と混同）
+
 **タグセット (Tag Set)**:
 Metrics Viewerで名前を付けて保存した、表示するtagの順序の無い集合。workspaceをまたいで共有し、呼び出すとtagの選択がその中身に置き換わる。
 _Avoid_: タグリスト（Tags欄のtag一覧と混同）, プリセット, タググループ（tag番号の群と混同）
@@ -586,7 +590,7 @@ Step の結果から読む env の値の、読むイベントで決まる意味�
 _Avoid_: 完了値（鍵の名前で区別する旧来の言い方）, 現在値（env への問い合わせが返す今の状態と紛れる）
 
 **query channel**:
-Metrics Viewerのmetrics queryの発行系列で、1つのブラウザタブに対応する。ページロード時に生成した識別子と、そのタブ内で単調増加する連番でqueryを識別する。連番の大小はchannel内でのみ意味を持ち、channel間では比較しない。Viewerを2つのタブで開けばchannelは2つになる。
+Metrics Viewerのqueryの発行系列で、1つのブラウザタブの中に、問い合わせの種類（グラフの描画、範囲統計）ごとに1つある。ページロード時に生成した識別子と、その系列で単調増加する連番でqueryを識別する。連番の大小はchannel内でのみ意味を持ち、channel間では比較しない。Viewerを2つのタブで開けば、channelは種類ごとに2つずつになる。
 _Avoid_: HTTPセッション（同一ブラウザの別タブが同一になり単位が合わない）, 接続（TCP接続と1対1ではない）, クライアント（プロセスとタブのどちらとも読める）
 
 **query supersede**:
