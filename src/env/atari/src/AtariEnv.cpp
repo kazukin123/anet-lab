@@ -47,15 +47,15 @@ static ResizeMode ParseResizeMode(const std::string& key, const std::string& val
     return ResizeMode::PixelArea;
 }
 
-static void ValidateScreenSize(const std::string& key, int size, ResizeMode resize_mode)
+static void ValidateScreenSize(const std::string& size_key, int size, const std::string& mode_key, ResizeMode resize_mode)
 {
     // 読み取った方式に対して、ネイティブ解像度の条件を確かめる。
     if (size <= 0) {
-        ANET_SYSTEM_ERROR(key << " must be > 0, but was " << size << ".");
+        ANET_SYSTEM_ERROR(size_key << " must be > 0, but was " << size << ".");
     }
     if (resize_mode == ResizeMode::PixelArea && size > std::min(kScreenHeight, kScreenWidth)) {
-        ANET_SYSTEM_ERROR(key << "=" << size
-            << " with resize_mode='pixel_area'. Expected an integer in [1,160].");
+        ANET_SYSTEM_ERROR(size_key << "=" << size << " with " << mode_key << "='" << kPixelArea
+            << "'. Expected an integer in [1,160].");
     }
 }
 
@@ -444,12 +444,17 @@ AtariEnvConfig::AtariEnvConfig(
     std::string resize_mode_text = kAdaptiveAverage;
     ReadConfig(config_data, "resize_mode", resize_mode_text);
     // 読み取る宣言を両方検証し、個別上書きで不正な共通値を隠さない。
-    for (const auto& key : {MakeDefaultConfigKey("resize_mode"), MakeOverrideConfigKey("resize_mode")}) {
-        if (config_data.Has(key)) resize_mode = ParseResizeMode(key, config_data.Get(key));
+    const auto default_mode_key = MakeDefaultConfigKey("resize_mode");
+    if (config_data.Has(default_mode_key)) {
+        resize_mode = ParseResizeMode(config_data.GetFullKey(default_mode_key), config_data.Get(default_mode_key));
     }
-    const auto override_size_key = MakeOverrideConfigKey("screen_size");
-    const auto size_key = config_data.Has(override_size_key) ? override_size_key : MakeDefaultConfigKey("screen_size");
-    ValidateScreenSize(size_key, screen_size, resize_mode);
+    if (!GetOverridePrefix().empty()) {
+        const auto override_mode_key = MakeOverrideConfigKey("resize_mode");
+        if (config_data.Has(override_mode_key)) {
+            resize_mode = ParseResizeMode(config_data.GetFullKey(override_mode_key), config_data.Get(override_mode_key));
+        }
+    }
+    ValidateScreenSize(GetFullKey("screen_size"), screen_size, GetFullKey("resize_mode"), resize_mode);
     ANET_READ_CONFIG(config_data, frame_skip);
     ANET_READ_CONFIG(config_data, max_pool);
     ANET_READ_CONFIG(config_data, repeat_action_probability);
@@ -535,7 +540,8 @@ AtariEnv::AtariEnv(
     SelectActions();
 
     if (config_.display_screen) {
-        log.warn_once() << "AtariEnv.display_screen=true creates one SDL window per ALE instance and is unsupported with worker threads; use AtariView for Runner observation.";
+        log.warn_once() << config_.GetFullKey("display_screen")
+            << "=true creates one SDL window per ALE instance and is unsupported with worker threads; use AtariView for Runner observation.";
     }
 
     log.verbose() << "AtariEnv resize_mode="
@@ -577,31 +583,30 @@ AtariEnv::~AtariEnv() = default;
 void AtariEnvConfig::Validate() const
 {
     // 方式と画面寸法は読み取り済み。factory と env の構築で使う残りの局所条件を検証する。
-    const auto prefix = GetOverridePrefix().empty() ? "AtariEnv" : GetOverridePrefix();
     static const std::regex game_pattern(kGameNamePattern);
     if (!std::regex_match(game, game_pattern)) {
-        ANET_SYSTEM_ERROR(prefix << ".game must be a non-empty snake_case ROM stem, but was '" << game << "'.");
+        ANET_SYSTEM_ERROR(GetFullKey("game") << " must be a non-empty snake_case ROM stem, but was '" << game << "'.");
     }
     if (frame_skip < 1) {
-        ANET_SYSTEM_ERROR(prefix << ".frame_skip must be >= 1, but was " << frame_skip << ".");
+        ANET_SYSTEM_ERROR(GetFullKey("frame_skip") << " must be >= 1, but was " << frame_skip << ".");
     }
     if (!std::isfinite(repeat_action_probability)
         || repeat_action_probability < 0.0f
         || repeat_action_probability > 1.0f) {
-        ANET_SYSTEM_ERROR(prefix << ".repeat_action_probability must be in [0,1], but was "
+        ANET_SYSTEM_ERROR(GetFullKey("repeat_action_probability") << " must be in [0,1], but was "
             << repeat_action_probability << ".");
     }
     if (noop_max < 0) {
-        ANET_SYSTEM_ERROR(prefix << ".noop_max must be >= 0, but was " << noop_max << ".");
+        ANET_SYSTEM_ERROR(GetFullKey("noop_max") << " must be >= 0, but was " << noop_max << ".");
     }
     if (mode < -1) {
-        ANET_SYSTEM_ERROR(prefix << ".mode must be >= -1, but was " << mode << ".");
+        ANET_SYSTEM_ERROR(GetFullKey("mode") << " must be >= -1, but was " << mode << ".");
     }
     if (difficulty < -1) {
-        ANET_SYSTEM_ERROR(prefix << ".difficulty must be >= -1, but was " << difficulty << ".");
+        ANET_SYSTEM_ERROR(GetFullKey("difficulty") << " must be >= -1, but was " << difficulty << ".");
     }
     if (max_episode_frames < 0) {
-        ANET_SYSTEM_ERROR(prefix << ".max_episode_frames must be >= 0, but was "
+        ANET_SYSTEM_ERROR(GetFullKey("max_episode_frames") << " must be >= 0, but was "
             << max_episode_frames << ".");
     }
 }
@@ -609,24 +614,21 @@ void AtariEnvConfig::Validate() const
 std::string AtariEnv::ResolveRomPath() const
 {
     std::filesystem::path rom_dir;
-    std::string source;
     if (!config_.rom_dir.empty()) {
         rom_dir = std::filesystem::path(config_.rom_dir);
-        source = "AtariEnv.rom_dir";
     } else {
         const char* env_rom_dir = std::getenv("ATARI_ROM_DIR");
         if (env_rom_dir != nullptr && std::string(env_rom_dir).empty() == false) {
             rom_dir = std::filesystem::path(env_rom_dir);
-            source = "ATARI_ROM_DIR";
         }
     }
 
     const auto rom_path = rom_dir.empty()
         ? std::filesystem::path(config_.game + ".bin")
         : rom_dir / (config_.game + ".bin");
-    if (source.empty() || !std::filesystem::is_regular_file(rom_path)) {
+    if (rom_dir.empty() || !std::filesystem::is_regular_file(rom_path)) {
         ANET_SYSTEM_ERROR("Atari ROM not found. path='" << rom_path.string()
-            << "'. Set AtariEnv.rom_dir or ATARI_ROM_DIR to a directory containing '"
+            << "'. Set " << config_.GetFullKey("rom_dir") << " or ATARI_ROM_DIR to a directory containing '"
             << config_.game << ".bin'.");
     }
     return rom_path.string();
@@ -648,8 +650,8 @@ void AtariEnv::ConfigureAle(const std::string& rom_path)
     if (config_.mode >= 0) {
         const auto available = ale_->getAvailableModes();
         if (std::find(available.begin(), available.end(), static_cast<unsigned>(config_.mode)) == available.end()) {
-            ANET_SYSTEM_ERROR("AtariEnv.mode=" << config_.mode
-                << " is unavailable for game='" << config_.game
+            ANET_SYSTEM_ERROR(config_.GetFullKey("mode") << '=' << config_.mode
+                << " is unavailable for " << config_.GetFullKey("game") << "='" << config_.game
                 << "'. available=" << JoinValues(available) << ".");
         }
         ale_->setMode(static_cast<unsigned>(config_.mode));
@@ -657,8 +659,8 @@ void AtariEnv::ConfigureAle(const std::string& rom_path)
     if (config_.difficulty >= 0) {
         const auto available = ale_->getAvailableDifficulties();
         if (std::find(available.begin(), available.end(), static_cast<unsigned>(config_.difficulty)) == available.end()) {
-            ANET_SYSTEM_ERROR("AtariEnv.difficulty=" << config_.difficulty
-                << " is unavailable for game='" << config_.game
+            ANET_SYSTEM_ERROR(config_.GetFullKey("difficulty") << '=' << config_.difficulty
+                << " is unavailable for " << config_.GetFullKey("game") << "='" << config_.game
                 << "'. available=" << JoinValues(available) << ".");
         }
         ale_->setDifficulty(static_cast<unsigned>(config_.difficulty));

@@ -53,6 +53,7 @@ namespace anet::nn {
         std::map<std::string, NetworkBranchConfig> branches; ///< branch名からbranch定義への対応。
         std::map<std::string, std::string> output_keys; ///< Headが受け取るキーからbranch名への対応。
         std::map<std::string, ConfigProfileConfig> config_profiles; ///< Network全体の補間profile。
+        std::string config_prefix = "net"; ///< 診断で案内するNetwork固有の設定の置き場。
 
         NetworkConfig() = default;
         NetworkConfig(const anet::ConfigData& config_data, const std::string& config_prefix = "net");
@@ -61,7 +62,6 @@ namespace anet::nn {
 
     /// 構築時にweightとbiasへ適用する初期化方式とその引数。
     struct WeightInitConfig {
-        static constexpr char kDefaultOwner[] = "WeightInitConfig"; ///< 設定元を指定しない場合の診断名。
         static constexpr char kVarianceScalingMode[] = "variance_scaling";
 
         std::string mode = "xavier"; ///< default、xavier、he、orthogonal、constant、trunc_normal、variance_scaling。
@@ -72,13 +72,14 @@ namespace anet::nn {
         double trunc_a = -2.0; ///< trunc_normalの切断区間の下限。
         double trunc_b = 2.0; ///< trunc_normalの切断区間の上限。
         double variance_scale = 1.0; ///< variance_scalingの分散に掛ける倍率。分散はこの値をfan_inで割る。
+        ConfigFullKeyTable full_keys;
     };
 
     /// 初期化方式と活性化名の列挙を検証する。関連する数値より先に列挙を検査する構築処理でも使う。
-    void ValidateWeightInitConfigChoices(const WeightInitConfig& config, const std::string& owner = WeightInitConfig::kDefaultOwner);
+    void ValidateWeightInitConfigChoices(const WeightInitConfig& config);
 
-    /// 初期化設定の共通条件を検証する。ownerは診断に用いる設定キーの接頭辞。
-    void ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner = WeightInitConfig::kDefaultOwner);
+    /// 初期化設定の共通条件を検証する。
+    void ValidateWeightInitConfig(const WeightInitConfig& config);
 
     /// Linear射影を使わない構成（used=false）で、設定しても効かない値を知らせる。
     /// 明示した値が射影の既定値と異なる場合だけ、設定キー・値・reasonをWARNで1回通知する。

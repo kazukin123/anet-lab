@@ -83,7 +83,7 @@ NetworkForwardCallInfoは時計値・episode_start・行対応だけを持つ不
 - branchのbind term、`bind_concat_dim`、raw key、出力key
 - block/branch単位のconfig profile
 
-structureに現れたblockは、module factoryが読み終えたあとに閉じたスキーマを検証する。読まれない設定キーがあれば、block名・type・キーと値・そのfactoryが読むキーを含めて構築時に止める。`conv.out_channels`を`out_channels`と書いた場合も、`?=`か`=`かによらず止まる。複製や別の読み口の既読記録では、この検証を省かない。
+structureに現れたblockは、module factoryが読み終えたあとに閉じたスキーマを検証する。読まれない設定キーがあれば、typeを与えた項目の完全キー、type、読まれなかった欄の完全キーと値、そのfactoryが読むキーを示して構築時に止める。共有とAgentの設定を合成した場合も、各欄の診断にはその値を与えた側の完全キーを使う。`conv.out_channels`を`out_channels`と書いた場合も、`?=`か`=`かによらず止まる。複製や別の読み口の既読記録では、この検証を省かない。
 
 structureに現れないblockは実体化せず、Runではそのスキーマを検証しない。既存blockのtypeだけを別の種類へ書き換えると、元の種類の設定キーが残り、使ったときに未読キーとして止まる。別名のblockを定義し、structureの側で選び直す。
 
@@ -298,8 +298,8 @@ capture で `nn_trace/` を要求すると、branch の入力と描画できる 
 - IQN Headはrank 3 `(B,K,D)`、IQN Dueling Headはvalue/advantageのB/K一致を局所入力契約としてdummy forward時に検証する。これは`taus`が最終出力へ意味的に寄与することの証明ではない。
 - 重み初期化の `mode` は `default`、`xavier`、`he`、`orthogonal`、`constant`、`trunc_normal`、`variance_scaling` を受け付ける。`variance_scaling` は目標分散を `variance_scale / fan_in` とする一様分布で重みを初期化し、bias を 0 にする。倍率の既定は `1.0`。Conv の `fan_in` はグループ当たりの入力チャネル数とカーネルの要素数の積である。
 - `variance_scaling` で初期化できる重みは、出力軸と入力軸を持つ float16、bfloat16、float32、float64 のテンソル。空でない重みでは、一様分布の半幅が要素型の最小正値以上かつ最大値の半分以下に収まる必要がある。抽選には指定の半幅以下で要素型が表現できる最大の半幅を使う。実際の分散は要素型の精度によって目標値からずれることがある。条件を満たさない場合は初期化前に止め、指定倍率と適用できなかった条件を示す。
-- block は最初の forward で、`variance_scaling` を使う各層について、型と形状に応じた条件を登録前に検査する。条件違反の診断には `init1.variance_scale` のような block 内の設定キーを出し、同じ block を呼び直したときもその初期化の失敗を返す。
-- `ConfigReader<WeightInitConfig>` が初期化の設定を読み、block では構築時に相対キーを添えて検証する。`ValidateWeightInitConfig` は方式と `nonlinearity`（`relu`、`linear`、`tanh`、`leaky_relu`）を検査し、全方式で数値の有限性、`trunc_std > 0`、`trunc_a < trunc_b`、`variance_scale > 0` を要求する。設定を通さず直接指定した場合も `WeightInitializer` が適用前に検証する。`orthogonal` の `manual_gain <= 0` は引き続き gain の自動選択を表す。
+- block は最初の forward で、`variance_scaling` を使う各層について、型と形状に応じた条件を登録前に検査する。条件違反の診断には `net.block.[res1].init1.variance_scale` のように値を与えた完全キーを出し、同じ block を呼び直したときもその初期化の失敗を返す。
+- `ConfigReader<WeightInitConfig>` は初期化設定の完全キーを欄ごとに記録する。`ValidateWeightInitConfig` は方式と `nonlinearity`（`relu`、`linear`、`tanh`、`leaky_relu`）を検査し、全方式で数値の有限性、`trunc_std > 0`、`trunc_a < trunc_b`、`variance_scale > 0` を要求する。直接指定した設定も `WeightInitializer` が適用前に検証し、読み取りの記録が無い欄は相対キーに ` (not read from config)` を添えて報告する。`orthogonal` の `manual_gain <= 0` は引き続き gain の自動選択を表す。
 - Linear射影の `noisy.enabled` と `noisy.sigma0` は `ValidateLinearProjectionConfig`（`nn.hpp`）でNetwork構築前にも検証できる。bool変換と有限・非負sigmaの検証は `nn_modules.cpp` の同じ読取り処理を使い、射影の通常構築と事前検証で重複しない。呼出元は診断用の論理キーを渡せる。無効な射影でも明示不正値を拒否し、事前検証ではNetwork・重み・乱数を作らない。NN実行設定のmode/hold/share/countは従来どおり利用側の準備で検証する。
 - `Linear`、`Conv1d`、`Conv2d`、`ResBlock`、`CNBlock`、`TransformerEncoder`の`weight_norm.mode`は`none`、`spectral`、`spectral_cap`だけを受け付ける。未知値はkey、指定値、許容値を含めてfail-fastする。
 - `spectral`はzero-init weightを構築時に拒否する。zero-initを維持する残差blockには`init2.mode=he`等を指定するか、`spectral_cap`を使う。

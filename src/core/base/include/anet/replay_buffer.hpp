@@ -9,6 +9,7 @@
 #include <random>
 #include <span>
 #include <torch/torch.h>
+#include "anet/config.hpp"
 #include "anet/random.hpp"
 #include "anet/rl.hpp"
 
@@ -82,6 +83,7 @@ namespace anet::rl {
         struct {
             int unroll_steps = 0;                   // 未来方向へのスライス数 (MuZero Unroll 等)
         } muzero;   /// @todo MuZeroのキーワードは排除して「未来方向」で一般化？
+        ConfigFullKeyTable full_keys;
     };
 
 

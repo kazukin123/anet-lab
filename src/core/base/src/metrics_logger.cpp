@@ -80,7 +80,8 @@ bool IsNvencEligibleVideoSize(int width, int height)
         && height >= kNvencMinHeight;
 }
 
-VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int width, int height, const std::string& path)
+VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int width, int height,
+    const std::string& path, const ConfigFullKeyTable& full_keys)
 {
     const bool nvenc_eligible = IsNvencEligibleVideoSize(width, height);
 
@@ -93,12 +94,13 @@ VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int wid
     }
 
     if (requested_codec == kNvencH264Codec && !nvenc_eligible) {
+        const auto key = full_keys.GetFullKey("video_codec");
         ANET_SYSTEM_ERROR(
-            "metrics_logger.video_codec=" << kNvencH264Codec << " is not supported for video size "
+            key << '=' << kNvencH264Codec << " is not supported for video size "
             << width << "x" << height
             << ". Expected even width/height and at least "
             << kNvencMinWidth << "x" << kNvencMinHeight
-            << ". Use metrics_logger.video_codec=auto or " << kSoftwareH264Codec << ". path=" << path);
+            << ". Use " << key << "=auto or " << kSoftwareH264Codec << ". path=" << path);
     }
 
     return VideoCodecDecision{
@@ -109,9 +111,9 @@ VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int wid
 }
 
 VideoCodecDecision VideoCodecSelection::Resolve(
-    const std::string& codec, int width, int height, const std::string& path) const
+    const std::string& codec, int width, int height, const std::string& path, const ConfigFullKeyTable& full_keys) const
 {
-    auto decision = ResolveVideoCodec(codec, width, height, path);
+    auto decision = ResolveVideoCodec(codec, width, height, path, full_keys);
     if (decision.requested_auto && software_fallback_.load()) decision.codec = kSoftwareH264Codec;
     return decision;
 }
@@ -311,7 +313,7 @@ void anet::detail::VideoLoggerProcess::DrainStderrLocked()
 }
 
 VideoLogger::VideoLogger(const std::string& path, int width, int height, detail::VideoCodecSelection& selection,
-    const std::string& codec, int fps)
+    const std::string& codec, int fps, const ConfigFullKeyTable& full_keys)
     : width_(width), height_(height), path_(path), codec_(codec), fps_(fps)
 {
     ANET_CHECK_MSG(width <= 8192, "invalid Image size. width=" << width);
@@ -320,7 +322,7 @@ VideoLogger::VideoLogger(const std::string& path, int width, int height, detail:
     wxFileName fn(wxString::FromUTF8(path_));
     wxFileName::Mkdir(fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
 
-    const auto decision = selection.Resolve(codec, width_, height_, path_);
+    const auto decision = selection.Resolve(codec, width_, height_, path_, full_keys);
     if (decision.requested_auto) {
         LOG::info() << "VideoLogger(auto): " << width_ << "x" << height_ << " -> " << decision.codec;
     }
@@ -795,7 +797,7 @@ void MetricsLogger::LogImage_subtyped(const std::string& tag, anet::rl::step_t s
         // VideoLogger を作る
         auto vid_path = run_dir_ / "videos" / (safe_tag + ".mkv");
         temp_vlog = std::make_unique<VideoLogger>(vid_path.string(), image.GetWidth(), image.GetHeight(),
-            video_codec_selection_, config_.video_codec, config_.video_fps);
+            video_codec_selection_, config_.video_codec, config_.video_fps, config_.full_keys);
 
         // マップ登録用にロックを取る
         std::lock_guard<std::mutex> lock(video_mutex_);

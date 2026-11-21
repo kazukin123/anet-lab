@@ -1239,7 +1239,8 @@ public:
             ANET_SYSTEM_ERROR("Replay needs_return_recompute count=" << needs_return_recompute_.size()
                 << "; expected " << reward_component_count_ << " entries (reward_component_count).");
         if (needs_any_return_recompute_ && config.muzero.unroll_steps != 0)
-            ANET_SYSTEM_ERROR("Scheduled return extraction: unroll_steps=" << config.muzero.unroll_steps << " expected=0");
+            ANET_SYSTEM_ERROR("Scheduled return extraction: " << config.full_keys.GetFullKey("muzero.unroll_steps")
+                << "=" << config.muzero.unroll_steps << " expected=0");
     }
 
     void ExtractSamples(ExperienceSamples& out, const ReplayExperienceStorage& storage, const IndexSampleResult& idx_result, int stack_count, int unroll_steps, ReplayExperienceSampler& sampler, std::span<const float> gammas) const override
@@ -2518,25 +2519,26 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
     const int64_t required_capacity_per_env =
         std::max<int64_t>({1, config.n_step, config.window_rule ? config.window_rule->GetLimit() : 1}) + 1 + (config.stack_count - 1);
     if (capacity_per_env < required_capacity_per_env) {
-        ANET_SYSTEM_ERROR("ReplayBuffer capacity per env is too small. replay_capacity=" << config.capacity
+        ANET_SYSTEM_ERROR("ReplayBuffer capacity per env is too small. " << config.full_keys.GetFullKey("capacity") << "=" << config.capacity
             << " num_envs=" << num_envs << " capacity_per_env=" << capacity_per_env
             << " required_min=" << required_capacity_per_env);
     }
     if (!std::isfinite(config.per_initial_priority) || config.per_initial_priority < 0.0f) {
-        ANET_SYSTEM_ERROR("Invalid per_initial_priority: value=" << config.per_initial_priority
-            << " expected finite value >= 0; use per_initial_priority_mode=max for maximum initialization");
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("per_initial_priority") << ": value=" << config.per_initial_priority
+            << " expected finite value >= 0; use " << config.full_keys.GetFullKey("per_initial_priority_mode") << "=max for maximum initialization");
     }
     if (config.sampler_type == ReplaySamplerType::UNIFORM
         && config.per_initial_priority_mode != ReplayInitialPriorityMode::FIXED) {
-        ANET_SYSTEM_ERROR("per_initial_priority_mode requires prioritized replay when mode is not fixed.");
+        ANET_SYSTEM_ERROR(config.full_keys.GetFullKey("per_initial_priority_mode") << " requires prioritized replay when mode is not fixed.");
     }
     if (config.per_initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX
         && !initial_priority_estimator) {
-        ANET_SYSTEM_ERROR("per_initial_priority_mode=actor_approx requires InitialPriorityEstimator.");
+        ANET_SYSTEM_ERROR(config.full_keys.GetFullKey("per_initial_priority_mode") << "=actor_approx requires InitialPriorityEstimator.");
     }
     if (capacity_per_env * num_envs != config.capacity) {
         LOG::info() << "ReplayBuffer capacity adjusted to be divisible by num_envs."
-            << " config.capacity=" << config.capacity << " actual_capacity=" << capacity_per_env * num_envs;
+            << " " << config.full_keys.GetFullKey("capacity") << "=" << config.capacity
+            << " actual_capacity=" << capacity_per_env * num_envs;
     }
 
     // 内部コンポーネントの構築

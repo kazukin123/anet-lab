@@ -711,6 +711,8 @@ TEST_CASE("Env bases bind immutable names to protected loggers", "[env_name][log
     NameTestSingleEnv single("env.[train].[2]");
     const NameTestSingleEnv& const_single = single;
     NameTestBatchEnv batch("eval", 2);
+    // 先行テストの背景評価で保留された通知を、このテストの捕捉前に流す。
+    wxLog::FlushActive();
     anet::test::LogCaptureGuard logs;
 
     single.LogInfo("single-body");

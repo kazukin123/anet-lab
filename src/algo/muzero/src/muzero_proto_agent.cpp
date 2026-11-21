@@ -65,7 +65,7 @@ std::shared_ptr<anet::rl::Actor> MuZeroAgent::CreateActor(const ActorRequest& re
 {
     ANET_PROFILE_FUNC();
     env_spec_.CheckSameStateActionSpec(request.env_spec);
-    const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
+    const auto& cfg = FindActorConfig(config_.actor, request.actor_key, config_.GetConfigPrefix());
     if (cfg.clone_model) ANET_SYSTEM_ERROR("MuZeroActor clone_model=true is unsupported; expected false.");
     ValidateActorDevice(false, request.device);
     return std::make_shared<MuZeroActor>(cfg, config_.mcts, mutex_, model_,

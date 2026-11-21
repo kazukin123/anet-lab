@@ -392,7 +392,7 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
         const double elapsed = std::chrono::duration<double>(
             std::chrono::high_resolution_clock::now() - session_start).count();
         LOG::info() << std::format(
-            "eval.[{}]: session cancelled learn_step={} exp_step={} elapsed={:.2f}s completed={}",
+            "run.eval.[{}]: session cancelled learn_step={} exp_step={} elapsed={:.2f}s completed={}",
             name_, event_counts.learn_step, event_counts.exp_step, elapsed, completed);
         if (const auto logger = anet::MetricsLogger::Instance()) {
             logger->Log("eval.[" + name_ + "].session_cancelled", anet::json{
@@ -421,7 +421,7 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
     const double elapsed = std::chrono::duration<double>(
         std::chrono::high_resolution_clock::now() - session_start).count();
     LOG::verbose() << std::format(
-        "eval.[{}]: session end learn_step={} exp_step={} elapsed={:.2f}s"
+        "run.eval.[{}]: session end learn_step={} exp_step={} elapsed={:.2f}s"
         " mean.episode_return={} max.episode_return={} mean.episode_steps={} max.episode_steps={}",
         name_, event_counts.learn_step, event_counts.exp_step, elapsed,
         GetScalar("mean.episode_return").value(), GetScalar("max.episode_return").value(),
@@ -444,7 +444,7 @@ std::optional<std::string> anet::rl::detail::SessionProgressLog::Update(int comp
     const double elapsed = std::chrono::duration<double>(now - start_).count();
     const auto eta = completed > 0
         ? std::format("{:.2f}s", elapsed * (total_episodes_ - completed) / completed) : std::string("n/a");
-    return std::format("eval.[{}]: session progress completed={}/{} elapsed={:.2f}s eta={} learn_step={} exp_step={}",
+    return std::format("run.eval.[{}]: session progress completed={}/{} elapsed={:.2f}s eta={} learn_step={} exp_step={}",
         name_, completed, total_episodes_, elapsed, eta, counts_.learn_step, counts_.exp_step);
 }
 
@@ -822,11 +822,15 @@ struct RunManager::Config : public anet::Config
     {
         ANET_READ_CONFIG(config_data, seed);
         ReadConfig(config_data, "train.num_envs", num_envs);
+        if (num_envs <= 0) {
+            ANET_SYSTEM_ERROR("Invalid " << GetFullKey("train.num_envs") << "=" << num_envs
+                << ". Expected a positive value.");
+        }
         ReadConfig(config_data, "train.runner_type", main_runner_type);
         ValidateMainRunnerType(main_runner_type);
         ReadConfig(config_data, "train.actor", actor);
         ANET_READ_CONFIG(config_data, eval_device);
-        effective_eval_device = anet::ParseDevice(eval_device);
+        effective_eval_device = anet::ParseDevice(eval_device, "run.eval_device");
         my_config_json_["effective_eval_device"] = effective_eval_device.str();
     }
 
@@ -1001,7 +1005,7 @@ RunManager::RunManager(const ConfigData& source_config_data)
         schedule_config.Read("use_background", use_background, use_background);
         bool wait_on_exit = true;
         schedule_config.Read("wait_on_exit", wait_on_exit, wait_on_exit);
-        schedule_config.RequireAllKeysRead("run.eval_schedule.[" + tag + "]");
+        schedule_config.RequireAllKeysRead();
         resolved_eval_schedules.emplace(tag, EvalScheduleConfig{
             .interval = interval,
             .offset = offset,
@@ -1045,7 +1049,7 @@ RunManager::RunManager(const ConfigData& source_config_data)
     EnsureEnvNameAvailable("train", "main Train");
     env_ = env_factory_->CreateBatchEnv("train", train_env_seed, -1, anet::rl::RunMode::Train);
     if (env_ == nullptr) {
-        LOG::error() << "Failed to create env. class_id=\"" << env_class_id_
+        LOG::error() << "Failed to create env. " << env_config.GetFullKey("class_id") << "=\"" << env_class_id_
             << "\". Check that the selected workspace config includes an environment config.";
         return;
     }
@@ -1106,7 +1110,7 @@ RunManager::RunManager(const ConfigData& source_config_data)
         int eval_batch_size = 1;
         eval_config_data.Read("eval_batch_size", eval_batch_size, eval_batch_size);
         if (eval_batch_size <= 0) {
-            ANET_SYSTEM_ERROR("Invalid run.eval.[" << tag << "].eval_batch_size="
+            ANET_SYSTEM_ERROR("Invalid " << eval_config_data.GetFullKey("eval_batch_size") << "="
                 << eval_batch_size << ". Expected a positive value.");
         }
 
@@ -1120,10 +1124,10 @@ RunManager::RunManager(const ConfigData& source_config_data)
 
         // definition-only tagも宣言時schemaだけは検証し、Env/manifest/actorは生成しない。
         env_factory_->ValidateConfig(run_mode, config_prefix);
-        eval_config_data.RequireAllKeysRead("run.eval.[" + tag + "]");
+        eval_config_data.RequireAllKeysRead();
         const auto schedule_it = resolved_eval_schedules.find(tag);
         if (schedule_it == resolved_eval_schedules.end()) {
-            LOG::info() << "eval.[" << tag << "]: definition-only";
+            LOG::info() << "run.eval.[" << tag << "]: definition-only";
             dormant_eval_tags_.insert(tag);
             RegisterEnvName(tag, "dormant configured Eval tag '" + tag + "'");
             continue;
@@ -1137,17 +1141,20 @@ RunManager::RunManager(const ConfigData& source_config_data)
         const bool wait_on_exit = schedule_config.wait_on_exit;
 
         if (interval == 0) {
-            LOG::info() << "eval.[" << tag << "]: definition-only";
+            LOG::info() << "run.eval.[" << tag << "]: definition-only";
             dormant_eval_tags_.insert(tag);
             RegisterEnvName(tag, "dormant configured Eval tag '" + tag + "'");
             continue;
         }
 
-        LOG::info() << "eval.[" << tag << "]: scheduled (interval=" << interval
-            << ", offset=" << offset << ", warmup_count=" << warmup_count
-            << ", background=" << (use_background ? "true" : "false")
-            << ", wait_on_exit=" << (wait_on_exit ? "true" : "false")
-            << ", episodes=" << eval_episodes << ", batch_size=" << eval_batch_size << ")";
+        const auto& schedule_data = eval_schedule_configs.at(tag);
+        LOG::info() << "run.eval.[" << tag << "]: scheduled (" << schedule_data.GetFullKey("interval") << '=' << interval
+            << ", " << schedule_data.GetFullKey("offset") << '=' << offset
+            << ", " << schedule_data.GetFullKey("warmup_count") << '=' << warmup_count
+            << ", " << schedule_data.GetFullKey("use_background") << '=' << (use_background ? "true" : "false")
+            << ", " << schedule_data.GetFullKey("wait_on_exit") << '=' << (wait_on_exit ? "true" : "false")
+            << ", " << eval_config_data.GetFullKey("eval_episodes") << '=' << eval_episodes
+            << ", " << eval_config_data.GetFullKey("eval_batch_size") << '=' << eval_batch_size << ")";
 
         // この active Eval の session-end ENV metrics だけを decorator の購読対象にする。
         std::vector<std::string> subscribed_env_keys;

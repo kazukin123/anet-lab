@@ -455,7 +455,7 @@ std::pair<ExtractResult, std::vector<torch::Tensor>> SweepedHeatMapObserver::Ren
     if (!batch_out_opt.has_value()) {
         ANET_SYSTEM_ERROR(
             "SweepedHeatMapObserver: output_key not found. tag=" << tag_
-            << " output_key=" << config_.output_key);
+            << " " << config_.full_keys.GetFullKey("output_key") << "=" << config_.output_key);
     }
     torch::Tensor batch_out = *batch_out_opt;
     ANET_ASSERT_SHAPE(batch_out, { grid_num, ANET_SHAPE_ENDANY });
@@ -546,15 +546,15 @@ void EpisodeEvalObserver::Shutdown(std::chrono::steady_clock::time_point deadlin
         if (in_flight) {
             if (mode == ShutdownMode::CANCEL || !wait_on_exit_) {
                 LOG::info() << std::format(
-                    "eval.[{}]: cancelling in-flight session on exit reason={}",
+                    "run.eval.[{}]: cancelling in-flight session on exit reason={}",
                     eval_runner_->GetName(), mode == ShutdownMode::CANCEL ? "close" : "config");
                 stop_source_.request_stop();
             } else {
                 LOG::info() << std::format(
-                    "eval.[{}]: draining in-flight session on exit", eval_runner_->GetName());
+                    "run.eval.[{}]: draining in-flight session on exit", eval_runner_->GetName());
                 if (eval_future_.wait_until(deadline) == std::future_status::timeout) {
                     LOG::info() << std::format(
-                        "eval.[{}]: cancelling in-flight session on exit reason=timeout",
+                        "run.eval.[{}]: cancelling in-flight session on exit reason=timeout",
                         eval_runner_->GetName());
                     stop_source_.request_stop();
                 }
@@ -604,7 +604,7 @@ void EpisodeEvalObserver::WaitBackgroundEval(const StepCounts& counts)
 
     // ここから実際にブロックするので、train が無応答に見えないよう待ち始めを先に残す。
     LOG::info() << std::format(
-        "eval.[{}]: waiting for previous session learn_step={} exp_step={}",
+        "run.eval.[{}]: waiting for previous session learn_step={} exp_step={}",
         eval_runner_->GetName(), counts.learn_step, counts.exp_step);
 
     // 次の評価を投入する前の実待機時間を測り、正常に回収できた場合だけ記録する。
@@ -613,7 +613,7 @@ void EpisodeEvalObserver::WaitBackgroundEval(const StepCounts& counts)
     const double elapsed = std::chrono::duration<double>(
         std::chrono::high_resolution_clock::now() - start).count();
     LOG::info() << std::format(
-        "eval.[{}]: waited for previous session elapsed={:.2f}s learn_step={} exp_step={}",
+        "run.eval.[{}]: waited for previous session elapsed={:.2f}s learn_step={} exp_step={}",
         eval_runner_->GetName(), elapsed, counts.learn_step, counts.exp_step);
 }
 
@@ -639,7 +639,7 @@ void EpisodeEvalObserver::OnLearn(const LearnEvent& event)
         }
         // 実行ではなく発火を示す行なので、前セッションの完了待ちより前に出す。
         LOG::verbose() << std::format(
-            "eval.[{}]: session start learn_step={} exp_step={}",
+            "run.eval.[{}]: session start learn_step={} exp_step={}",
             eval_runner_->GetName(), event.counts.learn_step, event.counts.exp_step);
 
         if (use_background_) {
@@ -699,7 +699,8 @@ Conv2dVisualizationObserver::Conv2dVisualizationObserver(
     , visualizer_(vis_config)
     , is_recording_(false)
 {
-    LOG::info() << "Conv2dVisualizationObserver() tag=" << tag << " channels_per_row=" << vis_config.channels_per_row;
+    LOG::info() << "Conv2dVisualizationObserver() tag=" << tag
+        << " " << vis_config.full_keys.GetFullKey("channels_per_row") << "=" << vis_config.channels_per_row;
 }
 
 void Conv2dVisualizationObserver::OnTrain(const TrainEvent& event)
@@ -792,25 +793,25 @@ ImageData Conv2dVisualizationObserver::GetImageData(int width, int height)
 
 ///  @todo MetricsLogObserverBaseをProbe化
 
+// 宣言に書く間隔と直接渡す間隔を検証し、IntervalGate に渡せる正の値にする。
+static uint64_t ValidateMetricsInterval(const std::string& tag, int interval, const std::string& declaration_key)
+{
+    if (interval < 1) {
+        ANET_SYSTEM_ERROR("MetricsLogObserverBase interval is invalid: tag=" << tag
+            << " " << declaration_key << " interval:" << interval << " expected=1 or greater");
+    }
+    return static_cast<uint64_t>(interval);
+}
+
 MetricsLogObserverBase::MetricsLogObserverBase(
     const std::string& tag,
     const std::string& key, anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
     int interval, bool is_ema, float ema_alpha, std::optional<float> clip)
     : TaggedObserver(tag), key_(key), step_axis_(step_axis), event_field_(event_field)
-    , is_ema_(is_ema), gate_(ValidateMetricsInterval(tag, interval))
+    , is_ema_(is_ema), gate_(ValidateMetricsInterval(tag, interval, "interval (not read from config)"))
     , val_ema_(ema_alpha), clip_(clip)
 {
     ;
-}
-
-uint64_t MetricsLogObserverBase::ValidateMetricsInterval(const std::string& tag, int interval)
-{
-    if (interval < 1) {
-        ANET_SYSTEM_ERROR(
-            "MetricsLogObserverBase interval is invalid: tag=" << tag
-            << " interval=" << interval << " expected=1 or greater");
-    }
-    return static_cast<uint64_t>(interval);
 }
 
 MetricsLogTrainObserver::MetricsLogTrainObserver(const std::string& tag, const std::string& key,
@@ -1156,14 +1157,14 @@ void MetricsLogObserverBase::OnGenericUpdate(
 
 GraphVizObserver::GraphVizObserver(
     const std::string& tag, int step_interval, int episode_interval, const std::string& provider_key,
-    std::optional<anet::rl::EventField> event_field)
+    std::optional<anet::rl::EventField> event_field, const std::string& declaration_key)
     : TaggedTrainObserver(tag)
     , step_interval_(step_interval), episode_interval_(episode_interval)
     , provider_key_(provider_key), event_field_(event_field)
 {
     LOG::info() << "GraphVizObserver() tag=" << tag
-        << " step_interval=" << step_interval_
-        << " episode_interval=" << episode_interval_;
+        << " " << declaration_key << " step_interval:" << step_interval_
+        << " episode_interval:" << episode_interval_;
 }
 
 const anet::graphviz::GraphVizProvider* GraphVizObserver::FindProvider(const TrainEvent& event) const
@@ -1370,12 +1371,13 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
     // metrics.scalar.[tag] = <expr>  <$axis>  <@EventType>  <EventField>
 
     for (const auto& kv : config_map) {
-        const std::string& config_key = kv.first;
-        const auto scalar_metrics_tag = ReadFlatMetricTag(config_key, CONFIG_KEY_METRICS_SCALAR_PREFIX);
-        const auto trace_tag = ReadFlatMetricTag(config_key, "metrics.trace.[");
-        const auto graph_metrics_tag = ReadFlatMetricTag(config_key, CONFIG_KEY_METRICS_GRAPH_PREFIX);
+        const std::string& local_key = kv.first;
+        const auto scalar_metrics_tag = ReadFlatMetricTag(local_key, CONFIG_KEY_METRICS_SCALAR_PREFIX);
+        const auto trace_tag = ReadFlatMetricTag(local_key, "metrics.trace.[");
+        const auto graph_metrics_tag = ReadFlatMetricTag(local_key, CONFIG_KEY_METRICS_GRAPH_PREFIX);
         if (scalar_metrics_tag.empty() && trace_tag.empty() && graph_metrics_tag.empty()) continue;
-        const auto config_value = config_data.Get(config_key);
+        const auto config_value = config_data.Get(local_key);
+        const auto config_key = config_data.GetFullKey(local_key);
 
 		if (!scalar_metrics_tag.empty())
         {
@@ -1496,6 +1498,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             }
 
             // 解析側が設定から再導出しなくて済むよう、解決済み定義をそのまま控える。
+            (void)ValidateMetricsInterval(scalar_metrics_tag, interval, config_key);
             scalar_metric_defs_.push_back(ScalarMetricDef{
                 .tag = scalar_metrics_tag,
                 .step_axis = metrics_def_names::StepAxisToken(step_axis),
@@ -1688,7 +1691,7 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
             // GraphVizObserverのインスタンス化と登録
             auto graph_obs = std::make_shared<GraphVizObserver>(
-                graph_metrics_tag, step_interval, episode_interval, *key_opt, field_opt);
+                graph_metrics_tag, step_interval, episode_interval, *key_opt, field_opt, config_key);
             train_observers_.push_back({ RunnerScope::TRAIN, "", graph_obs });
 
             // 次のループへ（スカラー処理等との重複を避ける）

@@ -117,7 +117,7 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
 {
     ANET_PROFILE_FUNC();
     env_spec_.CheckSameStateActionSpec(request.env_spec);
-    const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
+    const auto& cfg = FindActorConfig(config_.actor, request.actor_key, config_.GetConfigPrefix());
     ValidateActorDevice(cfg.clone_model, request.device);
     const auto quantile_mode = config_.use_qr
         ? ActionPolicyConfig::kQuantileModeQr : ActionPolicyConfig::kQuantileModeNone;

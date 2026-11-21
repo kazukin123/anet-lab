@@ -29,7 +29,7 @@ struct ImageClsEnvConfig : public anet::Config {
     {
         ANET_READ_CONFIG(config_data, max_steps);
         if (max_steps <= 0) {
-            ANET_SYSTEM_ERROR("Invalid ImageClsEnv.max_steps=" << max_steps
+            ANET_SYSTEM_ERROR("Invalid " << GetFullKey("max_steps") << "=" << max_steps
                 << ". Expected a positive value.");
         }
     }

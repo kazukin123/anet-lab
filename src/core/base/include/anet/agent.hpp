@@ -36,16 +36,17 @@ namespace anet::rl {
     protected:
         void ValidateActorDevice(bool clone_model, const torch::Device& actor_device) const;
         template<typename T>
-        const T& FindActorConfig(const std::map<std::string, T>& catalog, const std::string& key) const
+        const T& FindActorConfig(const std::map<std::string, T>& catalog, const std::string& key,
+            const std::string& config_prefix) const
         {
             const auto it = catalog.find(key);
             if (it == catalog.end()) {
                 std::string available;
                 for (const auto& [name, config] : catalog) {
                     if (!available.empty()) available += ", ";
-                    available += name;
+                    available += config_prefix + ".actor.[" + name + "]";
                 }
-                ANET_SYSTEM_ERROR("Undefined Actor key='" << key << "'. Defined keys=[" << available
+                ANET_SYSTEM_ERROR("Undefined Actor " << config_prefix << ".actor.[" << key << "]. Defined keys=[" << available
                     << "]. Select an existing catalog entry with run.train.actor or run.eval.[tag].actor.");
             }
             return it->second;

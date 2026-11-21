@@ -9,8 +9,11 @@
 
 namespace anet {
 
-    torch::Device ParseDevice(const std::string& spec)
+    torch::Device ParseDevice(const std::string& spec, const std::string& key)
     {
+        if (key.empty()) {
+            ANET_SYSTEM_ERROR("ParseDevice requires a non-empty configuration key.");
+        }
         const auto value = ToLower(TrimCopy(spec));
         if (value == "cpu") return torch::Device(torch::kCPU);
         if (value == "cuda") return torch::Device(torch::kCUDA);
@@ -26,7 +29,7 @@ namespace anet {
                 return torch::Device(torch::kCUDA, static_cast<c10::DeviceIndex>(index));
             }
         }
-        ANET_SYSTEM_ERROR("Invalid device specification '" << spec
+        ANET_SYSTEM_ERROR("Invalid " << key << "='" << spec
             << "'. Expected auto, cpu, cuda, or cuda:<non-negative integer>.");
         return torch::Device(torch::kCPU); // ANET_SYSTEM_ERROR は必ず例外を送出する。
     }

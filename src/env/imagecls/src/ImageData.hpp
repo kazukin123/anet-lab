@@ -42,6 +42,8 @@ namespace anet::img {
         ImageCacheMode cache_mode = ImageCacheMode::Auto;
         uint64_t cache_max_bytes = 4294967296ULL;
 
+        anet::ConfigFullKeyTable full_keys;
+
         static ImageDatasetConfig Resolve(const anet::ConfigData& config_data, const DatasetKey& key);
         bool Equals(const ImageDatasetConfig& other, std::string* first_different_field = nullptr) const;
         anet::ConfigData ToConfigData(const DatasetKey& key) const;
@@ -159,20 +161,20 @@ namespace anet::img {
 
             // dataset参照とaugmentation範囲をSource構築前に検証する。
             if (dataset_key.empty()) {
-                ANET_SYSTEM_ERROR("ImageClsEnv.train.dataset_key must not be empty.");
+                ANET_SYSTEM_ERROR(GetFullKey("dataset_key") << " must not be empty.");
             }
             if (augment.hflip_p < 0.0 || augment.hflip_p > 1.0) {
-                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.train.augment.hflip_p=" << augment.hflip_p
+                ANET_SYSTEM_ERROR("Invalid " << GetFullKey("augment.hflip_p") << "=" << augment.hflip_p
                     << ". Expected [0, 1].");
             }
             if (augment.rrc_scale_min <= 0.0 || augment.rrc_scale_min > augment.rrc_scale_max
                 || augment.rrc_scale_max > 1.0) {
-                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.train.augment.rrc_scale range. min="
-                    << augment.rrc_scale_min << " max=" << augment.rrc_scale_max);
+                ANET_SYSTEM_ERROR("Invalid scale range. " << GetFullKey("augment.rrc_scale_min") << "="
+                    << augment.rrc_scale_min << " " << GetFullKey("augment.rrc_scale_max") << "=" << augment.rrc_scale_max);
             }
             if (augment.rrc_ratio_min <= 0.0 || augment.rrc_ratio_min > augment.rrc_ratio_max) {
-                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.train.augment.rrc_ratio range. min="
-                    << augment.rrc_ratio_min << " max=" << augment.rrc_ratio_max);
+                ANET_SYSTEM_ERROR("Invalid ratio range. " << GetFullKey("augment.rrc_ratio_min") << "="
+                    << augment.rrc_ratio_min << " " << GetFullKey("augment.rrc_ratio_max") << "=" << augment.rrc_ratio_max);
             }
         }
     };
@@ -199,14 +201,14 @@ namespace anet::img {
 
             // fullでもrotating用sizeを正値として保持し、mode切替時の未設定概念を持ち込まない。
             if (dataset_key.empty()) {
-                ANET_SYSTEM_ERROR("ImageClsEnv.eval.dataset_key must not be empty.");
+                ANET_SYSTEM_ERROR(GetFullKey("dataset_key") << " must not be empty.");
             }
             if (eval_window.mode != "full" && eval_window.mode != "rotating") {
-                ANET_SYSTEM_ERROR("Invalid ImageClsEnv.eval.eval_window.mode='" << eval_window.mode
+                ANET_SYSTEM_ERROR("Invalid " << GetFullKey("eval_window.mode") << "='" << eval_window.mode
                     << "'. Expected full or rotating.");
             }
             if (eval_window.rotating_size <= 0) {
-                ANET_SYSTEM_ERROR("ImageClsEnv.eval.eval_window.rotating_size must be positive. actual="
+                ANET_SYSTEM_ERROR(GetFullKey("eval_window.rotating_size") << " must be positive. actual="
                     << eval_window.rotating_size);
             }
         }
@@ -236,10 +238,12 @@ namespace anet::img {
     public:
         ImageDataSource(
             TrainImageDataSourceConfig config,
-            int batch_size, anet::seed_t seed, int worker_type, int worker_threads);
+            int batch_size, anet::seed_t seed, int worker_type, int worker_threads,
+            const std::string& worker_type_key = "worker_type (not read from config)");
         ImageDataSource(
             EvalImageDataSourceConfig config,
-            int batch_size, anet::seed_t seed, int worker_type, int worker_threads);
+            int batch_size, anet::seed_t seed, int worker_type, int worker_threads,
+            const std::string& worker_type_key = "worker_type (not read from config)");
         ~ImageDataSource();
 
         ImageBatch NextBatch();
@@ -268,10 +272,12 @@ namespace anet::img {
             double augment_rrc_ratio_max,
             std::string eval_window_mode,
             int64_t eval_window_rotating_size,
+            const std::string& rotating_size_key,
             int batch_size,
             anet::seed_t seed,
             int worker_type,
-            int worker_threads);
+            int worker_threads,
+            const std::string& worker_type_key);
 
         BatchPlan PlanTrainBatch();
         BatchPlan PlanEvalBatch();

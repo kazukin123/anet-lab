@@ -30,6 +30,7 @@ namespace anet {
         uint64_t steps = 0;
         double cycle_mult = 1.0;
         double time_constant = 1.0;
+        ConfigFullKeyTable full_keys;
     };
 
     template<typename T>
@@ -45,6 +46,7 @@ namespace anet {
         anet::OrderedMap<std::string, ProfiledValuePhaseConfig<T>> phase;
         std::optional<T> min_value; ///< 設定入出力には含めないinclusiveな下限。
         std::optional<T> max_value; ///< 設定入出力には含めないinclusiveな上限。
+        ConfigFullKeyTable full_keys;
     };
 
     namespace detail {
@@ -113,151 +115,144 @@ namespace anet {
         template<typename T>
         void ValidateProfiledValuePhaseConfig(
             const ProfiledValueConfig<T>& root_config,
-            const std::string& root_key,
-            const std::string& phase_name,
             const ProfiledValuePhaseConfig<T>& config)
         {
-            const std::string phase_key = root_key + ".phase.[" + phase_name + "]";
             if (!IsProfiledValuePhaseType(config.type)) {
                 ANET_SYSTEM_ERROR(
-                    "ProfiledValue: invalid phase type. key=" << phase_key + ".type"
+                    "ProfiledValue: invalid phase type. key=" << config.full_keys.GetFullKey("type")
                     << " value=" << config.type
                     << " expected=constant|exponential|linear|cosine|cosine_restart");
             }
             if (config.steps == 0) {
                 ANET_SYSTEM_ERROR(
-                    "ProfiledValue: phase steps must be greater than 0. key=" << phase_key + ".steps"
+                    "ProfiledValue: phase steps must be greater than 0. key=" << config.full_keys.GetFullKey("steps")
                     << " value=" << config.steps << " expected=>=1");
             }
             if (config.type == "exponential" && (!std::isfinite(config.time_constant) || config.time_constant <= 0.0)) {
-                ANET_SYSTEM_ERROR("ProfiledValue: invalid time_constant. key=" << phase_key << ".time_constant value=" << config.time_constant << " expected=finite >0");
+                ANET_SYSTEM_ERROR("ProfiledValue: invalid time_constant. key=" << config.full_keys.GetFullKey("time_constant") << " value=" << config.time_constant << " expected=finite >0");
             }
             if (config.type == "cosine_restart"
                 && (!std::isfinite(config.cycle_mult) || config.cycle_mult <= 0.0)) {
                 ANET_SYSTEM_ERROR(
-                    "ProfiledValue: cycle_mult must be greater than 0. key=" << phase_key + ".cycle_mult"
+                    "ProfiledValue: cycle_mult must be greater than 0. key=" << config.full_keys.GetFullKey("cycle_mult")
                     << " value=" << config.cycle_mult << " expected=>0");
             }
 
             // phase typeが実際に参照する値だけを共通boundsで検証する。
             if (config.type == "constant") {
-                ValidateProfiledValueBounds(root_config, phase_key + ".value", config.value);
+                ValidateProfiledValueBounds(root_config, config.full_keys.GetFullKey("value"), config.value);
             } else {
-                ValidateProfiledValueBounds(root_config, phase_key + ".start", config.start);
-                ValidateProfiledValueBounds(root_config, phase_key + ".end", config.end);
+                ValidateProfiledValueBounds(root_config, config.full_keys.GetFullKey("start"), config.start);
+                ValidateProfiledValueBounds(root_config, config.full_keys.GetFullKey("end"), config.end);
             }
         }
 
         template<typename T>
-        void ValidateProfiledValueConfig(
-            const ProfiledValueConfig<T>& config,
-            const std::string& root_key = "ProfiledValue")
+        void ValidateProfiledValueConfig(const ProfiledValueConfig<T>& config)
         {
             // bounds自体を先に検証し、active fieldのエラーへ誤って見せない。
             if (config.min_value.has_value() && !IsFiniteProfiledValue(*config.min_value)) {
                 ANET_SYSTEM_ERROR(
-                    "ProfiledValue: min_value must be finite. key=" << root_key + ".min_value"
+                    "ProfiledValue: min_value must be finite. key=" << config.full_keys.GetFullKey("min_value")
                     << " value=" << *config.min_value << " expected=finite");
             }
             if (config.max_value.has_value() && !IsFiniteProfiledValue(*config.max_value)) {
                 ANET_SYSTEM_ERROR(
-                    "ProfiledValue: max_value must be finite. key=" << root_key + ".max_value"
+                    "ProfiledValue: max_value must be finite. key=" << config.full_keys.GetFullKey("max_value")
                     << " value=" << *config.max_value << " expected=finite");
             }
             if (config.min_value.has_value()
                 && config.max_value.has_value()
                 && *config.min_value > *config.max_value) {
                 ANET_SYSTEM_ERROR(
-                    "ProfiledValue: min_value must not exceed max_value. key=" << root_key
+                    "ProfiledValue: min_value must not exceed max_value. key=" << config.full_keys.GetFullKey("min_value")
                     << " min_value=" << *config.min_value
                     << " max_value=" << *config.max_value);
             }
             if (!IsProfiledValueRootType(config.type)) {
                 ANET_SYSTEM_ERROR(
-                    "ProfiledValue: unknown type. key=" << root_key + ".type"
+                    "ProfiledValue: unknown type. key=" << config.full_keys.GetFullKey("type")
                     << " value=" << config.type
                     << " expected=constant|exponential|linear|cosine|cosine_restart|phased");
             }
             if ((config.type == "linear" || config.type == "cosine" || config.type == "cosine_restart")
                 && config.steps == 0) {
                 ANET_SYSTEM_ERROR(
-                    "ProfiledValue: steps must be greater than 0. key=" << root_key + ".steps"
+                    "ProfiledValue: steps must be greater than 0. key=" << config.full_keys.GetFullKey("steps")
                     << " value=" << config.steps << " expected=>=1");
             }
             if (config.type == "exponential" && (!std::isfinite(config.time_constant) || config.time_constant <= 0.0)) {
-                ANET_SYSTEM_ERROR("ProfiledValue: invalid time_constant. key=" << root_key << ".time_constant value=" << config.time_constant << " expected=finite >0");
+                ANET_SYSTEM_ERROR("ProfiledValue: invalid time_constant. key=" << config.full_keys.GetFullKey("time_constant") << " value=" << config.time_constant << " expected=finite >0");
             }
             if (config.type == "cosine_restart"
                 && (!std::isfinite(config.cycle_mult) || config.cycle_mult <= 0.0)) {
                 ANET_SYSTEM_ERROR(
-                    "ProfiledValue: cycle_mult must be greater than 0. key=" << root_key + ".cycle_mult"
+                    "ProfiledValue: cycle_mult must be greater than 0. key=" << config.full_keys.GetFullKey("cycle_mult")
                     << " value=" << config.cycle_mult << " expected=>0");
             }
 
             // 最終typeが選択するfieldだけを検証し、dormant fieldは保持する。
             if (config.type == "constant") {
-                ValidateProfiledValueBounds(config, root_key, config.value);
+                ValidateProfiledValueBounds(config, config.full_keys.GetFullKey("value"), config.value);
             } else if (config.type == "linear" || config.type == "cosine" || config.type == "cosine_restart" || config.type == "exponential") {
-                ValidateProfiledValueBounds(config, root_key + ".start", config.start);
-                ValidateProfiledValueBounds(config, root_key + ".end", config.end);
+                ValidateProfiledValueBounds(config, config.full_keys.GetFullKey("start"), config.start);
+                ValidateProfiledValueBounds(config, config.full_keys.GetFullKey("end"), config.end);
             } else {
                 if (config.phases.empty()) {
                     ANET_SYSTEM_ERROR(
-                        "ProfiledValue: phases must not be empty for phased type. key=" << root_key + ".phases");
+                        "ProfiledValue: phases must not be empty for phased type. key=" << config.full_keys.GetFullKey("phases"));
                 }
                 for (const auto& phase_name : config.phases) {
                     if (config.phase.find(phase_name) == config.phase.end()) {
                         ANET_SYSTEM_ERROR(
-                            "ProfiledValue: phase is listed but not defined. key=" << root_key + ".phases"
+                            "ProfiledValue: phase is listed but not defined. key=" << config.full_keys.GetFullKey("phases")
                             << " value=" << phase_name << " expected=defined phase");
                     }
-                    ValidateProfiledValuePhaseConfig(
-                        config, root_key, phase_name, config.phase.Get(phase_name));
+                    ValidateProfiledValuePhaseConfig(config, config.phase.Get(phase_name));
                 }
             }
         }
 
         template<typename T, typename Visitor>
-        void VisitProfiledValueActiveFields(const ProfiledValueConfig<T>& config, const std::string& key, Visitor&& visitor)
+        void VisitProfiledValueActiveFields(const ProfiledValueConfig<T>& config, Visitor&& visitor)
         {
             // 構造検証済みの設定から、実行時に読む欄だけを列挙する。
             constexpr const char* kConstant = "constant";
             if (config.type == kConstant) {
-                visitor(key, config.value);
+                visitor(config.full_keys.GetFullKey("value"), config.value);
             } else if (config.type == "phased") {
                 for (const auto& name : config.phases) {
                     const auto& phase = config.phase.Get(name);
-                    const auto phase_key = key + ".phase.[" + name + "]";
-                    if (phase.type == kConstant) visitor(phase_key + ".value", phase.value);
+                    if (phase.type == kConstant) visitor(phase.full_keys.GetFullKey("value"), phase.value);
                     else {
-                        visitor(phase_key + ".start", phase.start);
-                        visitor(phase_key + ".end", phase.end);
+                        visitor(phase.full_keys.GetFullKey("start"), phase.start);
+                        visitor(phase.full_keys.GetFullKey("end"), phase.end);
                     }
                 }
             } else {
-                visitor(key + ".start", config.start);
-                visitor(key + ".end", config.end);
+                visitor(config.full_keys.GetFullKey("start"), config.start);
+                visitor(config.full_keys.GetFullKey("end"), config.end);
             }
         }
 
         template<typename T>
-        std::optional<std::string> FindProfiledValueBoundsError(const ProfiledValueConfig<T>& config, const std::string& key)
+        std::optional<std::string> FindProfiledValueBoundsError(const ProfiledValueConfig<T>& config)
         {
             // 構造は通常の読み込みで検証済み。boundsだけを変えた比較でもFATALを出さない。
             std::optional<std::string> error;
-            VisitProfiledValueActiveFields(config, key, [&](const std::string& field, T value) {
+            VisitProfiledValueActiveFields(config, [&](const std::string& field, T value) {
                 if (!error) error = FindProfiledValueBoundsError(config, field, value);
             });
             return error;
         }
 
         template<typename T>
-        std::pair<T, T> GetProfiledValueActiveRange(const ProfiledValueConfig<T>& config, const std::string& key)
+        std::pair<T, T> GetProfiledValueActiveRange(const ProfiledValueConfig<T>& config)
         {
-            ValidateProfiledValueConfig(config, key);
+            ValidateProfiledValueConfig(config);
             T lower{}, upper{};
             bool first = true;
-            VisitProfiledValueActiveFields(config, key, [&](const std::string&, T value) {
+            VisitProfiledValueActiveFields(config, [&](const std::string&, T value) {
                 if (first) {
                     lower = upper = value;
                     first = false;
@@ -281,14 +276,19 @@ namespace anet {
             const std::string& key,
             ProfiledValueConfig<T>& value)
         {
-            owner.ReadSubConfig(config_data, key, "type", value.type, false);
+            owner.ReadInheritedSubConfig(config_data, key, "type", value.type, value.full_keys, false);
             owner.ReadConfig(config_data, key, value.value, false);
-            owner.ReadSubConfig(config_data, key, "start", value.start, false);
-            owner.ReadSubConfig(config_data, key, "end", value.end, false);
-            owner.ReadSubConfig(config_data, key, "steps", value.steps, false);
-            owner.ReadSubConfig(config_data, key, "cycle_mult", value.cycle_mult, false);
-            owner.ReadSubConfig(config_data, key, "time_constant", value.time_constant, false);
-            owner.ReadSubConfig(config_data, key, "phases", value.phases, false);
+            if (value.full_keys.Contains("value") && !owner.HasConfigValue(config_data, key)) {
+                owner.RecordFullKey(key, value.full_keys.GetFullKey("value"));
+            }
+            owner.ReadInheritedSubConfig(config_data, key, "start", value.start, value.full_keys, false);
+            owner.ReadInheritedSubConfig(config_data, key, "end", value.end, value.full_keys, false);
+            owner.ReadInheritedSubConfig(config_data, key, "steps", value.steps, value.full_keys, false);
+            owner.ReadInheritedSubConfig(config_data, key, "cycle_mult", value.cycle_mult, value.full_keys, false);
+            owner.ReadInheritedSubConfig(config_data, key, "time_constant", value.time_constant, value.full_keys, false);
+            owner.ReadInheritedSubConfig(config_data, key, "phases", value.phases, value.full_keys, false);
+            value.full_keys = owner.GetFullKeys().Extract(key);
+            value.full_keys.CopyFieldFrom("value", owner.GetFullKeys(), key);
 
             for (const auto& phase_name : value.phases) {
                 const auto phase_key = owner.MakeTaggedSubConfigKey(key, "phase", phase_name);
@@ -310,17 +310,18 @@ namespace anet {
                     ? value.phase.Get(phase_name)
                     : ProfiledValuePhaseConfig<T>{};
 
-                owner.ReadSubConfig(config_data, phase_key, "type", phase.type, false);
-                owner.ReadSubConfig(config_data, phase_key, "value", phase.value, false);
-                owner.ReadSubConfig(config_data, phase_key, "start", phase.start, false);
-                owner.ReadSubConfig(config_data, phase_key, "end", phase.end, false);
-                owner.ReadSubConfig(config_data, phase_key, "steps", phase.steps, false);
-                owner.ReadSubConfig(config_data, phase_key, "cycle_mult", phase.cycle_mult, false);
-                owner.ReadSubConfig(config_data, phase_key, "time_constant", phase.time_constant, false);
+                owner.ReadInheritedSubConfig(config_data, phase_key, "type", phase.type, phase.full_keys, false);
+                owner.ReadInheritedSubConfig(config_data, phase_key, "value", phase.value, phase.full_keys, false);
+                owner.ReadInheritedSubConfig(config_data, phase_key, "start", phase.start, phase.full_keys, false);
+                owner.ReadInheritedSubConfig(config_data, phase_key, "end", phase.end, phase.full_keys, false);
+                owner.ReadInheritedSubConfig(config_data, phase_key, "steps", phase.steps, phase.full_keys, false);
+                owner.ReadInheritedSubConfig(config_data, phase_key, "cycle_mult", phase.cycle_mult, phase.full_keys, false);
+                owner.ReadInheritedSubConfig(config_data, phase_key, "time_constant", phase.time_constant, phase.full_keys, false);
 
+                phase.full_keys = owner.GetFullKeys().Extract(phase_key);
                 value.phase.Set(phase_name, phase);
             }
-            detail::ValidateProfiledValueConfig(value, key);
+            detail::ValidateProfiledValueConfig(value);
             // 定数はbare、それ以外はtypeが使う欄だけをdumpへ残す。
             if (value.type == "constant") {
                 owner.RecordConfigValue(key, value.value);
@@ -383,10 +384,10 @@ namespace anet {
                 return config_.value;
             }
             if (config_.type == "cosine_restart" || config_.type == "phased") {
-                ANET_SYSTEM_ERROR("ProfiledValue: EvaluateByIndex does not support type. type=" << config_.type);
+                ANET_SYSTEM_ERROR("ProfiledValue: EvaluateByIndex does not support type. " << config_.full_keys.GetFullKey("type") << "=" << config_.type);
             }
             if (config_.type != "linear" && config_.type != "cosine") {
-                ANET_SYSTEM_ERROR("ProfiledValue: EvaluateByIndex does not support type. type=" << config_.type);
+                ANET_SYSTEM_ERROR("ProfiledValue: EvaluateByIndex does not support type. " << config_.full_keys.GetFullKey("type") << "=" << config_.type);
             }
             if (count <= 1) {
                 return config_.start;
@@ -415,6 +416,7 @@ namespace anet {
 
         static T EvaluateTimeBased(
             const std::string& type,
+            const ConfigFullKeyTable& full_keys,
             T start,
             T end,
             uint64_t steps,
@@ -470,7 +472,7 @@ namespace anet {
                     + (static_cast<double>(start) - static_cast<double>(end)) * weight);
             }
 
-            ANET_SYSTEM_ERROR("ProfiledValue: unsupported time-based type. type=" << type);
+            ANET_SYSTEM_ERROR("ProfiledValue: unsupported time-based type. " << full_keys.GetFullKey("type") << "=" << type);
             return T{};
         }
 
@@ -481,6 +483,7 @@ namespace anet {
             }
             return EvaluateTimeBased(
                 config.type,
+                config.full_keys,
                 config.start,
                 config.end,
                 config.steps,
@@ -505,6 +508,7 @@ namespace anet {
             if (config.type == "linear" || config.type == "cosine" || config.type == "cosine_restart" || config.type == "exponential") {
                 return EvaluateTimeBased(
                     config.type,
+                    config.full_keys,
                     config.start,
                     config.end,
                     config.steps,
@@ -524,7 +528,7 @@ namespace anet {
                 return EvaluatePhaseEnd(config.phase.Get(config.phases.back()));
             }
 
-            ANET_SYSTEM_ERROR("ProfiledValue: unknown type. type=" << config.type);
+            ANET_SYSTEM_ERROR("ProfiledValue: unknown type. " << config.full_keys.GetFullKey("type") << "=" << config.type);
             return T{};
         }
 

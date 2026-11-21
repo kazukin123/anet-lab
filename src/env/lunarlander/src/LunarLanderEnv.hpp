@@ -84,15 +84,15 @@ namespace anet::rl::env {
 
             ANET_ASSERT(terrain_point_count >= 2);
             if (wind_stop_mode != "none" && wind_stop_mode != "ground" && wind_stop_mode != "pad") {
-                ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.wind_stop_mode: "
+                ANET_SYSTEM_ERROR("Invalid " << GetFullKey("wind_stop_mode") << ": "
                     << wind_stop_mode << ". Expected none, ground, or pad.");
             }
             if (contact_mode != "ground" && contact_mode != "pad") {
-                ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.contact_mode: "
+                ANET_SYSTEM_ERROR("Invalid " << GetFullKey("contact_mode") << ": "
                     << contact_mode << ". Expected ground or pad.");
             }
             if (landing_detection_mode != "contact" && landing_detection_mode != "not_awake") {
-                ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.landing_detection_mode: "
+                ANET_SYSTEM_ERROR("Invalid " << GetFullKey("landing_detection_mode") << ": "
                     << landing_detection_mode << ". Expected contact or not_awake.");
             }
         }

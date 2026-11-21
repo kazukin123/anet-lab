@@ -746,13 +746,13 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
     const auto& records = logs.Records();
     for (size_t i = 0; i < records.size(); ++i) {
         const auto& record = records[i];
-        if (record.message.find("eval.[eval1]: waiting for previous session") != std::string::npos) {
+        if (record.message.find("run.eval.[eval1]: waiting for previous session") != std::string::npos) {
             ++wait_begins;
             wait_begin_index = i;
             CHECK(record.level == wxLOG_Message);
             CHECK(record.message.find("learn_step=2 exp_step=789") != std::string::npos);
         }
-        if (record.message.find("eval.[eval1]: waited for previous session") != std::string::npos) {
+        if (record.message.find("run.eval.[eval1]: waited for previous session") != std::string::npos) {
             ++waits;
             waited_index = i;
             CHECK(record.level == wxLOG_Message);
@@ -761,7 +761,7 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
             REQUIRE(std::regex_search(record.message, match, std::regex(R"(elapsed=([0-9]+\.[0-9]{2})s)")));
             CHECK(std::stod(match[1].str()) >= 0.03);
         }
-        if (record.message.find("eval.[eval1]: session start") != std::string::npos) {
+        if (record.message.find("run.eval.[eval1]: session start") != std::string::npos) {
             ++starts;
             last_start_index = i;
             // 開始行は発火時点で出すので、background では前セッションの終了行を追い越す。
@@ -773,7 +773,7 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
             CHECK(record.level == wxLOG_Info);
             CHECK(record.message.find(starts == 1 ? "learn_step=1 exp_step=456" : "learn_step=2 exp_step=789") != std::string::npos);
         }
-        if (record.message.find("eval.[eval1]: session end") != std::string::npos) {
+        if (record.message.find("run.eval.[eval1]: session end") != std::string::npos) {
             ++ends;
             CHECK(ends <= starts);
             CHECK(record.level == wxLOG_Info);
@@ -817,7 +817,7 @@ TEST_CASE("SessionProgressLog reports progress once per interval until the last 
 
     const auto first = progress.Update(50, start + std::chrono::seconds(30));
     REQUIRE(first.has_value());
-    CHECK(*first == "eval.[eval1]: session progress completed=50/200 elapsed=30.00s eta=90.00s learn_step=7 exp_step=123");
+    CHECK(*first == "run.eval.[eval1]: session progress completed=50/200 elapsed=30.00s eta=90.00s learn_step=7 exp_step=123");
 
     // 次の行は、前の行から間隔がたってから出す。
     CHECK_FALSE(progress.Update(60, start + std::chrono::seconds(59)).has_value());
@@ -837,7 +837,7 @@ TEST_CASE("SessionProgressLog leaves eta unknown before the first episode", "[ev
 
     const auto line = progress.Update(0, start + std::chrono::seconds(45));
     REQUIRE(line.has_value());
-    CHECK(*line == "eval.[eval1]: session progress completed=0/200 elapsed=45.00s eta=n/a learn_step=0 exp_step=0");
+    CHECK(*line == "run.eval.[eval1]: session progress completed=0/200 elapsed=45.00s eta=n/a learn_step=0 exp_step=0");
 }
 
 TEST_CASE("Notifier shutdown drains a scoped background evaluation", "[prd076][eval_session][shutdown]")
@@ -953,12 +953,12 @@ TEST_CASE("Notifier cancellation stops a background evaluation at the next Step 
     }));
     logs.Flush();
     CHECK(std::ranges::any_of(logs.Records(), [](const auto& record) {
-        return record.message.find("eval.[eval1]: cancelling in-flight session on exit reason=close")
+        return record.message.find("run.eval.[eval1]: cancelling in-flight session on exit reason=close")
             != std::string::npos;
     }));
     CHECK(std::ranges::any_of(logs.Records(), [](const auto& record) {
         return record.message.find(
-            "eval.[eval1]: session cancelled learn_step=7 exp_step=123") != std::string::npos
+            "run.eval.[eval1]: session cancelled learn_step=7 exp_step=123") != std::string::npos
             && record.message.find("completed=2") != std::string::npos;
     }));
     CHECK(std::ranges::any_of(backend_raw->records, [](const auto& record) {
@@ -1009,7 +1009,7 @@ TEST_CASE("Episode evaluation applies configured and timeout cancellation polici
     logs.Flush();
     const std::string expected_reason = timeout ? "reason=timeout" : "reason=config";
     CHECK(std::ranges::any_of(logs.Records(), [&](const auto& record) {
-        return record.message.find("eval.[eval1]: cancelling in-flight session on exit")
+        return record.message.find("run.eval.[eval1]: cancelling in-flight session on exit")
             != std::string::npos
             && record.message.find(expected_reason) != std::string::npos;
     }));

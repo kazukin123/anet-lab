@@ -1023,7 +1023,7 @@ BatchEnvBuilder::BatchEnvBuilder(
 	: config_data_(config_data)
     , config_(config)
     , num_envs_(num_envs)
-    , device_(device.has_value() ? *device : anet::ParseDevice(config_.device))
+    , device_(device.has_value() ? *device : anet::ParseDevice(config_.device, "env.device"))
 {
     /// @todo deviceの指定方法が設定ファイル、config、device、三箇所あるのを整理
     ANET_ASSERT(num_envs_ > 0);
@@ -1177,7 +1177,8 @@ void EnvRepository::MarkUnusedConfigInventory(const ConfigData& data, const std:
     std::lock_guard<std::mutex> lock(mtx_);
     const auto selected = factories_.find(active_class_id);
     if (selected == factories_.end()) {
-        ANET_SYSTEM_ERROR("Unknown active Env class_id='" << active_class_id << "'; expected a registered factory.");
+        ANET_SYSTEM_ERROR("Unknown active Env " << data.GetFullKey("env.class_id")
+            << "='" << active_class_id << "'; expected a registered factory.");
     }
     const auto prefixes = [](const auto& factory) { return factory->GetConfigPrefixes(); };
     const auto active_prefixes = std::visit(prefixes, selected->second);

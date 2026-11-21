@@ -13,15 +13,15 @@
 namespace anet::nn {
 
 std::optional<double> ComputeVarianceScalingBound(
-    at::IntArrayRef weight_shape, at::ScalarType dtype, double variance_scale, std::string_view owner)
+    at::IntArrayRef weight_shape, at::ScalarType dtype, double variance_scale, std::string_view key)
 {
     // fan_in を定義でき、uniform_ が扱える重みであることを確かめる。
     if (weight_shape.size() < 2) {
-        ANET_SYSTEM_ERROR("Invalid " << owner << ".variance_scale=" << variance_scale
+        ANET_SYSTEM_ERROR("Invalid " << key << "=" << variance_scale
             << "; expected weight rank >= 2 (output and input axes), actual rank=" << weight_shape.size() << ".");
     }
     if (dtype != at::kHalf && dtype != at::kBFloat16 && dtype != at::kFloat && dtype != at::kDouble) {
-        ANET_SYSTEM_ERROR("Invalid " << owner << ".variance_scale=" << variance_scale
+        ANET_SYSTEM_ERROR("Invalid " << key << "=" << variance_scale
             << "; expected real floating-point weight dtype Half, BFloat16, Float or Double, actual dtype=" << dtype << ".");
     }
     if (std::find(weight_shape.begin(), weight_shape.end(), 0) != weight_shape.end()) return std::nullopt;
@@ -39,7 +39,7 @@ std::optional<double> ComputeVarianceScalingBound(
             // uniform_は両端の差も要素型の最大値以下でなければならない。
             const double max_bound = static_cast<double>(Limits::max()) / 2.0;
             if (!(bound >= min_bound && bound <= max_bound)) {
-                ANET_SYSTEM_ERROR("Invalid " << owner << ".variance_scale=" << variance_scale
+                ANET_SYSTEM_ERROR("Invalid " << key << "=" << variance_scale
                     << "; expected uniform bound in [" << min_bound << ", " << max_bound
                     << "] for weight dtype=" << dtype << " and fan_in=" << fan_in << ", actual bound=" << bound << ".");
             }
@@ -52,11 +52,11 @@ std::optional<double> ComputeVarianceScalingBound(
         });
 }
 
-void WeightInitializer::InitializeVarianceScaling(torch::Tensor& weight, double variance_scale)
+void WeightInitializer::InitializeVarianceScaling(torch::Tensor& weight, const WeightInitConfig& config)
 {
     // 要素型で表せる内側の端点を確定してから重みを書き込む。
     if (const auto bound = ComputeVarianceScalingBound(
-        weight.sizes(), weight.scalar_type(), variance_scale, WeightInitConfig::kDefaultOwner)) {
+        weight.sizes(), weight.scalar_type(), config.variance_scale, config.full_keys.GetFullKey("variance_scale"))) {
         torch::nn::init::uniform_(weight, -*bound, *bound);
     }
 }

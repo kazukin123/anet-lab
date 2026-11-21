@@ -25,7 +25,8 @@ Conv2dPanel::Config::Config(const anet::ConfigData& config_data) : anet::Config(
     ANET_READ_CONFIG(config_data, conv2d.colormap);
     ANET_READ_CONFIG(config_data, conv2d.scale_factor);
     ANET_READ_CONFIG(config_data, conv2d.min_block_size);
-    anet::rl::ValidateConv2dVisualizerConfig(conv2d, MakeDefaultConfigKey("conv2d"));
+    conv2d.full_keys = GetFullKeys().Extract("conv2d");
+    anet::rl::ValidateConv2dVisualizerConfig(conv2d);
 }
 
 Conv2dPanel::Conv2dPanel(

@@ -145,7 +145,7 @@ DropMergeEnv::DropMergeEnv(
     // NoLegal 裁定 horizon は OFF 時も完全な設定値として保持し、不正値を構築時に拒否する。
     if (config_.no_legal_min_blocked_frames < 1) {
         ANET_SYSTEM_ERROR(
-            "Invalid NoLegal adjudication config. key=no_legal_min_blocked_frames value="
+            "Invalid NoLegal adjudication config. key=" << config_.GetFullKey("no_legal_min_blocked_frames") << " value="
             << config_.no_legal_min_blocked_frames << " expected integer >= 1");
     }
     if (config_.use_no_legal_adjudication
@@ -153,10 +153,11 @@ DropMergeEnv::DropMergeEnv(
         && config_.no_drop_timeout_steps > 0
         && config_.no_legal_min_blocked_frames >= config_.no_drop_timeout_steps) {
         ANET_SYSTEM_ERROR(
-            "Invalid NoLegal adjudication config. key=no_legal_min_blocked_frames value="
+            "Invalid NoLegal adjudication config. key=" << config_.GetFullKey("no_legal_min_blocked_frames") << " value="
             << config_.no_legal_min_blocked_frames
-            << " expected < no_drop_timeout_steps=" << config_.no_drop_timeout_steps
-            << " when use_no_legal_adjudication=true and use_no_drop_timeout_gameover=true");
+            << " expected < " << config_.GetFullKey("no_drop_timeout_steps") << '=' << config_.no_drop_timeout_steps
+            << " when " << config_.GetFullKey("use_no_legal_adjudication")
+            << "=true and " << config_.GetFullKey("use_no_drop_timeout_gameover") << "=true");
     }
 
     // --- Seed Mode の解析 ---
@@ -219,8 +220,9 @@ DropMergeEnv::DropMergeEnv(
          config_.obs_prev_drop_marker) &&
         !is_direct_action_mode) {
         ANET_SYSTEM_ERROR(
-            "DropMergeEnv: obs_include_prev_action / obs_prev_drop_marker "
-            "require action_mode=direct or direct_noop. actual="
+            "DropMergeEnv: " << config_.GetFullKey("obs_include_prev_action")
+            << " / " << config_.GetFullKey("obs_prev_drop_marker")
+            << " require " << config_.GetFullKey("action_mode") << "=direct or direct_noop. actual="
             << config_.action_mode);
     }
 

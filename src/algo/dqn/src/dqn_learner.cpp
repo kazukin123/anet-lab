@@ -133,13 +133,13 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     , noisy_probe_config_(std::move(noisy_probe_config))
 {
     // 名前付き参照と受け取ったResourceの対応を、NNの準備や資源確保より前に確認する。
-    config_.grad_noise.Validate("learner.grad_noise");
-    const auto validate_resource = [](const std::string& purpose, const std::string& key,
+    config_.grad_noise.Validate(config_.full_keys, "grad_noise.");
+    const auto validate_resource = [&](const std::string& purpose, const std::string& key,
         const anet::nn::NetworkForwardConfig& resource) {
         const bool matches = key.empty() ? resource.IsDefault()
             : !resource.IsDefault() && resource.key.ends_with(MakeNetworkForwardConfigKey(key));
         if (!matches) {
-            ANET_SYSTEM_ERROR("Mismatched learner." << purpose << ".nn_forward_key=" << key
+            ANET_SYSTEM_ERROR("Mismatched " << config_.full_keys.GetFullKey(purpose + ".nn_forward_key") << "=" << key
                 << "; supplied resource=" << resource.key
                 << "; expected " << (key.empty() ? "an explicit default resource" : "a named resource ending in " + MakeNetworkForwardConfigKey(key)) << ".");
         }
@@ -160,7 +160,8 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     current_forward_ = prepare(model_.GetOnlineNetwork(), current, forward_seeds.MakeNamedSeed("network_forward.current"));
     if (model_.GetSkipOnlineNetwork()) {
         if (config_.use_amp && !config_.use_amp_bf16) {
-            ANET_SYSTEM_ERROR("Skip learning requires use_amp=false or use_amp_bf16=true.");
+            ANET_SYSTEM_ERROR("Skip learning requires " << config_.full_keys.GetFullKey("use_amp")
+                << "=false or " << config_.full_keys.GetFullKey("use_amp_bf16") << "=true.");
         }
         skip_current_forward_ = prepare(model_.GetSkipOnlineNetwork(), current,
             forward_seeds.MakeNamedSeed("network_forward.skip_current"));
@@ -186,7 +187,7 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
 
     LOG::info() << "Learner: U = " << earned_credit_;
     if (!config_.enabled) {
-        LOG::info() << "Learner: learning is disabled (learner.enabled=false)."
+        LOG::info() << "Learner: learning is disabled (" << config_.full_keys.GetFullKey("enabled") << "=false)."
             << " No replay buffer and no gradient updates.";
     }
 
@@ -315,7 +316,7 @@ void Learner::DistributeDiagnosticSubscriptions(const std::vector<ScalarMetricSu
 void Learner::ValidateDiagnosticSubscriptions()
 {
     if (!replay_fit_demand_.empty() && target_policy_->GetConfig().IsThompsonSampling()) {
-        ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; target_policy.policy_type="
+        ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; " << target_policy_->GetConfig().full_keys.GetFullKey("policy_type") << "="
             << target_policy_->GetConfig().policy_type << " expected " << kActionPolicyTypeStr_Greedy << ", "
             << kActionPolicyTypeStr_EpsilonGreedy << ", or " << kActionPolicyTypeStr_UQE << ".");
     }
@@ -325,11 +326,12 @@ void Learner::ValidateDiagnosticSubscriptions()
         const auto& setting = config_.grad_noise;
         const int batch = config_.replay_batch_size;
         if (batch <= 0 || batch % setting.num_micro_batches != 0) {
-            ANET_SYSTEM_ERROR("Invalid learner.grad_noise.num_micro_batches="
-                              << setting.num_micro_batches << "; expected integer >=2 dividing replay_batch_size=" << batch);
+            ANET_SYSTEM_ERROR("Invalid " << config_.full_keys.GetFullKey("grad_noise.num_micro_batches") << "="
+                              << setting.num_micro_batches << "; expected integer >=2 dividing " << config_.full_keys.GetFullKey("replay_batch_size") << "=" << batch);
         }
         if (config_.use_amp && !config_.use_amp_bf16) {
-            ANET_SYSTEM_ERROR("Invalid learner.use_amp=true learner.use_amp_bf16=false for grad_noise metrics; expected FP32 or BF16");
+            ANET_SYSTEM_ERROR("Invalid " << config_.full_keys.GetFullKey("use_amp") << "=true "
+                << config_.full_keys.GetFullKey("use_amp_bf16") << "=false for grad_noise metrics; expected FP32 or BF16");
         }
         for (auto& estimator : grad_noise_.estimators)
             estimator = anet::GradientNoiseEstimator(setting.ema_alpha);
@@ -355,12 +357,18 @@ void Learner::ValidateDiagnosticSubscriptions()
 
 void Learner::PrepareDiagnosticResources()
 {
+    const auto missing_config_hint = [this](const std::string& key) -> const char* {
+        return config_.full_keys.Contains(key)
+            ? ""
+            : " This agent does not read this setting; remove the metric subscription that requires it.";
+    };
     const bool grad_noise_split = grad_noise_.subscribed.adam[1] || grad_noise_.subscribed.adam[2];
     // Agent が解決した sample/call/batch 設定の検証は NN に委ねる。
     if (config_.enabled && std::ranges::any_of(noisy_.demand, [](const auto& entry) { return entry.metric >= NoisyMetric::QAbsDiff; })
         && !model_.GetOnlineNetwork()->GetNoisyParameterEntries().empty()) {
         if (!noisy_probe_config_) {
-            ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.noisy_probe requires a resolved sample forward config.");
+            ANET_SYSTEM_ERROR(config_.full_keys.GetFullKey("noisy_probe")
+                << " requires a resolved sample forward config." << missing_config_hint("noisy_probe"));
         }
         noisy_.sample_forward = model_.GetOnlineNetwork()->CreateForwardExecutor(*noisy_probe_config_,
             anet::nn::NetworkForwardClock::kTransientRows,
@@ -376,7 +384,7 @@ void Learner::PrepareDiagnosticResources()
             if (phase_count == 1) {
                 LOG::warn_once(std::to_string(metrics_interval)) << "Policy churn metrics observe one hard-target phase: target_sync_age=0"
                     << " metrics_interval=" << metrics_interval
-                    << " hard_update_interval=" << hard_update_interval << ".";
+                    << " " << model_.GetHardUpdateIntervalKey() << "=" << hard_update_interval << ".";
             }
         }
     }
@@ -392,12 +400,14 @@ void Learner::PrepareDiagnosticResources()
         available << branch_names[i];
     }
     if (config_.final_feature_branch_key.empty()) {
-        ANET_SYSTEM_ERROR("DefaultDQNAgent.learner.final_feature_branch_key='' is required when feature-boundary diagnostics are subscribed; available_branches=["
-            << available.str() << "]");
+        ANET_SYSTEM_ERROR(config_.full_keys.GetFullKey("final_feature_branch_key")
+            << "='' is required when feature-boundary diagnostics are subscribed; available_branches=["
+            << available.str() << "]" << missing_config_hint("final_feature_branch_key"));
     }
     if (std::ranges::find(branch_names, config_.final_feature_branch_key) == branch_names.end()) {
-        ANET_SYSTEM_ERROR("Unknown DefaultDQNAgent.learner.final_feature_branch_key='"
-            << config_.final_feature_branch_key << "'. available_branches=[" << available.str() << "]");
+        ANET_SYSTEM_ERROR("Unknown " << config_.full_keys.GetFullKey("final_feature_branch_key") << "='"
+            << config_.final_feature_branch_key << "'. available_branches=[" << available.str()
+            << "]" << missing_config_hint("final_feature_branch_key"));
     }
     if (grad_noise_split) {
         const auto split = model_.GetOnlineNetwork()->GetParameterSplit(config_.final_feature_branch_key);
@@ -895,6 +905,8 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     const auto initial_priority_mode = ParseReplayInitialPriorityMode(config_);
     ValidateReplayPriorityConfig(config_, initial_priority_mode);
     anet::rl::ReplayBufferConfig rep_config{};
+    rep_config.full_keys.CopyFieldFrom("capacity", config_.full_keys, "replay_capacity");
+    rep_config.full_keys.CopyFieldFrom("n_step", config_.full_keys, "n_step");
     rep_config.capacity = config_.replay_capacity;
     rep_config.needs_return_recompute = {config_.gamma.type != kConstantScheduleType};
     if (config_.intrinsic.decomposed) {
@@ -916,6 +928,9 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     }
 
     if (config_.use_per) {
+        for (const auto* key : {"per_alpha", "per_initial_priority", "per_initial_priority_mode"}) {
+            rep_config.full_keys.CopyFieldFrom(key, config_.full_keys, key);
+        }
         rep_config.sampler_type = anet::rl::ReplaySamplerType::PRIORITIZED;
         rep_config.per_alpha = config_.per_alpha;
         rep_config.per_initial_priority = config_.per_initial_priority;
@@ -1052,7 +1067,7 @@ OptimizerStepResult Learner::Optimize(const torch::Tensor& primary_loss, const t
             const auto norms = intrinsic_optimizer_ ? torch::stack({result.grad_norm_tensor, result.intrinsic_grad_norm})
                 : result.grad_norm_tensor;
             if (!torch::isfinite(norms).all().item<bool>())
-                ANET_SYSTEM_ERROR("Nonfinite gradient norms before decomposed optimizer step: feature_gradient="
+                ANET_SYSTEM_ERROR("Nonfinite gradient norms before decomposed optimizer step: " << config_.full_keys.GetFullKey("intrinsic.feature_gradient") << "="
                     << config_.intrinsic.feature_gradient << " norms=" << norms << "; expected all finite.");
         }
 #endif
@@ -1529,7 +1544,7 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     result->upper_tail_priority_spearman = per_info.upper_tail_priority_spearman;
     if (const auto features = plasticity_.online_capture.Get(config_.final_feature_branch_key); features.defined()) {
         if (features.dim() != 2) {
-            ANET_SYSTEM_ERROR("Plasticity feature must be rank-2 (N, D). final_feature_branch_key='"
+            ANET_SYSTEM_ERROR("Plasticity feature must be rank-2 (N, D). " << config_.full_keys.GetFullKey("final_feature_branch_key") << "='"
                 << config_.final_feature_branch_key << "' shape=" << features.sizes());
         }
         result->plasticity_features = features;
@@ -1537,7 +1552,7 @@ std::shared_ptr<anet::rl::dqn::BatchUpdateResult> Learner::MakeBatchUpdateResult
     result->plasticity_request = plasticity_.online_request;
     if (const auto features = plasticity_.target_capture.Get(config_.final_feature_branch_key); features.defined()) {
         if (features.dim() != 2) {
-            ANET_SYSTEM_ERROR("Target plasticity feature must be rank-2 (N, D). final_feature_branch_key='"
+            ANET_SYSTEM_ERROR("Target plasticity feature must be rank-2 (N, D). " << config_.full_keys.GetFullKey("final_feature_branch_key") << "='"
                 << config_.final_feature_branch_key << "' shape=" << features.sizes());
         }
         // captureの鍵は一度だけ書き、joint targetの切出しは利用側の結果で行う。
@@ -1583,13 +1598,13 @@ bool Learner::CanUpdate(step_t exp_step)
     // warmupの境界だけを通知し、Replay件数の成立や最初の学習更新とは区別する。
     if (config_.update_warmup_steps > 0 && exp_step < config_.update_warmup_steps) {
         if (!warmup_active_) {
-            LOG::info_once() << "Learner warmup started: update_warmup_steps=" << config_.update_warmup_steps;
+            LOG::info_once() << "Learner warmup started: " << config_.full_keys.GetFullKey("update_warmup_steps") << "=" << config_.update_warmup_steps;
             warmup_active_ = true;
         }
         return false;
     }
     if (warmup_active_) {
-        LOG::info_once() << "Learner warmup finished: update_warmup_steps=" << config_.update_warmup_steps;
+        LOG::info_once() << "Learner warmup finished: " << config_.full_keys.GetFullKey("update_warmup_steps") << "=" << config_.update_warmup_steps;
         warmup_active_ = false;
     }
 
@@ -1834,7 +1849,8 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
     auto roles = OptimizerRoles();
     bool has_primary_skip = false;
     if (has_skip) {
-        if (!model_.GetSkipOnlineNetwork()) ANET_SYSTEM_ERROR("Checkpoint contains skip optimizer groups but skip.enabled=false.");
+        if (!model_.GetSkipOnlineNetwork()) ANET_SYSTEM_ERROR("Checkpoint contains skip optimizer groups but "
+            << model_.GetSkipConfig().full_keys.GetFullKey("enabled") << "=false.");
         int64_t count = 0;
         size += archive.Read(count);
         if (count != static_cast<int64_t>(roles.size()) && count != static_cast<int64_t>(roles.size() + 1)) {
@@ -1848,7 +1864,8 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
             if (role == kOptimizerRolePrimarySkip) {
                 if (!skip_primary_optimizer_ || has_primary_skip) {
                     ANET_SYSTEM_ERROR("Invalid optimizer role='" << role
-                        << "'; expected exactly one " << kOptimizerRolePrimarySkip << " role only for learner.skip.feature_gradient="
+                        << "'; expected exactly one " << kOptimizerRolePrimarySkip << " role only for "
+                        << config_.full_keys.GetFullKey("skip.feature_gradient") << "="
                         << LearnerConfig::kFeatureGradientSplit << ".");
                 }
                 has_primary_skip = true;
@@ -1911,7 +1928,8 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
     if (skip_primary_optimizer_ && !has_primary_skip) {
         skip_primary_optimizer_->state().clear();
         LOG::warn_once(kOptimizerRolePrimarySkip) << "Learner::Load: checkpoint has no " << kOptimizerRolePrimarySkip
-            << " optimizer role; initialized moments for learner.skip.feature_gradient=" << LearnerConfig::kFeatureGradientSplit << ".";
+            << " optimizer role; initialized moments for " << config_.full_keys.GetFullKey("skip.feature_gradient")
+            << "=" << LearnerConfig::kFeatureGradientSplit << ".";
     }
     // 診断EMAはcheckpointの一部ではなく、引き継ぎ時は未初期化へ戻す。
     if (!grad_noise_.demand.empty()) {
@@ -1919,6 +1937,10 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
     }
     // moment と step の復元後、保存時との差を通知して group の options だけを置き換える。
     auto options = BuildOptimizerOptions();
+    const auto learning_rate_key = GetInitialProfiledValueKey(config_.learning_rate);
+    const auto weight_decay_key = GetInitialProfiledValueKey(config_.weight_decay);
+    const auto noisy_weight_decay_key = config_.full_keys.GetFullKey("noisy_weight_decay");
+    const auto adam_eps_key = config_.full_keys.GetFullKey("adam_eps");
     const auto main_group_count = options.size();
     if (skip_primary_optimizer_) {
         options.push_back(torch::optim::AdamWOptions(options.front()).weight_decay(0.0));
@@ -1928,22 +1950,27 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
         auto& group = i < main_group_count ? optimizer_->param_groups()[i] : skip_primary_optimizer_->param_groups().front();
         auto& loaded = static_cast<torch::optim::AdamWOptions&>(group.options());
         const auto& current = options[i];
-        const auto report_difference = [i, &roles](const char* option, const char* key, const auto& saved_value, const auto& config_value) {
+        const std::string* group_decay_key = nullptr;
+        if (roles[i] != kOptimizerRolePrimarySkip) {
+            group_decay_key = roles[i].ends_with(kOptimizerSigmaRoleSuffix) ? &noisy_weight_decay_key : &weight_decay_key;
+        }
+        const auto report_difference = [i, &roles](const char* option, const std::string* key,
+            const auto& saved_value, const auto& applied_value, bool fixed = false) {
             auto notification = LOG::info_once(roles[i] + ":" + option);
-            notification << "Learner::Load: optimizer option differs from checkpoint; config applied. group=" << i
+            notification << "Learner::Load: optimizer option differs from checkpoint; "
+                << (fixed ? "fixed value applied" : "config applied") << ". group=" << i
                 << " role=" << roles[i] << " option=" << option;
-            if (key != nullptr) notification << " key=" << key;
-            notification << " checkpoint=" << saved_value << " config=" << config_value;
+            if (key != nullptr) notification << " key=" << *key;
+            notification << " checkpoint=" << saved_value << (fixed ? " fixed=" : " config=") << applied_value;
         };
         if (loaded.lr() != current.lr()) {
-            report_difference("lr", "learner.learning_rate", loaded.lr(), current.lr());
+            report_difference("lr", &learning_rate_key, loaded.lr(), current.lr());
         }
         if (loaded.weight_decay() != current.weight_decay()) {
-            report_difference("weight_decay", roles[i].ends_with(kOptimizerSigmaRoleSuffix) ? "learner.noisy_weight_decay" : "learner.weight_decay",
-                loaded.weight_decay(), current.weight_decay());
+            report_difference("weight_decay", group_decay_key, loaded.weight_decay(), current.weight_decay(), group_decay_key == nullptr);
         }
         if (loaded.eps() != current.eps()) {
-            report_difference("eps", "learner.adam_eps", loaded.eps(), current.eps());
+            report_difference("eps", &adam_eps_key, loaded.eps(), current.eps());
         }
         if (loaded.betas() != current.betas()) {
             // 比較は丸める前の値で行い、ログでは2値を1つの option として示す。
@@ -1957,8 +1984,15 @@ int64_t Learner::LoadCheckpoint(InputArchive& archive, bool has_skip)
         }
         // state はそのままに全 options を代入し、実際に適用された値を記録する。
         loaded = current;
-        LOG::info() << "Learner::Load: optimizer options applied from config. group=" << i
-            << " lr=" << loaded.lr() << " weight_decay=" << loaded.weight_decay() << " eps=" << loaded.eps();
+        auto applied = LOG::info();
+        applied << "Learner::Load: optimizer options applied from config. group=" << i
+            << " " << learning_rate_key << "=" << loaded.lr();
+        if (group_decay_key != nullptr) {
+            applied << " " << *group_decay_key << "=" << loaded.weight_decay();
+        } else {
+            applied << " fixed weight decay " << loaded.weight_decay();
+        }
+        applied << " " << adam_eps_key << "=" << loaded.eps();
     }
     return size;
 }

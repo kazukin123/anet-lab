@@ -58,7 +58,8 @@ class DefaultDQNAgent::IntrinsicRewardCoordinator {
 public:
     IntrinsicRewardCoordinator(const IntrinsicConfig& config, bool learning_enabled,
         const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, const torch::Device& device,
-        anet::SeedMaker& seed_maker, const std::string& prefix, float reward_gamma)
+        anet::SeedMaker& seed_maker, const std::string& prefix, const ConfigFullKeyTable& keys,
+        float reward_gamma, const std::string& gamma_key)
         : config_(config), learning_enabled_(learning_enabled)
     {
         if (config_.enabled)
@@ -75,11 +76,12 @@ public:
         if (config_.enabled) {
             reward_scaler_ = RewardScalerFactory(config_.reward_scaler,
                 prefix.substr(0, prefix.size() - std::string(".rnd").size()) + ".reward_scaler")
-                .CreateRewardScaler(reward_gamma, batch_env_spec.num_envs);
+                .CreateRewardScaler(reward_gamma, batch_env_spec.num_envs, gamma_key);
             if (learning_enabled_ && batch_env_spec.num_envs < config_.learn_batch_size) {
-                ANET_SYSTEM_ERROR("DefaultDQNAgent.intrinsic.learn_batch_size=" << config_.learn_batch_size
+                ANET_SYSTEM_ERROR(keys.GetFullKey("intrinsic.learn_batch_size") << "=" << config_.learn_batch_size
                     << " exceeds num_envs=" << batch_env_spec.num_envs
-                    << "; expected learn_batch_size <= run.train.num_envs when DefaultDQNAgent.learner.enabled=true.");
+                    << "; expected " << keys.GetFullKey("intrinsic.learn_batch_size") << " <= run.train.num_envs when "
+                    << keys.GetFullKey("learner.enabled") << "=true.");
             }
             lifelong_novelty_ = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
                 config_.rnd, prefix,
@@ -89,7 +91,8 @@ public:
             last_intrinsic_beta_ = intrinsic_beta_->Evaluate(0);
             intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(0.0f, std::memory_order_relaxed);
             if (!learning_enabled_)
-                LOG::info_once() << "DefaultDQNAgent.intrinsic.enabled=true with learner.enabled=false: intrinsic scoring and training are suspended.";
+                LOG::info_once() << keys.GetFullKey("intrinsic.enabled") << "=true with "
+                    << keys.GetFullKey("learner.enabled") << "=false: intrinsic scoring and training are suspended.";
         }
     }
 
@@ -308,8 +311,8 @@ DefaultDQNAgent::DefaultDQNAgent(
 {
     // 直接DTOを渡す構築経路でも、有効化時は未指定のJを資源構築前に拒否する。
     if (config_.skip.enabled && config_.skip.max_length < 1) {
-        ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.max_length=" << config_.skip.max_length
-            << "; expected explicit value >= 1 when skip.enabled=true.");
+        ANET_SYSTEM_ERROR("Invalid " << config_.GetFullKey("skip.max_length") << "=" << config_.skip.max_length
+            << "; expected explicit value >= 1 when " << config_.GetFullKey("skip.enabled") << "=true.");
     }
     ANET_LOG_DEBUG("seed=" << GetSeed());
 
@@ -327,9 +330,10 @@ DefaultDQNAgent::DefaultDQNAgent(
 
         //時系列の重みが約37%に減衰するまでのSTEP数
         if (horizon > 0) {
-            LOG::info() << "gamma=" << g << " (EffectiveHorizon: " << static_cast<int>(horizon) << " steps)";
+            LOG::info() << GetInitialProfiledValueKey(config_.learner.gamma) << "=" << g
+                << " (EffectiveHorizon: " << static_cast<int>(horizon) << " steps)";
         } else {
-            LOG::info() << "gamma=" << g << " (Effective Horizon: Infinite)";
+            LOG::info() << GetInitialProfiledValueKey(config_.learner.gamma) << "=" << g << " (Effective Horizon: Infinite)";
         }
     }
 
@@ -344,14 +348,18 @@ DefaultDQNAgent::DefaultDQNAgent(
     const bool is_distributional = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
 
     // 無効時も既知の診断キーを保つ。可変の State は Coordinator に集める。
+    const auto& intrinsic_gamma = config_.learner.intrinsic.decomposed && config_.learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate
+        ? config_.learner.intrinsic.gamma : config_.learner.gamma;
+    const float initial_intrinsic_gamma = anet::ProfiledValue<float>(intrinsic_gamma).Evaluate(0);
     intrinsic_.reset(new IntrinsicRewardCoordinator(config_.intrinsic, config_.learner.enabled,
         batch_env_spec, env_spec, device_, seed_maker, config_.GetConfigPrefix() + ".intrinsic.rnd",
-        anet::ProfiledValue<float>(config_.learner.intrinsic.decomposed && config_.learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate
-            ? config_.learner.intrinsic.gamma : config_.learner.gamma).Evaluate(0)));
+        config_.GetFullKeys(), initial_intrinsic_gamma, GetInitialProfiledValueKey(intrinsic_gamma)));
 
     // RewardScaler生成
     anet::rl::RewardScalerFactory reward_scaler_factory(config_.reward_scaler);
-    this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(anet::ProfiledValue<float>(config_.learner.gamma).Evaluate(0), batch_env_spec.num_envs);
+    const auto& gamma = config_.learner.gamma;
+    this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(anet::ProfiledValue<float>(gamma).Evaluate(0), batch_env_spec.num_envs,
+        GetInitialProfiledValueKey(gamma));
 
     // ObservationNormalizer生成
     anet::rl::ObservationNormalizerFactory obs_norm_factory(config_.obs_norm);
@@ -394,7 +402,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     if (config_.target_policy.policy_type == "EpsilonGreedy") {
         auto epsilon = config_.target_policy.epsilon;
         epsilon.max_value = 0.0f;
-        anet::detail::ValidateProfiledValueConfig(epsilon, "target_policy.epsilon");
+        anet::detail::ValidateProfiledValueConfig(epsilon);
     }
 
     // ActionPolicy生成
@@ -418,7 +426,7 @@ std::shared_ptr<anet::nn::NetworkHeadFactory> DefaultDQNAgent::SelectHeadFactory
     auto intrinsic = DqnComponentAssembler::CreateHeadFactory(config_.quantile_mode, head.use_dueling,
         n_actions_, config_.qr.num_quantiles, head.init, head.projection);
     return std::make_shared<DecomposedHeadFactory>(std::move(extrinsic), std::move(intrinsic),
-        head.input_mode == DefaultDQNAgentConfig::kHeadInputDedicated, head.use_dueling);
+        head.input_mode == DefaultDQNAgentConfig::kHeadInputDedicated, head.use_dueling, config_.GetFullKey("intrinsic.value.head.input_mode"));
 }
 
 anet::TensorSpecMap DefaultDQNAgent::MakeNetworkInputSpec(const EnvSpec& env_spec) const
@@ -597,19 +605,19 @@ void DefaultDQNAgent::LoadNetwork(const std::string& filename)
         in.Read(internal_kind);
     }
     if (decomposed != config_.learner.intrinsic.decomposed)
-        ANET_SYSTEM_ERROR("Checkpoint intrinsic.value_mode=" << (decomposed ? DefaultDQNAgentConfig::kValueModeDecomposed : DefaultDQNAgentConfig::kValueModeCombined)
-            << "; expected " << config_.intrinsic.value_mode << ".");
+        ANET_SYSTEM_ERROR("Checkpoint value_mode=" << (decomposed ? DefaultDQNAgentConfig::kValueModeDecomposed : DefaultDQNAgentConfig::kValueModeCombined)
+            << "; expected " << config_.GetFullKey("intrinsic.value_mode") << "=" << config_.intrinsic.value_mode << ".");
     if (decomposed && feature_gradient != config_.learner.intrinsic.feature_gradient)
-        ANET_SYSTEM_ERROR("Checkpoint learner.intrinsic.feature_gradient=" << feature_gradient
-            << "; expected " << config_.learner.intrinsic.feature_gradient << ".");
+        ANET_SYSTEM_ERROR("Checkpoint feature_gradient=" << feature_gradient
+            << "; expected " << config_.GetFullKey("learner.intrinsic.feature_gradient") << "=" << config_.learner.intrinsic.feature_gradient << ".");
     if (external_kind != reward_scaler_->StateKind())
         ANET_SYSTEM_ERROR("Checkpoint reward_scaler kind=" << external_kind << "; expected " << reward_scaler_->StateKind() << ".");
     if (internal_kind != intrinsic_->ScalerStateKind())
-        ANET_SYSTEM_ERROR("Checkpoint intrinsic.reward_scaler kind=" << internal_kind << "; expected " << intrinsic_->ScalerStateKind() << ".");
+        ANET_SYSTEM_ERROR("Checkpoint intrinsic reward scaler kind=" << internal_kind << "; expected " << intrinsic_->ScalerStateKind() << ".");
     if (has_intrinsic != config_.intrinsic.enabled)
         ANET_SYSTEM_ERROR("Checkpoint header='" << header.info << "' intrinsic=" << has_intrinsic
-            << "; expected intrinsic=" << config_.intrinsic.enabled << " from DefaultDQNAgent.intrinsic.enabled.");
-    if (has_skip && !config_.skip.enabled) ANET_SYSTEM_ERROR("Checkpoint contains skip networks but DefaultDQNAgent.skip.enabled=false.");
+            << "; expected " << config_.GetFullKey("intrinsic.enabled") << "=" << config_.intrinsic.enabled << ".");
+    if (has_skip && !config_.skip.enabled) ANET_SYSTEM_ERROR("Checkpoint contains skip networks but " << config_.GetFullKey("skip.enabled") << "=false.");
 
 	// Network
 	auto model_size = model_->LoadCheckpoint(in, has_skip);
@@ -743,9 +751,9 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
 {
     ANET_PROFILE_FUNC();
     env_spec_.CheckSameStateActionSpec(request.env_spec);
-    const auto& cfg = FindActorConfig(config_.actor, request.actor_key);
+    const auto& cfg = FindActorConfig(config_.actor, request.actor_key, config_.GetConfigPrefix());
     if (!forward_configs_.contains(cfg.nn_forward_key)) {
-        ANET_SYSTEM_ERROR("Missing resolved actor.[" << request.actor_key << "].nn_forward_key; expected a declared forward configuration.");
+        ANET_SYSTEM_ERROR("Missing resolved " << cfg.full_keys.GetFullKey("nn_forward_key") << "; expected a declared forward configuration.");
     }
     ValidateActorDevice(cfg.clone_model, request.device);
     auto policy = DqnComponentAssembler::CreateActionPolicy(cfg.policy, config_.quantile_mode, cfg.policy.spatial.enabled,
@@ -766,7 +774,7 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
             .forward_config = forward_configs_.at(skip_forward_key),
             .use_amp = cfg.policy.use_amp, .use_amp_bf16 = cfg.policy.use_amp_bf16,
             .shared_policy = shared_policy, .max_length_mode = cfg.skip.max_length_mode,
-            .max_length = cfg.skip.max_length});
+            .max_length = cfg.skip.max_length, .actor_keys = cfg.full_keys});
     }
     const ActorQHintConfig hint_config{
         .munchausen = config_.learner.munchausen, .use_tbo = config_.learner.use_tbo,
@@ -993,7 +1001,8 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
 void DefaultDQNAgentFactory::ValidateQuantileNetworkContract(
     const DefaultDQNAgentConfig& config,
     const anet::nn::NetworkConfig& net_config,
-    const std::string& net_config_prefix)
+    const std::string& net_config_prefix,
+    const anet::ConfigData& config_data)
 {
     // 各 branch の解析済み bind factor から、taus を直接要求する設定キーを列挙する。
     std::vector<std::string> taus_bind_keys;
@@ -1006,17 +1015,16 @@ void DefaultDQNAgentFactory::ValidateQuantileNetworkContract(
             }
         }
         if (binds_taus) {
-            taus_bind_keys.push_back(
-                net_config_prefix + ".branch.[" + branch_name + "].bind");
+            taus_bind_keys.push_back(config_data.GetFullKey(net_config_prefix + ".branch.[" + branch_name + "].bind"));
         }
     }
 
     // quantile_mode と自分の net サブツリーとの局所契約を、モデル構築前に検証する。
     if (config.quantile_mode == ActionPolicyConfig::kQuantileModeIqn && taus_bind_keys.empty()) {
         ANET_SYSTEM_ERROR(
-            "Invalid DefaultDQNAgent.quantile_mode='" << ActionPolicyConfig::kQuantileModeIqn
+            "Invalid " << config.GetFullKey("quantile_mode") << "='" << config.quantile_mode
             << "': expected at least one 'taus' factor in "
-            << net_config_prefix << ".branch.[*].bind.");
+            << net_config.config_prefix << ".branch.[*].bind.");
     }
     if (config.quantile_mode != ActionPolicyConfig::kQuantileModeIqn && !taus_bind_keys.empty()) {
         std::string joined_keys;
@@ -1027,7 +1035,7 @@ void DefaultDQNAgentFactory::ValidateQuantileNetworkContract(
             joined_keys += key;
         }
         ANET_SYSTEM_ERROR(
-            "Invalid DefaultDQNAgent.quantile_mode='" << config.quantile_mode
+            "Invalid " << config.GetFullKey("quantile_mode") << "='" << config.quantile_mode
             << "': unexpected 'taus' factor in " << joined_keys << ".");
     }
 }
@@ -1040,7 +1048,7 @@ std::shared_ptr<anet::rl::Agent> DefaultDQNAgentFactory::CreateAgent(
     DefaultDQNAgentConfig config(config_data);
     const auto net_config_prefix = GetTargetAgentClassId() + ".net";
     anet::nn::NetworkConfig net_config(config_data, net_config_prefix);
-    ValidateQuantileNetworkContract(config, net_config, net_config_prefix);
+    ValidateQuantileNetworkContract(config, net_config, net_config_prefix, config_data);
     auto agent = std::make_shared<DefaultDQNAgent>(config, net_config, batch_env_spec, env_spec, device, seed);
     return agent;
 

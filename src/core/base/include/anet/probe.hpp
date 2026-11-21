@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <optional>
+#include "anet/config.hpp"
 #include "anet/rl.hpp"
 
 namespace anet::rl {
@@ -409,7 +410,8 @@ namespace anet::rl {
             std::optional<float> x_min_override = std::nullopt,
             std::optional<float> x_max_override = std::nullopt,
             std::optional<float> y_min_override = std::nullopt,
-            std::optional<float> y_max_override = std::nullopt
+            std::optional<float> y_max_override = std::nullopt,
+            const ConfigFullKeyTable& full_keys = {}
         );
 
         ~StateSweepProcessor() override = default;

@@ -435,7 +435,7 @@ static void ValidateUnusedCatalogs(const anet::ConfigData& data)
             const auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory(block.type);
             (void)factory->CreateModule(parameters,
                 {.random_source = std::make_shared<anet::nn::ModuleRandomSource>(117)});
-            parameters.RequireAllKeysRead(prefix + ".block.[" + name + "] type=" + block.type);
+            parameters.RequireAllKeysRead("type=" + block.type);
         }
         for (const auto& [name, profile] : config.config_profiles) ValidateCatalogProfile(name, profile);
         for (const auto& [branch_name, branch] : config.branches) {

@@ -722,22 +722,22 @@ anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForActionWithTaus(
     return result;
 }
 
-static anet::ProfiledValueConfig<float> ValidateSpatialEndpoint(anet::ProfiledValueConfig<float> endpoint, const char* key)
+static anet::ProfiledValueConfig<float> ValidateSpatialEndpoint(anet::ProfiledValueConfig<float> endpoint)
 {
     // 単体構築のmetadataを補い、ProfiledValue構築より先に論理キー付きで全active端点を検証する。
     endpoint.min_value = 0.0f;
     endpoint.max_value = 1.0f;
-    anet::detail::ValidateProfiledValueConfig(endpoint, key);
+    anet::detail::ValidateProfiledValueConfig(endpoint);
     return endpoint;
 }
 
 SpatialLadderSchedule::SpatialLadderSchedule(const ActionPolicyConfig::LadderConfig& config,
-    std::string scale, int64_t lanes, torch::Device device)
-    : first_(ValidateSpatialEndpoint(config.first, "spatial.first"))
-    , last_(ValidateSpatialEndpoint(config.last, "spatial.last"))
+    std::string scale, int64_t lanes, torch::Device device, const std::string& scale_key)
+    : first_(ValidateSpatialEndpoint(config.first))
+    , last_(ValidateSpatialEndpoint(config.last))
     , scale_(std::move(scale)), lanes_(lanes), device_(device)
 {
-    ValidateSpatialScale(scale_, "spatial.scale");
+    ValidateSpatialScale(scale_, scale_key);
     if (lanes < 1)
         ANET_SYSTEM_ERROR("Invalid spatial ladder: lanes=" << lanes << " expected lanes>=1");
     Update(0);
@@ -928,7 +928,8 @@ anet::rl::dqn::EpsilonGreedyActionPolicy::EpsilonGreedyActionPolicy(
     : ActionPolicy(config, enable_spatial_exploration, num_envs, device)
 {
     if (IsSpatialExplorationEnabled())
-        epsilon_ladder_ = std::make_unique<SpatialLadderSchedule>(config.spatial.epsilon, config.spatial.scale, num_envs, device);
+        epsilon_ladder_ = std::make_unique<SpatialLadderSchedule>(config.spatial.epsilon, config.spatial.scale, num_envs,
+            device, config.full_keys.GetFullKey("spatial.scale"));
     if (!IsSpatialExplorationEnabled()) epsilon_schedule_.emplace(config.epsilon);
     UpdateEpsilon(0);
 }
@@ -1005,8 +1006,9 @@ anet::rl::dqn::UQEActionPolicy::UQEActionPolicy(
 {
     uses_uqe_ = true;
     if (IsSpatialExplorationEnabled()) {
-        uqe_epsilon_ladder_ = std::make_unique<SpatialLadderSchedule>(config.spatial.uqe.epsilon, config.spatial.scale, num_envs, device);
-        tau_ladder_ = std::make_unique<SpatialLadderSchedule>(config.spatial.uqe.tau, config.spatial.scale, num_envs, device);
+        const auto scale_key = config.full_keys.GetFullKey("spatial.scale");
+        uqe_epsilon_ladder_ = std::make_unique<SpatialLadderSchedule>(config.spatial.uqe.epsilon, config.spatial.scale, num_envs, device, scale_key);
+        tau_ladder_ = std::make_unique<SpatialLadderSchedule>(config.spatial.uqe.tau, config.spatial.scale, num_envs, device, scale_key);
     }
     if (!IsSpatialExplorationEnabled()) {
         epsilon_schedule_.emplace(config.uqe.epsilon);
@@ -1452,7 +1454,8 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
             seeds.MakeNamedSeed(kSkipForwardSeed));
         skip_random_ = std::make_shared<anet::RandomGenerator>(seeds.MakeNamedSeed(kSkipPolicySeed));
         if (skip_->max_length_mode == DQNActorConfig::kMaxLengthVariable) {
-            if (!skip_->max_length) ANET_SYSTEM_ERROR("Skip Actor max_length_mode=variable requires skip.max_length.");
+            if (!skip_->max_length) ANET_SYSTEM_ERROR("Skip Actor " << skip_->actor_keys.GetFullKey("skip.max_length_mode")
+                << "=variable requires " << skip_->actor_keys.GetFullKey("skip.max_length") << ".");
             auto length = *skip_->max_length;
             length.min_value = 1;
             length.max_value = skip_->config.max_length;
@@ -1771,7 +1774,9 @@ std::optional<float> Actor::GetScalar(const std::string& key, int64_t index) con
     const auto duration = length_rate ? ParseActionScalarIndex(key, kSkipSessionLengthRateIndexPrefix) : 1;
     if (duration < 1 || (skip_ && duration > skip_->config.max_length)) {
         ANET_SYSTEM_ERROR("Actor: invalid key=" << key << " duration=" << duration
-            << "; expected duration >= 1 and <= skip.max_length=" << (skip_ ? skip_->config.max_length : 0) << ".");
+            << "; expected duration >= 1 and <= "
+            << (skip_ ? skip_->config.full_keys.GetFullKey("max_length") : "max_length (not read from config)")
+            << "=" << (skip_ ? skip_->config.max_length : 0) << ".");
     }
     const auto nan = std::numeric_limits<float>::quiet_NaN();
     if (!skip_ || skip_session_lane_steps_ == 0) return nan;

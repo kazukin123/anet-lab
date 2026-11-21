@@ -133,8 +133,9 @@ namespace {
 }
 
 DecomposedHeadFactory::DecomposedHeadFactory(std::shared_ptr<anet::nn::NetworkHeadFactory> extrinsic,
-    std::shared_ptr<anet::nn::NetworkHeadFactory> intrinsic, bool dedicated, bool intrinsic_dueling)
-    : extrinsic_(std::move(extrinsic)), intrinsic_(std::move(intrinsic)), dedicated_(dedicated), intrinsic_dueling_(intrinsic_dueling) {}
+    std::shared_ptr<anet::nn::NetworkHeadFactory> intrinsic, bool dedicated, bool intrinsic_dueling, std::string input_mode_key)
+    : extrinsic_(std::move(extrinsic)), intrinsic_(std::move(intrinsic)), dedicated_(dedicated), intrinsic_dueling_(intrinsic_dueling)
+    , input_mode_key_(std::move(input_mode_key)) {}
 
 std::shared_ptr<anet::nn::NetworkHead> DecomposedHeadFactory::CreateHead(const anet::TensorDict& features) const
 {
@@ -147,7 +148,7 @@ std::shared_ptr<anet::nn::NetworkHead> DecomposedHeadFactory::CreateHead(const a
             if (!input.Contains(key)) {
                 const auto source_key = DecomposedHeadFactory::kIntrinsicOutputPrefix + key;
                 ANET_SYSTEM_ERROR("Missing dedicated intrinsic Head input key='" << source_key
-                    << "'; expected net.body.output.[" << source_key << "] for intrinsic.value.head.input_mode=dedicated.");
+                    << "'; expected net.body.output.[" << source_key << "] for " << input_mode_key_ << "=dedicated.");
             }
         };
         if (intrinsic_dueling_ && (input.Contains(kKey_ValueFeature) || input.Contains(kKey_AdvFeature))) {

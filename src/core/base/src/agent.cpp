@@ -68,7 +68,8 @@ void AgentRepository::MarkUnusedConfigInventory(const ConfigData& data, const st
     std::lock_guard<std::mutex> lock(mtx_);
     const auto selected = factories_.find(active_class_id);
     if (selected == factories_.end()) {
-        ANET_SYSTEM_ERROR("Unknown active Agent class_id='" << active_class_id << "'; expected a registered factory.");
+        ANET_SYSTEM_ERROR("Unknown active Agent " << data.GetFullKey("agent.class_id")
+            << "='" << active_class_id << "'; expected a registered factory.");
     }
     const auto active_prefixes = selected->second->GetConfigPrefixes();
     for (const auto& [id, factory] : factories_) {
@@ -93,7 +94,7 @@ DefaultAgentFactory::DefaultAgentFactory(
     , batch_env_spec_(batch_env_spec)
     , config_data_(config_data)
     , seed_(seed)
-    , device_(anet::ParseDevice(config_.device))
+    , device_(anet::ParseDevice(config_.device, "agent.device"))
 {
     // Agentの構築に採用するdeviceを、指定値とは別の個別JSONフィールドに記録する。
     config_.RecordEffectiveDevice(device_);

@@ -30,16 +30,20 @@ namespace {
     // LinearHeadの最終軸射影がlaneごとの1ベクトルになる条件を構築時に確定する。
     class RndHeadFactory final : public anet::nn::LinearHeadFactory {
     public:
-        using anet::nn::LinearHeadFactory::LinearHeadFactory;
+        RndHeadFactory(int64_t output_dim, const std::string& output_name, const anet::nn::WeightInitConfig& init,
+            std::string output_dim_key)
+            : anet::nn::LinearHeadFactory(output_dim, output_name, init), output_dim_key_(std::move(output_dim_key)) {}
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& features) const override
         {
             const auto& tensor = anet::GetOrFail(features, anet::nn::kKey_DefaultOutput,
                 "Please configure RND net.body.output.[features].");
             if (tensor.dim() != 2)
                 ANET_SYSTEM_ERROR("Invalid RND features shape=" << tensor.sizes()
-                    << "; expected [B, F] before projection to [B, head.output_dim].");
+                    << "; expected [B, F] before projection to [B, " << output_dim_key_ << "].");
             return anet::nn::LinearHeadFactory::CreateHead(features);
         }
+    private:
+        std::string output_dim_key_;
     };
 
     // NN の通常の重み初期化は CPU の既定 generator を使う。構築時だけ seed を
@@ -585,49 +589,53 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
 
     // Network や optimizer の資源を確保する前に全設定を検証する。
     if (head.output_dim < 1)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".head.output_dim=" << head.output_dim << "; expected >= 1.");
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("head.output_dim") << "=" << head.output_dim << "; expected >= 1.");
     if (warmup_steps < 0)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".warmup_steps=" << warmup_steps << "; expected >= 0.");
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("warmup_steps") << "=" << warmup_steps << "; expected >= 0.");
     if (!std::isfinite(multiplier_max) || multiplier_max <= 1.0f)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".multiplier_max=" << multiplier_max << "; expected finite > 1.");
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("multiplier_max") << "=" << multiplier_max << "; expected finite > 1.");
     if (multiplier_mode != kMultiplierClipped && multiplier_mode != kMultiplierUnclipped)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".multiplier_mode='" << multiplier_mode
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("multiplier_mode") << "='" << multiplier_mode
             << "'; expected clipped or unclipped.");
     if (multiplier_mode == kMultiplierUnclipped && multiplier_max != kDefaultMultiplierMax)
-        anet::log::warn_once(prefix + ".multiplier_max") << "Ignored " << prefix << ".multiplier_max=" << multiplier_max
-            << " with multiplier_mode=" << multiplier_mode << "; default=" << kDefaultMultiplierMax << ".";
+        anet::log::warn_once(prefix + ".multiplier_max") << "Ignored " << GetFullKey("multiplier_max") << "=" << multiplier_max
+            << " with " << GetFullKey("multiplier_mode") << "=" << multiplier_mode << "; default=" << kDefaultMultiplierMax << ".";
     if (!std::isfinite(learning_rate) || learning_rate <= 0.0f)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".learning_rate=" << learning_rate << "; expected finite > 0.");
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("learning_rate") << "=" << learning_rate << "; expected finite > 0.");
     if (!std::isfinite(weight_decay) || weight_decay < 0.0f)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".weight_decay=" << weight_decay << "; expected finite >= 0.");
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("weight_decay") << "=" << weight_decay << "; expected finite >= 0.");
     for (const auto& [role, network] : {std::pair("target", &target.net), std::pair("predictor", &predictor.net)})
         if (network->output_keys.empty())
             ANET_SYSTEM_ERROR("Invalid " << prefix << "." << role << ".net: no Body outputs; expected configured Network body.");
-    anet::rl::ValidateObservationNormalizerConfig(obs_norm, prefix + ".obs_norm");
-    anet::nn::ValidateWeightInitConfig(head.init, prefix + ".head.init");
+    obs_norm.full_keys = GetFullKeys().Extract("obs_norm");
+    anet::rl::ValidateObservationNormalizerConfig(obs_norm);
+    anet::nn::ValidateWeightInitConfig(head.init);
     if (!std::isfinite(adam_eps) || adam_eps <= 0.0)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".adam_eps=" << adam_eps << "; expected finite > 0.");
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("adam_eps") << "=" << adam_eps << "; expected finite > 0.");
     if (statistics_mode != kStatisticsWhiten && statistics_mode != kStatisticsVarianceFeedback)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".statistics_mode='" << statistics_mode
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("statistics_mode") << "='" << statistics_mode
             << "'; expected whiten or variance_feedback.");
     if (warmup_mode != kWarmupLearnPredictor && warmup_mode != kWarmupCollectErrors)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".warmup_mode='" << warmup_mode
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("warmup_mode") << "='" << warmup_mode
             << "'; expected learn_predictor or collect_errors.");
     if (error_norm.average_mode != kErrorAverageCumulative && error_norm.average_mode != kErrorAverageEma)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".error_norm.average_mode='" << error_norm.average_mode
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("error_norm.average_mode") << "='" << error_norm.average_mode
             << "'; expected cumulative or ema.");
     if (error_norm.ema_steps < 1)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".error_norm.ema_steps=" << error_norm.ema_steps
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("error_norm.ema_steps") << "=" << error_norm.ema_steps
             << "; expected integer >= 1.");
 
     // 値の検証後に、現在の組が使わない設定キーだけを既定との差で知らせる。
     const auto notify_unused = [&](const char* key, const auto& value, const auto& default_value, bool info = false) {
         if (value == default_value) return;
-        const auto message = "Ignored " + prefix + "." + key + "=" + anet::json(value).dump()
-            + " with statistics_mode=" + statistics_mode + ", error_norm.average_mode=" + error_norm.average_mode
-            + ", warmup_steps=" + std::to_string(warmup_steps) + "; default=" + anet::json(default_value).dump() + ".";
-        if (info) anet::log::info_once(prefix + "." + key) << message;
-        else anet::log::warn_once(prefix + "." + key) << message;
+        const auto full_key = GetFullKey(key);
+        const auto message = "Ignored " + full_key + "=" + anet::json(value).dump()
+            + " with " + GetFullKey("statistics_mode") + "=" + statistics_mode
+            + ", " + GetFullKey("error_norm.average_mode") + "=" + error_norm.average_mode
+            + ", " + GetFullKey("warmup_steps") + "=" + std::to_string(warmup_steps)
+            + "; default=" + anet::json(default_value).dump() + ".";
+        if (info) anet::log::info_once(full_key) << message;
+        else anet::log::warn_once(full_key) << message;
     };
     if (statistics_mode == kStatisticsVarianceFeedback) {
         notify_unused("warmup_mode", warmup_mode, std::string(kWarmupLearnPredictor));
@@ -644,9 +652,12 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
     // 解決後の値だけで判断し、無効な設定キーも検証済みのうえで構築時に1回知らせる。
     if (statistics_mode == kStatisticsVarianceFeedback) {
         const auto warn_ignored = [&](const char* key, const auto& value, const auto& default_value) {
-            if (value != default_value)
-                anet::log::warn_once(prefix + ".obs_norm." + key) << "Ignored " << prefix << ".obs_norm." << key << "=" << anet::json(value).dump()
-                    << " with statistics_mode=" << statistics_mode << "; default=" << anet::json(default_value).dump() << ".";
+            if (value != default_value) {
+                const auto full_key = GetFullKey(std::string("obs_norm.") + key);
+                anet::log::warn_once(full_key) << "Ignored " << full_key << "=" << anet::json(value).dump()
+                    << " with " << GetFullKey("statistics_mode") << "=" << statistics_mode
+                    << "; default=" << anet::json(default_value).dump() << ".";
+            }
         };
         warn_ignored("pass_through", obs_norm.pass_through, obs_norm_defaults.pass_through);
         warn_ignored("use_clipping", obs_norm.use_clipping, obs_norm_defaults.use_clipping);
@@ -680,7 +691,7 @@ RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimatorConfig& config
         }
     }
     auto head = std::make_shared<RndHeadFactory>(config.head.output_dim, kOutput,
-        config.head.init);
+        config.head.init, config.GetFullKey("head.output_dim"));
     const auto build = [&](const char* name, const anet::nn::NetworkConfig& network_config) {
         const auto seed = seed_maker.MakeNamedSeed(name);
         ConstructionSeedScope scope(seed);
@@ -783,8 +794,8 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
     // 観測件数の境界だけを通知し、predictorの学習開始・終了とは区別する。
     const bool warming_up = statistics_->IsWarmingUp(score_count_);
     if (warming_up && score_count_ == 0)
-        anet::log::info_once(config_.GetConfigPrefix()) << "RND warmup started: warmup_mode=" << config_.warmup_mode
-            << " warmup_steps=" << config_.warmup_steps;
+        anet::log::info_once(config_.GetConfigPrefix()) << "RND warmup started: " << config_.GetFullKey("warmup_mode") << "=" << config_.warmup_mode
+            << " " << config_.GetFullKey("warmup_steps") << "=" << config_.warmup_steps;
     ANET_PROFILE_SCOPE(observation_transfer);
     auto observations_for_scoring = observations.To(statistics_->GetObservationDevice());
     ANET_PROFILE_SCOPE_END(observation_transfer);
@@ -799,8 +810,8 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
         alpha = alpha.clamp(1.0f, config_.multiplier_max);
     score_count_ += observations.Size(0);
     if (warming_up && score_count_ >= config_.warmup_steps)
-        anet::log::info_once(config_.GetConfigPrefix()) << "RND warmup finished: warmup_mode=" << config_.warmup_mode
-            << " warmup_steps=" << config_.warmup_steps;
+        anet::log::info_once(config_.GetConfigPrefix()) << "RND warmup finished: " << config_.GetFullKey("warmup_mode") << "=" << config_.warmup_mode
+            << " " << config_.GetFullKey("warmup_steps") << "=" << config_.warmup_steps;
     // target の出力の統計と診断値の読み出しも、区間を分けて測る。
     ANET_PROFILE_SCOPE(target_feature_statistics);
     target_feature_stats_.Update(target_features);
@@ -913,7 +924,7 @@ int64_t RndNoveltyEstimator::Load(anet::InputArchive& archive)
     bytes += archive.Read(statistics_mode);
     if (statistics_mode != config_.statistics_mode)
         ANET_SYSTEM_ERROR("RND checkpoint statistics_mode='" << statistics_mode
-            << "' differs from configured statistics_mode='" << config_.statistics_mode << "'.");
+            << "' differs from configured " << config_.GetFullKey("statistics_mode") << "='" << config_.statistics_mode << "'.");
     bytes += archive.ReadTorchObject(target_);
     bytes += archive.ReadTorchObject(predictor_);
     bytes += archive.ReadTorchObject(*optimizer_);
@@ -923,9 +934,9 @@ int64_t RndNoveltyEstimator::Load(anet::InputArchive& archive)
         auto& options = static_cast<torch::optim::AdamWOptions&>(group.options());
         if (options.lr() != config_.learning_rate || options.weight_decay() != config_.weight_decay
             || options.eps() != config_.adam_eps)
-            anet::log::info_once(config_.GetConfigPrefix()) << "RND checkpoint optimizer options replaced: learning_rate=" << options.lr()
-                << " -> " << config_.learning_rate << ", weight_decay=" << options.weight_decay()
-                << " -> " << config_.weight_decay << ", adam_eps=" << options.eps() << " -> " << config_.adam_eps;
+            anet::log::info_once(config_.GetConfigPrefix()) << "RND checkpoint optimizer options replaced: " << config_.GetFullKey("learning_rate") << "=" << options.lr()
+                << " -> " << config_.learning_rate << ", " << config_.GetFullKey("weight_decay") << "=" << options.weight_decay()
+                << " -> " << config_.weight_decay << ", " << config_.GetFullKey("adam_eps") << "=" << options.eps() << " -> " << config_.adam_eps;
         options = torch::optim::AdamWOptions(config_.learning_rate).weight_decay(config_.weight_decay).eps(config_.adam_eps);
     }
     bytes += statistics_->Load(archive);

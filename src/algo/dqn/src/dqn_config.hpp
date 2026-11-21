@@ -14,9 +14,12 @@ namespace anet::rl::dqn {
         class QRLearner;
         class BatchUpdateResult;
 
+        std::string GetInitialProfiledValueKey(const anet::ProfiledValueConfig<float>& config);
+
         struct NetworkModelConfig {
             anet::ProfiledValueConfig<float> soft_update_tau{ .value = 0.01f, .min_value = 0.0f, .max_value = 1.0f };
             int hard_update_interval = -1;
+            ConfigFullKeyTable full_keys;
         };
 
         static constexpr int kActionPolicyType_EpsilonGreedy = 0;
@@ -87,6 +90,7 @@ namespace anet::rl::dqn {
             TauRuleConfig tau_rule;
             FullDistributionQueryConfig full_distribution_query;
             std::string quantile_mode = kQuantileModeNone;
+            ConfigFullKeyTable full_keys;
 
             bool IsThompsonSampling() const
             {
@@ -94,44 +98,45 @@ namespace anet::rl::dqn {
             }
         };
 
-        inline void ValidateTauRule(const TauRuleConfig& rule, const std::string& key)
+        inline void ValidateTauRule(const TauRuleConfig& rule, const ConfigFullKeyTable& keys, const std::string& prefix)
         {
             if (rule.num_taus <= 0) {
-                ANET_SYSTEM_ERROR("Invalid " << key << ".num_taus: value=" << rule.num_taus << " expected > 0");
+                ANET_SYSTEM_ERROR("Invalid " << keys.GetFullKey(prefix + "num_taus") << ": value=" << rule.num_taus << " expected > 0");
             }
             if (rule.sample_mode != "random" && rule.sample_mode != "fixed"
                 && rule.sample_mode != "stratified" && rule.sample_mode != "systematic"
                 && rule.sample_mode != "antithetic") {
-                ANET_SYSTEM_ERROR("Invalid " << key << ".sample_mode: value='" << rule.sample_mode
+                ANET_SYSTEM_ERROR("Invalid " << keys.GetFullKey(prefix + "sample_mode") << ": value='" << rule.sample_mode
                     << "' expected one of: random, fixed, stratified, systematic, antithetic");
             }
         }
 
-        inline void ValidateActionPolicy(const ActionPolicyConfig& policy, const std::string& key)
+        inline void ValidateActionPolicy(const ActionPolicyConfig& policy)
         {
             const auto& quantile_mode = policy.quantile_mode;
             const auto is_uqe = [](const std::string& type) { return type == "UQE" || type == "1"; };
             const auto& type = policy.policy_type;
             if (type != kActionPolicyTypeStr_Greedy && type != kActionPolicyTypeStr_EpsilonGreedy && type != "0" && !is_uqe(type) && !policy.IsThompsonSampling()) {
-                ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type='" << type
+                ANET_SYSTEM_ERROR("Invalid " << policy.full_keys.GetFullKey("policy_type") << "='" << type
                     << "'; expected " << kActionPolicyTypeStr_Greedy << ", " << kActionPolicyTypeStr_EpsilonGreedy
                     << ", " << kActionPolicyTypeStr_UQE << ", or " << kActionPolicyTypeStr_ThompsonSampling << ".");
             }
-            ValidateTauRule(policy.tau_rule, key + ".tau_rule");
-            ValidateTauRule(policy.full_distribution_query.tau_rule, key + ".full_distribution_query.tau_rule");
+            ValidateTauRule(policy.tau_rule, policy.full_keys, "tau_rule.");
+            ValidateTauRule(policy.full_distribution_query.tau_rule, policy.full_keys, "full_distribution_query.tau_rule.");
 
             if ((is_uqe(policy.policy_type) || policy.IsThompsonSampling()) && quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
-                ANET_SYSTEM_ERROR("Invalid " << key << ".policy_type: value='" << policy.policy_type
-                    << "' expected quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
+                ANET_SYSTEM_ERROR("Invalid " << policy.full_keys.GetFullKey("policy_type") << ": value='" << policy.policy_type
+                    << "' expected " << policy.full_keys.GetFullKey("quantile_mode") << "=" << ActionPolicyConfig::kQuantileModeQr
                     << " or " << ActionPolicyConfig::kQuantileModeIqn);
             }
             // full queryはIQN専用の任意機能とし、他のquantile modeでは休眠設定として保持する。
             if (policy.full_distribution_query.enabled
                 && quantile_mode == ActionPolicyConfig::kQuantileModeIqn && !is_uqe(policy.policy_type)) {
-                ANET_SYSTEM_ERROR("Invalid " << key << ".full_distribution_query.enabled: value=true"
-                    << " expected policy_type=UQE when quantile_mode=" << ActionPolicyConfig::kQuantileModeIqn
-                    << ", actual quantile_mode='"
-                    << quantile_mode << "' policy_type='" << policy.policy_type << "'");
+                ANET_SYSTEM_ERROR("Invalid " << policy.full_keys.GetFullKey("full_distribution_query.enabled") << ": value=true"
+                    << " expected " << policy.full_keys.GetFullKey("policy_type") << "=UQE when "
+                    << policy.full_keys.GetFullKey("quantile_mode") << "=" << ActionPolicyConfig::kQuantileModeIqn
+                    << ", actual " << policy.full_keys.GetFullKey("quantile_mode") << "='"
+                    << quantile_mode << "' " << policy.full_keys.GetFullKey("policy_type") << "='" << policy.policy_type << "'");
             }
 
         }
@@ -168,6 +173,7 @@ namespace anet::rl::dqn {
             bool clone_model = false;
             std::optional<anet::ProfiledValueConfig<step_t>> sync_interval;
             std::string nn_forward_key;
+            ConfigFullKeyTable full_keys;
         };
 
         enum class SkipNetworkMode { ActionOut, ActionIn };
@@ -184,6 +190,7 @@ namespace anet::rl::dqn {
                 anet::nn::WeightInitConfig init;
                 anet::ConfigData projection; ///< 構築設定の解釈は選択された Head の具象クラスが所有する。
             } head;
+            ConfigFullKeyTable full_keys;
         };
 
         struct StuckerConfig {
@@ -320,13 +327,13 @@ namespace anet::rl::dqn {
             struct GradNoiseConfig {
                 int num_micro_batches = 8;
                 double ema_alpha = 0.05;
-                void Validate(const std::string& owner) const
+                void Validate(const ConfigFullKeyTable& keys, const std::string& prefix) const
                 {
                     if (num_micro_batches < 2) {
-                        ANET_SYSTEM_ERROR("Invalid " << owner << ".num_micro_batches=" << num_micro_batches << "; expected integer >= 2.");
+                        ANET_SYSTEM_ERROR("Invalid " << keys.GetFullKey(prefix + "num_micro_batches") << "=" << num_micro_batches << "; expected integer >= 2.");
                     }
                     if (!std::isfinite(ema_alpha) || ema_alpha <= 0.0 || ema_alpha > 1.0) {
-                        ANET_SYSTEM_ERROR("Invalid " << owner << ".ema_alpha=" << ema_alpha << "; expected finite (0,1].");
+                        ANET_SYSTEM_ERROR("Invalid " << keys.GetFullKey(prefix + "ema_alpha") << "=" << ema_alpha << "; expected finite (0,1].");
                     }
                 }
             } grad_noise;
@@ -369,6 +376,7 @@ namespace anet::rl::dqn {
 
             bool use_amp = false;
             bool use_amp_bf16 = false;
+            ConfigFullKeyTable full_keys;
         };
     
 } // namespace anet::rl::dqn
@@ -380,27 +388,28 @@ namespace anet {
             rl::dqn::ActionPolicyConfig& value)
         {
             // 時間の値とラダー両端を独立に読み、休眠側も値域を検証する。
-            owner.ReadSubConfig(data, key, "policy_type", value.policy_type);
-            owner.ReadSubConfig(data, key, "epsilon", value.epsilon);
-            owner.ReadSubConfig(data, key, "uqe.epsilon", value.uqe.epsilon);
-            owner.ReadSubConfig(data, key, "uqe.tau", value.uqe.tau);
-            owner.ReadSubConfig(data, key, "uqe.use_tail_mean", value.uqe.use_tail_mean);
-            owner.ReadSubConfig(data, key, "spatial.enabled", value.spatial.enabled);
-            owner.ReadSubConfig(data, key, "spatial.scale", value.spatial.scale);
-            owner.ReadSubConfig(data, key, "spatial.epsilon.first", value.spatial.epsilon.first);
-            owner.ReadSubConfig(data, key, "spatial.epsilon.last", value.spatial.epsilon.last);
-            owner.ReadSubConfig(data, key, "spatial.uqe.epsilon.first", value.spatial.uqe.epsilon.first);
-            owner.ReadSubConfig(data, key, "spatial.uqe.epsilon.last", value.spatial.uqe.epsilon.last);
-            owner.ReadSubConfig(data, key, "spatial.uqe.tau.first", value.spatial.uqe.tau.first);
-            owner.ReadSubConfig(data, key, "spatial.uqe.tau.last", value.spatial.uqe.tau.last);
-            owner.ReadSubConfig(data, key, "use_amp", value.use_amp);
-            owner.ReadSubConfig(data, key, "use_amp_bf16", value.use_amp_bf16);
-            owner.ReadSubConfig(data, key, "tau_rule.sample_mode", value.tau_rule.sample_mode);
-            owner.ReadSubConfig(data, key, "tau_rule.num_taus", value.tau_rule.num_taus);
-            owner.ReadSubConfig(data, key, "full_distribution_query.enabled", value.full_distribution_query.enabled);
-            owner.ReadSubConfig(data, key, "full_distribution_query.tau_rule.sample_mode", value.full_distribution_query.tau_rule.sample_mode);
-            owner.ReadSubConfig(data, key, "full_distribution_query.tau_rule.num_taus", value.full_distribution_query.tau_rule.num_taus);
-            rl::dqn::ValidateSpatialScale(value.spatial.scale, key + ".spatial.scale");
+            owner.ReadInheritedSubConfig(data, key, "policy_type", value.policy_type, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "epsilon", value.epsilon, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "uqe.epsilon", value.uqe.epsilon, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "uqe.tau", value.uqe.tau, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "uqe.use_tail_mean", value.uqe.use_tail_mean, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.enabled", value.spatial.enabled, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.scale", value.spatial.scale, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.epsilon.first", value.spatial.epsilon.first, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.epsilon.last", value.spatial.epsilon.last, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.uqe.epsilon.first", value.spatial.uqe.epsilon.first, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.uqe.epsilon.last", value.spatial.uqe.epsilon.last, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.uqe.tau.first", value.spatial.uqe.tau.first, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.uqe.tau.last", value.spatial.uqe.tau.last, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "use_amp", value.use_amp, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "use_amp_bf16", value.use_amp_bf16, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "tau_rule.sample_mode", value.tau_rule.sample_mode, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "tau_rule.num_taus", value.tau_rule.num_taus, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "full_distribution_query.enabled", value.full_distribution_query.enabled, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "full_distribution_query.tau_rule.sample_mode", value.full_distribution_query.tau_rule.sample_mode, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "full_distribution_query.tau_rule.num_taus", value.full_distribution_query.tau_rule.num_taus, value.full_keys);
+            value.full_keys = owner.GetFullKeys().Extract(key);
+            rl::dqn::ValidateSpatialScale(value.spatial.scale, value.full_keys.GetFullKey("spatial.scale"));
         }
     };
 }

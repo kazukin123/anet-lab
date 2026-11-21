@@ -587,33 +587,34 @@ std::optional<std::vector<float>> AgentTensorVectorProbe::GetVector(const Update
 // ============================================================
 
 static const anet::TensorSpec& RequireSweepObservationSpec(
-    const anet::rl::StateSpec& state_spec, const std::string& obs_key)
+    const anet::rl::StateSpec& state_spec, const std::string& obs_key, const std::string& config_key)
 {
     const auto it = state_spec.obs_spec.find(obs_key);
     if (it == state_spec.obs_spec.end()) {
-        ANET_SYSTEM_ERROR("StateSweepProcessor: unknown sweep obs_key. obs_key=" << obs_key);
+        ANET_SYSTEM_ERROR("StateSweepProcessor: unknown sweep observation. " << config_key << "=" << obs_key);
     }
 
     const auto& spec = it->second;
     if (spec.type != anet::SpaceType::Vector) {
-        ANET_SYSTEM_ERROR("StateSweepProcessor: sweep obs_key must be SpaceType::Vector. obs_key=" << obs_key);
+        ANET_SYSTEM_ERROR("StateSweepProcessor: sweep observation must be SpaceType::Vector. " << config_key << "=" << obs_key);
     }
 
     const auto flat_dim = spec.CalcFlattenDim();
     if (flat_dim < 1) {
-        ANET_SYSTEM_ERROR("StateSweepProcessor: sweep obs_key has empty flatten dimension. obs_key=" << obs_key);
+        ANET_SYSTEM_ERROR("StateSweepProcessor: sweep observation has empty flatten dimension. " << config_key << "=" << obs_key);
     }
 
     return spec;
 }
 
-static void ValidateSweepIndex(const std::string& axis, const std::string& obs_key, int index, int64_t flat_dim)
+static void ValidateSweepIndex(const std::string& axis, const std::string& obs_key, const std::string& obs_config_key,
+    int index, const std::string& index_config_key, int64_t flat_dim)
 {
     if (index < 0 || static_cast<int64_t>(index) >= flat_dim) {
         ANET_SYSTEM_ERROR(
             "StateSweepProcessor: sweep index out of range. axis=" << axis
-            << " obs_key=" << obs_key
-            << " index=" << index
+            << " " << obs_config_key << "=" << obs_key
+            << " " << index_config_key << "=" << index
             << " expected=[0," << (flat_dim - 1) << "]");
     }
 }
@@ -636,7 +637,7 @@ StateSweepProcessor::StateSweepProcessor(
     const torch::Device& device,
     std::optional<torch::Tensor> base_state,
     std::optional<float> x_min_override, std::optional<float> x_max_override,
-    std::optional<float> y_min_override, std::optional<float> y_max_override)
+    std::optional<float> y_min_override, std::optional<float> y_max_override, const ConfigFullKeyTable& full_keys)
     : state_spec_(state_spec)
     , device_(device)
     , obs_key_(std::move(obs_key))
@@ -644,16 +645,17 @@ StateSweepProcessor::StateSweepProcessor(
     , y_index_(y_index)
     , value_extract_fn_(value_extract_fn)
 {
-    const auto& sweep_spec = RequireSweepObservationSpec(state_spec_, obs_key_);
+    const auto obs_config_key = full_keys.GetFullKey("obs_key");
+    const auto& sweep_spec = RequireSweepObservationSpec(state_spec_, obs_key_, obs_config_key);
     const int64_t flat_size = sweep_spec.CalcFlattenDim();
-    ValidateSweepIndex("x", obs_key_, x_index_, flat_size);
-    ValidateSweepIndex("y", obs_key_, y_index_, flat_size);
+    ValidateSweepIndex("x", obs_key_, obs_config_key, x_index_, full_keys.GetFullKey("x_index"), flat_size);
+    ValidateSweepIndex("y", obs_key_, obs_config_key, y_index_, full_keys.GetFullKey("y_index"), flat_size);
 
     if (base_state.has_value()) {
         auto base = base_state.value().flatten();
         if (base.numel() != flat_size) {
             ANET_SYSTEM_ERROR(
-                "StateSweepProcessor: base_state flatten size mismatch. obs_key=" << obs_key_
+                "StateSweepProcessor: base_state flatten size mismatch. " << obs_config_key << "=" << obs_key_
                 << " actual=" << base.numel()
                 << " expected=" << flat_size);
         }

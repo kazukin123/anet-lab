@@ -19,6 +19,18 @@ class wxCmdLineParser;
 
 namespace anet {
 
+    /// 読んだ欄の相対キーと、値を与えた完全キーとの対応。
+    class ConfigFullKeyTable {
+    public:
+        std::string GetFullKey(const std::string& key) const;
+        bool Contains(const std::string& key) const;
+        void Set(const std::string& key, std::string full_key);
+        ConfigFullKeyTable Extract(const std::string& prefix) const;
+        void CopyFieldFrom(const std::string& key, const ConfigFullKeyTable& source, const std::string& source_key);
+    private:
+        std::unordered_map<std::string, std::string> keys_;
+    };
+
     template<typename T>
     struct ConfigReader {
         static constexpr bool kEnabled = false;
@@ -36,6 +48,8 @@ namespace anet {
         //ConfigData Make(const std::string& sub_class_id) const;
     public:
         std::unordered_map<std::string, ConfigData> MakeSubConfigData(const std::string& prefix) const;
+        /// 値を与えた完全キーを返す。照会は読み取りとして記録しない。
+        std::string GetFullKey(const std::string& key) const;
 		std::unordered_set<std::string> GetSubConfigTags(const std::string& prefix) const;
         /// 元の設定の読み取り記録を引き継いで、相対キーへ値を写す。
         void CopyValueFrom(const std::string& key, const ConfigData& source, const std::string& source_key);
@@ -43,10 +57,12 @@ namespace anet {
         std::vector<std::pair<std::string, std::string>> GetUnreadKeys() const;
         /// 同じ出典を保ち、今回の読み口だけを検証する範囲を作る。
         ConfigData CreateReadScope(const std::string& prefix = "") const;
+        /// 合成したカタログ項目に、その設定を所有する項目の置き場を継承する。
+        void UseLocationOf(const ConfigData& source);
         /// 読まれなくても誤りでない prefix を、その設定の持ち主が宣言する。
         void MarkInventory(const std::string& prefix, const std::vector<std::string>& excluded_prefixes = {}) const;
         /// この範囲に読まれないキーが残っていれば、読み口の受け付けるキーとともに止める。
-        void RequireAllKeysRead(const std::string& owner) const;
+        void RequireAllKeysRead(std::string_view detail = {}) const;
         void MergeFromChecked(const ConfigData& other);
         void OverwriteFrom(const ConfigData& other);
         std::string ToPropertiesString() const;
@@ -157,6 +173,10 @@ namespace anet {
         void SetString(const std::string& key, const std::string& value);
         void MarkRead(const std::string& key) const;
         MapType map_;
+        // 別の置き場から写した項目は、現在のキーとは別に出典を保持する。
+        std::unordered_map<std::string, std::string> full_keys_;
+        std::string location_;
+        std::string scope_prefix_;
         std::unordered_map<std::string, std::shared_ptr<ReadEntry>> read_entries_;
         std::shared_ptr<ReadScope> read_scope_;
     };
@@ -216,9 +236,16 @@ namespace anet {
         std::string GetOverridePrefix() const { return override_prefix_; }
         anet::ConfigData GetConfigData() const { return my_config_data_; }
         anet::ConfigData GetScopedConfigData() const;
+        const ConfigFullKeyTable& GetFullKeys() const { return full_keys_; }
+        std::string GetFullKey(const std::string& key) const { return full_keys_.GetFullKey(key); }
     protected:
         /// default/overrideの完全キーを保ち、指定した項目だけを新しく検証する。
         ConfigData MakeReadScope(const ConfigData& config_data, const std::string& key) const;
+
+        void RecordFullKey(const std::string& key, std::string full_key)
+        {
+            full_keys_.Set(key, std::move(full_key));
+        }
 
         template<typename T>
         void ReadConfig(const ConfigData& config_data, const std::string& key, T& value, bool record = true)
@@ -231,8 +258,12 @@ namespace anet {
                 config_data.Read(default_config_key, value, value);
 
 			    // override_prefixで上書き設定があれば取得
-                const std::string override_config_key = MakeOverrideConfigKey(key);
-                config_data.Read(override_config_key, value, value);
+                std::string source_key = default_config_key;
+                if (!override_prefix_.empty()) {
+                    const std::string override_key = MakeOverrideConfigKey(key);
+                    if (config_data.Read(override_key, value, value)) source_key = override_key;
+                }
+                RecordFullKey(key, config_data.GetFullKey(source_key));
 
 			    // 取り込んだKeyとValueを保存
                 if (record) RecordConfigValue(key, value);
@@ -257,6 +288,20 @@ namespace anet {
             ReadConfig(config_data, root_key.empty() ? sub_key : root_key + "." + sub_key, value, record);
         }
 
+        template<typename T>
+        void ReadInheritedSubConfig(const ConfigData& data, const std::string& prefix, const std::string& field,
+            T& value, const ConfigFullKeyTable& inherited, bool record = true)
+        {
+            const auto key = prefix.empty() ? field : prefix + "." + field;
+            ReadConfig(data, key, value, record);
+            // 型付きの読み口は内側の各欄を扱う。直接読む欄は、明示指定が無ければ継承元を保つ。
+            if constexpr (!ConfigReader<T>::kEnabled) {
+                if (inherited.Contains(field) && !HasConfigValue(data, key)) {
+                    RecordFullKey(key, inherited.GetFullKey(field));
+                }
+            }
+        }
+
         std::string MakeTaggedSubConfigKey(
             const std::string& root_key,
             const std::string& sub_key,
@@ -273,8 +318,7 @@ namespace anet {
                 return true;
             }
 
-            const std::string override_config_key = MakeOverrideConfigKey(key);
-            return config_data.Has(override_config_key);
+            return !override_prefix_.empty() && config_data.Has(MakeOverrideConfigKey(key));
         }
 
         std::string MakeDefaultConfigKey(const std::string& key) const
@@ -296,6 +340,7 @@ namespace anet {
         std::string override_prefix_;
         ConfigData my_config_data_; ///< Key=String Value=String
         anet::json my_config_json_; ///< JSONデータとして元の型情報を覚えておく
+        ConfigFullKeyTable full_keys_;
     };
 
     /// ConfigDataで扱う設定キーの値のoptional。未指定ならDTOの初期値を保持する。

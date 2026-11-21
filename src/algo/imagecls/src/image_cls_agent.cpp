@@ -522,7 +522,7 @@ void ImageClsLearner::ConfigureScalarMetricSubscriptions(
     }
     if (!plasticity_enabled_ && !plasticity_weight_norm_enabled_) return;
     if (config_.final_feature_branch_key.empty()) {
-        ANET_SYSTEM_ERROR("ImageClsAgent.final_feature_branch_key is required when plasticity metrics are subscribed.");
+        ANET_SYSTEM_ERROR(config_.GetFullKey("final_feature_branch_key") << " is required when plasticity metrics are subscribed.");
     }
     const auto branch_names = network_->GetBranchNames();
     if (std::ranges::find(branch_names, config_.final_feature_branch_key) == branch_names.end()) {
@@ -531,7 +531,7 @@ void ImageClsLearner::ConfigureScalarMetricSubscriptions(
             if (i > 0) available << ", ";
             available << branch_names[i];
         }
-        ANET_SYSTEM_ERROR("Unknown ImageClsAgent.final_feature_branch_key='" << config_.final_feature_branch_key
+        ANET_SYSTEM_ERROR("Unknown " << config_.GetFullKey("final_feature_branch_key") << "='" << config_.final_feature_branch_key
             << "'. available_branches=[" << available.str() << "]");
     }
 }
@@ -722,7 +722,7 @@ std::shared_ptr<anet::rl::Actor> ImageClsAgent::CreateActor(const ActorRequest& 
 {
     ANET_PROFILE_FUNC();
     env_spec_.CheckSameStateActionSpec(request.env_spec);
-    auto cfg = FindActorConfig(config_.actor, request.actor_key);
+    auto cfg = FindActorConfig(config_.actor, request.actor_key, config_.GetConfigPrefix());
     ValidateActorDevice(cfg.clone_model, request.device);
     auto network = network_;
     if (cfg.clone_model) {

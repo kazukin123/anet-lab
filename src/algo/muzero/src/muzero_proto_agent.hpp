@@ -38,6 +38,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
                 .mode = "constant", .manual_gain = 0.0, .nonlinearity = "linear", .constant_val = 0.0
             };
         } head_init_weight;
+        ConfigFullKeyTable full_keys;
     };
 
     struct MCTSConfig {
@@ -108,6 +109,7 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
             ANET_READ_CONFIG(config_data, model.structure.reward_branch);
             ANET_READ_CONFIG(config_data, model.structure.value_branch);
             ANET_READ_CONFIG(config_data, model.structure.policy_branch);
+            model.full_keys = GetFullKeys().Extract("model");
 
             // --- MCTS ---
             ANET_READ_CONFIG(config_data, mcts.num_simulations);
@@ -128,15 +130,16 @@ namespace anet::rl::muzero_proto {  // MuZero試作版
                 ReadConfig(data, prefix + ".add_exploration_noise", entry.add_exploration_noise);
                 ReadConfig(data, prefix + ".clone_model", entry.clone_model);
                 if (entry.clone_model) {
-                    ANET_SYSTEM_ERROR("MuZeroAgent." << prefix << ".clone_model=true is unsupported; expected false.");
+                    ANET_SYSTEM_ERROR(GetFullKey(prefix + ".clone_model") << "=true is unsupported; expected false.");
                 }
                 if (!std::isfinite(entry.temp_start) || entry.temp_start < 0
                     || !std::isfinite(entry.temp_end) || entry.temp_end < 0 || entry.temp_decay_steps < 0) {
-                    ANET_SYSTEM_ERROR("Invalid MuZeroAgent." << prefix << " temperature schedule: start="
-                        << entry.temp_start << " end=" << entry.temp_end << " decay=" << entry.temp_decay_steps
+                    ANET_SYSTEM_ERROR("Invalid temperature schedule: " << GetFullKey(prefix + ".temp_start") << "="
+                        << entry.temp_start << " " << GetFullKey(prefix + ".temp_end") << "=" << entry.temp_end
+                        << " " << GetFullKey(prefix + ".temp_decay_steps") << "=" << entry.temp_decay_steps
                         << "; expected finite nonnegative values.");
                 }
-                data.RequireAllKeysRead(MakeDefaultConfigKey(prefix));
+                data.RequireAllKeysRead();
             }
 
             // --- Replay ---

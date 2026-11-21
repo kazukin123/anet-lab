@@ -6,7 +6,7 @@
 
 namespace anet {
 
-    torch::Device ParseDevice(const std::string& spec);
+    torch::Device ParseDevice(const std::string& spec, const std::string& key);
 
     // Device と dtype を一元管理する軽量コンテキスト
     struct TensorContext {

@@ -1618,7 +1618,9 @@ int main(int argc, char** argv)
             || argument.find("[prd127]") != std::string_view::npos
             || argument.find("[prd127_ui_lifecycle]") != std::string_view::npos;
         starts_runner_app |= argument.find("[prd170_gui]") != std::string_view::npos
-            || argument.find("[prd170_startup]") != std::string_view::npos;
+            || argument.find("[prd170_startup]") != std::string_view::npos
+            || argument.find("[prd194]") != std::string_view::npos
+            || argument.find("[prd194_codec]") != std::string_view::npos;
         starts_runner_app |= argument.find("eval_steps_menu") != std::string_view::npos
             || argument.find("prd105_ui_keys") != std::string_view::npos
             || argument.find("[prd109_") != std::string_view::npos

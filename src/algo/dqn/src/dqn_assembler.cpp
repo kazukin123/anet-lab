@@ -90,7 +90,8 @@ public:
         , estimator_(CreateInitialPriorityEstimator(config))
     {
         ANET_CHECK_MSG(num_lanes > 0 && (!config.use_n_step || config.n_step > 0),
-            "Step diagnostics require positive lanes and n_step. lanes=" << num_lanes << " n_step=" << config.n_step);
+            "Step diagnostics require positive lanes and " << config.full_keys.GetFullKey("n_step") << ". lanes=" << num_lanes
+            << " " << config.full_keys.GetFullKey("n_step") << "=" << config.n_step);
         Reset();
     }
 
@@ -303,16 +304,16 @@ std::shared_ptr<ActionPolicy> DqnComponentAssembler::CreateActionPolicy(
     } else if (policy_config.policy_type == "UQE" || policy_config.policy_type == "1") {
         // UQE
         if (quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
-            ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
-                << "' requires quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
+            ANET_SYSTEM_ERROR("Invalid action policy: " << policy_config.full_keys.GetFullKey("policy_type") << "='" << policy_config.policy_type
+                << "' requires " << policy_config.full_keys.GetFullKey("quantile_mode") << "=" << ActionPolicyConfig::kQuantileModeQr
                 << " or " << ActionPolicyConfig::kQuantileModeIqn << ", actual='" << quantile_mode << "'");
         }
         return std::make_shared<UQEActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
     } else if (policy_config.IsThompsonSampling()) {
         //ThompsonSampling
         if (quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
-            ANET_SYSTEM_ERROR("Invalid action policy: policy_type='" << policy_config.policy_type
-                << "' requires quantile_mode=" << ActionPolicyConfig::kQuantileModeQr
+            ANET_SYSTEM_ERROR("Invalid action policy: " << policy_config.full_keys.GetFullKey("policy_type") << "='" << policy_config.policy_type
+                << "' requires " << policy_config.full_keys.GetFullKey("quantile_mode") << "=" << ActionPolicyConfig::kQuantileModeQr
                 << " or " << ActionPolicyConfig::kQuantileModeIqn << ", actual='" << quantile_mode << "'");
         }
         return std::make_shared<ThompsonSamplingActionPolicy>(policy_config, enable_spatial_exploration, num_envs, device);
@@ -325,7 +326,7 @@ std::shared_ptr<ActionPolicy> DqnComponentAssembler::CreateActionPolicy(
     }
 
     // 不明なtype
-    ANET_SYSTEM_ERROR("Unknown action policy type: " << policy_config.policy_type);
+    ANET_SYSTEM_ERROR("Unknown action policy " << policy_config.full_keys.GetFullKey("policy_type") << ": " << policy_config.policy_type);
     return nullptr;
 }
 

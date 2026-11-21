@@ -207,7 +207,8 @@ static std::shared_ptr<SweepedHeatMapObserver> MakeSweepedHeatMapObserver(
 		config.sweep_obs.height,	// gird_height
 		config.image_width,
 		config.image_height,
-		config.sweep_obs.output_key
+		config.sweep_obs.output_key,
+		config.GetFullKeys().Extract("sweep_obs")
 	};
 
 	// extractor
@@ -257,7 +258,9 @@ static std::shared_ptr<SweepedHeatMapObserver> MakeSweepedHeatMapObserver(
 		config.sweep_obs.y_index,  // y_index = y
 		extractor,
 		config.sweep_obs.obs_key,
-		agent->GetDevice()
+		agent->GetDevice(),
+		std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+		config.GetFullKeys().Extract("sweep_obs")
 	);
 
 	// TensorDictFunction
@@ -414,22 +417,22 @@ static void FillRgbRect(unsigned char* img_data, int image_width, int x0, int y0
 	}
 }
 
-void anet::rl::ValidateConv2dVisualizerConfig(const Conv2dVisualizerConfig& config, const std::string& owner)
+void anet::rl::ValidateConv2dVisualizerConfig(const Conv2dVisualizerConfig& config)
 {
 	if (config.margin_x < 0) {
-		ANET_SYSTEM_ERROR("Invalid " << owner << ".margin_x: " << config.margin_x << " expected >= 0");
+		ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("margin_x") << ": " << config.margin_x << " expected >= 0");
 	}
 	if (config.margin_y < 0) {
-		ANET_SYSTEM_ERROR("Invalid " << owner << ".margin_y: " << config.margin_y << " expected >= 0");
+		ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("margin_y") << ": " << config.margin_y << " expected >= 0");
 	}
 	if (config.layer_margin_y < -1) {
-		ANET_SYSTEM_ERROR("Invalid " << owner << ".layer_margin_y: " << config.layer_margin_y << " expected >= -1");
+		ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("layer_margin_y") << ": " << config.layer_margin_y << " expected >= -1");
 	}
 	if (config.channels_per_row <= 0) {
-		ANET_SYSTEM_ERROR("Invalid " << owner << ".channels_per_row: " << config.channels_per_row << " expected > 0");
+		ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("channels_per_row") << ": " << config.channels_per_row << " expected > 0");
 	}
 	if (config.min_block_size <= 0) {
-		ANET_SYSTEM_ERROR("Invalid " << owner << ".min_block_size: " << config.min_block_size << " expected > 0");
+		ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("min_block_size") << ": " << config.min_block_size << " expected > 0");
 	}
 }
 
@@ -714,9 +717,9 @@ void ImageProviderManager::CreateAndRegister(const anet::ConfigData& config_data
         for (const auto& [key, value] : merged.Map()) {
             full_data.CopyValueFrom(prefix + "." + key, merged, key);
         }
-        const auto scope = full_data.CreateReadScope();
+        const auto scope = full_data.CreateReadScope(prefix);
         const ImageProviderConfig provider_config(scope, prefix);
-        scope.RequireAllKeysRead(prefix);
+        scope.RequireAllKeysRead();
         CreateAndRegister(tag, provider_config, agent, runner);
     }
 }

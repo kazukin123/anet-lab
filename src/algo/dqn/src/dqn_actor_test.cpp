@@ -2120,7 +2120,7 @@ TEST_CASE("DQN policy churn warns once for a single hard-target phase", "[dqn][p
             ++matches;
             CHECK(record.message.find("target_sync_age=0") != std::string::npos);
             CHECK(record.message.find("metrics_interval=503") != std::string::npos);
-            CHECK(record.message.find("hard_update_interval=503") != std::string::npos);
+            CHECK(record.message.find("hard_update_interval (not read from config)=503") != std::string::npos);
         }
         CHECK(matches == 1);
     }
@@ -2371,7 +2371,8 @@ TEST_CASE("IQN Actor catalogs are independent of train and of other Actor clocks
         return agent->CreateActor(rl::ActorRequest{.batch_env_spec = {2, 1}, .env_spec = MakeIqnTracerEnvSpec(),
             .device = torch::kCPU, .seed = seed, .actor_key = key});
     };
-    CHECK_THROWS_WITH(create("undefined", 1), Catch::Matchers::ContainsSubstring("Defined keys=[large, small]"));
+    CHECK_THROWS_WITH(create("undefined", 1),
+        Catch::Matchers::ContainsSubstring("Defined keys=[DefaultDQNAgent.actor.[large], DefaultDQNAgent.actor.[small]]"));
     auto first = create("small", 456);
     auto replay = create("small", 456);
     auto other = create("large", 789);
@@ -2403,7 +2404,7 @@ TEST_CASE("IQN Actor catalogs are independent of train and of other Actor clocks
         CHECK(torch::equal(left->GetAuxData().at("q_values"), right->GetAuxData().at("q_values")));
     }
     data.Set("DefaultDQNAgent.use_optimistic_target", true);
-    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)), Catch::Matchers::ContainsSubstring("requires actor.[train].policy"));
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)), Catch::Matchers::ContainsSubstring("requires DefaultDQNAgent.actor.[train].policy"));
 }
 
 TEST_CASE("Optimistic target warns for a non optimistic Actor source and preserves explicit overrides", "[dqn][prd061][config]")
@@ -2672,7 +2673,8 @@ TEST_CASE("PRD101 spatial validation reports keys values and expected ranges", "
     }
     data.Set("policy." + key, value);
     if (key != "spatial.scale") {
-        const auto standalone_key = key == "spatial.epsilon.last" ? "spatial.last" : "spatial.first";
+        const auto standalone_key = key.ends_with(".end") ? "end (not read from config)"
+            : key.ends_with(".start") ? "start (not read from config)" : "value (not read from config)";
         CHECK_THROWS_WITH(dqn::SpatialLadderSchedule(policy.spatial.epsilon, "log", 4, torch::kCPU),
             Catch::Matchers::ContainsSubstring(standalone_key) && Catch::Matchers::ContainsSubstring("value=" + value)
             && Catch::Matchers::ContainsSubstring(expected));

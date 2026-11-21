@@ -855,7 +855,7 @@ TEST_CASE("Atari RAM evaluation overrides remain unread until the tag check", "[
     const anet::rl::env::AtariEnvFactory factory;
     CHECK_NOTHROW(anet::rl::env::AtariEnvConfig(data));
     REQUIRE_NOTHROW(factory.ValidateConfig(data, anet::rl::RunMode::Eval, "run.eval.[evalg].env"));
-    CHECK_THROWS_WITH(tags.at("evalg").RequireAllKeysRead("run.eval.[evalg]"),
+    CHECK_THROWS_WITH(tags.at("evalg").RequireAllKeysRead(),
         Catch::Matchers::ContainsSubstring("Unread config keys in run.eval.[evalg]:")
         && Catch::Matchers::ContainsSubstring("env.ram_metric.[pong].[top] = 0x8D max_seen"));
 }
@@ -1845,9 +1845,16 @@ TEST_CASE("Pixel area rejects invalid sizes with the responsible configuration k
             data.Set("AtariEnv.resize_mode", "pixel_area");
             data.Set(key, value);
             anet::test::LogCaptureGuard logs(wxLOG_Info);
-            CHECK_THROWS_WITH(factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "invalid-size", 1,
-                anet::rl::RunMode::Train, prefix == "AtariEnv" ? "" : prefix),
-                Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring(value));
+            const auto create = [&] {
+                return factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "invalid-size", 1,
+                    anet::rl::RunMode::Train, prefix == "AtariEnv" ? "" : prefix);
+            };
+            if (value == "161") {
+                CHECK_THROWS_WITH(create(), Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring(value)
+                    && Catch::Matchers::ContainsSubstring("AtariEnv.resize_mode='pixel_area'"));
+            } else {
+                CHECK_THROWS_WITH(create(), Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring(value));
+            }
         }
     }
 }

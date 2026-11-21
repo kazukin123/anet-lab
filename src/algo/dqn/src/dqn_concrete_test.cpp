@@ -65,10 +65,10 @@ TEST_CASE("DQN replay priority validation warns once per Run", "[dqn][config][pe
 
     int matching_warnings = 0;
     for (const auto& record : logs.Records()) {
-        if (record.level != wxLOG_Warning || record.message.find("learner.per_eps=0") == std::string::npos) continue;
+        if (record.level != wxLOG_Warning || record.message.find("per_eps (not read from config)=0") == std::string::npos) continue;
         ++matching_warnings;
         CHECK(record.message.find("zero-TD-error transitions") != std::string::npos);
-        CHECK(record.message.find("Set learner.per_eps") != std::string::npos);
+        CHECK(record.message.find("Set per_eps (not read from config)") != std::string::npos);
     }
     CHECK(matching_warnings == 1);
 }
@@ -96,10 +96,10 @@ TEST_CASE("DQN replay priority warnings identify keys values reasons and alterna
         config.per_initial_priority_mode = "actor_approx";
         config.per_alpha = 0.0f;
         require_warning(config, {
-            "learner.per_initial_priority_mode=actor_approx",
-            "learner.per_alpha=0",
+            "per_initial_priority_mode (not read from config)=actor_approx",
+            "per_alpha (not read from config)=0",
             "does not affect sampling",
-            "Set learner.per_alpha",
+            "Set per_alpha (not read from config)",
         });
     }
     SECTION("zero clip upper bound") {
@@ -107,10 +107,10 @@ TEST_CASE("DQN replay priority warnings identify keys values reasons and alterna
         config.use_per_prio_clip = true;
         config.per_prio_clip_value = 0.0f;
         require_warning(config, {
-            "learner.use_per_prio_clip=true",
-            "learner.per_prio_clip_value=0",
+            "use_per_prio_clip (not read from config)=true",
+            "per_prio_clip_value (not read from config)=0",
             "clipped to zero",
-            "disable learner.use_per_prio_clip",
+            "disable use_per_prio_clip (not read from config)",
         });
     }
     SECTION("clip upper bound no larger than epsilon") {
@@ -119,10 +119,10 @@ TEST_CASE("DQN replay priority warnings identify keys values reasons and alterna
         config.use_per_prio_clip = true;
         config.per_prio_clip_value = 0.2f;
         require_warning(config, {
-            "learner.per_prio_clip_value=0.2",
-            "learner.per_eps=0.25",
+            "per_prio_clip_value (not read from config)=0.2",
+            "per_eps (not read from config)=0.25",
             "collapse priority differences",
-            "learner.per_prio_clip_value > learner.per_eps",
+            "per_prio_clip_value (not read from config) > per_eps (not read from config)",
         });
     }
 }
@@ -737,6 +737,30 @@ TEST_CASE("Disabled skip has no required J or variable limit but still validates
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring("skip.target_window"));
 }
 
+TEST_CASE("Skip length diagnostics identify the configured mode", "[dqn][prd194]")
+{
+    auto data = MakePrd104ConfigData();
+    const std::string prefix = "DefaultDQNAgent.actor.[train].skip.";
+    const std::string mode_source = "Trial.actor.[train].skip.max_length_mode";
+    anet::ConfigData source;
+    source.Set(mode_source, "variable");
+    data.CopyValueFrom(prefix + "max_length_mode", source, mode_source);
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
+        Catch::Matchers::ContainsSubstring("Missing " + prefix + "max_length")
+        && Catch::Matchers::ContainsSubstring("when " + mode_source + "=variable"));
+
+    source.Set(mode_source, "single");
+    const std::string length_source = "Trial.actor.[train].skip.max_length";
+    source.Set(length_source, 1);
+    data.CopyValueFrom(prefix + "max_length_mode", source, mode_source);
+    data.CopyValueFrom(prefix + "max_length", source, length_source);
+    anet::test::LogCaptureGuard logs;
+    CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
+    logs.Flush();
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
+        {length_source, "is unused with " + mode_source + "=single", "expected " + mode_source + "=variable"}));
+}
+
 TEST_CASE("DefaultDQN checkpoint headers identify Agent serialization formats", "[dqn][serialize][prd098][checkpoint-format]")
 {
     ScopedNoopMetricsLogger metrics_logger;
@@ -827,10 +851,12 @@ TEST_CASE("Skip checkpoint migration initializes only missing split moments and 
     }
     config.skip.enabled = true;
     config.learner.skip.feature_gradient = current_mode;
-    config.learner.learning_rate.type = "linear";
-    config.learner.learning_rate.start = 0.0003f;
-    config.learner.learning_rate.end = 0;
-    config.learner.learning_rate.steps = 10;
+    auto scheduled = WithDefaultForwardConfig();
+    scheduled.Set("DefaultDQNAgent.learner.learning_rate.type", "linear");
+    scheduled.Set("DefaultDQNAgent.learner.learning_rate.start", 0.0003f);
+    scheduled.Set("DefaultDQNAgent.learner.learning_rate.end", 0.0f);
+    scheduled.Set("DefaultDQNAgent.learner.learning_rate.steps", 10);
+    config.learner.learning_rate = dqn::DefaultDQNAgentConfig(scheduled).learner.learning_rate;
     config.learner.adam_eps = 0.0002f;
     config.learner.weight_decay.value = 0.02f;
     config.learner.update_warmup_steps = 1000;
@@ -860,7 +886,7 @@ TEST_CASE("Skip checkpoint migration initializes only missing split moments and 
         CHECK(missing_network == (saved_mode == "off" ? 1 : 0));
         if (current_mode == "split") {
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-                {"group=4", "lr=0.0003", "weight_decay=0", "eps=0.0002"}));
+                {"group=4", "DefaultDQNAgent.learner.learning_rate.start=0.0003", "fixed weight decay 0", "adam_eps=0.0002"}));
         }
         if (saved_mode == "split" && current_mode == "split") {
             // 公開の更新境界でscheduleだけを進め、追加roleにも同じlrが保存されることを確かめる。
@@ -874,7 +900,8 @@ TEST_CASE("Skip checkpoint migration initializes only missing split moments and 
             CHECK_NOTHROW(make_agent(config));
             logs.Flush();
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-                {"role=primary_skip", "option=lr", "checkpoint=0.00015", "config=0.0003"}));
+                {"role=primary_skip", "option=lr", "key=DefaultDQNAgent.learner.learning_rate.start",
+                    "checkpoint=0.00015", "config=0.0003"}));
         }
     }
     std::filesystem::remove(path);
@@ -1492,7 +1519,11 @@ TEST_CASE("DefaultDQNAgentFactory rejects QR with a taus bind", "[dqn][qr][confi
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto config_data = MakeIqnTracerConfigData();
-    config_data.Set("DefaultDQNAgent.quantile_mode", "qr");
+    anet::ConfigData source;
+    source.Set("Trial.quantile_mode", "qr");
+    source.Set("Trial.net.branch.[tau_embedding].bind", anet::rl::dqn::kKey_Taus);
+    config_data.CopyValueFrom("DefaultDQNAgent.quantile_mode", source, "Trial.quantile_mode");
+    config_data.CopyValueFrom("DefaultDQNAgent.net.branch.[tau_embedding].bind", source, "Trial.net.branch.[tau_embedding].bind");
 
     dqn::DefaultDQNAgentFactory factory;
     CHECK_THROWS_WITH(
@@ -1503,9 +1534,9 @@ TEST_CASE("DefaultDQNAgentFactory rejects QR with a taus bind", "[dqn][qr][confi
             WithDefaultForwardConfig(config_data),
             nullptr,
             123),
-        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.quantile_mode")
+        Catch::Matchers::ContainsSubstring("Trial.quantile_mode")
             && Catch::Matchers::ContainsSubstring(
-                "DefaultDQNAgent.net.branch.[tau_embedding].bind"));
+                "Trial.net.branch.[tau_embedding].bind"));
 }
 
 TEST_CASE("DefaultDQNAgentFactory rejects non-quantile mode with a taus bind", "[dqn][config]")
@@ -1891,11 +1922,11 @@ TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded netw
         CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
         if (change_alpha) {
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-                {"group=0", "option=lr", "key=learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
+                {"group=0", "option=lr", "key=DefaultDQNAgent.learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
         }
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
             {"Learner::Load: optimizer options applied from config.", "group=0",
-                change_alpha ? "lr=5e-05" : "lr=0.0001"}));
+                change_alpha ? "DefaultDQNAgent.learner.learning_rate=5e-05" : "DefaultDQNAgent.learner.learning_rate=0.0001"}));
     }
     auto actor = loaded_agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch_env_spec, .env_spec = env_spec, .device = torch::Device(torch::kCPU), .seed = 123, .actor_key = "train"});
     auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
@@ -2199,7 +2230,21 @@ TEST_CASE("Decomposition still rejects each active scaler combination", "[prd121
     data.Set("DefaultDQNAgent." + scaler + ".use_auto_post_scale", true);
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
         Catch::Matchers::ContainsSubstring("DefaultDQNAgent." + scaler)
-        && Catch::Matchers::ContainsSubstring("expected use_auto_post_scale=false"));
+        && Catch::Matchers::ContainsSubstring("expected DefaultDQNAgent." + scaler + ".use_auto_post_scale=false"));
+}
+
+TEST_CASE("Decomposition names the mode requiring a fixed actor beta", "[dqn][prd194]")
+{
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.intrinsic.enabled", true);
+    data.Set("DefaultDQNAgent.intrinsic.value_mode", dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
+    anet::ConfigData source;
+    source.Set("Trial.actor.[train].intrinsic.action_beta_mode", dqn::DQNActorConfig::kActionBetaFixed);
+    data.CopyValueFrom("DefaultDQNAgent.actor.[train].intrinsic.action_beta_mode", source,
+        "Trial.actor.[train].intrinsic.action_beta_mode");
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.actor.[train].intrinsic.action_beta")
+        && Catch::Matchers::ContainsSubstring("Trial.actor.[train].intrinsic.action_beta_mode=fixed"));
 }
 
 TEST_CASE("Unused decomposition settings warn only for explicit nondefaults", "[prd121][dqn][config]")
@@ -2455,12 +2500,19 @@ TEST_CASE("DefaultDQNAgentConfig validates quantile modes and tau rules", "[dqn]
 
     SECTION("IQN kappa")
     {
-        for (const auto& value : { "0", "-0.5", "nan", "inf" }) {
+        for (const std::string_view value : { "0", "-0.5", "nan", "inf" }) {
             INFO("kappa=" << value);
             anet::ConfigData config_data;
             config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
-            config_data.Set("DefaultDQNAgent.learner.quantile_huber_kappa", value);
-            CHECK_THROWS(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(config_data)));
+            constexpr char kappa_key[] = "DefaultDQNAgent.learner.quantile_huber_kappa";
+            config_data.Set(kappa_key, value);
+            const auto read = [&] { return dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(config_data)); };
+            if (value == "nan" || value == "inf") {
+                CHECK_THROWS_WITH(read(), Catch::Matchers::ContainsSubstring(kappa_key));
+            } else {
+                CHECK_THROWS_WITH(read(), Catch::Matchers::ContainsSubstring(kappa_key)
+                    && Catch::Matchers::ContainsSubstring("when DefaultDQNAgent.quantile_mode=iqn"));
+            }
         }
     }
 }
@@ -2513,7 +2565,7 @@ TEST_CASE("DefaultDQNAgentConfig requires a positive active snapshot interval", 
 
     CHECK_THROWS_WITH(
         dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(config_data)),
-        Catch::Matchers::ContainsSubstring("key=actor.[train].sync_interval")
+        Catch::Matchers::ContainsSubstring("key=DefaultDQNAgent.actor.[train].sync_interval")
         && Catch::Matchers::ContainsSubstring("value=0")
         && Catch::Matchers::ContainsSubstring("expected=>=1"));
 }
@@ -2738,7 +2790,7 @@ TEST_CASE("DQN validates spectral soft update tau only for a soft update configu
             .soft_update_tau = {.value = 0.5f},
             .hard_update_interval = -1,
         }),
-        Catch::Matchers::ContainsSubstring("key=model.soft_update_tau value=0.5")
+        Catch::Matchers::ContainsSubstring("key=value (not read from config) value=0.5")
             && Catch::Matchers::ContainsSubstring("max_value=0.1"));
     CHECK_NOTHROW(make_model(dqn::NetworkModelConfig{
         .soft_update_tau = {.value = 0.1f},
@@ -2751,14 +2803,14 @@ TEST_CASE("DQN validates spectral soft update tau only for a soft update configu
     CHECK_NOTHROW(make_model(dqn::NetworkModelConfig{ .soft_update_tau = {.value = 1.0f} }));
     CHECK_THROWS_WITH(make_model(dqn::NetworkModelConfig{
         .soft_update_tau = {.value = -0.1f}, .hard_update_interval = 100 }),
-        Catch::Matchers::ContainsSubstring("model.soft_update_tau"));
+        Catch::Matchers::ContainsSubstring("key=value (not read from config) value=-0.1"));
     CHECK_THROWS_WITH(make_model(dqn::NetworkModelConfig{
         .soft_update_tau = {.type = "linear", .start = 0.05f, .end = 0.11f, .steps = 8} }),
-        Catch::Matchers::ContainsSubstring("model.soft_update_tau.end"));
+        Catch::Matchers::ContainsSubstring("key=end (not read from config) value=0.11"));
     anet::ProfiledValueConfig<float> phased{.type = "phased", .phases = {"one"}};
     phased.phase.Set("one", anet::ProfiledValuePhaseConfig<float>{.value = 1.0f, .steps = 8});
     CHECK_THROWS_WITH(make_model(dqn::NetworkModelConfig{ .soft_update_tau = phased }),
-        Catch::Matchers::ContainsSubstring("model.soft_update_tau.phase.[one].value"));
+        Catch::Matchers::ContainsSubstring("key=value (not read from config) value=1"));
 
 }
 
@@ -2844,6 +2896,91 @@ TEST_CASE("Rainbow rejects quantile counts that contradict QR mode", "[prd117][d
             && Catch::Matchers::ContainsSubstring("expected"));
     } else {
         CHECK_NOTHROW(dqn::RainbowAgentConfig(data));
+    }
+}
+
+TEST_CASE("DQN feature diagnostics use the settings read by each agent config", "[prd194][prd194_dqn]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::test::RegisterStandardNetworkModules();
+    const auto env_spec = MakeLearnerEnvSpec();
+    const rl::BatchEnvSpec batch_spec{.num_envs = 1, .num_threads = 1};
+    const std::vector<rl::ScalarMetricSubscription> subscriptions{
+        rl::ScalarMetricSubscription{.source_key = "plasticity_srank", .event = rl::EventType::LEARN}
+    };
+
+    auto default_config = MakeDeviceForwardDefaultDqnConfig();
+    default_config.learner.final_feature_branch_key.clear();
+    const auto default_agent = std::make_shared<dqn::DefaultDQNAgent>(default_config, MakeAgentForwardNetworkConfig(),
+        batch_spec, env_spec, torch::kCPU, 123);
+    CHECK_THROWS_WITH(default_agent->ConfigureScalarMetricSubscriptions(subscriptions),
+        Catch::Matchers::ContainsSubstring("DefaultDQNAgent.learner.final_feature_branch_key")
+        && !Catch::Matchers::ContainsSubstring("remove the metric subscription"));
+
+    const auto rainbow_config = MakeDeviceForwardRainbowConfig();
+    const auto rainbow_agent = std::make_shared<dqn::RainbowAgent>(rainbow_config, MakeAgentForwardNetworkConfig(),
+        batch_spec, env_spec, torch::kCPU, 123);
+    CHECK_NOTHROW(rainbow_agent->ConfigureScalarMetricSubscriptions(subscriptions));
+
+    auto probe = std::make_shared<AutocastProbeState>();
+    AutocastProbeNetworkModel model(probe, torch::Device(torch::kCPU));
+    dqn::RuntimeVars vars;
+    TestLearner rainbow_learner(rainbow_config.learner, model, vars, batch_spec, env_spec, dqn::LearnerForwardResources{});
+    CHECK_THROWS_WITH(rainbow_learner.ConfigureScalarMetricSubscriptions(subscriptions),
+        Catch::Matchers::ContainsSubstring("final_feature_branch_key (not read from config)")
+        && Catch::Matchers::ContainsSubstring("remove the metric subscription")
+        && !Catch::Matchers::ContainsSubstring("DefaultDQNAgent"));
+}
+
+TEST_CASE("Default DQN reader reports the full key that supplied an invalid setting", "[prd194]")
+{
+    auto data = WithDefaultForwardConfig();
+    anet::ConfigData input;
+    const std::string source_key = "Trial.learner.munchausen.clip_value_min";
+    input.Set(source_key, 1.0f);
+    data.CopyValueFrom("DefaultDQNAgent.learner.munchausen.clip_value_min", input, source_key);
+    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
+        Catch::Matchers::ContainsSubstring(source_key + "=1")
+        && Catch::Matchers::ContainsSubstring("expected finite <= 0"));
+}
+
+TEST_CASE("DQN configuration leaves root-level relative learner settings unread", "[prd194][prd194_dqn_config]")
+{
+    auto data = WithDefaultForwardConfig();
+    data.Set("learner.per_alpha", 2.f);
+    const auto default_config = dqn::DefaultDQNAgentConfig(data);
+    const auto rainbow_config = dqn::RainbowAgentConfig(data);
+
+    CHECK(default_config.learner.per_alpha == dqn::LearnerConfig{}.per_alpha);
+    CHECK(rainbow_config.learner.per_alpha == dqn::LearnerConfig{}.per_alpha);
+    CHECK(std::ranges::any_of(data.GetUnreadKeys(), [](const auto& item) {
+        return item.first == "learner.per_alpha";
+    }));
+}
+
+TEST_CASE("DQN Learners name the source of an invalid priority floor", "[prd194][prd194_per]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::test::RegisterStandardNetworkModules();
+    const auto env = MakeLearnerEnvSpec();
+    const rl::BatchEnvSpec batch{.num_envs = 1, .num_threads = 1};
+    anet::ConfigData data;
+    const bool rainbow = GENERATE(false, true);
+    const std::string key = std::string(rainbow ? "RainbowAgent" : "DefaultDQNAgent") + ".learner.per_eps";
+    data.Set(key, -1.f);
+
+    if (rainbow) {
+        dqn::RainbowAgentConfig config(data);
+        config.use_qr = false;
+        config.use_dueling_net = false;
+        CHECK_THROWS_WITH((dqn::RainbowAgent(config, MakeAgentForwardNetworkConfig(), batch, env, torch::kCPU, 123)),
+            Catch::Matchers::ContainsSubstring(key + "=-1"));
+    } else {
+        dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(data));
+        config.quantile_mode = "none";
+        config.head.use_dueling = false;
+        CHECK_THROWS_WITH((dqn::DefaultDQNAgent(config, MakeAgentForwardNetworkConfig(), batch, env, torch::kCPU, 123)),
+            Catch::Matchers::ContainsSubstring(key + "=-1"));
     }
 }
 
@@ -3075,20 +3212,20 @@ TEST_CASE("Gradient noise validates subscribed settings and warns once for mixed
     };
     auto config = WithDefaultLearnerForwardConfig();
     config.grad_noise.num_micro_batches = 1;
-    expect_invalid(config, "num_micro_batches=1");
+    expect_invalid(config, "num_micro_batches (not read from config)=1");
     config.grad_noise.num_micro_batches = 0;
-    expect_invalid(config, "num_micro_batches=0");
+    expect_invalid(config, "num_micro_batches (not read from config)=0");
     config.grad_noise.num_micro_batches = 3;
-    expect_invalid(config, "replay_batch_size=128", false);
+    expect_invalid(config, "replay_batch_size (not read from config)=128", false);
     config.grad_noise.num_micro_batches = 8;
     for (const auto alpha : { 0.0, -1.0, 1.1, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity() }) {
         config.grad_noise.ema_alpha = alpha;
-        expect_invalid(config, "learner.grad_noise.ema_alpha");
+        expect_invalid(config, "grad_noise.ema_alpha (not read from config)");
     }
     config.grad_noise.ema_alpha = 0.05;
     config.use_amp = true;
     config.use_amp_bf16 = false;
-    expect_invalid(config, "use_amp_bf16=false", false);
+    expect_invalid(config, "use_amp_bf16 (not read from config)=false", false);
     config.use_amp = false;
     TestNetworkModel model;
     dqn::RuntimeVars vars;
@@ -3497,6 +3634,31 @@ TEST_CASE("PRD101 Agent publishes all learner schedule scalars", "[prd101][dqn]"
     }
 }
 
+TEST_CASE("DQN horizon logging names the field that supplied the initial discount", "[dqn][prd194]")
+{
+    ScopedNoopMetricsLogger logger;
+    const auto initial_key = GENERATE(std::string("start"), std::string("phase.[warmup].value"));
+    const std::string gamma = "DefaultDQNAgent.learner.gamma";
+    auto data = WithDefaultForwardConfig();
+    data.Set(gamma + ".type", initial_key == "start" ? "linear" : "phased");
+    data.Set(gamma + "." + initial_key, 0.5f);
+    if (initial_key == "start") {
+        data.Set(gamma + ".steps", 4);
+        data.Set(gamma + ".end", 0.9f);
+    } else {
+        data.Set(gamma + ".phases", "warmup");
+        data.Set(gamma + ".phase.[warmup].steps", 4);
+    }
+    auto config = dqn::DefaultDQNAgentConfig(data);
+    config.quantile_mode = "none";
+    config.head.use_dueling = false;
+    anet::test::LogCaptureGuard logs;
+    dqn::DefaultDQNAgent agent(config, MakeAgentForwardNetworkConfig(), {1, 1}, MakeLearnerEnvSpec(), torch::kCPU, 101);
+    logs.Flush();
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
+        {gamma + "." + initial_key + "=0.5", "EffectiveHorizon: 2 steps"}));
+}
+
 TEST_CASE("PRD101 Rainbow Actor honors spatial selection and moving endpoints", "[prd101][dqn][rainbow]")
 {
     ScopedNoopMetricsLogger logger;
@@ -3549,11 +3711,12 @@ TEST_CASE("PRD128 Rainbow rejects unsupported actor policies in both constructio
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();
     const std::string type = GENERATE("UQE", "1", "ThompsonSampling", "2", "Greedy", "3", "unknown", "Greedyy");
-    const std::string message = "Invalid RainbowAgent.actor.[train].policy.policy_type='" + type
+    const std::string message = "='" + type
         + "'; expected EpsilonGreedy (RainbowAgent supports epsilon-greedy only).";
     anet::ConfigData data;
     data.Set("RainbowAgent.actor.[train].policy.policy_type", type);
-    CHECK_THROWS_WITH(dqn::RainbowAgentConfig(data), Catch::Matchers::ContainsSubstring(message));
+    CHECK_THROWS_WITH(dqn::RainbowAgentConfig(data),
+        Catch::Matchers::ContainsSubstring("RainbowAgent.actor.[train].policy.policy_type" + message));
 
     dqn::RainbowAgentConfig config;
     config.use_qr = false;
@@ -3562,7 +3725,8 @@ TEST_CASE("PRD128 Rainbow rejects unsupported actor policies in both constructio
     config.learner.replay_batch_size = 2;
     config.actor["train"].policy.policy_type = type;
     CHECK_THROWS_WITH(std::make_shared<dqn::RainbowAgent>(config, MakeAgentForwardNetworkConfig(),
-        rl::BatchEnvSpec{.num_envs = 1, .num_threads = 1}, MakeLearnerEnvSpec(), torch::kCPU, 128), Catch::Matchers::ContainsSubstring(message));
+        rl::BatchEnvSpec{.num_envs = 1, .num_threads = 1}, MakeLearnerEnvSpec(), torch::kCPU, 128),
+        Catch::Matchers::ContainsSubstring("policy_type (not read from config)" + message));
 }
 
 TEST_CASE("PRD128 Rainbow validates actor tau rules in both construction paths",
@@ -3574,7 +3738,8 @@ TEST_CASE("PRD128 Rainbow validates actor tau rules in both construction paths",
     const bool count = GENERATE(false, true);
     const std::string rule_key = full_query ? "full_distribution_query.tau_rule" : "tau_rule";
     const std::string field = count ? "num_taus" : "sample_mode";
-    const std::string key = "RainbowAgent.actor.[train].policy." + rule_key + "." + field;
+    const std::string relative_key = rule_key + "." + field;
+    const std::string key = "RainbowAgent.actor.[train].policy." + relative_key;
     anet::ConfigData data;
     if (count) data.Set(key, 0);
     else data.Set(key, "unknown");
@@ -3591,7 +3756,7 @@ TEST_CASE("PRD128 Rainbow validates actor tau rules in both construction paths",
     else rule.sample_mode = "unknown";
     CHECK_THROWS_WITH(std::make_shared<dqn::RainbowAgent>(config, MakeAgentForwardNetworkConfig(),
         rl::BatchEnvSpec{.num_envs = 1, .num_threads = 1}, MakeLearnerEnvSpec(), torch::kCPU, 128),
-        Catch::Matchers::ContainsSubstring(key));
+        Catch::Matchers::ContainsSubstring(relative_key + " (not read from config)"));
 }
 
 TEST_CASE("PRD128 Rainbow accepts epsilon-greedy aliases and shared scalar routes",

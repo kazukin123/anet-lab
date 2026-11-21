@@ -114,12 +114,14 @@ namespace anet {
         };
 
         bool IsNvencEligibleVideoSize(int width, int height);
-        VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int width, int height, const std::string& path);
+        VideoCodecDecision ResolveVideoCodec(const std::string& requested_codec, int width, int height,
+            const std::string& path, const ConfigFullKeyTable& full_keys = {});
 
         /// Run内のauto選択だけに、起動失敗によるCPUへの固定を共有する。
         class VideoCodecSelection {
         public:
-            VideoCodecDecision Resolve(const std::string& codec, int width, int height, const std::string& path) const;
+            VideoCodecDecision Resolve(const std::string& codec, int width, int height, const std::string& path,
+                const ConfigFullKeyTable& full_keys = {}) const;
             void PinSoftwareFallback() { software_fallback_.store(true); }
         private:
             std::atomic<bool> software_fallback_{false};
@@ -133,7 +135,7 @@ namespace anet {
     class VideoLogger {
     public:
         VideoLogger(const std::string& path, int width, int height, detail::VideoCodecSelection& selection,
-            const std::string& codec = "auto", int fps = 30);
+            const std::string& codec = "auto", int fps = 30, const ConfigFullKeyTable& full_keys = {});
         ~VideoLogger() { Close(); }
 
         void WriteFrame(const wxImage& img, const std::string& tag);
@@ -174,6 +176,7 @@ namespace anet {
         std::string video_codec = "auto";
         int video_fps = 30;
         bool use_png_dump = false;
+        ConfigFullKeyTable full_keys;
     };
 
     class MetricsLogger {

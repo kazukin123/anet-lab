@@ -335,13 +335,14 @@ RunningStdSingleTensorNormalizer::RunningStdSingleTensorNormalizer(
     const std::optional<float>& clip_range,
     const std::vector<int64_t>& shape, float epsilon,
     bool use_robust_update, int robust_warmup_count, float robust_std_threshold,
-    int post_process_type, float post_process_threshold, bool use_centering)
+    int post_process_type, float post_process_threshold, bool use_centering, std::string post_process_type_key)
     : clip_range_(clip_range), shape_(shape)
     , use_robust_update_(use_robust_update)
     , use_centering_(use_centering)
     , robust_warmup_count_(robust_warmup_count)
     , robust_std_threshold_(robust_std_threshold)
     , post_process_type_(post_process_type)
+    , post_process_type_key_(std::move(post_process_type_key))
     , post_process_threshold_(post_process_threshold)
     , stats_(shape, epsilon) // Vectorモードで初期化
 {
@@ -440,7 +441,7 @@ RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs, bo
     case kPostProcessNone:
         break;
     default:
-        ANET_SYSTEM_ERROR("Invalid observation normalizer post_process_type=" << post_process_type_
+        ANET_SYSTEM_ERROR("Invalid observation normalizer " << post_process_type_key_ << "=" << post_process_type_
             << "; expected 0..3.");
     }
 
@@ -718,24 +719,24 @@ std::optional<float> DictObservationNormalizer::GetScalar(const std::string& key
 // =============================================================
 
 void anet::rl::ValidateObservationNormalizerConfig(
-    const ObservationNormalizerConfig& config, const std::string& prefix)
+    const ObservationNormalizerConfig& config)
 {
     // 値域は正規化機構の共通契約として検証し、利用側の種類を知らない。
     const auto positive = [&](float value, const char* leaf) {
         if (!std::isfinite(value) || value <= 0.0f)
-            ANET_SYSTEM_ERROR("Invalid " << prefix << "." << leaf << "=" << value << "; expected finite > 0.");
+            ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey(leaf) << "=" << value << "; expected finite > 0.");
     };
     positive(config.clip_range, "clip_range");
     positive(config.epsilon, "epsilon");
     positive(config.robust_std_threshold, "robust_std_threshold");
     positive(config.post_process_threshold, "post_process_threshold");
     if (config.robust_warmup_count < 0)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".robust_warmup_count=" << config.robust_warmup_count << "; expected >= 0.");
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("robust_warmup_count") << "=" << config.robust_warmup_count << "; expected >= 0.");
     if (config.post_process_type < kPostProcessNone || config.post_process_type > kPostProcessSoftsign)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".post_process_type=" << config.post_process_type << "; expected 0..3.");
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("post_process_type") << "=" << config.post_process_type << "; expected 0..3.");
     for (const auto value : config.constant_mean) {
         if (!std::isfinite(value))
-            ANET_SYSTEM_ERROR("Invalid " << prefix << ".constant_mean=" << value << "; expected finite.");
+            ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("constant_mean") << "=" << value << "; expected finite.");
     }
     for (const auto value : config.constant_std) positive(value, "constant_std");
 }
@@ -743,7 +744,7 @@ void anet::rl::ValidateObservationNormalizerConfig(
 ObservationNormalizerFactory::ObservationNormalizerFactory(const ObservationNormalizerConfig& config)
     : config_(config)
 {
-    ValidateObservationNormalizerConfig(config_, "obs_norm");
+    ValidateObservationNormalizerConfig(config_);
 }
 
 std::shared_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObservationNormalizer(
@@ -771,7 +772,8 @@ std::shared_ptr<ObservationNormalizer> ObservationNormalizerFactory::CreateObser
         } else {
             single_norm = std::make_shared<RunningStdSingleTensorNormalizer>(
                 clip, t_spec.shape, config_.epsilon, config_.use_robust_update, config_.robust_warmup_count,
-                config_.robust_std_threshold, config_.post_process_type, config_.post_process_threshold, config_.use_centering);
+                config_.robust_std_threshold, config_.post_process_type, config_.post_process_threshold, config_.use_centering,
+                config_.full_keys.GetFullKey("post_process_type"));
         }
 
         dict_normalizer->AddNormalizer(key, single_norm);
@@ -949,12 +951,12 @@ int64_t RunningStdRewardScaler::Load(anet::InputArchive& archive)
 }
 
 ReturnStdRewardScaler::ReturnStdRewardScaler(float gamma, int64_t num_lanes,
-    const std::optional<float>& clip_range, float epsilon, float post_scale, std::string prefix)
+    const std::optional<float>& clip_range, float epsilon, float post_scale, std::string prefix, const std::string& gamma_key)
     : RunningStdRewardScaler(clip_range, epsilon, post_scale), gamma_(gamma), num_lanes_(num_lanes), prefix_(std::move(prefix))
 {
     if (num_lanes_ < 1 || !std::isfinite(gamma_) || gamma_ < 0.0f || gamma_ > 1.0f)
-        ANET_SYSTEM_ERROR("Invalid return reward scaler: num_lanes=" << num_lanes_ << " gamma=" << gamma_
-            << "; expected num_lanes >= 1 and finite gamma in [0,1].");
+        ANET_SYSTEM_ERROR("Invalid return reward scaler: num_lanes=" << num_lanes_ << " " << gamma_key << "=" << gamma_
+            << "; expected num_lanes >= 1 and finite " << gamma_key << " in [0,1].");
 }
 
 void ReturnStdRewardScaler::UpdateStatistics(const torch::Tensor& reward)
@@ -1007,20 +1009,23 @@ int64_t ReturnStdRewardScaler::Load(anet::InputArchive& archive)
 RewardScalerFactory::RewardScalerFactory(const RewardScalerConfig& config, std::string prefix)
     : config_(config), prefix_(std::move(prefix))
 {
-    ValidateRewardScalerConfig(config_, prefix_);
+    ValidateRewardScalerConfig(config_);
 }
 
-void anet::rl::ValidateRewardScalerConfig(const RewardScalerConfig& config, const std::string& prefix, bool used)
+void anet::rl::ValidateRewardScalerConfig(const RewardScalerConfig& config, bool used)
 {
     if (config.dynamic_mode != RewardScaler::kRewardStdState && config.dynamic_mode != RewardScaler::kReturnStdState)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".dynamic_mode='" << config.dynamic_mode
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("dynamic_mode") << "='" << config.dynamic_mode
             << "'; expected " << RewardScaler::kRewardStdState << " or " << RewardScaler::kReturnStdState << ".");
     if (used && config.use_dynamic_scaling && config.dynamic_mode == RewardScaler::kReturnStdState && config.use_auto_post_scale)
-        ANET_SYSTEM_ERROR("Invalid " << prefix << ".use_dynamic_scaling=true " << prefix << ".dynamic_mode="
-            << config.dynamic_mode << " " << prefix << ".use_auto_post_scale=true; expected use_auto_post_scale=false.");
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("use_dynamic_scaling") << "=true "
+            << config.full_keys.GetFullKey("dynamic_mode") << "=" << config.dynamic_mode << " "
+            << config.full_keys.GetFullKey("use_auto_post_scale") << "=true; expected "
+            << config.full_keys.GetFullKey("use_auto_post_scale") << "=false.");
 }
 
-std::unique_ptr<RewardScaler> RewardScalerFactory::CreateRewardScaler(float gamma, int64_t num_lanes) const
+std::unique_ptr<RewardScaler> RewardScalerFactory::CreateRewardScaler(float gamma, int64_t num_lanes,
+    const std::string& gamma_key) const
 {
     std::optional<float> clip;
     if (config_.use_clipping)
@@ -1039,7 +1044,7 @@ std::unique_ptr<RewardScaler> RewardScalerFactory::CreateRewardScaler(float gamm
     if (!config_.use_dynamic_scaling)
         return std::make_unique<ConstantRewardScaler>(config_.constant_scale * final_post_scale, clip);
     if (config_.dynamic_mode == RewardScaler::kReturnStdState) {
-        return std::make_unique<ReturnStdRewardScaler>(gamma, num_lanes, clip, config_.epsilon, final_post_scale, prefix_);
+        return std::make_unique<ReturnStdRewardScaler>(gamma, num_lanes, clip, config_.epsilon, final_post_scale, prefix_, gamma_key);
     }
     return std::make_unique<RunningStdRewardScaler>(clip, config_.epsilon, final_post_scale);
 }

@@ -92,28 +92,23 @@ void anet::rl::InitRL(const BackendConfig& backend_config, const ConfigData& con
 	constexpr std::array<const char*, 3> kDeviceKeys{{
 		"agent.device", "env.device", "run.eval_device"
 	}};
-	std::vector<std::string> explicit_cuda_keys;
+	std::vector<std::string> explicit_cuda_settings;
 	for (const auto* key : kDeviceKeys) {
 		// 既定値は各Configが所有するので、ここでは指定されたキーだけを検査する。
 		if (!config_data.Has(key)) continue;
 		const auto spec = config_data.Get(key);
-		torch::Device device(torch::kCPU);
-		try {
-			device = anet::ParseDevice(spec);
-		} catch (const std::exception& e) {
-			ANET_SYSTEM_ERROR("Invalid " << key << "='" << spec << "'. " << e.what());
-		}
+		const auto device = anet::ParseDevice(spec, key);
 		if (device.is_cuda() && anet::ToLower(anet::TrimCopy(spec)) != "auto") {
-			explicit_cuda_keys.emplace_back(key);
+			explicit_cuda_settings.emplace_back(std::string(key) + "='" + spec + "'");
 		}
 	}
-	if (!explicit_cuda_keys.empty() && !torch::cuda::is_available()) {
-		std::ostringstream keys;
-		for (size_t index = 0; index < explicit_cuda_keys.size(); ++index) {
-			if (index > 0) keys << ", ";
-			keys << explicit_cuda_keys[index];
+	if (!explicit_cuda_settings.empty() && !torch::cuda::is_available()) {
+		std::ostringstream settings;
+		for (size_t index = 0; index < explicit_cuda_settings.size(); ++index) {
+			if (index > 0) settings << ", ";
+			settings << explicit_cuda_settings[index];
 		}
-		ANET_SYSTEM_ERROR("CUDA is unavailable for explicit device settings: " << keys.str()
+		ANET_SYSTEM_ERROR("CUDA is unavailable for explicit device settings: " << settings.str()
 			<< ". Change these keys to auto to select CPU when CUDA is unavailable.");
 	}
 

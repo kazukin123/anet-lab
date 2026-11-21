@@ -19,9 +19,9 @@ namespace anet::nn {
     //  WeightInitializer
     // ===========================================================================
 
-    /// 登録前の検査と重みへの適用で同じ半幅を求める。owner は診断の接頭辞。空の重みは半幅を持たない。
+    /// 登録前の検査と重みへの適用で同じ半幅を求める。空の重みは半幅を持たない。
     std::optional<double> ComputeVarianceScalingBound(
-        at::IntArrayRef weight_shape, at::ScalarType dtype, double variance_scale, std::string_view owner);
+        at::IntArrayRef weight_shape, at::ScalarType dtype, double variance_scale, std::string_view key);
 
 
     // ===========================================================================
@@ -66,14 +66,16 @@ namespace anet::nn {
         torch::Tensor v;
     };
 
-    WeightNormMode ParseWeightNormMode(const std::string& mode);
+    WeightNormMode ParseWeightNormMode(const std::string& mode, const std::string& key);
 
     void PowerIterationStep(const torch::Tensor& weight_mat, SpectralNormState& state);
     SpectralNormState MakeSpectralNormState(
         const torch::Tensor& weight,
         WeightNormMode mode,
         const std::string& name,
-        anet::RandomGenerator& rnd);
+        anet::RandomGenerator& rnd,
+        std::string_view mode_key = "weight_norm.mode (not read from config)",
+        std::string_view init2_mode_key = "init2.mode (not read from config)");
 
     torch::Tensor MakeSpectralNormalizedWeight(
         const torch::Tensor& weight,
@@ -109,6 +111,7 @@ namespace anet::nn {
     // ModuleとHeadを作る側の契約。利用側は公開ヘッダの前方宣言だけを使う。
     struct WeightNormConfig {
         std::string mode = "none";      ///< "none", "spectral", "spectral_cap"
+        ConfigFullKeyTable full_keys;
     };
 
 
@@ -184,7 +187,8 @@ namespace anet::nn {
             const NetworkConfig& root_config,
             const std::string& structure_str,
             const std::map<std::string, ConfigProfileConfig>& config_profiles,
-            std::shared_ptr<ModuleRandomSource> random_source);
+            std::shared_ptr<ModuleRandomSource> random_source,
+            const std::string& branch_name);
     };
 
 

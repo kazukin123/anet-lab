@@ -15,7 +15,7 @@
 using namespace anet::nn;
 namespace LOG = anet::log;
 
-static void ValidateWeightInitialization(const WeightInitConfig& config, std::string_view owner, at::ScalarType dtype,
+static void ValidateWeightInitialization(const WeightInitConfig& config, at::ScalarType dtype,
     at::IntArrayRef weight_shape, std::exception_ptr& failure)
 {
     // 初回 forward での検査に失敗した block は、後続でも同じ例外を返す。
@@ -23,9 +23,8 @@ static void ValidateWeightInitialization(const WeightInitConfig& config, std::st
     if (config.mode != WeightInitConfig::kVarianceScalingMode) return;
 
     // どの層も登録されていない時点で、実際の重みと同じ条件を検査する。
-    // 診断には、どの層の指定かが分かるよう block 内の接頭辞を渡す。
     try {
-        (void)ComputeVarianceScalingBound(weight_shape, dtype, config.variance_scale, owner);
+        (void)ComputeVarianceScalingBound(weight_shape, dtype, config.variance_scale, config.full_keys.GetFullKey("variance_scale"));
     } catch (...) {
         failure = std::current_exception();
         throw;
@@ -41,12 +40,12 @@ static void ValidateDropRate(const std::string& key, double value)
 }
 
 static std::shared_ptr<anet::RandomGenerator> GetSpectralNormRandom(
-    const ModuleContext& context, WeightNormMode mode, const std::string& module_type)
+    const ModuleContext& context, WeightNormMode mode, const WeightNormConfig& config, const std::string& module_type)
 {
     if (mode == WeightNormMode::kNone) return nullptr;
     if (!context.random_source) {
         ANET_SYSTEM_ERROR(module_type
-            << " weight_norm.mode requires a Network-scoped ModuleRandomSource.");
+            << " " << config.full_keys.GetFullKey("mode") << " requires a Network-scoped ModuleRandomSource.");
     }
     return context.random_source->Get("spectral_norm");
 }
@@ -58,7 +57,7 @@ protected:
         const WeightNormConfig& weight_norm_config,
         std::shared_ptr<anet::RandomGenerator> spectral_norm_rnd)
         : weight_norm_config_(weight_norm_config)
-        , weight_norm_mode_(ParseWeightNormMode(weight_norm_config.mode))
+        , weight_norm_mode_(ParseWeightNormMode(weight_norm_config.mode, weight_norm_config.full_keys.GetFullKey("mode")))
         , spectral_norm_rnd_(std::move(spectral_norm_rnd))
     {
     }
@@ -87,12 +86,14 @@ protected:
         torch::nn::Module& owner,
         const std::string& name,
         const torch::Tensor& weight,
-        SpectralNormState& state)
+        SpectralNormState& state,
+        std::string_view init2_mode_key = "init2.mode (not read from config)")
     {
         if (!HasSpectralNorm()) return;
         ANET_CHECK_MSG(spectral_norm_rnd_ != nullptr,
             "Spectral normalization requires ModuleRandomSource.");
-        state = MakeSpectralNormState(weight, weight_norm_mode_, name, *spectral_norm_rnd_);
+        state = MakeSpectralNormState(weight, weight_norm_mode_, name, *spectral_norm_rnd_,
+            weight_norm_config_.full_keys.GetFullKey("mode"), init2_mode_key);
         state.u = owner.register_buffer("sn_u_" + name, state.u);
         state.v = owner.register_buffer("sn_v_" + name, state.v);
     }
@@ -172,7 +173,7 @@ torch::nn::init::NonlinearityType anet::nn::GetNonlinearityType(const std::strin
     if (name == "linear") return torch::kLinear;
     if (name == "tanh") return torch::kTanh;
     if (name == "leaky_relu") return torch::kLeakyReLU;
-    ANET_SYSTEM_ERROR("Invalid " << WeightInitConfig::kDefaultOwner << ".nonlinearity='" << name
+    ANET_SYSTEM_ERROR("Invalid nonlinearity (not read from config)='" << name
         << "'; expected relu, linear, tanh or leaky_relu.");
     // ThrowErrorは必ず送出するが、宣言にnoreturnが無い。
     std::terminate();
@@ -208,7 +209,9 @@ struct LinearProjectionNoisyConfig {
     {
         // 無効な定義でも、明示された値の誤りは構築時に検出する。
         if (!std::isfinite(sigma0) || sigma0 < 0.0) {
-            ANET_SYSTEM_ERROR("Invalid " << owner << ".noisy.sigma0=" << sigma0 << "; expected finite >= 0.");
+            const auto key = data.GetFullKey("noisy.sigma0");
+            ANET_SYSTEM_ERROR("Invalid " << (key == "noisy.sigma0" ? owner + "." + key : key)
+                << '=' << sigma0 << "; expected finite >= 0.");
         }
     }
     const bool enabled;
@@ -218,11 +221,7 @@ struct LinearProjectionNoisyConfig {
 
 void anet::nn::ValidateLinearProjectionConfig(const ConfigData& config, const std::string& owner)
 {
-    try {
-        (void)LinearProjectionNoisyConfig(config, owner);
-    } catch (const std::exception& error) {
-        ANET_SYSTEM_ERROR("Invalid projection config: owner=" << owner << "; " << error.what());
-    }
+    (void)LinearProjectionNoisyConfig(config, owner);
 }
 
 void anet::nn::ReportUnusedLinearProjectionConfig(const ConfigData& config, const std::string& owner,
@@ -233,7 +232,7 @@ void anet::nn::ReportUnusedLinearProjectionConfig(const ConfigData& config, cons
     const LinearProjectionNoisyConfig defaults(EmptyConfigData, owner);
     const auto report = [&](const std::string& key, const auto& value, const auto& default_value) {
         if (config.Has(key) && value != default_value)
-            LOG::warn_once(owner + "." + key) << "Ignored " << owner << "." << key
+            LOG::warn_once(owner + "." + key) << "Ignored " << config.GetFullKey(key)
                 << "=" << anet::json(value).dump() << "; default=" << anet::json(default_value).dump()
                 << "; reason=" << reason << ".";
     };
@@ -281,48 +280,56 @@ struct LinearProjectionModule::Impl {
             const auto& count = values.noisy.count;
             // 利用する具象部品の準備で、明示値と必要項目をまとめて検証する。
             if (data.Has("noisy.mode") && raw_mode != "sample" && raw_mode != "mu_only") {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.mode='" << raw_mode << "' expected sample or mu_only.");
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' "
+                    << data.GetFullKey("noisy.mode") << "='" << raw_mode << "' expected sample or mu_only.");
             }
             if (data.Has("noisy.hold") && raw_hold != "call" && raw_hold != "count" && raw_hold != "episode") {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.hold='" << raw_hold << "' expected call, count, or episode.");
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' "
+                    << data.GetFullKey("noisy.hold") << "='" << raw_hold << "' expected call, count, or episode.");
             }
             if (data.Has("noisy.share") && raw_share != "batch" && raw_share != "sample") {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.share='" << raw_share << "' expected batch or sample.");
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' "
+                    << data.GetFullKey("noisy.share") << "='" << raw_share << "' expected batch or sample.");
             }
             if (count && *count == 0) {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.count=0 expected a positive integer.");
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' "
+                    << data.GetFullKey("noisy.count") << "=0 expected a positive integer.");
             }
             if (raw_mode == "sample" && raw_hold == "episode" && raw_share == "batch") {
-                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' noisy.hold=episode requires noisy.share=sample; actual=batch.");
+                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' "
+                    << data.GetFullKey("noisy.hold") << "=episode requires "
+                    << data.GetFullKey("noisy.share") << "=sample; actual=batch.");
             }
             if (require_fields && !data.Has("noisy.mode")) {
-                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' noisy.mode='' expected sample or mu_only.");
+                ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "' "
+                    << data.GetFullKey("noisy.mode") << "='' expected sample or mu_only.");
             }
             if (require_fields && raw_mode == "sample" && (!data.Has("noisy.hold") || !data.Has("noisy.share"))) {
                 ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key
-                    << "' requires noisy.hold=call, count, or episode and noisy.share=batch or sample.");
+                    << "' requires " << data.GetFullKey("noisy.hold") << "=call, count, or episode and "
+                    << data.GetFullKey("noisy.share") << "=batch or sample.");
             }
             if (require_fields && raw_mode == "sample" && raw_hold == "count" && !count) {
-                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' noisy.hold=count requires noisy.count.");
+                ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << request.key << "' "
+                    << data.GetFullKey("noisy.hold") << "=count requires " << data.GetFullKey("noisy.count") << ".");
             }
             return values;
         }
-        explicit ForwardConfig(const NetworkForwardConfig& request, bool require_fields = true) try
+        explicit ForwardConfig(const NetworkForwardConfig& request, bool require_fields = true)
             : ForwardConfig(request, Read(request, require_fields)) {}
-        catch (const std::exception& error) {
-            ANET_SYSTEM_ERROR("Invalid Linear execution setting '" << request.key << "': " << error.what());
-        }
         ForwardConfig(const NetworkForwardConfig& request, const ValuesConfig& values)
             : key(request.key)
             , mode(values.noisy.mode == "sample" ? Mode::kSample : Mode::kMuOnly)
             , hold(values.noisy.hold == "episode" ? Hold::kEpisode : (values.noisy.hold == "count" ? Hold::kCount : Hold::kCall))
             , share(values.noisy.share == "sample" ? Share::kSample : Share::kBatch)
-            , count(values.noisy.count) {}
+            , count(values.noisy.count)
+            , full_keys(values.GetFullKeys()) {}
         const std::string key;
         const Mode mode;
         const Hold hold;
         const Share share;
         const std::optional<uint64_t> count;
+        const ConfigFullKeyTable full_keys;
     };
     struct NoiseState {
         torch::Tensor input;
@@ -337,8 +344,9 @@ struct LinearProjectionModule::Impl {
         const auto source_mode = source.IsDefault() ? Mode::kMuOnly : ForwardConfig(source).mode;
         const auto requested_mode = requested.IsDefault() ? Mode::kMuOnly : ForwardConfig(requested).mode;
         if (source_mode != requested_mode) {
-            ANET_SYSTEM_ERROR("LinearProjectionModule online_reuse requires matching noisy.mode; source '" << source.key << "'=" << ModeName(source_mode)
-                << ", requested '" << requested.key << "'=" << ModeName(requested_mode)
+            ANET_SYSTEM_ERROR("LinearProjectionModule online_reuse requires matching modes; source '" << source.key
+                << "' " << source.GetConfigData().GetFullKey("noisy.mode") << "=" << ModeName(source_mode)
+                << ", requested '" << requested.key << "' " << requested.GetConfigData().GetFullKey("noisy.mode") << "=" << ModeName(requested_mode)
                 << "; expected sample/sample or mu_only/mu_only.");
         }
     }
@@ -353,7 +361,8 @@ struct LinearProjectionModule::Impl {
         ANET_PROFILE_SCOPE(noise);
         auto& state = context.GetState()->Get<NoiseState>(linear.get());
         if (input.dim() < 2) {
-            ANET_SYSTEM_ERROR("LinearProjectionModule noisy.mode=sample requires a batch axis; input rank=" << input.dim() << ".");
+            ANET_SYSTEM_ERROR("LinearProjectionModule " << config.full_keys.GetFullKey("noisy.mode")
+                << "=sample requires a batch axis; input rank=" << input.dim() << ".");
         }
         const bool independent = config.share == Share::kSample;
         int64_t source_rows = input.size(0);
@@ -374,7 +383,8 @@ struct LinearProjectionModule::Impl {
             || context.GetEpisodeStart().scalar_type() != torch::kBool
             || context.GetEpisodeStart().dim() != 1 || context.GetEpisodeStart().size(0) != source_rows)) {
             ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << config.key
-                << "' noisy.hold=episode requires noisy.share=sample and a bool episode_start mask of size=" << source_rows << ".");
+                << "' " << config.full_keys.GetFullKey("noisy.hold") << "=episode requires "
+                << config.full_keys.GetFullKey("noisy.share") << "=sample and a bool episode_start mask of size=" << source_rows << ".");
         }
         const std::vector<int64_t> input_shape = independent
             ? std::vector<int64_t>{ source_rows, input.size(-1) }
@@ -435,7 +445,8 @@ struct LinearProjectionModule::Impl {
             if (config_.mode != Mode::kSample) return;
             if (config_.hold != Hold::kCall && clock != NetworkForwardClock::kContinuingRows) {
                 ANET_SYSTEM_ERROR("LinearProjectionModule execution setting '" << config_.key
-                    << "' noisy.hold=" << HoldName(config_.hold) << " requires continuing rows.");
+                    << "' " << config_.full_keys.GetFullKey("noisy.hold") << '='
+                    << HoldName(config_.hold) << " requires continuing rows.");
             }
         }
         bool IsMeanOnly() const { return config_.mode == Mode::kMuOnly; }
@@ -567,7 +578,7 @@ public:
             // 入力次元数
             const int64_t in_features = x.size(-1);
             ANET_LOG_DEBUG("in_features=" << in_features);
-            ValidateWeightInitialization(init_config_, "init", x.scalar_type(),
+            ValidateWeightInitialization(init_config_, x.scalar_type(),
                 {out_features_, in_features}, weight_init_failure_);
 
             // モジュール生成と登録
@@ -693,7 +704,7 @@ public:
             // x: (Batch, Channel, H, W) -> in_channels is dim 1
             const int64_t in_channels = x.size(1);
             ANET_LOG_DEBUG("in_channels=" << in_channels);
-            ValidateWeightInitialization(init_config_, "init", x.scalar_type(),
+            ValidateWeightInitialization(init_config_, x.scalar_type(),
                 {out_channels_, in_channels, kernel_size_}, weight_init_failure_);
 
             // モジュール生成と登録
@@ -781,7 +792,7 @@ public:
 
             // x: (Batch, Channel, Length) -> in_channels is dim 1
             const int64_t in_channels = x.size(1);
-            ValidateWeightInitialization(init_config_, "init", x.scalar_type(),
+            ValidateWeightInitialization(init_config_, x.scalar_type(),
                 {out_channels_, in_channels, kernel_size_, kernel_size_}, weight_init_failure_);
 
             // モジュール生成と登録
@@ -1036,7 +1047,7 @@ public:
     {
         Config config(config_data);
 
-        ValidateDropRate("dropout_rate", config.dropout_rate);
+        ValidateDropRate(config.GetFullKey("dropout_rate"), config.dropout_rate);
         return std::make_shared<DropoutModule>(config.dropout_rate);
     }
 };
@@ -1468,12 +1479,12 @@ private:
 
             // shortcut まで検査してから層を登録し、後続の層の失敗で前の層を残さない。
             const bool needs_downsample = config_.stride > 1 || in_channels != config_.channels;
-            ValidateWeightInitialization(init1_config_, "init1", dtype,
+            ValidateWeightInitialization(init1_config_, dtype,
                 {config_.channels, in_channels, config_.kernel_size, config_.kernel_size}, weight_init_failure_);
-            ValidateWeightInitialization(init2_config_, "init2", dtype,
+            ValidateWeightInitialization(init2_config_, dtype,
                 {config_.channels, config_.channels, config_.kernel_size, config_.kernel_size}, weight_init_failure_);
             if (needs_downsample) {
-                ValidateWeightInitialization(init_ds_config_, "init_ds", dtype,
+                ValidateWeightInitialization(init_ds_config_, dtype,
                     {config_.channels, in_channels, 1, 1}, weight_init_failure_);
             }
 
@@ -1504,7 +1515,7 @@ private:
             conv2_->to(device, dtype);
 
             WeightInitializer::Initialize(conv2_, init2_config_);
-            InitializeSpectralNorm(*this, "conv2", conv2_->weight, spectral_norm_conv2_);
+            InitializeSpectralNorm(*this, "conv2", conv2_->weight, spectral_norm_conv2_, init2_config_.full_keys.GetFullKey("mode"));
 
             if (config_.dropout_rate > 0.0) {
                 dropout2d_ = register_module("dropout2d",
@@ -1722,22 +1733,24 @@ private:
 
             ANET_READ_CONFIG(config_data, init_ds);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
+            weight_norm.full_keys = GetFullKeys().Extract("weight_norm");
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
-        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
-        ValidateDropRate("res.droppath_rate", config.res.droppath_rate);
-        ValidateDropRate("res.dropout_rate", config.res.dropout_rate);
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode, config.weight_norm.full_keys.GetFullKey("mode"));
+        ValidateDropRate(config.GetFullKey("res.droppath_rate"), config.res.droppath_rate);
+        ValidateDropRate(config.GetFullKey("res.dropout_rate"), config.res.dropout_rate);
         if (config.res.dropout_rate > 0.0 && config.res.norm_type == "batch") {
-            LOG::warn_once() << "ResBlock dropout_rate is enabled with BatchNorm. "
-                << "key=res.dropout_rate value=" << config.res.dropout_rate
+            LOG::warn_once() << "ResBlock " << config.GetFullKey("res.dropout_rate") << " is enabled with BatchNorm. "
+                << "key=" << config.GetFullKey("res.dropout_rate") << " value=" << config.res.dropout_rate
                 << " reason=channel dropout can shift BatchNorm statistics"
-                << " recommended=use res.droppath_rate or set res.norm_type to group/none.";
+                << " recommended=use " << config.GetFullKey("res.droppath_rate")
+                << " or set " << config.GetFullKey("res.norm_type") << " to group/none.";
         }
-        auto rnd = GetSpectralNormRandom(context, mode, "ResBlock");
+        auto rnd = GetSpectralNormRandom(context, mode, config.weight_norm, "ResBlock");
         return std::make_shared<ResBlockModule>(
             config.res, config.init1, config.init2, config.init_ds, config.weight_norm, std::move(rnd));
     }
@@ -1750,6 +1763,7 @@ public:
 
 struct CNBlockConfig {
     int channels = 0;
+    anet::ConfigFullKeyTable full_keys;
     int kernel_size = 7;
     int ffn_expand_ratio = 4;
     double layerscale_init = 1.0e-6;
@@ -1806,7 +1820,8 @@ private:
             const auto dtype = input.scalar_type();
             const int64_t in_channels = input.size(1);
             if (in_channels != config_.channels) {
-                ANET_SYSTEM_ERROR("CNBlock: in_channels(" << in_channels << ") != cn.channels(" << config_.channels
+                ANET_SYSTEM_ERROR("CNBlock: in_channels(" << in_channels << ") != "
+                    << config_.full_keys.GetFullKey("channels") << '(' << config_.channels
                     << "). CNBlock does not change channel count internally; insert a downsample block before it.");
             }
 
@@ -1814,11 +1829,11 @@ private:
             const int64_t hidden_channels = static_cast<int64_t>(config_.channels) * config_.ffn_expand_ratio;
 
             // depthwise の重みはグループごとの入力 1 チャネルで、pointwise は全チャネルを使う。
-            ValidateWeightInitialization(init_dw_, "init_dw", dtype,
+            ValidateWeightInitialization(init_dw_, dtype,
                 {config_.channels, 1, config_.kernel_size, config_.kernel_size}, weight_init_failure_);
-            ValidateWeightInitialization(init_pw1_, "init_pw1", dtype,
+            ValidateWeightInitialization(init_pw1_, dtype,
                 {hidden_channels, config_.channels, 1, 1}, weight_init_failure_);
-            ValidateWeightInitialization(init_pw2_, "init_pw2", dtype,
+            ValidateWeightInitialization(init_pw2_, dtype,
                 {config_.channels, hidden_channels, 1, 1}, weight_init_failure_);
 
             torch::nn::Conv2dOptions dw_opts(config_.channels, config_.channels, config_.kernel_size);
@@ -1837,7 +1852,7 @@ private:
                     1.0e-6,
                     config_.norm_force_fp32));
             } else if (config_.norm_type != "none") {
-                ANET_SYSTEM_ERROR("CNBlock: unknown cn.norm_type='" << config_.norm_type
+                ANET_SYSTEM_ERROR("CNBlock: unknown " << config_.full_keys.GetFullKey("norm_type") << "='" << config_.norm_type
                     << "' expected one of: layernorm2d, none");
             }
 
@@ -1962,6 +1977,7 @@ private:
 
             ANET_READ_CONFIG(config_data, init_pw2);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
+            weight_norm.full_keys = GetFullKeys().Extract("weight_norm");
         }
     };
 
@@ -1969,22 +1985,25 @@ public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
-        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode, config.weight_norm.full_keys.GetFullKey("mode"));
         if (config.cn.channels <= 0) {
-            ANET_SYSTEM_ERROR("CNBlock: 'cn.channels' must be strictly positive.");
+            ANET_SYSTEM_ERROR("CNBlock: '" << config.GetFullKey("cn.channels") << "' must be strictly positive.");
         }
         if (config.cn.kernel_size <= 0 || config.cn.kernel_size % 2 == 0) {
-            ANET_SYSTEM_ERROR("CNBlock: 'cn.kernel_size' must be a positive odd number. value=" << config.cn.kernel_size);
+            ANET_SYSTEM_ERROR("CNBlock: '" << config.GetFullKey("cn.kernel_size")
+                << "' must be a positive odd number. value=" << config.cn.kernel_size);
         }
         if (config.cn.ffn_expand_ratio <= 0) {
-            ANET_SYSTEM_ERROR("CNBlock: 'cn.ffn_expand_ratio' must be strictly positive. value=" << config.cn.ffn_expand_ratio);
+            ANET_SYSTEM_ERROR("CNBlock: '" << config.GetFullKey("cn.ffn_expand_ratio")
+                << "' must be strictly positive. value=" << config.cn.ffn_expand_ratio);
         }
         if (config.cn.norm_type != "layernorm2d" && config.cn.norm_type != "none") {
-            ANET_SYSTEM_ERROR("CNBlock: unknown cn.norm_type='" << config.cn.norm_type
+            ANET_SYSTEM_ERROR("CNBlock: unknown " << config.GetFullKey("cn.norm_type") << "='" << config.cn.norm_type
                 << "' expected one of: layernorm2d, none");
         }
-        ValidateDropRate("cn.droppath_rate", config.cn.droppath_rate);
-        auto rnd = GetSpectralNormRandom(context, mode, "CNBlock");
+        ValidateDropRate(config.GetFullKey("cn.droppath_rate"), config.cn.droppath_rate);
+        config.cn.full_keys = config.GetFullKeys().Extract("cn");
+        auto rnd = GetSpectralNormRandom(context, mode, config.weight_norm, "CNBlock");
         return std::make_shared<CNBlockModule>(
             config.cn, config.init_dw, config.init_pw1, config.init_pw2,
             config.weight_norm, std::move(rnd));
@@ -2755,21 +2774,22 @@ private:
             ANET_READ_CONFIG(config_data, tf.attn_dropout_rate);
             ANET_READ_CONFIG(config_data, tf.droppath_rate);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
+            weight_norm.full_keys = GetFullKeys().Extract("weight_norm");
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
-        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
-        ValidateDropRate("tf.hidden_dropout_rate", config.tf.hidden_dropout_rate);
-        ValidateDropRate("tf.attn_dropout_rate", config.tf.attn_dropout_rate);
-        ValidateDropRate("tf.droppath_rate", config.tf.droppath_rate);
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode, config.weight_norm.full_keys.GetFullKey("mode"));
+        ValidateDropRate(config.GetFullKey("tf.hidden_dropout_rate"), config.tf.hidden_dropout_rate);
+        ValidateDropRate(config.GetFullKey("tf.attn_dropout_rate"), config.tf.attn_dropout_rate);
+        ValidateDropRate(config.GetFullKey("tf.droppath_rate"), config.tf.droppath_rate);
         if (mode != WeightNormMode::kNone && !config.tf.use_sdpa) {
-            ANET_SYSTEM_ERROR("Invalid TransformerEncoder config: weight_norm.mode="
-                << config.weight_norm.mode << " requires tf.use_sdpa=true.");
+            ANET_SYSTEM_ERROR("Invalid TransformerEncoder config: " << config.GetFullKey("weight_norm.mode")
+                << '=' << config.weight_norm.mode << " requires " << config.GetFullKey("tf.use_sdpa") << "=true.");
         }
-        auto rnd = GetSpectralNormRandom(context, mode, "TransformerEncoder");
+        auto rnd = GetSpectralNormRandom(context, mode, config.weight_norm, "TransformerEncoder");
         return std::make_shared<TransformerEncoderModule>(
             config.tf, config.weight_norm, std::move(rnd));
     }
@@ -2907,16 +2927,16 @@ public:
     {
         Config config(config_data);
         if (config.pool.kernel_size <= 0) {
-            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.kernel_size must be positive. actual=" << config.pool.kernel_size);
+            ANET_SYSTEM_ERROR("MaxPool2dModule: " << config.GetFullKey("pool.kernel_size") << " must be positive. actual=" << config.pool.kernel_size);
         }
         if (config.pool.stride <= 0) {
-            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.stride must be positive. actual=" << config.pool.stride);
+            ANET_SYSTEM_ERROR("MaxPool2dModule: " << config.GetFullKey("pool.stride") << " must be positive. actual=" << config.pool.stride);
         }
         if (config.pool.padding < 0) {
-            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.padding must be non-negative. actual=" << config.pool.padding);
+            ANET_SYSTEM_ERROR("MaxPool2dModule: " << config.GetFullKey("pool.padding") << " must be non-negative. actual=" << config.pool.padding);
         }
         if (config.pool.dilation <= 0) {
-            ANET_SYSTEM_ERROR("MaxPool2dModule: pool.dilation must be positive. actual=" << config.pool.dilation);
+            ANET_SYSTEM_ERROR("MaxPool2dModule: " << config.GetFullKey("pool.dilation") << " must be positive. actual=" << config.pool.dilation);
         }
         return std::make_shared<MaxPool2dModule>(
             config.pool.kernel_size,
@@ -3050,6 +3070,7 @@ private:
             ANET_READ_CONFIG(config_data, linear.bias);
             ANET_READ_CONFIG(config_data, init);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
+            weight_norm.full_keys = GetFullKeys().Extract("weight_norm");
         }
     };
 public:
@@ -3057,8 +3078,8 @@ public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
-        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
-        auto rnd = GetSpectralNormRandom(context, mode, "Linear");
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode, config.weight_norm.full_keys.GetFullKey("mode"));
+        auto rnd = GetSpectralNormRandom(context, mode, config.weight_norm, "Linear");
         return std::make_shared<LinearModule>(
             config.linear.out_features, config.linear.bias, config.init, config.weight_norm, std::move(rnd), config_data);
     }
@@ -3081,14 +3102,15 @@ private:
             ANET_READ_CONFIG(config_data, conv.dilation);
             ANET_READ_CONFIG(config_data, init);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
+            weight_norm.full_keys = GetFullKeys().Extract("weight_norm");
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
-        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
-        auto rnd = GetSpectralNormRandom(context, mode, "Conv1d");
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode, config.weight_norm.full_keys.GetFullKey("mode"));
+        auto rnd = GetSpectralNormRandom(context, mode, config.weight_norm, "Conv1d");
         return std::make_shared<Conv1dModule>(
             config.conv.out_channels, config.conv.kernel_size, config.conv.stride, config.conv.padding,
             config.conv.dilation, config.init, config.weight_norm, std::move(rnd));
@@ -3112,14 +3134,15 @@ private:
             ANET_READ_CONFIG(config_data, conv.dilation);
             ANET_READ_CONFIG(config_data, init);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
+            weight_norm.full_keys = GetFullKeys().Extract("weight_norm");
         }
     };
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& context) const override
     {
         Config config(config_data);
-        const auto mode = ParseWeightNormMode(config.weight_norm.mode);
-        auto rnd = GetSpectralNormRandom(context, mode, "Conv2d");
+        const auto mode = ParseWeightNormMode(config.weight_norm.mode, config.weight_norm.full_keys.GetFullKey("mode"));
+        auto rnd = GetSpectralNormRandom(context, mode, config.weight_norm, "Conv2d");
         return std::make_shared<Conv2dModule>(
             config.conv.out_channels, config.conv.kernel_size, config.conv.stride, config.conv.padding,
             config.conv.dilation, config.init, config.weight_norm, std::move(rnd));
@@ -3184,7 +3207,7 @@ public:
         Config config(config_data);
         if (config.cos.num_basis <= 0) {
             ANET_SYSTEM_ERROR(
-                "Invalid CosineEmbedding config: key=cos.num_basis value=" << config.cos.num_basis
+                "Invalid CosineEmbedding config: key=" << config.GetFullKey("cos.num_basis") << " value=" << config.cos.num_basis
                 << " expected=>0.");
         }
         return std::make_shared<CosineEmbeddingModule>(config.cos.num_basis);

@@ -107,8 +107,9 @@ NetworkModel::NetworkModel(
         // action の bind は包含型だけで必須とし、分離型では禁止する。
         const bool action_in = skip_config_.network_mode == SkipNetworkMode::ActionIn;
         if (binds_action != action_in) {
-            ANET_SYSTEM_ERROR("Invalid DefaultDQNAgent.skip.network_mode='" << (action_in ? SkipConfig::kNetworkModeActionIn : SkipConfig::kNetworkModeActionOut)
-                << "': skip.net action binding=" << binds_action
+            ANET_SYSTEM_ERROR("Invalid " << skip_config_.full_keys.GetFullKey("network_mode") << "='"
+                << (action_in ? SkipConfig::kNetworkModeActionIn : SkipConfig::kNetworkModeActionOut)
+                << "': " << skip_config_.full_keys.GetFullKey("net") << " action binding=" << binds_action
                 << "; expected " << (action_in ? "a branch binding action" : "no branch binding action") << ".");
         }
 
@@ -177,7 +178,7 @@ NetworkModel::NetworkModel(
 void NetworkModel::ValidateSpectralNormSoftUpdateConfig() const
 {
     const auto& source = config_.soft_update_tau;
-    anet::detail::ValidateProfiledValueConfig(source, "model.soft_update_tau");
+    anet::detail::ValidateProfiledValueConfig(source);
     // 共通boundsは常に検証し、SN固有の上限だけをsoft updateへ適用する。
     auto tau = source;
     tau.min_value = 0.0f;
@@ -188,7 +189,7 @@ void NetworkModel::ValidateSpectralNormSoftUpdateConfig() const
             || (skip_online_net_ && !skip_online_net_->GetSpectralNormEntries().empty()))) {
         tau.max_value = anet::nn::kSpectralNormMaxSoftUpdateTau;
     }
-    anet::detail::ValidateProfiledValueConfig(tau, "model.soft_update_tau");
+    anet::detail::ValidateProfiledValueConfig(tau);
 }
 
 anet::TensorDict NetworkModel::ForwardOnlineWithTrain(
@@ -295,7 +296,8 @@ int64_t NetworkModel::Load(InputArchive& archive)
 
 int64_t NetworkModel::LoadCheckpoint(InputArchive& archive, bool has_skip)
 {
-    if (has_skip && !skip_online_net_) ANET_SYSTEM_ERROR("Checkpoint contains skip networks but skip.enabled=false.");
+    if (has_skip && !skip_online_net_) ANET_SYSTEM_ERROR("Checkpoint contains skip networks but "
+        << skip_config_.full_keys.GetFullKey("enabled") << "=false.");
     int64_t size = 0;
     size += archive.ReadTorchObject(online_net_);
     size += archive.ReadTorchObject(target_net_);

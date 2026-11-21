@@ -407,8 +407,8 @@ TEST_CASE("DropMergeEnv previous action observations require a direct action mod
                 std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
                     invalid_config, torch::Device(torch::kCPU), "env.[dropmerge-prev-invalid].[0]", 123),
                 Catch::Matchers::ContainsSubstring(
-                    "obs_include_prev_action / obs_prev_drop_marker require "
-                    "action_mode=direct or direct_noop")
+                    "DropMergeEnv.obs_include_prev_action / DropMergeEnv.obs_prev_drop_marker require "
+                    "DropMergeEnv.action_mode=direct or direct_noop")
                 && Catch::Matchers::ContainsSubstring("actual=" + action_mode));
             logs.Flush();
         }
@@ -939,7 +939,7 @@ TEST_CASE("DropMergeEnv rejects a non-positive NoLegal adjudication horizon", "[
     CHECK_THROWS_WITH(
         std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
             config, torch::Device(torch::kCPU), "env.[dropmerge-invalid-horizon].[0]", 123),
-        Catch::Matchers::ContainsSubstring("key=no_legal_min_blocked_frames")
+        Catch::Matchers::ContainsSubstring("key=DropMergeEnv.no_legal_min_blocked_frames")
         && Catch::Matchers::ContainsSubstring("value=0")
         && Catch::Matchers::ContainsSubstring("expected integer >= 1"));
     logs.Flush();
@@ -957,9 +957,9 @@ TEST_CASE("DropMergeEnv rejects a NoLegal horizon that cannot beat the timeout",
     CHECK_THROWS_WITH(
         std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
             config, torch::Device(torch::kCPU), "env.[dropmerge-conflicting-horizon].[0]", 123),
-        Catch::Matchers::ContainsSubstring("key=no_legal_min_blocked_frames")
+        Catch::Matchers::ContainsSubstring("key=DropMergeEnv.no_legal_min_blocked_frames")
         && Catch::Matchers::ContainsSubstring("value=60")
-        && Catch::Matchers::ContainsSubstring("expected < no_drop_timeout_steps=60"));
+        && Catch::Matchers::ContainsSubstring("expected < DropMergeEnv.no_drop_timeout_steps=60"));
     logs.Flush();
 }
 

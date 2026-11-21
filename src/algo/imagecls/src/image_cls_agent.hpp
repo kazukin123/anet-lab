@@ -77,8 +77,10 @@ namespace anet::rl::img_cls {
             ANET_READ_CONFIG(config_data, bf16.enabled);
             ANET_READ_CONFIG(config_data, bf16.learner);
             auto items = config_data.MakeSubConfigData(MakeDefaultConfigKey("actor"));
-            for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeOverrideConfigKey("actor"))) {
-                items.try_emplace(key, sub);
+            if (!GetOverridePrefix().empty()) {
+                for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeOverrideConfigKey("actor"))) {
+                    items.try_emplace(key, sub);
+                }
             }
             for (const auto& [key, sub] : items) {
                 auto& entry = actor[key];
@@ -86,7 +88,7 @@ namespace anet::rl::img_cls {
                 const auto data = MakeReadScope(config_data, prefix);
                 ReadConfig(data, prefix + ".clone_model", entry.clone_model);
                 ReadConfig(data, prefix + ".bf16", entry.bf16);
-                data.RequireAllKeysRead(MakeDefaultConfigKey(prefix));
+                data.RequireAllKeysRead();
             }
 
             ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
@@ -104,24 +106,24 @@ namespace anet::rl::img_cls {
     private:
         void Validate() const
         {
-            ValidateNonNegative("ImageClsAgent.mixup.mixup_alpha", mixup.mixup_alpha);
-            ValidateNonNegative("ImageClsAgent.mixup.cutmix_alpha", mixup.cutmix_alpha);
-            ValidateUnitInterval("ImageClsAgent.mixup.prob", mixup.prob);
-            ValidateUnitInterval("ImageClsAgent.mixup.switch_prob", mixup.switch_prob);
+            ValidateNonNegative(GetFullKey("mixup.mixup_alpha"), mixup.mixup_alpha);
+            ValidateNonNegative(GetFullKey("mixup.cutmix_alpha"), mixup.cutmix_alpha);
+            ValidateUnitInterval(GetFullKey("mixup.prob"), mixup.prob);
+            ValidateUnitInterval(GetFullKey("mixup.switch_prob"), mixup.switch_prob);
             if (learn_log_interval < 0) {
-                ANET_SYSTEM_ERROR("Invalid config ImageClsAgent.learn_log_interval=" << learn_log_interval
+                ANET_SYSTEM_ERROR("Invalid config " << GetFullKey("learn_log_interval") << "=" << learn_log_interval
                     << ". Expected >= 0.");
             }
         }
 
-        static void ValidateNonNegative(const char* key, double value)
+        static void ValidateNonNegative(const std::string& key, double value)
         {
             if (value < 0.0) {
                 ANET_SYSTEM_ERROR("Invalid config " << key << "=" << value << ". Expected >= 0.");
             }
         }
 
-        static void ValidateUnitInterval(const char* key, double value)
+        static void ValidateUnitInterval(const std::string& key, double value)
         {
             if (value < 0.0 || value > 1.0) {
                 ANET_SYSTEM_ERROR("Invalid config " << key << "=" << value << ". Expected range [0, 1].");

@@ -64,7 +64,7 @@ $include <DropMerge.txt>
 | `run.eval_device` | configured evalのdevice。既定`auto` |
 | `backend.deterministic_algorithms` | 決定論的algorithmを要求するか |
 
-device指定は`auto`、`cpu`、`cuda`、`cuda:N`を受け付ける。`auto`はCUDAが利用可能ならcurrent CUDA device、そうでなければCPUを選ぶ。指定値は`config/config_data.txt`、採用値は`json/agent.json`、`json/env.json`、`json/run.json`の`effective_device`/`effective_eval_device`に記録する。EnvをCPU、AgentとEvalをCUDAに置く構成では、device転送を含めて性能を判断する。
+device指定は`auto`、`cpu`、`cuda`、`cuda:N`を受け付ける。`auto`はCUDAが利用可能ならcurrent CUDA device、そうでなければCPUを選ぶ。指定値は`config/config_data.txt`、実効deviceは`json/agent.json`、`json/env.json`、`json/run.json`の`effective_device`/`effective_eval_device`に記録する。EnvをCPU、AgentとEvalをCUDAに置く構成では、device転送を含めて性能を判断する。
 
 ### 2.4 評価スロットの方策を選ぶ
 
@@ -620,7 +620,7 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`data/work
 | `metrics.jsonl` | scalar、JSON metadata、動画metadataを追記する主メトリクス |
 | `config/config_data.txt` | 解決後の実効設定。deviceの`auto`など利用者の指定値を保持し、`@`プロファイルと`.$`は含まない([3.8](#38-確認方法とよくあるエラー)) |
 | `config/*.txt`、`json/*.json` | コンポーネント別の注入済み設定・metadata dump。Envは`config/env.<Env name>.txt` |
-| `json/run.json`、`json/env.json`、`json/agent.json` | 評価・Env・Agentが採用したdeviceを`effective_eval_device` / `effective_device`に記録 |
+| `json/run.json`、`json/env.json`、`json/agent.json` | 評価・Env・Agentの実効deviceを`effective_eval_device` / `effective_device`に記録 |
 | `<run_name>.log` | timestampとlevelを含むrunner text log |
 | `stdout.log` / `stderr.log` | process標準出力・標準エラー |
 | `agent_close.anet` | 正常なwindow close時に保存されるAgent checkpoint。`app.save_agent_on_close=false`では作られない |

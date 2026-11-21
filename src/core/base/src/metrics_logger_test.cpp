@@ -274,14 +274,18 @@ TEST_CASE("Pinned auto video selection preserves explicit codec requests", "[met
     CHECK_THROWS(selection.Resolve("h264_nvenc", 128, 128, "invalid.mkv"));
 }
 
-TEST_CASE("VideoLogger rejects explicit NVENC for ineligible video size", "[metrics][video]")
+TEST_CASE("MetricsLogger reports unread codec keys for manually built settings", "[metrics][video][prd194][prd194_codec]")
 {
+    anet::MetricsLoggerConfig config;
+    config.video_codec = "h264_nvenc";
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "prd194-manual-codec";
+    anet::MetricsLogger logger(std::make_unique<NullBackend>(), config, root);
     try {
-        static_cast<void>(anet::detail::ResolveVideoCodec("h264_nvenc", 128, 128, "small.mkv"));
+        logger.Log("small", 0, wxImage(128, 128));
         FAIL("Expected explicit h264_nvenc to reject an ineligible video size");
     } catch (const std::exception& e) {
         const std::string message = e.what();
-        CHECK(ContainsText(message, "metrics_logger.video_codec=h264_nvenc"));
+        CHECK(ContainsText(message, "video_codec (not read from config)=h264_nvenc"));
         CHECK(ContainsText(message, "128x128"));
         CHECK(ContainsText(message, "160x64"));
         CHECK(ContainsText(message, "auto or libx264"));

@@ -203,38 +203,38 @@ TEST_CASE("BackendConfig rejects invalid cuda_launch_blocking values", "[backend
 TEST_CASE("PRD070 parses device specifications and preserves current CUDA index", "[device][prd070]")
 {
     // 値の文法とautoの選択を公開パーサ経由で確認する。
-    CHECK(anet::ParseDevice(" CPU ").str() == "cpu");
-    CHECK(anet::ParseDevice("CuDa").is_cuda());
-    CHECK(anet::ParseDevice("CuDa").index() == -1);
-    CHECK(anet::ParseDevice(" CUDA:1 ").index() == 1);
-    CHECK(anet::ParseDevice("auto").is_cuda() == torch::cuda::is_available());
+    constexpr auto* key = "agent.device";
+    CHECK(anet::ParseDevice(" CPU ", key).str() == "cpu");
+    CHECK(anet::ParseDevice("CuDa", key).is_cuda());
+    CHECK(anet::ParseDevice("CuDa", key).index() == -1);
+    CHECK(anet::ParseDevice(" CUDA:1 ", key).index() == 1);
+    CHECK(anet::ParseDevice("auto", key).is_cuda() == torch::cuda::is_available());
 
     for (const auto* invalid : {"", "cpu:0", "cuda:", "cuda:-1", "cuda:+1", "cuda:x", "mps"}) {
         INFO(invalid);
-        CHECK_THROWS(anet::ParseDevice(invalid));
+        CHECK_THROWS(anet::ParseDevice(invalid, key));
     }
+    CHECK_THROWS(anet::ParseDevice("cpu", ""));
 }
 
-TEST_CASE("PRD070 reports every explicit CUDA key before NN initialization", "[device][prd070]")
+TEST_CASE("InitRL reports the original value of every explicit CUDA key", "[device][prd070][prd194][prd194_cuda]")
 {
     if (torch::cuda::is_available()) SKIP("CUDA is available");
 
     CapturingBackend* backend_raw = nullptr;
     InitCapturingLogger(backend_raw, "explicit_cuda_unavailable_test");
     anet::ConfigData config_data;
-    config_data.Set("agent.device", "cuda");
-    config_data.Set("env.device", "cuda:1");
-    config_data.Set("run.eval_device", "cpu");
+    config_data.Set("agent.device", "cuda:1");
+    config_data.Set("run.eval_device", "cuda");
     try {
         anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
         FAIL("Explicit CUDA must fail before NN initialization");
     } catch (const std::exception& e) {
         const std::string message = e.what();
-        CHECK(ContainsText(message, "agent.device"));
-        CHECK(ContainsText(message, "env.device"));
+        CHECK(ContainsText(message, "agent.device='cuda:1', run.eval_device='cuda'"));
         CHECK(ContainsText(message, "auto"));
     }
-    CHECK(config_data.Get("agent.device") == "cuda");
+    CHECK(config_data.Get("agent.device") == "cuda:1");
     anet::MetricsLogger::Reset();
 }
 
@@ -294,4 +294,22 @@ TEST_CASE("InitRL rejects an invalid device when only that key is specified", "[
     CHECK_THROWS_WITH(anet::rl::InitRL(anet::rl::BackendConfig(), data),
         Catch::Matchers::ContainsSubstring(key));
     anet::MetricsLogger::Reset();
+}
+
+TEST_CASE("InitRL logs one fatal with the full key of an invalid device", "[device][prd194]")
+{
+    const auto* key = GENERATE("agent.device", "env.device", "run.eval_device");
+    anet::ConfigData data;
+    data.Set(key, "cuda:x");
+    const auto expected = std::string(key) + "='cuda:x'";
+
+    anet::test::LogCaptureGuard logs;
+    CHECK_THROWS_WITH(anet::rl::InitRL(anet::rl::BackendConfig(data), data),
+        Catch::Matchers::ContainsSubstring(expected));
+    logs.Flush();
+    // LOG::fatal は wxWidgets のプロセス終了を避けるため Message として届ける。
+    CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [](const auto& record) {
+        return record.level == wxLOG_Message && record.message.starts_with("Exception: ");
+    }) == 1);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {"Exception: ", expected}));
 }

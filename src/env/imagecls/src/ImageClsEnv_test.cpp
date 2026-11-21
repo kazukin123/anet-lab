@@ -418,7 +418,7 @@ TEST_CASE("ImageDataset cache policies preserve explicit and auto failure semant
         CHECK_NOTHROW(env->Reset());
         logs.Flush();
         // 別テストの画像デコード警告が遅れて届くことがあるため、今回のキャッシュ通知を数える。
-        const auto dataset_tag = "dataset_key='" + dataset.GetDatasetKey() + "'";
+        const auto dataset_tag = "ImageDataset.[" + dataset.GetDatasetKey() + "]";
         const auto cache_warnings = std::ranges::count_if(logs.Records(), [&](const auto& record) {
             return record.level == wxLOG_Warning
                 && record.message.starts_with("ImageDataset auto cache")

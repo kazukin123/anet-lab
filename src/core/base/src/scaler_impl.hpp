@@ -125,7 +125,8 @@ namespace anet::rl {
             const std::vector<int64_t>& shape, float epsilon,
             bool use_robust_update, int robust_warmup_count, float robust_std_threshold,
             int post_process_type, float post_process_threshold,
-            bool use_centering);
+            bool use_centering,
+            std::string post_process_type_key = "post_process_type (not read from config)");
         virtual ~RunningStdSingleTensorNormalizer() = default;
 
         torch::Tensor Normalize(const torch::Tensor& obs) const override;
@@ -146,6 +147,7 @@ namespace anet::rl {
         const int robust_warmup_count_;
         const float robust_std_threshold_;
         const int post_process_type_;
+        const std::string post_process_type_key_;
         const float post_process_threshold_;
         const bool use_centering_;
 
@@ -232,7 +234,7 @@ namespace anet::rl {
     class ReturnStdRewardScaler final : public RunningStdRewardScaler {
     public:
         ReturnStdRewardScaler(float gamma, int64_t num_lanes, const std::optional<float>& clip_range,
-            float epsilon, float post_scale, std::string prefix);
+            float epsilon, float post_scale, std::string prefix, const std::string& gamma_key);
         void Reset() override;
         std::string StateKind() const override { return kReturnStdState; }
         int64_t Save(anet::OutputArchive& archive) const override;

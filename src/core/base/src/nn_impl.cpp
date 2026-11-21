@@ -297,12 +297,12 @@ torch::Tensor anet::nn::AddFactorizedLinearNoise(
 static constexpr const char* kNetBlockConfigKeyPrefix = "net.block.[";
 static constexpr const char* kNetBlockConfigKeySuffix = "]";
 
-WeightNormMode anet::nn::ParseWeightNormMode(const std::string& mode)
+WeightNormMode anet::nn::ParseWeightNormMode(const std::string& mode, const std::string& key)
 {
     if (mode == "none") return WeightNormMode::kNone;
     if (mode == "spectral") return WeightNormMode::kSpectral;
     if (mode == "spectral_cap") return WeightNormMode::kSpectralCap;
-    ANET_SYSTEM_ERROR("Invalid config key weight_norm.mode: value=\"" << mode
+    ANET_SYSTEM_ERROR("Invalid config key " << key << ": value=\"" << mode
         << "\" expected one of: none, spectral, spectral_cap");
     return WeightNormMode::kNone;
 }
@@ -358,7 +358,7 @@ SpectralNormState anet::nn::MakeSpectralNormState(
     const torch::Tensor& weight,
     WeightNormMode mode,
     const std::string& name,
-    anet::RandomGenerator& rnd)
+    anet::RandomGenerator& rnd, std::string_view mode_key, std::string_view init2_mode_key)
 {
     constexpr double kEps = 1.0e-12;
     const auto weight_mat = weight.reshape({ weight.size(0), -1 });
@@ -382,9 +382,9 @@ SpectralNormState anet::nn::MakeSpectralNormState(
         || (mode == WeightNormMode::kSpectral && sigma <= 0.0)) {
         ANET_SYSTEM_ERROR("Spectral normalization initialization failed: name=" << name
             << " sigma=" << sigma
-            << " mode=" << (mode == WeightNormMode::kSpectral ? "spectral" : "spectral_cap")
+            << " " << mode_key << "=" << (mode == WeightNormMode::kSpectral ? "spectral" : "spectral_cap")
             << ". spectral requires a non-degenerate weight; for a zero-initialized ResBlock conv2, "
-            << "set init2.mode=he or use weight_norm.mode=spectral_cap.");
+            << "set " << init2_mode_key << "=he or use " << mode_key << "=spectral_cap.");
     }
     return state;
 }
@@ -737,62 +737,65 @@ void anet::ConfigReader<anet::nn::WeightInitConfig>::Read(
 {
     // 既定値と指定値を解決してから、利用側の設定キーの接頭辞で検証する。
     ReadFields(owner, data, key, value);
-    nn::ValidateWeightInitConfig(value, owner.MakeDefaultConfigKey(key));
+    nn::ValidateWeightInitConfig(value);
 }
 
 void anet::ConfigReader<anet::nn::WeightInitConfig>::ReadFields(
     Config& owner, const ConfigData& data, const std::string& key, nn::WeightInitConfig& value)
 {
     // 既存キーの設定記録順を保ち、新しい倍率を最後に記録する。
-    owner.ReadSubConfig(data, key, "mode", value.mode);
-    owner.ReadSubConfig(data, key, "manual_gain", value.manual_gain);
-    owner.ReadSubConfig(data, key, "nonlinearity", value.nonlinearity);
-    owner.ReadSubConfig(data, key, "constant_val", value.constant_val);
-    owner.ReadSubConfig(data, key, "trunc_std", value.trunc_std);
-    owner.ReadSubConfig(data, key, "trunc_a", value.trunc_a);
-    owner.ReadSubConfig(data, key, "trunc_b", value.trunc_b);
-    owner.ReadSubConfig(data, key, "variance_scale", value.variance_scale);
+    owner.ReadInheritedSubConfig(data, key, "mode", value.mode, value.full_keys);
+    owner.ReadInheritedSubConfig(data, key, "manual_gain", value.manual_gain, value.full_keys);
+    owner.ReadInheritedSubConfig(data, key, "nonlinearity", value.nonlinearity, value.full_keys);
+    owner.ReadInheritedSubConfig(data, key, "constant_val", value.constant_val, value.full_keys);
+    owner.ReadInheritedSubConfig(data, key, "trunc_std", value.trunc_std, value.full_keys);
+    owner.ReadInheritedSubConfig(data, key, "trunc_a", value.trunc_a, value.full_keys);
+    owner.ReadInheritedSubConfig(data, key, "trunc_b", value.trunc_b, value.full_keys);
+    owner.ReadInheritedSubConfig(data, key, "variance_scale", value.variance_scale, value.full_keys);
+    value.full_keys = owner.GetFullKeys().Extract(key);
 }
 
-void anet::nn::ValidateWeightInitConfigChoices(const WeightInitConfig& config, const std::string& owner)
+void anet::nn::ValidateWeightInitConfigChoices(const WeightInitConfig& config)
 {
     // 方式の契約は利用側によらず共通とし、設定元のキーで診断する。
     if (config.mode != "default" && config.mode != "xavier" && config.mode != "he"
         && config.mode != "orthogonal" && config.mode != "constant" && config.mode != "trunc_normal"
         && config.mode != WeightInitConfig::kVarianceScalingMode) {
-        ANET_SYSTEM_ERROR("Invalid " << owner << ".mode='" << config.mode
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("mode") << "='" << config.mode
             << "'; expected default, xavier, he, orthogonal, constant, trunc_normal or "
             << WeightInitConfig::kVarianceScalingMode << ".");
     }
     // gain を使わない方式でも、指定した活性化名が現行の列挙に含まれることを確かめる。
     if (config.nonlinearity != "relu" && config.nonlinearity != "linear" && config.nonlinearity != "tanh"
         && config.nonlinearity != "leaky_relu") {
-        ANET_SYSTEM_ERROR("Invalid " << owner << ".nonlinearity='" << config.nonlinearity
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("nonlinearity") << "='" << config.nonlinearity
             << "'; expected relu, linear, tanh or leaky_relu.");
     }
 }
 
-void anet::nn::ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner)
+void anet::nn::ValidateWeightInitConfig(const WeightInitConfig& config)
 {
-    ValidateWeightInitConfigChoices(config, owner);
+    ValidateWeightInitConfigChoices(config);
     // 直接組み立てたDTOも検証し、不正値を重みへ適用する前に止める。
     for (const auto& [key, value] : std::initializer_list<std::pair<const char*, double>>{
         {"manual_gain", config.manual_gain}, {"constant_val", config.constant_val},
         {"trunc_std", config.trunc_std}, {"trunc_a", config.trunc_a}, {"trunc_b", config.trunc_b},
         {"variance_scale", config.variance_scale}}) {
         if (!std::isfinite(value)) {
-            ANET_SYSTEM_ERROR("Invalid " << owner << "." << key << "=" << value << "; expected finite value.");
+            ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey(key) << "=" << value << "; expected finite value.");
         }
     }
     if (config.trunc_std <= 0.0) {
-        ANET_SYSTEM_ERROR("Invalid " << owner << ".trunc_std=" << config.trunc_std << "; expected > 0.");
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("trunc_std") << "=" << config.trunc_std << "; expected > 0.");
     }
     if (config.trunc_a >= config.trunc_b) {
-        ANET_SYSTEM_ERROR("Invalid " << owner << ".trunc_a=" << config.trunc_a
-            << " " << owner << ".trunc_b=" << config.trunc_b << "; expected trunc_a < trunc_b.");
+        const auto lower_key = config.full_keys.GetFullKey("trunc_a");
+        const auto upper_key = config.full_keys.GetFullKey("trunc_b");
+        ANET_SYSTEM_ERROR("Invalid " << lower_key << "=" << config.trunc_a
+            << " " << upper_key << "=" << config.trunc_b << "; expected " << lower_key << " < " << upper_key << ".");
     }
     if (config.variance_scale <= 0.0) {
-        ANET_SYSTEM_ERROR("Invalid " << owner << ".variance_scale=" << config.variance_scale << "; expected > 0.");
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("variance_scale") << "=" << config.variance_scale << "; expected > 0.");
     }
 }
 
@@ -838,13 +841,20 @@ namespace {
     };
 }
 
+static void OverwriteCatalogItem(anet::ConfigData& merged, const anet::ConfigData& local)
+{
+    // 欠けた欄の置き場は type を与えた項目。どこにも type が無い場合は局所の項目を案内する。
+    if (local.Has("type") || !merged.Has("type")) merged.UseLocationOf(local);
+    merged.OverwriteFrom(local);
+}
+
 static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
 {
     // 元キーの対応を保ったまま、局所側の同じ項目を優先する。
     auto merged = config_data.MakeSubConfigData("net.block");
     if (config_prefix != "net") {
         for (const auto& [tag, local] : config_data.MakeSubConfigData(config_prefix + ".block")) {
-            merged[tag].OverwriteFrom(local);
+            OverwriteCatalogItem(merged[tag], local);
         }
     }
     std::map<std::string, NetworkBlockConfig> block_configs;
@@ -853,6 +863,7 @@ static std::map<std::string, NetworkBlockConfig> ReadBlockConfig(const anet::Con
         config_data.MarkInventory(config_prefix + ".block.[" + tag + "]");
         NetworkBlockConfig block_config;
         block_config.type = BlockTypeConfig(data).type;
+        block_config.config_data.UseLocationOf(data);
         for (const auto& [key, value] : data.Map()) {
             if (key != "type") block_config.config_data.CopyValueFrom(key, data, key);
         }
@@ -888,18 +899,17 @@ private:
 
 using ConfigProfilePtrMap = std::map<std::string, std::unique_ptr<ConfigProfile>>;
 
-static std::unique_ptr<ConfigProfile> CreateConfigProfile(
-    const std::string& tag, const ConfigProfileConfig& config)
+static std::unique_ptr<ConfigProfile> CreateConfigProfile(const ConfigProfileConfig& config)
 {
     // 参照された定義だけを新しい読み取り範囲で型付きの補間規則へ変換する。
     const auto data = config.config_data.CreateReadScope();
     const ResolvedConfigProfileConfig parsed(data);
-    data.RequireAllKeysRead("net.config_profile.[" + tag + "]");
+    data.RequireAllKeysRead();
     if (parsed.type != kLinearProfileType) {
-        ANET_SYSTEM_ERROR("Invalid net.config_profile.[" << tag << "].type: " << parsed.type << ". Expected " << kLinearProfileType << ".");
+        ANET_SYSTEM_ERROR("Invalid " << data.GetFullKey("type") << ": " << parsed.type << ". Expected " << kLinearProfileType << ".");
     }
     if (!parsed.end.has_value()) {
-        ANET_SYSTEM_ERROR("Missing required net.config_profile.[" << tag << "].end. Expected a double value.");
+        ANET_SYSTEM_ERROR("Missing required " << data.GetFullKey("end") << ". Expected a double value.");
     }
     return std::make_unique<LinearConfigProfile>(parsed.start, *parsed.end);
 }
@@ -909,7 +919,7 @@ static ConfigProfilePtrMap CreateConfigProfileMap(
 {
     ConfigProfilePtrMap profiles;
     for (const auto& [tag, config] : configs) {
-        if (used_groups.contains(tag)) profiles.emplace(tag, CreateConfigProfile(tag, config));
+        if (used_groups.contains(tag)) profiles.emplace(tag, CreateConfigProfile(config));
     }
     return profiles;
 }
@@ -920,7 +930,7 @@ static std::map<std::string, ConfigProfileConfig> MergeConfigProfileConfig(
 {
     auto merged_profiles = base_profiles;
     for (const auto& [tag, override_config] : override_profiles) {
-        merged_profiles[tag].config_data.OverwriteFrom(override_config.config_data);
+        OverwriteCatalogItem(merged_profiles[tag].config_data, override_config.config_data);
     }
     return merged_profiles;
 }
@@ -933,7 +943,7 @@ static std::map<std::string, ConfigProfileConfig> ReadConfigProfileConfig(
     auto merged = config_data.MakeSubConfigData("net.config_profile");
     if (config_prefix != "net") {
         for (const auto& [tag, local] : config_data.MakeSubConfigData(config_prefix + ".config_profile")) {
-            merged[tag].OverwriteFrom(local);
+            OverwriteCatalogItem(merged[tag], local);
         }
     }
     for (auto& [tag, data] : merged) {
@@ -948,25 +958,13 @@ static std::map<std::string, ConfigProfileConfig> ReadConfigProfileConfig(
 static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
 {
     std::map<std::string, NetworkBranchConfig> branches;
-    std::map<std::string, std::map<std::string, ConfigProfileConfig>> branch_config_profiles;
 
     std::string escaped_prefix = std::regex_replace(config_prefix, std::regex(R"(\.)"), R"(\.)");
     std::regex re_branch(escaped_prefix + R"(\.branch\.\[([^\]]+)\]\.(bind|bind_concat_dim|structure|auto_format))");
-    std::regex re_branch_config_profile(
-        escaped_prefix + R"(\.branch\.\[([^\]]+)\]\.config_profile\.\[([^\]]+)\]\.(.+))");
     std::regex re_raw(R"(\(raw\))");
 
     for (const auto& [key, value] : config_data.Map()) {
         std::smatch m;
-        if (std::regex_match(key, m, re_branch_config_profile)) {
-            const std::string b_name = m[1].str();
-            const std::string tag = m[2].str();
-            const std::string sub_key = m[3].str();
-            auto& config = branch_config_profiles[b_name][tag];
-            config.config_data.CopyValueFrom(sub_key, config_data, key);
-            continue;
-        }
-
         if (std::regex_match(key, m, re_branch)) {
             std::string b_name = m[1].str();
             std::string b_prop = m[2].str();
@@ -990,13 +988,13 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
                         std::string factor = term_text.substr(factor_begin, separator - factor_begin);
                         if (factor.empty()) {
                             ANET_SYSTEM_ERROR(
-                                "Invalid bind product in branch '" << b_name << "': bind=\"" << value
+                                "Invalid bind product in branch '" << b_name << "': " << config_data.GetFullKey(key) << "=\"" << value
                                 << "\" contains an empty factor.");
                         }
                         factor = Trim(factor);
                         if (factor.empty()) {
                             ANET_SYSTEM_ERROR(
-                                "Invalid bind product in branch '" << b_name << "': bind=\"" << value
+                                "Invalid bind product in branch '" << b_name << "': " << config_data.GetFullKey(key) << "=\"" << value
                                 << "\" contains an empty factor.");
                         }
 
@@ -1009,7 +1007,7 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
                         }
                         if (factor.empty()) {
                             ANET_SYSTEM_ERROR(
-                                "Invalid bind product in branch '" << b_name << "': bind=\"" << value
+                                "Invalid bind product in branch '" << b_name << "': " << config_data.GetFullKey(key) << "=\"" << value
                                 << "\" contains an empty factor.");
                         }
                         factors.push_back(factor);
@@ -1032,14 +1030,18 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
         }
     }
 
-    for (auto& [b_name, config_profiles] : branch_config_profiles) {
+    for (const auto& [b_name, branch_data] : config_data.MakeSubConfigData(config_prefix + ".branch")) {
+        auto config_profiles = branch_data.MakeSubConfigData("config_profile");
+        if (config_profiles.empty()) continue;
         auto it = branches.find(b_name);
         if (it == branches.end()) {
             ANET_SYSTEM_ERROR(
                 "Branch config_profile is specified for undefined branch '" << b_name
-                << "'. Define '" << config_prefix << ".branch.[" << b_name << "].bind' and 'structure' first.");
+                << "'. Define '" << branch_data.GetFullKey("bind") << "' and '" << branch_data.GetFullKey("structure") << "' first.");
         }
-        it->second.config_profiles = std::move(config_profiles);
+        for (auto& [tag, profile_data] : config_profiles) {
+            it->second.config_profiles[tag].config_data = std::move(profile_data);
+        }
     }
 
     // 「auto_format=false」の場合、全ての bind factor を raw_keys へ追加する。
@@ -1067,6 +1069,7 @@ static std::map<std::string, NetworkBranchConfig> ReadBranchConfig(const anet::C
 }
 
 NetworkConfig::NetworkConfig(const anet::ConfigData& config_data, const std::string& config_prefix)
+    : config_prefix(config_data.GetFullKey(config_prefix))
 {
     block_configs = ReadBlockConfig(config_data, config_prefix);
     config_profiles = ReadConfigProfileConfig(config_data, config_prefix);
@@ -1637,7 +1640,7 @@ static ConfigProfileExpansionPlan MakeConfigProfileExpansionPlan(
                 if (group_name->empty()) {
                     ANET_SYSTEM_ERROR(
                         "Invalid config_profile marker in block '" << block_def_name
-                        << "' field '" << field_key << "': value=\""
+                        << "' field '" << block_cfg.config_data.GetFullKey(field_key) << "': value=\""
                         << value << "\". Expected @<group>.");
                 }
 
@@ -1645,7 +1648,7 @@ static ConfigProfileExpansionPlan MakeConfigProfileExpansionPlan(
                 plan.group_uses[*group_name].push_back(ConfigProfileMarkerUse{
                     .instance_seq = instance_seq,
                     .block_def_name = block_def_name,
-                    .field_key = field_key,
+                    .field_key = block_cfg.config_data.GetFullKey(field_key),
                 });
                 plan.used_groups.insert(*group_name);
                 instance.markers.push_back(ConfigProfileMarker{
@@ -1665,16 +1668,22 @@ static ConfigProfileExpansionPlan MakeConfigProfileExpansionPlan(
 
 static void ValidateConfigProfileExpansionPlan(
     const std::map<std::string, ConfigProfileConfig>& config_profiles,
-    const ConfigProfileExpansionPlan& plan)
+    const ConfigProfileExpansionPlan& plan,
+    const std::string& config_prefix,
+    const std::string& branch_name)
 {
     for (const auto& [group_name, uses] : plan.group_uses) {
         if (config_profiles.find(group_name) == config_profiles.end()) {
             const auto& use = uses.front();
+            const auto suffix = ".config_profile.[" + group_name + "]";
+            std::string locations = "net" + suffix;
+            if (config_prefix != "net") locations += ", " + config_prefix + suffix;
+            if (!branch_name.empty()) locations += ", " + config_prefix + ".branch.[" + branch_name + "]" + suffix;
             ANET_SYSTEM_ERROR(
                 "Undefined config profile group: @" << group_name
                 << " used by block '" << use.block_def_name
                 << "' field '" << use.field_key
-                << "'. Expected net.config_profile.[" << group_name << "].");
+                << "'. Expected a definition at " << locations << ".");
         }
     }
 }
@@ -1686,20 +1695,21 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
     const std::string& structure_str,
     std::shared_ptr<ModuleRandomSource> random_source)
 {
-    return Build(root_config, structure_str, root_config.config_profiles, std::move(random_source));
+    return Build(root_config, structure_str, root_config.config_profiles, std::move(random_source), {});
 }
 
 std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
     const NetworkConfig& root_config,
     const std::string& structure_str,
     const std::map<std::string, ConfigProfileConfig>& config_profiles,
-    std::shared_ptr<ModuleRandomSource> random_source)
+    std::shared_ptr<ModuleRandomSource> random_source,
+    const std::string& branch_name)
 {
     if (structure_str.empty()) return std::make_shared<NetworkStruct>();
 
     std::vector<std::shared_ptr<NetworkBlock>> blocks;
     const auto expansion_plan = MakeConfigProfileExpansionPlan(root_config, structure_str);
-    ValidateConfigProfileExpansionPlan(config_profiles, expansion_plan);
+    ValidateConfigProfileExpansionPlan(config_profiles, expansion_plan, root_config.config_prefix, branch_name);
     const auto profile_objects = CreateConfigProfileMap(config_profiles, expansion_plan.used_groups);
 
     std::map<std::string, int> type_counters;
@@ -1709,7 +1719,7 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
         const auto& block_cfg = root_config.block_configs.at(block_def_name);
 
         if (block_cfg.type.empty()) {
-            ANET_SYSTEM_ERROR("Block type not specified for block: " << block_def_name);
+            ANET_SYSTEM_ERROR("Block type not specified for block: " << block_cfg.config_data.GetFullKey("type"));
         }
         auto factory = NetworkModuleRepository::Instance().GetFactory(block_cfg.type);
         ModuleContext ctx{ .random_source = random_source };
@@ -1729,7 +1739,7 @@ std::shared_ptr<NetworkStruct> NetworkStructBuilder::Build(
             inner_module = factory->CreateModule(effective_config, ctx);
         }
 
-        effective_config.RequireAllKeysRead("net.block.[" + block_def_name + "] type=" + block_cfg.type);
+        effective_config.RequireAllKeysRead("type=" + block_cfg.type);
         int idx = type_counters[block_def_name]++;
         std::string instance_name = block_def_name + "_" + std::to_string(idx);
 
@@ -1758,7 +1768,7 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(
     for (const auto& [b_name, b_cfg] : config.branches) {
         const auto effective_profiles = MergeConfigProfileConfig(config.config_profiles, b_cfg.config_profiles);
         auto engine = NetworkStructBuilder::Build(
-            config, b_cfg.structure_str, effective_profiles, random_source);
+            config, b_cfg.structure_str, effective_profiles, random_source, b_name);
         all_branches[b_name] = std::make_shared<NetworkBranch>(
             b_name, b_cfg.bind_terms, b_cfg.bind_concat_dim, engine);
         in_degree[b_name] = 0;
@@ -1930,7 +1940,7 @@ struct NetworkForwardExecutor::Impl {
             owned_head = network->head_->CreateExecutor(config, clock_kind);
             head_call = owned_head ? owned_head.get() : network->head_.get();
         }
-        config.GetConfigData().RequireAllKeysRead("NN execution setting '" + config.key + "'");
+        config.GetConfigData().RequireAllKeysRead();
     }
     NetworkForwardContext MakeContext(const NetworkForwardCallInfo& info) const
     {

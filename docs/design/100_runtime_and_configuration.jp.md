@@ -39,7 +39,11 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 閉じたスキーマの読み口は`CreateReadScope()`で今回の読み取り範囲を作り、`RequireAllKeysRead()`で未読キーを拒否する。別の読み口や複製が以前に読んだことを、今回の検証の代わりにしない。読み取りの結果は元キーへ共有される。読み取りと在庫の分類は複数スレッドから更新できる。
 
-完全キーで読む項目は`CreateReadScope(prefix)`でそのprefixだけを取り出す。`Config::MakeReadScope`はdefaultとoverrideの両方の完全キーを合わせ、通常の型付き読み取りと設定記録を保つ。
+完全キーで読む項目は`CreateReadScope(prefix)`でそのprefixだけを取り出す。`Config::MakeReadScope`はdefaultとoverrideの両方の完全キーを合わせ、通常の型付き読み取りと設定記録を保つ。上書きの接頭辞が空の読み口は、上書きの読み取り、値の有無の確認、読み取り範囲の作成を省く。
+
+`ConfigData`は値を与えた完全キーを、切り出し・コピー・読み取り範囲を経た項目にも保持する。合成で値が重なれば後から加えた項目の完全キーを取り、既存項目の値をコードで更新した場合はその完全キーを保持する。項目に記録がないときは、その設定の置き場と相対キーをつなぐ。置き場を持たない設定は渡されたキーを返す。
+
+読み口は、型付きの欄を読むときに値を与えた完全キーを記録する。値が省略されて既定値を使う場合は、既定の置き場を指す。設定の型とともに部品へ渡し、読み取った値を別の欄へ写すときは対応する記録も写す。部品が読み取られなかった欄を示すときは、相対キーに ` (not read from config)` を添える。完全キーの参照は既読を付けず、実効設定の記録とは独立する。
 
 解決の入力にある選択の宣言に源として現れた通常prefixは、在庫として保持する。後で置き換えられた宣言、未選択のRunプロファイル内の宣言、注入設定、追加ファイル、CLIも含む。名前の形や`?=`だけを理由に在庫にはしない。
 
@@ -335,7 +339,7 @@ sequenceDiagram
 | `run.train.num_envs` | 主Train BatchEnvのlane数 |
 | `run.train.runner_type` | `serial`または`pipeline`（大文字小文字を区別しない）。ほかの値は構築時に停止 |
 | `run.train.actor` | Actorカタログ名。既定`train` |
-| `run.eval_device` | configured Evalのdevice指定。既定`auto`。採用値は`json/run.json`の`effective_eval_device` |
+| `run.eval_device` | configured Evalのdevice指定。既定`auto`。実効deviceは`json/run.json`の`effective_eval_device` |
 | `run.eval.[tag].*` | configured EvalのRunMode、並列lane数`eval_batch_size`、採用本数`eval_episodes`（既定1）、Env override、Actor名参照 |
 | `run.eval_schedule.[tag].*` | configured Evalを定期駆動する必須`interval`、発火列を learn step 単位でずらす`offset`（既定`0`）、先頭の発火を抑止する回数`warmup_count`（既定`1`）、`use_background`、終了時の完走待ちを選ぶ`wait_on_exit`（既定`true`） |
 | `app.drain_timeout_sec` | background Observer排水全体のdeadline秒。既定3600、正整数必須 |
@@ -343,7 +347,7 @@ sequenceDiagram
 | `agent.*` | Agent class、device |
 | `backend.*` | TF32、cuDNN、決定論などlibtorch backend |
 
-完全な実効key一覧はConfig classとRun内`config/config_data.txt`を基準とする。deviceの`auto`も指定値のまま保持し、採用値は`json/run.json`、`json/env.json`、`json/agent.json`の個別フィールドで確認する。選択したプロファイルと`${}`参照の解決経路は`json/config_resolution.json`またはMetrics masterの`config_resolution` recordにある`data`を基準とする。resolutionは分析・診断用metadataであり、設定の再読込には使わない。
+完全な実効key一覧はConfig classとRun内`config/config_data.txt`を基準とする。deviceの`auto`も指定値のまま保持し、実効deviceは`json/run.json`、`json/env.json`、`json/agent.json`の個別フィールドで確認する。選択したプロファイルと`${}`参照の解決経路は`json/config_resolution.json`またはMetrics masterの`config_resolution` recordにある`data`を基準とする。resolutionは分析・診断用metadataであり、設定の再読込には使わない。
 
 ### 7.2 lifetimeと終了
 
@@ -362,6 +366,7 @@ sequenceDiagram
 設定DTOの`std::optional<T>`は、既存の`ConfigData`が読む設定キーの値の型に対応する。未指定ならDTOの初期値を保持し、初期値も未指定なら設定記録へ設定キーを追加しない。指定があれば通常値の読み取りへ委譲し、default prefix→override prefixの順序と型検証・記録を保つ。空文字や不正な数値を未指定へ変換しない。複合`ConfigReader`をoptionalで包む形は対象外で、型の段階で拒否する。
 
 - `ConfigData`の型変換失敗は例外とし、既定値はキー欠落時だけ使う。範囲・enum・組み合わせは各`Config`または再利用設定型の検証、class IDはrepository解決時の検証に従う。
+- エラー・WARN・INFO が設定キーを示すときは、値を与えた置き場の完全キーを使う。閉じたスキーマの未読キーも完全キーで示す。
 - 指定した設定ファイルが開けない場合と、includeの空のファイル名・括弧の不整合は`ANET_SYSTEM_ERROR`で停止する。存在しなくてもよい補助ファイルは、呼ぶ側が有無を確かめてから読む。
 - RunManagerとアプリの画像登録・panel初期化を終え、最初のstepを始める前に`WarnUnreadConfigKeys`を呼ぶ。在庫と既読を除いた設定キーをソートし、件数と`key = value`を1件のWARNにまとめる。0件なら出さず、一覧があってもRunは続行する。後から読む予定の設定も、所有者がこの時点までに読んで検証するか、休止をINFOで宣言する。
 - RunnerThread内の例外は握りつぶさずapplicationのexception callbackへ渡す。
@@ -380,6 +385,7 @@ sequenceDiagram
 ## 8. テストと拡張時の確認事項
 
 - [PRD117検証資材](../../src/core/base/testdata/prd117/README.md): 元キーの追跡、閉じたカタログ、未読一覧、Run単位の通知、通常RunのWARN 0件の対象と停止条件。
+- [PRD194検証資材](../../src/core/base/testdata/prd194/README.md)に、診断が示す設定キーの集計と期待一覧との照合手順を置く。
 
 - [PRD094検証資材](../../src/core/base/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 

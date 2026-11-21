@@ -61,12 +61,13 @@ namespace anet::rl {
         float robust_std_threshold = 5.0f;  ///< この分散値より大きい値を統計から自動除外
         int post_process_type = kPostProcessSymLog;
         float post_process_threshold = 10.0f;
+        ConfigFullKeyTable full_keys;
 
         // dynamicなScalerの種類が増えたらそのアルゴリズムを指定する設定を追加
     };
 
-    /// 正規化設定が所有する値域を、呼び出し側の論理キーで検証する。
-    void ValidateObservationNormalizerConfig(const ObservationNormalizerConfig& config, const std::string& prefix);
+    /// 正規化設定が所有する値域を検証する。
+    void ValidateObservationNormalizerConfig(const ObservationNormalizerConfig& config);
 
     class ObservationNormalizerFactory {
     public:
@@ -124,6 +125,7 @@ namespace anet::rl {
         bool use_auto_post_scale = true;     ///< gammaを使って自動設定するか？
         float reference_q_std = 30.0f;        ///< 自動設定時のQ値の目標スケール (推奨: 3.0 ~ 30.0)
         float manual_post_scale = 1.0f;
+        ConfigFullKeyTable full_keys;
 
         // dynamicなScalerの種類が増えたらそのアルゴリズムを指定する設定を追加
     };
@@ -131,13 +133,14 @@ namespace anet::rl {
     class RewardScalerFactory {
     public:
         RewardScalerFactory(const RewardScalerConfig& config, std::string prefix = "reward_scaler");
-        std::unique_ptr<RewardScaler> CreateRewardScaler(float gamma, int64_t num_lanes) const;
+        std::unique_ptr<RewardScaler> CreateRewardScaler(float gamma, int64_t num_lanes,
+            const std::string& gamma_key = "gamma (not read from config)") const;
     private:
         RewardScalerConfig config_;
         std::string prefix_;
     };
 
-    void ValidateRewardScalerConfig(const RewardScalerConfig& config, const std::string& prefix, bool used = true);
+    void ValidateRewardScalerConfig(const RewardScalerConfig& config, bool used = true);
 
 
 }	// namespace anet::rl
@@ -169,14 +172,15 @@ namespace anet {
             owner.ReadSubConfig(data, key, "use_auto_post_scale", value.use_auto_post_scale);
             owner.ReadSubConfig(data, key, "reference_q_std", value.reference_q_std);
             owner.ReadSubConfig(data, key, "manual_post_scale", value.manual_post_scale);
+            value.full_keys = owner.GetFullKeys().Extract(key);
             // usedは休眠時の通知に保ち、段階読み込みでは組み合わせだけを後へ残す。
-            rl::ValidateRewardScalerConfig(value, owner.MakeDefaultConfigKey(key), used && validate_combinations);
+            rl::ValidateRewardScalerConfig(value, used && validate_combinations);
             const auto report = [&](const std::string& field, const auto& actual, const auto& default_value, bool field_used) {
                 if (!field_used && owner.HasConfigValue(data, key + "." + field) && actual != default_value) {
-                    const auto full_key = owner.MakeDefaultConfigKey(key + "." + field);
+                    const auto full_key = value.full_keys.GetFullKey(field);
                     anet::log::warn_once(full_key) << "Ignored " << full_key << "=" << anet::json(actual).dump()
                         << "; default=" << anet::json(default_value).dump()
-                        << "; reason=" << (used ? "use_dynamic_scaling=false" : "reward scaler inactive") << ".";
+                        << "; reason=" << (used ? value.full_keys.GetFullKey("use_dynamic_scaling") + "=false" : "reward scaler inactive") << ".";
                 }
             };
             report("use_clipping", value.use_clipping, defaults.use_clipping, used);

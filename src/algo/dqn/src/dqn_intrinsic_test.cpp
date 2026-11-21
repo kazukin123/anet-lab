@@ -606,16 +606,19 @@ TEST_CASE("DQN intrinsic done mask controls the actual learning reward", "[prd12
         data.Set("DefaultDQNAgent.intrinsic.enabled", true);
         CHECK_THROWS_WITH(anet::rl::dqn::DefaultDQNAgentConfig(data),
             Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring(kInvalidConfigValue));
-        data.Set(key, false);
+        const std::string source_key = "Trial.intrinsic.use_done_mask";
+        anet::ConfigData source;
+        source.Set(source_key, false);
+        data.CopyValueFrom(key, source, source_key);
         data.Set("DefaultDQNAgent.intrinsic.observation", anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState);
         anet::test::LogCaptureGuard logs;
         const anet::rl::dqn::DefaultDQNAgentConfig config(data);
         logs.Flush();
         CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
-            return record.level == wxLOG_Warning && record.message.find(key) != std::string::npos;
+            return record.level == wxLOG_Warning && record.message.find(source_key) != std::string::npos;
         }) == 1);
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Warning,
-            {key, kFalseConfigValue, anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState}));
+            {source_key, kFalseConfigValue, anet::rl::dqn::DefaultDQNAgentConfig::kIntrinsicObservationState}));
     }
     SECTION("the learner receives masked or unmasked bonuses on done and truncated lanes") {
         IntrinsicMetricsScope metrics;
@@ -704,7 +707,7 @@ TEST_CASE("DQN checkpoint resumes dynamic reward scaler statistics", "[prd121][i
             CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("intrinsic.value_mode"));
             mismatch = data;
             mismatch.Set("DefaultDQNAgent.intrinsic.reward_scaler.use_dynamic_scaling", inner_mode == anet::rl::RewardScaler::kConstantState);
-            CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("intrinsic.reward_scaler kind"));
+            CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("intrinsic reward scaler kind"));
         }
         if (decomposed) {
             mismatch = data;

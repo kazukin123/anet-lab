@@ -259,19 +259,20 @@ void ImageClsEnvFactory::ValidateConfig(
     (void)env_config;
     (void)run_mode;
 
-    const auto validate_dataset_reference = [&catalog](const char* role, const std::string& dataset_key) {
+    const auto validate_dataset_reference = [&catalog](const char* role, const std::string& dataset_key,
+        const std::string& reference_key) {
         if (catalog.contains(dataset_key)) return;
         std::string available;
         for (const auto& [key, config] : catalog) {
             (void)config;
             if (!available.empty()) available += ",";
-            available += key;
+            available += "ImageDataset.[" + key + "]";
         }
         ANET_SYSTEM_ERROR("Unknown ImageClsEnv DatasetKey. role='" << role
-            << "' dataset_key='" << dataset_key << "' available_keys='" << available << "'");
+            << "' " << reference_key << "='ImageDataset.[" << dataset_key << "]' available_keys='" << available << "'");
     };
-    validate_dataset_reference("train", train_config.dataset_key);
-    validate_dataset_reference("eval", eval_config.dataset_key);
+    validate_dataset_reference("train", train_config.dataset_key, train_config.GetFullKey("dataset_key"));
+    validate_dataset_reference("eval", eval_config.dataset_key, eval_config.GetFullKey("dataset_key"));
 }
 
 std::shared_ptr<anet::rl::BatchEnv> ImageClsEnvFactory::CreateBatchEnv(
@@ -310,13 +311,14 @@ std::shared_ptr<anet::rl::BatchEnv> ImageClsEnvFactory::CreateBatchEnv(
     effective_config.MergeFromChecked(eval_dataset->GetConfig().ToConfigData(eval_config.dataset_key));
 
     const auto resolved_seed = ResolveSeed(seed);
+    const auto worker_type_key = builder_config.GetFullKey("worker_type");
     std::unique_ptr<anet::img::ImageDataSource> source;
     if (anet::rl::IsTrain(run_mode)) {
         source = std::make_unique<anet::img::ImageDataSource>(
-            train_config, num_envs, resolved_seed, builder_config.worker_type, builder_config.worker_threads);
+            train_config, num_envs, resolved_seed, builder_config.worker_type, builder_config.worker_threads, worker_type_key);
     } else {
         source = std::make_unique<anet::img::ImageDataSource>(
-            eval_config, num_envs, resolved_seed, builder_config.worker_type, builder_config.worker_threads);
+            eval_config, num_envs, resolved_seed, builder_config.worker_type, builder_config.worker_threads, worker_type_key);
     }
     return std::make_shared<ImageClsEnv>(
         env_config, std::move(source), std::move(effective_config), name, num_envs, run_mode);

@@ -1920,6 +1920,36 @@ TEST_CASE("Network config profile expands same group independently per branch", 
     CHECK(b_rates[2] == Catch::Approx(0.5).margin(1.0e-12));
 }
 
+TEST_CASE("Branch config profile diagnostics identify the profile's full location", "[nn][config_profile][prd194]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData data;
+    data.Set("net.block.[Drop].type", "Dropout");
+    data.Set("net.block.[Drop].dropout_rate", "@dp");
+    data.Set("Agent.net.branch.[feature].bind", "obs");
+    data.Set("Agent.net.branch.[feature].structure", "Drop");
+    const std::string prefix = "Agent.net.branch.[feature].config_profile.[dp]";
+    const auto build = [&] {
+        return anet::nn::NetworkBodyBuilder::Build(anet::nn::NetworkConfig(data, "Agent.net"),
+            {{"obs", MakeConfigProfileVectorSpec()}}, MakeTestModuleRandomSource());
+    };
+
+    SECTION("missing definition lists the locations where a definition can be supplied") {
+        CHECK_THROWS_WITH(build(), Catch::Matchers::ContainsSubstring("net.config_profile.[dp], Agent.net.config_profile.[dp], " + prefix)
+            && Catch::Matchers::ContainsSubstring("net.block.[Drop].dropout_rate"));
+    }
+    SECTION("missing end points to the branch profile") {
+        data.Set(prefix + ".start", 0.1);
+        CHECK_THROWS_WITH(build(), Catch::Matchers::ContainsSubstring("Missing required " + prefix + ".end"));
+    }
+    SECTION("an unread branch field names both the owner and the field") {
+        data.Set(prefix + ".end", 0.5);
+        data.Set(prefix + ".ennd", 0.5);
+        CHECK_THROWS_WITH(build(), Catch::Matchers::ContainsSubstring("Unread config keys in " + prefix + ":")
+            && Catch::Matchers::ContainsSubstring(prefix + ".ennd"));
+    }
+}
+
 TEST_CASE("Network SoftCopyTo blends parameters and floating buffers", "[nn][soft-copy]")
 {
     auto source = MakeSoftCopyTestNetwork(/*base=*/10.0f, /*counter=*/42);
@@ -2059,7 +2089,7 @@ TEST_CASE("Variance scaling rejects bounds the weight dtype cannot represent", "
     std::ostringstream scale_text;
     scale_text << scale;
     CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, config),
-        Catch::Matchers::ContainsSubstring("Invalid WeightInitConfig.variance_scale=" + scale_text.str())
+        Catch::Matchers::ContainsSubstring("Invalid variance_scale (not read from config)=" + scale_text.str())
         && Catch::Matchers::ContainsSubstring("expected uniform bound in [")
         && Catch::Matchers::ContainsSubstring("Float")
         && Catch::Matchers::ContainsSubstring("fan_in=256"));
@@ -2075,7 +2105,7 @@ TEST_CASE("Variance scaling rejects complex weights before writing parameters", 
     const auto original_bias = layer->bias.detach().clone();
     const anet::nn::WeightInitConfig config{.mode = anet::nn::WeightInitConfig::kVarianceScalingMode};
     CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, config),
-        Catch::Matchers::ContainsSubstring("Invalid WeightInitConfig.variance_scale=1")
+        Catch::Matchers::ContainsSubstring("Invalid variance_scale (not read from config)=1")
         && Catch::Matchers::ContainsSubstring("expected real floating-point weight dtype")
         && Catch::Matchers::ContainsSubstring("ComplexFloat"));
     CHECK(torch::equal(layer->weight, original_weight));
@@ -2093,7 +2123,7 @@ TEST_CASE("Variance scaling requires weight output and input axes", "[nn][init][
     const anet::nn::WeightInitConfig config{.mode = anet::nn::WeightInitConfig::kVarianceScalingMode};
 
     CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, config),
-        Catch::Matchers::ContainsSubstring("Invalid WeightInitConfig.variance_scale=1")
+        Catch::Matchers::ContainsSubstring("Invalid variance_scale (not read from config)=1")
         && Catch::Matchers::ContainsSubstring("expected weight rank >= 2")
         && Catch::Matchers::ContainsSubstring("actual rank=" + std::to_string(rank)));
     CHECK(torch::equal(layer->weight, original_weight));
@@ -2266,23 +2296,22 @@ TEST_CASE("Blocks retain their default weight initialization distributions", "[n
     }
 }
 
-TEST_CASE("WeightInitConfig validates shared settings with caller diagnostics", "[nn][init][weight-init-config]")
+TEST_CASE("WeightInitConfig validates shared settings without a config source", "[nn][init][weight-init-config]")
 {
-    const std::string owner = "net.block.[Probe].init";
     // 正常な各方式と既存のgain自動選択は、利用側にかかわらず受け付ける。
     for (const std::string mode : {"default", "xavier", "he", "orthogonal", "constant", "trunc_normal",
         anet::nn::WeightInitConfig::kVarianceScalingMode}) {
         const anet::nn::WeightInitConfig config{.mode = mode, .manual_gain = -1.0};
-        CHECK_NOTHROW(anet::nn::ValidateWeightInitConfig(config, owner));
+        CHECK_NOTHROW(anet::nn::ValidateWeightInitConfig(config));
     }
     const anet::nn::WeightInitConfig unknown{.mode = "unsupported"};
-    CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(unknown, owner),
-        Catch::Matchers::ContainsSubstring("Invalid " + owner + ".mode='unsupported'; "
+    CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(unknown),
+        Catch::Matchers::ContainsSubstring("Invalid mode (not read from config)='unsupported'; "
             "expected default, xavier, he, orthogonal, constant, trunc_normal or variance_scaling."));
 
     const anet::nn::WeightInitConfig unknown_nonlinearity{.mode = "xavier", .nonlinearity = "selu"};
-    CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(unknown_nonlinearity, owner),
-        Catch::Matchers::ContainsSubstring("Invalid " + owner + ".nonlinearity='selu'; expected relu, linear, tanh or leaky_relu."));
+    CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(unknown_nonlinearity),
+        Catch::Matchers::ContainsSubstring("Invalid nonlinearity (not read from config)='selu'; expected relu, linear, tanh or leaky_relu."));
 
     // 設定パーサを通らないDTOでも、非有限値を論理キー付きで拒否する。
     using NumericField = double anet::nn::WeightInitConfig::*;
@@ -2301,29 +2330,29 @@ TEST_CASE("WeightInitConfig validates shared settings with caller diagnostics", 
             config.*field = value;
             std::ostringstream text;
             text << value;
-            CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
+            CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config),
                 Catch::Matchers::ContainsSubstring(
-                    "Invalid " + owner + "." + key + "=" + text.str() + "; expected finite value."));
+                    "Invalid " + std::string(key) + " (not read from config)=" + text.str() + "; expected finite value."));
         }
     }
 
     // 使用方式に依存しない数値範囲は、構築前に同じ条件で検証する。
     for (const double deviation : {0.0, -0.1}) {
         const anet::nn::WeightInitConfig config{.trunc_std = deviation};
-        CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
-            Catch::Matchers::ContainsSubstring(owner + ".trunc_std") && Catch::Matchers::ContainsSubstring("expected > 0"));
+        CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config),
+            Catch::Matchers::ContainsSubstring("trunc_std (not read from config)") && Catch::Matchers::ContainsSubstring("expected > 0"));
     }
     for (const auto& [lower, upper] : {std::pair{0.0, 0.0}, std::pair{1.0, -1.0}}) {
         const anet::nn::WeightInitConfig config{.trunc_a = lower, .trunc_b = upper};
-        CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
-            Catch::Matchers::ContainsSubstring(owner + ".trunc_a")
-            && Catch::Matchers::ContainsSubstring(owner + ".trunc_b"));
+        CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config),
+            Catch::Matchers::ContainsSubstring("trunc_a (not read from config)")
+            && Catch::Matchers::ContainsSubstring("trunc_b (not read from config)"));
     }
     for (const int scale : {0, -1}) {
         const anet::nn::WeightInitConfig config{.mode = "default", .variance_scale = static_cast<double>(scale)};
-        CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
+        CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config),
             Catch::Matchers::ContainsSubstring(
-                "Invalid " + owner + ".variance_scale=" + std::to_string(scale) + "; expected > 0."));
+                "Invalid variance_scale (not read from config)=" + std::to_string(scale) + "; expected > 0."));
     }
 }
 
@@ -2335,14 +2364,14 @@ TEST_CASE("WeightInitializer validates settings before changing parameters", "[n
     const anet::nn::WeightInitConfig constant{
         .mode = "constant", .constant_val = std::numeric_limits<double>::quiet_NaN()};
     CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, constant),
-        Catch::Matchers::ContainsSubstring("WeightInitConfig.constant_val"));
+        Catch::Matchers::ContainsSubstring("constant_val (not read from config)"));
     CheckTensorClose(torch::full_like(layer->weight, 0.25), layer->weight);
     CheckTensorClose(torch::full_like(layer->bias, -0.75), layer->bias);
 
     // defaultの早期returnでも、認識済みの不正な設定を見逃さない。
     const anet::nn::WeightInitConfig unchanged{.mode = "default", .trunc_std = 0.0};
     CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, unchanged),
-        Catch::Matchers::ContainsSubstring("WeightInitConfig.trunc_std"));
+        Catch::Matchers::ContainsSubstring("trunc_std (not read from config)"));
     CheckTensorClose(torch::full_like(layer->weight, 0.25), layer->weight);
     CheckTensorClose(torch::full_like(layer->bias, -0.75), layer->bias);
 }
@@ -2892,7 +2921,7 @@ TEST_CASE("Spectral normalization rejects a degenerate spectral initialization",
         Catch::Matchers::ContainsSubstring("zero_linear")
             && Catch::Matchers::ContainsSubstring("spectral_cap"));
     CHECK_THROWS_WITH(
-        anet::nn::ParseWeightNormMode("mystery"),
+        anet::nn::ParseWeightNormMode("mystery", "net.block.[mystery].weight_norm.mode"),
         Catch::Matchers::ContainsSubstring("weight_norm.mode")
             && Catch::Matchers::ContainsSubstring("mystery")
             && Catch::Matchers::ContainsSubstring("none, spectral, spectral_cap"));
@@ -3782,7 +3811,7 @@ TEST_CASE("ResBlock exposes dropout config and validates rates", "[nn][resblock]
     CHECK(anet::test::HasRecordContaining(
         logs.Records(),
         wxLOG_Warning,
-        { "ResBlock dropout_rate", "key=res.dropout_rate", "value=0.1", "BatchNorm", "droppath_rate" }));
+        { "ResBlock", "key=res.dropout_rate", "value=0.1", "BatchNorm", "recommended=use res.droppath_rate" }));
     CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 1);
 }
 
@@ -5480,6 +5509,81 @@ TEST_CASE("Projection validation shares the concrete Linear contract", "[nn][noi
     data.Set("noisy.sigma0", -0.5);
     CHECK_THROWS_WITH(anet::nn::ValidateLinearProjectionConfig(data, "probe.projection"),
         Catch::Matchers::ContainsSubstring("probe.projection.noisy.sigma0"));
+}
+
+TEST_CASE("NN block diagnostics identify the source of shared and Agent-specific fields", "[prd194][prd194_block]")
+{
+    EnsureNNInitialized();
+    anet::test::LogCaptureGuard logs;
+    const bool local = GENERATE(false, true);
+    const std::string location = local ? "DefaultDQNAgent.net.block.[Example]" : "net.block.[Example]";
+    anet::ConfigData data;
+    data.Set(location + ".type", "CNBlock");
+    data.Set("DefaultDQNAgent.net.branch.[feature].bind", "obs");
+    data.Set("DefaultDQNAgent.net.branch.[feature].structure", "Example");
+    data.Set("DefaultDQNAgent.net.body.output.[feature]", "feature");
+
+    if (const int invalid = GENERATE(0, 1, 2); invalid == 0) {
+        data.Set(location + ".cn.channels", 0);
+        const anet::nn::NetworkConfig config(data, "DefaultDQNAgent.net");
+        CHECK_THROWS_WITH(anet::nn::NetworkStructBuilder::Build(config, "Example", MakeTestModuleRandomSource()),
+            Catch::Matchers::ContainsSubstring(location + ".cn.channels"));
+    } else if (invalid == 1) {
+        data.Set(location + ".cn.channels", "invalid");
+        const anet::nn::NetworkConfig config(data, "DefaultDQNAgent.net");
+        CHECK_THROWS_WITH(anet::nn::NetworkStructBuilder::Build(config, "Example", MakeTestModuleRandomSource()),
+            Catch::Matchers::ContainsSubstring("key=" + location + ".cn.channels"));
+    } else {
+        data.Set(location + ".cn.channels", 8);
+        data.Set(location + ".cn.channnels", 4);
+        const anet::nn::NetworkConfig config(data, "DefaultDQNAgent.net");
+        CHECK_THROWS_WITH(anet::nn::NetworkStructBuilder::Build(config, "Example", MakeTestModuleRandomSource()),
+            Catch::Matchers::ContainsSubstring(location + ".cn.channnels = 4"));
+    }
+}
+
+TEST_CASE("A missing block field uses the location that supplied the block type", "[prd194][prd194_block]")
+{
+    EnsureNNInitialized();
+    anet::test::LogCaptureGuard logs;
+    const int layers = GENERATE(0, 1, 2);
+    anet::ConfigData data;
+    data.Set("DefaultDQNAgent.net.branch.[feature].bind", "obs");
+    data.Set("DefaultDQNAgent.net.branch.[feature].structure", "Example");
+    data.Set("DefaultDQNAgent.net.body.output.[feature]", "feature");
+    data.Set("net.block.[Example].type", "CNBlock");
+    if (layers >= 1) data.Set("DefaultDQNAgent.net.block.[Example].cn.kernel_size", 3);
+    if (layers == 2) data.Set("DefaultDQNAgent.net.block.[Example].type", "CNBlock");
+    const auto* expected = layers == 2 ? "DefaultDQNAgent.net.block.[Example].cn.channels"
+                                      : "net.block.[Example].cn.channels";
+    const anet::nn::NetworkConfig config(data, "DefaultDQNAgent.net");
+    CHECK_THROWS_WITH(anet::nn::NetworkStructBuilder::Build(config, "Example", MakeTestModuleRandomSource()),
+        Catch::Matchers::ContainsSubstring(expected));
+}
+
+TEST_CASE("Linear reports one fatal for invalid forward configuration", "[prd194][prd194_linear]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData data;
+    data.Set("net.block.[Linear].type", "Linear");
+    data.Set("net.block.[Linear].linear.out_features", 3);
+    data.Set("net.block.[Linear].noisy.enabled", true);
+    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.branch.[feature].structure", "Linear");
+    data.Set("net.body.output.[features]", "feature");
+    data.Set("nn_forward.[selected].noisy.count", "invalid");
+    const anet::TensorSpec spec{.type = anet::SpaceType::Vector, .shape = {2}, .dtype = torch::kFloat32};
+    const auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
+        anet::TensorSpecMap{{"obs", spec}}, nullptr, 1093);
+    const anet::nn::NetworkForwardConfig config("nn_forward.[selected]", data.MakeSubConfigData("nn_forward").at("selected"));
+
+    anet::test::LogCaptureGuard logs;
+    CHECK_THROWS_WITH(network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 0),
+        Catch::Matchers::ContainsSubstring("nn_forward.[selected].noisy.count"));
+    logs.Flush();
+    CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [](const auto& record) {
+        return record.level == wxLOG_Message && record.message.starts_with("Exception: ");
+    }) == 1);
 }
 
 TEST_CASE("Instantiated network blocks reject unread config keys", "[nn][config][prd117]")

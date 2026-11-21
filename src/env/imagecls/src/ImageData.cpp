@@ -20,6 +20,11 @@
 using namespace anet::img;
 namespace LOG = anet::log;
 
+static std::string MakeDatasetItemKey(const DatasetKey& key)
+{
+    return "ImageDataset.[" + key + "]";
+}
+
 namespace {
 
 std::filesystem::path NormalizePath(const std::filesystem::path& path)
@@ -50,12 +55,12 @@ std::string CacheModeName(ImageCacheMode mode)
     return "unknown";
 }
 
-ImageCacheMode ParseCacheMode(const std::string& value)
+ImageCacheMode ParseCacheMode(const std::string& value, const std::string& key)
 {
     if (value == "auto") return ImageCacheMode::Auto;
     if (value == "none") return ImageCacheMode::None;
     if (value == "full_ram") return ImageCacheMode::FullRam;
-    ANET_SYSTEM_ERROR("Invalid ImageDataset.cache.mode='" << value
+    ANET_SYSTEM_ERROR("Invalid " << key << "='" << value
         << "'. Expected auto, none, or full_ram.");
     return ImageCacheMode::None;
 }
@@ -66,10 +71,14 @@ void ReadDatasetField(
     const anet::ConfigData& item_data,
     const DatasetKey& key,
     const std::string& field,
-    T& value)
+    T& value,
+    anet::ConfigFullKeyTable& full_keys)
 {
-    config_data.Read("ImageDataset." + field, value, value);
-    item_data.Read("ImageDataset.[" + key + "]." + field, value, value);
+    const auto common_key = "ImageDataset." + field;
+    const auto item_key = MakeDatasetItemKey(key) + "." + field;
+    config_data.Read(common_key, value, value);
+    const bool from_item = item_data.Read(item_key, value, value);
+    full_keys.Set(field, from_item ? item_data.GetFullKey(item_key) : config_data.GetFullKey(common_key));
 }
 
 void EnsureWxImageSupport()
@@ -95,8 +104,7 @@ ImageManifest LoadManifest(const DatasetKey& key, const ImageDatasetConfig& conf
     // classes.txtを宣言順に読み、manifest全体で共有するclass indexを確定する。
     std::ifstream classes_file(config.classes_txt_path);
     if (!classes_file.is_open()) {
-        ANET_SYSTEM_ERROR("Failed to open ImageDataset classes file. dataset_key='" << key
-            << "' path='" << config.classes_txt_path.string() << "'");
+        ANET_SYSTEM_ERROR("Failed to open ImageDataset classes file. " << MakeDatasetItemKey(key) << " path='" << config.classes_txt_path.string() << "'");
     }
 
     ImageManifest manifest;
@@ -108,22 +116,19 @@ ImageManifest LoadManifest(const DatasetKey& key, const ImageDatasetConfig& conf
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.empty()) continue;
         if (class_to_index.contains(line)) {
-            ANET_SYSTEM_ERROR("Duplicate ImageDataset class. dataset_key='" << key
-                << "' line=" << line_number << " class='" << line << "'");
+            ANET_SYSTEM_ERROR("Duplicate ImageDataset class. " << MakeDatasetItemKey(key) << " line=" << line_number << " class='" << line << "'");
         }
         class_to_index.emplace(line, static_cast<int64_t>(manifest.class_names.size()));
         manifest.class_names.push_back(line);
     }
     if (manifest.class_names.empty()) {
-        ANET_SYSTEM_ERROR("ImageDataset classes file is empty. dataset_key='" << key
-            << "' path='" << config.classes_txt_path.string() << "'");
+        ANET_SYSTEM_ERROR("ImageDataset classes file is empty. " << MakeDatasetItemKey(key) << " path='" << config.classes_txt_path.string() << "'");
     }
 
     // sample listをclass indexへ解決し、壊れた参照をdataset公開前に検出する。
     std::ifstream list_file(config.list_txt_path);
     if (!list_file.is_open()) {
-        ANET_SYSTEM_ERROR("Failed to open ImageDataset list file. dataset_key='" << key
-            << "' path='" << config.list_txt_path.string() << "'");
+        ANET_SYSTEM_ERROR("Failed to open ImageDataset list file. " << MakeDatasetItemKey(key) << " path='" << config.list_txt_path.string() << "'");
     }
 
     line_number = 0;
@@ -133,21 +138,18 @@ ImageManifest LoadManifest(const DatasetKey& key, const ImageDatasetConfig& conf
         if (line.empty()) continue;
         const auto separator = line.find_first_of("/\\");
         if (separator == std::string::npos || separator == 0 || separator + 1 >= line.size()) {
-            ANET_SYSTEM_ERROR("Malformed ImageDataset list entry. dataset_key='" << key
-                << "' line=" << line_number << " value='" << line << "'");
+            ANET_SYSTEM_ERROR("Malformed ImageDataset list entry. " << MakeDatasetItemKey(key) << " line=" << line_number << " value='" << line << "'");
         }
         const auto class_name = line.substr(0, separator);
         const auto class_it = class_to_index.find(class_name);
         if (class_it == class_to_index.end()) {
-            ANET_SYSTEM_ERROR("Unknown ImageDataset class. dataset_key='" << key
-                << "' line=" << line_number << " class='" << class_name << "'");
+            ANET_SYSTEM_ERROR("Unknown ImageDataset class. " << MakeDatasetItemKey(key) << " line=" << line_number << " class='" << class_name << "'");
         }
         manifest.paths.push_back((config.root_dir / (line + config.suffix)).lexically_normal());
         manifest.targets.push_back(class_it->second);
     }
     if (manifest.paths.empty()) {
-        ANET_SYSTEM_ERROR("ImageDataset sample list is empty. dataset_key='" << key
-            << "' path='" << config.list_txt_path.string() << "'");
+        ANET_SYSTEM_ERROR("ImageDataset sample list is empty. " << MakeDatasetItemKey(key) << " path='" << config.list_txt_path.string() << "'");
     }
     return manifest;
 }
@@ -166,43 +168,43 @@ ImageDatasetConfig ImageDatasetConfig::Resolve(const anet::ConfigData& config_da
     }
 
     ImageDatasetConfig config;
-    const auto item_data = config_data.CreateReadScope("ImageDataset.[" + key + "]");
+    const auto item_data = config_data.CreateReadScope(MakeDatasetItemKey(key));
     std::string root_dir;
     std::string list_txt_path;
     std::string classes_txt_path;
     std::string cache_mode = "auto";
     // catalog共通値の上へdataset-key固有値を重ね、1 dataset分の設定を確定する。
-    ReadDatasetField(config_data, item_data, key, "root_dir", root_dir);
-    ReadDatasetField(config_data, item_data, key, "list_txt_path", list_txt_path);
-    ReadDatasetField(config_data, item_data, key, "classes_txt_path", classes_txt_path);
-    ReadDatasetField(config_data, item_data, key, "suffix", config.suffix);
-    ReadDatasetField(config_data, item_data, key, "image_width", config.image_width);
-    ReadDatasetField(config_data, item_data, key, "image_height", config.image_height);
-    ReadDatasetField(config_data, item_data, key, "cache.mode", cache_mode);
-    ReadDatasetField(config_data, item_data, key, "cache.max_bytes", config.cache_max_bytes);
-    item_data.RequireAllKeysRead("ImageDataset.[" + key + "]");
+    ReadDatasetField(config_data, item_data, key, "root_dir", root_dir, config.full_keys);
+    ReadDatasetField(config_data, item_data, key, "list_txt_path", list_txt_path, config.full_keys);
+    ReadDatasetField(config_data, item_data, key, "classes_txt_path", classes_txt_path, config.full_keys);
+    ReadDatasetField(config_data, item_data, key, "suffix", config.suffix, config.full_keys);
+    ReadDatasetField(config_data, item_data, key, "image_width", config.image_width, config.full_keys);
+    ReadDatasetField(config_data, item_data, key, "image_height", config.image_height, config.full_keys);
+    ReadDatasetField(config_data, item_data, key, "cache.mode", cache_mode, config.full_keys);
+    ReadDatasetField(config_data, item_data, key, "cache.max_bytes", config.cache_max_bytes, config.full_keys);
+    item_data.RequireAllKeysRead();
 
     // I/O開始前にpath、shape、cache上限の構築時検証を完了する。
     if (root_dir.empty() || list_txt_path.empty() || classes_txt_path.empty()) {
-        ANET_SYSTEM_ERROR("Missing required ImageDataset path. dataset_key='" << key
-            << "' root_dir='" << root_dir << "' list_txt_path='" << list_txt_path
-            << "' classes_txt_path='" << classes_txt_path << "'");
+        ANET_SYSTEM_ERROR("Missing required ImageDataset path. " << MakeDatasetItemKey(key) << " " << config.full_keys.GetFullKey("root_dir") << "='" << root_dir
+            << "' " << config.full_keys.GetFullKey("list_txt_path") << "='" << list_txt_path
+            << "' " << config.full_keys.GetFullKey("classes_txt_path") << "='" << classes_txt_path << "'");
     }
     if (config.image_width <= 0 || config.image_height <= 0) {
-        ANET_SYSTEM_ERROR("Invalid ImageDataset image shape. dataset_key='" << key
-            << "' width=" << config.image_width << " height=" << config.image_height
+        ANET_SYSTEM_ERROR("Invalid ImageDataset image shape. " << MakeDatasetItemKey(key) << " " << config.full_keys.GetFullKey("image_width") << "=" << config.image_width
+            << " " << config.full_keys.GetFullKey("image_height") << "=" << config.image_height
             << ". Expected positive values.");
     }
     if (config.cache_max_bytes == 0) {
-        ANET_SYSTEM_ERROR("Invalid ImageDataset.cache.max_bytes=0. dataset_key='" << key
-            << "'. Expected a positive uint64 value.");
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("cache.max_bytes") << "=0. "
+            << MakeDatasetItemKey(key) << ". Expected a positive uint64 value.");
     }
 
     // 登録済み設定との比較が実行directoryに依存しないよう絶対pathへ正規化する。
     config.root_dir = NormalizePath(root_dir);
     config.list_txt_path = NormalizePath(list_txt_path);
     config.classes_txt_path = NormalizePath(classes_txt_path);
-    config.cache_mode = ParseCacheMode(cache_mode);
+    config.cache_mode = ParseCacheMode(cache_mode, config.full_keys.GetFullKey("cache.mode"));
     return config;
 }
 
@@ -302,7 +304,7 @@ uint64_t ImageDataset::RequiredPayloadBytes() const
     uint64_t value = static_cast<uint64_t>(manifest_.paths.size());
     for (const auto factor : { uint64_t{3}, static_cast<uint64_t>(config_.image_height), static_cast<uint64_t>(config_.image_width) }) {
         if (factor != 0 && value > std::numeric_limits<uint64_t>::max() / factor) {
-            ANET_SYSTEM_ERROR("ImageDataset payload size overflow. dataset_key='" << key_ << "'");
+            ANET_SYSTEM_ERROR("ImageDataset payload size overflow. " << MakeDatasetItemKey(key_));
         }
         value *= factor;
     }
@@ -327,9 +329,8 @@ void ImageDataset::PrepareCache()
             selected_mode = required_bytes <= config_.cache_max_bytes
                 ? ImageCacheMode::FullRam : ImageCacheMode::None;
             if (selected_mode == ImageCacheMode::None) {
-                LOG::warn_once(key_) << "ImageDataset auto cache disabled because payload exceeds cap. dataset_key='"
-                    << key_ << "' required_bytes=" << required_bytes
-                    << " max_bytes=" << config_.cache_max_bytes;
+                LOG::warn_once(key_) << "ImageDataset auto cache disabled because payload exceeds cap. " << MakeDatasetItemKey(key_) << " required_bytes=" << required_bytes
+                    << " " << config_.full_keys.GetFullKey("cache.max_bytes") << "=" << config_.cache_max_bytes;
             }
         }
 
@@ -337,8 +338,7 @@ void ImageDataset::PrepareCache()
         if (selected_mode == ImageCacheMode::FullRam) {
             // 明示FullRamは確保不能をエラーにし、autoの確保失敗だけNoneへfallbackする。
             if (required_bytes > config_.cache_max_bytes) {
-                ANET_SYSTEM_ERROR("ImageDataset full_ram cache exceeds cap. dataset_key='" << key_
-                    << "' required_bytes=" << required_bytes << " max_bytes=" << config_.cache_max_bytes);
+                ANET_SYSTEM_ERROR("ImageDataset full_ram cache exceeds cap. " << MakeDatasetItemKey(key_) << " required_bytes=" << required_bytes << " " << config_.full_keys.GetFullKey("cache.max_bytes") << "=" << config_.cache_max_bytes);
             }
             try {
                 payload = torch::empty(
@@ -346,23 +346,19 @@ void ImageDataset::PrepareCache()
                     torch::TensorOptions().dtype(torch::kUInt8).device(torch::kCPU));
             } catch (const std::exception& e) {
                 if (config_.cache_mode != ImageCacheMode::Auto) {
-                    ANET_SYSTEM_ERROR("ImageDataset full_ram allocation failed. dataset_key='"
-                        << key_ << "' required_bytes=" << required_bytes
-                        << " max_bytes=" << config_.cache_max_bytes << " reason='" << e.what() << "'");
+                    ANET_SYSTEM_ERROR("ImageDataset full_ram allocation failed. " << MakeDatasetItemKey(key_) << " required_bytes=" << required_bytes
+                        << " " << config_.full_keys.GetFullKey("cache.max_bytes") << "=" << config_.cache_max_bytes << " reason='" << e.what() << "'");
                 }
-                LOG::warn_once(key_) << "ImageDataset auto cache allocation failed; using none. dataset_key='"
-                    << key_ << "' required_bytes=" << required_bytes
-                    << " max_bytes=" << config_.cache_max_bytes;
+                LOG::warn_once(key_) << "ImageDataset auto cache allocation failed; using none. " << MakeDatasetItemKey(key_) << " required_bytes=" << required_bytes
+                    << " " << config_.full_keys.GetFullKey("cache.max_bytes") << "=" << config_.cache_max_bytes;
                 selected_mode = ImageCacheMode::None;
             } catch (...) {
                 if (config_.cache_mode != ImageCacheMode::Auto) {
-                    ANET_SYSTEM_ERROR("ImageDataset full_ram allocation failed. dataset_key='"
-                        << key_ << "' required_bytes=" << required_bytes
-                        << " max_bytes=" << config_.cache_max_bytes << " reason='<unknown>'");
+                    ANET_SYSTEM_ERROR("ImageDataset full_ram allocation failed. " << MakeDatasetItemKey(key_) << " required_bytes=" << required_bytes
+                        << " " << config_.full_keys.GetFullKey("cache.max_bytes") << "=" << config_.cache_max_bytes << " reason='<unknown>'");
                 }
-                LOG::warn_once(key_) << "ImageDataset auto cache allocation failed; using none. dataset_key='"
-                    << key_ << "' required_bytes=" << required_bytes
-                    << " max_bytes=" << config_.cache_max_bytes;
+                LOG::warn_once(key_) << "ImageDataset auto cache allocation failed; using none. " << MakeDatasetItemKey(key_) << " required_bytes=" << required_bytes
+                    << " " << config_.full_keys.GetFullKey("cache.max_bytes") << "=" << config_.cache_max_bytes;
                 selected_mode = ImageCacheMode::None;
             }
         }
@@ -374,8 +370,7 @@ void ImageDataset::PrepareCache()
         cache_prepare_state_ = CachePrepareState::Ready;
         lock.unlock();
         condition_.notify_all();
-        LOG::info() << "ImageDataset cache ready. dataset_key='" << key_
-            << "' requested_mode=" << CacheModeName(config_.cache_mode)
+        LOG::info() << "ImageDataset cache ready. " << MakeDatasetItemKey(key_) << " " << config_.full_keys.GetFullKey("cache.mode") << "=" << CacheModeName(config_.cache_mode)
             << " effective_mode=" << CacheModeName(selected_mode)
             << " required_bytes=" << required_bytes
             << " retained_payload_bytes="
@@ -399,8 +394,7 @@ torch::Tensor ImageDataset::Decode(size_t index) const
     wxImage image;
     const auto path = manifest_.paths[index].string();
     if (!image.LoadFile(path)) {
-        ANET_SYSTEM_ERROR("Failed to decode ImageDataset image. dataset_key='" << key_
-            << "' index=" << index << " path='" << path << "'");
+        ANET_SYSTEM_ERROR("Failed to decode ImageDataset image. " << MakeDatasetItemKey(key_) << " index=" << index << " path='" << path << "'");
     }
     // dataset契約の固定shapeへ揃え、batch collate可能な画像だけを返す。
     if (image.GetWidth() != config_.image_width || image.GetHeight() != config_.image_height) {
@@ -417,8 +411,7 @@ torch::data::Example<> ImageDataset::Get(size_t index)
     ANET_PROFILE_SCOPE(cache_lookup);
     // cache状態へ触れる前にindexを検証し、初回ならcache方式を確定する。
     if (index >= manifest_.paths.size()) {
-        ANET_SYSTEM_ERROR("ImageDataset index out of range. dataset_key='" << key_
-            << "' index=" << index << " size=" << manifest_.paths.size());
+        ANET_SYSTEM_ERROR("ImageDataset index out of range. " << MakeDatasetItemKey(key_) << " index=" << index << " size=" << manifest_.paths.size());
     }
     PrepareCache();
 
@@ -479,8 +472,7 @@ void ImageDatasetManager::RegisterCatalog(const ResolvedImageDatasetCatalog& cat
         if (it == entries_.end()) continue;
         std::string field;
         if (!it->second->config.Equals(config, &field)) {
-            ANET_SYSTEM_ERROR("ImageDataset catalog conflict. dataset_key='" << key
-                << "' field='" << field << "' registered=" << it->second->config.ToString()
+            ANET_SYSTEM_ERROR("ImageDataset catalog conflict. " << MakeDatasetItemKey(key) << " field='" << config.full_keys.GetFullKey(field) << "' registered=" << it->second->config.ToString()
                 << " requested=" << config.ToString());
         }
     }
@@ -506,7 +498,7 @@ std::shared_ptr<ImageDataset> ImageDatasetManager::Acquire(const DatasetKey& key
         std::unique_lock lock(mutex_);
         const auto it = entries_.find(key);
         if (it == entries_.end()) {
-            ANET_SYSTEM_ERROR("ImageDataset DatasetKey is not registered. dataset_key='" << key << "'");
+            ANET_SYSTEM_ERROR("ImageDataset DatasetKey is not registered. " << MakeDatasetItemKey(key));
         }
         entry = it->second;
         while (entry->state == State::Loading) entry->condition.wait(lock);
@@ -522,8 +514,7 @@ std::shared_ptr<ImageDataset> ImageDatasetManager::Acquire(const DatasetKey& key
         entry->dataset = std::move(dataset);
         entry->state = State::Ready;
         entry->condition.notify_all();
-        LOG::info() << "ImageDataset ready. dataset_key='" << key
-            << "' sample_count=" << entry->dataset->Size();
+        LOG::info() << "ImageDataset ready. " << MakeDatasetItemKey(key) << " sample_count=" << entry->dataset->Size();
         return entry->dataset;
     } catch (...) {
         // 構築失敗をentryへ固定し、以後のAcquireにも同じ例外を返す。
@@ -542,7 +533,7 @@ std::shared_ptr<ImageDataset> ImageDatasetManager::Acquire(const DatasetKey& key
 
 ImageDataSource::ImageDataSource(
     TrainImageDataSourceConfig config, int batch_size, anet::seed_t seed,
-    int worker_type, int worker_threads)
+    int worker_type, int worker_threads, const std::string& worker_type_key)
     : ImageDataSource(
         Role::Train,
         std::move(config.dataset_key),
@@ -554,16 +545,18 @@ ImageDataSource::ImageDataSource(
         config.augment.rrc_ratio_max,
         "full",
         1,
+        {},
         batch_size,
         seed,
         worker_type,
-        worker_threads)
+        worker_threads,
+        worker_type_key)
 {
 }
 
 ImageDataSource::ImageDataSource(
     EvalImageDataSourceConfig config, int batch_size, anet::seed_t seed,
-    int worker_type, int worker_threads)
+    int worker_type, int worker_threads, const std::string& worker_type_key)
     : ImageDataSource(
         Role::Eval,
         std::move(config.dataset_key),
@@ -575,10 +568,12 @@ ImageDataSource::ImageDataSource(
         1.0,
         std::move(config.eval_window.mode),
         config.eval_window.rotating_size,
+        config.GetFullKey("eval_window.rotating_size"),
         batch_size,
         seed,
         worker_type,
-        worker_threads)
+        worker_threads,
+        worker_type_key)
 {
 }
 
@@ -593,10 +588,12 @@ ImageDataSource::ImageDataSource(
     double augment_rrc_ratio_max,
     std::string eval_window_mode,
     int64_t eval_window_rotating_size,
+    const std::string& rotating_size_key,
     int batch_size,
     anet::seed_t seed,
     int worker_type,
-    int worker_threads)
+    int worker_threads,
+    const std::string& worker_type_key)
     : anet::RandomHolder(anet::SeedMaker(seed).MakeNamedSeed("ImageDataSource.sampler"))
     , role_(role)
     , dataset_key_(std::move(dataset_key))
@@ -616,13 +613,12 @@ ImageDataSource::ImageDataSource(
 {
     // batchとworker指定を検証し、Source専有poolの実効worker数を一度だけ決定する。
     if (batch_size_ <= 0) {
-        ANET_SYSTEM_ERROR("ImageDataSource batch_size must be positive. dataset_key='"
-            << dataset_key_ << "' batch_size=" << batch_size_);
+        ANET_SYSTEM_ERROR("ImageDataSource batch_size must be positive. " << MakeDatasetItemKey(dataset_key_) << " batch_size=" << batch_size_);
     }
     if (worker_type_ != anet::rl::WorkerType::AUTO
         && worker_type_ != anet::rl::WorkerType::SINGLE_THREAD
         && worker_type_ != anet::rl::WorkerType::THREAD_POOL) {
-        ANET_SYSTEM_ERROR("Invalid env.worker_type=" << worker_type_
+        ANET_SYSTEM_ERROR("Invalid " << worker_type_key << "=" << worker_type_
             << ". Expected AUTO(0), SINGLE_THREAD(1), or THREAD_POOL(2).");
     }
     const bool use_pool = worker_type_ == anet::rl::WorkerType::THREAD_POOL
@@ -632,8 +628,8 @@ ImageDataSource::ImageDataSource(
     // rotating windowがdataset外を要求しないことをdataset取得後に確認する。
     if (role_ == Role::Eval && eval_window_mode_ == "rotating"
         && eval_window_rotating_size_ > static_cast<int64_t>(dataset_->Size())) {
-        ANET_SYSTEM_ERROR("ImageClsEnv.eval.eval_window.rotating_size exceeds dataset size. dataset_key='"
-            << dataset_key_ << "' size=" << eval_window_rotating_size_
+        ANET_SYSTEM_ERROR(rotating_size_key << " exceeds dataset size. " << MakeDatasetItemKey(dataset_key_)
+            << " size=" << eval_window_rotating_size_
             << " dataset_size=" << dataset_->Size());
     }
     // trainとrotating evalだけ順序をshuffleし、full evalはmanifest順を維持する。

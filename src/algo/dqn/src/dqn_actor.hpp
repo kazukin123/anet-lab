@@ -84,7 +84,8 @@ namespace anet::rl::dqn {
     class SpatialLadderSchedule {
     public:
         SpatialLadderSchedule(const ActionPolicyConfig::LadderConfig& config,
-            std::string scale, int64_t lanes, torch::Device device);
+            std::string scale, int64_t lanes, torch::Device device,
+            const std::string& scale_key = "spatial.scale (not read from config)");
         void Update(step_t step);
         const torch::Tensor& Tensor() const { return tensor_; }
         float Mean() const { return mean_; }
@@ -259,6 +260,7 @@ namespace anet::rl::dqn {
         bool shared_policy = true;
         std::string max_length_mode = DQNActorConfig::kMaxLengthFull;
         std::optional<anet::ProfiledValueConfig<int>> max_length;
+        ConfigFullKeyTable actor_keys;
     };
 
     class Actor : public anet::rl::Actor, public anet::RandomHolder {

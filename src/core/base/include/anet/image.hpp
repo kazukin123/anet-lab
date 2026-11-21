@@ -194,10 +194,10 @@ namespace anet::rl {
         std::string colormap = "jet";	///< gray / jet / hot
         float scale_factor = 2.0f;           ///< 画像引き伸ばしスケール。動画プレイヤー側で下手なスケーリングされても耐えるように…
         int min_block_size = 40;
+        ConfigFullKeyTable full_keys;
     };
 
-    void ValidateConv2dVisualizerConfig(const Conv2dVisualizerConfig& config,
-        const std::string& owner = "Conv2dVisualizerConfig");
+    void ValidateConv2dVisualizerConfig(const Conv2dVisualizerConfig& config);
 
     struct ImageProviderConfig : public anet::Config {
         std::string type;
@@ -268,7 +268,8 @@ namespace anet::rl {
             ANET_READ_CONFIG(config_data, conv2d.colormap);
             ANET_READ_CONFIG(config_data, conv2d.scale_factor);
             ANET_READ_CONFIG(config_data, conv2d.min_block_size);
-            ValidateConv2dVisualizerConfig(conv2d, MakeDefaultConfigKey("conv2d"));
+            conv2d.full_keys = GetFullKeys().Extract("conv2d");
+            ValidateConv2dVisualizerConfig(conv2d);
         }
     };
 

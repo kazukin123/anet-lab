@@ -63,7 +63,7 @@ namespace anet::nn {
             } else if (config.mode == "trunc_normal") {
                 TruncNormal_(weight, config);
             } else if (config.mode == WeightInitConfig::kVarianceScalingMode) {
-                InitializeVarianceScaling(weight, config.variance_scale);
+                InitializeVarianceScaling(weight, config);
             }
 
             // バイアスはゼロ初期化
@@ -80,7 +80,7 @@ namespace anet::nn {
         }
 
     private:
-        static void InitializeVarianceScaling(torch::Tensor& weight, double variance_scale);
+        static void InitializeVarianceScaling(torch::Tensor& weight, const WeightInitConfig& config);
 
         static double NormalCdf(double x)
         {

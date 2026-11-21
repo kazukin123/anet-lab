@@ -505,6 +505,7 @@ public:
     // 実際の構築・読み込み経路を使い、テスト内だけで optimizer の状態を観測する。
     void SetupAdamW() { SetupOptimizer(); }
     torch::optim::Optimizer& Optimizer() { return *optimizer_; }
+    torch::optim::Optimizer& SkipPrimaryOptimizer() { return *skip_primary_optimizer_; }
 
     void UseSgd(float lr)
     {

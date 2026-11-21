@@ -231,7 +231,8 @@ anet::rl::ReplayInitialPriorityMode anet::rl::dqn::ParseReplayInitialPriorityMod
         return ReplayInitialPriorityMode::ACTOR_APPROX;
     }
 
-    ANET_SYSTEM_ERROR("Invalid learner.per_initial_priority_mode='" << config.per_initial_priority_mode
+    ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("per_initial_priority_mode")
+        << "='" << config.per_initial_priority_mode
         << "'. Expected one of: fixed, max, actor_approx.");
     return ReplayInitialPriorityMode::FIXED; // ANET_SYSTEM_ERROR後のMSVC制御経路警告を抑止する。
 }
@@ -241,34 +242,44 @@ void anet::rl::dqn::ValidateReplayPriorityConfig(
 {
     // modeを切り替えても同じconfigを再利用できるよう、関連する数値設定を一括検証する。
     if (!std::isfinite(config.per_initial_priority) || config.per_initial_priority < 0.0f) {
-        ANET_SYSTEM_ERROR("Invalid learner.per_initial_priority=" << config.per_initial_priority
-            << ". Expected a finite value >= 0; use learner.per_initial_priority_mode=max for maximum initialization.");
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("per_initial_priority")
+            << '=' << config.per_initial_priority << ". Expected a finite value >= 0; use "
+            << config.full_keys.GetFullKey("per_initial_priority_mode") << "=max for maximum initialization.");
     }
     if (!std::isfinite(config.per_eps) || config.per_eps < 0.0f) {
-        ANET_SYSTEM_ERROR("Invalid learner.per_eps=" << config.per_eps << ". Expected a finite value >= 0.");
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("per_eps")
+            << '=' << config.per_eps << ". Expected a finite value >= 0.");
     }
     if (config.use_per && config.per_eps == 0.0f) {
-        LOG::warn_once() << "learner.per_eps=0 is allowed with learner.use_per=true, but zero-TD-error transitions may "
-            << "receive zero sampling priority. Set learner.per_eps to a finite value > 0 to keep a positive priority floor.";
+        const auto per_eps = config.full_keys.GetFullKey("per_eps");
+        LOG::warn_once() << per_eps << "=0 is allowed with " << config.full_keys.GetFullKey("use_per")
+            << "=true, but zero-TD-error transitions may receive zero sampling priority. Set "
+            << per_eps << " to a finite value > 0 to keep a positive priority floor.";
     }
     if (config.use_per && initial_priority_mode == ReplayInitialPriorityMode::ACTOR_APPROX && config.per_alpha == 0.0f) {
-        LOG::warn_once() << "learner.per_initial_priority_mode=actor_approx with learner.per_alpha=0 is allowed, but Actor "
-            << "priority does not affect sampling. Set learner.per_alpha to a finite value > 0 to enable prioritized sampling.";
+        const auto per_alpha = config.full_keys.GetFullKey("per_alpha");
+        LOG::warn_once() << config.full_keys.GetFullKey("per_initial_priority_mode")
+            << "=actor_approx with " << per_alpha << "=0 is allowed, but Actor priority does not affect sampling. Set "
+            << per_alpha << " to a finite value > 0 to enable prioritized sampling.";
     }
     if (config.use_per_prio_clip) {
         if (!std::isfinite(config.per_prio_clip_value) || config.per_prio_clip_value < 0.0f) {
-            ANET_SYSTEM_ERROR("Invalid learner.per_prio_clip_value=" << config.per_prio_clip_value
-                << ". Expected a finite value >= 0 when learner.use_per_prio_clip=true.");
+            ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("per_prio_clip_value")
+                << '=' << config.per_prio_clip_value << ". Expected a finite value >= 0 when "
+                << config.full_keys.GetFullKey("use_per_prio_clip") << "=true.");
         }
         if (config.per_prio_clip_value == 0.0f) {
-            LOG::warn_once() << "learner.use_per_prio_clip=true with learner.per_prio_clip_value=0 is allowed, but all PER "
-                << "priorities are clipped to zero. Set learner.per_prio_clip_value to a finite value > 0 or disable "
-                << "learner.use_per_prio_clip.";
+            const auto use_clip = config.full_keys.GetFullKey("use_per_prio_clip");
+            const auto clip_value = config.full_keys.GetFullKey("per_prio_clip_value");
+            LOG::warn_once() << use_clip << "=true with " << clip_value
+                << "=0 is allowed, but all PER priorities are clipped to zero. Set " << clip_value
+                << " to a finite value > 0 or disable " << use_clip << '.';
         } else if (config.per_prio_clip_value <= config.per_eps) {
-            LOG::warn_once() << "learner.per_prio_clip_value=" << config.per_prio_clip_value
-                << " <= learner.per_eps=" << config.per_eps
-                << " may collapse priority differences. Set learner.per_prio_clip_value > learner.per_eps or disable "
-                << "learner.use_per_prio_clip.";
+            const auto clip_value = config.full_keys.GetFullKey("per_prio_clip_value");
+            const auto per_eps = config.full_keys.GetFullKey("per_eps");
+            LOG::warn_once() << clip_value << '=' << config.per_prio_clip_value
+                << " <= " << per_eps << '=' << config.per_eps << " may collapse priority differences. Set "
+                << clip_value << " > " << per_eps << " or disable " << config.full_keys.GetFullKey("use_per_prio_clip") << '.';
         }
     }
 }

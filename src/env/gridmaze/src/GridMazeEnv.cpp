@@ -62,7 +62,7 @@ void GridMazeEnvConfig::ValidateSeedMode() const
 {
     // 設定読込と直接構築で、同じモードの値域を検証する。
     if (seed_mode != kSeedModeEpisode && seed_mode != kSeedModeProcess) {
-        ANET_SYSTEM_ERROR("GridMazeEnv.seed_mode='" << seed_mode << "': expected "
+        ANET_SYSTEM_ERROR(GetFullKey("seed_mode") << "='" << seed_mode << "': expected "
             << kSeedModeEpisode << ", " << kSeedModeProcess);
     }
 }
@@ -120,26 +120,27 @@ GridMazeEnv::GridMazeEnv(const GridMazeEnvConfig& config, const torch::Device& d
     config_.ValidateSeedMode();
     // 盤面の確保と座標選択に先立ち、正の寸法を保証する。
     if (config_.width <= 0 || config_.height <= 0) {
-        ANET_SYSTEM_ERROR("GridMazeEnv.width=" << config_.width << ", GridMazeEnv.height=" << config_.height
+        ANET_SYSTEM_ERROR(config_.GetFullKey("width") << '=' << config_.width
+            << ", " << config_.GetFullKey("height") << '=' << config_.height
             << ": expected positive board dimensions");
     }
     // -1以外の座標を、その軸の範囲へ明示的に制限する。
-    const auto validate_coordinate = [](const char* key, int value, int extent) {
+    const auto validate_coordinate = [this](const char* key, int value, int extent) {
         if (value < -1 || value >= extent) {
-            ANET_SYSTEM_ERROR(key << "=" << value << ": expected -1 or [0, " << extent << ")");
+            ANET_SYSTEM_ERROR(config_.GetFullKey(key) << '=' << value << ": expected -1 or [0, " << extent << ")");
         }
     };
-    validate_coordinate("GridMazeEnv.init_pos_x", config_.init_pos_x, config_.width);
-    validate_coordinate("GridMazeEnv.init_pos_y", config_.init_pos_y, config_.height);
-    validate_coordinate("GridMazeEnv.goal_pos_x", config_.goal_pos_x, config_.width);
-    validate_coordinate("GridMazeEnv.goal_pos_y", config_.goal_pos_y, config_.height);
+    validate_coordinate("init_pos_x", config_.init_pos_x, config_.width);
+    validate_coordinate("init_pos_y", config_.init_pos_y, config_.height);
+    validate_coordinate("goal_pos_x", config_.goal_pos_x, config_.width);
+    validate_coordinate("goal_pos_y", config_.goal_pos_y, config_.height);
     // 固定した開始とゴールの重複は生成を試す前に設定エラーにする。
     if (config_.init_pos_x >= 0 && config_.init_pos_y >= 0
         && config_.init_pos_x == config_.goal_pos_x && config_.init_pos_y == config_.goal_pos_y) {
-        ANET_SYSTEM_ERROR("GridMazeEnv.init_pos_x=" << config_.init_pos_x
-            << ", GridMazeEnv.init_pos_y=" << config_.init_pos_y
-            << ", GridMazeEnv.goal_pos_x=" << config_.goal_pos_x
-            << ", GridMazeEnv.goal_pos_y=" << config_.goal_pos_y
+        ANET_SYSTEM_ERROR(config_.GetFullKey("init_pos_x") << '=' << config_.init_pos_x
+            << ", " << config_.GetFullKey("init_pos_y") << '=' << config_.init_pos_y
+            << ", " << config_.GetFullKey("goal_pos_x") << '=' << config_.goal_pos_x
+            << ", " << config_.GetFullKey("goal_pos_y") << '=' << config_.goal_pos_y
             << ": expected distinct fixed start and goal coordinates");
     }
     // プロセス共通の入力seedは構築時に取得し、Resetでは個体内の値を使う。
@@ -258,9 +259,10 @@ void GridMazeEnv::GenerateGridMap()
             pos_x_ = candidates[idx].first;
             pos_y_ = candidates[idx].second;
         } else {
-            ANET_SYSTEM_ERROR("GridMazeEnv.init_pos_x=" << config_.init_pos_x
-                << ", GridMazeEnv.init_pos_y=" << config_.init_pos_y
-                << ": no start candidates for width=" << config_.width << ", height=" << config_.height
+            ANET_SYSTEM_ERROR(config_.GetFullKey("init_pos_x") << '=' << config_.init_pos_x
+                << ", " << config_.GetFullKey("init_pos_y") << '=' << config_.init_pos_y
+                << ": no start candidates for " << config_.GetFullKey("width") << '=' << config_.width
+                << ", " << config_.GetFullKey("height") << '=' << config_.height
                 << ", goal_pos=(" << gx << "," << gy << "); expected at least one start cell distinct from goal");
         }
     }
@@ -317,8 +319,10 @@ std::shared_ptr<const anet::rl::SingleResetResult> GridMazeEnv::Reset()
     }
     if (!reachable) {
         ANET_SYSTEM_ERROR("GridMaze maze generation failed: seed=" << initial_seed
-            << ", width=" << config_.width << ", height=" << config_.height
-            << ", wall_density=" << config_.wall_density << ", hole_density=" << config_.hole_density
+            << ", " << config_.GetFullKey("width") << '=' << config_.width
+            << ", " << config_.GetFullKey("height") << '=' << config_.height
+            << ", " << config_.GetFullKey("wall_density") << '=' << config_.wall_density
+            << ", " << config_.GetFullKey("hole_density") << '=' << config_.hole_density
             << ", init_pos=(" << config_.init_pos_x << "," << config_.init_pos_y << ")"
             << ", goal_pos=(" << config_.goal_pos_x << "," << config_.goal_pos_y << ")"
             << ", max_retries=" << max_retries);

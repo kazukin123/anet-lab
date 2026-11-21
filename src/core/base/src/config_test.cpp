@@ -549,7 +549,7 @@ TEST_CASE("Config reads ProfiledValueConfig root fields and phases", "[config][p
 
 TEST_CASE("Config rejects a ProfiledValueConfig that violates its bounds", "[config][profiled_value][bounds]")
 {
-    SECTION("default layer reports a layer-neutral logical key")
+    SECTION("default layer reports the full key")
     {
         anet::ConfigData config_data;
         config_data.Set("PositiveProfile.interval.type", "constant");
@@ -557,10 +557,10 @@ TEST_CASE("Config rejects a ProfiledValueConfig that violates its bounds", "[con
 
         CHECK_THROWS_WITH(
             PositiveProfiledValueOwnerConfig(config_data),
-            Catch::Matchers::ContainsSubstring("key=interval value=0"));
+            Catch::Matchers::ContainsSubstring("key=PositiveProfile.interval value=0"));
     }
 
-    SECTION("override layer reports the same layer-neutral logical key")
+    SECTION("override layer reports the full key that supplied the value")
     {
         anet::ConfigData config_data;
         config_data.Set("PositiveProfile.interval.type", "constant");
@@ -569,7 +569,7 @@ TEST_CASE("Config rejects a ProfiledValueConfig that violates its bounds", "[con
 
         CHECK_THROWS_WITH(
             PositiveProfiledValueOwnerConfig(config_data, "Trial"),
-            Catch::Matchers::ContainsSubstring("key=interval value=0"));
+            Catch::Matchers::ContainsSubstring("key=Trial.interval value=0"));
     }
 }
 
@@ -1670,6 +1670,134 @@ TEST_CASE("Nested config catalogs retain exact prefixes and original read keys",
     CHECK(unread.at(1).first == "other.net.branch.[feature].config_profile.[foreign].end");
 }
 
+TEST_CASE("A typed read failure in a catalog names the complete source key", "[prd194][prd194_config]")
+{
+    anet::ConfigData root;
+    root.Set("net.block.[sample].width", "invalid");
+    const auto item = root.MakeSubConfigData("net.block").at("sample");
+
+    CHECK_THROWS_WITH(item.Get<int>("width"),
+        Catch::Matchers::ContainsSubstring("key=net.block.[sample].width"));
+}
+
+TEST_CASE("ConfigData preserves complete keys through value transfers", "[prd194][prd194_config]")
+{
+    anet::ConfigData root;
+    root.Set("net.block.[shared].width", 3);
+    root.Set("Agent.net.block.[local].width", 3);
+    REQUIRE(root.GetUnreadKeys().size() == 2);
+
+    const auto shared = root.MakeSubConfigData("net.block").at("shared");
+    const auto local = root.MakeSubConfigData("Agent.net.block").at("local");
+    CHECK(root.GetFullKey("missing") == "missing");
+    CHECK(shared.GetFullKey("width") == "net.block.[shared].width");
+    CHECK(shared.GetFullKey("missing") == "net.block.[shared].missing");
+    CHECK(shared.CreateReadScope().GetFullKey("width") == "net.block.[shared].width");
+    const auto scope = root.CreateReadScope("net.block.[shared]");
+    CHECK(scope.GetFullKey("net.block.[shared].width") == "net.block.[shared].width");
+    CHECK(scope.GetFullKey("missing") == "net.block.[shared].missing");
+    CHECK(root.GetUnreadKeys().size() == 2);
+    CHECK_THROWS(root.GetFullKey(""));
+
+    anet::ConfigData copy;
+    copy.CopyValueFrom("dimension", shared, "width");
+    CHECK(copy.GetFullKey("dimension") == "net.block.[shared].width");
+    copy.Set("dimension", 7);
+    CHECK(copy.GetFullKey("dimension") == "net.block.[shared].width");
+
+    auto merged = shared;
+    merged.MergeFromChecked(local);
+    CHECK(merged.GetFullKey("width") == "Agent.net.block.[local].width");
+    auto overwritten = local;
+    auto replacement = shared;
+    replacement.Set("width", 5);
+    overwritten.OverwriteFrom(replacement);
+    CHECK(overwritten.GetFullKey("width") == "net.block.[shared].width");
+    CHECK(overwritten.Get<int>("width") == 5);
+
+    auto extended = shared;
+    extended.Set("height", 2);
+    CHECK(extended.GetFullKey("height") == "net.block.[shared].height");
+}
+
+TEST_CASE("Config ignores root keys when there is no override scope", "[prd194][prd194_empty_override]")
+{
+    struct WidthConfig final : anet::Config {
+        int width = 3;
+        bool has_width;
+        anet::ConfigData scope;
+
+        WidthConfig(const anet::ConfigData& data, const std::string& override_prefix)
+            : anet::Config(data, "Example", override_prefix)
+            , has_width(HasConfigValue(data, "width"))
+            , scope(MakeReadScope(data, "width"))
+        {
+            ANET_READ_CONFIG(data, width);
+        }
+    };
+
+    anet::ConfigData data;
+    data.Set("width", 9);
+    data.Set("run.eval.[greedy].env.width", 6);
+    const WidthConfig defaults(data, "");
+    CHECK(defaults.width == 3);
+    CHECK_FALSE(defaults.has_width);
+    CHECK_FALSE(defaults.scope.Has("width"));
+    CHECK(data.GetUnreadKeys().size() == 2);
+
+    const WidthConfig evaluation(data, "run.eval.[greedy].env");
+    CHECK(evaluation.width == 6);
+    CHECK(evaluation.has_width);
+    CHECK(evaluation.scope.Has("run.eval.[greedy].env.width"));
+}
+
+TEST_CASE("Config records where each typed value came from independently of its dump", "[prd194][prd194_config]")
+{
+    struct ValueConfig final : anet::Config {
+        int width = 3;
+        int height = 4;
+
+        explicit ValueConfig(const anet::ConfigData& data)
+            : anet::Config(data, "Example", "run.eval.[greedy].env")
+        {
+            ReadConfig(data, "shape.width", width, false);
+            ReadConfig(data, "shape.height", height);
+        }
+    };
+
+    anet::ConfigData data;
+    data.Set("Example.shape.width", 5);
+    data.Set("run.eval.[greedy].env.shape.width", 8);
+    ValueConfig config(data);
+    CHECK(config.width == 8);
+    CHECK(config.height == 4);
+    CHECK_FALSE(config.GetConfigData().Has("shape.width"));
+    CHECK(config.GetFullKey("shape.width") == "run.eval.[greedy].env.shape.width");
+    CHECK(config.GetFullKey("shape.height") == "Example.shape.height");
+    CHECK(config.GetFullKey("shape.depth") == "shape.depth (not read from config)");
+    CHECK_THROWS(config.GetFullKey(""));
+
+    auto shape_keys = config.GetFullKeys().Extract("shape");
+    config.width = 12;
+    CHECK(shape_keys.GetFullKey("width") == "run.eval.[greedy].env.shape.width");
+    anet::ConfigFullKeyTable copied;
+    copied.CopyFieldFrom("dimension", shape_keys, "width");
+    CHECK(copied.GetFullKey("dimension") == "run.eval.[greedy].env.shape.width");
+    copied.CopyFieldFrom("dimension", shape_keys, "unknown");
+    CHECK(copied.GetFullKey("dimension") == "dimension (not read from config)");
+}
+
+TEST_CASE("Closed catalogs use their recorded location and complete unread keys", "[prd194][prd194_unread]")
+{
+    anet::ConfigData data;
+    data.Set("Agent.net.block.[sample].typo", 2);
+    const auto scope = data.MakeSubConfigData("Agent.net.block").at("sample").CreateReadScope();
+
+    CHECK_THROWS_WITH(scope.RequireAllKeysRead(),
+        Catch::Matchers::ContainsSubstring("Unread config keys in Agent.net.block.[sample]:")
+        && Catch::Matchers::ContainsSubstring("Agent.net.block.[sample].typo = 2"));
+}
+
 TEST_CASE("Config reads from a catalog preserve original unread keys", "[config][prd117]")
 {
     // ファイルの解決から子設定の読み取りまでを通して、元キーの差を確かめる。
@@ -1726,7 +1854,7 @@ TEST_CASE("Config inventory follows copies without bypassing a closed schema", "
     CHECK(unread.at(0).first == "typo");
     CHECK(part.GetUnreadKeys().empty());
     CHECK(spare.GetUnreadKeys().empty());
-    CHECK_THROWS_WITH(spare.CreateReadScope().RequireAllKeysRead("catalog.[spare]"),
+    CHECK_THROWS_WITH(spare.CreateReadScope().RequireAllKeysRead(),
         Catch::Matchers::ContainsSubstring("typo = 9"));
 }
 

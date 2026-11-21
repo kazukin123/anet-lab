@@ -645,9 +645,10 @@ TEST_CASE("Dedicated skip requires keys for all declared Actors only while enabl
     data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_mode", "dedicated");
     if (enabled) {
         CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
-            Catch::Matchers::ContainsSubstring("Missing DefaultDQNAgent.actor.[train].skip.nn_forward_key")
-            && Catch::Matchers::ContainsSubstring("Missing DefaultDQNAgent.actor.[eval].skip.nn_forward_key")
-            && Catch::Matchers::ContainsSubstring("expected a declared nn_forward key when skip.nn_forward_mode=dedicated and skip.enabled=true."));
+            Catch::Matchers::ContainsSubstring("Missing DefaultDQNAgent.actor.[train].skip.nn_forward_key; expected a declared nn_forward key when "
+                "DefaultDQNAgent.actor.[train].skip.nn_forward_mode=dedicated and DefaultDQNAgent.skip.enabled=true.")
+            && Catch::Matchers::ContainsSubstring("Missing DefaultDQNAgent.actor.[eval].skip.nn_forward_key; expected a declared nn_forward key when "
+                "DefaultDQNAgent.actor.[eval].skip.nn_forward_mode=dedicated and DefaultDQNAgent.skip.enabled=true."));
     } else {
         CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
     }
@@ -670,8 +671,9 @@ TEST_CASE("Shared skip warns once per explicit unused key only while enabled", "
     logs.Flush();
     // 宣言ごとに一度だけ診断し、無効状態と dedicated の明示参照には出さない。
     for (const auto* actor : {"train", "eval"}) {
-        const auto expected = std::string("DefaultDQNAgent.actor.[") + actor
-            + "].skip.nn_forward_key='test_default' is unused with skip.nn_forward_mode=shared; expected skip.nn_forward_mode=dedicated to use this value.";
+        const auto prefix = std::string("DefaultDQNAgent.actor.[") + actor + "].skip.";
+        const auto expected = prefix + "nn_forward_key='test_default' is unused with " + prefix
+            + "nn_forward_mode=shared; expected " + prefix + "nn_forward_mode=dedicated to use this value.";
         int count = 0;
         for (const auto& record : logs.Records()) {
             if (record.level == wxLOG_Warning && record.message == expected) ++count;
@@ -731,6 +733,46 @@ TEST_CASE("Skip scalar readback timing", "[.][prd098-readback]")
         std::cout << "Skip readback " << (actor ? "Actor N=64 J=10" : "Learner 5 scalars")
             << " mean_microseconds=" << microseconds / 200 << std::endl;
     }
+}
+
+TEST_CASE("DQN checkpoint does not attribute fixed skip-primary decay to config", "[dqn][prd194]")
+{
+    anet::test::RegisterStandardNetworkModules();
+    const auto env = MakeLearnerEnvSpec();
+    anet::nn::NetworkConfig skip_net;
+    skip_net.output_keys["features"] = "features";
+    const anet::nn::WeightInitConfig init;
+    dqn::SkipNetworkDefinition skip{.config = {.enabled = true, .max_length = 1}, .network_config = skip_net,
+        .head_factory = std::make_shared<dqn::SkipHeadFactory>(1, 1, dqn::SkipNetworkMode::ActionOut, "none", 1, init), .seed = 99};
+    dqn::NetworkModel model({}, torch::kCPU, MakeAgentForwardNetworkConfig(), env.state_spec.obs_spec, 1,
+        std::make_shared<dqn::LinearHeadFactory>(1, init), false, 98, &skip);
+    auto config = WithDefaultLearnerForwardConfig();
+    config.replay_capacity = 16;
+    config.replay_batch_size = 2;
+    config.skip.feature_gradient = "split";
+    dqn::RuntimeVars vars;
+    TestLearner learner(config, model, vars, {1, 1}, env, dqn::LearnerForwardResources{});
+    learner.SetupAdamW();
+    auto& options = static_cast<torch::optim::AdamWOptions&>(learner.SkipPrimaryOptimizer().param_groups().front().options());
+    options.weight_decay(0.25);
+
+    std::stringstream bytes(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(bytes);
+    REQUIRE(learner.Save(output) > 0);
+    bytes.seekg(0);
+    anet::InputArchive input(bytes);
+    anet::test::LogCaptureGuard logs;
+    REQUIRE(learner.Load(input) > 0);
+    logs.Flush();
+    bool found_difference = false;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("role=primary_skip option=weight_decay") == std::string::npos) continue;
+        found_difference = true;
+        CHECK(record.message.find("checkpoint=0.25 fixed=0") != std::string::npos);
+        CHECK(record.message.find("key=") == std::string::npos);
+    }
+    CHECK(found_difference);
+    CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {"optimizer options applied", "fixed weight decay 0"}));
 }
 
 TEST_CASE("Shared skip baseline and feature seam preserve their gradient contracts", "[dqn][prd098]")
@@ -2793,16 +2835,31 @@ TEST_CASE("Learner checkpoint applies current optimizer options and preserves st
     current.adam_eps = 1e-4f;
     current.noisy_weight_decay = 0.03f;
     if (same_options) current = config;
+    const auto expected_learning_rate = current.learning_rate.value;
+    const auto expected_weight_decay = current.weight_decay.value;
+    std::string lr_key = "DefaultDQNAgent.learner.learning_rate";
+    std::string decay_key = "DefaultDQNAgent.learner.weight_decay";
     if (change_defaults) {
         // 引継ぎ先の時間の値は、optimizerに残っていた値と独立したstep 0から始める。
-        current.learning_rate.type = "linear";
-        current.learning_rate.start = current.learning_rate.value;
-        current.learning_rate.end = 0.0f;
-        current.learning_rate.steps = 8;
-        current.weight_decay.type = "linear";
-        current.weight_decay.start = current.weight_decay.value;
-        current.weight_decay.end = 0.0f;
-        current.weight_decay.steps = 8;
+        auto scheduled = data;
+        scheduled.Set(lr_key + ".type", "linear");
+        scheduled.Set(lr_key + ".start", expected_learning_rate);
+        scheduled.Set(lr_key + ".end", 0.0f);
+        scheduled.Set(lr_key + ".steps", 8);
+        scheduled.Set(decay_key + ".type", "phased");
+        scheduled.Set(decay_key + ".phases", "initial final");
+        scheduled.Set(decay_key + ".phase.[initial].type", "linear");
+        scheduled.Set(decay_key + ".phase.[initial].start", expected_weight_decay);
+        scheduled.Set(decay_key + ".phase.[initial].end", 0.0f);
+        scheduled.Set(decay_key + ".phase.[initial].steps", 8);
+        scheduled.Set(decay_key + ".phase.[final].type", "constant");
+        scheduled.Set(decay_key + ".phase.[final].value", 0.0f);
+        scheduled.Set(decay_key + ".phase.[final].steps", 8);
+        const auto schedule_config = MakeNoisyOptimizerLearnerConfig(scheduled);
+        current.learning_rate = schedule_config.learning_rate;
+        current.weight_decay = schedule_config.weight_decay;
+        lr_key += ".start";
+        decay_key += ".phase.[initial].start";
     }
     current.use_fused_optimizer = destination_fused;
     current.enabled = !disabled;
@@ -2837,27 +2894,28 @@ TEST_CASE("Learner checkpoint applies current optimizer options and preserves st
         == (noisy ? 2 : 1) + (same_options ? 0 : (noisy ? 6 : 3)) + (change_defaults ? 2 : 0));
     if (!same_options) {
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-            {"Learner::Load:", "group=0", "option=lr", "key=learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
+            {"Learner::Load:", "group=0", "option=lr", "key=" + lr_key + " ", "checkpoint=0.0001", "config=5e-05"}));
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-            {"group=0", "option=weight_decay", "key=learner.weight_decay", "checkpoint=0.01", "config=0.02"}));
+            {"group=0", "option=weight_decay", "key=" + decay_key + " ", "checkpoint=0.01", "config=0.02"}));
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-            {"group=0", "option=eps", "key=learner.adam_eps", "checkpoint=1e-05", "config=0.0001"}));
+            {"group=0", "option=eps", "key=DefaultDQNAgent.learner.adam_eps", "checkpoint=1e-05", "config=0.0001"}));
     }
     CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
         {"Learner::Load: optimizer options applied from config.", "group=0",
-            same_options ? "lr=0.0001" : "lr=5e-05",
-            same_options ? "weight_decay=0.01" : "weight_decay=0.02",
-            same_options ? "eps=1e-05" : "eps=0.0001"}));
+            lr_key + (same_options ? "=0.0001" : "=5e-05"),
+            decay_key + (same_options ? "=0.01" : "=0.02"),
+            same_options ? "DefaultDQNAgent.learner.adam_eps=1e-05" : "DefaultDQNAgent.learner.adam_eps=0.0001"}));
     if (noisy) {
         CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-            {"optimizer options applied from config.", "group=1", same_options ? "weight_decay=0" : "weight_decay=0.03"}));
+            {"optimizer options applied from config.", "group=1",
+                same_options ? "DefaultDQNAgent.learner.noisy_weight_decay=0" : "DefaultDQNAgent.learner.noisy_weight_decay=0.03"}));
         if (!same_options) {
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-                {"group=1", "option=lr", "key=learner.learning_rate", "checkpoint=0.0001", "config=5e-05"}));
+                {"group=1", "option=lr", "key=" + lr_key + " ", "checkpoint=0.0001", "config=5e-05"}));
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-                {"group=1", "option=eps", "key=learner.adam_eps", "checkpoint=1e-05", "config=0.0001"}));
+                {"group=1", "option=eps", "key=DefaultDQNAgent.learner.adam_eps", "checkpoint=1e-05", "config=0.0001"}));
             CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message,
-                {"group=1", "option=weight_decay", "key=learner.noisy_weight_decay", "checkpoint=0", "config=0.03"}));
+                {"group=1", "option=weight_decay", "key=DefaultDQNAgent.learner.noisy_weight_decay", "checkpoint=0", "config=0.03"}));
         }
     }
     if (change_defaults) {
@@ -2880,8 +2938,8 @@ TEST_CASE("Learner checkpoint applies current optimizer options and preserves st
     REQUIRE(loaded_groups.size() == (noisy ? 2 : 1));
     for (size_t group_index = 0; group_index < loaded_groups.size(); ++group_index) {
         const auto& options = static_cast<const torch::optim::AdamWOptions&>(loaded_groups[group_index].options());
-        CHECK(options.lr() == static_cast<double>(current.learning_rate.value));
-        CHECK(options.weight_decay() == static_cast<double>(group_index == 0 ? current.weight_decay.value : current.noisy_weight_decay));
+        CHECK(options.lr() == static_cast<double>(expected_learning_rate));
+        CHECK(options.weight_decay() == static_cast<double>(group_index == 0 ? expected_weight_decay : current.noisy_weight_decay));
         CHECK(options.eps() == static_cast<double>(current.adam_eps));
         CHECK(options.betas() == torch::optim::AdamWOptions{}.betas());
         CHECK_FALSE(options.amsgrad());
@@ -3463,7 +3521,7 @@ TEST_CASE("Learner rejects missing forward resources", "[dqn][noisynet][forward-
             std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{}), dqn::LearnerForwardResources{},
             std::nullopt, 802);
     };
-    CHECK_THROWS_WITH(construct(), Catch::Matchers::ContainsSubstring("learner." + purpose + ".nn_forward_key"));
+    CHECK_THROWS_WITH(construct(), Catch::Matchers::ContainsSubstring(purpose + ".nn_forward_key (not read from config)"));
 }
 
 TEST_CASE("Learner forward resources match selections before preparation",
@@ -3531,7 +3589,7 @@ TEST_CASE("Learner forward resources match selections before preparation",
         const auto& selection = mismatch == "current" ? config.current : config.target;
         const auto& supplied = mismatch == "current" ? resources.current : resources.target;
         CHECK_THROWS_WITH(construct(),
-            Catch::Matchers::ContainsSubstring("learner." + mismatch + ".nn_forward_key=" + selection.nn_forward_key)
+            Catch::Matchers::ContainsSubstring(mismatch + ".nn_forward_key (not read from config)=" + selection.nn_forward_key)
             && Catch::Matchers::ContainsSubstring("supplied resource=" + supplied.key));
     }
 }

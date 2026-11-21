@@ -116,6 +116,9 @@ struct RunnerApp::Config : public anet::Config {
         ANET_READ_CONFIG(config_data, metrics_logger.video_codec);
         ANET_READ_CONFIG(config_data, metrics_logger.video_fps);
         ANET_READ_CONFIG(config_data, metrics_logger.use_png_dump);
+        metrics_logger.full_keys = GetFullKeys().Extract("metrics_logger");
+        metrics_logger.full_keys.CopyFieldFrom("runs_dir", GetFullKeys(), "runs_dir");
+        metrics_logger.full_keys.CopyFieldFrom("run_name_tmpl", GetFullKeys(), "run_name");
 
         ANET_READ_CONFIG(config_data, train_panel.fps);
         ANET_READ_CONFIG(config_data, eval_panel.fps);

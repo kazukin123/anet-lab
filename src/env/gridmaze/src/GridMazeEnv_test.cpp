@@ -209,6 +209,24 @@ TEST_CASE("GridMaze identifies an invalid board dimension before generation", "[
     }
 }
 
+TEST_CASE("GridMaze reports the override keys that supplied invalid evaluation geometry", "[prd194][prd194_env]")
+{
+    anet::test::LogCaptureGuard logs;
+    const std::string prefix = "run.eval.[greedy].env";
+    anet::ConfigData data;
+    data.Set(prefix + ".width", 1);
+    data.Set(prefix + ".height", 1);
+    data.Set(prefix + ".goal_pos_x", 0);
+    data.Set(prefix + ".goal_pos_y", 0);
+    data.Set(prefix + ".init_pos_x", -1);
+    data.Set(prefix + ".init_pos_y", -1);
+
+    const anet::rl::env::GridMazeEnvConfig config(data, prefix);
+    CHECK_THROWS_WITH((anet::rl::env::GridMazeEnv(config, torch::kCPU, "prd194-grid", 1)),
+        Catch::Matchers::ContainsSubstring(prefix + ".init_pos_x=-1")
+        && Catch::Matchers::ContainsSubstring(prefix + ".width=1"));
+}
+
 TEST_CASE("GridMaze validates coordinate ranges before coordinate relationships", "[gridmaze][prd100][prd100_range]")
 {
     anet::test::LogCaptureGuard logs;

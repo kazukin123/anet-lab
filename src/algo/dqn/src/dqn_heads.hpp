@@ -47,11 +47,13 @@ namespace anet::rl::dqn {
         inline static const std::string kIntrinsicParameterPrefix = std::string(kHeadParameterPrefix) + kIntrinsicHeadName + kModuleSeparator;
     public:
         DecomposedHeadFactory(std::shared_ptr<anet::nn::NetworkHeadFactory> extrinsic,
-            std::shared_ptr<anet::nn::NetworkHeadFactory> intrinsic, bool dedicated, bool intrinsic_dueling);
+            std::shared_ptr<anet::nn::NetworkHeadFactory> intrinsic, bool dedicated, bool intrinsic_dueling,
+            std::string input_mode_key = "input_mode (not read from config)");
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
     private:
         std::shared_ptr<anet::nn::NetworkHeadFactory> extrinsic_, intrinsic_;
         bool dedicated_, intrinsic_dueling_;
+        std::string input_mode_key_;
     };
 
     class LinearHeadFactory final : public HeadFactoryBase {

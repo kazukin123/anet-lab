@@ -4,6 +4,8 @@
 
 > 関連: 設計 [100](../design/100_runtime_and_configuration.jp.md)・[110](../design/110_agents_and_learning.jp.md)・[120](../design/120_environments.jp.md)・[130](../design/130_neural_networks.jp.md)・[140](../design/140_observability.jp.md)・[020](../design/020_user_guide_run.jp.md)、ADR [0030](../adr/0030-nn-config-tree-under-agent-prefix.md)・[0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md)・[0087](../adr/0087-messages-name-config-keys-by-full-key-recorded-at-read-time.md)、[070_device_spec_auto_10prd.md](done/070_device_spec_auto_10prd.md)、[117_warn_policy_and_unread_config_10prd.md](117_warn_policy_and_unread_config_10prd.md)、[128_dqn_agent_refactor_bundle_10prd.md](128_dqn_agent_refactor_bundle_10prd.md)、[155_config_root_ownership_alignment_10prd.md](155_config_root_ownership_alignment_10prd.md)、[071_uncaught_fatal_visibility_10prd.md](071_uncaught_fatal_visibility_10prd.md)
 
+> 2026-11-21 改訂（実装時）。§8.2 の設定欄名の採取範囲とログの始まりを補正し、§8.3 の基準集計 303 文・64 呼び出しを再現できる形にした。完全キーの照会・記録に渡す相対キーも集計から除く。RainbowAgent の購読処理を維持する開発者の選択に従い、RainbowAgentConfig で構築した共通 Learner で診断の文面を確かめる形に A4 と D24 の説明を補正した。
+
 ## 1. 問題
 
 ### 1.1 経緯
@@ -30,7 +32,7 @@
 | 546bdb | hidden のテスト `[prd103-config]` は、`metrics.scalar.[50_agent_skip/19_primary_clip_ratio_ema]` が空でないことを断定する（[dqn_config_baseline_test.cpp](../../src/algo/dqn/src/dqn_config_baseline_test.cpp) 108 行）。出荷定義の tag は `50_agent_skip/19_skip_primary_clip_ratio_ema` である（[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt) 391 行）。設計文書もテストと同じ名前を書く（[140](../design/140_observability.jp.md) 431 行）。出荷定義の名前は、実験記録の設定の写し 36 本に入っている（`docs/experiments` を `19_skip_primary_clip_ratio_ema` で引いたファイルの数。テスト側の名前は 0 本）。指標を足したコミット 2 つ（5764ca10・7ac66c63）の件名は、出荷定義の名前を書く。追跡しているファイルの全体をテスト側の名前（`19_primary_clip_ratio_ema`）で引くと 5 ファイル 7 行で、直すのはテスト 1 行と設計文書（日本語版）1 行、残すのは英訳 1 行、課題記録 2 行、PRD158 の実装記録 2 行である |
 | 546bdb | 出荷定義の tag は群名と `/` を含めて 44 文字、テスト側の名前は 39 文字である。兄弟の指標は `50_agent_skip/17_skip_primary_grad_norm`（39 文字）と `50_agent_skip/18_skip_primary_clip_ratio`（40 文字）である。出荷定義には、40 文字を超える tag が 65 個ある（[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt) の `[群名/名前]` を重複なく数えた 280 個のうち） |
 | 4124b6 | DQN の共通部品は PRD182 でファイルが分かれた。`DefaultDQNAgent.` を固定で書くエラーは、[dqn_network_model.cpp](../../src/algo/dqn/src/dqn_network_model.cpp) 110 行（`skip.network_mode`）と、[dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) 363 行（`learner.noisy_probe`）・395 行・399 行（`learner.final_feature_branch_key`）の 4 か所である。`src/algo/dqn` のテストと具象 2 Agent のファイルを除いて `DefaultDQNAgent` を引くと 5 行で、残る 1 行は登録（[dqn.cpp](../../src/algo/dqn/src/dqn.cpp) 11 行）である |
-| 4124b6 | RainbowAgent は skip 網を渡さない（[rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp) 66〜68 行。110 行のエラーは、skip 網の定義を受け取ったときだけ通る）。`learner.final_feature_branch_key` と `learner.noisy_probe.*` を読まない（[rainbow_agent.hpp](../../src/algo/dqn/src/rainbow_agent.hpp) 55〜79 行の読み取りの並びに無い）。RainbowAgent から届くのは 363・395・399 行の 3 か所で、該当の診断指標を購読した Run に限る。入口は、指標の購読を設定する `Learner::ConfigureScalarMetricSubscriptions`（[dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) 243 行）である |
+| 4124b6 | RainbowAgent は skip 網を渡さず、`learner.final_feature_branch_key` と `learner.noisy_probe.*` を読まない（[rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp)、[rainbow_agent.hpp](../../src/algo/dqn/src/rainbow_agent.hpp)）。RainbowAgent は指標購読を共通 Learner へ転送しない。3 か所の診断は、RainbowAgentConfig で組み立てた共通 Learner の `ConfigureScalarMetricSubscriptions` に該当の購読を渡して検証する（[dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp)） |
 | 4124b6 | 363 行は DefaultDQNAgent からは届かない。DefaultDQNAgent は、Noisy の層がある網には必ず probe の実行設定を作って渡す（[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 489〜497 行） |
 
 ### 1.3 今のコードで確かめたこと（基盤全体の文面と、設定の読み口）
@@ -116,7 +118,7 @@ G1〜G4 は、グリルの初めに合意した（G2 は、範囲の問いの答
 | P3 | 過去の判断 | 共通の検証の関数が出すキーの文字は、呼ぶ側が渡す | [128_dqn_agent_refactor_bundle_10prd.md](128_dqn_agent_refactor_bundle_10prd.md) の §5 D6 | 済み |
 | P4 | 守る線 | 汎用の層と共通部品は、特定の Agent の名前を持たない | [AGENTS.md](../../AGENTS.md) の「汎用機構と利用側の責任境界」、[128_dqn_agent_refactor_bundle_10prd.md](128_dqn_agent_refactor_bundle_10prd.md) の §5 D3 | 済み |
 | P5 | 事実 | DQN の共通部品で設定キーを書くエラー文は 2 通りある。`DefaultDQNAgent.` を固定で書くものが 4 か所、相対キーで書くものがある。相対キーの数は、グリルの途中と起草で数え直した（P10） | §1.2・§8.3 | 済み |
-| P6 | 事実 | RainbowAgent は skip 網を渡さず、`learner.final_feature_branch_key` と `learner.noisy_probe.*` を読まない。届くのは 4 か所のうち 3 か所で、該当の診断指標を購読した Run に限る | §1.2 | 済み |
+| P6 | 事実 | RainbowAgent は skip 網を渡さず、`learner.final_feature_branch_key` と `learner.noisy_probe.*` を読まない。RainbowAgent は指標購読を共通 Learner へ転送しない。RainbowAgentConfig で組み立てた共通 Learner に該当の指標購読を要求すると、読み取り記録が無い欄の診断を検証できる | §1.2 | 済み |
 | P7 | 事実 | `app.metrics_logger.*` を読むのは RunnerApp で、基盤の MetricsLogger は root を知らず値だけを受け取る。codec の可否は動画の大きさで決まるので、設定を読む時点では判定できない | §1.2 | 済み |
 | P8 | 既存部品の働き | 設定を読む時点の検証は、呼ぶ側が完全キーを渡す関数で行っている。キーの名前を型に入れて後の時点まで運ぶ例もある | [rainbow_agent.hpp](../../src/algo/dqn/src/rainbow_agent.hpp) 35 行、[nn.hpp](../../src/core/base/include/anet/nn.hpp) 58・109 行 | 対象外 |
 | P9 | 事実 | 4 か所のうち 363 行は DefaultDQNAgent からは届かず、110 行は DefaultDQNAgent だけが通る | §1.2 | 対象外 |
@@ -181,7 +183,7 @@ G1〜G4 は、グリルの初めに合意した（G2 は、範囲の問いの答
 | D21 | **関数の引数の事前条件とした文。** §8.1 の R3 に当てた 7 つ（§8.3 の 6 文と、直す文の中の名前 1 つ。§8.7 の、ImageData.cpp 619 行の `batch_size`）は、実装で呼ぶ側を読む。設定の誤りから届くなら、呼ぶ側（設定の型を持つ側）に検査を足して完全キーで書く。届かないなら変えない | 推奨の既定。届くかどうかは 7 つそれぞれの呼ぶ側しだいで、起草では読み切っていない。型の検査は、設定の型を持つ側に置く。依存: D3 |
 | D22 | **読んだあとにコードで値を書き換える欄。** 記録は、読んだときの完全キーのままにする | 推奨の既定。利用者が直す先はそのキーである。依存: D4 |
 | D23 | **固定の root を書く文。** すでに root を持つが、値を与えた置き場と違うかもしれない置き場を固定で書く文（§8.6）も、記録か `ConfigData` を引く形へ直す | 推奨の既定。上書きの置き場から読んだ値でも既定の置き場のキーが出て、G2 を満たさない。4124b6 と同じ種類の誤りである。依存: D1・D4 |
-| D24 | **設定では直せない誤りの文面。** 記録が返す文字（D5）は変えない。題材の 3 文（[dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) 363・395・399 行）には、記録に無いときに限り、`This agent does not read this setting; remove the metric subscription that requires it.` の 1 句を足す | 推奨の既定。RainbowAgent の利用者は設定では直せず、手立ては診断指標の購読を外すことである（P6）。` (not read from config)` だけでは、手立てが伝わらない。依存: D5・P6 |
+| D24 | **設定では直せない誤りの文面。** 記録が返す文字（D5）は変えない。題材の 3 文（[dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) 363・395・399 行）には、記録に無いときに限り、`This agent does not read this setting; remove the metric subscription that requires it.` の 1 句を足す | 共通 Learner への購読要求が設定に無い欄を必要とするときは、その購読を外す（P6）。` (not read from config)` だけでは手立てが伝わらない。RainbowAgent の購読時の挙動は従来どおりとする。依存: D5・P6 |
 | D25 | **親の完全キーを示した文の中の、直下の欄。** 欄も完全キーで書く（`eval.[greedy]: scheduled (interval=50, …)` の `interval` など） | 推奨の既定。D2・D3 のとおり、設定キーはどれも完全キーで書く。親の完全キーがあるときだけ欄の名前でよいとする例外は置かない。INFO の行は長くなる。依存: D2・D3 |
 
 ### 5.1 選ばなかった形
@@ -316,7 +318,7 @@ learner.per_alpha = 2
 |---|---|---|
 | Learner の PER の検査（DefaultDQNAgent） | `Invalid learner.per_eps=-1. Expected a finite value >= 0.` | `Invalid DefaultDQNAgent.learner.per_eps=-1. Expected a finite value >= 0.` |
 | 同じ検査（RainbowAgent） | 同じ文面 | `Invalid RainbowAgent.learner.per_eps=-1. …` |
-| 可塑性の診断を購読して、境界の branch が空（RainbowAgent） | `DefaultDQNAgent.learner.final_feature_branch_key='' is required when feature-boundary diagnostics are subscribed; …` | `final_feature_branch_key (not read from config)='' is required when feature-boundary diagnostics are subscribed; … This agent does not read this setting; remove the metric subscription that requires it.`（末尾の 1 句は D24） |
+| 可塑性の診断を購読して境界の branch が空（RainbowAgentConfig で組み立てた共通 Learner） | `DefaultDQNAgent.learner.final_feature_branch_key='' is required when feature-boundary diagnostics are subscribed; …` | `final_feature_branch_key (not read from config)='' is required when feature-boundary diagnostics are subscribed; … This agent does not read this setting; remove the metric subscription that requires it.`（末尾の 1 句は D24） |
 | CNBlock の検査（共有の置き場に書いた値） | `CNBlock: 'cn.channels' must be strictly positive.` | `CNBlock: 'net.block.[CN1].cn.channels' must be strictly positive.` |
 | block の設定の型の誤り | `ConfigData::Read failed. key=cn.channels value="abc" expected=…` | `ConfigData::Read failed. key=net.block.[CN2].cn.channels value="abc" expected=…` |
 | 128x128 の動画で `h264_nvenc` を明示 | `metrics_logger.video_codec=h264_nvenc is not supported for video size 128x128. … Use metrics_logger.video_codec=auto or libx264. …` | `app.metrics_logger.video_codec=h264_nvenc is not supported for video size 128x128. … Use app.metrics_logger.video_codec=auto or libx264. …` |
@@ -434,7 +436,7 @@ T1（正規表現。ripgrep で src の *_test.cpp と *_test.hpp を引く）:
 | A1 | 78df9c | `agent.device` に `cuda:x` を置いた設定で `InitRL` を 1 回呼ぶと止まり、その呼び出しの間に出た fatal のログが 1 件で、文面に `agent.device='cuda:x'` を含むテストがある。`env.device`・`run.eval_device` でも同じである |
 | A2 | 9b314a | CUDA が使えない状態で、`agent.device` に `cuda:1`、`run.eval_device` に `cuda` を置いた設定で `InitRL` が止まり、文面に `agent.device='cuda:1'` と `run.eval_device='cuda'` の両方を含むテストがある |
 | A3 | eeb2c3 | RunnerApp の設定の読み口から作った設定で、128x128 の動画に `h264_nvenc` を明示すると止まり、文面に `app.metrics_logger.video_codec=h264_nvenc` と `Use app.metrics_logger.video_codec=auto` を含むテストがある。手で組んだ `MetricsLoggerConfig` では、文面に `video_codec (not read from config)` を含む |
-| A4 | 4124b6 | 可塑性の診断を購読して境界の branch が空のとき、DefaultDQNAgent では文面に `DefaultDQNAgent.learner.final_feature_branch_key` を含み、RainbowAgent では `final_feature_branch_key (not read from config)` と `remove the metric subscription` を含んで `DefaultDQNAgent` を含まないテストがある（D24）。DefaultDQNAgent の文面は `remove the metric subscription` を含まない。表の下の検索 S1 が、登録の 2 行だけに当たる |
+| A4 | 4124b6 | 可塑性の診断を購読して境界の branch が空のとき、DefaultDQNAgent の文面は `DefaultDQNAgent.learner.final_feature_branch_key` を含み、`remove the metric subscription` を含まない。RainbowAgentConfig で組み立てた共通 Learner に同じ購読を直接渡したときは `final_feature_branch_key (not read from config)` と `remove the metric subscription` を含み、`DefaultDQNAgent` を含まない（D24）。RainbowAgent 自身に同じ購読を渡した場合は従来どおり何もしない。表の下の検索 S1 が、登録の 2 行だけに当たる |
 | A5 | d4258c | `docs/design/*.jp.md` を固定文字列「採用値」で引くと 1 行（100 の、評価セッションの行）だけに当たる。「採用したdevice」で引くと 0 行である。表の下の検索 S2 で引くと 6 行以上に当たる。`src` を「採用値」で引くと 1 行（[app_util.cpp](../../src/core/base/src/app_util.cpp) の、workspace の履歴の値を言うコメント）だけに当たる。[CONTEXT.md](../../CONTEXT.md) に「実効 device」の項目がある。設計文書と `src` のほかの「採用値」（§1.2 の d4258c の行の 17 行のうち、課題記録・wiki・過去の PRD と実装記録・サーベイ・用語集・設定のコメント）は、device の意味でないか当時の記録なので、範囲から除く |
 | A6 | 546bdb | `[prd103-config]` を単独で流すと、4 環境の断定がすべて通り、終了コードが 0 である。`src` と `docs/design/*.jp.md` を固定文字列 `19_primary_clip_ratio_ema` で引くと 0 行である。英訳は作り直すまで旧い名前が残るので、範囲から除く（D15）。過去の記録（課題記録、実装記録、実験記録）は当時の記録なので、範囲から除く |
 | A7 | 仕組み（`ConfigData`） | 切り出し、写し、上書きの合成、同じ値を畳む合成、読み取り範囲の作成を経た項目から、§6.2 の項目の表のとおりに完全キーを引けるテストがある。合成で置き換わった項目は、置き換えた側の完全キーを返す。既存の項目へ値を書き込んだあとも、同じ完全キーを返す。切り出した設定の、無い項目は、置き場に相対キーを続けた文字を返す（C3）。root の `ConfigData` の無い項目は、キーそのものを返す（C4）。空のキーは止まる（C1）。完全キーを引いたあとも、その項目が読まれない設定キーの一覧に残る |
@@ -493,9 +495,9 @@ R5 に当てた文のうち、実装で、値が設定から来ていないと�
 
 - 対象のファイル: `git ls-files src` のうち、拡張子が `.cpp`・`.hpp` で、パスに `_test.`・`/testdata/`・`/src_testing/`・`/include/anet/test/` を含まないもの。
 - 1 段目の対象の文: 行頭がコメントでなく、行に「エラーの始まり」のどれかを含むか、「ログの始まり」の正規表現に当たる文。その行から、行末が `;` になる行まで（最大 15 行）を 1 つの文とする。「ログの始まり」の名前が `info` なら INFO、`warn` なら WARN、`error`・`fatal` ならエラーとして数える。
-- 文面: 文の中の文字列を、順に `{}` でつないだもの。
+- 文面: 文の中の文字列を、順に `{}` でつないだもの。`GetFullKey("…")` の文字列引数は検索に使う相対キーなので、文面に含めない。
 - 階層つきの名前: 文面に「階層つきの名前」の正規表現を当てたもの。末尾の語が拡張子（`txt`・`cpp`・`hpp`・`json`・`jsonl`・`db`・`gz`・`mkv`・`png`・`py`・`bat`・`exe`・`log`・`md`・`g`・`e`）のものと、`std.`・`torch.`・`e.g`・`i.e` で始まるものは除く。先頭の語が root（`app`・`run`・`env`・`agent`・`net`・`metrics`・`backend`・`image`）か、大文字で始まるか、`{}` であるものは、root を持つとして除く。
-- 1 語の名前: 文面に「1 語の名前」の正規表現を当てたもののうち、対象のファイルの `ANET_READ_CONFIG` が読む欄の、末尾の語と同じもの。
+- 1 語の名前: 先頭の「対象のファイル」に該当するすべてのファイルから、`ANET_READ_CONFIG` が読む欄の末尾の語を集める。文面に「1 語の名前」の正規表現を当てた結果のうち、この共通の集合に含まれるものを拾う。
 - 2 段目の対象の行: 1 段目の文に入らず、行頭がコメントでなく、「相対キーの引数」の正規表現に当たり、「読み取りの口」のどれも含まない行。拾った名前の先頭の語が root のもの、末尾の語が上の拡張子のものは除く。
 
 ```text
@@ -503,7 +505,7 @@ R5 に当てた文のうち、実装で、値が設定から来ていないと�
 ANET_SYSTEM_ERROR(   ANET_CHECK_MSG(   ANET_ASSERT_MSG(
 
 ログの始まり（正規表現。1 つ目の括弧の中が名前）:
-\b(info|warn|error|fatal)(_once)?\([^()]*\)\s*(<<|$)
+\b(info|warn|error|fatal)(_once)?\((?:[^()]|\([^()]*\))*\)\s*(<<|$)
 
 階層つきの名前（正規表現）:
 (?<![A-Za-z0-9_.\]}])([A-Za-z_][A-Za-z0-9_]*(?:\.(?:\[[^\]]*\]|\{\}|[A-Za-z_][A-Za-z0-9_]*))+)
@@ -521,6 +523,7 @@ ANET_READ_CONFIG\(\s*[A-Za-z_]+\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)
 ANET_READ_CONFIG   ReadConfig(   ReadSubConfig(   .Get(   .Get<   .Has(   .Set(   .Read(
 MakeSubConfigData(   CreateReadScope(   MakeReadScope(   MakeDefaultConfigKey(   MarkInventory(
 HasConfigValue(   RecordConfigValue(   GetSubConfigTags(   MakeTaggedSubConfigKey(   CopyValueFrom(
+GetFullKey(   RecordFullKey(   ReadInheritedSubConfig(   .CopyFieldFrom(
 ```
 
 この集計は、次の文を拾えない。`=` を伴わない 1 語の名前、実行のときに組み立てる名前、文面を変数に組み立ててから出す文、2 行以上にまたがる呼び出しの引数、すでに root を持つが誤った置き場を指す名前。拾えなかった文のうち分かっているものは §8.5 と §8.6 に挙げた。ほかの扱いは D20 による。
@@ -612,7 +615,7 @@ A9 で残ってよい名前。どれも R2 に当たるか、文の区切りを�
 | [trainer.cpp](../../src/core/base/src/trainer.cpp) | `state_.obs` |
 | [metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp) | `recorded.{}`・`health.{}` |
 | [AtariEnv.cpp](../../src/env/atari/src/AtariEnv.cpp) | `ram_metric.[n]` |
-| [dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) | `attention_entropy.[{}]`・`samples.replay_item_keys` |
+| [dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) | `attention_entropy.[{}]`・`samples.replay_item_keys`・`config.{}` |
 | [dqn_math.cpp](../../src/algo/dqn/src/dqn_math.cpp) | `attention_entropy.[n]` |
 | [dqn_network_model.cpp](../../src/algo/dqn/src/dqn_network_model.cpp) | `skip.{}` |
 
@@ -717,7 +720,7 @@ A9 で残ってよい名前。どれも R2 に当たるか、文の区切りを�
 | [issue-20261103-eeb2c3](../management/issues/issue-20261103-eeb2c3.md) | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す | 317_metrics | [metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp) 97・101 行 | D1・D4・D5 | A3 |
 | [issue-20261103-d4258c](../management/issues/issue-20261103-d4258c.md) | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ | 312_util、316_config | [100](../design/100_runtime_and_configuration.jp.md) 338・346 行、[020](../design/020_user_guide_run.jp.md) 67・623 行、[110](../design/110_agents_and_learning.jp.md) 191 行、[120](../design/120_environments.jp.md) 218 行、[trainer_test.cpp](../../src/core/base/src/trainer_test.cpp) 659 行 | D10 | A5 |
 | [issue-20261110-546bdb](../management/issues/issue-20261110-546bdb.md) | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する | 316_config | [dqn_config_baseline_test.cpp](../../src/algo/dqn/src/dqn_config_baseline_test.cpp) 108 行、[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt) 391 行、[140](../design/140_observability.jp.md) 431 行 | D11 | A6 |
-| [issue-20261119-4124b6](../management/issues/issue-20261119-4124b6.md) | DQN の共通部品のエラー文 4 か所が DefaultDQNAgent の設定キーを固定で書き、RainbowAgent で出ても DefaultDQNAgent のキーとして表示される | 321_agent_core、324_dqn | [dqn_network_model.cpp](../../src/algo/dqn/src/dqn_network_model.cpp) 110 行、[dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) 363・395・399 行 | D1・D4・D5 | A4 |
+| [issue-20261119-4124b6](../management/issues/issue-20261119-4124b6.md) | DQN の共通部品のエラー文 4 か所が DefaultDQNAgent の設定キーを固定で書く。欄を読まない利用側の設定を渡しても DefaultDQNAgent のキーが表示される | 321_agent_core、324_dqn | [dqn_network_model.cpp](../../src/algo/dqn/src/dqn_network_model.cpp) 110 行、[dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) 363・395・399 行 | D1・D4・D5・D24 | A4 |
 
 題材の 6 件で覆えない仕事（完全キーを運ぶ仕組みの残り、上書きの接頭辞が空の読み口の直し、§8.3・§8.5・§8.6 の一覧の移行。ステージ 2 の一部とステージ 3）は、次の課題が表す（細部 12）。本書の起票で作った。
 

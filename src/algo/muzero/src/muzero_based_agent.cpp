@@ -186,8 +186,8 @@ private:
 
 class MuZeroRepresentationHeadFactory : public anet::nn::NetworkHeadFactory {
 public:
-    explicit MuZeroRepresentationHeadFactory(int64_t expected_input_dim)
-        : expected_input_dim_(expected_input_dim) {
+    MuZeroRepresentationHeadFactory(int64_t expected_input_dim, std::string expected_input_dim_key)
+        : expected_input_dim_(expected_input_dim), expected_input_dim_key_(std::move(expected_input_dim_key)) {
     }
 
     std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override
@@ -199,12 +199,14 @@ public:
         // Body側の設定で指定された最終出力次元が
         // Agentの全体設定である hidden_state_dim と一致しているかを検証する
         ANET_ASSERT_MSG(input_dim == expected_input_dim_,
-            "Representation Body's output dim does not match config.hidden_state_dim!");
+            "Representation Body's output dim " << input_dim << " does not match "
+            << expected_input_dim_key_ << "=" << expected_input_dim_ << ".");
 
         return std::make_shared<anet::nn::PassThroughHead>("hidden_state");
     }
 private:
     int64_t expected_input_dim_;
+    std::string expected_input_dim_key_;
 };
 
 
@@ -246,7 +248,8 @@ MuZeroNetworkModel::MuZeroNetworkModel(
     // Representation Network を構築
     anet::nn::NetworkConfig rep_config{ config_data, "net.rep" };
     anet::MetricsLogger::Instance()->Log("net.rep", rep_config.ToJson());
-    auto rep_head_factory = std::make_shared<MuZeroRepresentationHeadFactory>(config_.hidden_state_dim);
+    auto rep_head_factory = std::make_shared<MuZeroRepresentationHeadFactory>(
+        config_.hidden_state_dim, config_.full_keys.GetFullKey("hidden_state_dim"));
     auto rep_net = anet::nn::NetworkBuilder::BuildNetwork(
         rep_config, state_spec.obs_spec, rep_head_factory, seed_maker.MakeNamedSeed("network.rep"));
 

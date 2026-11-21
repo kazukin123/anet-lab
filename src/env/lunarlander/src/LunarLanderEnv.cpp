@@ -111,7 +111,7 @@ void LunarLanderEnv::ContactListener::BeginContact(b2Contact* contact)
         if (env_.config_.contact_mode == "pad") {
             return IsPadFixture(f);
         }
-        ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.contact_mode: "
+        ANET_SYSTEM_ERROR("Invalid " << env_.config_.GetFullKey("contact_mode") << ": "
             << env_.config_.contact_mode << ". Expected ground or pad.");
         return false;
         };
@@ -148,7 +148,7 @@ void LunarLanderEnv::ContactListener::EndContact(b2Contact* contact)
         if (env_.config_.contact_mode == "pad") {
             return IsPadFixture(f);
         }
-        ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.contact_mode: "
+        ANET_SYSTEM_ERROR("Invalid " << env_.config_.GetFullKey("contact_mode") << ": "
             << env_.config_.contact_mode << ". Expected ground or pad.");
         return false;
         };
@@ -525,7 +525,7 @@ bool LunarLanderEnv::shouldStopWind() const
         return legTouchesPad(left_leg_body_) || legTouchesPad(right_leg_body_);
     }
 
-    ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.wind_stop_mode: "
+    ANET_SYSTEM_ERROR("Invalid " << config_.GetFullKey("wind_stop_mode") << ": "
         << config_.wind_stop_mode << ". Expected none, ground, or pad.");
     return false;
 }
@@ -755,7 +755,7 @@ bool LunarLanderEnv::checkLanded() const
         return !lander_body_->IsAwake();
     }
 
-    ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.landing_detection_mode: "
+    ANET_SYSTEM_ERROR("Invalid " << config_.GetFullKey("landing_detection_mode") << ": "
         << config_.landing_detection_mode << ". Expected contact or not_awake.");
     return false;
 

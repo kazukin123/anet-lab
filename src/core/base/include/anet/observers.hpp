@@ -172,6 +172,7 @@ namespace anet::rl {
         int image_width = -1;   ///< 出力する画像の幅。-1で指定なし(自動)
         int image_height = -1;  ///< 出力する画像の高さ。-1で指定なし(自動)
         std::string output_key = "q"; ///< NN出力TensorDictから描画対象Tensorを選ぶkey
+        ConfigFullKeyTable full_keys;
     };
 
     /**
@@ -358,8 +359,6 @@ namespace anet::rl {
             const StepCounts& counts,
             const BatchUpdateResultList* update_result_list);
 
-        /// interval を検証して IntervalGate 用の値へ変換する（1 未満は ANET_SYSTEM_ERROR）
-        static uint64_t ValidateMetricsInterval(const std::string& tag, int interval);
     protected:
         std::string key_;
         anet::rl::StepAxis step_axis_;
@@ -444,7 +443,8 @@ namespace anet::rl {
             int step_interval,           ///< 既存のステップ間隔 (-1で無効)
             int episode_interval,        ///< 新規のエピソード間隔 (-1で無効)
             const std::string& provider_key,
-            std::optional<anet::rl::EventField> event_field);
+            std::optional<anet::rl::EventField> event_field,
+            const std::string& declaration_key = "interval (not read from config)");
 
         void OnTrain(const TrainEvent& event) override;
         std::string GetClassName() const override { return "GraphVizObserver"; }

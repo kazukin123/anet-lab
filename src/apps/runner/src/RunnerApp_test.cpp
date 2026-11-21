@@ -273,6 +273,16 @@ TEST_CASE("Runner validates values in an unused online mode", "[.][prd117_mode_o
         Catch::Matchers::ContainsSubstring("app.online.log_flush_interval_ms"));
 }
 
+TEST_CASE("Runner names the configured video codec key in a recording error", "[.][prd194][prd194_codec]")
+{
+    StartupFixture app;
+    app.Start("agent.construction_delay_ms = 0\napp.metrics_logger.video_codec = h264_nvenc\n");
+
+    CHECK_THROWS_WITH(anet::MetricsLogger::Instance()->Log("prd194-video", 0, wxImage(128, 128)),
+        Catch::Matchers::ContainsSubstring("app.metrics_logger.video_codec=h264_nvenc")
+        && Catch::Matchers::ContainsSubstring("Use app.metrics_logger.video_codec=auto"));
+}
+
 TEST_CASE("Runner validates values in an unused batchrun mode", "[.][prd117_mode_batchrun]")
 {
     StartupFixture app;

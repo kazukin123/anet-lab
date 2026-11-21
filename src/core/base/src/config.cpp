@@ -300,6 +300,24 @@ namespace anet {
         read_entries_.try_emplace(key, std::make_shared<ReadEntry>());
     }
 
+    std::string ConfigData::GetFullKey(const std::string& key) const
+    {
+        if (key.empty()) {
+            ANET_SYSTEM_ERROR("ConfigData::GetFullKey requires a non-empty key.");
+        }
+        const auto found = full_keys_.find(key);
+        if (found != full_keys_.end()) return found->second;
+        if (location_.empty()) return key;
+        // 読み取り範囲は切り出しと異なり、元の接頭辞をキーに残す。
+        if (!scope_prefix_.empty()) {
+            if (key == scope_prefix_) return location_;
+            if (key.starts_with(scope_prefix_ + ".")) {
+                return location_ + key.substr(scope_prefix_.size());
+            }
+        }
+        return location_ + "." + key;
+    }
+
     void ConfigData::MarkRead(const std::string& key) const
     {
         // 不在のキーも、読み口が受け付けるキーの診断へ残す。
@@ -315,11 +333,13 @@ namespace anet {
     {
         // Map の走査では読んだと見なさず、実際の読み口へ出典を渡す。
         const auto value = source.map_.find(source_key);
-        ANET_CHECK_MSG(value != source.map_.end(), "Missing config source key=" << source_key);
+        ANET_CHECK_MSG(value != source.map_.end(), "Missing config source key=" << source.GetFullKey(source_key));
         const auto entry = source.read_entries_.at(source_key);
+        const auto full_key = source.GetFullKey(source_key);
         // 上書きで退いた値は、読まれない誤設定として残さない。
         if (Has(key)) MarkRead(key);
         map_.Set(key, (*value).second);
+        full_keys_.insert_or_assign(key, full_key);
         read_entries_[key] = entry;
     }
 
@@ -339,10 +359,13 @@ namespace anet {
     {
         ConfigData scope;
         scope.read_scope_ = std::make_shared<ReadScope>();
+        scope.location_ = prefix.empty() ? location_ : GetFullKey(prefix);
+        scope.scope_prefix_ = prefix.empty() ? scope_prefix_ : prefix;
         // 親の既読状態は引き継がず、今回の読み取りだけを元へ届ける。
         for (const auto& [key, value] : map_) {
             if (!prefix.empty() && key != prefix && !key.starts_with(prefix + ".")) continue;
             scope.map_.Set(key, value);
+            scope.full_keys_.emplace(key, GetFullKey(key));
             auto entry = std::make_shared<ReadEntry>();
             entry->sources.push_back(read_entries_.at(key));
             scope.read_entries_.emplace(key, std::move(entry));
@@ -350,20 +373,30 @@ namespace anet {
         return scope;
     }
 
-    void ConfigData::RequireAllKeysRead(const std::string& owner) const
+    void ConfigData::UseLocationOf(const ConfigData& source)
+    {
+        location_ = source.location_;
+        scope_prefix_ = source.scope_prefix_;
+    }
+
+    void ConfigData::RequireAllKeysRead(std::string_view detail) const
     {
         const auto unread = GetUnreadKeys();
         if (unread.empty()) return;
         std::ostringstream message;
-        message << "Unread config keys in " << owner << ":";
-        for (const auto& [key, value] : unread) message << "\n  " << key << " = " << value;
+        message << "Unread config keys in " << (location_.empty() ? "root" : location_);
+        if (!detail.empty()) message << ' ' << detail;
+        message << ':';
+        for (const auto& [key, value] : unread) message << "\n  " << GetFullKey(key) << " = " << value;
         message << "\nExpected keys read by this component: [";
         if (read_scope_) {
             std::lock_guard<std::mutex> lock(read_scope_->mutex);
             bool first = true;
             for (const auto& key : read_scope_->attempted) {
                 if (!first) message << ", ";
-                message << key;
+                const bool belongs_to_scope = scope_prefix_.empty() || key == scope_prefix_
+                    || key.starts_with(scope_prefix_ + ".");
+                message << (Has(key) || belongs_to_scope ? GetFullKey(key) : key);
                 first = false;
             }
         }
@@ -380,7 +413,7 @@ namespace anet {
         std::ostringstream message;
         message << "Unread config keys: " << unread.size()
             << ". These keys were not read by any component.";
-        for (const auto& [key, value] : unread) message << '\n' << key << " = " << value;
+        for (const auto& [key, value] : unread) message << '\n' << config_data.GetFullKey(key) << " = " << value;
         LOG::warn_once() << message.str();
     }
 
@@ -399,7 +432,7 @@ namespace anet {
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<int>(
-            key, (*it).second, "int",
+            GetFullKey(key), (*it).second, "int",
             [](const std::string& text, size_t* pos) { return std::stoi(text, pos); });
         return true;
     }
@@ -410,7 +443,7 @@ namespace anet {
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<float>(
-            key, (*it).second, "float",
+            GetFullKey(key), (*it).second, "float",
             [](const std::string& text, size_t* pos) { return std::stof(text, pos); });
         return true;
     }
@@ -421,7 +454,7 @@ namespace anet {
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<double>(
-            key, (*it).second, "double",
+            GetFullKey(key), (*it).second, "double",
             [](const std::string& text, size_t* pos) { return std::stod(text, pos); });
         return true;
     }
@@ -432,7 +465,7 @@ namespace anet {
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<uint64_t>(
-            key, (*it).second, "uint64_t",
+            GetFullKey(key), (*it).second, "uint64_t",
             [](const std::string& text, size_t* pos) { return std::stoull(text, pos); });
         return true;
     }
@@ -443,7 +476,7 @@ namespace anet {
         auto it = map_.find(key);
         if (it == map_.end()) { value = value_if_missing; return false; }
         value = ParseNumericConfigValue<int64_t>(
-            key, (*it).second, "int64_t",
+            GetFullKey(key), (*it).second, "int64_t",
             [](const std::string& text, size_t* pos) { return std::stoll(text, pos); });
         return true;
     }
@@ -456,7 +489,7 @@ namespace anet {
         const auto v = TrimConfigValue((*it).second);
         if (v == "true" || v == "TRUE" || v == "1" || v == "yes" || v == "on") { value = true; return true; }
         if (v == "false" || v == "FALSE" || v == "0" || v == "no" || v == "off") { value = false; return true; }
-        ThrowReadFailure(key, (*it).second, "bool");
+        ThrowReadFailure(GetFullKey(key), (*it).second, "bool");
     }
 
     bool ConfigData::Read(const std::string& key, std::vector<float>& value, std::vector<float> value_if_missing) const
@@ -469,7 +502,7 @@ namespace anet {
         parsed_value.reserve(str_vec.size());
         for (const auto& token : str_vec) {
             parsed_value.push_back(ParseNumericConfigValue<float>(
-                key, (*it).second, token, "float vector",
+                GetFullKey(key), (*it).second, token, "float vector",
                 [](const std::string& text, size_t* pos) { return std::stof(text, pos); }));
         }
         value = std::move(parsed_value);
@@ -486,7 +519,7 @@ namespace anet {
         parsed_value.reserve(str_vec.size());
         for (const auto& token : str_vec) {
             parsed_value.push_back(ParseNumericConfigValue<int64_t>(
-                key, (*it).second, token, "int64_t vector",
+                GetFullKey(key), (*it).second, token, "int64_t vector",
                 [](const std::string& text, size_t* pos) { return std::stoll(text, pos); }));
         }
         value = std::move(parsed_value);
@@ -510,7 +543,7 @@ namespace anet {
             const auto existing_value = existing == map_.end() ? std::string() : (*existing).second;
             ANET_CHECK_MSG(
                 existing == map_.end() || existing_value == value,
-                "ConfigData merge conflict. key=" << key
+                "ConfigData merge conflict. key=" << GetFullKey(key)
                 << " existing=\"" << existing_value
                 << "\" incoming=\"" << value << "\"");
             if (existing == map_.end()) {
@@ -520,6 +553,7 @@ namespace anet {
                 entry->sources = {read_entries_.at(key), other.read_entries_.at(key)};
                 if (read_entries_.at(key)->read.load()) entry->MarkRead();
                 read_entries_[key] = std::move(entry);
+                full_keys_.insert_or_assign(key, other.GetFullKey(key));
             }
         }
     }
@@ -609,7 +643,9 @@ namespace anet {
             if (end == std::string::npos || end == key_prefix.size()
                 || end + 2 >= key.size() || key[end + 1] != '.') continue;
             const auto tag = key.substr(key_prefix.size(), end - key_prefix.size());
-            tag_sub_config[tag].CopyValueFrom(key.substr(end + 2), *this, key);
+            auto [part, inserted] = tag_sub_config.try_emplace(tag);
+            if (inserted) part->second.location_ = GetFullKey(key.substr(0, end + 1));
+            part->second.CopyValueFrom(key.substr(end + 2), *this, key);
         }
 
 		return tag_sub_config;
@@ -811,6 +847,47 @@ namespace anet {
         }
     }
 
+    std::string ConfigFullKeyTable::GetFullKey(const std::string& key) const
+    {
+        if (key.empty()) {
+            ANET_SYSTEM_ERROR("ConfigFullKeyTable::GetFullKey requires a non-empty key.");
+        }
+        const auto found = keys_.find(key);
+        return found == keys_.end() ? key + " (not read from config)" : found->second;
+    }
+
+    bool ConfigFullKeyTable::Contains(const std::string& key) const
+    {
+        return keys_.contains(key);
+    }
+
+    void ConfigFullKeyTable::Set(const std::string& key, std::string full_key)
+    {
+        keys_.insert_or_assign(key, std::move(full_key));
+    }
+
+    ConfigFullKeyTable ConfigFullKeyTable::Extract(const std::string& prefix) const
+    {
+        if (prefix.empty()) return *this;
+        ConfigFullKeyTable result;
+        const auto start = prefix + ".";
+        for (const auto& [key, full_key] : keys_) {
+            if (key.starts_with(start)) result.Set(key.substr(start.size()), full_key);
+        }
+        return result;
+    }
+
+    void ConfigFullKeyTable::CopyFieldFrom(const std::string& key, const ConfigFullKeyTable& source,
+        const std::string& source_key)
+    {
+        const auto found = source.keys_.find(source_key);
+        if (found == source.keys_.end()) {
+            keys_.erase(key);
+        } else {
+            keys_.insert_or_assign(key, found->second);
+        }
+    }
+
     // ---- Config ----
 
     Config::Config(const std::string& default_prefix)
@@ -833,9 +910,11 @@ namespace anet {
     ConfigData Config::MakeReadScope(const ConfigData& config_data, const std::string& key) const
     {
         const auto default_key = MakeDefaultConfigKey(key);
-        const auto override_key = MakeOverrideConfigKey(key);
         auto scope = config_data.CreateReadScope(default_key);
-        if (override_key != default_key) scope.MergeFromChecked(config_data.CreateReadScope(override_key));
+        if (!override_prefix_.empty()) {
+            const auto override_key = MakeOverrideConfigKey(key);
+            if (override_key != default_key) scope.MergeFromChecked(config_data.CreateReadScope(override_key));
+        }
         return scope;
     }
 

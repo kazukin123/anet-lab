@@ -656,7 +656,7 @@ std::shared_ptr<RunManagerEnvFactoryState> RegisterRunManagerNameTestFactories()
 
 TEST_CASE("PRD070 records adopted devices in owner JSON without changing configuration", "[device][prd070]")
 {
-    // 指定値と採用値の記録をRunManagerの公開生成経路から確認する。
+    // 指定値と実効deviceの記録をRunManagerの公開生成経路から確認する。
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "prd070-device";
     anet::MetricsLogger::Reset();
     anet::MetricsLoggerConfig logger_config;
@@ -1508,7 +1508,9 @@ TEST_CASE("RunManager reads the run root and train child", "[trainer][prd061][ru
     REQUIRE_NOTHROW(manager->GetEvalRunner("probe"));
     CHECK(manager->GetEvalRunner("probe")->GetBatchEnv()->GetBatchSpec().num_envs == 2);
     CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {
-        "eval.[probe]: scheduled (interval=7, offset=0, warmup_count=1, background=false, wait_on_exit=true, episodes=4, batch_size=2)"
+        "run.eval.[probe]: scheduled (run.eval_schedule.[probe].interval=7, run.eval_schedule.[probe].offset=0, "
+        "run.eval_schedule.[probe].warmup_count=1, run.eval_schedule.[probe].use_background=false, "
+        "run.eval_schedule.[probe].wait_on_exit=true, run.eval.[probe].eval_episodes=4, run.eval.[probe].eval_batch_size=2)"
     }));
 }
 
@@ -1538,7 +1540,10 @@ TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer
         factory_state->config_prefixes, "run.eval.[scheduled].env")
         != factory_state->config_prefixes.end());
     CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {
-        "eval.[scheduled]: scheduled (interval=7, offset=17, warmup_count=3, background=false, wait_on_exit=false, episodes=5, batch_size=2)"
+        "run.eval.[scheduled]: scheduled (run.eval_schedule.[scheduled].interval=7, run.eval_schedule.[scheduled].offset=17, "
+        "run.eval_schedule.[scheduled].warmup_count=3, run.eval_schedule.[scheduled].use_background=false, "
+        "run.eval_schedule.[scheduled].wait_on_exit=false, run.eval.[scheduled].eval_episodes=5, "
+        "run.eval.[scheduled].eval_batch_size=2)"
     }));
 }
 

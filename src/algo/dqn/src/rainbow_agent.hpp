@@ -39,11 +39,12 @@ namespace anet::rl::dqn {
                 ReadConfig(data, prefix + ".policy", entry.policy);
                 ReadConfig(data, prefix + ".network", entry.network);
                 ReadConfig(data, prefix + ".clone_model", entry.clone_model);
+                entry.full_keys = GetFullKeys().Extract(prefix);
                 if (entry.network != "online" && entry.network != "target") {
-                    ANET_SYSTEM_ERROR("Invalid RainbowAgent." << prefix << ".network='" << entry.network
+                    ANET_SYSTEM_ERROR("Invalid " << entry.full_keys.GetFullKey("network") << "='" << entry.network
                         << "'; expected online or target.");
                 }
-                data.RequireAllKeysRead(MakeDefaultConfigKey(prefix));
+                data.RequireAllKeysRead();
             }
 
             ANET_READ_CONFIG(config_data, learner.learning_rate);
@@ -82,25 +83,27 @@ namespace anet::rl::dqn {
             learner.use_rb_prefetch = false;
             learner.use_tbo = false;
             learner.use_fused_optimizer = false;
+            model.full_keys = GetFullKeys().Extract("model");
+            learner.full_keys = GetFullKeys().Extract("learner");
+            learner.full_keys.CopyFieldFrom("num_quantiles", GetFullKeys(), "num_quantiles");
         }
 
         void ValidatePolicyConfig() const
         {
             for (const auto& [key, entry] : actor) {
-                const auto prefix = MakeDefaultConfigKey("actor.[" + key + "].policy");
                 if (entry.policy.policy_type != kActionPolicyTypeStr_EpsilonGreedy && entry.policy.policy_type != "0") {
-                    ANET_SYSTEM_ERROR("Invalid " << prefix << ".policy_type='" << entry.policy.policy_type
+                    ANET_SYSTEM_ERROR("Invalid " << entry.policy.full_keys.GetFullKey("policy_type") << "='" << entry.policy.policy_type
                         << "'; expected EpsilonGreedy (RainbowAgent supports epsilon-greedy only).");
                 }
-                ValidateActionPolicy(entry.policy, prefix);
+                ValidateActionPolicy(entry.policy);
             }
         }
 
         void ValidateQuantileConfig() const
         {
             if (use_qr && num_quantiles <= 1) {
-                ANET_SYSTEM_ERROR("Invalid RainbowAgent.num_quantiles=" << num_quantiles
-                    << " with RainbowAgent.use_qr=true; expected integer > 1.");
+                ANET_SYSTEM_ERROR("Invalid " << GetFullKey("num_quantiles") << "=" << num_quantiles
+                    << " with " << GetFullKey("use_qr") << "=true; expected integer > 1.");
             }
         }
     };

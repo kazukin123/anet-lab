@@ -78,6 +78,7 @@ namespace anet::rl::dqn {
         void UpdateTarget(anet::rl::step_t learn_step, float tau);
         const anet::ProfiledValueConfig<float>& GetSoftUpdateTauConfig() const { return config_.soft_update_tau; }
         int GetHardUpdateInterval() const { return config_.hard_update_interval; }
+        std::string GetHardUpdateIntervalKey() const { return config_.full_keys.GetFullKey("hard_update_interval"); }
 
         /// メトリクス用：TensorDict
         std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key, const torch::Device& device);

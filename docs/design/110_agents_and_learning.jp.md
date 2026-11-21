@@ -188,7 +188,7 @@ sequenceDiagram
 ### 7.1 構築設定
 
 - `agent.class_id`が具象AgentFactoryを選ぶ。
-- `agent.device`は`auto`、`cpu`、`cuda`、`cuda:N`で対象deviceを指定する。既定は`auto`で、採用値は`json/agent.json`に記録する。
+- `agent.device`は`auto`、`cpu`、`cuda`、`cuda:N`で対象deviceを指定する。既定は`auto`で、実効deviceは`json/agent.json`に記録する。
 - EnvSpec、BatchEnvSpec、device、seed、ConfigDataはfactoryから具象Agentへ渡す。
 - アルゴリズム固有設定は具象AgentのConfigが読み取る。存在する値の型変換失敗は共通`ConfigData`がfail-fastし、既定値はキー欠落時だけ使う。enum、範囲、組み合わせは各具象Configまたは再利用設定型の構築時validatorが検証する。
 - Actorの方策・network選択・model複製有無は、`ActorRequest::actor_key`で参照するActorカタログ（`<Agent>.actor.[key]`）から具象Agentが解決する。RunModeは受け取らない。
