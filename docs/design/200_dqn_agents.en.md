@@ -522,7 +522,7 @@ sequenceDiagram
 
 Since `Sync()` takes no step, the first action's `train_step` after forced synchronization becomes the age-zero reference. Shared Actors and Actors without `sync_interval.*` declarations have no periodic snapshots.
 
-DefaultDQN selects its primary Head with bool `head.use_dueling`; the default true computes V + A − mean(A). Agent reads initialization from `head.init.*` and projections from `head.projection.*`. Config DTOs mirror the `head.init`, `head.projection`, and `head.use_dueling` hierarchy, using `ANET_READ_CONFIG` for fixed-key reads. Skip settings likewise use `skip.head.*`.
+DefaultDQN selects its primary Head via the bool `head.use_dueling`, whose true default uses V + A − mean(A). The Agent reads `head.init.*` through `ConfigReader<WeightInitConfig>`, with `linear` as the default `nonlinearity`. It reads projection settings from `head.projection.*`. Config DTOs mirror the `head.init`, `head.projection`, and `head.use_dueling` hierarchy. Skip uses `skip.head.*` and inherits any omitted field among the eight initialization settings from the primary Head.
 
 ### 6.5 DefaultDQN Skip Policy
 
@@ -652,7 +652,7 @@ Checkpoint loading therefore transfers the Networks and Optimizer into a new Run
 
 `RainbowAgent` currently does not override `Save()` / `Load()` and uses the base Agent's no-op. Do not assume it has the same checkpoint support as DefaultDQN.
 
-Rainbow also reads the six `head.init.*` initialization settings through nested DTOs and `ANET_READ_CONFIG`, aligning recorded keys with member paths. `ValidateWeightInitConfig` validates them before construction. Rainbow Dueling retains `use_dueling_net`.
+Rainbow reads all eight `head.init.*` settings through `ConfigReader<WeightInitConfig>` and validates them before construction. `nonlinearity` defaults to `linear`, and recorded keys match the nested DTO member paths. Rainbow uses `use_dueling_net` for its Dueling setting.
 
 Actor and Replay share the decision info key through `BatchActionInfo::kKeyDecision`. DQN-owned types hold skip-output, action-input, auxiliary, and GetScalar keys and distribution modes; constants local to consuming cpp files hold optimizer roles, Torch archive keys, and GraphViz tags. Writing, reading, comparison, display, and diagnostics refer to the same definitions, without changing external string values or save order.
 

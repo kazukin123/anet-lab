@@ -25,14 +25,8 @@ namespace anet::rl::dqn {
         bool use_qr = true;
 
         explicit RainbowAgentConfig(const ConfigData& config_data = EmptyConfigData) : anet::Config(config_data, "RainbowAgent") {
-            ANET_READ_CONFIG(config_data, head.init.mode);
-            ANET_READ_CONFIG(config_data, head.init.manual_gain);
-            ANET_READ_CONFIG(config_data, head.init.constant_val);
-            ANET_READ_CONFIG(config_data, head.init.trunc_std);
-            ANET_READ_CONFIG(config_data, head.init.trunc_a);
-            ANET_READ_CONFIG(config_data, head.init.trunc_b);
             head.init.nonlinearity = "linear";
-            anet::nn::ValidateWeightInitConfig(head.init, MakeDefaultConfigKey("head.init"));
+            ANET_READ_CONFIG(config_data, head.init);
 
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
             ANET_READ_CONFIG(config_data, model.hard_update_interval);

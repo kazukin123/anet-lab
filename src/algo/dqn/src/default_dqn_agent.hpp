@@ -213,14 +213,11 @@ namespace anet::rl::dqn {
                 {LearnerConfig::kFeatureGradientMerge, LearnerConfig::kFeatureGradientSplit});
             ANET_READ_CONFIG(config_data, intrinsic.value.head.input_mode);
             ANET_READ_CONFIG(config_data, intrinsic.value.head.use_dueling);
-            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.mode);
-            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.manual_gain);
-            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.constant_val);
-            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.trunc_std);
-            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.trunc_a);
-            ANET_READ_CONFIG(config_data, intrinsic.value.head.init.trunc_b);
-            intrinsic.value.head.init.nonlinearity = "linear";
-            anet::nn::ValidateWeightInitConfigMode(intrinsic.value.head.init, MakeDefaultConfigKey("intrinsic.value.head.init"));
+            const anet::nn::WeightInitConfig init_defaults{.nonlinearity = "linear"};
+            intrinsic.value.head.init = init_defaults;
+            anet::ConfigReader<anet::nn::WeightInitConfig>::ReadFields(
+                *this, config_data, "intrinsic.value.head.init", intrinsic.value.head.init);
+            anet::nn::ValidateWeightInitConfigChoices(intrinsic.value.head.init, MakeDefaultConfigKey("intrinsic.value.head.init"));
             ValidateChoice(MakeDefaultConfigKey("intrinsic.value.head.input_mode"), intrinsic.value.head.input_mode, {kHeadInputShared, kHeadInputDedicated});
             CopyAndRecordPrefix(config_data, MakeDefaultConfigKey("intrinsic.value.head.projection") + ".",
                 "intrinsic.value.head.projection.", &intrinsic.value.head.projection);
@@ -283,16 +280,17 @@ namespace anet::rl::dqn {
                 std::string(kHeadInputShared), decomposed, inactive_reason);
             ReportIgnoredValue(config_data, "intrinsic.value.head.use_dueling", intrinsic.value.head.use_dueling,
                 true, decomposed, inactive_reason);
-            const anet::nn::WeightInitConfig init_defaults;
             const auto report_init = [&](const std::string& key, const auto& value, const auto& default_value) {
                 ReportIgnoredValue(config_data, "intrinsic.value.head.init." + key, value, default_value, decomposed, inactive_reason);
             };
             report_init("mode", intrinsic.value.head.init.mode, init_defaults.mode);
             report_init("manual_gain", intrinsic.value.head.init.manual_gain, init_defaults.manual_gain);
+            report_init("nonlinearity", intrinsic.value.head.init.nonlinearity, init_defaults.nonlinearity);
             report_init("constant_val", intrinsic.value.head.init.constant_val, init_defaults.constant_val);
             report_init("trunc_std", intrinsic.value.head.init.trunc_std, init_defaults.trunc_std);
             report_init("trunc_a", intrinsic.value.head.init.trunc_a, init_defaults.trunc_a);
             report_init("trunc_b", intrinsic.value.head.init.trunc_b, init_defaults.trunc_b);
+            report_init("variance_scale", intrinsic.value.head.init.variance_scale, init_defaults.variance_scale);
             anet::nn::ReportUnusedLinearProjectionConfig(intrinsic.value.head.projection,
                 MakeDefaultConfigKey("intrinsic.value.head.projection"), decomposed, inactive_reason);
             for (const auto& [key, entry] : actor) {
@@ -314,14 +312,8 @@ namespace anet::rl::dqn {
             CopyAndRecordPrefix(config_data, MakeDefaultConfigKey("head.projection") + ".",
                 "head.projection.", &head.projection);
 
-            ANET_READ_CONFIG(config_data, head.init.mode);
-            ANET_READ_CONFIG(config_data, head.init.manual_gain);
-            ANET_READ_CONFIG(config_data, head.init.constant_val);
-            ANET_READ_CONFIG(config_data, head.init.trunc_std);
-            ANET_READ_CONFIG(config_data, head.init.trunc_a);
-            ANET_READ_CONFIG(config_data, head.init.trunc_b);
-			head.init.nonlinearity = "linear";
-            anet::nn::ValidateWeightInitConfig(head.init, MakeDefaultConfigKey("head.init"));
+            head.init.nonlinearity = "linear";
+            ANET_READ_CONFIG(config_data, head.init);
 
             ANET_READ_CONFIG(config_data, nn_viz.show_param_shapes);
             ANET_READ_CONFIG(config_data, nn_viz.show_param_count);
@@ -607,13 +599,7 @@ namespace anet::rl::dqn {
                 if (key.starts_with("net.block.") || key.starts_with("net.config_profile.")) skip_net.CopyValueFrom(key, config_data, key);
             }
             skip.head.init = head.init;
-            ANET_READ_CONFIG(config_data, skip.head.init.mode);
-            ANET_READ_CONFIG(config_data, skip.head.init.manual_gain);
-            ANET_READ_CONFIG(config_data, skip.head.init.constant_val);
-            ANET_READ_CONFIG(config_data, skip.head.init.trunc_std);
-            ANET_READ_CONFIG(config_data, skip.head.init.trunc_a);
-            ANET_READ_CONFIG(config_data, skip.head.init.trunc_b);
-            anet::nn::ValidateWeightInitConfig(skip.head.init, MakeDefaultConfigKey("skip.head.init"));
+            ANET_READ_CONFIG(config_data, skip.head.init);
             anet::nn::ValidateLinearProjectionConfig(skip.head.projection, MakeDefaultConfigKey("skip.head.projection"));
             if (skip_net.Has("DefaultDQNAgent.skip.net.body.output.[features]")) {
                 (void)anet::nn::NetworkConfig(skip_net, "DefaultDQNAgent.skip.net");

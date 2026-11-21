@@ -1999,17 +1999,290 @@ TEST_CASE("Body-only Network exposes forward TensorDictFunction", "[nn][function
     CHECK(torch::equal(func_out.At("feature"), direct_out.At("feature")));
 }
 
+static constexpr char kLinearWeightParameter[] = "linear.weight";
+static constexpr char kConv2dWeightParameter[] = "conv2d.weight";
+
+TEST_CASE("Linear and Conv2d blocks apply variance scaling from their configuration", "[nn][init][prd193]")
+{
+    EnsureNNInitialized();
+    const auto scale_text = GENERATE("0.5773502691896258", "1.0");
+    const double scale = std::stod(scale_text);
+    constexpr int64_t fan_in = 256;
+    anet::ConfigData config;
+    config.Set("init.mode", anet::nn::WeightInitConfig::kVarianceScalingMode);
+    config.Set("init.variance_scale", scale_text);
+
+    torch::manual_seed(19301);
+    const auto check_distribution = [&](const torch::Tensor& weight, const torch::Tensor& bias) {
+        const double expected_variance = scale / fan_in;
+        const double bound = std::sqrt(3.0 * expected_variance);
+        CHECK(weight.abs().max().item<double>() <= bound * (1.0 + 1.0e-6));
+        CHECK(weight.var().item<double>() == Catch::Approx(expected_variance).epsilon(0.05));
+        CHECK(torch::equal(bias, torch::zeros_like(bias)));
+    };
+    SECTION("Linear") {
+        config.Set("linear.out_features", 512);
+        config.Set("linear.bias", true);
+        auto module = anet::nn::NetworkModuleRepository::Instance().GetFactory("Linear")->CreateModule(
+            config, anet::nn::ModuleContext{});
+        (void)module->Forward(torch::zeros({1, fan_in}), anet::nn::NetworkForwardContext::GetDefault());
+        const auto params = module->named_parameters();
+        check_distribution(params[kLinearWeightParameter], params["linear.bias"]);
+    }
+    SECTION("Conv2d") {
+        config.Set("conv.out_channels", 32);
+        config.Set("conv.kernel_size", 8);
+        auto module = anet::nn::NetworkModuleRepository::Instance().GetFactory("Conv2d")->CreateModule(
+            config, anet::nn::ModuleContext{});
+        (void)module->Forward(torch::zeros({1, 4, 8, 8}), anet::nn::NetworkForwardContext::GetDefault());
+        const auto params = module->named_parameters();
+        check_distribution(params[kConv2dWeightParameter], params["conv2d.bias"]);
+    }
+    SECTION("grouped Conv2d") {
+        auto conv = torch::nn::Conv2d(torch::nn::Conv2dOptions(8, 32, 8).groups(2).bias(true));
+        const anet::nn::WeightInitConfig init{
+            .mode = anet::nn::WeightInitConfig::kVarianceScalingMode, .variance_scale = scale};
+        anet::nn::WeightInitializer::Initialize(conv, init);
+        check_distribution(conv->weight, conv->bias);
+    }
+}
+
+TEST_CASE("Variance scaling rejects bounds the weight dtype cannot represent", "[nn][init][prd193][variance-scaling-bounds]")
+{
+    const double scale = GENERATE(1.0e-100, 1.0e80);
+    auto layer = torch::nn::Linear(torch::nn::LinearOptions(256, 32).bias(true));
+    layer->to(torch::kFloat32);
+    const auto original_weight = layer->weight.detach().clone();
+    const auto original_bias = layer->bias.detach().clone();
+    const anet::nn::WeightInitConfig config{
+        .mode = anet::nn::WeightInitConfig::kVarianceScalingMode, .variance_scale = scale};
+    std::ostringstream scale_text;
+    scale_text << scale;
+    CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, config),
+        Catch::Matchers::ContainsSubstring("Invalid WeightInitConfig.variance_scale=" + scale_text.str())
+        && Catch::Matchers::ContainsSubstring("expected uniform bound in [")
+        && Catch::Matchers::ContainsSubstring("Float")
+        && Catch::Matchers::ContainsSubstring("fan_in=256"));
+    CHECK(torch::equal(layer->weight, original_weight));
+    CHECK(torch::equal(layer->bias, original_bias));
+}
+
+TEST_CASE("Variance scaling rejects complex weights before writing parameters", "[nn][init][prd193][variance-scaling-dtype]")
+{
+    auto layer = torch::nn::Linear(torch::nn::LinearOptions(4, 3).bias(true));
+    layer->to(torch::kComplexFloat);
+    const auto original_weight = layer->weight.detach().clone();
+    const auto original_bias = layer->bias.detach().clone();
+    const anet::nn::WeightInitConfig config{.mode = anet::nn::WeightInitConfig::kVarianceScalingMode};
+    CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, config),
+        Catch::Matchers::ContainsSubstring("Invalid WeightInitConfig.variance_scale=1")
+        && Catch::Matchers::ContainsSubstring("expected real floating-point weight dtype")
+        && Catch::Matchers::ContainsSubstring("ComplexFloat"));
+    CHECK(torch::equal(layer->weight, original_weight));
+    CHECK(torch::equal(layer->bias, original_bias));
+}
+
+TEST_CASE("Variance scaling requires weight output and input axes", "[nn][init][prd193][variance-scaling-shape]")
+{
+    auto layer = torch::nn::Linear(torch::nn::LinearOptions(4, 3).bias(true));
+    const auto rank = GENERATE(0, 1);
+    CAPTURE(rank);
+    layer->weight = rank == 0 ? torch::full({}, 2.0) : torch::full({3}, 2.0);
+    const auto original_weight = layer->weight.clone();
+    const auto original_bias = layer->bias.detach().clone();
+    const anet::nn::WeightInitConfig config{.mode = anet::nn::WeightInitConfig::kVarianceScalingMode};
+
+    CHECK_THROWS_WITH(anet::nn::WeightInitializer::Initialize(layer, config),
+        Catch::Matchers::ContainsSubstring("Invalid WeightInitConfig.variance_scale=1")
+        && Catch::Matchers::ContainsSubstring("expected weight rank >= 2")
+        && Catch::Matchers::ContainsSubstring("actual rank=" + std::to_string(rank)));
+    CHECK(torch::equal(layer->weight, original_weight));
+    CHECK(torch::equal(layer->bias, original_bias));
+}
+
+TEST_CASE("Variance scaling keeps low-precision samples within the configured bound", "[nn][init][prd193][variance-scaling-precision]")
+{
+    const auto device = GENERATE(torch::kCPU, torch::kCUDA);
+    CAPTURE(device);
+    if (device == torch::kCUDA && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
+    constexpr int64_t fan_in = 256;
+    constexpr int64_t out_features = 512;
+    auto layer = torch::nn::Linear(torch::nn::LinearOptions(fan_in, out_features).bias(true));
+    double scale = 1.0e-12;
+    SECTION("Float16 subnormal bound") {
+        layer->to(device, torch::kFloat16);
+    }
+    SECTION("BFloat16 near a rounding boundary") {
+        layer->to(device, torch::kBFloat16);
+        const double bound = 1.0 + 0.75 * static_cast<double>(std::numeric_limits<at::BFloat16>::epsilon());
+        scale = bound * bound * fan_in / 3.0;
+    }
+    torch::manual_seed(19303);
+    const anet::nn::WeightInitConfig config{
+        .mode = anet::nn::WeightInitConfig::kVarianceScalingMode, .variance_scale = scale};
+    anet::nn::WeightInitializer::Initialize(layer, config);
+
+    const auto weight = layer->weight.to(torch::kFloat64);
+    const double bound = std::sqrt(3.0 * scale / fan_in);
+    CHECK(weight.abs().max().item<double>() <= bound);
+    CHECK(weight.abs().max().item<double>() > 0.0);
+    CHECK(torch::equal(layer->bias, torch::zeros_like(layer->bias)));
+}
+
+TEST_CASE("Block factories reject invalid variance scales before forward", "[nn][init][prd193]")
+{
+    EnsureNNInitialized();
+    const auto [factory_name, prefix] = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
+        {"Linear", "init"}, {"Conv1d", "init"}, {"Conv2d", "init"},
+        {"ResBlock", "init1"}, {"ResBlock", "init2"}, {"ResBlock", "init_ds"},
+        {"CNBlock", "init_dw"}, {"CNBlock", "init_pw1"}, {"CNBlock", "init_pw2"}}));
+    CAPTURE(factory_name, prefix);
+    anet::ConfigData config;
+    const auto key = prefix + ".variance_scale";
+    config.Set(key, 0.0);
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory(factory_name);
+    CHECK_THROWS_WITH(factory->CreateModule(config, anet::nn::ModuleContext{}),
+        Catch::Matchers::ContainsSubstring("Invalid " + key + "=0; expected > 0."));
+}
+
+TEST_CASE("Blocks keep first-forward weight initialization failures", "[nn][init][prd193][weight-init-failure]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData config;
+    const char* type = nullptr;
+    const char* init_prefix = nullptr;
+    torch::Tensor input;
+    SECTION("Linear") {
+        type = "Linear";
+        init_prefix = "init";
+        config.Set("linear.out_features", 16);
+        input = torch::zeros({1, 4}, torch::kFloat32);
+    }
+    SECTION("Conv1d") {
+        type = "Conv1d";
+        init_prefix = "init";
+        config.Set("conv.out_channels", 8);
+        input = torch::zeros({1, 4, 8}, torch::kFloat32);
+    }
+    SECTION("Conv2d") {
+        type = "Conv2d";
+        init_prefix = "init";
+        config.Set("conv.out_channels", 8);
+        input = torch::zeros({1, 4, 8, 8}, torch::kFloat32);
+    }
+    SECTION("ResBlock main path with matching convolution shapes") {
+        type = "ResBlock";
+        init_prefix = GENERATE("init1", "init2");
+        config.Set("res.channels", 4);
+        input = torch::zeros({1, 4, 8, 8}, torch::kFloat32);
+    }
+    SECTION("ResBlock shortcut") {
+        type = "ResBlock";
+        init_prefix = "init_ds";
+        config.Set("res.channels", 8);
+        input = torch::zeros({1, 4, 8, 8}, torch::kFloat32);
+    }
+    SECTION("CNBlock final convolution") {
+        type = "CNBlock";
+        init_prefix = "init_pw2";
+        config.Set("cn.channels", 8);
+        input = torch::zeros({1, 8, 8, 8}, torch::kFloat32);
+    }
+    config.Set(std::string(init_prefix) + ".mode", anet::nn::WeightInitConfig::kVarianceScalingMode);
+    config.Set(std::string(init_prefix) + ".variance_scale", "1e-100");
+    auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory(type);
+    auto module = factory->CreateModule(config, anet::nn::ModuleContext{});
+    const auto& context = anet::nn::NetworkForwardContext::GetDefault();
+
+    const auto configured_scale = Catch::Matchers::ContainsSubstring(
+        "Invalid " + std::string(init_prefix) + ".variance_scale=1e-100");
+    const auto failed_dtype = Catch::Matchers::ContainsSubstring("dtype=Float ");
+    const auto error = configured_scale && failed_dtype;
+    CHECK_THROWS_WITH(module->Forward(input, context), error);
+    CHECK(module->named_children().is_empty());
+    CHECK(module->named_parameters().is_empty());
+
+    CHECK_THROWS_WITH(module->Forward(input, context), error);
+    // 型を変えて同じ block を呼んでも最初の初期化失敗を返す。
+    CHECK_THROWS_WITH(module->Forward(input.to(torch::kFloat64), context), error);
+    CHECK(module->named_children().is_empty());
+}
+
+TEST_CASE("Blocks retain their default weight initialization distributions", "[nn][init][prd193]")
+{
+    EnsureNNInitialized();
+    torch::manual_seed(19302);
+    const auto parameters = [](const char* type, const anet::ConfigData& config, const torch::Tensor& input) {
+        auto factory = anet::nn::NetworkModuleRepository::Instance().GetFactory(type);
+        auto module = factory->CreateModule(config, anet::nn::ModuleContext{});
+        (void)module->Forward(input, anet::nn::NetworkForwardContext::GetDefault());
+        return module->named_parameters();
+    };
+    const auto check_variance = [](const torch::Tensor& weight, double expected) {
+        REQUIRE(weight.numel() >= 8192);
+        CHECK(weight.var().item<double>() == Catch::Approx(expected).epsilon(0.05));
+    };
+    SECTION("Linear uses Xavier uniform") {
+        anet::ConfigData config;
+        config.Set("linear.out_features", 512);
+        const auto weights = parameters("Linear", config, torch::zeros({1, 256}));
+        const auto& weight = weights[kLinearWeightParameter];
+        constexpr int64_t fan_sum = 256 + 512;
+        CHECK(weight.abs().max().item<double>() <= std::sqrt(6.0 / fan_sum) * (1.0 + 1.0e-6));
+        check_variance(weight, 2.0 / fan_sum);
+    }
+    SECTION("Conv1d and Conv2d use He fan_out") {
+        anet::ConfigData config;
+        config.Set("conv.out_channels", 64);
+        config.Set("conv.kernel_size", 3);
+        const auto conv1d = parameters("Conv1d", config, torch::zeros({1, 64, 5}));
+        check_variance(conv1d["conv.weight"], 2.0 / (64 * 3));
+        const auto conv2d = parameters("Conv2d", config, torch::zeros({1, 64, 5, 5}));
+        check_variance(conv2d[kConv2dWeightParameter], 2.0 / (64 * 3 * 3));
+    }
+    SECTION("ResBlock uses He fan_out on conv1 and the shortcut, with conv2 initialized to zero") {
+        anet::ConfigData config;
+        config.Set("res.channels", 128);
+        config.Set("res.kernel_size", 3);
+        config.Set("res.norm_type", "none");
+        const auto weights = parameters("ResBlock", config, torch::zeros({1, 64, 5, 5}));
+        check_variance(weights["conv1.weight"], 2.0 / (128 * 3 * 3));
+        check_variance(weights["ds_conv.weight"], 2.0 / 128);
+        const auto& second = weights["conv2.weight"];
+        REQUIRE(second.numel() >= 8192);
+        CHECK(torch::equal(second, torch::zeros_like(second)));
+    }
+    SECTION("CNBlock uses standard deviation 0.02 on all three convolutions") {
+        anet::ConfigData config;
+        config.Set("cn.channels", 128);
+        config.Set("cn.kernel_size", 9);
+        config.Set("cn.norm_type", "none");
+        const auto weights = parameters("CNBlock", config, torch::zeros({1, 128, 9, 9}));
+        for (const auto* key : {"dwconv.weight", "pwconv1.weight", "pwconv2.weight"}) {
+            CAPTURE(key);
+            REQUIRE(weights[key].numel() >= 8192);
+            CHECK(weights[key].std().item<double>() == Catch::Approx(0.02).epsilon(0.05));
+        }
+    }
+}
+
 TEST_CASE("WeightInitConfig validates shared settings with caller diagnostics", "[nn][init][weight-init-config]")
 {
     const std::string owner = "net.block.[Probe].init";
     // 正常な各方式と既存のgain自動選択は、利用側にかかわらず受け付ける。
-    for (const std::string mode : {"default", "xavier", "he", "orthogonal", "constant", "trunc_normal"}) {
+    for (const std::string mode : {"default", "xavier", "he", "orthogonal", "constant", "trunc_normal",
+        anet::nn::WeightInitConfig::kVarianceScalingMode}) {
         const anet::nn::WeightInitConfig config{.mode = mode, .manual_gain = -1.0};
         CHECK_NOTHROW(anet::nn::ValidateWeightInitConfig(config, owner));
     }
     const anet::nn::WeightInitConfig unknown{.mode = "unsupported"};
     CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(unknown, owner),
-        Catch::Matchers::ContainsSubstring(owner + ".mode") && Catch::Matchers::ContainsSubstring("unsupported"));
+        Catch::Matchers::ContainsSubstring("Invalid " + owner + ".mode='unsupported'; "
+            "expected default, xavier, he, orthogonal, constant, trunc_normal or variance_scaling."));
+
+    const anet::nn::WeightInitConfig unknown_nonlinearity{.mode = "xavier", .nonlinearity = "selu"};
+    CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(unknown_nonlinearity, owner),
+        Catch::Matchers::ContainsSubstring("Invalid " + owner + ".nonlinearity='selu'; expected relu, linear, tanh or leaky_relu."));
 
     // 設定パーサを通らないDTOでも、非有限値を論理キー付きで拒否する。
     using NumericField = double anet::nn::WeightInitConfig::*;
@@ -2018,16 +2291,19 @@ TEST_CASE("WeightInitConfig validates shared settings with caller diagnostics", 
         {"constant_val", &anet::nn::WeightInitConfig::constant_val},
         {"trunc_std", &anet::nn::WeightInitConfig::trunc_std},
         {"trunc_a", &anet::nn::WeightInitConfig::trunc_a},
-        {"trunc_b", &anet::nn::WeightInitConfig::trunc_b}};
+        {"trunc_b", &anet::nn::WeightInitConfig::trunc_b},
+        {"variance_scale", &anet::nn::WeightInitConfig::variance_scale}};
     for (const auto& [key, field] : fields) {
         for (const double value : {std::numeric_limits<double>::quiet_NaN(),
             std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()}) {
             INFO("key=" << key << " value=" << value);
             anet::nn::WeightInitConfig config;
             config.*field = value;
+            std::ostringstream text;
+            text << value;
             CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
-                Catch::Matchers::ContainsSubstring(owner + "." + key)
-                && Catch::Matchers::ContainsSubstring("expected finite"));
+                Catch::Matchers::ContainsSubstring(
+                    "Invalid " + owner + "." + key + "=" + text.str() + "; expected finite value."));
         }
     }
 
@@ -2042,6 +2318,12 @@ TEST_CASE("WeightInitConfig validates shared settings with caller diagnostics", 
         CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
             Catch::Matchers::ContainsSubstring(owner + ".trunc_a")
             && Catch::Matchers::ContainsSubstring(owner + ".trunc_b"));
+    }
+    for (const int scale : {0, -1}) {
+        const anet::nn::WeightInitConfig config{.mode = "default", .variance_scale = static_cast<double>(scale)};
+        CHECK_THROWS_WITH(anet::nn::ValidateWeightInitConfig(config, owner),
+            Catch::Matchers::ContainsSubstring(
+                "Invalid " + owner + ".variance_scale=" + std::to_string(scale) + "; expected > 0."));
     }
 }
 

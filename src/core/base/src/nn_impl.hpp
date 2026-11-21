@@ -7,6 +7,7 @@
 #include <cmath>
 #include <map>
 #include <mutex>
+#include <string_view>
 #include <typeindex>
 
 #include "anet/nn_head.hpp"
@@ -18,7 +19,9 @@ namespace anet::nn {
     //  WeightInitializer
     // ===========================================================================
 
-
+    /// 登録前の検査と重みへの適用で同じ半幅を求める。owner は診断の接頭辞。空の重みは半幅を持たない。
+    std::optional<double> ComputeVarianceScalingBound(
+        at::IntArrayRef weight_shape, at::ScalarType dtype, double variance_scale, std::string_view owner);
 
 
     // ===========================================================================

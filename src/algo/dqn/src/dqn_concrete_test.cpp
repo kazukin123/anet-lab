@@ -1,4 +1,5 @@
 #include "anet/test/catch.hpp"
+#include <string_view>
 #include "anet/test/nn.hpp"
 #include "anet/test/replay.hpp"
 #include "anet/agent.hpp"
@@ -1189,28 +1190,95 @@ TEST_CASE("Rainbow rejects invalid initialization during config loading", "[dqn]
 
 TEST_CASE("Rainbow records all nested initialization settings", "[dqn][config][prd098][review-fix-rainbow]")
 {
-    // 外部の6件の設定キーと設定記録が、同じhead.init階層へ一致することを確かめる。
+    // 外部の設定キー8件と設定記録が同じhead.init階層に揃うことを確かめる。
     anet::ConfigData data;
     data.Set("RainbowAgent.head.init.mode", "constant");
     data.Set("RainbowAgent.head.init.manual_gain", 1.5);
+    data.Set("RainbowAgent.head.init.nonlinearity", "relu");
     data.Set("RainbowAgent.head.init.constant_val", 0.25);
     data.Set("RainbowAgent.head.init.trunc_std", 0.5);
     data.Set("RainbowAgent.head.init.trunc_a", -2.0);
     data.Set("RainbowAgent.head.init.trunc_b", 2.0);
+    data.Set("RainbowAgent.head.init.variance_scale", 1.5);
     const dqn::RainbowAgentConfig config(data);
     CHECK(config.head.init.mode == "constant");
     CHECK(config.head.init.manual_gain == 1.5);
+    CHECK(config.head.init.nonlinearity == "relu");
     CHECK(config.head.init.constant_val == 0.25);
     CHECK(config.head.init.trunc_std == 0.5);
     CHECK(config.head.init.trunc_a == -2.0);
     CHECK(config.head.init.trunc_b == 2.0);
+    CHECK(config.head.init.variance_scale == 1.5);
     const auto& recorded = config.GetConfigData();
     CHECK(recorded.Get("head.init.mode") == "constant");
     CHECK(recorded.Get<double>("head.init.manual_gain") == 1.5);
+    CHECK(recorded.Get("head.init.nonlinearity") == "relu");
     CHECK(recorded.Get<double>("head.init.constant_val") == 0.25);
     CHECK(recorded.Get<double>("head.init.trunc_std") == 0.5);
     CHECK(recorded.Get<double>("head.init.trunc_a") == -2.0);
     CHECK(recorded.Get<double>("head.init.trunc_b") == 2.0);
+    CHECK(recorded.Get<double>("head.init.variance_scale") == 1.5);
+
+    std::vector<std::string> recorded_keys;
+    for (const auto& [key, value] : recorded.Map()) {
+        if (key.starts_with("head.init.")) {
+            recorded_keys.push_back(key);
+        }
+    }
+    const std::vector<std::string> expected_keys{
+        "head.init.mode", "head.init.manual_gain", "head.init.nonlinearity", "head.init.constant_val",
+        "head.init.trunc_std", "head.init.trunc_a", "head.init.trunc_b", "head.init.variance_scale"};
+    CHECK(recorded_keys == expected_keys);
+}
+
+TEST_CASE("DQN and Rainbow read Head nonlinearity with a linear default", "[dqn][config][prd193]")
+{
+    const bool explicit_relu = GENERATE(false, true);
+    auto dqn_data = WithDefaultForwardConfig();
+    anet::ConfigData rainbow_data;
+    if (explicit_relu) {
+        dqn_data.Set("DefaultDQNAgent.head.init.nonlinearity", "relu");
+        rainbow_data.Set("RainbowAgent.head.init.nonlinearity", "relu");
+    }
+    const std::string expected = explicit_relu ? "relu" : "linear";
+    const dqn::DefaultDQNAgentConfig dqn_config(dqn_data);
+    const dqn::RainbowAgentConfig rainbow_config(rainbow_data);
+    CHECK(dqn_config.head.init.nonlinearity == expected);
+    CHECK(dqn_config.GetConfigData().Get("head.init.nonlinearity") == expected);
+    CHECK(rainbow_config.head.init.nonlinearity == expected);
+    CHECK(rainbow_config.GetConfigData().Get("head.init.nonlinearity") == expected);
+}
+
+TEST_CASE("Skip Head inherits variance scaling and can override its scale", "[dqn][config][prd193]")
+{
+    const bool override_scale = GENERATE(false, true);
+    auto data = WithDefaultForwardConfig();
+    data.Set("DefaultDQNAgent.head.init.mode", "variance_scaling");
+    data.Set("DefaultDQNAgent.head.init.nonlinearity", "tanh");
+    data.Set("DefaultDQNAgent.head.init.variance_scale", 0.5);
+    if (override_scale) {
+        data.Set("DefaultDQNAgent.skip.head.init.variance_scale", 2.0);
+    }
+    const dqn::DefaultDQNAgentConfig config(data);
+    CHECK(config.head.init.variance_scale == 0.5);
+    CHECK(config.skip.head.init.mode == "variance_scaling");
+    CHECK(config.skip.head.init.nonlinearity == "tanh");
+    CHECK(config.skip.head.init.variance_scale == (override_scale ? 2.0 : 0.5));
+}
+
+TEST_CASE("DQN and Rainbow reject a zero Head variance scale with full config keys", "[dqn][config][prd193]")
+{
+    const std::string key = GENERATE(
+        "DefaultDQNAgent.head.init.variance_scale", "DefaultDQNAgent.skip.head.init.variance_scale",
+        "DefaultDQNAgent.intrinsic.value.head.init.variance_scale", "RainbowAgent.head.init.variance_scale");
+    auto data = WithDefaultForwardConfig();
+    data.Set(key, 0.0);
+    const auto error = Catch::Matchers::ContainsSubstring("Invalid " + key + "=0; expected > 0.");
+    if (key.starts_with("RainbowAgent.")) {
+        CHECK_THROWS_WITH(dqn::RainbowAgentConfig(data), error);
+    } else {
+        CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), error);
+    }
 }
 
 TEST_CASE("Disabled skip uses common projection validation", "[dqn][config][prd098][review-fix-projection]")
@@ -1317,7 +1385,8 @@ TEST_CASE("Skip recognized settings reject invalid values even when disabled", "
     for (const auto& [key, value] : std::vector<std::pair<std::string, std::string>>{
         {"skip.max_length", "0"}, {"skip.head.use_dueling", "average"}, {"learner.skip.feature_gradient", "other"},
         {"learner.skip.loss_weight", "-1"}, {"learner.skip.priority_lambda", "nan"},
-        {"skip.head.projection.noisy.sigma0", "-0.5"}, {"skip.head.init.trunc_std", "0"}}) {
+        {"skip.head.projection.noisy.sigma0", "-0.5"}, {"skip.head.init.trunc_std", "0"},
+        {"skip.head.init.variance_scale", "0"}, {"skip.head.init.nonlinearity", "selu"}}) {
         auto data = WithDefaultForwardConfig();
         data.Set("DefaultDQNAgent." + key, value);
         CAPTURE(key, value);
@@ -2057,6 +2126,7 @@ TEST_CASE("Decomposition config rejects invalid explicit values even when inacti
         {"learner.intrinsic.extrinsic_bootstrap_mode", kPrd121Invalid}, {"learner.intrinsic.feature_gradient", "stop"},
         {"intrinsic.value.head.input_mode", kPrd121Invalid}, {"intrinsic.value.head.use_dueling", kPrd121Invalid},
         {"intrinsic.value.head.init.mode", kPrd121Invalid}, {"intrinsic.value.head.init.manual_gain", kPrd121Nan},
+        {"intrinsic.value.head.init.variance_scale", "0"}, {"intrinsic.value.head.init.nonlinearity", "selu"},
         {"intrinsic.value.head.projection.noisy.enabled", kPrd121Invalid}, {"intrinsic.value.head.projection.noisy.sigma0", "-1"},
         {"actor.[train].intrinsic.action_beta_mode", kPrd121Invalid}, {"actor.[train].intrinsic.action_beta", "-1"},
         {"actor.[train].intrinsic.action_beta", kPrd121Inf}, {"reward_scaler.dynamic_mode", kPrd121Invalid},
@@ -2080,13 +2150,15 @@ TEST_CASE("Decomposition config rejects invalid explicit values even when inacti
 TEST_CASE("Decomposition mode errors precede numeric errors in other components", "[prd121][dqn][config][prd121-review-config]")
 {
     const auto numeric_key = GENERATE("learner.intrinsic.loss_weight", "learner.intrinsic.gamma", "actor.[a].intrinsic.action_beta");
-    const auto mode_key = GENERATE("actor.[z].intrinsic.action_beta_mode", "intrinsic.value.head.init.mode");
+    const auto mode_key = GENERATE(
+        "actor.[z].intrinsic.action_beta_mode", "intrinsic.value.head.init.mode", "intrinsic.value.head.init.nonlinearity");
     anet::ConfigData base;
     base.Set("DefaultDQNAgent.actor.[a].network", kPrd121OnlineNetworkMode);
     base.Set("DefaultDQNAgent.actor.[z].network", kPrd121OnlineNetworkMode);
     auto data = WithDefaultForwardConfig(base);
     data.Set("DefaultDQNAgent." + std::string(numeric_key), -1);
-    data.Set("DefaultDQNAgent." + std::string(mode_key), kPrd121Invalid);
+    data.Set("DefaultDQNAgent." + std::string(mode_key),
+        std::string_view(mode_key).ends_with(".nonlinearity") ? "selu" : kPrd121Invalid);
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
         Catch::Matchers::ContainsSubstring(mode_key) && Catch::Matchers::ContainsSubstring("expected"));
 }
@@ -2164,6 +2236,26 @@ TEST_CASE("Unused decomposition settings warn only for explicit nondefaults", "[
     });
     CAPTURE(scenario, key);
     CHECK(count == (scenario == 0 ? 0 : 1));
+}
+
+TEST_CASE("Inactive value decomposition warns once for explicit nondefault Head initialization settings", "[dqn][config][prd193]")
+{
+    const bool use_defaults = GENERATE(false, true);
+    auto data = WithDefaultForwardConfig();
+    const std::string prefix = "DefaultDQNAgent.intrinsic.value.head.init.";
+    data.Set(prefix + "nonlinearity", use_defaults ? "linear" : "relu");
+    data.Set(prefix + "variance_scale", use_defaults ? 1.0 : 2.0);
+    anet::test::LogCaptureGuard logs;
+    const dqn::DefaultDQNAgentConfig config(data);
+    logs.Flush();
+    for (const auto* field : {"nonlinearity", "variance_scale"}) {
+        const auto count = std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
+            return record.level == wxLOG_Warning
+                && record.message.find("Ignored " + prefix + field + "=") != std::string::npos;
+        });
+        CAPTURE(use_defaults, field);
+        CHECK(count == (use_defaults ? 0 : 1));
+    }
 }
 
 TEST_CASE("Combined Actor leaves inactive fixed beta unset", "[prd121][dqn][config]")

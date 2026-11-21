@@ -523,7 +523,7 @@ sequenceDiagram
 
 `Sync()`はstepを受け取らないため、強制同期後に最初に呼ばれたactionの`train_step`をage 0の基準にする。shared Actorと`sync_interval.*`未宣言のActorは定期snapshotを持たない。
 
-DefaultDQNのprimary Headはboolの `head.use_dueling` で選び、既定trueはV + A − mean(A)である。初期化は `head.init.*`、射影は `head.projection.*` をAgentが読み取る。設定DTOも `head.init`・`head.projection`・`head.use_dueling` と同じ階層に揃え、固定キーの読み込みは `ANET_READ_CONFIG` を使う。skip側も `skip.head.*` に揃える。
+DefaultDQNのprimary Headはboolの `head.use_dueling` で選び、既定trueはV + A − mean(A)である。Agentは初期化の `head.init.*` を `ConfigReader<WeightInitConfig>` で読み、`nonlinearity` を `linear` として既定にする。射影は `head.projection.*` を読む。設定DTOも `head.init`・`head.projection`・`head.use_dueling` と同じ階層に揃える。skip側は `skip.head.*` を使い、初期化の8項目は省略するとprimaryから継承する。
 
 ### 6.5 DefaultDQNのskip方策
 
@@ -653,7 +653,7 @@ skip 無効の checkpoint は従来の header と2 Network・optimizer の形式
 
 `RainbowAgent`は現行コードで独自の`Save()` / `Load()`をoverrideせず、基底Agentのno-opを使う。DefaultDQNと同じcheckpoint対応があると仮定しない。
 
-Rainbowの初期化設定も `head.init.*` の6 件を入れ子DTOと `ANET_READ_CONFIG` で読み、設定記録のキーをメンバのパスと一致させる。構築前に `ValidateWeightInitConfig` で検証する。RainbowのDueling設定は従来の `use_dueling_net` を使う。
+Rainbowは `head.init.*` の8項目を `ConfigReader<WeightInitConfig>` で読み、構築前に検証する。`nonlinearity` の既定は `linear` で、設定記録のキーは入れ子DTOのメンバのパスと一致する。RainbowのDueling設定は `use_dueling_net` を使う。
 
 ActorからReplayへ渡す判断のinfo鍵は `BatchActionInfo::kKeyDecision` で共有する。skip出力・行動入力・補助情報・GetScalarの鍵と分布modeはDQN側の所有型、optimizer role・Torch archive鍵・GraphViz tagは利用するcpp内の定数が持つ。書込・読込・比較・表示・診断で同じ定義を参照し、外部の文字列値と保存順は変えない。
 

@@ -732,24 +732,54 @@ static void AddHeadGraphVizInfo(anet::graphviz::LabelData& label, const HeadGrap
     }
 }
 
-void anet::nn::ValidateWeightInitConfigMode(const WeightInitConfig& config, const std::string& owner)
+void anet::ConfigReader<anet::nn::WeightInitConfig>::Read(
+    Config& owner, const ConfigData& data, const std::string& key, nn::WeightInitConfig& value)
+{
+    // 既定値と指定値を解決してから、利用側の設定キーの接頭辞で検証する。
+    ReadFields(owner, data, key, value);
+    nn::ValidateWeightInitConfig(value, owner.MakeDefaultConfigKey(key));
+}
+
+void anet::ConfigReader<anet::nn::WeightInitConfig>::ReadFields(
+    Config& owner, const ConfigData& data, const std::string& key, nn::WeightInitConfig& value)
+{
+    // 既存キーの設定記録順を保ち、新しい倍率を最後に記録する。
+    owner.ReadSubConfig(data, key, "mode", value.mode);
+    owner.ReadSubConfig(data, key, "manual_gain", value.manual_gain);
+    owner.ReadSubConfig(data, key, "nonlinearity", value.nonlinearity);
+    owner.ReadSubConfig(data, key, "constant_val", value.constant_val);
+    owner.ReadSubConfig(data, key, "trunc_std", value.trunc_std);
+    owner.ReadSubConfig(data, key, "trunc_a", value.trunc_a);
+    owner.ReadSubConfig(data, key, "trunc_b", value.trunc_b);
+    owner.ReadSubConfig(data, key, "variance_scale", value.variance_scale);
+}
+
+void anet::nn::ValidateWeightInitConfigChoices(const WeightInitConfig& config, const std::string& owner)
 {
     // 方式の契約は利用側によらず共通とし、設定元のキーで診断する。
     if (config.mode != "default" && config.mode != "xavier" && config.mode != "he"
-        && config.mode != "orthogonal" && config.mode != "constant" && config.mode != "trunc_normal") {
+        && config.mode != "orthogonal" && config.mode != "constant" && config.mode != "trunc_normal"
+        && config.mode != WeightInitConfig::kVarianceScalingMode) {
         ANET_SYSTEM_ERROR("Invalid " << owner << ".mode='" << config.mode
-            << "'; expected default, xavier, he, orthogonal, constant or trunc_normal.");
+            << "'; expected default, xavier, he, orthogonal, constant, trunc_normal or "
+            << WeightInitConfig::kVarianceScalingMode << ".");
     }
-
+    // gain を使わない方式でも、指定した活性化名が現行の列挙に含まれることを確かめる。
+    if (config.nonlinearity != "relu" && config.nonlinearity != "linear" && config.nonlinearity != "tanh"
+        && config.nonlinearity != "leaky_relu") {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".nonlinearity='" << config.nonlinearity
+            << "'; expected relu, linear, tanh or leaky_relu.");
+    }
 }
 
 void anet::nn::ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner)
 {
-    ValidateWeightInitConfigMode(config, owner);
+    ValidateWeightInitConfigChoices(config, owner);
     // 直接組み立てたDTOも検証し、不正値を重みへ適用する前に止める。
     for (const auto& [key, value] : std::initializer_list<std::pair<const char*, double>>{
         {"manual_gain", config.manual_gain}, {"constant_val", config.constant_val},
-        {"trunc_std", config.trunc_std}, {"trunc_a", config.trunc_a}, {"trunc_b", config.trunc_b}}) {
+        {"trunc_std", config.trunc_std}, {"trunc_a", config.trunc_a}, {"trunc_b", config.trunc_b},
+        {"variance_scale", config.variance_scale}}) {
         if (!std::isfinite(value)) {
             ANET_SYSTEM_ERROR("Invalid " << owner << "." << key << "=" << value << "; expected finite value.");
         }
@@ -760,6 +790,9 @@ void anet::nn::ValidateWeightInitConfig(const WeightInitConfig& config, const st
     if (config.trunc_a >= config.trunc_b) {
         ANET_SYSTEM_ERROR("Invalid " << owner << ".trunc_a=" << config.trunc_a
             << " " << owner << ".trunc_b=" << config.trunc_b << "; expected trunc_a < trunc_b.");
+    }
+    if (config.variance_scale <= 0.0) {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".variance_scale=" << config.variance_scale << "; expected > 0.");
     }
 }
 

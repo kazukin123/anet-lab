@@ -562,13 +562,7 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
     ANET_READ_CONFIG(data, weight_decay);
     ANET_READ_CONFIG(data, adam_eps);
     ANET_READ_CONFIG(data, head.output_dim);
-    ANET_READ_CONFIG(data, head.init.mode);
-    ANET_READ_CONFIG(data, head.init.manual_gain);
-    ANET_READ_CONFIG(data, head.init.nonlinearity);
-    ANET_READ_CONFIG(data, head.init.constant_val);
-    ANET_READ_CONFIG(data, head.init.trunc_std);
-    ANET_READ_CONFIG(data, head.init.trunc_a);
-    ANET_READ_CONFIG(data, head.init.trunc_b);
+    anet::ConfigReader<anet::nn::WeightInitConfig>::ReadFields(*this, data, "head.init", head.init);
     // RND は平均を引いた白色化を使い、Q 入力用の既定とは分離する。
     obs_norm.use_centering = true;
     obs_norm.use_robust_update = false;

@@ -725,6 +725,7 @@ TEST_CASE("RND rejects invalid configuration before building networks", "[prd116
         {"adam_eps", "0"}, {"adam_eps", "-1"}, {"adam_eps", "nan"}, {"adam_eps", "inf"},
         {"multiplier_mode", kInvalidConfigValue}, {"statistics_mode", kInvalidConfigValue},
         {"head.init.mode", kInvalidConfigValue}, {"head.init.manual_gain", "nan"},
+        {"head.init.nonlinearity", "selu"}, {"head.init.variance_scale", "0"},
         {"obs_norm.clip_range", "0"}, {"obs_norm.epsilon", "-1"},
         {"obs_norm.post_process_type", "99"}}));
     auto data = RndTestConfig();
@@ -733,6 +734,14 @@ TEST_CASE("RND rejects invalid configuration before building networks", "[prd116
     CHECK_THROWS_WITH(anet::rl::intrinsic::RndNoveltyEstimatorConfig(data, "rnd"),
         Catch::Matchers::ContainsSubstring("rnd." + invalid.first)
         && Catch::Matchers::ContainsSubstring("expected"));
+}
+
+TEST_CASE("RND Head retains the default initialization settings", "[intrinsic][config][prd193]")
+{
+    const anet::rl::intrinsic::RndNoveltyEstimatorConfig config(RndTestConfig(), "rnd");
+    CHECK(config.head.init.mode == "xavier");
+    CHECK(config.head.init.nonlinearity == "relu");
+    CHECK(config.head.init.variance_scale == 1.0);
 }
 
 TEST_CASE("RND feedback preserves category IDs at the network boundary", "[prd116][rnd_reference_category]")

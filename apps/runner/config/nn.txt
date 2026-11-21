@@ -20,6 +20,9 @@
 #init.trunc_a ?= -2.0
 #init.trunc_b ?= 2.0
 
+#init.mode ?= variance_scaling # fan_inの一様分布で重みを初期化し、biasは0にする
+#init.variance_scale ?= 1.0 # 分散の倍率。DopamineのRainbow・IQNに合わせるなら0.5773502691896258
+
 
 
 # ------------------------------------------------------------------------------
@@ -284,7 +287,7 @@ net.body.@MLP3.structure ?= Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC3 
 # Conv1D
 # ------------------------------------------------------------------------------
 
-## init.mode default xavier he orthogonal constant trunc_normal（各 mode の引数はファイル先頭の例）
+## init.mode default xavier he orthogonal constant trunc_normal variance_scaling（各 mode の引数はファイル先頭の例）
 # 浅いネットワークでは xavier のほうが良好な結果が出る
 
 net.block.[Conv1D_Permute].type ?= Permute

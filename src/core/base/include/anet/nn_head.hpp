@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <memory>
 #include <optional>
 #include <string>
@@ -61,6 +62,8 @@ namespace anet::nn {
                 torch::nn::init::constant_(weight, config.constant_val);
             } else if (config.mode == "trunc_normal") {
                 TruncNormal_(weight, config);
+            } else if (config.mode == WeightInitConfig::kVarianceScalingMode) {
+                InitializeVarianceScaling(weight, config.variance_scale);
             }
 
             // バイアスはゼロ初期化
@@ -77,6 +80,8 @@ namespace anet::nn {
         }
 
     private:
+        static void InitializeVarianceScaling(torch::Tensor& weight, double variance_scale);
+
         static double NormalCdf(double x)
         {
             return (1.0 + std::erf(x / std::sqrt(2.0))) / 2.0;

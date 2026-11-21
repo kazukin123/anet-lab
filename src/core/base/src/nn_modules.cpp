@@ -15,6 +15,23 @@
 using namespace anet::nn;
 namespace LOG = anet::log;
 
+static void ValidateWeightInitialization(const WeightInitConfig& config, std::string_view owner, at::ScalarType dtype,
+    at::IntArrayRef weight_shape, std::exception_ptr& failure)
+{
+    // 初回 forward での検査に失敗した block は、後続でも同じ例外を返す。
+    if (failure) std::rethrow_exception(failure);
+    if (config.mode != WeightInitConfig::kVarianceScalingMode) return;
+
+    // どの層も登録されていない時点で、実際の重みと同じ条件を検査する。
+    // 診断には、どの層の指定かが分かるよう block 内の接頭辞を渡す。
+    try {
+        (void)ComputeVarianceScalingBound(weight_shape, dtype, config.variance_scale, owner);
+    } catch (...) {
+        failure = std::current_exception();
+        throw;
+    }
+}
+
 static void ValidateDropRate(const std::string& key, double value)
 {
     if (value < 0.0 || value >= 1.0) {
@@ -155,7 +172,10 @@ torch::nn::init::NonlinearityType anet::nn::GetNonlinearityType(const std::strin
     if (name == "linear") return torch::kLinear;
     if (name == "tanh") return torch::kTanh;
     if (name == "leaky_relu") return torch::kLeakyReLU;
-    return torch::kReLU;
+    ANET_SYSTEM_ERROR("Invalid " << WeightInitConfig::kDefaultOwner << ".nonlinearity='" << name
+        << "'; expected relu, linear, tanh or leaky_relu.");
+    // ThrowErrorは必ず送出するが、宣言にnoreturnが無い。
+    std::terminate();
 }
 
 torch::Tensor anet::nn::DropPath(const torch::Tensor& x, double drop_prob, bool training)
@@ -547,6 +567,8 @@ public:
             // 入力次元数
             const int64_t in_features = x.size(-1);
             ANET_LOG_DEBUG("in_features=" << in_features);
+            ValidateWeightInitialization(init_config_, "init", x.scalar_type(),
+                {out_features_, in_features}, weight_init_failure_);
 
             // モジュール生成と登録
             torch::nn::LinearOptions opts(in_features, out_features_);
@@ -637,6 +659,7 @@ private:
     };
 
     WeightInitConfig init_config_;
+    std::exception_ptr weight_init_failure_;
     std::shared_ptr<LinearProjectionModule> projection_;
     SpectralNormState spectral_norm_state_;
     torch::nn::Linear linear{ nullptr };
@@ -670,6 +693,8 @@ public:
             // x: (Batch, Channel, H, W) -> in_channels is dim 1
             const int64_t in_channels = x.size(1);
             ANET_LOG_DEBUG("in_channels=" << in_channels);
+            ValidateWeightInitialization(init_config_, "init", x.scalar_type(),
+                {out_channels_, in_channels, kernel_size_}, weight_init_failure_);
 
             // モジュール生成と登録
             torch::nn::Conv1dOptions opts(in_channels, out_channels_, kernel_size_);
@@ -722,6 +747,7 @@ public:
     }
 private:
     WeightInitConfig init_config_;
+    std::exception_ptr weight_init_failure_;
     SpectralNormState spectral_norm_state_;
     torch::nn::Conv1d conv{ nullptr };
     int64_t out_channels_;
@@ -755,6 +781,8 @@ public:
 
             // x: (Batch, Channel, Length) -> in_channels is dim 1
             const int64_t in_channels = x.size(1);
+            ValidateWeightInitialization(init_config_, "init", x.scalar_type(),
+                {out_channels_, in_channels, kernel_size_, kernel_size_}, weight_init_failure_);
 
             // モジュール生成と登録
             torch::nn::Conv2dOptions opts(in_channels, out_channels_, kernel_size_);
@@ -800,6 +828,7 @@ public:
     }
 private:
     WeightInitConfig init_config_;
+    std::exception_ptr weight_init_failure_;
     SpectralNormState spectral_norm_state_;
     torch::nn::Conv2d conv_{ nullptr };
     int64_t out_channels_;
@@ -1437,6 +1466,17 @@ private:
             int64_t in_channels = input.size(1);
             int padding = config_.padding < 0 ? (config_.dilation * (config_.kernel_size - 1) / 2) : config_.padding;
 
+            // shortcut まで検査してから層を登録し、後続の層の失敗で前の層を残さない。
+            const bool needs_downsample = config_.stride > 1 || in_channels != config_.channels;
+            ValidateWeightInitialization(init1_config_, "init1", dtype,
+                {config_.channels, in_channels, config_.kernel_size, config_.kernel_size}, weight_init_failure_);
+            ValidateWeightInitialization(init2_config_, "init2", dtype,
+                {config_.channels, config_.channels, config_.kernel_size, config_.kernel_size}, weight_init_failure_);
+            if (needs_downsample) {
+                ValidateWeightInitialization(init_ds_config_, "init_ds", dtype,
+                    {config_.channels, in_channels, 1, 1}, weight_init_failure_);
+            }
+
             // ------------------------------------------------
             // Main Path (Conv1)
             // ------------------------------------------------
@@ -1476,7 +1516,7 @@ private:
             // ------------------------------------------------
             // Shortcut Path
             // ------------------------------------------------
-            if (config_.stride > 1 || in_channels != config_.channels) {
+            if (needs_downsample) {
                 torch::nn::Conv2dOptions ds_opts(in_channels, config_.channels, 1);
                 ds_opts.stride(config_.stride);
                 ds_opts.padding(0);
@@ -1625,6 +1665,7 @@ private:
     WeightInitConfig init1_config_;
     WeightInitConfig init2_config_;
     WeightInitConfig init_ds_config_;
+    std::exception_ptr weight_init_failure_;
     SpectralNormState spectral_norm_conv1_;
     SpectralNormState spectral_norm_conv2_;
     SpectralNormState spectral_norm_downsample_;
@@ -1675,29 +1716,11 @@ private:
             ANET_READ_CONFIG(config_data, res.droppath_rate);
             ANET_READ_CONFIG(config_data, res.dropout_rate);
 
-            ANET_READ_CONFIG(config_data, init1.mode);
-            ANET_READ_CONFIG(config_data, init1.manual_gain);
-            ANET_READ_CONFIG(config_data, init1.nonlinearity);
-            ANET_READ_CONFIG(config_data, init1.constant_val);
-            ANET_READ_CONFIG(config_data, init1.trunc_std);
-            ANET_READ_CONFIG(config_data, init1.trunc_a);
-            ANET_READ_CONFIG(config_data, init1.trunc_b);
+            ANET_READ_CONFIG(config_data, init1);
 
-            ANET_READ_CONFIG(config_data, init2.mode);
-            ANET_READ_CONFIG(config_data, init2.manual_gain);
-            ANET_READ_CONFIG(config_data, init2.nonlinearity);
-            ANET_READ_CONFIG(config_data, init2.constant_val);
-            ANET_READ_CONFIG(config_data, init2.trunc_std);
-            ANET_READ_CONFIG(config_data, init2.trunc_a);
-            ANET_READ_CONFIG(config_data, init2.trunc_b);
+            ANET_READ_CONFIG(config_data, init2);
 
-            ANET_READ_CONFIG(config_data, init_ds.mode);
-            ANET_READ_CONFIG(config_data, init_ds.manual_gain);
-            ANET_READ_CONFIG(config_data, init_ds.nonlinearity);
-            ANET_READ_CONFIG(config_data, init_ds.constant_val);
-            ANET_READ_CONFIG(config_data, init_ds.trunc_std);
-            ANET_READ_CONFIG(config_data, init_ds.trunc_a);
-            ANET_READ_CONFIG(config_data, init_ds.trunc_b);
+            ANET_READ_CONFIG(config_data, init_ds);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
@@ -1788,6 +1811,16 @@ private:
             }
 
             const int padding = config_.kernel_size / 2;
+            const int64_t hidden_channels = static_cast<int64_t>(config_.channels) * config_.ffn_expand_ratio;
+
+            // depthwise の重みはグループごとの入力 1 チャネルで、pointwise は全チャネルを使う。
+            ValidateWeightInitialization(init_dw_, "init_dw", dtype,
+                {config_.channels, 1, config_.kernel_size, config_.kernel_size}, weight_init_failure_);
+            ValidateWeightInitialization(init_pw1_, "init_pw1", dtype,
+                {hidden_channels, config_.channels, 1, 1}, weight_init_failure_);
+            ValidateWeightInitialization(init_pw2_, "init_pw2", dtype,
+                {config_.channels, hidden_channels, 1, 1}, weight_init_failure_);
+
             torch::nn::Conv2dOptions dw_opts(config_.channels, config_.channels, config_.kernel_size);
             dw_opts.stride(1);
             dw_opts.padding(padding);
@@ -1808,7 +1841,6 @@ private:
                     << "' expected one of: layernorm2d, none");
             }
 
-            const int64_t hidden_channels = static_cast<int64_t>(config_.channels) * config_.ffn_expand_ratio;
             pwconv1_ = register_module("pwconv1",
                 torch::nn::Conv2d(torch::nn::Conv2dOptions(config_.channels, hidden_channels, 1).bias(true)));
             pwconv1_->to(device, dtype);
@@ -1887,6 +1919,7 @@ private:
     WeightInitConfig init_dw_;
     WeightInitConfig init_pw1_;
     WeightInitConfig init_pw2_;
+    std::exception_ptr weight_init_failure_;
     SpectralNormState spectral_norm_dw_;
     SpectralNormState spectral_norm_pw1_;
     SpectralNormState spectral_norm_pw2_;
@@ -1923,29 +1956,11 @@ private:
             ANET_READ_CONFIG(config_data, cn.norm_type);
             ANET_READ_CONFIG(config_data, cn.norm_force_fp32);
 
-            ANET_READ_CONFIG(config_data, init_dw.mode);
-            ANET_READ_CONFIG(config_data, init_dw.manual_gain);
-            ANET_READ_CONFIG(config_data, init_dw.nonlinearity);
-            ANET_READ_CONFIG(config_data, init_dw.constant_val);
-            ANET_READ_CONFIG(config_data, init_dw.trunc_std);
-            ANET_READ_CONFIG(config_data, init_dw.trunc_a);
-            ANET_READ_CONFIG(config_data, init_dw.trunc_b);
+            ANET_READ_CONFIG(config_data, init_dw);
 
-            ANET_READ_CONFIG(config_data, init_pw1.mode);
-            ANET_READ_CONFIG(config_data, init_pw1.manual_gain);
-            ANET_READ_CONFIG(config_data, init_pw1.nonlinearity);
-            ANET_READ_CONFIG(config_data, init_pw1.constant_val);
-            ANET_READ_CONFIG(config_data, init_pw1.trunc_std);
-            ANET_READ_CONFIG(config_data, init_pw1.trunc_a);
-            ANET_READ_CONFIG(config_data, init_pw1.trunc_b);
+            ANET_READ_CONFIG(config_data, init_pw1);
 
-            ANET_READ_CONFIG(config_data, init_pw2.mode);
-            ANET_READ_CONFIG(config_data, init_pw2.manual_gain);
-            ANET_READ_CONFIG(config_data, init_pw2.nonlinearity);
-            ANET_READ_CONFIG(config_data, init_pw2.constant_val);
-            ANET_READ_CONFIG(config_data, init_pw2.trunc_std);
-            ANET_READ_CONFIG(config_data, init_pw2.trunc_a);
-            ANET_READ_CONFIG(config_data, init_pw2.trunc_b);
+            ANET_READ_CONFIG(config_data, init_pw2);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
@@ -3033,13 +3048,7 @@ private:
         {
             ANET_READ_CONFIG(config_data, linear.out_features);
             ANET_READ_CONFIG(config_data, linear.bias);
-            ANET_READ_CONFIG(config_data, init.mode);
-            ANET_READ_CONFIG(config_data, init.manual_gain);
-            ANET_READ_CONFIG(config_data, init.nonlinearity);
-            ANET_READ_CONFIG(config_data, init.constant_val);
-            ANET_READ_CONFIG(config_data, init.trunc_std);
-            ANET_READ_CONFIG(config_data, init.trunc_a);
-            ANET_READ_CONFIG(config_data, init.trunc_b);
+            ANET_READ_CONFIG(config_data, init);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
@@ -3070,13 +3079,7 @@ private:
             ANET_READ_CONFIG(config_data, conv.stride);
             ANET_READ_CONFIG(config_data, conv.padding);
             ANET_READ_CONFIG(config_data, conv.dilation);
-            ANET_READ_CONFIG(config_data, init.mode);
-            ANET_READ_CONFIG(config_data, init.manual_gain);
-            ANET_READ_CONFIG(config_data, init.nonlinearity);
-            ANET_READ_CONFIG(config_data, init.constant_val);
-            ANET_READ_CONFIG(config_data, init.trunc_std);
-            ANET_READ_CONFIG(config_data, init.trunc_a);
-            ANET_READ_CONFIG(config_data, init.trunc_b);
+            ANET_READ_CONFIG(config_data, init);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };
@@ -3107,13 +3110,7 @@ private:
             ANET_READ_CONFIG(config_data, conv.stride);
             ANET_READ_CONFIG(config_data, conv.padding);
             ANET_READ_CONFIG(config_data, conv.dilation);
-            ANET_READ_CONFIG(config_data, init.mode);
-            ANET_READ_CONFIG(config_data, init.manual_gain);
-            ANET_READ_CONFIG(config_data, init.nonlinearity);
-            ANET_READ_CONFIG(config_data, init.constant_val);
-            ANET_READ_CONFIG(config_data, init.trunc_std);
-            ANET_READ_CONFIG(config_data, init.trunc_a);
-            ANET_READ_CONFIG(config_data, init.trunc_b);
+            ANET_READ_CONFIG(config_data, init);
             ANET_READ_CONFIG(config_data, weight_norm.mode);
         }
     };

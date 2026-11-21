@@ -1,11 +1,65 @@
 // nn_head.cpp
 
 #include "anet/nn_head.hpp"
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include <utility>
+#include <ATen/Dispatch.h>
 #include "anet/profile.hpp"
+#include "nn_impl.hpp"
 
 
 namespace anet::nn {
+
+std::optional<double> ComputeVarianceScalingBound(
+    at::IntArrayRef weight_shape, at::ScalarType dtype, double variance_scale, std::string_view owner)
+{
+    // fan_in を定義でき、uniform_ が扱える重みであることを確かめる。
+    if (weight_shape.size() < 2) {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".variance_scale=" << variance_scale
+            << "; expected weight rank >= 2 (output and input axes), actual rank=" << weight_shape.size() << ".");
+    }
+    if (dtype != at::kHalf && dtype != at::kBFloat16 && dtype != at::kFloat && dtype != at::kDouble) {
+        ANET_SYSTEM_ERROR("Invalid " << owner << ".variance_scale=" << variance_scale
+            << "; expected real floating-point weight dtype Half, BFloat16, Float or Double, actual dtype=" << dtype << ".");
+    }
+    if (std::find(weight_shape.begin(), weight_shape.end(), 0) != weight_shape.end()) return std::nullopt;
+
+    // Convのweightの入力軸にはグループ当たりのチャネル数が入る。
+    double fan_in = 1.0;
+    for (const auto size : weight_shape.slice(1)) {
+        fan_in *= static_cast<double>(size);
+    }
+    const double bound = std::sqrt(variance_scale) * std::sqrt(3.0 / fan_in);
+    return AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::kHalf, at::kBFloat16, dtype, WeightInitConfig::kVarianceScalingMode, [&] {
+            using Limits = std::numeric_limits<scalar_t>;
+            const double min_bound = static_cast<double>(Limits::denorm_min());
+            // uniform_は両端の差も要素型の最大値以下でなければならない。
+            const double max_bound = static_cast<double>(Limits::max()) / 2.0;
+            if (!(bound >= min_bound && bound <= max_bound)) {
+                ANET_SYSTEM_ERROR("Invalid " << owner << ".variance_scale=" << variance_scale
+                    << "; expected uniform bound in [" << min_bound << ", " << max_bound
+                    << "] for weight dtype=" << dtype << " and fan_in=" << fan_in << ", actual bound=" << bound << ".");
+            }
+
+            // uniform_ の端点が要素型への変換で外側へ丸められないようにする。
+            // 非正規化数の区間では、最小の正規化数と同じ刻み幅を使う。
+            const int exponent = std::max(std::ilogb(bound), Limits::min_exponent - 1);
+            const double step = std::ldexp(1.0, exponent - (Limits::digits - 1));
+            return std::floor(bound / step) * step;
+        });
+}
+
+void WeightInitializer::InitializeVarianceScaling(torch::Tensor& weight, double variance_scale)
+{
+    // 要素型で表せる内側の端点を確定してから重みを書き込む。
+    if (const auto bound = ComputeVarianceScalingBound(
+        weight.sizes(), weight.scalar_type(), variance_scale, WeightInitConfig::kDefaultOwner)) {
+        torch::nn::init::uniform_(weight, -*bound, *bound);
+    }
+}
 
 // ===========================================================================
 // PassThroughHead

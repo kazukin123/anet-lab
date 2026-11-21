@@ -62,17 +62,20 @@ namespace anet::nn {
     /// 構築時にweightとbiasへ適用する初期化方式とその引数。
     struct WeightInitConfig {
         static constexpr char kDefaultOwner[] = "WeightInitConfig"; ///< 設定元を指定しない場合の診断名。
-        std::string mode = "xavier"; ///< default、xavier、he、orthogonal、constant、trunc_normal。
+        static constexpr char kVarianceScalingMode[] = "variance_scaling";
+
+        std::string mode = "xavier"; ///< default、xavier、he、orthogonal、constant、trunc_normal、variance_scaling。
         double manual_gain = 0.0f; ///< orthogonalの手動gain。正値なら使用し、それ以外はnonlinearityから求める。
         std::string nonlinearity = "relu"; ///< heとorthogonalのgain計算に使う活性化名。
         double constant_val = 0.0; ///< constantでweightとbiasへ設定する値。
         double trunc_std = 0.02; ///< trunc_normalの標準偏差。
         double trunc_a = -2.0; ///< trunc_normalの切断区間の下限。
         double trunc_b = 2.0; ///< trunc_normalの切断区間の上限。
+        double variance_scale = 1.0; ///< variance_scalingの分散に掛ける倍率。分散はこの値をfan_inで割る。
     };
 
-    /// 初期化方式の列挙を検証する。関連する数値より先に列挙を検査する構築処理でも使う。
-    void ValidateWeightInitConfigMode(const WeightInitConfig& config, const std::string& owner = WeightInitConfig::kDefaultOwner);
+    /// 初期化方式と活性化名の列挙を検証する。関連する数値より先に列挙を検査する構築処理でも使う。
+    void ValidateWeightInitConfigChoices(const WeightInitConfig& config, const std::string& owner = WeightInitConfig::kDefaultOwner);
 
     /// 初期化設定の共通条件を検証する。ownerは診断に用いる設定キーの接頭辞。
     void ValidateWeightInitConfig(const WeightInitConfig& config, const std::string& owner = WeightInitConfig::kDefaultOwner);
@@ -402,3 +405,15 @@ namespace anet::nn {
     };
 
 } // namespace anet::nn
+
+namespace anet {
+    template<> struct ConfigReader<nn::WeightInitConfig> {
+    public:
+        static constexpr bool kEnabled = true;
+    public:
+        /// 初期化の設定を読み、読み手の設定キーを使って検証する。
+        static void Read(Config& owner, const ConfigData& data, const std::string& key, nn::WeightInitConfig& value);
+        /// 読み手が他の設定と決められた順で検証できるよう、初期化の設定の読み取りだけを行う。
+        static void ReadFields(Config& owner, const ConfigData& data, const std::string& key, nn::WeightInitConfig& value);
+    };
+}
