@@ -1,24 +1,26 @@
 @echo off
-cd /d "%~dp0runner"
+title %~nx0
+setlocal
+call "%~dp0tools\resolve_workspace.bat" "%~1"
+if errorlevel 1 exit /b 1
 
 set "run="
-for /f "delims=" %%A in ('dir runs /b /o:-n') do (
+for /f "delims=" %%A in ('dir "%RUNS_DIR%" /b /o:-n /ad 2^>nul') do (
     echo RUN: %%A
-    call:each_run "%%A"
+    call:each_run "%RUNS_DIR%\%%A"
     echo ==========
 )
 pause
 exit /b
 
 :each_run
-cd runs
-cd "%*"
+pushd "%~1" || exit /b 1
 mkdir videos-mp4
 for /f "delims=" %%A in ('dir videos /b /o:n') do (
     REM echo   FILE: %%A
     call:to_mp4 %%A
 )
-cd ..\..
+popd
 exit /b
 
 

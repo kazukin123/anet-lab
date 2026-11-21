@@ -1,20 +1,21 @@
 @echo off
+title %~nx0
 setlocal
 
-rem === batãƒ•ã‚¡ã‚¤ãƒ«ã®å ´æ‰€ã‚’åŸºæº–ã«ãƒ‘ã‚¹ã‚’æ§‹ç¯‰ ===
+rem === batƒtƒ@ƒCƒ‹‚ÌêŠ‚ðŠî€‚ÉƒpƒX‚ð\’z ===
 set ROOT=%~dp0..
 rem cd /d "%ROOT%"
 
-set VIEWER_JAR=%~dp0metrics-viewer\target\metrics-viewer.jar
+set "VIEWER_JAR=%~dp0metrics-viewer\bin\metrics-viewer.jar"
 set VIEWER_PORT=8082
-cd /d "%~dp0runner"
+cd /d "%~dp0metrics-viewer\bin" || exit /b 1
 
 echo.
 echo [1/2] Starting Metrics Viewer (port %VIEWER_PORT%)...
 start "MetricsViewer" cmd /c ^
-   "java -Xmx1g -Xverify:none -jar %VIEWER_JAR% --server.port=%VIEWER_PORT%"
+   "java -Xmx1g -Xverify:none -jar "%VIEWER_JAR%" --server.port=%VIEWER_PORT%"
 
-rem === Spring Bootèµ·å‹•å¾…æ©Ÿï¼ˆTomcatåˆæœŸåŒ–ï¼‰ ===
+rem === Spring Boot‹N“®‘Ò‹@iTomcat‰Šú‰»j ===
 timeout /t 20 /nobreak >nul
 
 echo.

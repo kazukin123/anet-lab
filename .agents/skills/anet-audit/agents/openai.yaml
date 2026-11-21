@@ -1,0 +1,7 @@
+interface:
+  display_name: "ANET Audit"
+  short_description: "観点1×範囲1でanet-labを定点監査し、指摘をissueへ蓄積する"
+  default_prompt: "$anet-audit を使って、次の観点と範囲でanet-labを監査しissueを記録してください。"
+
+policy:
+  allow_implicit_invocation: false

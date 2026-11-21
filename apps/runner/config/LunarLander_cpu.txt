@@ -1,0 +1,2 @@
+﻿$include <LunarLander.txt>
+run.$ = run.@cpu

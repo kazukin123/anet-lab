@@ -1,0 +1,312 @@
+{
+  "jvm": {
+    "executable": "C:/Program Files/Eclipse Adoptium/jdk-25.0.3.9-hotspot/bin/java.exe",
+    "options": [
+      "-Xms512m",
+      "-Xmx2g"
+    ],
+    "release": 17
+  },
+  "sourceBytes": {
+    "metrics.jsonl": 4699829874,
+    "metrics.jsonl.gz": 534402924
+  },
+  "factor": 4,
+  "groups": {
+    "baseline-raw": {
+      "seconds": [
+        1145.5867885,
+        1006.2115305,
+        1033.8629708
+      ],
+      "medianSeconds": 1033.8629708,
+      "minSeconds": 1006.2115305,
+      "maxSeconds": 1145.5867885,
+      "populationStddevSeconds": 60.25158009425871
+    },
+    "baseline-gzip": {
+      "seconds": [
+        1704.0316277,
+        1668.548739,
+        1730.2330901
+      ],
+      "medianSeconds": 1704.0316277,
+      "minSeconds": 1668.548739,
+      "maxSeconds": 1730.2330901,
+      "populationStddevSeconds": 25.277375024192995
+    },
+    "new-raw": {
+      "seconds": [
+        688.2713642,
+        694.6451331,
+        685.8494462
+      ],
+      "medianSeconds": 688.2713642,
+      "minSeconds": 685.8494462,
+      "maxSeconds": 694.6451331,
+      "populationStddevSeconds": 3.7096679221275872
+    },
+    "new-gzip": {
+      "seconds": [
+        786.705003,
+        760.1641427,
+        753.2572651
+      ],
+      "medianSeconds": 760.1641427,
+      "minSeconds": 753.2572651,
+      "maxSeconds": 786.705003,
+      "populationStddevSeconds": 14.417864668037499
+    }
+  },
+  "improvementPercent": {
+    "raw": 33.42721582654057,
+    "gzip": 55.39025624037131
+  },
+  "trials": {
+    "baseline-raw-1": {
+      "timeSeconds": "1145.5867885",
+      "blocks": "48",
+      "heapPeakBytes": "336540320",
+      "dbBytes": "2337267712"
+    },
+    "baseline-raw-2": {
+      "timeSeconds": "1006.2115305",
+      "blocks": "48",
+      "heapPeakBytes": "336416880",
+      "dbBytes": "2337267712"
+    },
+    "baseline-raw-3": {
+      "timeSeconds": "1033.8629708",
+      "blocks": "48",
+      "heapPeakBytes": "336765352",
+      "dbBytes": "2337267712"
+    },
+    "baseline-gzip-1": {
+      "timeSeconds": "1704.0316277",
+      "blocks": "48",
+      "heapPeakBytes": "336882312",
+      "dbBytes": "2337267712"
+    },
+    "baseline-gzip-2": {
+      "timeSeconds": "1668.548739",
+      "blocks": "48",
+      "heapPeakBytes": "337263816",
+      "dbBytes": "2337267712"
+    },
+    "baseline-gzip-3": {
+      "timeSeconds": "1730.2330901",
+      "blocks": "48",
+      "heapPeakBytes": "336902840",
+      "dbBytes": "2337267712"
+    },
+    "new-raw-1": {
+      "timeSeconds": "688.2713642",
+      "blocks": "202",
+      "heapPeakBytes": "338502880",
+      "dbBytes": "2337267712",
+      "committedProgress": {
+        "lines": "47946186",
+        "validPoints": "47946167",
+        "scope": "since_start",
+        "elapsedMs": "688261",
+        "processingMs": "688211",
+        "prepareMs": "1957",
+        "readParseWriteMs": "207152",
+        "flushStatsMs": "2082",
+        "metadataMs": "166",
+        "commitMs": "475103",
+        "resourcesMs": "1747",
+        "readerMs": "8233",
+        "parseMs": "31183",
+        "l0Ms": "99151",
+        "lodMs": "68583",
+        "jsonMs": "0",
+        "linesPerSecond": "69667.8",
+        "pointsPerSecond": "69667.8"
+      }
+    },
+    "new-raw-2": {
+      "timeSeconds": "694.6451331",
+      "blocks": "211",
+      "heapPeakBytes": "339700856",
+      "dbBytes": "2337267712",
+      "committedProgress": {
+        "lines": "47946186",
+        "validPoints": "47946167",
+        "scope": "since_start",
+        "elapsedMs": "694634",
+        "processingMs": "694578",
+        "prepareMs": "1974",
+        "readParseWriteMs": "214582",
+        "flushStatsMs": "2736",
+        "metadataMs": "186",
+        "commitMs": "473413",
+        "resourcesMs": "1684",
+        "readerMs": "8964",
+        "parseMs": "35176",
+        "l0Ms": "100834",
+        "lodMs": "69606",
+        "jsonMs": "0",
+        "linesPerSecond": "69029.2",
+        "pointsPerSecond": "69029.2"
+      }
+    },
+    "new-raw-3": {
+      "timeSeconds": "685.8494462",
+      "blocks": "210",
+      "heapPeakBytes": "340084736",
+      "dbBytes": "2337267712",
+      "committedProgress": {
+        "lines": "47946186",
+        "validPoints": "47946167",
+        "scope": "since_start",
+        "elapsedMs": "685839",
+        "processingMs": "685785",
+        "prepareMs": "1868",
+        "readParseWriteMs": "215065",
+        "flushStatsMs": "1932",
+        "metadataMs": "174",
+        "commitMs": "465037",
+        "resourcesMs": "1707",
+        "readerMs": "8999",
+        "parseMs": "33879",
+        "l0Ms": "103386",
+        "lodMs": "68798",
+        "jsonMs": "0",
+        "linesPerSecond": "69914.3",
+        "pointsPerSecond": "69914.3"
+      }
+    },
+    "new-gzip-1": {
+      "timeSeconds": "786.705003",
+      "blocks": "214",
+      "heapPeakBytes": "339926744",
+      "dbBytes": "2337267712",
+      "committedProgress": {
+        "lines": "47946186",
+        "validPoints": "47946167",
+        "scope": "since_start",
+        "elapsedMs": "786694",
+        "processingMs": "786617",
+        "prepareMs": "2202",
+        "readParseWriteMs": "217565",
+        "flushStatsMs": "2980",
+        "metadataMs": "232",
+        "commitMs": "561803",
+        "resourcesMs": "1832",
+        "readerMs": "12982",
+        "parseMs": "32692",
+        "l0Ms": "102367",
+        "lodMs": "69523",
+        "jsonMs": "0",
+        "linesPerSecond": "60952.3",
+        "pointsPerSecond": "60952.3"
+      }
+    },
+    "new-gzip-2": {
+      "timeSeconds": "760.1641427",
+      "blocks": "209",
+      "heapPeakBytes": "339630584",
+      "dbBytes": "2337267712",
+      "committedProgress": {
+        "lines": "47946186",
+        "validPoints": "47946167",
+        "scope": "since_start",
+        "elapsedMs": "760152",
+        "processingMs": "760067",
+        "prepareMs": "1792",
+        "readParseWriteMs": "214585",
+        "flushStatsMs": "2455",
+        "metadataMs": "181",
+        "commitMs": "539302",
+        "resourcesMs": "1751",
+        "readerMs": "12622",
+        "parseMs": "31556",
+        "l0Ms": "100963",
+        "lodMs": "69442",
+        "jsonMs": "0",
+        "linesPerSecond": "63081.5",
+        "pointsPerSecond": "63081.5"
+      }
+    },
+    "new-gzip-3": {
+      "timeSeconds": "753.2572651",
+      "blocks": "218",
+      "heapPeakBytes": "337774560",
+      "dbBytes": "2337267712",
+      "committedProgress": {
+        "lines": "47946186",
+        "validPoints": "47946167",
+        "scope": "since_start",
+        "elapsedMs": "753246",
+        "processingMs": "753165",
+        "prepareMs": "2021",
+        "readParseWriteMs": "224474",
+        "flushStatsMs": "2147",
+        "metadataMs": "201",
+        "commitMs": "522479",
+        "resourcesMs": "1840",
+        "readerMs": "13057",
+        "parseMs": "34156",
+        "l0Ms": "105037",
+        "lodMs": "72223",
+        "jsonMs": "0",
+        "linesPerSecond": "63659.6",
+        "pointsPerSecond": "63659.5"
+      }
+    }
+  },
+  "persistentDataEqual": true,
+  "data": [
+    "DATA table=tags rows=207 sha256=273a5425ace3bbffad33c3e85b25707b789cd482062dc5a03ac83a925c3d59cb",
+    "DATA table=scalars rows=47946167 sha256=bd0da767853e91eba5fba2b2c86a7016f595a0829e92fac8518e78d907d44070",
+    "DATA table=scalars_lod rows=15981218 sha256=809e221dd5bceb9c345863d95614e50a8220fde9f4aaedfdfc46b077d66dc2e3",
+    "DATA table=tag_stats rows=207 sha256=fdf38c041b7986fd164f82fd26993bb3bf6fbfcee61250c52b92fe4659dce3e9",
+    "DATA table=json_lines rows=19 sha256=4169f0e73e697d79e9ead7570201b47363c3402dd3bdb07ea2433fe34473dcd5"
+  ],
+  "priority": "PRIORITY samples=20 p50Ms=1217.0325 p95Ms=1343.0929 maxMs=1353.1645 heapPeakBytes=341325680 activeGzipPeak=3 priorityStreamWaitMs=0 resource=raw source=admitted",
+  "heapPeakDefinition": "sum of each heap pool peak used bytes; upper bound, not simultaneous peak",
+  "inputSha256": {
+    "metrics.jsonl": "38859f7bf5e055b3603e27c34fb1ef769a00f1595801a66afc3acc0e1d2d2be8",
+    "metrics.jsonl.gz": "967ef05b434e99f734554ad2006d3f0d6544c3e6260ec157525a57113498e154"
+  },
+  "rebuildCodeVerification": {
+    "nonSchedulerMainClassesEqual": true,
+    "verifiedClasses": 103
+  },
+  "rebuildMeasuredManifestSha256": "b62fafc56a1b1d30c1fe4fc7a453da16bf8e0266b55d17a8561875d1be69e180",
+  "newSourceManifestSha256": "784b104eb5f89d5e738583828122a0a7771741e0c63445dffbddd6237f464c61",
+  "runtimeVersion": "openjdk version \"25.0.3\" 2026-04-21 LTS\nOpenJDK Runtime Environment Temurin-25.0.3+9 (build 25.0.3+9-LTS)\nOpenJDK 64-Bit Server VM Temurin-25.0.3+9 (build 25.0.3+9-LTS, mixed mode, sharing)",
+  "sqliteWriteCacheTargetBytes": 16777216,
+  "sqliteNativeMemoryExcludedFromHeap": true,
+  "priorityLatencySamplesMilliseconds": [
+    1174.3844,
+    1080.3755,
+    1144.7712,
+    1113.4133,
+    1248.2248,
+    1230.5625,
+    1208.7511,
+    1198.0313,
+    1207.4611,
+    1232.9329,
+    1329.9536,
+    1353.1645,
+    1255.5043,
+    1104.6633,
+    1323.7452,
+    1107.6052,
+    1216.2785,
+    1343.0929,
+    1311.4853,
+    1217.0325
+  ],
+  "validation": {
+    "tests": 237,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "finishedAt": "2026-10-12T21:57:05+09:00",
+    "totalTime": "03:28 min"
+  }
+}

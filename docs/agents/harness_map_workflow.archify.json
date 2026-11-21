@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "PRD を起こし、実装して確かめる",
+    "quality_profile": "showcase",
+    "viewBox": [1110, 714]
+  },
+  "lanes": [
+    { "id": "human", "label": "人間" },
+    { "id": "inspection", "label": "精査側" },
+    { "id": "authoring", "label": "起票側" },
+    { "id": "implementing", "label": "実装側" },
+    { "id": "common", "label": "共通文書" }
+  ],
+  "phases": [
+    { "id": "read", "label": "入口", "fromCol": 0, "toCol": 0 },
+    { "id": "shape", "label": "設計", "fromCol": 1, "toCol": 1 },
+    { "id": "implement", "label": "実装", "fromCol": 2, "toCol": 2 },
+    { "id": "verify", "label": "検証", "fromCol": 3, "toCol": 4 },
+    { "id": "handoff", "label": "引き渡し", "fromCol": 5, "toCol": 5 }
+  ],
+  "nodes": [
+    { "id": "read_rules", "lane": "common", "col": 0, "type": "frontend", "label": "入口読み", "sublabel": "AGENTS.md" },
+    { "id": "read_personal", "lane": "common", "col": 1, "type": "external", "label": "ユーザー環境", "sublabel": "指示・skill", "width": 108 },
+    { "id": "write_prd", "lane": "authoring", "col": 1, "type": "backend", "label": "起票", "sublabel": "グリル・起草" },
+    { "id": "regrill_prd", "lane": "inspection", "col": 1, "type": "backend", "label": "再グリル", "sublabel": "別の枠で精査" },
+    { "id": "human_adjust", "lane": "human", "col": 1, "type": "external", "label": "調整", "sublabel": "枠を仲介" },
+    { "id": "edit_validate", "lane": "implementing", "col": 2, "type": "backend", "label": "計画・実装", "sublabel": "条件読み・編集" },
+    { "id": "verify_work", "lane": "implementing", "col": 3, "type": "backend", "label": "検証", "sublabel": "テスト章" },
+    { "id": "review_work", "lane": "authoring", "col": 5, "type": "backend", "label": "レビュー", "sublabel": "観点で判定" },
+    { "id": "human_commit", "lane": "human", "col": 5, "type": "external", "label": "人のレビュー", "sublabel": "人間がcommit", "width": 104 },
+    { "id": "routine_work", "lane": "inspection", "col": 0, "type": "backend", "label": "定常整備", "sublabel": "housekeeping" },
+    { "id": "run_analysis", "lane": "implementing", "col": 5, "type": "backend", "label": "Run分析", "sublabel": "030・inspect" },
+    { "id": "experiment_record", "lane": "common", "col": 5, "type": "database", "label": "実験記録", "sublabel": "experiments" },
+    { "id": "build_guide", "lane": "common", "col": 3, "type": "backend", "label": "ビルド", "sublabel": "040" }
+  ],
+  "mainPath": ["read_rules", "read_personal", "write_prd", "regrill_prd", "human_adjust", "edit_validate", "verify_work", "review_work", "human_commit"],
+  "edges": [
+    { "from": "read_rules", "to": "read_personal" },
+    { "from": "read_personal", "to": "write_prd", "fromSide": "top", "toSide": "bottom" },
+    { "from": "write_prd", "to": "regrill_prd", "fromSide": "top", "toSide": "bottom" },
+    { "from": "regrill_prd", "to": "human_adjust", "fromSide": "top", "toSide": "bottom" },
+    { "from": "human_adjust", "to": "edit_validate", "fromSide": "right", "toSide": "top" },
+    { "from": "edit_validate", "to": "verify_work" },
+    { "from": "verify_work", "to": "review_work", "fromSide": "top", "toSide": "left" },
+    { "from": "review_work", "to": "human_commit", "fromSide": "top", "toSide": "bottom" },
+    { "from": "read_rules", "to": "routine_work", "label": "整備の入口", "role": "branch", "fromSide": "top", "toSide": "bottom" },
+    { "from": "verify_work", "to": "run_analysis", "label": "Run で確かめる", "role": "branch", "fromSide": "right", "toSide": "left" },
+    { "from": "run_analysis", "to": "experiment_record", "label": "結論を書く", "role": "branch", "fromSide": "bottom", "toSide": "top" },
+    { "from": "verify_work", "to": "build_guide", "label": "詰まったら", "role": "branch", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "工程の非対称",
+      "items": [
+        "起票・精査・実装は別の枠に置ける。少なくとも起票と精査は分ける。",
+        "実装計画は実装する枠が作り、コミット前に人間がレビューする。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "読む条件と畳んだ工程",
+      "items": [
+        "工程ごとの読む条件は README の表 2 が持つ。図はラベルだけを持つ。",
+        "計画・実装に条件読みと設定の同時更新、検証にテスト章と testdata README を畳む。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "引き渡し",
+      "items": [
+        "commit・push は人間だけ。anet-prepare-commit は文案と選ばれたときのステージまで。",
+        "push 後の CI は俯瞰図と表 1 が持つ。定常整備は anet-housekeeping から。"
+      ]
+    }
+  ]
+}

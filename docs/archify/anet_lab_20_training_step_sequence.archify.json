@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "anet-lab 学習ステップの呼び出し順序",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      690
+    ],
+    "column_fit": "spread"
+  },
+  "participants": [
+    {
+      "id": "thread",
+      "type": "backend",
+      "label": "RunnerThread",
+      "sublabel": "TrainThread"
+    },
+    {
+      "id": "runner",
+      "type": "backend",
+      "label": "TrainRunner",
+      "sublabel": "Serial"
+    },
+    {
+      "id": "actor",
+      "type": "backend",
+      "label": "dqn::Actor",
+      "sublabel": "Train Actor"
+    },
+    {
+      "id": "network",
+      "type": "backend",
+      "label": "NetworkModel",
+      "sublabel": "online / target"
+    },
+    {
+      "id": "env",
+      "type": "backend",
+      "label": "BatchEnv",
+      "sublabel": "CPU の lane"
+    },
+    {
+      "id": "learner",
+      "type": "backend",
+      "label": "Learner",
+      "sublabel": "DefaultDQNAgent"
+    },
+    {
+      "id": "replay",
+      "type": "database",
+      "label": "ReplayBuffer",
+      "sublabel": "CPU ring"
+    },
+    {
+      "id": "notifier",
+      "type": "messagebus",
+      "label": "Notifier",
+      "sublabel": "Observer へ配る"
+    }
+  ],
+  "segments": [
+    {
+      "from": 166,
+      "to": 290,
+      "label": "行動の選択"
+    },
+    {
+      "from": 296,
+      "to": 386,
+      "label": "Env の Step"
+    },
+    {
+      "from": 392,
+      "to": 546,
+      "label": "学習の更新"
+    },
+    {
+      "from": 552,
+      "to": 612,
+      "label": "通知と記録"
+    }
+  ],
+  "messages": [
+    {
+      "from": "thread",
+      "to": "runner",
+      "y": 180,
+      "label": "DoUpdateFrame(1) → DoStep",
+      "variant": "emphasis"
+    },
+    {
+      "from": "runner",
+      "to": "actor",
+      "y": 212,
+      "label": "MakeAction(counts, state)",
+      "variant": "emphasis"
+    },
+    {
+      "from": "actor",
+      "to": "network",
+      "y": 244,
+      "label": "forward（device 上）"
+    },
+    {
+      "from": "actor",
+      "to": "runner",
+      "y": 276,
+      "label": "BatchActionInfo",
+      "variant": "return"
+    },
+    {
+      "from": "runner",
+      "to": "env",
+      "y": 308,
+      "label": "Step(action_info)",
+      "variant": "emphasis"
+    },
+    {
+      "from": "env",
+      "to": "runner",
+      "y": 340,
+      "label": "BatchStepResult",
+      "variant": "return"
+    },
+    {
+      "from": "runner",
+      "to": "notifier",
+      "y": 372,
+      "label": "EpisodeEndEvent（終端時）",
+      "variant": "dashed"
+    },
+    {
+      "from": "runner",
+      "to": "learner",
+      "y": 404,
+      "label": "UpdateFromBatch(counts, exp)",
+      "variant": "emphasis"
+    },
+    {
+      "from": "learner",
+      "to": "replay",
+      "y": 436,
+      "label": "Push・Sample（CanUpdate 時）"
+    },
+    {
+      "from": "replay",
+      "to": "learner",
+      "y": 468,
+      "label": "ExperienceSamples",
+      "variant": "return"
+    },
+    {
+      "from": "learner",
+      "to": "network",
+      "y": 500,
+      "label": "loss・backward・optimizer"
+    },
+    {
+      "from": "learner",
+      "to": "runner",
+      "y": 532,
+      "label": "BatchUpdateResultList",
+      "variant": "return"
+    },
+    {
+      "from": "runner",
+      "to": "notifier",
+      "y": 564,
+      "label": "LearnEvent → OnLearn",
+      "variant": "emphasis"
+    },
+    {
+      "from": "runner",
+      "to": "notifier",
+      "y": 596,
+      "label": "TrainEvent → OnTrain",
+      "variant": "emphasis"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "runner",
+      "from": 174,
+      "to": 602,
+      "type": "backend"
+    },
+    {
+      "participant": "actor",
+      "from": 206,
+      "to": 282,
+      "type": "backend"
+    },
+    {
+      "participant": "learner",
+      "from": 398,
+      "to": 538,
+      "type": "backend"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "代表経路",
+      "items": [
+        "SerialTrainRunner と DefaultDQNAgent の経路。Pipeline は学習を LearnThread へ 1 step 遅らせる",
+        "Learner は報酬 scale・内的報酬・観測統計を更新して dqn::Learner へ渡す"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "条件つきの呼び出し",
+      "items": [
+        "EpisodeEndEvent は終端時、LearnEvent は結果が 1 件以上の時だけ",
+        "Sample は CanUpdate が真で update credit が残る間だけ繰り返す"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "通知の先",
+      "items": [
+        "OnLearn で EpisodeEvalObserver が評価の発火を判定する",
+        "MetricsLog*Observer が値を読み、MetricsLogger が metrics.jsonl に追記する"
+      ]
+    }
+  ]
+}

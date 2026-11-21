@@ -392,7 +392,12 @@ void DbgHelpInit()
     DBGHELP_LOCK;
 #endif
 
-    SymInitialize( GetCurrentProcess(), nullptr, true );
+    // anet-lab patch (1/2): fInvadeProcess=false so that SymInitialize does not eagerly
+    // load every module PDB. Holding AnetRLRunner.pdb open for the whole process lifetime
+    // makes the linker fail with LNK1201 whenever a training Run is in progress.
+    // Symbols are loaded on demand by SymLoadModuleEx, so callstacks still resolve.
+    // Must be paired with patch (2/2) below; either one alone keeps the PDB locked.
+    SymInitialize( GetCurrentProcess(), nullptr, false );
     SymSetOptions( SYMOPT_LOAD_LINES );
 
 #ifdef TRACY_DBGHELP_LOCK
@@ -547,8 +552,11 @@ void InitCallstack()
     // and process module symbol loading at startup time - they will be loaded on demand later
     // Sometimes this process can take a very long time and prevent resolving callstack frames
     // symbols during that time.
+    // anet-lab patch (2/2): default inverted. Skipping the init-time module load is what
+    // actually releases AnetRLRunner.pdb; set TRACY_NO_DBGHELP_INIT_LOAD=0 to restore the
+    // upstream behaviour. Paired with patch (1/2) above.
     const char* noInitLoadEnv = GetEnvVar( "TRACY_NO_DBGHELP_INIT_LOAD" );
-    const bool initTimeModuleLoad = !( noInitLoadEnv && noInitLoadEnv[0] == '1' );
+    const bool initTimeModuleLoad = ( noInitLoadEnv && noInitLoadEnv[0] == '0' );
     if ( !initTimeModuleLoad )
     {
         TracyDebug("TRACY: skipping init time dbghelper module load\n");

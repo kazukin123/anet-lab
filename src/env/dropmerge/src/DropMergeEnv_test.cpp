@@ -1,0 +1,1303 @@
+// DropMergeEnv_test.cpp
+
+#include "DropMergeEnv.hpp"
+
+#include <cmath>
+#include <clocale>
+#include <exception>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <vector>
+#include <utility>
+
+#include "anet/test/catch.hpp"
+#include "anet/env.hpp"
+#include "anet/env/DropMerge.hpp"
+#include "anet/gui.hpp"
+#include "anet/metrics_logger.hpp"
+#include "anet/test/util.hpp"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+TEST_CASE("DropMerge initialization keeps its first Env factory and View creator", "[init][idempotent]")
+{
+    constexpr char kClassId[] = "DropMergeEnv";
+    anet::rl::env::InitDropMerge();
+    auto& envs = anet::rl::EnvRepository::Instance();
+    auto& views = anet::rl::gui::ViewRepository::Instance();
+    const auto factory = envs.GetSingleDiscreteEnvFactory(kClassId);
+    const auto creator = views.GetViewCreator(kClassId);
+    REQUIRE(factory);
+    REQUIRE(creator);
+
+    CHECK_NOTHROW(anet::rl::env::InitDropMerge());
+    CHECK(envs.GetSingleDiscreteEnvFactory(kClassId) == factory);
+    CHECK(views.GetViewCreator(kClassId) == creator);
+}
+
+namespace {
+
+constexpr const char* kVectorKey = anet::rl::ObsKeys::kVector;
+constexpr const char* kGridKey = anet::rl::ObsKeys::kGrid;
+
+void SetupUtf8Console()
+{
+#ifdef _WIN32
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+    std::setlocale(LC_CTYPE, ".UTF-8");
+}
+
+class NoopMetricsBackend final : public anet::IBackend {
+public:
+    void Open(const std::filesystem::path&, const std::string&) override {}
+    void WriteJsonl(const anet::json&) override {}
+    void Flush() override {}
+};
+
+class ScopedNoopMetricsLogger final {
+public:
+    ScopedNoopMetricsLogger()
+    {
+        anet::MetricsLogger::Reset();
+        anet::MetricsLoggerConfig config;
+        config.run_name_tmpl = "dropmerge_env_test";
+        anet::MetricsLogger::Init(std::make_unique<NoopMetricsBackend>(), config, "C:/tmp");
+    }
+
+    ~ScopedNoopMetricsLogger()
+    {
+        anet::MetricsLogger::Reset();
+    }
+};
+
+torch::Tensor VectorObs(const anet::rl::SingleState& state)
+{
+    return state.obs.At(kVectorKey);
+}
+
+torch::Tensor GridObs(const anet::rl::SingleState& state)
+{
+    return state.obs.At(kGridKey);
+}
+
+void RequireFlatApprox(const torch::Tensor& tensor, const std::vector<float>& expected)
+{
+    const auto flat = tensor.detach().cpu().to(torch::kFloat32).reshape({ -1 }).contiguous();
+    REQUIRE(flat.numel() == static_cast<int64_t>(expected.size()));
+    for (int64_t i = 0; i < flat.numel(); ++i) {
+        CHECK(flat[i].item<float>() == Catch::Approx(expected[static_cast<size_t>(i)]).margin(1.0e-6f));
+    }
+}
+
+anet::rl::env::drop_merge::DropMergeEnvConfig MakeBlockedBoardConfig()
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 1;
+    config.box_width = 1.0f;
+    config.box_height = 0.9f;
+    config.fruit_radii.assign(anet::rl::env::drop_merge::kFruitTypeCount, 0.4f);
+    config.drop_probs = { 1.0f };
+    config.drop_noise = 0.0f;
+    config.spin_noise = 0.0f;
+    config.restitution = 0.0f;
+    config.box_restitution = 0.0f;
+    config.use_instant_drop = true;
+    config.game_over_grace_step = 1000;
+    return config;
+}
+
+int CountOccurrences(const std::string& value, const std::string& needle)
+{
+    int count = 0;
+    std::string::size_type position = 0;
+    while ((position = value.find(needle, position)) != std::string::npos) {
+        ++count;
+        position += needle.size();
+    }
+    return count;
+}
+
+constexpr const char* kDirectMode = "direct";
+constexpr const char* kDirectNoopMode = "direct_noop";
+constexpr const char* kMoveMode = "move";
+constexpr const char* kMoveFastMode = "move_fast";
+constexpr int kBusyReloadMinSteps = 20;
+
+std::pair<std::shared_ptr<const anet::rl::SingleStepResult>, bool> RequireNoopRewardSequence(
+    anet::rl::env::drop_merge::DropMergeEnvConfig config,
+    const std::vector<int64_t>& actions, const std::vector<bool>& noops, float penalty = -0.25f)
+{
+    constexpr const char* kRewardsKey = "rewards";
+    constexpr const char* kStepKey = "step";
+    constexpr int kSeed = 123;
+    constexpr float kTolerance = 1.0e-5f;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    REQUIRE(actions.size() == noops.size());
+    config.seed_mode = "fixed";
+    config.drop_divisions = 3;
+    config.max_step = static_cast<int>(actions.size());
+    config.noop_penalty = 0.0f;
+    auto control = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[noop-control].[0]", kSeed);
+    config.noop_penalty = penalty;
+    auto treatment = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[noop-treatment].[0]", kSeed);
+    CHECK(torch::equal(VectorObs(control->Reset()->state), VectorObs(treatment->Reset()->state)));
+
+    // 同じ命令列で、報酬以外の観測・物理状態と、現在の累積報酬を比較する。
+    float expected_sum = 0.0f;
+    bool saw_multiple_sim_steps = false;
+    std::shared_ptr<const anet::rl::SingleStepResult> last;
+    for (size_t i = 0; i < actions.size(); ++i) {
+        CAPTURE(config.action_mode, config.noop_override, actions[i], i, penalty);
+        const auto lhs = control->Step(actions[i]);
+        const auto rhs = treatment->Step(actions[i]);
+        const float expected_delta = noops[i] ? penalty : 0.0f;
+        expected_sum += expected_delta;
+        CHECK(rhs->reward - lhs->reward == Catch::Approx(expected_delta).margin(kTolerance));
+        CHECK(torch::equal(VectorObs(lhs->next_state), VectorObs(rhs->next_state)));
+        CHECK(torch::equal(GridObs(lhs->next_state), GridObs(rhs->next_state)));
+        CHECK(lhs->next_state.done == rhs->next_state.done);
+        CHECK(lhs->next_state.truncated == rhs->next_state.truncated);
+        const auto lhs_aux = lhs->GetAuxData();
+        const auto rhs_aux = rhs->GetAuxData();
+        REQUIRE(lhs_aux.size() == rhs_aux.size());
+        for (const auto& [key, tensor] : lhs_aux) {
+            REQUIRE(rhs_aux.contains(key));
+            if (key != kRewardsKey) CHECK(torch::equal(tensor, rhs_aux.at(key)));
+        }
+        const auto lhs_rewards = lhs_aux.at(kRewardsKey);
+        const auto rhs_rewards = rhs_aux.at(kRewardsKey);
+        if (penalty == 0.0f) CHECK(torch::equal(lhs_rewards, rhs_rewards));
+        CHECK(lhs_rewards[1].item<float>() == rhs_rewards[1].item<float>());
+        CHECK(rhs_rewards[2].item<float>() - lhs_rewards[2].item<float>() ==
+            Catch::Approx(expected_sum).margin(kTolerance));
+        saw_multiple_sim_steps |= rhs_aux.at(kStepKey)[1].item<float>() > 1.0f;
+        last = rhs;
+    }
+    REQUIRE(last);
+    CHECK(last->next_state.truncated);
+    return { last, saw_multiple_sim_steps };
+}
+
+} // namespace
+
+TEST_CASE("DropMergeEnv does not penalize Direct column zero as NOOP", "[dropmerge][noop_penalty]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = kDirectMode;
+
+    // Directの0は先頭列のDROP命令なので、罰の設定だけでは報酬が変わらない。
+    RequireNoopRewardSequence(config, { 0 }, { false });
+}
+
+TEST_CASE("DropMergeEnv applies NOOP penalties according to every action mode", "[dropmerge][noop_penalty]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    struct ActionCase {
+        std::string mode;
+        std::vector<int64_t> actions;
+        std::vector<bool> noops;
+    };
+    const std::vector<ActionCase> cases{
+        { .mode = kDirectMode, .actions = { 0, 1, 2 }, .noops = { false, false, false } },
+        { .mode = kDirectNoopMode, .actions = { 0, 1, 2, 3 }, .noops = { true, false, false, false } },
+        { .mode = kMoveMode, .actions = { 0, 1, 2, 3 }, .noops = { true, false, false, false } },
+        { .mode = kMoveFastMode, .actions = { 0, 1, 2, 3, 4, 5 }, .noops = { true, false, false, false, false, false } },
+    };
+    // 各命令は空の盤面の独立した個体から始め、終了stepも比較する。
+    for (const auto& item : cases) {
+        for (size_t i = 0; i < item.actions.size(); ++i) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = item.mode;
+            RequireNoopRewardSequence(config, { item.actions[i] }, { item.noops[i] });
+        }
+    }
+}
+
+TEST_CASE("DropMergeEnv preserves selected-command NOOP rewards across execution boundaries", "[dropmerge][noop_penalty]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    SECTION("NOOP override keeps the meaning of the selected command")
+    {
+        const std::vector<std::pair<std::string, bool>> cases{
+            { kDirectMode, false }, { kDirectNoopMode, true }, { kMoveMode, true }, { kMoveFastMode, true }
+        };
+        for (const auto& [mode, noop] : cases) {
+            for (const bool override_noop : { false, true }) {
+                anet::rl::env::drop_merge::DropMergeEnvConfig config;
+                config.action_mode = mode;
+                config.noop_override = override_noop;
+                RequireNoopRewardSequence(config, { 0 }, { noop });
+            }
+        }
+    }
+    SECTION("DROP rejected while busy never becomes NOOP")
+    {
+        constexpr const char* kFruitsKey = "fruits";
+        for (const auto& [mode, drop] : std::vector<std::pair<std::string, int64_t>>{
+            { kDirectMode, 0 }, { kDirectNoopMode, 1 } }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = mode;
+            config.use_instant_drop = false;
+            config.reload_min_steps = kBusyReloadMinSteps;
+            const auto result = RequireNoopRewardSequence(config, { drop, drop }, { false, false }).first;
+            CHECK(VectorObs(result->next_state)[3].item<float>() == Catch::Approx(1.0f));
+            CHECK(result->GetAuxData().at(kFruitsKey).size(0) == 1);
+        }
+    }
+    SECTION("cumulative rewards count commands rather than physics steps")
+    {
+        for (const std::string& mode : { kDirectMode, kDirectNoopMode, kMoveMode, kMoveFastMode }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = mode;
+            config.use_instant_drop = true;
+            config.reload_min_steps = kBusyReloadMinSteps;
+            if (mode == kDirectMode) {
+                CHECK(RequireNoopRewardSequence(config, { 0, 1, 2 }, { false, false, false }).second);
+            } else {
+                const int64_t drop = mode == kDirectNoopMode ? 1 : 2;
+                CHECK(RequireNoopRewardSequence(config, { 0, 0, drop, 0 }, { true, true, false, true }).second);
+            }
+        }
+    }
+    SECTION("NOOP spanning multiple physics steps receives one penalty")
+    {
+        constexpr const char* kStepKey = "step";
+        for (const char* mode : { kDirectNoopMode, kMoveMode, kMoveFastMode }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = mode;
+            config.use_settle_after_drop = true;
+            config.settle_max_steps = 2;
+            config.reload_min_steps = kBusyReloadMinSteps;
+            const int64_t drop = mode == kDirectNoopMode ? 1 : 2;
+            // DROPでbusyを残し、続くNOOP自体が複数物理stepになる条件を作る。
+            const auto result = RequireNoopRewardSequence(config, { drop, 0, 0 }, { false, true, true }).first;
+            CHECK(result->GetAuxData().at(kStepKey)[1].item<float>() > 1.0f);
+        }
+    }
+    SECTION("zero penalty preserves all results in every mode")
+    {
+        for (const std::string& mode : { kDirectMode, kDirectNoopMode, kMoveMode, kMoveFastMode }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig config;
+            config.action_mode = mode;
+            if (mode == kDirectMode) {
+                RequireNoopRewardSequence(config, { 0, 1, 2 }, { false, false, false }, 0.0f);
+            } else {
+                const int64_t drop = mode == kDirectNoopMode ? 1 : 2;
+                RequireNoopRewardSequence(config, { 0, drop, 0 }, { true, false, true }, 0.0f);
+            }
+        }
+    }
+}
+
+TEST_CASE("DropMergeEnv appends the selected previous action trio", "[dropmerge][prev_action]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig default_config;
+    CHECK_FALSE(default_config.ToJson().at("obs_include_prev_action").get<bool>());
+    CHECK_FALSE(default_config.ToJson().at("obs_prev_drop_marker").get<bool>());
+    CHECK(default_config.ToConfigString().find(
+        "DropMergeEnv.obs_include_prev_action = false") != std::string::npos);
+    CHECK(default_config.ToConfigString().find(
+        "DropMergeEnv.obs_prev_drop_marker = false") != std::string::npos);
+
+    anet::ConfigData config_data;
+    config_data.Set("DropMergeEnv.obs_include_prev_action", true);
+    config_data.Set("DropMergeEnv.obs_prev_drop_marker", false);
+    config_data.Set("DropMergeEnv.action_mode", "direct_noop");
+    config_data.Set("DropMergeEnv.drop_divisions", 4);
+    const anet::rl::env::drop_merge::DropMergeEnvConfig config(config_data);
+    CHECK(config.obs_include_prev_action);
+    CHECK_FALSE(config.obs_prev_drop_marker);
+
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-action].[0]", 123);
+    const auto spec = env->GetSpec();
+    const auto& vector_spec = spec.state_spec.obs_spec.at(kVectorKey);
+    CHECK(vector_spec.shape == std::vector<int64_t>{ 7 });
+    REQUIRE(vector_spec.labels.size() == 7);
+    CHECK(vector_spec.labels[4] == "prev_valid");
+    CHECK(vector_spec.labels[5] == "prev_noop");
+    CHECK(vector_spec.labels[6] == "prev_drop_x");
+    CHECK(vector_spec.min_values[4] == Catch::Approx(0.0));
+    CHECK(vector_spec.min_values[5] == Catch::Approx(0.0));
+    CHECK(vector_spec.min_values[6] == Catch::Approx(-1.0));
+    CHECK(vector_spec.max_values[4] == Catch::Approx(1.0));
+    CHECK(vector_spec.max_values[5] == Catch::Approx(1.0));
+    CHECK(vector_spec.max_values[6] == Catch::Approx(1.0));
+
+    const auto reset = env->Reset();
+    CHECK(spec.state_spec.ValidateObservation(reset->state.obs, /*is_batched=*/false));
+    RequireFlatApprox(VectorObs(reset->state).slice(/*dim=*/0, 4, 7), { 0.0f, 0.0f, 0.0f });
+
+    const auto noop = env->Step(0);
+    CHECK(spec.state_spec.ValidateObservation(noop->next_state.obs, /*is_batched=*/false));
+    RequireFlatApprox(VectorObs(noop->next_state).slice(/*dim=*/0, 4, 7), { 1.0f, 1.0f, 0.0f });
+
+    const auto drop = env->Step(1);
+    CHECK(spec.state_spec.ValidateObservation(drop->next_state.obs, /*is_batched=*/false));
+    RequireFlatApprox(VectorObs(drop->next_state).slice(/*dim=*/0, 4, 7), { 1.0f, 0.0f, -0.75f });
+}
+
+TEST_CASE("DropMergeEnv appends the previous action trio after the timeout ratio", "[dropmerge][prev_action][timeout]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 4;
+    config.use_no_drop_timeout_gameover = true;
+    config.obs_include_prev_action = true;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-timeout].[0]", 123);
+
+    const auto spec = env->GetSpec();
+    const auto& vector_spec = spec.state_spec.obs_spec.at(kVectorKey);
+    CHECK(vector_spec.shape == std::vector<int64_t>{ 8 });
+    REQUIRE(vector_spec.labels.size() == 8);
+    CHECK(vector_spec.labels[4] == "no_drop_timeout_ratio");
+    CHECK(vector_spec.labels[5] == "prev_valid");
+    CHECK(vector_spec.labels[6] == "prev_noop");
+    CHECK(vector_spec.labels[7] == "prev_drop_x");
+
+    const auto reset = env->Reset();
+    CHECK(spec.state_spec.ValidateObservation(
+        reset->state.obs, /*is_batched=*/false));
+    RequireFlatApprox(
+        VectorObs(reset->state).slice(/*dim=*/0, 5, 8),
+        { 0.0f, 0.0f, 0.0f });
+
+    const auto drop = env->Step(1);
+    CHECK(spec.state_spec.ValidateObservation(
+        drop->next_state.obs, /*is_batched=*/false));
+    RequireFlatApprox(
+        VectorObs(drop->next_state).slice(/*dim=*/0, 5, 8),
+        { 1.0f, 0.0f, -0.75f });
+}
+
+TEST_CASE("DropMergeEnv previous action observations require a direct action mode", "[dropmerge][prev_action][config]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig direct_config;
+    direct_config.action_mode = "direct";
+    direct_config.drop_divisions = 4;
+    direct_config.obs_include_prev_action = true;
+    auto direct_env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        direct_config, torch::Device(torch::kCPU), "env.[dropmerge-prev-direct].[0]", 123);
+    direct_env->Reset();
+    const auto direct_drop = direct_env->Step(3);
+    RequireFlatApprox(
+        VectorObs(direct_drop->next_state).slice(/*dim=*/0, 4, 7),
+        { 1.0f, 0.0f, 0.75f });
+
+    for (const std::string& action_mode : { "move", "move_fast" }) {
+        for (const bool use_marker : { false, true }) {
+            anet::rl::env::drop_merge::DropMergeEnvConfig invalid_config;
+            invalid_config.action_mode = action_mode;
+            invalid_config.obs_include_prev_action = !use_marker;
+            invalid_config.obs_prev_drop_marker = use_marker;
+
+            anet::test::LogCaptureGuard logs(wxLOG_Info);
+            CHECK_THROWS_WITH(
+                std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+                    invalid_config, torch::Device(torch::kCPU), "env.[dropmerge-prev-invalid].[0]", 123),
+                Catch::Matchers::ContainsSubstring(
+                    "obs_include_prev_action / obs_prev_drop_marker require "
+                    "action_mode=direct or direct_noop")
+                && Catch::Matchers::ContainsSubstring("actual=" + action_mode));
+            logs.Flush();
+        }
+    }
+}
+
+TEST_CASE("DropMergeEnv draws the selected DROP column marker", "[dropmerge][prev_action][marker]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 2;
+    config.grid_rows = 4;
+    config.grid_cols = 4;
+    config.use_instant_drop = true;
+    config.obs_prev_drop_marker = true;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-marker].[0]", 123);
+
+    const auto spec = env->GetSpec();
+    const auto& grid_spec = spec.state_spec.obs_spec.at(kGridKey);
+    CHECK(grid_spec.shape == std::vector<int64_t>{ 1, 4, 4 });
+    CHECK(grid_spec.num_classes == anet::rl::env::drop_merge::kFruitTypeCount + 2);
+    CHECK(grid_spec.max_values == std::vector<double>{
+        static_cast<double>(anet::rl::env::drop_merge::kFruitTypeCount + 1) });
+
+    const int marker_class = anet::rl::env::drop_merge::kFruitTypeCount + 1;
+    const auto reset = env->Reset();
+    CHECK(spec.state_spec.ValidateObservation(reset->state.obs, /*is_batched=*/false));
+    CHECK(GridObs(reset->state).eq(marker_class).sum().item<int64_t>() == 0);
+
+    // 2 分割の DROP 命令列 1 を、4 列 grid の対応する top-row 列 3 へ写像する。
+    const auto drop = env->Step(2);
+    CHECK(spec.state_spec.ValidateObservation(drop->next_state.obs, /*is_batched=*/false));
+    CHECK(GridObs(drop->next_state).index({ 0, 3, 3 }).item<int>() == marker_class);
+    CHECK(GridObs(drop->next_state).eq(marker_class).sum().item<int64_t>() == 1);
+
+    const auto noop = env->Step(0);
+    CHECK(spec.state_spec.ValidateObservation(noop->next_state.obs, /*is_batched=*/false));
+    CHECK(GridObs(noop->next_state).eq(marker_class).sum().item<int64_t>() == 0);
+
+    const auto reset_again = env->Reset();
+    CHECK(spec.state_spec.ValidateObservation(reset_again->state.obs, /*is_batched=*/false));
+    CHECK(GridObs(reset_again->state).eq(marker_class).sum().item<int64_t>() == 0);
+}
+
+TEST_CASE("DropMergeEnv previous action observations preserve the default state contract", "[dropmerge][prev_action][compat]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig default_config;
+    default_config.action_mode = "direct_noop";
+    default_config.drop_divisions = 4;
+    default_config.use_instant_drop = true;
+    default_config.max_step = 3;
+
+    auto enabled_config = default_config;
+    enabled_config.obs_include_prev_action = true;
+    enabled_config.obs_prev_drop_marker = true;
+
+    auto default_env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        default_config, torch::Device(torch::kCPU), "env.[dropmerge-prev-default].[0]", 123);
+    auto enabled_env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        enabled_config, torch::Device(torch::kCPU), "env.[dropmerge-prev-enabled].[0]", 123);
+
+    const auto default_spec = default_env->GetSpec();
+    const auto enabled_spec = enabled_env->GetSpec();
+    CHECK(default_spec.state_spec.obs_spec.at(kVectorKey).shape == std::vector<int64_t>{ 4 });
+    CHECK(enabled_spec.state_spec.obs_spec.at(kVectorKey).shape == std::vector<int64_t>{ 7 });
+    CHECK(default_spec.state_spec.obs_spec.at(kGridKey).shape ==
+        enabled_spec.state_spec.obs_spec.at(kGridKey).shape);
+    CHECK(default_spec.state_spec.obs_spec.at(kGridKey).num_classes ==
+        enabled_spec.state_spec.obs_spec.at(kGridKey).num_classes);
+
+    const auto default_reset = default_env->Reset();
+    const auto enabled_reset = enabled_env->Reset();
+    CHECK(torch::equal(
+        VectorObs(default_reset->state),
+        VectorObs(enabled_reset->state).slice(/*dim=*/0, 0, 4)));
+    CHECK(torch::equal(GridObs(default_reset->state), GridObs(enabled_reset->state)));
+
+    const int marker_class = anet::rl::env::drop_merge::kFruitTypeCount + 1;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    for (const int64_t action : { 2, 0, 3 }) {
+        const auto default_step = default_env->Step(action);
+        const auto enabled_step = enabled_env->Step(action);
+        CHECK(default_spec.state_spec.ValidateObservation(
+            default_step->next_state.obs, /*is_batched=*/false));
+        CHECK(enabled_spec.state_spec.ValidateObservation(
+            enabled_step->next_state.obs, /*is_batched=*/false));
+        CHECK(torch::equal(
+            VectorObs(default_step->next_state),
+            VectorObs(enabled_step->next_state).slice(/*dim=*/0, 0, 4)));
+
+        // marker class だけを除けば、同 seed・同 action の盤面は一致する。
+        auto enabled_grid_without_marker = GridObs(enabled_step->next_state).clone();
+        enabled_grid_without_marker.masked_fill_(
+            enabled_grid_without_marker.eq(marker_class), 0);
+        CHECK(torch::equal(
+            GridObs(default_step->next_state), enabled_grid_without_marker));
+        CHECK(default_step->reward == enabled_step->reward);
+        CHECK(default_step->next_state.done == enabled_step->next_state.done);
+        CHECK(default_step->next_state.truncated ==
+            enabled_step->next_state.truncated);
+    }
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv previous action observations work through batch env prefixes", "[dropmerge][prev_action][batch]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DropMergeEnv.action_mode", "direct_noop");
+    config_data.Set("DropMergeEnv.drop_divisions", 4);
+    config_data.Set("DropMergeEnv.use_instant_drop", true);
+    config_data.Set("DropMergeEnv.obs_include_prev_action", true);
+    config_data.Set("DropMergeEnv.obs_prev_drop_marker", true);
+
+    const std::vector<std::string> prefixes = {
+        "train.env",
+        "run.eval.[eval1].env",
+        "run.eval.[eval2].env",
+    };
+    const std::vector<anet::rl::RunMode> run_modes = {
+        anet::rl::RunMode::Train,
+        anet::rl::RunMode::Eval1,
+        anet::rl::RunMode::Eval2,
+    };
+    auto factory =
+        std::make_shared<anet::rl::env::drop_merge::DropMergeEnvFactory>();
+
+    for (size_t i = 0; i < prefixes.size(); ++i) {
+        anet::rl::VectorizedDiscreteBatchEnv env(
+            config_data,
+            factory,
+            "dropmerge-prev-batch-" + std::to_string(i),
+            /*num_envs=*/1,
+            torch::Device(torch::kCPU),
+            /*seed=*/123,
+            run_modes[i],
+            prefixes[i]);
+
+        const auto spec = env.GetSpec();
+        CHECK(spec.state_spec.obs_spec.at(kVectorKey).shape ==
+            std::vector<int64_t>{ 7 });
+        const auto reset = env.Reset();
+        CHECK(spec.state_spec.ValidateObservation(
+            reset->state.obs, /*is_batched=*/true));
+        CHECK(reset->state.obs.At(kVectorKey).sizes().vec() ==
+            std::vector<int64_t>{ 1, 7 });
+
+        auto action_info = std::make_shared<anet::rl::BatchActionInfo>(
+            torch::tensor(
+                { 2 },
+                torch::TensorOptions().dtype(torch::kInt64)));
+        const auto step = env.Step(action_info);
+        CHECK(spec.state_spec.ValidateObservation(
+            step->next_state.obs, /*is_batched=*/true));
+        RequireFlatApprox(
+            step->next_state.obs.At(kVectorKey)[0].slice(
+                /*dim=*/0, 4, 7),
+            { 1.0f, 0.0f, -0.25f });
+    }
+}
+
+TEST_CASE("DropMergeEnv reports the successive DROP column ratio", "[dropmerge][prev_action][ratio]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 6;
+    config.use_instant_drop = true;
+    config.max_step = 5;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-ratio].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    for (const int64_t action : { 4, 4, 6, 6 }) {
+        const auto step = env->Step(action);
+        REQUIRE_FALSE(step->next_state.done);
+        REQUIRE_FALSE(step->next_state.truncated);
+        REQUIRE(step->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(std::isfinite(*step->GetScalar("ep_same_drop_col_ratio")));
+    }
+    const auto terminal = env->Step(6);
+    REQUIRE(terminal->next_state.truncated);
+    REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+    CHECK(*terminal->GetScalar("ep_same_drop_col_ratio") ==
+        Catch::Approx(3.0f / 4.0f));
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv carries Double Suika outcomes in Step results", "[dropmerge][metrics][double_suika]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.use_instant_drop = true;
+    config.max_step = 1;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-double-suika].[0]", 123);
+    env->Reset();
+
+    // env本体には統計の鍵を残さず、遷移の結果だけが答える。
+    CHECK_FALSE(env->GetScalar("ep_double_suika_created").has_value());
+    CHECK_FALSE(env->GetScalar("ep_double_suika_achieved").has_value());
+
+    // Double Suika未生成で終了したエピソードは、件数0・未達成0を返す。
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto terminal = env->Step(anet::rl::env::drop_merge::kActionNoop);
+    REQUIRE(terminal->next_state.truncated);
+    CHECK(*terminal->GetScalar("ep_double_suika_created") == 0.0f);
+    CHECK(*terminal->GetScalar("ep_double_suika_achieved") == 0.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv reports a completed Double Suika merge", "[dropmerge][metrics][double_suika]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 1;
+    config.box_width = 1.0f;
+    config.box_height = 2.0f;
+    config.fruit_radii.assign(anet::rl::env::drop_merge::kFruitTypeCount, 0.1f);
+    config.drop_probs.assign(anet::rl::env::drop_merge::kFruitTypeCount, 0.0f);
+    config.drop_probs.back() = 1.0f;
+    config.drop_noise = 0.0f;
+    config.spin_noise = 0.0f;
+    config.restitution = 0.0f;
+    config.damping = 0.0f;
+    config.use_instant_drop = true;
+    config.reload_min_steps = 0;
+    config.reload_max_steps = 120;
+    config.game_over_grace_step = 1000;
+    config.max_step = 2;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-double-suika-positive].[0]", 123);
+    env->Reset();
+
+    // 同じ列へスイカを2個落とし、公開Step経路でDouble Suikaを成立させる。
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    REQUIRE_FALSE(env->Step(1)->next_state.done);
+    const auto terminal = env->Step(1);
+    REQUIRE(terminal->next_state.truncated);
+    CHECK(*terminal->GetScalar("ep_double_suika_created") == 1.0f);
+    CHECK(*terminal->GetScalar("ep_double_suika_achieved") == 1.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv handles sparse DROP commands in the column ratio", "[dropmerge][prev_action][ratio]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+
+    SECTION("fewer than two DROP commands reports zero")
+    {
+        anet::rl::env::drop_merge::DropMergeEnvConfig config;
+        config.action_mode = "direct";
+        config.drop_divisions = 4;
+        config.use_instant_drop = true;
+        config.max_step = 1;
+        auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+            config, torch::Device(torch::kCPU), "env.[dropmerge-prev-ratio-short].[0]", 123);
+        env->Reset();
+
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        const auto terminal = env->Step(2);
+        REQUIRE(terminal->next_state.truncated);
+        REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(*terminal->GetScalar("ep_same_drop_col_ratio") == Catch::Approx(0.0f));
+        logs.Flush();
+    }
+
+    SECTION("NOOP preserves the previous DROP column")
+    {
+        anet::rl::env::drop_merge::DropMergeEnvConfig config;
+        config.action_mode = "direct_noop";
+        config.drop_divisions = 4;
+        config.use_instant_drop = true;
+        config.max_step = 3;
+        auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+            config, torch::Device(torch::kCPU), "env.[dropmerge-prev-ratio-noop].[0]", 123);
+        env->Reset();
+
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        env->Step(2);
+        env->Step(0);
+        const auto terminal = env->Step(2);
+        REQUIRE(terminal->next_state.truncated);
+        REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(*terminal->GetScalar("ep_same_drop_col_ratio") == Catch::Approx(1.0f));
+        logs.Flush();
+    }
+}
+
+TEST_CASE("DropMergeEnv column ratio is NaN for move action modes", "[dropmerge][prev_action][ratio]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    for (const std::string& action_mode : { "move", "move_fast" }) {
+        anet::rl::env::drop_merge::DropMergeEnvConfig config;
+        config.action_mode = action_mode;
+        config.max_step = 1;
+        auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+            config, torch::Device(torch::kCPU),
+            "env.[dropmerge-prev-ratio-" + action_mode + "].[0]", 123);
+        env->Reset();
+
+        anet::test::LogCaptureGuard logs(wxLOG_Info);
+        const auto terminal = env->Step(anet::rl::env::drop_merge::kActionNoop);
+        REQUIRE(terminal->next_state.truncated);
+        REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+        CHECK(std::isnan(*terminal->GetScalar("ep_same_drop_col_ratio")));
+        logs.Flush();
+    }
+}
+
+TEST_CASE("DropMergeEnv observes DROP commands rejected while busy", "[dropmerge][prev_action][busy]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 4;
+    config.grid_rows = 4;
+    config.grid_cols = 4;
+    config.use_instant_drop = false;
+    config.reload_min_steps = 20;
+    config.max_step = 3;
+    config.obs_include_prev_action = true;
+    config.obs_prev_drop_marker = true;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-prev-busy].[0]", 123);
+    const auto spec = env->GetSpec();
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first = env->Step(1);
+    REQUIRE_FALSE(first->next_state.truncated);
+    CHECK(VectorObs(first->next_state)[3].item<float>() == Catch::Approx(1.0f));
+
+    const auto rejected = env->Step(4);
+    REQUIRE_FALSE(rejected->next_state.truncated);
+    CHECK(VectorObs(rejected->next_state)[3].item<float>() == Catch::Approx(1.0f));
+
+    const auto terminal = env->Step(4);
+    REQUIRE(terminal->next_state.truncated);
+    CHECK(spec.state_spec.ValidateObservation(
+        terminal->next_state.obs, /*is_batched=*/false));
+    RequireFlatApprox(
+        VectorObs(terminal->next_state).slice(/*dim=*/0, 4, 7),
+        { 1.0f, 0.0f, 0.75f });
+
+    const int marker_class = anet::rl::env::drop_merge::kFruitTypeCount + 1;
+    CHECK(GridObs(terminal->next_state).index({ 0, 3, 3 }).item<int>() ==
+        marker_class);
+    REQUIRE(terminal->GetScalar("ep_same_drop_col_ratio").has_value());
+    CHECK(*terminal->GetScalar("ep_same_drop_col_ratio") ==
+        Catch::Approx(1.0f / 2.0f));
+    REQUIRE(terminal->GetScalar("ep_end_fruit_count").has_value());
+    CHECK(*terminal->GetScalar("ep_end_fruit_count") == Catch::Approx(1.0f));
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv prefixes maximum-step log with its name once", "[dropmerge][env_name]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.max_step = 1;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-log].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    env->Step(anet::rl::env::drop_merge::kActionNoop);
+    logs.Flush();
+
+    int matching_records = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("Episode truncated. Maximum step count exceeded.") == std::string::npos) {
+            continue;
+        }
+        ++matching_records;
+        CHECK(record.level == wxLOG_Info);
+        CHECK(record.message.find("env.[dropmerge-log].[0]: Episode truncated. Maximum step count exceeded.") == 0);
+        CHECK(CountOccurrences(record.message, "env.[dropmerge-log].[0]: ") == 1);
+    }
+    CHECK(matching_records == 1);
+}
+
+TEST_CASE("DropMergeEnv reports DROP selected on a NoLegal candidate", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-candidate].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+    REQUIRE_FALSE(first_drop->next_state.truncated);
+    REQUIRE(first_drop->GetScalar("blocked_drop_on_candidate").has_value());
+    CHECK(std::isnan(*first_drop->GetScalar("blocked_drop_on_candidate")));
+    REQUIRE(first_drop->GetScalar("no_drop_timeout_on_candidate").has_value());
+    CHECK(std::isnan(*first_drop->GetScalar("no_drop_timeout_on_candidate")));
+    REQUIRE(first_drop->GetScalar("ep_mean_blocked_frames").has_value());
+    CHECK(std::isfinite(*first_drop->GetScalar("ep_mean_blocked_frames")));
+    REQUIRE(first_drop->GetScalar("ep_max_blocked_frames").has_value());
+    CHECK(std::isfinite(*first_drop->GetScalar("ep_max_blocked_frames")));
+
+    const auto blocked_drop = env->Step(1);
+    CHECK(blocked_drop->next_state.done);
+    CHECK_FALSE(blocked_drop->next_state.truncated);
+    REQUIRE(blocked_drop->GetScalar("term_reason_spawn_blocked").has_value());
+    CHECK(*blocked_drop->GetScalar("term_reason_spawn_blocked") == 1.0f);
+    REQUIRE(blocked_drop->GetScalar("blocked_drop_on_candidate").has_value());
+    CHECK(*blocked_drop->GetScalar("blocked_drop_on_candidate") == 1.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv handles a fruit wider than its placement range", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    config.box_width = 0.5f;
+    config.settle_velocity_threshold = 100.0f;
+    config.settle_angular_threshold = 100.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-no-placement-range].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto noop = env->Step(0);
+    CHECK(noop->next_state.done);
+    CHECK_FALSE(noop->next_state.truncated);
+    REQUIRE(noop->GetScalar("term_reason_no_legal_drop").has_value());
+    CHECK(*noop->GetScalar("term_reason_no_legal_drop") == 1.0f);
+    logs.Flush();
+}
+
+TEST_CASE("blocked intervals report whether the entire range is covered", "[dropmerge][blocked_intervals]")
+{
+    const auto covers = [](std::vector<std::pair<float, float>> intervals) {
+        return anet::rl::env::drop_merge::DoBlockedIntervalsCoverRange(intervals, -1.0f, 1.0f);
+    };
+
+    CHECK_FALSE(covers({}));
+    CHECK(covers({ { -1.0f, 1.0f } }));
+    CHECK_FALSE(covers({ { -0.9f, 1.0f } }));
+    CHECK_FALSE(covers({ { -1.0f, 0.9f } }));
+    CHECK_FALSE(covers({ { -1.0f, -0.1f }, { 0.1f, 1.0f } }));
+    CHECK(covers({ { 0.0f, 1.0f }, { -1.0f, 0.5f } }));
+    CHECK(covers({ { -1.0f, 0.0f }, { 0.0f, 1.0f } }));
+}
+
+TEST_CASE("DropMergeEnv keeps settled NoLegal NOOP termination unchanged", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    config.settle_velocity_threshold = 100.0f;
+    config.settle_angular_threshold = 100.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-settled].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+
+    const auto noop = env->Step(0);
+    CHECK(noop->next_state.done);
+    CHECK_FALSE(noop->next_state.truncated);
+    REQUIRE(noop->GetScalar("term_reason_no_legal_drop").has_value());
+    CHECK(*noop->GetScalar("term_reason_no_legal_drop") == 1.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv reports terminal blocked persistence for settled NoLegal", "[dropmerge][phase1b]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    config.settle_velocity_threshold = 100.0f;
+    config.settle_angular_threshold = 100.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-terminal-blocked].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+    REQUIRE(first_drop->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(std::isnan(*first_drop->GetScalar("ep_terminal_blocked_frames")));
+    REQUIRE(first_drop->GetScalar("ep_blocked_run_count").has_value());
+    CHECK(std::isfinite(*first_drop->GetScalar("ep_blocked_run_count")));
+
+    const auto noop = env->Step(0);
+    REQUIRE(noop->next_state.done);
+    REQUIRE(noop->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(*noop->GetScalar("ep_terminal_blocked_frames") > 0.0f);
+    REQUIRE(noop->GetScalar("ep_blocked_run_count").has_value());
+    CHECK(*noop->GetScalar("ep_blocked_run_count") == 0.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv NoLegal adjudication config defaults to disabled with sixty frames", "[dropmerge][phase2][config]")
+{
+    const anet::rl::env::drop_merge::DropMergeEnvConfig config;
+
+    CHECK_FALSE(config.use_no_legal_adjudication);
+    CHECK(config.no_legal_min_blocked_frames == 60);
+}
+
+TEST_CASE("DropMergeEnv reads NoLegal adjudication config values", "[dropmerge][phase2][config]")
+{
+    anet::ConfigData config_data;
+    config_data.Set("DropMergeEnv.use_no_legal_adjudication", true);
+    config_data.Set("DropMergeEnv.no_legal_min_blocked_frames", 45);
+
+    const anet::rl::env::drop_merge::DropMergeEnvConfig config(config_data);
+    CHECK(config.use_no_legal_adjudication);
+    CHECK(config.no_legal_min_blocked_frames == 45);
+}
+
+TEST_CASE("DropMergeEnv rejects a non-positive NoLegal adjudication horizon", "[dropmerge][phase2][config]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.no_legal_min_blocked_frames = 0;
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    CHECK_THROWS_WITH(
+        std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+            config, torch::Device(torch::kCPU), "env.[dropmerge-invalid-horizon].[0]", 123),
+        Catch::Matchers::ContainsSubstring("key=no_legal_min_blocked_frames")
+        && Catch::Matchers::ContainsSubstring("value=0")
+        && Catch::Matchers::ContainsSubstring("expected integer >= 1"));
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv rejects a NoLegal horizon that cannot beat the timeout", "[dropmerge][phase2][config]")
+{
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.use_no_legal_adjudication = true;
+    config.use_no_drop_timeout_gameover = true;
+    config.no_drop_timeout_steps = 60;
+    config.no_legal_min_blocked_frames = 60;
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    CHECK_THROWS_WITH(
+        std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+            config, torch::Device(torch::kCPU), "env.[dropmerge-conflicting-horizon].[0]", 123),
+        Catch::Matchers::ContainsSubstring("key=no_legal_min_blocked_frames")
+        && Catch::Matchers::ContainsSubstring("value=60")
+        && Catch::Matchers::ContainsSubstring("expected < no_drop_timeout_steps=60"));
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv reports timeout with a legal DROP available", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.use_no_legal_adjudication = true;
+    config.no_legal_min_blocked_frames = 1;
+    config.no_drop_timeout_steps = 1;
+    config.max_step = 10;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-legal-timeout].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto timeout = env->Step(0);
+    CHECK_FALSE(timeout->next_state.done);
+    CHECK(timeout->next_state.truncated);
+    REQUIRE(timeout->GetScalar("term_reason_no_drop_timeout").has_value());
+    CHECK(*timeout->GetScalar("term_reason_no_drop_timeout") == 1.0f);
+    REQUIRE(timeout->GetScalar("no_drop_timeout_on_candidate").has_value());
+    CHECK(*timeout->GetScalar("no_drop_timeout_on_candidate") == 0.0f);
+    REQUIRE(timeout->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(*timeout->GetScalar("ep_terminal_blocked_frames") == 0.0f);
+    REQUIRE(timeout->GetScalar("ep_blocked_run_count").has_value());
+    CHECK(*timeout->GetScalar("ep_blocked_run_count") == 0.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv reports timeout while an unsettled board remains blocked", "[dropmerge][no_legal_candidate]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    config.no_drop_timeout_steps = 3;
+    config.restitution = 1.0f;
+    config.box_restitution = 1.0f;
+    config.damping = 0.0f;
+    config.settle_velocity_threshold = 0.0f;
+    config.settle_angular_threshold = 0.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-unsettled].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+
+    std::shared_ptr<const anet::rl::SingleStepResult> timeout;
+    for (int i = 0; i < config.no_drop_timeout_steps; ++i) {
+        timeout = env->Step(0);
+    }
+
+    REQUIRE(timeout != nullptr);
+    CHECK_FALSE(timeout->next_state.done);
+    CHECK(timeout->next_state.truncated);
+    REQUIRE(timeout->GetScalar("term_reason_no_drop_timeout").has_value());
+    CHECK(*timeout->GetScalar("term_reason_no_drop_timeout") == 1.0f);
+    REQUIRE(timeout->GetScalar("no_drop_timeout_on_candidate").has_value());
+    CHECK(*timeout->GetScalar("no_drop_timeout_on_candidate") == 1.0f);
+    REQUIRE(timeout->GetScalar("ep_mean_blocked_frames").has_value());
+    CHECK(*timeout->GetScalar("ep_mean_blocked_frames") == 0.0f);
+    REQUIRE(timeout->GetScalar("ep_max_blocked_frames").has_value());
+    CHECK(*timeout->GetScalar("ep_max_blocked_frames") == 0.0f);
+    logs.Flush();
+}
+
+TEST_CASE("DropMergeEnv adjudicates persistent blocked frames without a penalty", "[dropmerge][phase2][adjudication]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    config.use_no_legal_adjudication = true;
+    config.no_legal_min_blocked_frames = 3;
+    config.use_no_drop_timeout_gameover = true;
+    config.no_drop_timeout_steps = 10;
+    config.restitution = 1.0f;
+    config.box_restitution = 1.0f;
+    config.damping = 0.0f;
+    config.settle_velocity_threshold = 0.0f;
+    config.settle_angular_threshold = 0.0f;
+    config.time_penalty = 0.0f;
+    config.noop_penalty = 0.0f;
+    config.game_over_penalty = -10.0f;
+    config.no_drop_timeout_gameover_penalty = -10.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-adjudicated].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+
+    const auto before_horizon = env->Step(0);
+    CHECK_FALSE(before_horizon->next_state.done);
+    CHECK_FALSE(before_horizon->next_state.truncated);
+
+    const auto adjudicated = env->Step(0);
+    CHECK(adjudicated->next_state.done);
+    CHECK_FALSE(adjudicated->next_state.truncated);
+    CHECK(adjudicated->reward == Catch::Approx(0.0f));
+    REQUIRE(adjudicated->GetScalar("term_reason_no_legal_drop").has_value());
+    CHECK(*adjudicated->GetScalar("term_reason_no_legal_drop") == 1.0f);
+    REQUIRE(adjudicated->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(*adjudicated->GetScalar("ep_terminal_blocked_frames") == 3.0f);
+
+    logs.Flush();
+    int persistence_log_count = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("Episode done: no legal drop persisted for 3 frames.") != std::string::npos) {
+            ++persistence_log_count;
+        }
+    }
+    CHECK(persistence_log_count == 1);
+}
+
+TEST_CASE("DropMergeEnv prefers the settled NoLegal fast path", "[dropmerge][phase2][adjudication]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    auto config = MakeBlockedBoardConfig();
+    config.use_no_legal_adjudication = true;
+    config.no_legal_min_blocked_frames = 1;
+    config.settle_velocity_threshold = 100.0f;
+    config.settle_angular_threshold = 100.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-fast-path].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+
+    const auto noop = env->Step(0);
+    CHECK(noop->next_state.done);
+    CHECK_FALSE(noop->next_state.truncated);
+
+    logs.Flush();
+    int settled_log_count = 0;
+    int persistence_log_count = 0;
+    for (const auto& record : logs.Records()) {
+        if (record.message.find("Episode done: no legal drop remains.") != std::string::npos) {
+            ++settled_log_count;
+        }
+        if (record.message.find("Episode done: no legal drop persisted") != std::string::npos) {
+            ++persistence_log_count;
+        }
+    }
+    CHECK(settled_log_count == 1);
+    CHECK(persistence_log_count == 0);
+}
+
+TEST_CASE("DropMergeEnv reports the length of a resolved blocked run", "[dropmerge][blocked_persistence]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.drop_divisions = 1;
+    config.box_width = 1.0f;
+    config.box_height = 2.0f;
+    config.fruit_radii.assign(anet::rl::env::drop_merge::kFruitTypeCount, 0.1f);
+    config.drop_probs = { 1.0f };
+    config.drop_noise = 0.0f;
+    config.spin_noise = 0.0f;
+    config.restitution = 0.0f;
+    config.damping = 0.0f;
+    config.use_instant_drop = true;
+    config.reload_min_steps = 0;
+    config.reload_max_steps = 1;
+    config.use_no_legal_adjudication = true;
+    config.no_legal_min_blocked_frames = 29;
+    config.no_drop_timeout_steps = 30;
+    config.max_step = 100;
+    config.game_over_grace_step = 1000;
+    config.settle_velocity_threshold = 0.0f;
+    config.settle_angular_threshold = 0.0f;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "env.[dropmerge-resolved-run].[0]", 123);
+    env->Reset();
+
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const auto first_drop = env->Step(1);
+    REQUIRE_FALSE(first_drop->next_state.done);
+
+    std::shared_ptr<const anet::rl::SingleStepResult> timeout;
+    for (int i = 0; i < config.no_drop_timeout_steps; ++i) {
+        timeout = env->Step(0);
+    }
+
+    REQUIRE(timeout != nullptr);
+    REQUIRE(timeout->next_state.truncated);
+    REQUIRE(timeout->GetScalar("ep_mean_blocked_frames").has_value());
+    REQUIRE(timeout->GetScalar("ep_max_blocked_frames").has_value());
+    const float mean_blocked_frames = *timeout->GetScalar("ep_mean_blocked_frames");
+    const float max_blocked_frames = *timeout->GetScalar("ep_max_blocked_frames");
+    CHECK(mean_blocked_frames > 0.0f);
+    CHECK(mean_blocked_frames == max_blocked_frames);
+    CHECK(max_blocked_frames < static_cast<float>(config.no_drop_timeout_steps));
+    REQUIRE(timeout->GetScalar("ep_terminal_blocked_frames").has_value());
+    CHECK(*timeout->GetScalar("ep_terminal_blocked_frames") == 0.0f);
+    REQUIRE(timeout->GetScalar("ep_blocked_run_count").has_value());
+    CHECK(*timeout->GetScalar("ep_blocked_run_count") > 0.0f);
+    logs.Flush();
+}
+
+int main(int argc, char* argv[])
+{
+    SetupUtf8Console();
+
+    anet::test::PreparedTestArgs test_args;
+    try {
+        test_args = anet::test::PrepareTestArgs(argc, argv);
+    } catch (const std::exception& e) {
+        return anet::test::ReportTestArgsError(e);
+    }
+    anet::test::SetupTestFailureDialog(test_args.failure_dialog_enabled);
+
+    Catch::Session session;
+    session.configData().showDurations = Catch::ShowDurations::Always;
+    return session.run(test_args.Argc(), test_args.Argv());
+}
+
+TEST_CASE("DropMerge Step results retain statistics and View history through Reset", "[dropmerge][prd097_dropmerge]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.use_no_legal_adjudication = true;
+    config.no_legal_min_blocked_frames = 1;
+    config.no_drop_timeout_steps = 1;
+    config.max_step = 10;
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(
+        config, torch::Device(torch::kCPU), "dropmerge-notification-reset", 1);
+    const std::vector<std::string> completed_keys{
+        "ep_step", "ep_max_rank", "ep_double_suika_created", "ep_double_suika_achieved",
+        "ep_end_fruit_count", "ep_same_drop_col_ratio", "ep_mean_settle_steps", "ep_max_settle_steps",
+        "term_reason_spawn_blocked", "term_reason_overflow", "term_reason_maxstep",
+        "term_reason_no_drop_timeout", "term_reason_no_legal_drop", "blocked_drop_on_candidate",
+        "no_drop_timeout_on_candidate", "ep_mean_blocked_frames", "ep_max_blocked_frames",
+        "ep_terminal_blocked_frames", "ep_blocked_run_count"};
+    env->Reset();
+    const auto step = env->Step(0);
+    REQUIRE(step->next_state.truncated);
+    for (const auto& key : completed_keys) {
+        REQUIRE(step->GetScalar(key).has_value());
+        CHECK(std::isfinite(*step->GetScalar(key)));
+    }
+    CHECK(step->GetScalar("ep_step") == 1.0f);
+    const auto terminal_aux = step->GetAuxData();
+    const auto reset_aux = env->Reset()->GetAuxData();
+    // 完了キーは前回値を返さず、View専用の履歴だけを維持する。
+    for (const auto& key : completed_keys) {
+        CHECK_FALSE(env->GetScalar(key).has_value());
+        REQUIRE(step->GetScalar(key).has_value());
+        CHECK(std::isfinite(*step->GetScalar(key)));
+    }
+    for (const auto& key : {"last_score", "last_step", "last_term_reason"}) {
+        CHECK(torch::equal(terminal_aux.at(key), reset_aux.at(key)));
+    }
+    CHECK(terminal_aux.at("rewards")[3].item<float>() == reset_aux.at("rewards")[3].item<float>());
+    CHECK_FALSE(env->GetScalar("unknown").has_value());
+}
+
+TEST_CASE("DropMerge results retain every auxiliary value before first materialization", "[dropmerge][prd097_dropmerge][aux_snapshot]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    anet::test::LogCaptureGuard logs(wxLOG_Info);
+    const int grid_size = GENERATE(1, 12);
+    const torch::Device device(torch::kCPU);
+    anet::rl::env::drop_merge::DropMergeEnvConfig config;
+    config.seed_mode = "fixed";
+    config.action_mode = "direct_noop";
+    config.grid_rows = grid_size;
+    config.grid_cols = grid_size;
+    config.max_step = 2;
+    auto control = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(config, device, "aux-control", 1);
+    auto env = std::make_shared<anet::rl::env::drop_merge::DropMergeEnv>(config, device, "aux-retained", 1);
+    std::vector<anet::rl::AuxData> expected;
+    std::vector<std::shared_ptr<const anet::rl::SingleEnvResult>> retained;
+    expected.push_back(control->Reset()->GetAuxData());
+    retained.push_back(env->Reset());
+    CHECK_FALSE(expected[0].contains("fruits"));
+    for (const int64_t action : {1, 0}) {
+        expected.push_back(control->Step(action)->GetAuxData());
+        retained.push_back(env->Step(action));
+    }
+    REQUIRE(expected[1].contains("fruits"));
+    REQUIRE(expected[2].contains("fruits"));
+
+    // 初回の表示要求より先に元Envを更新・Reset・破棄し、値所有を公開結果だけで確かめる。
+    env->Reset();
+    env->Step(0);
+    env->Reset();
+    std::weak_ptr<const anet::rl::env::drop_merge::DropMergeEnv> weak_env = env;
+    env.reset();
+    REQUIRE(weak_env.expired());
+    for (size_t i = 0; i < retained.size(); ++i) {
+        const auto actual = retained[i]->GetAuxData();
+        REQUIRE(actual.size() == (i == 0 ? 10 : 11));
+        const std::vector<std::pair<std::string, std::vector<int64_t>>> fixed_shapes{
+            {"dropper", {5}}, {"grid", {grid_size, grid_size}}, {"world_info", {3}},
+            {"rewards", {4}}, {"step", {2}}, {"last_step", {1}},
+            {"last_term_reason", {1}}, {"score", {1}}, {"last_score", {1}}, {"action_mode", {2}}};
+        for (const auto& [key, shape] : fixed_shapes) {
+            CAPTURE(i, key);
+            REQUIRE(actual.contains(key));
+            CHECK(actual.at(key).sizes().vec() == shape);
+            CHECK(actual.at(key).scalar_type() == torch::kFloat32);
+            CHECK(actual.at(key).device().is_cpu());
+        }
+        if (i > 0) {
+            REQUIRE(actual.contains("fruits"));
+            CHECK(actual.at("fruits").dim() == 2);
+            CHECK(actual.at("fruits").size(1) == 5);
+            CHECK(actual.at("fruits").scalar_type() == torch::kFloat32);
+            CHECK(actual.at("fruits").device().is_cpu());
+        }
+        CHECK(torch::equal(actual.at("world_info"), torch::tensor(
+            {config.box_width, config.box_height, config.ground_y}, torch::kFloat32)));
+        REQUIRE(actual.size() == expected[i].size());
+        for (const auto& [key, value] : expected[i]) {
+            CAPTURE(i, key, grid_size, device.str());
+            REQUIRE(actual.contains(key));
+            CHECK(actual.at(key).sizes() == value.sizes());
+            CHECK(actual.at(key).scalar_type() == value.scalar_type());
+            CHECK(actual.at(key).device() == value.device());
+            CHECK(torch::equal(actual.at(key), value));
+            const auto scalar = retained[i]->GetScalar(key);
+            if (value.numel() == 1) {
+                REQUIRE(scalar.has_value());
+                CHECK(*scalar == value.item<float>());
+            } else {
+                CHECK_FALSE(scalar.has_value());
+            }
+        }
+        CHECK_FALSE(retained[i]->GetScalar("unknown_aux_key").has_value());
+    }
+}

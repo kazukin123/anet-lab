@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "selections": [
+    {
+      "key": "DefaultDQNAgent.$",
+      "chain": [
+        {
+          "term": "@baseline",
+          "resolved": "DefaultDQNAgent.@baseline"
+        }
+      ]
+    },
+    {
+      "key": "RainbowAgent.$",
+      "chain": [
+        {
+          "term": "@baseline",
+          "resolved": "RainbowAgent.@baseline"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC1].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_120]",
+          "resolved": "net.block.[Linear_120]"
+        },
+        {
+          "term": "net.block.FC1",
+          "resolved": "net.block.FC1"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC2].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_84]",
+          "resolved": "net.block.[Linear_84]"
+        },
+        {
+          "term": "net.block.FC2",
+          "resolved": "net.block.FC2"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC3].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_84]",
+          "resolved": "net.block.[Linear_84]"
+        },
+        {
+          "term": "net.block.FC3",
+          "resolved": "net.block.FC3"
+        }
+      ]
+    },
+    {
+      "key": "app.$",
+      "chain": [
+        {
+          "term": "app.online",
+          "resolved": "app.online"
+        },
+        {
+          "term": "P1",
+          "resolved": "P1"
+        }
+      ]
+    },
+    {
+      "key": "MuZeroAgent.$",
+      "chain": [
+        {
+          "term": "MuZeroAgent.baseline",
+          "resolved": "MuZeroAgent.baseline"
+        },
+        {
+          "term": "A1",
+          "resolved": "A1"
+        }
+      ]
+    },
+    {
+      "key": "metrics.scalar.$",
+      "chain": [
+        {
+          "term": "metrics.scalar.muzero",
+          "resolved": "metrics.scalar.muzero"
+        },
+        {
+          "term": "M1",
+          "resolved": "M1"
+        }
+      ]
+    }
+  ],
+  "overrides": [],
+  "references": []
+}

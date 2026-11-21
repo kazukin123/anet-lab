@@ -1,0 +1,927 @@
+package io.github.kazukin123.anetlab.metricsviewer.view;
+
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.GENERATION;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.TAG_KEY;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.colorMetricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.colorRunIds;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.colorRunsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.metricsJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.rawSeriesJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runJson;
+import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.runsJson;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.Route;
+import com.microsoft.playwright.options.MouseButton;
+import com.microsoft.playwright.options.WaitUntilState;
+
+@SpringBootTest(
+		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+		properties = "metricsviewer.workspaces-dir=target/playwright-test-empty-workspaces")
+class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
+
+	// RUN_COLORSのうち、Run色テストで期待値に使う色。コメントはpalette上のindex。
+	private static final String BLUE = "rgb(47, 125, 225)"; // #2F7DE1 [0]
+	private static final String TEAL = "rgb(0, 169, 157)"; // #00A99D [7]
+	private static final String RED = "rgb(226, 59, 79)"; // #E23B4F [9]
+	private static final String LIME = "rgb(209, 216, 59)"; // #D1D83B [12]
+	private static final String GREEN = "rgb(0, 179, 107)"; // #00B36B [14]
+
+	@Test
+	void metricsRequestsKeepOneChannelAndIncreaseTheirSequence() throws Exception {
+		final List<Map<String, String>> headers = new CopyOnWriteArrayList<>();
+		final CountDownLatch twoRequests = new CountDownLatch(2);
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> {
+			headers.add(route.request().headers());
+			twoRequests.countDown();
+			fulfillJson(route, metricsJson());
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?queryChannelTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		page.evaluate("() => app.requestVisibleData({ force: true })");
+		assertTrue(twoRequests.await(5, TimeUnit.SECONDS));
+
+		final String channel = headers.get(0).get("x-query-channel");
+		assertTrue(channel != null && !channel.isBlank());
+		assertEquals(channel, headers.get(1).get("x-query-channel"));
+		assertEquals("0", headers.get(0).get("x-query-sequence"));
+		assertEquals("1", headers.get(1).get("x-query-sequence"));
+	}
+
+	@Test
+	void metricsRequestsUseFallbackChannelWhenRandomUuidIsUnavailable() throws Exception {
+		final List<Map<String, String>> headers = new CopyOnWriteArrayList<>();
+		final CountDownLatch twoRequests = new CountDownLatch(2);
+		page.addInitScript("""
+				Object.defineProperty(globalThis.crypto, 'randomUUID', {
+					configurable: true,
+					value: undefined
+				});
+				""");
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> {
+			headers.add(route.request().headers());
+			twoRequests.countDown();
+			fulfillJson(route, metricsJson());
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?queryChannelFallbackTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		assertEquals("undefined", page.evaluate("() => typeof crypto.randomUUID"));
+		page.evaluate("() => app.requestVisibleData({ force: true })");
+		assertTrue(twoRequests.await(5, TimeUnit.SECONDS));
+
+		final String channel = headers.get(0).get("x-query-channel");
+		assertTrue(channel != null && !channel.isBlank());
+		assertTrue(channel.length() <= 128);
+		assertEquals(channel, headers.get(1).get("x-query-channel"));
+		assertEquals("0", headers.get(0).get("x-query-sequence"));
+		assertEquals("1", headers.get(1).get("x-query-sequence"));
+	}
+
+	@Test
+	void supersededMetricsResponseIsNotShownOrLoggedAsAnUpdateFailure() {
+		final AtomicInteger metricsRequests = new AtomicInteger();
+		final List<String> consoleErrors = new CopyOnWriteArrayList<>();
+		page.onConsoleMessage(message -> {
+			if ("error".equals(message.type())
+					&& !message.text().startsWith("Failed to load resource:")) {
+				consoleErrors.add(message.text());
+			}
+		});
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> {
+			if (metricsRequests.incrementAndGet() == 1) {
+				fulfillJson(route, metricsJson());
+				return;
+			}
+			route.fulfill(new Route.FulfillOptions()
+					.setStatus(409)
+					.setContentType("application/json")
+					.setBody("{\"code\":\"superseded\",\"message\":\"newer query\"}"));
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?supersededTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		page.waitForResponse("**/api/metrics.json", () -> page.evaluate("""
+				() => {
+					app.fetcher.fetchMetrics([]).catch(error => {
+						app._setUpdateFailure('metrics', error);
+						app._handleQueryError(error);
+					});
+				}
+				"""));
+		page.waitForFunction("""
+				() => !document.getElementById('loading-spinner')?.classList.contains('active')
+				""");
+		page.waitForTimeout(100);
+
+		assertFalse(page.locator("#update-status").isVisible());
+		assertEquals(List.of(), consoleErrors);
+	}
+
+	@Test
+	void runRowsToggleImmediatelyAllowEmptySelectionAndSoloOnTheSecondClick() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?runToggleTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		page.waitForFunction("document.querySelectorAll('#run-list .run-row').length === 11");
+		assertEquals(List.of("run_11"), readActiveRunIds(page));
+
+		page.click("#run-list .run-row.active");
+		page.waitForFunction("document.querySelectorAll('#run-list .run-row.active').length === 0");
+		assertEquals("No selection.", page.textContent("#main-area"));
+
+		page.click("#run-list .run-row[data-run-id='run_03']");
+		page.click("#run-list .run-row[data-run-id='run_04']");
+		assertEquals(List.of("run_04", "run_03"), readActiveRunIds(page));
+
+		page.evaluate("""
+				runId => {
+					const find = () => document.querySelector(
+						`#run-list .run-row[data-run-id="${runId}"]`);
+					find().click();
+					find().click();
+				}
+				""", "run_03");
+		assertEquals(List.of("run_03"), readActiveRunIds(page));
+	}
+
+	@Test
+	void initialLoadErrorAllowsReloadRecoveryButNotScreenshotEscape() {
+		final AtomicInteger runsRequests = new AtomicInteger();
+		page.route("**/api/runs.json", route -> {
+			if (runsRequests.incrementAndGet() == 1) route.abort();
+			else fulfillJson(route, runsJson());
+		});
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?errorRecoveryTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		page.waitForFunction("document.body.classList.contains('error') && app?.mode === 'error'");
+
+		assertEquals("none", page.evaluate(
+				"() => getComputedStyle(document.body, '::before').pointerEvents"));
+		page.click("#btn-screenshot");
+		assertTrue(Boolean.TRUE.equals(page.evaluate("""
+				() => document.body.classList.contains('error')
+					&& !document.body.classList.contains('screenshot-mode')
+					&& app?.mode === 'error'
+				""")));
+
+		page.click("#btn-reload");
+		page.waitForFunction("""
+				() => app?.mode === 'normal'
+					&& document.querySelectorAll('.js-plotly-plot').length > 0
+				""");
+		assertFalse(Boolean.TRUE.equals(page.evaluate(
+				"() => document.body.classList.contains('error')")));
+	}
+
+	@Test
+	void updateFailuresRemainVisibleUntilEachRequestTypeSucceeds() {
+		final AtomicInteger runsRequests = new AtomicInteger();
+		final AtomicInteger metricsRequests = new AtomicInteger();
+		page.route("**/api/runs.json", route -> {
+			if (runsRequests.incrementAndGet() == 4) {
+				route.fulfill(new Route.FulfillOptions()
+						.setStatus(503)
+						.setContentType("text/plain")
+						.setBody("metadata unavailable"));
+			} else {
+				fulfillJson(route, runsJson());
+			}
+		});
+		page.route("**/api/metrics.json", route -> {
+			if (metricsRequests.incrementAndGet() == 2) {
+				route.fulfill(new Route.FulfillOptions()
+						.setStatus(502)
+						.setContentType("text/plain")
+						.setBody("metrics unavailable"));
+			} else {
+				fulfillJson(route, metricsJson());
+			}
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?updateFailureTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		assertEquals(1, page.locator("#update-status").count());
+		assertFalse(page.locator("#update-status").isVisible());
+
+		page.evaluate("() => app.cache.windows.clear()");
+		page.click("#btn-reload");
+		page.waitForFunction("""
+				() => document.getElementById('update-status')?.title
+					=== 'Metrics: Failed metrics.json: 502 metrics unavailable'
+				""");
+		assertEquals("Update failed", page.textContent("#update-status"));
+		page.evaluate("() => app.refreshMetadata({ requestData: false })");
+		assertEquals(
+				"Metrics: Failed metrics.json: 502 metrics unavailable",
+				page.getAttribute("#update-status", "title"));
+
+		page.click("#btn-reload");
+		page.waitForFunction("""
+				() => document.getElementById('update-status')?.title
+					=== 'Metadata: Failed runs.json: 503\\n'
+						+ 'Metrics: Failed metrics.json: 502 metrics unavailable'
+				""");
+
+		page.click("#run-list .run-row[data-run-id='run_10']");
+		page.waitForFunction("""
+				() => document.getElementById('update-status')?.title
+					=== 'Metadata: Failed runs.json: 503'
+				""");
+
+		page.click("#btn-reload");
+		page.waitForFunction("""
+				() => {
+					const status = document.getElementById('update-status');
+					return status?.hidden && status.textContent === '' && status.title === '';
+				}
+				""");
+	}
+
+	@Test
+	void disappearingRunIsRemovedFromSelectionWindowsAndColorCache() {
+		final AtomicInteger runsRequests = new AtomicInteger();
+		page.route("**/api/runs.json", route -> fulfillJson(
+				route,
+				runsRequests.incrementAndGet() == 1
+						? "{\"runs\":[" + runJson("run_vanish", 2, TAG_KEY) + "]}"
+						: "{\"runs\":[]}"));
+		page.route("**/api/metrics.json", route -> fulfillJson(
+				route,
+				"{\"data\":["
+						+ rawSeriesJson(
+								"run_vanish",
+								TAG_KEY,
+								new double[] {0, 1, 2},
+								new float[] {1, 2, 3})
+						+ "]}"));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?runDisappearanceTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		page.click("#btn-reload");
+		page.waitForFunction("""
+				() => document.querySelectorAll('#run-list .run-row').length === 0
+					&& document.getElementById('main-area')?.textContent === 'No selection.'
+				""");
+		assertTrue(Boolean.TRUE.equals(page.evaluate("""
+				() => app.cache.getRun('run_vanish') === null
+					&& app.cache.getWindow('run_vanish', 'palette/test') === null
+					&& !app.runColorMap.has('run_vanish')
+				""")));
+	}
+
+	@Test
+	void convertingRunPollOnlyUpdatesExistingPercentageUntilReload() {
+		final String nextGeneration = "00000000-0000-0000-0000-000000000002";
+		final String newTag = "poll/new-tag";
+		final AtomicInteger runsRequests = new AtomicInteger();
+		final AtomicInteger metricsRequests = new AtomicInteger();
+		final AtomicBoolean reloaded = new AtomicBoolean();
+		page.route("**/api/runs.json", route -> {
+			final int index = runsRequests.incrementAndGet();
+			final String pollRun = index == 1
+					? runJson("run_poll", 2, GENERATION, "converting", 10, TAG_KEY)
+					: runJson(
+							"run_poll",
+							8,
+							nextGeneration,
+							index == 2 ? "converting" : "ready",
+							index == 2 ? 50 : 100,
+							TAG_KEY,
+							newTag);
+			fulfillJson(
+					route,
+					"{\"runs\":["
+							+ pollRun
+							+ (index == 1
+									? ""
+									: "," + runJson(
+											"run_new",
+											8,
+											nextGeneration,
+											"ready",
+											100,
+											TAG_KEY))
+							+ "]}");
+		});
+		page.route("**/api/metrics.json", route -> {
+			metricsRequests.incrementAndGet();
+			final String generation = reloaded.get() ? nextGeneration : GENERATION;
+			final String extraSeries = reloaded.get()
+					? "," + rawSeriesJson(
+							"run_poll",
+							newTag,
+							generation,
+							new double[] {0, 1, 2},
+							new float[] {4, 5, 6})
+					: "";
+			fulfillJson(route, "{\"data\":["
+					+ rawSeriesJson(
+							"run_poll",
+							TAG_KEY,
+							generation,
+							new double[] {0, 1, 2},
+							new float[] {1, 2, 3})
+					+ extraSeries
+					+ "]}");
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?ingestPollTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		page.evaluate("""
+				() => {
+					const plot = document.querySelector('.js-plotly-plot');
+					window.__pollPlot = plot;
+					window.__pollRunRow = document.querySelector(
+						"#run-list .run-row[data-run-id='run_poll']");
+					window.__pollRunName = document.querySelector(
+						"#run-list .run-row[data-run-id='run_poll'] .run-name").textContent;
+					window.__pollTagList = document.getElementById('tag-list').textContent;
+					window.__pollHeader = document.querySelector('.graph-header').textContent;
+					window.__pollGeneration = app.cache.getRun('run_poll').generation;
+					window.__pollMainScrollTop = document.getElementById('main-area').scrollTop;
+					window.__pollXRange = JSON.stringify(plot.layout.xaxis.range ?? null);
+					window.__pollYRange = JSON.stringify(plot.layout.yaxis.range ?? null);
+				}
+				""");
+		final int initialMetricsRequests = metricsRequests.get();
+		page.waitForFunction(
+				"document.querySelector(\"#run-list .run-row[data-run-id='run_poll'] .run-progress\")"
+						+ "?.textContent === '50%'",
+				null,
+				new Page.WaitForFunctionOptions().setTimeout(7000));
+
+		assertEquals(initialMetricsRequests, metricsRequests.get());
+		assertEquals(1, page.locator("#run-list .run-row").count());
+		assertEquals(1, page.locator("#tag-list li").count());
+		assertTrue(Boolean.TRUE.equals(page.evaluate("""
+				() => window.__pollPlot === document.querySelector('.js-plotly-plot')
+					&& window.__pollRunRow === document.querySelector(
+						"#run-list .run-row[data-run-id='run_poll']")
+					&& window.__pollRunName === document.querySelector(
+						"#run-list .run-row[data-run-id='run_poll'] .run-name").textContent
+					&& window.__pollTagList === document.getElementById('tag-list').textContent
+					&& window.__pollHeader === document.querySelector('.graph-header').textContent
+					&& window.__pollGeneration === app.cache.getRun('run_poll').generation
+					&& app.cache.getRunIds().join(',') === 'run_poll'
+					&& app.cache.getTag('run_poll', 'palette/test').stats.count === 3
+					&& window.__pollMainScrollTop === document.getElementById('main-area').scrollTop
+					&& window.__pollXRange === JSON.stringify(
+						document.querySelector('.js-plotly-plot').layout.xaxis.range ?? null)
+					&& window.__pollYRange === JSON.stringify(
+						document.querySelector('.js-plotly-plot').layout.yaxis.range ?? null)
+				""")));
+
+		assertEquals(
+				"rgb(36, 87, 125)",
+				page.evaluate("""
+						() => getComputedStyle(
+							document.querySelector(
+								"#run-list .run-row[data-run-id='run_poll']"),
+							'::before').backgroundColor
+						"""));
+		assertEquals(
+				"rgba(190, 190, 190, 0.24)",
+				page.evaluate("""
+						() => {
+							const row = document.querySelector(
+								"#run-list .run-row[data-run-id='run_poll']");
+							row.classList.remove('active');
+							const color = getComputedStyle(row, '::before').backgroundColor;
+							row.classList.add('active');
+							return color;
+						}
+						"""));
+		assertEquals("rgb(36, 87, 125)", page.evaluate("""
+				() => getComputedStyle(document.querySelector('.run-row.active')).backgroundColor
+				"""));
+		assertEquals("rgb(36, 87, 125)", page.evaluate("""
+				() => getComputedStyle(document.querySelector('#tag-list li.active')).backgroundColor
+				"""));
+		assertEquals("rgb(196, 196, 196)", page.evaluate("""
+				() => getComputedStyle(document.querySelector('.run-progress')).color
+				"""));
+		assertEquals(
+				"rgb(36, 87, 125)|rgb(36, 87, 125)|rgb(36, 87, 125)"
+						+ "|rgb(36, 87, 125)|rgb(73, 201, 255)|rgb(243, 250, 255)",
+				page.evaluate("""
+						() => {
+							const autoReload = document.getElementById('btn-auto-reload');
+							const scrollLock = document.getElementById('btn-graph-scroll-lock');
+							const log = document.querySelector('.graph-log-toggle');
+							const selectedOnly = document.getElementById('btn-selected-only');
+							autoReload.classList.add('active');
+							scrollLock.classList.add('active');
+							log.classList.add('active');
+							selectedOnly.classList.add('active');
+							return [
+								getComputedStyle(autoReload).backgroundColor,
+								getComputedStyle(scrollLock).backgroundColor,
+								getComputedStyle(log).backgroundColor,
+								getComputedStyle(selectedOnly).backgroundColor,
+								getComputedStyle(selectedOnly).borderColor,
+								getComputedStyle(autoReload).color
+							].join('|');
+						}
+						"""));
+
+		page.waitForFunction(
+				"document.querySelector(\"#run-list .run-row[data-run-id='run_poll'] .run-progress\")"
+						+ " === null && app.ingestPollTimer === null",
+				null,
+				new Page.WaitForFunctionOptions().setTimeout(7000));
+		assertTrue(runsRequests.get() >= 3);
+		assertEquals(initialMetricsRequests, metricsRequests.get());
+		assertEquals(0, page.locator(
+				"#run-list .run-row[data-run-id='run_poll'] .run-progress").count());
+		assertEquals("0%", page.evaluate("""
+				() => document.querySelector(
+					"#run-list .run-row[data-run-id='run_poll']")
+					.style.getPropertyValue('--ingest-progress')
+				"""));
+
+		reloaded.set(true);
+		page.click("#btn-reload");
+		page.waitForFunction(
+				"document.querySelectorAll('#run-list .run-row').length === 2"
+						+ " && document.querySelectorAll('#tag-list li').length === 2"
+						+ " && app.cache.getRun('run_poll').generation"
+						+ " === '00000000-0000-0000-0000-000000000002'"
+						+ " && app.cache.getTag('run_poll', 'palette/test').stats.count === 9");
+		// metadataの更新後にmetrics再取得が非同期で走るので、カウンタ側も待ってから見る。
+		page.waitForCondition(() -> metricsRequests.get() > initialMetricsRequests);
+		assertTrue(metricsRequests.get() > initialMetricsRequests);
+	}
+
+	@Test
+	void autoReloadButtonReflectsToggleState() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+
+		page.navigate(baseUrl + "/?autoReloadButtonTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		assertEquals("Auto Reload", page.textContent("#btn-auto-reload"));
+		assertFalse(isAutoReloadButtonActive(page));
+
+		page.click("#btn-auto-reload");
+		assertTrue(isAutoReloadButtonActive(page));
+
+		page.click("#btn-auto-reload");
+		assertEquals("Auto Reload", page.textContent("#btn-auto-reload"));
+		assertFalse(isAutoReloadButtonActive(page));
+	}
+
+	@Test
+	void recolorButtonGivesSelectedRunsTheMostDistinguishableColors() {
+		openColorFixture("recolorButtonTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_01");
+		clickRunRow(page, "run_03");
+		clickRunRow(page, "run_10");
+		clickRunRow(page, "run_14");
+		page.click("#btn-recolor-runs");
+		waitForSelectedTraceCount(page, 4);
+
+		assertEquals(
+				List.of(BLUE, LIME, RED, GREEN),
+				readChipColors(page, List.of("run_01", "run_03", "run_10", "run_14")));
+		assertEquals(readChipColor(page, "run_01"), readTraceColor(page, "run_01"));
+		assertEquals(readChipColor(page, "run_14"), readTraceColor(page, "run_14"));
+	}
+
+	@Test
+	void recolorButtonIsIdempotentForTheSameSelection() {
+		openColorFixture("recolorIdempotentTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_01");
+		clickRunRow(page, "run_03");
+		clickRunRow(page, "run_10");
+		page.click("#btn-recolor-runs");
+		final List<String> first = readChipColors(page, List.of("run_01", "run_03", "run_10"));
+
+		page.click("#btn-recolor-runs");
+
+		assertEquals(List.of(BLUE, LIME, RED), first);
+		assertEquals(first, readChipColors(page, List.of("run_01", "run_03", "run_10")));
+	}
+
+	@Test
+	void autoRecolorGivesTheInitiallySelectedRunTheFirstPaletteColor() {
+		// 初回表示で自動選択する最新Runも新しく選んだRunとして扱い、基本色 #B83280 を残さない。
+		openColorFixture("autoRecolorInitialRunTest", 14);
+
+		assertTrue(isToggleOn(page, "#btn-auto-recolor"));
+		assertEquals(BLUE, readChipColor(page, "run_14"));
+		assertEquals(BLUE, readTraceColor(page, "run_14"));
+	}
+
+	@Test
+	void autoRecolorGivesAddedRunsTheBestColorsRegardlessOfTheirBaseColors() {
+		// 基本色は run_01=#2F7DE1(run_14と同色)、run_13=#D1D83B、run_10=#E23B4F だが見ない。
+		// 選んだ順に、選択中Runの色から最も離れた色を取るので、Recolorと同じ並びになる。
+		openColorFixture("autoRecolorAddedRunTest", 14);
+
+		clickRunRow(page, "run_01");
+		clickRunRow(page, "run_13");
+		clickRunRow(page, "run_10");
+		waitForSelectedTraceCount(page, 4);
+
+		assertEquals(
+				List.of(BLUE, LIME, RED, GREEN),
+				readChipColors(page, List.of("run_14", "run_01", "run_13", "run_10")));
+		assertEquals(GREEN, readTraceColor(page, "run_10"));
+	}
+
+	@Test
+	void autoRecolorKeepsTheColorsOfRunsThatStaySelected() {
+		// 14本を選んでから途中のRunを外したり戻したりしても、選択中だったRunの色は変わらない。
+		openColorFixture("autoRecolorStabilityTest", 14);
+
+		page.click("#btn-select-all-runs");
+		final List<String> runIds = colorRunIds(14);
+		final List<String> staying = runIds.stream()
+				.filter(runId -> !List.of("run_05", "run_09").contains(runId))
+				.toList();
+		final List<String> before = readChipColors(page, staying);
+		assertEquals(14, readChipColors(page, runIds).stream().distinct().count());
+
+		clickRunRow(page, "run_05");
+		clickRunRow(page, "run_09");
+		assertEquals(before, readChipColors(page, staying));
+
+		clickRunRow(page, "run_05");
+		assertEquals(before, readChipColors(page, staying));
+	}
+
+	@Test
+	void autoRecolorKeepsTheColorsAlreadyOnTheGraphWhenTurnedOn() {
+		// Auto OFFで描いた基本色は、ONにしても変えない。Autoが配るのはその後に選んだRunだけで、
+		// graphに描かれている色まで組み直すのはRecolorボタンの役割である。
+		openColorFixture("autoRecolorTurnedOnTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_01");
+		clickRunRow(page, "run_08");
+		waitForSelectedTraceCount(page, 2);
+		setAutoRecolor(page, true);
+
+		assertEquals(List.of(BLUE, TEAL), readChipColors(page, List.of("run_01", "run_08")));
+		assertEquals(TEAL, readTraceColor(page, "run_08"));
+	}
+
+	@Test
+	void autoRecolorDefaultsToOnAndSurvivesReload() {
+		openColorFixture("autoRecolorStorageTest", 14);
+
+		assertTrue(isToggleOn(page, "#btn-auto-recolor"));
+		assertNull(readAutoRecolorStorage(page));
+
+		setAutoRecolor(page, false);
+		page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForRunRows(page, 14);
+
+		assertFalse(isToggleOn(page, "#btn-auto-recolor"));
+		assertEquals("false", readAutoRecolorStorage(page));
+	}
+
+	@Test
+	void recolorLeavesUnselectedRunsOnTheirBaseColors() {
+		openColorFixture("unselectedRunColorTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_01");
+		clickRunRow(page, "run_03");
+		clickRunRow(page, "run_10");
+		clickRunRow(page, "run_14");
+		page.click("#btn-recolor-runs");
+
+		// run_03 が #D1D83B を取っても、それを基本色に持つ未選択の run_13 は動かない。
+		assertEquals(LIME, readChipColor(page, "run_03"));
+		assertEquals(LIME, readChipColor(page, "run_13"));
+	}
+
+	@Test
+	void recolorRepeatsThePaletteAfterTwentySelectedRuns() {
+		openColorFixture("recolorRoundTest", 25);
+
+		setAutoRecolor(page, false);
+		page.click("#btn-select-all-runs");
+		page.click("#btn-recolor-runs");
+
+		final List<String> colors = readChipColors(page, colorRunIds(25));
+		assertEquals(20, colors.subList(0, 20).stream().distinct().count());
+		assertEquals(BLUE, colors.get(0));
+		assertEquals(BLUE, colors.get(20));
+	}
+
+	@Test
+	void autoRecolorKeepsTheColorsAssignedByTheRecolorButton() {
+		openColorFixture("recolorWithAutoOnTest", 14);
+
+		clickRunRow(page, "run_14");
+		clickRunRow(page, "run_01");
+		clickRunRow(page, "run_03");
+		clickRunRow(page, "run_10");
+		page.click("#btn-recolor-runs");
+		final List<String> afterButton = readChipColors(page, List.of("run_01", "run_03", "run_10"));
+
+		clickRunRow(page, "run_14"); // Autoが走る選択変更
+		waitForSelectedTraceCount(page, 4);
+
+		assertEquals(List.of(BLUE, LIME, RED), afterButton);
+		assertEquals(afterButton, readChipColors(page, List.of("run_01", "run_03", "run_10")));
+		assertEquals(GREEN, readChipColor(page, "run_14"));
+	}
+
+	@Test
+	void recolorButtonGivesASingleSelectedRunTheFirstPaletteColor() {
+		openColorFixture("recolorSingleRunTest", 14);
+
+		setAutoRecolor(page, false);
+		selectSingleRun(page, "run_10");
+		assertEquals(RED, readChipColor(page, "run_10"));
+		final String unselectedColor = readChipColor(page, "run_14");
+
+		page.click("#btn-recolor-runs");
+
+		assertEquals(BLUE, readChipColor(page, "run_10"));
+		assertEquals(unselectedColor, readChipColor(page, "run_14"));
+	}
+
+	@Test
+	void soloSelectionKeepsTheColorOfARunThatWasSelected() {
+		// solo選択の1回目のclickはこのRunを選択から外すが、2回のclickを1つの操作として扱い色を保つ。
+		openColorFixture("soloSelectedRunColorTest", 14);
+
+		clickRunRow(page, "run_01");
+		clickRunRow(page, "run_13");
+		assertEquals(LIME, readChipColor(page, "run_01"));
+
+		selectSingleRun(page, "run_01");
+
+		assertEquals(List.of("run_01"), readActiveRunIds(page));
+		assertEquals(LIME, readChipColor(page, "run_01"));
+	}
+
+	@Test
+	void soloSelectionGivesAnUnselectedRunTheFirstPaletteColor() {
+		// 選択していなかったRunのsolo選択は、新しく選んだ1本としてpalette先頭の色を取る。
+		openColorFixture("soloUnselectedRunColorTest", 14);
+
+		clickRunRow(page, "run_01");
+		selectSingleRun(page, "run_10");
+
+		assertEquals(List.of("run_10"), readActiveRunIds(page));
+		assertEquals(BLUE, readChipColor(page, "run_10"));
+	}
+
+	@Test
+	void sidePanelControlRowsFitOnOneLineWithoutShrinkingButtons() {
+		openColorFixture("controlRowLayoutTest", 14);
+
+		// 行が横へ溢れていないか（overflow）と、中身が押し潰されていないか（shrunk）を見る。
+		// 見出し行はラベルとボタンで高さが違うので、topの一致では判定できない。
+		assertEquals(
+				"run-section/header:false:false|run-section/controls:false:false"
+						+ "|tag-section/header:false:false|tag-section/controls:false:false",
+				page.evaluate("""
+						() => [...document.querySelectorAll('.section-header, .section-controls')]
+							.map(row => {
+								const overflow = row.scrollWidth > row.clientWidth + 1;
+								const shrunk = [...row.children].some(
+									el => el.scrollWidth > el.clientWidth + 1);
+								const kind = row.classList.contains('section-header')
+									? 'header' : 'controls';
+								return row.closest('.section').id + '/' + kind
+									+ ':' + overflow + ':' + shrunk;
+							})
+							.join('|')
+						"""));
+	}
+
+	@Test
+	void selectedOnlyHidesUnselectedRowsInBothSections() {
+		openColorFixture("selectedOnlyTest", 14);
+		selectSingleRun(page, "run_10");
+
+		assertEquals("run:14/14|tag:1/1", readVisibleListCounts(page));
+
+		setToggle(page, "#btn-selected-only-runs", true);
+		setToggle(page, "#btn-selected-only", true);
+		assertEquals("run:1/14|tag:1/1", readVisibleListCounts(page));
+
+		// タグを未選択にすると、選択中しか残さないTag listからも消える。
+		page.click("#tag-list li");
+		assertEquals("run:1/14|tag:0/1", readVisibleListCounts(page));
+
+		// OFFに戻せば、未選択のままのタグもまた見える。
+		setToggle(page, "#btn-selected-only-runs", false);
+		setToggle(page, "#btn-selected-only", false);
+		assertEquals("run:14/14|tag:1/1", readVisibleListCounts(page));
+	}
+
+	@Test
+	void bulkSelectionButtonsTurnOffSelectedOnly() {
+		openColorFixture("bulkTurnsOffSelectedOnlyTest", 14);
+
+		setToggle(page, "#btn-selected-only-runs", true);
+		page.click("#btn-latest-only");
+		assertFalse(isToggleOn(page, "#btn-selected-only-runs"), "Select Latest");
+
+		setToggle(page, "#btn-selected-only", true);
+		page.click("#btn-clear-all");
+		assertFalse(isToggleOn(page, "#btn-selected-only"), "Clear All");
+
+		setToggle(page, "#btn-selected-only", true);
+		page.click("#btn-select-all");
+		assertFalse(isToggleOn(page, "#btn-selected-only"), "Tags Select All");
+
+		setToggle(page, "#btn-selected-only-runs", true);
+		page.click("#btn-select-all-runs");
+		assertFalse(isToggleOn(page, "#btn-selected-only-runs"), "Runs Select All");
+	}
+
+	@Test
+	void tagsSelectedOnlyIsRestoredAfterPageReloadButRunsSelectedOnlyStartsOff() {
+		openColorFixture("selectedOnlyStorageTest", 14);
+
+		setToggle(page, "#btn-selected-only-runs", true);
+		setToggle(page, "#btn-selected-only", true);
+		assertEquals("true", readStorage(page, "anet.metricsviewer.tagsSelectedOnly"));
+
+		reloadColorFixture(14);
+		assertFalse(isToggleOn(page, "#btn-selected-only-runs"));
+		assertTrue(isToggleOn(page, "#btn-selected-only"));
+		assertEquals("run:14/14|tag:1/1", readVisibleListCounts(page));
+
+		// 一括操作で自動OFFになった分も保存し直す。
+		page.click("#btn-select-all");
+		assertEquals("false", readStorage(page, "anet.metricsviewer.tagsSelectedOnly"));
+
+		reloadColorFixture(14);
+		assertFalse(isToggleOn(page, "#btn-selected-only"));
+	}
+
+	@Test
+	void hoveringARunRowShowsItsInfoPanelAndCopyNameCopiesTheRunName() {
+		// Clipboard APIを差し替え、コピーした文字列を読めるようにする。
+		context.addInitScript("""
+				Object.defineProperty(navigator, 'clipboard', {
+					configurable: true,
+					value: { writeText: async text => { window.__copiedText = text; } }
+				});
+				""");
+		openColorFixture("runInfoPanelTest", 3);
+
+		page.hover("#run-list .run-row[data-run-id='run_02']");
+		page.waitForFunction("""
+				() => !document.getElementById('run-info-panel').hidden
+					&& document.querySelector('#run-info-panel .run-info-name')?.textContent === 'run_02'
+				""");
+		// runJson(…, maxStep=2, 1 tag)なので、点は0〜2の3点。
+		assertEquals("Status|ready|Max step|2|Tags|1|Points|3", page.evaluate("""
+				() => [...document.querySelectorAll('#run-info-panel .run-info-fields > *')]
+					.map(element => element.textContent).join('|')
+				"""));
+		assertEquals("all", page.evaluate("""
+				() => getComputedStyle(document.querySelector('#run-info-panel .run-info-name')).userSelect
+				"""));
+
+		// 行からパネルへ移っても閉じない。
+		page.click("#run-info-panel .run-info-copy");
+		page.waitForFunction("""
+				() => window.__copiedText === 'run_02'
+					&& document.querySelector('#run-info-panel .run-info-copy').textContent === 'Copied'
+				""");
+		assertFalse(Boolean.TRUE.equals(page.evaluate(
+				"() => document.getElementById('run-info-panel').hidden")));
+
+		// 行とパネルの外へ出ると閉じる。
+		page.mouse().move(1200, 700);
+		page.waitForFunction("() => document.getElementById('run-info-panel').hidden");
+	}
+
+	@Test
+	void rightClickingARunRowShowsItsInfoPanelAndEscapeClosesIt() {
+		openColorFixture("runInfoPanelContextMenuTest", 3);
+
+		page.click("#run-list .run-row[data-run-id='run_01']",
+				new Page.ClickOptions().setButton(MouseButton.RIGHT));
+		page.waitForFunction("""
+				() => !document.getElementById('run-info-panel').hidden
+					&& document.querySelector('#run-info-panel .run-info-name')?.textContent === 'run_01'
+				""");
+		// 右クリックは選択を切り替えない。
+		assertEquals(List.of("run_03"), readActiveRunIds(page));
+
+		page.keyboard().press("Escape");
+		page.waitForFunction("() => document.getElementById('run-info-panel').hidden");
+	}
+
+	@Test
+	void runInfoPanelListsIngestAndTagIssues() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, "{\"runs\":["
+				+ "{\"id\":\"run_issue\",\"generation\":\"" + GENERATION + "\","
+				+ "\"stats\":{\"maxStep\":1234567},"
+				+ "\"ingest\":{\"state\":\"error\",\"percentage\":40,"
+				+ "\"error\":{\"code\":\"invalid_json\",\"message\":\"line 12\"}},"
+				+ "\"tags\":[{\"key\":\"tag/bad\",\"type\":\"scalar\",\"status\":\"error\","
+				+ "\"error\":{\"code\":\"step_regression\",\"message\":\"step went back\"}}]}]}"));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, "{\"data\":[]}"));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+		page.navigate(baseUrl + "/?runInfoIssuesTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForRunRows(page, 1);
+
+		page.hover("#run-list .run-row[data-run-id='run_issue']");
+		page.waitForFunction("() => !document.getElementById('run-info-panel').hidden");
+
+		assertEquals("Status|40% · error|Max step|1,234,567|Tags|1 (1 quarantined)|Points|0", page.evaluate("""
+				() => [...document.querySelectorAll('#run-info-panel .run-info-fields > *')]
+					.map(element => element.textContent).join('|')
+				"""));
+		assertEquals("invalid_json: line 12\ntag/bad: step_regression: step went back", page.evaluate("""
+				() => document.querySelector('#run-info-panel .run-info-issues').textContent
+				"""));
+	}
+
+	private void reloadColorFixture(int runCount) {
+		page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		waitForRunRows(page, runCount);
+	}
+
+	private static String readStorage(Page page, String key) {
+		return (String) page.evaluate("key => localStorage.getItem(key)", key);
+	}
+
+	/**
+	 * 「可視行/全行」をsectionごとに連結して返す。
+	 * hidden属性の有無ではなく実際に描画されているかを見る（display持ちの要素ではhiddenが効かないことがある）。
+	 */
+	private static String readVisibleListCounts(Page page) {
+		return (String) page.evaluate("""
+				() => {
+					const count = selector => {
+						const all = [...document.querySelectorAll(selector)];
+						return all.filter(el => el.getClientRects().length > 0).length
+							+ '/' + all.length;
+					};
+					return 'run:' + count('#run-list .run-row')
+						+ '|tag:' + count('#tag-list li');
+				}
+				""");
+	}
+
+	private void openColorFixture(String testName, int runCount) {
+		page.route("**/api/runs.json", route -> fulfillJson(route, colorRunsJson(runCount)));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, colorMetricsJson(runCount)));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?" + testName + "=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		waitForRunRows(page, runCount);
+	}
+}

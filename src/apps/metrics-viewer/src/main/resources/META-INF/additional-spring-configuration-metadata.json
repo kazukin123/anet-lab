@@ -1,0 +1,44 @@
+{"properties": [
+  {
+    "name": "metricsviewer.target-points-per-series",
+    "type": "java.lang.Integer",
+    "description": "1系列の既定描画vertex予算",
+    "defaultValue": 8000
+  },
+  {
+    "name": "metricsviewer.workspaces-dir",
+    "type": "java.lang.String",
+    "description": "Workspace群を格納する親ディレクトリ",
+    "defaultValue": "../../../data/workspaces"
+  },
+  {
+    "name": "metricsviewer.tag-sets-file",
+    "type": "java.lang.String",
+    "description": "タグセットの作業用JSON。未作成ならjarの初期値から作成し、親ディレクトリも作成する",
+    "defaultValue": "${metricsviewer.workspaces-dir}/metrics_viewer_tag_sets.json"
+  },
+  {
+    "name": "metricsviewer.initial-workspace",
+    "type": "java.lang.String",
+    "description": "起動時に選択する直下Workspace名",
+    "defaultValue": "_default"
+  },
+  {
+    "name": "metricsviewer.max-points-per-request",
+    "type": "java.lang.Integer",
+    "description": "1回のmetrics request全体の描画vertex上限",
+    "defaultValue": 500000
+  },
+  {
+    "name": "metricsviewer.cache-memory-mb",
+    "type": "java.lang.Integer",
+    "description": "完成済みLOD page cacheの上限MiB。0で無効",
+    "defaultValue": 256
+  },
+  {
+    "name": "metricsviewer.max-concurrent-queries",
+    "type": "java.lang.Integer",
+    "description": "同時に実行できるmetrics query数",
+    "defaultValue": 2
+  }
+]}

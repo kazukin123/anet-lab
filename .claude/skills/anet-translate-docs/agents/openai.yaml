@@ -1,0 +1,7 @@
+interface:
+  display_name: "ANET Translate Docs"
+  short_description: "docs/design の日本語設計文書を1本ずつ英訳し .en.md を隣に置く"
+  default_prompt: "$anet-translate-docs を使って、次の未訳の設計文書を1本英訳してください。"
+
+policy:
+  allow_implicit_invocation: false

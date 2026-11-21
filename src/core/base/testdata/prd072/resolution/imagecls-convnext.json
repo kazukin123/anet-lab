@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "selections": [
+    {
+      "key": "run.$",
+      "chain": [
+        {
+          "term": "run.@convnext_atto_hr",
+          "resolved": "run.@convnext_atto_hr"
+        }
+      ]
+    },
+    {
+      "key": "DefaultDQNAgent.$",
+      "chain": [
+        {
+          "term": "@baseline",
+          "resolved": "DefaultDQNAgent.@baseline"
+        }
+      ]
+    },
+    {
+      "key": "RainbowAgent.$",
+      "chain": [
+        {
+          "term": "@baseline",
+          "resolved": "RainbowAgent.@baseline"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC1].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_120]",
+          "resolved": "net.block.[Linear_120]"
+        },
+        {
+          "term": "net.block.FC1",
+          "resolved": "net.block.FC1"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC2].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_84]",
+          "resolved": "net.block.[Linear_84]"
+        },
+        {
+          "term": "net.block.FC2",
+          "resolved": "net.block.FC2"
+        }
+      ]
+    },
+    {
+      "key": "net.block.[MLP_FC3].$",
+      "chain": [
+        {
+          "term": "net.block.[Linear_84]",
+          "resolved": "net.block.[Linear_84]"
+        },
+        {
+          "term": "net.block.FC3",
+          "resolved": "net.block.FC3"
+        }
+      ]
+    },
+    {
+      "key": "app.$",
+      "chain": [
+        {
+          "term": "app.online",
+          "resolved": "app.online"
+        },
+        {
+          "term": "P1",
+          "resolved": "P1"
+        }
+      ]
+    },
+    {
+      "key": "ImageClsAgent.net.branch.[main_feature].$",
+      "chain": [
+        {
+          "term": "net.branch.@ConvNeXtAtto",
+          "resolved": "net.branch.@ConvNeXtAtto"
+        }
+      ]
+    },
+    {
+      "key": "backend.$",
+      "chain": [
+        {
+          "term": "backend.@non-deterministic",
+          "resolved": "backend.@non-deterministic"
+        }
+      ]
+    }
+  ],
+  "overrides": [
+    {
+      "key": "app.run_name",
+      "by": "run.@convnext_atto_hr",
+      "from": "run_{t}_imgcls_ResNet18HR",
+      "to": "run_{t}_imgcls_CnAttoHR"
+    }
+  ],
+  "references": [
+    {
+      "source": "ImageClsAgent.learning_rate.phase.[main_cosine].steps",
+      "target": "@vars.main_cosine_steps",
+      "value": "19,500,000"
+    },
+    {
+      "source": "app.exp_pause_step",
+      "target": "@vars.max_exp_step",
+      "value": "20,000,000"
+    },
+    {
+      "source": "app.online.exp_pause_step",
+      "target": "@vars.max_exp_step",
+      "value": "20,000,000"
+    }
+  ]
+}

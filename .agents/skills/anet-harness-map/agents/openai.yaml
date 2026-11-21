@@ -1,0 +1,7 @@
+interface:
+  display_name: "ANET Harness Map"
+  short_description: "anet-lab の AI ハーネス動線マップを再生成する"
+  default_prompt: "$anet-harness-map を使って、現在の anet-lab の動線マップを再生成してください。"
+
+policy:
+  allow_implicit_invocation: false

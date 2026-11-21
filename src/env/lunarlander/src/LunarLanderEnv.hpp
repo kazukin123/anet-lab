@@ -1,0 +1,215 @@
+﻿// LunarLanderEnv.hpp
+
+#pragma once
+
+#include <memory>
+#include <string>
+#include <vector>
+#include <optional>
+#include <box2d/box2d.h>
+#include <torch/torch.h>
+#include "anet/random.hpp"
+#include "anet/config.hpp"
+#include "anet/env.hpp"
+
+namespace anet::rl::env {
+
+    constexpr float kMainEngineForce = 40.0f;   ///< メインエンジンの推力
+    constexpr float kSideEngineForce = 10.0f;   ///< サイドエンジンの推力
+    constexpr float kSideEngineTorque = 5.0f;   ///< サイドエンジンの回転トルク
+    constexpr float kLanderRadius = 0.25f;      ///< Lander本体（円形）の半径
+
+    constexpr int kActionNoop = 0;
+    constexpr int kActionLeft = 1;
+    constexpr int kActionMain = 2;
+    constexpr int kActionRight = 3;
+    constexpr int kActionCount = 4;
+
+    /// LunarLander 環境の設定
+    struct LunarLanderEnvConfig : public anet::Config {
+        int limit_step = 1000;
+        float world_half_width = 1.5f;
+        float world_height = 2.0f;
+        float ground_y = 0.0f;
+        float gravity = -10.0f;
+        bool obs_include_action = false;
+
+        bool enable_wind = false;
+        float wind_power = 15.0f;       ///< Gym の WIND_POWER 相当
+        float turbulence_power = 1.5f;  ///< Gym の TURBULENCE_POWER 相当
+        std::string wind_stop_mode = "ground";
+
+        int terrain_point_count = 21;   ///< 地形 polyline の頂点数（少なくとも 2）
+        float terrain_noise_height = 0.3f; ///< 地形高さノイズの上限
+        std::string contact_mode = "ground";
+        std::string landing_detection_mode = "contact";
+
+        struct {
+            float x_range = 1.0;
+            float y_range = 0.0;
+            float x_velocity_range = 0.0;
+            float y_velocity_range = 0.0;
+            float angle_range = 0.1;
+            float angular_velocity_range = 0.0;
+        } init;
+
+        /// @todo terrain_point_count / terrain_noise_height の適切な値を検討する。
+
+        LunarLanderEnvConfig(
+            const anet::ConfigData& config_data = anet::EmptyConfigData,
+            const std::string& config_prefix = "")
+            : anet::Config(config_data, "LunarLanderEnv", config_prefix)
+        {
+            ANET_READ_CONFIG(config_data, limit_step);
+            ANET_READ_CONFIG(config_data, world_half_width);
+            ANET_READ_CONFIG(config_data, world_height);
+            ANET_READ_CONFIG(config_data, ground_y);
+            ANET_READ_CONFIG(config_data, gravity);
+            ANET_READ_CONFIG(config_data, obs_include_action);
+            ANET_READ_CONFIG(config_data, enable_wind);
+            ANET_READ_CONFIG(config_data, wind_power);
+            ANET_READ_CONFIG(config_data, turbulence_power);
+            ANET_READ_CONFIG(config_data, wind_stop_mode);
+            ANET_READ_CONFIG(config_data, terrain_point_count);
+            ANET_READ_CONFIG(config_data, terrain_noise_height);
+            ANET_READ_CONFIG(config_data, contact_mode);
+            ANET_READ_CONFIG(config_data, landing_detection_mode);
+            ANET_READ_CONFIG(config_data, init.x_range);
+            ANET_READ_CONFIG(config_data, init.y_range);
+            ANET_READ_CONFIG(config_data, init.x_velocity_range);
+            ANET_READ_CONFIG(config_data, init.y_velocity_range);
+            ANET_READ_CONFIG(config_data, init.angle_range);
+            ANET_READ_CONFIG(config_data, init.angular_velocity_range);
+
+
+            ANET_ASSERT(terrain_point_count >= 2);
+            if (wind_stop_mode != "none" && wind_stop_mode != "ground" && wind_stop_mode != "pad") {
+                ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.wind_stop_mode: "
+                    << wind_stop_mode << ". Expected none, ground, or pad.");
+            }
+            if (contact_mode != "ground" && contact_mode != "pad") {
+                ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.contact_mode: "
+                    << contact_mode << ". Expected ground or pad.");
+            }
+            if (landing_detection_mode != "contact" && landing_detection_mode != "not_awake") {
+                ANET_SYSTEM_ERROR("Invalid LunarLanderEnv.landing_detection_mode: "
+                    << landing_detection_mode << ". Expected contact or not_awake.");
+            }
+        }
+    };
+
+    /// LunarLander 単一環境クラス（離散アクション）
+    /// Box2D を用いて 2D 物理を簡易再現する。
+    class LunarLanderEnv : public anet::rl::SingleDiscreteEnvBase, public anet::RandomHolder, public std::enable_shared_from_this<LunarLanderEnv> {
+    public:
+        LunarLanderEnv(
+            const LunarLanderEnvConfig& config,
+            const torch::Device& device,
+            const std::string& name,
+            const std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train);
+
+        ~LunarLanderEnv() override;
+
+        anet::rl::EnvSpec GetSpec() const override;
+        std::shared_ptr<const anet::rl::SingleResetResult> Reset() override;
+        std::shared_ptr<const anet::rl::SingleStepResult> Step(int64_t action) override;
+
+    public:
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
+    private:
+        class Result;
+        class ResetResult;
+        class StepResult;
+    private:
+        void buildWorld(float init_x, float init_y, float init_angle);
+        void destroyWorld();
+
+        void buildGround();
+        void buildLander(float init_x, float init_y, float init_angle);
+
+        void applyWind();
+        bool shouldStopWind() const;
+        bool legTouchesGround(const b2Body* leg_body) const;
+        bool legTouchesPad(const b2Body* leg_body) const;
+        void applyActionForce(int64_t action);
+
+        anet::rl::SingleState makeState() const;
+        float computeShaping(const anet::rl::SingleState& state) const;
+        std::pair<float, float> calcReward(const anet::rl::SingleState& state, bool crashed, bool landed, int64_t action);
+        bool checkCrash() const;
+        bool checkLanded() const;
+
+    private:
+        // 着陸パッドの水平区間と高さ
+        struct PadInfo {
+            float x1 = 0.0f;
+            float x2 = 0.0f;
+            float y = 0.0f;
+        };
+    private:
+        LunarLanderEnvConfig config_;
+        torch::TensorOptions float_opt_;
+        torch::TensorOptions bool_opt_;
+
+        std::unique_ptr<b2World> world_;
+        b2Body* ground_body_ = nullptr;
+        b2Body* lander_body_ = nullptr;
+        b2Body* left_leg_body_ = nullptr;
+        b2Body* right_leg_body_ = nullptr;
+        b2WeldJoint* left_leg_joint_ = nullptr;
+        b2WeldJoint* right_leg_joint_ = nullptr;
+
+        std::vector<b2Vec2> terrain_points_;
+        PadInfo pad_info_;
+
+        bool body_contact_ = false;
+        bool left_leg_contact_ = false;
+        bool right_leg_contact_ = false;
+        int left_leg_contact_count_ = 0;
+        int right_leg_contact_count_ = 0;
+
+        int step_count_ = 0;
+        float last_wind_x_ = 0.0f;
+        float last_wind_torque_ = 0.0f;
+        int64_t wind_idx_ = 0;
+        int64_t torque_idx_ = 0;
+        int64_t last_action_ = -1; ///< 直前に実行した action。-1 は Reset 直後の未行動を表す。
+
+        float last_shaping_ = 0.0f;
+        bool has_prev_shaping_ = false;
+
+        // ContactListener は脚の接地を検出するために使用
+        class ContactListener : public b2ContactListener {
+        public:
+            explicit ContactListener(LunarLanderEnv& env) : env_(env) {}
+            void BeginContact(b2Contact* contact) override;
+            void EndContact(b2Contact* contact) override;
+        private:
+            LunarLanderEnv& env_;
+        };
+
+        std::unique_ptr<ContactListener> contact_listener_;
+    };
+
+    class LunarLanderEnvFactory : public anet::rl::SingleDiscreteEnvFactory {
+    public:
+        LunarLanderEnvFactory() = default;
+        void ValidateConfig(const anet::ConfigData& data, anet::rl::RunMode, const std::string& prefix) const override
+        {
+            (void)LunarLanderEnvConfig(data, prefix);
+        }
+
+        std::string GetTargetEnvClassId() const override { return "LunarLanderEnv"; }
+
+        std::shared_ptr<anet::rl::SingleDiscreteEnv> CreateSingleEnv(
+            const anet::ConfigData& config_data,
+            const torch::Device& device,
+            const std::string& name,
+            std::optional<anet::seed_t> seed = std::nullopt,
+            anet::rl::RunMode run_mode = anet::rl::RunMode::Train,
+            const std::string& config_prefix = "") override;
+    };
+}

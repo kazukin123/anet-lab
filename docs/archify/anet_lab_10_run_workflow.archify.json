@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "anet-lab Run 実行ワークフロー",
+    "quality_profile": "showcase",
+    "viewBox": [
+      740,
+      466
+    ]
+  },
+  "lanes": [
+    {
+      "id": "app",
+      "label": "RunnerApp（main thread）"
+    },
+    {
+      "id": "worker",
+      "label": "構築 thread・TrainThread"
+    },
+    {
+      "id": "eval",
+      "label": "評価・分析"
+    }
+  ],
+  "phases": [
+    {
+      "id": "prepare",
+      "label": "準備と構築",
+      "fromCol": 0,
+      "toCol": 2
+    },
+    {
+      "id": "execute",
+      "label": "実行",
+      "fromCol": 3,
+      "toCol": 4,
+      "variant": "emphasis"
+    },
+    {
+      "id": "finish",
+      "label": "終了と分析",
+      "fromCol": 5,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "ws_select",
+    "config_merge",
+    "construct",
+    "train_loop",
+    "shutdown",
+    "analyze"
+  ],
+  "nodes": [
+    {
+      "id": "ws_select",
+      "lane": "app",
+      "col": 0,
+      "type": "frontend",
+      "label": "workspace",
+      "sublabel": "選択と解決"
+    },
+    {
+      "id": "config_merge",
+      "lane": "app",
+      "col": 1,
+      "type": "backend",
+      "label": "設定の合成",
+      "sublabel": "_main.txt を後勝ちで"
+    },
+    {
+      "id": "construct",
+      "lane": "worker",
+      "col": 2,
+      "type": "backend",
+      "label": "Run の構築",
+      "sublabel": "RunManager",
+      "width": 110
+    },
+    {
+      "id": "pause",
+      "lane": "app",
+      "col": 4,
+      "type": "frontend",
+      "label": "一時停止",
+      "sublabel": "Pause / Resume"
+    },
+    {
+      "id": "train_loop",
+      "lane": "worker",
+      "col": 4,
+      "type": "backend",
+      "label": "学習の反復",
+      "sublabel": "DoUpdateFrame(1)",
+      "width": 104
+    },
+    {
+      "id": "eval_session",
+      "lane": "eval",
+      "col": 4,
+      "type": "backend",
+      "label": "評価セッション",
+      "sublabel": "RunSession",
+      "width": 108
+    },
+    {
+      "id": "shutdown",
+      "lane": "app",
+      "col": 5,
+      "type": "backend",
+      "label": "終了と排水",
+      "sublabel": "OnClose・OnExit"
+    },
+    {
+      "id": "analyze",
+      "lane": "eval",
+      "col": 5,
+      "type": "external",
+      "label": "成果物の分析",
+      "sublabel": "Metrics Viewer ほか",
+      "width": 104
+    }
+  ],
+  "edges": [
+    {
+      "from": "ws_select",
+      "to": "config_merge",
+      "variant": "emphasis"
+    },
+    {
+      "from": "config_merge",
+      "to": "construct",
+      "label": "背景で構築",
+      "variant": "emphasis",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "construct",
+      "to": "train_loop",
+      "label": "Start",
+      "variant": "emphasis"
+    },
+    {
+      "from": "pause",
+      "to": "train_loop",
+      "label": "paused_",
+      "variant": "dashed",
+      "role": "branch",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "train_loop",
+      "to": "eval_session",
+      "label": "LearnEvent",
+      "role": "branch",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "train_loop",
+      "to": "shutdown",
+      "label": "Close",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          562,
+          243
+        ],
+        [
+          562,
+          119
+        ]
+      ]
+    },
+    {
+      "from": "shutdown",
+      "to": "analyze",
+      "label": "Run フォルダ",
+      "variant": "emphasis",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "設定と構築",
+      "items": [
+        "--workspace・選択 dialog・前回の順で決め、無ければ _default。--config は直接モード",
+        "構築は背景 thread。構築中の Close は保留して完了後に閉じる"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "反復と評価",
+      "items": [
+        "DoUpdateFrame(1) を COMPLETED まで繰り返す。Pause は step の境目で効く",
+        "interval>0 の評価タグだけが LearnEvent で発火し、warmup_count 回は抑止する"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "終了と失敗",
+      "items": [
+        "Close は agent_close.anet を保存して排水し、ログを閉じる",
+        "worker の例外は main thread で報告し、exit code 1 で終わる"
+      ]
+    }
+  ]
+}

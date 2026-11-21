@@ -1,0 +1,4 @@
+interface:
+  display_name: "ANET List Issues"
+  short_description: "課題の一覧・棚卸し・束ねる提案を示す"
+  default_prompt: "anet-list-issues の手順で、本版の課題を一覧にしてください。"

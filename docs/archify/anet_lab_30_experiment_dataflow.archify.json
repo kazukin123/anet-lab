@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "anet-lab 実験データの流れ",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      600
+    ]
+  },
+  "stages": [
+    {
+      "label": "設定"
+    },
+    {
+      "label": "Env"
+    },
+    {
+      "label": "行動と経験"
+    },
+    {
+      "label": "学習と記録"
+    },
+    {
+      "label": "成果物と消費"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "ConfigData",
+      "sublabel": "workspace＋CLI",
+      "stage": 0,
+      "row": 1,
+      "tag": "_main.txt"
+    },
+    {
+      "id": "env",
+      "type": "backend",
+      "label": "BatchEnv",
+      "sublabel": "State・reward（CPU）",
+      "stage": 1,
+      "row": 1,
+      "tag": "EnvSpec"
+    },
+    {
+      "id": "actor",
+      "type": "backend",
+      "label": "Actor",
+      "sublabel": "device で forward",
+      "stage": 2,
+      "row": 0,
+      "tag": "推論"
+    },
+    {
+      "id": "replay",
+      "type": "database",
+      "label": "ReplayBuffer",
+      "sublabel": "CPU で保管",
+      "stage": 2,
+      "row": 2,
+      "tag": "N-step・PER"
+    },
+    {
+      "id": "recorder",
+      "type": "messagebus",
+      "label": "Observer",
+      "sublabel": "Event から値を読む",
+      "stage": 3,
+      "row": 1,
+      "tag": "MetricsLogger"
+    },
+    {
+      "id": "learner",
+      "type": "backend",
+      "label": "Learner",
+      "sublabel": "loss・optimizer",
+      "stage": 3,
+      "row": 2,
+      "tag": "device"
+    },
+    {
+      "id": "viewer",
+      "type": "external",
+      "label": "Metrics Viewer",
+      "sublabel": "SQLite cache",
+      "stage": 4,
+      "row": 0,
+      "tag": "導出 cache",
+      "width": 132
+    },
+    {
+      "id": "master",
+      "type": "database",
+      "label": "metrics.jsonl",
+      "sublabel": "Metricsマスタ",
+      "stage": 4,
+      "row": 1,
+      "tag": "正本",
+      "width": 132
+    },
+    {
+      "id": "tools",
+      "type": "external",
+      "label": "bridge・inspect_run",
+      "sublabel": "TensorBoard・MLflow",
+      "stage": 4,
+      "row": 2,
+      "tag": "読むだけ",
+      "width": 132
+    }
+  ],
+  "flows": [
+    {
+      "id": "config-env",
+      "from": "config",
+      "to": "env",
+      "label": "env 設定・seed",
+      "classification": "構築時",
+      "variant": "emphasis"
+    },
+    {
+      "id": "env-actor",
+      "from": "env",
+      "to": "actor",
+      "label": "State",
+      "classification": "CPU TensorDict",
+      "variant": "emphasis"
+    },
+    {
+      "id": "env-replay",
+      "from": "env",
+      "to": "replay",
+      "label": "Experience",
+      "classification": "CPU clone",
+      "variant": "emphasis"
+    },
+    {
+      "id": "replay-learner",
+      "from": "replay",
+      "to": "learner",
+      "label": "minibatch",
+      "classification": "device 転送",
+      "variant": "emphasis"
+    },
+    {
+      "id": "actor-recorder",
+      "from": "actor",
+      "to": "recorder",
+      "label": "ActionInfo",
+      "classification": "TrainEvent",
+      "fromSide": "right",
+      "toSide": "top",
+      "via": [
+        [
+          745,
+          157
+        ]
+      ]
+    },
+    {
+      "id": "env-recorder",
+      "from": "env",
+      "to": "recorder",
+      "label": "StepResult",
+      "classification": "TrainEvent・EpisodeEnd"
+    },
+    {
+      "id": "learner-recorder",
+      "from": "learner",
+      "to": "recorder",
+      "label": "LearnEvent",
+      "classification": "UpdateResult"
+    },
+    {
+      "id": "recorder-master",
+      "from": "recorder",
+      "to": "master",
+      "label": "scalar・trace 追記",
+      "classification": "JSONL",
+      "variant": "emphasis",
+      "labelAt": [
+        848,
+        314
+      ]
+    },
+    {
+      "id": "master-viewer",
+      "from": "master",
+      "to": "viewer",
+      "label": "取り込み",
+      "classification": "再生成できる",
+      "variant": "dashed"
+    },
+    {
+      "id": "master-tools",
+      "from": "master",
+      "to": "tools",
+      "label": "読み取り",
+      "classification": "別 process",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "正本と導出物",
+      "items": [
+        "metrics.jsonl（.gz）が scalar と trace の正本。metrics_cache.db は作り直せる cache",
+        "画像は images/、動画は videos/*.mkv、設定は config/ に置く"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "device と process の境界",
+      "items": [
+        "Env の State・Experience と ReplayBuffer は CPU。Actor と Learner が device へ移す",
+        "Viewer・bridge・inspect_run は別 process でファイルだけを読む"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "根拠",
+      "items": [
+        "書き手: metrics_logger.hpp の LogScalar・LogTrace",
+        "読み手: MetricsIngestor.java、apps/tools/metrics_source.py"
+      ]
+    }
+  ]
+}

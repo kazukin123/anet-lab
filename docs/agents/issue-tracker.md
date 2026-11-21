@@ -11,6 +11,14 @@ documentation source of truth.
 - An implementation plan defines the overall implementation approach, order, and
   validation for its PRD. It lives beside the PRD as
   `docs/memo/NNN_<slug>_2ximpl.md`.
+- A persistent issue record lives in `docs/management/issues/issue-YYYYMMDD-xxxxxx.md`.
+  Each issue points to the PRD that fixes it through its `prd` field (an Obsidian
+  link such as `"[[NNN_slug_10prd]]"`; issues to PRDs are N:1). Every PRD directly
+  under `docs/memo/` has at least one such issue, and those issues own work state,
+  priority, dependencies and order. Whether a PRD is implemented is derived from
+  its issues. New PRDs stay directly under
+  `docs/memo/`; existing `done/`, `frozen/` and `dropped/` folders are historical
+  storage and remain searchable. See `docs/memo/README.md`.
 - An implementation issue is an independently claimable execution unit with its
   own status and dependencies. It lives at
   `.scratch/<feature-slug>/issues/<NN>-<slug>.md`.
@@ -20,11 +28,11 @@ those artifacts exist. Do not copy their bodies into `.scratch/`.
 
 ## PRDs and Implementation Plans
 
-- `to-prd` creates only the corresponding `docs/memo/*_10prd.md`. It does not
-  create a tracking issue under `.scratch/`.
-- Use the established formal number when one is known. Use `999` for an
-  unnumbered backlog draft.
-- `implement-prd-with-docs` creates the next available implementation-plan slot
+- Assign the next formal number after the current maximum when creating a PRD,
+  including a provisional draft. Never reuse a number, except that 900-999 do
+  not count uses on or before the PRD131 renumbering date. A renumbered PRD keeps
+  its old number in a renumber line under its title. See `docs/memo/README.md`.
+- `anet-impl-prd` creates the next available implementation-plan slot
   beside the PRD: `20impl`, then `21impl`, and so on.
 - Never overwrite an existing PRD or implementation-plan slot.
 - PRDs and implementation plans do not carry the local issue `Status:` field.

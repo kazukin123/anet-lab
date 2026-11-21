@@ -1026,10 +1026,11 @@ WARN_LOGFILE           =
 # spaces. See also FILE_PATTERNS and EXTENSION_MAPPING
 # Note: If this tag is empty the current directory is searched.
 
-INPUT                  = ../core/anet-core/include \
-                         ../core/anet-core/src \
-                         ../apps \
-                         ../apps-wx
+INPUT                  = ../src/core/base/include \
+                         ../src/core/base/src \
+                         ../src/algo \
+                         ../src/env \
+                         ../src/apps/runner
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses
@@ -1090,8 +1091,8 @@ RECURSIVE              = YES
 
 EXCLUDE                = ../build \
                          ../docs/out \
-                         ../viewers/metrics-tools \
-                         ../core/anet-core/include/nlohmann
+                         ../apps/tools \
+                         ../src/core/base/include/nlohmann
 
 # The EXCLUDE_SYMLINKS tag can be used to select whether or not files or
 # directories that are symbolic links (a Unix file system feature) are excluded
