@@ -1,6 +1,6 @@
 ---
 name: anet-create-prd
-description: Create or revise an anet-lab PRD through a docs-aware grilling session with questions, drafting, self-check, and review, then stop without implementation. Use /anet-create-prd or $anet-create-prd with a topic or an existing PRD filename (including a re-grill from a separate session), or when the user wants to grill or stress-test a plan against the project's documented decisions.
+description: Create or revise an anet-lab PRD through a docs-aware grilling session with questions, drafting, self-check, and review, then stop without implementation. Use only when the user invokes /anet-create-prd or $anet-create-prd with a topic, issue IDs, or an existing PRD filename (including a re-grill from a separate session), or explicitly asks in words to create, provisionally draft, revise, or grill a PRD. Do not start it on your own because a discussion shows that a PRD is needed; propose raising an issue and a provisional PRD and wait for the user's approval (AGENTS.md).
 ---
 
 # PRD の作成・改訂
