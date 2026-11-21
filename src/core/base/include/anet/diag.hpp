@@ -69,6 +69,6 @@
 
 namespace anet {
 
-    void ThrowError(const char* file, int line, const char* prefix, const char* cond, const std::string& msg = "");
+    [[noreturn]] void ThrowError(const char* file, int line, const char* prefix, const char* cond, const std::string& msg = "");
 
 } // namespace anet
