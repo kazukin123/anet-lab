@@ -112,6 +112,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261110-546bdb](../../management/issues/issue-20261110-546bdb.md) | 未着手 | 3.5 | — | コード | 実装 | 316_config | 開発 | 不整合 | — | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
+| [issue-20261121-d4feb6](../../management/issues/issue-20261121-d4feb6.md) | 調査中 | 2.0 | — | コード | PRD | 316_config, 315_nn, 324_dqn | 基盤 | 機能改善 | [PRD193](../../memo/193_variance_scaling_weight_init_10prd.md) | 未確認 | 初期化の設定（WeightInitConfig）を 14 か所が 1 キーずつ読み、読み方と不正な値の止まり方が読み手ごとに違う |
 | [issue-20261111-cdc102](../../management/issues/issue-20261111-cdc102.md) | 未着手 | 2.7 | — | コード | 監査 | 316_config, 315_nn, 324_dqn | 基盤 | リファクタリング | — | 残件有り | WeightInitConfig などの設定の部品に読み取りの口が無く、使う側が 1 キーずつ読むので、同じ 6〜8 行が十数か所にあり、読み方も食い違っている |
 | [issue-20261108-06a3f0](../../management/issues/issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | コード | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
 | [issue-20261108-f0f243](../../management/issues/issue-20261108-f0f243.md) | 未着手 | 2.6 | — | コード | PRD | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする） |
@@ -126,5 +127,5 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | コード | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD152](../../memo/152_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
 | [issue-20261115-b02db6](../../management/issues/issue-20261115-b02db6.md) | 未着手 | 1.3 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | コード | その他 | 316_config, 324_dqn, 315_nn | 基盤 | リファクタリング | — | 残件有り | RND の Head の出力次元 intrinsic.rnd.output_dim が rnd の直下にあり、Head の初期値 intrinsic.rnd.head.init.* と置き場が分かれている |
 
-着手できる 13 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 14 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

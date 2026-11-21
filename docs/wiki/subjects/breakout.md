@@ -79,4 +79,4 @@ LN512はRR4の天井を押し上げた一方、RR1では対照のブレ幅内だ
 
 - [atari](../subjects/atari.md)。
 - [evaluation](../mechanisms/evaluation.md)。
-- [PRD193](../../memo/193_variance_scaling_weight_init_10prd.md)（重みの初期化に、分散を倍率÷fan_in にする一様分布の方式を足す。暫定）。
+- [PRD193](../../memo/193_variance_scaling_weight_init_10prd.md)（重みの初期化に、分散を倍率÷fan_in にする一様分布の方式を足す。Breakout の 5M の Run の比べ方の材料は §9.1）。
