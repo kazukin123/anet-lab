@@ -3,6 +3,8 @@ package io.github.kazukin123.anetlab.metricsviewer.view;
 import static io.github.kazukin123.anetlab.metricsviewer.view.MetricsViewerPlaywrightTestData.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -362,5 +364,128 @@ class GraphInteractionPlaywrightTest extends MetricsViewerPlaywrightTestSupport 
 		assertEquals(1, ((Number) page.evaluate("() => window.__graphDblClickReloadCalls")).intValue());
 		assertEquals(1, ((Number) page.evaluate(
 				"() => window.__existingMainAreaDoubleClickCalls")).intValue());
+	}
+
+	@Test
+	void graphHeightSliderResizesGraphsAndIsRestoredAfterPageReload() {
+		routeSingleTagGraph();
+		page.navigate(baseUrl + "/?graphHeightTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		waitForGraphHeight(page, 300);
+
+		// type=rangeはfillできないので、値を入れてからユーザー操作と同じinputとchangeを送る。
+		page.evaluate("""
+				() => {
+					const slider = document.getElementById('graph-height');
+					slider.value = '450';
+					slider.dispatchEvent(new Event('input'));
+					slider.dispatchEvent(new Event('change'));
+				}
+				""");
+		waitForGraphHeight(page, 450);
+		assertEquals("450", page.evaluate("() => localStorage.getItem('anet.metricsviewer.graphHeight')"));
+
+		page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		waitForGraphHeight(page, 450);
+		assertEquals("450|450|150|800|50", page.evaluate("""
+				() => {
+					const slider = document.getElementById('graph-height');
+					return [slider.value, document.getElementById('graph-height-value').textContent,
+						slider.min, slider.max, slider.step].join('|');
+				}
+				"""));
+	}
+
+	@Test
+	void invalidStoredGraphHeightFallsBackToTheDefault() {
+		routeSingleTagGraph();
+		page.navigate(baseUrl + "/?graphHeightInvalidTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		// 範囲の外の値と、範囲の中でも50px刻みに乗らない値は、どちらも既定へ戻す。
+		for (String stored : List.of("9999", "425")) {
+			page.evaluate("value => localStorage.setItem('anet.metricsviewer.graphHeight', value)", stored);
+			page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+			waitForGraph(page);
+			waitForGraphHeight(page, 300);
+		}
+	}
+
+	/**
+	 * 点の無い範囲へ拡大したままtagを選び直しても、軸だけのgraphが出て、ダブルクリックで全体へ戻れる。
+	 * graphが無いと、全tag一括のReset View以外に戻す手段が無かった。
+	 */
+	@Test
+	void zoomIntoARangeWithoutPointsKeepsAnEmptyGraphThatCanBeResetByDoubleClick() {
+		// 点はstep 0〜2だけにある。実serverと同じく、要求の範囲に点が無ければemptyで返す。
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> {
+			final var series = com.google.gson.JsonParser.parseString(route.request().postData())
+					.getAsJsonObject().getAsJsonArray("series");
+			if (series.get(0).getAsJsonObject().get("fromStep").getAsLong() <= 2) {
+				fulfillJson(route, metricsJson());
+				return;
+			}
+			final StringBuilder empty = new StringBuilder("{\"data\":[");
+			for (int i = 0; i < series.size(); i++) {
+				final var request = series.get(i).getAsJsonObject();
+				if (i > 0) empty.append(',');
+				empty.append("{\"runId\":").append(request.get("runId"))
+						.append(",\"tagKey\":").append(request.get("tagKey"))
+						.append(",\"generation\":\"").append(GENERATION).append("\"")
+						.append(",\"availability\":\"empty\",\"pointBudget\":0,\"projection\":null}");
+			}
+			fulfillJson(route, empty.append("]}").toString());
+		});
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+		page.navigate(baseUrl + "/?emptyZoomTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+
+		// 拡大した範囲の前後1画面分を含めても点に届かない所へ拡大し、tagを外して選び直す。
+		page.evaluate("""
+				async () => {
+					await Plotly.relayout(document.getElementById(graphId('palette/test')),
+						{'xaxis.range': [1000, 1100]});
+					await new Promise(resolve => setTimeout(resolve, 300));
+				}
+				""");
+		page.click("#tag-list li");
+		page.waitForFunction("() => !document.querySelector('#main-area > .graph-block')");
+		page.click("#tag-list li");
+		page.waitForFunction("""
+				() => {
+					const plot = document.getElementById(graphId('palette/test'));
+					const range = plot?.layout?.xaxis?.range;
+					return plot && !plot.dataset.renderStage && plot.data.length === 0
+						&& range?.[0] === 1000 && range?.[1] === 1100;
+				}
+				""");
+
+		page.dblclick("#main-area .js-plotly-plot");
+		page.waitForFunction("""
+				() => app.explicitViewport('palette/test') === null
+					&& (document.getElementById(graphId('palette/test'))?.data?.length ?? 0) > 0
+				""");
+	}
+
+	private void routeSingleTagGraph() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, runsJson()));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, metricsJson()));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+	}
+
+	/** 外枠(CSS)とPlotlyのlayoutの両方が、指定の高さになるまで待つ。 */
+	private static void waitForGraphHeight(Page page, int height) {
+		page.waitForFunction("""
+				height => {
+					const block = document.querySelector('#main-area > .graph-block');
+					const plot = block?.querySelector('.js-plotly-plot:not([data-render-stage])');
+					return Math.round(block?.getBoundingClientRect().height ?? 0) === height
+						&& plot?._fullLayout?.height === height;
+				}
+				""", height);
 	}
 }

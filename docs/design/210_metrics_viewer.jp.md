@@ -213,7 +213,7 @@ clientはviewportそのものではなく、左右へ1画面ずつ広げた**3�
 windowは系列ごとに1件だけ保持し、新しい応答が来たら差分mergeせず丸ごと置き換える。
 各range応答はそれ単体で完結しており、前回の応答へ依存しないため、この単純な置換で足りる。
 
-1つのgraphに載る系列（同じtagの選択中Run）は同じrequestで取る。表示粒度はviewportと画面幅から先に決め、prefetchで広げても変えない。window境界は共通Step区間へ整列し、パン時に区間起点を動かさない。通常モードのPlotly描画はscroll viewport前後1画面の近傍に限る。詳細windowは選択対象を64MiBのLRU内で保持し、容量内で画面に近い順に先読みする。スクロールだけでwindowを捨てない。全選択tagに全記録範囲の約64共通Step区間の概観を8graph単位で先に取得し、画面外と詳細待ちの間は、詳細と共通のPlotly figureから生成した軽量SVGで線を残す。概観と詳細を同じgraphで混在させない。blockの高さ300px、headerとscroll位置を維持し、描画が完成するまで直前の内容を残す。Screenshotモードは全選択graphを順次取得する。
+1つのgraphに載る系列（同じtagの選択中Run）は同じrequestで取る。表示粒度はviewportと画面幅から先に決め、prefetchで広げても変えない。window境界は共通Step区間へ整列し、パン時に区間起点を動かさない。通常モードのPlotly描画はscroll viewport前後1画面の近傍に限る。詳細windowは選択対象を64MiBのLRU内で保持し、容量内で画面に近い順に先読みする。スクロールだけでwindowを捨てない。全選択tagに全記録範囲の約64共通Step区間の概観を8graph単位で先に取得し、画面外と詳細待ちの間は、詳細と共通のPlotly figureから生成した軽量SVGで線を残す。概観と詳細を同じgraphで混在させない。blockの高さ（`Height`の値。既定300px）、headerとscroll位置を維持し、描画が完成するまで直前の内容を残す。Screenshotモードは全選択graphを順次取得する。
 どれか1系列でも取り直しが要れば、そのgraphの系列をまとめて取り直す。概観は同じ共通Step幅の全Runを一括反映し、詳細がそろうまでは概観を表示する。64MiBはdecoded詳細配列と系列ごとの管理費用の上限であり、SVG、Plotly、server heapを含むプロセス全体のメモリ上限ではない。
 
 概観SVGは手書きで座標・軸・Bandを計算せず、詳細と共通のtraces/layoutをPlotly 2.27で描いてexportする。共通headerのLog/percentileと凡例表示状態を反映するが、概観自身は静止画であり、hover/zoom/pan/凡例クリックは詳細表示で扱う。生成は画面近くから1件ずつ進め、イベントループへ制御を返す。通信や詳細描画はSVG生成をawaitしない。タグごと最新1画像を保持し、データ・選択・幅・表示設定が変われば生成し直す。workspace切替では世代を進めて古い生成結果を破棄する。
@@ -286,20 +286,22 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | `OverviewSvgRenderer` | 共通figureを1つの作業用Plotlyで直列exportし、タグごとの最新SVGだけを保持する。現在モデル・世代に一致する結果だけを公開する |
 | `PlotlyController` | raw/MinMax/Mean/Band描画、signed-log軸、zoom/pan、scroll lock、凡例状態を扱う。graphごとのデータ選択・共通表示モデル・外枠を管理し、描画keyが変わったgraphの内側だけを完成時に差し替える |
 | `UIController` | Run list、Tag list、進捗表示、静的controlのbindを担当する |
+| `RunInfoPanel` | Run行のhoverか右クリック（タッチは長押し）で、そのRunのmetadata（取り込みの状態、最大step、tag数と隔離の数、点数の合計、取り込みとtagの問題）と、Run名のコピー操作を出す。body直下に1つだけ置き、Run listの描き直しと取り込み進捗の更新のたびに中身と位置を合わせる。コピーはClipboard APIが使えないか拒まれたとき（別の機器からhttpで開いたときなど）、選択範囲のコピーへ切り替える |
 | `TagSetMenu` | タグセットの操作行と開閉する一覧、入力・確認・キーボード操作を描画する。選択名・取得済み一覧・セットごとの未保存の変更は `MetricsViewerClientApp` が所有する |
 | `Toast` | CSSの`.toast`表示規則を使って一時的なerror通知を表示する |
 
 ### 3.3 UIコントロールの規約
 
-browserのcontrolは、即時実行、トグル、巡回、開閉の4種類である。
-どれも`button`で作り、見分けはラベルの言葉づかいで付ける。
+browserのcontrolは、即時実行、トグル、巡回、開閉、連続値の5種類である。
+連続値は`input type="range"`で、ほかは`button`で作り、見分けはラベルの言葉づかいで付ける。値の一覧から1つを選ぶ`Workspace`とLODは`select`のままで、この分類に含めない。
 
 | 種別 | ラベル | 状態 |
 |---|---|---|
 | 開閉 | 現在の値と `▾`。行の残りの幅を占め、名前だけを省略する | 開いている間は `.active` と `aria-expanded="true"` を対で更新する。`aria-pressed` は使わない |
-| 即時実行 | 動詞で始める。`Reload`、`Select All`、`Select Latest`、`Recolor`、`Clear All`、`Reset View` | 持たない |
+| 即時実行 | 動詞で始める。`Reload`、`Select All`、`Select Latest`、`Recolor`、`Clear All`、`Reset View`、`Copy Name` | 持たない |
 | トグル | 動詞で始めない名詞句。`Auto Reload`、`Auto Recolor`、`Selected Only`、`Scroll Lock`、`Log` | `.active`と`aria-pressed`を対で更新する |
 | 巡回 | 現在の段をそのまま書く。graphの下限`p0–` / `p1–` / `p5–`と上限`–p100` / `–p99` / `–p95` | 押すたびに固定順で次の段へ進み、最後の段の次は先頭へ戻る。先頭の段以外で`.active`と`aria-pressed`をONにする |
+| 連続値 | 名前と`:`に続けて、スライダーと現在の値を並べる。`Height:`。右上の操作列が左パネルの見出しに重なる幅900px以下では隠す | 値はスライダーの位置と数字で示し、押下色は使わない。数字は最長の桁数の幅に固定する。ドラッグ中（`input`）は数字だけを追い、重い描き直しは離したとき（`change`）に1回行う。範囲と刻みはJSの定数から入れる |
 
 sectionの見出し行には、ラベルに続けてそのリストへの操作を左詰めで並べる。
 入りきらない分だけを次の行へ送る（Runsの`Recolor` / `Auto Recolor`）。
@@ -319,7 +321,9 @@ ON時の配色は`--active-background` / `--active-accent` / `--active-text`を�
 ### 3.4 スクリーンショットモード
 
 スクリーンショットモードは貼り付け用の絵を作るために表示だけを畳むモードであり、データの更新は止めない。
-side panelとfloating controlのうちgraph操作用のものを隠し、`#main-area`のoverflowをvisibleにしてスクロールをdocument側へ移し、Run名を載せたheaderを出す。
+初期化の段階（`Mode`）とは独立したフラグ（`screenshotModeEnabled`）で持つ。初期化中も切り替えられ、初期化の完了はフラグを変えない。初期化の失敗中は、復帰の入口であるside panelのReloadを隠さないよう入るのだけを止め、抜けるのは許す。
+side panelのスピナーが見えなくなるので、同じ左上に画面へ固定したスピナーを重ねて出す。
+side panelとfloating controlのうちgraph操作用のもの（`Height`、LOD、`Reset View`、`Scroll Lock`）を隠し、`#main-area`のoverflowをvisibleにしてスクロールをdocument側へ移し、Run名を載せたheaderを出す。
 Auto Reloadも手動Reloadも通常と同じに効き、side panelが隠れてReloadボタンを押せない間はgraphのdouble clickがReloadの入口になる。
 進捗を出すRun listが隠れている間は、取り込み進捗のpollだけを止める。
 
@@ -561,6 +565,7 @@ sequenceDiagram
 ```
 
 各rangeは前回応答へ依存しない完結した結果であり、clientは差分mergeを行わずwindowごと置換する。
+明示viewportを持つtagで、取得した全Runのwindowに点が無いときは、軸だけのgraphを描く。graphが無いと、ダブルクリックやpanで戻す手段が無くなるためである。
 
 手動ReloadとAuto Reloadは、metadataを取り直したあと、取得後に中身が古くなったwindowを含むgraphだけを取り直す。何も変わっていなければ`metrics.json`は送らない。
 windowには取得を決めた時点のtag点数・最終step・statusを添えておき、次のどれかに当たれば古いとみなす。
@@ -574,11 +579,14 @@ windowには取得を決めた時点のtag点数・最終step・statusを添え�
 
 tag内のstepは非減少なので、追記点のstepは取得時の最終step以上になる。過去の区間を拡大していてwindowの右端がそこへ届かないgraphは、点数が増えても取り直さない。
 
-描画はgraph単位で突き合わせる。`PlotlyController`はgraph blockをtagKeyで引き、外枠と共通headerを使い回す。データwindow、概観/詳細の種別、選択Run、幅、LOD表示モード、Log、percentile、軸範囲、Scroll Lock、凡例の表示状態・色を表示モデルの描画keyへ含める。同じkeyでは再描画せず、metadata由来のheader（統計と警告）を更新する。
+描画はgraph単位で突き合わせる。`PlotlyController`はgraph blockをtagKeyで引き、外枠と共通headerを使い回す。データwindow、概観/詳細の種別、選択Run、幅、高さ、LOD表示モード、Log、percentile、軸範囲、Scroll Lock、凡例の表示状態・色を表示モデルの描画keyへ含める。同じkeyでは再描画せず、metadata由来のheader（統計と警告）を更新する。
 凡例の表示、軸範囲、drag modeは描画前に`capturePlotState`で読み戻す。描画keyが変わったときは新しいSVGのdecodeまたは詳細Plotlyの描画が完了してから内側だけを差し替え、直前の表示を保持する。遅着した描画は現在の選択・世代・表示設定と一致した場合だけ反映する。
 Plotlyの再描画はgraph 1枚あたり数十msかかり（従来の実測で137 graph×5 Runの全再描画が約5秒）、対象graphを絞ることがReloadの応答時間を決める。
+`Height`の変更は全graphの描き直しになる。
 
-取り込み中Runがある間はRun metadataを4秒間隔でpollし、進捗表示だけを更新する。この進捗pollだけはスクリーンショットモード中は止まり、Auto Reloadと手動Reloadはモードに関わらず動く。Auto Reloadは30秒間隔でworkspace一覧とmetadataを取り直し、最新stepへ追従中のgraphのうち古くなったものだけrangeを更新する。workspace一覧専用のtimerは持たず、初期表示、workspace selectorへのfocus、切替結果、手動Reload、Auto Reloadを再取得境界とする。
+`runs.json`と`metrics.json`のAbortControllerは`DataFetcher`に1枠ずつで、後から来た要求（スクロールによる取得、zoom/pan、選択変更、Auto Reloadのtick）が先の要求を打ち切る。打ち切り（`AbortError`）とserverのsupersede（409 `superseded`）は失敗として通知しない。Reloadの取り直しの指示は、範囲（手動Reloadは全graphの`all`、Auto Reloadは最新へ追従中のgraphだけの`follow`）ごと`pendingRefreshScope`に残る。打ち切った側を含む次の`requestVisibleData`が、同じ範囲で古さの判定を引き継ぐ。詳細windowの古さの判定は範囲に入るgraphだけに掛け、範囲の外のgraphは通常の取得と同じ判定にする。`all`が残っていれば、追従中に限るAuto Reloadの取得でも全graphを判定する。概観は全記録範囲を描くので、範囲によらず古さを判定する。最後まで走った取得が指示を下ろす。容量で遠いgraphの先読みを止めた分は、指示を残し続けないよう従来どおり次のReloadまで取り直さない。初回のRun選択（最新Run）は、起動とworkspace切替のあとで最初に成功したmetadata取得が、呼び出し元を問わず行う。
+
+取り込み中Runがある間はRun metadataを4秒間隔でpollし、取り込みの進み（`ingest`）だけを手元のmetadataへ写して、Run listの進捗表示と情報パネルを更新する。tagと統計は写さない。この進捗pollだけはスクリーンショットモード中は止まり、Auto Reloadと手動Reloadはモードに関わらず動く。Auto Reloadは30秒間隔でworkspace一覧とmetadataを取り直し、最新stepへ追従中のgraphのうち古くなったものだけrangeを更新する。workspace一覧専用のtimerは持たず、初期表示、workspace selectorへのfocus、切替結果、手動Reload、Auto Reloadを再取得境界とする。
 
 ## 7. 設定一覧
 
@@ -643,6 +651,12 @@ serverから配布しないclient定数は[metrics-viewer.js](../../src/apps/met
 | `RUN_SOLO_INTERVAL_MS` | 350 | 同じRun行の連続clickをsolo選択とみなす閾値 |
 | `HOVER_SCROLL_DELAY_MS` | 300 | Tag list hoverから該当graphへscrollするまでの待ち |
 | `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | scroll lock中にgraph上のmouse dragを縦scrollへ切り替える移動量。touchのswipeはJSで扱わず、指を離したあとの慣性が付くbrowser標準のscrollに任せる |
+| `RUN_INFO_SHOW_DELAY_MS` | 300 | Run行へhoverしてから情報パネルを出すまでの待ち。パネルが出ている間に別の行へ移ったときは待たない |
+| `RUN_INFO_HIDE_DELAY_MS` | 200 | Run行と情報パネルの両方から離れてから閉じるまでの猶予。行からパネルへ移る間に閉じないため |
+| `COPY_FEEDBACK_MS` | 1,200 | `Copy Name`のラベルを`Copied`にしておく時間 |
+| `GRAPH_HEIGHT_MIN_PX` / `GRAPH_HEIGHT_MAX_PX` / `GRAPH_HEIGHT_STEP_PX` | 150 / 800 / 50 | `Height`スライダーの範囲と刻み。graph blockの外枠（CSSの`--graph-height`）とPlotlyのlayoutに同じ値を使う |
+| `GRAPH_HEIGHT_DEFAULT_PX` | 300 | 保存値が無いか不正なときのgraphの高さ |
+| `GRAPH_BLOCK_GAP_PX` | 10 | graph blockの間隔。CSSの`margin-bottom`と同じ値で、描画前に並びの位置を見積もるときに使う |
 
 Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解決する。まず色を持たないRunへrunId昇順で`RUN_COLORS`から先着順に配る（基本色）。
 `Auto Recolor`がONなら、前回の解決時に選択されていなかったRun（初回表示で自動選択する最新Runを含む）を新しく選んだRunとし、選択順に、ほかの選択中Runの色から最も離れた色を配る。選択中だったRunの色は変えず、新しく選んだRunの基本色は見ない。OFFからONへ切り替えた時点では色を変えない。
@@ -650,7 +664,7 @@ Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解�
 solo選択（同じRun行の連続click）は2回のclickを1つの操作として扱う。元から選択中だったRunは色を保ち、選択していなかったRunは新しく選んだ1本として`#2F7DE1`を取る。
 どちらも未選択Runの色を変えず、配る色がpaletteの20色を使い切るとラウンドを改める。
 
-`localStorage`へ保存するstateは次の10件だけである。viewport、凡例の表示状態、Run選択、Run色は保存しない。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
+`localStorage`へ保存するstateは次の12件だけである。viewport、凡例の表示状態、Run選択、Run色、Runsの`Selected Only`は保存しない。Runsの`Selected Only`は毎回OFFで始める。起動時には最新Runだけが選ばれるので、戻しても絞る意味が無いため。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
 
 | key | 内容 |
 |---|---|
@@ -664,6 +678,8 @@ solo選択（同じRun行の連続click）は2回のclickを1つの操作とし�
 | `anet.metricsviewer.lodDisplayMode` | `MinMax` / `Mean` / `Band` |
 | `anet.metricsviewer.logScaleTags` | signed-logを有効にしたtag集合。文字列JSON配列を辞書順で保存する |
 | `anet.metricsviewer.percentileBounds` | percentileの下限か上限を制限したtagごとの段。`{"<tagKey>": [下限, 上限]}`のJSON objectをtagKeyの辞書順で保存する。下限は0 / 1 / 5、上限は100 / 99 / 95で、両方とも制限なし（0と100）のtagは含めない |
+| `anet.metricsviewer.tagsSelectedOnly` | Tagsの`Selected Only`のon/off。`"true"`のときだけONとして読む。一括操作で自動OFFになったときも保存し直す |
+| `anet.metricsviewer.graphHeight` | graphの高さ(px)の整数の文字列。整数でない値、150〜800の外の値、150から50刻みに乗らない値は、警告して既定の300へ戻す。刻みに乗らない値はスライダーが丸めて表示し、実際の高さとずれるため |
 
 Logの集合とpercentileの下限・上限は独立して復元する。Logの値が文字列JSON配列でないとき、percentileの値がJSON objectでないか段に無い値を1つでも含むときは、警告してそれぞれ空へフォールバックする。
 下限・上限を2つのボタンへ分ける前の`anet.metricsviewer.ignoreOutlierTags`（p5–p95）と`anet.metricsviewer.p1P99Tags`（p1–p99）は読まずに削除する。

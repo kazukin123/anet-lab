@@ -99,6 +99,73 @@ class ScreenshotModePlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				"() => app.autoReloadEnabled && app.autoReloadTimer !== null")));
 	}
 
+	/** 初期化の途中で切り替えても、初期化の完了がスクリーンショットモードを上書きしない。 */
+	@Test
+	void screenshotModeEnteredDuringInitializationSurvivesItsCompletion() {
+		installRunsFetchGate();
+		page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(GRAPH_COUNT)));
+		page.route("**/api/metrics.json",
+				route -> fulfillJson(route, manyGraphMetricsJson(GRAPH_COUNT)));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+
+		page.navigate(baseUrl + "/?screenshotDuringInitTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		page.waitForFunction("() => app?.mode === 'metaLoading' && window.__runsHeld === true");
+		page.click("#btn-screenshot");
+		page.evaluate("() => window.__releaseRuns()");
+		waitForGraphCount(page, GRAPH_COUNT);
+
+		assertEquals("normal", page.evaluate("() => app.mode"));
+		assertTrue(Boolean.TRUE.equals(page.evaluate("""
+				() => app.screenshotModeEnabled
+					&& document.body.classList.contains('screenshot-mode')
+					&& app.graphScrollLockActive()
+					&& app.scrollElement() === (document.scrollingElement ?? document.documentElement)
+				""")));
+	}
+
+	/** 初期化に失敗したあとも、スクリーンショットモードから抜けられる。 */
+	@Test
+	void screenshotModeCanBeLeftAfterInitializationFailed() {
+		installRunsFetchGate();
+		page.route("**/api/runs.json", route -> route.fulfill(
+				new com.microsoft.playwright.Route.FulfillOptions().setStatus(500).setBody("")));
+
+		page.navigate(baseUrl + "/?screenshotAfterInitErrorTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		page.waitForFunction("() => app?.mode === 'metaLoading' && window.__runsHeld === true");
+		page.click("#btn-screenshot");
+		page.evaluate("() => window.__releaseRuns()");
+		page.waitForFunction("() => app.mode === 'error'");
+
+		page.click("#btn-screenshot-toggle");
+		page.waitForFunction("""
+				() => !app.screenshotModeEnabled && !document.body.classList.contains('screenshot-mode')
+					&& document.getElementById('side-panel').getClientRects().length > 0
+				""");
+	}
+
+	/** runs.jsonの最初の1回を、テストが放すまで止める。初期化をMETA_LOADINGのまま保つため。 */
+	private void installRunsFetchGate() {
+		context.addInitScript("""
+				(() => {
+					const originalFetch = globalThis.fetch.bind(globalThis);
+					let release = null;
+					const gate = new Promise(resolve => release = resolve);
+					window.__runsHeld = false;
+					window.__releaseRuns = () => release();
+					globalThis.fetch = (input, init) => {
+						const url = typeof input === 'string' ? input : input.url;
+						if (!window.__runsHeld && url.endsWith('/api/runs.json')) {
+							window.__runsHeld = true;
+							return gate.then(() => originalFetch(input, init));
+						}
+						return originalFetch(input, init);
+					};
+				})();
+				""");
+	}
+
 	private void openGraphs(String cacheBuster) {
 		page.route("**/api/runs.json", route -> fulfillJson(route, manyGraphRunsJson(GRAPH_COUNT)));
 		page.route("**/api/metrics.json",
@@ -114,7 +181,7 @@ class ScreenshotModePlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	private static void enterScreenshotMode(Page page) {
 		page.click("#btn-screenshot");
 		page.waitForFunction("""
-				() => document.body.classList.contains('screenshot-mode') && app.mode === 'screenshot'
+				() => document.body.classList.contains('screenshot-mode') && app.screenshotModeEnabled
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 		// 遅れて走るresizeAllが位置を崩さないところまでを見る。
 		page.waitForTimeout(SCREENSHOT_RESIZE_SETTLE_MS);
@@ -123,7 +190,7 @@ class ScreenshotModePlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	private static void leaveScreenshotMode(Page page) {
 		page.click("#btn-screenshot-toggle");
 		page.waitForFunction("""
-				() => !document.body.classList.contains('screenshot-mode') && app.mode === 'normal'
+				() => !document.body.classList.contains('screenshot-mode') && !app.screenshotModeEnabled
 				""", null, new Page.WaitForFunctionOptions().setTimeout(30000));
 	}
 

@@ -27,6 +27,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Route;
+import com.microsoft.playwright.options.MouseButton;
 import com.microsoft.playwright.options.WaitUntilState;
 
 @SpringBootTest(
@@ -779,6 +780,120 @@ class RunListPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		setToggle(page, "#btn-selected-only-runs", true);
 		page.click("#btn-select-all-runs");
 		assertFalse(isToggleOn(page, "#btn-selected-only-runs"), "Runs Select All");
+	}
+
+	@Test
+	void tagsSelectedOnlyIsRestoredAfterPageReloadButRunsSelectedOnlyStartsOff() {
+		openColorFixture("selectedOnlyStorageTest", 14);
+
+		setToggle(page, "#btn-selected-only-runs", true);
+		setToggle(page, "#btn-selected-only", true);
+		assertEquals("true", readStorage(page, "anet.metricsviewer.tagsSelectedOnly"));
+
+		reloadColorFixture(14);
+		assertFalse(isToggleOn(page, "#btn-selected-only-runs"));
+		assertTrue(isToggleOn(page, "#btn-selected-only"));
+		assertEquals("run:14/14|tag:1/1", readVisibleListCounts(page));
+
+		// 一括操作で自動OFFになった分も保存し直す。
+		page.click("#btn-select-all");
+		assertEquals("false", readStorage(page, "anet.metricsviewer.tagsSelectedOnly"));
+
+		reloadColorFixture(14);
+		assertFalse(isToggleOn(page, "#btn-selected-only"));
+	}
+
+	@Test
+	void hoveringARunRowShowsItsInfoPanelAndCopyNameCopiesTheRunName() {
+		// Clipboard APIを差し替え、コピーした文字列を読めるようにする。
+		context.addInitScript("""
+				Object.defineProperty(navigator, 'clipboard', {
+					configurable: true,
+					value: { writeText: async text => { window.__copiedText = text; } }
+				});
+				""");
+		openColorFixture("runInfoPanelTest", 3);
+
+		page.hover("#run-list .run-row[data-run-id='run_02']");
+		page.waitForFunction("""
+				() => !document.getElementById('run-info-panel').hidden
+					&& document.querySelector('#run-info-panel .run-info-name')?.textContent === 'run_02'
+				""");
+		// runJson(…, maxStep=2, 1 tag)なので、点は0〜2の3点。
+		assertEquals("Status|ready|Max step|2|Tags|1|Points|3", page.evaluate("""
+				() => [...document.querySelectorAll('#run-info-panel .run-info-fields > *')]
+					.map(element => element.textContent).join('|')
+				"""));
+		assertEquals("all", page.evaluate("""
+				() => getComputedStyle(document.querySelector('#run-info-panel .run-info-name')).userSelect
+				"""));
+
+		// 行からパネルへ移っても閉じない。
+		page.click("#run-info-panel .run-info-copy");
+		page.waitForFunction("""
+				() => window.__copiedText === 'run_02'
+					&& document.querySelector('#run-info-panel .run-info-copy').textContent === 'Copied'
+				""");
+		assertFalse(Boolean.TRUE.equals(page.evaluate(
+				"() => document.getElementById('run-info-panel').hidden")));
+
+		// 行とパネルの外へ出ると閉じる。
+		page.mouse().move(1200, 700);
+		page.waitForFunction("() => document.getElementById('run-info-panel').hidden");
+	}
+
+	@Test
+	void rightClickingARunRowShowsItsInfoPanelAndEscapeClosesIt() {
+		openColorFixture("runInfoPanelContextMenuTest", 3);
+
+		page.click("#run-list .run-row[data-run-id='run_01']",
+				new Page.ClickOptions().setButton(MouseButton.RIGHT));
+		page.waitForFunction("""
+				() => !document.getElementById('run-info-panel').hidden
+					&& document.querySelector('#run-info-panel .run-info-name')?.textContent === 'run_01'
+				""");
+		// 右クリックは選択を切り替えない。
+		assertEquals(List.of("run_03"), readActiveRunIds(page));
+
+		page.keyboard().press("Escape");
+		page.waitForFunction("() => document.getElementById('run-info-panel').hidden");
+	}
+
+	@Test
+	void runInfoPanelListsIngestAndTagIssues() {
+		page.route("**/api/runs.json", route -> fulfillJson(route, "{\"runs\":["
+				+ "{\"id\":\"run_issue\",\"generation\":\"" + GENERATION + "\","
+				+ "\"stats\":{\"maxStep\":1234567},"
+				+ "\"ingest\":{\"state\":\"error\",\"percentage\":40,"
+				+ "\"error\":{\"code\":\"invalid_json\",\"message\":\"line 12\"}},"
+				+ "\"tags\":[{\"key\":\"tag/bad\",\"type\":\"scalar\",\"status\":\"error\","
+				+ "\"error\":{\"code\":\"step_regression\",\"message\":\"step went back\"}}]}]}"));
+		page.route("**/api/metrics.json", route -> fulfillJson(route, "{\"data\":[]}"));
+		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
+		page.navigate(baseUrl + "/?runInfoIssuesTest=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForRunRows(page, 1);
+
+		page.hover("#run-list .run-row[data-run-id='run_issue']");
+		page.waitForFunction("() => !document.getElementById('run-info-panel').hidden");
+
+		assertEquals("Status|40% · error|Max step|1,234,567|Tags|1 (1 quarantined)|Points|0", page.evaluate("""
+				() => [...document.querySelectorAll('#run-info-panel .run-info-fields > *')]
+					.map(element => element.textContent).join('|')
+				"""));
+		assertEquals("invalid_json: line 12\ntag/bad: step_regression: step went back", page.evaluate("""
+				() => document.querySelector('#run-info-panel .run-info-issues').textContent
+				"""));
+	}
+
+	private void reloadColorFixture(int runCount) {
+		page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		waitForGraph(page);
+		waitForRunRows(page, runCount);
+	}
+
+	private static String readStorage(Page page, String key) {
+		return (String) page.evaluate("key => localStorage.getItem(key)", key);
 	}
 
 	/**

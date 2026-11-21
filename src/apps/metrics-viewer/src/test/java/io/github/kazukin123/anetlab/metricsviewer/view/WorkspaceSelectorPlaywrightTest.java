@@ -80,6 +80,44 @@ class WorkspaceSelectorPlaywrightTest extends MetricsViewerPlaywrightTestSupport
 				""")));
 	}
 
+	/**
+	 * workspace切替のruns.jsonをAuto Reloadのtickが打ち切っても、失敗のToastを出さず、
+	 * 打ち切った側のmetadata取得が新しいworkspaceの最新Runを選ぶ。
+	 */
+	@Test
+	void autoReloadTickInterruptingAWorkspaceSwitchStillSelectsTheLatestRun() {
+		final AtomicReference<String> current = new AtomicReference<>("ws-a");
+		final AtomicReference<List<String>> workspaces =
+				new AtomicReference<>(List.of("ws-a", "ws-b"));
+		installWorkspaceFetchGate();
+		routeWorkspaceApi(current, workspaces, new AtomicInteger());
+
+		page.navigate(baseUrl + "/?workspaceSwitchInterruptedByTick=" + System.nanoTime(),
+				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+		page.waitForFunction("document.querySelector('#run-list .run-row.active')"
+				+ "?.dataset.runId === 'run-a'");
+		page.evaluate("workspaceFetchGate.holdNextRuns = true");
+
+		page.selectOption("#workspace-selector", "ws-b");
+		page.waitForFunction("workspaceFetchGate.runsPending");
+		// Auto Reloadのtickと同じ呼び出しで、切替側のruns.jsonを打ち切る。
+		page.evaluate("""
+				async () => {
+					await app.refreshMetadata({ requestData: false });
+					await app.requestVisibleData({ refresh: true, followOnly: true });
+				}
+				""");
+		page.waitForFunction("document.querySelector('#run-list .run-row.active')"
+				+ "?.dataset.runId === 'run-b'");
+
+		assertTrue(Boolean.TRUE.equals(page.evaluate(
+				"document.getElementById('update-status').hidden")));
+		assertFalse(Boolean.TRUE.equals(page.evaluate("""
+			() => Array.from(document.querySelectorAll('[role=alert]')).some(element =>
+				element.textContent.includes('Workspace switched, but data refresh failed'))
+				""")));
+	}
+
 	@Test
 	void changingWorkspaceResetsWorkspaceStateAndSelectsLatestRun() {
 		final AtomicReference<String> current = new AtomicReference<>("ws-a");

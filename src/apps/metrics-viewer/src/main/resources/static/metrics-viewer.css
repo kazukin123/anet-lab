@@ -252,6 +252,9 @@ html, body {
 	border-radius: 3px;
 	cursor: pointer;
 	isolation: isolate;
+	/* タッチの長押しで文字を選ばず、情報パネルを出す。Run名は情報パネルからコピーする */
+	-webkit-user-select: none;
+	user-select: none;
 }
 .run-row::before {
 	content: "";
@@ -308,6 +311,39 @@ html, body {
 	font-weight: 700;
 }
 
+
+/* --- Run Info Panel --- */
+#run-info-panel {
+	position: fixed; z-index: 900; width: 320px; max-width: calc(100vw - 16px);
+	box-sizing: border-box; padding: 8px 10px; background: #222;
+	border: 1px solid var(--container-border); border-radius: 4px;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+	font-size: 12px; color: #ccc;
+}
+.run-info-head { display: flex; align-items: flex-start; gap: 6px; }
+.run-info-head .run-color { flex-shrink: 0; margin-top: 4px; }
+/* 1回のクリックで名前全体が選ばれ、そのままコピーできる */
+.run-info-name {
+	flex: 1; min-width: 0; color: #fff; font-size: 13px; font-weight: 600;
+	overflow-wrap: anywhere; cursor: text;
+	-webkit-user-select: all; user-select: all;
+}
+/* 押すとラベルがCopiedに変わるので、長いほうに合わせた幅にする */
+.run-info-copy {
+	margin: 6px 0 0 16px; min-width: 84px;
+	background: #252525; color: #ccc; border: 1px solid var(--control-border);
+	border-radius: 3px; padding: 3px 8px; font: inherit; cursor: pointer;
+}
+.run-info-copy:hover { background: #333; color: #eee; border-color: var(--control-border-hover); }
+.run-info-fields {
+	display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0 0 16px;
+}
+.run-info-fields dt { color: #8f8f8f; }
+.run-info-fields dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.run-info-issues {
+	margin: 8px 0 0 16px; max-height: 160px; overflow: auto;
+	color: #ffb14a; white-space: pre-wrap; overflow-wrap: anywhere;
+}
 
 .tag-set-controls { flex-shrink: 0; }
 #btn-tag-set { display: flex; gap: 4px; flex: 1; min-width: 0; overflow: hidden; }
@@ -419,7 +455,8 @@ html, body {
 }
 #btn-reset-view { min-width: 76px; }
 #btn-graph-scroll-lock { min-width: 88px; }
-#lod-display-mode-control {
+#lod-display-mode-control,
+#graph-height-control {
 	display: inline-flex;
 	align-items: center;
 	gap: 3px;
@@ -427,6 +464,18 @@ html, body {
 	color: #aaa;
 	font-size: 11px;
 	white-space: nowrap;
+}
+#graph-height {
+	width: 90px;
+	margin: 0;
+	accent-color: var(--active-accent);
+	cursor: pointer;
+}
+/* 値の桁数が変わっても後ろの操作が動かないよう、3桁分の幅を取る */
+#graph-height-value {
+	min-width: 3ch;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
 }
 #lod-display-mode {
 	height: 24px;
@@ -450,6 +499,10 @@ html, body {
 	background: var(--active-background);
 }
 #btn-graph-scroll-lock.active:hover { background: var(--active-hover); }
+/* 右上の操作列が左パネル(幅350px)の見出しに重ならない幅だけで、Heightを出す。保存した高さは隠れていても効く */
+@media (max-width: 900px) {
+	#graph-height-control { display: none; }
+}
 @media (max-width: 400px) {
 	#floating-controls {
 		right: 4px;
@@ -475,8 +528,10 @@ html, body {
 }
 .graph-block {
 	background:#111;
+	/* JSのGRAPH_BLOCK_GAP_PXと同じ値にする */
 	margin-bottom: 10px;
-	height: 300px;
+	/* 高さはJSがHeightスライダーの値から:rootへ入れ、Plotlyのlayoutにも同じ値を使う */
+	height: var(--graph-height);
 	position: relative;
 	/* z-order をブロック内で完結させ、Plotly の modebar(z-index:1001) を外へ漏らさない */
 	isolation: isolate;
@@ -694,13 +749,18 @@ body.screenshot-mode #btn-reset-view,
 body.screenshot-mode #btn-graph-scroll-lock {
 	display: none !important;
 }
-body.screenshot-mode #lod-display-mode-control {
+body.screenshot-mode #lod-display-mode-control,
+body.screenshot-mode #graph-height-control {
 	display: none !important;
 }
-/* 通常モードは左パネルのスピナーで足りるので、右上はスクリーンショットモードだけ */
+/* 通常モードは左パネルのスピナーで足りるので、スクリーンショットモードだけ同じ左上に重ねる。
+   スクロールしても見えるよう画面に固定する。ヘッダーの文字は中央寄せなので重ならない */
 #floating-loading-spinner {
 	display: none;
-	top: 0;
+	position: fixed;
+	top: 8px;
+	left: 8px;
+	z-index: 650;
 	margin-right: 0;
 	pointer-events: none;
 }

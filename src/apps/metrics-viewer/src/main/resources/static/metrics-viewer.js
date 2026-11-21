@@ -9,6 +9,15 @@ const PREVIEW_BINS = 64;
 const RUN_SOLO_INTERVAL_MS = 350;
 const GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX = 1;
 const HOVER_SCROLL_DELAY_MS = 300;
+const RUN_INFO_SHOW_DELAY_MS = 300;
+const RUN_INFO_HIDE_DELAY_MS = 200;
+const COPY_FEEDBACK_MS = 1200;
+const GRAPH_HEIGHT_MIN_PX = 150;
+const GRAPH_HEIGHT_MAX_PX = 800;
+const GRAPH_HEIGHT_STEP_PX = 50;
+const GRAPH_HEIGHT_DEFAULT_PX = 300;
+// CSSの.graph-blockのmargin-bottomと同じ。graphを描く前に並びの位置を見積もるときに使う。
+const GRAPH_BLOCK_GAP_PX = 10;
 const MAX_SAFE_STEP = Number.MAX_SAFE_INTEGER;
 const STORAGE_KEY_TAGS = "anet.metricsviewer.activeTags";
 const STORAGE_KEY_TAG_SET = "anet.metricsviewer.tagSet";
@@ -25,15 +34,17 @@ const STORAGE_KEY_GRAPH_SCROLL_LOCK = "anet.metricsviewer.graphScrollLockEnabled
 const STORAGE_KEY_LOD_MODE = "anet.metricsviewer.lodDisplayMode";
 const STORAGE_KEY_WORKSPACE = "anet.metricsviewer.workspace";
 const STORAGE_KEY_AUTO_RECOLOR = "anet.metricsviewer.autoRecolorEnabled";
+const STORAGE_KEY_TAGS_SELECTED_ONLY = "anet.metricsviewer.tagsSelectedOnly";
+const STORAGE_KEY_GRAPH_HEIGHT = "anet.metricsviewer.graphHeight";
 // graph headerの下限・上限ボタンが押すたびに進む段(percent)。先頭が制限なし。
 const LOWER_PERCENTILE_STEPS = Object.freeze([0, 1, 5]);
 const UPPER_PERCENTILE_STEPS = Object.freeze([100, 99, 95]);
 
+// 初期化の段階。スクリーンショットモードは段階と独立に切り替わるので、ここに含めずフラグで持つ。
 const Mode = Object.freeze({
 	UNINITIALIZED: "uninitialized",
 	META_LOADING: "metaLoading",
 	NORMAL: "normal",
-	SCREENSHOT: "screenshot",
 	ERROR: "error"
 });
 
@@ -240,6 +251,38 @@ function isSupersededMetricsError(error) {
 	return error?.status === 409 && error?.code === "superseded";
 }
 
+// 後から来た要求に打ち切られた要求。失敗ではなく、後の要求が同じ仕事を引き継ぐ。
+function isCancelledRequestError(error) {
+	return error?.name === "AbortError" || isSupersededMetricsError(error);
+}
+
+// Heightスライダーが取れる値。刻みに乗らない値はスライダーが丸めて表示し、実際の高さとずれるので受け付けない。
+function isValidGraphHeight(height) {
+	return Number.isInteger(height)
+			&& height >= GRAPH_HEIGHT_MIN_PX
+			&& height <= GRAPH_HEIGHT_MAX_PX
+			&& (height - GRAPH_HEIGHT_MIN_PX) % GRAPH_HEIGHT_STEP_PX === 0;
+}
+
+function formatCount(value) {
+	return Number.isFinite(value) ? value.toLocaleString("en-US") : "-";
+}
+
+// 選択範囲をコピーする旧来の経路。Clipboard APIが使えないか拒まれたときの代わりに使う。
+function copyTextBySelection(text) {
+	const area = document.createElement("textarea");
+	area.value = text;
+	area.setAttribute("readonly", "");
+	area.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+	document.body.append(area);
+	try {
+		area.select();
+		if (!document.execCommand("copy")) throw new Error("the browser refused to copy");
+	} finally {
+		area.remove();
+	}
+}
+
 function createQueryChannel() {
 	if (typeof globalThis.crypto?.randomUUID === "function") {
 		return globalThis.crypto.randomUUID();
@@ -402,6 +445,15 @@ class DataCache {
 			if (!current || current.generation !== previous.generation) this.removeRun(runId);
 		}
 		this.runs = next;
+	}
+
+	// 進捗pollの応答から取り込みの進みだけを写す。tagと統計は手動・Auto Reloadのmetadata取得だけが更新する。
+	// 世代が変わったRunはwindowの破棄が要るので触らず、次のmetadata取得に任せる。
+	updateIngest(runArray) {
+		for (const run of runArray ?? []) {
+			const cached = this.runs.get(run.id);
+			if (cached && cached.generation === run.generation) this.runs.set(run.id, { ...cached, ingest: run.ingest });
+		}
 	}
 
 	removeRun(runId) {
@@ -1054,7 +1106,7 @@ class PlotlyController {
 	_makeLayout(width, showLegend, signedLogScale, traces, ranges = {}) {
 		const layout = {
 			margin: { t: 30, b: 20, l: 50, r: 10 },
-			height: 300,
+			height: this.app.graphHeight,
 			width,
 			autosize: false,
 			plot_bgcolor: "#111",
@@ -1144,14 +1196,16 @@ class PlotlyController {
 		const windows=detailReady ? details : previewReady ? previews : [];
 		const traces=windows.flatMap((window,index)=>window?.availability==="ok"
 			? this._makeSeriesTraces(runIds[index],tagKey,window) : []);
-		return traces.length ? {tagKey,runIds,windows,traces,preview:!detailReady} : null;
+		// 拡大・panした範囲に点が無いときも軸だけのgraphを描く。graphが無いとダブルクリックやpanで戻れない。
+		const emptyZoom=detailReady && !traces.length && this.app.explicitViewport(tagKey)!==null;
+		return traces.length || emptyZoom ? {tagKey,runIds,windows,traces,preview:!detailReady} : null;
 	}
 
 	_graphDisplayKey(tagKey, runIds, width) {
 		const viewport=this.app.explicitViewport(tagKey)?.range;
 		const yRange=this.app.manualYRange(tagKey);
 		const bounds=this.app.percentileBounds(tagKey);
-		return [width,this.app.lodDisplayMode,this.app.logScaleTags.has(tagKey),bounds.lower,bounds.upper,
+		return [width,this.app.graphHeight,this.app.lodDisplayMode,this.app.logScaleTags.has(tagKey),bounds.lower,bounds.upper,
 			viewport?.[0],viewport?.[1],yRange?.[0],yRange?.[1],this.app.graphScrollLockActive(),
 			...runIds.flatMap(id=>[id,this.app.isLegendSeriesHidden(tagKey,id),this.app.runColorMap.get(id)])];
 	}
@@ -1857,6 +1911,237 @@ class TagSetMenu {
 	}
 }
 
+function ingestPercentage(ingest) {
+	const rawPercentage = Number(ingest?.percentage ?? 0);
+	return Number.isFinite(rawPercentage)
+			? Math.max(0, Math.min(100, rawPercentage))
+			: 0;
+}
+
+function ingestLabel(ingest) {
+	const percentage = ingestPercentage(ingest);
+	return percentage >= 100
+			? (ingest?.state ?? "ready")
+			: `${percentage}% · ${ingest?.state ?? "pending"}`;
+}
+
+// Run行にマウスを載せるか、右クリック(タッチは長押し)したときに、そのRunの情報を出すパネル。
+// Run名は1回のクリックで全体を選べる文字にし、Copy Nameでもコピーできる。
+class RunInfoPanel {
+	constructor(app) {
+		// 一覧の描き直しで消えないよう、パネルはbody直下に1つだけ作る。
+		this.app = app;
+		this.runId = null;
+		this.contentKey = null;
+		this.showTimer = null;
+		this.hideTimer = null;
+		// Clipboard APIが一度拒まれたら、以後は旧来の経路だけを使う。警告もその1回だけにする。
+		this.clipboardApiRefused = false;
+		this.panel = document.createElement("div");
+		this.panel.id = "run-info-panel";
+		this.panel.hidden = true;
+		document.body.append(this.panel);
+		// パネルの上にいる間は閉じず、離れたら行から離れたときと同じ猶予のあとで閉じる。
+		this.panel.addEventListener("pointerenter", () => this._cancelHide());
+		this.panel.addEventListener("pointerleave", event => {
+			if (event.pointerType === "mouse") this._scheduleHide();
+		});
+		// 外側の操作、Escape、Run一覧のスクロールで閉じる。Run行の操作では閉じず、出したままにする。
+		document.addEventListener("pointerdown", event => {
+			if (this.panel.hidden || !(event.target instanceof Element)) return;
+			if (this.panel.contains(event.target) || event.target.closest("#run-list .run-row")) return;
+			this.hide();
+		}, true);
+		document.addEventListener("keydown", event => {
+			if (event.key === "Escape" && !this.panel.hidden) this.hide();
+		});
+		document.getElementById("run-list").addEventListener("scroll", () => this.hide(), { passive: true });
+	}
+
+	// マウスが行に入った。出ていれば即座に、出ていなければ少し待ってから、その行のRunを出す。
+	hoverRow(runId) {
+		this._cancelHide();
+		clearTimeout(this.showTimer);
+		this.showTimer = null;
+		if (!this.panel.hidden) {
+			this.show(runId);
+			return;
+		}
+		this.showTimer = setTimeout(() => this.show(runId), RUN_INFO_SHOW_DELAY_MS);
+	}
+
+	leaveRow() {
+		clearTimeout(this.showTimer);
+		this.showTimer = null;
+		this._scheduleHide();
+	}
+
+	show(runId) {
+		clearTimeout(this.showTimer);
+		this.showTimer = null;
+		this._cancelHide();
+		const row = this._row(runId);
+		if (!row) {
+			this.hide();
+			return;
+		}
+		if (this.runId !== runId) this.contentKey = null;
+		this.runId = runId;
+		this.panel.hidden = false;
+		if (this._render()) this._position(row);
+	}
+
+	hide() {
+		clearTimeout(this.showTimer);
+		this.showTimer = null;
+		this._cancelHide();
+		this.panel.hidden = true;
+		this.runId = null;
+		this.contentKey = null;
+	}
+
+	// 一覧の描き直しと取り込みの進みの更新のあとで、出ているパネルを今の情報と行の位置へ合わせる。
+	refresh() {
+		if (this.panel.hidden) return;
+		const row = this._row(this.runId);
+		if (!row) {
+			this.hide();
+			return;
+		}
+		if (this._render()) this._position(row);
+	}
+
+	_row(runId) {
+		// runIdはselectorへ埋め込まず、datasetで突き合わせる。絞り込みで隠れた行は無いものとみなす。
+		const row = [...document.querySelectorAll("#run-list .run-row")]
+				.find(candidate => candidate.dataset.runId === runId);
+		return row && !row.hidden ? row : null;
+	}
+
+	_scheduleHide() {
+		this._cancelHide();
+		this.hideTimer = setTimeout(() => this.hide(), RUN_INFO_HIDE_DELAY_MS);
+	}
+
+	_cancelHide() {
+		clearTimeout(this.hideTimer);
+		this.hideTimer = null;
+	}
+
+	_render() {
+		const run = this.app.cache.getRun(this.runId);
+		if (!run) {
+			this.hide();
+			return false;
+		}
+		// 表示する値を先にまとめ、前回と同じなら作り直さない。Run名の選択やCopy Nameの押した表示を、
+		// 一覧の描き直しや進みの更新で消さないため。
+		const color = this.app.runColorMap.get(this.runId) ?? "#888";
+		const fields = this._fields(run);
+		const issues = this._issues(run);
+		const key = JSON.stringify([this.runId, color, fields, issues]);
+		if (key === this.contentKey) return true;
+		this.contentKey = key;
+
+		// Run名と色、コピーの操作、値の表、問題の一覧の順に並べる。
+		const head = document.createElement("div");
+		head.className = "run-info-head";
+		const chip = document.createElement("span");
+		chip.className = "run-color";
+		chip.style.background = color;
+		const name = document.createElement("span");
+		name.className = "run-info-name";
+		name.textContent = this.runId;
+		head.append(chip, name);
+		const copy = document.createElement("button");
+		copy.type = "button";
+		copy.className = "run-info-copy";
+		copy.textContent = "Copy Name";
+		copy.title = "Copy the run name to the clipboard";
+		const runId = this.runId;
+		copy.onclick = () => this._copyName(copy, runId);
+		const list = document.createElement("dl");
+		list.className = "run-info-fields";
+		for (const [label, value] of fields) {
+			const term = document.createElement("dt");
+			term.textContent = label;
+			const detail = document.createElement("dd");
+			detail.textContent = value;
+			list.append(term, detail);
+		}
+		const children = [head, copy, list];
+		if (issues.length) {
+			const box = document.createElement("div");
+			box.className = "run-info-issues";
+			box.textContent = issues.join("\n");
+			children.push(box);
+		}
+		this.panel.replaceChildren(...children);
+		return true;
+	}
+
+	_fields(run) {
+		// runs.jsonのmetadataだけから作る。Run単位の値と、tag統計を足し合わせた値を並べる。
+		const tags = run.tags ?? [];
+		const quarantined = tags.filter(tag => tag.status === "error").length;
+		const points = tags.reduce((sum, tag) => sum + Number(tag.stats?.count ?? 0), 0);
+		const maxStep = run.stats?.maxStep;
+		return [
+			["Status", ingestLabel(run.ingest)],
+			["Max step", maxStep == null ? "-" : formatCount(Number(maxStep))],
+			["Tags", formatCount(tags.length) + (quarantined ? ` (${quarantined} quarantined)` : "")],
+			["Points", formatCount(points)]
+		];
+	}
+
+	_issues(run) {
+		const issues = [];
+		if (run.ingest?.error) issues.push(`${run.ingest.error.code}: ${run.ingest.error.message}`);
+		for (const tag of run.tags ?? []) {
+			if (tag.error) issues.push(`${tag.key}: ${tag.error.code}: ${tag.error.message}`);
+		}
+		return issues;
+	}
+
+	// Clipboard APIは安全な接続(https・localhost)でしか使えず、埋め込みのブラウザでは権限で拒まれることもある。
+	// 使えないときは選択範囲のコピーを使い、拒まれたときは1回だけ警告して以後の経路をそちらに固定する。
+	async _copyText(text) {
+		if (!this.clipboardApiRefused && window.isSecureContext && navigator.clipboard?.writeText) {
+			try {
+				await navigator.clipboard.writeText(text);
+				return;
+			} catch (error) {
+				this.clipboardApiRefused = true;
+				console.warn("Clipboard API refused to copy; using execCommand from now on", error);
+			}
+		}
+		copyTextBySelection(text);
+	}
+
+	async _copyName(button, runId) {
+		try {
+			await this._copyText(runId);
+			// 押した結果はボタンの文字で返す。幅は長いほうのラベルに合わせてあり、位置は動かない。
+			button.textContent = "Copied";
+			setTimeout(() => { button.textContent = "Copy Name"; }, COPY_FEEDBACK_MS);
+		} catch (error) {
+			console.warn(error);
+			Toast.show(`Copy failed: ${error.message}`);
+		}
+	}
+
+	_position(row) {
+		// サイドパネルの右に出し、行の上端にそろえて画面の中へ収める。
+		const rowRect = row.getBoundingClientRect();
+		const side = document.getElementById("side-panel").getBoundingClientRect();
+		const width = this.panel.offsetWidth;
+		const height = this.panel.offsetHeight;
+		const left = Math.min(side.right + 6, window.innerWidth - width - 8);
+		this.panel.style.left = `${Math.max(8, left)}px`;
+		this.panel.style.top = `${clamp(rowRect.top, 8, Math.max(8, window.innerHeight - height - 8))}px`;
+	}
+}
+
 class UIController {
 	constructor(app) {
 		this.app = app;
@@ -1922,19 +2207,8 @@ class UIController {
 			row.classList.toggle("active", selectedRunIds.includes(runId));
 			row.dataset.runId = runId;
 			if (this.app.showSelectedRunsOnly && !selectedRunIds.includes(runId)) row.hidden = true;
-			const percentage = this._ingestPercentage(run.ingest);
+			// 取り込みの状態と問題の一覧はRunInfoPanelが出す。行には要約の⚠だけを付ける。
 			const quarantineCount = (run.tags ?? []).filter(tag => tag.status === "error").length;
-			const issueMessages = [];
-			if (run.ingest?.error) issueMessages.push(
-					`${run.ingest.error.code}: ${run.ingest.error.message}`);
-			for (const tag of run.tags ?? []) {
-				if (tag.error) issueMessages.push(`${tag.key}: ${tag.error.code}: ${tag.error.message}`);
-			}
-			const ingestLabel = percentage >= 100
-					? (run.ingest?.state ?? "ready")
-					: `${percentage}% · ${run.ingest?.state ?? "pending"}`;
-			row.title = ingestLabel
-					+ (issueMessages.length ? `\n${issueMessages.join("\n")}` : "");
 
 			const chip = document.createElement("span");
 			chip.className = "run-color";
@@ -1966,7 +2240,7 @@ class UIController {
 	}
 
 	_applyRunProgress(row, ingest) {
-		const percentage = this._ingestPercentage(ingest);
+		const percentage = ingestPercentage(ingest);
 		const active = ["pending", "converting"].includes(ingest?.state);
 		row.style.setProperty("--ingest-progress", percentage < 100 ? `${percentage}%` : "0%");
 
@@ -1985,16 +2259,20 @@ class UIController {
 		return active;
 	}
 
-	_ingestPercentage(ingest) {
-		const rawPercentage = Number(ingest?.percentage ?? 0);
-		return Number.isFinite(rawPercentage)
-				? Math.max(0, Math.min(100, rawPercentage))
-				: 0;
-	}
-
 	bindRunListEvents() {
 		const list = document.getElementById("run-list");
 		for (const row of list.querySelectorAll(".run-row")) {
+			// 情報パネルはマウスのhoverで出す。タッチのタップは選択の切り替えだけにし、長押しで出す。
+			row.addEventListener("pointerenter", event => {
+				if (event.pointerType === "mouse") this.app.runInfo.hoverRow(row.dataset.runId);
+			});
+			row.addEventListener("pointerleave", event => {
+				if (event.pointerType === "mouse") this.app.runInfo.leaveRow();
+			});
+			row.addEventListener("contextmenu", event => {
+				event.preventDefault();
+				this.app.runInfo.show(row.dataset.runId);
+			});
 			row.addEventListener("click", () => {
 				const runId = row.dataset.runId;
 				const now = performance.now();
@@ -2082,14 +2360,14 @@ class UIController {
 			item.addEventListener("mouseleave", clearHover);
 		}
 		document.getElementById("btn-select-all").onclick = () => {
-			this.app.showSelectedTagsOnly = false;
+			this.app.setShowSelectedTagsOnly(false);
 			for (const item of list.querySelectorAll("li")) {
 				this.app.activeTags.add(item.dataset.tagKey);
 			}
 			this.app.onTagSelectionChanged();
 		};
 		document.getElementById("btn-clear-all").onclick = () => {
-			this.app.showSelectedTagsOnly = false;
+			this.app.setShowSelectedTagsOnly(false);
 			for (const item of list.querySelectorAll("li")) {
 				this.app.activeTags.delete(item.dataset.tagKey);
 			}
@@ -2098,7 +2376,7 @@ class UIController {
 		const filter = document.getElementById("btn-selected-only");
 		setToggleState(filter, this.app.showSelectedTagsOnly);
 		filter.onclick = () => {
-			this.app.showSelectedTagsOnly = !this.app.showSelectedTagsOnly;
+			this.app.setShowSelectedTagsOnly(!this.app.showSelectedTagsOnly);
 			this.app.refreshLists();
 		};
 	}
@@ -2124,6 +2402,15 @@ class UIController {
 		const lodMode = document.getElementById("lod-display-mode");
 		lodMode.value = this.app.lodDisplayMode;
 		lodMode.onchange = () => this.app.onLodDisplayModeChanged(lodMode.value);
+		// 範囲はJSの定数を正とする。ドラッグ中は数字だけを追い、全graphの描き直しは離したときに1回だけ行う。
+		const graphHeight = document.getElementById("graph-height");
+		graphHeight.min = String(GRAPH_HEIGHT_MIN_PX);
+		graphHeight.max = String(GRAPH_HEIGHT_MAX_PX);
+		graphHeight.step = String(GRAPH_HEIGHT_STEP_PX);
+		graphHeight.oninput = () => {
+			document.getElementById("graph-height-value").textContent = graphHeight.value;
+		};
+		graphHeight.onchange = () => this.app.onGraphHeightChanged(Number(graphHeight.value));
 		window.addEventListener("resize", () => {
 			this.app.plotly.resizeAll();
 			this.app.onGraphVisibilityChanged();
@@ -2190,7 +2477,9 @@ class MetricsViewerClientApp {
 		this.cache = new DataCache();
 		this.plotly = new PlotlyController(this);
 		this.ui = new UIController(this);
+		this.runInfo = new RunInfoPanel(this);
 		this.mode = Mode.UNINITIALIZED;
+		this.screenshotModeEnabled = false;
 		this.selectedRuns = [];
 		this.activeTags = new Set();
 		this.knownTags = new Set();
@@ -2214,6 +2503,7 @@ class MetricsViewerClientApp {
 		this.autoRecolorEnabled = true;
 		this.graphScrollLockEnabled = false;
 		this.lodDisplayMode = LodDisplayMode.MIN_MAX;
+		this.graphHeight = GRAPH_HEIGHT_DEFAULT_PX;
 		this.showSelectedTagsOnly = false;
 		this.showSelectedRunsOnly = false;
 		this.autoReloadEnabled = false;
@@ -2223,6 +2513,10 @@ class MetricsViewerClientApp {
 		this.initialSelectionApplied = false;
 		this.queryRevision = 0;
 		this.metricsRequestRevision = 0;
+		// Reloadの「古くなったwindowを取り直す」指示のうち、まだ済んでいない分の範囲。
+		// null(無し) / "follow"(最新へ追従中のgraphだけ。Auto Reload) / "all"(全graph。手動Reload)。
+		// 最後まで走った取得が下ろし、打ち切られたら次の取得が同じ範囲で引き継ぐ。
+		this.pendingRefreshScope = null;
 		this.graphVisibilityTimer = null;
 		this.graphRenderFrame = null;
 		this.metadataRevision = 0;
@@ -2238,6 +2532,7 @@ class MetricsViewerClientApp {
 	async init() {
 		this._loadState();
 		this.ui.bindStaticControls();
+		this._applyGraphHeight();
 		this.tagSetMenu.sync();
 		this._syncGraphScrollLockUi();
 		this._syncAutoRecolorUi();
@@ -2246,11 +2541,11 @@ class MetricsViewerClientApp {
 			await this._initializeWorkspace();
 			try { await this.refreshTagSets(); }
 			catch (error) { Toast.show(error.message); }
-			await this.refreshMetadata({ initial: true, requestData: false });
+			await this.refreshMetadata({ requestData: false });
 			this.setMode(Mode.NORMAL);
 			await this.requestVisibleData({ force: true });
 		} catch (error) {
-			if (error.name !== "AbortError" && !isSupersededMetricsError(error)) {
+			if (!isCancelledRequestError(error)) {
 				console.error(error);
 				this.setMode(Mode.ERROR);
 				Toast.show(`System error: ${error.message}`);
@@ -2352,12 +2647,15 @@ class MetricsViewerClientApp {
 		try {
 			await this._refreshWorkspaceList();
 			if (switchRevision !== this.workspaceSwitchRevision) return;
-			await this.refreshMetadata({ initial: true, requestData: false });
+			await this.refreshMetadata({ requestData: false });
 			if (switchRevision !== this.workspaceSwitchRevision) return;
 			await this.requestVisibleData({ force: true });
 			if (switchRevision !== this.workspaceSwitchRevision) return;
 		} catch (error) {
 			if (switchRevision !== this.workspaceSwitchRevision) return;
+			// Auto Reloadやスクロールの取得に打ち切られたのは失敗ではない。初回のRun選択とgraphの取得は、
+			// 打ち切った側の取得が引き継ぐ(refreshMetadataは初回の選択を、まだ済んでいなければどの呼び出しでも行う)。
+			if (isCancelledRequestError(error)) return;
 			this.ui.renderWorkspaceSelector(this.workspaces, name);
 			this._handleQueryError(error);
 			Toast.show("Workspace switched, but data refresh failed.");
@@ -2393,7 +2691,7 @@ class MetricsViewerClientApp {
 		this.ui.applyMode(mode);
 	}
 
-	async refreshMetadata({ initial = false, requestData = true } = {}) {
+	async refreshMetadata({ requestData = true } = {}) {
 		const revision = ++this.metadataRevision;
 		let metadataSucceeded = false;
 		this.ui.setLoadingSpinner(true);
@@ -2411,7 +2709,9 @@ class MetricsViewerClientApp {
 			for (const runId of this.runColorMap.keys()) {
 				if (!runIds.includes(runId)) this.runColorMap.delete(runId);
 			}
-			if (!this.initialSelectionApplied && initial) {
+			// 初回の選択は、起動とworkspace切替のあとで最初に成功したmetadata取得が行う。
+			// 起動や切替の取得がAuto Reloadなどに打ち切られても、打ち切った側の取得で選ばれる。
+			if (!this.initialSelectionApplied) {
 				const latest = runIds.slice().sort().at(-1);
 				this.selectedRuns = latest ? [latest] : [];
 				this.initialSelectionApplied = true;
@@ -2448,6 +2748,12 @@ class MetricsViewerClientApp {
 		this.ui.renderTagList([...this._visibleTagKeys()]);
 		this.ui.bindTagListEvents();
 		this.tagSetMenu.sync();
+		this.runInfo.refresh();
+	}
+
+	setShowSelectedTagsOnly(enabled) {
+		this.showSelectedTagsOnly = enabled;
+		localStorage.setItem(STORAGE_KEY_TAGS_SELECTED_ONLY, enabled ? "true" : "false");
 	}
 
 	_applyRunColors() {
@@ -2744,6 +3050,31 @@ class MetricsViewerClientApp {
 		this._renderCurrent();
 	}
 
+	onGraphHeightChanged(height) {
+		if (!isValidGraphHeight(height)) return;
+		// 外枠の高さを変えるとスクロール位置がずれるので、先頭に見えているgraphを基準に戻す。
+		const anchor = this._captureScrollAnchor();
+		this.graphHeight = height;
+		localStorage.setItem(STORAGE_KEY_GRAPH_HEIGHT, String(height));
+		this._applyGraphHeight();
+		this._restoreScrollAnchor(anchor);
+		// 高さは描画keyに入っているので全graphが描き直しになる。見える範囲が変わったgraphの取得も続けて行う。
+		this._renderCurrent();
+		this.requestVisibleData().catch(error => this._handleQueryError(error));
+	}
+
+	// 外枠(CSS)とPlotlyのlayoutの高さを同じ値から決め、操作部の表示もそろえる。
+	_applyGraphHeight() {
+		document.documentElement.style.setProperty("--graph-height", `${this.graphHeight}px`);
+		document.getElementById("graph-height").value = String(this.graphHeight);
+		document.getElementById("graph-height-value").textContent = String(this.graphHeight);
+	}
+
+	// graphを描く前に、並びの中の位置を見積もるときの1枚分の縦幅。
+	_graphPitch() {
+		return this.graphHeight + GRAPH_BLOCK_GAP_PX;
+	}
+
 	// refresh=trueはReload(手動・Auto)用で、取得後にtagが変わったwindowも取り直す。
 	async requestVisibleData({
 		force = false, eligibleRunIds = null, followOnly = false, refresh = false
@@ -2752,6 +3083,16 @@ class MetricsViewerClientApp {
 		const requestRevision = ++this.metricsRequestRevision;
 		this.fetcher.abortMetrics();
 		const current = () => revision === this.queryRevision && requestRevision === this.metricsRequestRevision;
+		// Reloadの取り直しの指示を、範囲(全graphの"all"か、最新へ追従中のgraphだけの"follow")ごと残す。
+		// 前の取り直しがスクロールやAuto Reloadの取得に打ち切られていれば、この取得が同じ範囲で続きを行う。
+		if (refresh) {
+			this.pendingRefreshScope = !followOnly || this.pendingRefreshScope === "all" ? "all" : "follow";
+		}
+		const refreshScope = this.pendingRefreshScope;
+		const refreshing = refreshScope !== null;
+		// 最後まで走った取得が指示を下ろす。Runで絞った取得は範囲を判定しきれないので残す。
+		// 容量で遠いgraphの先読みを止めた分は、従来どおり次のReloadまで取り直さない(指示を残し続けないため)。
+		const settlesRefresh = refreshing && !eligibleRunIds;
 		const groups = [];
 		const nearby = this._nearbyTags();
 		const tags = this._visibleSelectedTags();
@@ -2760,10 +3101,10 @@ class MetricsViewerClientApp {
 			const block = blocks.find(b => b.dataset.tagKey === tag);
 			const area = document.getElementById("main-area").getBoundingClientRect();
 			const rect = block?.getBoundingClientRect();
-			return rect ? Math.max(area.top - rect.bottom, rect.top - area.bottom, 0) : tags.indexOf(tag) * 300;
+			return rect ? Math.max(area.top - rect.bottom, rect.top - area.bottom, 0) : tags.indexOf(tag) * this._graphPitch();
 		};
 		const ordered = tags.slice().sort((a, b) => rank(a) - rank(b));
-		if (this.mode !== Mode.SCREENSHOT && tags.some(tag => !nearby.has(tag))) {
+		if (!this.screenshotModeEnabled && tags.some(tag => !nearby.has(tag))) {
 			const previews = [];
 			for (const tagKey of ordered) {
 				const target = this._previewTarget(tagKey);
@@ -2773,7 +3114,8 @@ class MetricsViewerClientApp {
 					const window = this.cache.previews.get(this.cache._key(runId, tagKey));
 					return !window || window.stepBucketWidth !== target.stepBucketWidth
 						|| window.fromStep > target.fromStep || window.toStep < target.toStep
-						|| (refresh && this.cache.isOutdated(window, this.cache.getTag(runId, tagKey)));
+						// 概観は全記録範囲を描くので、指示の範囲(follow / all)によらず古さを判定する。
+						|| (refreshing && this.cache.isOutdated(window, this.cache.getTag(runId, tagKey)));
 				})) continue;
 				previews.push({ preview: true,
 					series: runIds.map(runId => ({runId, tagKey, ...target, maxPoints:3*(PREVIEW_BINS+2)})),
@@ -2786,11 +3128,17 @@ class MetricsViewerClientApp {
 		}
 		for (const tagKey of ordered) {
 			const viewport = this._viewportFor(tagKey);
-			if (!viewport || (followOnly && !this._isFollowing(tagKey, viewport))) continue;
+			if (!viewport) continue;
+			const following = this._isFollowing(tagKey, viewport);
+			// 追従中に限る取得(Auto Reload)は追従中のgraphだけを見る。全graphの取り直しが残っていれば全graphを見る。
+			if (followOnly && refreshScope !== "all" && !following) continue;
+			// 古さの判定は、取り直しの指示の範囲に入るgraphだけに掛ける。範囲の外は通常の取得と同じ判定にする。
+			const refreshTag = refreshScope === "all" || (refreshScope === "follow" && following);
 			const target = this._windowFor(viewport, this._stepBucketWidth(tagKey, viewport));
 			const runIds = this.selectedRuns.filter(runId => this.cache.getTag(runId, tagKey));
 			if (eligibleRunIds && !runIds.some(runId => eligibleRunIds.has(runId))) continue;
-			if (!runIds.some(runId => this.cache.needsFetch(runId, tagKey, target, viewport, {force, refresh}))) continue;
+			if (!runIds.some(runId => this.cache.needsFetch(runId, tagKey, target, viewport,
+					{force, refresh: refreshTag}))) continue;
 			const maxPoints = 3 * (Math.floor(target.toStep / target.stepBucketWidth)
 					- Math.floor(target.fromStep / target.stepBucketWidth) + 1);
 			groups.push({
@@ -2802,6 +3150,8 @@ class MetricsViewerClientApp {
 			});
 		}
 		if (!groups.length) {
+			// 取り直すwindowが無ければ、Reloadの取り直しはここで済んでいる。
+			if (settlesRefresh) this.pendingRefreshScope = null;
 			this.ui.setLoadingSpinner(false);
 			return;
 		}
@@ -2812,7 +3162,7 @@ class MetricsViewerClientApp {
 			for (const group of groups) {
 				if (!current()) return;
 				// 先読みは残容量内だけ。画面内の要求は優先し、容量超過時は遠いLRUを解放する。
-				if (group.background && this.mode !== Mode.SCREENSHOT) {
+				if (group.background && !this.screenshotModeEnabled) {
 					const needed = group.series.reduce((sum, series) => sum + series.maxPoints*28 + 1024, 0);
 					if (this.cache.detailBytes() + needed > DETAIL_CACHE_BYTES) break;
 				}
@@ -2832,7 +3182,10 @@ class MetricsViewerClientApp {
 				this.cache.replaceGraph(results, group.contexts, group.preview);
 				this._renderCurrent();
 			}
-			if (current()) this._setUpdateFailure("metrics", null);
+			if (current()) {
+				if (settlesRefresh) this.pendingRefreshScope = null;
+				this._setUpdateFailure("metrics", null);
+			}
 		} catch (error) {
 			if (current()) this._setUpdateFailure("metrics", error);
 			throw error;
@@ -2861,11 +3214,11 @@ class MetricsViewerClientApp {
 
 	_nearbyTags() {
 		const tags = this._visibleSelectedTags();
-		if (this.mode === Mode.SCREENSHOT) return new Set(tags);
+		if (this.screenshotModeEnabled) return new Set(tags);
 		const area = document.getElementById("main-area");
 		const bounds = area.getBoundingClientRect();
 		const blocks = [...area.querySelectorAll(":scope > .graph-block")];
-		if (!blocks.length) return new Set(tags.slice(0, Math.ceil(bounds.height * 2 / 310)));
+		if (!blocks.length) return new Set(tags.slice(0, Math.ceil(bounds.height * 2 / this._graphPitch())));
 		return new Set(blocks.filter(block => {
 			const rect = block.getBoundingClientRect();
 			return rect.bottom >= bounds.top - bounds.height && rect.top <= bounds.bottom + bounds.height;
@@ -3086,7 +3439,7 @@ class MetricsViewerClientApp {
 	// スクリーンショットモードでは #main-area の overflow が visible になり、
 	// スクロールはドキュメント側で起きる。
 	scrollElement() {
-		return this.mode === Mode.SCREENSHOT
+		return this.screenshotModeEnabled
 				? (document.scrollingElement ?? document.documentElement)
 				: document.getElementById("main-area");
 	}
@@ -3158,7 +3511,7 @@ class MetricsViewerClientApp {
 	}
 
 	async _pollIngest() {
-		if (this.polling || this.mode === Mode.SCREENSHOT) return;
+		if (this.polling || this.screenshotModeEnabled) return;
 		this.polling = true;
 		const metadataRevision = this.metadataRevision;
 		try {
@@ -3166,7 +3519,10 @@ class MetricsViewerClientApp {
 			if (metadataRevision !== this.metadataRevision) return;
 			this._setUpdateFailure("metadata", null);
 			const runs = Array.isArray(payload?.runs) ? payload.runs : [];
+			// 進みだけを手元のmetadataへ写し、行の表示と情報パネルを同じ値にそろえる。
+			this.cache.updateIngest(runs);
 			const needsPolling = this.ui.updateRunProgress(runs);
+			this.runInfo.refresh();
 			if (!needsPolling && this.ingestPollTimer) {
 				clearInterval(this.ingestPollTimer);
 				this.ingestPollTimer = null;
@@ -3190,7 +3546,7 @@ class MetricsViewerClientApp {
 	}
 
 	graphScrollLockActive() {
-		return this.graphScrollLockEnabled || this.mode === Mode.SCREENSHOT;
+		return this.graphScrollLockEnabled || this.screenshotModeEnabled;
 	}
 
 	_syncGraphScrollLockUi() {
@@ -3223,30 +3579,35 @@ class MetricsViewerClientApp {
 	}
 
 	async onReload() {
-		const recoveringFromInitialError = this.mode === Mode.ERROR;
 		try {
 			await Promise.all([
 				this._refreshWorkspaceList(),
-				this.refreshMetadata({
-					initial: recoveringFromInitialError,
-					requestData: false
-				})
+				this.refreshMetadata({ requestData: false })
 			]);
+			// metadataが取れたら初期化は済んでいる。初期化の失敗のあとや、初期化の取得が打ち切られたあとでも通常へ戻す。
+			if (this.mode !== Mode.NORMAL) this.setMode(Mode.NORMAL);
 			// 取得後にtagが変わったgraphだけを取り直す。変化が無ければmetrics.jsonは送らない。
 			await this.requestVisibleData({ refresh: true });
-			if (recoveringFromInitialError) this.setMode(Mode.NORMAL);
 		} catch (error) {
+			// 重いReloadの最中のスクロールなどで、後から来た取得に打ち切られたのは失敗ではない。
+			// 取り直しの指示はpendingRefreshScopeに残り、打ち切った側の取得が続きを行う。
+			if (isCancelledRequestError(error)) return;
 			this._handleQueryError(error);
 			Toast.show("Reload failed.");
 		}
 	}
 
+	// スクリーンショットモードは初期化の段階と独立に切り替える。初期化中も切り替えられ、初期化の完了はモードを変えない。
+	// 初期化の失敗中は、復帰の入口であるside panelのReloadを隠さないよう入るのだけを止め、抜けるのは許す。
 	onToggleScreenshot() {
-		if (this.mode === Mode.ERROR) return;
+		if (this.mode === Mode.ERROR && !this.screenshotModeEnabled) return;
 		const anchor = this._captureScrollAnchor();
-		const enabled = document.body.classList.toggle("screenshot-mode");
+		this.screenshotModeEnabled = !this.screenshotModeEnabled;
+		const enabled = this.screenshotModeEnabled;
+		document.body.classList.toggle("screenshot-mode", enabled);
 		document.documentElement.classList.toggle("screenshot-mode", enabled);
-		this.setMode(enabled ? Mode.SCREENSHOT : Mode.NORMAL);
+		// 左パネルが隠れるので、Run行に結び付いた情報パネルも閉じる。
+		this.runInfo.hide();
 		this._syncGraphScrollLockUi();
 		document.getElementById("btn-screenshot-toggle").textContent = enabled ? "➡" : "⬅";
 		const header = document.getElementById("screenshot-header");
@@ -3287,6 +3648,22 @@ class MetricsViewerClientApp {
 		this.autoRecolorEnabled = localStorage.getItem(STORAGE_KEY_AUTO_RECOLOR) !== "false";
 		const storedMode = localStorage.getItem(STORAGE_KEY_LOD_MODE);
 		if (Object.values(LodDisplayMode).includes(storedMode)) this.lodDisplayMode = storedMode;
+		this.showSelectedTagsOnly = localStorage.getItem(STORAGE_KEY_TAGS_SELECTED_ONLY) === "true";
+		this.graphHeight = this._loadGraphHeight();
+	}
+
+	// 保存形式は整数の文字列(px)。整数でない値、範囲の外の値、刻みに乗らない値は警告して既定へ戻す。
+	_loadGraphHeight() {
+		const stored = localStorage.getItem(STORAGE_KEY_GRAPH_HEIGHT);
+		if (stored === null) return GRAPH_HEIGHT_DEFAULT_PX;
+		const height = Number(stored);
+		if (!/^\d+$/.test(stored) || !isValidGraphHeight(height)) {
+			console.warn(`Failed to load ${STORAGE_KEY_GRAPH_HEIGHT}: expected an integer`
+					+ ` from ${GRAPH_HEIGHT_MIN_PX} to ${GRAPH_HEIGHT_MAX_PX} in steps of ${GRAPH_HEIGHT_STEP_PX},`
+					+ ` got ${JSON.stringify(stored)}`);
+			return GRAPH_HEIGHT_DEFAULT_PX;
+		}
+		return height;
 	}
 
 	_loadSet(key) {
@@ -3386,13 +3763,13 @@ class MetricsViewerClientApp {
 	}
 
 	_setUpdateFailure(kind, error) {
-		if (error?.name === "AbortError" || isSupersededMetricsError(error)) return;
+		if (isCancelledRequestError(error)) return;
 		this.updateFailures[kind] = error ? (error.message ?? String(error)) : null;
 		this.ui.renderUpdateStatus(this.updateFailures);
 	}
 
 	_handleQueryError(error) {
-		if (error?.name === "AbortError" || isSupersededMetricsError(error)) return;
+		if (isCancelledRequestError(error)) return;
 		console.error(error);
 	}
 }

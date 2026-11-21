@@ -131,6 +131,129 @@ class ReloadPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		assertTrue(isSameGraph(TAG_A));
 	}
 
+	/**
+	 * 重いReloadの応答待ちにスクロールなどの取得が割り込むと、Reloadのmetrics.jsonは打ち切られる。
+	 * 失敗のToastを出さず、古くなったgraphの取り直しは割り込んだ側の取得が引き継ぐ。
+	 */
+	@Test
+	void reloadInterruptedByALaterFetchShowsNoFailureAndTheLaterFetchRefetchesTheGrownGraph() {
+		pointCounts.put(seriesKey("run_a", TAG_A), 120);
+		openWithAllRunsSelected("reloadInterruptedTest");
+		pointCounts.put(seriesKey("run_b", TAG_A), 110);
+
+		// スクロールで見える範囲が変わったときと同じ取得を割り込ませる。
+		interruptReloadWith("app.requestVisibleData()");
+
+		// テスト用のserverはworkspaceを持たず、Reloadのたびに別件のToastが出るので、Reloadの失敗だけを見る。
+		assertFalse(Boolean.TRUE.equals(page.evaluate("""
+				() => Array.from(document.querySelectorAll('.toast'))
+					.some(toast => toast.textContent.includes('Reload failed'))
+				""")));
+		assertEquals(List.of(List.of("run_a|" + TAG_A, "run_b|" + TAG_A)), metricsRequests);
+		page.waitForFunction("""
+				() => document.getElementById(graphId('tag/a')).data
+					.find(trace => trace.meta?.runId === 'run_b')?.x.length === 110
+				""");
+		assertTrue(Boolean.TRUE.equals(page.evaluate("() => app.pendingRefreshScope === null")));
+	}
+
+	/**
+	 * 手動Reloadを、最新へ追従中のgraphだけを見るAuto Reloadの取得が打ち切っても、
+	 * 過去を拡大していて追従していないgraphの取り直しは落ちない。
+	 */
+	@Test
+	void reloadInterruptedByAnAutoReloadFetchStillRefetchesAGraphThatIsNotFollowing() {
+		openWithAllRunsSelected("reloadInterruptedByAutoReloadTest");
+		// tag/bを過去へ拡大して追従を外し、run_bのwindowを取り込み中(pending)にしておく。
+		page.evaluate("""
+				async () => {
+					await Plotly.relayout(document.getElementById(graphId('tag/b')), {'xaxis.range': [10, 20]});
+					await new Promise(resolve => setTimeout(resolve, 300));
+				}
+				""");
+		pendingOnce.add(seriesKey("run_b", TAG_B));
+		page.evaluate("async () => { await app.requestVisibleData({ force: true }); }");
+		assertEquals(1, traceCount(TAG_B));
+		metricsRequests.clear();
+
+		interruptReloadWith("app.requestVisibleData({ refresh: true, followOnly: true })");
+
+		assertEquals(List.of(List.of("run_a|" + TAG_B, "run_b|" + TAG_B)), metricsRequests);
+		page.waitForFunction("() => document.getElementById(graphId('tag/b')).data.length === 2");
+		assertTrue(Boolean.TRUE.equals(page.evaluate("() => app.pendingRefreshScope === null")));
+	}
+
+	/**
+	 * Auto Reloadの取得をスクロールなどの取得が打ち切ると、割り込んだ側はAuto Reloadと同じ範囲で取り直す。
+	 * 最新へ追従中のgraphは取り直し、追従していないgraphの古いwindowは取り直さない。
+	 */
+	@Test
+	void autoReloadInterruptedByALaterFetchRefetchesOnlyTheFollowingGraph() {
+		pointCounts.put(seriesKey("run_a", TAG_A), 120);
+		openWithAllRunsSelected("autoReloadInterruptedTest");
+		// tag/bを過去へ拡大して追従を外し、run_bのwindowを取り込み中(pending)にしておく。
+		page.evaluate("""
+				async () => {
+					await Plotly.relayout(document.getElementById(graphId('tag/b')), {'xaxis.range': [10, 20]});
+					await new Promise(resolve => setTimeout(resolve, 300));
+				}
+				""");
+		pendingOnce.add(seriesKey("run_b", TAG_B));
+		page.evaluate("async () => { await app.requestVisibleData({ force: true }); }");
+		assertEquals(1, traceCount(TAG_B));
+		metricsRequests.clear();
+		// 追従中のtag/aを伸ばす。run_aの方が長いのでviewportは変わらない。
+		pointCounts.put(seriesKey("run_b", TAG_A), 110);
+
+		// Auto Reloadのtickと同じ呼び出しを止め、スクロールと同じ取得を割り込ませる。
+		interruptWith("""
+				(async () => {
+					await app.refreshMetadata({ requestData: false });
+					await app.requestVisibleData({ refresh: true, followOnly: true });
+				})()
+				""", "app.requestVisibleData()");
+
+		assertEquals(List.of(List.of("run_a|" + TAG_A, "run_b|" + TAG_A)), metricsRequests);
+		page.waitForFunction("""
+				() => document.getElementById(graphId('tag/a')).data
+					.find(trace => trace.meta?.runId === 'run_b')?.x.length === 110
+				""");
+		assertEquals(1, traceCount(TAG_B));
+		assertTrue(Boolean.TRUE.equals(page.evaluate("() => app.pendingRefreshScope === null")));
+	}
+
+	/** Reloadのmetrics.jsonを応答前で止め、そこへ別の取得を割り込ませて、打ち切りの信号だけで終わらせる。 */
+	private void interruptReloadWith(String interruptingCall) {
+		interruptWith("app.onReload()", interruptingCall);
+	}
+
+	/** heldCallが出す最初のmetrics.jsonを応答前で止め、interruptingCallを割り込ませて、打ち切りの信号だけで終わらせる。 */
+	private void interruptWith(String heldCall, String interruptingCall) {
+		page.evaluate("""
+				async ([heldCall, interruptingCall]) => {
+					const originalFetch = window.fetch;
+					let held = false;
+					window.fetch = (input, init) => {
+						const url = typeof input === 'string' ? input : input.url;
+						if (!held && url.endsWith('/api/metrics.json')) {
+							held = true;
+							window.fetch = originalFetch;
+							return new Promise((resolve, reject) => init.signal.addEventListener('abort',
+								() => reject(new DOMException('The operation was aborted.', 'AbortError'))));
+						}
+						return originalFetch(input, init);
+					};
+					const heldWork = new Function('return ' + heldCall)();
+					while (!held) await new Promise(resolve => setTimeout(resolve, 10));
+					await new Function('return ' + interruptingCall)();
+					// 止めた側は打ち切りで終わる。onReloadは打ち切りを失敗にしないが、ほかの呼び出しは例外のまま返る。
+					await heldWork.catch(error => {
+						if (error?.name !== 'AbortError') throw error;
+					});
+				}
+				""", List.of(heldCall, interruptingCall));
+	}
+
 	@Test
 	void togglingLogRebuildsOnlyItsOwnGraph() {
 		openWithAllRunsSelected("logToggleReuseTest");

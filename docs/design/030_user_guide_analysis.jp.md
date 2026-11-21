@@ -85,21 +85,23 @@ workspaceを引数指定せずに起動した場合は、`YES`、`NO`、`DRY-RUN
 | `Save` / `Revert` | 名前の横の `*` は保存した集合との差。未保存の変更は別のセットへ切り替えても消えず、一覧ではそのセットの名前にも `*` が付く。`Save` は選択全体を上書き保存し、`Revert` はサーバーから最新の中身を取り直して戻す。差が無いときは押せない |
 | `+ Save current selection as…` | 一覧の下から名前を入力して保存する。入力欄の脇で保存数と一覧に無い数を確かめる |
 | `✎` / `×` | 行の中で名前変更、または確認して削除。`Deselect tag set` はtagの選択を保ったままセットの選択だけを外す |
-| `Selected Only`（Runs / Tags） | 見出し行のトグル。選択済みRun・tagだけを一覧へ残す。`Select All`などの一括操作を押すと自動でOFFへ戻る |
+| `Selected Only`（Runs / Tags） | 見出し行のトグル。選択済みRun・tagだけを一覧へ残す。`Select All`などの一括操作を押すと自動でOFFへ戻る。Runsのほうは開き直すとOFFで始まる |
 | Run行の背景と`%` | 選択したMetricsマスタをSQLiteへ取り込んだRun単位の進捗を示す |
+| Run行のhover / 右クリック（タッチは長押し） | そのRunの情報パネルを出す。Run名、取り込みの状態、最大step、tag数（隔離の数）、点数の合計、取り込みとtagの問題を並べる。Run名は1回のクリックで全体が選ばれ、そのままコピーできる。`Copy Name`はRun名をクリップボードへ入れる。外側を押すか、Escで閉じる |
 | `Reload` | Run一覧、tag、現在viewportのmetric rangeを再取得して再描画する |
 | `Auto Reload` | 30秒ごとにmetadataを更新し、最新を表示中のgraphだけを更新する |
+| `Height` | 右上のスライダー。全graphの高さを150〜800pxの間で50px刻みに変える。スライダーを離したときに描き直す。幅900px以下の画面とスクリーンショットモードでは隠れ、保存した高さはそのまま使う |
 | `LOD: MinMax / Mean / Band` | 右上のScroll Lock直前にある全graph共通のLOD表示mode。変更時に再取得しない |
 | グラフの`Log` | 正負と0を扱えるsigned-log表示を切り替える |
 | グラフの`p0–` / `–p100` | Y軸の下限と上限を、各Runの現在表示している有限値のpercentileで絞る。下限は押すたびに`p0–`→`p1–`→`p5–`→`p0–`、上限は`–p100`→`–p99`→`–p95`→`–p100`と巡り、上下を別々に選べる（`p5–`と`–p100`で下だけ切るなど）。`p0–`と`–p100`は制限なし |
 | `Scroll Lock` | グラフ操作を抑え、drag/swipeを縦scrollへ使う |
-| Screenshotボタン | side panelを隠し、比較画像向けの表示へ切り替える。この間はScroll Lock相当となり、graph上のdrag/swipeを縦scrollへ使う |
+| Screenshotボタン | side panelを隠し、比較画像向けの表示へ切り替える。この間はScroll Lock相当となり、graph上のdrag/swipeを縦scrollへ使う。読み込み中は左上にスピナーが出る |
 
 Plotlyのmodebarではzoom、pan、画像保存、`Reset axes`を利用できる。`Autoscale`ボタンは重複を避けるため非表示である。グラフ本体のdouble-clickはPlotlyのaxis resetを維持しつつ、ViewerのReloadも実行する。
 
 初回表示だけ最新Runを自動選択する。以後は手動の空選択と、Run消失で空になった選択を維持する。
 Reloadでは既知のOFF tagを保ち、新たに発見された可視tagだけを自動的にONへ加える。
-選択workspace、選択tag、LOD mode、Scroll Lock、`Auto Recolor`、tag別のLogとpercentileの下限・上限はbrowserの`localStorage`へ保持される。Run色自体は保持せず、reloadとworkspace切替のたびに配り直す。Logとpercentileの下限・上限はworkspaceをまたいで同名tagへ適用される。
+選択workspace、選択tag、LOD mode、Scroll Lock、`Auto Recolor`、Tagsの`Selected Only`、グラフの高さ、tag別のLogとpercentileの下限・上限はbrowserの`localStorage`へ保持される。Run色自体は保持せず、reloadとworkspace切替のたびに配り直す。Logとpercentileの下限・上限はworkspaceをまたいで同名tagへ適用される。
 
 選択中のタグセット名と、セットごとの未保存の変更もlocalStorageへ保持される。ページを読み直しても未保存のtag選択を保つ。未保存の変更はこのbrowserだけに残り、別のbrowserや端末には出ない。保存済みの中身へ戻すには、そのセットを呼んで`Revert`を押す。セットを`Save As`で別名保存すると、元のセットの未保存の変更は消える。タグセットはWorkspaceをまたいで共有する。メニューは↑↓とEnterで操作でき、Escまたは外側のクリックで閉じる。入力欄のEscは編集だけを取り消す。
 

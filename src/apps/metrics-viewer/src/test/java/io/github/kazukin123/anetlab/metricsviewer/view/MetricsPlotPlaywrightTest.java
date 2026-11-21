@@ -390,9 +390,13 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		assertEquals("none", page.evaluate("""
 				() => getComputedStyle(document.getElementById('btn-reset-view')).display
 				"""));
-		// 左パネルが消えるので、Reload中の表示は右上のスピナーが受け持つ。
+		// 左パネルが消えるので、Reload中の表示は普段と同じ左上に重ねたスピナーが受け持つ。
 		assertEquals(true, page.evaluate("""
-				() => document.getElementById('floating-loading-spinner').getClientRects().length > 0
+				() => {
+					const spinner = document.getElementById('floating-loading-spinner');
+					const bounds = spinner.getBoundingClientRect();
+					return spinner.getClientRects().length > 0 && bounds.left <= 16 && bounds.top <= 16;
+				}
 				"""));
 	}
 
