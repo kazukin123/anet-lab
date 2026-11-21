@@ -980,3 +980,4 @@
 2026-11-20 fix docs/design/011_source_layout.jp.md blob:870df61c32c979f106d8ca29930f751a2960af97 → docs/wiki/categories/315_nn.md、docs/wiki/categories/321_agent_core.md（基盤のテスト用の口の実装を src_testing/ に移したため、ファイルへのリンクを更新した）
 2026-11-20 fix docs/design/200_dqn_agents.jp.md blob:5a7730cc6d1019ddfc4cd042a9539e7776248940 → docs/wiki/categories/324_dqn.md（探索ラダーのテストを dqn_actor_test.cpp に移したため、廃止した専用ファイルのリンクを外した）
 2026-11-20 fix src/algo/dqn/CMakeLists.txt blob:88f1e329ba2ba8794d485d75f889a184f599cb7b → docs/wiki/categories/324_dqn.md（DQN の共通テスト補助を src/ 直下に移したため、ファイルへのリンクを更新した）
+2026-11-21 writeback docs/memo/193_variance_scaling_weight_init_10prd.md blob:0a5bacdaf2968b469a8c979a320c72f3685dbb48 → docs/wiki/subjects/breakout.md（分かっていること 1 行と関連 1 行。暫定の起票の最終の本文と照合した）

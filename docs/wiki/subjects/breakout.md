@@ -63,6 +63,7 @@ LN512はRR4の天井を押し上げた一方、RR1では対照のブレ幅内だ
 
 - ViTハイブリッドの旧0.64倍という比較は、土台の構成差を含んでいたため撤回された。現行構成の差と、トランク容量の寄与は分離していない（出典: [BTR NN移植](../../experiments/default-dqn/atari/2026-09-12_btr-network-port.md)・[lane窓の検証](../../experiments/default-dqn/atari/2026-09-15_replay-lane-window.md)、ViT比較・更新履歴）。
 - NoisyNet（実時間優先 50M）について: 2 × 2 の eval2 25-50M は、基準（ε ラダー、NoisyNet なし）517.1、NoisyNet + ラダー 532.4、NoisyNet だけ（ε 0）448.6、ε 0・NoisyNet なし 447.8 で、下がったのはラダーを外したぶんだった。学習中の 432 点以上の割合は基準 12.0%、NoisyNet + ラダー 12.7%（出典: [2026-10-11_noisynet-realtime.md](../../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)、現時点のまとめ2・探索ブロック 02。Run: `run_20261014-121541_breakout_rr1_50m_nz_ladder`, `run_20261011-182123_breakout_rr1_50m_nz_eps0`, `run_20261014-194942_breakout_rr1_50m_eps0`, `run_20260919-235619_rr1_va_hard125_cap2m_100m`）。
+- Dopamine の IQN に寄せた Nature 型の構成（4 env、5M）の学習側の点（it 15〜19 の平均）は、Dopamine の IQN の 5 本の 119.7〜177.3 に対し、seed 1 が 70.3、seed 2 が 59.6 だった。conv の padding と τ を混ぜる位置を Dopamine に合わせても seed の差（10.7）の中だったが、全層の初期値を he・xavier から torch の既定に替えると、同じ seed で 89.6 になった。（出典: [PRD193](../../memo/193_variance_scaling_weight_init_10prd.md)、§5.3。Run: run_20261117-223826_bo_dqiqn_s1 / run_20261120-150755_bo_dqiqn_s2 / run_20261120-223324_bo_dqiqn_initdef_s2）
 
 ## 分かっていないこと
 
@@ -78,3 +79,4 @@ LN512はRR4の天井を押し上げた一方、RR1では対照のブレ幅内だ
 
 - [atari](../subjects/atari.md)。
 - [evaluation](../mechanisms/evaluation.md)。
+- [PRD193](../../memo/193_variance_scaling_weight_init_10prd.md)（重みの初期化に、分散を倍率÷fan_in にする一様分布の方式を足す。暫定）。
