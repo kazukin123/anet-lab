@@ -79,6 +79,8 @@
 - 2026-11-19: RNDのwhitenに、誤差を誤差の統計で割らない倍率の式を足し、Burdaらの内的報酬の形にできるようにする仕様を、暫定で起票した（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、冒頭の起票の行）。
 - 2026-11-19: AgentRepositoryの登録が登録済みのclass IDを止め、初期化関数は何度呼んでも登録を1回だけ行う仕様をグリルで決めた（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5 D10・D11・§6.5）。
 - 2026-11-21: Agentのfactoryの未知のclass IDのエラーと、未定義のActorのカタログ項目のエラーが、設定キーと項目の完全キーを示す仕様をグリルで決めた（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5 D6・§8.3）。
+- 2026-11-21: RNDの設定キーを、段階（統計・誤差・predictor）ごとのスコープとモード別の名前空間に組み替え、warm-upを段階ごとの待ちに分け、clipを誤差のモードごとの真偽のキーで持つ仕様を、グリルで決めた。誤差で割らない式（`rnd.error_norm.mode = none`）、一生の新しさの推定器の口の2つの操作（内的報酬を呼び出し側が0にするかを返す、Networkの構造図を返す）、lane×時間のtensorをためる汎用の置き場の部品も足す（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§6.1 D2〜D5・D7〜D9・§8.4）。
+- 2026-11-21: RNDの設定は、段階ごとのスコープとモード別の名前空間で持ち、被るキーは割り切る（出典: [ADR 0088](../../adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md)、本文）。
 
 ## 選ばなかった形
 
@@ -110,13 +112,19 @@
 - `BatchUpdateResult::GetScalar`のkeyの全部を1枚の表にする形 — 不採用: 名前を解析して受ける群は名前から番号を読むので表に載らない（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D6・§7）。
 - `BatchUpdateResult::GetScalar`の直接比べるkeyも群ごとの関数に分け、中をifの連鎖のままにする形 — 不採用: keyの重複や届かない分岐が機械では見つからないまま残る（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D6・§7）。
 - RNDの誤差の統計を直近重み（バイアス補正EMA）を既定にする形 — 先送り: 時定数というenvごとの調整値と、覚えきったenvで微小な差を拾う帰結が既定に入る。再開条件: KFMのRunで累積と直近重みを比べた結果を見て決め直す（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D2・§4.1・§8 U3）。
-- RNDのwarm-upの中身を、predictorを学習させるかと誤差を統計に入れるかの独立したスイッチ2つで選ぶ形 — 不採用: 要求の無い組が2つ増え、うち1つは膨らみが再発する（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D4・§4.1）。
-- RNDの前半は観測の統計だけ、後半はpredictorも学習させる2ステージのwarm-up — 先送り: 効果が未測定で設定キーが増える。再開条件: 新しい既定のRunの8M〜10Mの誤差の標準偏差が0.05を超えて残るか、2M〜3Mと9M〜10Mの比が1.5を超えたとき。KFMでは比が僅差で1.5を超えたが、warm-upを1,000,000件にしても評価が変わらず、2026-11-15に開き直さないと決めた（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、冒頭の2026-11-15の改訂・§4.1）。
+- RNDのwarm-upの中身を、predictorを学習させるかと誤差を統計に入れるかの独立したスイッチ2つで選ぶ形 — 不採用: 要求の無い組が2つ増え、うち1つは膨らみが再発する（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D4・§4.1）。 → PRD191 で採用（段階ごとの待ちの件数として分ける。出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§6.1 D8）
+- RNDの前半は観測の統計だけ、後半はpredictorも学習させる2ステージのwarm-up — 先送り: 効果が未測定で設定キーが増える。再開条件: 新しい既定のRunの8M〜10Mの誤差の標準偏差が0.05を超えて残るか、2M〜3Mと9M〜10Mの比が1.5を超えたとき。KFMでは比が僅差で1.5を超えたが、warm-upを1,000,000件にしても評価が変わらず、2026-11-15に開き直さないと決めた（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、冒頭の2026-11-15の改訂・§4.1）。 → PRD191 で採用（待ちの件数の組として書ける形にする。効果は確かめない。出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§7.2）
 - 平均を引かない形を `multiplier_mode` の3つ目の値にする形 — 不採用: clipの有無を表すキーに別の軸が混ざり、平均を引かずclipもしない形が書けない（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D7・§4.1）。
 - RNDのcheckpointの書式の識別子を一律に上げ、誤差の統計の取り方を中に書く形 — 不採用: 識別子は1つで済むが、今あるRNDのcheckpointが新しい実行体で読めなくなる。累積の書式と中身は変えず、直近重みだけ別の識別子にする（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D11・§4.1）。
 - 誤差を統計に入れ始める件数を整数1つ（0が今の中身）で持ち、warm-upの中身のモードを作らない形 — 不採用: 値に動作の切り替えを兼ねさせず、待たせるかどうかはモードのキー、件数は値のキーで表す（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D4・§4.1）。
 - 直近重みのモードを作らず累積だけにする形 — 不採用: 累積の書式を変えなければcheckpointの不利益が無く、直近重みを比べる手段を残せる（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§4 D2・D11・§4.1）。
 - Burdaらの形（内的報酬の割引収益の標準偏差で割る） — 範囲外: laneごとの割引収益の保持と、外的・内的の価値を分ける話と組になり、PRD121・173に残す（出典: [PRD123](../../memo/123_rnd_intrinsic_reward_scale_10prd.md)、§1 非ゴール）。
+- RNDの誤差で割らない式を、`statistics_mode` の3つ目の値で選ぶ形、真偽のキー（`error_norm.enabled`）で選ぶ形 — 不採用: 前者は観測の統計と誤差の式が1つのキーに混ざり、checkpointが値を持つので再開時に切り替えられない。後者は3つ目の式を足すときにキーを作り直すことになる（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§6.1 D4・§6.4）。
+- 誤差で割らない式のとき、使われない設定キーが既定と違えばWARN（またはINFO）を出す形 — 不採用: モードを変えたいだけなのに、関係ない設定を同時に直させることになる。読んで検証するだけにする（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§6.2 D12・§6.4）。
+- フレーム積層の履歴とReplayの観測の置き場を、lane×時間のtensorの置き場の部品へ載せ替える形 — 範囲外: RNDを使わないRunを含む全Runの経路に触る別の関心。再開条件: ためる仕組みの統合整理の課題に取り組むとき（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§1.4・§6.1 D2・§8.5）。
+- RNDのwarm-upを `warmup_mode` で束ねたままにする形、待ちの件数を `rnd` 直下に1つ持つ形 — 不採用: 段階をまたぐ束が残り、モードを切り替えたときに前のモード用に書いた件数が残る（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§6.1 D8・§6.4）。
+- 倍率のclipを、誤差の式に依らない独立の段階にする形 — 不採用: 上限が切る対象の単位が、標準化した値と生の誤差で変わる（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§6.1 D9・§6.4）。
+- RNDの新しく足すキーだけを段階ごとの形にし、今あるキーは今の名前のまま残す形 — 不採用: 2つの形が並び、設定とbatを2回直すことになる（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§6.1 D7・§6.4）。
 - 学習器の更新の末尾（PERの重み付けから結果の組み立てまで）だけを共通の関数にする形 — 不採用: 正規化から要素誤差までの順がTD・QR・IQNの3か所に残る（出典: [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md)、§4 D2・§7）。
 - 学習器の更新の進行を、関数を受け取る補助にして分布ごとの違いを渡す形 — 不採用: targetと要素誤差が仮想関数の上書きの型で、型が2つになる（出典: [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md)、§4 D3・§7）。
 - targetの式の関数がh空間の値も受け取り、旗で逆変換を切り替える形 — 不採用: 旗の渡し違いで逆変換が2回掛かる（出典: [PRD125](../../memo/125_dqn_learner_update_skeleton_10prd.md)、§4 D11・§7）。
@@ -186,6 +194,7 @@
 - 診断の群を共通の型へ寄せるときは、メトリクスの名前とWARNの文言・回数を変えず、診断の6群をすべて購読する組を含む前後比較で全scalarの点を一致させ、更新の速さを交互3巡以上で確かめる（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§5 D12・D16・D18、§6.4）。
 - probe用の乱数の作り方を変えるときは、Agentの基のseedと乱数の名前を変えず、購読を設定し直しても作り直さない。名前付きのseedは作る順に依らず、probeは学習の乱数に触れないので、この2つを守れば診断の値も学習の値も変わらない（出典: [PRD128](../../memo/128_dqn_agent_refactor_bundle_10prd.md)、§2.5・§5 D13）。
 - RNDの正規化と統計の置き場を変えるときは、RND無効の出荷の設定で同seed・決定的モードのmetrics checksumを着手前の実行体と一致させ、CUDAで計算するRND有効の構成で同seedのRunが2回一致することを確かめる。速さは、RNDなしとRNDありを同じ回・同じ実行体で3巡測り、中央値の比で見る（出典: [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md)、§5.1 D15・D16、§7）。
+- RNDの設定キーを移すとき、式や補助学習の形を足すときは、RND無効・whitenの累積・whitenの直近重み・`variance_feedback`・`collect_errors` に当たる形の5構成で、同seed・決定的モードのmetricsの全scalar点を着手前の実行体と一致させる。誤差を標準化する式の待ちの間の動きと、`variance_feedback` の中身は変えない（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、§8.2・§9.2 の 1）。
 - Agentのライブラリは基盤の公開ヘッダだけを読み、基盤は具象Agentを知らない。テストは上位や兄弟のライブラリに依存せず、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う。ターゲットの依存とincludeは、検索と道具の検査で確かめる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§5.4・§6 のS3-1〜S3-5）。
 - ソースを移す・分けるときは、着手前に保存した実行体と、PRD128の前後比較の組（seed 1本、決定的なbackend、4 envを含む）で比べて、全scalar・設定の記録・WARNとERRORの行の一致を確かめ、旧パスの互換層（symlink・転送ヘッダ）を置かない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D22・D24・§6 のC3）。
 
@@ -271,7 +280,10 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261115-ce0101](../../management/issues/issue-20261115-ce0101.md) | 未着手 | 5.0 | — | コード | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | — | 残件有り | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
+| [issue-20261115-ce0101](../../management/issues/issue-20261115-ce0101.md) | 調査中 | 5.0 | — | コード | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 残件有り | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
+| [issue-20261122-c1744a](../../management/issues/issue-20261122-c1744a.md) | 調査中 | 2.6 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RND と補助学習の設定キーが段階とモードの関係を表しておらず、warm-up の 1 つの件数が 2 つの待ちを束ねていて、設計文書 212 から設定と動きを引きにくい |
+| [issue-20261119-027698](../../management/issues/issue-20261119-027698.md) | 調査中 | 2.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RNDに生の予測誤差を返す内的報酬の式が無く、Burdaらの「誤差を内的の収益の標準偏差で割るだけ」の形にできない |
+| [issue-20261119-4976bf](../../management/issues/issue-20261119-4976bf.md) | 調査中 | 1.1 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RNDのpredictorの補助学習が今のintakeの観測だけから引き、lane数を超えるバッチと同じ標本の再利用（Burdaらの4エポック）ができない |
 | [issue-20261115-e5a0eb](../../management/issues/issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | PRD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
 | [issue-20261111-585e60](../../management/issues/issue-20261111-585e60.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 残件有り | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
 | [issue-20261111-17fea4](../../management/issues/issue-20261111-17fea4.md) | 未着手 | 2.7 | — | コード | 監査 | 324_dqn, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | 方策の種類（policy_type）と分布の表し方（quantile_mode）を文字列のまま持ち回り、数字の別名の受け付け方が関数ごとに違う |
@@ -285,7 +297,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD169](../../memo/169_outside_core_extension_layout_10prd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-a39330](../../management/issues/issue-20261103-a39330.md) | 未着手 | 2.0 | — | コード | PRD | 321_agent_core, 324_dqn | アルゴリズム | 機能追加 | [PRD147](../../memo/147_iqn_first_priority_quantile_pair_10prd.md) | 残件有り | PRD147: IQN初回Learner priorityのquantile-pair方式 |
 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 未着手 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD161](../../memo/161_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
-| [issue-20261119-027698](../../management/issues/issue-20261119-027698.md) | 未着手 | 2.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RNDに生の予測誤差を返す内的報酬の式が無く、Burdaらの「誤差を内的の収益の標準偏差で割るだけ」の形にできない |
 | [issue-20261111-54c7e1](../../management/issues/issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 残件有り | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
 | [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | — | コード | PRD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 未確認 | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
@@ -302,7 +313,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-1edf84](../../management/issues/issue-20261103-1edf84.md) | 未着手 | 1.1 | — | コード | PRD | 321_agent_core, 324_dqn, 315_nn | アルゴリズム | 機能追加 | [PRD172](../../memo/172_bootstrapped_multihead_q_10prd.md) | 残件有り | Bootstrapped DQN 型の複数の Head（1 本の Run の中に別々の価値関数を持つ） |
 | [issue-20261103-51220d](../../management/issues/issue-20261103-51220d.md) | 未着手 | 1.1 | — | コード | PRD | 318_rl_core, 321_agent_core, 322_env_individual, 317_metrics | 学習基盤 | 機能追加 | [PRD144](../../memo/144_episode_forensics_10prd.md) | 残件有り | Episode Forensics（特殊挙動エピソード自動捕捉・事後調査） |
 | [issue-20261116-cc5942](../../management/issues/issue-20261116-cc5942.md) | 未着手 | 1.1 | — | コード | その他 | 318_rl_core, 321_agent_core, 314_tensor, 324_dqn | 学習基盤 | 性能改善 | — | 残件有り | 同じデータを何度もdevice間で転送している箇所を洗い出して減らす（Replayのobsとnext_obsの重なるフレーム、RNDの採点とActorが別々に送る観測など） |
-| [issue-20261119-4976bf](../../management/issues/issue-20261119-4976bf.md) | 未着手 | 1.1 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RNDのpredictorの補助学習が今のintakeの観測だけから引き、lane数を超えるバッチと同じ標本の再利用（Burdaらの4エポック）ができない |
 | [issue-20261103-6f6c73](../../management/issues/issue-20261103-6f6c73.md) | 未着手 | 1.0 | — | コード | PRD | 321_agent_core | アルゴリズム | 機能追加 | [PRD183](../../memo/183_temporl_skip_followups_10prd.md) | 残件有り | TempoRL の後続（長い j の不確かさ・閉ループの割り込み・全 k の一括学習） |
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 残件有り | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261119-cb9a0f](../../management/issues/issue-20261119-cb9a0f.md) | 未着手 | 1.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | — | 未確認 | RNDの観測の正規化に、学習の前に一様乱数の行動で統計を作る前段（Burdaら）が無い |
@@ -318,10 +328,11 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | コード | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD167](../../memo/167_smdp_transition_duration_10prd.md) | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す） |
 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md), [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md), [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md), [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) | コード | PRD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [PRD173](../../memo/173_intrinsic_reward_novelty_10prd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
 | [issue-20261108-227b05](../../management/issues/issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | コード | PRD | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
+| [issue-20261122-4c0af5](../../management/issues/issue-20261122-4c0af5.md) | 未着手 | 0.8 | [issue-20261119-4976bf](../../management/issues/issue-20261119-4976bf.md) | コード | PRD | 318_rl_core, 314_tensor, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 観測をためる仕組み（フレーム積層の履歴、Replay の観測の置き場、補助学習の rollout の置き場）が別々に実装されていて、共通の置き場の部品へ載せ替えていない |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | コード | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD162](../../memo/162_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
-着手できる 43 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
+着手できる 44 / 待ち 6 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
 <!-- issues:end -->
