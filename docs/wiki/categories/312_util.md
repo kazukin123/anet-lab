@@ -32,6 +32,7 @@
 - 2026-10-29: 整数のProfiledValueをActorのスキップ長上限へ接続した（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§4 D1・D2・§5.1）。
 - 2026-11-10: InitRLのdeviceの検査を、設定に書かれているキーだけを見る形にし、持ち主の設定クラスと二重に持っていた既定値の表を消す仕様を定めた（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D9）。
 - 2026-11-12: forwardの途中のTensorを押し出すTraceCallback型を消す仕様をグリルで決めた（出典: [PRD170](../../memo/170_nn_trace_capture_unification_10prd.md)、§4 D9）。
+- 2026-11-21: device指定の文法の誤りのfatalを1回にするため、ParseDeviceがキーの名前を必須で受け取ってInitRLが例外を捕まえない形にし、明示のcudaが使えないときのエラーにキーごとの指定値を並べる仕様をグリルで決めた（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5 D8・D9・§6.3）。
 
 ## 選ばなかった形
 
@@ -45,6 +46,7 @@
 - InitRLのdeviceの検査が、既定値を持つ設定クラスの定数を引く形 — 不採用: Runの設定の型をtrainer.cppの外へ出す変更が要り、書かれていないキーを飛ばせば今の結果のまま二重持ちが消える（出典: [PRD122](../../memo/122_small_refactor_and_test_gap_fixes_10prd.md)、§4 D9・§7）。
 - 整形した文面をキーにして通知を 1 回だけ出す形 — 不採用: step や件数のように変わる値が文面に入ると毎回出て、抑えるときも毎回文面を組み立てる。通知を出す箇所と対象の名前の組をキーにする（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、§5.1・§8）。
 - WARN と ERROR の間に新しいログのレベルを足す形 — 不採用: レベルを増やすと「WARN は利用者が直すべき状態」という線引きがぼやける（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、§3.2・§8）。
+- 文脈を足して投げ直す箇所のfatalの二重出力を、ログを重ねない投げ直しの口を作って直す形 — 先送り: 別の関心（fatalの出し方）で、設定キーの名指しとは分けられる。再開条件: PRD071を再グリルするとき（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5.1）。
 
 ## 変えるときの条件
 
@@ -117,15 +119,16 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261103-78df9c](../../management/issues/issue-20261103-78df9c.md) | 調査中 | 2.5 | — | コード | 監査 | 312_util | 基盤 | 不具合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 残件有り | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
+| [issue-20261103-9b314a](../../management/issues/issue-20261103-9b314a.md) | 調査中 | 2.5 | — | コード | 監査 | 312_util | 基盤 | 不整合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 残件有り | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
+| [issue-20261103-d4258c](../../management/issues/issue-20261103-d4258c.md) | 調査中 | 2.5 | — | 文書 | 監査 | 312_util, 316_config | 基盤 | 不整合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
 | [issue-20261103-c8fb06](../../management/issues/issue-20261103-c8fb06.md) | 未着手 | 3.0 | — | コード | PRD | 312_util, 110_runner_app | 基盤 | 機能改善 | [PRD071](../../memo/071_uncaught_fatal_visibility_10prd.md) | 残件有り | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
-| [issue-20261103-78df9c](../../management/issues/issue-20261103-78df9c.md) | 未着手 | 2.5 | — | コード | 監査 | 312_util | 基盤 | 不具合 | — | 残件有り | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
-| [issue-20261103-9b314a](../../management/issues/issue-20261103-9b314a.md) | 未着手 | 2.5 | — | コード | 監査 | 312_util | 基盤 | 不整合 | — | 残件有り | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
-| [issue-20261103-d4258c](../../management/issues/issue-20261103-d4258c.md) | 未着手 | 2.5 | — | 文書 | 監査 | 312_util, 316_config | 基盤 | 不整合 | — | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD169](../../memo/169_outside_core_extension_layout_10prd.md) | 残件有り | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-df24e5](../../management/issues/issue-20261103-df24e5.md) | 未着手 | 1.4 | — | コード | 監査 | 312_util | 基盤 | 不具合 | — | 判定不能 | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
+| [issue-20261121-9c0b1b](../../management/issues/issue-20261121-9c0b1b.md) | 未着手 | 1.4 | — | コード | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 320_env_core, 321_agent_core, 322_env_individual, 324_dqn, 325_muzero | 基盤 | 機能改善 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | エラー・WARN・INFO が設定キーを相対キーや固定の root で示す文が基盤全体に約 200 か所あり、完全キーを運ぶ仕組みが無い |
 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | コード | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD154](../../memo/154_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 
-着手できる 9 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 10 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

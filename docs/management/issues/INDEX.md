@@ -5,8 +5,14 @@
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261107-949e8a](issue-20261107-949e8a.md) | 対応中 | 5.0 | — | コード | その他 | 322_env_individual | Env | 機能追加 | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 残件有り | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
+| [issue-20261110-546bdb](issue-20261110-546bdb.md) | 調査中 | 3.5 | — | コード | 実装 | 316_config | 開発 | 不整合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | コード | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261117-eedd0c](issue-20261117-eedd0c.md) | 調査中 | 2.6 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | Evaluation Trace の単一行選択テストが合成ドラッグ後に失敗する |
+| [issue-20261103-78df9c](issue-20261103-78df9c.md) | 調査中 | 2.5 | — | コード | 監査 | 312_util | 基盤 | 不具合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 残件有り | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
+| [issue-20261103-9b314a](issue-20261103-9b314a.md) | 調査中 | 2.5 | — | コード | 監査 | 312_util | 基盤 | 不整合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 残件有り | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
+| [issue-20261103-d4258c](issue-20261103-d4258c.md) | 調査中 | 2.5 | — | 文書 | 監査 | 312_util, 316_config | 基盤 | 不整合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
+| [issue-20261103-eeb2c3](issue-20261103-eeb2c3.md) | 調査中 | 2.5 | — | コード | 監査 | 317_metrics | UI | 不整合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 残件有り | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
+| [issue-20261119-4124b6](issue-20261119-4124b6.md) | 調査中 | 2.5 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | DQN の共通部品のエラー文 4 か所が DefaultDQNAgent の設定キーを固定で書き、RainbowAgent で出ても DefaultDQNAgent のキーとして表示される |
 | [issue-20261121-d4feb6](issue-20261121-d4feb6.md) | 調査中 | 2.0 | — | コード | PRD | 316_config, 315_nn, 324_dqn | 基盤 | 機能改善 | [PRD193](../../memo/193_variance_scaling_weight_init_10prd.md) | 未確認 | 初期化の設定（WeightInitConfig）を 14 か所が 1 キーずつ読み、読み方と不正な値の止まり方が読み手ごとに違う |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261121-533820](issue-20261121-533820.md) | 調査中 | 1.4 | — | コード | その他 | 315_nn, 324_dqn | アルゴリズム | 機能追加 | [PRD193](../../memo/193_variance_scaling_weight_init_10prd.md) | 未確認 | 重みの初期化に、分散を倍率÷fan_in にする一様分布の方式（Dopamine の IQN・Rainbow と同じ初期値）が無い |
@@ -15,7 +21,6 @@
 | [issue-20261103-b754ff](issue-20261103-b754ff.md) | 未着手 | 6.5 | — | 成果物 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD161](../../memo/161_observation_pipeline_10prd.md) | 残件有り | stucker.stack_keysに存在しないキー名を書いても検出されない |
 | [issue-20261115-ce0101](issue-20261115-ce0101.md) | 未着手 | 5.0 | — | コード | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | — | 残件有り | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
 | [issue-20261111-9e6e27](issue-20261111-9e6e27.md) | 未着手 | 3.6 | — | コード | PRD | 110_runner_app | UI | 機能改善 | — | 未確認 | 無人で走るRun（番号付きbat）でWARNに気づけない |
-| [issue-20261110-546bdb](issue-20261110-546bdb.md) | 未着手 | 3.5 | — | コード | 実装 | 316_config | 開発 | 不整合 | — | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
 | [issue-20261120-1979f6](issue-20261120-1979f6.md) | 未着手 | 3.5 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | QValuePanel.hist_bins=0 が設定検証を通り、描画処理で空のヒストグラムを参照しうる |
 | [issue-20261115-e5a0eb](issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | PRD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | 未着手 | 3.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
@@ -47,12 +52,7 @@
 | [issue-20261108-06a3f0](issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | コード | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
 | [issue-20261108-f0f243](issue-20261108-f0f243.md) | 未着手 | 2.6 | — | コード | PRD | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする） |
 | [issue-20261103-b2a0b1](issue-20261103-b2a0b1.md) | 未着手 | 2.5 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
-| [issue-20261103-78df9c](issue-20261103-78df9c.md) | 未着手 | 2.5 | — | コード | 監査 | 312_util | 基盤 | 不具合 | — | 残件有り | device指定の文法誤りで、ParseDeviceとInitRLが同じ誤りのfatalを2回ログに出す |
-| [issue-20261103-9b314a](issue-20261103-9b314a.md) | 未着手 | 2.5 | — | コード | 監査 | 312_util | 基盤 | 不整合 | — | 残件有り | 明示cudaが使えないときのエラーがキー名だけを並べ、指定値を書かない |
-| [issue-20261103-d4258c](issue-20261103-d4258c.md) | 未着手 | 2.5 | — | 文書 | 監査 | 312_util, 316_config | 基盤 | 不整合 | — | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
 | [issue-20261103-7c9a70](issue-20261103-7c9a70.md) | 未着手 | 2.5 | — | コード | 監査 | 316_config | 基盤 | 不整合 | [PRD181](../../memo/181_config_file_layout_10prd.md) | 残件有り | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う |
-| [issue-20261103-eeb2c3](issue-20261103-eeb2c3.md) | 未着手 | 2.5 | — | コード | 監査 | 317_metrics | UI | 不整合 | — | 残件有り | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
-| [issue-20261119-4124b6](issue-20261119-4124b6.md) | 未着手 | 2.5 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | — | 未確認 | DQN の共通部品のエラー文 4 か所が DefaultDQNAgent の設定キーを固定で書き、RainbowAgent で出ても DefaultDQNAgent のキーとして表示される |
 | [issue-20261118-dc5de3](issue-20261118-dc5de3.md) | 未着手 | 2.4 | — | コード | その他 | 317_metrics, 110_runner_app | 基盤 | 機能改善 | — | 未確認 | Atari の Run の列ごとにメトリクスの組と tag がずれ、本線・Taiga 寄せ・易しいゲームの Run どうしを Viewer で重ねて比べられない |
 | [issue-20261120-7ac5fa](issue-20261120-7ac5fa.md) | 未着手 | 2.4 | — | コード | 実装 | 110_runner_app, 324_dqn | UI | 不具合 | — | 未確認 | IQN の学習中に HeatMap を既定の選択で開くと taus の不足で Run が停止する |
 | [issue-20261103-e6dbb4](issue-20261103-e6dbb4.md) | 未着手 | 2.3 | — | コード | 監査 | 317_metrics | UI | リファクタリング | — | 残件有り | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
@@ -101,6 +101,7 @@
 | [issue-20261110-9d4e5a](issue-20261110-9d4e5a.md) | 未着手 | 1.4 | — | コード | その他 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | C++ の単純な書き方の問題を機械で検出する仕組み（lint・静的解析）が無い |
 | [issue-20261112-4efa57](issue-20261112-4efa57.md) | 未着手 | 1.4 | — | コード | PRD | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | replay fitの診断（EvaluateReplayFit）が学習の更新の前半を別に書き、分布の表し方での分岐を持っている |
 | [issue-20261115-c89660](issue-20261115-c89660.md) | 未着手 | 1.4 | — | コード | その他 | 110_runner_app, 321_agent_core, 318_rl_core | UI | 機能追加 | — | 未確認 | Runner の Conv2dPanel と metrics.image の conv2d に、RND の target と predictor の畳み込みの出力が出ない |
+| [issue-20261121-9c0b1b](issue-20261121-9c0b1b.md) | 未着手 | 1.4 | — | コード | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 320_env_core, 321_agent_core, 322_env_individual, 324_dqn, 325_muzero | 基盤 | 機能改善 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | エラー・WARN・INFO が設定キーを相対キーや固定の root で示す文が基盤全体に約 200 か所あり、完全キーを運ぶ仕組みが無い |
 | [issue-20261103-71c4f4](issue-20261103-71c4f4.md) | 未着手 | 1.3 | — | コード | PRD | 315_nn, 317_metrics, 321_agent_core | 学習基盤 | 機能追加 | [PRD135](../../memo/135_nn_block_metrics_10prd.md) | 残件有り | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
 | [issue-20261103-b4e5c9](issue-20261103-b4e5c9.md) | 未着手 | 1.3（引継ぎ） | — | コード | PRD | 316_config, 110_runner_app | 基盤 | リファクタリング | [PRD155](../../memo/155_config_root_ownership_alignment_10prd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
 | [issue-20261103-f39d10](issue-20261103-f39d10.md) | 未着手 | 1.3 | — | コード | PRD | 318_rl_core, 324_dqn | 学習基盤 | 不具合 | [PRD141](../../memo/141_background_eval_snapshot_ordering_10prd.md) | 残件有り | Background eval の network snapshot 順序保証 |
@@ -183,3 +184,4 @@ docs/memo 直下の PRD のうち、どの課題の prd からも指されない
 | ID | 起票日 | 課題 |
 |---|---|---|
 | [issue-20261115-b02db6](issue-20261115-b02db6.md) | 2026-11-15 | RND の Head の出力次元 intrinsic.rnd.output_dim が rnd の直下にあり、Head の初期値 intrinsic.rnd.head.init.* と置き場が分かれている |
+| [issue-20261121-9c0b1b](issue-20261121-9c0b1b.md) | 2026-11-21 | エラー・WARN・INFO が設定キーを相対キーや固定の root で示す文が基盤全体に約 200 か所あり、完全キーを運ぶ仕組みが無い |

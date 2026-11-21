@@ -24,6 +24,7 @@
 - 2026-11-04: 画像メモリの所有権の不一致を、既存の寸法・画素値・画像種別を保って修正した（出典: [PRD115](../../memo/115_heatmap_image_ownership_and_dropmerge_noop_penalty_10prd.md)、§1.2、[可観測性](../../design/140_observability.jp.md)、§7.3）。
 - 2026-11-12: Evaluation Traceの行を作る部品が、列の宣言から`$agent_step`の鍵を集め、RunnerのActorとあわせて、step診断の部品を作るときに渡す仕様をグリルで決めた（出典: [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)、§4 D3・§5.3）。
 - 2026-11-19: VideoLoggerが、構築時と違う大きさの画像を動画に書かず、tagごとにRunで1回だけWARNを出して続ける仕様をグリルで決めた（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5 D8）。
+- 2026-11-21: video_codecのエラーが`app.metrics_logger.video_codec`の完全キーを示すよう、MetricsLoggerの設定の型が完全キーの記録を運ぶ仕様と、hiddenの設定検査と設計文書の指標名を出荷定義の名前に合わせることをグリルで決めた（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5 D1・D11）。
 
 ## 選ばなかった形
 
@@ -47,6 +48,7 @@
 - 動画の大きさ違いでRunを止める形 — 不採用: 失敗の扱いの表では、構築後にメトリクスの一部だけが欠ける異常はWARNを出して続ける行に当たり、止める形はその行と食い違う。診断用の動画のために学習を止めることにもなる（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5 D8・§5.1）。
 - 大きさが変わったら新しい動画ファイルに切り替える形 — 不採用: ファイル名の決まり、動画の記録の行、読む側の扱いが増え、使われる見込みが薄い（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5.1）。
 - 動画の最初の画像が無効なとき、最初の有効な画像が来るまでVideoLoggerを作らない形 — 範囲外: 題材の事象（作ったあとの読み）の外である（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§6.3・§9のU3）。
+- 40文字を超えているskipの指標のtagを、40文字に収まる名前へ変える形 — 不採用: 10月29日以後のRunの記録とtagが分かれ、同じグラフに重ならなくなる（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5 D11・§5.1）。
 
 ## 変えるときの条件
 
@@ -106,18 +108,19 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261103-eeb2c3](../../management/issues/issue-20261103-eeb2c3.md) | 調査中 | 2.5 | — | コード | 監査 | 317_metrics | UI | 不整合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 残件有り | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261115-ce0101](../../management/issues/issue-20261115-ce0101.md) | 未着手 | 5.0 | — | コード | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | — | 残件有り | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
 | [issue-20261115-e5a0eb](../../management/issues/issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | PRD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
 | [issue-20261111-be150a](../../management/issues/issue-20261111-be150a.md) | 未着手 | 3.0 | — | コード | 監査 | 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | StepTraceColumnSpec の target と display を文字列で持ち、metrics.cpp・gui.cpp・EvalTracePanel.cpp の 3 ファイル 17 か所で文字列を比べている |
 | [issue-20261111-645ecc](../../management/issues/issue-20261111-645ecc.md) | 未着手 | 2.7 | — | コード | 監査 | 317_metrics, 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | メトリクス宣言の語（event・step・target）と enum の対応が 5 か所以上に分かれ、解決済みの定義も同じ値を文字列と enum の 2 形で持っている |
-| [issue-20261103-eeb2c3](../../management/issues/issue-20261103-eeb2c3.md) | 未着手 | 2.5 | — | コード | 監査 | 317_metrics | UI | 不整合 | — | 残件有り | video_codecのエラー文が実キーapp.metrics_logger.video_codecではなくrootの無い名前を出す |
 | [issue-20261118-dc5de3](../../management/issues/issue-20261118-dc5de3.md) | 未着手 | 2.4 | — | コード | その他 | 317_metrics, 110_runner_app | 基盤 | 機能改善 | — | 未確認 | Atari の Run の列ごとにメトリクスの組と tag がずれ、本線・Taiga 寄せ・易しいゲームの Run どうしを Viewer で重ねて比べられない |
 | [issue-20261103-e6dbb4](../../management/issues/issue-20261103-e6dbb4.md) | 未着手 | 2.3 | — | コード | 監査 | 317_metrics | UI | リファクタリング | — | 残件有り | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261111-0ef722](../../management/issues/issue-20261111-0ef722.md) | 未着手 | 2.0 | — | コード | 監査 | 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | probe.hpp・probe.cpp の約 3 分の 1 がどこからも使われず、残る 2 つの Probe クラスと 5 つの IdxExtractor も写しになっている |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-50644a](../../management/issues/issue-20261103-50644a.md) | 未着手 | 1.4 | — | コード | PRD | 317_metrics, 320_env_core, 321_agent_core, 318_rl_core, 110_runner_app | UI | 機能追加 | [PRD184](../../memo/184_eval_session_step_trace_10prd.md) | 残件有り | 評価 session の step trace を Run の記録に残す |
+| [issue-20261121-9c0b1b](../../management/issues/issue-20261121-9c0b1b.md) | 未着手 | 1.4 | — | コード | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 320_env_core, 321_agent_core, 322_env_individual, 324_dqn, 325_muzero | 基盤 | 機能改善 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | エラー・WARN・INFO が設定キーを相対キーや固定の root で示す文が基盤全体に約 200 か所あり、完全キーを運ぶ仕組みが無い |
 | [issue-20261103-71c4f4](../../management/issues/issue-20261103-71c4f4.md) | 未着手 | 1.3 | — | コード | PRD | 315_nn, 317_metrics, 321_agent_core | 学習基盤 | 機能追加 | [PRD135](../../memo/135_nn_block_metrics_10prd.md) | 残件有り | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
 | [issue-20261103-7227bf](../../management/issues/issue-20261103-7227bf.md) | 未着手 | 1.2 | — | コード | PRD | 311_dev_tools, 317_metrics | 開発 | 機能追加 | [PRD153](../../memo/153_q_statistics_config_screening_10prd.md) | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング |
 | [issue-20261103-51220d](../../management/issues/issue-20261103-51220d.md) | 未着手 | 1.1 | — | コード | PRD | 318_rl_core, 321_agent_core, 322_env_individual, 317_metrics | 学習基盤 | 機能追加 | [PRD144](../../memo/144_episode_forensics_10prd.md) | 残件有り | Episode Forensics（特殊挙動エピソード自動捕捉・事後調査） |
@@ -125,6 +128,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-f40ae8](../../management/issues/issue-20261103-f40ae8.md) | 未着手 | 0.9 | — | コード | PRD | 317_metrics, 314_tensor, 318_rl_core | UI | 性能改善 | [PRD056](../../memo/056_timehistogram_fine_grid_10prd.md) | 残件有り | TimeHistogram fine-bin保持・描画時集約 |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | コード | PRD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [PRD142](../../memo/142_agent_prev_action_obs_10prd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
 
-着手できる 17 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 18 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) — 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化
 <!-- issues:end -->

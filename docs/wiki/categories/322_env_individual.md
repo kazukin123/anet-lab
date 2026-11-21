@@ -162,6 +162,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261111-269a9f](../../management/issues/issue-20261111-269a9f.md) | 未着手 | 2.0 | — | コード | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | DropMergeEnv::Step が 267 行で行動の解釈・物理・裁定・統計・報酬を並べ、行動の解釈・DROP の位置・果物の走査・盤面の受け渡しにも写しがある |
 | [issue-20261112-983afe](../../management/issues/issue-20261112-983afe.md) | 未着手 | 2.0 | — | コード | その他 | 324_dqn, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | — | 残件有り | KFMの学習がボスへ行き着くかが偶然に頼る（1階の廊下の位置が観測に無く、Qも内的報酬も左へ進む向きを持てない） |
 | [issue-20261110-adf548](../../management/issues/issue-20261110-adf548.md) | 未着手 | 1.6 | — | コード | その他 | 322_env_individual | Env | 機能追加 | — | 未確認 | GridMaze に MiniGrid 互換の課題が無く、難しい探索の検証と DI-engine との比較に使えない |
+| [issue-20261121-9c0b1b](../../management/issues/issue-20261121-9c0b1b.md) | 未着手 | 1.4 | — | コード | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 320_env_core, 321_agent_core, 322_env_individual, 324_dqn, 325_muzero | 基盤 | 機能改善 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | エラー・WARN・INFO が設定キーを相対キーや固定の root で示す文が基盤全体に約 200 か所あり、完全キーを運ぶ仕組みが無い |
 | [issue-20261103-8c3c6d](../../management/issues/issue-20261103-8c3c6d.md) | 未着手 | 1.2 | — | コード | PRD | 318_rl_core, 324_dqn, 321_agent_core, 322_env_individual | 学習基盤 | 機能追加 | [PRD171](../../memo/171_replay_eviction_sample_count_10prd.md) | 残件有り | replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る |
 | [issue-20261103-dbe666](../../management/issues/issue-20261103-dbe666.md) | 未着手 | 1.2 | — | コード | PRD | 322_env_individual, 318_rl_core, 311_dev_tools | Env | 調査 | [PRD163](../../memo/163_dropmerge_neet_diagnostics_10prd.md) | 残件有り | DropMerge の NEET 診断（trace で足りるか確かめてから指標化） |
 | [issue-20261103-51220d](../../management/issues/issue-20261103-51220d.md) | 未着手 | 1.1 | — | コード | PRD | 318_rl_core, 321_agent_core, 322_env_individual, 317_metrics | 学習基盤 | 機能追加 | [PRD144](../../memo/144_episode_forensics_10prd.md) | 残件有り | Episode Forensics（特殊挙動エピソード自動捕捉・事後調査） |
@@ -176,7 +177,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-13bc20](../../management/issues/issue-20261103-13bc20.md) | 未着手 | 0.8 | [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) | コード | PRD | 322_env_individual | Env | 機能追加 | [PRD086](../../memo/086_dropmerge_macro_actions_10prd.md) | 残件有り | DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化） |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | コード | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD162](../../memo/162_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 21 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
+着手できる 22 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) — 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化
 - 関連する課題: [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) — n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正）

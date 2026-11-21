@@ -78,6 +78,7 @@
 - 2026-11-18: Agentは基盤の外の系統ごとのライブラリに置き、Headを書くための部品を基盤が公開する（出典: [ADR 0079](../../adr/0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public.md)、本文）。
 - 2026-11-19: RNDのwhitenに、誤差を誤差の統計で割らない倍率の式を足し、Burdaらの内的報酬の形にできるようにする仕様を、暫定で起票した（出典: [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md)、冒頭の起票の行）。
 - 2026-11-19: AgentRepositoryの登録が登録済みのclass IDを止め、初期化関数は何度呼んでも登録を1回だけ行う仕様をグリルで決めた（出典: [PRD192](../../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)、§5 D10・D11・§6.5）。
+- 2026-11-21: Agentのfactoryの未知のclass IDのエラーと、未定義のActorのカタログ項目のエラーが、設定キーと項目の完全キーを示す仕様をグリルで決めた（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5 D6・§8.3）。
 
 ## 選ばなかった形
 
@@ -268,13 +269,13 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261119-4124b6](../../management/issues/issue-20261119-4124b6.md) | 調査中 | 2.5 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | DQN の共通部品のエラー文 4 か所が DefaultDQNAgent の設定キーを固定で書き、RainbowAgent で出ても DefaultDQNAgent のキーとして表示される |
 | [issue-20261115-ce0101](../../management/issues/issue-20261115-ce0101.md) | 未着手 | 5.0 | — | コード | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | — | 残件有り | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
 | [issue-20261115-e5a0eb](../../management/issues/issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | PRD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
 | [issue-20261111-585e60](../../management/issues/issue-20261111-585e60.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
 | [issue-20261111-17fea4](../../management/issues/issue-20261111-17fea4.md) | 未着手 | 2.7 | — | コード | 監査 | 324_dqn, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | 方策の種類（policy_type）と分布の表し方（quantile_mode）を文字列のまま持ち回り、数字の別名の受け付け方が関数ごとに違う |
 | [issue-20261111-52ed74](../../management/issues/issue-20261111-52ed74.md) | 未着手 | 2.7 | — | コード | 監査 | 315_nn, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 可塑性指標の一覧と重みノルムのキーの並びを、nn・DQN・ImageCls の 5〜6 か所で手で合わせている |
 | [issue-20261111-e80c7b](../../management/issues/issue-20261111-e80c7b.md) | 未着手 | 2.7 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | DQNActionInfo::GetScalar が 6 種の指標群を 1 つの関数（276 行）で処理し、「指定した行動を除いた最大値」の計算を 2 回写している |
-| [issue-20261119-4124b6](../../management/issues/issue-20261119-4124b6.md) | 未着手 | 2.5 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | — | 未確認 | DQN の共通部品のエラー文 4 か所が DefaultDQNAgent の設定キーを固定で書き、RainbowAgent で出ても DefaultDQNAgent のキーとして表示される |
 | [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) | 未着手 | 2.2 | — | コード | PRD | 324_dqn, 321_agent_core, 325_muzero, 315_nn | 学習基盤 | 調査 | [PRD134](../../memo/134_network_lock_audit_10prd.md) | 残件有り | 999: train/eval mode 整理後の排他精査 PRD（草案） |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-cdac7c](../../management/issues/issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | コード | PRD | 321_agent_core | アルゴリズム | 機能改善 | [PRD148](../../memo/148_target_update_step_axis_10prd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |
@@ -295,6 +296,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261109-adc5c4](../../management/issues/issue-20261109-adc5c4.md) | 未着手 | 1.4 | — | コード | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 未確認 | Agent・Env・View・NNモジュールの4つのRepositoryが同じ形を別々に実装し、登録と取り出しの関数名もそろっていない |
 | [issue-20261112-4efa57](../../management/issues/issue-20261112-4efa57.md) | 未着手 | 1.4 | — | コード | PRD | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | replay fitの診断（EvaluateReplayFit）が学習の更新の前半を別に書き、分布の表し方での分岐を持っている |
 | [issue-20261115-c89660](../../management/issues/issue-20261115-c89660.md) | 未着手 | 1.4 | — | コード | その他 | 110_runner_app, 321_agent_core, 318_rl_core | UI | 機能追加 | — | 未確認 | Runner の Conv2dPanel と metrics.image の conv2d に、RND の target と predictor の畳み込みの出力が出ない |
+| [issue-20261121-9c0b1b](../../management/issues/issue-20261121-9c0b1b.md) | 未着手 | 1.4 | — | コード | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 320_env_core, 321_agent_core, 322_env_individual, 324_dqn, 325_muzero | 基盤 | 機能改善 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | エラー・WARN・INFO が設定キーを相対キーや固定の root で示す文が基盤全体に約 200 か所あり、完全キーを運ぶ仕組みが無い |
 | [issue-20261103-71c4f4](../../management/issues/issue-20261103-71c4f4.md) | 未着手 | 1.3 | — | コード | PRD | 315_nn, 317_metrics, 321_agent_core | 学習基盤 | 機能追加 | [PRD135](../../memo/135_nn_block_metrics_10prd.md) | 残件有り | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
 | [issue-20261103-8c3c6d](../../management/issues/issue-20261103-8c3c6d.md) | 未着手 | 1.2 | — | コード | PRD | 318_rl_core, 324_dqn, 321_agent_core, 322_env_individual | 学習基盤 | 機能追加 | [PRD171](../../memo/171_replay_eviction_sample_count_10prd.md) | 残件有り | replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る |
 | [issue-20261103-1edf84](../../management/issues/issue-20261103-1edf84.md) | 未着手 | 1.1 | — | コード | PRD | 321_agent_core, 324_dqn, 315_nn | アルゴリズム | 機能追加 | [PRD172](../../memo/172_bootstrapped_multihead_q_10prd.md) | 残件有り | Bootstrapped DQN 型の複数の Head（1 本の Run の中に別々の価値関数を持つ） |
@@ -318,7 +320,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261108-227b05](../../management/issues/issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | コード | PRD | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | コード | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD162](../../memo/162_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 44 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
+着手できる 45 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-b754ff](../../management/issues/issue-20261103-b754ff.md) — stucker.stack_keysに存在しないキー名を書いても検出されない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）

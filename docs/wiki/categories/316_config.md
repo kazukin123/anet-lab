@@ -32,6 +32,7 @@
 - 2026-10-28: split・skipのsample_weightなどの設定値と既定値を整理した（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§5.1・§5.8）。
 - 2026-10-29: Actorのfull・single・variableと補助学習用の窓の組み合わせを検証する設定へ広げた（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.1・§5.2）。
 - 2026-10-30: Evaluation Traceの強制行動・列・ダンプに関わる設定を同期した（出典: [PRD105](../../memo/done/105_eval_trace_arrow_key_forced_action_10prd.md)、§5.7）。
+- 2026-11-21: エラー・WARN・INFOが示す設定キーを完全キーで書くため、ConfigDataの項目と読み口（anet::Config）が値を与えた完全キーを記録し、設定の型と一緒に部品へ運ぶ仕様と、上書きの接頭辞が空の読み口がroot直下の相対キーを読まない仕様をグリルで決めた（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5 D4・D18・§6.2；[ADR 0087](../../adr/0087-messages-name-config-keys-by-full-key-recorded-at-read-time.md)、本文）。
 
 ## 選ばなかった形
 
@@ -51,6 +52,10 @@
 - 眠る bare が`=` で書いた設定キーなら fail-fast にする実行時検査と、`check_default_leaves.py` の静的検査 — 先送り: 既定キーの情報を読み取りまで運ぶ配線が要り、env の`=` で書いた設定キーの定数を Run プロファイルで schedule にする用法も止まる。再開条件: 眠った値に気づかずに Run を回した事故が起きたとき（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§7、[ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)、Considered Options）。
 - 読まれない設定キーの一覧を最初から ERROR にして Run を止める形 — 先送り: 読まれなくても誤りではない設定キー（在庫）の区別を実際の Run で確かめる前に止めると、正しい設定の Run が起動できなくなる。再開条件: 実装をコミットした日から 1 か月のあいだ、受入の Run と番号付き bat の Run のログで、一覧に出た設定キーがすべて設定の誤りだったとき（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D3・§8）。
 - 既定キー（`?=`）を読まれない設定キーの一覧の対象から外す形 — 不採用: 共通の設定の綴り違いと旧キーが黙って残り、`?=` かどうかを構築の終わりまで運ぶ配線も増える（出典: [PRD117](../../memo/117_warn_policy_and_unread_config_10prd.md)、D4）。
+- 利用側がrootまでの接頭辞を渡し、部品が欄の名前を足して完全キーを組む形 — 不採用: 利用側が読まない設定でも完全キーを組み、書いても効かないキーを指す（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5.1；[ADR 0087](../../adr/0087-messages-name-config-keys-by-full-key-recorded-at-read-time.md)、Considered Options）。
+- 利用側が、通知で名指す設定ごとに完全キーを手で渡す形 — 不採用: 上書きの置き場から読んだかを利用側が判定することになり、合成されたblockの設定はどちらの置き場の値かを示せず、渡し忘れを検出できない（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5.1）。
+- 設定だけで決まる検査を具象の読み口へ移して完全キーで書く形 — 不採用: 型の検査を型の共通処理に置く決まりに反し、blockの検査は移せない（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5.1）。
+- 上書きの接頭辞が空の読み口がroot直下の相対キーを読むことを、意図した読み方として残す形 — 不採用: 1行が2つのAgentに同時に効くキーが、仕様として残る（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§5 D18・§5.1）。
 
 ## 変えるときの条件
 
@@ -67,6 +72,7 @@
 - ProfiledValue を読む設定キーでは、root の定数は bare、段の定数は `.phase.[name].value` で書き、`.type` が constant でない層の下の bare は `value` 欄として眠る。config dump は実効 type が constant なら bare の 1 行、それ以外は type とその欄を記録する（出典: [PRD101](../../memo/done/101_exploration_schedule_profiled_value_10prd.md)、§4.1 D3・D4）。
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [PRD103](../../memo/done/103_temporl_reference_alignment_10prd.md)、§4 D14・§5.7・§7の受入1）。
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、PRD103の検証資材でmetrics checksumを一致させる（出典: [PRD104](../../memo/done/104_temporl_skip_auxiliary_only_10prd.md)、§5.7・§7の受入1）。
+- 完全キーの記録を足しても、完全キーで書かれた設定の解決の結果（config_data.txtとModuleごとのdump）と、読まれない設定キーの検出の結果を変えない。完全キーを引くことは、項目を読んだことにしない（出典: [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md)、§6.4・§7 A7・A11）。
 
 ## 関係
 
@@ -111,21 +117,22 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261110-546bdb](../../management/issues/issue-20261110-546bdb.md) | 未着手 | 3.5 | — | コード | 実装 | 316_config | 開発 | 不整合 | — | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
+| [issue-20261110-546bdb](../../management/issues/issue-20261110-546bdb.md) | 調査中 | 3.5 | — | コード | 実装 | 316_config | 開発 | 不整合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | PRD103 の hidden 設定検査が現用定義と異なる指標名を要求し4環境で失敗する |
+| [issue-20261103-d4258c](../../management/issues/issue-20261103-d4258c.md) | 調査中 | 2.5 | — | 文書 | 監査 | 312_util, 316_config | 基盤 | 不整合 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
 | [issue-20261121-d4feb6](../../management/issues/issue-20261121-d4feb6.md) | 調査中 | 2.0 | — | コード | PRD | 316_config, 315_nn, 324_dqn | 基盤 | 機能改善 | [PRD193](../../memo/193_variance_scaling_weight_init_10prd.md) | 未確認 | 初期化の設定（WeightInitConfig）を 14 か所が 1 キーずつ読み、読み方と不正な値の止まり方が読み手ごとに違う |
 | [issue-20261111-cdc102](../../management/issues/issue-20261111-cdc102.md) | 未着手 | 2.7 | — | コード | 監査 | 316_config, 315_nn, 324_dqn | 基盤 | リファクタリング | — | 残件有り | WeightInitConfig などの設定の部品に読み取りの口が無く、使う側が 1 キーずつ読むので、同じ 6〜8 行が十数か所にあり、読み方も食い違っている |
 | [issue-20261108-06a3f0](../../management/issues/issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | コード | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
 | [issue-20261108-f0f243](../../management/issues/issue-20261108-f0f243.md) | 未着手 | 2.6 | — | コード | PRD | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする） |
-| [issue-20261103-d4258c](../../management/issues/issue-20261103-d4258c.md) | 未着手 | 2.5 | — | 文書 | 監査 | 312_util, 316_config | 基盤 | 不整合 | — | 残件有り | 実効deviceを設計文書は「採用値」と呼び、PRD070とJSONの欄はeffective（実効）と呼ぶ |
 | [issue-20261103-7c9a70](../../management/issues/issue-20261103-7c9a70.md) | 未着手 | 2.5 | — | コード | 監査 | 316_config | 基盤 | 不整合 | [PRD181](../../memo/181_config_file_layout_10prd.md) | 残件有り | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | PRD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [PRD079](../../memo/079_cpp_internal_linkage_convention_10prd.md) | 残件有り | PRD 079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-7c8cd7](../../management/issues/issue-20261103-7c8cd7.md) | 未着手 | 2.0 | — | コード | PRD | 316_config | 基盤 | リファクタリング | [PRD181](../../memo/181_config_file_layout_10prd.md) | 残件有り | 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ） |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-66f453](../../management/issues/issue-20261103-66f453.md) | 未着手 | 1.4 | — | コード | PRD | 110_runner_app, 316_config | 学習基盤 | 機能追加 | [PRD151](../../memo/151_run_queue_snapshot_10prd.md) | 残件有り | Run キュー（計画スナップショット + exe 固定） |
+| [issue-20261121-9c0b1b](../../management/issues/issue-20261121-9c0b1b.md) | 未着手 | 1.4 | — | コード | PRD | 316_config, 312_util, 315_nn, 317_metrics, 318_rl_core, 320_env_core, 321_agent_core, 322_env_individual, 324_dqn, 325_muzero | 基盤 | 機能改善 | [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) | 未確認 | エラー・WARN・INFO が設定キーを相対キーや固定の root で示す文が基盤全体に約 200 か所あり、完全キーを運ぶ仕組みが無い |
 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.3（引継ぎ） | — | コード | PRD | 316_config, 110_runner_app | 基盤 | リファクタリング | [PRD155](../../memo/155_config_root_ownership_alignment_10prd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | コード | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD152](../../memo/152_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
 | [issue-20261115-b02db6](../../management/issues/issue-20261115-b02db6.md) | 未着手 | 1.3 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | コード | その他 | 316_config, 324_dqn, 315_nn | 基盤 | リファクタリング | — | 残件有り | RND の Head の出力次元 intrinsic.rnd.output_dim が rnd の直下にあり、Head の初期値 intrinsic.rnd.head.init.* と置き場が分かれている |
 
-着手できる 14 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 15 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->
