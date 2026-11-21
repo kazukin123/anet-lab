@@ -1,4 +1,4 @@
-<!-- translated-from: 110_agents_and_learning.jp.md blob:b24937b25a964c4300ed03e1831fb8064a14bc41 date:2026-11-19 progress:done -->
+<!-- translated-from: 110_agents_and_learning.jp.md blob:02140f2f51d327d1ade91144b3ed3230c03554ca date:2026-11-21 progress:done -->
 # Agents and Learning
 
 > Primary perspective: function (shared Agent, Actor, and Learner contracts, with processing stages in chronological order)
@@ -65,6 +65,7 @@ The [Agent Implementation Ownership Guidelines](../ownership_guideline.md) are a
 | `ImageClsAgent` | Image classification on the shared Run/Agent contracts | See current code |
 
 Runner registers factories by calling each Agent family's public initialization function, and `AgentRepository` resolves class IDs to `AgentFactory` instances.
+Repeated calls to the same public initialization function register the factories only once. If the first call fails partway through registration, subsequent calls also fail. Registering a factory directly with the repository under an existing class ID throws an exception and preserves the original factory.
 
 ## 3. Component Definitions
 
@@ -188,7 +189,7 @@ Runner, not Learner, creates `LearnEvent` after receiving update results. Concre
 ### 7.1 Construction Settings
 
 - `agent.class_id` selects the concrete AgentFactory.
-- `agent.device` accepts `auto`, `cpu`, `cuda`, or `cuda:N`. It defaults to `auto`; the adopted value is recorded in `json/agent.json`.
+- `agent.device` accepts `auto`, `cpu`, `cuda`, or `cuda:N`. It defaults to `auto`. The effective device is recorded in `json/agent.json`.
 - Factories pass EnvSpec, BatchEnvSpec, device, seed, and ConfigData to concrete Agents.
 - Concrete Agent Configs read algorithm-specific settings. Shared `ConfigData` fails fast on conversion failure for present values; defaults apply only to missing keys. Enums, ranges, and combinations are validated during construction by each concrete Config or reusable configuration type.
 - The concrete Agent resolves the Actor's policy, network selection, and model cloning from the Actor catalog (`<Agent>.actor.[key]`) referenced by `ActorRequest::actor_key`. It does not receive a RunMode.

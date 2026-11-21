@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:88df37e0bdb53984d5ef5497aa62c43c1a60e852 date:2026-11-19 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:92f12382dd0fb64a497c0345e04badeee47b35a3 date:2026-11-21 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -65,7 +65,7 @@ Enable only the intended Env configuration for a Run. See [3. Writing Configurat
 | `run.eval_device` | Device for configured eval, default `auto` |
 | `backend.deterministic_algorithms` | Whether to require deterministic algorithms |
 
-Device values are `auto`, `cpu`, `cuda`, and `cuda:N`. `auto` selects the current CUDA device when CUDA is available and CPU otherwise. The requested values remain in `config/config_data.txt`; adopted values appear in `json/agent.json`, `json/env.json`, and `json/run.json` as `effective_device` or `effective_eval_device`. When Env runs on the CPU and Agent and Eval on CUDA, include device transfer costs when assessing performance.
+Device values are `auto`, `cpu`, `cuda`, and `cuda:N`. `auto` selects the current CUDA device when CUDA is available and CPU otherwise. The requested device settings are recorded in `config/config_data.txt`. The effective devices are recorded in `json/agent.json`, `json/env.json`, and `json/run.json` as `effective_device` or `effective_eval_device`. When Env runs on the CPU and Agent and Eval on CUDA, include device transfer costs when assessing performance.
 
 ### 2.4 Choosing an Evaluation Slot's Policy
 
@@ -621,7 +621,7 @@ When launched with a configuration file specified directly, a relative `app.runs
 | `metrics.jsonl` | Primary metrics file, appending scalars, JSON metadata, and video metadata |
 | `config/config_data.txt` | Resolved effective configuration, retaining requested device values such as `auto` and excluding `@` profiles and `.$` ([3.8](#38-verification-and-common-errors)) |
 | `config/*.txt`, `json/*.json` | Per-component injected configuration and metadata dumps. Env uses `config/env.<Env name>.txt` |
-| `json/run.json`, `json/env.json`, `json/agent.json` | Adopted evaluation, Env, and Agent devices in `effective_eval_device` or `effective_device` |
+| `json/run.json`, `json/env.json`, `json/agent.json` | Effective devices for evaluation, the Env, and the Agent, recorded in `effective_eval_device` or `effective_device` |
 | `<run_name>.log` | Runner text log with timestamps and levels |
 | `stdout.log` / `stderr.log` | Process standard output and standard error |
 | `agent_close.anet` | Agent checkpoint saved on normal window close. Not created with `app.save_agent_on_close=false` |

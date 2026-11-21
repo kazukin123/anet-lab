@@ -1,4 +1,4 @@
-<!-- translated-from: 160_applications_and_tools.jp.md blob:a08931d2cc7a9868567fa8d2c32ed57942aac109 date:2026-11-19 progress:done -->
+<!-- translated-from: 160_applications_and_tools.jp.md blob:7f87a086fb80de7a585da470389f192791b5aec5 date:2026-11-21 progress:done -->
 # Applications and Tools
 
 > Primary perspective: function (Runner GUI, Metrics Viewer, Optuna harness)
@@ -33,7 +33,7 @@ This document covers the runtime layout and how to launch. Runner and Metrics Vi
 | `anet::rl::gui::Panel` | Shared base for Env Views and other panels. Adds `wxFULL_REPAINT_ON_RESIZE` even to explicit constructor styles, so resizing redraws the entire surface while updates are stopped. Views need no individual flag; separate wxGLCanvas windows retain their own settings. It forwards `wxEVT_CHAR_HOOK` as `EVT_FORWARDED_KEY`, calls `Skip` to preserve default key processing, and uses `StopPropagation` to stop propagation to parent windows. Components above Panel receive keys through `EVT_FORWARDED_KEY`. |
 | `TrainPanel` | Updates Env-specific Views from Train events and renders snapshots on a GUI timer |
 | `EvalPanel` | Drives a dedicated `EvalRunner` by timer or forced actions and manages cloned-model synchronization |
-| `QValuePanel` | Visualizes Eval Actor action candidates and passes selected Actions to `EvalPanel`. Prefers `full_q_quantiles`, then falls back to `q_quantiles` and `q_values` |
+| `QValuePanel` | Visualizes Eval Actor action candidates and passes selected Actions to `EvalPanel`. Prefers `full_q_quantiles`, then falls back to `q_quantiles` and `q_values`. The histogram smoothing radius, `QValuePanel.smooth_radius`, must be an integer of at least 1 and defaults to 4 in code. Startup validates the radius even when smoothing is disabled |
 | `LogPanel` | Provides on-screen wxLog display and level filtering. Includes colors for WARN or higher and VERBOSE, subdued timestamps, unviewed WARN/ERROR counts, and controls for Auto-scroll, Wrap, Indent, Copy all, Clear, and search |
 | `DefaultViewFactory` | Creates Train/Eval Views from Env class IDs |
 | `ImageProviderManager` | Creates/registers configured image Providers/Observers |

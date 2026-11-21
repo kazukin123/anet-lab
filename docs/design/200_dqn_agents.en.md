@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:ced7699db89f98b7aa60c9ca6d6b0825229c4a11 date:2026-11-19 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:35b6eadeccdaac1a767e7b08bd42344ad432bee4 date:2026-11-21 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -55,7 +55,7 @@ See [Section 2.4](#24-actionpolicy-and-dqnactioninfo) for exploration-policy con
 
 #### 2.1.2 DQN Basics
 
-DQN approximates the expected discounted return after choosing action a in state s as `Q(s,a)` using a Network. It stores experience `(s,a,r,s')` in Replay and trains on sampled minibatches to move current Q values toward the following TD target. This is the basic one-step, ordinary-Q form; d is 1 for a true terminal and 0 otherwise. [DQN (2015/02), Methods][paper-dqn]
+DQN approximates the expected discounted return after choosing action a in state s as `Q(s,a)` using a Network. It stores experience `(s,a,r,s')` in Replay and trains on sampled minibatches to move current Q values toward the Bellman target. This is the basic one-step, ordinary-Q form; d is 1 for a true terminal and 0 otherwise. [DQN (2015/02), Methods][paper-dqn]
 
 $$
 y = r + \gamma(1-d)\max_{a'}Q_{\theta^-}(s',a')
@@ -63,7 +63,7 @@ $$
 
 `θ` denotes the updated online Network's parameters, and `θ⁻` those of the target Network used for bootstrapping. Experience Replay weakens correlations between consecutive experiences and reuses them; the Target Network separates changes in the learned values from changes in their targets. Epsilon-greedy action selection mixes the action with the highest Q value with random actions. [DQN (2015/02), Methods][paper-dqn]
 
-Here, `NetworkModel` manages online/target Networks, `TDLearner` computes ordinary-Q loss, and the shared ReplayBuffer stores and samples experience. Distributional QR/IQN share this intake, learning, and target-synchronization structure ([Section 2.3](#23-online-and-target-networks) and [Section 2.5](#25-dqn-and-replaybuffer)).
+Here, `NetworkModel` manages online/target Networks, `dqn::Learner` computes ordinary-Q loss, and the shared ReplayBuffer stores and samples experience. Ordinary Q selects the concrete `TDLearner` type. Distributional QR/IQN share this intake, learning, and target-synchronization structure ([Section 2.3](#23-online-and-target-networks) and [Section 2.5](#25-dqn-and-replaybuffer)).
 
 #### 2.1.3 Rainbow Components
 
@@ -145,12 +145,12 @@ The paper explains the update through implicit KL regularization and an increase
 
 #### 2.1.8 TempoRL and the Skip Policy
 
-TempoRL learns action a and its duration j separately. Skip values are learned from discounted rewards over the interval and action values at its end. [TempoRL (2021/06), Sections 3.1–3.3][paper-temporl]
+TempoRL learns action a and skip length j separately. Skip values are learned from discounted rewards over the interval and action values at its end. [TempoRL (2021/06), Sections 3.1–3.3][paper-temporl]
 
 ```mermaid
 flowchart LR
     S["現在の状態"] --> A["primary方策<br/>行動aを選ぶ"]
-    A --> J["skip方策<br/>継続長jを選ぶ"]
+    A --> J["skip方策<br/>スキップ長jを選ぶ"]
     J --> R["同じaをj step返す"] --> N["次の判断"]
 ```
 
@@ -184,13 +184,15 @@ flowchart LR
     V --> H["変換 h"] --> Y["target<br/>h空間"]
 ```
 
-Select it with `learner.use_tbo`; QR/IQN invert each quantile. The reward scaler changes **reward scale**, while TBO changes **Q-value and target representations**. `TransformHInv` performs inversion and `TransformH` compression. [Implementation: TDLearner / QuantileLearnerBase](../../src/algo/dqn/src/dqn_learner.cpp)
+Select it with `learner.use_tbo`; QR/IQN invert each quantile. The reward scaler changes **reward scale**, while TBO changes **Q-value and target representations**. `TransformHInv` performs inversion and `TransformH` compression. [Implementation: dqn::Learner / QuantileLearnerBase](../../src/algo/dqn/src/dqn_learner.cpp)
 
 #### 2.1.11 Optimistic Target
 
 An optimistic target chooses the next-state bootstrap policy using scores from the upper return distribution. Actor-only UQE changes actual actions; using it in the target policy also changes the selection used to construct learning targets. With Munchausen OFF, select the action with the largest score and evaluate its value/distribution using the target Network. The upper-quantile selection score itself does not directly replace the bootstrap value. With Munchausen ON, mix through a soft policy derived from that score ([Section 6.3](#63-munchausen-rl)). [Implementation: target action selection and value evaluation](../../src/algo/dqn/src/dqn_learner.cpp)
 
-DefaultDQN `use_optimistic_target=true` copies `actor.[train].policy` as the target-policy default and sets epsilon to 0. Subsequent `target_policy.*` settings can override it, so inspect the resolved policy to determine the effective method. If the copied policy is greedy over mean Q, this flag alone does not make it look at upper returns. [Implementation: DefaultDQNAgentConfig](../../src/algo/dqn/src/default_dqn_agent.hpp)
+With `use_optimistic_target=true`, DefaultDQN initializes the target policy from `actor.[train].policy`. After copying, it sets `epsilon` and `uqe.epsilon` to zero and changes `EpsilonGreedy` to `Greedy`. It emits one WARN if the source type is neither UQE nor ThompsonSampling. With `use_optimistic_target=false`, it defaults to `Greedy` with `epsilon` zero.
+
+In both cases, `tau_rule` starts at fixed×32 and `full_distribution_query` starts at its default. The configuration then applies `target_policy.*` overrides and fixes `spatial.enabled` at false. [DefaultDQNAgentConfig implementation](../../src/algo/dqn/src/default_dqn_agent.hpp)
 
 #### 2.1.12 Spatial Exploration: Per-Lane Exploration Strength
 
@@ -235,15 +237,15 @@ Learner settings combine Double DQN, N-step, PER, gradient clipping, AMP, and mo
 
 ### 2.4 ActionPolicy and DQNActionInfo
 
-`ActionPolicy` performs Network forward and Action selection, combining Actions, Q values, quantiles, and related data into `DQNActionInfo`. Shared implementations include epsilon-greedy, UQE, and Thompson Sampling. DefaultDQN separates Train, Eval, and target Policies; Rainbow configures an action Policy and a greedy learning-target Policy.
+`ActionPolicy` performs Network forward and Action selection, combining Actions, Q values, quantiles, and related data into `DQNActionInfo`. Shared implementations include epsilon-greedy, UQE, and Thompson Sampling. In DefaultDQN and Rainbow, each call to `CreateActor` creates a policy from the catalog entry’s `policy` settings. That Actor owns the policy. The Agent owns the policy for learning targets, which the Learner references.
 
-For DefaultDQN IQN, each Policy generates taus according to `tau_rule` (`num_taus` and `random|fixed|stratified|systematic|antithetic`), injecting them into a shallow Observation copy before forward. `stratified` independently samples one point per equal-width stratum; `systematic` uses equally spaced points sharing one phase per row; `antithetic` generates pairs mirrored around the range midpoint, with one final independent point for odd counts. `fixed` deterministically uses interval midpoints without consuming RNG. Defaults are random×32 for Train and fixed×32 for Eval/target. UQE uses the decayed effective tau as its lower bound: `uqe.use_tail_mean=true` scores actions by the mean from that bound to 1; `false` fixes all points at the bound and uses `Zτ`. Non-spatial Thompson uses `[0,1]`; spatial Thompson uses per-lane lower bounds. Tau placement mode and the time-varying value `uqe.tau` are separate settings. Thompson's `uqe_tau` metric is always NaN.
+For DefaultDQN IQN, each Policy generates taus according to `tau_rule` (`num_taus` and `random|fixed|stratified|systematic|antithetic`), injecting them into a shallow Observation copy before forward. `stratified` independently samples one point per equal-width stratum; `systematic` uses equally spaced points sharing one phase per row; `antithetic` generates pairs mirrored around the range midpoint, with one final independent point for odd counts. `fixed` deterministically uses interval midpoints without consuming RNG. The policy defaults to random×32 in code. Target policy initialization resets it to fixed×32. For evaluation, `actor.@eval_base` in the shipped `agent.txt` selects fixed×32. UQE evaluates the time-varying tau and uses the resulting value as its lower bound: `uqe.use_tail_mean=true` scores actions by the mean from that bound to 1; `false` fixes all points at the bound and uses `Zτ`. Non-spatial Thompson uses `[0,1]`; spatial Thompson uses per-lane lower bounds. Tau placement mode and the time-varying value `uqe.tau` are separate settings. Thompson's `uqe_tau` metric is always NaN.
 
 IQN+UQE supports optional `full_distribution_query`, disabled by default. When enabled, risk taus and full `[0,1]` taus are concatenated for one forward. `q_values`/`uqe_values`/`q_quantiles` represent risk outputs; `full_q_values`/`full_q_quantiles` represent full outputs. The Head's mean `q` over the combined set is not used. Point-UQE risk queries collapse to one equivalent α. Non-IQN modes retain the enabled setting dormant and ignore it, so changing quantile mode requires no simultaneous change. With IQN enabled, choosing a non-UQE Policy while full queries remain enabled is a configuration error.
 
 Depending on configuration, Actor uses `DictFrameStacker` for frame stacking and device transfer (device transfer only without a stacker), then normalizes Observations, invokes Policy, and adds auxiliary information. Policy depends only on Network and RNG for Action selection, never on Learner.
 
-For `DefaultDQNAgent` frame stacks with `use_stacker=true` and `stack_count=S>1`, stacked Observation input specs are constructed as `[S, *original_shape]` rather than multiplying EnvSpec feature dimensions. This aligns dummy-forward, Actor, and Replay-sample axes. Specs outside `stack_keys` remain unchanged; `stack_count==1` adds no Network-spec stack axis. This transformation is DefaultDQN-specific and does not change EnvSpec, ObservationNormalizer, ReplayBuffer, `NetworkBuilder`, or `RainbowAgent` contracts. See [Neural Networks](130_neural_networks.en.md#22-frame-stack-input-axis-contract) for module shape transformations and discrete-Grid one-hot boundaries.
+For `DefaultDQNAgent` frame stacks with `stucker.use_stacker=true` and `stucker.stack_count=S>1`, stacked Observation input specs are constructed as `[S, *original_shape]` rather than multiplying EnvSpec feature dimensions. This aligns dummy-forward, Actor, and Replay-sample axes. Specs outside `stucker.stack_keys` remain unchanged; `stucker.stack_count==1` adds no Network-spec stack axis. This transformation is DefaultDQN-specific and does not change EnvSpec, ObservationNormalizer, ReplayBuffer, `NetworkBuilder`, or `RainbowAgent` contracts. See [Neural Networks](130_neural_networks.en.md#22-frame-stack-input-axis-contract) for module shape transformations and discrete-Grid one-hot boundaries.
 
 ProfiledValue root constants use a bare value such as `epsilon = 0.05`; `type` defaults to `constant`. With a nonconstant effective type, the bare value is retained in `value` but is not used for evaluation or typed dumps. A bare value alone cannot switch the type to constant: specify both `epsilon.type = constant` and the intended bare value. Phase constants use `phase.[name].value`.
 
@@ -255,7 +257,7 @@ Log ladders linearly rescale the sequence generated from `max(endpoint, 1e-4)` t
 
 Inner `dqn::Learner` owns the shared CPU ReplayBuffer, Pushes Experiences, then checks warmup, sampleable count, and update credit. While updates are possible, it samples minibatches, transfers them to the learning device, and computes TD or quantile losses. [ReplayBuffer](150_replay_buffer.en.md) is authoritative for N-step, frame-stack, generation-aware item-key, PER, and prefetch contracts.
 
-Only with initial PER priority mode `actor_approx`, Train Actor builds a DQN-specific `float32[B,5]` hint from the existing forward. The combined-mode columns are listed below. In decomposed mode, the first three hold extrinsic-Head values and the two intrinsic columns are also used:
+When PER is enabled and the initial priority mode is `actor_approx`, every Actor created by the Agent, regardless of the catalog entry’s name or purpose, builds a DQN-specific `float32[B,5]` hint from the existing forward. The combined-mode columns are listed below. In decomposed mode, the first three hold extrinsic-Head values and the two intrinsic columns are also used:
 
 | Column | Value |
 |---:|---|
@@ -271,7 +273,7 @@ Ordinary Q/QR hints use existing mean Q. IQN+UQE hints use the same risk-biased 
 
 Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `munchausen.entropy_tau`, and `model.soft_update_tau` are evaluated from `exp_step` at the start of `UpdateFromBatch`, including during warmup. They update lr in all optimizer groups and decay in ordinary groups; σ groups retain fixed `noisy_weight_decay`. Soft updates receive the current τ. Only `per_beta` starts with its step-0 value and is evaluated at the end of each update for the next sampling request. Sampling-request order, including prefetch, is unchanged.
 
-`MunchausenConfig` declares time-varying values; `MunchausenValues` holds evaluated values. Actor also evaluates γ, α, and entropy_tau at its own `exp_step`, retaining them in `DQNActionInfo`; `To` and `WithAction` carry them forward. Step diagnostics obtain them through existing `GetScalar` calls to compute current hints, returns, and bootstrap discounts. Scheduled γ also retains reward sequences pending completion and matches the γ at bootstrapping.
+`MunchausenConfig` declares time-varying values; `MunchausenValues` holds evaluated values. Actor also evaluates γ, α, and entropy_tau at its own `exp_step`, retaining them in `DQNActionInfo`; `To` and `WithAction` carry them forward. The result of `WithAction` retains the supplied action on its original device. Only the action used to recompute the hint moves to the Q values’ device. Step diagnostics obtain them through existing `GetScalar` calls to compute current hints, returns, and bootstrap discounts. Scheduled γ also retains reward sequences pending completion and matches the γ at bootstrapping.
 
 `$agent` exposes `learning_rate`, `weight_decay`, `soft_update_tau`, `gamma`, `munchausen_alpha`, and `munchausen_entropy_tau`. Checkpoint optimizer-option comparison/override, RewardScaler initialization, and initial-horizon logging use step-0 values. ProfiledValue bounds validate endpoints. Soft updates with spectral normalization allow a constant 1, while all scheduled endpoints must remain in [0,0.1].
 
@@ -279,7 +281,7 @@ Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `mun
 
 | Component | Definition |
 |---|---|
-| `DefaultDQNAgent` | Configurable DQN Agent combining scalers, multiple Policies, Train Actor snapshots, and more |
+| `DefaultDQNAgent` | Configurable DQN Agent combining scalers, the target policy, Train Actor snapshots, and more |
 | `IntrinsicRewardCoordinator` | Private nested DefaultDQN component combining intrinsic scoring, beta, auxiliary learning, diagnostics, persistence, and Evaluation Trace scoring/snapshots |
 | `RainbowAgent` | Second Agent used to check responsibility boundaries in shared DQN components; not used for Runs |
 | `DqnComponentAssembler` | Shares Head, Policy, Actor, and Learner construction and value routing without accepting concrete Agent config types |
@@ -291,22 +293,24 @@ Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `mun
 | `ActionPolicy` | Base component selecting Actions from Network outputs |
 | `dqn::Actor` | Actor implementation combining the frame stacker, normalization, Policy, Network, RNG, and synchronization State |
 | `dqn::Learner` | Internal Learner combining the single-batch update flow, scalar Q computation, ReplayBuffer, optimizer, update credit, target synchronization, and PER updates |
-| `TDLearner` | Computes scalar TD targets and losses |
+| `TDLearner` | Concrete type selected for ordinary Q. It prepares the ReplayBuffer and optimizer and defines no overrides. Its base, `dqn::Learner`, handles targets, errors, forward passes, and TBO transforms |
 | `QuantileLearnerBase` / `QRLearner` / `IQNLearner` | Compute target quantiles and method-specific quantile Huber losses |
-| `TauGenerator` | Stateless component generating five IQN tau placement modes on the specified device |
+| `GenerateTaus` | Free function that generates taus on the specified device using the five IQN tau placement modes. Its overloads accept a fixed range or per-lane lower bounds |
 | `RewardScaler` / `ObservationNormalizer` | DefaultDQN Experience preprocessing and Network-input normalization |
 
 ## 4. Code Map
 
 | Area | Main files |
 |---|---|
-| Shared DQN parts | [Learning](../../src/algo/dqn/src/dqn_learner.hpp), [Action](../../src/algo/dqn/src/dqn_actor.hpp), [Network](../../src/algo/dqn/src/dqn_network_model.hpp), [Assembly](../../src/algo/dqn/src/dqn_assembler.hpp), [Shared computation](../../src/algo/dqn/src/dqn_math.hpp) |
+| Shared DQN parts | [Learning](../../src/algo/dqn/src/dqn_learner.hpp), [Action](../../src/algo/dqn/src/dqn_actor.hpp), [Network](../../src/algo/dqn/src/dqn_network_model.hpp), [Assembly](../../src/algo/dqn/src/dqn_assembler.hpp), [Shared computation](../../src/algo/dqn/src/dqn_math.hpp), [configuration types (dqn_config.hpp)](../../src/algo/dqn/src/dqn_config.hpp) |
 | DQN Head | [dqn_heads.hpp](../../src/algo/dqn/src/dqn_heads.hpp), [dqn_heads.cpp](../../src/algo/dqn/src/dqn_heads.cpp) |
 | DefaultDQN | [default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp), [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) |
 | Rainbow | [rainbow_agent.hpp](../../src/algo/dqn/src/rainbow_agent.hpp), [rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp) |
 | ReplayBuffer | [replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp), [replay_buffer_impl.hpp](../../src/core/base/src/replay_buffer_impl.hpp), [replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) |
+| Intrinsic reward | [intrinsic.hpp](../../src/core/base/include/anet/intrinsic.hpp), [intrinsic.cpp](../../src/core/base/src/intrinsic.cpp), [intrinsic_rnd.hpp](../../src/core/base/src/intrinsic_rnd.hpp), [intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp). See [Intrinsic Reward](212_rnd_lifelong_novelty.en.md) |
+| Frame stack | [stacker.hpp](../../src/core/base/include/anet/stacker.hpp), [stacker.cpp](../../src/core/base/src/stacker.cpp) |
 | Runner configuration examples | [apps/runner/config](../../apps/runner/config) |
-| DQN test | `dqn_*_test.cpp` for each DQN role and concrete Agent, [dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp) |
+| DQN test | `dqn_*_test.cpp` for each DQN role and concrete Agent, [dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp), [dqn_actor_test.cpp](../../src/algo/dqn/src/dqn_actor_test.cpp) (exploration ladder), [intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp), and [stacker_test.cpp](../../src/core/base/src/stacker_test.cpp) |
 
 
 ## 5. Static Structure
@@ -353,8 +357,8 @@ DefaultDQNAgent *-- RuntimeVars
 RainbowAgent *-- RuntimeVars
 DefaultDQNAgent *-- DqnNetworkModel
 RainbowAgent *-- DqnNetworkModel
-DefaultDQNAgent *-- ActionPolicy
-RainbowAgent *-- ActionPolicy
+DefaultDQNAgent *-- ActionPolicy : target用
+RainbowAgent *-- ActionPolicy : target用
 DefaultDQNAgent *-- DqnLearner
 RainbowAgent *-- DqnLearner
 DefaultDQNAgent ..> DqnActor : 生成
@@ -366,7 +370,8 @@ QuantileLearnerBase <|-- IQNLearner
 DqnLearner *-- ReplayBuffer
 DqnLearner *-- Optimizer
 DqnLearner --> DqnNetworkModel
-DqnActor --> ActionPolicy
+DqnActor *-- ActionPolicy
+DqnLearner --> ActionPolicy : target用
 ```
 
 `LearnerInterface` denotes shared `anet::rl::Learner`; `DqnLearner` denotes internal `anet::rl::dqn::Learner`. The outer Agent is the Run-facing Learner facade, acquiring the shared mutex before invoking inner Learner.
@@ -385,14 +390,14 @@ sequenceDiagram
     participant N as Actor Network
 
     R->>G: CreateActor(actor_request)
-    G->>G: Policyとsource Networkを選択
+    G->>G: カタログ項目のpolicyからPolicyを作り、source Networkを選ぶ
     opt modelを複製
         G->>N: sourceからcloneを作成
     end
     G-->>R: DQN Actor
     R->>A: MakeAction(step_counts, batch_state)
     A->>A: DefaultDQN Train snapshotを判定
-    opt use_stacker
+    opt stucker.use_stacker
         A->>S: Stack(obs, episode_start)
         S-->>A: stack済みObservation
     end
@@ -404,7 +409,7 @@ sequenceDiagram
     P->>N: forward
     N-->>P: q または q_dist
     P-->>A: DQNActionInfo
-    opt actor_approx
+    opt PER有効かつ初期優先度がactor_approx
         A->>A: Q hintをfloat32 Bx5でpack
     end
     A-->>R: DQNActionInfo
@@ -484,9 +489,9 @@ When ON, hard action selection is not called. IQN generates current N taus, targ
 
 Policy, bonus, and soft bootstrap are computed in NoGrad FP32 real space. With TBO, each quantile is inverse-transformed separately. The initial state's clipped bonus is added once to N-step return; the terminal mask applies only to bootstrap. TD uses soft state values; QR/IQN mix all action distributions by policy probabilities, applying h-transform only to the completed target.
 
-When `target_policy->GetRiskScoreSpec()` supplies UQE's current tau and tail-mean setting, `MakeRiskBiasedScore` sorts real-space quantiles to compute policy scores. Other supported Policies use quantile means. QR hard paths share this extraction, but IQN soft uses empirical-quantile approximation from existing taus and does not guarantee exact agreement with hard IQN. The helper accepts next mean Q separately from current/next scores and always computes `soft_gap` relative to mean Q. Policy owns UQE tau-decay State.
+When `target_policy->GetRiskScoreSpec()` supplies UQE's current tau and tail-mean setting, `MakeRiskBiasedScore` sorts real-space quantiles to compute policy scores. Other supported Policies use quantile means. QR hard paths share this extraction, but IQN soft uses empirical-quantile approximation from existing taus and does not guarantee exact agreement with hard IQN. The helper accepts next mean Q separately from current/next scores and always computes `soft_gap` relative to mean Q. The Policy owns the state of the time-varying UQE tau.
 
-`forward_target`, `forward_munchausen_online`, and `munchausen_target` are measured separately; the last covers real-space conversion through target assembly. Initialization logs identify mode and mean/risk score source. Agent profile `@munchausen` enables target mode and disables Double DQN; Atari `run.@munchausen` combines IQN configuration and diagnostic subscriptions.
+`forward_target`, `forward_munchausen_online`, and `munchausen_target` are measured separately; the last covers real-space conversion through target assembly. Initialization logs identify mode and mean/risk score source. Agent profile `@munchausen` enables target mode and disables Double DQN; Atari `run.@munch` combines IQN configuration and diagnostic subscriptions.
 
 ### 6.4 DefaultDQN Train Actor Snapshots
 
@@ -577,20 +582,20 @@ See [PRD103 validation assets](../../src/core/base/testdata/prd103/README.md) fo
 | Group | Main responsibilities |
 |---|---|
 | Network/Head | `quantile_mode=none|qr|iqn`, QR quantile count, Dueling, initialization, online/target synchronization |
-| ActionPolicy | Policy type, epsilon, UQE tau decay, IQN tau placement mode, Train/Eval/target selection |
+| ActionPolicy | Policy type, epsilon, time-varying UQE tau, IQN tau placement mode, policies for Actor catalog entries and learning targets |
 | Train Actor | Shared/clone, snapshot synchronization interval |
 | Learner | Learning enablement (`enabled`), optimizer, update interval/ratio, AMP, Double DQN, N-step, PER, TBO |
 | Replay | Capacity, batch size, warmup, prefetch, priority mode |
 | Preprocessing | Frame stack, reward scaling, observation normalization |
 | Intrinsic reward | `intrinsic.enabled`, ProfiledValue `intrinsic.beta`, `intrinsic.observation`, `intrinsic.use_done_mask`, `intrinsic.learn_ratio`, `intrinsic.learn_batch_size`, and factory-interpreted `intrinsic.rnd.*` (including target.net / predictor.net, head.init, multiplier_mode, statistics_mode, warmup_mode, error_norm, and adam_eps) |
 
-RND defaults reside in `agent.txt` `@baseline`: learning ratio 0.25, batch size 32, observation next_state, multiplier clipped, statistics whiten, and adam_eps 1e-8. Whiten warmup_mode=learn_predictor, error_norm.average_mode=cumulative, error_norm.ema_steps=1,000,000, error_norm.use_centering=true, and facade use_done_mask=true are the defaults. Atari, GridMaze, and LunarLander `run.@rnd` profiles enable it and select two Bodies and 13 group 56 metrics. Atari uses a dedicated three-layer CNN and 512-dimensional Heads, with two FC layers added only to the predictor, and also selects β=0.03 and warmup_steps=200,000. Atari's `run.@rnd_taiga` selects state, unclipped, variance_feedback, and one training observation per experience, among other settings. Append the profiles to the existing `run.$` chain. Disabled mode creates no RND Networks, optimizer, or statistics. Recognized decomposition and intrinsic-scaler values are still checked for types, enumerations, and ranges; explicit nondefault unused values warn once. It retains known diagnostic keys and returns NaN. The public header is `intrinsic.hpp`; implementation and configuration DTOs are separated into `intrinsic_rnd.hpp/.cpp`, and DQN does not reference concrete types.
+RND defaults reside in `agent.txt` `@baseline`: learning ratio 0.25, batch size 32, observation next_state, multiplier clipped, statistics whiten, and adam_eps 1e-8. Whiten warmup_mode=learn_predictor, error_norm.average_mode=cumulative, error_norm.ema_steps=1,000,000, error_norm.use_centering=true, and facade use_done_mask=true are the defaults. Atari, GridMaze, LunarLander, and DropMerge `run.@rnd` profiles enable it and select two Bodies and 13 group 56 metrics. Atari uses a dedicated three-layer CNN and 512-dimensional Heads, with two FC layers added only to the predictor, and also selects β=0.03 and warmup_steps=200,000. DropMerge selects a board CNN (`DMRnd*`), β=0.01, and `warmup_steps`=200,000. Append `run.@rnd_vec` after `run.@rnd` to include vector observations in RND. Atari’s `run.@rnd_taiga` selects state, unclipped, variance_feedback, and one training observation per experience, among other settings. Append the profiles to the existing `run.$` chain. Disabled mode creates no RND Networks, optimizer, or statistics. Recognized decomposition and intrinsic-scaler values are still checked for types, enumerations, and ranges; explicit nondefault unused values warn once. It retains known diagnostic keys and returns NaN. The public header is `intrinsic.hpp`; implementation and configuration DTOs are separated into `intrinsic_rnd.hpp/.cpp`, and DQN does not reference concrete types.
 
 Evaluation Trace step diagnostics expose `intrinsic.error`, `intrinsic.normalized_error`, and `intrinsic.bonus`, separately from group 56 aggregate diagnostics. See [212](212_rnd_lifelong_novelty.en.md#46-values-in-evaluation-trace) for timing, unavailable values, done masks, units, and stochastic-layer constraints.
 
 The authoritative definitions of all keys and defaults are `DefaultDQNAgentConfig`, `RainbowAgentConfig`, `LearnerConfig`, `ActionPolicyConfig`, and [apps/runner/config](../../apps/runner/config). Rather than duplicating the configuration list here, inspect the resolved results in the Run's `config/config_data.txt` and `config/<tag>.txt`.
 
-`DefaultDQNAgentConfig` calls concern-specific readers in the original order: `ReadIntrinsic` for intrinsic reward, `ReadHeadAndCommon` for Head and common construction settings, and `ReadLearner` for learning settings. `ValidateChoice` and `ValidateRange` validate choices and numeric ranges. `CopyAndRecordPrefix` copies and records values under a prefix through the base `RecordConfigValue`. Policy and tau validation belong to `ValidateActionPolicy` and `ValidateTauRule` in `agent.hpp`, alongside their types.
+`DefaultDQNAgentConfig` calls concern-specific readers in the original order: `ReadIntrinsic` for intrinsic reward, `ReadHeadAndCommon` for Head and common construction settings, and `ReadLearner` for learning settings. `ValidateChoice` and `ValidateRange` validate choices and numeric ranges. `CopyAndRecordPrefix` copies and records values under a prefix through the base `RecordConfigValue`. Policy and tau validation belong to `ValidateActionPolicy` and `ValidateTauRule` in [dqn_config.hpp](../../src/algo/dqn/src/dqn_config.hpp), alongside their types.
 
 DefaultDQN defaults to `quantile_mode` set to `qr` and `qr.num_quantiles` set to 51. The IQN learner independently configures gradient-side `learner.iqn.current_taus` and target-distribution-side `learner.iqn.target_taus`; both default to random x 64 and allow N≠M. Target action selection uses `target_policy.tau_rule` separately from these two sets. The old DefaultDQN keys `use_qr` and the direct child `num_quantiles` are outside the current contract; Rainbow retains `use_qr` and `num_quantiles`.
 
@@ -620,7 +625,7 @@ Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` 
 - The Coordinator owns the estimator, beta schedule and latest value, auxiliary-learning credit/count/lane-selection RNG, and diagnostics. Trace retains the Coordinator for the Agent's lifetime and preserves the existing locking boundaries for copying or directly reading the estimator.
 - The inner Learner references the outer `NetworkModel` and `RuntimeVars` and directly owns the Optimizer and ReplayBuffer.
 - A shared Actor references the Agent-owned Network; a clone Actor owns a private Network. Neither references the Learner itself.
-- Epsilon and the UQE tau decay schedule are State updated and owned by ActionPolicy; update credit, the warmup latch, and per-update policy churn requests/probes/Q are owned by the inner Learner; snapshot interval and last sync step are owned by the clone Actor. IQN tau placement mode is configuration, while each forward's taus are temporary inputs generated from a Policy- or Learner-owned RNG. Policy churn's fixed midpoint taus consume no randomness and are shared across up to three forwards in the same update.
+- Epsilon and the time-varying UQE tau are State updated and owned by ActionPolicy; update credit, the warmup latch, and per-update policy churn requests/probes/Q are owned by the inner Learner; snapshot interval and last sync step are owned by the clone Actor. IQN tau placement mode is configuration, while each forward's taus are temporary inputs generated from a Policy- or Learner-owned RNG. Policy churn's fixed midpoint taus consume no randomness and are shared across up to three forwards in the same update.
 - The outer Agent's shared mutex serializes Learner updates, shared Actor forwards, and clone/sync copies.
 
 ### 8.2 Checkpoints
@@ -707,7 +712,7 @@ Policy metrics `policy_upper_truncated_std` and `policy_lower_truncated_std` ave
 
 Learner metric `upper_tail_priority_spearman` is the average-rank Spearman correlation between per-sample `upper_std` from current quantiles for the experienced action and raw PER priority after clipping but before `per_alpha`. QR uses quantile index order; IQN also applies the ascending `current_taus` permutation to the quantiles. Tail values are appended to the existing priority readback only with PER enabled, preserving the pack prefix, clip counts, Replay update order, and absence of new wait boundaries. It is `NaN` when PER is disabled, batch size is below 2, either rank sequence is constant, or `K < 2`. Policy values are also `NaN` when the required full distribution is absent or `K < 2`. Crossing-depth p90 is dimensionless after range normalization, but with TBO it is calculated in h-space like other tail diagnostics, without inverse transformation to real space. All values use float32 and are detached from the training graph.
 
-Current snapshot metrics are registered in `metrics.scalar.full` in [metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt), not in baseline. See [Observability](140_observability.en.md) for general Event, step-axis, and target contracts.
+Current snapshot metrics are registered in `metrics.scalar.@full` in [metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt), not in baseline. See [Observability](140_observability.en.md) for general Event, step-axis, and target contracts.
 
 ### 9.2 Performance
 
@@ -734,7 +739,7 @@ Known issue: Actor Observation normalization runs outside the Agent mutex, while
 
 DQN has two channels. Actual captures a specified branch such as `main_feature` from the train-mode/autocast forwards used for online/target TD calculation, placing features from before target updates in the same `BatchUpdateResult`. Probe takes a uniform sample without replacement from ReplayBuffer, applies existing observation normalization, executes `ForwardOnlineUpTo` in NoGrad/eval mode with the same autocast as the learner, and exposes the Agent's latest values.
 
-Online actual, target actual, and probe enablement and capture cadence are independently determined by the minimum interval of their plasticity scalar subscription rows. Each row's interval is also evaluated using the Observer's bucket rule; only the union of metrics due at that learn step is calculated. This allows a coarser srank cadence while retaining the cadence of dormant and other metrics, and avoids SVD on steps that do not need srank metrics. At the same step, δ=0.01 / 0.05 / 0.20 share one SVD. `final_feature_branch_key` is required and checked for branch existence only when subscribed. With no subscriptions, configuration values are still read and their local ranges validated at construction, while no capture/sample/statistics work occurs. Baseline configuration supplies `main_feature`, while the DTO keeps an omitted value empty rather than filling it implicitly. A known key not measured at that learn step returns `NaN`; an unknown key returns `nullopt`. Probe never reuses old values on non-capture steps or when samples are insufficient. Probe batch size must always be at least 1. See Section 4.7 of the [Run Analysis User Guide](030_user_guide_analysis.en.md) for interpreting each channel.
+Online actual, target actual, and probe enablement and capture cadence are independently determined by the minimum interval of their plasticity scalar subscription rows. Each row's interval is also evaluated using the Observer's bucket rule; only the union of metrics due at that learn step is calculated. This allows a coarser srank cadence while retaining the cadence of dormant and other metrics, and avoids SVD on steps that do not need srank metrics. At the same step, δ=0.01 / 0.05 / 0.20 share one SVD. `final_feature_branch_key` is required and checked for branch existence only when subscribed. With no subscriptions, configuration values are still read and their local ranges validated at construction, while no capture/sample/statistics work occurs. Baseline configuration supplies `main_feature`, while the DTO keeps an omitted value empty rather than filling it implicitly. A known key not measured at that learn step returns `NaN`; an unknown key returns `nullopt`. Probe never reuses old values on non-capture steps or when samples are insufficient. Set the probe size with `learner.plasticity.probe.batch_size`. It must be at least 1. The code defaults to 512, and the shipped `@baseline` sets it to 4096. See Section 4.7 of the [Run Analysis User Guide](030_user_guide_analysis.en.md) for interpreting each channel.
 
 For parameters, the online network is partitioned into feature/readout groups by the dependency closure of `final_feature_branch_key`, producing two raw weight norms, two effective weight norms after SN, and two group maximum sigma values. These are measured before applying the update, at a subscription cadence independent of activation capture, and placed in the same `BatchUpdateResult` as a fixed-length eight-element pack with online/target SN validity sentinels. Only the first access to any of the six public values transfers the entire pack to CPU and caches it within the event. Only an abnormal sentinel triggers another Network walk and fail-fast with online/target identification and full layer names. Groups without SN layers have `NaN` sigma and effective norms equal to raw norms. Without subscriptions, neither parameter enumeration nor D2H occurs.
 
@@ -744,7 +749,7 @@ DefaultDQN measures changes in online expected Q and greedy actions caused by on
 
 The measurement order is fixed:
 
-1. Only when a Q-derived key fires at that `learn_step`, obtain one complete probe batch with the caller-owned `policy_churn_probe` RNG and apply existing Observation normalization.
+1. Only when a Q-derived key fires at that `learn_step`, obtain one complete probe batch with the caller-owned `policy_churn_probe` RNG and apply existing Observation normalization. Set the batch size with `learner.policy_churn.probe.batch_size` (default 1024).
 2. Complete normal training forward, backward, and gradient clipping.
 3. Obtain `online-before` immediately before the actual optimizer step and `online-after` immediately after it.
 4. Execute the normal hard copy or soft update.
@@ -786,7 +791,7 @@ From mean squared microbatch gradients s and squared mean gradient b, estimate s
 
 Train-scope @learn / $update_result subscriptions use per-key IntervalGates. Measurement occurs once at the union of firing points evaluated against learn_step before incrementing it. Subscribed versions/groups share measurement points, updating each available signal/variance EMA pair once. Finite negative signals are retained; nonpositive EMA signal produces NaN scale/ratio. Unavailable measurements neither update EMA nor publish previous values. Empty groups have NaN raw values and scale and contribute zero to all. Each key publishes only when its own gate fires; known unsubscribed, unfired, or unavailable keys return NaN, and only unknown keys return nullopt. EMA is not saved in checkpoints.
 
-The 15 metrics under 49_agent_gradnoise require explicit subscription through metrics.scalar.@gradnoise (all rows use interval 503). num_micro_batches defaults to 8 and must be at least 2 and divide B; ema_alpha defaults to 0.05 and must be finite in (0,1]. Validate the local range of num_micro_batches and ema_alpha during construction even without subscriptions. Check divisibility by B when subscribed and reject FP16 before learning. FP32 / BF16 are supported, including BF16 rounding in the measurement. Validate final_feature_branch_key only for group-specific subscriptions. Different intervals are allowed with one startup WARN. Values are conditional on shared Noisy epsilon; cross-sample coupling such as BatchNorm does not guarantee an independent-sampling interpretation.
+The 15 metrics under 49_agent_gradnoise require explicit subscription through metrics.scalar.@gradnoise (all rows use interval 503). `learner.grad_noise.num_micro_batches` defaults to 8 and must be at least 2 and divide B; `learner.grad_noise.ema_alpha` defaults to 0.05 and must be finite in (0,1]. Validate the local range of `learner.grad_noise.num_micro_batches` and `learner.grad_noise.ema_alpha` during construction even without subscriptions. Check divisibility by B when subscribed and reject FP16 before learning. FP32 / BF16 are supported, including BF16 rounding in the measurement. Validate final_feature_branch_key only for group-specific subscriptions. Different intervals are allowed with one startup WARN. Values are conditional on shared Noisy epsilon; cross-sample coupling such as BatchNorm does not guarantee an independent-sampling interpretation.
 
 ### 9.9 Attention Entropy Diagnostics
 
@@ -822,7 +827,7 @@ See [PRD101 validation assets](../../src/core/base/testdata/prd101/README.md) fo
 
 Changes to TempoRL windows, Actor, Learner, checkpoints, or metrics require the contract tests, disabled-skip equivalence across four Envs, smoke checks, and Atari performance comparisons in [PRD098 validation assets](../../src/core/base/testdata/prd098/README.md). Record long-learning acceptance separately from short validation.
 
-Main DQN tests reside in `dqn_*_test.cpp` for each DQN role and concrete Agent and in [dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp); shared Replay tests are in [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp).
+Main DQN tests reside in `dqn_*_test.cpp` for each DQN role and concrete Agent and in [dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp); see also [dqn_actor_test.cpp](../../src/algo/dqn/src/dqn_actor_test.cpp) (exploration ladder), [intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp), and [stacker_test.cpp](../../src/core/base/src/stacker_test.cpp). Shared Replay tests are in [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp).
 
 When adding or modifying a DQN Agent, check at least the following:
 
@@ -852,13 +857,33 @@ When adding or modifying a DQN Agent, check at least the following:
 - [ReplayBuffer](150_replay_buffer.en.md)
 - [Applications and Tools](160_applications_and_tools.en.md)
 - [Agent Implementation Ownership Guidelines](../ownership_guideline.md)
-- [Actor Network Resource Policy ADR](../adr/0013-actor-network-resource-policy.md)
-- [Actor Priority Approximation ADR](../adr/0010-actor-priority-mean-q-approx.md)
-- [Replay Initial-Priority Completion ADR](../adr/0012-replay-initial-priority-hint-completion.md)
-- [IQN Bind Product DAG ADR](../adr/0018-iqn-via-bind-product-dag.md)
-- [IQN+UQE Score ADR](../adr/0019-iqn-uqe-score-without-extra-forward.md)
 
-### 11.2 Reference Papers
+### 11.2 ADRs
+
+- [DefaultDQN TBO scope ADR](../adr/0001-default-dqn-tbo-scope.md) (§2.1.10, §7.1)
+- [Actor initial-priority approximation ADR](../adr/0010-actor-priority-mean-q-approx.md) (§2.5)
+- [Replay initial-priority hint responsibilities ADR](../adr/0012-replay-initial-priority-hint-completion.md) (§2.5)
+- [Actor Network ownership ADR](../adr/0013-actor-network-resource-policy.md) (§6.1, §8.1)
+- [IQN bind product DAG ADR](../adr/0018-iqn-via-bind-product-dag.md) (§2.1.4)
+- [IQN+UQE action scores ADR](../adr/0019-iqn-uqe-score-without-extra-forward.md) (§2.4, §2.5)
+- [Plasticity metric channels ADR](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md) (§9.4)
+- [Spectral normalization ADR](../adr/0032-spectral-norm-self-impl-buffer-semantics.md) (§8.2, §9.3)
+- [Measuring policy churn ADR](../adr/0033-policy-churn-fixed-probe-and-target-lag.md) (§9.5)
+- [Computing Munchausen targets ADR](../adr/0035-munchausen-target-learner-local-real-space.md) (§2.1.7, §6.3)
+- [Actor Q hints for Munchausen ADR](../adr/0036-actor-q-hint-three-columns-munchausen.md) (§2.5, §9.3)
+- [Named Actor catalog ADR](../adr/0038-actor-config-catalog-without-runmode.md) (§2.4, §6.1, §6.4)
+- [Replay fit diagnostics ADR](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md) (§9.6)
+- [NoisyNet execution state and configuration keys ADR](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md) (§7.3)
+- [Optimizer settings when loading a checkpoint ADR](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md) (§8.2)
+- [Measuring gradient noise scale ADR](../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md) (§9.8)
+- [Approximate priority in step traces ADR](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md) (§6.2)
+- [Roles of the auxiliary Network and target ADR](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md) (§6.5, §8.2)
+- [Variable-length Replay windows ADR](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md) (§6.5)
+- [ProfiledValue constant syntax ADR](../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md) (§2.4)
+- [Time-varying discount factors ADR](../adr/0065-scheduled-gamma-recomputes-return-at-sample.md) (§2.5)
+- [Five-column Actor Q hints ADR](../adr/0075-actor-q-hint-five-columns-carry-per-head-values.md) (§2.5, §9.3)
+
+### 11.3 Reference Papers
 
 Dates indicate the publication month for DQN and the first arXiv submission month for the other papers.
 

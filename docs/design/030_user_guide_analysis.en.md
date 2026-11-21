@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:466d0ba2909898fdab2d353fbff3b538bfe6ef67 date:2026-11-19 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:d4d76c28bcebcffa3d825d755e037bc327f49ea7 date:2026-11-21 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -77,21 +77,23 @@ When launched without a workspace argument, the launcher pauses after displaying
 | `Save` / `Revert` | `*` marks differences from the saved set. Unsaved changes survive switching to another set, and that set's name in the list also shows `*`. Save overwrites the set with the entire selection; Revert fetches and applies the latest server contents. Both are disabled without changes |
 | `+ Save current selection as…` | Enter a name below the list and save. Check the total and hidden tag counts beside the input |
 | `✎` / `×` | Rename inline or confirm deletion. `Deselect tag set` clears the selected set name while keeping tag selection |
-| `Selected Only` (Runs / Tags) | Header toggle that keeps only selected Runs or tags in the list. Bulk operations such as `Select All` automatically turn it OFF |
+| `Selected Only` (Runs / Tags) | Header toggle that keeps only selected Runs or tags in the list. Bulk operations such as `Select All` turn it off. When you reopen the Viewer, the Runs toggle starts off |
 | Run row background and `%` | Per-Run progress importing the selected Metrics master into SQLite |
+| Hover over or right-click a Run row (press and hold on a touchscreen) | Opens the Run information panel. It shows the Run name, import status, maximum step, total and quarantined tag counts, total data points, and any import or tag issues. Click the Run name once to select it for copying, or use `Copy Name` to copy it to the clipboard. Click outside the panel or press Esc to close it |
 | `Reload` | Refetches the Run list, tags, and metric ranges for the current viewport, then redraws |
 | `Auto Reload` | Refreshes metadata every 30 seconds and updates only graphs currently displaying the latest data |
+| `Height` | Use the upper-right slider to set the height of all graphs from 150 to 800 px in 50 px increments. The graphs redraw when you release the slider. Screens up to 900 px wide and screenshot mode use the saved height and hide the slider |
 | `LOD: MinMax / Mean / Band` | Global LOD display mode immediately before Scroll Lock at the upper right. Changing it does not refetch data |
 | Graph `Log` | Toggles signed-log display supporting positive, negative, and zero values |
 | Graph `p0–` / `–p100` | Narrows the Y-axis lower and upper limits to percentiles of the finite values currently displayed for each Run. Each press cycles the lower limit through `p0–` → `p1–` → `p5–` → `p0–` and the upper limit through `–p100` → `–p99` → `–p95` → `–p100`, and the two are chosen separately (for example, `p5–` with `–p100` trims only the bottom). `p0–` and `–p100` mean no limit |
 | `Scroll Lock` | Suppresses graph interaction and uses drag/swipe for vertical scrolling |
-| Screenshot button | Hides side panels for comparison screenshots. While active, drag/swipe over graphs scrolls vertically as with Scroll Lock |
+| Screenshot button | Hides side panels for comparison screenshots. While active, drag/swipe over graphs scrolls vertically as with Scroll Lock. A spinner appears in the upper-left corner while data is loading |
 
 The Plotly modebar provides zoom, pan, image saving, and `Reset axes`. The redundant `Autoscale` button is hidden. Double-clicking the graph preserves Plotly's axis reset while also triggering the Viewer's Reload.
 
 Only the initial display automatically selects the latest Run. Thereafter, manual empty selections and selections emptied by disappearing Runs are preserved.
 Reload preserves known OFF tags and automatically enables only newly discovered visible tags.
-The selected workspace, tags, LOD mode, Scroll Lock, `Auto Recolor`, and per-tag Log and percentile lower and upper limits persist in browser `localStorage`. Run colors themselves do not persist; they are reassigned on reload and workspace changes. Log and the percentile lower and upper limits apply to same-named tags across workspaces.
+The browser saves the selected workspace and tags, LOD mode, Scroll Lock, `Auto Recolor`, the Tags `Selected Only` toggle, graph height, and each tag’s Log setting and percentile limits in `localStorage`. The Viewer reassigns Run colors on reload and when you switch workspaces. Log and the percentile lower and upper limits apply to same-named tags across workspaces.
 
 The selected tag set name and per-set unsaved changes also persist in localStorage. Reloading retains unsaved tag selection. Unsaved changes stay in this browser only and do not appear in other browsers or devices. To return to the saved contents, call the set and press `Revert`. Saving a set under another name with `Save As` discards the original set's unsaved changes. Tag sets are shared across workspaces. Use ↑↓ and Enter in the menu, and Esc or an outside click to close it. Esc inside an input cancels only that edit.
 
@@ -164,7 +166,7 @@ Do not conclude that one configuration is faster or better from a single long Ru
 
 ### 4.5 Reading IQN Exploration P0 Diagnostics
 
-For IQN exploration, first verify that `metrics.scalar.iqn_search_p0` is merged into the resolved `config/config_data.txt`, and check Policy/Learner tau placement modes and counts `K/N/M`. Do not decide adoption from diagnostics alone: assess DropMerge Double Suika counts and achievement rates, rewards, PER health, and throughput separately over the same matched `exp_step` window.
+For IQN exploration, use the `resolution` command in §6.7 to check that `metrics.scalar.@iqn_search_p0` was selected. In the resolved `config/config_data.txt`, check the tau placement modes and counts (`K/N/M`) for the Policy and Learner. Before choosing a configuration, assess DropMerge Double Suika counts and achievement rates, rewards, PER health, and throughput separately over the same `exp_step` window alongside the diagnostics.
 
 - `iqn_policy_margin_mc_ratio` normalizes the gap between the top two UQE actions by the finite risk-quantile sample scale. With `random`, interpret it as Monte Carlo mean stability; with `fixed` or `stratified`, as a proxy for integration resolution rather than random variation between forwards.
 - Read `iqn_current_mc_scale` and `iqn_target_mc_scale` separately for `N` and `M`. `iqn_priority_mc_ratio` measures the size of the current mean-TD priority signal relative to the finite-tau scales on both sides.

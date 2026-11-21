@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:7fd6a4383808463239848fc85c53befbab0968c9 date:2026-11-19 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:274a70ebae8bd71ce81956f82b4018a4ed0fb123 date:2026-11-21 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -39,7 +39,7 @@ At the Network Body entrance, `NetworkBoundaryPreprocessor`:
 
 ### 2.2 Frame-Stack Input Axis Contract
 
-With `DefaultDQNAgent`, `use_stacker=true`, and `stack_count=S>1`, each stacked key's Network input spec becomes `[S, *original_shape]`, adding a leading stack axis to EnvSpec's `original_shape`. Both construction-time dummy inputs and real Actor/Learner inputs add a batch axis, yielding `[B, S, *original_shape]`. Keys outside `stack_keys` receive no stack axis. GraphViz input-spec displays follow this contract too.
+With `DefaultDQNAgent`, `stucker.use_stacker=true`, and `stucker.stack_count=S>1`, each stacked key's Network input spec becomes `[S, *original_shape]`, adding a leading stack axis to EnvSpec's `original_shape`. Both construction-time dummy inputs and real Actor/Learner inputs add a batch axis, yielding `[B, S, *original_shape]`. Keys outside `stucker.stack_keys` receive no stack axis. GraphViz input-spec displays follow this contract too.
 
 Network configurations explicitly select modules for their intended use rather than implicitly restoring a stack axis.
 
@@ -84,7 +84,7 @@ Default Network::Forward(input) and ForwardUpTo(input, branch_key) pass NetworkF
 - Branch bind terms, `bind_concat_dim`, raw keys, and output keys
 - Per-block/per-branch config profiles
 
-A block appearing in a structure is checked against a closed schema after its module factory finishes reading. Unread config keys stop construction with the block name, type, keys and values, and the keys read by that factory. Writing `out_channels` instead of `conv.out_channels` fails whether assigned with `?=` or `=`. Prior reads by copies or another reader do not bypass this validation.
+A block appearing in a structure is checked against a closed schema after its module factory finishes reading. If any config key is unread, construction stops. The diagnostic reports the full key that supplied the type, the type itself, the full key and value of each unread field, and the keys the factory reads. When shared and Agent settings are merged, each field uses the full key from the source that supplied its value. Writing `out_channels` instead of `conv.out_channels` fails whether assigned with `?=` or `=`. Prior reads by copies or another reader do not bypass this validation.
 
 Blocks absent from structures are not instantiated or schema-validated during a Run. Replacing only an existing block's type leaves fields for its old type, which stop construction as unread keys when used. Define a separately named block and select it in the structure instead.
 
@@ -137,7 +137,7 @@ net.branch.[merged].bind_concat_dim = -1
 
 ### 4.1 Registered Module Categories
 
-Current `InitNN()` registers these types in `NetworkModuleRepository`.
+`InitNN()` registers the following types in `NetworkModuleRepository` once. If the first registration fails partway through, subsequent calls also fail. Direct registration under an existing type name throws an exception and preserves the original factory.
 
 | Category | Example types |
 |---|---|
@@ -299,8 +299,8 @@ Requesting `nn_trace/` through capture collects branch inputs and visualizable b
 - IQN Head validates rank 3 `(B,K,D)`; IQN Dueling Head validates matching value/advantage B/K as local input contracts during dummy forward. This does not prove that `taus` contributes semantically to the final output.
 - Weight initialization accepts `default`, `xavier`, `he`, `orthogonal`, `constant`, `trunc_normal`, and `variance_scaling`. `variance_scaling` draws weights from a uniform distribution with target variance `variance_scale / fan_in` and sets bias to zero. The scale defaults to `1.0`. For convolutions, `fan_in` is the number of input channels per group times the number of kernel elements.
 - `variance_scaling` supports float16, bfloat16, float32, and float64 weight tensors with output and input axes. For nonempty weights, the uniform distribution's half-width must be between the smallest positive value of the element type and half its maximum value. Sampling uses the largest half-width representable by the element type that stays within the configured half-width. The element type's precision can cause the resulting variance to differ from the target. If any condition fails, initialization stops before changing parameters and reports the configured scale and the condition it could not satisfy.
-- On the first forward pass, a block checks the constraints for the type and shape of each layer configured for `variance_scaling` before registration. If a check fails, the diagnostic names the setting within the block, such as `init1.variance_scale`, and later calls to the same block report the same initialization failure.
-- `ConfigReader<WeightInitConfig>` reads initialization settings and validates block settings at construction, using the relative keys in diagnostics. `ValidateWeightInitConfig` checks the mode and `nonlinearity` (`relu`, `linear`, `tanh`, or `leaky_relu`). It requires finite numbers, `trunc_std > 0`, `trunc_a < trunc_b`, and `variance_scale > 0` for every mode. `WeightInitializer` also validates settings supplied directly before applying them. For `orthogonal`, `manual_gain <= 0` still selects the gain automatically.
+- On the first forward pass, a block checks the constraints for the type and shape of each layer configured for `variance_scaling` before registration. If a check fails, the diagnostic reports the full key that supplied the value, such as `net.block.[res1].init1.variance_scale`, and later calls to the same block report the same initialization failure.
+- `ConfigReader<WeightInitConfig>` records the full key of each initialization field. `ValidateWeightInitConfig` checks the mode and `nonlinearity` (`relu`, `linear`, `tanh`, or `leaky_relu`). It requires finite numbers, `trunc_std > 0`, `trunc_a < trunc_b`, and `variance_scale > 0` for every mode. `WeightInitializer` validates directly supplied settings before applying them. For a field with no read record, the diagnostic appends ` (not read from config)` to the relative key. For `orthogonal`, `manual_gain <= 0` still selects the gain automatically.
 - `ValidateLinearProjectionConfig` in `nn.hpp` validates structural `noisy.enabled` and `noisy.sigma0` before Network construction. It shares bool parsing and finite nonnegative sigma validation with ordinary Linear projection construction in `nn_modules.cpp`. Callers may supply a logical key prefix for diagnostics. Explicit invalid values are rejected even when disabled; validation creates no Network, parameters, or RNG. Execution mode/hold/share/count remain validated by consuming preparation.
 - `weight_norm.mode` for `Linear`, `Conv1d`, `Conv2d`, `ResBlock`, `CNBlock`, and `TransformerEncoder` accepts only `none`, `spectral`, and `spectral_cap`. Unknown values fail fast with the key, supplied value, and allowed values.
 - `spectral` rejects zero-initialized weights at construction. For residual blocks retaining zero initialization, specify something such as `init2.mode=he`, or use `spectral_cap`.

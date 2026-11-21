@@ -16,31 +16,31 @@
 | [issue-20261120-1979f6](issue-20261120-1979f6.md) | 未着手 | 3.5 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | QValuePanel.hist_bins=0 が設定検証を通り、描画処理で空のヒストグラムを参照しうる |
 | [issue-20261115-e5a0eb](issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | PRD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | 未着手 | 3.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
-| [issue-20261111-7cc67b](issue-20261111-7cc67b.md) | 未着手 | 3.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | EvalRunner の 1 step が、多重定義 4 つ・-1 の特別な値・bool の引数で、パネルからの 1 step と評価 session の 1 step を切り替えている |
+| [issue-20261111-7cc67b](issue-20261111-7cc67b.md) | 未着手 | 3.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | EvalRunner の 1 step が、多重定義 4 つ・-1 の特別な値・bool の引数で、パネルからの 1 step と評価 session の 1 step を切り替えている |
 | [issue-20261111-a5370c](issue-20261111-a5370c.md) | 未着手 | 3.3 | — | コード | 監査 | 315_nn | 基盤 | リファクタリング | — | 未確認 | NetworkBody の走査（branch→struct→block→module）が 6 か所に写され、null の検査の有無が場所ごとに違う |
 | [issue-20261111-c5c9a7](issue-20261111-c5c9a7.md) | 未着手 | 3.3 | — | コード | 監査 | 315_nn | 基盤 | リファクタリング | — | 未確認 | spectral norm の式（行列化・実効の分母・無効の判定・単位化）が 3〜5 か所ずつ写され、無効の数を返す口も 2 つある |
 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 未着手 | 3.0 | — | コード | PRD | 322_env_individual | Env | 機能追加 | [PRD085](../../memo/085_dropmerge_eval_score_axes_10prd.md) | 残件有り | DropMerge の評価スコア（本家互換スコアほか複数の軸） |
 | [issue-20261103-c8fb06](issue-20261103-c8fb06.md) | 未着手 | 3.0 | — | コード | PRD | 312_util, 110_runner_app | 基盤 | 機能改善 | [PRD071](../../memo/071_uncaught_fatal_visibility_10prd.md) | 残件有り | PRD 071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
 | [issue-20261111-006d9a](issue-20261111-006d9a.md) | 未着手 | 3.0 | — | コード | 監査 | 320_env_core | 学習基盤 | リファクタリング | — | 未確認 | env.cpp で lane 1 本分の Reset・Step の結果を書き込む処理が 4 か所に写され、GetAuxDataList も 3 つあり、数え方と範囲の外の扱いが食い違っている |
 | [issue-20261111-3986b7](issue-20261111-3986b7.md) | 未着手 | 3.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | テストを回す範囲・回数と、テストの控え・ログの置き場の決まりが無く、実装の時間と .scratch が膨らむ |
-| [issue-20261111-4a6b6f](issue-20261111-4a6b6f.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | RunManager のコンストラクタが 277 行あり、評価の設定の解釈・名前の予約・構築・ログ・配線が 1 つの関数に並んでいる |
-| [issue-20261111-585e60](issue-20261111-585e60.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
+| [issue-20261111-4a6b6f](issue-20261111-4a6b6f.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | RunManager のコンストラクタが 277 行あり、評価の設定の解釈・名前の予約・構築・ログ・配線が 1 つの関数に並んでいる |
+| [issue-20261111-585e60](issue-20261111-585e60.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 残件有り | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
 | [issue-20261111-7c926a](issue-20261111-7c926a.md) | 未着手 | 3.0 | — | コード | 監査 | 315_nn | 基盤 | リファクタリング | — | 未確認 | Network の CopyTo と SoftCopyTo が parameter と buffer を名前で対にする処理を別々に持ち、SoftCopyTo は learn step ごとに名前つきの一覧を 4 つ作る |
 | [issue-20261111-be150a](issue-20261111-be150a.md) | 未着手 | 3.0 | — | コード | 監査 | 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | StepTraceColumnSpec の target と display を文字列で持ち、metrics.cpp・gui.cpp・EvalTracePanel.cpp の 3 ファイル 17 か所で文字列を比べている |
 | [issue-20261111-c68178](issue-20261111-c68178.md) | 未着手 | 3.0 | — | コード | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | DropMerge のエピソード統計を 1 つ足すと、Env のメンバ・Reset・StepResult の初期化子とメンバ・GetScalar の 5 か所へ同じ形を足すことになる |
-| [issue-20261111-ea3483](issue-20261111-ea3483.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | scalar メトリクスの Observer が、イベントの中身を 6〜9 個の引数にばらして 3 段持ち回り、同じ 8 引数のコンストラクタを 4 回書いている |
+| [issue-20261111-ea3483](issue-20261111-ea3483.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | scalar メトリクスの Observer が、イベントの中身を 6〜9 個の引数にばらして 3 段持ち回り、同じ 8 引数のコンストラクタを 4 回書いている |
 | [issue-20261103-9df5c5](issue-20261103-9df5c5.md) | 未着手 | 2.7 | — | コード | PRD | 318_rl_core, 110_runner_app, 314_tensor | 学習基盤 | 不具合 | [PRD146](../../memo/146_notifier_scoped_detach_10prd.md) | 残件有り | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す |
-| [issue-20261107-16ffd8](issue-20261107-16ffd8.md) | 未着手 | 2.7 | — | コード | PRD | 318_rl_core, 322_env_individual, 110_runner_app | 学習基盤 | 不整合 | — | 未確認 | ERROR のログを出したあとも Run を止めずに続ける箇所（Env・Agent の作成失敗、DropMerge の果物の範囲外）が Fail-Fast 原則と合わない |
+| [issue-20261107-16ffd8](issue-20261107-16ffd8.md) | 未着手 | 2.7 | — | コード | PRD | 318_rl_core, 322_env_individual, 110_runner_app | 学習基盤 | 不整合 | — | 残件有り | ERROR のログを出したあとも Run を止めずに続ける箇所（Env・Agent の作成失敗、DropMerge の果物の範囲外）が Fail-Fast 原則と合わない |
 | [issue-20261111-15ba39](issue-20261111-15ba39.md) | 未着手 | 2.7 | — | コード | 監査 | 110_runner_app | UI | リファクタリング | — | 未確認 | EvalPanel のモデル同期が mode を文字列のまま step ごとに解釈し直し、EvalTracePanel は pane の開閉から導ける active_ を 4 通りの問い合わせで合わせている |
 | [issue-20261111-17fea4](issue-20261111-17fea4.md) | 未着手 | 2.7 | — | コード | 監査 | 324_dqn, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | 方策の種類（policy_type）と分布の表し方（quantile_mode）を文字列のまま持ち回り、数字の別名の受け付け方が関数ごとに違う |
 | [issue-20261111-52ed74](issue-20261111-52ed74.md) | 未着手 | 2.7 | — | コード | 監査 | 315_nn, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 可塑性指標の一覧と重みノルムのキーの並びを、nn・DQN・ImageCls の 5〜6 か所で手で合わせている |
 | [issue-20261111-5f695d](issue-20261111-5f695d.md) | 未着手 | 2.7 | — | コード | 監査 | 314_tensor | 基盤 | リファクタリング | — | 未確認 | 報酬の scaler と観測の normalizer で、clip と変換の同じ数行が 4〜6 か所にあり、clip が無効のときの扱いが既に食い違っている |
-| [issue-20261111-645ecc](issue-20261111-645ecc.md) | 未着手 | 2.7 | — | コード | 監査 | 317_metrics, 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | メトリクス宣言の語（event・step・target）と enum の対応が 5 か所以上に分かれ、解決済みの定義も同じ値を文字列と enum の 2 形で持っている |
+| [issue-20261111-645ecc](issue-20261111-645ecc.md) | 未着手 | 2.7 | — | コード | 監査 | 317_metrics, 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | メトリクス宣言の語（event・step・target）と enum の対応が 5 か所以上に分かれ、解決済みの定義も同じ値を文字列と enum の 2 形で持っている |
 | [issue-20261111-6c0bf1](issue-20261111-6c0bf1.md) | 未着手 | 2.7 | — | コード | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | GridMazeEnv が毎 step 変わらない盤面を 1 マスずつ tensor へ書き直し、成功と穴落ちを報酬の値と設定の値が等しいかで判定している |
 | [issue-20261111-c90df5](issue-20261111-c90df5.md) | 未着手 | 2.7 | — | コード | 監査 | 319_gui | UI | リファクタリング | — | 未確認 | ForwardedMouseEvent と ForwardedKeyEvent、Panel::OnMouse と OnKey が、型の名前だけ違う写しになっている |
 | [issue-20261111-cdc102](issue-20261111-cdc102.md) | 未着手 | 2.7 | — | コード | 監査 | 316_config, 315_nn, 324_dqn | 基盤 | リファクタリング | — | 残件有り | WeightInitConfig などの設定の部品に読み取りの口が無く、使う側が 1 キーずつ読むので、同じ 6〜8 行が十数か所にあり、読み方も食い違っている |
 | [issue-20261111-e80c7b](issue-20261111-e80c7b.md) | 未着手 | 2.7 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | DQNActionInfo::GetScalar が 6 種の指標群を 1 つの関数（276 行）で処理し、「指定した行動を除いた最大値」の計算を 2 回写している |
-| [issue-20261111-fe23e0](issue-20261111-fe23e0.md) | 未着手 | 2.7 | — | コード | 監査 | 318_rl_core, 320_env_core | 学習基盤 | リファクタリング | — | 未確認 | BatchEnvSpec に「group の数」「group と lane の対応」を返す関数が無く、使う側が三項演算を 19 か所に書き、終端の mask を CPU へ移す処理も関数ごとに書いている |
+| [issue-20261111-fe23e0](issue-20261111-fe23e0.md) | 未着手 | 2.7 | — | コード | 監査 | 318_rl_core, 320_env_core | 学習基盤 | リファクタリング | — | 残件有り | BatchEnvSpec に「group の数」「group と lane の対応」を返す関数が無く、使う側が三項演算を 19 か所に書き、終端の mask を CPU へ移す処理も関数ごとに書いている |
 | [issue-20261108-06a3f0](issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | コード | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
 | [issue-20261108-f0f243](issue-20261108-f0f243.md) | 未着手 | 2.6 | — | コード | PRD | 316_config, 322_env_individual | 基盤 | リファクタリング | [PRD118](../../memo/118_atari_run_profile_flatten_10prd.md) | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする） |
 | [issue-20261103-b2a0b1](issue-20261103-b2a0b1.md) | 未着手 | 2.5 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
@@ -49,7 +49,7 @@
 | [issue-20261120-7ac5fa](issue-20261120-7ac5fa.md) | 未着手 | 2.4 | — | コード | 実装 | 110_runner_app, 324_dqn | UI | 不具合 | — | 未確認 | IQN の学習中に HeatMap を既定の選択で開くと taus の不足で Run が停止する |
 | [issue-20261103-e6dbb4](issue-20261103-e6dbb4.md) | 未着手 | 2.3 | — | コード | 監査 | 317_metrics | UI | リファクタリング | — | 残件有り | HeatMapとTimeHeatMapのRenderRawが値レンジ・サンプル配置・画像生成を重複して持ち、既に食い違っている |
 | [issue-20261103-34d35d](issue-20261103-34d35d.md) | 未着手 | 2.3 | — | コード | PRD | 318_rl_core | 学習基盤 | 不具合 | [PRD177](../../memo/177_episode_end_read_semantics_10prd.md) | 残件有り | `@episode_end` で読む値を、どの target でもそのエピソードの値にそろえる |
-| [issue-20261111-2c251b](issue-20261111-2c251b.md) | 未着手 | 2.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | Replay の窓の規則 3 クラスが同じ骨格の写しで、PER のスカラーのキーも一覧・条件式・分岐の 3〜4 か所に並んでいる |
+| [issue-20261111-2c251b](issue-20261111-2c251b.md) | 未着手 | 2.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | Replay の窓の規則 3 クラスが同じ骨格の写しで、PER のスカラーのキーも一覧・条件式・分岐の 3〜4 か所に並んでいる |
 | [issue-20261111-360278](issue-20261111-360278.md) | 未着手 | 2.3 | — | コード | 監査 | 110_runner_app | UI | リファクタリング | — | 未確認 | Runner のパネルに描画と表の写しがある（GL キャンバスへ画像を貼る一式が 2 パネルに同文、EvalTracePanel の行の探索 8 か所と再生ツールの並び 3 か所） |
 | [issue-20261113-b96b2c](issue-20261113-b96b2c.md) | 未着手 | 2.3 | — | コード | PRD | 324_dqn, 314_tensor | 学習基盤 | 機能改善 | — | 残件有り | 観測の正規化の統計が checkpoint に保存されず、統計を使う構成では checkpoint 引き継ぎのたびに 0 から始まる |
 | [issue-20261103-2d66d2](issue-20261103-2d66d2.md) | 未着手 | 2.2 | — | コード | PRD | 324_dqn, 321_agent_core, 325_muzero, 315_nn | 学習基盤 | 調査 | [PRD134](../../memo/134_network_lock_audit_10prd.md) | 残件有り | 999: train/eval mode 整理後の排他精査 PRD（草案） |
@@ -58,15 +58,15 @@
 | [issue-20261111-4351bc](issue-20261111-4351bc.md) | 未着手 | 2.2 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | DQN の Actor が const の MakeAction の中で 11 個の mutable メンバを書き換えて状態を進め、一時的な出力を結果の public メンバで運んでいる |
 | [issue-20261103-72f807](issue-20261103-72f807.md) | 未着手 | 2.0 | — | コード | 監査 | 321_agent_core | アルゴリズム | 不具合 | — | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | [issue-20261103-78c643](issue-20261103-78c643.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
-| [issue-20261103-785e68](issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD169](../../memo/169_outside_core_extension_layout_10prd.md) | 残件有り | anet-core の外で実装する拡張点とコード配置の規約 |
+| [issue-20261103-785e68](issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | PRD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [PRD169](../../memo/169_outside_core_extension_layout_10prd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-7c8cd7](issue-20261103-7c8cd7.md) | 未着手 | 2.0 | — | コード | PRD | 316_config | 基盤 | リファクタリング | [PRD181](../../memo/181_config_file_layout_10prd.md) | 残件有り | 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ） |
 | [issue-20261103-7f1789](issue-20261103-7f1789.md) | 未着手 | 2.0 | — | コード | PRD | 315_nn, 322_env_individual | 基盤 | 機能追加 | [PRD088](../../memo/088_nn_adaptive_max_pool_10prd.md) | 残件有り | 出力の大きさで指定する max pooling（AdaptiveMaxPool2d） |
 | [issue-20261103-a39330](issue-20261103-a39330.md) | 未着手 | 2.0 | — | コード | PRD | 321_agent_core, 324_dqn | アルゴリズム | 機能追加 | [PRD147](../../memo/147_iqn_first_priority_quantile_pair_10prd.md) | 残件有り | PRD147: IQN初回Learner priorityのquantile-pair方式 |
 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 未着手 | 2.0（引継ぎ） | — | 成果物 | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD161](../../memo/161_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
-| [issue-20261111-07f4ed](issue-20261111-07f4ed.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | 「N エピソードに 1 回だけ記録する」状態が Conv2dVisualizationObserver と GraphVizObserver に少し違う形で書かれ、記録を始める条件と終える条件が食い違っている |
+| [issue-20261111-07f4ed](issue-20261111-07f4ed.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | 「N エピソードに 1 回だけ記録する」状態が Conv2dVisualizationObserver と GraphVizObserver に少し違う形で書かれ、記録を始める条件と終える条件が食い違っている |
 | [issue-20261111-0ef722](issue-20261111-0ef722.md) | 未着手 | 2.0 | — | コード | 監査 | 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | probe.hpp・probe.cpp の約 3 分の 1 がどこからも使われず、残る 2 つの Probe クラスと 5 つの IdxExtractor も写しになっている |
 | [issue-20261111-269a9f](issue-20261111-269a9f.md) | 未着手 | 2.0 | — | コード | 監査 | 322_env_individual | Env | リファクタリング | — | 未確認 | DropMergeEnv::Step が 267 行で行動の解釈・物理・裁定・統計・報酬を並べ、行動の解釈・DROP の位置・果物の走査・盤面の受け渡しにも写しがある |
-| [issue-20261111-54c7e1](issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 未確認 | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
+| [issue-20261111-54c7e1](issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 残件有り | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
 | [issue-20261111-90fa5c](issue-20261111-90fa5c.md) | 未着手 | 2.0 | — | コード | 監査 | 110_runner_app | UI | リファクタリング | — | 未確認 | QValuePanel の ComputeQValueHeatMap が 218 行で値の変換・範囲の更新・投票・色の正規化を並べ、データの受け渡しにスレッド越し用の部品と保護の無いメンバが混ざっている |
 | [issue-20261112-983afe](issue-20261112-983afe.md) | 未着手 | 2.0 | — | コード | その他 | 324_dqn, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | — | 残件有り | KFMの学習がボスへ行き着くかが偶然に頼る（1階の廊下の位置が観測に無く、Qも内的報酬も左へ進む向きを持てない） |
 | [issue-20261114-9468cb](issue-20261114-9468cb.md) | 未着手 | 2.0 | — | コード | 実装 | 324_dqn, 110_runner_app | 学習基盤 | 性能改善 | — | 残件有り | Evaluation Traceを開いている間のActor同期で、RNDの推定器の写しが1回約170 msかかる |
@@ -92,7 +92,7 @@
 | [issue-20261109-adc5c4](issue-20261109-adc5c4.md) | 未着手 | 1.4 | — | コード | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 未確認 | Agent・Env・View・NNモジュールの4つのRepositoryが同じ形を別々に実装し、登録と取り出しの関数名もそろっていない |
 | [issue-20261110-9d4e5a](issue-20261110-9d4e5a.md) | 未着手 | 1.4 | — | コード | その他 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | C++ の単純な書き方の問題を機械で検出する仕組み（lint・静的解析）が無い |
 | [issue-20261112-4efa57](issue-20261112-4efa57.md) | 未着手 | 1.4 | — | コード | PRD | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | replay fitの診断（EvaluateReplayFit）が学習の更新の前半を別に書き、分布の表し方での分岐を持っている |
-| [issue-20261115-c89660](issue-20261115-c89660.md) | 未着手 | 1.4 | — | コード | その他 | 110_runner_app, 321_agent_core, 318_rl_core | UI | 機能追加 | — | 未確認 | Runner の Conv2dPanel と metrics.image の conv2d に、RND の target と predictor の畳み込みの出力が出ない |
+| [issue-20261115-c89660](issue-20261115-c89660.md) | 未着手 | 1.4 | — | コード | その他 | 110_runner_app, 321_agent_core, 318_rl_core | UI | 機能追加 | — | 残件有り | Runner の Conv2dPanel と metrics.image の conv2d に、RND の target と predictor の畳み込みの出力が出ない |
 | [issue-20261103-71c4f4](issue-20261103-71c4f4.md) | 未着手 | 1.3 | — | コード | PRD | 315_nn, 317_metrics, 321_agent_core | 学習基盤 | 機能追加 | [PRD135](../../memo/135_nn_block_metrics_10prd.md) | 残件有り | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
 | [issue-20261103-b4e5c9](issue-20261103-b4e5c9.md) | 未着手 | 1.3（引継ぎ） | — | コード | PRD | 316_config, 110_runner_app | 基盤 | リファクタリング | [PRD155](../../memo/155_config_root_ownership_alignment_10prd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
 | [issue-20261103-f39d10](issue-20261103-f39d10.md) | 未着手 | 1.3 | — | コード | PRD | 318_rl_core, 324_dqn | 学習基盤 | 不具合 | [PRD141](../../memo/141_background_eval_snapshot_ordering_10prd.md) | 残件有り | Background eval の network snapshot 順序保証 |
@@ -102,8 +102,8 @@
 | [issue-20261103-7227bf](issue-20261103-7227bf.md) | 未着手 | 1.2 | — | コード | PRD | 311_dev_tools, 317_metrics | 開発 | 機能追加 | [PRD153](../../memo/153_q_statistics_config_screening_10prd.md) | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング |
 | [issue-20261103-8c3c6d](issue-20261103-8c3c6d.md) | 未着手 | 1.2 | — | コード | PRD | 318_rl_core, 324_dqn, 321_agent_core, 322_env_individual | 学習基盤 | 機能追加 | [PRD171](../../memo/171_replay_eviction_sample_count_10prd.md) | 残件有り | replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る |
 | [issue-20261103-dbe666](issue-20261103-dbe666.md) | 未着手 | 1.2 | — | コード | PRD | 322_env_individual, 318_rl_core, 311_dev_tools | Env | 調査 | [PRD163](../../memo/163_dropmerge_neet_diagnostics_10prd.md) | 残件有り | DropMerge の NEET 診断（trace で足りるか確かめてから指標化） |
-| [issue-20261110-d21e5f](issue-20261110-d21e5f.md) | 未着手 | 1.2 | — | コード | PRD | 318_rl_core, 325_muzero | 学習基盤 | 不具合 | — | 未確認 | MuZeroのReplayで、truncatedで終わるときに補う価値が、打ち切った次の状態ではなく最後のstep自身のroot_valueになっている |
-| [issue-20261111-e90762](issue-20261111-e90762.md) | 未着手 | 1.2 | — | コード | PRD | 318_rl_core | 学習基盤 | 不整合 | — | 未確認 | PERの抽選が埋まらないときに残りを一様の抽選で埋める代替が、明示した要求を黙って代替しない規約と食い違う |
+| [issue-20261110-d21e5f](issue-20261110-d21e5f.md) | 未着手 | 1.2 | — | コード | PRD | 318_rl_core, 325_muzero | 学習基盤 | 不具合 | — | 残件有り | MuZeroのReplayで、truncatedで終わるときに補う価値が、打ち切った次の状態ではなく最後のstep自身のroot_valueになっている |
+| [issue-20261111-e90762](issue-20261111-e90762.md) | 未着手 | 1.2 | — | コード | PRD | 318_rl_core | 学習基盤 | 不整合 | — | 残件有り | PERの抽選が埋まらないときに残りを一様の抽選で埋める代替が、明示した要求を黙って代替しない規約と食い違う |
 | [issue-20261115-657248](issue-20261115-657248.md) | 未着手 | 1.2 | — | コード | ハーネス保守 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 既存のソースと設定を、最新の規約（include の順・クラス宣言の区切り・関数名の形など）に合わせてまとめて点検し直す |
 | [issue-20261103-15f115](issue-20261103-15f115.md) | 未着手 | 1.1 | — | コード | PRD | 110_runner_app, 319_gui | UI | 機能改善 | [PRD113](../../memo/113_runner_per_monitor_dpi_10prd.md) | 残件有り | Runner を Per-Monitor V2 の DPI 対応で動かす PRD（manifest の gdiScaling を外す） |
 | [issue-20261103-1edf84](issue-20261103-1edf84.md) | 未着手 | 1.1 | — | コード | PRD | 321_agent_core, 324_dqn, 315_nn | アルゴリズム | 機能追加 | [PRD172](../../memo/172_bootstrapped_multihead_q_10prd.md) | 残件有り | Bootstrapped DQN 型の複数の Head（1 本の Run の中に別々の価値関数を持つ） |
@@ -114,7 +114,7 @@
 | [issue-20261103-6f6c73](issue-20261103-6f6c73.md) | 未着手 | 1.0 | — | コード | PRD | 321_agent_core | アルゴリズム | 機能追加 | [PRD183](../../memo/183_temporl_skip_followups_10prd.md) | 残件有り | TempoRL の後続（長い j の不確かさ・閉ループの割り込み・全 k の一括学習） |
 | [issue-20261103-c16aab](issue-20261103-c16aab.md) | 未着手 | 1.0 | — | コード | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD154](../../memo/154_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 | [issue-20261105-f4b870](issue-20261105-f4b870.md) | 未着手 | 1.0 | — | コード | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
-| [issue-20261111-d1d12b](issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 未確認 | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
+| [issue-20261111-d1d12b](issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 残件有り | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261116-fe09dc](issue-20261116-fe09dc.md) | 未着手 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261119-cb9a0f](issue-20261119-cb9a0f.md) | 未着手 | 1.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | — | 未確認 | RNDの観測の正規化に、学習の前に一様乱数の行動で統計を作る前段（Burdaら）が無い |
 | [issue-20261103-cfe994](issue-20261103-cfe994.md) | 未着手 | 0.9 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
@@ -129,7 +129,7 @@
 | [issue-20261113-6f954f](issue-20261113-6f954f.md) | 未着手 | 0.6 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | Learner の診断の購読が、Run で使う診断の宣言と、呼び出しごとの要求を 1 つの口で兼ねている |
 | [issue-20261116-948957](issue-20261116-948957.md) | 未着手 | 0.6 | — | コード | その他 | 315_nn, 324_dqn | 基盤 | 機能追加 | — | 残件有り | ImageClsで外部の学習済みモデルの重みを読み込んで転移学習できるようにする（今はanetが保存した同じ構造の重みしか読めない） |
 | [issue-20261116-cc631d](issue-20261116-cc631d.md) | 未着手 | 0.6 | — | コード | その他 | 322_env_individual | Env | 機能追加 | — | 未確認 | ImageClsでFood-101以外のデータセット（CIFAR-100・ImageNetなど）を学習・評価に使えるようにする |
-| [issue-20261119-497fce](issue-20261119-497fce.md) | 未着手 | 0.6 | — | コード | その他 | 324_dqn, 318_rl_core | アルゴリズム | 機能追加 | — | 未確認 | 内的の価値を非エピソードにしても、n-stepの和がエピソードの終わりで切れ、Burdaらのように内的の収益がエピソードをまたいで続かない |
+| [issue-20261119-497fce](issue-20261119-497fce.md) | 未着手 | 0.6 | — | コード | その他 | 324_dqn, 318_rl_core | アルゴリズム | 機能追加 | — | 残件有り | 内的の価値を非エピソードにしても、n-stepの和がエピソードの終わりで切れ、Burdaらのように内的の収益がエピソードをまたいで続かない |
 | [issue-20261119-628657](issue-20261119-628657.md) | 未着手 | 0.6 | — | コード | その他 | 324_dqn | アルゴリズム | 機能追加 | — | 未確認 | 価値の分解で、合わせた Q に 1 本の損失を掛ける MEME 型を feature_gradient の第 3 のモードとして試す |
 | [issue-20261103-145ee2](issue-20261103-145ee2.md) | 未着手 | 0.5 | — | コード | PRD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [PRD152](../../memo/152_metric_targeted_hyperparam_control_10prd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
 | [issue-20261103-4a2b5e](issue-20261103-4a2b5e.md) | 未着手 | 0.5 | — | コード | PRD | 315_nn, 321_agent_core | 基盤 | リファクタリング | [PRD165](../../memo/165_nn_head_projection_separation_10prd.md) | 残件有り | NN Head の最終射影と出力変換の責務分離 |
@@ -154,7 +154,9 @@
 
 AI の判定が「残件無し」で、解決でない課題。解決にするかは開発者が決める（コミットの準備で持ちかける）。
 
-該当する課題はありません。
+| ID | 状態 | AIの判定 | 判定日 | 課題 |
+|---|---|---|---|---|
+| [issue-20261103-785e68](issue-20261103-785e68.md) | 未着手 | 残件無し | 2026-11-21 | anet-core の外で実装する拡張点とコード配置の規約 |
 
 ## 再開候補
 

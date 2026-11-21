@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:d406afd7345891b53cb44bf24e46f46ace7c9df3 date:2026-11-19 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:a0e0f496cb840d1c9c987f1024f36c3984a25fa9 date:2026-11-21 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -40,7 +40,11 @@ Copies of the same effective configuration returned by `ConfigManager` share rea
 
 A closed-schema reader creates a fresh read scope with `CreateReadScope()` and rejects unread config keys with `RequireAllKeysRead()`. Prior reads by another reader or copy do not replace this validation. Reads propagate to the original keys. Read and inventory records support updates from multiple threads.
 
-For readers using full keys, `CreateReadScope(prefix)` selects only that prefix. `Config::MakeReadScope` combines full keys from both default and override prefixes, preserving ordinary typed reads and configuration records.
+For readers using full keys, `CreateReadScope(prefix)` selects only that prefix. `Config::MakeReadScope` combines full keys from both default and override prefixes, preserving ordinary typed reads and configuration records. When the override prefix is empty, the reader skips the override when reading a value, checking whether a value exists, or creating a read scope.
+
+`ConfigData` retains the full key that supplied each value when entries are extracted, copied, or placed in a read scope. When merged entries supply the same value slot, the later entry supplies the full key. Updating an existing entry in code preserves its full key. If an entry has no recorded key, the configuration joins its prefix and the relative key. A configuration with no prefix returns the key it received.
+
+When reading a typed field, the reader records the full key that supplied its value. If the value is omitted and the field uses its default, the key points to the default location. The record travels with the typed configuration to the component. Copying the value to another field also copies the corresponding record. For a field that was never read, the component appends ` (not read from config)` to the relative key. Looking up a full key leaves its read status unchanged and is independent of recording the effective configuration.
 
 Ordinary prefixes appearing as sources in input selection declarations are retained as inventory. This includes declarations replaced later, declarations inside unselected Run profiles, injected configuration, additional files, and CLI assignments. Neither a naming pattern nor `?=` alone makes a key inventory.
 
@@ -335,7 +339,7 @@ The first step resets Env and submits no Learner update because no Experience is
 | `run.train.num_envs` | Main Train BatchEnv lane count |
 | `run.train.runner_type` | `serial` or `pipeline`, case-insensitive; other values stop construction |
 | `run.train.actor` | Actor catalog name, default `train` |
-| `run.eval_device` | Configured Eval device setting, default `auto`; adopted value in `json/run.json` as `effective_eval_device` |
+| `run.eval_device` | Device setting for configured Eval. The default is `auto`. See `effective_eval_device` in `json/run.json` for the effective device |
 | `run.eval.[tag].*` | Configured Eval RunMode, parallel lane count `eval_batch_size`, adopted count `eval_episodes` (default 1), Env overrides, and Actor name reference |
 | `run.eval_schedule.[tag].*` | Required `interval`, learn-step shift `offset` (default `0`), initial suppressed-firing count `warmup_count` (default `1`), `use_background`, and `wait_on_exit` (default `true`) for periodic configured Eval |
 | `app.drain_timeout_sec` | Deadline in seconds for the entire background Observer drain. Default 3600; must be a positive integer |
@@ -343,7 +347,7 @@ The first step resets Env and submits no Learner update because no Experience is
 | `agent.*` | Agent class, device |
 | `backend.*` | libtorch backend settings such as TF32, cuDNN, and determinism |
 
-Use Config classes and each Run's `config/config_data.txt` as the basis for the complete effective-key list. Device settings retain requested values such as `auto`; adopted devices appear in the individual fields of `json/run.json`, `json/env.json`, and `json/agent.json`. Selected profiles and `${}` resolution paths are recorded in `data` within `json/config_resolution.json` or the Metrics master's `config_resolution` record. Resolution is analysis/diagnostic metadata, not input for reloading configuration.
+Use Config classes and each Run's `config/config_data.txt` as the basis for the complete effective-key list. Device settings retain requested values such as `auto`. The effective devices appear in the individual fields of `json/run.json`, `json/env.json`, and `json/agent.json`. Selected profiles and `${}` resolution paths are recorded in `data` within `json/config_resolution.json` or the Metrics master's `config_resolution` record. Resolution is analysis/diagnostic metadata, not input for reloading configuration.
 
 ### 7.2 Lifetimes and Shutdown
 
@@ -362,6 +366,7 @@ Use Config classes and each Run's `config/config_data.txt` as the basis for the 
 Configuration DTOs support `std::optional<T>` for native `ConfigData` value types. A missing key preserves the DTO initial value; an absent initial value also leaves the key out of recorded configuration. Present values delegate to the normal typed reader, preserving default-prefix then override-prefix precedence, validation and recording. Empty or invalid numeric values do not become absence. Wrapping a composite `ConfigReader` is unsupported and rejected at compile time.
 
 - `ConfigData` conversion failures throw; defaults apply only to missing keys. Range, enum, and combination checks belong to each `Config` or reusable configuration type; class IDs are checked during repository resolution.
+- Errors, WARNs, and INFO messages identify a configuration value by the full key that supplied it. Closed schemas also report unread config keys by their full keys.
 - Requested configuration files that cannot be opened, empty include filenames, and mismatched include brackets stop with `ANET_SYSTEM_ERROR`. Callers check for existence before reading optional auxiliary files.
 - Call `WarnUnreadConfigKeys` after RunManager construction and application image registration and panel initialization, before the first step. It excludes read keys and inventory, sorts the remaining keys, and emits their count and `key = value` lines as one WARN. Zero keys produce no notification, and a list does not stop the Run. Owners must read and validate settings needed later by this point or declare suspension with INFO.
 - RunnerThread exceptions are passed to the application's exception callback rather than swallowed.
@@ -380,6 +385,7 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` value type
 ## 8. Tests and Extension Checks
 
 - [PRD117 validation resources](../../src/core/base/testdata/prd117/README.md): original-key tracking, closed catalogs, unread config key lists, notifications per Run, and the configurations and stop conditions for normal Runs with zero WARNs.
+- The [PRD194 validation resources](../../src/core/base/testdata/prd194/README.md) describe how to inventory the configuration keys in diagnostic messages and compare them with the expected list.
 
 - [PRD094 validation resources](../../src/core/base/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 

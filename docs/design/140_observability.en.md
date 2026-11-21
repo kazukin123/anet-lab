@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:f28f613fc5ac0cc9135356b14989abb564e117f9 date:2026-11-19 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:4407bae94d7dc933ad9ca4b62edfbea44c1223fd date:2026-11-21 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -26,7 +26,7 @@ This document covers current `Notifier`, Observers, `ObserverFactory`, `MetricsL
 | `TrainEvent` | Carries Experience, ActionInfo, Env, Agent, Runner, and counts after an Env step |
 | `LearnEvent` | Carries Experience, UpdateResult, Agent, Runner, and counts after a Learner update |
 | `EpisodeEndEvent` | Carries the terminating episode group, Agent, Env, Runner, counts, and step_result. Return values come from Runner scalars |
-| `Notifier` | Run-local hub registering four Observer types and synchronously delivering corresponding events. Shared between Train/Eval by `RunManager` |
+| `Notifier` | Registers four Observer types and delivers events in registration order on the calling thread. Registration, removal, notification, shutdown, and listing can run concurrently. `RunManager` shares it between Train and Eval |
 | Runner-scoped Observer | Wrapper forwarding only Train or a particular Eval Runner's events to the actual Observer |
 | `SessionEndEvent` | Reports finalized aggregation of N adopted configured-Eval episodes, once per session |
 | `MetricsLogTraceObserver` | Reads individual values within episode-completion callbacks and records one trace row |
@@ -145,7 +145,9 @@ sequenceDiagram
     end
 ```
 
-Observer callbacks execute on the thread calling `Notify()`. Profile expensive rendering, device synchronization, or I/O assuming it enters the Train/Learn critical path. Background evaluation in `EpisodeEvalObserver` is an exception using a dedicated pool; worker exceptions are rethrown to the caller at the next Learn boundary or on an explicit `Shutdown()`. Only the destructor safety net catches exceptions and records FATAL.
+Observer callbacks run in registration order on the thread that calls `Notify()`. The Notifier retains the list as it stood when the call began and releases the lock before invoking the Observers. An Observer can register or remove Observers and send notifications. Registration and removal take effect with the next notification that starts. `Detach()` and `Clear()` return without waiting for notifications in progress. Each such notification retains its Observers until it finishes. The caller registering an Observer manages the lifetime of the objects it accesses. `Shutdown()`, `WillBlockOnShutdown()`, and `LogObservers()` also use the list captured at entry and invoke Observers outside the lock.
+
+Profile expensive rendering, device synchronization, and I/O on the Train/Learn critical path. Background evaluation in `EpisodeEvalObserver` uses a dedicated pool. Worker exceptions propagate to the caller at the next Learn boundary or on explicit `Shutdown()`. The destructor catches exceptions and records FATAL.
 
 Runner aggregates episode returns and episode_steps completed in the latest Step, exposing `mean.episode_return`, `max.episode_return`, `min.episode_return`, `std.episode_return`, and `episode_steps` with the same prefixes. episode_steps counts Env Steps including the terminal one, without multiplying by lane count even for SHARED. The existing train value is `max.episode_return`; configured Eval aggregates the N adopted session episodes. `EvalSessionEnv` subscribes only to the target Eval's `@session_end $env` source keys from resolved metric definitions and snapshots values immediately after episode-completion Steps. Any `nullopt` makes the aggregate `nullopt`; NaNs are excluded. Aggregates with no valid values, and std with one valid value, are NaN. With at least two values, std is population standard deviation.
 
@@ -178,7 +180,7 @@ sequenceDiagram
     A->>L: chainをdetachしてclose
 ```
 
-RunnerFrame detaches its status train observer after the drain. Background evaluation workers iterate the same Notifier train observer list as training, so detaching before the drain can free an element during iteration.
+RunnerFrame stops training and drains background evaluation before detaching its status train observer. A notification that started before detachment can still call that Observer, so the Frame is destroyed after notifications finish.
 
 The periodic timer flushes only `RunName.log`. Metrics, stdout, and stderr are flushed together at explicit `FlushRunOutputs()` boundaries such as pause, save, and shutdown.
 
@@ -299,7 +301,7 @@ Read the four action-selection metrics `extrinsic_q_argmax_disagreement`, `extri
 
 `GetScalar()` returning `std::nullopt` means the key is unknown or cannot be handled by a delegate. A known key whose value is unavailable because of current state, timing, configuration, or missing input returns `NaN`. Observers, wrappers, and aggregators distinguish unknown keys from unavailable values, without replacing uninitialized EMA, unfinished episodes, disabled PER, or insufficient batches with zero, previous values, or defaults.
 
-IQN diagnostics do not synchronize devices per metric key. Policy diagnostics pack multiple scalars into a detached Tensor; `DQNActionInfo` materializes them on CPU only at the first key access. Existing Learner IQN diagnostics share priority readback when PER is enabled. With PER disabled, a fixed-length diagnostic pack still uses the existing asynchronous readback path. `metrics.scalar.iqn_search_p0` composes only P0 selections for PER health and throughput without enabling all of `metrics.scalar.full`.
+IQN diagnostics do not synchronize devices per metric key. Policy diagnostics pack multiple scalars into a detached Tensor; `DQNActionInfo` materializes them on CPU only at the first key access. Existing Learner IQN diagnostics share priority readback when PER is enabled. With PER disabled, a fixed-length diagnostic pack still uses the existing asynchronous readback path. `metrics.scalar.@iqn_search_p0` composes only P0 selections for PER health and throughput without enabling all of `metrics.scalar.@full`.
 
 QR/IQN quantile-tail diagnostics use the same synchronization boundary. Five Policy scalars share per-action upper/lower widths, a detached full-quantile alias, and global disagreement/crossing values. On first access only, they gather the final action, select lane-wise nearest-rank p90 of positive crossing depth on device, and cache all five values together on CPU. Action creation and repeated cache access do not sort percentiles; `WithAction()` invalidates only the cache. Learner per-sample upper-tail width joins existing priority readback only with PER enabled, then aggregates into Spearman correlation with clipped raw priority on CPU. With PER disabled, it adds neither a pack nor a wait and returns `NaN`. Tail inputs are detached to float32 and do not feed loss, priority, action, sampling, or RNG.
 
@@ -365,7 +367,7 @@ The builder reports row additions separately from delayed column resolution. Ima
 | `config/*.txt` | `MetricsLogger` | Written per tag when Config is logged; Env uses `env.<Env name>.txt` |
 | `json/*.json` | `MetricsLogger` | Overwritten or created per step when JSON metadata is logged |
 | `json/eval.[<tag>].session_cancelled.json` | `MetricsLogger` | Records the coordinates, elapsed time, and number of completed episodes when an evaluation session is cooperatively cancelled. Also appended to the Metrics master with `type=json` |
-| `videos/<tag>.mkv` | `VideoLogger` | Logger created at the first frame and closed at Run end. The receiver of ffmpeg termination notification deletes wxProcess; if its owner releases it first, it deletes itself upon notification |
+| `videos/<tag>.mkv` | `VideoLogger` | The first frame sets the logger’s width and height. The logger closes at Run end. It omits subsequent frames with different dimensions and invalid images (0×0), and emits one WARN per tag per Run. The receiver of ffmpeg termination notification deletes wxProcess; if its owner releases it first, it deletes itself upon notification |
 | `images/<tag>/*.png` | `MetricsLogger` | Created per frame when `use_png_dump=true` |
 | `dot/**/*.dot` | `MetricsLogger` | Created per GraphViz event |
 | `<run_name>.log` | `FileLogger` | Periodic timer, warnings and above, explicit flush |
@@ -427,7 +429,7 @@ DefaultDQN skip metrics use the `50_agent_skip` group. Selecting `metrics.scalar
 
 Scalar tags may also contain indices. For example, configuration key `metrics.scalar.[50_agent_skip/03_skip_length_rate.[01]]` produces tag `50_agent_skip/03_skip_length_rate.[01]`, retaining the inner closing bracket. Tag indices have two digits, while source-key indices remain `[1]`.
 
-Actor `skip_length_mean`, `skip_length_rate.[j]`, and `skip_q_gap` aggregate only decision lanes and return NaN on steps without decisions. Recognized keys also return NaN when skip is disabled. Payloads are aggregated on device and transferred together to the CPU on first access. Learner results likewise own seven metrics and transfer them on first access. Additional `17_skip_primary_grad_norm` and `18_skip_primary_clip_ratio` represent the pre-clipping norm of the skip gradient entering the primary network in split mode and a flag indicating threshold exceedance; both are NaN outside split. `19_primary_clip_ratio_ema` is an EMA of the flag in 18 using the default coefficient and is not emitted outside split.
+Actor `skip_length_mean`, `skip_length_rate.[j]`, and `skip_q_gap` aggregate only decision lanes and return NaN on steps without decisions. Recognized keys also return NaN when skip is disabled. Payloads are aggregated on device and transferred together to the CPU on first access. Learner results likewise own seven metrics and transfer them on first access. Additional `17_skip_primary_grad_norm` and `18_skip_primary_clip_ratio` represent the pre-clipping norm of the skip gradient entering the primary network in split mode and a flag indicating threshold exceedance; both are NaN outside split. `19_skip_primary_clip_ratio_ema` is an EMA of the flag in 18 using the default coefficient and is not emitted outside split.
 
 Read evaluation `skip_session_decision_rate`, `skip_session_length_mean`, and `skip_session_length_rate.[j]` through `$eval.[greedy] $actor @session_end`. Actor retains decision counts, selected lengths, and lane-step counts between Sync calls, returning the decision rate, mean length, and per-length proportions. Tags are `21_greedy_decision_rate`, `22_greedy_length_mean`, and `23_greedy_length_rate.[01]` onward, recorded with `runner=train` in training-side coordinates. These are approximate decision-count metrics for sessions with multiple lanes and early termination. GridMaze/LunarLander/DropMerge greedy reward uses `21_eval/09_greedy_reward`; its EMA, episode steps, and maximum steps use `10`–`12`. Atari also uses session name `greedy`, retaining the existing `53_evalg` group and evaluation conditions. See [PRD103 validation assets](../../src/core/base/testdata/prd103/README.md) for numerical examples, shortened Runs, and metric-definition checks.
 

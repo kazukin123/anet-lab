@@ -1,11 +1,13 @@
 {
   "_doc": "anet-audit の巡回状態。next_lens は次回の観点。scopes の last_seen は観点ごとの最終実施日。",
-  "next_lens": "test-gap",
+  "next_lens": "backlog",
   "scopes": [
     {
       "key": "318_rl_core",
       "kind": "code",
-      "last_seen": {}
+      "last_seen": {
+        "test-gap": "2026-11-21"
+      }
     },
     {
       "key": "321_agent_core",

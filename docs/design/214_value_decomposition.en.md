@@ -1,4 +1,4 @@
-<!-- translated-from: 214_value_decomposition.jp.md blob:a560cadcda26f04b5de0543b0b28fdb0e7b945ab date:2026-11-19 progress:done -->
+<!-- translated-from: 214_value_decomposition.jp.md blob:1a7e94b88f52ef95c71314f14c60c39d28f82da3 date:2026-11-21 progress:done -->
 # Extrinsic and Intrinsic Value Decomposition
 
 > Main perspective: DefaultDQNAgent reward components, heads, action selection, learning, diagnostics, and persistence.
@@ -163,3 +163,8 @@ See [testdata/prd121](../../src/core/base/testdata/prd121/README.md) for accepta
 When adding a policy or diagnostic forward, apply combination to head outputs before reading q/q_dist. When adding reward components to Replay, check single-component shapes and operation order, constant-return storage, scheduled-component-only recomputation, initial priorities, and discount lifetimes under prefetch. Window rules with multiple components are unsupported and rejected during construction.
 
 Intrinsic head weights also belong to the network's readout side. When extending plasticity, Noisy, policy churn, or Replay fit diagnostics, distinguish paths that consume combined Q from paths that inspect each head's parameters.
+
+## 8. Related Documents
+
+- [ADR on Replay reward components and discount factors](../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md) (§2.2 and §3.1)
+- [ADR on placement of the intrinsic value Head](../adr/0074-intrinsic-value-head-lives-in-primary-network-as-composite-head.md) (§2.1)

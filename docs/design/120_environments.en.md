@@ -1,4 +1,4 @@
-<!-- translated-from: 120_environments.jp.md blob:e6d972571bfb651fd8fed794e995312fcaf107af date:2026-11-19 progress:done -->
+<!-- translated-from: 120_environments.jp.md blob:d3dbcfc37acc89ed6f415b95eec40c419065439d date:2026-11-21 progress:done -->
 # Environments
 
 > Primary perspective: function (Env, with internal processing stages in chronological order)
@@ -82,10 +82,12 @@ Both Bases also hold protected `anet::log::Logger log`, constructing the prefix 
 | `VectorizedDiscreteBatchEnv` | Batch implementation driving single Envs on one thread |
 | `ThreadPoolDiscreteEnv` | Batch implementation driving single Envs through a thread pool |
 | `BatchEnvFactory` | Per-Env-class factory interface creating native batch Envs |
-| `EnvRepository` | Process registry holding either a single factory or a batch factory for each class ID |
+| `EnvRepository` | Process registry holding either a single factory or a batch factory for each class ID. Registering an existing class ID throws an exception and preserves the original factory |
 | `BatchEnvBuilder` | Resolves factories through the repository and either creates native batches directly or batches single Envs with wrappers |
 | `ImageDatasetManager` | ImageCls-specific singleton sharing DatasetKey, manifest, and pre-augmentation cache within the process |
 | Env View | Optional View implementation displaying Env-specific State in Runner GUI |
+
+Repeated calls to the same public Env initialization function register the Env factory and View creator only once. If registration fails partway through, subsequent calls also fail. Registering a creator directly with `ViewRepository` under an existing class ID throws an exception and preserves the original creator.
 
 ## 4. Code Map
 
@@ -214,7 +216,7 @@ Batch-wrapper and Runner contracts determine when completed episode groups are r
 | `env.class_id` | Concrete Env factory class ID |
 | `env.worker_type` | Selects `AUTO`, single-thread, or thread-pool |
 | `env.worker_threads` | Thread-pool worker count. Negative values select predefined automatic resolution modes |
-| `env.device` | Env device: `auto`, `cpu`, `cuda`, or `cuda:N`; defaults to `cpu`, with the adopted value in `json/env.json` |
+| `env.device` | Env device: `auto`, `cpu`, `cuda`, or `cuda:N`; defaults to `cpu`, with the effective device recorded in `json/env.json` |
 | `run.train.num_envs` | Main Train Env batch size |
 
 Each factory reads Env-specific settings from the same ConfigData. Unknown class IDs, invalid worker settings, and inconsistent specs fail rather than being silently corrected.

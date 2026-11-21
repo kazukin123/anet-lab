@@ -1,4 +1,4 @@
-<!-- translated-from: 210_metrics_viewer.jp.md blob:c3992e77c9370e79e633b0dced01c5b9bb4759cd date:2026-11-19 progress:done -->
+<!-- translated-from: 210_metrics_viewer.jp.md blob:668517088ae0a6494a1b0e6fcf9866ac1af3a1a3 date:2026-11-21 progress:done -->
 # Metrics Viewer
 
 > Primary perspective: concrete application (ingestion, cache DB, range queries, and browser rendering in processing order)
@@ -214,7 +214,7 @@ Small pans then avoid another fetch, reducing time spent with blank graphs.
 Only one window is retained per series. A new response replaces it entirely, without incremental merging.
 Each range response is self-contained and independent of the previous response, so this simple replacement is sufficient.
 
-Series that share one graph are fetched in one request. Select the Step width from the visible viewport before extending it for prefetch. Align window boundaries to the common bins so panning does not shift the grid. Normal mode renders Plotly only within one scroll viewport before and after the visible area. Retain selected detail windows in a 64 MiB LRU and prefetch nearest graphs while capacity remains; scrolling alone does not discard windows. Fetch compact overviews for all selected tags first, using about 64 common Step bins over each tag's full range and batches of eight graphs. Lightweight SVG exported from the same Plotly figure as details keeps overview lines visible offscreen and while details load. Replace the whole graph when all Runs have matching detail resolution; never mix overview and detail series in one graph. Keep blocks 300px tall and retain headers and scroll position; replace only the inner content after rendering completes. Screenshot mode fetches all selected graphs sequentially.
+Series that share one graph are fetched in one request. Select the Step width from the visible viewport before extending it for prefetch. Align window boundaries to the common bins so panning does not shift the grid. Normal mode renders Plotly only within one scroll viewport before and after the visible area. Retain selected detail windows in a 64 MiB LRU and prefetch nearest graphs while capacity remains; scrolling alone does not discard windows. Fetch compact overviews for all selected tags first, using about 64 common Step bins over each tag's full range and batches of eight graphs. Lightweight SVG exported from the same Plotly figure as details keeps overview lines visible offscreen and while details load. Replace the whole graph when all Runs have matching detail resolution; never mix overview and detail series in one graph. Keep blocks at the configured `Height` (300 px by default) and retain headers and scroll position; replace only the inner content after rendering completes. Screenshot mode fetches all selected graphs sequentially.
 If any one series needs refetching, all series of that graph are refetched together. Overview responses also update all Runs atomically. The 64 MiB cap accounts for decoded detail arrays and per-series management overhead; it is not a process-wide limit including SVG, Plotly, or server heap.
 
 Overview SVGs use Plotly 2.27 with the same traces/layout as details; there is no handwritten coordinate, axis, or Band renderer. The shared header's Log/percentile controls and legend visibility state apply to both. Overviews remain static images; hover, zoom/pan, and legend clicks are handled by detailed plots. Generate nearest graphs first, one at a time, yielding between jobs. Network queries and detailed rendering do not await SVG generation. Retain one current image per tag and regenerate on data, selection, width, or display-setting changes. Workspace changes invalidate older image jobs.
@@ -287,20 +287,22 @@ A one-second soft budget or a pending priority change, workspace switch, or shut
 | `OverviewSvgRenderer` | Serially exports shared figures using one workbench Plotly, retains the latest SVG per tag, and publishes only results matching the current model and generation |
 | `PlotlyController` | Handles raw/MinMax/Mean/Band rendering, signed-log axes, zoom/pan, scroll lock, and legend state. Manages per-graph data selection, shared display models and frames; replaces changed graph contents after drawing completes |
 | `UIController` | Handles Run/Tag lists, progress display, and static control binding |
+| `RunInfoPanel` | Hover over or right-click a Run row (press and hold on touchscreens) to see its import status, maximum step, tag and quarantined tag counts, total point count, import and tag issues, and a control for copying the Run name. A single panel sits directly under the document body. Its contents and position update whenever the Run list redraws or ingestion progress changes. If the Clipboard API is unavailable or denied, as can happen over HTTP from another device, the panel copies the selected text instead |
 | `TagSetMenu` | Renders the tag set controls, expandable list, editing, confirmation, and keyboard controls. `MetricsViewerClientApp` owns the selected name, fetched list, and per-set unsaved changes |
 | `Toast` | Displays temporary error notifications using CSS `.toast` rules |
 
 ### 3.3 UI Control Conventions
 
-Browser controls have four types: immediate actions, toggles, cycles, and expandable controls.
-All use `button` elements, distinguished by their label wording.
+Browser controls fall into five groups: immediate actions, toggles, cycles, expandable controls, and continuous values.
+Continuous values use `input type="range"`. The other four groups use `button` elements distinguished by their labels. Workspace and LOD selectors use `select` to choose one item from a list.
 
 | Type | Label | State |
 |---|---|---|
 | Expandable | Current value and `▾`; fills the remaining row width and truncates only the name | While open, set `.active` and `aria-expanded="true"` together; do not use `aria-pressed` |
-| Immediate action | Starts with a verb: `Reload`, `Select All`, `Select Latest`, `Recolor`, `Clear All`, `Reset View` | None |
+| Immediate action | Starts with a verb: `Reload`, `Select All`, `Select Latest`, `Recolor`, `Clear All`, `Reset View`, `Copy Name` | None |
 | Toggle | Noun phrase without an initial verb: `Auto Reload`, `Auto Recolor`, `Selected Only`, `Scroll Lock`, `Log` | Update `.active` and `aria-pressed` together |
 | Cycle | States the current step as is: the graph lower limits `p0–` / `p1–` / `p5–` and upper limits `–p100` / `–p99` / `–p95` | Each press advances to the next step in a fixed order, returning to the first step after the last. Set `.active` and `aria-pressed` ON for every step except the first |
+| Continuous value | Place the slider and its current value after the name and colon, as in `Height:`. Hide it at widths of 900 px or less, where the upper-right controls would overlap the left panel header | The slider position and number show the value. Reserve enough width for the longest number and omit the pressed color. During dragging (`input`), update only the number. Redraw once on release (`change`). JavaScript constants supply the range and step |
 
 In each section heading row, place list operations left-aligned after the label.
 Only overflowing controls move to the next row (Runs' `Recolor` / `Auto Recolor`).
@@ -320,7 +322,9 @@ ON colors use `--active-background` / `--active-accent` / `--active-text`.
 ### 3.4 Screenshot Mode
 
 Screenshot mode collapses only the display to produce images for pasting; it does not stop data updates.
-It hides the side panel and the floating controls used for graph operations, sets `#main-area` overflow to visible to move scrolling to the document, and shows a header with Run names.
+The `screenshotModeEnabled` flag is independent of the initialization `Mode`. Users can toggle it during initialization, and completing initialization preserves the flag. If initialization fails, users can leave screenshot mode. Entry is blocked so Reload remains accessible in the side panel.
+A fixed spinner in the upper-left corner replaces the hidden side-panel spinner.
+Screenshot mode hides the side panel and floating graph controls (`Height`, LOD, `Reset View`, and `Scroll Lock`). It sets `#main-area` overflow to visible, moves scrolling to the document, and shows a header with Run names.
 Auto Reload and manual Reload work as usual; while the side panel is hidden and the Reload button cannot be pressed, double-clicking a graph serves as the Reload entry point.
 While the Run list that shows progress is hidden, only the ingestion-progress poll stops.
 
@@ -563,6 +567,7 @@ sequenceDiagram
 ```
 
 Each range is a complete result independent of previous responses; the client replaces whole windows without incremental merging.
+If a tag has an explicit viewport and none of the fetched Run windows contains points, draw a graph with axes so users can double-click or pan back.
 
 Manual Reload and Auto Reload refetch metadata and then refetch only graphs containing windows whose contents have become stale since they were fetched. If nothing has changed, `metrics.json` is not sent.
 Each window carries the tag point count, last step, and status at the time the fetch was decided, and is considered stale if any of the following applies.
@@ -576,11 +581,14 @@ Each window carries the tag point count, last step, and status at the time the f
 
 Steps within a tag are nondecreasing, so appended points have steps at or beyond the last step at fetch time. Graphs zoomed into a past interval, whose window's right edge does not reach that step, are not refetched even when the point count grows.
 
-Rendering is reconciled per graph. `PlotlyController` looks up blocks by tagKey and retains the outer frame and shared header. The display model's render key includes data windows, overview/detail tier, selected Runs, width, LOD display mode, Log, percentiles, axis ranges, Scroll Lock, and legend visibility/colors. An unchanged key skips drawing and updates metadata-derived statistics and warnings.
+Rendering is reconciled per graph. `PlotlyController` looks up blocks by tagKey and retains the outer frame and shared header. The display model's render key includes data windows, overview/detail tier, selected Runs, width, height, LOD display mode, Log, percentiles, axis ranges, Scroll Lock, and legend visibility/colors. An unchanged key skips drawing and updates metadata-derived statistics and warnings.
 Legend visibility, axis ranges, and drag mode are read back with `capturePlotState` before drawing. A changed key replaces only the content after SVG decoding or detailed Plotly drawing finishes, retaining the previous display until then. Late results are applied only when the current selection, generation, and display settings still match.
 A Plotly redraw takes tens of milliseconds per graph (an earlier full redraw of 137 graphs × 5 Runs measured about five seconds), so limiting the affected graphs determines Reload response time.
+Changing `Height` redraws all graphs.
 
-While any Run is being ingested, poll Run metadata every four seconds and update only progress display. Only this progress poll stops during screenshot mode; Auto Reload and manual Reload run regardless of the mode. Auto Reload refreshes the workspace list and metadata every 30 seconds, updating ranges only for stale graphs among those following the latest step. There is no dedicated workspace-list timer: initial display, workspace selector focus, switch results, manual Reload, and Auto Reload are refresh boundaries.
+DataFetcher keeps one AbortController for `runs.json` and one for `metrics.json`. A later request from scrolling, zooming, panning, a selection change, or an Auto Reload tick cancels the previous request. Neither `AbortError` nor server response 409 `superseded` triggers a failure notification. `pendingRefreshScope` retains the requested freshness check: `all` for manual Reload and `follow` for Auto Reload. The next `requestVisibleData`, including one that cancelled an earlier request, inherits that scope. Detail windows outside the scope use normal fetch criteria. A pending `all` still applies to all graphs when an Auto Reload fetch follows. Overviews cover the full recorded range and are always checked. A fetch that runs to completion clears the pending request. Distant graphs skipped because the prefetch budget is full wait until the next Reload. After startup or a workspace switch, the first successful metadata fetch selects the latest Run regardless of who requested it.
+
+While any Run is being ingested, poll Run metadata every four seconds. Copy only ingestion progress (`ingest`) to local metadata and update the Run list and information panel. Tags and statistics retain their existing values. Screenshot mode pauses this progress poll. Manual and Auto Reload continue in either mode. Every 30 seconds Auto Reload refreshes the workspace list and metadata, and updates ranges for stale graphs following the latest step. Refresh the workspace list on initial display, focus on the workspace selector, a workspace switch result, manual Reload, or Auto Reload. There is no separate workspace-list timer.
 
 ## 7. Configuration Reference
 
@@ -645,6 +653,12 @@ Client constants not supplied by the server are defined at the beginning of [met
 | `RUN_SOLO_INTERVAL_MS` | 350 | Threshold treating repeated clicks on the same Run row as solo selection |
 | `HOVER_SCROLL_DELAY_MS` | 300 | Delay from hovering a Tag list entry to scrolling to its graph |
 | `GRAPH_SCROLL_LOCK_DRAG_THRESHOLD_PX` | 1 | Movement threshold for turning a mouse drag on a graph into vertical scrolling under scroll lock. Touch swipes are not handled in JS and are left to the browser's standard scrolling, with inertia after the finger lifts |
+| `RUN_INFO_SHOW_DELAY_MS` | 300 | Delay after hovering over a Run row. Moving to another row while the panel is open has no delay |
+| `RUN_INFO_HIDE_DELAY_MS` | 200 | Delay after leaving both the row and the panel, allowing the pointer to move between them |
+| `COPY_FEEDBACK_MS` | 1,200 | Time the `Copy Name` label displays `Copied` |
+| `GRAPH_HEIGHT_MIN_PX` / `GRAPH_HEIGHT_MAX_PX` / `GRAPH_HEIGHT_STEP_PX` | 150 / 800 / 50 | Range and step for `Height`. The outer graph block (CSS `--graph-height`) and Plotly layout use the same value |
+| `GRAPH_HEIGHT_DEFAULT_PX` | 300 | Graph height when the saved value is missing or invalid |
+| `GRAPH_BLOCK_GAP_PX` | 10 | Gap between graph blocks. Matches CSS `margin-bottom` and is used to estimate positions before rendering |
 
 `MetricsViewerClientApp` owns Run colors and resolves them at the start of `refreshLists()`. It first assigns base colors from `RUN_COLORS` in order to uncolored Runs sorted by runId.
 With `Auto Recolor` ON, Runs that were not selected at the previous resolution, including the latest Run selected automatically at first display, count as newly selected. In selection order, each receives the color farthest from other selected Run colors. Previously selected Runs keep their colors; a newly selected Run's base color is ignored. Switching from OFF to ON does not itself change colors.
@@ -652,7 +666,7 @@ With `Auto Recolor` ON, Runs that were not selected at the previous resolution, 
 Solo selection through consecutive clicks on the same Run row treats both clicks as one operation. A previously selected Run keeps its color; a previously unselected Run receives `#2F7DE1` as the sole newly selected Run.
 Neither operation changes unselected Run colors. Once all 20 palette colors have been allocated, allocation starts another round.
 
-Only the following ten state items are saved to `localStorage`. Viewports, legend visibility, Run selection, and Run colors are not saved. Log and the percentile lower and upper limits omit the workspace name from their keys and are shared across identically named tags.
+The browser saves the following twelve items in `localStorage`. Viewports, legend visibility, Run selection, Run colors, and the Runs `Selected Only` toggle are transient. That toggle starts off each time because only the latest Run is selected at startup. Log settings and percentile limits use tag keys without workspace names and apply to identically named tags across workspaces.
 
 | Key | Contents |
 |---|---|
@@ -666,6 +680,8 @@ Only the following ten state items are saved to `localStorage`. Viewports, legen
 | `anet.metricsviewer.lodDisplayMode` | `MinMax` / `Mean` / `Band` |
 | `anet.metricsviewer.logScaleTags` | Tags with signed-log enabled; stored as a lexicographically sorted JSON string array |
 | `anet.metricsviewer.percentileBounds` | Per-tag steps for tags whose percentile lower or upper limit is restricted. Stored as a `{"<tagKey>": [lower, upper]}` JSON object in lexicographic tagKey order. The lower limit is 0 / 1 / 5 and the upper limit is 100 / 99 / 95; tags with both unrestricted (0 and 100) are omitted |
+| `anet.metricsviewer.tagsSelectedOnly` | Tags `Selected Only` toggle. Only `"true"` enables it. Bulk actions that turn it off also update the saved value |
+| `anet.metricsviewer.graphHeight` | Graph height in pixels as an integer string. A noninteger, a value outside 150–800, or a value off the 50 px grid starting at 150 produces a warning and restores 300 px. Otherwise the slider could round to a value different from the actual height |
 
 The Log set and the percentile lower and upper limits are restored independently. If a Log value is not a JSON string array, or a percentile value is not a JSON object or contains even one value that is not a defined step, warn and fall back to empty for each.
 `anet.metricsviewer.ignoreOutlierTags` (p5–p95) and `anet.metricsviewer.p1P99Tags` (p1–p99), from before the lower and upper limits were split into two buttons, are deleted without being read.
