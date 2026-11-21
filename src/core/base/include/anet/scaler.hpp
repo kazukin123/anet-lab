@@ -134,7 +134,7 @@ namespace anet::rl {
     public:
         RewardScalerFactory(const RewardScalerConfig& config, std::string prefix = "reward_scaler");
         std::unique_ptr<RewardScaler> CreateRewardScaler(float gamma, int64_t num_lanes,
-            const std::string& gamma_key = "gamma (not read from config)") const;
+            const std::string& gamma_key) const;
     private:
         RewardScalerConfig config_;
         std::string prefix_;

@@ -1458,7 +1458,8 @@ TEST_CASE("Extrinsic bootstrap preserves UQE risk selection in learning and diag
     net.output_keys[kPrd121Features] = kVectorKey;
     const anet::nn::WeightInitConfig init;
     auto factory = std::make_shared<dqn::QuantileHeadFactory>(2, 3, init);
-    auto head = std::make_shared<dqn::DecomposedHeadFactory>(factory, factory, false, false);
+    auto head = std::make_shared<dqn::DecomposedHeadFactory>(factory, factory, false, false,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("input_mode"));
     dqn::NetworkModel model({}, torch::kCPU, net, env.state_spec.obs_spec, 2, head, true, 121);
     const auto set_biases = [](const auto& network, const torch::Tensor& external, const torch::Tensor& internal) {
         torch::NoGradGuard guard;
@@ -2527,7 +2528,8 @@ TEST_CASE("PRD101 spatial endpoints enforce bounds without caller metadata", "[p
         config.last.phases = {"bad"};
         config.last.phase.Set("bad", anet::ProfiledValuePhaseConfig<float>{.value = -0.1f, .steps = 8});
     }
-    CHECK_THROWS(dqn::SpatialLadderSchedule(config, "log", 4, torch::kCPU));
+    CHECK_THROWS(dqn::SpatialLadderSchedule(config, "log", 4, torch::kCPU,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("spatial.scale")));
 }
 
 TEST_CASE("PRD101 spatial constants reuse storage and moving endpoints replace it", "[prd101][dqn]")
@@ -2535,7 +2537,8 @@ TEST_CASE("PRD101 spatial constants reuse storage and moving endpoints replace i
     dqn::ActionPolicyConfig::LadderConfig config;
     config.first.value = 0.4f;
     config.last.value = 0.01f;
-    dqn::SpatialLadderSchedule constant(config, "log", 4, torch::kCPU);
+    dqn::SpatialLadderSchedule constant(config, "log", 4, torch::kCPU,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("spatial.scale"));
     const auto old_constant = constant.Tensor();
     constant.Update(100);
     CHECK(constant.Tensor().data_ptr() == old_constant.data_ptr());
@@ -2543,7 +2546,8 @@ TEST_CASE("PRD101 spatial constants reuse storage and moving endpoints replace i
     config.first.start = 0.4f;
     config.first.end = 0.2f;
     config.first.steps = 8;
-    dqn::SpatialLadderSchedule moving(config, "log", 4, torch::kCPU);
+    dqn::SpatialLadderSchedule moving(config, "log", 4, torch::kCPU,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("spatial.scale"));
     const auto old_moving = moving.Tensor();
     moving.Update(4);
     CHECK(moving.Tensor().data_ptr() != old_moving.data_ptr());
@@ -2558,7 +2562,8 @@ TEST_CASE("PRD101 spatial log endpoints remain continuous across the floor", "[p
     config.last.start = 1e-4f - 1e-9f;
     config.last.end = 1e-4f + 1e-9f;
     config.last.steps = 1;
-    dqn::SpatialLadderSchedule ladder(config, "log", 8, torch::kCPU);
+    dqn::SpatialLadderSchedule ladder(config, "log", 8, torch::kCPU,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("spatial.scale"));
     const auto before = ladder.Tensor();
     ladder.Update(1);
     CHECK((ladder.Tensor() - before).abs().max().item<float>() < 1e-6f);
@@ -2574,7 +2579,8 @@ TEST_CASE("PRD101 spatial first crosses the log floor without cancellation", "[p
         config.first.phase.Set("above", anet::ProfiledValuePhaseConfig<float>{.value = 1.0001e-4f, .steps = 1});
         config.first.phase.Set("floor", anet::ProfiledValuePhaseConfig<float>{.value = 1e-4f, .steps = 1});
         config.first.phase.Set("below", anet::ProfiledValuePhaseConfig<float>{.value = 5e-5f, .steps = 1});
-        dqn::SpatialLadderSchedule ladder(config, "log", 3, device);
+        dqn::SpatialLadderSchedule ladder(config, "log", 3, device,
+            anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("spatial.scale"));
         const float firsts[] = {1.0001e-4f, 1e-4f, 5e-5f};
         float previous_middle = 0.0f;
         for (int64_t step = 0; step < 3; ++step) {
@@ -2604,7 +2610,8 @@ TEST_CASE("PRD101 spatial log ladder preserves a tiny last endpoint", "[prd101][
         dqn::ActionPolicyConfig::LadderConfig config;
         config.first.value = 0.4f;
         config.last.value = 5e-5f;
-        dqn::SpatialLadderSchedule ladder(config, "log", 4, device);
+        dqn::SpatialLadderSchedule ladder(config, "log", 4, device,
+            anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("spatial.scale"));
         const auto values = ladder.Tensor().to(torch::kCPU);
         // 既存の逆順lane割当てを維持し、指定端点とD8から求めた中間値を確認する。
         CHECK(values[0].item<float>() == config.last.value);
@@ -2635,7 +2642,8 @@ TEST_CASE("PRD101 spatial validation reports keys values and expected ranges", "
     SECTION("invalid scale") {
         key = "spatial.scale"; value = "invalid"; expected = "expected=log|linear";
         data.Set("policy." + key, value);
-        CHECK_THROWS_WITH(dqn::SpatialLadderSchedule(policy.spatial.epsilon, value, 4, torch::kCPU),
+        CHECK_THROWS_WITH(dqn::SpatialLadderSchedule(policy.spatial.epsilon, value, 4, torch::kCPU,
+            policy.full_keys.GetFullKey("spatial.scale")),
             Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring(value)
             && Catch::Matchers::ContainsSubstring(expected));
     }
@@ -2675,7 +2683,8 @@ TEST_CASE("PRD101 spatial validation reports keys values and expected ranges", "
     if (key != "spatial.scale") {
         const auto standalone_key = key.ends_with(".end") ? "end (not read from config)"
             : key.ends_with(".start") ? "start (not read from config)" : "value (not read from config)";
-        CHECK_THROWS_WITH(dqn::SpatialLadderSchedule(policy.spatial.epsilon, "log", 4, torch::kCPU),
+        CHECK_THROWS_WITH(dqn::SpatialLadderSchedule(policy.spatial.epsilon, "log", 4, torch::kCPU,
+            policy.full_keys.GetFullKey("spatial.scale")),
             Catch::Matchers::ContainsSubstring(standalone_key) && Catch::Matchers::ContainsSubstring("value=" + value)
             && Catch::Matchers::ContainsSubstring(expected));
     }

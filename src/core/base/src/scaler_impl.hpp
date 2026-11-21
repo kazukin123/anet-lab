@@ -126,7 +126,7 @@ namespace anet::rl {
             bool use_robust_update, int robust_warmup_count, float robust_std_threshold,
             int post_process_type, float post_process_threshold,
             bool use_centering,
-            std::string post_process_type_key = "post_process_type (not read from config)");
+            std::string post_process_type_key);
         virtual ~RunningStdSingleTensorNormalizer() = default;
 
         torch::Tensor Normalize(const torch::Tensor& obs) const override;

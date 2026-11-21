@@ -15,7 +15,7 @@ namespace anet::nn {
 
     class NetworkForwardState;
 
-    torch::nn::init::NonlinearityType GetNonlinearityType(const std::string& name);
+    torch::nn::init::NonlinearityType GetNonlinearityType(const std::string& name, const std::string& key);
 
     class WeightInitializer {
     public:
@@ -37,7 +37,7 @@ namespace anet::nn {
                 torch::nn::init::xavier_uniform_(weight);
             } else if (config.mode == "he") {
                 // 文字列からLibtorchの定数へ変換
-                auto nonlinearity_mode = GetNonlinearityType(config.nonlinearity);
+                auto nonlinearity_mode = GetNonlinearityType(config.nonlinearity, config.full_keys.GetFullKey("nonlinearity"));
 
                 // 重み初期化(kaiming_normal_ は内部で nonlinearity に応じた gain を計算してくれる)
                 torch::nn::init::kaiming_normal_(weight, 0.0, torch::kFanOut, nonlinearity_mode);
@@ -49,7 +49,7 @@ namespace anet::nn {
                 } else {
                     // "relu" -> sqrt(2), "tanh" -> 5/3, "linear" -> 1.0 など
                     try {
-                        auto nonlinearity_mode = GetNonlinearityType(config.nonlinearity);
+                        auto nonlinearity_mode = GetNonlinearityType(config.nonlinearity, config.full_keys.GetFullKey("nonlinearity"));
                         gain = torch::nn::init::calculate_gain(nonlinearity_mode);
                     } catch (...) {
                         ANET_SYSTEM_ERROR("Unknown nonlinearity: " << config.nonlinearity);

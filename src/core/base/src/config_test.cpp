@@ -1776,6 +1776,8 @@ TEST_CASE("Config records where each typed value came from independently of its 
     CHECK(config.GetFullKey("shape.height") == "Example.shape.height");
     CHECK(config.GetFullKey("shape.depth") == "shape.depth (not read from config)");
     CHECK_THROWS(config.GetFullKey(""));
+    CHECK(anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("shape.depth") == config.GetFullKey("shape.depth"));
+    CHECK_THROWS(anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig(""));
 
     auto shape_keys = config.GetFullKeys().Extract("shape");
     config.width = 12;

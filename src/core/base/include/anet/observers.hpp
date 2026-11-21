@@ -444,7 +444,7 @@ namespace anet::rl {
             int episode_interval,        ///< 新規のエピソード間隔 (-1で無効)
             const std::string& provider_key,
             std::optional<anet::rl::EventField> event_field,
-            const std::string& declaration_key = "interval (not read from config)");
+            const std::string& declaration_key);
 
         void OnTrain(const TrainEvent& event) override;
         std::string GetClassName() const override { return "GraphVizObserver"; }

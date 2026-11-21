@@ -1,5 +1,6 @@
 #include "ImageClsEnv.hpp"
 
+#include <algorithm>
 #include <limits>
 
 #include "anet/profile.hpp"
@@ -262,14 +263,16 @@ void ImageClsEnvFactory::ValidateConfig(
     const auto validate_dataset_reference = [&catalog](const char* role, const std::string& dataset_key,
         const std::string& reference_key) {
         if (catalog.contains(dataset_key)) return;
-        std::string available;
+        std::vector<anet::img::DatasetKey> available;
+        available.reserve(catalog.size());
         for (const auto& [key, config] : catalog) {
             (void)config;
-            if (!available.empty()) available += ",";
-            available += "ImageDataset.[" + key + "]";
+            available.push_back(key);
         }
+        std::sort(available.begin(), available.end());
         ANET_SYSTEM_ERROR("Unknown ImageClsEnv DatasetKey. role='" << role
-            << "' " << reference_key << "='ImageDataset.[" << dataset_key << "]' available_keys='" << available << "'");
+            << "' " << reference_key << "='" << dataset_key << "'. Missing " << anet::img::MakeDatasetItemKey(dataset_key)
+            << "; expected one of " << anet::json(available).dump() << ".");
     };
     validate_dataset_reference("train", train_config.dataset_key, train_config.GetFullKey("dataset_key"));
     validate_dataset_reference("eval", eval_config.dataset_key, eval_config.GetFullKey("dataset_key"));

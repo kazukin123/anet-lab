@@ -847,13 +847,21 @@ namespace anet {
         }
     }
 
+    std::string ConfigFullKeyTable::FormatKeyNotReadFromConfig(const std::string& key)
+    {
+        if (key.empty()) {
+            ANET_SYSTEM_ERROR("ConfigFullKeyTable::FormatKeyNotReadFromConfig requires a non-empty key.");
+        }
+        return key + " (not read from config)";
+    }
+
     std::string ConfigFullKeyTable::GetFullKey(const std::string& key) const
     {
         if (key.empty()) {
             ANET_SYSTEM_ERROR("ConfigFullKeyTable::GetFullKey requires a non-empty key.");
         }
         const auto found = keys_.find(key);
-        return found == keys_.end() ? key + " (not read from config)" : found->second;
+        return found == keys_.end() ? FormatKeyNotReadFromConfig(key) : found->second;
     }
 
     bool ConfigFullKeyTable::Contains(const std::string& key) const

@@ -87,7 +87,7 @@ protected:
         const std::string& name,
         const torch::Tensor& weight,
         SpectralNormState& state,
-        std::string_view init2_mode_key = "init2.mode (not read from config)")
+        std::optional<std::string_view> init2_mode_key)
     {
         if (!HasSpectralNorm()) return;
         ANET_CHECK_MSG(spectral_norm_rnd_ != nullptr,
@@ -167,13 +167,13 @@ static std::string FormatInt64Vector(const std::vector<int64_t>& values)
 }
 
 
-torch::nn::init::NonlinearityType anet::nn::GetNonlinearityType(const std::string& name)
+torch::nn::init::NonlinearityType anet::nn::GetNonlinearityType(const std::string& name, const std::string& key)
 {
     if (name == "relu") return torch::kReLU;
     if (name == "linear") return torch::kLinear;
     if (name == "tanh") return torch::kTanh;
     if (name == "leaky_relu") return torch::kLeakyReLU;
-    ANET_SYSTEM_ERROR("Invalid nonlinearity (not read from config)='" << name
+    ANET_SYSTEM_ERROR("Invalid " << key << "='" << name
         << "'; expected relu, linear, tanh or leaky_relu.");
     // ThrowErrorは必ず送出するが、宣言にnoreturnが無い。
     std::terminate();
@@ -595,7 +595,7 @@ public:
             // μ の既存初期化を保ったまま、σ だけを fan-in に従って追加する。
             projection_->Bind(linear);
 
-            InitializeSpectralNorm(*this, "linear", linear->weight, spectral_norm_state_);
+            InitializeSpectralNorm(*this, "linear", linear->weight, spectral_norm_state_, std::nullopt);
         }
         if (!HasSpectralNorm()) return linear->forward(x);
 
@@ -719,7 +719,7 @@ public:
 
             // 重み初期化
             WeightInitializer::Initialize(conv, init_config_);
-            InitializeSpectralNorm(*this, "conv", conv->weight, spectral_norm_state_);
+            InitializeSpectralNorm(*this, "conv", conv->weight, spectral_norm_state_, std::nullopt);
         }
         if (!HasSpectralNorm()) return conv->forward(x);
         ANET_PROFILE_SCOPE(spectral_norm);
@@ -807,7 +807,7 @@ public:
 
             // 重み初期化
             WeightInitializer::Initialize(conv_, init_config_);
-            InitializeSpectralNorm(*this, "conv2d", conv_->weight, spectral_norm_state_);
+            InitializeSpectralNorm(*this, "conv2d", conv_->weight, spectral_norm_state_, std::nullopt);
         }
         if (!HasSpectralNorm()) return conv_->forward(x);
         ANET_PROFILE_SCOPE(spectral_norm);
@@ -1499,7 +1499,7 @@ private:
             conv1_ = register_module("conv1", torch::nn::Conv2d(conv1_opts));
             conv1_->to(device, dtype);
             WeightInitializer::Initialize(conv1_, init1_config_);
-            InitializeSpectralNorm(*this, "conv1", conv1_->weight, spectral_norm_conv1_);
+            InitializeSpectralNorm(*this, "conv1", conv1_->weight, spectral_norm_conv1_, std::nullopt);
 
             norm1_ = CreateAndRegisterNorm("norm1", config_.channels);
 
@@ -1535,7 +1535,7 @@ private:
                 downsample_conv_ = register_module("ds_conv", torch::nn::Conv2d(ds_opts));
                 downsample_conv_->to(device, dtype);
                 WeightInitializer::Initialize(downsample_conv_, init_ds_config_);
-                InitializeSpectralNorm(*this, "downsample", downsample_conv_->weight, spectral_norm_downsample_);
+                InitializeSpectralNorm(*this, "downsample", downsample_conv_->weight, spectral_norm_downsample_, std::nullopt);
 
                 // Shortcut Norm (Conv1x1 -> Norm)
                 norm_ds_ = CreateAndRegisterNorm("ds_norm", config_.channels);
@@ -1844,7 +1844,7 @@ private:
             dwconv_ = register_module("dwconv", torch::nn::Conv2d(dw_opts));
             dwconv_->to(device, dtype);
             WeightInitializer::Initialize(dwconv_, init_dw_);
-            InitializeSpectralNorm(*this, "dwconv", dwconv_->weight, spectral_norm_dw_);
+            InitializeSpectralNorm(*this, "dwconv", dwconv_->weight, spectral_norm_dw_, std::nullopt);
 
             if (config_.norm_type == "layernorm2d") {
                 norm_ = register_module("norm", std::make_shared<LayerNorm2dModule>(
@@ -1860,13 +1860,13 @@ private:
                 torch::nn::Conv2d(torch::nn::Conv2dOptions(config_.channels, hidden_channels, 1).bias(true)));
             pwconv1_->to(device, dtype);
             WeightInitializer::Initialize(pwconv1_, init_pw1_);
-            InitializeSpectralNorm(*this, "pwconv1", pwconv1_->weight, spectral_norm_pw1_);
+            InitializeSpectralNorm(*this, "pwconv1", pwconv1_->weight, spectral_norm_pw1_, std::nullopt);
 
             pwconv2_ = register_module("pwconv2",
                 torch::nn::Conv2d(torch::nn::Conv2dOptions(hidden_channels, config_.channels, 1).bias(true)));
             pwconv2_->to(device, dtype);
             WeightInitializer::Initialize(pwconv2_, init_pw2_);
-            InitializeSpectralNorm(*this, "pwconv2", pwconv2_->weight, spectral_norm_pw2_);
+            InitializeSpectralNorm(*this, "pwconv2", pwconv2_->weight, spectral_norm_pw2_, std::nullopt);
 
             if (config_.layerscale_init > 0.0) {
                 gamma_ = register_parameter("gamma",
@@ -2448,12 +2448,12 @@ public:
 
         if (HasSpectralNorm()) {
             const auto qkv = mha_->in_proj_weight.chunk(3, 0);
-            InitializeSpectralNorm(*this, "q", qkv[0], spectral_norm_q_);
-            InitializeSpectralNorm(*this, "k", qkv[1], spectral_norm_k_);
-            InitializeSpectralNorm(*this, "v", qkv[2], spectral_norm_v_);
-            InitializeSpectralNorm(*this, "out_proj", mha_->out_proj->weight, spectral_norm_out_);
-            InitializeSpectralNorm(*this, "linear1", linear1_->weight, spectral_norm_linear1_);
-            InitializeSpectralNorm(*this, "linear2", linear2_->weight, spectral_norm_linear2_);
+            InitializeSpectralNorm(*this, "q", qkv[0], spectral_norm_q_, std::nullopt);
+            InitializeSpectralNorm(*this, "k", qkv[1], spectral_norm_k_, std::nullopt);
+            InitializeSpectralNorm(*this, "v", qkv[2], spectral_norm_v_, std::nullopt);
+            InitializeSpectralNorm(*this, "out_proj", mha_->out_proj->weight, spectral_norm_out_, std::nullopt);
+            InitializeSpectralNorm(*this, "linear1", linear1_->weight, spectral_norm_linear1_, std::nullopt);
+            InitializeSpectralNorm(*this, "linear2", linear2_->weight, spectral_norm_linear2_, std::nullopt);
         }
 
         // Transformer の hidden_dropout_rate は attention/FFN の要素 dropout。

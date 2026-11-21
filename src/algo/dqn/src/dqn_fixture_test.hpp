@@ -305,7 +305,8 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
         const dqn::ActionPolicyConfig::LadderConfig config{
             .first = {.value = first, .min_value = 0.0f, .max_value = 1.0f},
             .last = {.value = last, .min_value = 0.0f, .max_value = 1.0f}};
-        return dqn::SpatialLadderSchedule(config, scale, lanes, device).Tensor();
+        return dqn::SpatialLadderSchedule(config, scale, lanes, device,
+            anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("spatial.scale")).Tensor();
     }
     static torch::Tensor BuildTensor(int64_t lanes, float first, float last,
         const std::string& scale, const torch::Device& device)

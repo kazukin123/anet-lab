@@ -74,8 +74,8 @@ namespace anet::nn {
         WeightNormMode mode,
         const std::string& name,
         anet::RandomGenerator& rnd,
-        std::string_view mode_key = "weight_norm.mode (not read from config)",
-        std::string_view init2_mode_key = "init2.mode (not read from config)");
+        std::string_view mode_key,
+        std::optional<std::string_view> init2_mode_key);
 
     torch::Tensor MakeSpectralNormalizedWeight(
         const torch::Tensor& weight,

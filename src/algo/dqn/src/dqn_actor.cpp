@@ -1775,7 +1775,7 @@ std::optional<float> Actor::GetScalar(const std::string& key, int64_t index) con
     if (duration < 1 || (skip_ && duration > skip_->config.max_length)) {
         ANET_SYSTEM_ERROR("Actor: invalid key=" << key << " duration=" << duration
             << "; expected duration >= 1 and <= "
-            << (skip_ ? skip_->config.full_keys.GetFullKey("max_length") : "max_length (not read from config)")
+            << (skip_ ? skip_->config.full_keys.GetFullKey("max_length") : ConfigFullKeyTable::FormatKeyNotReadFromConfig("max_length"))
             << "=" << (skip_ ? skip_->config.max_length : 0) << ".");
     }
     const auto nan = std::numeric_limits<float>::quiet_NaN();

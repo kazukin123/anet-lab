@@ -10,6 +10,7 @@
 
 // PRD121の入力・公開識別子を、同じ意味の検査で共有する。
 constexpr const char* kPrd121IntrinsicRewardScaler = "intrinsic.reward_scaler";
+const std::string kDirectGammaKey = anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("gamma");
 
 TEST_CASE("Return reward scaling follows per-lane discounted returns", "[prd121][scaler]")
 {
@@ -18,7 +19,7 @@ TEST_CASE("Return reward scaling follows per-lane discounted returns", "[prd121]
     config.dynamic_mode = anet::rl::RewardScaler::kReturnStdState;
     config.use_auto_post_scale = false;
     config.epsilon = 0.01f;
-    auto scaler = anet::rl::RewardScalerFactory(config).CreateRewardScaler(0.5f, 2);
+    auto scaler = anet::rl::RewardScalerFactory(config).CreateRewardScaler(0.5f, 2, kDirectGammaKey);
     const auto first = torch::tensor({1.0f, 3.0f});
     CHECK(torch::allclose(scaler->Scale(first), first / (std::sqrt(2.0f) + config.epsilon)));
     const auto second = torch::ones({2});
@@ -37,13 +38,13 @@ TEST_CASE("Return scaler checkpoints retain statistics and reset only changed la
     config.dynamic_mode = anet::rl::RewardScaler::kReturnStdState;
     config.use_auto_post_scale = false;
     config.epsilon = 0.01f;
-    auto source = anet::rl::RewardScalerFactory(config, kPrd121IntrinsicRewardScaler).CreateRewardScaler(0.5f, 2);
+    auto source = anet::rl::RewardScalerFactory(config, kPrd121IntrinsicRewardScaler).CreateRewardScaler(0.5f, 2, kDirectGammaKey);
     source->Scale(torch::tensor({1.0f, 3.0f}));
     source->Scale(torch::tensor({2.0f, 1.0f}));
     std::stringstream checkpoint(std::ios::in | std::ios::out | std::ios::binary);
     anet::OutputArchive output(checkpoint);
     source->Save(output);
-    auto restored = anet::rl::RewardScalerFactory(config, kPrd121IntrinsicRewardScaler).CreateRewardScaler(0.5f, lanes);
+    auto restored = anet::rl::RewardScalerFactory(config, kPrd121IntrinsicRewardScaler).CreateRewardScaler(0.5f, lanes, kDirectGammaKey);
     anet::test::LogCaptureGuard logs;
     anet::InputArchive input(checkpoint);
     restored->Load(input);
@@ -65,7 +66,7 @@ TEST_CASE("Return scaler checkpoints retain statistics and reset only changed la
     CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == (lanes == 2 ? 0 : 1));
     auto wrong_config = config;
     wrong_config.dynamic_mode = anet::rl::RewardScaler::kRewardStdState;
-    auto wrong = anet::rl::RewardScalerFactory(wrong_config).CreateRewardScaler(0.5f, 2);
+    auto wrong = anet::rl::RewardScalerFactory(wrong_config).CreateRewardScaler(0.5f, 2, kDirectGammaKey);
     checkpoint.clear();
     checkpoint.seekg(0);
     anet::InputArchive wrong_input(checkpoint);
@@ -81,7 +82,7 @@ TEST_CASE("Constant reward scaler exposes a defined clipping ratio", "[scaler][m
     config.use_auto_post_scale = false;
     config.constant_scale = 2.0f;
     anet::rl::RewardScalerFactory factory(config);
-    auto scaler = factory.CreateRewardScaler(0.99f, 2);
+    auto scaler = factory.CreateRewardScaler(0.99f, 2, kDirectGammaKey);
     const auto initial = scaler->GetScalar(anet::rl::RewardScaler::kKeyClipRatio);
     REQUIRE(initial.has_value());
     CHECK(std::isnan(*initial));
@@ -100,7 +101,7 @@ TEST_CASE("Reward diagnostic scaling preserves statistics and clipping metrics",
     config.use_auto_post_scale = false;
     config.manual_post_scale = 1.0f;
     config.constant_scale = 2.0f;
-    auto scaler = anet::rl::RewardScalerFactory(config).CreateRewardScaler(0.99f, 2);
+    auto scaler = anet::rl::RewardScalerFactory(config).CreateRewardScaler(0.99f, 2, kDirectGammaKey);
     scaler->Scale(torch::tensor({ -1.0f, 3.0f }));
     const auto count = scaler->GetScalar(anet::rl::RewardScaler::kKeyCount).value();
     const auto ratio = scaler->GetScalar(anet::rl::RewardScaler::kKeyClipRatio).value();
@@ -124,7 +125,7 @@ TEST_CASE("Published reward transform follows statistics and Reset", "[scaler][p
     config.epsilon = 0.25f;
     config.use_auto_post_scale = false;
     config.manual_post_scale = 2.0f;
-    auto scaler = anet::rl::RewardScalerFactory(config).CreateRewardScaler(0.99f, 2);
+    auto scaler = anet::rl::RewardScalerFactory(config).CreateRewardScaler(0.99f, 2, kDirectGammaKey);
     const auto probe = torch::tensor({-0.5f, 0.5f});
     CHECK(torch::allclose(scaler->ScaleWithoutUpdate(probe), probe / 1.25f * 2.0f));
     for (const auto samples : {torch::tensor({-1.0f, 3.0f}), torch::tensor({-10.0f, 10.0f})}) {
@@ -147,7 +148,7 @@ TEST_CASE("Reward auto post scale uses the discounted reference Q scale", "[prd1
     config.use_auto_post_scale = true;
     config.reference_q_std = 8.0f;
     config.constant_scale = 1.5f;
-    auto scaler = anet::rl::RewardScalerFactory(config).CreateRewardScaler(gamma, 2);
+    auto scaler = anet::rl::RewardScalerFactory(config).CreateRewardScaler(gamma, 2, kDirectGammaKey);
     const auto rewards = torch::tensor({-2.0f, 3.0f});
     const float expected_scale = config.constant_scale * config.reference_q_std * (1.0f - gamma);
     CHECK(torch::allclose(scaler->Scale(rewards), rewards * expected_scale));

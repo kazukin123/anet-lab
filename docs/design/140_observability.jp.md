@@ -374,7 +374,7 @@ DQNの具体的な提供元と鍵の認識はDQN実装内に閉じる。DQNのst
 
 `MetricsLogger`はprocess singletonだが、1 processで1 active Runを前提にRun directoryを所有する。`Reset()`はRun終了時にsingletonを解放する。動画loggerやwxLog chainをfile利用中に破棄しないよう、applicationのshutdown順序を維持する。
 
-具象Env本体のtext logは`env.[<Env name>]`、single Envではさらに`.[<lane index>]`を続けたlane name（例: `env.[train].[37]: `、`env.[eval_target].[0]: `、`env.[EvalPanel].[0]: `）を先頭へ付け、Train、configured Eval、EvalPanelとbatch laneの出力元を人間が識別できるようにする。評価セッション行の`eval.[<tag>]: `と同じ設定記法で、configured Evalの`[ ]`内はtagと同じ文字列になる。`SingleDiscreteEnvBase`と`BatchEnvBase`がprotectedな`anet::log::Logger log`を保持し、具象Envは`log.info()`、`log.verbose()`、`log.warn()`、`log.error()`を使う。Env本体で`LOG::`を直接使わず、prefix書式や`GetName()`連結を各ログ行へ分散させない。Env外のfactory、free関数、Runner、Agent、Viewは従来どおり`LOG::`を使用する。
+具象Env本体のtext logは`env.[<Env name>]`、single Envではさらに`.[<lane index>]`を続けたlane name（例: `env.[train].[37]: `、`env.[eval_target].[0]: `、`env.[EvalPanel].[0]: `）を先頭へ付け、Train、configured Eval、EvalPanelとbatch laneの出力元を人間が識別できるようにする。評価セッション行の`run.eval.[<tag>]: `と同じ設定記法で、configured Evalの`[ ]`内はtagと同じ文字列になる。`SingleDiscreteEnvBase`と`BatchEnvBase`がprotectedな`anet::log::Logger log`を保持し、具象Envは`log.info()`、`log.verbose()`、`log.warn()`、`log.error()`を使う。Env本体で`LOG::`を直接使わず、prefix書式や`GetName()`連結を各ログ行へ分散させない。Env外のfactory、free関数、Runner、Agent、Viewは従来どおり`LOG::`を使用する。
 
 debug logは`ANET_LOG_DEBUG_PREFIXED(expr)`を使用する。このmacroは`ANET_LOG_DEBUG(log.prefix() << expr)`へ委譲し、デバッガ接続・level guard、source情報、`ANET_ENABLE_DEBUG_LOG=0`での式非評価を維持する。Env nameは表示専用の不透明な文字列であり、`MetricsLogger`のtag、JSONL field、artifact path、runner scopeを変更・代替しない。Viewは共通Env accessorから表示に利用できるが、nameをEnv挙動やmetric identityの分岐へ使用しない。
 
@@ -386,7 +386,7 @@ scalar定義のsource key、event、target、interval、runner scope、eval名�
 
 ### 7.2 評価セッションの実行ログ
 
-configured Eval は verbose レベルで `eval.[<tag>]: session start` / `session end` を各1行記録する。
+configured Eval は verbose レベルで `run.eval.[<tag>]: session start` と `run.eval.[<tag>]: session end` を各1行記録する。
 開始行は評価の発火時点、つまり background の前セッション完了待ちより前に train thread から出し、終了行は実行した thread から出す。
 両行の learn_step / exp_step は train 側から渡されたセッション開始座標で、session_end scalar と対応する。
 終了行の elapsed は Sync 前から SessionEnd 通知後までの所要秒（小数2桁）であり、background 時の train 実待機時間ではない。開始行の時刻からの経過とも一致しない。
@@ -396,7 +396,11 @@ background 時、前セッション完了を待ってブロックした場合だ
 終了行には確定済み scalar と同じ mean.episode_return、max.episode_return、mean.episode_steps、max.episode_steps を出す。
 session が 30 秒以上続くと、実行した thread から 30 秒ごとに `session progress completed=<採用済み>/<採用数> elapsed=... eta=... learn_step=... exp_step=...` を info で1行出す。elapsed は終了行と同じく Sync 前からの秒、eta は採用済みの1件あたりの所要から見込んだ残り秒で、採用済みが0件の間は `n/a` とする。全 episode を採用した後は出さず、30 秒より短い session は開始行と終了行だけになる。
 終了排水で待つ場合は`draining in-flight session on exit`、協調キャンセルへ切り替える場合は`cancelling in-flight session on exit reason=close|config|timeout`を出す。キャンセル完了時は正常`session end`を出さず、`session cancelled learn_step=... exp_step=... elapsed=... completed=...`を出す。対応するsession scalarは出さず、完了済みepisodeのtraceは維持する。
-異常終了時は正常終了行を出さない。起動時は `eval.[<tag>]: scheduled (interval=…, offset=…, warmup_count=…, background=…, wait_on_exit=…, episodes=…, batch_size=…)` を出し、既定値の offset と warmup_count も省略しない。
+異常終了時は正常終了行を出さない。起動時の `scheduled` 行は各欄を完全キーで示し、既定値の `offset` と `warmup_count` も記録する。
+
+```text
+run.eval.[<tag>]: scheduled (run.eval_schedule.[<tag>].interval=…, run.eval_schedule.[<tag>].offset=…, run.eval_schedule.[<tag>].warmup_count=…, run.eval_schedule.[<tag>].use_background=…, run.eval_schedule.[<tag>].wait_on_exit=…, run.eval.[<tag>].eval_episodes=…, run.eval.[<tag>].eval_batch_size=…)
+```
 汎用の評価エピソード長は baseline / full の `21_eval/05_target_ep_steps`〜`08_policy_ep_steps_max` で参照できる。
 
 ### 7.3 画像メモリの所有権

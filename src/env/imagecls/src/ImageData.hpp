@@ -26,6 +26,8 @@ namespace anet::img {
 
     using DatasetKey = std::string;
 
+    std::string MakeDatasetItemKey(const DatasetKey& key);
+
     enum class ImageCacheMode {
         Auto,
         None,
@@ -239,11 +241,11 @@ namespace anet::img {
         ImageDataSource(
             TrainImageDataSourceConfig config,
             int batch_size, anet::seed_t seed, int worker_type, int worker_threads,
-            const std::string& worker_type_key = "worker_type (not read from config)");
+            const std::string& worker_type_key);
         ImageDataSource(
             EvalImageDataSourceConfig config,
             int batch_size, anet::seed_t seed, int worker_type, int worker_threads,
-            const std::string& worker_type_key = "worker_type (not read from config)");
+            const std::string& worker_type_key);
         ~ImageDataSource();
 
         ImageBatch NextBatch();

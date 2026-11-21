@@ -808,7 +808,7 @@ MetricsLogObserverBase::MetricsLogObserverBase(
     const std::string& key, anet::rl::StepAxis step_axis, std::optional<anet::rl::EventField> event_field,
     int interval, bool is_ema, float ema_alpha, std::optional<float> clip)
     : TaggedObserver(tag), key_(key), step_axis_(step_axis), event_field_(event_field)
-    , is_ema_(is_ema), gate_(ValidateMetricsInterval(tag, interval, "interval (not read from config)"))
+    , is_ema_(is_ema), gate_(ValidateMetricsInterval(tag, interval, ConfigFullKeyTable::FormatKeyNotReadFromConfig("interval")))
     , val_ema_(ema_alpha), clip_(clip)
 {
     ;

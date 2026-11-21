@@ -158,3 +158,11 @@ D19 では、DQN の `intrinsic.reward_scaler kind` を checkpoint の状態種�
 - 同じ依頼 `.scratch/prd194/request-20261121-2005-impl.md` で追補を再レビューし、Codex と Claude はともに実装計画・実装を OK とした。原文は `.scratch/prd194/review-20261121-2005-impl.md` と `.scratch/prd194/review-20261121-2005-impl-claude.md`。
 - 最終実行体で `[prd103-config]` を改めて実行し、4環境で10,191 assertions が通過した。ログは `.scratch/prd194/claude-followup-prd103-config.log`。
 - 最終差分で DQN の既定スイートを引数なしで実行し、372件・161,192 assertions が通過した。ログは `.scratch/prd194/claude-followup-full-dqn.log`。Codex・Claude の再レビュー後に残る修正要求は無い。作業ツリーでは並行設定の Main View が `train` のため、Core の出荷既定値はコミット済み設定を使った独立実行で検証した。
+
+### 追加の確認事項
+
+- 和文の設計文書 140 の評価セッションの接頭辞、開始・終了の行、起動時の `scheduled` 行を実装の完全キー表記に揃えた。
+- ImageCls のデータセット参照の診断では、設定に書いた値と存在しない `ImageDataset` 項目を分け、選択できる値をそのまま示す。評価 Env の上書きキーから診断を出し、候補を同じキーに設定すると構築時の検証を通ることを確かめるテストを追加した。
+- ` (not read from config)` の生成を `ConfigFullKeyTable` に集約した。キーを受け取る API では既定引数を外し、設定を読まない呼び出しでは明示する。spectral normalization は ResBlock の `conv2` を初期化するときだけ `init2.mode` の案内を渡す。
+- CUDA を隠した A2 のテストに `env.device` を戻し、3キーの指定値をまとめて確認する。
+- Debug 全体と Runner GUI のビルド、Core の対象77件（2件スキップ）、DQN の対象56件、ImageCls Env の既定20件、Runner GUI の対象1件が通過した。A2 のログに `agent.device='cuda:1', env.device='cuda:2', run.eval_device='cuda'` が出た。集計は205行で一致した。本番コードに注記のリテラルがあるのは `ConfigFullKeyTable` の1か所だけ。ログは `.scratch/prd194/post-stage-review-*`。

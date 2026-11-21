@@ -1466,7 +1466,8 @@ TEST_CASE("Decomposed Heads validate shared and dedicated feature shapes", "[prd
     const anet::nn::WeightInitConfig init;
     dqn::DecomposedHeadFactory factory(
         dqn::DqnComponentAssembler::CreateHeadFactory(mode, dueling, 2, 3, init, {}),
-        dqn::DqnComponentAssembler::CreateHeadFactory(mode, dueling, 2, 3, init, projection), dedicated, dueling);
+        dqn::DqnComponentAssembler::CreateHeadFactory(mode, dueling, 2, 3, init, projection), dedicated, dueling,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("input_mode"));
     const auto forward = [&](const anet::TensorDict& input) {
         const auto head = factory.CreateHead(input);
         REQUIRE_FALSE(head->GetNoisyParameterEntries().empty());
@@ -1532,7 +1533,8 @@ TEST_CASE("Decomposed learners match component Bellman targets and losses", "[pr
     const anet::nn::WeightInitConfig init;
     auto head = std::make_shared<dqn::DecomposedHeadFactory>(
         dqn::DqnComponentAssembler::CreateHeadFactory(mode, false, 2, 3, init, {}),
-        dqn::DqnComponentAssembler::CreateHeadFactory(mode, false, 2, 3, init, {}), false, false);
+        dqn::DqnComponentAssembler::CreateHeadFactory(mode, false, 2, 3, init, {}), false, false,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("input_mode"));
     dqn::NetworkModel model({}, torch::kCPU, net, specs, 2, head, mode != anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone, 121);
     const auto h = [tbo](double value) {
         return tbo ? std::copysign(std::sqrt(std::abs(value) + 1) - 1, value) + 0.01 * value : value;
@@ -1688,7 +1690,10 @@ TEST_CASE("Shared episodic component targets reproduce a combined learner target
         const anet::nn::WeightInitConfig init;
         const auto factory = [&] { return dqn::DqnComponentAssembler::CreateHeadFactory(mode, false, 2, 3, init, {}); };
         std::shared_ptr<anet::nn::NetworkHeadFactory> head = factory();
-        if (decomposed) head = std::make_shared<dqn::DecomposedHeadFactory>(factory(), factory(), false, false);
+        if (decomposed) {
+            head = std::make_shared<dqn::DecomposedHeadFactory>(factory(), factory(), false, false,
+                anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("input_mode"));
+        }
         dqn::NetworkModel model({}, torch::kCPU, net, specs, 2, head, mode != anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone, 121);
         {
             torch::NoGradGuard guard;
@@ -1763,7 +1768,8 @@ TEST_CASE("Decomposed updates reject nonfinite gradients before both optimizer s
     const auto env = MakeLearnerEnvSpec();
     const anet::nn::WeightInitConfig init;
     auto head = std::make_shared<dqn::DecomposedHeadFactory>(std::make_shared<dqn::LinearHeadFactory>(1, init),
-        std::make_shared<dqn::LinearHeadFactory>(1, init), false, false);
+        std::make_shared<dqn::LinearHeadFactory>(1, init), false, false,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("input_mode"));
     dqn::NetworkModel model({}, torch::kCPU, MakeAgentForwardNetworkConfig(), env.state_spec.obs_spec, 1, head, false, 121);
     auto config = WithDefaultLearnerForwardConfig();
     config.intrinsic.decomposed = true;
@@ -1821,7 +1827,8 @@ TEST_CASE("Decomposed split adds independently clipped Adam updates", "[prd121][
     data.Set("net.body.output.[features]", kPrd121SharedBranchKey);
     const anet::nn::WeightInitConfig init;
     auto head = std::make_shared<dqn::DecomposedHeadFactory>(std::make_shared<dqn::LinearHeadFactory>(1, init),
-        std::make_shared<dqn::LinearHeadFactory>(1, init), false, false);
+        std::make_shared<dqn::LinearHeadFactory>(1, init), false, false,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("input_mode"));
     dqn::NetworkModel model({}, torch::kCPU, anet::nn::NetworkConfig(data, "net"), env.state_spec.obs_spec, 1, head, false, 98);
     auto config = WithDefaultLearnerForwardConfig();
     config.intrinsic.decomposed = true;
@@ -2784,7 +2791,8 @@ TEST_CASE("Decomposed target plasticity captures only bootstrap rows", "[prd121]
     config.target.nn_forward_key.clear();
     const auto env = MakeLearnerEnvSpec();
     const auto factory = std::make_shared<dqn::LinearHeadFactory>(1, anet::nn::WeightInitConfig{});
-    auto head = std::make_shared<dqn::DecomposedHeadFactory>(factory, factory, false, false);
+    auto head = std::make_shared<dqn::DecomposedHeadFactory>(factory, factory, false, false,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("input_mode"));
     dqn::NetworkModel model({}, torch::kCPU, anet::nn::NetworkConfig(data), env.state_spec.obs_spec, 1, head, false, 121);
     dqn::RuntimeVars vars;
     auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});

@@ -358,7 +358,7 @@ SpectralNormState anet::nn::MakeSpectralNormState(
     const torch::Tensor& weight,
     WeightNormMode mode,
     const std::string& name,
-    anet::RandomGenerator& rnd, std::string_view mode_key, std::string_view init2_mode_key)
+    anet::RandomGenerator& rnd, std::string_view mode_key, std::optional<std::string_view> init2_mode_key)
 {
     constexpr double kEps = 1.0e-12;
     const auto weight_mat = weight.reshape({ weight.size(0), -1 });
@@ -380,11 +380,15 @@ SpectralNormState anet::nn::MakeSpectralNormState(
     const double sigma = ComputeSpectralSigma(weight_mat, state.u, state.v).detach().item<double>();
     if (!std::isfinite(sigma)
         || (mode == WeightNormMode::kSpectral && sigma <= 0.0)) {
+        std::string init2_hint;
+        if (init2_mode_key) {
+            init2_hint = " For a zero-initialized ResBlock conv2, set " + std::string(*init2_mode_key) + "=he.";
+        }
         ANET_SYSTEM_ERROR("Spectral normalization initialization failed: name=" << name
             << " sigma=" << sigma
             << " " << mode_key << "=" << (mode == WeightNormMode::kSpectral ? "spectral" : "spectral_cap")
-            << ". spectral requires a non-degenerate weight; for a zero-initialized ResBlock conv2, "
-            << "set " << init2_mode_key << "=he or use " << mode_key << "=spectral_cap.");
+            << ". spectral requires a non-degenerate weight. Use " << mode_key << "=spectral_cap."
+            << init2_hint);
     }
     return state;
 }

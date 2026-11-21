@@ -225,16 +225,18 @@ TEST_CASE("InitRL reports the original value of every explicit CUDA key", "[devi
     InitCapturingLogger(backend_raw, "explicit_cuda_unavailable_test");
     anet::ConfigData config_data;
     config_data.Set("agent.device", "cuda:1");
+    config_data.Set("env.device", "cuda:2");
     config_data.Set("run.eval_device", "cuda");
     try {
         anet::rl::InitRL(anet::rl::BackendConfig(config_data), config_data);
         FAIL("Explicit CUDA must fail before NN initialization");
     } catch (const std::exception& e) {
         const std::string message = e.what();
-        CHECK(ContainsText(message, "agent.device='cuda:1', run.eval_device='cuda'"));
+        CHECK(ContainsText(message, "agent.device='cuda:1', env.device='cuda:2', run.eval_device='cuda'"));
         CHECK(ContainsText(message, "auto"));
     }
     CHECK(config_data.Get("agent.device") == "cuda:1");
+    CHECK(config_data.Get("env.device") == "cuda:2");
     anet::MetricsLogger::Reset();
 }
 

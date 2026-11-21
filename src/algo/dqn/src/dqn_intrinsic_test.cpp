@@ -544,7 +544,8 @@ TEST_CASE("Intrinsic return scaling masks before statistics and stores component
     config.dynamic_mode = anet::rl::RewardScaler::kReturnStdState;
     config.use_auto_post_scale = false;
     config.epsilon = 0.01f;
-    auto reference = anet::rl::RewardScalerFactory(config).CreateRewardScaler(0.5f, 2);
+    auto reference = anet::rl::RewardScalerFactory(config).CreateRewardScaler(0.5f, 2,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("gamma"));
     torch::Tensor previous;
     bool previous_done = false;
     for (anet::rl::step_t step = 0; step < 8; ++step) {

@@ -1519,7 +1519,8 @@ TEST_CASE("Image observers suppress repeated mismatch and unexpected episode sta
     const rl::TrainEvent heat_event{{.experience=heat_experience, .counts={.train_step=1}}};
     rl::HeatMapVectorObserver heat("test.mismatch", config, x, y, y);
     rl::Conv2dVisualizationObserver conv("test.unexpected.conv", 1, {});
-    rl::GraphVizObserver graph("test.unexpected.graph", -1, 1, "unused", std::nullopt);
+    rl::GraphVizObserver graph("test.unexpected.graph", -1, 1, "unused", std::nullopt,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("interval"));
     anet::test::LogCaptureGuard logs;
     heat.OnTrain(heat_event);
     heat.OnTrain(heat_event);

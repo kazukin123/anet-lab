@@ -22,6 +22,7 @@ namespace anet {
     /// 読んだ欄の相対キーと、値を与えた完全キーとの対応。
     class ConfigFullKeyTable {
     public:
+        static std::string FormatKeyNotReadFromConfig(const std::string& key);
         std::string GetFullKey(const std::string& key) const;
         bool Contains(const std::string& key) const;
         void Set(const std::string& key, std::string full_key);

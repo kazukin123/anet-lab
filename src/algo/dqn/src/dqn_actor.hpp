@@ -85,7 +85,7 @@ namespace anet::rl::dqn {
     public:
         SpatialLadderSchedule(const ActionPolicyConfig::LadderConfig& config,
             std::string scale, int64_t lanes, torch::Device device,
-            const std::string& scale_key = "spatial.scale (not read from config)");
+            const std::string& scale_key);
         void Update(step_t step);
         const torch::Tensor& Tensor() const { return tensor_; }
         float Mean() const { return mean_; }

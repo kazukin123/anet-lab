@@ -20,7 +20,7 @@
 using namespace anet::img;
 namespace LOG = anet::log;
 
-static std::string MakeDatasetItemKey(const DatasetKey& key)
+std::string anet::img::MakeDatasetItemKey(const DatasetKey& key)
 {
     return "ImageDataset.[" + key + "]";
 }

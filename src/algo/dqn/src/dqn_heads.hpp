@@ -48,7 +48,7 @@ namespace anet::rl::dqn {
     public:
         DecomposedHeadFactory(std::shared_ptr<anet::nn::NetworkHeadFactory> extrinsic,
             std::shared_ptr<anet::nn::NetworkHeadFactory> intrinsic, bool dedicated, bool intrinsic_dueling,
-            std::string input_mode_key = "input_mode (not read from config)");
+            std::string input_mode_key);
         std::shared_ptr<anet::nn::NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
     private:
         std::shared_ptr<anet::nn::NetworkHeadFactory> extrinsic_, intrinsic_;

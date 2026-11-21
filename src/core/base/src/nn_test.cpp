@@ -2887,7 +2887,8 @@ TEST_CASE("Spectral cap preserves zero initialization and activates after a nonz
         { 2, 2 }, torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true));
     anet::RandomGenerator rnd(65065);
     auto state = anet::nn::MakeSpectralNormState(
-        weight, anet::nn::WeightNormMode::kSpectralCap, "zero", rnd);
+        weight, anet::nn::WeightNormMode::kSpectralCap, "zero", rnd,
+        anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("weight_norm.mode"), std::nullopt);
     const auto u_before = state.u.clone();
     const auto v_before = state.v.clone();
 
@@ -2917,9 +2918,16 @@ TEST_CASE("Spectral normalization rejects a degenerate spectral initialization",
 
     CHECK_THROWS_WITH(
         anet::nn::MakeSpectralNormState(
-            weight, anet::nn::WeightNormMode::kSpectral, "zero_linear", rnd),
+            weight, anet::nn::WeightNormMode::kSpectral, "zero_linear", rnd,
+            anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("weight_norm.mode"), std::nullopt),
         Catch::Matchers::ContainsSubstring("zero_linear")
-            && Catch::Matchers::ContainsSubstring("spectral_cap"));
+            && Catch::Matchers::ContainsSubstring("spectral_cap")
+            && !Catch::Matchers::ContainsSubstring("init2.mode"));
+    CHECK_THROWS_WITH(
+        anet::nn::MakeSpectralNormState(weight, anet::nn::WeightNormMode::kSpectral, "conv2", rnd,
+            "net.block.[res].weight_norm.mode", "net.block.[res].init2.mode"),
+        Catch::Matchers::ContainsSubstring("net.block.[res].weight_norm.mode=spectral_cap")
+            && Catch::Matchers::ContainsSubstring("net.block.[res].init2.mode=he"));
     CHECK_THROWS_WITH(
         anet::nn::ParseWeightNormMode("mystery", "net.block.[mystery].weight_norm.mode"),
         Catch::Matchers::ContainsSubstring("weight_norm.mode")

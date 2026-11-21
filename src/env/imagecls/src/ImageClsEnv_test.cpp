@@ -368,6 +368,20 @@ TEST_CASE("ImageCls validates config without manifest I/O", "[image_cls_env][con
             Catch::Matchers::ContainsSubstring(key + " = unexpected"));
     }
 
+    SECTION("an unknown dataset reference reports the input and valid values") {
+        auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
+        const std::string prefix = "run.eval.[dormant].env";
+        const auto key = prefix + ".eval.dataset_key";
+        config.Set(key, "missing");
+        const auto available = "expected one of [\"" + dataset.GetDatasetKey() + "\"]";
+        CHECK_THROWS_WITH(factory.ValidateConfig(config, anet::rl::RunMode::Eval1, prefix),
+            Catch::Matchers::ContainsSubstring(key + "='missing'")
+            && Catch::Matchers::ContainsSubstring("Missing ImageDataset.[missing]")
+            && Catch::Matchers::ContainsSubstring(available));
+        config.Set(key, dataset.GetDatasetKey());
+        CHECK_NOTHROW(factory.ValidateConfig(config, anet::rl::RunMode::Eval1, prefix));
+    }
+
     SECTION("dormant-style schema validation remains I/O free") {
         auto config = dataset.MakeNativeConfigData(/*max_steps=*/100);
         config.Set("ImageDataset.classes_txt_path", "missing-classes.txt");
