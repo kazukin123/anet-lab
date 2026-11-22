@@ -1,32 +1,56 @@
+<title>題を記入</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <style>
-  .conversation-summary {
-    color-scheme: light dark;
+  /* 色はすべてここのトークンで指定する。場面の節に足す見た目も、このトークンを使ってこの style に足す。 */
+  :root {
     --page: #f3f6fa;
     --surface: #ffffff;
     --text: #18243a;
     --muted: #4a5870;
     --line: #cbd5e3;
     --accent: #2457ad;
-    box-sizing: border-box;
-    max-inline-size: 52rem;
-    margin: 0 auto;
-    padding: clamp(1rem, 4vw, 2rem);
-    padding-block-end: 5rem;
-    background: var(--page);
-    color: var(--text);
-    font: 1rem/1.75 "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
-    overflow-wrap: anywhere;
+    --shadow: #18243a22;
   }
 
   @media (prefers-color-scheme: dark) {
-    .conversation-summary {
+    :root:not([data-theme="light"]) {
       --page: #111827;
       --surface: #1a2436;
       --text: #edf3fe;
       --muted: #b7c4d8;
       --line: #465875;
       --accent: #adcaff;
+      --shadow: #00000066;
+      color-scheme: dark;
     }
+  }
+
+  :root[data-theme="dark"] {
+    --page: #111827;
+    --surface: #1a2436;
+    --text: #edf3fe;
+    --muted: #b7c4d8;
+    --line: #465875;
+    --accent: #adcaff;
+    --shadow: #00000066;
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: var(--page);
+    color: var(--text);
+    font: 1rem/1.75 "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  }
+
+  .conversation-summary {
+    box-sizing: border-box;
+    max-inline-size: 52rem;
+    margin: 0 auto;
+    padding-block: clamp(1rem, 4vw, 2rem) 5rem;
+    overflow-wrap: anywhere;
   }
 
   .conversation-summary :focus-visible {
@@ -86,8 +110,10 @@
     margin: 0;
   }
 
+  /* DOING・TODO・WAITING・DONE の 4 欄は同じ形にする。どれか 1 つだけ色や大きさを変えない。 */
   .conversation-summary .position > div,
   .conversation-summary details {
+    min-width: 0;
     padding: 0.7rem 1rem;
     border: 1px solid var(--line);
     border-radius: 0.75rem;
@@ -122,8 +148,8 @@
   .conversation-summary .back-to-top {
     position: fixed;
     z-index: 1;
-    inset-inline-end: max(0.85rem, env(safe-area-inset-right));
-    inset-block-end: max(0.85rem, env(safe-area-inset-bottom));
+    inset-inline-end: calc(0.85rem + env(safe-area-inset-right, 0px));
+    inset-block-end: calc(0.85rem + env(safe-area-inset-bottom, 0px));
     display: grid;
     place-items: center;
     min-block-size: 44px;
@@ -131,7 +157,7 @@
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--surface);
-    box-shadow: 0 0.2rem 0.7rem #0002;
+    box-shadow: 0 0.2rem 0.7rem var(--shadow);
     font-size: 0.9rem;
     font-weight: 700;
   }
@@ -139,7 +165,8 @@
 
 <article class="conversation-summary" lang="ja">
   <header id="page-top">
-    <h1>会話のまとめ</h1>
+    <!-- 題は先頭の <title> とこの <h1> の両方に同じものを書く。 -->
+    <h1>題を記入</h1>
     <p class="summary-note">最終更新 <time>日時を記入</time></p>
     <p class="summary-note">見返し用の写しです。正本は会話と PRD・実験記録・課題にあります。</p>
     <!-- 前のページから続けた別の枠では、ここに前のページへのリンクを置く。 -->
