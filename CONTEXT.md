@@ -670,7 +670,7 @@ _Avoid_: train/eval catalog, dataset profile, paired source
 _Avoid_: pass, round, sweep
 
 **eval window**:
-eval の accuracy 1 点を作る採点区間。`eval_window.mode=full` なら全件 1 周、`rotating` なら `eval_window.rotating.size` 件ずつカーソル継続で消化する（複数 window で全件を一巡）。`rotating.size`は非選択中もrotating方式の完全な設定として保持され、未設定状態を持たない。データ被覆の単位である epoch（dataset cycle）とは別軸。Env はこの区間の終端を全 lane 同時の episode 終端（done）へ翻訳して報告する。lane は window の slice であり、lane 0 だけを代表にしない。
+eval の accuracy 1 点を作る採点区間。`eval_window.mode=full` なら全件 1 周、`rotating` なら `eval_window.rotating_size` 件ずつカーソル継続で消化する（複数 window で全件を一巡）。`rotating_size`は非選択中もrotating方式の完全な設定として保持され、未設定状態を持たない。データ被覆の単位である epoch（dataset cycle）とは別軸。Env はこの区間の終端を全 lane 同時の episode 終端（done）へ翻訳して報告する。lane は window の slice であり、lane 0 だけを代表にしない。
 _Avoid_: eval episode 長, eval バッチ, サンプル数（size と区別）
 
 **accuracy**（env scalar キー）:
