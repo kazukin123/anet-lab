@@ -45,6 +45,8 @@
 - 2026-11-19: PRDのグリルで、goal anchorの応答に共通の前提を並べ、ゴールの合意と同じ返事で説明が要る前提の番号を受けて理解を確かめ、欠けた前提は先にそろえるかをその都度選び、PRDに前提の表を置き、PRD品質確認観点に項番43を足す案を、グリルで決めた（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§1.2・§6.1 D2〜D8・§6.2 D13）。
 - 2026-11-21: 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前（暫定の既定はSPEC）へ改め、ファイル名・skill名・課題の欄・コミット件名・テストのタグ・道具など今使っている場所をすべて移し、過去の記録は書き換えずに道具が旧い件名の番号も読む案を暫定で起票した（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、題・§1・§6）。
 - 2026-11-22: 会話の枠ごとに 1 枚のまとめページ（冒頭・いまの位置・記号の一覧に、場面ごとの節を足したもの）を、場面に入ったときか前の応答の記号を引き始めたときに作って、中身が変わった応答で更新し、Claude Code は非公開ページ、Codex は ChatGPT Sites で同じ URL のままスマホから見返せるようにする案を、グリルで決めた。手順は skill、始める条件は AGENTS.md、場面ごとの指針とひな形は docs/process/summary-page/ に置く（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§1.2・§6 D1・D2・D5〜D9・D11・D25・D26）。
+- 2026-11-23: 文書の呼び名をRFD（Request for Discussion）に改め、番号を0埋めの4桁にし、直下の文書は実装が済んだものも本文まで新しい名前に直し、改名・リンクのパスの直し・動作に効く行の直しを1回目、改名したファイルの残りの本文の語の置き換えを2回目のコミットに分け、道具は件名の旧いPRDnnnと新しいRFDnnnnの両方を日付で分けずに値で読み、定点統計は保管場所の文書の移した日を改名をたどって取る案を、再グリルで決めた（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、§1.2・§6 D1〜D4・D8・D17・D25）。
+- 2026-11-23: 変更ごとの文書の呼び名をPRDからRFDに改め、番号を0埋めの4桁にする（出典: [ADR 0093](../../adr/0093-document-term-rfd-and-four-digit-numbers.md)）。
 
 ## 選ばなかった形
 
@@ -125,6 +127,12 @@
 - Codex のまとめページを、スレッドの中で Markdown を見せる形や ChatGPT Space の Page にする形 — 不採用: 中身が Markdown になり、Claude Code の HTML と型を 2 つ持つ（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D2）。
 - まとめページを主題ごとに 1 枚にする形 — 不採用: 1 つの会話で主題を行き来する長い会話で、行き来のたびに作り直すか、URL が複数できる（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D25・§13）。
 - まとめページのひな形を置かない形、場面ごとに置く形 — 不採用: 前者はページごとに見た目が戻りうり、後者は直すとき複数のひな形がずれうる（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D26・§13）。
+- 文書の呼び名をSPECにする — 不採用: Spec Kit・Kiroのspecは作り方を書かない要求、OpenSpecのspecは今の仕様で似て非なり、語の一部としての衝突が1万か所を超え、用語集のSpecとも逆向き（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、§5.3・§6 D1）。
+- 文書の呼び名をRFC・ORDER・ECO・CRにする — 不採用: RFCは一般の語、ORDERは文字数とanetでの順序の意味、ECOはソフトウェアで通じにくく変更を避ける響き、CRは改行のCRと紛れて検索できない（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、§5.3・§6 D1）。
+- 呼び名を改めるとき、直下の文書のうち課題が開いているものだけ本文を直す — 不採用: 開発者の選択で、実装が済んだ文書も今の名前にそろえた（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、§6 D3）。
+- 文書の改名と本文の語の置き換えを1回のコミットにまとめる — 不採用: 番号の0埋めで似ている度合いが下がり、131が50%の境目に近く、skill・検証資材の11組がgitに改名と見られない（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、§5.5・§6 D4）。
+- 道具が件名の記号を切り替えの日で読み分け、旧い記号を新しく書いたら知らせる — 不採用: 旧い名前の番人になり、番号の値を変えないので旧い番号と新しい番号は紛れない（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、§6 D9・D17）。
+- .scratchの下のパスと各機の手元のフォルダを全部新しい名前にする — 不採用: 各機で手作業が要り、過去の記録の中のパスが無いフォルダを指す（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、§6 D5）。
 
 ## 変えるときの条件
 
@@ -151,6 +159,8 @@
 - まとめページの決まりは、Claude Code と Codex で同じ決まりと同じ中身の型を使い、違うのは出し方だけに保つ（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D3）。
 - skill の本体ではないもの（まとめページの共通の型と場面ごとの指針）を、.agents と .claude の 2 か所にコピーしない（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D6）。
 - 追跡するファイルに、まとめページの非公開ページの URL を書かない（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D14・§10 A8）。
+- 文書の番号の値は変えない。桁の形を変えるときは0を足すだけにし、旧い番号と新しい番号を値で同じ文書に当てる（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、§1.3・§6 D8・D17）。
+- 文書を改名するときは、改名したファイルがgitに改名と見られることを`git diff --cached -M --name-status`と`git log -M`で確かめ、全文書の`git log --follow --diff-filter=A`の最も古い日が改名の前後で一致し、定点統計の文書ごとの移した日・月ごとのdone・frozen・droppedの数・doneのリードタイムが、保管場所の中で改名された文書の移した日を最初に保管場所へ入った日に直した値と一致することを確かめる。本文の語の置き換えで似ている度合いが下がるときは、改名とリンクのパスの直しと動作に効く行の直しを先のコミットに、残りの語の置き換えを後のコミットに分けてよい（PRD131の「1回のコミット」の理由は、この分け方でも満たす）（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、§5.5・§6 D4・D25・§9.6・§10.2 A11）。
 
 ## 関係
 
@@ -224,8 +234,10 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261121-529662](../../management/issues/issue-20261121-529662.md) | 調査中 | 1.5 | — | ハーネス | PRD | 311_dev_tools | 開発 | リファクタリング | [PRD195](../../memo/195_rename_prd_document_term_10prd.md) | 未確認 | 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前へ改め、今使っている場所をすべて移す |
 | [issue-20261104-52ffba](../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
+| [issue-20261116-fe09dc](../../management/issues/issue-20261116-fe09dc.md) | 調査中 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD195](../../memo/195_rename_prd_document_term_10prd.md) | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD187](../../memo/187_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261122-4adabb](../../management/issues/issue-20261122-4adabb.md) | 未着手 | 4.0 | — | コード | 実装 | 311_dev_tools, 316_config | 開発 | 不具合 | — | 未確認 | PRD072 の既定葉検査が移転前の core を探索して停止する |
 | [issue-20261111-3986b7](../../management/issues/issue-20261111-3986b7.md) | 未着手 | 3.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | テストを回す範囲・回数と、テストの控え・ログの置き場の決まりが無く、実装の時間と .scratch が膨らむ |
@@ -236,7 +248,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-61d771](../../management/issues/issue-20261103-61d771.md) | 未着手 | 1.6 | — | コード | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD156](../../memo/156_cicd_improvement_10prd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
 | [issue-20261115-3e5b77](../../management/issues/issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 文書 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
-| [issue-20261121-529662](../../management/issues/issue-20261121-529662.md) | 未着手 | 1.5 | — | ハーネス | PRD | 311_dev_tools | 開発 | リファクタリング | [PRD195](../../memo/195_rename_prd_document_term_10prd.md) | 未確認 | 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前へ改め、今使っている場所をすべて移す |
 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | コード | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [PRD096](../../memo/096_metrics_step_axis_interval_10prd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
 | [issue-20261110-9d4e5a](../../management/issues/issue-20261110-9d4e5a.md) | 未着手 | 1.4 | — | コード | その他 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | C++ の単純な書き方の問題を機械で検出する仕組み（lint・静的解析）が無い |
 | [issue-20261103-71bb9a](../../management/issues/issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | コード | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD157](../../memo/157_test_line_coverage_10prd.md) | 残件有り | 行カバレッジ計測（OpenCppCoverage） |
@@ -245,7 +256,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261115-657248](../../management/issues/issue-20261115-657248.md) | 未着手 | 1.2 | — | コード | ハーネス保守 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 既存のソースと設定を、最新の規約（include の順・クラス宣言の区切り・関数名の形など）に合わせてまとめて点検し直す |
 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | コード | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD154](../../memo/154_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | — | コード | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
-| [issue-20261116-fe09dc](../../management/issues/issue-20261116-fe09dc.md) | 未着手 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | コード | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD185](../../memo/185_release_packaging_cmake_10prd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
 
 着手できる 23 / 待ち 0 / 保留 0 / 次版 0 / 解決 0

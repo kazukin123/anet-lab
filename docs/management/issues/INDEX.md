@@ -10,8 +10,10 @@
 | [issue-20261117-eedd0c](issue-20261117-eedd0c.md) | 調査中 | 2.6 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | Evaluation Trace の単一行選択テストが合成ドラッグ後に失敗する |
 | [issue-20261122-c1744a](issue-20261122-c1744a.md) | 対応中 | 2.6 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 残件有り | RND と補助学習の設定キーが段階とモードの関係を表しておらず、warm-up の 1 つの件数が 2 つの待ちを束ねていて、設計文書 212 から設定と動きを引きにくい |
 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 調査中 | 2.0（引継ぎ） | — | コード | PRD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [PRD161](../../memo/161_observation_pipeline_10prd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
+| [issue-20261121-529662](issue-20261121-529662.md) | 調査中 | 1.5 | — | ハーネス | PRD | 311_dev_tools | 開発 | リファクタリング | [PRD195](../../memo/195_rename_prd_document_term_10prd.md) | 未確認 | 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前へ改め、今使っている場所をすべて移す |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
+| [issue-20261116-fe09dc](issue-20261116-fe09dc.md) | 調査中 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD195](../../memo/195_rename_prd_document_term_10prd.md) | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261103-23d185](issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD187](../../memo/187_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261122-4adabb](issue-20261122-4adabb.md) | 未着手 | 4.0 | — | コード | 実装 | 311_dev_tools, 316_config | 開発 | 不具合 | — | 未確認 | PRD072 の既定葉検査が移転前の core を探索して停止する |
 | [issue-20261111-9e6e27](issue-20261111-9e6e27.md) | 未着手 | 3.6 | — | コード | PRD | 110_runner_app | UI | 機能改善 | — | 未確認 | 無人で走るRun（番号付きbat）でWARNに気づけない |
@@ -81,7 +83,6 @@
 | [issue-20261114-fbcbca](issue-20261114-fbcbca.md) | 未着手 | 1.6 | — | ハーネス | ハーネス保守 | — | 開発 | 機能改善 | — | 未確認 | ADR へのたどり方を改善する（wiki への取り込み遅れと漏れ、入口の方針、サブエージェントの経路） |
 | [issue-20261115-3e5b77](issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 文書 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
 | [issue-20261103-75b8da](issue-20261103-75b8da.md) | 未着手 | 1.5 | — | コード | PRD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [PRD168](../../memo/168_nstep_target_correction_10prd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
-| [issue-20261121-529662](issue-20261121-529662.md) | 未着手 | 1.5 | — | ハーネス | PRD | 311_dev_tools | 開発 | リファクタリング | [PRD195](../../memo/195_rename_prd_document_term_10prd.md) | 未確認 | 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前へ改め、今使っている場所をすべて移す |
 | [issue-20261103-e29c92](issue-20261103-e29c92.md) | 未着手 | 1.4 | — | コード | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 残件有り | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
 | [issue-20261103-df24e5](issue-20261103-df24e5.md) | 未着手 | 1.4 | — | コード | 監査 | 312_util | 基盤 | 不具合 | — | 判定不能 | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
 | [issue-20261103-182ca1](issue-20261103-182ca1.md) | 未着手 | 1.4 | — | コード | PRD | 318_rl_core, 324_dqn, 315_nn, 320_env_core | 学習基盤 | 性能改善 | [PRD180](../../memo/180_core_perf_candidates_202607_10prd.md) | 残件有り | 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 |
@@ -116,7 +117,6 @@
 | [issue-20261103-c16aab](issue-20261103-c16aab.md) | 未着手 | 1.0 | — | コード | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD154](../../memo/154_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 | [issue-20261105-f4b870](issue-20261105-f4b870.md) | 未着手 | 1.0 | — | コード | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261111-d1d12b](issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 残件有り | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
-| [issue-20261116-fe09dc](issue-20261116-fe09dc.md) | 未着手 | 1.0 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める |
 | [issue-20261119-cb9a0f](issue-20261119-cb9a0f.md) | 未着手 | 1.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | — | 未確認 | RNDの観測の正規化に、学習の前に一様乱数の行動で統計を作る前段（Burdaら）が無い |
 | [issue-20261122-4b9e2d](issue-20261122-4b9e2d.md) | 未着手 | 1.0 | — | コード | PRD | 315_nn | 基盤 | 不整合 | — | 未確認 | NN の入口が、離散の Grid の入力で、stack 軸とクラスの次元を、定義に書かれないままチャネルへ畳む |
 | [issue-20261122-d9499f](issue-20261122-d9499f.md) | 未着手 | 1.0 | — | コード | PRD | 316_config, 324_dqn, 314_tensor, 315_nn | 基盤 | 機能改善 | — | 未確認 | 見直したあとの設定の形と通知の決まりに沿わない設定キーと通知が、RND の外に残る（全体は調べていない） |
