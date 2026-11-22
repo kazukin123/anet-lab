@@ -94,7 +94,7 @@ _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
 ### スキップ（TempoRL）
 
 **スキップ**:
-判断の step で選んだ行動を、スキップ長の間そのまま続ける区間（TempoRL）。Agent の判断の間隔であり、Env が 1 agent step の中でフレームを反復する frame_skip とは層が違う。
+判断の step で選んだ行動を、スキップ長の間そのまま続ける区間（TempoRL）。Agent の判断の間隔であり、Env が 1 agent step の中でエミュレータフレームを反復する frame_skip とは層が違う。
 _Avoid_: action repeat（frame_skip と混同）, 行動反復, frame skip（Env 側）, マクロ行動（Env が足す行動）
 
 **スキップ長**:
@@ -364,7 +364,7 @@ _Avoid_: dropper marker（move系表示と混同）
 ### Atari/ALE
 
 **sticky actions**:
-確率`repeat_action_probability`で当該フレームの入力行動を無視し、直前の実行行動を継続させるALEの確率性注入。ALE内部RNGがエミュレータフレーム単位で判定する（AtariEnvの自前skipループでもact()単位=フレーム単位なので原義と同一）。丸暗記方策（open-loop）を壊すための機構で、frame_skip（時間抽象化）とは別概念。
+確率`repeat_action_probability`で当該エミュレータフレームの入力行動を無視し、直前の実行行動を継続させるALEの確率性注入。ALE内部RNGがエミュレータフレーム単位で判定する（AtariEnvの自前skipループでもact()単位=エミュレータフレーム単位なので原義と同一）。丸暗記方策（open-loop）を壊すための機構で、frame_skip（時間抽象化）とは別概念。
 _Avoid_: action repeat（frame_skipと混同）, 行動ノイズ
 
 **flavor**:
@@ -384,7 +384,7 @@ sticky actions・NoOp reset・episodic life・fire reset等の評価条件の組
 _Avoid_: プロトコルプリセット(旧称), envバージョン（Gymnasium環境IDと混同）, 難易度設定（flavorと混同）
 
 **RAM メトリクス**（RAM metric）:
-AtariEnv 固有の、ALE RAM 1 バイトの毎フレーム列をゲーム 1 回（hard reset から実 game over / truncation まで。soft reset をまたぐ）に畳んだ確定値。番号付きの汎用キー `ram_metric.[n]` で参照し、中身はゲーム別の RAM 定義を `AtariEnv.ram_metric.[game].metrics` の行で番号へ結んで決める。今のゲームに番号が無ければ NaN、どのゲームも番号付けていなければ未知キー。番号は metrics 側の固定の接点であり、ゲームを変えても metrics 定義を変えない。番号には全ゲーム共通の大まかな意味がある（1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数）。
+AtariEnv 固有の、ALE RAM 1 バイトのエミュレータフレームごとの列をゲーム 1 回（hard reset から実 game over / truncation まで。soft reset をまたぐ）に畳んだ確定値。番号付きの汎用キー `ram_metric.[n]` で参照し、中身はゲーム別の RAM 定義を `AtariEnv.ram_metric.[game].metrics` の行で番号へ結んで決める。今のゲームに番号が無ければ NaN、どのゲームも番号付けていなければ未知キー。番号は metrics 側の固定の接点であり、ゲームを変えても metrics 定義を変えない。番号には全ゲーム共通の大まかな意味がある（1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数）。
 _Avoid_: slot（ReplayBuffer / eval の語）, channel（metrics チャネル）, index, ram_watch（原案の語）, RAM 番地キー（`ram_min.[0xCC]` 型）
 
 **RAM 定義**（RAM definition）:
@@ -392,7 +392,7 @@ _Avoid_: slot（ReplayBuffer / eval の語）, channel（metrics チャネル）
 _Avoid_: RAM ウォッチ, プローブ（plasticity の probe チャネルと混同）, イベント定義（回数だけでなく到達値も含む）
 
 **畳み方**（reducer）:
-RAM 定義が毎フレーム列を 1 値に畳む規則。`max_seen` / `min_seen` / `distinct_seen` は v0 を含む到達値（`distinct_seen` は見た値の種類数）、`inc_count` / `dec_count` / `reach_count:N` / `bit_rise_count:MASK` / `bit_fall_count:MASK` は遷移の回数（`reach_count` はレベルではなく N に入った回数、`bit_*_count` は MASK の中で立った・落ちたビットの数）。時間方向（ゲーム内のフレーム列）の畳み込みであり、lane 方向の集約 prefix（`mean.` / `max.` / `min.` / `std.`）やキー側の演算（`.ge.[N]`）とは層が違う。
+RAM 定義がエミュレータフレームごとの列を 1 値に畳む規則。`max_seen` / `min_seen` / `distinct_seen` は v0 を含む到達値（`distinct_seen` は見た値の種類数）、`inc_count` / `dec_count` / `reach_count:N` / `bit_rise_count:MASK` / `bit_fall_count:MASK` は遷移の回数（`reach_count` はレベルではなく N に入った回数、`bit_*_count` は MASK の中で立った・落ちたビットの数）。時間方向（ゲーム内のエミュレータフレームの列）の畳み込みであり、lane 方向の集約 prefix（`mean.` / `max.` / `min.` / `std.`）やキー側の演算（`.ge.[N]`）とは層が違う。
 _Avoid_: 集約（lane 方向と混同）, min / max（集約 prefix の語）, 統計（回数を含まない印象）
 
 ### 実行系統
@@ -438,8 +438,8 @@ _Avoid_: lane group（lane分割一般と混同）, eval batch, worker group
 _Avoid_: TotalReward, eps_total_reward, episode reward（step rewardとの区別が曖昧）
 
 **エピソード長**（episode length）:
-一つのepisode groupが開始から完了までに要したEnvの`Step()`回数。`PER_LANE`では当該laneのstep数、`SHARED`ではbatch全体の`Step()`回数でlane数は掛けない——episode returnが全lane・全stepの総和なのとは意図的に非対称で、長さは量ではなく時間だから`num_envs`を変えても値の意味が変わらないようにする。全envで`$runner`から`mean./max./min./std.episode_steps`として取れる。単位はagent stepで、frameskip前の生フレーム数ではない。
-_Avoid_: episode_len（GridMazeの旧env固有キー）, game_len（Atari固有。episodic_life下ではepisode境界が別）, game_frames（生フレーム）, エピソードステップ数
+一つのepisode groupが開始から完了までに要したEnvの`Step()`回数。`PER_LANE`では当該laneのstep数、`SHARED`ではbatch全体の`Step()`回数でlane数は掛けない——episode returnが全lane・全stepの総和なのとは意図的に非対称で、長さは量ではなく時間だから`num_envs`を変えても値の意味が変わらないようにする。全envで`$runner`から`mean./max./min./std.episode_steps`として取れる。単位はagent stepで、frameskip前のエミュレータフレームの数ではない。
+_Avoid_: episode_len（GridMazeの旧env固有キー）, game_len（Atari固有。episodic_life下ではepisode境界が別）, game_frames（エミュレータフレームの数）, エピソードステップ数
 
 **評価セッション**（evaluation session）:
 eval scheduleの1回の発火で行う評価の単位。一つのnetwork snapshotを使い、全episode groupを新しいepisodeの開始状態に揃えてから、採用episode N本（`eval_episodes`）を完走させ、その集約を`@session_end` 1点として記録する。採用episodeの完了はそれぞれ`@episode_end`としても発火し、個体単位のtraceはそちらに乗る。lane数（`eval_batch_size`）は並列度であって本数ではない。
@@ -490,7 +490,7 @@ pause/resume、Eval の 1 step 実行、View FPS 変更のように、Run の実
 _Avoid_: 動的設定, runtime config（設定と混同）, UI 設定
 
 **強制行動**（forced action）:
-人の操作（キー・クリックなど）によって、Actor が選んだ行動を Actor の外から置き換えた実行行動。step trace では、Actor が選んだ行動と区別して読む。
+人の操作（キー・クリックなど）によって、方策の選択に代えて実行させる、lane ごとに指定する行動。step trace では、方策が選んだ行動と区別して読む。
 _Avoid_: 手動 Action, manual action, 上書き（設定の上書き層と紛れる）, 強制Action（表記ゆれ）
 
 **step trace**:
@@ -622,6 +622,34 @@ _Avoid_: obs tensor, state input
 **観測キー**:
 Observation `TensorDict` の各エントリを識別する文字列キー。`vector`（低次元ベクトル観測）、`grid`（画像・格子観測）、`action_mask`（合法手マスク。学習入力には含めない）。
 _Avoid_: obs field, channel, feature key
+
+**Frame**:
+ReplayBuffer に保存する、観測側の 1 step 分で、Observation に Agent が足した情報を合わせた `TensorDict`。slot のうち観測にあたる部分で、行動・報酬・終了は含まない。
+_Avoid_: フレーム（ALE のエミュレータフレームと紛れる）, slot（行動・報酬・終了も含む ReplayBuffer の 1 件）, stacked obs
+
+**Perception（知覚）**:
+Agent が、Observation と自分の持つ関連情報（直前の行動など）から作る、Network へ渡す入力で、形は Agent の設定が決め、forward のたびに引き直す taus は含めない。Network ごとにあり、どの Network への入力かを添えて使う。
+_Avoid_: percept（生の入力の側を指す語）, agent state, state input, 特徴（Network の Body の出力）
+
+**Forwarder**:
+`TensorDict` を受けて `TensorDict` を返す変換で、lane ごとの履歴のような、用途ごとの状態は持たない（重みや統計のような、どの用途にも共通の値は持つ）。Network と、観測を加工する部品（重ねる、正規化する、キーを落とす）がこれに当たる。
+_Avoid_: Transform（NN の Transformer と紛れる）, パイプライン（`PipelineTrainRunner` と紛れる）, preprocessor（Network の入口の整形と紛れる）, wrapper（Env 側の語）
+
+**Forwarder の並び**（ForwarderChain）:
+設定に書いた順に Forwarder をつないだもの。Perception を作る並びは、その使い道の 1 つ。
+_Avoid_: 観測パイプライン, stage chain, レイヤ（NN の層と紛れる）
+
+**Forward の依頼**（ForwardRequest）:
+Forwarder の並びに頼む変換の種類。何を渡して何が欲しいかで区別し、統計を更新しつつ Frame を作る、重ねた束から Perception を作る、1 枚の Frame から Perception を作る、の 3 つがある。
+_Avoid_: 場面, Scene（呼ぶ側の状況の名前）, モード, フェーズ, 経路
+
+**stack 軸**:
+観測キーを時刻の順に重ねた枚数の軸。Perception の stack の対象のキーは必ずこの軸を持ち、重ねないときは長さ 1 になる。
+_Avoid_: 時系列の軸, time axis, スタック次元
+
+**値の尺度**（ValueScale）:
+観測キーの値の尺度が決まっているか（Scaled）、決まっていないか（Unscaled）の区分で、値に上下限があるかは表さない。キーを作る側が宣言し、正規化の対象は Unscaled のキーである。
+_Avoid_: Fixed / Unfixed, 正規化フラグ（加工の名前で表さない）
 
 **probe**:
 可視化のために experience / agent / network いずれかの source から、キーと index を指定して数値列を取り出すデータ抽出子。

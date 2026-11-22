@@ -998,3 +998,4 @@
 2026-11-22 writeback docs/memo/195_rename_prd_document_term_10prd.md blob:cf2bc9e16b49447b5a88fe13a3e1c13ddd7f9eda → docs/wiki/categories/311_dev_tools.md（成立の経緯 1 行。暫定の起票の最終の本文と照合した）
 2026-11-22 writeback docs/memo/197_conversation_options_summary_page_10prd.md blob:19b4bdbbc17b5f237027f3c6477721e38551b5e7 → docs/wiki/categories/311_dev_tools.md（成立の経緯 1 行、選ばなかった形 9 行、変えるときの条件 4 行。再グリルで暫定の印を外した版）、docs/wiki/index.md（311 の行の別名）
 2026-11-22 fix docs/memo/197_conversation_options_summary_page_10prd.md blob:19b4bdbbc17b5f237027f3c6477721e38551b5e7 → docs/wiki/categories/311_dev_tools.md（成立の経緯の行に会話の枠ごとに 1 枚とひな形を足し、出典の受入の番号を A7 から A8 へ直した）
+2026-11-22 writeback docs/memo/161_observation_pipeline_10prd.md blob:42fa3c28d8589d808537f620ec835901c7cc822d → なし（再グリルを終えた本文と照合した。課題の区画のほかに、本 PRD を出典にするページの行は無い。知見の取り込みは、実装のあとに行う）
