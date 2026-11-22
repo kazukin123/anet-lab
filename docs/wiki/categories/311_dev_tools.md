@@ -44,6 +44,7 @@
 - 2026-11-18: テストは自分のライブラリの内部まで読み、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う（出典: [ADR 0080](../../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)、本文）。
 - 2026-11-19: PRDのグリルで、goal anchorの応答に共通の前提を並べ、ゴールの合意と同じ返事で説明が要る前提の番号を受けて理解を確かめ、欠けた前提は先にそろえるかをその都度選び、PRDに前提の表を置き、PRD品質確認観点に項番43を足す案を、グリルで決めた（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§1.2・§6.1 D2〜D8・§6.2 D13）。
 - 2026-11-21: 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前（暫定の既定はSPEC）へ改め、ファイル名・skill名・課題の欄・コミット件名・テストのタグ・道具など今使っている場所をすべて移し、過去の記録は書き換えずに道具が旧い件名の番号も読む案を暫定で起票した（出典: [PRD195](../../memo/195_rename_prd_document_term_10prd.md)、題・§1・§6）。
+- 2026-11-22: 会話の枠ごとに 1 枚のまとめページ（冒頭・いまの位置・記号の一覧に、場面ごとの節を足したもの）を、場面に入ったときか前の応答の記号を引き始めたときに作って、中身が変わった応答で更新し、Claude Code は非公開ページ、Codex は ChatGPT Sites で同じ URL のままスマホから見返せるようにする案を、グリルで決めた。手順は skill、始める条件は AGENTS.md、場面ごとの指針とひな形は docs/process/summary-page/ に置く（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§1.2・§6 D1・D2・D5〜D9・D11・D25・D26）。
 
 ## 選ばなかった形
 
@@ -115,6 +116,15 @@
 - 共通の前提の各行に、効く論点と、違うと推奨がどう変わるかを添える形 — 不採用: goal anchorの時点では論点が決まっていないことがあり、誤りやすい（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D30・§9）。
 - 実装の入口でレビューを受けるPRDに、前提をそろえるためにグリルを止めたPRDを足す形 — 範囲外: 課題が範囲をanet-create-prdに限っている。再開条件: 未決表のU1を起票し、その課題を扱うとき（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§1.3 NG3・§9・§10）。
 - グリルの手順の試走（実装のあとの最初のグリル1本）を受入に入れる形 — 不採用: 実装の完了が次のグリルを待つ（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§6.1 D32・§9）。
+- 会話のまとめページの決まりを skill だけに置く形 — 不採用: 自動で作るのが、skill の説明文に AI が気づくかどうかに頼る（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D5・§13）。
+- 会話のまとめページの決まりを AGENTS.md だけに置く形 — 不採用: 毎回読む AGENTS.md が手順で数千バイト増え、細則を外に置く方針と逆向きで、頼む入口も無い（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D5・§13）。
+- まとめページの場面ごとの指針を skill のフォルダに置く形 — 不採用: skill の本体ではないものを .agents と .claude の 2 か所にコピーすることになる（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D6）。
+- まとめページの場面ごとの指針を registry.md に置く形 — 不採用: 成果物の対応表に別の関心が混ざり、レビュー役にも毎回読ませる（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D6）。
+- まとめページの目印を一覧ファイル 1 つにする形 — 不採用: 並行する会話の書き込みがぶつかり、終わった行を消す決まりも要る（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D17）。
+- まとめページの URL を課題や PRD に書く形 — 不採用: 公開リポジトリに非公開ページの URL を残す（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D14・§13）。
+- Codex のまとめページを、スレッドの中で Markdown を見せる形や ChatGPT Space の Page にする形 — 不採用: 中身が Markdown になり、Claude Code の HTML と型を 2 つ持つ（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D2）。
+- まとめページを主題ごとに 1 枚にする形 — 不採用: 1 つの会話で主題を行き来する長い会話で、行き来のたびに作り直すか、URL が複数できる（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D25・§13）。
+- まとめページのひな形を置かない形、場面ごとに置く形 — 不採用: 前者はページごとに見た目が戻りうり、後者は直すとき複数のひな形がずれうる（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D26・§13）。
 
 ## 変えるときの条件
 
@@ -137,6 +147,10 @@
 - テスト用の口の中身は、組み立ての補助と読むだけの口に限り、製品の処理を置かない。anet/test/の下のヘッダはガードを持ち、製品のコードは読まない（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§4.1 D13・§6 のS3-3）。
 - リリースのzipの中のパスを変えるときは、着手前の一覧と比べて、決めた差だけであることを確かめる（出典: [PRD182](../../memo/182_source_layout_10prd.md)、§6 のS1-4・S4-4）。
 - PRDのグリルの手順を変えるときは、理解を深める往復（説明や具体例を求める返答と、その答え）を減らす対象にしない。前提の確かめと前提をそろえる段は、開発者が指定すれば飛ばせる形を保つ（出典: [PRD189](../../memo/189_grill_premise_understanding_10prd.md)、§1.3 NG1・§6.1 D1）。
+- 会話のまとめページは見返し用の写しに保ち、決定の正本（PRD・実験記録・課題）にしない（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§1.3）。
+- まとめページの決まりは、Claude Code と Codex で同じ決まりと同じ中身の型を使い、違うのは出し方だけに保つ（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D3）。
+- skill の本体ではないもの（まとめページの共通の型と場面ごとの指針）を、.agents と .claude の 2 か所にコピーしない（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D6）。
+- 追跡するファイルに、まとめページの非公開ページの URL を書かない（出典: [PRD197](../../memo/197_conversation_options_summary_page_10prd.md)、§6 D14・§10 A8）。
 
 ## 関係
 
@@ -211,6 +225,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261104-52ffba](../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
+| [issue-20261122-717309](../../management/issues/issue-20261122-717309.md) | 調査中 | 1.4 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD197](../../memo/197_conversation_options_summary_page_10prd.md) | 未確認 | 記号付きの案が増えた会話で、案の一覧と状態・決定・未決をまとめて見返せる場所が無く、スマホでは元の応答を探せない |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD187](../../memo/187_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261111-3986b7](../../management/issues/issue-20261111-3986b7.md) | 未着手 | 3.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | テストを回す範囲・回数と、テストの控え・ログの置き場の決まりが無く、実装の時間と .scratch が膨らむ |
@@ -224,7 +239,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261121-529662](../../management/issues/issue-20261121-529662.md) | 未着手 | 1.5 | — | ハーネス | PRD | 311_dev_tools | 開発 | リファクタリング | [PRD195](../../memo/195_rename_prd_document_term_10prd.md) | 未確認 | 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前へ改め、今使っている場所をすべて移す |
 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | コード | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [PRD096](../../memo/096_metrics_step_axis_interval_10prd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
 | [issue-20261110-9d4e5a](../../management/issues/issue-20261110-9d4e5a.md) | 未着手 | 1.4 | — | コード | その他 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | C++ の単純な書き方の問題を機械で検出する仕組み（lint・静的解析）が無い |
-| [issue-20261122-717309](../../management/issues/issue-20261122-717309.md) | 未着手 | 1.4 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD197](../../memo/197_conversation_options_summary_page_10prd.md) | 未確認 | 記号付きの案が増えた会話で、案の一覧と状態・決定・未決をまとめて見返せる場所が無く、スマホでは元の応答を探せない |
 | [issue-20261103-71bb9a](../../management/issues/issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | コード | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD157](../../memo/157_test_line_coverage_10prd.md) | 残件有り | 行カバレッジ計測（OpenCppCoverage） |
 | [issue-20261103-7227bf](../../management/issues/issue-20261103-7227bf.md) | 未着手 | 1.2 | — | コード | PRD | 311_dev_tools, 317_metrics | 開発 | 機能追加 | [PRD153](../../memo/153_q_statistics_config_screening_10prd.md) | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング |
 | [issue-20261103-dbe666](../../management/issues/issue-20261103-dbe666.md) | 未着手 | 1.2 | — | コード | PRD | 322_env_individual, 318_rl_core, 311_dev_tools | Env | 調査 | [PRD163](../../memo/163_dropmerge_neet_diagnostics_10prd.md) | 残件有り | DropMerge の NEET 診断（trace で足りるか確かめてから指標化） |
