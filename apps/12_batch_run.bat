@@ -4,7 +4,7 @@ title %~nx0
 cd /d "%~dp0runner"
 for %%I in ("%~dp0..\data\workspaces") do SET "DATA_WORKSPACES=%%~fI"
 
-SET "QUEUE=mz_n10"
+SET "QUEUE=mz_prd191"
 if not "%~1"=="" SET "QUEUE=%~1"
 if /I "%QUEUE%"=="ll_rnd" goto :skipwait
 
@@ -362,6 +362,7 @@ goto :summary
 :mz_g99
 :mz_seed2
 :mz_n10
+:mz_prd191
 copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab12.exe" >nul
 if errorlevel 1 goto :no_exe
 for %%F in ("bin\%BUILD%\AnetRLRunner.exe") do echo %DATE% %TIME% EXE %%~fF built %%~tF
@@ -405,10 +406,15 @@ SET "NEONLY=DefaultDQNAgent.learner.intrinsic.terminal_mode=non_episodic"
 SET "EVCHK=DefaultDQNAgent.learner.enabled=false app.save_agent_on_close=false run.train.num_envs=1 DefaultDQNAgent.actor.[train].policy.spatial.enabled=false run.eval.[greedy].eval_batch_size=16 run.eval.[greedy].eval_episodes=64 run.eval_schedule.[greedy].interval=10 run.eval_schedule.[greedy].warmup_count=0 run.eval_schedule.[eval].interval=0 run.eval_schedule.[greedy_single].interval=0 run.eval_schedule.[eval_target].interval=0 app.batchrun.exp_exit_step=12"
 SET "EV18K=run.eval.[greedy].env.max_episode_frames=18000"
 SET "N10=DefaultDQNAgent.learner.n_step=10"
+SET "REUSE4=DefaultDQNAgent.intrinsic.learn.mode=rollout DefaultDQNAgent.intrinsic.learn.rollout.length=128 DefaultDQNAgent.intrinsic.learn.rollout.epochs=4 DefaultDQNAgent.intrinsic.learn.rollout.ratio=4 DefaultDQNAgent.intrinsic.learn.rollout.batch_size=128"
+SET "LR3E4=DefaultDQNAgent.intrinsic.rnd.learning_rate=3e-4"
+SET "BURDA=DefaultDQNAgent.intrinsic.rnd.error_norm.mode=none DefaultDQNAgent.intrinsic.rnd.error_norm.none.warmup_steps=200000 DefaultDQNAgent.intrinsic.use_done_mask=false DefaultDQNAgent.intrinsic.reward_scaler.use_dynamic_scaling=true DefaultDQNAgent.intrinsic.reward_scaler.dynamic_mode=return_std DefaultDQNAgent.intrinsic.beta=0.5"
+SET "ROLL1K=DefaultDQNAgent.intrinsic.learn.mode=rollout DefaultDQNAgent.intrinsic.learn.rollout.length=128 DefaultDQNAgent.intrinsic.learn.rollout.epochs=4 DefaultDQNAgent.intrinsic.learn.rollout.ratio=1.0 DefaultDQNAgent.intrinsic.learn.rollout.batch_size=1024"
 if /I "%QUEUE%"=="mz_rr4" goto :mz_rr4_stages
 if /I "%QUEUE%"=="mz_g99dec" goto :mz_g99dec_stages
 if /I "%QUEUE%"=="mz_seed2" goto :mz_seed2_stages
 if /I "%QUEUE%"=="mz_n10" goto :mz_n10_stages
+if /I "%QUEUE%"=="mz_prd191" goto :mz_prd191_stages
 
 SET "RUN_EXIT_CODE=0"
 call :wait_disk
@@ -516,6 +522,38 @@ call :wait_disk
 echo === 43. montezuma_revenge 30m seed 2: same as mz_tg_g99_rr4_s1 (stage 38) ===
 call :find_done mz_tg_g99_rr4_s2
 if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99ONLY% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99_rr4_s2"
+goto :summary
+
+:mz_prd191_stages
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 46. montezuma_revenge 30m seed 1: same as 44 (n-step 10) but the RND predictor learns from rollouts of 128 intakes, 4 epochs, each observation 4 times in batches of 128 ===
+call :find_done mz_n10_reuse4_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %REUSE4% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_reuse4_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 47. montezuma_revenge 30m seed 1: same as 44 but the RND predictor learning rate 3e-4 ===
+call :find_done mz_n10_lr3e4_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %LR3E4% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_lr3e4_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 48. montezuma_revenge 30m seed 1: same as 44 but the intrinsic reward of Burda et al.: the error not divided by its statistics, divided by the std of the intrinsic return, not zeroed at done, beta 0.5 ===
+call :find_done mz_n10_burda_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %BURDA% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_burda_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 49. montezuma_revenge 30m seed 1: same as 44 but the RND predictor learns as Burda et al.: rollouts of 128 intakes, 4 epochs, each observation once in batches of 1,024 ===
+call :find_done mz_n10_rl1024_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %ROLL1K% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_rl1024_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 50. montezuma_revenge 30m seed 1: same as 44 but both 48 and 49 (the Burda et al. form) ===
+call :find_done mz_n10_burdarl_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %BURDA% %ROLL1K% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_burdarl_s1"
 goto :summary
 
 :ram_short
