@@ -158,8 +158,6 @@ namespace anet {
             return ss.str();
 		}
     private:
-        //std::vector<std::string> ResolveModule(const std::string& module) const;
-    private:
         struct ReadEntry {
             std::atomic_bool read = false;
             std::atomic_bool inventory = false;
@@ -171,8 +169,10 @@ namespace anet {
             std::mutex mutex;
             std::set<std::string> attempted;
         };
+    private:
         void SetString(const std::string& key, const std::string& value);
         void MarkRead(const std::string& key) const;
+    private:
         MapType map_;
         // 別の置き場から写した項目は、現在のキーとは別に出典を保持する。
         std::unordered_map<std::string, std::string> full_keys_;
