@@ -1,0 +1,192 @@
+<style>
+  .conversation-summary {
+    color-scheme: light dark;
+    --page: #f3f6fa;
+    --surface: #ffffff;
+    --text: #18243a;
+    --muted: #4a5870;
+    --line: #cbd5e3;
+    --accent: #2457ad;
+    box-sizing: border-box;
+    max-inline-size: 52rem;
+    margin: 0 auto;
+    padding: clamp(1rem, 4vw, 2rem);
+    padding-block-end: 5rem;
+    background: var(--page);
+    color: var(--text);
+    font: 1rem/1.75 "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+    overflow-wrap: anywhere;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .conversation-summary {
+      --page: #111827;
+      --surface: #1a2436;
+      --text: #edf3fe;
+      --muted: #b7c4d8;
+      --line: #465875;
+      --accent: #adcaff;
+    }
+  }
+
+  .conversation-summary :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  .conversation-summary h1,
+  .conversation-summary h2 {
+    margin-block: 0 0.65rem;
+    line-height: 1.4;
+  }
+
+  .conversation-summary h1 {
+    font-size: clamp(1.65rem, 5vw, 2.4rem);
+  }
+
+  .conversation-summary h2 {
+    font-size: 1.3rem;
+  }
+
+  .conversation-summary .summary-note {
+    margin-block: 0.4rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .conversation-summary a {
+    color: var(--accent);
+    text-underline-offset: 0.18em;
+  }
+
+  .conversation-summary nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    margin-block: 0.85rem 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .conversation-summary nav a,
+  .conversation-summary summary {
+    display: inline-block;
+    padding-block: 0.45rem;
+  }
+
+  .conversation-summary section {
+    margin-block-start: 1.5rem;
+    scroll-margin-block-start: 1rem;
+  }
+
+  .conversation-summary .position {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: 0.65rem;
+    margin: 0;
+  }
+
+  .conversation-summary .position > div,
+  .conversation-summary details {
+    padding: 0.7rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    background: var(--surface);
+  }
+
+  .conversation-summary .position dt {
+    margin-block-end: 0.35rem;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .conversation-summary dd,
+  .conversation-summary .position ol {
+    margin: 0;
+  }
+
+  .conversation-summary .position ol {
+    padding-inline-start: 1.35rem;
+  }
+
+  .conversation-summary details + details {
+    margin-block-start: 0.6rem;
+  }
+
+  .conversation-summary summary {
+    display: list-item;
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  .conversation-summary .back-to-top {
+    position: fixed;
+    z-index: 1;
+    inset-inline-end: max(0.85rem, env(safe-area-inset-right));
+    inset-block-end: max(0.85rem, env(safe-area-inset-bottom));
+    display: grid;
+    place-items: center;
+    min-block-size: 44px;
+    padding-inline: 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow: 0 0.2rem 0.7rem #0002;
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+</style>
+
+<article class="conversation-summary" lang="ja">
+  <header id="page-top">
+    <h1>会話のまとめ</h1>
+    <p class="summary-note">最終更新 <time>日時を記入</time></p>
+    <p class="summary-note">見返し用の写しです。正本は会話と PRD・実験記録・課題にあります。</p>
+    <!-- 前のページから続けた別の枠では、ここに前のページへのリンクを置く。 -->
+    <nav aria-label="目次">
+      <ul>
+        <li><a href="#position">いまの位置</a></li>
+        <li><a href="#symbols">記号の一覧</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <section id="position" aria-labelledby="position-title">
+    <h2 id="position-title">いまの位置</h2>
+    <dl class="position">
+      <div>
+        <dt>DOING（進行中）</dt>
+        <dd>進行中の作業を記入</dd>
+      </div>
+      <div>
+        <dt>TODO（次にすること）</dt>
+        <dd>
+          <ol>
+            <li>次にすることを記入</li>
+            <li>残っている作業を続けて記入</li>
+          </ol>
+        </dd>
+      </div>
+      <div>
+        <dt>WAITING（あなたの返事待ち）</dt>
+        <dd>返事を待っていることを記入</dd>
+      </div>
+      <div>
+        <dt>DONE（直前に済んだこと）</dt>
+        <dd>直前に済んだ作業を記入</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section id="symbols" aria-labelledby="symbols-title">
+    <h2 id="symbols-title">記号の一覧</h2>
+    <!-- 記号がなければ「まだありません」と記入。済んだ塊は open を外す。 -->
+    <details open>
+      <summary>記号と短い名前を記入</summary>
+      <p>要点を記入</p>
+      <p class="summary-note">状態を記入</p>
+    </details>
+  </section>
+
+  <a class="back-to-top" href="#page-top">先頭へ戻る</a>
+</article>

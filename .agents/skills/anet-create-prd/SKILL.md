@@ -51,6 +51,8 @@ description: Create or revise an anet-lab PRD through a docs-aware grilling sess
 
 ### goal anchor
 
+グリルでは goal anchor の応答を出す前に `anet-summary-page` でまとめページを作る。すでにあれば、同じページを更新してグリルの節を足す。質疑のない暫定の起票ではこの段を行わない。Plan Mode の間は作らず、更新もしない。書けないことをその会話で 1 度だけ知らせ、Plan Mode を抜けた最初の応答で作成または更新を行う。
+
 goal anchor の応答を出す前に、`anet-update-issue` の「工程の出来事」で、題材の課題（改訂と再グリルでは、その PRD の課題も）を調査中にする。暫定の起票では質疑が無いので変えない。Plan Mode の間は書かず、Plan Mode を抜けて起草に入るときに書く。
 
 解く問題、ゴール、明示された非ゴールを短く示し、合意を得る。以後の判断はこのゴールに照らす。途中で方向がずれた場合は、ゴール自体が変わったかを確認する。同じ応答に、共通の前提の一覧と確かめの文言を置く（次の「共通の前提と確かめ」）。
