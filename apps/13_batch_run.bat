@@ -115,10 +115,17 @@ SET "RBW=run.$=%A5%>run.@hard125>run.@munch>%RF%>run.@cap2m>run.@eval2ch_r1>run.
 SET "DQIQN=DefaultDQNAgent.learner.use_per=false DefaultDQNAgent.learner.learning_rate=5e-5 DefaultDQNAgent.learner.adam_eps=3.125e-4 DefaultDQNAgent.learner.iqn.current_taus.num_taus=64 DefaultDQNAgent.learner.iqn.target_taus.num_taus=64 DefaultDQNAgent.actor.[train].policy.tau_rule.num_taus=32 DefaultDQNAgent.actor.[eval].policy.tau_rule.num_taus=32 DefaultDQNAgent.actor.[greedy].policy.tau_rule.num_taus=32"
 SET "NOGS=run.eval_schedule.[greedy_single].interval=0"
 SET "BO1=E1.game=breakout run.seed=1 run.train.num_envs=4"
+SET "BO2=E1.game=breakout run.seed=2 run.train.num_envs=4"
 SET "QB1=E1.game=qbert run.seed=1 run.train.num_envs=4"
 SET "PAD221=net.block.[AtariConv32].conv.padding=2 net.block.[AtariConv64].conv.padding=2 net.block.[AtariConv64Final].conv.padding=1"
+SET "INITDEF=net.block.[AtariConv32].init.mode=default net.block.[AtariConv64].init.mode=default net.block.[AtariConv64Final].init.mode=default net.block.[AtariLinear512].init.mode=default net.block.[AtariIQNTauProj512].init.mode=default DefaultDQNAgent.head.init.mode=default"
+SET "INITVS=net.block.[AtariConv32].init.mode=variance_scaling net.block.[AtariConv32].init.variance_scale=0.5773502691896258 net.block.[AtariConv64].init.mode=variance_scaling net.block.[AtariConv64].init.variance_scale=0.5773502691896258 net.block.[AtariConv64Final].init.mode=variance_scaling net.block.[AtariConv64Final].init.variance_scale=0.5773502691896258 net.block.[AtariLinear512].init.mode=variance_scaling net.block.[AtariLinear512].init.variance_scale=0.5773502691896258 net.block.[AtariIQNTauProj512].init.mode=variance_scaling net.block.[AtariIQNTauProj512].init.variance_scale=0.5773502691896258 DefaultDQNAgent.head.init.mode=variance_scaling DefaultDQNAgent.head.init.variance_scale=0.5773502691896258"
 SET "DQ7744=DefaultDQNAgent.$=@baseline>@iqn7744>A1>@bf16>A2>A3"
 SET "NATFLAT=DefaultDQNAgent.net.branch.[main_feature].$=net.branch.@AtariNatureFlat"
+SET "POSTFC=DefaultDQNAgent.net.body.output.[features]=value_stream"
+SET "INITVS7744=net.block.[AtariConv32].init.mode=variance_scaling net.block.[AtariConv32].init.variance_scale=0.5773502691896258 net.block.[AtariConv64].init.mode=variance_scaling net.block.[AtariConv64].init.variance_scale=0.5773502691896258 net.block.[AtariConv64Final].init.mode=variance_scaling net.block.[AtariConv64Final].init.variance_scale=0.5773502691896258 net.block.[AtariIQNTauProj7744].init.mode=variance_scaling net.block.[AtariIQNTauProj7744].init.variance_scale=0.5773502691896258 net.block.[AtariHeadFC512].init.mode=variance_scaling net.block.[AtariHeadFC512].init.variance_scale=0.5773502691896258 DefaultDQNAgent.head.init.mode=variance_scaling DefaultDQNAgent.head.init.variance_scale=0.5773502691896258"
+SET "NOTF32=backend.use_tf32_cublas=false backend.use_tf32_cudnn=false"
+SET "TGTRND=DefaultDQNAgent.target_policy.tau_rule.sample_mode=random"
 
 call :use_ws AtariSub-01 Atari.txt
 
@@ -149,6 +156,58 @@ if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASY
 echo === 56. breakout 5m seed 1: same as 55 but taus mixed right after the flatten as in Dopamine IQN (no Linear 512 before the mix, tau projection 64 to 7744 with ReLU, then Linear 512) ===
 call :find_done bo_dqiqn_pad_tf_s1
 if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_pad_tf_s1"
+
+echo === 57. breakout 5m seed 2: same as 50 ===
+call :find_done bo_dqiqn_s2
+if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_s2"
+
+echo === 58. breakout 5m seed 2: same as 55 ===
+call :find_done bo_dqiqn_pad_s2
+if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_pad_s2"
+
+echo === 59. breakout 5m seed 2: same as 57 but every layer (conv, Linear 512, tau projection, output) starts from the torch default (uniform, variance 1/(3 fan_in)), the fan_in uniform shape of Dopamine IQN (1/sqrt(3) fan_in, variance 0.577/fan_in) instead of he/xavier ===
+call :find_done bo_dqiqn_initdef_s2
+if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %INITDEF% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_initdef_s2"
+
+echo === 60. breakout 5m seed 1: same as 50 but every layer starts from the torch default (the init of 59 on seed 1) ===
+call :find_done bo_dqiqn_initdef_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %INITDEF% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_initdef_s1"
+
+echo === 61. breakout 5m seed 1: same as 52 (the Q side of mz_rbw_rndtg: PER, taus 8) but every layer starts from the torch default ===
+call :find_done bo_rbw_initdef_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %NOGS% %INITDEF% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_rbw_initdef_s1"
+
+echo === 62. breakout 5m seed 2: same as 57 but every layer (conv, Linear 512, tau projection, output) starts from the init of Dopamine IQN (variance_scaling, uniform, variance 0.577/fan_in, bias 0) ===
+call :find_done bo_dqiqn_initvs_s2
+if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %INITVS% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_initvs_s2"
+
+echo === 63. breakout 5m seed 1: same as 50 but every layer starts from the init of 62 ===
+call :find_done bo_dqiqn_initvs_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %INITVS% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_initvs_s1"
+
+echo === 64. breakout 5m seed 2: every configurable difference from Dopamine IQN aligned at once (padding of 55, taus mixed right after the flatten with the 64 to 7744 projection and ReLU, then Linear 512 and ReLU before the output, init of 62 on every layer, TF32 off, random taus to pick the target action) ===
+call :find_done bo_dqiqn_dopall_s2
+if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% %INITVS7744% %NOTF32% %TGTRND% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_dopall_s2"
+
+echo === 65. breakout 5m seed 1: same as 64 ===
+call :find_done bo_dqiqn_dopall_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% %INITVS7744% %NOTF32% %TGTRND% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_dopall_s1"
+
+echo === 66. breakout 5m seed 2: same as 57 but Linear 512 and ReLU after the tau mix, as in Dopamine IQN (no other change) ===
+call :find_done bo_dqiqn_postfc_s2
+if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %POSTFC% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dqiqn_postfc_s2"
+
+echo === 67. breakout 5m seed 1: same as 52 (the Q side of mz_rbw_rndtg) but Linear 512 and ReLU after the tau mix ===
+call :find_done bo_rbw_postfc_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %BO1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %NOGS% %POSTFC% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_rbw_postfc_s1"
+
+echo === 68. qbert 5m seed 1: same as 64 on qbert (compare with 51) ===
+call :find_done qb_dqiqn_dopall_s1
+if not defined DONE_DIR call :run_exe "%RBW%" %QB1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% %INITVS7744% %NOTF32% %TGTRND% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_qb_dqiqn_dopall_s1"
+
+echo === 69. breakout 5m seed 2: same as 64 but TF32 left on ===
+call :find_done bo_dopall_tf32_s2
+if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% %INITVS7744% %TGTRND% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dopall_tf32_s2"
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
 goto :beep_forever

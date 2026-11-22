@@ -34,6 +34,8 @@ run.@rnd : metrics.scalar.[56_agent_in/32_learn_count] = $agent intrinsic.learn_
 run.@rnd : app.eval_trace_panel.columns.[235] = $agent_step intrinsic.bonus label:rnd_bonus
 run.@rnd : app.eval_trace_panel.columns.[600] = $agent_step intrinsic.error label:rnd_err
 run.@rnd : app.eval_trace_panel.columns.[610] = $agent_step intrinsic.normalized_error label:rnd_norm
+run.@rnd : app.eval_trace_panel.columns.[440] = $agent_step extrinsic_state_value label:V_ext
+run.@rnd : app.eval_trace_panel.columns.[450] = $agent_step intrinsic_state_value label:V_int
 
 # Taiga の観測・統計・補助学習の条件。Q 側の比較群を選んでから末尾へ足す。
 run.@rnd_taiga : DefaultDQNAgent.intrinsic.beta = 0.00005

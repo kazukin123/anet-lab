@@ -4,7 +4,7 @@ title %~nx0
 cd /d "%~dp0runner"
 for %%I in ("%~dp0..\data\workspaces") do SET "DATA_WORKSPACES=%%~fI"
 
-SET "QUEUE=mz_rr4"
+SET "QUEUE=mz_n10"
 if not "%~1"=="" SET "QUEUE=%~1"
 if /I "%QUEUE%"=="ll_rnd" goto :skipwait
 
@@ -357,8 +357,11 @@ if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ% %TGRN
 goto :summary
 
 
+:mz_g99dec
 :mz_rr4
 :mz_g99
+:mz_seed2
+:mz_n10
 copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab12.exe" >nul
 if errorlevel 1 goto :no_exe
 for %%F in ("bin\%BUILD%\AnetRLRunner.exe") do echo %DATE% %TIME% EXE %%~fF built %%~tF
@@ -397,7 +400,15 @@ SET "PL2R4=metrics.scalar.[34_agent_plasticity/42_probe_dead_ratio]=$agent plast
 SET "PL3R4=metrics.scalar.[34_agent_plasticity/43_probe_feature_norm]=$agent plasticity_probe_feature_norm @learn $learn_step interval:2500"
 SET "PL4R4=metrics.scalar.[34_agent_plasticity/44_probe_srank]=$agent plasticity_probe_srank @learn $learn_step interval:2500"
 SET "PL5R4=metrics.scalar.[34_agent_plasticity/45_probe_srank_ratio]=$agent plasticity_probe_srank_ratio @learn $learn_step interval:2500"
+SET "G99ONLY=DefaultDQNAgent.learner.intrinsic.discount_mode=separate DefaultDQNAgent.learner.intrinsic.gamma=0.99"
+SET "NEONLY=DefaultDQNAgent.learner.intrinsic.terminal_mode=non_episodic"
+SET "EVCHK=DefaultDQNAgent.learner.enabled=false app.save_agent_on_close=false run.train.num_envs=1 DefaultDQNAgent.actor.[train].policy.spatial.enabled=false run.eval.[greedy].eval_batch_size=16 run.eval.[greedy].eval_episodes=64 run.eval_schedule.[greedy].interval=10 run.eval_schedule.[greedy].warmup_count=0 run.eval_schedule.[eval].interval=0 run.eval_schedule.[greedy_single].interval=0 run.eval_schedule.[eval_target].interval=0 app.batchrun.exp_exit_step=12"
+SET "EV18K=run.eval.[greedy].env.max_episode_frames=18000"
+SET "N10=DefaultDQNAgent.learner.n_step=10"
 if /I "%QUEUE%"=="mz_rr4" goto :mz_rr4_stages
+if /I "%QUEUE%"=="mz_g99dec" goto :mz_g99dec_stages
+if /I "%QUEUE%"=="mz_seed2" goto :mz_seed2_stages
+if /I "%QUEUE%"=="mz_n10" goto :mz_n10_stages
 
 SET "RUN_EXIT_CODE=0"
 call :wait_disk
@@ -433,6 +444,78 @@ call :wait_disk
 echo === 35. montezuma_revenge 30m seed 2: same as 34 ===
 call :find_done mz_tg_g99ne_rr4_s2
 if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99ne_rr4_s2"
+goto :summary
+
+:mz_g99dec_stages
+SET "RUN_EXIT_CODE=0"
+echo === ev only: Greedy of the final weights of mz_tg_g99ne_rr4_s2 (stage 35), 64 games capped at 108,000 frames ===
+call :find_done mz_rr4s2_ev108k
+if not defined DONE_DIR call :find_ckpt "run_*_mz_tg_g99ne_rr4_s2"
+if not defined DONE_DIR if defined CKPT call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" %EVCHK% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_rr4s2_ev108k"
+
+SET "RUN_EXIT_CODE=0"
+echo === ev only: Greedy of the final weights of mz_tg_g99ne_rr4_s2 (stage 35), 64 games capped at 18,000 frames ===
+call :find_done mz_rr4s2_ev18k
+if not defined DONE_DIR call :find_ckpt "run_*_mz_tg_g99ne_rr4_s2"
+if not defined DONE_DIR if defined CKPT call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" %EVCHK% %EV18K% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_rr4s2_ev18k"
+
+SET "RUN_EXIT_CODE=0"
+echo === ev only: Greedy of the final weights of mz_tg_r121_g99ne_s1 (RR8 merge), 64 games capped at 108,000 frames ===
+call :find_done mz_r8s1_ev108k
+if not defined DONE_DIR call :find_ckpt "run_*_mz_tg_r121_g99ne_s1"
+if not defined DONE_DIR if defined CKPT call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" %EVCHK% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_r8s1_ev108k"
+
+SET "RUN_EXIT_CODE=0"
+echo === ev only: Greedy of the final weights of mz_tg_r121_g99ne_s1 (RR8 merge), 64 games capped at 18,000 frames ===
+call :find_done mz_r8s1_ev18k
+if not defined DONE_DIR call :find_ckpt "run_*_mz_tg_r121_g99ne_s1"
+if not defined DONE_DIR if defined CKPT call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" %EVCHK% %EV18K% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_r8s1_ev18k"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 38. montezuma_revenge 30m seed 1: same as mz_tg_vd_rr4_s1 but a separate intrinsic discount 0.99, the intrinsic value still cut at game over (the discount half of G99NE) ===
+call :find_done mz_tg_g99_rr4_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99ONLY% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99_rr4_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 39. montezuma_revenge 30m seed 1: same as mz_tg_vd_rr4_s1 but the intrinsic value not cut at game over, the intrinsic discount shared (the terminal half of G99NE) ===
+call :find_done mz_tg_ne_rr4_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %NEONLY% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_ne_rr4_s1"
+goto :summary
+
+:mz_seed2_stages
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 42. montezuma_revenge 30m seed 2: same as mz_tg_ne_rr4_s1 (stage 39) ===
+call :find_done mz_tg_ne_rr4_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %NEONLY% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_ne_rr4_s2"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 43. montezuma_revenge 30m seed 2: same as mz_tg_g99_rr4_s1 (stage 38) ===
+call :find_done mz_tg_g99_rr4_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99ONLY% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99_rr4_s2"
+goto :summary
+
+:mz_n10_stages
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 44. montezuma_revenge 30m seed 1: same as mz_tg_g99ne_rr4_s1 (stage 34) but n-step 10 ===
+call :find_done mz_g99ne_n10_rr4_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_g99ne_n10_rr4_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 45. montezuma_revenge 30m seed 2: same as 44 (stage 35 with n-step 10) ===
+call :find_done mz_g99ne_n10_rr4_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_g99ne_n10_rr4_s2"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 43. montezuma_revenge 30m seed 2: same as mz_tg_g99_rr4_s1 (stage 38) ===
+call :find_done mz_tg_g99_rr4_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99ONLY% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99_rr4_s2"
 goto :summary
 
 :ram_short
