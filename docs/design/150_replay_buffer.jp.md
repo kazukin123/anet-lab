@@ -111,6 +111,7 @@ uniform samplerでもPERの既知scalarキーは公開し、PER無効時の値�
 | `DeviceTransfer` | CPU sampleを同期転送、またはpinned sourceからCUDA copy streamへ転送する |
 | `EventRecycler` | CUDAEventと転送元payloadのlifetimeを完了まで保持・再利用する |
 | `DictFrameStacker` | ReplayBufferとは独立に、Actor側でkey別の直近Observationをstackする |
+| `LaneTimeTensorStore` | lane 一式の tensor を時間順に保持し、lane と時間を指定して読む。[RND の rollout 補助学習](212_rnd_lifelong_novelty.jp.md#5-predictor-の補助学習)に使う。 |
 
 ## 4. コードマップ
 

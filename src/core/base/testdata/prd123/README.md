@@ -1,5 +1,7 @@
 # PRD123 の検証
 
+> この検証資材の設定キーは PRD191 より前の名前です。
+
 > PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 仕様は [PRD123](../../../../../docs/memo/123_rnd_intrinsic_reward_scale_10prd.md)、判断・結果は [20impl](../../../../../docs/memo/123_rnd_intrinsic_reward_scale_20impl.md) に残す。以下はリポジトリルートで実行する。

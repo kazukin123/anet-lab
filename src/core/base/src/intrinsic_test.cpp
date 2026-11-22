@@ -75,7 +75,7 @@ static anet::ConfigData RndTestConfig()
         data.Set(prefix + ".body.output.[features]", kReferenceFeature);
     }
     data.Set("rnd.head.output_dim", 4);
-    data.Set("rnd.warmup_steps", 4);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 4);
     return data;
 }
 
@@ -91,7 +91,7 @@ TEST_CASE("RND requires independent target and predictor configurations", "[prd1
         data.Set(prefix + ".body.output.[features]", kReferenceFeature);
     }
     data.Set("rnd.head.output_dim", 4);
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     data.Set("rnd.predictor.net.branch.[feature].structure", "Projection");
     data.Set("rnd.predictor.net.block.[Projection].type", "Linear");
     data.Set("rnd.predictor.net.block.[Projection].linear.out_features", 3);
@@ -122,8 +122,8 @@ TEST_CASE("RND warmup counts observations and reports optimizer progress", "[prd
     anet::nn::InitNN();
     const int num_lanes = GENERATE(2, 4);
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_mode", anet::rl::intrinsic::kWarmupCollectErrors);
-    data.Set("rnd.warmup_steps", 4);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.predictor.warmup_steps", 4);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     const anet::TensorDict obs(kObservation, RndTestObservation().At(kObservation).repeat({num_lanes / 2, 1}));
@@ -155,8 +155,8 @@ TEST_CASE("RND learns during warmup without collecting errors", "[prd123][intrin
     // 公開 Factory から採点と補助学習を通し、新しい既定の warm-up を確認する。
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", GENERATE(3, 4));
-    data.Set("rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
+    data.Set("rnd.error_norm.standardize.warmup_steps", GENERATE(3, 4));
+    data.Set("rnd.error_norm.standardize.use_clipping", false);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     const auto obs = RndTestObservation();
@@ -179,17 +179,17 @@ TEST_CASE("RND learns during warmup without collecting errors", "[prd123][intrin
     CHECK(alpha.mean().item<float>() == Catch::Approx(expected).margin(1e-5));
 }
 
-TEST_CASE("RND zero warmup makes both warmup choices equivalent", "[prd123][intrinsic]")
+TEST_CASE("RND zero predictor wait keeps the same scoring", "[prd123][intrinsic]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     const auto make = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     };
     auto learn = make();
-    data.Set("rnd.warmup_mode", anet::rl::intrinsic::kWarmupCollectErrors);
+    data.Set("rnd.predictor.warmup_steps", 0);
     auto collect = make();
     for (int step = 0; step < 3; ++step) {
         const anet::TensorDict obs(kObservation, RndTestObservation().At(kObservation) * (step + 1.0f));
@@ -204,10 +204,10 @@ TEST_CASE("RND EMA weights scored observations independently of batch splitting"
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
-    data.Set("rnd.obs_norm.pass_through", true);
-    data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
-    data.Set("rnd.error_norm.ema_steps", 2);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
+    data.Set("rnd.error_norm.standardize.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    data.Set("rnd.error_norm.standardize.ema_steps", 2);
     data.Set("rnd.head.init.mode", kConstantInit);
     data.Set("rnd.head.init.constant_val", 1.0f);
     data.Set("rnd.predictor.net.block.[ReLU].type", kReluBlock);
@@ -229,7 +229,7 @@ TEST_CASE("RND EMA weights scored observations independently of batch splitting"
     CHECK(singles->Diagnostics().at(kErrorStd) == Catch::Approx(std::sqrt(6146.0) / 15.0));
     CHECK(batched->Diagnostics().at(kErrorMean) == singles->Diagnostics().at(kErrorMean));
     CHECK(batched->Diagnostics().at(kErrorStd) == singles->Diagnostics().at(kErrorStd));
-    data.Set("rnd.error_norm.ema_steps", 1);
+    data.Set("rnd.error_norm.standardize.ema_steps", 1);
     auto last = make();
     for (int repeat = 0; repeat < 2; ++repeat)
         CHECK(torch::equal(last->Estimate(anet::TensorDict(kObservation, inputs)), torch::ones({4})));
@@ -243,10 +243,10 @@ TEST_CASE("RND centering and clipping are independent scoring choices", "[prd123
     const bool center = GENERATE(false, true);
     const bool clipped = GENERATE(false, true);
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
-    data.Set("rnd.obs_norm.pass_through", true);
-    data.Set("rnd.error_norm.use_centering", center);
-    data.Set("rnd.multiplier_mode", clipped ? anet::rl::intrinsic::kMultiplierClipped : anet::rl::intrinsic::kMultiplierUnclipped);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
+    data.Set("rnd.error_norm.standardize.use_centering", center);
+    data.Set("rnd.error_norm.standardize.use_clipping", clipped);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(42));
     estimator->Estimate(RndTestObservation());
@@ -262,54 +262,30 @@ TEST_CASE("RND centering and clipping are independent scoring choices", "[prd123
     }
 }
 
-TEST_CASE("RND validates new settings before notifying unused values", "[prd123][intrinsic][config]")
+TEST_CASE("RND validates inactive settings without notifications", "[prd123][intrinsic][config]")
 {
     anet::nn::InitNN();
     // モードが使わない値も、通知より先に検証する。
     for (const auto& [key, value] : std::vector<std::pair<std::string, std::string>>{
-        {"warmup_mode", kInvalidConfigValue}, {"error_norm.average_mode", kInvalidConfigValue},
-        {"error_norm.ema_steps", "0"}, {"error_norm.ema_steps", "1.5"},
-        {"error_norm.use_centering", kInvalidConfigValue}}) {
+        {"error_norm.mode", kInvalidConfigValue}, {"error_norm.standardize.average_mode", kInvalidConfigValue},
+        {"error_norm.standardize.ema_steps", "0"}, {"error_norm.standardize.ema_steps", "1.5"},
+        {"error_norm.standardize.use_centering", kInvalidConfigValue}}) {
         auto data = RndTestConfig();
-        data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+        data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
         data.Set("rnd." + key, value);
         CAPTURE(key, value);
         CHECK_THROWS_WITH(anet::rl::intrinsic::RndNoveltyEstimatorConfig(data, kRndPrefix),
             Catch::Matchers::ContainsSubstring("rnd." + key) && Catch::Matchers::ContainsSubstring(value));
     }
-    struct IgnoredSetting {
-        std::string key, value, mode;
-        int warmup;
-        wxLogLevel level;
-    };
-    constexpr char kIgnoredEmaSteps[] = "7";
-    for (const auto& entry : std::vector<IgnoredSetting>{
-        {.key = "warmup_mode", .value = anet::rl::intrinsic::kWarmupCollectErrors,
-            .mode = anet::rl::intrinsic::kStatisticsVarianceFeedback, .warmup = 4, .level = wxLOG_Warning},
-        {.key = "warmup_mode", .value = anet::rl::intrinsic::kWarmupCollectErrors,
-            .mode = anet::rl::intrinsic::kStatisticsWhiten, .warmup = 0, .level = wxLOG_Message},
-        {.key = "error_norm.average_mode", .value = anet::rl::intrinsic::kErrorAverageEma,
-            .mode = anet::rl::intrinsic::kStatisticsVarianceFeedback, .warmup = 4, .level = wxLOG_Warning},
-        {.key = "error_norm.ema_steps", .value = kIgnoredEmaSteps,
-            .mode = anet::rl::intrinsic::kStatisticsVarianceFeedback, .warmup = 4, .level = wxLOG_Warning},
-        {.key = "error_norm.ema_steps", .value = kIgnoredEmaSteps,
-            .mode = anet::rl::intrinsic::kStatisticsWhiten, .warmup = 4, .level = wxLOG_Warning},
-        {.key = "error_norm.use_centering", .value = kFalseConfigValue,
-            .mode = anet::rl::intrinsic::kStatisticsVarianceFeedback, .warmup = 4, .level = wxLOG_Warning}}) {
+    const auto key = GENERATE("error_norm.standardize.average_mode",
+        "error_norm.standardize.ema_steps", "error_norm.standardize.use_centering");
+    const std::string value = std::string_view(key).ends_with("average_mode") ? anet::rl::intrinsic::kErrorAverageEma
+        : std::string_view(key).ends_with("ema_steps") ? "7" : "false";
+    {
         auto data = RndTestConfig();
-        data.Set("rnd.statistics_mode", entry.mode);
-        data.Set("rnd.warmup_steps", entry.warmup);
-        // baseline の既定のままなら通知しない。
-        {
-            anet::test::LogCaptureGuard logs;
-            const anet::rl::intrinsic::RndNoveltyEstimatorConfig defaults(data, kRndPrefix);
-            logs.Flush();
-            CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
-            CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Info) == 0);
-            CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Message) == 0);
-        }
+        data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
         const auto baseline_data = data;
-        data.Set("rnd." + entry.key, entry.value);
+        data.Set("rnd." + std::string(key), value);
         anet::test::LogCaptureGuard logs;
         auto baseline = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             baseline_data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
@@ -337,11 +313,10 @@ TEST_CASE("RND validates new settings before notifying unused values", "[prd123]
         };
         CHECK(checkpoint_format(baseline) == checkpoint_format(changed));
         logs.Flush();
-        CAPTURE(entry.key, entry.mode, entry.warmup);
-        CHECK(std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
-            return record.message.find("Ignored rnd." + entry.key + "=") != std::string::npos;
-        }) == 1);
-        CHECK(anet::test::HasRecordContaining(logs.Records(), entry.level, {"rnd." + entry.key, entry.value}));
+        CAPTURE(key);
+        CHECK(std::none_of(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
+            return record.message.find("rnd." + std::string(key)) != std::string::npos;
+        }));
     }
 }
 
@@ -353,9 +328,9 @@ TEST_CASE("RND checkpoint format follows error statistics and resumes scoring", 
         {anet::rl::intrinsic::kStatisticsWhiten, anet::rl::intrinsic::kErrorAverageEma},
         {anet::rl::intrinsic::kStatisticsVarianceFeedback, anet::rl::intrinsic::kErrorAverageCumulative}}));
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
-    data.Set("rnd.statistics_mode", choice.first);
-    data.Set("rnd.error_norm.average_mode", choice.second);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.statistics.mode", choice.first);
+    data.Set("rnd.error_norm.standardize.average_mode", choice.second);
     const auto make = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
@@ -400,9 +375,9 @@ TEST_CASE("RND unclipped multiplier preserves negative bonuses", "[prd116][rnd_r
     // 既知の平均より小さい誤差でも、unclippedは倍率を1へ切り上げない。
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
-    data.Set("rnd.warmup_steps", 0);
-    data.Set("rnd.obs_norm.pass_through", true);
+    data.Set("rnd.error_norm.standardize.use_clipping", false);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(42));
     estimator->Estimate(RndTestObservation());
@@ -421,9 +396,9 @@ TEST_CASE("RND variance feedback follows sequential moments and resumes them", "
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
-    data.Set("rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.error_norm.standardize.use_clipping", false);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     data.Set("rnd.head.init.mode", kConstantInit);
     data.Set("rnd.head.init.constant_val", 1.0f);
     data.Set("rnd.predictor.net.block.[ReLU].type", kReluBlock);
@@ -485,7 +460,7 @@ TEST_CASE("RND variance feedback follows sequential moments and resumes them", "
     CHECK(torch::equal(estimator->Estimate(obs), restored->Estimate(obs)));
 
     // 書式の直後の統計モードが違えば、payloadを読む前に拒否する。
-    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsWhiten);
+    data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsWhiten);
     auto different_mode = make(data);
     bytes.seekg(0);
     anet::InputArchive incompatible(bytes);
@@ -493,11 +468,109 @@ TEST_CASE("RND variance feedback follows sequential moments and resumes them", "
         Catch::Matchers::ContainsSubstring(anet::rl::intrinsic::kStatisticsVarianceFeedback) && Catch::Matchers::ContainsSubstring(anet::rl::intrinsic::kStatisticsWhiten));
 }
 
+TEST_CASE("Raw RND uses the error during the scaler wait and starts diagnostic statistics afterward",
+    "[prd191][intrinsic][rnd_raw_formula]")
+{
+    anet::nn::InitNN();
+    auto data = RndTestConfig();
+    const bool clipped = GENERATE(false, true);
+    constexpr float kLimit = 1.125f;
+    data.Set("rnd.error_norm.mode", "none");
+    data.Set("rnd.error_norm.none.warmup_steps", 4);
+    data.Set("rnd.error_norm.none.use_clipping", clipped);
+    data.Set("rnd.error_norm.none.multiplier_max", kLimit);
+    data.Set("rnd.error_norm.standardize.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
+    auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+        data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+    auto obs = RndTestObservation();
+    std::vector<torch::Tensor> diagnostic_errors;
+    for (int intake = 1; intake <= 4; ++intake) {
+        obs.Set(kObservation, RndTestObservation().At(kObservation) * intake);
+        CHECK(estimator->SuppressesBonus() == (intake <= 2));
+        const auto result = estimator->EstimateWithoutUpdate(obs);
+        const auto& error = result.diagnostics.at(kLaneError);
+        CHECK(torch::equal(result.diagnostics.at(kLaneNormalizedError), error));
+        auto expected = 1.0f + error;
+        if (clipped) expected = expected.clamp(1.0f, kLimit);
+        CHECK(torch::equal(result.multipliers, expected));
+        CHECK(torch::equal(estimator->Estimate(obs), expected));
+        const auto mean = estimator->Diagnostics().at(kErrorMean);
+        if (intake <= 2) CHECK(std::isnan(mean));
+        else {
+            diagnostic_errors.push_back(error);
+            const auto all_errors = torch::cat(diagnostic_errors);
+            CHECK(mean == Catch::Approx(all_errors.mean().item<float>()));
+            CHECK(estimator->Diagnostics().at(kErrorStd) == Catch::Approx(all_errors.std().item<float>()));
+        }
+    }
+
+    const auto make = [&] {
+        return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+            data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+    };
+    data.Set("rnd.error_norm.none.warmup_steps", 0);
+    auto immediate = make();
+    CHECK_FALSE(immediate->SuppressesBonus());
+    data.Set("rnd.error_norm.mode", "standardize");
+    data.Set("rnd.error_norm.standardize.average_mode", "cumulative");
+    auto standard = make();
+    CHECK_FALSE(standard->SuppressesBonus());
+    standard->Estimate(obs);
+    std::stringstream bytes(std::ios::in | std::ios::out | std::ios::binary);
+    anet::OutputArchive output(bytes);
+    standard->Save(output);
+    anet::InputArchive input(bytes);
+    CHECK_NOTHROW(immediate->Load(input));
+    CHECK(torch::equal(immediate->EstimateWithoutUpdate(obs).diagnostics.at(kLaneError),
+        standard->EstimateWithoutUpdate(obs).diagnostics.at(kLaneError)));
+}
+
+TEST_CASE("RND applies predictor and error waits independently", "[prd191][intrinsic][rnd_waits]")
+{
+    anet::nn::InitNN();
+    auto data = RndTestConfig();
+    data.Set("rnd.predictor.warmup_steps", 2);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 4);
+    const auto make = [&] {
+        return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
+            data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
+    };
+    auto estimator = make();
+    const auto obs = RndTestObservation();
+    for (int intake = 1; intake <= 3; ++intake) {
+        CHECK_FALSE(estimator->SuppressesBonus());
+        CHECK(torch::equal(estimator->Estimate(obs), torch::ones({2})));
+        CHECK(estimator->Learn(obs) == (intake > 1));
+        CHECK(std::isnan(estimator->Diagnostics().at(kErrorMean)) == (intake < 3));
+    }
+
+    data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.predictor.warmup_steps", 3);
+    auto feedback = make();
+    data.Set("rnd.predictor.warmup_steps", 0);
+    data.Set("rnd.error_norm.none.use_clipping", true);
+    data.Set("rnd.error_norm.none.multiplier_max", 1.01);
+    data.Set("rnd.error_norm.standardize.use_clipping", true);
+    data.Set("rnd.error_norm.standardize.multiplier_max", 1.01);
+    auto reference = make();
+    CHECK_FALSE(feedback->SuppressesBonus());
+    feedback->Estimate(obs);
+    reference->Estimate(obs);
+    const anet::TensorDict next(kObservation, obs.At(kObservation) * 2.0f);
+    const auto delayed = feedback->Estimate(next);
+    const auto immediate = reference->Estimate(next);
+    CHECK(delayed[0].item<float>() == 1.0f);
+    CHECK(delayed[1].item<float>() == immediate[1].item<float>());
+    CHECK(immediate[0].item<float>() != 1.0f);
+}
+
 TEST_CASE("RND factory scores observations and warms up statistics", "[prd116][intrinsic]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_mode", anet::rl::intrinsic::kWarmupCollectErrors);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.predictor.warmup_steps", 4);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, "rnd", RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     const auto obs = RndTestObservation();
@@ -516,8 +589,8 @@ TEST_CASE("RND learns supplied observations without preceding scoring", "[prd116
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
-    data.Set("rnd.obs_norm.pass_through", true);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
     data.Set("rnd.learning_rate", 0.03f);
     const auto make = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
@@ -539,7 +612,7 @@ TEST_CASE("RND learning is independent of repeated scoring and leaves statistics
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     const auto make = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
@@ -565,15 +638,15 @@ TEST_CASE("RND learning is independent of repeated scoring and leaves statistics
         anet::OutputArchive output(bytes);
         estimator->Save(output);
         anet::InputArchive input(bytes);
-        std::string format, statistics_mode, target, predictor, optimizer;
+        std::string format, saved_mode, target, predictor, optimizer;
         input.Read(format);
-        input.Read(statistics_mode);
+        input.Read(saved_mode);
         input.Read(target);
         input.Read(predictor);
         input.Read(optimizer);
         const anet::rl::StateSpec spec{ .obs_spec = RndTestSpec() };
         const anet::rl::intrinsic::RndNoveltyEstimatorConfig config(data, kRndPrefix);
-        const auto normalizer = anet::rl::ObservationNormalizerFactory(config.obs_norm).CreateObservationNormalizer(spec);
+        const auto normalizer = anet::rl::ObservationNormalizerFactory(config.statistics.whiten.obs_norm).CreateObservationNormalizer(spec);
         normalizer->Load(input);
         return normalizer->Normalize(learned).At(kObservation).clone();
     };
@@ -590,10 +663,10 @@ TEST_CASE("RND returns estimates on the input device", "[prd116][intrinsic][rnd_
     anet::nn::InitNN();
     if (!torch::cuda::is_available()) { SKIP("CUDA is unavailable"); }
     const auto compute_device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
-    const auto statistics_mode = GENERATE(anet::rl::intrinsic::kStatisticsWhiten, anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    const auto mode = GENERATE(anet::rl::intrinsic::kStatisticsWhiten, anet::rl::intrinsic::kStatisticsVarianceFeedback);
     auto data = RndTestConfig();
-    data.Set("rnd.statistics_mode", statistics_mode);
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.statistics.mode", mode);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     const auto make = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             data, kRndPrefix, RndTestSpec(), compute_device, anet::SeedMaker(123));
@@ -619,7 +692,7 @@ TEST_CASE("RND predictor learns repeated observations", "[prd116][intrinsic]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     data.Set("rnd.learning_rate", 0.03f);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, "rnd", RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
@@ -644,7 +717,8 @@ TEST_CASE("RND checkpoint preserves normalization warmup and training continuati
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) { SKIP("CUDA is unavailable"); }
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_mode", anet::rl::intrinsic::kWarmupCollectErrors);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.predictor.warmup_steps", 4);
     data.Set("rnd.learning_rate", 0.01f);
     const auto make = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
@@ -682,7 +756,7 @@ TEST_CASE("RND checkpoint can resume at every operation boundary", "[prd116][int
     const int boundary = GENERATE(0, 1, 2);
     CAPTURE(device, boundary);
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     const auto make = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             data, kRndPrefix, RndTestSpec(), device, anet::SeedMaker(123));
@@ -720,20 +794,26 @@ TEST_CASE("RND rejects invalid configuration before building networks", "[prd116
 {
     const auto invalid = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
         {"head.output_dim", "0"},
-        {"warmup_steps", "-1"}, {"multiplier_max", "1"}, {"multiplier_max", "nan"},
+        {"error_norm.standardize.warmup_steps", "-1"}, {"error_norm.none.warmup_steps", "-1"},
+        {"predictor.warmup_steps", "-1"},
+        {"error_norm.standardize.multiplier_max", "1"}, {"error_norm.standardize.multiplier_max", "nan"},
+        {"error_norm.none.multiplier_max", "1"}, {"statistics.variance_feedback.multiplier_max", "1"},
         {"learning_rate", "0"}, {"learning_rate", "inf"}, {"weight_decay", "-1"},
         {"adam_eps", "0"}, {"adam_eps", "-1"}, {"adam_eps", "nan"}, {"adam_eps", "inf"},
-        {"multiplier_mode", kInvalidConfigValue}, {"statistics_mode", kInvalidConfigValue},
+        {"error_norm.mode", kInvalidConfigValue}, {"statistics.mode", kInvalidConfigValue},
         {"head.init.mode", kInvalidConfigValue}, {"head.init.manual_gain", "nan"},
         {"head.init.nonlinearity", "selu"}, {"head.init.variance_scale", "0"},
-        {"obs_norm.clip_range", "0"}, {"obs_norm.epsilon", "-1"},
-        {"obs_norm.post_process_type", "99"}}));
+        {"statistics.whiten.obs_norm.clip_range", "0"}, {"statistics.whiten.obs_norm.epsilon", "-1"},
+        {"statistics.whiten.obs_norm.post_process_type", "99"}}));
     auto data = RndTestConfig();
-    data.Set("rnd." + invalid.first, invalid.second);
-    CAPTURE(invalid.first, invalid.second);
+    const auto key = "rnd." + invalid.first;
+    data.Set(key, invalid.second);
+    CAPTURE(key, invalid.second);
+    // 値域・列挙・型の各診断で、キーに続く指定値の欄を照合する。
     CHECK_THROWS_WITH(anet::rl::intrinsic::RndNoveltyEstimatorConfig(data, "rnd"),
-        Catch::Matchers::ContainsSubstring("rnd." + invalid.first)
-        && Catch::Matchers::ContainsSubstring("expected"));
+        Catch::Matchers::ContainsSubstring("Invalid " + key + "=" + invalid.second + "; expected ")
+        || Catch::Matchers::ContainsSubstring("Invalid " + key + "='" + invalid.second + "'; expected ")
+        || Catch::Matchers::ContainsSubstring("key=" + key + " value=\"" + invalid.second + "\" expected="));
 }
 
 TEST_CASE("RND Head retains the default initialization settings", "[intrinsic][config][prd193]")
@@ -751,8 +831,8 @@ TEST_CASE("RND feedback preserves category IDs at the network boundary", "[prd11
     const auto dtype = GENERATE(torch::kInt64, torch::kUInt8, torch::kFloat32);
     const bool mixed = GENERATE(false, true);
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
-    data.Set("rnd.obs_norm.pass_through", true);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
     for (const auto* role : {kTargetRole, kPredictorRole})
         data.Set(std::string(kRndPrefix) + "." + role + ".net.branch.[feature].bind", kCategory);
     auto spec = mixed ? RndTestSpec() : anet::TensorSpecMap{};
@@ -762,8 +842,8 @@ TEST_CASE("RND feedback preserves category IDs at the network boundary", "[prd11
             data, kRndPrefix, spec, torch::kCPU, anet::SeedMaker(123));
     };
     auto reference = create();
-    data.Set("rnd.obs_norm.pass_through", false);
-    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", false);
+    data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
     auto feedback = create();
     auto obs = mixed ? RndTestObservation() : anet::TensorDict{};
     for (const auto [first, second] : {std::pair(2, 0), std::pair(0, 1), std::pair(1, 2)}) {
@@ -806,7 +886,7 @@ TEST_CASE("RND applies head initialization to each independently seeded network"
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     const auto create = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
@@ -837,16 +917,16 @@ TEST_CASE("RND applies head initialization to each independently seeded network"
     CHECK(target_bytes(xavier) != target_bytes(zero));
 }
 
-TEST_CASE("RND warns once per ignored resolved leaf", "[prd116][intrinsic][rnd_reference_warnings]")
+TEST_CASE("RND leaves unused clipping and observation settings silent", "[prd116][intrinsic][rnd_reference_warnings]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
-    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.error_norm.standardize.use_clipping", false);
+    data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
     const bool changed = GENERATE(false, true);
-    data.Set("rnd.multiplier_max", changed ? 10 : 5);
-    data.Set("rnd.obs_norm.use_centering", !changed);
-    data.Set("rnd.obs_norm.clip_range", 3);
+    data.Set("rnd.error_norm.standardize.multiplier_max", changed ? 10 : 5);
+    data.Set("rnd.statistics.whiten.obs_norm.use_centering", !changed);
+    data.Set("rnd.statistics.variance_feedback.obs_norm.clip_range", 3);
     anet::test::LogCaptureGuard logs;
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
@@ -856,13 +936,12 @@ TEST_CASE("RND warns once per ignored resolved leaf", "[prd116][intrinsic][rnd_r
     logs.Flush();
     const auto warnings = [&](const std::string& key) {
         return std::count_if(logs.Records().begin(), logs.Records().end(), [&](const auto& record) {
-            return record.level == wxLOG_Warning
-                && record.message.find("Ignored rnd." + key + "=") != std::string::npos;
+            return record.message.find("rnd." + key) != std::string::npos;
         });
     };
-    CHECK(warnings("multiplier_max") == (changed ? 1 : 0));
-    CHECK(warnings("obs_norm.use_centering") == (changed ? 1 : 0));
-    CHECK(warnings("obs_norm.clip_range") == 0);
+    CHECK(warnings("error_norm.standardize.multiplier_max") == 0);
+    CHECK(warnings("statistics.whiten.obs_norm.use_centering") == 0);
+    CHECK(warnings("statistics.variance_feedback.obs_norm.clip_range") == 0);
 }
 
 
@@ -870,9 +949,9 @@ TEST_CASE("RND feedback warmup ends by observation count", "[prd116][intrinsic][
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
-    data.Set("rnd.multiplier_mode", anet::rl::intrinsic::kMultiplierUnclipped);
-    data.Set("rnd.warmup_steps", 2);
+    data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.error_norm.standardize.use_clipping", false);
+    data.Set("rnd.predictor.warmup_steps", 2);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     const anet::TensorDict one(kObservation, torch::tensor({{1.0f, 2.0f}}));
@@ -935,10 +1014,13 @@ TEST_CASE("RND mixed observations follow double precision reference statistics",
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
     const auto mode = GENERATE(0, 1, 2);
     auto data = RndTestConfig();
-    data.Set("rnd.error_norm.ema_steps", 4);
-    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
-    else data.Set("rnd.error_norm.ema_steps", anet::rl::intrinsic::RndNoveltyEstimatorConfig::kDefaultEmaSteps);
-    if (mode == 2) data.Set("rnd.warmup_mode", anet::rl::intrinsic::kWarmupCollectErrors);
+    data.Set("rnd.error_norm.standardize.ema_steps", 4);
+    if (mode == 1) data.Set("rnd.error_norm.standardize.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    else data.Set("rnd.error_norm.standardize.ema_steps", anet::rl::intrinsic::RndNoveltyEstimatorConfig::kDefaultEmaSteps);
+    if (mode == 2) {
+        data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+        data.Set("rnd.predictor.warmup_steps", 4);
+    }
     for (const auto* role : {kTargetRole, kPredictorRole})
         data.Set(std::string(kRndPrefix) + "." + role + ".net.branch.[feature].bind",
             std::string(kReferenceGrid) + ", " + kObservation + ", " + kCategory);
@@ -948,7 +1030,7 @@ TEST_CASE("RND mixed observations follow double precision reference statistics",
     auto actual = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, spec, device, anet::SeedMaker(123));
     auto reference_data = data;
-    reference_data.Set("rnd.obs_norm.pass_through", true);
+    reference_data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
     auto reference_spec = spec;
     reference_spec.at(kReferenceGrid).dtype = torch::kFloat32;
     auto reference = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
@@ -1032,7 +1114,7 @@ TEST_CASE("RND keeps its seeded target fixed and uses preceding error statistics
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     const auto initial_random = at::detail::getDefaultCPUGenerator().get_state();
     const auto make = [&] {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
@@ -1044,9 +1126,9 @@ TEST_CASE("RND keeps its seeded target fixed and uses preceding error statistics
         anet::OutputArchive output(stream);
         instance->Save(output);
         anet::InputArchive input(stream);
-        std::string format, statistics_mode, target, predictor;
+        std::string format, saved_mode, target, predictor;
         input.Read(format);
-        input.Read(statistics_mode);
+        input.Read(saved_mode);
         input.Read(target);
         input.Read(predictor);
         return std::pair(target, predictor);
@@ -1096,8 +1178,8 @@ TEST_CASE("RND rejects nonfinite prediction errors before publishing statistics"
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
-    data.Set("rnd.obs_norm.pass_through", true);
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, "rnd", RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     const anet::TensorDict obs(kObservation, torch::full({2, 2}, std::numeric_limits<float>::quiet_NaN()));
@@ -1121,8 +1203,8 @@ TEST_CASE("RND checkpoint applies current optimizer options", "[prd116][intrinsi
     anet::nn::InitNN();
     const auto changed_key = GENERATE("learning_rate", "weight_decay", "adam_eps");
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
-    data.Set("rnd.obs_norm.pass_through", true);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
     const auto make = [](const anet::ConfigData& config) {
         return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
             config, "rnd", RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
@@ -1185,9 +1267,12 @@ TEST_CASE("RND mixed observation snapshots and checkpoints preserve subsequent l
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
     const auto mode = GENERATE(0, 1, 2, 3);
     auto data = RndTestConfig();
-    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
-    if (mode == 2) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
-    if (mode == 3) data.Set("rnd.warmup_mode", anet::rl::intrinsic::kWarmupCollectErrors);
+    if (mode == 1) data.Set("rnd.error_norm.standardize.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    if (mode == 3) {
+        data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+        data.Set("rnd.predictor.warmup_steps", 4);
+    }
     for (const auto* role : {kTargetRole, kPredictorRole})
         data.Set(std::string(kRndPrefix) + "." + role + ".net.branch.[feature].bind",
             std::string(kReferenceGrid) + ", " + kObservation + ", " + kCategory);
@@ -1243,9 +1328,9 @@ TEST_CASE("RND read-only scoring leaves subsequent learning unchanged", "[prd127
     anet::nn::InitNN();
     auto data = RndTestConfig();
     const auto mode = GENERATE(0, 1, 2);
-    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
-    if (mode == 2) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
-    data.Set("rnd.warmup_steps", 0);
+    if (mode == 1) data.Set("rnd.error_norm.standardize.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     const auto create = [&] { return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123)); };
     auto reference = create();
@@ -1273,9 +1358,9 @@ TEST_CASE("RND scoring snapshots remain independent of training", "[prd127][intr
     if (compute_device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
     const auto mode = GENERATE(0, 1, 2);
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
-    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
-    if (mode == 2) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    if (mode == 1) data.Set("rnd.error_norm.standardize.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
     const auto create = [&] { return anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), compute_device, anet::SeedMaker(123)); };
     auto source = create();
@@ -1324,12 +1409,13 @@ TEST_CASE("RND read-only formula follows current statistics and warmup", "[prd12
     const bool clipped = GENERATE(false, true);
     const bool warmup = GENERATE(false, true);
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", warmup ? 12 : 0);
-    data.Set("rnd.multiplier_mode", clipped ? "clipped" : anet::rl::intrinsic::kMultiplierUnclipped);
-    if (warmup && mode != 2) data.Set("rnd.warmup_mode", "collect_errors");
-    if (mode != 2) data.Set("rnd.error_norm.use_centering", centered);
-    if (mode == 1) data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
-    if (mode == 2) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.predictor.warmup_steps", warmup ? 12 : 0);
+    data.Set("rnd.error_norm.standardize.use_clipping", clipped);
+    data.Set("rnd.statistics.variance_feedback.use_clipping", clipped);
+    if (mode != 2) data.Set("rnd.error_norm.standardize.use_centering", centered);
+    if (mode == 1) data.Set("rnd.error_norm.standardize.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    if (mode == 2) data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     const auto empty = estimator->EstimateWithoutUpdate(RndTestObservation());
@@ -1382,11 +1468,11 @@ TEST_CASE("Read-only normalization leaves zero variances unavailable", "[prd127]
     const auto mode = GENERATE(0, 1, 2);
     CAPTURE(mode);
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
     data.Set("rnd.head.init.mode", kConstantInit);
     data.Set("rnd.head.init.constant_val", 0.0f);
-    data.Set("rnd.obs_norm.pass_through", true);
-    if (mode != 0) data.Set("rnd.statistics_mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
+    if (mode != 0) data.Set("rnd.statistics.mode", anet::rl::intrinsic::kStatisticsVarianceFeedback);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     const auto observation = RndTestObservation();
@@ -1425,10 +1511,10 @@ TEST_CASE("Read-only multiplier preserves overflow exactly as training does", "[
     anet::nn::InitNN();
     const bool clipped = GENERATE(false, true);
     auto data = RndTestConfig();
-    data.Set("rnd.warmup_steps", 0);
-    data.Set("rnd.obs_norm.pass_through", true);
-    data.Set("rnd.error_norm.average_mode", anet::rl::intrinsic::kErrorAverageEma);
-    data.Set("rnd.multiplier_mode", clipped ? anet::rl::intrinsic::kMultiplierClipped : anet::rl::intrinsic::kMultiplierUnclipped);
+    data.Set("rnd.error_norm.standardize.warmup_steps", 0);
+    data.Set("rnd.statistics.whiten.obs_norm.pass_through", true);
+    data.Set("rnd.error_norm.standardize.average_mode", anet::rl::intrinsic::kErrorAverageEma);
+    data.Set("rnd.error_norm.standardize.use_clipping", clipped);
     auto estimator = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
         data, kRndPrefix, RndTestSpec(), torch::kCPU, anet::SeedMaker(123));
     // 正当なEMA checkpointで、小さい正の除数を設定してfloatのoverflowを通す。
@@ -1443,7 +1529,7 @@ TEST_CASE("Read-only multiplier preserves overflow exactly as training does", "[
     anet::rl::StateSpec state_spec;
     state_spec.obs_spec = RndTestSpec();
     auto normalizer = anet::rl::ObservationNormalizerFactory(
-        anet::rl::intrinsic::RndNoveltyEstimatorConfig(data, kRndPrefix).obs_norm).CreateObservationNormalizer(state_spec);
+        anet::rl::intrinsic::RndNoveltyEstimatorConfig(data, kRndPrefix).statistics.whiten.obs_norm).CreateObservationNormalizer(state_spec);
     normalizer->Load(input);
     normalizer->Save(output);
     double moment;

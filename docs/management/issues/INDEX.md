@@ -5,16 +5,14 @@
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261107-949e8a](issue-20261107-949e8a.md) | 対応中 | 5.0 | — | コード | その他 | 322_env_individual | Env | 機能追加 | [PRD126](../../memo/126_atari_ram_metric_distinct_and_bit_reducers_10prd.md) | 残件有り | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
-| [issue-20261115-ce0101](issue-20261115-ce0101.md) | 調査中 | 5.0 | — | コード | その他 | 324_dqn, 321_agent_core, 317_metrics | UI | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 残件有り | NN の構造図（dot の net.structure・net.detail）に、RND の target と predictor の Network が出ない |
 | [issue-20261111-61ad60](issue-20261111-61ad60.md) | 調査中 | 2.7 | — | コード | 実装 | 110_runner_app | 開発 | 調査 | — | 未確認 | GUI既定スイートのLogs折り返し整列テストが変更前から失敗する |
 | [issue-20261117-eedd0c](issue-20261117-eedd0c.md) | 調査中 | 2.6 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | Evaluation Trace の単一行選択テストが合成ドラッグ後に失敗する |
-| [issue-20261122-c1744a](issue-20261122-c1744a.md) | 調査中 | 2.6 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RND と補助学習の設定キーが段階とモードの関係を表しておらず、warm-up の 1 つの件数が 2 つの待ちを束ねていて、設計文書 212 から設定と動きを引きにくい |
-| [issue-20261119-027698](issue-20261119-027698.md) | 調査中 | 2.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RNDに生の予測誤差を返す内的報酬の式が無く、Burdaらの「誤差を内的の収益の標準偏差で割るだけ」の形にできない |
+| [issue-20261122-c1744a](issue-20261122-c1744a.md) | 対応中 | 2.6 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 残件有り | RND と補助学習の設定キーが段階とモードの関係を表しておらず、warm-up の 1 つの件数が 2 つの待ちを束ねていて、設計文書 212 から設定と動きを引きにくい |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた PRD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
-| [issue-20261119-4976bf](issue-20261119-4976bf.md) | 調査中 | 1.1 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) | 未確認 | RNDのpredictorの補助学習が今のintakeの観測だけから引き、lane数を超えるバッチと同じ標本の再利用（Burdaらの4エポック）ができない |
 | [issue-20261103-23d185](issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | PRD | 311_dev_tools | 開発 | 機能追加 | [PRD187](../../memo/187_issue_list_views_10prd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261103-b754ff](issue-20261103-b754ff.md) | 未着手 | 6.5 | — | 成果物 | 監査 | 324_dqn | 学習基盤 | 不整合 | [PRD161](../../memo/161_observation_pipeline_10prd.md) | 残件有り | stucker.stack_keysに存在しないキー名を書いても検出されない |
+| [issue-20261122-4adabb](issue-20261122-4adabb.md) | 未着手 | 4.0 | — | コード | 実装 | 311_dev_tools, 316_config | 開発 | 不具合 | — | 未確認 | PRD072 の既定葉検査が移転前の core を探索して停止する |
 | [issue-20261111-9e6e27](issue-20261111-9e6e27.md) | 未着手 | 3.6 | — | コード | PRD | 110_runner_app | UI | 機能改善 | — | 未確認 | 無人で走るRun（番号付きbat）でWARNに気づけない |
 | [issue-20261120-1979f6](issue-20261120-1979f6.md) | 未着手 | 3.5 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | QValuePanel.hist_bins=0 が設定検証を通り、描画処理で空のヒストグラムを参照しうる |
 | [issue-20261115-e5a0eb](issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | PRD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 未確認 | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
@@ -128,6 +126,7 @@
 | [issue-20261103-53ed7a](issue-20261103-53ed7a.md) | 未着手 | 0.8 | — | コード | PRD | 110_runner_app, 319_gui | UI | 機能追加 | [PRD186](../../memo/186_runner_theme_switch_10prd.md) | 残件有り | 起動中の Runner を OS のテーマ（ライト／ダーク）の切替に追従させる |
 | [issue-20261103-afe841](issue-20261103-afe841.md) | 未着手 | 0.8 | — | コード | PRD | 321_agent_core, 324_dqn, 318_rl_core | 学習基盤 | 機能追加 | [PRD145](../../memo/145_staged_batch_replay_schedule_10prd.md) | 残件有り | DefaultDQN Staged Batch / Replay Schedule |
 | [issue-20261103-b13ed2](issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | コード | PRD | 311_dev_tools | 開発 | 機能改善 | [PRD185](../../memo/185_release_packaging_cmake_10prd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
+| [issue-20261122-4c0af5](issue-20261122-4c0af5.md) | 未着手 | 0.8 | — | コード | PRD | 318_rl_core, 314_tensor, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 観測をためる仕組み（フレーム積層の履歴、Replay の観測の置き場、補助学習の rollout の置き場）が別々に実装されていて、共通の置き場の部品へ載せ替えていない |
 | [issue-20261103-969184](issue-20261103-969184.md) | 未着手 | 0.6 | — | コード | PRD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD174](../../memo/174_llm_actor_10prd.md) | 残件有り | LLM Actor（LLM の事前知識で行動する Actor。単独 Agent と DQN ハイブリッド） |
 | [issue-20261113-6f954f](issue-20261113-6f954f.md) | 未着手 | 0.6 | — | コード | PRD | 321_agent_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | Learner の診断の購読が、Run で使う診断の宣言と、呼び出しごとの要求を 1 つの口で兼ねている |
 | [issue-20261116-948957](issue-20261116-948957.md) | 未着手 | 0.6 | — | コード | その他 | 315_nn, 324_dqn | 基盤 | 機能追加 | — | 残件有り | ImageClsで外部の学習済みモデルの重みを読み込んで転移学習できるようにする（今はanetが保存した同じ構造の重みしか読めない） |
@@ -148,11 +147,10 @@
 | [issue-20261115-b02db6](issue-20261115-b02db6.md) | 未着手 | 1.3 | [issue-20261103-b4e5c9](issue-20261103-b4e5c9.md) | コード | その他 | 316_config, 324_dqn, 315_nn | 基盤 | リファクタリング | — | 残件有り | RND の Head の出力次元 intrinsic.rnd.output_dim が rnd の直下にあり、Head の初期値 intrinsic.rnd.head.init.* と置き場が分かれている |
 | [issue-20261103-13bc20](issue-20261103-13bc20.md) | 未着手 | 0.8 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | コード | PRD | 322_env_individual | Env | 機能追加 | [PRD086](../../memo/086_dropmerge_macro_actions_10prd.md) | 残件有り | DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化） |
 | [issue-20261108-227b05](issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](issue-20261103-736e39.md) | コード | PRD | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
-| [issue-20261122-4c0af5](issue-20261122-4c0af5.md) | 未着手 | 0.8 | [issue-20261119-4976bf](issue-20261119-4976bf.md) | コード | PRD | 318_rl_core, 314_tensor, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 観測をためる仕組み（フレーム積層の履歴、Replay の観測の置き場、補助学習の rollout の置き場）が別々に実装されていて、共通の置き場の部品へ載せ替えていない |
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | コード | PRD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [PRD160](../../memo/160_input_target_train_forced_action_10prd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | コード | PRD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [PRD162](../../memo/162_decision_aligned_nstep_10prd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 136 / 待ち 12 / 保留 0 / 次版 0 / 解決 0
+着手できる 134 / 待ち 11 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 

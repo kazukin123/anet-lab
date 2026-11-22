@@ -1,5 +1,7 @@
 # PRD116 RND 検証
 
+> この検証資材の設定キーは PRD191 より前の名前です。
+
 > PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 初回実装の記録は [20impl](../../../../../docs/memo/116_rnd_lifelong_novelty_20impl.md)、Estimate/Learnの独立化とdevice・保存の契約を見直した記録は [21impl](../../../../../docs/memo/116_rnd_lifelong_novelty_21impl.md)、補助学習のcredit・件数・bool結果を見直した記録は [22impl](../../../../../docs/memo/116_rnd_lifelong_novelty_22impl.md)。公開実装のNetwork形状、別々のtarget/predictor、統計・観測・倍率の選択肢は [23impl](../../../../../docs/memo/116_rnd_lifelong_novelty_23impl.md)。

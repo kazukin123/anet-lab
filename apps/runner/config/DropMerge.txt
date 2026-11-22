@@ -531,7 +531,7 @@ run.@skip : metrics.scalar.[50_agent_skip/23_greedy_length_rate.[10]] = skip_ses
 # warm-up は Atari と同じ 200,000（序盤の大きな誤差を誤差の統計に入れない）。
 run.@rnd : DefaultDQNAgent.intrinsic.enabled = true
 run.@rnd : DefaultDQNAgent.intrinsic.beta = 0.01
-run.@rnd : DefaultDQNAgent.intrinsic.rnd.warmup_steps = 200,000
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.error_norm.standardize.warmup_steps = 200,000
 run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].bind = grid
 run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].structure = DMRndConv1 > DMRndLeaky > DMRndConv2 > DMRndLeaky > DMRndConv3 > DMRndLeaky > Flatten
 run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.body.output.[features] = feature

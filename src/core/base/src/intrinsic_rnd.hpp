@@ -11,28 +11,45 @@
 
 namespace anet::rl::intrinsic {
 
-    inline constexpr char kMultiplierClipped[] = "clipped";
-    inline constexpr char kMultiplierUnclipped[] = "unclipped";
     inline constexpr char kStatisticsWhiten[] = "whiten";
     inline constexpr char kStatisticsVarianceFeedback[] = "variance_feedback";
-    inline constexpr char kWarmupLearnPredictor[] = "learn_predictor";
-    inline constexpr char kWarmupCollectErrors[] = "collect_errors";
+    inline constexpr char kErrorStandardize[] = "standardize";
+    inline constexpr char kErrorNone[] = "none";
     inline constexpr char kErrorAverageCumulative[] = "cumulative";
     inline constexpr char kErrorAverageEma[] = "ema";
 
     struct RndNoveltyEstimatorConfig : public anet::Config {
         static constexpr float kDefaultMultiplierMax = 5.0f;
+        static constexpr int64_t kDefaultWarmupSteps = 12800;
         static constexpr int64_t kDefaultEmaSteps = 1000000;
-        static constexpr bool kDefaultErrorNormUseCentering = true;
-        std::string multiplier_mode = kMultiplierClipped;
-        std::string statistics_mode = kStatisticsWhiten;
-        float multiplier_max = kDefaultMultiplierMax;
-        int64_t warmup_steps = 12800;
-        std::string warmup_mode = kWarmupLearnPredictor;
         struct {
-            std::string average_mode = kErrorAverageCumulative;
-            int64_t ema_steps = kDefaultEmaSteps;
-            bool use_centering = kDefaultErrorNormUseCentering;
+            std::string mode = kStatisticsWhiten;
+            struct {
+                ObservationNormalizerConfig obs_norm;
+            } whiten;
+            struct {
+                struct {
+                    float clip_range = 5.0f;
+                } obs_norm;
+                bool use_clipping = false;
+                float multiplier_max = kDefaultMultiplierMax;
+            } variance_feedback;
+        } statistics;
+        struct {
+            std::string mode = kErrorStandardize;
+            struct {
+                std::string average_mode = kErrorAverageCumulative;
+                int64_t ema_steps = kDefaultEmaSteps;
+                bool use_centering = true;
+                int64_t warmup_steps = kDefaultWarmupSteps;
+                bool use_clipping = true;
+                float multiplier_max = kDefaultMultiplierMax;
+            } standardize;
+            struct {
+                int64_t warmup_steps = kDefaultWarmupSteps;
+                bool use_clipping = false;
+                float multiplier_max = kDefaultMultiplierMax;
+            } none;
         } error_norm;
         float learning_rate = 1e-4f;
         float weight_decay = 0.0f;
@@ -41,12 +58,19 @@ namespace anet::rl::intrinsic {
             int output_dim = 128;
             anet::nn::WeightInitConfig init;
         } head;
-        ObservationNormalizerConfig obs_norm;
         struct {
             anet::nn::NetworkConfig net;
-        } target, predictor;
+        } target;
+        struct {
+            anet::nn::NetworkConfig net;
+            int64_t warmup_steps = 0;
+        } predictor;
 
         RndNoveltyEstimatorConfig(const anet::ConfigData& data, const std::string& prefix);
+        bool UsesRawError() const
+        {
+            return statistics.mode == kStatisticsWhiten && error_norm.mode == kErrorNone;
+        }
     };
 
     class RndNoveltyEstimator final : public LifelongNoveltyEstimator {
@@ -60,6 +84,9 @@ namespace anet::rl::intrinsic {
         std::unique_ptr<LifelongNoveltyEstimator> Clone() const override;
         bool Learn(const anet::TensorDict& observations) override;
         std::map<std::string, float> Diagnostics() const override;
+        bool SuppressesBonus() const override;
+        std::map<std::string, std::unique_ptr<anet::graphviz::GraphViz>> MakeNetworkGraphs(
+            const anet::nn::NetworkGraphVizConfig& config) const override;
         int64_t Save(anet::OutputArchive& archive) const override;
         int64_t Load(anet::InputArchive& archive) override;
     private:
@@ -96,6 +123,8 @@ namespace anet::rl::intrinsic {
         template<ForwardUse use>
         ScoreResult ComputePredictionErrors(const anet::TensorDict& normalized) const;
         float TargetFeatureVariance() const;
+        std::pair<bool, float> GetMultiplierClipping() const;
+        void LogWarmup(const char* key, int64_t limit, int64_t previous_count) const;
         const RndNoveltyEstimatorConfig config_;
         const torch::Device device_;
         std::shared_ptr<anet::nn::Network> target_;

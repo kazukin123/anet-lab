@@ -31,6 +31,8 @@
 
 黙って挙動・値が変わる変更:
 
+- RND の設定を段階・モード別に移行(PRD191, ADR0088)。`intrinsic.rnd` の `statistics_mode` は `statistics.mode`、`obs_norm.*` は `statistics.whiten.obs_norm.*`、feedback の観測 clip は `statistics.variance_feedback.obs_norm.clip_range`。 `error_norm.use_centering` / `average_mode` / `ema_steps` は `error_norm.standardize.*`。 `multiplier_mode` / `multiplier_max` は選ぶ方式の `use_clipping` / `multiplier_max` へ移す（`error_norm.standardize`、`error_norm.none`、`statistics.variance_feedback`）。`warmup_mode` / `warmup_steps` は、`learn_predictor` なら `error_norm.standardize.warmup_steps`、`collect_errors` なら標準化の待ちを 0 にして `predictor.warmup_steps`、feedback なら `predictor.warmup_steps` に移す。 `intrinsic.learn_ratio` / `intrinsic.learn_batch_size` は `intrinsic.learn.intake.ratio` / `intrinsic.learn.intake.batch_size`。feedback の倍率 clip の既定は偽。
+
 - nn_trace は要求した step だけ生成する。Conv2d pane を閉じた間の Trace 行には中間出力を保持しない。Actor と Runner の step は `MakeActionOptions` を受け、NN の中間出力は capture に統合した(PRD170)。
 
 - eval schedule は先頭の発火を既定で 1 回抑止する（`warmup_count=1`）。学習直後の評価が要るタグは 0 を指定し、`offset`（既定 0）で learn step の発火列をずらす(PRD158, ADR0070)。

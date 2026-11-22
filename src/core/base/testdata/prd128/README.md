@@ -1,5 +1,7 @@
 # PRD128 検証資材
 
+> この検証資材の設定キーは PRD191 より前の名前です。
+
 正本は [PRD128](../../../../../docs/memo/128_dqn_agent_refactor_bundle_10prd.md)、結果は [実装メモ](../../../../../docs/memo/128_dqn_agent_refactor_bundle_20impl.md) に記録する。
 
 `run_validation.py` は PRD125 の実行・入力生成・scalar 正規化・suite・性能の検査を呼ぶ。原本の資材は変えない。保存先は `.scratch/prd128/acceptance/` で、既存 label の上書きは拒否する。

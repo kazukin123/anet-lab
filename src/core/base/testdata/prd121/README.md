@@ -1,5 +1,7 @@
 # PRD121 受入検証
 
+> この検証資材の設定キーは PRD191 より前の名前です。
+
 正本は [PRD121](../../../../../docs/memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)、経過と成否は [20impl](../../../../../docs/memo/121_extrinsic_intrinsic_value_decomposition_20impl.md)を参照する。ここは再実行の入口であり、未実施の検証を成功として扱わない。
 
 ## 保存した基準

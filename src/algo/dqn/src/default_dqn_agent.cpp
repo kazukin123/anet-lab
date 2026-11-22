@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <numeric>
+#include <limits>
 #include <sstream>
 #include <torch/torch.h>
 #include <cmath>
@@ -14,6 +15,7 @@
 #include "anet/str_util.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/tensor_util.hpp"
+#include "anet/tensor_store.hpp"
 #include "anet/tensor_check.hpp"
 #include "anet/log.hpp"
 #include "anet/random.hpp"
@@ -48,9 +50,107 @@ constexpr char kIntrinsicBonusMin[] = "intrinsic.bonus_min";
 constexpr char kIntrinsicBonusPosRatio[] = "intrinsic.bonus_pos_ratio";
 constexpr char kIntrinsicLearnCount[] = "intrinsic.learn_count";
 constexpr char kIntrinsicLearnSeed[] = "intrinsic.learn";
+constexpr char kIntrinsicRndGraphPrefix[] = "intrinsic.rnd.";
+constexpr char kNetworkStructureSuffix[] = ".net.structure";
+constexpr char kNetworkDetailSuffix[] = ".net.detail";
 constexpr const char* kSkipStructureTag = "skip.net.structure";
 constexpr const char* kSkipDetailTag = "skip.net.detail";
 constexpr const char* kSkipNetworkSeed = "skip_network";
+
+namespace {
+    // 読み出し順はエポックごとに作る。分散時は、ためる側と学ぶ側の領域を交代で使う。
+    class IntrinsicLearnRolloutBatcher {
+    public:
+        IntrinsicLearnRolloutBatcher(int64_t lanes, int64_t length, int64_t batch_size,
+            int64_t steps, int64_t epochs, bool spread)
+            : lanes_(lanes), length_(length), batch_size_(batch_size), total_steps_(steps),
+              steps_per_epoch_(steps / epochs), spread_(spread), collecting_(length), training_(length) {}
+    public:
+        int64_t AppendAndLearn(const anet::TensorDict& observations,
+            anet::rl::intrinsic::LifelongNoveltyEstimator& estimator, std::mt19937_64& random)
+        {
+            ANET_PROFILE_SCOPE(intrinsic_rollout_append);
+            collecting_.Append(observations);
+            ANET_PROFILE_SCOPE_END(intrinsic_rollout_append);
+            if (!spread_) {
+                // ため終えた intake の中で一括学習し、次の rollout に備えて空にする。
+                if (collecting_.GetTimeCount() < length_) return 0;
+                ANET_PROFILE_SCOPE(intrinsic_rollout_batch);
+                const auto learned = LearnSteps(collecting_, total_steps_, estimator, random);
+                collecting_.Clear();
+                next_step_ = 0;
+                return learned;
+            }
+
+            int64_t learned = 0;
+            if (training_.GetTimeCount() != 0) {
+                // 商と余りを分け、intake 数と step 数を掛けずに累計の整数部分を得る。
+                spread_remainder_ += total_steps_ % length_;
+                const auto steps = total_steps_ / length_ + spread_remainder_ / length_;
+                spread_remainder_ %= length_;
+                learned = LearnSteps(training_, steps, estimator, random);
+            }
+            if (collecting_.GetTimeCount() == length_) {
+                // 前の rollout の学習を終えた領域を、次の蓄積に回す。
+                training_.Clear();
+                std::swap(collecting_, training_);
+                next_step_ = 0;
+                spread_remainder_ = 0;
+            }
+            return learned;
+        }
+
+        void Reset()
+        {
+            collecting_.Clear();
+            training_.Clear();
+            next_step_ = 0;
+            spread_remainder_ = 0;
+        }
+    private:
+        int64_t LearnSteps(const anet::LaneTimeTensorStore& source, int64_t steps,
+            anet::rl::intrinsic::LifelongNoveltyEstimator& estimator, std::mt19937_64& random)
+        {
+            int64_t learned = 0;
+            for (int64_t step = 0; step < steps; ++step, ++next_step_) {
+                ANET_PROFILE_SCOPE(intrinsic_rollout_selection);
+                // エポックの最初に全観測を並べ替え、以後は同じ並びを使う。
+                const auto epoch_step = next_step_ % steps_per_epoch_;
+                if (epoch_step == 0) {
+                    order_.resize(lanes_ * length_);
+                    std::iota(order_.begin(), order_.end(), int64_t{0});
+                    std::shuffle(order_.begin(), order_.end(), random);
+                }
+                // 今回の区間だけを lane と時間の組に戻し、観測を取り出す。
+                const auto first = epoch_step * batch_size_;
+                batch_indices_.clear();
+                batch_indices_.reserve(batch_size_);
+                for (int64_t offset = 0; offset < batch_size_; ++offset) {
+                    const auto index = order_.at(first + offset);
+                    batch_indices_.push_back({.lane = index % lanes_, .time = index / lanes_});
+                }
+                const auto observations = source.Gather(batch_indices_);
+                ANET_PROFILE_SCOPE_NEXT(intrinsic_learn);
+                // 予定された step は消費し、optimizer が進んだ回数だけを返す。
+                if (estimator.Learn(observations)) ++learned;
+            }
+            return learned;
+        }
+    private:
+        const int64_t lanes_;
+        const int64_t length_;
+        const int64_t batch_size_;
+        const int64_t total_steps_;
+        const int64_t steps_per_epoch_;
+        const bool spread_;
+        anet::LaneTimeTensorStore collecting_;
+        anet::LaneTimeTensorStore training_;
+        std::vector<int64_t> order_;
+        std::vector<anet::LaneTimeIndex> batch_indices_;
+        int64_t next_step_ = 0;
+        int64_t spread_remainder_ = 0;
+    };
+}
 
 // Agent の内的報酬の State と処理をまとめ、設定は不変な値として保持する。
 class DefaultDQNAgent::IntrinsicRewardCoordinator {
@@ -77,11 +177,18 @@ public:
             reward_scaler_ = RewardScalerFactory(config_.reward_scaler,
                 prefix.substr(0, prefix.size() - std::string(".rnd").size()) + ".reward_scaler")
                 .CreateRewardScaler(reward_gamma, batch_env_spec.num_envs, gamma_key);
-            if (learning_enabled_ && batch_env_spec.num_envs < config_.learn_batch_size) {
-                ANET_SYSTEM_ERROR(keys.GetFullKey("intrinsic.learn_batch_size") << "=" << config_.learn_batch_size
-                    << " exceeds num_envs=" << batch_env_spec.num_envs
-                    << "; expected " << keys.GetFullKey("intrinsic.learn_batch_size") << " <= run.train.num_envs when "
-                    << keys.GetFullKey("learner.enabled") << "=true.");
+            if (learning_enabled_) {
+                if (config_.learn.mode == DefaultDQNAgentConfig::kIntrinsicLearnRollout) {
+                    const auto& rollout = config_.learn.rollout;
+                    const auto steps = ValidateRolloutSteps(batch_env_spec.num_envs, keys);
+                    rollout_.emplace(batch_env_spec.num_envs, rollout.length, rollout.batch_size,
+                        steps, rollout.epochs, rollout.use_spread);
+                } else if (batch_env_spec.num_envs < config_.learn.intake.batch_size) {
+                    ANET_SYSTEM_ERROR(keys.GetFullKey("intrinsic.learn.intake.batch_size") << "=" << config_.learn.intake.batch_size
+                        << " exceeds num_envs=" << batch_env_spec.num_envs
+                        << "; expected " << keys.GetFullKey("intrinsic.learn.intake.batch_size") << " <= run.train.num_envs when "
+                        << keys.GetFullKey("learner.enabled") << "=true.");
+                }
             }
             lifelong_novelty_ = anet::rl::intrinsic::LifelongNoveltyEstimatorFactory::Create(
                 config_.rnd, prefix,
@@ -97,6 +204,15 @@ public:
     }
 
     bool IsEnabled() const { return static_cast<bool>(lifelong_novelty_); }
+    void RecordNetworkStructure(const anet::nn::NetworkGraphVizConfig& detail) const
+    {
+        if (!lifelong_novelty_) return;
+        const auto logger = anet::MetricsLogger::Instance();
+        for (const auto& [role, graph] : lifelong_novelty_->MakeNetworkGraphs({}))
+            logger->Log(kIntrinsicRndGraphPrefix + role + kNetworkStructureSuffix, *graph);
+        for (const auto& [role, graph] : lifelong_novelty_->MakeNetworkGraphs(detail))
+            logger->Log(kIntrinsicRndGraphPrefix + role + kNetworkDetailSuffix, *graph);
+    }
     std::string ScalerStateKind() const { return reward_scaler_ ? reward_scaler_->StateKind() : RewardScaler::kConstantState; }
 
     void AdvanceBeta(const StepCounts& counts)
@@ -117,11 +233,13 @@ public:
         // 生の観測を選んで採点する。次観測だけは終端のボーナスをマスクする。
         ANET_PROFILE_SCOPE(estimate);
         const auto& intrinsic_observations = SelectObservations(batch_exp);
+        const bool suppress_bonus = lifelong_novelty_->SuppressesBonus();
         const auto alpha = lifelong_novelty_->Estimate(intrinsic_observations);
         ANET_PROFILE_SCOPE_NEXT(bonus);
         const auto unscaled = CalculateBonus(alpha, 1.0f, batch_exp.next_state.done,
             UsesDoneMask(), BonusMaskOperation::Copy);
-        const auto scaled = reward_scaler_->Scale(unscaled);
+        auto scaled = reward_scaler_->Scale(unscaled);
+        if (suppress_bonus) scaled = torch::zeros_like(scaled);
         auto bonus = *last_intrinsic_beta_ * scaled;
         if (component) *component = scaled;
 
@@ -143,10 +261,23 @@ public:
     {
         if (!lifelong_novelty_ || !learning_enabled_) return;
         const auto& intrinsic_observations = SelectObservations(batch_exp);
+        if (rollout_)
+            intrinsic_learn_count_ += rollout_->AppendAndLearn(intrinsic_observations, *lifelong_novelty_, *intrinsic_learn_random_);
+        else
+            LearnIntake(intrinsic_observations);
+
+        // 補助学習後の推定器の診断値を公開する。
+        intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(static_cast<float>(intrinsic_learn_count_), std::memory_order_relaxed);
+        for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
+            intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
+    }
+
+    void LearnIntake(const anet::TensorDict& intrinsic_observations)
+    {
         // 経験件数に比例したcreditを貯め、同じintakeのlaneを重複なくk件ずつ渡す。
         const auto num_lanes = intrinsic_observations.Size(0);
-        const auto batch_size = config_.learn_batch_size;
-        intrinsic_learn_credit_ += static_cast<float>(num_lanes) * config_.learn_ratio / batch_size;
+        const auto batch_size = config_.learn.intake.batch_size;
+        intrinsic_learn_credit_ += static_cast<float>(num_lanes) * config_.learn.intake.ratio / batch_size;
         if (intrinsic_learn_credit_ >= 1.0f) {
             ANET_PROFILE_SCOPE(intrinsic_selection);
             std::vector<int64_t> lanes(num_lanes);
@@ -169,10 +300,6 @@ public:
             }
         }
 
-        // 補助学習後の推定器の診断値を公開する。
-        intrinsic_diagnostics_.at(kIntrinsicLearnCount).store(static_cast<float>(intrinsic_learn_count_), std::memory_order_relaxed);
-        for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
-            intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
     }
 
     int64_t Save(anet::OutputArchive& archive) const
@@ -214,6 +341,7 @@ public:
             for (const auto& [key, value] : lifelong_novelty_->Diagnostics())
                 intrinsic_diagnostics_.at(std::string(kIntrinsicPrefix) + key).store(value, std::memory_order_relaxed);
             reward_scaler_->Load(in);
+            if (rollout_) rollout_->Reset();
         }
     }
 
@@ -233,6 +361,35 @@ public:
         std::shared_ptr<std::shared_mutex> mutex,
         std::shared_ptr<const IntrinsicRewardCoordinator> self);
 private:
+    int64_t ValidateRolloutSteps(int64_t lanes, const ConfigFullKeyTable& keys) const
+    {
+        // lane 数から、rollout 全体で必要になる実数の step 数を求める。
+        const auto& rollout = config_.learn.rollout;
+        const auto observations = lanes * rollout.length;
+        const double steps = static_cast<double>(observations) * rollout.ratio / rollout.batch_size;
+        const double nearest = std::round(steps);
+        constexpr double kRelativeTolerance = 1e-6;
+        const auto describe = [&] {
+            std::ostringstream text;
+            text << "num_envs=" << lanes << " * " << keys.GetFullKey("intrinsic.learn.rollout.length") << "=" << rollout.length
+                << " * " << keys.GetFullKey("intrinsic.learn.rollout.ratio") << "=" << rollout.ratio
+                << " / " << keys.GetFullKey("intrinsic.learn.rollout.batch_size") << "=" << rollout.batch_size
+                << " gives " << steps << " step(s) per rollout";
+            return text.str();
+        };
+        // 許容誤差内の正の整数に限って、実行する step 数として使う。
+        if (nearest < 1.0 || nearest >= static_cast<double>(std::numeric_limits<int64_t>::max())
+            || std::abs(steps - nearest) > steps * kRelativeTolerance)
+            ANET_SYSTEM_ERROR(describe() << "; expected a positive integer step count representable by int64_t.");
+        const auto count = static_cast<int64_t>(nearest);
+        // エポックを均等に分け、各エポックで同じ観測を繰り返さずに済むことを確かめる。
+        if (count % rollout.epochs != 0 || count / rollout.epochs > observations / rollout.batch_size)
+            ANET_SYSTEM_ERROR(describe() << "; expected divisibility by "
+                << keys.GetFullKey("intrinsic.learn.rollout.epochs") << "=" << rollout.epochs
+                << " and at most " << observations << " observations per epoch.");
+        return count;
+    }
+
     bool UsesNextState() const
     {
         return config_.observation == DefaultDQNAgentConfig::kIntrinsicObservationNextState;
@@ -271,7 +428,8 @@ private:
             const bool mask = UsesDoneMask();
             const auto raw = CalculateBonus(result.multipliers, 1.0f,
                 mask ? experience.next_state.done.to(torch::kCPU) : torch::Tensor{}, mask, BonusMaskOperation::InPlace);
-            const auto scaled = reward_scaler_->ScaleWithoutUpdate(raw);
+            auto scaled = reward_scaler_->ScaleWithoutUpdate(raw);
+            if (estimator.SuppressesBonus()) scaled = torch::zeros_like(scaled);
             if (component) *component = scaled;
             bonus = *beta * scaled;
             bonus.masked_fill_(~torch::isfinite(values.at(kIntrinsicError)), std::numeric_limits<float>::quiet_NaN());
@@ -289,6 +447,7 @@ private:
     float intrinsic_learn_credit_ = 0.0f; ///< Coordinatorが更新する補助学習の未消費credit。
     int64_t intrinsic_learn_count_ = 0; ///< optimizerが実際に進んだ累計step数。
     std::optional<std::mt19937_64> intrinsic_learn_random_; ///< 有効時だけ作るlane抽選のResource。
+    std::optional<IntrinsicLearnRolloutBatcher> rollout_;
     std::map<std::string, std::atomic<float>> intrinsic_diagnostics_; ///< キーは構築時に固定。UI は値だけ読む。
 };
 
@@ -478,6 +637,7 @@ void DefaultDQNAgent::RecordNetworkStructure() const
             anet::MetricsLogger::Instance()->Log(kSkipStructureTag, *skip->MakeGraphViz(anet::nn::NetworkGraphVizConfig{}));
             anet::MetricsLogger::Instance()->Log(kSkipDetailTag, *skip->MakeGraphViz(config_.nn_viz));
         }
+        intrinsic_->RecordNetworkStructure(config_.nn_viz);
     }
 
 }

@@ -8,6 +8,9 @@
 #include "anet/random.hpp"
 #include "anet/serialize.hpp"
 
+namespace anet::graphviz { class GraphViz; }
+namespace anet::nn { struct NetworkGraphVizConfig; }
+
 namespace anet::rl::intrinsic {
 
     /// 読むだけの採点結果。lane ごとの倍率と方式が宣言した診断値を CPU float で持つ。
@@ -31,6 +34,11 @@ namespace anet::rl::intrinsic {
         virtual bool Learn(const anet::TensorDict& observations) = 0;
         /// 認識する診断キーを常に返し、未成立の値は NaN とする。
         virtual std::map<std::string, float> Diagnostics() const = 0;
+        /// 次に採点する batch で、スケーラによる変換後の内的報酬を 0 にするかを返す。
+        virtual bool SuppressesBonus() const = 0;
+        /// Network の図を推定器の中での役割名とともに返す。
+        virtual std::map<std::string, std::unique_ptr<anet::graphviz::GraphViz>> MakeNetworkGraphs(
+            const anet::nn::NetworkGraphVizConfig& config) const = 0;
         virtual ~LifelongNoveltyEstimator() = default;
     };
 

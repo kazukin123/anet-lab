@@ -312,7 +312,7 @@ goto :summary
 
 
 :mz_tg
-SET "SRC_EXE=%~dp0..\.scratch\rnd-taiga-20261108\bin\AnetRLRunner_rnd_20261108.exe"
+SET "SRC_EXE=bin\%BUILD%\AnetRLRunner.exe"
 if not exist "%SRC_EXE%" goto :no_exe
 copy /Y "%SRC_EXE%" "bin\%BUILD%\AnetRLRunner_ab12.exe" >nul
 if errorlevel 1 goto :no_exe
@@ -326,7 +326,7 @@ SET "ALNINIT=net.block.[AtariImpalaConv32].init.mode=default net.block.[AtariImp
 SET "TGQ=DefaultDQNAgent.learner.replay_ratio=8 DefaultDQNAgent.model.hard_update_interval=250 DefaultDQNAgent.learner.per_alpha=0.5 DefaultDQNAgent.learner.per_beta.start=0.5 DefaultDQNAgent.learner.per_beta.end=0.5"
 SET "TGEV=run.eval_schedule.[eval].interval=62528 run.eval_schedule.[greedy].interval=31250 run.eval_schedule.[greedy_single].interval=31250"
 SET "MZT=E1.game=montezuma_revenge run.seed=1 run.eval.[greedy].eval_episodes=16"
-SET "TGRND=DefaultDQNAgent.intrinsic.learn_ratio=1 DefaultDQNAgent.intrinsic.learn_batch_size=128"
+SET "TGRND=DefaultDQNAgent.intrinsic.learn.intake.ratio=1 DefaultDQNAgent.intrinsic.learn.intake.batch_size=128"
 SET "TR18K=AtariEnv.max_episode_frames=18000 run.eval.[eval].env.max_episode_frames=108000 run.eval.[greedy].env.max_episode_frames=108000 run.eval.[greedy_single].env.max_episode_frames=108000"
 SET "MZT2=E1.game=montezuma_revenge run.seed=2 run.eval.[greedy].eval_episodes=16"
 
@@ -374,11 +374,11 @@ SET "ALNINIT=net.block.[AtariImpalaConv32].init.mode=default net.block.[AtariImp
 SET "TGCH=run.$=%A5%>%RR4%>%RF%>run.@btrnet>run.@btrsn12>run.@cap2m>run.@eval2ch>run.@to_30m>run.@rnd>run.@batch"
 SET "TGQ=DefaultDQNAgent.learner.replay_ratio=8 DefaultDQNAgent.model.hard_update_interval=250 DefaultDQNAgent.learner.per_alpha=0.5 DefaultDQNAgent.learner.per_beta.start=0.5 DefaultDQNAgent.learner.per_beta.end=0.5"
 SET "TGEV=run.eval_schedule.[eval].interval=62528 run.eval_schedule.[greedy].interval=31250 run.eval_schedule.[greedy_single].interval=31250"
-SET "TGRND=DefaultDQNAgent.intrinsic.learn_ratio=1 DefaultDQNAgent.intrinsic.learn_batch_size=128"
+SET "TGRND=DefaultDQNAgent.intrinsic.learn.intake.ratio=1 DefaultDQNAgent.intrinsic.learn.intake.batch_size=128"
 SET "MZT=E1.game=montezuma_revenge run.seed=1 run.eval.[greedy].eval_episodes=16"
 SET "MZT2=E1.game=montezuma_revenge run.seed=2 run.eval.[greedy].eval_episodes=16"
 SET "NMDD=DefaultDQNAgent.learner.munchausen.enabled=false DefaultDQNAgent.learner.use_double_dqn=true"
-SET "R123=DefaultDQNAgent.intrinsic.rnd.warmup_steps=200000"
+SET "R123=DefaultDQNAgent.intrinsic.rnd.error_norm.standardize.warmup_steps=200000"
 SET "VD=DefaultDQNAgent.intrinsic.value_mode=decomposed DefaultDQNAgent.intrinsic.reward_scaler.constant_scale=0.01 DefaultDQNAgent.intrinsic.beta=1"
 SET "VDMET=metrics.scalar.$=metrics.scalar.@baseline>metrics.scalar.@munchausen>metrics.scalar.@replay_fit>M1>M2>metrics.scalar.@value_decomposition"
 SET "VDG1=metrics.scalar.[77_agent_value/41_greedy_disagree]=extrinsic_q_session_argmax_disagreement_rate $eval.[greedy] $actor @session_end"
@@ -566,7 +566,7 @@ if not defined DONE_DIR if defined CKPT call :run_exe "%RNDVBASE%" "%BATCH%" run
 goto :summary
 
 :use_rnd_exe
-SET "SRC_EXE=%~dp0..\.scratch\r125-20261112\bin\AnetRLRunner_r125_20261112.exe"
+SET "SRC_EXE=bin\%BUILD%\AnetRLRunner.exe"
 if not exist "%SRC_EXE%" goto :no_exe
 copy /Y "%SRC_EXE%" "bin\%BUILD%\AnetRLRunner_ab12.exe" >nul
 if errorlevel 1 goto :no_exe

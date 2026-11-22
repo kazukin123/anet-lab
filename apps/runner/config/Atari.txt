@@ -8,7 +8,7 @@ app.$ = app.online > P1
 # β は agent.txt の既定 0.1 より小さい 0.03（KFM 10M で 0.1 は評価の点を下げた）。warm-up は序盤の大きな誤差を誤差の統計に入れない長さ。
 run.@rnd : DefaultDQNAgent.intrinsic.enabled = true
 run.@rnd : DefaultDQNAgent.intrinsic.beta = 0.03
-run.@rnd : DefaultDQNAgent.intrinsic.rnd.warmup_steps = 200,000
+run.@rnd : DefaultDQNAgent.intrinsic.rnd.error_norm.standardize.warmup_steps = 200,000
 run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].bind = grid
 run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.branch.[feature].structure = AtariRndConv1 > AtariRndLeaky > AtariRndConv2 > AtariRndLeaky > AtariRndConv3 > AtariRndLeaky > Flatten
 run.@rnd : DefaultDQNAgent.intrinsic.rnd.target.net.body.output.[features] = feature
@@ -40,11 +40,11 @@ run.@rnd : app.eval_trace_panel.columns.[450] = $agent_step intrinsic_state_valu
 # Taiga の観測・統計・補助学習の条件。Q 側の比較群を選んでから末尾へ足す。
 run.@rnd_taiga : DefaultDQNAgent.intrinsic.beta = 0.00005
 run.@rnd_taiga : DefaultDQNAgent.intrinsic.observation = state
-run.@rnd_taiga : DefaultDQNAgent.intrinsic.learn_ratio = 1
-run.@rnd_taiga : DefaultDQNAgent.intrinsic.learn_batch_size = 1
-run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.multiplier_mode = unclipped
-run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.statistics_mode = variance_feedback
-run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.warmup_steps = 0
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.learn.intake.ratio = 1
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.learn.intake.batch_size = 1
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.statistics.variance_feedback.use_clipping = false
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.statistics.mode = variance_feedback
+run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.predictor.warmup_steps = 0
 run.@rnd_taiga : DefaultDQNAgent.intrinsic.rnd.adam_eps = 1e-5
 
 # RND 専用の CNN。Q network と初期化・形状を共有しない。

@@ -15,12 +15,12 @@ namespace anet::test {
             bool use_centering;
         };
 
-        std::string multiplier_mode;
-        std::string statistics_mode;
+        bool use_clipping;
+        std::string statistics;
         float multiplier_max;
-        int64_t warmup_steps;
-        std::string warmup_mode;
-        ErrorNorm error_norm;
+        int64_t error_warmup_steps;
+        int64_t predictor_warmup_steps;
+        ErrorNorm standardize;
         float observation_clip_range;
         nn::WeightInitConfig head_init;
         double adam_eps;

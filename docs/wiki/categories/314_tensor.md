@@ -54,6 +54,7 @@
 - [scaler.hpp](../../../src/core/base/include/anet/scaler.hpp)
 - [stacker.hpp](../../../src/core/base/include/anet/stacker.hpp)
 - [tensor_check.hpp](../../../src/core/base/include/anet/tensor_check.hpp)
+- [tensor_store.hpp](../../../src/core/base/include/anet/tensor_store.hpp)
 - [tensor_util.hpp](../../../src/core/base/include/anet/tensor_util.hpp)
 - [transfer.hpp](../../../src/core/base/include/anet/transfer.hpp)
 - [image.cpp](../../../src/core/base/src/image.cpp) / [image_test.cpp](../../../src/core/base/src/image_test.cpp)
@@ -61,6 +62,7 @@
 - [scaler_impl.cpp](../../../src/core/base/src/scaler_impl.cpp) / [scaler_impl.hpp](../../../src/core/base/src/scaler_impl.hpp)
 - [stacker.cpp](../../../src/core/base/src/stacker.cpp) / [stacker_test.cpp](../../../src/core/base/src/stacker_test.cpp)
 - [tensor_check.cpp](../../../src/core/base/src/tensor_check.cpp)
+- [tensor_store.cpp](../../../src/core/base/src/tensor_store.cpp) / [tensor_store_test.cpp](../../../src/core/base/src/tensor_store_test.cpp)
 - [tensor_util.cpp](../../../src/core/base/src/tensor_util.cpp)
 - [transfer.cpp](../../../src/core/base/src/transfer.cpp)
 
@@ -80,6 +82,7 @@
 - [PRD127](../../memo/127_eval_trace_intrinsic_reward_columns_10prd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
 - [PRD130](../../memo/130_rnd_estimate_statistics_perf_10prd.md) — PRD130: RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける PRD
 - [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
+- [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) — PRD191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） PRD
 - [PRD194](../../memo/194_config_key_full_names_in_messages_10prd.md) — PRD194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
 
 ## 課題
@@ -98,8 +101,8 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 残件有り | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261122-d9499f](../../management/issues/issue-20261122-d9499f.md) | 未着手 | 1.0 | — | コード | PRD | 316_config, 324_dqn, 314_tensor, 315_nn | 基盤 | 機能改善 | — | 未確認 | 見直したあとの設定の形と通知の決まりに沿わない設定キーと通知が、RND の外に残る（全体は調べていない） |
 | [issue-20261103-f40ae8](../../management/issues/issue-20261103-f40ae8.md) | 未着手 | 0.9 | — | コード | PRD | 317_metrics, 314_tensor, 318_rl_core | UI | 性能改善 | [PRD056](../../memo/056_timehistogram_fine_grid_10prd.md) | 残件有り | TimeHistogram fine-bin保持・描画時集約 |
-| [issue-20261122-4c0af5](../../management/issues/issue-20261122-4c0af5.md) | 未着手 | 0.8 | [issue-20261119-4976bf](../../management/issues/issue-20261119-4976bf.md) | コード | PRD | 318_rl_core, 314_tensor, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 観測をためる仕組み（フレーム積層の履歴、Replay の観測の置き場、補助学習の rollout の置き場）が別々に実装されていて、共通の置き場の部品へ載せ替えていない |
+| [issue-20261122-4c0af5](../../management/issues/issue-20261122-4c0af5.md) | 未着手 | 0.8 | — | コード | PRD | 318_rl_core, 314_tensor, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 観測をためる仕組み（フレーム積層の履歴、Replay の観測の置き場、補助学習の rollout の置き場）が別々に実装されていて、共通の置き場の部品へ載せ替えていない |
 
-着手できる 9 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261119-4976bf](../../management/issues/issue-20261119-4976bf.md) — RNDのpredictorの補助学習が今のintakeの観測だけから引き、lane数を超えるバッチと同じ標本の再利用（Burdaらの4エポック）ができない
+着手できる 10 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

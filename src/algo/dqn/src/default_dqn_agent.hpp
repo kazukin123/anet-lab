@@ -34,6 +34,8 @@ namespace anet::rl::dqn {
         static constexpr char kHeadInputDedicated[] = "dedicated";
         static constexpr char kIntrinsicObservationNextState[] = "next_state";
         static constexpr char kIntrinsicObservationState[] = "state";
+        static constexpr char kIntrinsicLearnIntake[] = "intake";
+        static constexpr char kIntrinsicLearnRollout[] = "rollout";
         static constexpr bool kDefaultIntrinsicUseDoneMask = true;
         std::map<std::string, anet::ConfigData> nn_forward;
         NetworkModelConfig model;
@@ -49,8 +51,20 @@ namespace anet::rl::dqn {
             anet::ProfiledValueConfig<float> beta{.value = 0.1f, .min_value = 0.0f};
             std::string observation = kIntrinsicObservationNextState;
             bool use_done_mask = kDefaultIntrinsicUseDoneMask;
-            float learn_ratio = 0.25f;
-            int learn_batch_size = 32;
+            struct {
+                std::string mode = kIntrinsicLearnIntake;
+                struct {
+                    float ratio = 0.25f;
+                    int batch_size = 32;
+                } intake;
+                struct {
+                    int length = 128;
+                    int epochs = 4;
+                    double ratio = 1.0;
+                    int batch_size = 1024;
+                    bool use_spread = false;
+                } rollout;
+            } learn;
             anet::ConfigData rnd; ///< Factory へ渡す opaque な構築設定（共有 NN カタログを含む）。
             RewardScalerConfig reward_scaler{.use_dynamic_scaling = false, .use_auto_post_scale = false};
             struct {
@@ -174,12 +188,31 @@ namespace anet::rl::dqn {
                     anet::log::warn_once() << "Ignored " << GetFullKey("intrinsic.use_done_mask") << "=" << anet::json(intrinsic.use_done_mask).dump()
                         << " with " << GetFullKey("intrinsic.observation") << "=" << intrinsic.observation
                         << "; default=" << anet::json(kDefaultIntrinsicUseDoneMask).dump() << ".";
-                ANET_READ_CONFIG(config_data, intrinsic.learn_ratio);
-                ANET_READ_CONFIG(config_data, intrinsic.learn_batch_size);
-                ValidateRange(std::isfinite(intrinsic.learn_ratio) && intrinsic.learn_ratio > 0.0f && intrinsic.learn_ratio <= 1.0f,
-                    GetFullKey("intrinsic.learn_ratio"), intrinsic.learn_ratio, "finite 0 < value <= 1");
-                ValidateRange(intrinsic.learn_batch_size >= 1,
-                    GetFullKey("intrinsic.learn_batch_size"), intrinsic.learn_batch_size, "integer >= 1");
+                ANET_READ_CONFIG(config_data, intrinsic.learn.mode);
+                ANET_READ_CONFIG(config_data, intrinsic.learn.intake.ratio);
+                ANET_READ_CONFIG(config_data, intrinsic.learn.intake.batch_size);
+                ANET_READ_CONFIG(config_data, intrinsic.learn.rollout.length);
+                ANET_READ_CONFIG(config_data, intrinsic.learn.rollout.epochs);
+                ANET_READ_CONFIG(config_data, intrinsic.learn.rollout.ratio);
+                ANET_READ_CONFIG(config_data, intrinsic.learn.rollout.batch_size);
+                ANET_READ_CONFIG(config_data, intrinsic.learn.rollout.use_spread);
+                ValidateChoice(GetFullKey("intrinsic.learn.mode"), intrinsic.learn.mode,
+                    {kIntrinsicLearnIntake, kIntrinsicLearnRollout});
+                ValidateRange(std::isfinite(intrinsic.learn.intake.ratio) && intrinsic.learn.intake.ratio > 0.0f && intrinsic.learn.intake.ratio <= 1.0f,
+                    GetFullKey("intrinsic.learn.intake.ratio"), intrinsic.learn.intake.ratio, "finite 0 < value <= 1");
+                ValidateRange(intrinsic.learn.intake.batch_size >= 1,
+                    GetFullKey("intrinsic.learn.intake.batch_size"), intrinsic.learn.intake.batch_size, "integer >= 1");
+                const auto& rollout = intrinsic.learn.rollout;
+                ValidateRange(rollout.length >= 1, GetFullKey("intrinsic.learn.rollout.length"),
+                    rollout.length, "integer >= 1");
+                ValidateRange(rollout.epochs >= 1, GetFullKey("intrinsic.learn.rollout.epochs"),
+                    rollout.epochs, "integer >= 1");
+                ValidateRange(rollout.batch_size >= 1, GetFullKey("intrinsic.learn.rollout.batch_size"),
+                    rollout.batch_size, "integer >= 1");
+                if (!std::isfinite(rollout.ratio) || rollout.ratio <= 0.0 || rollout.ratio > rollout.epochs)
+                    ANET_SYSTEM_ERROR("Invalid " << GetFullKey("intrinsic.learn.rollout.ratio") << "=" << rollout.ratio
+                        << " with " << GetFullKey("intrinsic.learn.rollout.epochs") << "=" << rollout.epochs
+                        << "; expected finite 0 < ratio <= epochs.");
                 intrinsic.rnd = config_data;
                 CopyAndRecordPrefix(config_data, MakeDefaultConfigKey("intrinsic.rnd") + ".", "intrinsic.rnd.");
             } else {

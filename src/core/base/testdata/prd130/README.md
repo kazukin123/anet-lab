@@ -1,5 +1,7 @@
 # PRD130 の検証資材
 
+> この検証資材の設定キーは PRD191 より前の名前です。
+
 > PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 正本は [PRD130](../../../../../docs/memo/130_rnd_estimate_statistics_perf_10prd.md)、実施結果は [実装メモ](../../../../../docs/memo/130_rnd_estimate_statistics_perf_20impl.md) に記録する。

@@ -10,6 +10,8 @@ using namespace anet::rl::intrinsic;
 
 constexpr char kTargetSeed[] = "intrinsic.target";
 constexpr char kPredictorSeed[] = "intrinsic.predictor";
+constexpr char kTargetRole[] = "target";
+constexpr char kPredictorRole[] = "predictor";
 constexpr char kOutput[] = "novelty";
 constexpr char kError[] = "error";
 constexpr char kNormalizedError[] = "normalized_error";
@@ -167,17 +169,12 @@ static torch::Tensor NormalizeFeedbackField(const torch::Tensor& value, const to
 class RndNoveltyEstimator::RndStatistics {
 public:
     RndStatistics(const torch::Device& observation_device, const std::vector<std::string>& byte_keys,
-        int64_t warmup_steps, bool skip_warmup_learning)
-        : observation_device_(observation_device), byte_keys_(byte_keys), warmup_steps_(warmup_steps),
-          skip_warmup_learning_(skip_warmup_learning) {}
+        int64_t warmup_steps)
+        : observation_device_(observation_device), byte_keys_(byte_keys), warmup_steps_(warmup_steps) {}
     virtual ~RndStatistics() = default;
 public:
     const torch::Device& GetObservationDevice() const { return observation_device_; }
     bool IsWarmingUp(int64_t count) const { return count < warmup_steps_; }
-    bool ShouldSkipLearn(int64_t count) const
-    {
-        return skip_warmup_learning_ && warmup_steps_ > 0 && count <= warmup_steps_;
-    }
     anet::TensorDict NormalizeObservations(anet::TensorDict observations) const
     {
         // 呼び出し元で選択済みの device へ転送したあと、連続 byte だけを変換する。
@@ -207,19 +204,20 @@ private:
     const torch::Device observation_device_;
     const std::vector<std::string> byte_keys_;
     const int64_t warmup_steps_;
-    const bool skip_warmup_learning_;
 };
 
 class RndNoveltyEstimator::WhitenStatistics final : public RndStatistics {
 public:
     WhitenStatistics(const RndNoveltyEstimatorConfig& config, const anet::TensorSpecMap& observation_spec,
         const torch::Device& device, const std::vector<std::string>& byte_keys)
-        : RndStatistics(device, byte_keys, config.warmup_steps, config.warmup_mode == kWarmupCollectErrors),
-          normalizer_config_(config.obs_norm), use_centering_(config.error_norm.use_centering),
-          collect_errors_(config.warmup_mode == kWarmupCollectErrors),
-          checkpoint_format_(config.error_norm.average_mode == kErrorAverageEma ? kEmaCheckpointFormat : kCheckpointFormat),
-          error_stats_(config.error_norm.average_mode == kErrorAverageEma
-              ? std::unique_ptr<RndErrorStatistics>(std::make_unique<EmaErrorStatistics>(config.error_norm.ema_steps))
+        : RndStatistics(device, byte_keys, config.UsesRawError()
+              ? config.error_norm.none.warmup_steps : config.error_norm.standardize.warmup_steps),
+          normalizer_config_(config.statistics.whiten.obs_norm), use_centering_(config.error_norm.standardize.use_centering),
+          predictor_warmup_steps_(config.predictor.warmup_steps), use_raw_error_(config.UsesRawError()),
+          checkpoint_format_(!use_raw_error_ && config.error_norm.standardize.average_mode == kErrorAverageEma
+              ? kEmaCheckpointFormat : kCheckpointFormat),
+          error_stats_(checkpoint_format_ == kEmaCheckpointFormat
+              ? std::unique_ptr<RndErrorStatistics>(std::make_unique<EmaErrorStatistics>(config.error_norm.standardize.ema_steps))
               : std::make_unique<CumulativeErrorStatistics>())
     {
         state_spec_.obs_spec = observation_spec;
@@ -236,6 +234,7 @@ public:
     }
     torch::Tensor StandardizeWithoutUpdate(const torch::Tensor& errors) const override
     {
+        if (use_raw_error_) return errors.clone();
         auto result = torch::full_like(errors, std::numeric_limits<float>::quiet_NaN());
         if (error_stats_->HasData() && error_stats_->Std() > 0.0f)
             result = (errors - (use_centering_ ? error_stats_->Mean() : 0.0f)) / error_stats_->Std();
@@ -268,7 +267,8 @@ public:
 private:
     explicit WhitenStatistics(const WhitenStatistics& source)
         : RndStatistics(source), normalizer_config_(source.normalizer_config_), state_spec_(source.state_spec_),
-          use_centering_(source.use_centering_), collect_errors_(source.collect_errors_),
+          use_centering_(source.use_centering_), predictor_warmup_steps_(source.predictor_warmup_steps_),
+          use_raw_error_(source.use_raw_error_),
           checkpoint_format_(source.checkpoint_format_),
           normalizer_(anet::rl::ObservationNormalizerFactory(normalizer_config_).CreateObservationNormalizer(state_spec_)),
           error_stats_(source.error_stats_->Clone())
@@ -298,12 +298,19 @@ private:
         int64_t score_count, std::map<std::string, float>& diagnostics)
     {
         ANET_PROFILE_SCOPE_FULL(statistics, kEstimateStatisticsProfile);
+        // predictor の待ちが明けたら、生の誤差か、直前までの統計で倍率を決める。
         auto alpha = torch::ones_like(errors, torch::TensorOptions().dtype(torch::kFloat32));
-        const auto std = error_stats_->Std();
-        if (!IsWarmingUp(score_count) && error_stats_->HasData() && std > 0.0f)
-            alpha = 1.0f + (errors - (use_centering_ ? error_stats_->Mean() : 0.0f)) / std;
-        // predictor が慣れるまで誤差の統計を空に保つ。collect_errors のときだけ warm-up 中も集計する。
-        if (!IsWarmingUp(score_count) || collect_errors_) error_stats_->Update(errors);
+        if (score_count >= predictor_warmup_steps_) {
+            if (use_raw_error_) {
+                alpha = 1.0f + errors;
+            } else if (!IsWarmingUp(score_count) && error_stats_->HasData()) {
+                const auto std = error_stats_->Std();
+                if (std > 0.0f)
+                    alpha = 1.0f + (errors - (use_centering_ ? error_stats_->Mean() : 0.0f)) / std;
+            }
+        }
+        // 誤差の集計を始める時機は predictor の待ちと独立に決める。
+        if (!IsWarmingUp(score_count)) error_stats_->Update(errors);
         // 誤差の統計を進めたあと、正規化せずに観測統計だけを更新する。
         ANET_PROFILE_SCOPE_FULL(observation_statistics, "RndNoveltyEstimator::Estimate.observation_statistics");
         normalizer_->UpdateStats(observations);
@@ -314,7 +321,8 @@ private:
     const ObservationNormalizerConfig normalizer_config_;
     anet::rl::StateSpec state_spec_;
     const bool use_centering_;
-    const bool collect_errors_;
+    const int64_t predictor_warmup_steps_;
+    const bool use_raw_error_;
     const std::string checkpoint_format_;
     std::shared_ptr<ObservationNormalizer> normalizer_;
     std::unique_ptr<RndErrorStatistics> error_stats_;
@@ -390,7 +398,8 @@ private:
 RndNoveltyEstimator::VarianceFeedbackStatistics::VarianceFeedbackStatistics(
     const RndNoveltyEstimatorConfig& config, const anet::TensorSpecMap& observation_spec,
     const std::vector<std::string>& byte_keys)
-    : RndStatistics(torch::kCPU, byte_keys, config.warmup_steps, true), clip_range_(config.obs_norm.clip_range)
+    : RndStatistics(torch::kCPU, byte_keys, config.predictor.warmup_steps),
+      clip_range_(config.statistics.variance_feedback.obs_norm.clip_range)
 {
     // 連続観測と同じ形の平均0・分散1をCPU doubleで保持する。
     // カテゴリID・非浮動小数点は共通Normalizerと同じく素通しし、NN境界の変換に任せる。
@@ -554,124 +563,95 @@ RndNoveltyEstimatorConfig::RndNoveltyEstimatorConfig(
       target{.net = anet::nn::NetworkConfig(data, prefix + ".target.net")},
       predictor{.net = anet::nn::NetworkConfig(data, prefix + ".predictor.net")}
 {
-    ANET_READ_CONFIG(data, multiplier_mode);
-    ANET_READ_CONFIG(data, statistics_mode);
-    ANET_READ_CONFIG(data, multiplier_max);
-    ANET_READ_CONFIG(data, warmup_steps);
-    ANET_READ_CONFIG(data, warmup_mode);
-    ANET_READ_CONFIG(data, error_norm.average_mode);
-    ANET_READ_CONFIG(data, error_norm.ema_steps);
-    ANET_READ_CONFIG(data, error_norm.use_centering);
+    // 採点の式と待ち、predictor の学習や Head の設定を読み込む。
+    ANET_READ_CONFIG(data, statistics.mode);
+    ANET_READ_CONFIG(data, statistics.variance_feedback.obs_norm.clip_range);
+    ANET_READ_CONFIG(data, statistics.variance_feedback.use_clipping);
+    ANET_READ_CONFIG(data, statistics.variance_feedback.multiplier_max);
+    ANET_READ_CONFIG(data, error_norm.mode);
+    ANET_READ_CONFIG(data, error_norm.standardize.average_mode);
+    ANET_READ_CONFIG(data, error_norm.standardize.ema_steps);
+    ANET_READ_CONFIG(data, error_norm.standardize.use_centering);
+    ANET_READ_CONFIG(data, error_norm.standardize.warmup_steps);
+    ANET_READ_CONFIG(data, error_norm.standardize.use_clipping);
+    ANET_READ_CONFIG(data, error_norm.standardize.multiplier_max);
+    ANET_READ_CONFIG(data, error_norm.none.warmup_steps);
+    ANET_READ_CONFIG(data, error_norm.none.use_clipping);
+    ANET_READ_CONFIG(data, error_norm.none.multiplier_max);
+    ANET_READ_CONFIG(data, predictor.warmup_steps);
     ANET_READ_CONFIG(data, learning_rate);
     ANET_READ_CONFIG(data, weight_decay);
     ANET_READ_CONFIG(data, adam_eps);
     ANET_READ_CONFIG(data, head.output_dim);
     anet::ConfigReader<anet::nn::WeightInitConfig>::ReadFields(*this, data, "head.init", head.init);
     // RND は平均を引いた白色化を使い、Q 入力用の既定とは分離する。
+    auto& obs_norm = statistics.whiten.obs_norm;
     obs_norm.use_centering = true;
     obs_norm.use_robust_update = false;
     obs_norm.post_process_type = anet::rl::kPostProcessNone;
     obs_norm.clip_range = 5.0f;
-    const auto obs_norm_defaults = obs_norm;
-    ANET_READ_CONFIG(data, obs_norm.pass_through);
-    ANET_READ_CONFIG(data, obs_norm.use_clipping);
-    ANET_READ_CONFIG(data, obs_norm.clip_range);
-    ANET_READ_CONFIG(data, obs_norm.use_dynamic_scaling);
-    ANET_READ_CONFIG(data, obs_norm.use_centering);
-    ANET_READ_CONFIG(data, obs_norm.epsilon);
-    ANET_READ_CONFIG(data, obs_norm.constant_mean);
-    ANET_READ_CONFIG(data, obs_norm.constant_std);
-    ANET_READ_CONFIG(data, obs_norm.use_robust_update);
-    ANET_READ_CONFIG(data, obs_norm.robust_warmup_count);
-    ANET_READ_CONFIG(data, obs_norm.robust_std_threshold);
-    ANET_READ_CONFIG(data, obs_norm.post_process_type);
-    ANET_READ_CONFIG(data, obs_norm.post_process_threshold);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.pass_through);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.use_clipping);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.clip_range);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.use_dynamic_scaling);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.use_centering);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.epsilon);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.constant_mean);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.constant_std);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.use_robust_update);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.robust_warmup_count);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.robust_std_threshold);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.post_process_type);
+    ANET_READ_CONFIG(data, statistics.whiten.obs_norm.post_process_threshold);
 
-    // Network や optimizer の資源を確保する前に全設定を検証する。
+    // Network と optimizer を確保する前に、選ばれていない方式も含めて値を検証する。
+    if (statistics.mode != kStatisticsWhiten && statistics.mode != kStatisticsVarianceFeedback)
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("statistics.mode") << "='" << statistics.mode
+            << "'; expected whiten or variance_feedback.");
+    if (error_norm.mode != kErrorStandardize && error_norm.mode != kErrorNone)
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("error_norm.mode") << "='" << error_norm.mode
+            << "'; expected standardize or none.");
+    if (error_norm.standardize.average_mode != kErrorAverageCumulative
+        && error_norm.standardize.average_mode != kErrorAverageEma)
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("error_norm.standardize.average_mode") << "='"
+            << error_norm.standardize.average_mode << "'; expected cumulative or ema.");
+    const auto validate_warmup = [&](const char* key, int64_t value) {
+        if (value < 0)
+            ANET_SYSTEM_ERROR("Invalid " << GetFullKey(key) << "=" << value << "; expected integer >= 0.");
+    };
+    validate_warmup("error_norm.standardize.warmup_steps", error_norm.standardize.warmup_steps);
+    validate_warmup("error_norm.none.warmup_steps", error_norm.none.warmup_steps);
+    validate_warmup("predictor.warmup_steps", predictor.warmup_steps);
+    const auto validate_multiplier = [&](const char* key, float value) {
+        if (!std::isfinite(value) || value <= 1.0f)
+            ANET_SYSTEM_ERROR("Invalid " << GetFullKey(key) << "=" << value << "; expected finite > 1.");
+    };
+    validate_multiplier("error_norm.standardize.multiplier_max", error_norm.standardize.multiplier_max);
+    validate_multiplier("error_norm.none.multiplier_max", error_norm.none.multiplier_max);
+    validate_multiplier("statistics.variance_feedback.multiplier_max", statistics.variance_feedback.multiplier_max);
+    if (error_norm.standardize.ema_steps < 1)
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("error_norm.standardize.ema_steps") << "="
+            << error_norm.standardize.ema_steps << "; expected integer >= 1.");
+
+    // 共通の観測正規化と重みの設定は、それぞれの検証関数へ渡す。
+    const auto feedback_clip = statistics.variance_feedback.obs_norm.clip_range;
+    if (!std::isfinite(feedback_clip) || feedback_clip <= 0.0f)
+        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("statistics.variance_feedback.obs_norm.clip_range") << "="
+            << feedback_clip << "; expected finite > 0.");
+    obs_norm.full_keys = GetFullKeys().Extract("statistics.whiten.obs_norm");
+    anet::rl::ValidateObservationNormalizerConfig(obs_norm);
+    anet::nn::ValidateWeightInitConfig(head.init);
     if (head.output_dim < 1)
         ANET_SYSTEM_ERROR("Invalid " << GetFullKey("head.output_dim") << "=" << head.output_dim << "; expected >= 1.");
-    if (warmup_steps < 0)
-        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("warmup_steps") << "=" << warmup_steps << "; expected >= 0.");
-    if (!std::isfinite(multiplier_max) || multiplier_max <= 1.0f)
-        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("multiplier_max") << "=" << multiplier_max << "; expected finite > 1.");
-    if (multiplier_mode != kMultiplierClipped && multiplier_mode != kMultiplierUnclipped)
-        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("multiplier_mode") << "='" << multiplier_mode
-            << "'; expected clipped or unclipped.");
-    if (multiplier_mode == kMultiplierUnclipped && multiplier_max != kDefaultMultiplierMax)
-        anet::log::warn_once(prefix + ".multiplier_max") << "Ignored " << GetFullKey("multiplier_max") << "=" << multiplier_max
-            << " with " << GetFullKey("multiplier_mode") << "=" << multiplier_mode << "; default=" << kDefaultMultiplierMax << ".";
     if (!std::isfinite(learning_rate) || learning_rate <= 0.0f)
         ANET_SYSTEM_ERROR("Invalid " << GetFullKey("learning_rate") << "=" << learning_rate << "; expected finite > 0.");
     if (!std::isfinite(weight_decay) || weight_decay < 0.0f)
         ANET_SYSTEM_ERROR("Invalid " << GetFullKey("weight_decay") << "=" << weight_decay << "; expected finite >= 0.");
-    for (const auto& [role, network] : {std::pair("target", &target.net), std::pair("predictor", &predictor.net)})
-        if (network->output_keys.empty())
-            ANET_SYSTEM_ERROR("Invalid " << prefix << "." << role << ".net: no Body outputs; expected configured Network body.");
-    obs_norm.full_keys = GetFullKeys().Extract("obs_norm");
-    anet::rl::ValidateObservationNormalizerConfig(obs_norm);
-    anet::nn::ValidateWeightInitConfig(head.init);
     if (!std::isfinite(adam_eps) || adam_eps <= 0.0)
         ANET_SYSTEM_ERROR("Invalid " << GetFullKey("adam_eps") << "=" << adam_eps << "; expected finite > 0.");
-    if (statistics_mode != kStatisticsWhiten && statistics_mode != kStatisticsVarianceFeedback)
-        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("statistics_mode") << "='" << statistics_mode
-            << "'; expected whiten or variance_feedback.");
-    if (warmup_mode != kWarmupLearnPredictor && warmup_mode != kWarmupCollectErrors)
-        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("warmup_mode") << "='" << warmup_mode
-            << "'; expected learn_predictor or collect_errors.");
-    if (error_norm.average_mode != kErrorAverageCumulative && error_norm.average_mode != kErrorAverageEma)
-        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("error_norm.average_mode") << "='" << error_norm.average_mode
-            << "'; expected cumulative or ema.");
-    if (error_norm.ema_steps < 1)
-        ANET_SYSTEM_ERROR("Invalid " << GetFullKey("error_norm.ema_steps") << "=" << error_norm.ema_steps
-            << "; expected integer >= 1.");
-
-    // 値の検証後に、現在の組が使わない設定キーだけを既定との差で知らせる。
-    const auto notify_unused = [&](const char* key, const auto& value, const auto& default_value, bool info = false) {
-        if (value == default_value) return;
-        const auto full_key = GetFullKey(key);
-        const auto message = "Ignored " + full_key + "=" + anet::json(value).dump()
-            + " with " + GetFullKey("statistics_mode") + "=" + statistics_mode
-            + ", " + GetFullKey("error_norm.average_mode") + "=" + error_norm.average_mode
-            + ", " + GetFullKey("warmup_steps") + "=" + std::to_string(warmup_steps)
-            + "; default=" + anet::json(default_value).dump() + ".";
-        if (info) anet::log::info_once(full_key) << message;
-        else anet::log::warn_once(full_key) << message;
-    };
-    if (statistics_mode == kStatisticsVarianceFeedback) {
-        notify_unused("warmup_mode", warmup_mode, std::string(kWarmupLearnPredictor));
-        notify_unused("error_norm.average_mode", error_norm.average_mode, std::string(kErrorAverageCumulative));
-        notify_unused("error_norm.ema_steps", error_norm.ema_steps, kDefaultEmaSteps);
-        notify_unused("error_norm.use_centering", error_norm.use_centering, kDefaultErrorNormUseCentering);
-    } else {
-        if (warmup_steps == 0)
-            notify_unused("warmup_mode", warmup_mode, std::string(kWarmupLearnPredictor), true);
-        if (error_norm.average_mode == kErrorAverageCumulative)
-            notify_unused("error_norm.ema_steps", error_norm.ema_steps, kDefaultEmaSteps);
-    }
-
-    // 解決後の値だけで判断し、無効な設定キーも検証済みのうえで構築時に1回知らせる。
-    if (statistics_mode == kStatisticsVarianceFeedback) {
-        const auto warn_ignored = [&](const char* key, const auto& value, const auto& default_value) {
-            if (value != default_value) {
-                const auto full_key = GetFullKey(std::string("obs_norm.") + key);
-                anet::log::warn_once(full_key) << "Ignored " << full_key << "=" << anet::json(value).dump()
-                    << " with " << GetFullKey("statistics_mode") << "=" << statistics_mode
-                    << "; default=" << anet::json(default_value).dump() << ".";
-            }
-        };
-        warn_ignored("pass_through", obs_norm.pass_through, obs_norm_defaults.pass_through);
-        warn_ignored("use_clipping", obs_norm.use_clipping, obs_norm_defaults.use_clipping);
-        warn_ignored("use_dynamic_scaling", obs_norm.use_dynamic_scaling, obs_norm_defaults.use_dynamic_scaling);
-        warn_ignored("use_centering", obs_norm.use_centering, obs_norm_defaults.use_centering);
-        warn_ignored("epsilon", obs_norm.epsilon, obs_norm_defaults.epsilon);
-        warn_ignored("constant_mean", obs_norm.constant_mean, obs_norm_defaults.constant_mean);
-        warn_ignored("constant_std", obs_norm.constant_std, obs_norm_defaults.constant_std);
-        warn_ignored("use_robust_update", obs_norm.use_robust_update, obs_norm_defaults.use_robust_update);
-        warn_ignored("robust_warmup_count", obs_norm.robust_warmup_count, obs_norm_defaults.robust_warmup_count);
-        warn_ignored("robust_std_threshold", obs_norm.robust_std_threshold, obs_norm_defaults.robust_std_threshold);
-        warn_ignored("post_process_type", obs_norm.post_process_type, obs_norm_defaults.post_process_type);
-        warn_ignored("post_process_threshold", obs_norm.post_process_threshold, obs_norm_defaults.post_process_threshold);
-    }
+    for (const auto& [role, network] : {std::pair(kTargetRole, &target.net), std::pair(kPredictorRole, &predictor.net)})
+        if (network->output_keys.empty())
+            ANET_SYSTEM_ERROR("Invalid " << prefix << "." << role << ".net: no Body outputs; expected configured Network body.");
 }
 
 RndNoveltyEstimator::~RndNoveltyEstimator() = default;
@@ -706,7 +686,7 @@ RndNoveltyEstimator::RndNoveltyEstimator(const RndNoveltyEstimatorConfig& config
     optimizer_ = std::make_unique<torch::optim::AdamW>(predictor_->parameters(),
         torch::optim::AdamWOptions(config.learning_rate).weight_decay(config.weight_decay).eps(config.adam_eps));
     // 実行時の方式分岐は置かず、状態を所有する型をここで一度だけ選ぶ。
-    if (config.statistics_mode == kStatisticsWhiten)
+    if (config.statistics.mode == kStatisticsWhiten)
         statistics_ = std::make_unique<WhitenStatistics>(config, normalized_spec, device, byte_observation_keys);
     else
         statistics_ = std::make_unique<VarianceFeedbackStatistics>(config, normalized_spec, byte_observation_keys);
@@ -791,11 +771,7 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
 {
     ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
-    // 観測件数の境界だけを通知し、predictorの学習開始・終了とは区別する。
-    const bool warming_up = statistics_->IsWarmingUp(score_count_);
-    if (warming_up && score_count_ == 0)
-        anet::log::info_once(config_.GetConfigPrefix()) << "RND warmup started: " << config_.GetFullKey("warmup_mode") << "=" << config_.warmup_mode
-            << " " << config_.GetFullKey("warmup_steps") << "=" << config_.warmup_steps;
+    const auto previous_count = score_count_;
     ANET_PROFILE_SCOPE(observation_transfer);
     auto observations_for_scoring = observations.To(statistics_->GetObservationDevice());
     ANET_PROFILE_SCOPE_END(observation_transfer);
@@ -806,12 +782,15 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
     auto alpha = std::move(result.alpha);
     const auto& errors = result.errors;
     const auto& target_features = result.target_features;
-    if (config_.multiplier_mode == kMultiplierClipped)
-        alpha = alpha.clamp(1.0f, config_.multiplier_max);
+    // 採点した倍率を選択中の方式で制限し、件数が越えた待ちの境界を知らせる。
+    const auto [use_clipping, multiplier_max] = GetMultiplierClipping();
+    if (use_clipping) alpha = alpha.clamp(1.0f, multiplier_max);
     score_count_ += observations.Size(0);
-    if (warming_up && score_count_ >= config_.warmup_steps)
-        anet::log::info_once(config_.GetConfigPrefix()) << "RND warmup finished: " << config_.GetFullKey("warmup_mode") << "=" << config_.warmup_mode
-            << " " << config_.GetFullKey("warmup_steps") << "=" << config_.warmup_steps;
+    LogWarmup("predictor.warmup_steps", config_.predictor.warmup_steps, previous_count);
+    if (config_.UsesRawError())
+        LogWarmup("error_norm.none.warmup_steps", config_.error_norm.none.warmup_steps, previous_count);
+    else if (config_.statistics.mode == kStatisticsWhiten)
+        LogWarmup("error_norm.standardize.warmup_steps", config_.error_norm.standardize.warmup_steps, previous_count);
     // target の出力の統計と診断値の読み出しも、区間を分けて測る。
     ANET_PROFILE_SCOPE(target_feature_statistics);
     target_feature_stats_.Update(target_features);
@@ -819,8 +798,8 @@ torch::Tensor RndNoveltyEstimator::Estimate(const anet::TensorDict& observations
     diagnostics_[kTargetFeatureVar] = TargetFeatureVariance();
     diagnostics_[kTargetFeatureMax] = target_features.abs().max().item<float>();
     diagnostics_[kErrorStep] = errors.mean().item<float>();
-    diagnostics_[kClipRatio] = config_.multiplier_mode == kMultiplierClipped
-        ? (alpha == config_.multiplier_max).to(torch::kFloat32).mean().item<float>() : 0.0f;
+    diagnostics_[kClipRatio] = use_clipping
+        ? (alpha == multiplier_max).to(torch::kFloat32).mean().item<float>() : 0.0f;
     ANET_PROFILE_SCOPE_NEXT(result_transfer);
     return alpha.to(observations.device());
 }
@@ -843,10 +822,11 @@ LifelongNoveltyEstimateResult RndNoveltyEstimator::EstimateWithoutUpdate(const a
     const auto invalid = ~torch::isfinite(errors);
     standardized.masked_fill_(invalid, nan);
     auto multipliers = torch::ones_like(errors);
-    if (score_count_ >= config_.warmup_steps)
+    if (score_count_ >= config_.predictor.warmup_steps
+        && (config_.UsesRawError() || !statistics_->IsWarmingUp(score_count_)))
         multipliers = torch::where(torch::isnan(standardized), multipliers, 1.0f + standardized);
-    if (config_.multiplier_mode == kMultiplierClipped)
-        multipliers.clamp_(1.0f, config_.multiplier_max);
+    const auto [use_clipping, multiplier_max] = GetMultiplierClipping();
+    if (use_clipping) multipliers.clamp_(1.0f, multiplier_max);
     const auto diagnostic_errors = errors.masked_fill(invalid, nan);
     if (invalid.any().item<bool>()) {
         const auto lane = invalid.nonzero()[0][0].item<int64_t>();
@@ -858,13 +838,45 @@ LifelongNoveltyEstimateResult RndNoveltyEstimator::EstimateWithoutUpdate(const a
         .diagnostics = {{kError, diagnostic_errors}, {kNormalizedError, standardized}}};
 }
 
+std::pair<bool, float> RndNoveltyEstimator::GetMultiplierClipping() const
+{
+    if (config_.statistics.mode == kStatisticsVarianceFeedback) {
+        const auto& config = config_.statistics.variance_feedback;
+        return {config.use_clipping, config.multiplier_max};
+    }
+    if (config_.UsesRawError()) {
+        const auto& config = config_.error_norm.none;
+        return {config.use_clipping, config.multiplier_max};
+    }
+    const auto& config = config_.error_norm.standardize;
+    return {config.use_clipping, config.multiplier_max};
+}
+
+bool RndNoveltyEstimator::SuppressesBonus() const
+{
+    return config_.UsesRawError() && score_count_ < config_.error_norm.none.warmup_steps;
+}
+
+void RndNoveltyEstimator::LogWarmup(const char* key, int64_t limit, int64_t previous_count) const
+{
+    // 有効な待ちについて、初回の採点と件数の到達をそれぞれ一度だけ知らせる。
+    if (limit == 0 || previous_count >= limit) return;
+    if (previous_count == 0)
+        anet::log::info_once(config_.GetFullKey(key)) << "RND warmup started: " << config_.GetFullKey(key)
+            << "=" << limit;
+    if (score_count_ >= limit)
+        anet::log::info_once(config_.GetFullKey(key)) << "RND warmup finished: " << config_.GetFullKey(key)
+            << "=" << limit;
+}
+
 bool RndNoveltyEstimator::Learn(const anet::TensorDict& observations)
 {
     ANET_PROFILE_FUNC();
     torch::NoGradGuard no_grad;
     
-    // 誤差を集める warm-up と variance_feedback だけは optimizer を休止する。
-    if (statistics_->ShouldSkipLearn(score_count_)) return false;
+    // predictor の待ちに達する batch までは、重みを更新しない。
+    const auto warmup_steps = config_.predictor.warmup_steps;
+    if (warmup_steps > 0 && score_count_ <= warmup_steps) return false;
 
     // 渡された観測すべてを正規化する。採点側で育てた統計は読むだけにする。
     // 採点とは独立した入力を、同じ計算 device と最新の統計で正規化する。
@@ -889,6 +901,15 @@ bool RndNoveltyEstimator::Learn(const anet::TensorDict& observations)
 
 std::map<std::string, float> RndNoveltyEstimator::Diagnostics() const { return diagnostics_; }
 
+std::map<std::string, std::unique_ptr<anet::graphviz::GraphViz>> RndNoveltyEstimator::MakeNetworkGraphs(
+    const anet::nn::NetworkGraphVizConfig& config) const
+{
+    std::map<std::string, std::unique_ptr<anet::graphviz::GraphViz>> graphs;
+    graphs.emplace(kTargetRole, target_->MakeGraphViz(config));
+    graphs.emplace(kPredictorRole, predictor_->MakeGraphViz(config));
+    return graphs;
+}
+
 float RndNoveltyEstimator::TargetFeatureVariance() const
 {
     // 共通部品の不偏分散を母分散へ戻す。初回1観測の分散は0である。
@@ -902,7 +923,7 @@ int64_t RndNoveltyEstimator::Save(anet::OutputArchive& archive) const
     ANET_PROFILE_FUNC();
     // 固定教師を含む学習状態と、採点した観測の件数を保存する。
     auto bytes = archive.Write(std::string(statistics_->GetCheckpointFormat()));
-    bytes += archive.Write(config_.statistics_mode);
+    bytes += archive.Write(config_.statistics.mode);
     bytes += archive.WriteTorchObject(target_);
     bytes += archive.WriteTorchObject(predictor_);
     bytes += archive.WriteTorchObject(*optimizer_);
@@ -920,11 +941,11 @@ int64_t RndNoveltyEstimator::Load(anet::InputArchive& archive)
     const auto* expected = statistics_->GetCheckpointFormat();
     if (format != expected)
         ANET_SYSTEM_ERROR("Invalid RND checkpoint format='" << format << "'; expected='" << expected << "'.");
-    std::string statistics_mode;
-    bytes += archive.Read(statistics_mode);
-    if (statistics_mode != config_.statistics_mode)
-        ANET_SYSTEM_ERROR("RND checkpoint statistics_mode='" << statistics_mode
-            << "' differs from configured " << config_.GetFullKey("statistics_mode") << "='" << config_.statistics_mode << "'.");
+    std::string saved_mode;
+    bytes += archive.Read(saved_mode);
+    if (saved_mode != config_.statistics.mode)
+        ANET_SYSTEM_ERROR("RND checkpoint statistics mode='" << saved_mode
+            << "' differs from configured " << config_.GetFullKey("statistics.mode") << "='" << config_.statistics.mode << "'.");
     bytes += archive.ReadTorchObject(target_);
     bytes += archive.ReadTorchObject(predictor_);
     bytes += archive.ReadTorchObject(*optimizer_);
