@@ -205,7 +205,15 @@ echo === 68. qbert 5m seed 1: same as 64 on qbert (compare with 51) ===
 call :find_done qb_dqiqn_dopall_s1
 if not defined DONE_DIR call :run_exe "%RBW%" %QB1% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% %INITVS7744% %NOTF32% %TGTRND% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_qb_dqiqn_dopall_s1"
 
-echo === 69. breakout 5m seed 2: same as 64 but TF32 left on ===
+echo === 69. breakout 5m seed 2: same as 57 but the network shape of Dopamine IQN only (padding of 55, taus mixed right after the flatten with the 64 to 7744 projection and ReLU, then Linear 512 and ReLU before the output); init, TF32 and the taus to pick the target action as in 57 ===
+call :find_done bo_dopshape_s2
+if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dopshape_s2"
+
+echo === 70. breakout 5m seed 2: same as 69 plus the init of 62 on every layer ===
+call :find_done bo_dopshape_vs_s2
+if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% %INITVS7744% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dopshape_vs_s2"
+
+echo === 71. breakout 5m seed 2: same as 70 plus random taus to pick the target action (= 64 with TF32 left on) ===
 call :find_done bo_dopall_tf32_s2
 if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% %INITVS7744% %TGTRND% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dopall_tf32_s2"
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
