@@ -2,6 +2,7 @@
 
 > 2026-11-19 起票（暫定）。質疑を省いた。確定した決定は持たず、AI が置いた既定と決めきれない点を §6 の未決表に置いた。§7〜§9 は §6 の暫定の既定を前提に書き、前提にした行の番号を名指す。行番号は起票時点の作業ツリーの位置である。
 > 2026-11-21 改訂（再グリル、anet-create-prd、Claude Code）。グリルを行い、暫定の印を外した。起票時の未決表の 17 行をすべて振り分け（行き先は §10.1）、確定事項の節（§6）を新しく作った。開発者が選んだのは 10 件である。補助学習の形（D1）、置き場の共通化の範囲（D2）、割らない式の待ちの間の内的報酬スケーラの統計（D3）、誤差の式のモード（D4）、構造図を入れるか（D5）、ためてから学ぶ形の量のキー（D6）、RND の設定の組み替え（D7）、warm-up を段階ごとの待ちに分けること（D8）、clip を誤差のモードごとに持つこと（D9）、実装を、コードと設定のステージと、設計文書のステージに分けること（D10）。細部は 2 回、一覧で示し、どちらも推奨の既定で埋めた（§6.3）。起草のあとに別モデル（Opus）の検討を受け、論点 10 件を扱った（§12）。そのあと開発者が、設定を段階ごとのスコープとモード別の名前空間に分ける形を示し、D7〜D10 を決めた。起草のあとに確かめた 3 件（ためる形の引き方、ステージの分け方、clip の真偽のキーの名前）は、開発者の答えを D41・D10・D28 に反映した。起票時の暫定の既定から変わった主な点は 5 つある。(1) 補助学習は「直近の観測の置き場から引く形」をやめ、「rollout ぶんをためてからエポックで学ぶ形」にした。(2) 割らない式の待ちの間は、内的報酬スケーラの統計を実際の値で育てる。(3) RND と補助学習の今ある設定キーも、段階ごとのスコープとモード別の名前空間へ移す。(4) warm-up の束（`warmup_mode`）をやめ、段階ごとの待ちに分ける（PRD123 の D4 を改める）。(5) 選ばれていないモードのキーには WARN も INFO も出さず、`rnd` の下の今ある同種の通知も無くす。あわせて、題、目的（§1）、前提の表（P1〜P63）、背景（§3.2 の事例を公開実装で確かめ直し、§3.3 に NGU の学び方を足した）、用語（§4）、現状（§5.3・§5.5〜§5.8 を足し、行番号を 2026-11-21 の作業ツリーの位置に直した）、仕様（§7）、実装契約（§8）、受入（§9）、未決表（§10）、issue の対応表（§11）を書き直し、グリルの材料（§12）を足した。課題 [ce0101](../management/issues/issue-20261115-ce0101.md) を範囲へ取り込んだ。[ADR 0088](../adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md) を起こし、[CONTEXT.md](../../CONTEXT.md) に 2 語を足した。ファイル名は起票時のままである（課題の `prd` 欄と wiki がこの名前で指す）。
+> 2026-11-22 改訂（Claude Code）。置き場の部品の機能グループの名前と機能カテゴリを、開発者が選んだ（D56）。§8.4 に機能グループの見込みを、§8.8 に機能カテゴリの行の変更を足した。
 > 起点: 2026-11-19 の会話。開発者が、今の RND の実装を Burda らの論文（[arXiv 1810.12894](https://arxiv.org/abs/1810.12894)）と比べるよう求めた。AI が、設定で変えられる差と Run の規模の差を除いた実装の差を挙げ、開発者がそのうち 4 件を課題に起票させた（[cb9a0f](../management/issues/issue-20261119-cb9a0f.md)・[4976bf](../management/issues/issue-20261119-4976bf.md)・[027698](../management/issues/issue-20261119-027698.md)・[497fce](../management/issues/issue-20261119-497fce.md)）。開発者は、027698 と 4976bf を先にする見込みを示し、2 件を 1 本の PRD にまとめて暫定で起こすよう指示した。あわせて「優先度が高くなくても、ついでに実装だけまとめて入れることも考えておきたい」と述べた。どれも決定ではない。
 > 題材: [issue-20261119-027698](../management/issues/issue-20261119-027698.md)（RND に生の予測誤差を返す内的報酬の式が無い）、[issue-20261119-4976bf](../management/issues/issue-20261119-4976bf.md)（predictor の補助学習が今の intake の観測だけから引く）。範囲へ取り込んだ課題: [issue-20261115-ce0101](../management/issues/issue-20261115-ce0101.md)（NN の構造図に RND の Network が出ない）。グリルの中で起こした課題: [issue-20261122-c1744a](../management/issues/issue-20261122-c1744a.md)（RND と補助学習の設定キーが、段階とモードの関係を表していない）。
 > 関連: [116](116_rnd_lifelong_novelty_10prd.md)（RND の本体）、[123](123_rnd_intrinsic_reward_scale_10prd.md)（誤差の統計の取り方・warm-up・平均を引くか。D4 を本 PRD が改める）、[121](121_extrinsic_intrinsic_value_decomposition_10prd.md)（価値の分解と、内的報酬用の報酬スケーラの `return_std`）、[130](130_rnd_estimate_statistics_perf_10prd.md)（採点の統計の性能と統計方式の整理）、[117](117_warn_policy_and_unread_config_10prd.md)（読まない設定の扱い）、[173](173_intrinsic_reward_novelty_10prd.md)（NGU 型の内的報酬）、[190](190_dqn_design_doc_alignment_10prd.md)（設計文書 200 の直し）、[194](194_config_key_full_names_in_messages_10prd.md)（エラー文が示す設定キーの形）、ADR [0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md)（WARN の意味と読まれない設定キー）・[0088](../adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md)（RND の設定の形）、設計文書 [212](../design/212_rnd_lifelong_novelty.jp.md)（RND）・[214](../design/214_value_decomposition.jp.md)（価値の分解）。
@@ -316,7 +317,7 @@ RND と内的報酬の設定には、今の組み合わせで使われないキ�
 
 設定キーは `DefaultDQNAgent.intrinsic.` を省いて書く。キーの全体は §8.1 にある。
 
-### 6.1 契約（グリルで開発者が選んだ 10 件）
+### 6.1 契約（グリルで開発者が選んだ 11 件）
 
 | # | 決定 | 理由と依存 |
 |---|---|---|
@@ -330,6 +331,7 @@ RND と内的報酬の設定には、今の組み合わせで使われないキ�
 | D8 | **warm-up を、段階ごとの待ちに分ける。** `rnd.warmup_mode` と `rnd.warmup_steps` をやめ、3 つの待ちにする。誤差の統計の待ち（`rnd.error_norm.standardize.warmup_steps`）、predictor の待ち（`rnd.predictor.warmup_steps`）、割らない式の待ち（`rnd.error_norm.none.warmup_steps`）である。内的報酬は、選んだモードに当たる待ちが全部明けてから出る。件数 0 は「待たない」を表す。既定と、今ある 3 つの形（`learn_predictor`、`collect_errors`、`variance_feedback`）の動きは変えない。PRD123 の D4（warm-up の中身を `warmup_mode` の 2 値で選ぶ）を改める | 開発者の選択（推奨も同じ。§12 の発言 9）。P59 から、1 つの件数が、別々の 2 つの待ちを束ねていた。段階ごとに分けると、段階をまたぐ設定が無くなる（D7）。割らない式の待ちも、束の 3 つ目の値ではなく、その式自身の待ちとして書ける。PRD123 が心配した「膨らみが再発する組」は、今も件数 0 で書ける形と同じで、新しい危険は増えない。不利益は、`collect_errors` の再現に 2 キーを書くことである。依存: P54・P59、D7 |
 | D9 | **clip を、誤差のモードごとに持つ。** 倍率の clip は、列挙のモードにせず、真偽のキー（`use_clipping`）と上限（`multiplier_max`）で持ち、誤差のモードごとの名前空間に置く。倍率だけのスコープは作らない | 開発者の選択（推奨は、倍率を独立の段階のままにする形だった。§12 の発言 10）。P56 から、上限が切る対象の単位が、誤差の式で変わる。clip は「するか、しないか」と上限の値だけなので、P61 のとおり真偽で足りる。モードの中にモードを置かない。別モデルも、割らない式で同じキーが効く形に反対した（§12）。依存: P56・P61、D7 |
 | D10 | **ステージは、コードと設定、設計文書の 2 つに分ける。** 設計文書は、コードの実装が済んでから、コードと矛盾しない形で書き直す。コードも設計文書も、本 PRD に沿う。設定の組み替えだけを、別のステージにはしない。設計文書の書き直しの中も、ステージに分けない。書き直しの中身は §8.7 による | 開発者の指示（§12 の発言 11・12）。グリルで、設定の持ち方を問う選択肢を、開発者が続けて読み取れなかった（§1.1 の 4）。同じ絡みを、文書の読み手に残さないために、設計文書をまとめて書き直す。設定の互換はどのみち変わるので、組み替えだけを分けて入れる利点は小さい。依存: D7 |
+| D56 | **置き場の部品の機能グループ。** 名前は `tensor_store` とし、機能カテゴリは 314 テンソル処理（Topic #10）に入れる。受け持つ関心、入る見込みのもの、入れないものは、§8.4 の「機能グループの見込み」による | 開発者の選択（推奨も同じ。2026-11-22）。新しい機能グループは、機能カテゴリ（統計・監査・wiki の分類と、commit の Topic）と設計文書の章立てにも波及するので、名前と機能カテゴリを開発者が確かめる決まりにした（[anet-create-prd](../../.agents/skills/anet-create-prd/SKILL.md) の「選択肢の示し方」）。部品は、特定の Agent・Env・アルゴリズムに依らない tensor の入れ物で（§8.5）、フレーム積層（`stacker`）と device 転送（`transfer`）と同じ 314 の関心である。依存: D2 |
 
 ### 6.2 聞かずに決めた事項（規約・現行コード・決定の組み合わせから導いた）
 
@@ -709,6 +711,19 @@ run.@rnd_burda : DefaultDQNAgent.learner.intrinsic.terminal_mode = non_episodic
 
 口に足す操作を「待ちの間か」ではなく「呼び出し側が 0 にするか」で返すのは、呼び出し側が式の種類を知らずに済むようにするためである。標準化する式と `variance_feedback` は、推定器が自分で倍率 1 を返しており、呼び出し側が重ねて 0 にする必要が無い。
 
+機能グループの見込み（`LaneTimeTensorStore` の置き場。D56）:
+
+| 項目 | 中身 |
+|---|---|
+| ファイル名と置くライブラリ | `tensor_store`。公開ヘッダ `src/core/base/include/anet/tensor_store.hpp` と、`src/core/base/src/tensor_store.cpp`。使い手の DQN Agent は別のライブラリ（`src/algo/dqn`）にあるので、公開ヘッダに置く |
+| 受け持つ関心 | lane × 時間の tensor を、キーごとにためて、lane と時間の番号で読む置き場。特定の Agent・Env・アルゴリズムの名前や鍵に依らない（§8.5） |
+| 今回入るもの | `LaneTimeTensorStore` と、読む位置を表す lane と時間の組（`LaneTimeIndex`） |
+| あとで入る見込みのもの | 「ためる仕組み」の統合整理（U1、[issue-20261122-4c0af5](../management/issues/issue-20261122-4c0af5.md)）で載せ替えると決めたときに、§8.5 の対応表の「載せ替えるときに足す操作」が入る。上限に達したら古い時間から上書きする書き方、全体を古い順に並べて読む操作、選んだ lane の全時間を 1 つの中身で埋める操作、lane を 1 つずつ lane ごとの位置に書く操作である。載せ替えないと決めたら、今回の 2 つのままである |
+| 入れないもの | §8.5 の対応表の「部品の外に残るもの」。積層するキーの選択とリセットの判定（フレーム積層の側）、ダミーの slot・世代つきの key・抽出できる範囲の管理・PER・積層と n-step の窓（Replay の側）と、n-step の待ち行列（`ExperienceQueue`） |
+| 近い既存の機能グループと、入れない理由 | `tensor_util`（`TensorDict` と、tensor を扱う関数の集まり。状態を持つ置き場を入れると、関心が混ざる）。`stacker`（フレーム積層。U1 で Replay の観測の置き場がこの部品を使うとき、Replay がフレーム積層のヘッダを読む向きになる） |
+| 機能カテゴリ | 314 テンソル処理（Topic #10）。[categories.json](../../reports/tools/categories.json) の 314 の行の `match` に `tensor_store` を足す。フレーム積層（`stacker`）と device 転送（`transfer`）と同じ行である |
+| 設計文書 | D52 のとおり。説明は [212](../design/212_rnd_lifelong_novelty.jp.md) の補助学習の節に置き、[150](../design/150_replay_buffer.jp.md) の部品の表から案内する。使い手が増えるときに、置き場の設計文書を起こすかを決める（U1） |
+
 ### 8.5 置き場の部品の契約と、載せ替えの対応表
 
 `LaneTimeTensorStore` の契約（本 PRD で作る分）:
@@ -766,6 +781,7 @@ run.@rnd_burda : DefaultDQNAgent.learner.intrinsic.terminal_mode = non_episodic
 - 設定（3 ファイル）: [agent.txt](../../apps/runner/config/agent.txt)（§8.1 の既定キー）、[Atari.txt](../../apps/runner/config/Atari.txt)・[DropMerge.txt](../../apps/runner/config/DropMerge.txt)（§7.7 の書き直しの表）。
 - bat（3 ファイル）: [11_batch_run.bat](../../apps/11_batch_run.bat)・[12_batch_run.bat](../../apps/12_batch_run.bat)・[13_batch_run.bat](../../apps/13_batch_run.bat) の、キーを書いている行（§7.7 の書き直しの表）。bat は、実行体を替えるのと同時に替える。旧い実行体で走らせている Run の列は、列の区切りで実行体と bat を一緒に替える。
 - 設計文書（jp、3 ファイル。設計文書のステージで直す）: [212](../design/212_rnd_lifelong_novelty.jp.md)（§8.7）、[200](../design/200_dqn_agents.jp.md)（内的報酬の設定の行と、構造図の記録の記述）、[150](../design/150_replay_buffer.jp.md)（部品の表に、置き場の部品の行。D52。検索には当たらない新しい行である）。英訳（`*.en.md`）は実装で直さず、`anet-translate-docs` で作り直す。
+- 機能カテゴリ（1 ファイル）: [categories.json](../../reports/tools/categories.json) の 314 テンソル処理の行の `match` に `tensor_store` を足す（D56）。wiki の 314 のページのファイルの一覧は、点検（`anet-lint-wiki`）が作り直す。
 - 変更履歴: [CHANGELOG.md](../../CHANGELOG.md) に、§8.1 の「今のキー」と新しいキーの対応を書く（D49）。
 - 用語集と ADR: [CONTEXT.md](../../CONTEXT.md)（「intake」「rollout（補助学習）」）と [ADR 0088](../adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md) は、本 PRD の起草で直した。
 - 過去の検証の道具（13 ファイル）: `src/core/base/testdata/prd116`・`prd121`・`prd123`・`prd127`・`prd128`・`prd130` の道具と説明は直さない。置き場ごとの説明に、設定キーが PRD191 より前の名前であることを 1 行足す（D50）。前後を比べる道具は、`src/core/base/testdata/prd191` に新しく作る。

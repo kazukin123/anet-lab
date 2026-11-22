@@ -200,6 +200,7 @@
 - [PRD120](../../memo/120_issue_work_type_and_prd_link_10prd.md) — PRD120: 課題の種類を仕事の種類にし、PRD との結び付けを課題の prd 欄（Obsidian のリンク）に替える
 - [PRD131](../../memo/131_prd_9xx_renumber_by_creation_date_10prd.md) — PRD131: 9xx の番号の PRD 57 本を、起票の日の順に 900 未満の連番へ振り直す PRD
 - [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
+- [PRD191](../../memo/191_rnd_raw_error_and_recent_learning_10prd.md) — PRD191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） PRD
 
 ## 課題
 
