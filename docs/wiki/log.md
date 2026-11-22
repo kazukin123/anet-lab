@@ -993,3 +993,4 @@
 2026-11-22 writeback docs/memo/196_metrics_viewer_run_comparison_10prd.md blob:c1a76aa20428086698290637e9c0a80fe5972e58 → docs/wiki/apps/120_metrics_viewer.md（成立の経緯 1 行・選ばなかった形 8 行・変えるときの条件 2 行。変えるときの条件の 1 行は ADR 0089 と並べて出典にした。起票の候補を記録したあとの最終の本文と照合し、食い違いは無かった）
 2026-11-22 writeback docs/adr/0089-run-config-table-reads-config-data-txt-by-framework-reader-rules.md blob:88e3bb3d5008e02fd681364cadc30bbc93a8c5a5 → docs/wiki/apps/120_metrics_viewer.md（成立の経緯の 1 行と、変えるときの条件の 1 行の出典に挙げた）
 2026-11-22 writeback docs/adr/0090-query-channel-is-per-tab-and-query-kind.md blob:f8ee4c10eab8f19a61ce7d3749054d5ad4c2522b → docs/wiki/apps/120_metrics_viewer.md、docs/wiki/mechanisms/metrics_resolution.md（120 は成立の経緯 1 行と選ばなかった形 1 行、metrics_resolution は関連 1 行と、関連の ADR 0023 の行への添え書き 1 つ）
+2026-11-22 writeback docs/memo/197_conversation_options_summary_page_10prd.md blob:24ab95d771a26309a506c4a5e4f336fd9cddea59 → なし
