@@ -505,7 +505,7 @@ EvalPanel's shared default is `app.eval_panel.eval_config_tag = eval_panel`, ref
 
 ### 6.3 Display FPS and Progress
 
-Select the startup main Views with `app.main_view`: `train` (Train only), `eval` (Eval only, default), or `both`. For example, a Run profile can use `run.@trainview : app.main_view = train`. Reset Layout returns to this selection. Use `app.eval_panel.auto_start` to choose whether Eval advances automatically.
+Select the startup main Views with `app.main_view`: `train` (Train only, default), `eval` (Eval only), or `both`. For example, a Run profile can use `run.@evalview : app.main_view = eval`. Reset Layout returns to this selection. Use `app.eval_panel.auto_start` to choose whether Eval advances automatically.
 
 `View > Train View FPS` changes only Train View's rendering frequency. `0 (Off)` or hiding Train View stops its rendering timer while training continues. FPS changes made while hidden apply when the View is shown again. `View > Eval View FPS` changes EvalPanel's timer period, affecting Eval progress speed as well as rendering. Both menus offer sub-1 FPS values: `0.1` (once every 10 seconds) and `0.5` (once every 2 seconds). Both `Config (N)` entries restore their startup config values. These are runtime UI operations; selections are not written back to the Run's config dump.
 

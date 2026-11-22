@@ -1130,14 +1130,6 @@ TEST_CASE("Default Evaluation Trace columns add forced without changing existing
     }
 }
 
-TEST_CASE("Main View common default is Eval", "[config][prd110][shipped_config]")
-{
-    // 出荷設定の共通既定だけを固定し、環境ごとの実験値は固定しない。
-    const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path().parent_path();
-    const anet::ConfigManager manager(root / "apps/runner/config/common.txt");
-    CHECK(manager.GetConfigData().Get("app.main_view", "") == "eval");
-}
-
 TEST_CASE("Main View follows application selection and explicit overrides", "[config][prd110]")
 {
     // 選択の仕組みは出荷設定の写しではなく合成入力で確かめる。

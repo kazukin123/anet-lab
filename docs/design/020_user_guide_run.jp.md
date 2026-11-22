@@ -504,7 +504,7 @@ EvalPanelの共通既定は`app.eval_panel.eval_config_tag = eval_panel`で、`r
 
 ### 6.3 表示FPSと進行状況
 
-起動時に表示するViewを変えるには`app.main_view`へ`train`（Trainだけ）・`eval`（Evalだけ、既定）・`both`（両方）を指定する。Runプロファイルでは`run.@trainview : app.main_view = train`のように書く。`View > Reset Layout`もこの設定へ戻る。Evalを自動で進めるかは`app.eval_panel.auto_start`で指定する。
+起動時に表示するViewを変えるには`app.main_view`へ`train`（Trainだけ、既定）・`eval`（Evalだけ）・`both`（両方）を指定する。Runプロファイルでは`run.@evalview : app.main_view = eval`のように書く。`View > Reset Layout`もこの設定へ戻る。Evalを自動で進めるかは`app.eval_panel.auto_start`で指定する。
 
 `View > Train View FPS`はTrain Viewの描画頻度だけを変更する。`0 (Off)`またはTrain Viewを隠している間は描画timerを止めるが、学習は継続する。隠したままFPSを選び直した場合は、再表示するとそのFPSで描画する。`View > Eval View FPS`はEvalPanelのtimer周期を変更するため、描画だけでなくEvalの進行速度も変わる。どちらも1未満の`0.1`（10秒に1回）と`0.5`（2秒に1回）を選べる。どちらの`Config (N)`も起動時config値へ戻す項目である。これらは実行時UI操作であり、選択結果をRunのconfig dumpへ書き戻さない。
 
