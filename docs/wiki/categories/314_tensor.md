@@ -105,6 +105,5 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261122-4c0af5](../../management/issues/issue-20261122-4c0af5.md) | 未着手 | 0.8 | — | コード | PRD | 318_rl_core, 314_tensor, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 観測をためる仕組み（フレーム積層の履歴、Replay の観測の置き場、補助学習の rollout の置き場）が別々に実装されていて、共通の置き場の部品へ載せ替えていない |
 | [issue-20261122-ba42c9](../../management/issues/issue-20261122-ba42c9.md) | 未着手 | 0.6 | — | コード | PRD | 321_agent_core, 314_tensor | 学習基盤 | 機能改善 | — | 未確認 | RND の観測の加工（byte を float に直す、自前の統計で正規化する）が、Q の側の Forwarder の並びと別に書かれている |
 
-- 関連する課題: [issue-20261119-4976bf](../../management/issues/issue-20261119-4976bf.md) — RNDのpredictorの補助学習が今のintakeの観測だけから引き、lane数を超えるバッチと同じ標本の再利用（Burdaらの4エポック）ができない
 着手できる 12 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->
