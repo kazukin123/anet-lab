@@ -28,6 +28,8 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.IngestInfo;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.Issue;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricsSeriesRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricsSeriesResult;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.RangeStats;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.RangeStatsRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RunInfo;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RunStats;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.TagInfo;
@@ -137,6 +139,61 @@ public class MetricsRepository {
 		}
 	}
 
+	public List<RangeStats> queryRangeStats(List<RangeStatsRequest> requests, QueryExecution query) {
+		query.checkpoint();
+		final Set<String> existingRuns = Set.copyOf(runScanner.listRunId());
+		final Map<String, RunQueryContext> contexts = new LinkedHashMap<>();
+		final List<RangeStats> results = new ArrayList<>(requests.size());
+		try {
+			for (RangeStatsRequest request : requests) {
+				query.checkpoint();
+				final String runId = request.runId();
+				if (!existingRuns.contains(runId)) {
+					results.add(rangeResult(request, null, SeriesAvailability.NOT_FOUND, null));
+					continue;
+				}
+				// 同じ Run の系列は同じ read transaction で読む。開けなかった状態もここで固定する。
+				if (!contexts.containsKey(runId)) contexts.put(runId, openQueryContext(runId, query));
+				results.add(readRangeStats(request, contexts.get(runId), query));
+			}
+			query.checkpoint();
+			return results;
+		} finally {
+			for (RunQueryContext context : contexts.values()) {
+				if (context != null) context.close();
+			}
+		}
+	}
+
+	private RangeStats readRangeStats(RangeStatsRequest request, RunQueryContext context, QueryExecution query) {
+		if (context == null) return rangeResult(request, null, SeriesAvailability.PENDING, null);
+		final UUID generation = MetricsQueryPlanner.parseUuid(context.metadata.generation());
+		try {
+			// グラフと同じ境界探索と availability の判定を使う。
+			final boolean stillIngesting = context.metadata.stateOrThrow().isStillIngesting();
+			final MetricsQueryPlanner.TagInput tag = readTagInput(context.connection,
+					request.tagKey(), request.fromStep(), request.toStep(), query);
+			final SeriesAvailability availability = SeriesAvailability.forRange(stillIngesting,
+					tag != null, tag != null && tag.ordinalTo() > tag.ordinalFrom());
+			final TagStats stats = availability == SeriesAvailability.OK
+					? RangeStatsQuery.summarize(context.connection, tag, query) : null;
+			return rangeResult(request, generation, availability, stats);
+		} catch (QueryCancelledException e) {
+			throw e;
+		} catch (Exception e) {
+			query.checkpoint();
+			log.debug("Range stats query failed: run={} tag={} fromStep={} toStep={}",
+					request.runId(), request.tagKey(), request.fromStep(), request.toStep(), e);
+			return rangeResult(request, generation, SeriesAvailability.PENDING, null);
+		}
+	}
+
+	private static RangeStats rangeResult(RangeStatsRequest request, UUID generation,
+			SeriesAvailability availability, TagStats stats) {
+		return new RangeStats(request.runId(), request.tagKey(), request.fromStep(),
+				request.toStep(), generation, availability.externalName(), stats);
+	}
+
 	private void readSeriesInputs(
 			RunQueryContext context,
 			List<Integer> indices,
@@ -160,7 +217,8 @@ public class MetricsRepository {
 						request,
 						true,
 						context.metadata,
-						readTagInput(context.connection, request, query),
+						readTagInput(context.connection, request.getTagKey(),
+								request.getFromStep(), request.getToStep(), query),
 						null);
 			} catch (QueryCancelledException e) {
 				throw e;
@@ -205,8 +263,7 @@ public class MetricsRepository {
 	}
 
 	private static MetricsQueryPlanner.TagInput readTagInput(
-			Connection connection,
-			MetricsSeriesRequest request,
+			Connection connection, String tagKey, long fromStep, long toStep,
 			QueryExecution query) throws Exception {
 		final long tagId;
 		final String status;
@@ -223,7 +280,7 @@ public class MetricsRepository {
 				WHERE t.key=?
 				""");
 				StatementRegistration ignored = query.registerStatement(statement)) {
-			statement.setString(1, request.getTagKey());
+			statement.setString(1, tagKey);
 			query.checkpoint();
 			try (ResultSet result = statement.executeQuery()) {
 				query.checkpoint();
@@ -244,9 +301,9 @@ public class MetricsRepository {
 		}
 		final StepRange stepRange = new StepRange(count, minStep, maxStep);
 		final long ordinalFrom = lowerBound(
-				connection, tagId, stepRange, request.getFromStep(), false, query);
+				connection, tagId, stepRange, fromStep, false, query);
 		final long ordinalTo = lowerBound(
-				connection, tagId, stepRange, request.getToStep(), true, query);
+				connection, tagId, stepRange, toStep, true, query);
 		return new MetricsQueryPlanner.TagInput(
 				tagId,
 				count,

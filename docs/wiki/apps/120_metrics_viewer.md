@@ -98,6 +98,7 @@
 - [MetricsCacheDatabase.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java)
 - [MetricsSource.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java)
 - [RunScanner.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScanner.java)
+- [ConfigTextReader.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/ConfigTextReader.java)
 - [GzipInputSessions.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipInputSessions.java)
 - [GzipSessionReader.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/GzipSessionReader.java)
 - [IngestScheduler.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestScheduler.java)
@@ -113,7 +114,9 @@
 - [MetricsRepository.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsRepository.java)
 - [MetricsService.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsService.java)
 - [QueryCancelledException.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/QueryCancelledException.java)
+- [RangeStatsQuery.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RangeStatsQuery.java)
 - [RawFileReader.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RawFileReader.java)
+- [RunConfigService.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RunConfigService.java)
 - [RunWarningRegistry.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RunWarningRegistry.java)
 - [SeriesAvailability.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SeriesAvailability.java)
 - [SourceReader.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/SourceReader.java)
@@ -139,8 +142,11 @@
 - [MetricsSeriesResult.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/MetricsSeriesResult.java)
 - [MinMaxProjection.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/MinMaxProjection.java)
 - [PrioritizeRunsRequest.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/PrioritizeRunsRequest.java)
+- [RangeStats.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RangeStats.java)
+- [RangeStatsRequest.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RangeStatsRequest.java)
 - [RawProjection.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RawProjection.java)
 - [RenameTagSetRequest.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RenameTagSetRequest.java)
+- [RunConfigResponse.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RunConfigResponse.java)
 - [RunInfo.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RunInfo.java)
 - [RunStats.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/RunStats.java)
 - [SaveTagSetRequest.java](../../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/SaveTagSetRequest.java)
@@ -159,6 +165,7 @@
 - [MetricsCacheDatabaseIntegrationTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabaseIntegrationTest.java)
 - [RunScannerTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/infra/RunScannerTest.java)
 - [CacheMaintenanceTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/CacheMaintenanceTest.java)
+- [ConfigTextReaderTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/ConfigTextReaderTest.java)
 - [IngestSchedulerTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/IngestSchedulerTest.java)
 - [LoadingThreadTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/LoadingThreadTest.java)
 - [LodPageCacheTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/service/LodPageCacheTest.java)
@@ -186,6 +193,7 @@
 - [MetricsViewerPlaywrightTestSupport.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerPlaywrightTestSupport.java)
 - [OutlierRangePlaywrightTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/OutlierRangePlaywrightTest.java)
 - [ReloadPlaywrightTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/ReloadPlaywrightTest.java)
+- [RunComparisonPlaywrightTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunComparisonPlaywrightTest.java)
 - [RunListPlaywrightTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java)
 - [ScreenshotModePlaywrightTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/ScreenshotModePlaywrightTest.java)
 - [SignedLogPlaywrightTest.java](../../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/SignedLogPlaywrightTest.java)
@@ -200,6 +208,7 @@
 - [PRD064](../../memo/done/064_metricsviewer_idle_ingest_io_10prd.md) — Metrics Viewer 定常取り込み I/O 抑制 PRD
 - [PRD069](../../memo/done/069_metrics_trace_channel_10prd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
 - [PRD182](../../memo/182_source_layout_10prd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
+- [PRD196](../../memo/196_metrics_viewer_run_comparison_10prd.md) — PRD196: MetricsViewer で Run を比べる作業に要る機能を足す（設定表、Run・tag の絞り込み、tag の情報パネル、Plotly の同梱）
 
 ## 課題
 
@@ -208,11 +217,10 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261121-201669](../../management/issues/issue-20261121-201669.md) | 調査中 | 1.5 | — | コード | その他 | 120_metrics_viewer | UI | 機能追加 | [PRD196](../../memo/196_metrics_viewer_run_comparison_10prd.md) | 未確認 | MetricsViewer で Run を比べる作業に要る機能が足りない（設定の比較、Run・tag の検索、グラフごとの統計、オフラインでの動作） |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | PRD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [PRD081](../../memo/081_evalpanel_episode_trace_10prd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | PRD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [PRD108](../../memo/108_metrics_tag_numbering_10prd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | コード | PRD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [PRD096](../../memo/096_metrics_step_axis_interval_10prd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
 | [issue-20261103-c16aab](../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | コード | PRD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [PRD154](../../memo/154_scalar_threshold_rate_10prd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 
-着手できる 5 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 4 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

@@ -77,7 +77,9 @@ workspaceを引数指定せずに起動した場合は、`YES`、`NO`、`DRY-RUN
 |---|---|
 | `Workspace` | serverが列挙したworkspaceへ切り替え、Run選択・色・viewport・凡例状態をリセットする |
 | `Runs` | 行クリックで即時toggleする。同じ行を350ms以内にもう一度押すとそのRunだけを選ぶ。空選択も可能 |
-| `Select All` / `Select Latest` | 全Run、または最新Runへ選択を切り替える |
+| `Filter runs` / `Filter tags` | 各リストの直上にある入力欄で、名前に含まれる語を入力して絞る。空白で区切った語を全て含む行が残る。大文字と小文字のどちらで入力しても同じ結果になる。文字はworkspaceを切り替えても残る |
+| `Select All` / `Select Latest`（Runs） | `Select All` は一致したRunを選択に足す。`Select Latest` は一致した最新の1本を選ぶ。文字を消すと全Runが対象になる |
+| `Select All` / `Clear All`（Tags） | 文字の絞り込みに一致したtagを選択へ足すか外す |
 | `Recolor` | 選択中Runへ、互いに最も見分けやすい色を配り直す。選択順に固定の並びで配るので、本数が同じなら同じ色の組になる |
 | `Auto Recolor` | 新しく選んだRun（初回表示で選ばれるRunを含む）へ、選択中のほかのRunから最も見分けやすい色を自動で配る。選択中だったRunの色は変えない。既定ON |
 | `Tags` | 表示するmetric tagを選ぶ |
@@ -88,32 +90,34 @@ workspaceを引数指定せずに起動した場合は、`YES`、`NO`、`DRY-RUN
 | `Selected Only`（Runs / Tags） | 見出し行のトグル。選択済みRun・tagだけを一覧へ残す。`Select All`などの一括操作を押すと自動でOFFへ戻る。Runsのほうは開き直すとOFFで始まる |
 | Run行の背景と`%` | 選択したMetricsマスタをSQLiteへ取り込んだRun単位の進捗を示す |
 | Run行のhover / 右クリック（タッチは長押し） | そのRunの情報パネルを出す。Run名、取り込みの状態、最大step、tag数（隔離の数）、点数の合計、取り込みとtagの問題を並べる。Run名は1回のクリックで全体が選ばれ、そのままコピーできる。`Copy Name`はRun名をクリップボードへ入れる。外側を押すか、Escで閉じる |
-| `Reload` | Run一覧、tag、現在viewportのmetric rangeを再取得して再描画する |
+| `Graphs` / `Config` | グラフと設定表を切り替える。Configを開くと、選択中のRunを列に並べる。右上のグラフ操作はGraphsで使う |
+| `Filter keys` / `Diff Only` | 設定キーで行を探すか、Run間で値またはキーの有無が違う行だけを表示する。両方を同時に使える。表を横へ送っても検索欄とボタンは表示される |
+| グラフのtag名をhover / クリック / 右クリック（タッチはタップ） | Runごとの統計と `All runs` を表示する。全期間は `All` で読む。横軸が全期間の一部を表示している間は、表示中の統計を `Viewing (開始-終了)` で読む。`Copy Name` はtag名をコピーする |
+| `Reload` | Run一覧、tag、グラフのデータと設定表の設定を読み直す |
 | `Auto Reload` | 30秒ごとにmetadataを更新し、最新を表示中のgraphだけを更新する |
 | `Height` | 右上のスライダー。全graphの高さを150〜800pxの間で50px刻みに変える。スライダーを離したときに描き直す。幅900px以下の画面とスクリーンショットモードでは隠れ、保存した高さはそのまま使う |
 | `LOD: MinMax / Mean / Band` | 右上のScroll Lock直前にある全graph共通のLOD表示mode。変更時に再取得しない |
 | グラフの`Log` | 正負と0を扱えるsigned-log表示を切り替える |
 | グラフの`p0–` / `–p100` | Y軸の下限と上限を、各Runの現在表示している有限値のpercentileで絞る。下限は押すたびに`p0–`→`p1–`→`p5–`→`p0–`、上限は`–p100`→`–p99`→`–p95`→`–p100`と巡り、上下を別々に選べる（`p5–`と`–p100`で下だけ切るなど）。`p0–`と`–p100`は制限なし |
 | `Scroll Lock` | グラフ操作を抑え、drag/swipeを縦scrollへ使う |
-| Screenshotボタン | side panelを隠し、比較画像向けの表示へ切り替える。この間はScroll Lock相当となり、graph上のdrag/swipeを縦scrollへ使う。読み込み中は左上にスピナーが出る |
+| Screenshotボタン | サイドパネルとタブを隠し、開いているタブの内容を表示する。この間はScroll Lock相当となり、graph上のdrag/swipeを縦scrollへ使う。読み込み中は左上にスピナーが出る |
 
 Plotlyのmodebarではzoom、pan、画像保存、`Reset axes`を利用できる。`Autoscale`ボタンは重複を避けるため非表示である。グラフ本体のdouble-clickはPlotlyのaxis resetを維持しつつ、ViewerのReloadも実行する。
 
 初回表示だけ最新Runを自動選択する。以後は手動の空選択と、Run消失で空になった選択を維持する。
 Reloadでは既知のOFF tagを保ち、新たに発見された可視tagだけを自動的にONへ加える。
-選択workspace、選択tag、LOD mode、Scroll Lock、`Auto Recolor`、Tagsの`Selected Only`、グラフの高さ、tag別のLogとpercentileの下限・上限はbrowserの`localStorage`へ保持される。Run色自体は保持せず、reloadとworkspace切替のたびに配り直す。Logとpercentileの下限・上限はworkspaceをまたいで同名tagへ適用される。
+選択workspace、開いているタブ、選択tag、LOD mode、Scroll Lock、`Auto Recolor`、Tagsの`Selected Only`、グラフの高さ、tag別のLogとpercentileの下限・上限はbrowserの`localStorage`へ保持される。Run色自体は保持せず、reloadとworkspace切替のたびに配り直す。Logとpercentileの下限・上限はworkspaceをまたいで同名tagへ適用される。
 
 選択中のタグセット名と、セットごとの未保存の変更もlocalStorageへ保持される。ページを読み直しても未保存のtag選択を保つ。未保存の変更はこのbrowserだけに残り、別のbrowserや端末には出ない。保存済みの中身へ戻すには、そのセットを呼んで`Revert`を押す。セットを`Save As`で別名保存すると、元のセットの未保存の変更は消える。タグセットはWorkspaceをまたいで共有する。メニューは↑↓とEnterで操作でき、Escまたは外側のクリックで閉じる。入力欄のEscは編集だけを取り消す。
 
 > [!NOTE]
 > 作業用ファイルは既定で `metricsviewer.workspaces-dir` 直下の `metrics_viewer_tag_sets.json`。Viewerは親が無ければ作成し、作業用が無いときだけjar内の初期値を写す。保存先は起動引数 `--metricsviewer.tag-sets-file` で変更できる。稼働中の手動編集やgit切り替えによる変更は再起動まで反映されず、その前のUI保存で上書きされて消える。外で編集したあとはUIで保存する前にViewerを再起動する。
 
-percentileは、凡例で非表示にしたRunを除き、各Runについて現在のX範囲にあるLOD描画値から個別に計算する。Y軸は、各Runの下限percentileのうち最小のものから、上限percentileのうち最大のものまでになる。p0とp100はそれぞれ最小値と最大値である。線は変えずにY軸の表示範囲だけを絞るので、範囲外の点はY軸の外へはみ出して切れる。点数による下限はなく、tooltipには範囲内の点数と入力点数を示す。Logとの併用時もpercentileはraw値で計算してからsigned-log座標へ変換する。手動Y zoomは維持され、`Reset View`またはPlotlyのaxis resetでpercentileの範囲へ戻る。グラフheaderの統計値とclient cacheのraw値は変更しない。
+percentileは、凡例で非表示にしたRunを除き、各Runについて現在のX範囲にあるLOD描画値から個別に計算する。Y軸は、各Runの下限percentileのうち最小のものから、上限percentileのうち最大のものまでになる。p0とp100はそれぞれ最小値と最大値である。線は変えずにY軸の表示範囲だけを絞るので、範囲外の点はY軸の外へはみ出して切れる。点数による下限はなく、tooltipには範囲内の点数と入力点数を示す。Logとの併用時もpercentileはraw値で計算してからsigned-log座標へ変換する。手動Y zoomは維持され、`Reset View`またはPlotlyのaxis resetでpercentileの範囲へ戻る。
 
 LODの`MinMax`は各bucketのmin、max、lastを元データの実step順に結ぶ。
 `Mean`はbucket平均、`Band`はmin/max帯へ平均線を重ねる。点数が少なくL0を表示できる場合は、
-どのmodeでもraw折れ線になる。グラフheaderの`Min / Max / Avg / Std`はviewportではなく、
-選択Runのcommit済みraw全点に対する`TagStats`を合成した値である。
+どのmodeでもraw折れ線になる。
 
 同じgraphのRunは、表示しているStep範囲に対して同じ幅の区間で集約される。同じ表示範囲・画面幅なら、少なくとも4Runまで選択数によって粒度を下げない。zoomや画面幅変更では全Runが同じ粒度へ更新され、panでは区間の起点を維持する。記録が無い区間の値は補わない。
 
@@ -126,7 +130,7 @@ LODの`MinMax`は各bucketのmin、max、lastを元データの実step順に結�
 
 ### 4.1 比較条件を確認する
 
-グラフを重ねる前に、各Runの次を確認する。
+グラフを重ねる前に、比較するRunを選んで `Config` を開く。`Diff Only` で差がある行に絞り、`Filter keys` で確認したい項目を探す。`(none)` はそのRunにキーが無いことを示す。設定表とRunフォルダで、次の項目を確認する。
 
 - `config/config_data.txt`: includeとCLI override解決後の全設定
 - `config/*.txt`: コンポーネント別の注入済み設定。Envは`config/env.<Env name>.txt`
@@ -156,7 +160,7 @@ Run B: 0 - 70M exp_step
 比較window: 50M - 70M exp_step
 ```
 
-同じwindowで次を分けて読む。
+グラフの横軸を共通範囲にズームし、tag名から情報パネルを開く。`Viewing (開始-終了)` に出るstepの範囲を確かめ、各Runの `Count`、`Max`、`Mean`、`Min`、`Std`、`Last` を読む。同じwindowで次を分けて読む。
 
 - 水準: window内のmean/medianや評価EMA
 - 安定性: 振れ幅、急落、seed間のrange/std

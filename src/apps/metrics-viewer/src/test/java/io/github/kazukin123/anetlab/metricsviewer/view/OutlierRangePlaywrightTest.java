@@ -64,6 +64,10 @@ class OutlierRangePlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 		waitForGraph(page);
 
+		page.locator(".graph-title").hover();
+		final var count = page.locator("#tag-info-panel tbody tr:last-child td").first();
+		com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat(count).hasText("101");
+		page.keyboard().press("Escape");
 		final String initial = headerGeometry(page);
 		for (int i = 1; i <= LOWER_LABELS.size(); i++) {
 			clickAndWaitForLabel(page, LOWER, LOWER_LABELS.get(i % LOWER_LABELS.size()));
@@ -421,8 +425,7 @@ class OutlierRangePlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 					};
 					return [
 						rect('.graph-lower-percentile'),
-						rect('.graph-upper-percentile'),
-						rect('.graph-header > .graph-stats')
+						rect('.graph-upper-percentile')
 					].join('|');
 				}
 				""");

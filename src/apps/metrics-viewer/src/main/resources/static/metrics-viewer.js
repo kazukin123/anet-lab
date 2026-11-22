@@ -4,6 +4,7 @@ const API_BASE_URL = "/api";
 const AUTO_RELOAD_INTERVAL_MS = 30000;
 const INGEST_POLL_INTERVAL_MS = 4000;
 const VIEWPORT_DEBOUNCE_MS = 150;
+const RANGE_STATS_DEBOUNCE_MS = 200;
 const DETAIL_CACHE_BYTES = 64 * 1024 * 1024;
 const PREVIEW_BINS = 64;
 const RUN_SOLO_INTERVAL_MS = 350;
@@ -36,6 +37,7 @@ const STORAGE_KEY_WORKSPACE = "anet.metricsviewer.workspace";
 const STORAGE_KEY_AUTO_RECOLOR = "anet.metricsviewer.autoRecolorEnabled";
 const STORAGE_KEY_TAGS_SELECTED_ONLY = "anet.metricsviewer.tagsSelectedOnly";
 const STORAGE_KEY_GRAPH_HEIGHT = "anet.metricsviewer.graphHeight";
+const STORAGE_KEY_MAIN_TAB = "anet.metricsviewer.mainTab";
 // graph headerの下限・上限ボタンが押すたびに進む段(percent)。先頭が制限なし。
 const LOWER_PERCENTILE_STEPS = Object.freeze([0, 1, 5]);
 const UPPER_PERCENTILE_STEPS = Object.freeze([100, 99, 95]);
@@ -314,6 +316,8 @@ class DataFetcher {
 		this.priorityTail = Promise.resolve();
 		this.queryChannel = createQueryChannel();
 		this.querySequence = 0;
+		this.rangeQueryChannel = this.queryChannel + "-range-stats";
+		this.rangeQuerySequence = 0;
 	}
 
 	async fetchRuns() {
@@ -323,6 +327,17 @@ class DataFetcher {
 			signal: this.metadataController.signal
 		});
 		if (!response.ok) throw new Error(`Failed runs.json: ${response.status}`);
+		return response.json();
+	}
+
+	async fetchConfig(runIds, signal) {
+		const response = await fetch(`${API_BASE_URL}/config.json`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ runIds }),
+			signal
+		});
+		if (!response.ok) throw new Error(`Failed config.json: ${response.status}`);
 		return response.json();
 	}
 
@@ -375,15 +390,25 @@ class DataFetcher {
 	async fetchMetrics(series) {
 		this.abortMetrics();
 		this.metricsController = new AbortController();
-		const response = await fetch(`${API_BASE_URL}/metrics.json`, {
+		return this.fetchSeries("metrics.json", series, this.queryChannel,
+				this.querySequence++, this.metricsController.signal);
+	}
+
+	async fetchRangeStats(series, signal) {
+		return this.fetchSeries("range-stats.json", series, this.rangeQueryChannel,
+				this.rangeQuerySequence++, signal);
+	}
+
+	async fetchSeries(path, series, channel, sequence, signal) {
+		const response = await fetch(`${API_BASE_URL}/${path}`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"X-Query-Channel": this.queryChannel,
-				"X-Query-Sequence": String(this.querySequence++)
+				"X-Query-Channel": channel,
+				"X-Query-Sequence": String(sequence)
 			},
 			body: JSON.stringify({ series }),
-			signal: this.metricsController.signal
+			signal
 		});
 		if (!response.ok) {
 			const body = await response.text();
@@ -393,7 +418,7 @@ class DataFetcher {
 			} catch (_error) {
 				// Non-JSON error bodies retain the existing message-only behavior.
 			}
-			const error = new Error(`Failed metrics.json: ${response.status} ${body}`);
+			const error = new Error(`Failed ${path}: ${response.status} ${body}`);
 			error.status = response.status;
 			error.code = payload?.code ?? null;
 			throw error;
@@ -1259,7 +1284,7 @@ class PlotlyController {
 	}
 
 	_isCurrentModel(block, model) {
-		return block.isConnected && sameRenderKey(block.__mvRequestedModel?.key,model.key)
+		return !this.app.mainTabs.isConfig() && block.isConnected && sameRenderKey(block.__mvRequestedModel?.key,model.key)
 			&& sameRenderKey(model.runIds,this.app.selectedRuns.slice().sort((a,b)=>a.localeCompare(b)))
 			&& sameRenderKey(model.displayKey,this._graphDisplayKey(model.tagKey,model.runIds,this._plotWidth(block)))
 			&& model.runIds.every((id,index)=>!model.windows[index]
@@ -1332,6 +1357,7 @@ class PlotlyController {
 		const title = document.createElement("div");
 		title.className = "graph-title";
 		title.textContent = tagKey;
+		this.app.tagInfo.bindTitle(title, tagKey);
 		header.append(title);
 		this._renderGraphHeaderInfo(header, tagKey);
 		block.append(header);
@@ -1355,6 +1381,7 @@ class PlotlyController {
 	_createGraphHeader(tagKey, presentation) {
 		const header=document.createElement("div"); header.className="graph-header";
 		const title=document.createElement("div"); title.className="graph-title"; title.textContent=tagKey;
+		this.app.tagInfo.bindTitle(title, tagKey);
 		const log=document.createElement("button"); log.type="button"; log.className="graph-log-toggle";
 		log.textContent="Log"; log.title="Toggle signed log scale";
 		setToggleState(log,this.app.logScaleTags.has(tagKey));
@@ -1408,35 +1435,17 @@ class PlotlyController {
 	_renderGraphHeaderInfo(header, tagKey) {
 		const issue = [this.app.issueForTag(tagKey),this.overviews.failures.get(tagKey)?.error.message].filter(Boolean).join("\n");
 		let warning = header.querySelector(":scope > .graph-warning");
-		let statsElement = header.querySelector(":scope > .graph-stats");
 		if (issue) {
 			if (!warning) {
 				warning = document.createElement("span");
 				warning.className = "graph-warning";
 				warning.textContent = "⚠";
-				header.insertBefore(warning, statsElement);
+				header.append(warning);
 			}
 			if (warning.title !== issue) warning.title = issue;
 		} else {
 			warning?.remove();
 		}
-
-		const stats = this.app.combinedStats(tagKey);
-		if (!stats) {
-			statsElement?.remove();
-			return;
-		}
-		if (!statsElement) {
-			statsElement = document.createElement("span");
-			statsElement.className = "graph-stats";
-			header.append(statsElement);
-		}
-		const text = `Min ${formatMetricValue(stats.min)} / Max ${formatMetricValue(stats.max)}`
-				+ ` / Avg ${formatMetricValue(stats.mean)} / Std ${formatMetricValue(stats.stdDev)}`;
-		const title = `count=${stats.count}\nmin=${stats.min}\nmax=${stats.max}`
-				+ `\navg=${stats.mean}\nstd=${stats.stdDev}`;
-		if (statsElement.textContent !== text) statsElement.textContent = text;
-		if (statsElement.title !== title) statsElement.title = title;
 	}
 
 	// 1 tag分のgraph blockを作り、beforeの前へ入れてから描く。幅を測るためDOMへ先に入れる。
@@ -1623,7 +1632,15 @@ class PlotlyController {
 		}
 	}
 
+	pauseRendering() {
+		// 公開済みの絵は保持し、作りかけの描画は Graphs に戻ってから改めて要求する。
+		for (const block of this.blocks.values()) {
+			block.__mvRequestedModel = block.__mvDisplayedModel ?? null;
+		}
+	}
+
 	resizeAll() {
+		if (this.app.mainTabs.isConfig()) return;
 		for (const plot of document.querySelectorAll(".graph-block .js-plotly-plot")) {
 			const rectangle = plot.getBoundingClientRect();
 			const block = plot.closest(".graph-block");
@@ -1925,6 +1942,46 @@ function ingestLabel(ingest) {
 			: `${percentage}% · ${ingest?.state ?? "pending"}`;
 }
 
+// Run と tag の情報パネルで同じクリップボード操作を使う。
+class NameClipboard {
+	constructor() {
+		this.clipboardApiRefused = false;
+	}
+
+	button(name, kind) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "run-info-copy";
+		button.textContent = "Copy Name";
+		button.title = "Copy the " + kind + " name to the clipboard";
+		button.onclick = async () => {
+			try {
+				await this.copy(name);
+				button.textContent = "Copied";
+				setTimeout(() => { button.textContent = "Copy Name"; }, COPY_FEEDBACK_MS);
+			} catch (error) {
+				console.warn(error);
+				Toast.show("Copy failed: " + error.message);
+			}
+		};
+		return button;
+	}
+
+	async copy(text) {
+		// 利用できないときは選択範囲のコピーへ切り替え、拒まれたことは最初の1回だけ知らせる。
+		if (!this.clipboardApiRefused && window.isSecureContext && navigator.clipboard?.writeText) {
+			try {
+				await navigator.clipboard.writeText(text);
+				return;
+			} catch (error) {
+				this.clipboardApiRefused = true;
+				console.warn("Clipboard API refused to copy; using execCommand from now on", error);
+			}
+		}
+		copyTextBySelection(text);
+	}
+}
+
 // Run行にマウスを載せるか、右クリック(タッチは長押し)したときに、そのRunの情報を出すパネル。
 // Run名は1回のクリックで全体を選べる文字にし、Copy Nameでもコピーできる。
 class RunInfoPanel {
@@ -1935,8 +1992,6 @@ class RunInfoPanel {
 		this.contentKey = null;
 		this.showTimer = null;
 		this.hideTimer = null;
-		// Clipboard APIが一度拒まれたら、以後は旧来の経路だけを使う。警告もその1回だけにする。
-		this.clipboardApiRefused = false;
 		this.panel = document.createElement("div");
 		this.panel.id = "run-info-panel";
 		this.panel.hidden = true;
@@ -2053,13 +2108,7 @@ class RunInfoPanel {
 		name.className = "run-info-name";
 		name.textContent = this.runId;
 		head.append(chip, name);
-		const copy = document.createElement("button");
-		copy.type = "button";
-		copy.className = "run-info-copy";
-		copy.textContent = "Copy Name";
-		copy.title = "Copy the run name to the clipboard";
-		const runId = this.runId;
-		copy.onclick = () => this._copyName(copy, runId);
+		const copy = this.app.nameClipboard.button(this.runId, "run");
 		const list = document.createElement("dl");
 		list.className = "run-info-fields";
 		for (const [label, value] of fields) {
@@ -2103,33 +2152,6 @@ class RunInfoPanel {
 		return issues;
 	}
 
-	// Clipboard APIは安全な接続(https・localhost)でしか使えず、埋め込みのブラウザでは権限で拒まれることもある。
-	// 使えないときは選択範囲のコピーを使い、拒まれたときは1回だけ警告して以後の経路をそちらに固定する。
-	async _copyText(text) {
-		if (!this.clipboardApiRefused && window.isSecureContext && navigator.clipboard?.writeText) {
-			try {
-				await navigator.clipboard.writeText(text);
-				return;
-			} catch (error) {
-				this.clipboardApiRefused = true;
-				console.warn("Clipboard API refused to copy; using execCommand from now on", error);
-			}
-		}
-		copyTextBySelection(text);
-	}
-
-	async _copyName(button, runId) {
-		try {
-			await this._copyText(runId);
-			// 押した結果はボタンの文字で返す。幅は長いほうのラベルに合わせてあり、位置は動かない。
-			button.textContent = "Copied";
-			setTimeout(() => { button.textContent = "Copy Name"; }, COPY_FEEDBACK_MS);
-		} catch (error) {
-			console.warn(error);
-			Toast.show(`Copy failed: ${error.message}`);
-		}
-	}
-
 	_position(row) {
 		// サイドパネルの右に出し、行の上端にそろえて画面の中へ収める。
 		const rowRect = row.getBoundingClientRect();
@@ -2142,10 +2164,498 @@ class RunInfoPanel {
 	}
 }
 
+const TAG_STATS_COLUMNS = [
+	["Count", "count", formatCount],
+	["Max", "maxValue", formatMetricValue],
+	["Mean", "mean", formatMetricValue],
+	["Min", "minValue", formatMetricValue],
+	["Std", "stdDev", formatMetricValue],
+	["Last", "lastValue", formatMetricValue],
+];
+
+class TagInfoPanel {
+	constructor(app) {
+		this.app = app;
+		this.tagKey = null;
+		this.showTimer = null;
+		this.hideTimer = null;
+		this.requestTimer = null;
+		this.controller = null;
+		this.requestKey = null;
+		this.results = new Map();
+
+		this.panel = document.createElement("div");
+		this.panel.id = "tag-info-panel";
+		this.panel.hidden = true;
+		this.name = document.createElement("span");
+		this.name.className = "tag-info-name";
+		this.controls = document.createElement("div");
+		this.status = document.createElement("div");
+		this.status.setAttribute("role", "status");
+		this.table = document.createElement("table");
+		this.panel.append(this.name, this.controls, this.status, this.table);
+		document.body.append(this.panel);
+
+		// 開いた tag の plot 上で始めるドラッグはパネルを閉じない。
+		document.addEventListener("pointerdown", event => {
+			if (this.panel.hidden || !(event.target instanceof Element)) return;
+			const currentGraph = this.currentGraph();
+			if (this.panel.contains(event.target)
+					|| (currentGraph?.contains(event.target) && event.target.closest(".graph-title, .nsewdrag"))) return;
+			this.hide();
+		}, true);
+		document.addEventListener("pointerover", event => {
+			if (this.panel.hidden || event.pointerType !== "mouse" || !(event.target instanceof Element)) return;
+			if (this.panel.contains(event.target) || this.currentGraph()?.contains(event.target)
+					|| event.target.closest('.dragcover')) {
+				clearTimeout(this.hideTimer);
+			} else {
+				this.scheduleHide();
+			}
+		});
+		document.addEventListener("keydown", event => {
+			if (event.key === "Escape") this.hide();
+		});
+		document.getElementById("main-area").addEventListener("scroll", () => this.hide(), { passive: true });
+		window.addEventListener("scroll", () => this.hide(), { passive: true });
+		window.addEventListener("resize", () => this.refresh());
+	}
+
+	bindTitle(title, tagKey) {
+		title.tabIndex = 0;
+		title.setAttribute("role", "button");
+		title.addEventListener("pointerenter", event => {
+			if (event.pointerType !== "mouse") return;
+			clearTimeout(this.showTimer);
+			this.showTimer = setTimeout(() => this.show(tagKey), RUN_INFO_SHOW_DELAY_MS);
+		});
+		title.addEventListener("pointerleave", () => clearTimeout(this.showTimer));
+		title.addEventListener("contextmenu", event => {
+			event.preventDefault();
+			if (event.pointerType !== "touch") this.show(tagKey);
+		});
+		title.addEventListener("keydown", event => {
+			if (event.key === "Enter" || event.key === " ") {
+				event.preventDefault();
+				this.show(tagKey);
+			}
+		});
+
+		// ブラウザがタップとして確定した click だけを受け取り、グラフの Reload へ伝播させない。
+		title.addEventListener("click", event => {
+			event.stopPropagation();
+			this.show(tagKey);
+		});
+	}
+
+	currentGraph() {
+		return this.app.plotly.blocks.get(this.tagKey);
+	}
+
+	show(tagKey) {
+		clearTimeout(this.showTimer);
+		clearTimeout(this.hideTimer);
+		if (this.tagKey !== tagKey) {
+			this.cancelRequest();
+			this.requestKey = null;
+			this.tagKey = tagKey;
+			this.name.textContent = tagKey;
+			this.controls.replaceChildren(this.app.nameClipboard.button(tagKey, "tag"));
+		}
+		this.panel.hidden = false;
+		this.refresh();
+	}
+
+	hide() {
+		clearTimeout(this.showTimer);
+		clearTimeout(this.hideTimer);
+		this.cancelRequest();
+		this.tagKey = null;
+		this.requestKey = null;
+		this.panel.hidden = true;
+	}
+
+	scheduleHide() {
+		clearTimeout(this.hideTimer);
+		this.hideTimer = setTimeout(() => this.hide(), RUN_INFO_HIDE_DELAY_MS);
+	}
+
+	cancelRequest() {
+		clearTimeout(this.requestTimer);
+		this.controller?.abort();
+		this.controller = null;
+	}
+
+	refresh(delay = 0) {
+		if (this.panel.hidden) return;
+		const title = this.currentGraph()?.querySelector(".graph-title");
+		if (!title?.isConnected || this.app.mainTabs.isConfig()) {
+			this.hide();
+			return;
+		}
+
+		// 表示範囲の整数 step が全データを含むときは All の集計で足りる。
+		this.viewport = this.app._viewportFor(this.tagKey);
+		this.range = null;
+		if (this.viewport && !this.viewport.autorange) {
+			const fromStep = Math.max(-MAX_SAFE_STEP, Math.ceil(this.viewport.from));
+			const toStep = Math.min(MAX_SAFE_STEP, Math.floor(this.viewport.to));
+			const full = this.app._fullViewportFor(this.tagKey);
+			if (!full || fromStep > full.from || toStep < full.to) {
+				this.range = { fromStep, toStep };
+			}
+		}
+		this.runs = this.app.selectedRuns.slice().sort().reverse().map(id => this.app.cache.getRun(id));
+		const requestKey = JSON.stringify([this.tagKey, this.range, ...this.runs.map(run => [
+			run.id, run.generation, run.ingest?.state, run.ingest?.percentage,
+			this.app.cache.getTag(run.id, this.tagKey)?.stats?.count
+		])]);
+		if (requestKey !== this.requestKey) {
+			this.cancelRequest();
+			this.requestKey = requestKey;
+			this.results = new Map();
+			this.status.textContent = "";
+			if (this.range && this.range.fromStep <= this.range.toStep) {
+				this.requestTimer = setTimeout(() => this.load(), delay);
+			}
+		}
+		this.render(title);
+	}
+
+	async load() {
+		const controller = new AbortController();
+		this.controller = controller;
+		const tagKey = this.tagKey;
+		const series = this.runs.map(run => ({ runId: run.id, tagKey, ...this.range }));
+		try {
+			const payload = await this.app.fetcher.fetchRangeStats(series, controller.signal);
+			if (this.controller !== controller) return;
+			// 世代が食い違う結果は、現在の Run の全期間統計と混ぜない。
+			this.results = new Map(payload.data.filter(result =>
+				result.generation == null || result.generation === this.app.cache.getRun(result.runId)?.generation
+			).map(result => [result.runId, result]));
+			this.refresh();
+		} catch (error) {
+			if (this.controller === controller && !isCancelledRequestError(error)) {
+				this.status.textContent = error.message;
+			}
+		} finally {
+			if (this.controller === controller) this.controller = null;
+		}
+	}
+
+	viewStats(runId) {
+		if (this.range.fromStep > this.range.toStep) return null;
+		const result = this.results.get(runId);
+		if (!result || result.availability === "pending") return undefined;
+		return result.availability === "ok" ? result : null;
+	}
+
+	render(title) {
+
+		const head = document.createElement("thead");
+		const groups = head.insertRow();
+		groups.append(this.cell("th", "Run"), this.cell("th", "All"));
+		groups.cells[0].rowSpan = 2;
+		groups.cells[1].colSpan = TAG_STATS_COLUMNS.length;
+		if (this.range) {
+			const { fromStep, toStep } = this.range;
+			const [from, to] = fromStep <= toStep
+					? [fromStep, toStep] : [this.viewport.from, this.viewport.to];
+			const viewing = this.cell("th", "Viewing (" + formatCount(from) + "-" + formatCount(to) + ")");
+			viewing.colSpan = TAG_STATS_COLUMNS.length;
+			viewing.className = "tag-view-range";
+			groups.append(viewing);
+		}
+		const labels = head.insertRow();
+		const columns = this.range ? [...TAG_STATS_COLUMNS, ...TAG_STATS_COLUMNS] : TAG_STATS_COLUMNS;
+		for (const [label] of columns) {
+			labels.append(this.cell("th", label));
+		}
+
+		// undefined は取り込み・応答待ち、null は点なしを表す。
+		const all = [];
+		const views = [];
+		const body = document.createElement("tbody");
+		for (const run of this.runs) {
+			const allStats = this.app.cache.getTag(run.id, this.tagKey)?.stats
+					?? (["pending", "converting"].includes(run.ingest?.state) ? undefined : null);
+			all.push(allStats);
+			const stats = [allStats];
+			if (this.range) {
+				const viewStats = this.viewStats(run.id);
+				views.push(viewStats);
+				stats.push(viewStats);
+			}
+			const row = this.addStatsRow(body, run.id, ...stats);
+			row.dataset.runId = run.id;
+			const chip = document.createElement("span");
+			chip.className = "run-color";
+			chip.style.background = this.app.runColorMap.get(run.id);
+			row.cells[0].prepend(chip, " ");
+		}
+		const combined = [this.combine(all)];
+		if (this.range) combined.push(this.combine(views));
+		this.addStatsRow(body, "All runs", ...combined);
+		this.table.replaceChildren(head, body);
+		const rect = title.getBoundingClientRect();
+		this.panel.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - this.panel.offsetWidth - 8)) + "px";
+		this.panel.style.top = Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - this.panel.offsetHeight - 8)) + "px";
+	}
+
+	cell(type, text) {
+		const cell = document.createElement(type);
+		cell.textContent = text;
+		return cell;
+	}
+
+	addStatsRow(body, name, ...groups) {
+		const row = body.insertRow();
+		row.append(this.cell("th", name));
+		for (const stats of groups) {
+			for (const [, field, format] of TAG_STATS_COLUMNS) {
+				const value = stats?.[field];
+				const text = value == null ? (stats === null ? "-" : "") : format(value);
+				row.append(this.cell("td", text));
+			}
+		}
+		return row;
+	}
+
+	combine(rows) {
+		if (rows.includes(undefined)) return undefined;
+		let count = 0;
+		let mean = 0;
+		let m2 = 0;
+		let minValue = Infinity;
+		let maxValue = -Infinity;
+
+		// Run 内の分散と、Run 間の平均の差の両方を件数で重み付けする。
+		for (const stats of rows) {
+			if (!stats || stats.count <= 0) continue;
+			const nextCount = stats.count;
+			if (count === 0) {
+				mean = stats.mean;
+				m2 = stats.variance * nextCount;
+			} else {
+				const delta = stats.mean - mean;
+				const combinedCount = count + nextCount;
+				mean += delta * nextCount / combinedCount;
+				m2 += stats.variance * nextCount + delta * delta * count * nextCount / combinedCount;
+			}
+			count += nextCount;
+			minValue = Math.min(minValue, stats.minValue);
+			maxValue = Math.max(maxValue, stats.maxValue);
+		}
+		if (count === 0) return null;
+		return { count, mean, stdDev: Math.sqrt(Math.max(0, m2 / count)), minValue, maxValue };
+	}
+}
+
+class KeywordMatcher {
+	constructor(input) {
+		this.words = input.toLowerCase().split(/\s+/).filter(Boolean);
+	}
+
+	matches(text) {
+		const key = text.toLowerCase();
+		return this.words.every(word => key.includes(word));
+	}
+}
+
+class MainTabBar {
+	constructor(app) {
+		this.app = app;
+		this.name = "graphs";
+		this.graphs = document.getElementById("main-area");
+		this.config = document.getElementById("config-area");
+		this.buttons = [...document.querySelectorAll("#main-tabs [role=tab]")];
+		this.anchor = null;
+	}
+
+	bind() {
+		for (const button of this.buttons) {
+			button.onclick = () => this.select(button.dataset.tab);
+			button.onkeydown = event => {
+				if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+				event.preventDefault();
+				const next = event.key === "Home" ? this.buttons[0]
+						: event.key === "End" ? this.buttons.at(-1)
+						: this.buttons.find(item => item !== button);
+				this.select(next.dataset.tab);
+				next.focus();
+			};
+		}
+		this.select(localStorage.getItem(STORAGE_KEY_MAIN_TAB) === "config" ? "config" : "graphs");
+	}
+
+	isConfig() {
+		return this.name === "config";
+	}
+
+	select(name) {
+		if (name === this.name) return;
+		if (name === "config") this.anchor = this.app._captureScrollAnchor();
+		this.name = name;
+		localStorage.setItem(STORAGE_KEY_MAIN_TAB, name);
+		const config = this.isConfig();
+		this.graphs.hidden = config;
+		this.config.hidden = !config;
+		document.body.classList.toggle("config-tab", config);
+		for (const button of this.buttons) {
+			const active = button.dataset.tab === name;
+			button.classList.toggle("active", active);
+			button.setAttribute("aria-selected", String(active));
+			button.tabIndex = active ? 0 : -1;
+		}
+
+		// 設定の表示中は寸法を測らない。グラフを再表示してから保留された描画を行う。
+		if (config) {
+			this.app.fetcher.abortMetrics();
+			this.app.plotly.pauseRendering();
+			this.app.tagInfo.hide();
+			this.app.configTable.sync();
+		} else {
+			this.app._restoreScrollAnchor(this.anchor);
+			this.app._renderCurrent();
+			this.app.plotly.resizeAll();
+			this.app.requestVisibleData().catch(error => this.app._handleQueryError(error));
+		}
+	}
+}
+
+class ConfigTableView {
+	constructor(app) {
+		this.app = app;
+		this.table = document.getElementById("config-table");
+		this.status = document.getElementById("config-status");
+		this.filter = document.getElementById("config-filter");
+		this.diff = document.getElementById("btn-config-diff");
+		this.diffOnly = false;
+		this.controller = null;
+		this.key = null;
+		this.runs = null;
+		this.colorKey = null;
+		this.loadFailed = false;
+		this.filter.oninput = () => this.renderRows();
+		this.diff.onclick = () => {
+			this.diffOnly = !this.diffOnly;
+			setToggleState(this.diff, this.diffOnly);
+			this.renderRows();
+		};
+	}
+
+	sync({ reload = false } = {}) {
+		const runIds = this.app.selectedRuns.slice().sort().reverse();
+		const key = JSON.stringify([this.app.currentWorkspace, runIds]);
+		const colorKey = JSON.stringify(runIds.map(id => this.app.runColorMap.get(id)));
+
+		// workspace と選択が変わったら、前の要求が遅れて返っても表に反映しない。
+		if (reload || this.key !== key) {
+			this.controller?.abort();
+			this.controller = null;
+			this.key = key;
+			this.runs = null;
+			this.loadFailed = false;
+		}
+		if (!this.app.mainTabs.isConfig()) return;
+		if (this.runs) {
+			if (this.colorKey !== colorKey) this.render();
+			return;
+		}
+		if (this.controller || this.loadFailed) return;
+		this.table.hidden = true;
+		this.status.hidden = false;
+		this.status.textContent = runIds.length ? "Loading…" : "Select runs";
+		if (runIds.length === 0) return;
+
+		const controller = new AbortController();
+		this.controller = controller;
+		this.app.fetcher.fetchConfig(runIds, controller.signal).then(payload => {
+			if (this.controller !== controller) return;
+			this.runs = payload.runs.map(run => ({
+				...run, values: new Map(run.entries?.map(entry => [entry.key, entry.value]))
+			}));
+			this.render();
+		}).catch(error => {
+			if (this.controller === controller) {
+				// Auto Reload の周期では設定を取り直さず、次の手動操作まで失敗を表示する。
+				this.loadFailed = true;
+				this.status.textContent = error.message;
+			}
+		}).finally(() => {
+			if (this.controller === controller) this.controller = null;
+		});
+	}
+
+	render() {
+		const header = this.table.tHead.rows[0];
+		header.replaceChildren(this.createHeading("Key"));
+		this.table.style.setProperty("--config-run-count", this.runs.length);
+		this.colorKey = JSON.stringify(this.runs.map(run => this.app.runColorMap.get(run.runId)));
+		for (const run of this.runs) {
+			const cell = this.createHeading(run.runId);
+			if (run.status !== "not_found") {
+				const color = document.createElement("span");
+				color.className = "run-color";
+				color.style.background = this.app.runColorMap.get(run.runId);
+				cell.prepend(color, " ");
+			}
+			if (run.status === "missing") cell.append(" 設定なし");
+			if (run.status === "error" || run.status === "not_found") {
+				const warning = document.createElement("span");
+				warning.textContent = " ⚠";
+				warning.title = run.message;
+				cell.append(warning);
+			}
+			header.append(cell);
+		}
+		this.renderRows();
+		this.table.hidden = false;
+		this.status.hidden = true;
+	}
+
+	createHeading(text) {
+		const cell = document.createElement("th");
+		cell.textContent = text;
+		return cell;
+	}
+
+	renderRows() {
+		if (!this.runs) return;
+		const available = this.runs.filter(run => run.status === "ok");
+		const keys = new Set(available.flatMap(run => [...run.values.keys()]));
+		const matcher = new KeywordMatcher(this.filter.value);
+		const rows = document.createDocumentFragment();
+		for (const key of [...keys].sort()) {
+			if (!matcher.matches(key)) continue;
+			// Map の undefined はキーが無い場合だけなので、空文字とも区別できる。
+			const different = new Set(available.map(run => run.values.get(key))).size > 1;
+			if (this.diffOnly && !different) continue;
+			const row = document.createElement("tr");
+			row.classList.toggle("config-different", different);
+			row.append(this.createHeading(key));
+			for (const run of this.runs) {
+				const cell = document.createElement("td");
+				if (run.status === "ok") {
+					const value = run.values.get(key);
+					cell.textContent = value ?? "(none)";
+					cell.classList.toggle("config-none", value === undefined);
+				}
+				row.append(cell);
+			}
+			rows.append(row);
+		}
+		this.table.tBodies[0].replaceChildren(rows);
+	}
+}
+
 class UIController {
 	constructor(app) {
 		this.app = app;
 		this.lastRunClick = { runId: null, at: -Infinity };
+		this.runMatcher = new KeywordMatcher("");
+		this.tagMatcher = new KeywordMatcher("");
 	}
 
 	setLoadingSpinner(active) {
@@ -2206,7 +2716,8 @@ class UIController {
 			row.className = `run-row ${run.ingest?.state ?? "pending"}`;
 			row.classList.toggle("active", selectedRunIds.includes(runId));
 			row.dataset.runId = runId;
-			if (this.app.showSelectedRunsOnly && !selectedRunIds.includes(runId)) row.hidden = true;
+			row.hidden = !this.runMatcher.matches(runId)
+					|| (this.app.showSelectedRunsOnly && !selectedRunIds.includes(runId));
 			// 取り込みの状態と問題の一覧はRunInfoPanelが出す。行には要約の⚠だけを付ける。
 			const quarantineCount = (run.tags ?? []).filter(tag => tag.status === "error").length;
 
@@ -2291,11 +2802,13 @@ class UIController {
 		}
 		document.getElementById("btn-select-all-runs").onclick = () => {
 			this.app.showSelectedRunsOnly = false;
-			this.app.setSelectedRuns(this.app.cache.getRunIds());
+			const matching = this.app.cache.getRunIds().filter(id => this.runMatcher.matches(id));
+			this.app.setSelectedRuns(this.runMatcher.words.length
+					? [...this.app.selectedRuns, ...matching] : matching);
 		};
 		document.getElementById("btn-latest-only").onclick = () => {
 			this.app.showSelectedRunsOnly = false;
-			const latest = this.app.cache.getRunIds().sort().at(-1);
+			const latest = this.app.cache.getRunIds().filter(id => this.runMatcher.matches(id)).sort().at(-1);
 			this.app.setSelectedRuns(latest ? [latest] : []);
 		};
 		const filter = document.getElementById("btn-selected-only-runs");
@@ -2313,7 +2826,8 @@ class UIController {
 			const item = document.createElement("li");
 			item.dataset.tagKey = tagKey;
 			item.classList.toggle("active", this.app.activeTags.has(tagKey));
-			if (this.app.showSelectedTagsOnly && !this.app.activeTags.has(tagKey)) item.hidden = true;
+			item.hidden = !this.tagMatcher.matches(tagKey)
+					|| (this.app.showSelectedTagsOnly && !this.app.activeTags.has(tagKey));
 			const label = document.createElement("span");
 			label.className = "tag-label";
 			label.textContent = tagKey;
@@ -2339,7 +2853,8 @@ class UIController {
 		};
 		const startHover = item => {
 			clearHover();
-			if (HOVER_SCROLL_DELAY_MS <= 0 || !item.classList.contains("active")) return;
+			if (this.app.mainTabs.isConfig() || HOVER_SCROLL_DELAY_MS <= 0
+					|| !item.classList.contains("active")) return;
 			hoverTimer = setTimeout(() => {
 				// 概観や読み込み待ちでも移動できるよう、詳細描画に依存しない外枠を探す。
 				[...document.querySelectorAll("#main-area > .graph-block")]
@@ -2362,14 +2877,14 @@ class UIController {
 		document.getElementById("btn-select-all").onclick = () => {
 			this.app.setShowSelectedTagsOnly(false);
 			for (const item of list.querySelectorAll("li")) {
-				this.app.activeTags.add(item.dataset.tagKey);
+				if (this.tagMatcher.matches(item.dataset.tagKey)) this.app.activeTags.add(item.dataset.tagKey);
 			}
 			this.app.onTagSelectionChanged();
 		};
 		document.getElementById("btn-clear-all").onclick = () => {
 			this.app.setShowSelectedTagsOnly(false);
 			for (const item of list.querySelectorAll("li")) {
-				this.app.activeTags.delete(item.dataset.tagKey);
+				if (this.tagMatcher.matches(item.dataset.tagKey)) this.app.activeTags.delete(item.dataset.tagKey);
 			}
 			this.app.onTagSelectionChanged();
 		};
@@ -2382,6 +2897,22 @@ class UIController {
 	}
 
 	bindStaticControls() {
+		// 文字の入力では選択を変えず、既存の行の表示だけを更新する。
+		document.getElementById("run-filter").oninput = event => {
+			this.runMatcher = new KeywordMatcher(event.target.value);
+			for (const row of document.querySelectorAll("#run-list .run-row")) {
+				row.hidden = !this.runMatcher.matches(row.dataset.runId)
+						|| (this.app.showSelectedRunsOnly && !row.classList.contains("active"));
+			}
+			this.app.runInfo.refresh();
+		};
+		document.getElementById("tag-filter").oninput = event => {
+			this.tagMatcher = new KeywordMatcher(event.target.value);
+			for (const row of document.querySelectorAll("#tag-list li")) {
+				row.hidden = !this.tagMatcher.matches(row.dataset.tagKey)
+						|| (this.app.showSelectedTagsOnly && !row.classList.contains("active"));
+			}
+		};
 		const workspaceSelector = document.getElementById("workspace-selector");
 		workspaceSelector.onfocus = () => this.app.onWorkspaceSelectorFocused();
 		workspaceSelector.onchange = event => {
@@ -2477,7 +3008,11 @@ class MetricsViewerClientApp {
 		this.cache = new DataCache();
 		this.plotly = new PlotlyController(this);
 		this.ui = new UIController(this);
+		this.nameClipboard = new NameClipboard();
 		this.runInfo = new RunInfoPanel(this);
+		this.tagInfo = new TagInfoPanel(this);
+		this.configTable = new ConfigTableView(this);
+		this.mainTabs = new MainTabBar(this);
 		this.mode = Mode.UNINITIALIZED;
 		this.screenshotModeEnabled = false;
 		this.selectedRuns = [];
@@ -2532,6 +3067,7 @@ class MetricsViewerClientApp {
 	async init() {
 		this._loadState();
 		this.ui.bindStaticControls();
+		this.mainTabs.bind();
 		this._applyGraphHeight();
 		this.tagSetMenu.sync();
 		this._syncGraphScrollLockUi();
@@ -2672,9 +3208,11 @@ class MetricsViewerClientApp {
 	}
 
 	_resetWorkspaceState() {
+		this.tagInfo.hide();
 		this.plotly.overviews.clear();
 		this.cache.clear();
 		this.selectedRuns = [];
+		this.configTable.sync();
 		this.runColorMap.clear();
 		this.lastColoredSelection.clear();
 		this.viewports.clear();
@@ -2749,6 +3287,7 @@ class MetricsViewerClientApp {
 		this.ui.bindTagListEvents();
 		this.tagSetMenu.sync();
 		this.runInfo.refresh();
+		this.configTable.sync();
 	}
 
 	setShowSelectedTagsOnly(enabled) {
@@ -3000,6 +3539,7 @@ class MetricsViewerClientApp {
 			const to = Math.max(Number(range[0]), Number(range[1]));
 			this.viewports.set(tagKey, { autorange: false, from, to });
 		}
+		if (this.tagInfo.tagKey === tagKey) this.tagInfo.refresh(RANGE_STATS_DEBOUNCE_MS);
 		this._bumpQueryRevision();
 		clearTimeout(this.viewportDebounceTimer);
 		this.viewportDebounceTimer = setTimeout(() => {
@@ -3088,6 +3628,7 @@ class MetricsViewerClientApp {
 		if (refresh) {
 			this.pendingRefreshScope = !followOnly || this.pendingRefreshScope === "all" ? "all" : "follow";
 		}
+		if (this.mainTabs.isConfig()) return;
 		const refreshScope = this.pendingRefreshScope;
 		const refreshing = refreshScope !== null;
 		// 最後まで走った取得が指示を下ろす。Runで絞った取得は範囲を判定しきれないので残す。
@@ -3245,6 +3786,10 @@ class MetricsViewerClientApp {
 				autorange: false
 			};
 		}
+		return this._fullViewportFor(tagKey);
+	}
+
+	_fullViewportFor(tagKey) {
 		let min = Infinity;
 		let max = -Infinity;
 		for (const runId of this.selectedRuns) {
@@ -3307,36 +3852,6 @@ class MetricsViewerClientApp {
 			}
 		}
 		if (changed) this._saveSets();
-	}
-
-	combinedStats(tagKey) {
-		let count = 0;
-		let mean = 0;
-		let m2 = 0;
-		let min = Infinity;
-		let max = -Infinity;
-		for (const runId of this.selectedRuns) {
-			const stats = this.cache.getTag(runId, tagKey)?.stats;
-			if (!stats || Number(stats.count) <= 0) continue;
-			const nextCount = Number(stats.count);
-			const nextMean = Number(stats.mean);
-			const nextM2 = Number(stats.variance) * nextCount;
-			if (count === 0) {
-				count = nextCount;
-				mean = nextMean;
-				m2 = nextM2;
-			} else {
-				const delta = nextMean - mean;
-				const combinedCount = count + nextCount;
-				mean += delta * nextCount / combinedCount;
-				m2 += nextM2 + delta * delta * count * nextCount / combinedCount;
-				count = combinedCount;
-			}
-			min = Math.min(min, Number(stats.minValue));
-			max = Math.max(max, Number(stats.maxValue));
-		}
-		if (count === 0) return null;
-		return { count, min, max, mean, stdDev: Math.sqrt(Math.max(0, m2 / count)) };
 	}
 
 	issueForTag(tagKey) {
@@ -3433,6 +3948,7 @@ class MetricsViewerClientApp {
 		this._bumpQueryRevision();
 		clearTimeout(this.viewportDebounceTimer);
 		await this.plotly.resetView();
+		this.tagInfo.refresh();
 		await this.requestVisibleData();
 	}
 
@@ -3482,6 +3998,7 @@ class MetricsViewerClientApp {
 	}
 
 	_renderCurrent() {
+		if (this.mainTabs.isConfig()) return;
 		const anchor = this._captureScrollAnchor();
 		const nearby = this._nearbyTags();
 		this.cache.retainWindows(new Set(this.selectedRuns), new Set(this._visibleSelectedTags()), nearby);
@@ -3492,6 +4009,7 @@ class MetricsViewerClientApp {
 				this.cache, nearby);
 		this._restoreScrollAnchor(anchor);
 		this._syncGraphScrollLockUi();
+		this.tagInfo.refresh();
 	}
 
 	_bumpQueryRevision() {
@@ -3523,6 +4041,7 @@ class MetricsViewerClientApp {
 			this.cache.updateIngest(runs);
 			const needsPolling = this.ui.updateRunProgress(runs);
 			this.runInfo.refresh();
+			this.tagInfo.refresh();
 			if (!needsPolling && this.ingestPollTimer) {
 				clearInterval(this.ingestPollTimer);
 				this.ingestPollTimer = null;
@@ -3554,7 +4073,7 @@ class MetricsViewerClientApp {
 		setToggleState(
 				document.getElementById("btn-graph-scroll-lock"),
 				this.graphScrollLockEnabled);
-		this.plotly.applyGraphScrollLock(this.graphScrollLockActive());
+		if (!this.mainTabs.isConfig()) this.plotly.applyGraphScrollLock(this.graphScrollLockActive());
 	}
 
 	onToggleAutoReload() {
@@ -3587,6 +4106,7 @@ class MetricsViewerClientApp {
 			// metadataが取れたら初期化は済んでいる。初期化の失敗のあとや、初期化の取得が打ち切られたあとでも通常へ戻す。
 			if (this.mode !== Mode.NORMAL) this.setMode(Mode.NORMAL);
 			// 取得後にtagが変わったgraphだけを取り直す。変化が無ければmetrics.jsonは送らない。
+			this.configTable.sync({ reload: true });
 			await this.requestVisibleData({ refresh: true });
 		} catch (error) {
 			// 重いReloadの最中のスクロールなどで、後から来た取得に打ち切られたのは失敗ではない。
@@ -3608,6 +4128,7 @@ class MetricsViewerClientApp {
 		document.documentElement.classList.toggle("screenshot-mode", enabled);
 		// 左パネルが隠れるので、Run行に結び付いた情報パネルも閉じる。
 		this.runInfo.hide();
+		this.tagInfo.hide();
 		this._syncGraphScrollLockUi();
 		document.getElementById("btn-screenshot-toggle").textContent = enabled ? "➡" : "⬅";
 		const header = document.getElementById("screenshot-header");

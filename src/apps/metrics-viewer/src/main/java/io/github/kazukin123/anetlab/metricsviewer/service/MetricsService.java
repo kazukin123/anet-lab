@@ -4,6 +4,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -19,6 +20,8 @@ import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetMetricsResponse;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetRunsResponse;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.GetWorkspacesResponse;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.RangeStats;
+import io.github.kazukin123.anetlab.metricsviewer.view.model.RangeStatsRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.RunInfo;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.MetricsSeriesRequest;
 import io.github.kazukin123.anetlab.metricsviewer.view.model.PrioritizeRunsRequest;
@@ -104,9 +107,26 @@ public class MetricsService {
 			String queryChannelHeader,
 			String querySequenceHeader) {
 		validateRequest(request);
+		return runQuery(request.getSeries().size(), queryChannelHeader, querySequenceHeader,
+				(lease, query) -> new GetMetricsResponse(lease.repository().query(request.getSeries(), query)));
+	}
+
+	public List<RangeStats> getRangeStats(List<RangeStatsRequest> series,
+			String queryChannelHeader, String querySequenceHeader) {
+		for (int index = 0; index < series.size(); index++) {
+			final RangeStatsRequest request = series.get(index);
+			validateStepRange(request.fromStep(), request.toStep(), index);
+		}
+		return runQuery(series.size(), queryChannelHeader, querySequenceHeader,
+				(lease, query) -> lease.repository().queryRangeStats(series, query));
+	}
+
+	private <T> T runQuery(int seriesCount, String queryChannelHeader, String querySequenceHeader,
+			BiFunction<WorkspaceManager.Lease, QueryExecution, T> execute) {
 		final QueryChannel queryChannel = validateQueryChannel(queryChannelHeader);
 		final long querySequence = validateQuerySequence(querySequenceHeader);
 
+		// 同時実行枠を得てから workspace を固定し、切り替えによる打ち切りの対象にする。
 		try {
 			return queryCoordinator.run(queryChannel, querySequence, query -> {
 				final WorkspaceManager.Lease lease;
@@ -117,13 +137,13 @@ public class MetricsService {
 				}
 				try (lease) {
 					query.bindWorkspace(lease.epoch());
-					return new GetMetricsResponse(lease.repository().query(request.getSeries(), query));
+					return execute.apply(lease, query);
 				}
 			});
 		} catch (QueryCancelledException e) {
 			throw superseded();
 		} catch (QueryCapacityException e) {
-			throw queryBusy(request, e);
+			throw queryBusy(seriesCount, e);
 		}
 	}
 
@@ -164,12 +184,7 @@ public class MetricsService {
 			if (series.getFromStep() == null || series.getToStep() == null) {
 				throw invalidRequest("fromStep and toStep are required at index " + i);
 			}
-			if (!isSafeInteger(series.getFromStep()) || !isSafeInteger(series.getToStep())) {
-				throw invalidRequest("fromStep and toStep must be JavaScript safe integers at index " + i);
-			}
-			if (series.getFromStep() > series.getToStep()) {
-				throw invalidRequest("fromStep must not exceed toStep at index " + i);
-			}
+			validateStepRange(series.getFromStep(), series.getToStep(), i);
 			if (series.getStepBucketWidth() == null || series.getStepBucketWidth() <= 0L
 					|| !isSafeInteger(series.getStepBucketWidth())) {
 				throw invalidRequest("stepBucketWidth must be a positive JavaScript safe integer at index " + i);
@@ -182,6 +197,13 @@ public class MetricsService {
 						+ settings.getMaxPointsPerRequest() + " at index " + i);
 			}
 		}
+	}
+
+	private static void validateStepRange(long fromStep, long toStep, int index) {
+		if (!isSafeInteger(fromStep) || !isSafeInteger(toStep)) {
+			throw invalidRequest("fromStep and toStep must be JavaScript safe integers at index " + index);
+		}
+		if (fromStep > toStep) throw invalidRequest("fromStep must not exceed toStep at index " + index);
 	}
 
 	private static boolean isSafeInteger(long value) {
@@ -223,11 +245,11 @@ public class MetricsService {
 				Map.of("code", "superseded", "message", "Metrics query was superseded"));
 	}
 
-	private MetricsApiException queryBusy(GetMetricsRequest request, QueryCapacityException capacity) {
+	private MetricsApiException queryBusy(int seriesCount, QueryCapacityException capacity) {
 		log.warn(
 				"Metrics query rejected: code=query_busy reason={} series={} active={} queued={}",
 				capacity.reason(),
-				request.getSeries().size(),
+				seriesCount,
 				capacity.active(),
 				capacity.queued());
 		final HttpHeaders headers = new HttpHeaders();

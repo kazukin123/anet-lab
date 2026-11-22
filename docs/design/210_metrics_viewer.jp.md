@@ -216,7 +216,7 @@ windowは系列ごとに1件だけ保持し、新しい応答が来たら差分m
 1つのgraphに載る系列（同じtagの選択中Run）は同じrequestで取る。表示粒度はviewportと画面幅から先に決め、prefetchで広げても変えない。window境界は共通Step区間へ整列し、パン時に区間起点を動かさない。通常モードのPlotly描画はscroll viewport前後1画面の近傍に限る。詳細windowは選択対象を64MiBのLRU内で保持し、容量内で画面に近い順に先読みする。スクロールだけでwindowを捨てない。全選択tagに全記録範囲の約64共通Step区間の概観を8graph単位で先に取得し、画面外と詳細待ちの間は、詳細と共通のPlotly figureから生成した軽量SVGで線を残す。概観と詳細を同じgraphで混在させない。blockの高さ（`Height`の値。既定300px）、headerとscroll位置を維持し、描画が完成するまで直前の内容を残す。Screenshotモードは全選択graphを順次取得する。
 どれか1系列でも取り直しが要れば、そのgraphの系列をまとめて取り直す。概観は同じ共通Step幅の全Runを一括反映し、詳細がそろうまでは概観を表示する。64MiBはdecoded詳細配列と系列ごとの管理費用の上限であり、SVG、Plotly、server heapを含むプロセス全体のメモリ上限ではない。
 
-概観SVGは手書きで座標・軸・Bandを計算せず、詳細と共通のtraces/layoutをPlotly 2.27で描いてexportする。共通headerのLog/percentileと凡例表示状態を反映するが、概観自身は静止画であり、hover/zoom/pan/凡例クリックは詳細表示で扱う。生成は画面近くから1件ずつ進め、イベントループへ制御を返す。通信や詳細描画はSVG生成をawaitしない。タグごと最新1画像を保持し、データ・選択・幅・表示設定が変われば生成し直す。workspace切替では世代を進めて古い生成結果を破棄する。
+概観SVGは手書きで座標・軸・Bandを計算せず、詳細と共通のtraces/layoutを同梱のPlotlyで描いてexportする。共通headerのLog/percentileと凡例表示状態を反映するが、概観自身は静止画であり、hover/zoom/pan/凡例クリックは詳細表示で扱う。生成は画面近くから1件ずつ進め、イベントループへ制御を返す。通信や詳細描画はSVG生成をawaitしない。タグごと最新1画像を保持し、データ・選択・幅・表示設定が変われば生成し直す。workspace切替では世代を進めて古い生成結果を破棄する。
 
 概観も詳細も完成後に内側だけを公開する。更新中は直前の描画を残し、選択Run、cache世代、表示設定、幅が要求時と一致しない遅着結果は公開しない。scrollによる描画更新はrequestAnimationFrameで行い、通信のdebounceとは分離する。
 
@@ -268,7 +268,9 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | `MetricsRangeProjector` | raw射影とLOD射影を組み立て、部分bucketだけ下位levelから再集約する |
 | `LodPageCache` | 完成済みbucketだけを1024件単位のpageとしてheapへ持つLRU cache。末尾pageは、snapshotのtag点数から求めた完成bucket数に足りなくなったときだけ読み直す |
 | `MetricsService` | LoadingThreadのlifecycle、metrics body/header検証、coordinator実行、snapshot lease取得、HTTP error変換を担う |
-| `MetricsViewerController` | Run、metrics、priorityのREST APIを公開する |
+| `MetricsViewerController` | Run、metrics、priority、設定、範囲統計のREST APIを公開する |
+| `RunConfigService` / `ConfigTextReader` | 作業セットを固定してRunの設定TXTを開き、フレームワークの行規則で読み取ってRunごとの結果を返す |
+| `RangeStatsQuery` | 同じread snapshot内のL0の序数区間を走査し、範囲統計を計算する |
 | `WorkspaceController` | workspace一覧・切替APIを公開し、同Controllerの不正JSONだけを400 `invalid_request`へ変換する |
 | `TagSetStore` | タグセットの起動時検証・初期値の複製・メモリ上の一覧・直列化したファイル更新を所有する |
 | `TagSetController` | タグセットの一覧・作成・更新・名前変更・削除を公開し、同Controllerの不正JSONを400へ変換する |
@@ -281,32 +283,37 @@ HTTP応答とbrowser DataCacheはこの世代を突き合わせ、古い世代�
 | コンポーネント | 定義 |
 |---|---|
 | `MetricsViewerClientApp` | Run/tag選択、Run色、viewport、描画世代（revision）、poll timerを所有するclient app |
-| `DataFetcher` | REST呼出し、ページ単位のquery channelとsequence、AbortControllerによる旧request打ち切りを担当する |
+| `DataFetcher` | REST呼出し、ブラウザタブと問い合わせの種類ごとのquery channelとsequence、AbortControllerによる旧request打ち切りを担当する |
 | `DataCache` | Run metadataと、`(runId, tagKey)`ごとの詳細windowと概観を別々に保持する。windowには取得時のtag点数・最終step・statusを添え、Reload時の鮮度判定に使う |
 | `OverviewSvgRenderer` | 共通figureを1つの作業用Plotlyで直列exportし、タグごとの最新SVGだけを保持する。現在モデル・世代に一致する結果だけを公開する |
 | `PlotlyController` | raw/MinMax/Mean/Band描画、signed-log軸、zoom/pan、scroll lock、凡例状態を扱う。graphごとのデータ選択・共通表示モデル・外枠を管理し、描画keyが変わったgraphの内側だけを完成時に差し替える |
-| `UIController` | Run list、Tag list、進捗表示、静的controlのbindを担当する |
+| `UIController` | Run一覧・tag一覧、絞り込みと一括操作、進捗表示、静的controlのbindを担当する |
+| `MainTabBar` | GraphsとConfigの切り替えを保持し、Configの間はグラフの更新と操作を休止する。Graphsへ戻ると寸法を合わせて更新を再開する |
+| `ConfigTableView` | 選んだRunの設定を要求し、キーの和集合、Run間の差分、読み込み状態を表に出す |
+| `KeywordMatcher` | Run名、tagキー、設定キーに共通の文字による絞り込みを判定する |
+| `TagInfoPanel` | tag名からパネルを開き、Runごとと全Runの全期間・表示範囲の統計を出す。名前のコピーはRunの情報パネルと同じ経路を使う |
 | `RunInfoPanel` | Run行のhoverか右クリック（タッチは長押し）で、そのRunのmetadata（取り込みの状態、最大step、tag数と隔離の数、点数の合計、取り込みとtagの問題）と、Run名のコピー操作を出す。body直下に1つだけ置き、Run listの描き直しと取り込み進捗の更新のたびに中身と位置を合わせる。コピーはClipboard APIが使えないか拒まれたとき（別の機器からhttpで開いたときなど）、選択範囲のコピーへ切り替える |
 | `TagSetMenu` | タグセットの操作行と開閉する一覧、入力・確認・キーボード操作を描画する。選択名・取得済み一覧・セットごとの未保存の変更は `MetricsViewerClientApp` が所有する |
 | `Toast` | CSSの`.toast`表示規則を使って一時的なerror通知を表示する |
 
 ### 3.3 UIコントロールの規約
 
-browserのcontrolは、即時実行、トグル、巡回、開閉、連続値の5種類である。
+browserの操作の種類は、即時実行、トグル、巡回、開閉、連続値、タブの6つである。
 連続値は`input type="range"`で、ほかは`button`で作り、見分けはラベルの言葉づかいで付ける。値の一覧から1つを選ぶ`Workspace`とLODは`select`のままで、この分類に含めない。
 
 | 種別 | ラベル | 状態 |
 |---|---|---|
+| タブ | 切り替える表示の名前（`Graphs`・`Config`） | 選択中の一つを `.active` と `aria-selected="true"` で示す |
 | 開閉 | 現在の値と `▾`。行の残りの幅を占め、名前だけを省略する | 開いている間は `.active` と `aria-expanded="true"` を対で更新する。`aria-pressed` は使わない |
 | 即時実行 | 動詞で始める。`Reload`、`Select All`、`Select Latest`、`Recolor`、`Clear All`、`Reset View`、`Copy Name` | 持たない |
-| トグル | 動詞で始めない名詞句。`Auto Reload`、`Auto Recolor`、`Selected Only`、`Scroll Lock`、`Log` | `.active`と`aria-pressed`を対で更新する |
+| トグル | 動詞で始めない名詞句。`Auto Reload`、`Auto Recolor`、`Selected Only`、`Scroll Lock`、`Log`、`Diff Only` | `.active`と`aria-pressed`を対で更新する |
 | 巡回 | 現在の段をそのまま書く。graphの下限`p0–` / `p1–` / `p5–`と上限`–p100` / `–p99` / `–p95` | 押すたびに固定順で次の段へ進み、最後の段の次は先頭へ戻る。先頭の段以外で`.active`と`aria-pressed`をONにする |
 | 連続値 | 名前と`:`に続けて、スライダーと現在の値を並べる。`Height:`。右上の操作列が左パネルの見出しに重なる幅900px以下では隠す | 値はスライダーの位置と数字で示し、押下色は使わない。数字は最長の桁数の幅に固定する。ドラッグ中（`input`）は数字だけを追い、重い描き直しは離したとき（`change`）に1回行う。範囲と刻みはJSの定数から入れる |
 
 sectionの見出し行には、ラベルに続けてそのリストへの操作を左詰めで並べる。
 入りきらない分だけを次の行へ送る（Runsの`Recolor` / `Auto Recolor`）。
 サイドパネルのbuttonは、見出し行・ボタン行・globalのどこにあっても同じ寸法にする。
-絞り込み中に一括操作（`Select All`など）を押したときは、ボタンを無効化せず、絞り込みを解除してから実行する。
+一括操作を押すと `Selected Only` は解除する。文字の絞り込みは保ち、一致する行だけを一括操作の対象にする。Run名・tagキー・設定キーの絞り込みは、入力をJSの `\s` で区切り、全ての語が大文字小文字を区別せず部分一致する行を残す。Runsの `Select All` は一致するRunを選択へ足し、`Select Latest` は一致する最新Runだけを選ぶ。Tagsの `Select All` と `Clear All` は一致するtagを足すか外す。Runsの検索欄はRecolorの下に、Tagsの検索欄はタグセットの下に置く。どちらもリストの直上に置く。RunsとTagsの文字はworkspace切り替え後も残る。
 前提の無い即時実行は disabled にする。タグセットの `Save`・`Revert` は選択中のセットと現在の選択に差があるときだけ押せ、文字と枠を `--control-border` より弱く表示する。
 
 on/offはラベル文字へ書かず、押下色だけで示す。状態の反映は`setToggleState()`へ集約し、
@@ -318,12 +325,16 @@ controlの枠線は`--control-border`（hoverは`--control-border-hover`）の1�
 `.section`などのcontainer枠`--container-border`より弱くする。
 ON時の配色は`--active-background` / `--active-accent` / `--active-text`を使う。
 
+タブはメインエリア上部の左に固定する。幅が狭く右上の操作と同じ段に収まらない画面では、下の段へ置いて両方を操作できるようにする。Configには、Run一覧と同じ順で選択中のRunを列に並べる。キーは成功した列の和集合で、値またはキーの有無が違う行を強調する。キーと値をセル内で折り返し、列が多いときは表だけを横へ送る。キーの列を左に固定する。検索欄と `Diff Only` は表の外に残す。狭い画面のConfigではサイドパネルを表の上へ移し、設定表と操作欄に画面幅を使う。キー列の横幅は表を表示できる領域に合わせる。`Diff Only` とキーの絞り込みは両方を適用する。キーが無いセルは `(none)`、設定ファイルが無い列は「設定なし」、エラーと作業セットに無いRunはメッセージを持つ `⚠` を表示する。設定は選択が変わったときか手動Reloadで取り直す。
+
+グラフのtag名をhover、クリック、右クリック、またはタップすると情報パネルを開く。グラフ見出しのtag名のブラウザによる文字選択を抑え、パネル内のtag名はコピー用に選択できる。`All` はTagStatsである。横軸が全点を含むときは `All` だけを表示する。ズームやパンで表示範囲が狭まると `Viewing (開始-終了)` を追加し、操作が止まってから200 ms後に表示範囲の整数stepの閉区間を問い合わせる。各組にCount、Max、Mean、Min、Std（母標準偏差）、Lastを並べ、全Runの行では件数、平均、母分散を件数で重み付けして合成する。全RunのLastと取り込み・問い合わせ待ちのセルは空、点が無いセルは `-` とする。ある組に未確定のRunがあれば、全Runのその組も空にする。
+
 ### 3.4 スクリーンショットモード
 
 スクリーンショットモードは貼り付け用の絵を作るために表示だけを畳むモードであり、データの更新は止めない。
 初期化の段階（`Mode`）とは独立したフラグ（`screenshotModeEnabled`）で持つ。初期化中も切り替えられ、初期化の完了はフラグを変えない。初期化の失敗中は、復帰の入口であるside panelのReloadを隠さないよう入るのだけを止め、抜けるのは許す。
 side panelのスピナーが見えなくなるので、同じ左上に画面へ固定したスピナーを重ねて出す。
-side panelとfloating controlのうちgraph操作用のもの（`Height`、LOD、`Reset View`、`Scroll Lock`）を隠し、`#main-area`のoverflowをvisibleにしてスクロールをdocument側へ移し、Run名を載せたheaderを出す。
+side panel、Graphs・Configのタブ、floating controlのうちgraph操作用のもの（`Height`、LOD、`Reset View`、`Scroll Lock`）を隠し、今開いているタブの内容を表示する。スクロールをdocument側へ移し、Run名を載せたheaderを出す。
 Auto Reloadも手動Reloadも通常と同じに効き、side panelが隠れてReloadボタンを押せない間はgraphのdouble clickがReloadの入口になる。
 進捗を出すRun listが隠れている間は、取り込み進捗のpollだけを止める。
 
@@ -579,7 +590,7 @@ windowには取得を決めた時点のtag点数・最終step・statusを添え�
 
 tag内のstepは非減少なので、追記点のstepは取得時の最終step以上になる。過去の区間を拡大していてwindowの右端がそこへ届かないgraphは、点数が増えても取り直さない。
 
-描画はgraph単位で突き合わせる。`PlotlyController`はgraph blockをtagKeyで引き、外枠と共通headerを使い回す。データwindow、概観/詳細の種別、選択Run、幅、高さ、LOD表示モード、Log、percentile、軸範囲、Scroll Lock、凡例の表示状態・色を表示モデルの描画keyへ含める。同じkeyでは再描画せず、metadata由来のheader（統計と警告）を更新する。
+描画はgraph単位で突き合わせる。`PlotlyController`はgraph blockをtagKeyで引き、外枠と共通headerを使い回す。データwindow、概観/詳細の種別、選択Run、幅、高さ、LOD表示モード、Log、percentile、軸範囲、Scroll Lock、凡例の表示状態・色を表示モデルの描画keyへ含める。同じkeyでは再描画せず、metadata由来のheaderの警告を更新する。
 凡例の表示、軸範囲、drag modeは描画前に`capturePlotState`で読み戻す。描画keyが変わったときは新しいSVGのdecodeまたは詳細Plotlyの描画が完了してから内側だけを差し替え、直前の表示を保持する。遅着した描画は現在の選択・世代・表示設定と一致した場合だけ反映する。
 Plotlyの再描画はgraph 1枚あたり数十msかかり（従来の実測で137 graph×5 Runの全再描画が約5秒）、対象graphを絞ることがReloadの応答時間を決める。
 `Height`の変更は全graphの描き直しになる。
@@ -664,11 +675,12 @@ Run色は`MetricsViewerClientApp`が所有し、`refreshLists()`の先頭で解�
 solo選択（同じRun行の連続click）は2回のclickを1つの操作として扱う。元から選択中だったRunは色を保ち、選択していなかったRunは新しく選んだ1本として`#2F7DE1`を取る。
 どちらも未選択Runの色を変えず、配る色がpaletteの20色を使い切るとラウンドを改める。
 
-`localStorage`へ保存するstateは次の12件だけである。viewport、凡例の表示状態、Run選択、Run色、Runsの`Selected Only`は保存しない。Runsの`Selected Only`は毎回OFFで始める。起動時には最新Runだけが選ばれるので、戻しても絞る意味が無いため。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
+`localStorage`へ保存するstateは次の13件だけである。viewport、凡例の表示状態、Run選択、Run色、Runsの`Selected Only`は保存しない。Runsの`Selected Only`は毎回OFFで始める。起動時には最新Runだけが選ばれるので、戻しても絞る意味が無いため。Logとpercentileの下限・上限はworkspace名をkeyへ含めず、同名tagで共有する。
 
 | key | 内容 |
 |---|---|
 | `anet.metricsviewer.workspace` | 最後に選択したworkspace。列挙に無ければserver currentで上書きする |
+| `anet.metricsviewer.mainTab` | `graphs` / `config`。既定と不明な値は `graphs` |
 | `anet.metricsviewer.activeTags` | 現在選択中のtag集合 |
 | `anet.metricsviewer.tagSet` | 選択中のタグセット名のJSON string。未選択ではキーを削除。起動時は名前だけを復元し、選択はactiveTagsから戻す |
 | `anet.metricsviewer.tagSetDrafts` | 選択中でないタグセットごとの未保存のtag選択。`{"<名前>": [tag, ...]}`のJSON objectを名前・tagの辞書順で保存し、空ならキーを削除する。選択中のセットの分はactiveTagsが持つ。不正な値は警告して全体を捨てる |
@@ -880,7 +892,7 @@ request:
 
 | header | 契約 |
 |---|---|
-| `X-Query-Channel` | 1つのブラウザタブに対応する1〜128文字の非blank文字列。値はtrimしない |
+| `X-Query-Channel` | ブラウザタブと問い合わせの種類の組ごとに異なる1〜128文字の非blank文字列。値はtrimしない |
 | `X-Query-Sequence` | channel内でPOSTごとに増える0以上のJavaScript safe integer |
 
 browserはページ生成時に`crypto.randomUUID()`が利用可能ならその値をchannelに使う。非secureなリモートHTTPなどで同APIが未定義の場合は、時刻と複数の乱数片から128文字以内のtab固有channelを生成するため、`http://<host>:8082`での閲覧も維持する。
@@ -965,6 +977,27 @@ bodyは閉じたschema。形の違反→名前→tag→参照元の不在→作�
 
 メニューはbody直下の固定配置で親のoverflowによる見切れを防ぎ、↑↓・Enter・Esc、入力内のEnter/Esc、外側クリックに対応する。Save Asに保存数と不可視数、一覧に見えている数/全数を表示する。作業用はgitで追跡しリリースzipから除き、jarには初期値だけを同梱する。
 
+### 9.7 `POST /api/config.json`
+
+本文は `{"runIds":["run_a","run_b"]}` のみを受ける。Run idは空でない文字列で、空の配列も有効。型、必須項目、未知の項目に違反した要求は400 `invalid_request` とする。
+
+作業セットを要求の開始時に固定する。登録済みのRunについて、要求ごとに `config/config_data.txt` を開いて読み、閉じる。応答の `runs` は要求の順で、各要素は `runId` と `status` を持つ。
+
+| status | 条件と付加項目 |
+|---|---|
+| `ok` | 読めた場合。キーの辞書順に `entries`（`key` と `value` の組）を返す |
+| `missing` | ファイルが無い場合。探したパスを `message` に返す |
+| `error` | 読み出しや書式のエラー。パスと原因を `message` に返す。書式のエラーは行番号と規則の番号を含む |
+| `not_found` | 作業セットに無いRun。Run idを `message` に返す |
+
+TXTはフレームワークの `Properties::Load` の行規則で読む。UTF-8の不正バイト列と `$include` をエラーにする。`?=` の既定キーは個別指定で上書きできる。値は文字列のまま返す。
+
+### 9.8 `POST /api/range-stats.json`
+
+本文は `{"series":[{"runId":"run_a","tagKey":"loss","fromStep":0,"toStep":100}]}`。必須header、stepの閉区間、availabilityと400・409・503の契約は §9.3 と同じ。グラフと別のquery channelを使い、点数上限による422は返さない。
+
+応答の `data` に、要求順に `runId`、`tagKey`、`fromStep`、`toStep`、`generation`、`availability` を返す。`ok` には `count`、`mean`、`variance`、`stdDev`、`minValue`、`maxValue`、`lastValue`、`minStep`、`maxStep` も付く。step境界を序数の範囲に写し、commit済みのL0全点を数える。分散と標準偏差は母集団の値、最新値は範囲内で序数が最大の点の値である。
+
 ## 10. lifetime・並行制御・エラー境界
 
 ### 10.1 lifetime
@@ -1043,6 +1076,7 @@ gzip streamは全体16本まで。新しい非優先Runは、非優先の開始�
 | `org.springframework.boot:spring-boot-starter-logging` | 3.5.7 | compile | SLF4J + Logback |
 | `com.fasterxml.jackson.core:jackson-databind` | 2.20.1 | compile | JSONL 1行のparseとAPI request/responseのbind |
 | `org.xerial:sqlite-jdbc` | 3.53.1.0 | compile | Metricsキャッシュ（`jdbc:sqlite:`） |
+| `org.webjars.npm:plotly.js-dist-min` | 2.35.3 | compile | jar内から配信するPlotly |
 | `org.projectlombok:lombok` | 1.18.42 | compile（optional） | view modelの`@Data` / `@Builder` |
 | `org.springframework.boot:spring-boot-devtools` | 3.5.7 | compile（optional） | 開発時のみ。`spring-devtools.properties`でrestartは無効化済み |
 | `org.springframework.boot:spring-boot-starter-test` | 3.5.7 | test | JUnit 5、`@SpringBootTest`、MockMvc |
@@ -1072,8 +1106,7 @@ java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --server.port=8082
 ### 11.5 frontend asset
 
 frontendはnpm等のbuild工程を持たず、`src/main/resources/static`をそのまま配信する。
-外部依存はCDNから読むPlotly（`https://cdn.plot.ly/plotly-2.27.0.min.js`）だけで、frameworkは使わない。
-完全offline環境で使う場合はasset取得方法を別途用意する必要がある。
+Plotlyはjarに含むWebJarから配信するため、ブラウザが外部へ接続できない環境でもグラフを描ける。
 
 ## 12. テストと拡張時の確認事項
 
@@ -1089,7 +1122,8 @@ frontendはnpm等のbuild工程を持たず、`src/main/resources/static`をそ�
 | scheduling / workspace lifetime | `IngestSchedulerTest`、`LoadingThreadTest`、`WorkspaceManagerTest`、`WorkspaceSnapshotIntegrationTest` |
 | query計画とsnapshot | `MetricsQueryPlannerTest`、`MetricsRepositorySnapshotIntegrationTest`、`MetricsRepositoryStepRangeIntegrationTest`、`MetricsQueryConcurrencyTest` |
 | HTTP API | `MetricsApiIntegrationTest`、`WorkspaceApiIntegrationTest`、`SeriesAvailabilityTest`、`HttpAccessLogFilterTest` |
-| 走査・設定 | `RunScannerTest`、`MetricsViewerSettingsTest` |
+| 走査・設定 | `RunScannerTest`、`MetricsViewerSettingsTest`、`ConfigTextReaderTest` |
+| Run比較・オフライン描画 | `RunComparisonPlaywrightTest` |
 | browser UI | `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`ReloadPlaywrightTest`、`SignedLogPlaywrightTest`、`OutlierRangePlaywrightTest`、`WorkspaceSelectorPlaywrightTest` |
 
 Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環境では`Assumptions`によりskipされ、失敗にはならない。
@@ -1103,7 +1137,7 @@ Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環�
 2. `IngestState`と`SeriesAvailability`のexternalNameは永続値かつHTTP公開値である。値の追加は可、既存値の改名・削除は非互換とみなす。
 3. 取り込みの新しい処理は同一transactionへ入れる。L0、LOD、`TagStats`、`source_meta`が別commitへ分かれるとcrash時に整合が壊れる。
 4. LODを触るときは、完成bucketだけ永続化する契約と、端の部分bucketを下位levelから再集約する経路の両方を検証する。`LodPageCache`は完成bucket数をtag点数から導くので、親を書く契機を変えるときはこの導出も合わせて変える。
-5. 統計をLODから導出しない。範囲非依存の統計はcommit済みL0全点から作る。
+5. TagStatsはcommit済みL0全点から、範囲統計は指定step範囲のcommit済みL0全点から作る。設定TXTのフレームワークの行規則を変えたら、Viewerの `ConfigTextReader` と検証も同じ変更で更新する。
 6. Step粒度または点数上限を変えたら、1〜4Runの幅一致、選択順序・zoom/pan/reset/resize、422と503をtestする。PRD089の手順は[検証README](../../src/core/base/testdata/prd089/README.md)を参照する。
 7. clientへ新しい状態を足すときは、Reload時にPlotly DOMを再構築しても保たれるようclient app側に持たせる。
    graphの見た目を決める入力なら、共通表示モデルの描画key（`PlotlyController._graphModel` / `_graphDisplayKey`）へ加える。Plotly上で直接変わる状態も`capturePlotState`で読み戻してモデルへ反映する。モデルへ反映されない入力は、変わっても描画更新や遅着結果の排除に使われない。

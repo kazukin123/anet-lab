@@ -49,10 +49,10 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `IngestScheduler` / `LoadingThread` | actionable Runへpriority 3 : background 1で1 blockずつ単一writerへ配分し、terminal/no-op Runは同一cycleで再検査しない |
 | `MetricsRepository` | Runごとの短命read snapshotでrange解決、点数quota、単一LOD projectionを組み立てる |
 | `MetricsService` | Run metadata、range query semaphore、priority集合を提供するapplication service |
-| `MetricsViewerController` | `/api/runs.json`、`/api/metrics.json`、`/api/runs/prioritize`を公開するREST controller |
+| `MetricsViewerController` | `/api/runs.json`、`/api/metrics.json`、`/api/runs/prioritize`、`/api/config.json`、`/api/range-stats.json`を公開するREST controller |
 | `MetricsViewerClientApp` | browser側のRun/tag選択、viewport、Reload、取り込みpoll、描画世代を所有する |
 | `DataFetcher` / `DataCache` | viewport単位のrange取得、binary projection decode、3画面window置換を担当する |
-| `PlotlyController` | raw/MinMax/Mean/Band、`TagStats`、signed-log、zoom/pan、scroll lockを描画する |
+| `PlotlyController` / `TagInfoPanel` | raw/MinMax/Mean/Band、signed-log、zoom/pan、scroll lockを扱い、tag名から全期間と表示範囲の統計を開く |
 
 ### 2.3 Optuna harnessとlauncher
 
@@ -366,7 +366,7 @@ sequenceDiagram
 - Viewerは`data/workspaces`を既定の親directoryとし、画面のselectorでcurrent workspaceを切り替える。親directoryは`--metricsviewer.workspaces-dir`で差し替える。
 - Optuna harnessは既存workspaceと`config/_main.txt`をpreflightし、Runを`runs/`、SQLite storage・artifact store・harness logを`optuna/`へ固定する。run系の出力overrideは選択workspaceの`optuna/`配下だけを許可する。
 - Optuna harnessのPythonはrepository rootの`.venv`を使う。
-- Viewer frontendはbuild工程を持たず、外部依存はCDNのPlotlyだけを読む。完全offline環境ではasset取得方法を別途用意する必要がある。
+- Viewer frontendはbuild工程を持たず、Plotlyはjarに含めたWebJarから配信する。ブラウザからの外部接続なしでグラフを描ける。
 
 ## 7. Lifetime・エラー・性能特性
 
@@ -435,7 +435,7 @@ sequenceDiagram
 
 - Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。 step数の変更は`AnetRLRunner-gui-test "[eval_steps]"`で設定検証・Trace保持を確認し、実RunnerAppのメニュー・Custom入力・キャンセル・自動評価・手動Stepは`AnetRLRunner-gui-test "[eval_steps_menu]"`を単独processで実行する。後者は通常スイートには含めない。Frame close時に背景評価の排水の後でtrain observerをDetachすることは、`AnetRLRunner-gui-test "[runner_close_drain]"`を単独processで実行して確認する。これも通常スイートには含めない。Logs paneは`AnetRLRunner-gui-test "[log_panel]"`で末尾の空行・時刻の形と色・選択と表示位置・未読の行数と`+N`の読み進め・Auto-scrollの自動解除と再開・設定からの既定・Wrap・Indent・検索・未確認の警告を確認する。Copy allは利用者のクリップボードを書き換えるため、`"[log_panel_clipboard]"`を明示したときだけ実行する。`"[log_panel_demo]"`はRunを起こさずに各levelの行を1秒ごとに足す窓を開き、閉じるまで手で操作を試せる（Panels toolbarの印はRunnerで確かめる）。
 - Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。
-- Metrics Viewer UI変更: `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`で、Run/Tag操作、viewport精細化、LOD mode、stale response、Reload、Plotly state、mobile gestureを関心別に確認する。
+- Metrics Viewer UI変更: `RunListPlaywrightTest`、`TagListPlaywrightTest`、`MetricsPlotPlaywrightTest`、`GraphInteractionPlaywrightTest`、`SignedLogPlaywrightTest`、`RunComparisonPlaywrightTest`で、Run/tag操作、設定表、範囲統計、オフライン描画、viewport精細化、LOD mode、遅着応答、Reload、Plotly状態、タッチ操作を確認する。
 - Optuna変更: dry-run、短いrun-trial、artifact/DB state、interrupt cleanupを確認する。
 - process間contract変更: 旧Run artifactを読めるか、または明示的なmigration/non-goalを記録する。
 

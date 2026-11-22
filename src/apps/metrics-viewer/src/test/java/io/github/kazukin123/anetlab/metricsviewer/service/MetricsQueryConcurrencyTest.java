@@ -15,6 +15,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -76,7 +78,8 @@ class MetricsQueryConcurrencyTest {
 				mock(LoadingThread.class),
 				settings,
 				coordinator);
-		final MetricsViewerController controller = new MetricsViewerController(service);
+		final MetricsViewerController controller = new MetricsViewerController(
+				service, new RunConfigService(workspaceManager), new ObjectMapper());
 
 		final ExecutorService executor = Executors.newFixedThreadPool(2);
 		try {

@@ -7,7 +7,7 @@
 <title>Metrics Viewer</title>
 
 <!-- Plotly -->
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="/webjars/plotly.js-dist-min/2.35.3/plotly.min.js"></script>
 
 <!-- CSS -->
 <link rel="stylesheet" href="metrics-viewer.css" />
@@ -48,6 +48,7 @@
 				<button id="btn-auto-recolor" aria-pressed="false"
 						title="Keep the selected runs distinguishable as the selection changes">Auto Recolor</button>
 			</div>
+			<input id="run-filter" class="list-filter" type="search" aria-label="Filter runs" placeholder="Filter runs" />
 			<!-- Runリスト（JSで生成される） -->
 			<div id="run-list"></div>
 		</div>
@@ -58,12 +59,13 @@
 				<button id="btn-clear-all">Clear All</button>
 				<button id="btn-selected-only" aria-pressed="false"
 						title="Show only the selected tags">Selected Only</button></div>
-			<!-- Tagリスト（初期構成あり、JSで上書きまたは活用） -->
 			<div class="section-controls tag-set-controls">
 				<button id="btn-tag-set" aria-expanded="false"><span class="tag-set-label">Tag Set</span><span class="tag-set-modified"></span><span>▾</span></button>
 				<button id="btn-tag-set-save" disabled>Save</button>
 				<button id="btn-tag-set-revert" disabled>Revert</button>
 			</div>
+			<input id="tag-filter" class="list-filter" type="search" aria-label="Filter tags" placeholder="Filter tags" />
+			<!-- Tagリスト（初期構成あり、JSで上書きまたは活用） -->
 			<ul id="tag-list">
 			</ul>
 		</div>
@@ -72,7 +74,24 @@
 	<!-- Main Area -->
 	<div id="main-panel">
 		<div id="screenshot-header"></div>
-		<div id="main-area">
+		<div id="main-tabs" role="tablist" aria-label="View">
+			<button id="tab-graphs" class="active" role="tab" data-tab="graphs" aria-controls="main-area" aria-selected="true">Graphs</button>
+			<button id="tab-config" role="tab" data-tab="config" aria-controls="config-area" aria-selected="false" tabindex="-1">Config</button>
+		</div>
+		<div id="main-area" role="tabpanel" aria-labelledby="tab-graphs"></div>
+		<div id="config-area" role="tabpanel" aria-labelledby="tab-config" hidden>
+			<div id="config-controls">
+				<input id="config-filter" type="search" aria-label="Filter keys" placeholder="Filter keys" />
+				<button id="btn-config-diff" aria-pressed="false">Diff Only</button>
+			</div>
+			<p id="config-status" role="status"></p>
+			<div id="config-table-scroll">
+				<table id="config-table" hidden>
+					<colgroup><col class="config-key-column" /></colgroup>
+					<thead><tr></tr></thead>
+					<tbody></tbody>
+				</table>
+			</div>
 		</div>
 	</div>
 </div>

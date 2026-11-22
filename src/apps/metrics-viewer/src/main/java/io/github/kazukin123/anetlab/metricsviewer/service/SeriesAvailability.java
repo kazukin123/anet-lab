@@ -15,6 +15,13 @@ enum SeriesAvailability {
 		this.externalName = externalName;
 	}
 
+	// tag の欠落と点のない範囲は、取り込みが完了して初めて確定する。
+	static SeriesAvailability forRange(boolean stillIngesting, boolean hasTag, boolean hasPoints) {
+		if (hasPoints) return OK;
+		if (stillIngesting) return PENDING;
+		return hasTag ? EMPTY : NOT_FOUND;
+	}
+
 	String externalName() {
 		return externalName;
 	}

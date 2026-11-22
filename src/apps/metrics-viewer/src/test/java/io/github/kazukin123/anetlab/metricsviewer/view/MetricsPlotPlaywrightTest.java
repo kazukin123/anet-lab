@@ -401,7 +401,7 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	}
 
 	@Test
-	void graphHeaderCombinesTagStatsAndShowsRunAndTagIssues() {
+	void tagPanelCombinesTagStatsAndGraphHeaderShowsRunAndTagIssues() {
 		page.route("**/api/runs.json", route -> fulfillJson(route, statsWarningRunsJson()));
 		page.route("**/api/metrics.json", route -> fulfillJson(route, statsWarningMetricsJson()));
 		page.route("**/api/runs/prioritize", MetricsViewerPlaywrightTestSupport::fulfillNoContent);
@@ -414,10 +414,10 @@ class MetricsPlotPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 		waitForMultiRunGraph(page);
 		page.waitForFunction("document.querySelector('.graph-warning') !== null");
 
-		assertEquals(
-				"Min -1 / Max 11 / Avg 5 / Std 5.09902",
-				page.textContent(".graph-stats"));
-		assertTrue(page.getAttribute(".graph-stats", "title").contains("count=4"));
+		page.locator(".graph-title").hover();
+		final var all = page.locator("#tag-info-panel tbody tr:last-child td");
+		com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat(all).hasText(
+				new String[] {"4", "11", "5", "-1", "5.09902", ""});
 		assertTrue(page.getAttribute(".graph-warning", "title").contains("invalid_json"));
 		assertTrue(page.getAttribute(".graph-warning", "title").contains("tag_step_regression"));
 		assertEquals("⚠1", page.textContent(

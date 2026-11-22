@@ -62,9 +62,7 @@ final class MetricsQueryPlanner {
 
 		final TagInput tag = input.tag();
 		if (tag == null) {
-			plan.availability = stillIngesting
-					? SeriesAvailability.PENDING
-					: SeriesAvailability.NOT_FOUND;
+			plan.availability = SeriesAvailability.forRange(stillIngesting, false, false);
 			return plan;
 		}
 		plan.tagId = tag.tagId();
@@ -72,18 +70,14 @@ final class MetricsQueryPlanner {
 			plan.issues.add(new Issue("tag", tag.errorCode(), tag.errorMessage()));
 		}
 		if (tag.totalCount() == null || tag.totalCount() == 0L) {
-			plan.availability = stillIngesting
-					? SeriesAvailability.PENDING
-					: SeriesAvailability.EMPTY;
+			plan.availability = SeriesAvailability.forRange(stillIngesting, true, false);
 			return plan;
 		}
 		plan.totalCount = tag.totalCount();
 		plan.ordinalFrom = tag.ordinalFrom();
 		plan.ordinalTo = tag.ordinalTo();
 		plan.availableVertices = Math.max(0L, plan.ordinalTo - plan.ordinalFrom);
-		plan.availability = plan.availableVertices > 0L
-				? SeriesAvailability.OK
-				: (stillIngesting ? SeriesAvailability.PENDING : SeriesAvailability.EMPTY);
+		plan.availability = SeriesAvailability.forRange(stillIngesting, true, plan.availableVertices > 0L);
 		return plan;
 	}
 
@@ -114,7 +108,7 @@ final class MetricsQueryPlanner {
 		}
 	}
 
-	private static UUID parseUuid(String value) {
+	static UUID parseUuid(String value) {
 		try {
 			return value == null ? null : UUID.fromString(value);
 		} catch (IllegalArgumentException e) {

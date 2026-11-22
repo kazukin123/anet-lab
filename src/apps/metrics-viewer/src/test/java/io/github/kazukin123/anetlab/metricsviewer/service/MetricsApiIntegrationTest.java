@@ -19,6 +19,10 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,9 +31,11 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -52,6 +58,9 @@ class MetricsApiIntegrationTest {
 	@MockitoBean
 	private LoadingThread loadingThread;
 
+	@MockitoSpyBean
+	private MetricsCacheDatabase cacheDatabase;
+
 	@DynamicPropertySource
 	static void configure(DynamicPropertyRegistry registry) {
 		registry.add("metricsviewer.workspaces-dir",
@@ -59,6 +68,7 @@ class MetricsApiIntegrationTest {
 		registry.add("metricsviewer.initial-workspace",
 				() -> RUNS_DIR.getParent().getFileName().toString());
 		registry.add("metricsviewer.cache-memory-mb", () -> "0");
+		registry.add("metricsviewer.max-concurrent-queries", () -> "3");
 		registry.add("metricsviewer.target-points-per-series", () -> "60");
 		registry.add("metricsviewer.max-points-per-request", () -> "100");
 	}
@@ -436,6 +446,183 @@ class MetricsApiIntegrationTest {
 		final List<Double> values = new ArrayList<>();
 		while (buffer.remaining() >= Double.BYTES) values.add(buffer.getDouble());
 		return values;
+	}
+
+
+	@Test
+	void configRequestReportsEachRunIndependentlyAndRejectsInvalidBodies() throws Exception {
+		writeConfig("run-ready", "z = last\na = first\n");
+		writeConfig("run-error", "a=1\n$ INCLUDE extra.txt\n");
+		writeConfig("run-converting", "a=1\nbad? = 2\n");
+
+		final JsonNode rows = OBJECT_MAPPER.readTree(mockMvc.perform(post("/api/config.json")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"runIds":["run-ready","run-pending","run-error","run-converting","../unknown"]}
+								"""))
+				.andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("runs");
+		assertEquals(5, rows.size());
+		assertEquals("ok", rows.get(0).path("status").asText());
+		assertEquals("a", rows.get(0).path("entries").get(0).path("key").asText());
+		assertEquals("first", rows.get(0).path("entries").get(0).path("value").asText());
+		assertEquals("z", rows.get(0).path("entries").get(1).path("key").asText());
+		assertEquals("missing", rows.get(1).path("status").asText());
+		assertEquals("error", rows.get(2).path("status").asText());
+		assertTrue(rows.get(2).path("message").asText().contains("config_data.txt:2 (R5)"));
+		assertEquals("error", rows.get(3).path("status").asText());
+		assertTrue(rows.get(3).path("message").asText().contains("config_data.txt:2 (R8)"));
+		assertEquals("not_found", rows.get(4).path("status").asText());
+		assertEquals("../unknown", rows.get(4).path("runId").asText());
+
+		for (String body : List.of("{}", "{\"unknown\":true,\"runIds\":[]}",
+				"{\"runIds\":[17]}", "{\"runIds\":[null]}", "{\"runIds\":[]} {}")) {
+			final JsonNode error = OBJECT_MAPPER.readTree(mockMvc.perform(post("/api/config.json")
+							.contentType(MediaType.APPLICATION_JSON).content(body))
+					.andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString());
+			assertEquals("invalid_request", error.path("code").asText());
+		}
+	}
+
+
+	@Test
+	void rangeStatsUsesEveryCommittedPointInsideTheClosedStepRange() throws Exception {
+		awaitStates();
+		final JsonNode rows = postRangeStats("""
+				{"series":[
+				  {"runId":"run-ready","tagKey":"a","fromStep":2,"toStep":4},
+				  {"runId":"run-ready","tagKey":"dup","fromStep":1,"toStep":1},
+				  {"runId":"run-ready","tagKey":"dup","fromStep":2,"toStep":2},
+				  {"runId":"run-ready","tagKey":"dup","fromStep":3,"toStep":4},
+				  {"runId":"run-ready","tagKey":"missing","fromStep":0,"toStep":2},
+				  {"runId":"run-absent","tagKey":"a","fromStep":0,"toStep":2},
+				  {"runId":"run-pending","tagKey":"loss","fromStep":0,"toStep":2},
+				  {"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":63},
+				  {"runId":"run-ready","tagKey":"b","fromStep":0,"toStep":63}
+				]}
+				""", UUID.randomUUID().toString(), "0", 200).path("data");
+		assertEquals(List.of("ok", "ok", "ok", "empty", "not_found", "not_found", "pending", "ok", "ok"),
+				statuses(rows));
+		final JsonNode first = rows.get(0);
+		assertEquals("run-ready", first.path("runId").asText());
+		assertEquals("a", first.path("tagKey").asText());
+		assertEquals(2, first.path("fromStep").asInt());
+		assertEquals(4, first.path("toStep").asInt());
+		assertTrue(first.path("generation").isTextual());
+		assertEquals(3L, first.path("count").asLong());
+		assertEquals(3.0, first.path("mean").asDouble());
+		assertEquals(2.0 / 3.0, first.path("variance").asDouble(), 1e-12);
+		assertEquals(Math.sqrt(2.0 / 3.0), first.path("stdDev").asDouble(), 1e-12);
+		assertEquals(2.0, first.path("minValue").asDouble());
+		assertEquals(4.0, first.path("maxValue").asDouble());
+		assertEquals(4.0, first.path("lastValue").asDouble());
+		assertEquals(2L, first.path("minStep").asLong());
+		assertEquals(4L, first.path("maxStep").asLong());
+		assertEquals(2L, rows.get(1).path("count").asLong());
+		assertEquals(2.0, rows.get(1).path("lastValue").asDouble());
+		assertEquals(1L, rows.get(2).path("count").asLong());
+		assertEquals(3.0, rows.get(2).path("lastValue").asDouble());
+		assertTrue(!rows.get(3).has("count"));
+		assertTrue(rows.get(5).path("generation").isNull());
+		assertEquals(64L, rows.get(8).path("count").asLong());
+	}
+
+	@Test
+	void rangeStatsRejectsInvalidSchemaAndHeaders() throws Exception {
+		final String valid = """
+				{"series":[{"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":2}]}
+				""";
+		final String channel = UUID.randomUUID().toString();
+		for (String body : List.of("{}", "{\"series\":[null]}",
+				valid.replace("\"fromStep\":0,", ""),
+				valid.replace("\"fromStep\":0", "\"fromStep\":3"),
+				valid.replace("\"fromStep\":0", "\"fromStep\":0.5"),
+				valid.replace("\"fromStep\":0", "\"fromStep\":\"0\""),
+				valid.replace("\"fromStep\":0", "\"fromStep\":-9007199254740992"),
+				valid.replace("\"fromStep\":0", "\"fromStep\":0,\"stepBucketWidth\":1"))) {
+			assertEquals("invalid_request", postRangeStats(body, channel, "0", 400).path("code").asText());
+		}
+		assertEquals("invalid_request", postRangeStats(valid, " ", "0", 400).path("code").asText());
+		assertEquals("invalid_request", postRangeStats(valid, channel, "-1", 400).path("code").asText());
+	}
+
+
+	@Test
+	void separateGraphAndRangeChannelsOnlySupersedeTheirOwnRequests() throws Exception {
+		awaitStates();
+		final String scope = UUID.randomUUID().toString();
+		final String graphChannel = scope + "-graph";
+		final String rangeChannel = scope + "-range";
+		final String graphRequest = """
+				{"series":[{"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":2,"stepBucketWidth":1}]}
+				""";
+		final String rangeRequest = """
+				{"series":[{"runId":"run-ready","tagKey":"a","fromStep":0,"toStep":2}]}
+				""";
+		final CountDownLatch graphEntered = new CountDownLatch(1);
+		final CountDownLatch rangeEntered = new CountDownLatch(1);
+		final CountDownLatch release = new CountDownLatch(1);
+		final ThreadLocal<CountDownLatch> pauseAtRead = new ThreadLocal<>();
+
+		// SQLite の読み取り直前で止め、両方の HTTP 要求が生きている間に新しい範囲統計を送る。
+		org.mockito.Mockito.doAnswer(call -> {
+			final CountDownLatch entered = pauseAtRead.get();
+			if (entered != null) {
+				entered.countDown();
+				assertTrue(release.await(10, TimeUnit.SECONDS), "Timed out waiting to release query");
+			}
+			return call.callRealMethod();
+		}).when(cacheDatabase).openRead(RUNS_DIR.resolve("run-ready"));
+
+		final ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			final var graph = executor.submit(() -> {
+				pauseAtRead.set(graphEntered);
+				try {
+					return mockMvc.perform(post("/api/metrics.json")
+									.contentType(MediaType.APPLICATION_JSON).content(graphRequest)
+									.header("X-Query-Channel", graphChannel).header("X-Query-Sequence", "0"))
+							.andReturn().getResponse().getStatus();
+				} finally {
+					pauseAtRead.remove();
+				}
+			});
+			assertTrue(graphEntered.await(5, TimeUnit.SECONDS));
+			final var oldRange = executor.submit(() -> {
+				pauseAtRead.set(rangeEntered);
+				try {
+					return postRangeStats(rangeRequest, rangeChannel, "0", 409);
+				} finally {
+					pauseAtRead.remove();
+				}
+			});
+			assertTrue(rangeEntered.await(5, TimeUnit.SECONDS));
+			assertEquals("ok", postRangeStats(rangeRequest, rangeChannel, "1", 200)
+					.path("data").get(0).path("availability").asText());
+			release.countDown();
+			assertEquals(200, graph.get(5, TimeUnit.SECONDS));
+			assertEquals("superseded", oldRange.get(5, TimeUnit.SECONDS).path("code").asText());
+		} finally {
+			release.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	private JsonNode postRangeStats(String request, String channel, String sequence, int expectedStatus)
+			throws Exception {
+		final var response = mockMvc.perform(post("/api/range-stats.json")
+						.contentType(MediaType.APPLICATION_JSON)
+						.header("X-Query-Channel", channel)
+						.header("X-Query-Sequence", sequence)
+						.content(request))
+				.andExpect(status().is(expectedStatus))
+				.andReturn().getResponse();
+		return OBJECT_MAPPER.readTree(response.getContentAsString(StandardCharsets.UTF_8));
+	}
+
+	private static void writeConfig(String runId, String content) throws Exception {
+		final Path configDir = RUNS_DIR.resolve(runId).resolve("config");
+		Files.createDirectories(configDir);
+		Files.writeString(configDir.resolve("config_data.txt"), content);
 	}
 
 	private static Path createFixture() {
