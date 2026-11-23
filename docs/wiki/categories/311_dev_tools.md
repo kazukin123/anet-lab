@@ -7,6 +7,8 @@
 - CLIはGUIによる標準開発を補い、AIエージェントのビルド・検証とCI相当の再現、問題の診断に使う（出典: [開発環境構築ガイド](../../design/040_development_environment.jp.md)、§1.1・§2.4）。
 - Optuna harnessの共通runtimeは探索、実行、集計、成果物を扱い、RunnerProcessManagerが子processの起動・timeout・中断・終了を管理する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.3・§3.3・§7.3）。
 - wikiの取り込み・点検は正本のまとめと機械的な一覧を保ち、issueの道具はINDEXとトピック別まとめの課題区画を更新する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
+- wiki_support.pyのscanは、材料・blob・リンクと実装済みのRFDの取り込み漏れを読み取りだけで返す。RFDの実装済みは、そのRFDを指す課題の判定と状態から導く。mapsはINDEXと、トピック別まとめのファイル・RFDの一覧・課題の区画を作り直し、RFDの一覧はファイルに触れたコミットの件名から作る（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
+- stage_issue_memos.pyは、課題の管理外のメモ（priority・memo・tags）の変更だけを欄の単位でindexへ載せ、Obsidianでの手入れを、同じファイルにあるAIの作業の変更と分けてコミットできるようにする（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
 - reports/toolsの統計ツールと、各CI workflowの個別の概要・責務は、設計文書に記述なし。
 
 ## 成立の経緯
@@ -30,22 +32,23 @@
 - 2026-10-28: TempoRLの等価性・性能比較用に、実行体と設定の着手前snapshotを使う検証資材を整えた（出典: [RFD0103](../../memo/done/0103_temporl_reference_alignment_10rfd.md)、§4 D14・§7）。
 - 2026-10-31: リリース物の組み立て（中身・検査・zip化）をrelease.ymlのPowerShellからCMakeのinstall・CPackとワークフローpresetへ移し、GitHubを使わずに手元でも同じコマンドで作れるようにする案を暫定で起票した（出典: [0185_release_packaging_cmake](../../memo/0185_release_packaging_cmake_10rfd.md)、題・§3のゴール・§4 D1・D4）。
 - 2026-11-02: Claude Codeのmemoryをgit・フォルダ・正本・規約と定期的に照合して直すskill（anet-tidy-memory）と、機械的な検査を受け持つreports/tools/memory_support.py、housekeepingの候補memory-tidyを足す案を暫定で起票した（出典: [RFD0112](../../memo/0112_claude_memory_tidy_10rfd.md)、題・§1・§4 D9・D10）。
-- 2026-11-02: 課題の置き場を台帳からissue（docs/management/issues/に1課題1ファイル）に替え、課題のskillをanetのskillとして持ち、すべてのRFDにissueを伴わせて作業の状態と順序をissueで持ち、新しいRFDはフォルダを移さず起票時に正式な番号を取り、999のRFDを使われたことの無い番号へ振り直す案を、再グリルで決めた（出典: [RFD0114](../../memo/0114_findings_intake_and_fix_rfd_10rfd.md)、題・§1・§4 D1・D2・D9・D13・D14）。
 - 2026-11-02: 作業の状態と順序はissueが持ち、RFDは指示文書としてフォルダを動かさない（出典: [ADR 0068](../../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md)）。
 - 2026-11-02: 共有コア（プロセス契約・レビューエージェントの定義）とハーネスに出てくるskill・エージェント・アダプタの名前はanet-で始まる名前とし、レビューエージェントは入口のskill anet-reviewと重ならないようanet-review-agentとする（出典: [RFD0114](../../memo/0114_findings_intake_and_fix_rfd_10rfd.md)、§4 D3）。
 - 2026-11-02: 共有コアにanet-で始まるskill・エージェント・アダプタの名前を置けると補足し、名前以外はプロジェクトに依存しない文面に保つ判断を維持した（出典: [ADR 0049](../../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、冒頭の2026-11-02注記）。
 - 2026-11-03: issueの一覧の見せ方（依存のツリー、スプレッドシート、見やすい表）を、発番と同じ置き場の道具と一覧のskillの引数で作る案を暫定で起票した（出典: [0187_issue_list_views](../../memo/0187_issue_list_views_10rfd.md)、題・§1・§4 D1〜D3）。
-- 2026-11-10: 課題のtypeを仕事の種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）にし、RFD専用の索引の課題をやめて各課題がrfd欄でRFDを1本だけ指し（N:1）、RFDの実装済みを課題の判定と状態から導き、parent・depends・rfdをObsidianのリンクで書き、domain・tags・resolutionを足す案を起票した（出典: [RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§1・§4 D1〜D8）。
-- 2026-11-11: Debug版libtorchのoneDNNのassertがテストの順序で出ないよう、基盤テストの実行体が開始時に1回MKLDNNを切り、テストの中の切り替えを消す案を起票した（出典: [RFD0124](../../memo/0124_test_process_mkldnn_off_10rfd.md)、題・§3.1・§4 D1）。
-- 2026-11-17: 9xxの番号のRFD 57本を、起票の日の順に132〜188へ振り直し、この振り直しを番号の不再利用の例外として9xxを再び使える番号に戻し、旧い番号を各RFDの題の直下の振り直しの行で引くようにした（wikiのRFDの一覧の道具もその行を読む）（出典: [RFD0131](../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、題・§1.2・§4 D1〜D3・D7・D8）。
+- 2026-11-08: 課題の置き場を台帳からissue（docs/management/issues/に1課題1ファイル）に替え、課題のskillをanetのskillとして持ち、すべてのRFDにissueを伴わせて作業の状態と順序をissueで持ち、新しいRFDはフォルダを移さず起票時に正式な番号を取り、999のRFDを使われたことの無い番号へ振り直した（出典: [RFD0114](../../memo/0114_findings_intake_and_fix_rfd_10rfd.md)、題・§1・§4 D1・D2・D9・D13・D14）。
+- 2026-11-10: 課題がrfd欄でRFDを1本だけ指し（N:1）、RFDの実装済みは指す課題の判定と状態から道具が導く（出典: [ADR 0069](../../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md)）。
+- 2026-11-10: 課題のtypeを仕事の種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）にし、RFD専用の索引の課題をやめて各課題がrfd欄でRFDを1本だけ指し（N:1）、RFDの実装済みを課題の判定と状態から導き、parent・depends・rfdをObsidianのリンクで書き、domain・tags・resolutionを足した（出典: [RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§1・§4 D1〜D8）。
+- 2026-11-11: Debug版libtorchのoneDNNのassertがテストの順序で出ないよう、基盤テストの実行体が開始時に1回MKLDNNを切り、テストの中の切り替えを消した（出典: [RFD0124](../../memo/0124_test_process_mkldnn_off_10rfd.md)、題・§3.1・§4 D1）。
 - 2026-11-16: RFDの9xxの番号を、起票の日の順に900未満の連番へ振り直し、9xxを再び使える番号に戻す（出典: [ADR 0077](../../adr/0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable.md)）。
-- 2026-11-18: 置き場の規則（ビルドの入力はsrc、実行時の配置はapps、実行時にできるものはdata、配らないビルドの出力はout）、テストの参照範囲、基盤のテスト用の口、テスト実行体の出力先の1か所化、道具のapps/toolsへの集約を、グリルで決めた（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D2・D12・D13・D19・D20）。
+- 2026-11-17: 9xxの番号のRFD 57本を、起票の日の順に132〜188へ振り直し、この振り直しを番号の不再利用の例外として9xxを再び使える番号に戻し、旧い番号を各RFDの題の直下の振り直しの行で引くようにした（wikiのRFDの一覧の道具もその行を読む）（出典: [RFD0131](../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、題・§1.2・§4 D1〜D3・D7・D8）。
 - 2026-11-18: トップの階層は、ビルドの入力・実行時の配置・実行時にできるもので分け、ビルドはappsへ直接出す（出典: [ADR 0078](../../adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md)、本文）。
 - 2026-11-18: テストは自分のライブラリの内部まで読み、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う（出典: [ADR 0080](../../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)、本文）。
-- 2026-11-19: RFDのグリルで、goal anchorの応答に共通の前提を並べ、ゴールの合意と同じ返事で説明が要る前提の番号を受けて理解を確かめ、欠けた前提は先にそろえるかをその都度選び、RFDに前提の表を置き、RFD品質確認観点に項番43を足す案を、グリルで決めた（出典: [RFD0189](../../memo/0189_grill_premise_understanding_10rfd.md)、§1.2・§6.1 D2〜D8・§6.2 D13）。
-- 2026-11-21: 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前（暫定の既定はSPEC）へ改め、ファイル名・skill名・課題の欄・コミット件名・テストのタグ・道具など今使っている場所をすべて移し、過去の記録は書き換えずに道具が旧い件名の番号も読む案を暫定で起票した（出典: [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、題・§1・§6）。
-- 2026-11-22: 会話の枠ごとに 1 枚のまとめページ（冒頭・いまの位置・記号の一覧に、場面ごとの節を足したもの）を、場面に入ったときか前の応答の記号を引き始めたときに作って、中身が変わった応答で更新し、Claude Code は非公開ページ、Codex は ChatGPT Sites で同じ URL のままスマホから見返せるようにする案を、グリルで決めた。手順は skill、始める条件は AGENTS.md、場面ごとの指針とひな形は docs/process/summary-page/ に置く（出典: [RFD0197](../../memo/0197_conversation_options_summary_page_10rfd.md)、§1.2・§6 D1・D2・D5〜D9・D11・D25・D26）。
-- 2026-11-23: 文書の呼び名をRFD（Request for Discussion）に改め、番号を0埋めの4桁にし、直下の文書は実装が済んだものも本文まで新しい名前に直し、改名・リンクのパスの直し・動作に効く行の直しを1回目、改名したファイルの残りの本文の語の置き換えを2回目のコミットに分け、道具は件名の旧いPRDnnnと新しいRFDnnnnの両方を日付で分けずに値で読み、定点統計は保管場所の文書の移した日を改名をたどって取る案を、再グリルで決めた（出典: [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§1.2・§6 D1〜D4・D8・D17・D25）。
+- 2026-11-19: 置き場の規則（ビルドの入力はsrc、実行時の配置はapps、実行時にできるものはdata、配らないビルドの出力はout）、テストの参照範囲、基盤のテスト用の口を定め、テスト実行体の出力先を1か所にし、道具をapps/toolsへ集めた（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D2・D12・D13・D19・D20）。
+- 2026-11-19: RFDのグリルで、goal anchorの応答に共通の前提を並べ、ゴールの合意と同じ返事で説明が要る前提の番号を受けて理解を確かめ、欠けた前提は先にそろえるかをその都度選び、RFDに前提の表を置き、RFD品質確認観点に項番43を足した。前提をそろえるためにグリルを止めたRFDでは、自己点検のあとのまとめた1問と起票の候補の提示を行わない（出典: [RFD0189](../../memo/0189_grill_premise_understanding_10rfd.md)、§1.2・§6.1 D2〜D8・§6.2 D13・D33）。
+- 2026-11-22: 置き場の部品の新しい機能グループ`tensor_store`を314 テンソル処理に入れることをグリルで決め、categories.jsonの314の行のmatchに`tensor_store`を足した（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.1のD56・§8.4の機能グループの見込み）。
+- 2026-11-23: 会話の枠ごとに 1 枚のまとめページ（冒頭・いまの位置・記号の一覧に、場面ごとの節を足したもの）を、場面に入ったときか前の応答の記号を引き始めたときに作って、中身が変わった応答で更新し、Claude Code は非公開ページ、Codex は ChatGPT Sites で同じ URL のままスマホから見返せるようにした。手順は skill、始める条件は AGENTS.md、場面ごとの指針とひな形は docs/process/summary-page/ に置いた（出典: [RFD0197](../../memo/0197_conversation_options_summary_page_10rfd.md)、§1.2・§6 D1・D2・D5〜D9・D11・D25・D26）。
+- 2026-11-23: 文書の呼び名をPRDからRFD（Request for Discussion）に改め、番号を0埋めの4桁にし、ファイル名・skill名・課題の欄・コミット件名・テストのタグ・道具など今使っている場所を移した。直下の文書は実装が済んだものも本文まで新しい名前に直し、改名・リンクのパスの直し・動作に効く行の直しを1回目、改名したファイルの残りの本文の語の置き換えを2回目のコミットに分け、道具は件名の旧いPRDnnnと新しいRFDnnnnの両方を日付で分けずに値で読み、定点統計は保管場所の文書の移した日を改名をたどって取るようにした（出典: [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、題・§1.2・§6 D1〜D4・D8・D17・D25）。
 - 2026-11-23: 変更ごとの文書の呼び名をPRDからRFDに改め、番号を0埋めの4桁にする（RFD0195。出典: [ADR 0093](../../adr/0093-document-term-rfd-and-four-digit-numbers.md)）。
 
 ## 選ばなかった形
@@ -88,6 +91,9 @@
 - 課題に複数のRFDを書ける（N:M） — 不採用: 課題から導くRFDの実装済みが、ほかのRFDの進み具合を待つ（出典: [RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§4 D2・§7）。
 - RFDのファイルに状態を書く — 不採用: 状態の置き場が2つになり食い違う（出典: [RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§7）。
 - 課題の大まかな分類をareaから導く、またはtagsに人が書く — 不採用: 導く形はObsidianで式を書かないと絞れず課題ごとに直せない。tagsは書き忘れと表記のぶれが起き、areaと同じ軸を2か所で持つ（出典: [RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§4 D6・§7）。
+- 「実装済み」をRFDの課題1件に付ける — 不採用: 1つの判定の欄がRFD全体の完了と課題の残りの2つの意味を兼ね、監査の確かめ直しが上書きする（出典: [ADR 0069](../../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md)、Considered Options；[RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§7）。
+- 課題の無いRFDを認める — 不採用: そのRFDが一覧に出ず、状態をどこにも持たない（出典: [ADR 0069](../../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md)、Considered Options；[RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§7）。
+- INDEXにRFD単位のまとめの表を出す — 先送り: 一覧の見せ方は別の関心で、RFD0187が扱う。再開条件: RFD0187の再グリル（出典: [RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§7）。
 - コミットの準備で出荷設定の検査のテスト（`[shipped_config]`）を流す形 — 不採用: 使わない定義の誤りは、使う Run の構築時に必ず止まるので害の経路が無く、テストの実行体が古いときの扱いという別の不確かさを持ち込む（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、D13・§8）。
 - 止まるテストの中だけでMKLDNNを切る形 — 不採用: 切り替えを通らずにCPUでConvを組むテストが、Catch2の既定のランダム順で止まる仕組みが残る（出典: [RFD0124](../../memo/0124_test_process_mkldnn_off_10rfd.md)、§4 D1・§7）。
 - 本番の初期化でDebugビルドのときだけMKLDNNを切る形 — 範囲外: 本番のRunnerに触り、InitNNを呼ぶ前にConvを組むテストは守られない。再開条件: Debug版のRunnerをCPUでConvのNNと回す必要が出たとき（出典: [RFD0124](../../memo/0124_test_process_mkldnn_off_10rfd.md)、§3.2・§7）。
@@ -155,6 +161,8 @@
 - テスト用の口の中身は、組み立ての補助と読むだけの口に限り、製品の処理を置かない。anet/test/の下のヘッダはガードを持ち、製品のコードは読まない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D13・§6 のS3-3）。
 - リリースのzipの中のパスを変えるときは、着手前の一覧と比べて、決めた差だけであることを確かめる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§6 のS1-4・S4-4）。
 - RFDのグリルの手順を変えるときは、理解を深める往復（説明や具体例を求める返答と、その答え）を減らす対象にしない。前提の確かめと前提をそろえる段は、開発者が指定すれば飛ばせる形を保つ（出典: [RFD0189](../../memo/0189_grill_premise_understanding_10rfd.md)、§1.3 NG1・§6.1 D1）。
+- wiki_support.pyのmapsは、すべての入力と目印の検証が済むまで出力せず、区画の外とwikiの作業の記録を保つ（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
+- INDEXとトピック別まとめの課題の表は位置の番号の列を持たず、1件の増減や並べ替えでほかの行を書き換えない。stage_issue_memos.pyは、読めない課題が1件でもあれば何も載せず、作業ツリーとほかの欄・本文を変えない（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
 - 会話のまとめページは見返し用の写しに保ち、決定の正本（RFD・実験記録・課題）にしない（出典: [RFD0197](../../memo/0197_conversation_options_summary_page_10rfd.md)、§1.3）。
 - まとめページの決まりは、Claude Code と Codex で同じ決まりと同じ中身の型を使い、違うのは出し方だけに保つ（出典: [RFD0197](../../memo/0197_conversation_options_summary_page_10rfd.md)、§6 D3）。
 - skill の本体ではないもの（まとめページの共通の型と場面ごとの指針）を、.agents と .claude の 2 か所にコピーしない（出典: [RFD0197](../../memo/0197_conversation_options_summary_page_10rfd.md)、§6 D6）。
@@ -166,9 +174,10 @@
 
 - [ANET フレームワーク全体概要](../../design/010_framework_overview.jp.md)。
 - [ANET ドキュメント](../../design/README.jp.md)。
-- 設計: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md) §2.3・§3.3・§7.3・§8。
-- ユーザーガイド: [開発環境構築ガイド](../../design/040_development_environment.jp.md) §6・§7、[Run分析ガイド](../../design/030_user_guide_analysis.jp.md) §1。
-- 含まれるアプリケーション: [RunnerApp](../apps/110_runner_app.md)。
+- 設計: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md) §2.3・§3.3・§7.3・§7.4・§8。
+- テストの置き場と出力の置き場: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「テスト」「出力の置き場」。
+- ユーザーガイド: [開発環境構築ガイド](../../design/040_development_environment.jp.md) §6・§7、[Run分析ガイド](../../design/030_user_guide_analysis.jp.md) §1・§6。
+- 含まれるアプリケーション: なし。
 
 ## ファイル
 

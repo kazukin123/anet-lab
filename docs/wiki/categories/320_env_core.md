@@ -5,6 +5,8 @@
 ## 概要・責務
 
 - SingleDiscreteEnvとBatchEnv、spec・state・Reset・Step、factoryとBuilderの共通契約を扱う。（出典: [環境](../../design/120_environments.jp.md)、§1.1・§2・§3）。
+- Envは基盤の外で書ける拡張点で、`anet/env.hpp`の基底型でEnvとそのfactoryを実装し、`EnvRepository::Regist`で登録する（出典: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3）。
+- `EnvRepository`はclass IDごとにsingleかbatchのfactoryの一方を保持し、同じclass IDの登録は例外にして、先に登録したfactoryを残す（出典: [環境](../../design/120_environments.jp.md)、§3）。
 
 ## 成立の経緯
 
@@ -25,6 +27,9 @@
 - 2026-10-20: 遷移の結果をStepの結果へ移しBatchEnvの自動リセットをStep内に戻した（出典: [RFD0097](../../memo/done/0097_env_auto_reset_after_notification_10rfd.md)、§4.1 D1・D2）。
 - 2026-10-21: Env遷移の値をstep traceへ渡す読み口を接続した（出典: [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md)、§4.2 D5・D9）。
 - 2026-10-26: Envのframe_skipとは別の層として、Actorが行動を続けるスキップと判断の旗を共通の経験へ渡す境界を定めた（出典: [RFD0098](../../memo/0098_temporl_skip_policy_10rfd.md)、§4 D15・§5.5）。
+- 2026-11-12: Runで作らなかった登録済みのEnvのクラスの設定キーを、読まれない設定キーの一覧に出さない在庫として記録する口（`MarkUnusedConfigInventory`）を足し、選んだEnvのfactoryに構築時の設定の検証をさせるようにした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D4・D5）。
+- 2026-11-19: Envの共通基盤のファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
+- 2026-11-21: `env.device`の文法の誤りと、知らないEnvのclass IDのエラーが、設定キーを完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D8）。
 
 ## 選ばなかった形
 
@@ -44,10 +49,13 @@
 - Agentとreplayへ入る値、loss・Q、episode return・長さを保持する。Atari2構成と他Env・逐次/非同期の7構成で全点を比較し、実時間は交互3組、ばらつきが大きければ5組で性能低下を確認する（出典: [RFD0097](../../memo/done/0097_env_auto_reset_after_notification_10rfd.md)、ゴールG3・§7 1/4）。
 - 評価セッションの採用規則と@session_endの集約の読み口を変えない（出典: [RFD0097](../../memo/done/0097_env_auto_reset_after_notification_10rfd.md)、§4.2 4・§4.3.4）。
 - スキップを加えてもRunnerのstepとEnvのframe skipを変えない。無効時の4環境のmetrics checksumを着手前の基準と一致させる（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§6.1；[RFD0098](../../memo/0098_temporl_skip_policy_10rfd.md)、§5.9・§7の段0）。
+- ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
 
 ## 関係
 
 - 設計: [環境](../../design/120_environments.jp.md)、§1.1・§2・§3。
+- 拡張点: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3。
+- 置き場とテストの参照範囲: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「テスト」。
 - ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。
 - 含まれるアプリケーション: なし。
 

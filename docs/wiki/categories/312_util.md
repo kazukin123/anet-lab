@@ -26,13 +26,15 @@
 - 2026-08-27: RFD0068: batchrun の致命エラー処理（ダイアログ抑止・終了コード・bat 検出）（出典: [RFD0068](../../memo/done/0068_batchrun_fatal_error_handling_10rfd.md)、題・目的）。
 - 2026-09-04: 評価episode集約で使う共通utilityを更新した（出典: [RFD0060](../../memo/done/0060_eval_batch_episodes_10rfd.md)、F1. metrics 経路は既に「1 セッション 1 点」であり、停止条件だけ変えても N 本平均は録れない）。
 - 2026-09-24: InitRLの初期化に明示deviceの可用性検査を加えた（出典: [RFD0070](../../memo/done/0070_device_spec_auto_10rfd.md)、確定したD10・Complexity audit）。
-
 - 2026-10-25: ProfiledValueに指数とphaseの終値規則を加え、定数をbareで読み、実効typeが使う欄だけをdumpする（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§4.1 D2〜D4）。
 - 2026-10-26: 既存の自動seed入口を使い、GridMazeの自動採番をRun seedから独立させた（出典: [RFD0102](../../memo/done/0102_gridmaze_seed_mode_10rfd.md)、§2・§5.2）。
 - 2026-10-29: 整数のProfiledValueをActorのスキップ長上限へ接続した（出典: [RFD0104](../../memo/done/0104_temporl_skip_auxiliary_only_10rfd.md)、§4 D1・D2・§5.1）。
-- 2026-11-10: InitRLのdeviceの検査を、設定に書かれているキーだけを見る形にし、持ち主の設定クラスと二重に持っていた既定値の表を消す仕様を定めた（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D9）。
-- 2026-11-12: forwardの途中のTensorを押し出すTraceCallback型を消す仕様をグリルで決めた（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D9）。
-- 2026-11-21: device指定の文法の誤りのfatalを1回にするため、ParseDeviceがキーの名前を必須で受け取ってInitRLが例外を捕まえない形にし、明示のcudaが使えないときのエラーにキーごとの指定値を並べる仕様をグリルで決めた（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D8・D9・§6.3）。
+- 2026-11-11: InitRLのdeviceの検査を、設定に書かれているキーだけを見る形にし、持ち主の設定クラスと二重に持っていた既定値の表を消した（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D9）。
+- 2026-11-12: 通知を出すソースの箇所と対象の名前の組ごとにRunで1回だけ通す共通の部品（`LOG::warn_once`・`LOG::info_once`）を足し、Runを作る側が部品の構築より前に通知の記録を空にするようにした。明示した設定が環境変数に勝ったときの通知はINFOにした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§5.1・§5.5）。
+- 2026-11-17: forwardの途中のTensorを押し出すTraceCallback型を消した（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D9）。
+- 2026-11-19: ユーティリティのファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
+- 2026-11-20: `InitRL`は呼ぶたびにbackendの設定を当て直す関数のまま残し、中で呼ぶNNの初期化関数の登録だけを、何度呼んでも1回にした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D11・§6.5）。
+- 2026-11-21: device指定の文法の誤りのfatalを1回にするため、ParseDeviceがキーの名前を必須で受け取ってInitRLが例外を捕まえない形にし、明示のcudaが使えないときのエラーにキーごとの指定値を並べた（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D8・D9・§6.3）。
 
 ## 選ばなかった形
 
@@ -47,6 +49,8 @@
 - 整形した文面をキーにして通知を 1 回だけ出す形 — 不採用: step や件数のように変わる値が文面に入ると毎回出て、抑えるときも毎回文面を組み立てる。通知を出す箇所と対象の名前の組をキーにする（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§5.1・§8）。
 - WARN と ERROR の間に新しいログのレベルを足す形 — 不採用: レベルを増やすと「WARN は利用者が直すべき状態」という線引きがぼやける（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§3.2・§8）。
 - 文脈を足して投げ直す箇所のfatalの二重出力を、ログを重ねない投げ直しの口を作って直す形 — 先送り: 別の関心（fatalの出し方）で、設定キーの名指しとは分けられる。再開条件: RFD0071を再グリルするとき（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5.1）。
+- 初期化関数を1回しか呼べない形にして、テストを直す形 — 不採用: `InitRL`が中でNNの初期化関数を呼ぶので`InitRL`を2回呼ぶだけで止まり、NNの初期化関数を外へ出す変更と、直接の呼び出し46か所の書き換えが要る（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5.1）。
+- `InitRL`も何度呼んでも1回だけにする形 — 不採用: 設定を変えて呼び直すテストが、2回目から設定を当てられなくなる（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§6.5）。
 
 ## 変えるときの条件
 
@@ -55,6 +59,9 @@
 - EMA内部の状態を変えても公開シグネチャを変更しない（出典: [RFD0045](../../memo/done/0045_ema_debias_warmup_10rfd.md)、3. API 契約）。
 - 同 seed の再現を確かめるときは `backend.deterministic_algorithms` を true、`backend.deterministic_warn_only` を false にする。warn_only を true にすると決定版の無い op を素通りさせるので再現性は保証されない（出典: [ADR 0006](../../adr/0006-deterministic-algorithms.md)、Consequences；[RFD0015](../../memo/done/0015_deterministic_algorithms_10rfd.md)、1.1 API）。
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、RFD0103の検証資材でmetrics checksumを一致させる（出典: [RFD0104](../../memo/done/0104_temporl_skip_auxiliary_only_10rfd.md)、§5.7・§7の受入1）。
+- 1回だけ通す通知の部品を変えても、ログのレベルの名前、Runのログの`[W]`・`[I]`の書式、Logs paneの数え方は変えない。部品のテストで、同じ箇所で対象の名前が違えば名前ごとに1件、同じ箇所と対象なら何回呼んでも1件、記録を空にしてRunを作り直すとまた1件出ることを確かめる（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§5.1・§7 A1）。
+- 小さなリファクタリングとテストの追加の前後で、RFD0098の検証資材の短いRun（4環境、seed 1、決定的モード）を流し、時間と資源のtagを除く全scalarの点を一致させる（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D8・§6 A7）。
+- ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
 - InitRLのdeviceの検査を変えるときは、明示したcudaの一括の報告を保つ。検査は設定に書かれたキーだけを見るので、持ち主のクラスの既定値に明示のcudaを置くときは検査を見直す。`[rfd0070]`のテストはCUDAが使える機械ではskipになるので、環境変数`CUDA_VISIBLE_DEVICES`を`-1`にして流し、skipを合格に数えない（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§2.1・§6 A6）。
 
 ## 関係

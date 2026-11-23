@@ -5,6 +5,8 @@
 ## 概要・責務
 
 - Agent、Actor、Learnerの生成・行動・更新と、Agentが所有するResource、更新部品が所有するStateの境界を扱う。（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§3）。
+- Agentは基盤の外で書ける拡張点で、`anet/agent.hpp`・`anet/rl.hpp`で`AgentFactory`・`Agent`・`Actor`を実装し、`RegisterAgentFactory`で登録する（出典: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3）。
+- `Actor::MakeAction`は呼び出しごとの選択を`MakeActionOptions`で受け（nn_traceの要求は既定で偽）、要求をActorやNotifierへ登録しない。Agentは、Runnerが系統の公開初期化関数を呼んで登録し、同じ関数を何度呼んでも登録は1回で、同じclass IDを直接登録すると例外になって先の登録が残る。DQNのprobe専用の乱数は、内側のLearnerがAgentの基のseedと用途ごとの名前から作って持つ（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4）。
 
 ## 成立の経緯
 
@@ -62,23 +64,24 @@
 - 2026-10-28: skipの合算・遮断に加え、loss別のAdamで更新するsplitと評価セッションの集約値を接続した（出典: [RFD0103](../../memo/done/0103_temporl_reference_alignment_10rfd.md)、§5.2・§5.4・§5.8）。
 - 2026-10-29: Actorごとに毎step判断するsingleと上限を時間で変えるvariableを選べるようにした（出典: [RFD0104](../../memo/done/0104_temporl_skip_auxiliary_only_10rfd.md)、§5.1・§5.3・§5.9）。
 - 2026-10-30: Actor共通の設定へskip側のNN実行設定のモードとキーを足した（出典: [RFD0106](../../memo/done/0106_temporl_skip_forward_noise_key_10rfd.md)、§5.1・§5.6）。
-- 2026-11-10: DQN共用ヘッダに`#pragma once`を足し、`BatchUpdateResult::GetScalar`の本体と補助を.cppへ移して、名前を解析して受ける群の関数と、直接比べるkeyの表に分ける仕様を定めた（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D5〜D8）。
-- 2026-11-11: RNDのwhitenで、warm-up中の誤差を誤差の統計から外す既定と、誤差の統計の取り方（累積・直近重み）、平均を引くかの選択を足す仕様をグリルで決めた（出典: [RFD0123](../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、題・§1・§4 D2・D4・D7）。
-- 2026-11-12: TD・QR・IQNの1回の更新の進行を基底の学習器の1か所へ寄せ、Munchausenの評価とtargetの式を共通の関数にする仕様をグリルで決めた（出典: [RFD0125](../../memo/0125_dqn_learner_update_skeleton_10rfd.md)、題・§1・§4 D1・D2・D10・D11）。
-- 2026-11-12: Actorがnn_traceを要求された呼び出しだけcaptureで取り出し、SelectAction系がcallbackの代わりにcaptureを受ける仕様をグリルで決めた（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D7・D9・D11・D12）。
-- 2026-11-12: 一生の新しさの推定器に、重みも統計も変えずに採点する口（`EstimateWithoutUpdate`）、写しを作る口（`Clone`）、laneごとの診断値の鍵の一覧を足し、DQNのstep診断の部品が、列の鍵に内的報酬の鍵があるときだけ採点する仕様をグリルで決めた（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D1・D3・D4・§6.1）。
-- 2026-11-12: DQNの学習器が、外的のHeadと内的のHeadのそれぞれに目標値・損失を作り、優先度をHeadごとの誤差の重み付きの和にする仕様を、グリルで決めた。合わせたQはDQN側の1つの関数が作り、損失ごとに勾配のclipとAdamの状態を分けるモードを持つ（出典: [RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§5 D4・D5・D12・D24・D25・§6）。
-- 2026-11-12: Learnerの診断指標の群の共通化を含む、リファクタリング5件の仕様を、暫定で起票した（出典: [RFD0128](../../memo/0128_dqn_agent_refactor_bundle_10rfd.md)、冒頭の起票の行）。
+- 2026-11-11: DQN共用ヘッダに`#pragma once`を足し、`BatchUpdateResult::GetScalar`の本体と補助を.cppへ移して、名前を解析して受ける群の関数と、直接比べるkeyの表に分けた（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D5〜D8）。
+- 2026-11-12: 方式に依らない一生の新しさの口（`LifelongNoveltyEstimator`とそのFactory）と、RNDによる実装を足した（出典: [RFD0116](../../memo/0116_rnd_lifelong_novelty_10rfd.md)、題・§1.2・§5.1）。
+- 2026-11-12: RNDの推定器が、checkpointのoptimizerの設定を今の設定で置き換えた通知をINFOにした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D10）。
+- 2026-11-12: TD・QR・IQNの1回の更新の進行を基底の学習器の1か所へ寄せ、Munchausenの評価とtargetの式を共通の関数にした（出典: [RFD0125](../../memo/0125_dqn_learner_update_skeleton_10rfd.md)、題・§1・§4 D1・D2・D10・D11）。
 - 2026-11-13: Actor Qヒントを、価値の分解の有無に依らず常時5列（内的のHeadのQ_saとV_sの2列を足す）に広げると決めた。列の数をモードで変えず、使わない列を0にする判断は保つ（出典: [ADR 0075](../../adr/0075-actor-q-hint-five-columns-carry-per-head-values.md)、本文、[RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§5 D12）。
-- 2026-11-13: 価値の分解に、内的のHeadが行動の選択をどれだけ変えたかを見る診断を足すと決めた。Actorが行動を選ぶたびに、不一致（合わせたQと外的のQで1位の行動が違うか）、譲った外的の価値、外的の差、内的の差（どちらも1位と2位のQの差）をlaneごとに作る。Evaluation Traceはlaneごとの値、学習のActorはlaneの平均、評価のActorはsessionの累積を、別の鍵で読む（出典: [RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§5 D26〜D28・§6.8・§8.4）。
-- 2026-11-13: Learnerの診断指標の6つの群が購読の解析・間隔・発火・要求を共通の型で持ち、値の読み出しはpackの形の群も含めて共通にする仕様をグリルで決めた。probe用の乱数5つは、使う側のLearnerが構築時に、Agentの基のseedから今と同じ名前で作って持つ（出典: [RFD0128](../../memo/0128_dqn_agent_refactor_bundle_10rfd.md)、§5 D12・D13）。
-- 2026-11-15: RNDの採点の統計の区間を軽くし、2つの統計方式（whiten・variance_feedback）を型で分ける仕様を、暫定で起票した（出典: [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md)、冒頭の起票の行・§1.2）。
-- 2026-11-16: RNDの正規化と統計の集計を計算deviceで行い、統計方式の整理を性能の直しのあとに入れる仕様を、グリルで決めた（出典: [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md)、§5.1）。
-- 2026-11-18: Agentを基盤の外の系統ごとのライブラリ（DQN・MuZero・ImageCls）へ出し、登録を各ライブラリの初期化関数に移す仕様を、グリルで決めた。公開ヘッダの規約（RFD0169）も統合した（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§1・§4.1 D5・D7・D10）。
+- 2026-11-14: Learnerの診断指標の6つの群が購読の解析・間隔・発火・要求を共通の型で持ち、値の読み出しはpackの形の群も含めて共通にした。probe用の乱数5つは、使う側のLearnerが構築時に、Agentの基のseedから今と同じ名前で作って持つ（出典: [RFD0128](../../memo/0128_dqn_agent_refactor_bundle_10rfd.md)、題・§5 D12・D13）。
+- 2026-11-15: DQNの学習器が、外的のHeadと内的のHeadのそれぞれに目標値・損失を作り、優先度をHeadごとの誤差の重み付きの和にした。合わせたQはDQN側の1つの関数が作り、損失ごとに勾配のclipとAdamの状態を分けるモードを持つ。内的のHeadが行動の選択をどれだけ変えたかを見る診断（不一致、譲った外的の価値、外的の差、内的の差）をActorが行動を選ぶたびにlaneごとに作り、Evaluation Traceはlaneごとの値、学習のActorはlaneの平均、評価のActorはsessionの累積を、別の鍵で読む（出典: [RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§5 D4・D5・D12・D24〜D28・§6・§6.8・§8.4）。
+- 2026-11-15: 一生の新しさの推定器に、重みも統計も変えずに採点する口（`EstimateWithoutUpdate`）、写しを作る口（`Clone`）、laneごとの診断値の鍵の一覧を足し、DQNのstep診断の部品が、列の鍵に内的報酬の鍵があるときだけ採点するようにした（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D1・D3・D4・§6.1）。
+- 2026-11-16: RNDの採点の統計の区間を軽くするため、正規化と統計の集計を計算deviceで行うようにし、そのあとで2つの統計方式（whiten・variance_feedback）を型で分けた（出典: [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md)、題・§1.2・§5.1）。
+- 2026-11-17: Actorがnn_traceを要求された呼び出しだけcaptureで取り出し、SelectAction系がcallbackの代わりにcaptureを受けるようにした（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D7・D9・D11・D12）。
 - 2026-11-18: Agentは基盤の外の系統ごとのライブラリに置き、Headを書くための部品を基盤が公開する（出典: [ADR 0079](../../adr/0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public.md)、本文）。
+- 2026-11-19: RNDのwhitenで、warm-up中の誤差を誤差の統計から外す既定と、誤差の統計の取り方（累積・直近重み。既定は累積）、平均を引くかの選択を足した（出典: [RFD0123](../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、題・§1・§4 D2・D4・D7、冒頭の2026-11-19の改訂）。
+- 2026-11-19: Agentを基盤の外の系統ごとのライブラリ（DQN・MuZero・ImageCls）へ出し、登録を各ライブラリの初期化関数に移した。基盤の外で実装する拡張点と公開ヘッダの規約（RFD0169）も統合して入れた（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§1・§4.1 D5・D7・D10、[RFD0169](../../memo/0169_outside_core_extension_layout_10rfd.md)、冒頭の2026-11-18の改訂の行）。
 - 2026-11-19: RNDのwhitenに、誤差を誤差の統計で割らない倍率の式を足し、Burdaらの内的報酬の形にできるようにする仕様を、暫定で起票した（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、冒頭の起票の行）。
-- 2026-11-19: AgentRepositoryの登録が登録済みのclass IDを止め、初期化関数は何度呼んでも登録を1回だけ行う仕様をグリルで決めた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D10・D11・§6.5）。
-- 2026-11-21: Agentのfactoryの未知のclass IDのエラーと、未定義のActorのカタログ項目のエラーが、設定キーと項目の完全キーを示す仕様をグリルで決めた（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D6・§8.3）。
+- 2026-11-20: DQNのτの生成のエラー文・引数の検証関数・テストの名前を、実在しない部品名TauGeneratorから`GenerateTaus`にそろえた（出典: [RFD0190](../../memo/0190_dqn_design_doc_alignment_10rfd.md)、§4 D19）。
+- 2026-11-20: AgentRepositoryの登録が登録済みのclass IDを止め、初期化関数は何度呼んでも登録を1回だけ行うようにした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D10・D11・§6.5）。
+- 2026-11-21: Agentのfactoryの未知のclass IDのエラーと、未定義のActorのカタログ項目のエラーが、設定キーと項目の完全キーを示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D6・§8.3）。
+- 2026-11-21: RNDのHeadの初期化の設定も、NNの初期化の設定の1つの読み取りの口で読むようにした（出典: [RFD0193](../../memo/0193_variance_scaling_weight_init_10rfd.md)、§5.2・§6.1 D5）。
 - 2026-11-21: RNDの設定キーを、段階（統計・誤差・predictor）ごとのスコープとモード別の名前空間に組み替え、warm-upを段階ごとの待ちに分け、clipを誤差のモードごとの真偽のキーで持つ仕様を、グリルで決めた。誤差で割らない式（`rnd.error_norm.mode = none`）、一生の新しさの推定器の口の2つの操作（内的報酬を呼び出し側が0にするかを返す、Networkの構造図を返す）、lane×時間のtensorをためる汎用の置き場の部品も足す（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.1 D2〜D5・D7〜D9・§8.4）。
 - 2026-11-21: RNDの設定は、段階ごとのスコープとモード別の名前空間で持ち、被るキーは割り切る（出典: [ADR 0088](../../adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md)、本文）。
 
@@ -111,7 +114,7 @@
 - step の軸を learn_step やエピソード数にする — 先送り: 探索と β はすべて exp_step で動いている。再開条件: 別の軸が要る例が出たとき（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§7）。
 - `BatchUpdateResult::GetScalar`のkeyの全部を1枚の表にする形 — 不採用: 名前を解析して受ける群は名前から番号を読むので表に載らない（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D6・§7）。
 - `BatchUpdateResult::GetScalar`の直接比べるkeyも群ごとの関数に分け、中をifの連鎖のままにする形 — 不採用: keyの重複や届かない分岐が機械では見つからないまま残る（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D6・§7）。
-- RNDの誤差の統計を直近重み（バイアス補正EMA）を既定にする形 — 先送り: 時定数というenvごとの調整値と、覚えきったenvで微小な差を拾う帰結が既定に入る。再開条件: KFMのRunで累積と直近重みを比べた結果を見て決め直す（出典: [RFD0123](../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、§4 D2・§4.1・§8 U3）。
+- RNDの誤差の統計を直近重み（バイアス補正EMA）を既定にする形 — 不採用: 時定数というenvごとの調整値と、覚えきったenvで微小な差を拾う帰結が既定に入る。KFMのRunで累積と直近重みを比べてから決め直すとしていたが、2026-11-19に、KFM 10Mの同じseedの2本どうしでε 0.01の評価が累積を下回ったのを見て、既定を累積のままにすると決めた（出典: [RFD0123](../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、冒頭の2026-11-19の改訂・§4 D2・§4.1）。
 - RNDのwarm-upの中身を、predictorを学習させるかと誤差を統計に入れるかの独立したスイッチ2つで選ぶ形 — 不採用: 要求の無い組が2つ増え、うち1つは膨らみが再発する（出典: [RFD0123](../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、§4 D4・§4.1）。 → RFD0191 で採用（段階ごとの待ちの件数として分ける。出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.1 D8）
 - RNDの前半は観測の統計だけ、後半はpredictorも学習させる2ステージのwarm-up — 先送り: 効果が未測定で設定キーが増える。再開条件: 新しい既定のRunの8M〜10Mの誤差の標準偏差が0.05を超えて残るか、2M〜3Mと9M〜10Mの比が1.5を超えたとき。KFMでは比が僅差で1.5を超えたが、warm-upを1,000,000件にしても評価が変わらず、2026-11-15に開き直さないと決めた（出典: [RFD0123](../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、冒頭の2026-11-15の改訂・§4.1）。 → RFD0191 で採用（待ちの件数の組として書ける形にする。効果は確かめない。出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§7.2）
 - 平均を引かない形を `multiplier_mode` の3つ目の値にする形 — 不採用: clipの有無を表すキーに別の軸が混ざり、平均を引かずclipもしない形が書けない（出典: [RFD0123](../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、§4 D7・§4.1）。
@@ -200,7 +203,9 @@
 
 ## 関係
 
-- 設計: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§3。
+- 設計: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4・§3。
+- 一生の新しさの推定器（RND）: [RNDによる新しさの評価と内的報酬](../../design/212_rnd_lifelong_novelty.jp.md)。
+- 拡張点: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3。
 - ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。
 - 含まれるアプリケーション: なし。
 

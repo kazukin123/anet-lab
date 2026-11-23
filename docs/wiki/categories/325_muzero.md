@@ -5,6 +5,7 @@
 ## 概要・責務
 
 - MuZeroAgentは登録済みAgentの試作実装である。（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.4）。
+- MuZeroAgentも、Runnerが系統の公開初期化関数を呼んで登録し、同じ関数を何度呼んでも登録は1回である（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.4）。
 
 ## 成立の経緯
 
@@ -13,16 +14,25 @@
 - 2026-09-08: Actor 設定は名前付きカタログ参照とし、Agent インタフェースから RunMode を外す（出典: [ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md)、本文）。
 - 2026-09-19: MuZero試作AgentのActor生成をカタログ参照へ移行した（出典: [RFD0061](../../memo/done/0061_eval_slot_policy_override_10rfd.md)、題・目的）。
 - 2026-10-26: ProfiledValueの導入対象を本線の探索・学習へ絞り、試作MuZero固有の温度は対象外とした（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§3の非ゴール）。
+- 2026-11-11: MuZeroのReplayのエピソード終端での価値ターゲットの打ち切りとunroll窓のmaskに、短いエピソードを手で作る5場面のテストを足した（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§1.1・§4 D4）。
+- 2026-11-12: MuZeroのActorのカタログ項目を読み口の範囲で読み、読まれない設定キーがあれば構築時に止めるようにした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D3）。
+- 2026-11-19: MuZero系を基盤の外の系統のライブラリへ出し、登録をライブラリの初期化関数（`InitMuZero`）に移した（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D4・D7・D8）。
+- 2026-11-20: `InitMuZero`も、何度呼んでも登録を1回だけ行うようにした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D11・§6.5）。
+- 2026-11-21: MuZeroの試作Agentの設定の誤りの文面（隠れ状態の次元、温度の予定のstart・end）が、設定キーを完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§8.3）。
+- 2026-11-23: 文書の呼び名をRFDへ改めるのに合わせて、MuZeroのテストのファイル名の番号の形も改めた（出典: [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§5.2・§9.6）。
 
 ## 選ばなかった形
 
 - MuZero固有の温度を今回ProfiledValueへ移す形 — 範囲外: 試作Agentの探索設定で本線のDQNと器が違い、今は本線へ戻す予定が無い。再開条件: MuZeroを本線へ戻すとき（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§3の非ゴール）。
+- MuZeroのReplayのテストで見つかった食い違い（打ち切りの式など）を、テストを足すRFD0122の中で直す形 — 範囲外: 振る舞いを変えると、今の振る舞いをテストで固めるゴールに反し、直し方の判断が要る。見つかったら起票の候補にする（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§3.2・§4 D15）。
+- Agent全体を1本のライブラリにする形 — 不採用: MuZeroやImageClsがDQNの部品を読むことを、機械が止めない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.3）。
 
 ## 変えるときの条件
 
 一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
 
-記述なし。
+- MuZeroのReplayの価値ターゲットの打ち切りとunroll窓のmaskは、5場面のテストが今の値のまま断定している。truncatedで終わるときに補う値が、打ち切った次の状態ではなく最後のstep自身の`root_value`であることも、誤りの疑いをテストのコメントに書いたうえで断定している（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D4・D15）。
+- MuZeroのライブラリは基盤の公開ヘッダだけを読み、テストは兄弟のライブラリに依存しない。ターゲットの依存とincludeは、検索と道具の検査で確かめる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§5.4・§6 のS3-1〜S3-5）。
 
 ## 関係
 

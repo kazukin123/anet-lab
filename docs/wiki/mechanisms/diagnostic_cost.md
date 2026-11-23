@@ -4,7 +4,7 @@
 
 ## 今の結論
 
-当時のTimeHistogramでは22.37秒中16.26秒を全生値の再構築が占め、出力intervalを下げても取得・再構築の量は減らなかった。Breakoutの可塑性probeはinterval100で約2.1%のthroughput低下、500ではほぼ差がなかった。性能A/Bは1時間で最大8%のドリフトがありラウンドロビンの3巡の中央値で読んだ。剰余判定のeval頻度差と200ms窓のperf値は実時間の比較を誤らせ、決定論モードは約11〜13%遅い。
+当時のTimeHistogramでは22.37秒中16.26秒を全生値の再構築が占め、出力intervalを下げても取得・再構築の量は減らなかった。Breakoutの可塑性probeはinterval100で約2.1%のthroughput低下、500ではほぼ差がなかった。性能A/Bは1時間で最大8%のドリフトがありラウンドロビンの3巡の中央値で読んだ。剰余判定のeval頻度差と200ms窓のperf値は実時間の比較を誤らせ、決定論モードは約11〜13%遅い。KFMのRNDでEvaluation Traceのpaneを開くと、学習のexp step/sの中央値は3,633から3,164になり、推定器の写しは1回152〜189 msかかった。
 
 ## 分かっていること
 
@@ -17,6 +17,7 @@
 - 剰余判定の発火のころ、Pong の num_envs 512 が 64 より 2.65 倍速く見えたのは、learn_step が round ごとに飛び飛びに進んで eval の回数が 4 倍違ったためで、eval 頻度を揃えると 1,264 対 1,198 steps/s で差は消えた（出典: [RFD0053](../../memo/done/0053_interval_gate_perf_ema_10rfd.md)、Context 不具合 A。Run: run_20260815-031815_atari_pong_n512 / run_20260815-035220_atari_pong_n64 / run_20260815-052657_atari_pong）。
 - 当時の perf メトリクスは 200ms 以上たまった窓の最新値をサンプル単位で拾っていたため、eval で止まった長い窓の時間の重みが失われ、真値 478 steps/s の Run を 1,830 steps/s と表示していた。真の throughput は 90_perf/90_elapse_hour の差分からしか得られなかった（出典: [RFD0053](../../memo/done/0053_interval_gate_perf_ema_10rfd.md)、Context 不具合 B）。
 - 同 seed で train の loss・weight だけが Run ごとに割れ、eval は再現した原因は、SDPA が CUDA で mem-efficient backend に落ち、その backward が勾配を atomic 加算することだった。forward は決定的なので eval は再現した（出典: [RFD0015](../../memo/done/0015_deterministic_algorithms_10rfd.md)、Context（背景・目的））。
+- KFM の実時間優先＋RND（128 lane、CUDA、Release）で、EvalPanel を再生したまま Evaluation Trace の pane を閉じた状態と開いた状態を交互に 3 回ずつ測ると、学習の exp step/s の中央値は通常の RND で 3,633 と 3,164、Taiga らの式で 249 と 233 だった。推定器と β の写しは定期の Actor 同期（既定で 10 秒ごと）のたびに 1 回入って 1 回 152〜189 ms で、RFD0127 が見積もった数ミリ秒の約 50 倍だった。pane を閉じた状態では採点も写しも行われなかった（出典: [RND の解説](../../design/212_rnd_lifelong_novelty.jp.md)、§9.8 Evaluation Trace で読む値）。
 - deterministic_algorithms = true は false に比べて約 11〜13% 遅い。SDPA の backward に限らず scatter・index_add・reduction などの決定版を全 op に強制する広域のスイッチだからで、「attention は実時間のボトルネックでないので無視できる」という当初の見積もりは誤りだった（出典: [ADR 0006](../../adr/0006-deterministic-algorithms.md)、Consequences）。
 
 ## 分かっていないこと
@@ -30,6 +31,8 @@
 ## 関連
 
 - [可観測性](../../design/140_observability.jp.md)、§2・§7。
+- [eval schedule は既定で学習直後に評価せず、発火の時点を offset でずらす](../../adr/0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md)。
+- [RND の解説](../../design/212_rnd_lifelong_novelty.jp.md)、§9.5 計算する場所と費用・§9.8。
 - [RFD0092の計測契約](../../memo/done/0092_gradient_noise_scale_10rfd.md)。
 - [学習経路内のGNS計測の判断](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md)。
 - [勾配ノイズの知見](gradient_noise_batch.md)。

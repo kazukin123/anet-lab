@@ -10,6 +10,9 @@
 
 - EvalTracePanelはEvaluation Traceの行・表示履歴を保持し、EvalPanel・QValuePanel・Conv2dを選択した遷移へ追従させる（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§3.4）。
 - EvalTracePanelは行の並べ替え・再生・通知時点のデータのダンプを、LogPanelは警告の確認・表示・検索を受け持つ。終了時は背景評価の排水の後に状態表示用observerを外す（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§3.4・§3.5・§7.1；[可観測性](../../design/140_observability.jp.md)、§5.2）。
+- Evaluation Traceのpaneを閉じた間はstep診断を休ませ、開いたときに採点用の写しが無ければEvalPanelを通してActorを同期する。表は左端の1列を固定し、ほかの列は見出しのドラッグで表示の並びを入れ替えられ、選べる行はTraceの1行だけにする（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§3.4）。
+- TrainPanelのView dataは、timerが断面を取得した後の最初のTrain eventと、前回から200ms経ったTrain eventだけで作り、Train Viewを隠している間とFPSが0の間も作り続ける（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§5.1）。
+- Runnerのソース（ビルドの入力）は`src/apps/runner/`に置き、Runnerは基盤、Agentの各系統、Envの公開の初期化関数を呼ぶ。実行体、設定、起動launcherは`apps/`に置き、Runnerの実行体とGUIのテストは`apps/runner/bin/<構成>/`に出る（出典: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「出力の置き場」；[アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§1.3）。
 
 ## 成立の経緯
 
@@ -34,13 +37,17 @@
 - 2026-10-31: Train Viewを隠せるようにし、Centreを占めるpaneが隠れるかfloatすると表示中でdockedの相方がCentreを占めて戻れば取り戻し、主paneを隠す・floatできるのは相方の主paneが表示中でdockedのときだけ（最後の1つは✕を持たずトグルは無効で動かせない。✕とFloatableは200msのUPDATE_UIで状態から宣言し、離れてよいかの判定を基底の1つの口にまとめる）仕様と、起動時の主paneを選ぶ`app.main_view`（既定はEvalだけ）、昇格前のdock位置を覚えて戻すこと、知らない経路でCentreが空いたときにTrainを出してWARNを出す保険を定めた。2026-11-01の再グリルで、初版の「Centreを占めるpaneはfloat不可、dockedのTrainが常に占有者」をこの対称の規則に改め、floatしたpaneは縁の帯へ落とした場所に留まることにした。同日の2回目の再グリルで、wxAUIがCentreのpaneのcaptionドラッグを始めない（captionの押下をドラッグの判定の前に打ち切る）ことが実機と調査で分かり、Centreを占めるpaneはcaptionのpinボタンでfloatし、pinはFloatableと同じ値で描き、宣言が追いつく前のpinの押下は判定で止め、pinボタンを全paneに付けることにした。同日の3回目の再グリルで、等分の条件を「Evalが Right の layer 0、Trainが Centre」の1配置から「一方がCentre、他方がLeftかRightのdock」に広げ、主paneの置き場が変わったときは200msのUPDATE_UIで幅のポリシーを当て、Centreを占める主paneのcaptionの末尾に`[Centre]`を付けることにした。同日の4回目の再グリルで、縦に並んだとき（一方がCentre、他方がCentreと同じ幅のTopかBottomの帯）も高さを等分し、帯がCentreより広いときと同居は対象外、高さ不足ではLogsを縮めないことにし、「等幅」を「等分」に改めた（出典: [RFD0110](../../memo/done/0110_runner_main_pane_dynamic_centre_10rfd.md)、題・§1.1の6・26〜29・§1.2・§2・D1〜D3・D5・D7・D13〜D16）。
 - 2026-10-31: Runner の主 pane は Centre を動的に占有し、Centre を空にする操作を導線に持たない（出典: [ADR 0066](../../adr/0066-main-panes-occupy-centre-dynamically-and-no-flow-empties-centre.md)）。
 - 2026-11-02: manifestのgdiScalingを外してRunnerをPer-Monitor V2のDPI対応で動かし、画面の大きさを100%の大きさ（DIP）で書いて窓のDPIで直し、DPIの変更は画素で値を覚える部品が決め直し、Logsの字下げの幅をログ欄が描いた位置から測る案を暫定で起票した（出典: [RFD0113](../../memo/0113_runner_per_monitor_dpi_10rfd.md)、題・§3のゴール・§4 D1〜D4）。
-- 2026-11-10: `QValuePanel::Update`を、Gridの更新、ヒートマップの加工、描画に分け、加工を画面の部品に依らない関数に切り出して単体テストを足す仕様を定めた（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D10・D11・§5.2）。
-- 2026-11-12: EvalPanelがConv2dのpaneが開いている間だけstepにnn_traceの要求を渡し、RunnerAppが録画する設定（intervalが1以上）のConv2dの画像記録を登録したRunで学習側のstepに渡す仕様をグリルで決めた。Traceのダンプは要求しない（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D1・D13・D14・§5.4）。
-- 2026-11-12: RNDを選んだRun（Atari・GridMaze・LunarLanderの`run.@rnd`）のEvaluation Traceに、内的報酬の3列（`rnd_err`・`rnd_norm`・`rnd_bonus`）を600番台で足す仕様をグリルで決めた。→ 2026-11-13の改訂で`rnd_bonus`は235番（230 `reward`の直後）へ移し、240 `decision`との重複を避けた。誤差2列は600・610番を維持する（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D12・§5.5）。
-- 2026-11-12: Evaluation Traceのpaneを閉じている間はstep診断の部品を休ませ、開いたときに写しが無ければEvalPanelがその場でActorを同期する仕様をグリルで決めた（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D20・§5.4）。
-- 2026-11-18: Runnerのソースをsrc/apps/runnerへ移し、workspacesとappdataをトップのdata/へ移す仕様を、グリルで決めた。実行体の出力先とbatの作業ディレクトリは変えない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D11・D17・D18）。
-- 2026-11-19: `QValuePanel.smooth_radius`を1以上の整数として設定の読み込みで検証し、ヒートマップの加工への入力が平滑化の指定を重み1組で持つ仕様をグリルで決めた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D12・D13）。
-- 2026-11-20: RunnerのPanelとRunnerFrameがObserverを付ける8か所に、そのObserverが動くスレッドと、PanelやFrameが先に壊れない理由をコメントで書く仕様をグリルで決めた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§1.2・§5 D7）。
+- 2026-11-10: eval scheduleが既定で学習直後の評価を止めるのに合わせ、RunnerAppの閉じる手順のテスト（hiddenの`[runner_close_drain]`）を、最初の評価がlearn step 1へ移る形に合わせた（出典: [RFD0158](../../memo/0158_eval_schedule_first_fire_10rfd.md)、§5.4）。
+- 2026-11-11: `QValuePanel::Update`を、Gridの更新、ヒートマップの加工、描画に分け、加工を画面の部品に依らない関数に切り出して単体テストを足した（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D10・D11・§5.2）。
+- 2026-11-12: RunnerAppがアプリの側の構築（画像のmetricsの登録とRunnerFrameのpanelの初期化）を終えてTrainを始める直前に、読まれない設定キーの一覧を1回出すようにし、Viewのmenuで開くpanel（Conv2dPanel）の設定をRunの構築時に読んで検証するようにした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D5・§5.4）。
+- 2026-11-15: RNDを選んだRun（`run.@rnd`）のEvaluation Traceに、内的報酬の3列を足した。`rnd_bonus`は235番（230 `reward`の直後）、誤差2列の`rnd_err`・`rnd_norm`は600・610番に置く（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D12・§5.5）。
+- 2026-11-15: Evaluation Traceのpaneを閉じている間はstep診断の部品を休ませ、開いたときに写しが無ければEvalPanelがその場でActorを同期するようにした（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D20・§5.4）。
+- 2026-11-17: EvalPanelがConv2dのpaneが開いている間だけstepにnn_traceの要求を渡し、RunnerAppが録画する設定（intervalが1以上）のConv2dの画像記録を登録したRunで学習側のstepに渡すようにした。Traceのダンプは要求しない（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D1・D13・D14・§5.4）。
+- 2026-11-19: Runnerのソースをsrc/apps/runnerへ移し、workspacesとappdataをトップのdata/へ移した。実行体の出力先とbatの作業ディレクトリは変えていない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D11・D17・D18）。
+- 2026-11-20: `QValuePanel.smooth_radius`を1以上の整数として設定の読み込みで検証し、ヒートマップの加工への入力が平滑化の指定を重み1組で持つようにした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D12・D13）。
+- 2026-11-20: RunnerのPanelとRunnerFrameがObserverを付ける8か所に、そのObserverが動くスレッドと、PanelやFrameが先に壊れない理由をコメントで書いた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§1.2・§5 D7）。
+- 2026-11-21: RunnerAppの設定の読み口から作った動画の記録で、codecのエラーが利用者の書く完全キー`app.metrics_logger.video_codec`を示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§1.2のeeb2c3の行・§7のA3）。
+- 2026-11-23: 文書の呼び名をRFDに改めるのに合わせ、Runnerのテストのタグを`[prdNNN…]`から`[rfdNNNN…]`へ改めた（出典: [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§5.2・§6 D1・D9）。
 
 ## 選ばなかった形
 
@@ -122,6 +129,7 @@
 - 設定をソースの側に置き、ビルドでappsへ写す形 — 不採用: 設定を直してすぐ走らせる回し方に、写しの手順が挟まる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.3；[ADR 0078](../../adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md)、Considered Options）。
 - dataの根を探して見つける形、見つからないときの代替 — 不採用: 黙った代替を作らない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D18）。
 - `smooth_radius`の0以下を「平滑化なし」として扱う形 — 不採用: 特定の値に別の意味を持たせることになり、する・しないは`use_hist_smooth`が表す（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5.1）。
+- Logs paneとPanels toolbarの表示を変える — 範囲外: 既にある未確認の警告の表示に意味を持たせるのがRFD0117で、表示を変える必要は見つかっていない。必要が出たら別のRFDで変える（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§3.2）。
 
 ## 変えるときの条件
 
@@ -154,12 +162,14 @@
 - workspace と portable appdata は配布位置を基準に `data/` に置く。指定した workspace の解決と相対 Run の配置は同じ根を使う（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D22・§6 のS4-2・C3）。
 - `smooth_radius`の読み方を変えても、半径が1以上の設定では、平滑化あり・なしの加工の結果を今と同じ値に保ち、加工の今の単体テストが期待値を変えずに通ることを確かめる（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§6.6・§7のA11）。
 - 学習のRunnerの通知を受ける3つのObserver（TrainPanel、EvalPanelが学習側のstep数を受けるObserver、RunnerFrameの状態表示用のObserver）は、学習スレッドからPanelかFrameを触る。窓を閉じる処理で、学習の停止と背景評価の排水より前に、これらを外したりPanelを壊したりしない（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§1.2・§5 D6）。
+- WARNの線引きを変えても、ログのレベルの名前、Runのログの`[W]`・`[I]`の書式、Logs paneの未確認の警告の数え方は変えない（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§5.1）。
 
 ## 関係
 
-- 設計: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md) §2.1・§3.1・§5.1・§7.1・§8。
+- 設計: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md) §2.1・§3.1・§3.4・§3.5・§5.1・§7.1・§8。
+- ソースと出力の置き場: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「出力の置き場」。
 - ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md) §2〜§6（起動、画面、操作、Evaluation Trace）。
-- 含む機能カテゴリ: [311 開発ツール](../categories/311_dev_tools.md)。
+- 含む機能カテゴリ: なし。
 
 ## ファイル
 

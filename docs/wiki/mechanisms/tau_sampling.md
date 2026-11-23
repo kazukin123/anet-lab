@@ -4,7 +4,7 @@
 
 ## 今の結論
 
-直接比較を確認できなかった初期調査に対し、DropMergeの2 seedではstratifiedとantitheticが有力だった。M削減の速度利得とM64による十分なlate改善は確認されなかった。qbertでは行動を選ぶときのτを固定からランダムにすると、スキップなしでは評価の8面突破率が上がり、TempoRL分割のfullでは下がった（seed1）。TempoRLの分割・合算の50M終了checkpointで、Q側をランダムのままskip側のτだけ固定にすると、共有のランダム抽選より突破率が7.50・10.25ポイント上がった（各400ゲーム、学習seed1）。主因の比k・k'は両checkpointで「決めきれない」で、学習への効果は未確認。MontezumaのRNDの30Mの重み（NoisyNetなし）では、ε=0のまま行動を選ぶτを固定から乱数にすると、400点以上が19/32から29/32になった（seed1）。
+直接比較を確認できなかった初期調査に対し、DropMergeの2 seedではstratifiedとantitheticが有力だった。M削減の速度利得とM64による十分なlate改善は確認されなかった。qbertでは行動を選ぶときのτを固定からランダムにすると、スキップなしでは評価の8面突破率が上がり、TempoRL分割のfullでは下がった（seed1）。TempoRLの分割・合算の50M終了checkpointで、Q側をランダムのままskip側のτだけ固定にすると、共有のランダム抽選より突破率が7.50・10.25ポイント上がった（各400ゲーム、学習seed1）。主因の比k・k'は両checkpointで「決めきれない」で、学習への効果は未確認。MontezumaのRNDの30Mの重み（NoisyNetなし）では、ε=0のまま行動を選ぶτを固定から乱数にすると、400点以上が19/32から29/32になった（seed1）。IQNのτの抽選でPERの優先度が揺らぐ点を論じた原典は見つからず、DopamineのIQNはPERを使わない。
 
 ## 分かっていること
 
@@ -17,6 +17,8 @@
 - DropMergeの2-seedではstratifiedとantitheticが有力で、M削減の速度利得やM64の十分なlate改善は確認されずM32を維持した。（出典: [2026-08-09_iqn.md](../../experiments/default-dqn/dropmerge/2026-08-09_iqn.md)、現時点のまとめ6〜9）。
 - qbertの50M終了checkpoint（seed1、各200ゲーム）で、評価時に行動を選ぶτを固定からランダム（学習中のTrain Actorと同じ8個の抽選、NoisyNetはμ-only）に替えると、8面突破率はスキップなしで50.5%→66.0%に上がり、TempoRL分割のfullで66.0%→50.5%に下がった。分割のsingleは68.5%→70.0%だった。（出典: [qbertの行動固定を評価時だけ外す比較](../../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md)、探索ブロック02。Run: `run_20261029-112021_evnt_off_a` / `run_20261029-114255_evnt_off_t` / `run_20261029-111656_evnt_spl_a_c` / `run_20261029-113025_evnt_spl_t_c` / `run_20261029-120441_evnt_spl_a_s` / `run_20261029-120013_evnt_spl_t_s`）。
 - Montezumaのサンプル効率優先＋RNDの30Mの重み（IQNのτ 32本、NoisyNetなし、seed1）を評価だけで各32ゲーム測ると、ε=0でτ固定は400点以上19/32（平均259.4）、τ乱数は29/32（362.5）だった。ε=0.01ではτ固定が32/32（403.1）、τ乱数が32/32（412.5）だった（出典: [2026-11-08_montezuma-rnd-se-30m.md](../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md)、現時点のまとめ5・探索ブロック04。Run: run_20261108-110233_mz_se_ev30m_2x2）。
+
+- IQNでτを毎回引くために同じ遷移でも引くたびにPERの優先度が揺らぐ点を論じた原典・公式の記述は、調査では見つからなかった。IQN・QR-DQNの原典はPERを組み込まず、DopamineのIQNもPERを使わない。BTRの実装はτをforwardのたびに引き直し、その学習stepのτから作った値（τの組ごとの|TD|を片方の軸で和、もう片方で平均）で優先度を毎回上書きする。Rainbow-IQNはIQNの損失の分布が広く一部の遷移が引かれすぎるとしてαを0.2にし、BTRも従った（出典: [PER の優先度の弱点と代替のサーベイ](../../../reports/per_priority_weaknesses_survey_2026-11-18.md)、§3・§4.1・§4.2）。
 
 ## 分かっていないこと
 

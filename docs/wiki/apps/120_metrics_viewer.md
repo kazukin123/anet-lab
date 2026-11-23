@@ -7,6 +7,9 @@
 - MetricsマスタをRunごとのSQLiteキャッシュへ取り込み、range queryとブラウザ描画を通して長いRunを比較する。（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§1.1・§2.1）。
 - JSONL/gzipをstreaming parseし、L0・factor4のLOD・TagStatsを同一transactionで更新する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.2 Metrics Viewer）。
 - タグセットはTagSetStoreが起動時の検証と保存を、TagSetControllerがAPIを、TagSetMenuが選択・編集の操作を受け持つ。Workspaceをまたぐ保存済みの集合と、ブラウザの未保存の選択を分けて持ち、未保存の変更は選択中でないセットの分もセットごとにブラウザへ残す（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§3.1・§3.2・§7.4・§8・§9.6）。
+- Runを比べるために、serverではRunConfigServiceとConfigTextReaderがRunの設定TXTをフレームワークの行規則で読み、RangeStatsQueryが表示範囲の統計をL0から計算する。browserではMainTabBarがGraphsとConfigを切り替え、ConfigTableViewが選んだRunの設定の差分を、KeywordMatcherがRun名・tagキー・設定キーの文字の絞り込みを、TagInfoPanelがtagの全期間と表示範囲の統計を受け持つ（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§3.1・§3.2・§9.7・§9.8）。
+- PlotlyはjarのWebJarから配信し、ブラウザが外部へ接続できない環境でもグラフを描ける（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§11.5；[アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§6）。
+- ソースとMavenのビルド入力は`src/apps/metrics-viewer/`に置き、jarは`apps/metrics-viewer/bin/`に出る（出典: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「出力の置き場」）。
 
 ## 成立の経緯
 
@@ -21,11 +24,13 @@
 - 2026-09-12: Run 色は比較ごとの役割とし、分離は選択中 Run の集合に対してだけ保証する（出典: [ADR 0041](../../adr/0041-run-color-is-comparison-role-not-run-identity.md)、本文）。
 - 2026-10-10: 比較するRunの表示粒度を共通Step区間へそろえ、保存LODをfactor4にした（出典: [RFD0089](../../memo/done/0089_metricsviewer_comparison_resolution_10rfd.md)、題・目標と解決策）。
 - 2026-10-12: キャッシュ再構築の入力とSQLをまとめ、全workspaceの検査・背景取り込みと表示workspaceの寿命を分けた（出典: [RFD0090](../../memo/done/0090_metricsviewer_cache_rebuild_10rfd.md)、題・§2・§4.1〜§4.4）。
-- 2026-11-02: 名前を付けて保存したtagの集合（タグセット）をサーバー側の作業用ファイルに保存してworkspaceとブラウザをまたいで共有し、Tagsの下の1行と開閉する一覧で呼び出し（選択全体の置き換え）・Save・Revert・Save As・名前変更・削除・Deselectを行い、選択中のタグセットをlocalStorageに保つ仕様と、jarに同梱した初期値を作業用ファイルが無いときだけ写すことを定めた。作業用ファイルの既定はworkspaces-dirの直下で、gitで追跡しリリースの梱包からは除く（出典: [RFD0111](../../memo/0111_metrics_viewer_tag_sets_10rfd.md)、題・§2・D1・D2・D5・D13〜D16）。
 - 2026-11-02: タグセットは追跡する作業用ファイルと jar 同梱の初期値に分け、初期値は作業用が無いときだけ写す（出典: [ADR 0067](../../adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md)、本文）。
-- 2026-11-22: Runを比べる作業に要る機能として、メインエリアのタブ（Graphs・Config）、選んだRunの設定を並べて違う行を見分ける設定表、Run一覧・tag一覧・設定キーの文字の絞り込み、グラフのtag名から出すtagの情報パネル（全期間と表示中の範囲の統計表）、PlotlyのWebJarでの同梱を定めた（出典: [RFD0196](../../memo/0196_metrics_viewer_run_comparison_10rfd.md)、題・§2・D1〜D9）。
+- 2026-11-08: 名前を付けて保存したtagの集合（タグセット）をサーバー側の作業用ファイルに保存してworkspaceとブラウザをまたいで共有し、Tagsの下の1行と開閉する一覧で呼び出し（選択全体の置き換え）・Save・Revert・Save As・名前変更・削除・Deselectを行い、選択中のタグセットをlocalStorageに保つ機能と、jarに同梱した初期値を作業用ファイルが無いときだけ写す仕組みを足した。作業用ファイルの既定はworkspaces-dirの直下で、gitで追跡しリリースの梱包からは除く（出典: [RFD0111](../../memo/0111_metrics_viewer_tag_sets_10rfd.md)、題・§2・D1・D2・D5・D13〜D16）。
+- 2026-11-19: Metrics Viewerのソース（Mavenのプロジェクト一式）をsrc/apps/metrics-viewerへ移し、jarの出力先をapps/metrics-viewer/bin/metrics-viewer.jar、Mavenの中間物をout/の下、ログの出力先をトップのdata/の下にした（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D11・D17・D20・§5.2）。
+- 2026-11-22: Runを比べる作業に要る機能として、メインエリアのタブ（Graphs・Config）、選んだRunの設定を並べて違う行を見分ける設定表、Run一覧・tag一覧・設定キーの文字の絞り込み、グラフのtag名から出すtagの情報パネル（全期間と表示中の範囲の統計表）を足し、PlotlyをWebJarで同梱した（出典: [RFD0196](../../memo/0196_metrics_viewer_run_comparison_10rfd.md)、題・§2・D1〜D9）。
 - 2026-11-22: 設定表はRunフォルダの`config/config_data.txt`を、UTF-8として読めないバイト列と`$include`を失敗とするほかはC++の`Properties::Load`と同じ行の規則で読む（出典: [ADR 0089](../../adr/0089-run-config-table-reads-config-data-txt-by-framework-reader-rules.md)、本文）。
 - 2026-11-22: query channelの単位を、ブラウザタブと問い合わせの種類（グラフの描画、範囲統計）の組にした（出典: [ADR 0090](../../adr/0090-query-channel-is-per-tab-and-query-kind.md)、本文）。
+- 2026-11-23: 文書の呼び名をRFDに改めるのに合わせ、テストが使う一時フォルダと検証の出力先の名前の旧い呼び名（`prdNNN`）をRFDの4桁の番号（`rfdNNNN`）へ改めた（出典: [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§5.2・§6 D1・D9）。
 
 ## 選ばなかった形
 
@@ -57,6 +62,7 @@
 - サーバに問い合わせの種類ごとの取り消しを足す形 — 不採用: channelを分ければ今の取り消しの仕組みのまま満たせる（出典: [ADR 0090](../../adr/0090-query-channel-is-per-tab-and-query-kind.md)、本文）。
 - リリース用のタグセットを書き換え不可の「組み込み」の区画として作業用と並べる形／梱包で作業用の場所に置くだけの形 — 不採用: UI・APIが一回り大きくなり同名の扱いが要る／上書き展開で利用者の作業用ファイルを消す（出典: [ADR 0067](../../adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md)、Considered Options；[RFD0111](../../memo/0111_metrics_viewer_tag_sets_10rfd.md)、D13・§7）。
 - タグセットの作業用ファイルをViewerのフォルダに置く形、初期値を追跡ファイルと設定キーで指す形 — 不採用: ユーザーがworkspace群と一緒に置くことを選んだ／設定キーが増え、Runnerのconfigフォルダに Viewer のファイルが混ざる（出典: [RFD0111](../../memo/0111_metrics_viewer_tag_sets_10rfd.md)、D14・D15・§7）。
+- アプリのソースを`apps/`に残す形 — 不採用: 置き場の規則が「ライブラリのソースは`src`、アプリはソースも実行時の配置も`apps`」の2つになる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D11・§4.3）。
 
 ## 変えるときの条件
 
@@ -72,11 +78,14 @@
 - タグセットの作業用ファイルはリリースの梱包に含めず、残っていれば梱包を失敗させる。不正JSONの400への変換はworkspace切替とタグセットのControllerに限り、metrics・prioritizeの失敗の形には影響させない。既存のテストは、サイドパネルの操作行の一覧の期待にTagsの新しい行を足すほかは変えずに通る（出典: [RFD0111](../../memo/0111_metrics_viewer_tag_sets_10rfd.md)、§6.1・§6.2・§8・E17）。
 - 設定表・絞り込み・tagの情報パネルを足しても、Metricsキャッシュの様式と取り込み、既存のAPI、TagStatsとLODの作り方、グラフの描画、文字の絞り込みが空のときの一括操作と`Selected Only`の動き、RunInfoPanelの中身と出し方、既存の`localStorage`の12件の意味を変えない（出典: [RFD0196](../../memo/0196_metrics_viewer_run_comparison_10rfd.md)、§6.4）。
 - 設定ファイルの行の規則を変えるときは、C++の`Properties::Load`と、Viewerが設定表のために持つJavaの読み込みを同じ変更で直す（出典: [ADR 0089](../../adr/0089-run-config-table-reads-config-data-txt-by-framework-reader-rules.md)、本文；[RFD0196](../../memo/0196_metrics_viewer_run_comparison_10rfd.md)、§6.3）。
+- TagStatsはcommit済みのL0の全点から、範囲統計は指定したstep範囲のcommit済みのL0の全点から作り、LODから導かない（出典: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§12.2の5）。
 
 ## 関係
 
 - 設計: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§1.1・§2.1。
 - タグセットと保存: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§3.1・§8・§9.6。操作は[Run分析ガイド](../../design/030_user_guide_analysis.jp.md)、§3。
+- Runの比較（設定表・範囲統計・同梱のPlotly）: [Metrics Viewer](../../design/210_metrics_viewer.jp.md)、§3.1・§3.2・§9.7・§9.8・§11.5。比べる手順は[Run分析ガイド](../../design/030_user_guide_analysis.jp.md)、§4。
+- ソースと出力の置き場: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「出力の置き場」。
 - ユーザーガイド: [Run分析ガイド](../../design/030_user_guide_analysis.jp.md)。
 - 含む機能カテゴリ: なし。
 

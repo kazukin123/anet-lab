@@ -7,6 +7,8 @@
 - 共通Env contract上のCartPole、GridMaze、LunarLander、DropMerge、ImageCls、Atariなどの具象環境の所在をまとめる。（出典: [環境](../../design/120_environments.jp.md)、§1.3・§2・§3）。
 - GridMazeは到達できる迷路の生成とseed採番の単位を所有し、LunarLanderViewは推力・風・運動の表示切替を所有する。具象Env・Viewの条件は共通基盤と分けて引く（出典: [環境](../../design/120_environments.jp.md)、§7.4・§7.5）。
 - DropMergeは行動モードで選択命令を判定し、NOOPへの罰をEnvのStepあたり1回加算する。Directの列0や実行されないDROPには加算せず、NOOPが移動へ変換される場合は加算する（出典: [環境](../../design/120_environments.jp.md)、§7.6）。
+- 環境ごとの実装と初期化関数は`src/env/`に置き、基盤の公開ヘッダを使う（出典: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」）。
+- Envの公開初期化関数は、何度呼ばれてもEnvのfactoryとViewのcreatorを1回だけ登録し、途中で失敗したら以後の呼び出しも失敗する（出典: [環境](../../design/120_environments.jp.md)、§3）。
 
 ## 成立の経緯
 
@@ -31,20 +33,18 @@
 - 2026-09-24: Atariのゲーム固有イベントを番号付きRAMメトリクスとして記録した（出典: [RFD0082](../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、題・ゴールG1〜G4）。
 - 2026-10-20: 各Envの遷移の値をStepの結果へ移し終端の読み取りをそろえた（出典: [RFD0097](../../memo/done/0097_env_auto_reset_after_notification_10rfd.md)、§4.3.5〜4.3.7・§4.4 クラス一覧）。
 - 2026-10-20: 遷移の結果は Step の結果で運び、速報値か確定値かは読むイベントで分ける（出典: [ADR 0060](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md)、本文）。
-
 - 2026-10-23: Atari観測の縮小方式を設定で選ぶ仕様を精査した。実装と数値・性能の受入は後続工程である（出典: [RFD0099](../../memo/done/0099_atari_resize_mode_10rfd.md)、§1・§8）。
 - 2026-10-24: GridMaze の迷路生成に到達可能性の保証を足し、解けない seed は派生 seed で決定的に引き直す。解ける seed の迷路は変えない（出典: [RFD0100](../../memo/done/0100_gridmaze_solvable_maze_10rfd.md)、題・§4）。
-
-
 - 2026-10-24: GridMazeの迷路seedを指定値またはエピソード・プロセス単位で選ぶよう整理した（出典: [GridMaze seed_mode RFD](../../memo/done/0102_gridmaze_seed_mode_10rfd.md)、§1・§4）。
-
 - 2026-11-04: DropMergeのNOOPへの罰を既存の行動モードの判定へそろえ、Directの列0のDROPへ罰が付く不具合を修正した（出典: [RFD0115](../../memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md)、§1.2、[環境](../../design/120_environments.jp.md)、§7.6）。
-- 2026-11-18: Envのフォルダをsrc/env/<名前>（英小文字、末尾の数字なし）にし、ターゲットをanet-env-<名前>にそろえる仕様を、グリルで決めた。EnvのテストがRunを組むときは、基盤のテスト用の口の代役のAgentを使う（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4・D14）。
+- 2026-11-12: 各Envの設定の検証を、構築時に設定の型で行うようにし、AtariEnvの`display_screen`とworker threadの併用のWARNをRunで1回にした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D5・§5.5）。
+- 2026-11-19: Envのフォルダをsrc/env/<名前>（英小文字、末尾の数字なし）にし、ターゲットをanet-env-<名前>にそろえた。EnvのテストがRunを組むときは、基盤のテスト用の口の代役のAgentを使う（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4・D14）。
+- 2026-11-20: 各Envの初期化関数を、何度呼んでも登録を1回だけ行う形にした。Envのテストは、Envのfactoryを直接登録せずに初期化関数を呼ぶ（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D11・§6.5・§6.7）。
+- 2026-11-21: 各Envのエラー・WARN・INFOが示す設定キーを完全キーにし、ImageClsのデータセットの項目を`ImageDataset.[<名前>]`の完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D6・D21）。
 
 ## 選ばなかった形
 
 - NOOPの判定修正と同時にDropMergeの罰の値・行動集合・報酬設計を変える形 — 範囲外: 行動モードに意味をそろえる修正とは別の関心。再開条件: 学習上の報酬設計を見直す実験を選んだとき（出典: [RFD0115](../../memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md)、§1.3）。
-
 - OpenCV依存の追加・84専用制限・OpenCV全分岐の厳密再現 — 不採用: 自前前処理の境界と縮小全範囲の設定を保ち、anetの数値規則と固定画像の許容差を定める（出典: [RFD0099](../../memo/done/0099_atari_resize_mode_10rfd.md)、§7）。
 - 詰み判定のために内部の盤面を進めて裁定する方式 — 不採用: 問題設定が複雑化し、人間のプレイ感覚から乖離する（出典: [RFD0039](../../memo/done/0039_dropmerge_nolegal_adjudication_10rfd.md)、決定経緯の要約）。
 - episode開始通知とViewの開始表示 — 範囲外: 今回のゴールに効かず手動操作の時点ずれと同じ関心。再開条件: 0176_qvaluepanel_manual_action_state_alignmentで手動の時点ずれを決めるとき（出典: [RFD0097](../../memo/done/0097_env_auto_reset_after_notification_10rfd.md)、§5）。
@@ -62,17 +62,17 @@
 - timeout 時の再分類・裁定の上限・no_legal_adjudication_timeout — 不採用（導入しない）: blocked-persistence の裁定では到達できない dead 機構になり、瞬間の candidate による再分類は振動して時々 legal が開く盤面を NoLegal へ誤分類する（出典: [RFD0039](../../memo/done/0039_dropmerge_nolegal_adjudication_10rfd.md)、決定経緯の要約 5）。
 - GridMaze で解けない迷路を止めるだけにする、通路を掘る、生成アルゴリズムを変える — 不採用: 自動 seed の Run が途中で止まる／迷路の分布が偏る／解ける seed の迷路が変わる（出典: [RFD0100](../../memo/done/0100_gridmaze_solvable_maze_10rfd.md)、§8）。
 - GridMaze の迷路の難しさ（最短路の長さ、穴の近さ）の制御 — 範囲外: 別の関心。再開条件: 難しさの違いで学習の差を見たくなったとき（出典: [RFD0100](../../memo/done/0100_gridmaze_solvable_maze_10rfd.md)、§8）。
-
-
 - GridMazeの個体別・BatchEnv別の一度だけの採番 — 不採用: 学習・評価・GUIを同じプロセスの入力seedへそろえる目的を満たさない（出典: [GridMaze seed_mode RFD](../../memo/done/0102_gridmaze_seed_mode_10rfd.md)、§4 D2・§8）。
 - フォルダとターゲットの名前をenvs（複数）にする形 — 不採用: include・名前空間・設定キーが単数で、フォルダだけが食い違う（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.3）。
 - Envの公開ヘッダの名前を、フォルダ名と同じ英小文字にそろえる形 — 不採用: ソース配置のゴールに効かず、参照を書き換えるだけになる。大文字小文字だけを変える改名は、WindowsとGitで事故になりやすい（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.3）。
+- Envのテストと系統のテストが、互いのライブラリを使ってよいとする形 — 不採用: 置き場が「どちらが主題か」で割れ、相手が壊れると使う側のテスト実行体が作れない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.3）。
+- 初期化関数を1回しか呼べない形にして、テストを直す形 — 不採用: `InitRL`が中でNNの初期化関数を呼ぶので2回呼ぶだけで止まり、直接の呼び出し46か所の書き換えが要る（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5.1）。
 
 ## 変えるときの条件
 
-- 縮小方式追加では既定の学習系列のchecksumを保持し、84×84の各参照画像で全画素差1以下・99.9%以上一致を確認する。64 envの速度比中央値0.98以上を要求し、対照測定の揺れが1%を超える場合は判定保留にする（出典: [RFD0099](../../memo/done/0099_atari_resize_mode_10rfd.md)、§6）。
 一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
 
+- 縮小方式追加では既定の学習系列のchecksumを保持し、84×84の各参照画像で全画素差1以下・99.9%以上一致を確認する。64 envの速度比中央値0.98以上を要求し、対照測定の揺れが1%を超える場合は判定保留にする（出典: [RFD0099](../../memo/done/0099_atari_resize_mode_10rfd.md)、§6）。
 - 直前action観測のON/OFFを同seed・同action列で並走し、先頭8次元を全stepで一致させる（出典: [RFD0032](../../memo/done/0032_lunarlander_obs_include_action_10rfd.md)、テスト項目）。
 - 直前行動観測のON/OFFで、base scalarとmarker以外のgridが一致することを確認する（出典: [RFD0040](../../memo/done/0040_dropmerge_prev_action_obs_10rfd.md)、テスト項目）。
 - batch入力の移行でも既存Envのnameとrunner/observer/GUI接続を維持する（出典: [RFD0034](../../memo/done/0034_imagecls_batch_input_10rfd.md)、1.3 維持する外部contract）。
@@ -80,16 +80,16 @@
 - Agentとreplayへ入る値、loss・Q、episode return・長さを保持する。Atari2構成と他Env・逐次/非同期の7構成で全点を比較し、実時間は交互3組、ばらつきが大きければ5組で性能低下を確認する（出典: [RFD0097](../../memo/done/0097_env_auto_reset_after_notification_10rfd.md)、ゴールG3・§7 1/4）。
 - GridMaze の解ける seed の迷路は変えない。既定 seed（5×5）の 25 セルの golden と、既定 seed の短い Run の metrics checksum の一致で確かめる（出典: [RFD0100](../../memo/done/0100_gridmaze_solvable_maze_10rfd.md)、§7 の 2・6）。
 - GridMazeの変更では固定seedの反復・採用seedからの復元、表示seedを設定へ戻す再現経路、ランダム座標の到達可能性、不正な寸法・座標の構築エラー、複数Envでの通知件数も確認する（出典: [RFD0100](../../memo/done/0100_gridmaze_solvable_maze_10rfd.md)、§5.3・§7の5・7〜9）。
-
-
 - GridMazeのseed_mode追加では、全Env共有と破棄・再作成後の保持、並行8個体、episodeの50 Reset、独立プロセスでのINFO1回、採用seedからの復元を確認する。旧固定条件とのscalar比較はseedだけを指定する（出典: [GridMaze seed_mode RFD](../../memo/done/0102_gridmaze_seed_mode_10rfd.md)、§7）。
-
 - NOOPへの罰を直すときは4行動モードで同seed・同行動列を比較し、Step報酬と累積報酬の差、NOOPの変換、実行されないDROP、報酬以外の状態の一致を確認する（出典: [RFD0115](../../memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md)、§5 A4〜A7）。
+- ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
 
 ## 関係
 
 - 設計: [環境](../../design/120_environments.jp.md)、§1.3・§2・§3。
+- 初期化関数の登録: [環境](../../design/120_environments.jp.md)、§3。
 - 具象Envの条件と確認手順: [環境](../../design/120_environments.jp.md)、§7.4・§7.5・§7.6・§8、[Atari環境](../../design/220_atari_env.jp.md)、§4・§5・§6.1。
+- 置き場とテストの参照範囲: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「テスト」。
 - ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。
 - 含まれるアプリケーション: なし。
 

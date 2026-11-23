@@ -8,6 +8,11 @@
 - TrainerとRunnerが学習・評価を実行し、Notifierがeventを配送する。値の収集と保存はObserverとMetricsLoggerへ分ける（出典: [可観測性](../../design/140_observability.jp.md)、§2）。
 - Actor初期priorityのhint行は共通層では列の意味を解釈せずに運び、schema検証と推定は注入されたInitialPriorityEstimatorが担う。DQNの5列schemaの正本はDQN系Agent設計である（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.4 PER）。
 - ReplayBufferは可変長windowの抽出・転送・prefetchを担い、時間で変わるγでは保存したstep報酬のsnapshotから収益を確定する。窓の規則と利用するγは呼び出し側から渡す（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2・§6.1.1）。
+- Observerはコードで付けるなら基盤の外で書ける拡張点で、`anet/rl.hpp`・`anet/observers.hpp`の型で実装し、`Notifier::Attach`で付ける。ReplayBufferは共通ReplayBufferの実装内部で組み、差し替えはできない（出典: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3）。
+- Notifierは、eventを`Notify()`を呼んだスレッドで登録順に配信し、登録・解除・通知・終了・一覧の操作を並行して呼べる。呼び出し開始時の一覧を保持してObserverをロックの外で呼び、`Detach()`と`Clear()`は進行中の通知を待たない。Observerが触る相手の寿命は登録する側が管理する（出典: [可観測性](../../design/140_observability.jp.md)、§2・§5.1）。
+- ReplayBufferは、Agentが複数の報酬成分を使うときだけ報酬を成分ごとに受け取り、成分ごとの割引率の列で収益を作る。成分の数は構築時に固定し、成分の意味は利用側のAgentが持つ。1成分のshapeと計算順は変えない（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.1・§2.2）。
+- Runnerのstepは、呼ぶ側が渡す`MakeActionOptions`をそのstepのActorの行動選択へそのまま渡す。nn_traceは要求したstepだけ作り、Runner・Actor・Observer・Notifierに要求の登録を持たない（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2.2；[可観測性](../../design/140_observability.jp.md)、§5.4）。
+- eval scheduleの発火の列は、`EpisodeEvalObserver`がoffsetに届くまで問い合わせを止め、先頭の`warmup_count`回の発火を走らせない形で調整し、共通の`IntervalGate`は変えない（出典: [可観測性](../../design/140_observability.jp.md)、§6.x step座標系）。
 
 ## 成立の経緯
 
@@ -62,18 +67,23 @@
 - 2026-10-29: EvalRunnerが最後のstepで行動を指定されたか（強制行動）を`$runner forced`として答える仕様を定めた（出典: [RFD0105](../../memo/done/0105_eval_trace_arrow_key_forced_action_10rfd.md)、D3）。
 - 2026-10-29: 判断の旗に依存しないaction_changeとepisode_endの窓規則を足した（出典: [RFD0104](../../memo/done/0104_temporl_skip_auxiliary_only_10rfd.md)、§5.4）。
 - 2026-11-03: action_infoからscalarを読む際の実行時型判別を整理する課題を記録した（出典: [RFD0178](../../memo/done/0178_metrics_action_info_dynamic_cast_10rfd.md)、背景と問題・取り組むこと）。
-- 2026-11-09: 文書・コメント・設定の小さな食い違いを束ねたRFDを再グリルで決め、InitialPriorityCompleterの`@note`に`GetStats`を足し、ObserverFactoryの古いscalar記法のコメントを140 §6と`ParseMetricTokens`への参照の1行に置き換えることにした（出典: [RFD0119](../../memo/0119_small_doc_comment_config_fixes_10rfd.md)、§4 D3・D9）。
+- 2026-11-09: InitialPriorityCompleterの`@note`に`GetStats`を足し、ObserverFactoryの古いscalar記法のコメントを140 §6と`ParseMetricTokens`への参照の1行に置き換えた（出典: [RFD0119](../../memo/0119_small_doc_comment_config_fixes_10rfd.md)、§4 D3・D9）。
+- 2026-11-10: eval schedule は既定で学習直後に評価せず、発火の時点を offset でずらす（出典: [ADR 0070](../../adr/0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md)、本文）。
 - 2026-11-10: RFD0158 で eval schedule の `offset` と `warmup_count` を追加した。列の調整は EpisodeEvalObserver が持ち、RunManager が Env 生成前の値の検証と配線を行う（出典: [RFD0158](../../memo/0158_eval_schedule_first_fire_10rfd.md)、§4・§5.5；[Observability](../../design/140_observability.jp.md)、eval schedule の説明）。
-- 2026-11-12: 行動選択に添える入力をMakeActionOptionsにし、Runnerのstep（DoStep・DoUpdateFrame）とActorのMakeActionの引数で都度渡す仕様をグリルで決めた。nn_traceは要求したstepだけ作り、coreに要求の登録を持たない（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D2・D3・D4・D6；[ADR 0072](../../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）。
-- 2026-11-12: `Agent::CreateStepDiagnosticsProvider`の引数を、laneの数・Evaluation Traceの列の鍵の一覧・RunnerのActorを持つ入力（`AgentStepDiagnosticsRequest`）に替える仕様をグリルで決めた。鍵の一覧は計算するかどうかだけを決め、鍵の認識は変えない（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D3・D9・§5.2・§6.1）。
-- 2026-11-12: Actorに、同期に従うもの（`ActorSyncFollower`）をつなぐ口（`AttachSyncFollower`）を足す仕様をグリルで決めた。Actorは、sourceから写し直すとき、sourceを守るロックの中でそれを呼び、相手を所有しない。基底の既定は、つながずに偽を返す（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§3・§4 D4・§6.1）。
-- 2026-11-12: step診断の部品（`AgentStepDiagnosticsProvider`）に、休ませる口（`Suspend`）と使い始める口（`Resume`。Actorの同期が要るかを返す）を足す仕様をグリルで決めた。基底の既定は、何もせず、偽を返す（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D20・§5.4・§6.1）。
+- 2026-11-11: WARN は利用者が直すべき状態に限り、読まれない設定キーは NoCare にせず検出する（出典: [ADR 0071](../../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md)、本文）。
+- 2026-11-11: `DefaultReplayBuffer`のコンストラクタへpriority storeとcompleterの片方だけを渡すと止まることと、MuZeroのReplayの終端での価値ターゲットの打ち切りとunroll窓のmaskを、テストで固定した（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§1.1・§4 D2・D4）。
 - 2026-11-12: Replay は報酬を成分ごとに記録し、成分ごとの割引率で収益を作る。成分の意味は持たない（出典: [ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、本文）。
-- 2026-11-12: 価値の分解のために、Replayが報酬を成分ごとに受け取り、n-stepの収益・抽選時のstepの報酬・初期優先度の見積もりの入力を成分ごとに作る契約を、グリルで決めた。1成分なら今と同じ値になる（出典: [RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§5 D8・§8.2）。
-- 2026-11-12: ExperienceSamplesのフィールドの並びを1つにする直しを含む、リファクタリング5件の仕様を、暫定で起票した（出典: [RFD0128](../../memo/0128_dqn_agent_refactor_bundle_10rfd.md)、冒頭の起票の行）。
-- 2026-11-13: ExperienceSamplesのフィールドの並びを1つにし、`To`をCPUとCUDAで1つの経路にして未定義のtensorをそのまま返し、効き目の無いstream guardを消す仕様をグリルで決めた（出典: [RFD0128](../../memo/0128_dqn_agent_refactor_bundle_10rfd.md)、§5 D7〜D9・§6.1）。
-- 2026-11-19: Notifierの`Attach`・`Detach`・`Notify`などを別々のスレッドから同時に呼んでもObserverの列が壊れないようにし、`Detach`は進行中の通知を待たず、Observerをロックの外で呼ぶ仕様をグリルで決めた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D1〜D5；[ADR 0082](../../adr/0082-notifier-detach-does-not-wait-for-in-flight-notifications.md)）。
-- 2026-11-19: 呼んでよいスレッドと時点を、Notifierと、キャッシュを持つ`BatchStepResult`・`ReplayInitialPriorityHint`・`BatchActionInfo`の宣言のコメントに書く仕様をグリルで決めた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D7）。
+- 2026-11-12: metricsの宣言の未知のevent・step軸・target・属性を構築時に止め、宣言したscalarの値が取れない通知をtagごとにRunで1回にし、休止した評価tagを参照する通知をINFOにした。PERの抽選が埋まらないときの代替の通知もRunで1回にし、`run.train.runner_type`の未知の値を止めるようにした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D7〜D9・§5.5）。
+- 2026-11-14: ExperienceSamplesのフィールドの並びを1つにし、`To`をCPUとCUDAで1つの経路にして未定義のtensorをそのまま返し、効き目の無いstream guardを消した（出典: [RFD0128](../../memo/0128_dqn_agent_refactor_bundle_10rfd.md)、§5 D7〜D9・§6.1）。
+- 2026-11-15: 価値の分解のために、Replayが報酬を成分ごとに受け取り、n-stepの収益・抽選時のstepの報酬・初期優先度の見積もりの入力を成分ごとに作るようにした。1成分なら今と同じ値になる（出典: [RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§5 D8・§8.2）。
+- 2026-11-15: `Agent::CreateStepDiagnosticsProvider`の引数を、laneの数・Evaluation Traceの列の鍵の一覧・RunnerのActorを持つ入力（`AgentStepDiagnosticsRequest`）に替えた。鍵の一覧は計算するかどうかだけを決め、鍵の認識は変えない（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D3・D9・§5.2・§6.1）。
+- 2026-11-15: Actorに、同期に従うもの（`ActorSyncFollower`）をつなぐ口（`AttachSyncFollower`）を足した。Actorは、sourceから写し直すとき、sourceを守るロックの中でそれを呼び、相手を所有しない。基底の既定は、つながずに偽を返す（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§3・§4 D4・§6.1）。
+- 2026-11-15: step診断の部品（`AgentStepDiagnosticsProvider`）に、休ませる口（`Suspend`）と使い始める口（`Resume`。Actorの同期が要るかを返す）を足した。基底の既定は、何もせず、偽を返す（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D20・§5.4・§6.1）。
+- 2026-11-17: 行動選択に添える入力をMakeActionOptionsにし、Runnerのstep（DoStep・DoUpdateFrame）とActorのMakeActionの引数で都度渡すようにした。nn_traceは要求したstepだけ作り、coreに要求の登録を持たない（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D2・D3・D4・D6；[ADR 0072](../../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）。
+- 2026-11-19: Replay・Observer・Runnerの共通基盤のファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ、MuZeroのReplayを系統のライブラリ（`src/algo/muzero`）へ移し、テストがほかのライブラリを使うときは公開ヘッダとテスト用の口を通す形にした（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4・D12）。
+- 2026-11-20: Notifierの`Attach`・`Detach`・`Notify`などを別々のスレッドから同時に呼んでもObserverの列が壊れないようにし、`Detach`は進行中の通知を待たず、Observerをロックの外で呼ぶようにした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D1〜D5；[ADR 0082](../../adr/0082-notifier-detach-does-not-wait-for-in-flight-notifications.md)）。
+- 2026-11-20: 呼んでよいスレッドと時点を、Notifierと、キャッシュを持つ`BatchStepResult`・`ReplayInitialPriorityHint`・`BatchActionInfo`の宣言のコメントに書いた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D7）。
+- 2026-11-21: Observer・ReplayBuffer・RunManagerのエラー・WARN・INFOが示す設定キーを完全キーにし、評価の`scheduled`の行の各欄も完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D25）。
 
 ## 選ばなかった形
 
@@ -123,6 +133,15 @@
 - 守りの無いキャッシュ2つ（`GetPayloadCpu`・`GetAction(device)`）にも`GetEpisodeEndMask`と同じ守りを足す形 — 不採用: 同じ実体を同時に呼ぶ経路が無く、行動の1 stepごとに通る箇所へ使われない守りを足すことになる（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§1.2・§5 D7）。
 - 強制行動のdeviceを、呼ぶ側のEvalRunnerで合わせる形 — 不採用: 汎用のEvalRunnerがDQN系の都合のためにdeviceをそろえる形になる（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D9・§5.1）。
 - 学習スレッドからPanelかFrameを触る3つのObserver（TrainPanel、EvalPanelが学習側のstep数を受けるObserver、RunnerFrameの状態表示用のObserver）を、終了の順序に頼らない作りに変える形 — 不採用: 今は終了の順序で守られていて、今ある危険が無く、得が小さい（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§2）。
+- eval scheduleの既定を学習直後に評価する今の挙動のままにし、要る所で止める回数を書く形 — 不採用: 初期の重みの点が、書き忘れたすべてのRunの系列の先頭に残る（出典: [ADR 0070](../../adr/0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md)、Considered Options）。
+- offsetは格子だけをずらし、学習直後の1回はstep 0のままにする形 — 不採用: 2本の評価が学習直後に必ず重なる（出典: [ADR 0070](../../adr/0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md)、Considered Options）。
+- offsetをinterval未満に限る形 — 不採用: 書いたとおりに動くので上限は要らず、開始の遅れもstepで書けなくなる（出典: [ADR 0070](../../adr/0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md)、Considered Options）。
+- メトリクス側のintervalにもoffsetと先頭で止める回数を足す形 — 不採用: メトリクスの学習直後の点は安く、解析の邪魔になった例が無い（出典: [RFD0158](../../memo/0158_eval_schedule_first_fire_10rfd.md)、§3.2）。
+- 評価が1回も走らないままRunが終わったときにWARNかINFOで知らせる形 — 不採用: 最初の発火より短い配線・確認のRunで毎回出て、毎回出るWARNが本物を埋もれさせる（出典: [RFD0158](../../memo/0158_eval_schedule_first_fire_10rfd.md)、§3.2）。
+- 休止した評価tagを参照する通知をWARNのまま対象ごとに1回にする形 — 不採用: 普通のRunで印が付き続け、0件にするには休止のたびに参照している設定を消して回ることになる（出典: [ADR 0071](../../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md)、Considered Options）。
+- priority storeとcompleterを1つの組にして、片方だけの状態を作れなくする形 — 不採用: `DefaultReplayBuffer`のコンストラクタとファクトリの形が変わり、題材はテストの空白だった（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§7・§4 D2）。
+- MuZeroのReplayのtruncatedで補う値を直す形 — 範囲外: 学習ターゲットが変わる。課題に記録した（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§7・§4 D4・D15）。
+- ObserverとReplayBufferの差し替え口の公開 — 範囲外（先送り）: 別の関心。再開条件: 基盤の外で差し替えると決めたとき（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D25・§7）。
 
 ## 変えるときの条件
 
@@ -138,7 +157,9 @@
 - slot に 1 step の記録を足しても、sampling 分布・item key・PER の completion と eviction 統計の ready 基準・Push と Extract の lock・index の昇順を変えない。スキップが無効なら ready の遅れは max(1, n_step) のまま（出典: [RFD0098 TempoRL](../../memo/0098_temporl_skip_policy_10rfd.md)、§5.1・§6 の 11）。
 - EvalRunnerに強制の値を足す前後で、RFD0098の検証資材の段0の短縮条件のmetrics checksumを4環境とも一致させる（出典: [RFD0105](../../memo/done/0105_eval_trace_arrow_key_forced_action_10rfd.md)、§7の受入6）。
 - windowを使わない経路の乱数消費とsample列を保ち、窓を増やすときは通常転送・prefetch・probeも確かめる。定数γでは保存済み収益を使い、prefetch後のγの確定で上書き済みringを読み直さない（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2・§6.1.1・§8）。
-- train observerを外すのは学習停止と背景評価の排水の後とし、同じNotifierを走査中のworkerとDetachを競合させない（出典: [可観測性](../../design/140_observability.jp.md)、§5.2）。
+- RunnerFrameの状態表示用のtrain observerは、学習を停止し背景評価を排水してからDetachする。Detach前に始まった通知は解除後もそのObserverを呼びうるので、通知を終えてからFrameを破棄する（出典: [可観測性](../../design/140_observability.jp.md)、§5.1・§5.2）。
+- eval scheduleの発火の列を変えるときも共通の`IntervalGate`は変えず、その既存のテスト（`[interval_gate]`）を変えずに通す。offsetと先頭で止める回数は`EpisodeEvalObserver`が受け持ち、メトリクスのintervalは初回に発火するまま保つ（出典: [RFD0158](../../memo/0158_eval_schedule_first_fire_10rfd.md)、§3.1・§7 A1；[ADR 0070](../../adr/0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md)、Consequences）。
+- 小さなリファクタリングとテストの追加の前後で、RFD0098の検証資材の短いRun（4環境、seed 1、決定的モード）を流し、時間と資源のtagを除く全scalarの点を一致させる（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D8・§6 A7）。
 - 新しい設定が既定のときは、着手前に保存した実行体・設定を使い、スキップ無効と既存の有効構成のmetrics checksumを一致させる。古い設定と新しい実行体を組み合わせる比較を保つ（出典: [RFD0103](../../memo/done/0103_temporl_reference_alignment_10rfd.md)、§4 D14・§5.7・§7の受入1）。
 - 既定のfull・decisionの組み合わせではActorの行動・乱数消費とReplayの抽選列を変えず、RFD0103の検証資材でmetrics checksumを一致させる（出典: [RFD0104](../../memo/done/0104_temporl_skip_auxiliary_only_10rfd.md)、§5.7・§7の受入1）。
 - MakeActionOptionsを渡さないstepと行動選択は、nn_traceを作らないことのほかは今と同じ結果にし、決定的な設定の短いRunのmetrics checksumを変更の前後で一致させる（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§5.2・§7のA2・A11）。
@@ -146,12 +167,15 @@
 - `ExperienceSamples`のフィールドの並びを変えるときは、CPUの経路（GridMaze・LunarLander）とCUDAの経路（Atari qbert・DropMerge）の両方の構成で、実装前に保存した実行体と全scalarの点を比べ、学習の速さを交互3巡以上で確かめる（出典: [RFD0128](../../memo/0128_dqn_agent_refactor_bundle_10rfd.md)、§5 D16・D18、§6.4）。
 - Notifierの排他を足しても、Observerを呼ぶ順（登録順）と、Observerが動くスレッド（`Notify`を呼んだスレッド）、例外の伝わり方を変えない。RunnerFrameの終了時の順序（排水のあとに`Detach`）も変えない（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D4・D6・§6.2）。
 - 既定の設定のRunの結果を変えないことは、RFD0103の検証資材と同じ6構成・短縮条件で、実装の前後の実行体の、性能・資源以外の全scalarの一致で確かめる（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§7のA13）。
+- ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
 
 ## 関係
 
 - 設計: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§1・§2。
-- 可変長windowとγ・検証手順: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§6.1.1・§8。通知の寿命は[可観測性](../../design/140_observability.jp.md)、§5.2。
-- ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。
+- 拡張点: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3。
+- 可変長windowとγ・検証手順: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§6.1.1・§8。通知の並行と寿命は[可観測性](../../design/140_observability.jp.md)、§5.1・§5.2。Evaluation Traceの採点と同期、nn_traceの要求は同、§5.3・§5.4。
+- 置き場とテストの参照範囲: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「テスト」。
+- ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)、§6.4（評価の発火列の`offset`・`warmup_count`）。
 - 含まれるアプリケーション: なし。
 
 ## ファイル

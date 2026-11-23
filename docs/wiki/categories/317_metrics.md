@@ -6,6 +6,8 @@
 
 - eventからscalar、trace、画像、動画、GraphVizとartifactへ変換し、値の取得と保存の境界をまとめる。（出典: [可観測性](../../design/140_observability.jp.md)、§1.1・§2・§3）。
 - TimeHeatMapのScale描画・Histgram・SweepedHeatMapは画像自身が画素領域を所有し、生成元を破棄した後も残る画像のコピーが画素を保持する。確保失敗は描画対象と要求寸法を示して停止する（出典: [可観測性](../../design/140_observability.jp.md)、§7.3）。
+- VideoLoggerは最初のframeの幅と高さで作ってRun終了時に閉じ、以降の幅か高さが違う画像と無効な画像は動画から除いて、tagごとにRunで1回WARNする（出典: [可観測性](../../design/140_observability.jp.md)、§7）。
+- 既知のkeyで現在値が成立しない疎なscalarと、休止中や設定で無効にした機能の既知のkeyは`NaN`を、未知のkeyは`nullopt`を返す。Observerは非有限値をEMAと平均へ加えない（出典: [可観測性](../../design/140_observability.jp.md)、§7.1）。
 
 ## 成立の経緯
 
@@ -20,16 +22,16 @@
 - 2026-10-19: Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、本文）。
 - 2026-10-21: scalarとtraceのtarget解決を共用しメトリクス配線を分離した（出典: [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md)、§4.1 D1〜D3）。
 - 2026-10-29: 評価sessionの採用episodeのstep traceを、Evaluation Traceと同じ列の書き方で`metrics.step_trace.[<tag>]`に宣言し、traceの行としてRunの記録に残す案を暫定で起票した（出典: [0184_eval_session_step_trace](../../memo/0184_eval_session_step_trace_10rfd.md)、題・§4 D1・D2・D6）。
-
 - 2026-11-04: 画像メモリの所有権の不一致を、既存の寸法・画素値・画像種別を保って修正した（出典: [RFD0115](../../memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md)、§1.2、[可観測性](../../design/140_observability.jp.md)、§7.3）。
-- 2026-11-12: Evaluation Traceの行を作る部品が、列の宣言から`$agent_step`の鍵を集め、RunnerのActorとあわせて、step診断の部品を作るときに渡す仕様をグリルで決めた（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D3・§5.3）。
-- 2026-11-19: VideoLoggerが、構築時と違う大きさの画像を動画に書かず、tagごとにRunで1回だけWARNを出して続ける仕様をグリルで決めた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D8）。
-- 2026-11-21: video_codecのエラーが`app.metrics_logger.video_codec`の完全キーを示すよう、MetricsLoggerの設定の型が完全キーの記録を運ぶ仕様と、hiddenの設定検査と設計文書の指標名を出荷定義の名前に合わせることをグリルで決めた（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D1・D11）。
+- 2026-11-12: Probeの値が取れない通知を対象ごとにRunで1回にし、動画のcodecの自動選択がlibx264へ切り替えたあとはRunの中で選択を固定して通知を1回にした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D1・§5.5）。
+- 2026-11-15: Evaluation Traceの行を作る部品が、列の宣言から`$agent_step`の鍵を集め、RunnerのActorとあわせて、step診断の部品を作るときに渡すようにした（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D3・§5.3）。
+- 2026-11-19: 可視化・メトリクスのファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
+- 2026-11-20: VideoLoggerが、構築時と違う大きさの画像を動画に書かず、tagごとにRunで1回だけWARNを出して続けるようにした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D8）。
+- 2026-11-21: video_codecのエラーが`app.metrics_logger.video_codec`の完全キーを示すよう、MetricsLoggerの設定の型が完全キーの記録を運ぶようにし、hiddenの設定検査と設計文書の指標名を出荷定義の名前に合わせた（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D1・D11）。
 
 ## 選ばなかった形
 
 - HeatMap派生の描画処理の統合と、画像処理全体の確保・入力検証の一括変更 — 範囲外: 画像の4経路の不具合修正とは別の関心。再開条件: 描画の重複整理、または別の具体的な不具合を修正対象に選んだとき（出典: [RFD0115](../../memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md)、§1.3）。
-
 - step traceをtraceチャネルへ記録する配線 — 範囲外: 鏡写しインスタンスを購読先にする配線と同じ関心である（出典: [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md)、§6）。
 - Event/Observerの型の統一 — 範囲外: step traceとは別の関心。再開条件: 新しいEvent型を足す変更が出たとき（出典: [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md)、§6）。
 - metricsのtrace定義tagをEvaluation Traceの列として参照する形 — 不採用: 見るだけでも記録の宣言が要り、EMA・間隔・集約を持つscalar統計はstepの生値に合わない（出典: [ADR 0057](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、Considered Options）。
@@ -58,15 +60,15 @@
 - 512/1024動画はautoでNVENCを選択し、従来どおり出力できることを確かめる（出典: [RFD0025](../../memo/done/0025_videolog_codec_auto_ffmpeg_guard_10rfd.md)、Testing Decisions）。
 - 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md)、§4.1 D3・§8 1）。
 - step traceの宣言が無い設定では、observerもstep部品も作らず、RFD0103の検証資材の6構成のmetrics checksumを実装の前後で一致させる。既存の1行DSLのtraceの定義の記録（`json/metrics.trace.defs.json`）も前後で同一に保つ（出典: [0184_eval_session_step_trace](../../memo/0184_eval_session_step_trace_10rfd.md)、§4 D2・D4・§7の受入1）。
-
 - 画像の所有権を直すときは寸法・全画素・画像種別を固定入力で比較し、生成・破棄の不一致を修正前に検出するメモリ検査を修正後にも通す。通常Debugの完走だけで代替せず、環境不足の項目は未達として記録する（出典: [RFD0115](../../memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md)、§5 A1〜A3・A7）。
 - step診断へ列の鍵の一覧を渡しても、既存の3つの値（`q_sa`・`state_value`・`approx_priority`）の計算と、知らない鍵が最初の読み出しで止まる時機を変えない（出典: [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D10・§5.3）。
 - 動画の大きさの確かめを足しても、PNGの個別保存、最初の画像が無効なときの挙動、ffmpegの異常でRunを止める扱いを変えない（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D8・§6.3）。
+- ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
 
 ## 関係
 
 - 設計: [可観測性](../../design/140_observability.jp.md)、§1.1・§2・§3。
-- 画像の所有権と検証: [可観測性](../../design/140_observability.jp.md)、§7.3・§9。
+- 出力とlifetime、疎なscalar: [可観測性](../../design/140_observability.jp.md)、§7・§7.1。画像の所有権と検証は同、§7.3・§9。
 - ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。
 - 含まれるアプリケーション: なし。
 

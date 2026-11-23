@@ -4,7 +4,7 @@
 
 ## 今の結論
 
-学習中最良のAtari-5回帰で、実時間優先のBTR比は50M・seed1で66.8%、100M・seed2で83.8%だった。サンプル効率優先50Mは458.3、BTR比82.5%に達した。
+学習中最良のAtari-5回帰で、実時間優先のBTR比は50M・seed1で66.8%、100M・seed2で83.8%だった。サンプル効率優先50Mは458.3、BTR比82.5%に達した。ただしBTR比は分母と分子で評価回数とseed数がそろわず、BTRの公開CSVを評価10回のmaxで取ると92%（90〜96%）になる。
 
 ## 分かっていること
 
@@ -22,11 +22,12 @@
 - 実時間優先50M・seed1のeval2・40–50M窓ではAtari-5 medianが358.0% HNS、回帰が344.8%だった。学習中最良を使うBTRの集計では回帰370.7対555.2、BTR比66.8%だった。（出典: [2026-09-21_realtime-profile-atari5.md](../../experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)、現時点のまとめ1・3、探索ブロック01。Run: `run_20260921-155634_a5_qbert_rr1_50m`, `run_20260921-183247_a5_battle_zone_rr1_50m`, `run_20260921-213901_a5_name_this_game_rr1_50m`, `run_20260922-020046_a5_double_dunk_rr1_50m`, `run_20260922-063422_a5_phoenix_rr1_50m`）。
 - 実時間優先100M・seed2では90–100M窓の回帰444.9、median463.3で、5ゲームとも同Run内の最高窓だった。学習中最良の回帰465.5はBTR555.2の83.8%だった。（出典: [2026-09-21_realtime-profile-atari5.md](../../experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)、現時点のまとめ12・14、探索ブロック04。Run: `run_20260923-163113_a5_qbert_rr1_100m_seed2`, `run_20260923-203734_a5_battle_zone_rr1_100m_seed2`, `run_20260924-095955_a5_name_this_game_rr1_100m_seed2`, `run_20260924-144556_a5_double_dunk_rr1_100m_seed2`, `run_20260925-005343_a5_phoenix_rr1_100m_seed2`）。
 - サンプル効率優先50Mの学習中最良の回帰は458.3、BTR555.2の82.5%。同50Mの実時間優先の2 seedを8.9〜23.6%上回った。ゲーム別BTR比はphoenix94%、name_this_game102%、double_dunk101%、battle_zone68%、qbert60%だった。（出典: [2026-09-25_sample-efficiency-profile-atari5.md](../../experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md)、現時点のまとめ1・3、探索ブロック01。Run: `run_20260925-174945_a5_phoenix_btr50m`, `run_20260926-022413_a5_qbert_btr50m`, `run_20260926-082748_a5_battle_zone_btr50m`, `run_20260926-151320_a5_name_this_game_btr50m`, `run_20260927-101048_a5_double_dunk_btr50m`）。
+- BTR 比の分母と分子は統計量がそろっていない。手元のサンプル効率優先 50M は 1 seed・評価約 10 回の学習中最良で、BTR の Table A2 から計算した 555.2 は 3 seed・評価 200 回の max である。BTR の公開 CSV から調査が計算した Atari-5 回帰は max（K=200）526.7、max（K=10）497.8（取り始めをずらすと 476.8〜509.9）、最後の 10 回の平均 479.8 で、K=10 で取ると 458.3 は 92%（90〜96%）になる。これも 1 seed の max と 3 seed 平均と推定した曲線の max の比で、評価の ε も違う。調査は BTR 比を 10% 以上の幅のある帯として読むことを案に挙げる（出典: [少数 seed での比較と報告のサーベイ](../../../reports/few_seed_comparison_reporting_survey_2026-11-04.md)、4.3・8.2 の 7）。
 - 実時間優先 50M で train の ε ラダーを NoisyNet に置き換える（ε 0）と、Breakout・Atari-5・kung_fu_master の 7 ゲームとも eval2 40-50M が基準のどの seed も下回った。Breakout の 2 × 2 では下がったのはラダーを外したぶんで、NoisyNet をラダーに足した battle_zone と double_dunk は成績が戻ったが立ち上がりが約 10M・約 20M 遅れた（出典: [2026-10-11_noisynet-realtime.md](../../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)、現時点のまとめ1〜3。Run: `run_20261011-182123_breakout_rr1_50m_nz_eps0` ほか同記録の Run）。
 
 ## 分かっていないこと
 
-なし
+- BTR の Table A2 の値は seed ごとの max の平均か。Table A2 から計算した 555.2 は公開 CSV の max（526.7）より 5.4% 高く、BattleZone・Phoenix・qbert はこの向きだが、NameThisGame と DoubleDunk は逆向きである（出典: [少数 seed での比較と報告のサーベイ](../../../reports/few_seed_comparison_reporting_survey_2026-11-04.md)、4.3）？
 
 ## 撤回・更新
 
@@ -35,4 +36,5 @@
 ## 関連
 
 - [replay_ratio_lane_window](../mechanisms/replay_ratio_lane_window.md)。
+- [評価と比較の条件](../mechanisms/evaluation.md)。
 - [campaignにない独自の分析](../../experiments/default-dqn/atari/README.md#独自の分析)。

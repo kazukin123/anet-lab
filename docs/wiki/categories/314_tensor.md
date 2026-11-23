@@ -5,6 +5,7 @@
 ## 概要・責務
 
 - device転送とframe stackを担い、sampleのTensorとCPUに残すmetadata、非同期転送の寿命を扱う。（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.2・§2.3）。
+- `LaneTimeTensorStore`は、lane一式のtensorを時間順に保持し、laneと時間を指定して読む。RNDのrolloutの補助学習に使う（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§3）。
 
 ## 成立の経緯
 
@@ -20,8 +21,14 @@
 - 2026-09-24: device文字列を解決するParseDeviceをtensor_utilにまとめた（出典: [RFD0070](../../memo/done/0070_device_spec_auto_10rfd.md)、確定したD8）。
 - 2026-09-27: ActionContext廃止に合わせstackerをActor私有としstacker側のAgent依存を除いた（出典: [RFD0083](../../memo/done/0083_action_context_retire_10rfd.md)、確定した設計判断5・7）。
 - 2026-10-21: scalarの読み口統一に合わせScaler群の値取得を接続した（出典: [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md)、§4.1 D1・§4.3 規約・ADR・コードから導いたこと）。
-- 2026-11-12: 報酬スケーラに、lane ごとの割引収益の標準偏差で割る種類（`dynamic_mode = return_std`）を足し、動的な種類の状態を checkpoint に保存する仕様を、グリルで決めた（出典: [RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§5 D9・D16・§6.6）。
-- 2026-11-16: 観測の正規化の部品に統計だけを更新する口を足し、累積の統計の部品のbatch方向の集計の式を替える仕様を、グリルで決めた（出典: [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md)、§5.1 D4〜D7）。
+- 2026-11-11: 報酬スケーラの`use_auto_post_scale`、観測の正規化のrobust updateとSymLogの後処理という、既定のプロファイルで動く経路の計算をテストで固定した（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§1.1・§4 D3）。
+- 2026-11-12: RNDのwhitenの統計に使うため、観測の正規化の部品（`ObservationNormalizer`）をcheckpointへ保存できるようにし、正規化の設定の値域を呼び出し側のキーで検証する関数を足した（出典: [RFD0116](../../memo/0116_rnd_lifelong_novelty_10rfd.md)、§4 D5・D12・§5.6）。
+- 2026-11-12: 画像の記録の設定（`metrics.image.[<tag>]`）の読み口が、項目の種類で使わない既知のフィールドも構築時に型付きで読む閉じたスキーマになり、同じtagの二重登録と観測の正規化の未知の後処理の種類を、WARNで流さずに止めるようにした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D7・§5.3・§5.5）。
+- 2026-11-15: 報酬スケーラに、lane ごとの割引収益の標準偏差で割る種類（`dynamic_mode = return_std`）を足し、動的な種類の状態を checkpoint に保存するようにした（出典: [RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§5 D9・D16・§6.6）。
+- 2026-11-16: 観測の正規化の部品に統計だけを更新する口を足し、累積の統計の部品のbatch方向の集計の式を替えた（出典: [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md)、§5.1 D4〜D7）。
+- 2026-11-19: テンソル処理のファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
+- 2026-11-21: `ParseDevice`がキーの名前を必須で受け取り、文法の誤りの文面にそのキーと指定値を書くようにし、報酬スケーラ・観測の正規化・画像の記録のエラーとWARNが示す設定キーを完全キーにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D8・§6.3）。
+- 2026-11-22: RNDのpredictorの補助学習のrolloutをためるため、lane×時間のtensorをキーごとにためてlaneと時間の番号で読む汎用の置き場（`LaneTimeTensorStore`、機能グループ`tensor_store`）を足す仕様を決めた。フレーム積層の履歴とReplayの観測の置き場は載せ替えない（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.1 D2・D56・§8.4）。
 
 ## 選ばなかった形
 
@@ -30,6 +37,10 @@
 - 累積の統計の部品のbatch方向の集計の式を替えない形と、RNDだけが使う集計の口を足す形 — 不採用: 替えないと計算deviceがCPUの構成に遅い行が残り、口を分けても、その行を通るのは出荷の設定ではRNDだけで経路が二重になる（出典: [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md)、§5.1の退けた案）。
 - 累積の統計も計算deviceに置く形 — 不採用: 得が合流と転送の0.083 msにとどまり、診断値を読むたびの同期と、推定器の写しの作りに触ることになる（出典: [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md)、§5.1 D8）。
 - 統計つきの正規化に、平均と標準偏差の写しを持たせない形 — 不採用: 別モデルの検討が推したが、開発者が、写しを作る時点と置き場の決まりを書いて入れると選んだ（出典: [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md)、§5.1 D5・退けた案）。
+- 報酬スケーラのWARNと、DefaultDQNAgentの経路での後処理の種類の検証を、テストの空白の片づけで直す形 — 範囲外: RFD0117の範囲（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§7）。→ RFD0117 で採用。未知の後処理の種類を構築時の検証で止める（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§5.5）。
+- 汎用の置き場を作らず、RNDの中だけでintakeごとの観測を並べて持つ形 — 不採用: ためる仕組みを汎用にして共通化する開発者の指示による。部品と契約と受入は要らなくなるが、あとで載せ替える先が無い（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.4）。
+- フレーム積層の履歴やReplayの観測の置き場も、同じRFDで新しい置き場の部品に載せ替える形 — 範囲外: 全RunのActorの毎step、Pushと抽出に触る。課題に残した（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.4・§1.4）。
+- 置き場の部品を`tensor_util`か`stacker`の機能グループに入れる形 — 不採用: `tensor_util`に状態を持つ置き場を入れると関心が混ざり、`stacker`に入れると、載せ替えのときにReplayがフレーム積層のヘッダを読む向きになる（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§8.4）。
 
 ## 変えるときの条件
 
@@ -38,11 +49,14 @@
 - H2DとLearner streamを安全につなぐeventのrecord/waitを維持し、性能改善のために消さない（出典: [RFD0020](../../memo/done/0020_device_transfer_common_part_10rfd.md)、Context / Problem Statement）。
 - 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [RFD0083](../../memo/done/0083_action_context_retire_10rfd.md)、Context・確定した設計判断2〜4・11）。
 - 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md)、§4.1 D3・§8 1）。
+- 小さなリファクタリングとテストの追加の前後で、RFD0098の検証資材の短いRun（4環境、seed 1、決定的モード）を流し、時間と資源のtagを除く全scalarの点を一致させる（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D8・§6 A7）。
+- ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
+- `LaneTimeTensorStore`に、上限に達したら古い時間から上書きする書き方を足すときは、作るときに選ぶ形にし、上限を超えたらERRORにする今の契約を選んだ使い手の動きを変えない（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§8.5）。
 - 累積の統計の部品の集計の式を変えるときは、全要素の集計の行（報酬スケーラが通る）を動かさず、新しい経路とCPU・倍精度の参照の計算の差を単体テストで確かめる（観測の統計の平均と標準偏差が相対1e-4以内）（出典: [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md)、§5.1 D7、§7の5）。
 
 ## 関係
 
-- 設計: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.2・§2.3。
+- 設計: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.2・§2.3・§3。
 - ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。
 - 含まれるアプリケーション: なし。
 
