@@ -13,7 +13,7 @@
 | anet-housekeeping | 残トークンと残時間の予算内で、下の定常整備を自動選定して順に回す。予算は `auto` / `S` / `M` / `L` / `NN%`。Codex は残量 API が無いので予算引数が必須 | `/anet-housekeeping S dry-run`、`$anet-housekeeping M` | `reports/housekeeping/runs.jsonl` |
 | anet-stats | git 履歴とローカル Run フォルダから定点統計を再生成し、digest を追記する。分類の正本は `reports/tools/categories.json` | `/anet-stats` | `reports/stats/` |
 | anet-ingest-wiki | 正本を wiki へ取り込む。トピック別まとめの新設時は課題区画も生成する | `$anet-ingest-wiki` | `docs/wiki/`、INDEX |
-| anet-lint-wiki | 取り込み漏れ・撤回・リンク・実装済み RFD を点検し、派生一覧を再生成する | `$anet-lint-wiki max=3` | `docs/wiki/`、INDEX |
+| anet-lint-wiki | 取り込み漏れ・撤回・リンク・実装済み RFD を点検し、派生一覧を再生成する | `$anet-lint-wiki` | `docs/wiki/`、INDEX |
 | anet-audit | 観点 1 つ×範囲 1 つで定点監査し、指摘を issue へ記録する。既存課題は AI の判定を更新し、本文へは追記だけを行う（足す節は anet-create-issue の「起票のあとの追記」） | `$anet-audit lens=refactor scope=318_rl_core` | `docs/management/issues/`、INDEX、wiki の課題区画 |
 | anet-translate-docs | `docs/design/*.jp.md` を 1 本ずつ英訳して `.en.md` を隣に置く。訳元の blob hash を 1 行目に持つ | `/anet-translate-docs 010_framework_overview.jp.md` | `docs/design/*.en.md`、`reports/translate/glossary.json` |
 | anet-survey-queue | `reports/INDEX.md` のキューからサーベイを 1 件回し、済みへ移す。`survey` か `paper-details` スキルが必要 | `/anet-survey-queue` | `reports/*.md`、`reports/INDEX.md` |
