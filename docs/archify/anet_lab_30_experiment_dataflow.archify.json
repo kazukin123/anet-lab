@@ -6,7 +6,7 @@
     "quality_profile": "showcase",
     "viewBox": [
       1080,
-      600
+      640
     ]
   },
   "stages": [
@@ -85,9 +85,9 @@
       "id": "viewer",
       "type": "external",
       "label": "Metrics Viewer",
-      "sublabel": "SQLite cache",
+      "sublabel": "SQLite cache・比較",
       "stage": 4,
-      "row": 0,
+      "row": 2,
       "tag": "導出 cache",
       "width": 132
     },
@@ -107,8 +107,18 @@
       "label": "bridge・inspect_run",
       "sublabel": "TensorBoard・MLflow",
       "stage": 4,
-      "row": 2,
+      "row": 0,
       "tag": "読むだけ",
+      "width": 132
+    },
+    {
+      "id": "config_copy",
+      "type": "database",
+      "label": "config_data.txt",
+      "sublabel": "Run の設定の写し",
+      "stage": 4,
+      "row": 3,
+      "tag": "config/",
       "width": 132
     }
   ],
@@ -201,6 +211,29 @@
       "label": "読み取り",
       "classification": "別 process",
       "variant": "dashed"
+    },
+    {
+      "id": "config-copy",
+      "from": "config",
+      "to": "config_copy",
+      "label": "設定の写し",
+      "classification": "起動時に書く",
+      "fromSide": "bottom",
+      "toSide": "left",
+      "via": [
+        [
+          100,
+          499
+        ]
+      ]
+    },
+    {
+      "id": "copy-viewer",
+      "from": "config_copy",
+      "to": "viewer",
+      "label": "Config タブ",
+      "classification": "Run 間の差",
+      "variant": "dashed"
     }
   ],
   "cards": [
@@ -208,8 +241,8 @@
       "dot": "emerald",
       "title": "正本と導出物",
       "items": [
-        "metrics.jsonl（.gz）が scalar と trace の正本。metrics_cache.db は作り直せる cache",
-        "画像は images/、動画は videos/*.mkv、設定は config/ に置く"
+        "metrics.jsonl（.gz）と config/ が正本。Viewer が Run フォルダに置く metrics_cache.db は作り直せる cache",
+        "画像は images/、動画は videos/*.mkv。範囲の統計は cache の scalars から引く"
       ]
     },
     {
@@ -217,15 +250,15 @@
       "title": "device と process の境界",
       "items": [
         "Env の State・Experience と ReplayBuffer は CPU。Actor と Learner が device へ移す",
-        "Viewer・bridge・inspect_run は別 process でファイルだけを読む"
+        "Viewer・bridge・inspect_run は別 process でファイルを読む"
       ]
     },
     {
       "dot": "cyan",
       "title": "根拠",
       "items": [
-        "書き手: metrics_logger.hpp の LogScalar・LogTrace",
-        "読み手: MetricsIngestor.java、apps/tools/metrics_source.py"
+        "書き手: metrics_logger.hpp の LogScalar・LogTrace、RunnerApp の Log(\"config_data\")",
+        "読み手: MetricsIngestor.java、RunConfigService.java、apps/tools/metrics_source.py"
       ]
     }
   ]

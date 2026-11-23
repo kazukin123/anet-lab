@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:92f12382dd0fb64a497c0345e04badeee47b35a3 date:2026-11-21 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:f2d68e061b9048e6029ec7ad56a934f99a48dfcb date:2026-11-23 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -305,7 +305,7 @@ X.key ?= v              既定キー。X.$ に負ける
 The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). Do not use `?=` merely because a value might be overridden later. Group only the configuration keys that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
 
 ```bash
-.\.venv\Scripts\python.exe src/core/base/testdata/prd072/check_default_leaves.py
+.\.venv\Scripts\python.exe src/core/base/testdata/rfd0072/check_default_leaves.py
 ```
 
 `rg` (ripgrep) must be on PATH. Defaults intentionally written with `=`, such as seeds in `DropMerge_optuna.txt`, must have their classification reasons registered in the checker.

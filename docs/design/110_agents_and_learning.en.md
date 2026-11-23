@@ -1,4 +1,4 @@
-<!-- translated-from: 110_agents_and_learning.jp.md blob:02140f2f51d327d1ade91144b3ed3230c03554ca date:2026-11-21 progress:done -->
+<!-- translated-from: 110_agents_and_learning.jp.md blob:f2a68ec330a423be5ea29ef1de96e674ba9d0601 date:2026-11-23 progress:done -->
 # Agents and Learning
 
 > Primary perspective: function (shared Agent, Actor, and Learner contracts, with processing stages in chronological order)
@@ -160,7 +160,7 @@ DefaultDQN selects the skip network configuration with `skip.network_mode=action
 
 With DefaultDQN skip enabled, Actor owns each lane's ongoing action, selected length, and remaining count. `episode_start` clears continuation, and `decision` in info marks a new decision. Runner steps and Env frame skip remain unchanged, and the primary forward still runs every step. Primary and skip cloning and synchronization occur under the same Agent lock. The forced-action operation `WithAction` replaces the executed action and Q hint without updating Actor's continuation state.
 
-DefaultDQN Actors choose full, single or variable through `skip.max_length_mode`. Full/variable own continuation state; single decides every step and uses the primary proposal directly. Variable advances its integer ProfiledValue with the training exp_step supplied to MakeAction (evaluation uses the latest synchronized counts). Every mode retains skip forward and J-wide auxiliary values. The Agent validates the entire Actor catalog against the auxiliary target-window choice without inferring Runner roles. See [DQN skip policy](200_dqn_agents.en.md) and [PRD104 validation](../../src/core/base/testdata/rfd0104/README.md).
+DefaultDQN Actors choose full, single or variable through `skip.max_length_mode`. Full/variable own continuation state; single decides every step and uses the primary proposal directly. Variable advances its integer ProfiledValue with the training exp_step supplied to MakeAction (evaluation uses the latest synchronized counts). Every mode retains skip forward and J-wide auxiliary values. The Agent validates the entire Actor catalog against the auxiliary target-window choice without inferring Runner roles. See [DQN skip policy](200_dqn_agents.en.md) and [RFD0104 validation](../../src/core/base/testdata/rfd0104/README.md).
 
 ### 6.2 Accepting Experiences and Returning Updates
 
@@ -222,7 +222,7 @@ When adding or changing checkpoint support, identify unsaved State and check the
 
 See the [extension point table in the framework overview](010_framework_overview.en.md#43-extension-points) for the public extension points.
 
-Shared factory registration and Runner integration are checked in [init_test.cpp](../../src/core/base/src/init_test.cpp) and [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp); algorithm internals are checked by each concrete Agent's tests. The Actor catalog contract tests `[prd061]` and the comparison procedure for the configuration rename and catalog migration are described in [testdata/prd061/README.md](../../src/core/base/testdata/rfd0061/README.md).
+Shared factory registration and Runner integration are checked in [init_test.cpp](../../src/core/base/src/init_test.cpp) and [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp); algorithm internals are checked by each concrete Agent's tests. The Actor catalog contract tests `[rfd0061]` and the comparison procedure for the configuration rename and catalog migration are described in [testdata/rfd0061/README.md](../../src/core/base/testdata/rfd0061/README.md).
 
 When adding or modifying an Agent, check at least the following:
 

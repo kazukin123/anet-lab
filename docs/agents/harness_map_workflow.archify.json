@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "workflow",
   "meta": {
-    "title": "PRD を起こし、実装して確かめる",
+    "title": "RFD を起こし、実装して確かめる",
     "quality_profile": "showcase",
     "viewBox": [1110, 714]
   },
@@ -23,8 +23,8 @@
   "nodes": [
     { "id": "read_rules", "lane": "common", "col": 0, "type": "frontend", "label": "入口読み", "sublabel": "AGENTS.md" },
     { "id": "read_personal", "lane": "common", "col": 1, "type": "external", "label": "ユーザー環境", "sublabel": "指示・skill", "width": 108 },
-    { "id": "write_prd", "lane": "authoring", "col": 1, "type": "backend", "label": "起票", "sublabel": "グリル・起草" },
-    { "id": "regrill_prd", "lane": "inspection", "col": 1, "type": "backend", "label": "再グリル", "sublabel": "別の枠で精査" },
+    { "id": "write_rfd", "lane": "authoring", "col": 1, "type": "backend", "label": "起票", "sublabel": "グリル・起草" },
+    { "id": "regrill_rfd", "lane": "inspection", "col": 1, "type": "backend", "label": "再グリル", "sublabel": "別の枠で精査" },
     { "id": "human_adjust", "lane": "human", "col": 1, "type": "external", "label": "調整", "sublabel": "枠を仲介" },
     { "id": "edit_validate", "lane": "implementing", "col": 2, "type": "backend", "label": "計画・実装", "sublabel": "条件読み・編集" },
     { "id": "verify_work", "lane": "implementing", "col": 3, "type": "backend", "label": "検証", "sublabel": "テスト章" },
@@ -35,12 +35,12 @@
     { "id": "experiment_record", "lane": "common", "col": 5, "type": "database", "label": "実験記録", "sublabel": "experiments" },
     { "id": "build_guide", "lane": "common", "col": 3, "type": "backend", "label": "ビルド", "sublabel": "040" }
   ],
-  "mainPath": ["read_rules", "read_personal", "write_prd", "regrill_prd", "human_adjust", "edit_validate", "verify_work", "review_work", "human_commit"],
+  "mainPath": ["read_rules", "read_personal", "write_rfd", "regrill_rfd", "human_adjust", "edit_validate", "verify_work", "review_work", "human_commit"],
   "edges": [
     { "from": "read_rules", "to": "read_personal" },
-    { "from": "read_personal", "to": "write_prd", "fromSide": "top", "toSide": "bottom" },
-    { "from": "write_prd", "to": "regrill_prd", "fromSide": "top", "toSide": "bottom" },
-    { "from": "regrill_prd", "to": "human_adjust", "fromSide": "top", "toSide": "bottom" },
+    { "from": "read_personal", "to": "write_rfd", "fromSide": "top", "toSide": "bottom" },
+    { "from": "write_rfd", "to": "regrill_rfd", "fromSide": "top", "toSide": "bottom" },
+    { "from": "regrill_rfd", "to": "human_adjust", "fromSide": "top", "toSide": "bottom" },
     { "from": "human_adjust", "to": "edit_validate", "fromSide": "right", "toSide": "top" },
     { "from": "edit_validate", "to": "verify_work" },
     { "from": "verify_work", "to": "review_work", "fromSide": "top", "toSide": "left" },

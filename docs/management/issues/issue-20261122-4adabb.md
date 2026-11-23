@@ -11,8 +11,8 @@ area:
   - 316_config
 type: 不具合
 domain: 開発
-ai_judge: 未確認
-ai_judged:
+ai_judge: 残件有り
+ai_judged: 2026-11-23
 docs:
   - docs/memo/done/0072_config_selection_final_value_10rfd.md
   - docs/memo/0191_rnd_raw_error_and_recent_learning_20impl.md

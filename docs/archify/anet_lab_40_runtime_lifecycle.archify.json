@@ -182,15 +182,15 @@
       "title": "一時停止と終了処理",
       "items": [
         "Pause は step の境目で効くフラグ。Close 時の Keep running は同じ RunnerThread を再始動する",
-        "終了処理は保存・排水・ログを閉じる順。OnExit が MetricsLogger を閉じる"
+        "終了処理は保存・排水・ログを閉じる順。Frame の Observer は排水の後に外す"
       ]
     },
     {
       "dot": "rose",
       "title": "失敗の扱い",
       "items": [
-        "例外は main thread で投げ直して報告し、OnExit が排水して 1 を返す",
-        "Env か Agent を作れない時は例外にせず、学習を始めない"
+        "設定の誤りは完全キーを添えた例外で構築を止める",
+        "例外は main thread で投げ直して報告し、OnExit が排水して 1 を返す。Env か Agent を作れない時は学習を始めない"
       ]
     }
   ]

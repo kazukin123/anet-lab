@@ -1,4 +1,4 @@
-<!-- translated-from: 210_metrics_viewer.jp.md blob:668517088ae0a6494a1b0e6fcf9866ac1af3a1a3 date:2026-11-21 progress:done -->
+<!-- translated-from: 210_metrics_viewer.jp.md blob:f468bce7519636a35fb4b858171f50e94916e1d9 date:2026-11-23 progress:done -->
 # Metrics Viewer
 
 > Primary perspective: concrete application (ingestion, cache DB, range queries, and browser rendering in processing order)
@@ -85,9 +85,9 @@ The detailed chapters for each stage are:
 |---|---|
 | 1→2 ingestion | 6.1 (flow), 8.2–8.3 (storage and rebuild conditions) |
 | 2 data structure | 8.2 (table definitions) |
-| 2→4 range query | 6.2 (flow), 9.2 (point budgets and availability) |
+| 2→4 range query | 6.2 (flow), 9.3 (point budgets and availability) |
 | 3 LOD page cache | 10.1 (lifetime), 10.4 (performance) |
-| 4 transport format | 9.4 (binary encoding) |
+| 4 transport format | 9.5 (binary encoding) |
 | 5–6 client | 6.3 (flow), 7.4 (constants and persistent state) |
 
 Metrics Viewer does not connect directly to the Runner process. Its only inputs are Run folders in the `runs` directory.
@@ -217,7 +217,7 @@ Each range response is self-contained and independent of the previous response, 
 Series that share one graph are fetched in one request. Select the Step width from the visible viewport before extending it for prefetch. Align window boundaries to the common bins so panning does not shift the grid. Normal mode renders Plotly only within one scroll viewport before and after the visible area. Retain selected detail windows in a 64 MiB LRU and prefetch nearest graphs while capacity remains; scrolling alone does not discard windows. Fetch compact overviews for all selected tags first, using about 64 common Step bins over each tag's full range and batches of eight graphs. Lightweight SVG exported from the same Plotly figure as details keeps overview lines visible offscreen and while details load. Replace the whole graph when all Runs have matching detail resolution; never mix overview and detail series in one graph. Keep blocks at the configured `Height` (300 px by default) and retain headers and scroll position; replace only the inner content after rendering completes. Screenshot mode fetches all selected graphs sequentially.
 If any one series needs refetching, all series of that graph are refetched together. Overview responses also update all Runs atomically. The 64 MiB cap accounts for decoded detail arrays and per-series management overhead; it is not a process-wide limit including SVG, Plotly, or server heap.
 
-Overview SVGs use Plotly 2.27 with the same traces/layout as details; there is no handwritten coordinate, axis, or Band renderer. The shared header's Log/percentile controls and legend visibility state apply to both. Overviews remain static images; hover, zoom/pan, and legend clicks are handled by detailed plots. Generate nearest graphs first, one at a time, yielding between jobs. Network queries and detailed rendering do not await SVG generation. Retain one current image per tag and regenerate on data, selection, width, or display-setting changes. Workspace changes invalidate older image jobs.
+Overview SVGs use the bundled Plotly with the same traces/layout as details; there is no handwritten coordinate, axis, or Band renderer. The shared header's Log/percentile controls and legend visibility state apply to both. Overviews remain static images; hover, zoom/pan, and legend clicks are handled by detailed plots. Generate nearest graphs first, one at a time, yielding between jobs. Network queries and detailed rendering do not await SVG generation. Retain one current image per tag and regenerate on data, selection, width, or display-setting changes. Workspace changes invalidate older image jobs.
 
 Keep the previous content until new SVG decoding or detailed rendering completes. Reject late results whose Run selection, cache generation, display settings, or width no longer match. Scroll rendering updates use requestAnimationFrame separately from network debounce.
 
@@ -269,7 +269,9 @@ A one-second soft budget or a pending priority change, workspace switch, or shut
 | `MetricsRangeProjector` | Builds raw and LOD projections, reaggregating only partial buckets from lower levels |
 | `LodPageCache` | Heap LRU cache holding only completed buckets in pages of 1024. The tail page is reread only when it falls short of the completed-bucket count derived from the snapshot's tag point count |
 | `MetricsService` | Handles LoadingThread lifecycle, metrics body/header validation, coordinator execution, snapshot lease acquisition, and HTTP error conversion |
-| `MetricsViewerController` | Exposes Run, metrics, and priority REST APIs |
+| `MetricsViewerController` | Exposes Run, metrics, priority, configuration, and range statistics REST APIs |
+| `RunConfigService` / `ConfigTextReader` | Pins the working set, opens each Run's config TXT, reads it with the framework's line rules, and returns per-Run results |
+| `RangeStatsQuery` | Scans L0 ordinal ranges within the same read snapshot and computes range statistics |
 | `WorkspaceController` | Exposes workspace listing/switching APIs and converts malformed JSON to 400 `invalid_request` only within this controller |
 | `TagSetStore` | Owns startup validation, initial-file copying, the in-memory list, and serialized file updates |
 | `TagSetController` | Exposes tag set listing, creation, update, rename, and deletion, and maps malformed JSON within this controller to 400 |
@@ -282,32 +284,37 @@ A one-second soft budget or a pending priority change, workspace switch, or shut
 | Component | Definition |
 |---|---|
 | `MetricsViewerClientApp` | Client app owning Run/tag selection, Run colors, viewports, rendering generations (revisions), and poll timers |
-| `DataFetcher` | Handles REST calls, page-level query channels/sequences, and cancellation of old requests with AbortController |
+| `DataFetcher` | Handles REST calls, query channels/sequences per browser tab and query type, and cancellation of old requests with AbortController |
 | `DataCache` | Holds Run metadata, one detail window and one overview per `(runId, tagKey)`. Each window carries the tag point count, last step, and status at fetch time, used for freshness checks on Reload |
 | `OverviewSvgRenderer` | Serially exports shared figures using one workbench Plotly, retains the latest SVG per tag, and publishes only results matching the current model and generation |
 | `PlotlyController` | Handles raw/MinMax/Mean/Band rendering, signed-log axes, zoom/pan, scroll lock, and legend state. Manages per-graph data selection, shared display models and frames; replaces changed graph contents after drawing completes |
-| `UIController` | Handles Run/Tag lists, progress display, and static control binding |
+| `UIController` | Handles the Run and tag lists, filtering and bulk actions, progress display, and static control binding |
+| `MainTabBar` | Holds the switch between Graphs and Config, pausing graph updates and interaction while Config is shown. Returning to Graphs fits dimensions and resumes updates |
+| `ConfigTableView` | Requests the configuration of the selected Runs and shows the union of keys, differences between Runs, and loading state as a table |
+| `KeywordMatcher` | Decides the text filtering shared by Run names, tag keys, and config keys |
+| `TagInfoPanel` | Opens a panel from a tag name and shows statistics over the full range and the visible range, per Run and across all Runs. Copying the name uses the same path as the Run info panel |
 | `RunInfoPanel` | Hover over or right-click a Run row (press and hold on touchscreens) to see its import status, maximum step, tag and quarantined tag counts, total point count, import and tag issues, and a control for copying the Run name. A single panel sits directly under the document body. Its contents and position update whenever the Run list redraws or ingestion progress changes. If the Clipboard API is unavailable or denied, as can happen over HTTP from another device, the panel copies the selected text instead |
 | `TagSetMenu` | Renders the tag set controls, expandable list, editing, confirmation, and keyboard controls. `MetricsViewerClientApp` owns the selected name, fetched list, and per-set unsaved changes |
 | `Toast` | Displays temporary error notifications using CSS `.toast` rules |
 
 ### 3.3 UI Control Conventions
 
-Browser controls fall into five groups: immediate actions, toggles, cycles, expandable controls, and continuous values.
-Continuous values use `input type="range"`. The other four groups use `button` elements distinguished by their labels. Workspace and LOD selectors use `select` to choose one item from a list.
+Browser controls fall into six groups: immediate actions, toggles, cycles, expandable controls, continuous values, and tabs.
+Continuous values use `input type="range"`. The other groups use `button` elements distinguished by their labels. Workspace and LOD selectors use `select` to choose one item from a list.
 
 | Type | Label | State |
 |---|---|---|
+| Tab | Name of the view to switch to (`Graphs`, `Config`) | Mark the selected one with `.active` and `aria-selected="true"` |
 | Expandable | Current value and `▾`; fills the remaining row width and truncates only the name | While open, set `.active` and `aria-expanded="true"` together; do not use `aria-pressed` |
 | Immediate action | Starts with a verb: `Reload`, `Select All`, `Select Latest`, `Recolor`, `Clear All`, `Reset View`, `Copy Name` | None |
-| Toggle | Noun phrase without an initial verb: `Auto Reload`, `Auto Recolor`, `Selected Only`, `Scroll Lock`, `Log` | Update `.active` and `aria-pressed` together |
+| Toggle | Noun phrase without an initial verb: `Auto Reload`, `Auto Recolor`, `Selected Only`, `Scroll Lock`, `Log`, `Diff Only` | Update `.active` and `aria-pressed` together |
 | Cycle | States the current step as is: the graph lower limits `p0–` / `p1–` / `p5–` and upper limits `–p100` / `–p99` / `–p95` | Each press advances to the next step in a fixed order, returning to the first step after the last. Set `.active` and `aria-pressed` ON for every step except the first |
 | Continuous value | Place the slider and its current value after the name and colon, as in `Height:`. Hide it at widths of 900 px or less, where the upper-right controls would overlap the left panel header | The slider position and number show the value. Reserve enough width for the longest number and omit the pressed color. During dragging (`input`), update only the number. Redraw once on release (`change`). JavaScript constants supply the range and step |
 
 In each section heading row, place list operations left-aligned after the label.
 Only overflowing controls move to the next row (Runs' `Recolor` / `Auto Recolor`).
 Sidebar buttons have the same dimensions whether in heading rows, button rows, or global controls.
-When a bulk action such as `Select All` is pressed while filtering, clear the filter and execute the action instead of disabling the button.
+Pressing a bulk action clears `Selected Only`. Text filters remain, and bulk actions apply only to matching rows. Filters for Run names, tag keys, and config keys split the input on JavaScript `\s` and keep rows in which every word matches as a case-insensitive substring. Runs' `Select All` adds matching Runs to the selection, and `Select Latest` selects only the latest matching Run. Tags' `Select All` and `Clear All` add or remove matching tags. The Runs search box sits below Recolor, and the Tags search box below the tag set; both sit directly above their lists. Runs and Tags filter text persists across workspace switches.
 Disable immediate actions whose prerequisites are absent. Tag set `Save` and `Revert` require a selected set with changes. Disabled text and borders are weaker than `--control-border`.
 
 Indicate on/off only through pressed colors, not label text. Centralize state updates in `setToggleState()`
@@ -319,12 +326,16 @@ Control borders use one level, `--control-border` (`--control-border-hover` on h
 weaker than container borders such as `.section` using `--container-border`.
 ON colors use `--active-background` / `--active-accent` / `--active-text`.
 
+Tabs are fixed at the upper left of the main area. On screens too narrow to fit them on the same row as the upper-right controls, they move to the row below so both remain operable. Config shows the selected Runs as columns in the same order as the Run list. Keys are the union over successful columns, and rows whose values or key presence differ are highlighted. Keys and values wrap within cells; with many columns, only the table scrolls horizontally. The key column is fixed on the left. The search box and `Diff Only` stay outside the table. On narrow screens, Config moves the side panel above the table so the config table and controls use the screen width. The key column width fits the area available for the table. `Diff Only` and key filtering both apply. A cell without the key shows `(none)`, a column without a config file shows `設定なし` (no config), and errors and Runs absent from the working set show `⚠` carrying a message. Configuration is refetched when the selection changes or on manual Reload.
+
+Hovering, clicking, right-clicking, or tapping a tag name in a graph opens the info panel. Browser text selection of tag names in graph headings is suppressed; the tag name in the panel remains selectable for copying. `All` is TagStats. When the horizontal axis includes all points, only `All` is shown. When zoom or pan narrows the visible range, `Viewing (start-end)` is added, and 200 ms after interaction stops, the closed interval of integer steps in the visible range is queried. Each set lists Count, Max, Mean, Min, Std (population standard deviation), and Last. The all-Runs row combines count, mean, and population variance weighted by count. All-Runs Last and cells awaiting ingestion or a query are blank; cells without points show `-`. If any Run in a set is unresolved, that set is also blank in the all-Runs row.
+
 ### 3.4 Screenshot Mode
 
 Screenshot mode collapses only the display to produce images for pasting; it does not stop data updates.
 The `screenshotModeEnabled` flag is independent of the initialization `Mode`. Users can toggle it during initialization, and completing initialization preserves the flag. If initialization fails, users can leave screenshot mode. Entry is blocked so Reload remains accessible in the side panel.
 A fixed spinner in the upper-left corner replaces the hidden side-panel spinner.
-Screenshot mode hides the side panel and floating graph controls (`Height`, LOD, `Reset View`, and `Scroll Lock`). It sets `#main-area` overflow to visible, moves scrolling to the document, and shows a header with Run names.
+Screenshot mode hides the side panel, the Graphs/Config tabs, and floating graph controls (`Height`, LOD, `Reset View`, and `Scroll Lock`), and shows the content of the currently open tab. It moves scrolling to the document and shows a header with Run names.
 Auto Reload and manual Reload work as usual; while the side panel is hidden and the Reload button cannot be pressed, double-clicking a graph serves as the Reload entry point.
 While the Run list that shows progress is hidden, only the ingestion-progress poll stops.
 
@@ -581,7 +592,7 @@ Each window carries the tag point count, last step, and status at the time the f
 
 Steps within a tag are nondecreasing, so appended points have steps at or beyond the last step at fetch time. Graphs zoomed into a past interval, whose window's right edge does not reach that step, are not refetched even when the point count grows.
 
-Rendering is reconciled per graph. `PlotlyController` looks up blocks by tagKey and retains the outer frame and shared header. The display model's render key includes data windows, overview/detail tier, selected Runs, width, height, LOD display mode, Log, percentiles, axis ranges, Scroll Lock, and legend visibility/colors. An unchanged key skips drawing and updates metadata-derived statistics and warnings.
+Rendering is reconciled per graph. `PlotlyController` looks up blocks by tagKey and retains the outer frame and shared header. The display model's render key includes data windows, overview/detail tier, selected Runs, width, height, LOD display mode, Log, percentiles, axis ranges, Scroll Lock, and legend visibility/colors. An unchanged key skips drawing and updates metadata-derived header warnings.
 Legend visibility, axis ranges, and drag mode are read back with `capturePlotState` before drawing. A changed key replaces only the content after SVG decoding or detailed Plotly drawing finishes, retaining the previous display until then. Late results are applied only when the current selection, generation, and display settings still match.
 A Plotly redraw takes tens of milliseconds per graph (an earlier full redraw of 137 graphs × 5 Runs measured about five seconds), so limiting the affected graphs determines Reload response time.
 Changing `Height` redraws all graphs.
@@ -666,11 +677,12 @@ With `Auto Recolor` ON, Runs that were not selected at the previous resolution, 
 Solo selection through consecutive clicks on the same Run row treats both clicks as one operation. A previously selected Run keeps its color; a previously unselected Run receives `#2F7DE1` as the sole newly selected Run.
 Neither operation changes unselected Run colors. Once all 20 palette colors have been allocated, allocation starts another round.
 
-The browser saves the following twelve items in `localStorage`. Viewports, legend visibility, Run selection, Run colors, and the Runs `Selected Only` toggle are transient. That toggle starts off each time because only the latest Run is selected at startup. Log settings and percentile limits use tag keys without workspace names and apply to identically named tags across workspaces.
+The browser saves the following thirteen items in `localStorage`. Viewports, legend visibility, Run selection, Run colors, and the Runs `Selected Only` toggle are transient. That toggle starts off each time because only the latest Run is selected at startup. Log settings and percentile limits use tag keys without workspace names and apply to identically named tags across workspaces.
 
 | Key | Contents |
 |---|---|
 | `anet.metricsviewer.workspace` | Last selected workspace; overwritten by server current if absent from the list |
+| `anet.metricsviewer.mainTab` | `graphs` / `config`. The default and unknown values are `graphs` |
 | `anet.metricsviewer.activeTags` | Currently selected tag set |
 | `anet.metricsviewer.tagSet` | Selected tag set name as a JSON string; absent when deselected. Startup restores only the name and keeps the selection from activeTags |
 | `anet.metricsviewer.tagSetDrafts` | Unsaved tag selections of each tag set that is not selected. Saved as a `{"<name>": [tag, ...]}` JSON object in lexicographic order of names and tags; the key is removed when empty. The selected set's changes live in activeTags. An invalid value is discarded entirely with a warning |
@@ -882,7 +894,7 @@ Required headers:
 
 | Header | Contract |
 |---|---|
-| `X-Query-Channel` | Nonblank string of 1–128 characters corresponding to one browser tab; not trimmed |
+| `X-Query-Channel` | Nonblank string of 1–128 characters, distinct for each pair of browser tab and query type; not trimmed |
 | `X-Query-Sequence` | Nonnegative JavaScript safe integer increasing with each POST within the channel |
 
 When the page is created, the browser uses `crypto.randomUUID()` for its channel if available. Where the API is undefined, such as insecure remote HTTP, it generates a tab-specific channel of at most 128 characters from the time and multiple random fragments, preserving access via `http://<host>:8082`.
@@ -911,6 +923,8 @@ Response, per series:
 | Tag exists but has zero points | `pending` | `empty` |
 | No points in range | `pending` | `empty` |
 | Points in range | `ok` | `ok` |
+
+In the table, Ingesting means the Metrics cache `state` (`source_meta` in §8.2) is `pending` or `converting`, and Ingestion complete means `ready` or `error`. A Run in `error` makes no further ingestion progress, so definitive values are returned.
 
 `MetricsQueryPlanner` calculates each available series' vertex upper bound. Exceeding an individual `maxPoints` or the total `max-points-per-request` returns 422 without changing Step width.
 
@@ -962,6 +976,27 @@ Calling a set replaces the entire selection, including tags absent from the visi
 Unsaved changes are kept per set in the browser and are never sent to the server. Calling another set or Deselect keeps the previously selected set's selection if it differs, and the next call of that set restores it instead of the saved contents. Reselecting the selected set leaves the selection unchanged; only Revert returns to the saved contents. Save As does not keep the original set's changes (they are treated as moved to the new set). Renaming moves the changes to the new name; deletion or disappearance from the list discards them. Each list refresh also discards changes that have become equal to the saved contents. The list also marks sets with kept changes with ` *`; `n/m` counts the saved contents. Newly discovered tags are not added to kept changes.
 
 The menu is fixed directly under body to avoid ancestor overflow clipping. It supports ↑↓, Enter, Esc, Enter/Esc within inputs, and outside clicks. Rows show visible/total tags; Save As shows the total selection and hidden count. The working file is tracked in Git and excluded from the release zip; only the initial file is bundled in the jar.
+
+### 9.7 `POST /api/config.json`
+
+The body accepts only `{"runIds":["run_a","run_b"]}`. Run IDs are nonempty strings, and an empty array is valid. Requests violating types, required fields, or unknown fields return 400 `invalid_request`.
+
+The working set is pinned at the start of the request. For each registered Run, `config/config_data.txt` is opened, read, and closed per request. The response's `runs` follows request order; each element has `runId` and `status`.
+
+| status | Condition and additional fields |
+|---|---|
+| `ok` | Read successfully. Returns `entries` (pairs of `key` and `value`) in lexicographic key order |
+| `missing` | File absent. Returns the searched path in `message` |
+| `error` | Read or format error. Returns the path and cause in `message`; format errors include the line number and rule number |
+| `not_found` | Run absent from the working set. Returns the Run ID in `message` |
+
+The TXT is read with the line rules of the framework's `Properties::Load`. Invalid UTF-8 byte sequences and `$include` are errors. Default keys set with `?=` can be overridden by explicit assignments. Values are returned as strings.
+
+### 9.8 `POST /api/range-stats.json`
+
+The body is `{"series":[{"runId":"run_a","tagKey":"loss","fromStep":0,"toStep":100}]}`. Required headers, closed step intervals, availability, and the 400/409/503 contracts are the same as §9.3. It uses a query channel separate from graphs and does not return 422 for point caps.
+
+The response's `data` returns, in request order, `runId`, `tagKey`, `fromStep`, `toStep`, `generation`, and `availability`. `ok` entries also carry `count`, `mean`, `variance`, `stdDev`, `minValue`, `maxValue`, `lastValue`, `minStep`, and `maxStep`. Step boundaries map to an ordinal range, and all committed L0 points in it are counted. Variance and standard deviation are population values, and the last value is that of the point with the largest ordinal in the range.
 
 ## 10. Lifetime, Concurrency, and Error Boundaries
 
@@ -1043,6 +1078,7 @@ Write connections use `PRAGMA cache_size=-16384`, a 16MiB page-cache target, to 
 | `org.springframework.boot:spring-boot-starter-logging` | 3.5.7 | compile | SLF4J + Logback |
 | `com.fasterxml.jackson.core:jackson-databind` | 2.20.1 | compile | Parsing individual JSONL lines and binding API requests/responses |
 | `org.xerial:sqlite-jdbc` | 3.53.1.0 | compile | Metrics cache (`jdbc:sqlite:`) |
+| `org.webjars.npm:plotly.js-dist-min` | 2.35.3 | compile | Plotly served from within the jar |
 | `org.projectlombok:lombok` | 1.18.42 | compile (optional) | View model `@Data` / `@Builder` |
 | `org.springframework.boot:spring-boot-devtools` | 3.5.7 | compile (optional) | Development only; restart disabled in `spring-devtools.properties` |
 | `org.springframework.boot:spring-boot-starter-test` | 3.5.7 | test | JUnit 5, `@SpringBootTest`, MockMvc |
@@ -1072,12 +1108,11 @@ java -Xmx1g -jar ..\metrics-viewer\bin\metrics-viewer.jar --server.port=8082
 ### 11.5 Frontend Assets
 
 The frontend has no npm or other build step; `src/main/resources/static` is served directly.
-Its only external dependency is Plotly loaded from a CDN (`https://cdn.plot.ly/plotly-2.27.0.min.js`); no framework is used.
-A separate asset retrieval arrangement is needed for fully offline environments.
+Plotly is served from a WebJar included in the jar, so graphs render even where the browser cannot connect externally.
 
 ## 12. Tests and Extension Checklist
 
-Tag sets are covered by `TagSetStoreTest`, `TagSetApiIntegrationTest`, and `TagSetPlaywrightTest`. See the [PRD111 validation README](../../src/core/base/testdata/rfd0111/README.md) for procedures including packaging.
+Tag sets are covered by `TagSetStoreTest`, `TagSetApiIntegrationTest`, and `TagSetPlaywrightTest`. See the [RFD0111 validation README](../../src/core/base/testdata/rfd0111/README.md) for procedures including packaging.
 
 ### 12.1 Test Organization
 
@@ -1089,7 +1124,8 @@ Tag sets are covered by `TagSetStoreTest`, `TagSetApiIntegrationTest`, and `TagS
 | Scheduling / workspace lifetime | `IngestSchedulerTest`, `LoadingThreadTest`, `WorkspaceManagerTest`, `WorkspaceSnapshotIntegrationTest` |
 | Query planning and snapshots | `MetricsQueryPlannerTest`, `MetricsRepositorySnapshotIntegrationTest`, `MetricsRepositoryStepRangeIntegrationTest`, `MetricsQueryConcurrencyTest` |
 | HTTP API | `MetricsApiIntegrationTest`, `WorkspaceApiIntegrationTest`, `SeriesAvailabilityTest`, `HttpAccessLogFilterTest` |
-| Scanning and configuration | `RunScannerTest`, `MetricsViewerSettingsTest` |
+| Scanning and configuration | `RunScannerTest`, `MetricsViewerSettingsTest`, `ConfigTextReaderTest` |
+| Run comparison and offline rendering | `RunComparisonPlaywrightTest` |
 | Browser UI | `RunListPlaywrightTest`, `TagListPlaywrightTest`, `MetricsPlotPlaywrightTest`, `GraphInteractionPlaywrightTest`, `ReloadPlaywrightTest`, `SignedLogPlaywrightTest`, `OutlierRangePlaywrightTest`, `WorkspaceSelectorPlaywrightTest` |
 
 Playwright tests launch Microsoft Edge by default. Without Edge, `Assumptions` skips them rather than failing.
@@ -1097,14 +1133,14 @@ Each test opens a fresh context; routes, `localStorage`, and Plotly state are no
 
 ### 12.2 Change Checklist
 
-See the [PRD090 validation README](../../src/core/base/testdata/rfd0090/README.md) for procedures, performance comparisons, and persistent-data equality evidence.
+See the [RFD0090 validation README](../../src/core/base/testdata/rfd0090/README.md) for procedures, performance comparisons, and persistent-data equality evidence.
 
 1. Increment `SCHEMA_VERSION` when changing the cache schema. Do not write migrations; test that old caches are silently discarded and rebuilt.
 2. The externalName values of `IngestState` and `SeriesAvailability` are persistent and exposed over HTTP. Adding values is allowed; renaming or removing existing values is incompatible.
 3. Add new ingestion work to the same transaction. Splitting L0, LOD, `TagStats`, and `source_meta` across commits breaks consistency on crashes.
 4. When changing LOD, verify both persistence of completed buckets only and reaggregation of partial edge buckets from lower levels. `LodPageCache` derives the completed-bucket count from the tag point count, so when changing when parents are written, change this derivation as well.
-5. Do not derive statistics from LOD. Build range-independent statistics from all committed L0 points.
-6. After changing Step resolution or point caps, test width consistency across 1–4 Runs, selection order, zoom/pan/reset/resize, and 422/503 boundaries. See the [validation README](../../src/core/base/testdata/rfd0089/README.md) for PRD089 procedures.
+5. Build TagStats from all committed L0 points, and range statistics from all committed L0 points in the specified step range. When changing the framework's line rules for config TXT, update Viewer's `ConfigTextReader` and its verification in the same change.
+6. After changing Step resolution or point caps, test width consistency across 1–4 Runs, selection order, zoom/pan/reset/resize, and 422/503 boundaries. See the [validation README](../../src/core/base/testdata/rfd0089/README.md) for RFD0089 procedures.
 7. Keep new client state in the client app so it survives Plotly DOM reconstruction during Reload.
    If the input determines a graph's appearance, add it to the shared display model render key (`PlotlyController._graphModel` / `_graphDisplayKey`). State changed directly in Plotly must also be read back with `capturePlotState` and reflected in the model. An input omitted from the model cannot invalidate drawing or reject late results when it changes.
    If the condition affects a window's contents, also reflect it in the Reload freshness check (`DataCache.isOutdated`).
@@ -1119,5 +1155,3 @@ See the [PRD090 validation README](../../src/core/base/testdata/rfd0090/README.m
 - [Applications and Tools](160_applications_and_tools.en.md)
 - [ADR: Metrics Cache as a Disposable Derivative](../adr/0015-metrics-cache-disposable-derivative.md)
 - [Domain Glossary](../../CONTEXT.md)
-
-PRD089 comparison-resolution regression procedure: [README](../../src/core/base/testdata/rfd0089/README.md).

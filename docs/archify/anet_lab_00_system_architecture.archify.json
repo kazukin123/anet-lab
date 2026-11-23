@@ -6,7 +6,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/kazukin123/anet-lab",
-      "revision": "ad6ce58fdb675083b047487419478c6758f7f055"
+      "revision": "0f4fd0f9718bddfd0e8f0ea5a9248920b0da209b"
     }
   },
   "components": [
@@ -27,7 +27,7 @@
       "sources": [
         {
           "path": "src/apps/runner/src/RunnerApp.cpp",
-          "line": 280,
+          "line": 283,
           "label": "RunnerApp::OnInit"
         },
         {
@@ -63,7 +63,7 @@
         },
         {
           "path": "src/core/base/include/anet/config.hpp",
-          "line": 323,
+          "line": 369,
           "label": "ConfigManager"
         },
         {
@@ -89,7 +89,7 @@
       "sources": [
         {
           "path": "src/core/base/src/trainer.cpp",
-          "line": 932,
+          "line": 936,
           "label": "RunManager::RunManager"
         },
         {
@@ -121,7 +121,7 @@
         },
         {
           "path": "src/core/base/include/anet/nn.hpp",
-          "line": 393,
+          "line": 397,
           "label": "NetworkBuilder"
         },
         {
@@ -148,7 +148,7 @@
       "sources": [
         {
           "path": "src/core/base/include/anet/rl.hpp",
-          "line": 1177,
+          "line": 1187,
           "label": "class Notifier"
         },
         {
@@ -185,7 +185,7 @@
         },
         {
           "path": "src/core/base/src/trainer.cpp",
-          "line": 1310,
+          "line": 1317,
           "label": "RunnerThread::ProcessStep"
         }
       ]
@@ -207,17 +207,17 @@
       "sources": [
         {
           "path": "src/algo/dqn/src/dqn.cpp",
-          "line": 6,
+          "line": 7,
           "label": "InitDqn"
         },
         {
           "path": "src/algo/dqn/src/dqn_actor.cpp",
-          "line": 1521,
+          "line": 1523,
           "label": "dqn::Actor::MakeAction"
         },
         {
           "path": "src/algo/dqn/src/default_dqn_agent.cpp",
-          "line": 938,
+          "line": 1107,
           "label": "DefaultDQNAgent::UpdateFromBatch"
         }
       ]
@@ -239,12 +239,12 @@
       "sources": [
         {
           "path": "src/core/base/include/anet/metrics_logger.hpp",
-          "line": 179,
+          "line": 182,
           "label": "class MetricsLogger"
         },
         {
           "path": "src/core/base/src/metrics_logger.cpp",
-          "line": 197,
+          "line": 199,
           "label": "JsonlBackend::Open"
         }
       ]
@@ -276,7 +276,7 @@
         },
         {
           "path": "src/env/gridmaze/src/GridMaze.cpp",
-          "line": 9,
+          "line": 10,
           "label": "InitGridMaze"
         }
       ]
@@ -298,12 +298,12 @@
       "sources": [
         {
           "path": "src/core/base/include/anet/replay_buffer.hpp",
-          "line": 92,
+          "line": 94,
           "label": "CreateReplayBuffer"
         },
         {
           "path": "src/algo/dqn/src/dqn_learner.cpp",
-          "line": 888,
+          "line": 898,
           "label": "Learner::SetupReplayBuffer"
         }
       ]
@@ -330,7 +330,7 @@
         },
         {
           "path": "src/core/base/src/metrics_logger.cpp",
-          "line": 678,
+          "line": 699,
           "label": "config/<tag>.txt"
         }
       ]
@@ -339,7 +339,7 @@
       "id": "metrics_viewer",
       "type": "external",
       "label": "Metrics Viewer",
-      "sublabel": "Spring Boot・SQLite cache",
+      "sublabel": "Spring Boot・Run 比較",
       "tag": "src/apps/metrics-viewer",
       "pos": [
         760,
@@ -351,19 +351,19 @@
       ],
       "sources": [
         {
-          "path": "src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsSource.java",
-          "line": 19,
-          "label": "MetricsSource.select"
-        },
-        {
           "path": "src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/infra/MetricsCacheDatabase.java",
-          "line": 28,
-          "label": "metrics_cache.db"
+          "line": 164,
+          "label": "Run フォルダの metrics_cache.db"
         },
         {
-          "path": "src/apps/metrics-viewer/src/main/resources/application.properties",
-          "line": 16,
-          "label": "workspaces-dir"
+          "path": "src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/RunConfigService.java",
+          "line": 32,
+          "label": "config/config_data.txt"
+        },
+        {
+          "path": "src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/MetricsViewerController.java",
+          "line": 99,
+          "label": "range-stats.json"
         }
       ]
     }
@@ -398,7 +398,8 @@
       "wraps": [
         "run_artifact",
         "metrics_viewer"
-      ]
+      ],
+      "pad": 40
     }
   ],
   "connections": [
@@ -476,7 +477,7 @@
       "id": "artifact-viewer",
       "from": "run_artifact",
       "to": "metrics_viewer",
-      "label": "読み取り専用",
+      "label": "取り込み",
       "variant": "dashed"
     }
   ],
@@ -486,7 +487,7 @@
       "title": "起動と構築",
       "items": [
         "OnInit が workspace を解決し、共通 _main.txt に workspace config と key=value を重ねる",
-        "Env と Agent の系統は各ライブラリの初期化関数で登録し、RunManager は背景 thread で組み立てる"
+        "Env と Agent の系統は Init 関数で登録し、RunManager は背景 thread で組み立てる。設定の誤りは完全キーで止める"
       ]
     },
     {
@@ -494,7 +495,7 @@
       "title": "thread と device の境界",
       "items": [
         "TrainThread が行動・Step・学習・通知を順に呼ぶ。Pipeline では学習だけ LearnThread へ移る",
-        "Env と ReplayBuffer は CPU。Actor と Learner が入力を device へ移す"
+        "Notifier は通知中の Attach・Detach を許す。Env と ReplayBuffer は CPU、Actor と Learner が device へ移す"
       ]
     },
     {
@@ -502,7 +503,7 @@
       "title": "外部依存とファイル境界",
       "items": [
         "libtorch・wxWidgets・Box2D・Tracy・Catch2。Atari は ALE_ROOT がある時だけ。動画は ffmpeg",
-        "Metrics Viewer は Java 17・Spring Boot・SQLite の別 process で、Run フォルダを読むだけ"
+        "Metrics Viewer は Java 17・Spring Boot・SQLite の別 process。metrics と設定を読み、Run フォルダへは cache だけを書く"
       ]
     }
   ]

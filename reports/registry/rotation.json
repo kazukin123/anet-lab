@@ -1,12 +1,15 @@
 {
   "_doc": "anet-audit の巡回状態。next_lens は次回の観点。scopes の last_seen は観点ごとの最終実施日。",
-  "next_lens": "backlog",
+  "next_lens": "test-gap",
   "scopes": [
     {
       "key": "318_rl_core",
       "kind": "code",
       "last_seen": {
-        "test-gap": "2026-11-21"
+        "test-gap": "2026-11-21",
+        "refactor": "2026-11-23",
+        "defect": "2026-11-23",
+        "architecture": "2026-11-23"
       }
     },
     {
@@ -17,7 +20,12 @@
     {
       "key": "324_dqn",
       "kind": "code",
-      "last_seen": {}
+      "last_seen": {
+        "test-gap": "2026-11-23",
+        "refactor": "2026-11-23",
+        "defect": "2026-11-23",
+        "architecture": "2026-11-23"
+      }
     },
     {
       "key": "315_nn",
@@ -123,7 +131,9 @@
     {
       "key": "docs/design/160_applications_and_tools.jp.md",
       "kind": "doc",
-      "last_seen": {}
+      "last_seen": {
+        "drift": "2026-11-23"
+      }
     },
     {
       "key": "docs/design/200_dqn_agents.jp.md",
@@ -145,7 +155,9 @@
     {
       "key": "CONTEXT.md",
       "kind": "doc",
-      "last_seen": {}
+      "last_seen": {
+        "drift": "2026-11-23"
+      }
     }
   ]
 }

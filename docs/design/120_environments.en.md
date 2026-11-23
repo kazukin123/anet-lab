@@ -1,4 +1,4 @@
-<!-- translated-from: 120_environments.jp.md blob:d3dbcfc37acc89ed6f415b95eec40c419065439d date:2026-11-21 progress:done -->
+<!-- translated-from: 120_environments.jp.md blob:3fede7bf243005699373bcec92e8c6684b71d863 date:2026-11-23 progress:done -->
 # Environments
 
 > Primary perspective: function (Env, with internal processing stages in chronological order)
@@ -264,7 +264,7 @@ Arcs are centered directly above the lander, with positive values drawn counterc
 
 See the [extension point table in the framework overview](010_framework_overview.en.md#43-extension-points) for the public extension points.
 
-The DropMerge `[noop_penalty]` tests compare two instances with the same seed and action sequence, changing only the penalty. They cover all four action modes, NOOP overrides, rejected DROP commands, terminal steps, cumulative rewards, and multiple physics steps. Execution conditions are described in the [PRD115 verification materials](../../src/core/base/testdata/rfd0115/README.md).
+The DropMerge `[noop_penalty]` tests compare two instances with the same seed and action sequence, changing only the penalty. They cover all four action modes, NOOP overrides, rejected DROP commands, terminal steps, cumulative rewards, and multiple physics steps. Execution conditions are described in the [RFD0115 verification materials](../../src/core/base/testdata/rfd0115/README.md).
 
 When adding or modifying an Env, check the following:
 
@@ -276,7 +276,7 @@ When adding or modifying an Env, check the following:
 6. An added View's Env class ID matches its `ViewRepository` registration.
 7. Frequently called Reset/Step operations have meaningful profiling ranges.
 
-See the [PRD097 validation resources](../../src/core/base/testdata/rfd0097/README.md) for acceptance procedures covering scalar/tensor values during notifications, aux lane alignment, result immutability, notification order by Runner type, reproducibility, and performance.
+See the [RFD0097 validation resources](../../src/core/base/testdata/rfd0097/README.md) for acceptance procedures covering scalar/tensor values during notifications, aux lane alignment, result immutability, notification order by Runner type, reproducibility, and performance.
 
 These Envs have dedicated tests:
 
@@ -288,9 +288,9 @@ These Envs have dedicated tests:
 
 Concrete single-Env tests also include paths through `VectorizedDiscreteBatchEnv`. ImageCls tests directly validate native batches, Dataset catalogs/caches, eval windows, and worker modes. When changing an Env or wrapper, add regression tests explicitly selecting the required worker modes.
 
-See the [PRD100 validation assets](../../src/core/base/testdata/rfd0100/README.md) for GridMaze golden maps, reachability, coordinate errors, log counts and exact short-Run scalar comparisons.
+See the [RFD0100 validation assets](../../src/core/base/testdata/rfd0100/README.md) for GridMaze golden maps, reachability, coordinate errors, log counts and exact short-Run scalar comparisons.
 
-See the [PRD102 validation assets](../../src/core/base/testdata/rfd0102/README.md) for seed precedence, automatic scope, concurrent initialization, recreation, RunManager integration, optional configuration and resolved-value differences.
+See the [RFD0102 validation assets](../../src/core/base/testdata/rfd0102/README.md) for seed precedence, automatic scope, concurrent initialization, recreation, RunManager integration, optional configuration and resolved-value differences.
 
 ## 9. Related Documents
 
@@ -300,7 +300,7 @@ See the [PRD102 validation assets](../../src/core/base/testdata/rfd0102/README.m
 - [ReplayBuffer](150_replay_buffer.en.md)
 - [Applications and Tools](160_applications_and_tools.en.md)
 - [Glossary](../../CONTEXT.md)
-- [ImageCls Batch Input PRD](../memo/done/0034_imagecls_batch_input_10rfd.md)
+- [ImageCls Batch Input RFD](../memo/done/0034_imagecls_batch_input_10rfd.md)
 - [ImageCls Batch Env Seam ADR](../adr/0009-imagecls-batch-env-seam.md)
 
 ### Transition Statistics in Concrete Envs

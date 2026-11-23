@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:4a13be4641f41cae75f02589b2cac7819978a4fe date:2026-11-19 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:715df8679ad9724ca94f6c23c8bbcb972771934e date:2026-11-23 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -112,6 +112,7 @@ Concrete Agents decide whether to use the shared interface. ReplayBuffer is not 
 | `DeviceTransfer` | Transfers CPU samples synchronously or from pinned sources to a CUDA copy stream |
 | `EventRecycler` | Retains/reuses CUDAEvents and source payload lifetimes through completion |
 | `DictFrameStacker` | Stacks recent Observations per key on the Actor side, independently of ReplayBuffer |
+| `LaneTimeTensorStore` | Holds tensors for all lanes in time order and reads them by lane and time; used for [RND rollout auxiliary learning](212_rnd_lifelong_novelty.en.md#5-predictor-auxiliary-learning) |
 
 ## 4. Code Map
 
@@ -218,7 +219,7 @@ Independently of n-step finalization, Push retains each transition's one-step re
 
 With a window configured, the sampleable range has a future-side delay of `max(1, n_step, J)`. Sample, uniform sampling without replacement, sampling-history probes, and counts use the same range. The minimum capacity includes this delay. PER initial-priority completion and eviction statistics retain the existing n-step ready range. Without a rule, the window is empty and no additional randomness is consumed.
 
-Additional variable-window rules are constructed with `CreateActionChangeWindowRule(J)` (the continuous interval with the starting action) and `CreateEpisodeEndWindowRule(J)` (an interval ignoring both actions and decisions). The former stops immediately before a different-action slot; the latter does not stop at action changes. Both ignore decision flags, include a done/truncated transition before closing, and stop at J. A dummy inside the window is an error. Sampling candidate ranges, uniform selection of k, PER, and transfer contracts are shared across rules. See [PRD104 validation](../../src/core/base/testdata/rfd0104/README.md) for boundary and shortened-Run checks.
+Additional variable-window rules are constructed with `CreateActionChangeWindowRule(J)` (the continuous interval with the starting action) and `CreateEpisodeEndWindowRule(J)` (an interval ignoring both actions and decisions). The former stops immediately before a different-action slot; the latter does not stop at action changes. Both ignore decision flags, include a done/truncated transition before closing, and stop at J. A dummy inside the window is an error. Sampling candidate ranges, uniform selection of k, PER, and transfer contracts are shared across rules. See [RFD0104 validation](../../src/core/base/testdata/rfd0104/README.md) for boundary and shortened-Run checks.
 
 ### 6.2 One-Deep Prefetch and CUDA Transfer
 
@@ -358,14 +359,14 @@ The Prefetching version uses the same FIFO wait as existing probes, settling acc
 
 ## 8. Tests and Extension Checks
 
-- [PRD121 validation](../../src/core/base/testdata/rfd0121/README.md): component returns and discounts, constant preservation and scheduled recomputation, initial priorities, window rejection, and single-component equivalence.
+- [RFD0121 validation](../../src/core/base/testdata/rfd0121/README.md): component returns and discounts, constant preservation and scheduled recomputation, initial priorities, window rejection, and single-component equivalence.
 
-- [PRD128 validation](../../src/core/base/testdata/rfd0128/README.md): transfer, traversal, and string formatting of every field; preservation of undefined Tensors on CPU/CUDA; comparison with the original executable.
-- [PRD104 validation](../../src/core/base/testdata/rfd0104/README.md): action-change and episode-end windows, terminal/dummy boundaries, ring wrap and transfer.
+- [RFD0128 validation](../../src/core/base/testdata/rfd0128/README.md): transfer, traversal, and string formatting of every field; preservation of undefined Tensors on CPU/CUDA; comparison with the original executable.
+- [RFD0104 validation](../../src/core/base/testdata/rfd0104/README.md): action-change and episode-end windows, terminal/dummy boundaries, ring wrap and transfer.
 
-Use [PRD101 validation assets](../../src/core/base/testdata/rfd0101/README.md) for staged comparisons, short actual Runs, and comparison of every key across seven Envs.
+Use [RFD0101 validation assets](../../src/core/base/testdata/rfd0101/README.md) for staged comparisons, short actual Runs, and comparison of every key across seven Envs.
 
-Use the public ReplayBuffer tests in [PRD098 validation assets](../../src/core/base/testdata/rfd0098/README.md) for decision boundaries, termination, truncation, stacking, ring wrap, uniform sampling, and sampleable delay in variable windows. Window additions also cover ordinary transfer, prefetch, and probe paths, preserving the RNG and sample sequence when no rule is configured.
+Use the public ReplayBuffer tests in [RFD0098 validation assets](../../src/core/base/testdata/rfd0098/README.md) for decision boundaries, termination, truncation, stacking, ring wrap, uniform sampling, and sampleable delay in variable windows. Window additions also cover ordinary transfer, prefetch, and probe paths, preserving the RNG and sample sequence when no rule is configured.
 
 Current [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp) contains tests for:
 
@@ -382,7 +383,7 @@ Current [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)
 
 Preserve the public `ReplayBuffer` contract when changing it. Check same-seed sample sequences, PER metadata, CPU paths, and asynchronous paths when CUDA is available. Tests changing capacity and lane count must check `actual_capacity`, not just requested capacity. Add dedicated regression tests when changing background exception propagation or shutdown order rather than assuming existing coverage.
 
-The 384-case matrix uses `[.][integrity_assay]`, excluding it from the ordinary suite and `[replay_buffer]`. Run all cases as separate processes with `src/core/base/testdata/prd078/run_integrity_assay.py`, which records the fixed seed, completion marker, timeout, and exit code per case. See [testdata/prd078/README.md](../../src/core/base/testdata/rfd0078/README.md) for the procedure.
+The 384-case matrix uses `[.][integrity_assay]`, excluding it from the ordinary suite and `[replay_buffer]`. Run all cases as separate processes with `src/core/base/testdata/rfd0078/run_integrity_assay.py`, which records the fixed seed, completion marker, timeout, and exit code per case. See [testdata/rfd0078/README.md](../../src/core/base/testdata/rfd0078/README.md) for the procedure.
 
 ## 9. Related Documents
 

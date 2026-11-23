@@ -95,6 +95,7 @@
 - [config.cpp](../../../src/core/base/src/config.cpp) / [config_test.cpp](../../../src/core/base/src/config_test.cpp)
 - [config_baseline_test.cpp](../../../src/core/base/src/config_baseline_test.cpp)
 - [config_impl.cpp](../../../src/core/base/src/config_impl.cpp) / [config_impl.hpp](../../../src/core/base/src/config_impl.hpp)
+- [config_inventory_test.cpp](../../../src/core/base/src/config_inventory_test.cpp)
 
 ## RFD の一覧
 
@@ -119,20 +120,22 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261122-4adabb](../../management/issues/issue-20261122-4adabb.md) | 未着手 | 4.0 | — | コード | 実装 | 311_dev_tools, 316_config | 開発 | 不具合 | — | 未確認 | RFD0072 の既定葉検査が移転前の core を探索して停止する |
+| [issue-20261122-4adabb](../../management/issues/issue-20261122-4adabb.md) | 未着手 | 4.0 | — | コード | 実装 | 311_dev_tools, 316_config | 開発 | 不具合 | — | 残件有り | RFD0072 の既定葉検査が移転前の core を探索して停止する |
+| [issue-20261123-55c396](../../management/issues/issue-20261123-55c396.md) | 未着手 | 3.0 | — | コード | 監査 | 324_dqn, 316_config | 基盤 | リファクタリング | — | 未確認 | DefaultDQNAgentConfig が「任意の ProfiledValue の設定キーが書かれているか」を 3 か所で別々の書き方で調べ、うち 2 か所は常に空の override 接頭辞のための分岐を持つ |
 | [issue-20261111-cdc102](../../management/issues/issue-20261111-cdc102.md) | 未着手 | 2.7 | — | コード | 監査 | 316_config, 315_nn, 324_dqn | 基盤 | リファクタリング | — | 残件有り | WeightInitConfig などの設定の部品に読み取りの口が無く、使う側が 1 キーずつ読むので、同じ 6〜8 行が十数か所にあり、読み方も食い違っている |
-| [issue-20261108-06a3f0](../../management/issues/issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | コード | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [RFD0118](../../memo/0118_atari_run_profile_flatten_10rfd.md) | 未確認 | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
+| [issue-20261108-06a3f0](../../management/issues/issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | コード | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [RFD0118](../../memo/0118_atari_run_profile_flatten_10rfd.md) | 残件有り | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
 | [issue-20261108-f0f243](../../management/issues/issue-20261108-f0f243.md) | 未着手 | 2.6 | — | コード | RFD | 316_config, 322_env_individual | 基盤 | リファクタリング | [RFD0118](../../memo/0118_atari_run_profile_flatten_10rfd.md) | 残件有り | Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする） |
 | [issue-20261103-7c9a70](../../management/issues/issue-20261103-7c9a70.md) | 未着手 | 2.5 | — | コード | 監査 | 316_config | 基盤 | 不整合 | [RFD0181](../../memo/0181_config_file_layout_10rfd.md) | 残件有り | Agentの切替プロファイル@fast/@balance/@heavyがcommon.txtにあり、020 §3.6の表（agent.txtの役割）と食い違う |
+| [issue-20261123-a45289](../../management/issues/issue-20261123-a45289.md) | 未着手 | 2.5 | — | 文書 | 監査 | 316_config, 322_env_individual | 基盤 | 調査 | — | 未確認 | RFD0118（Atari の Run プロファイルの整理）を指す課題が、題材の 06a3f0 と RFD の仕事の f0f243 の 2 件あり、範囲が同じで重なっている |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-7c8cd7](../../management/issues/issue-20261103-7c8cd7.md) | 未着手 | 2.0 | — | コード | RFD | 316_config | 基盤 | リファクタリング | [RFD0181](../../memo/0181_config_file_layout_10rfd.md) | 残件有り | 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ） |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | RFD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [RFD0108](../../memo/0108_metrics_tag_numbering_10rfd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-66f453](../../management/issues/issue-20261103-66f453.md) | 未着手 | 1.4 | — | コード | RFD | 110_runner_app, 316_config | 学習基盤 | 機能追加 | [RFD0151](../../memo/0151_run_queue_snapshot_10rfd.md) | 残件有り | Run キュー（計画スナップショット + exe 固定） |
 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | 未着手 | 1.3（引継ぎ） | — | コード | RFD | 316_config, 110_runner_app | 基盤 | リファクタリング | [RFD0155](../../memo/0155_config_root_ownership_alignment_10rfd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
 | [issue-20261111-d1d12b](../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 残件有り | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
-| [issue-20261122-d9499f](../../management/issues/issue-20261122-d9499f.md) | 未着手 | 1.0 | — | コード | RFD | 316_config, 324_dqn, 314_tensor, 315_nn | 基盤 | 機能改善 | — | 未確認 | 見直したあとの設定の形と通知の決まりに沿わない設定キーと通知が、RND の外に残る（全体は調べていない） |
+| [issue-20261122-d9499f](../../management/issues/issue-20261122-d9499f.md) | 未着手 | 1.0 | — | コード | RFD | 316_config, 324_dqn, 314_tensor, 315_nn | 基盤 | 機能改善 | — | 残件有り | 見直したあとの設定の形と通知の決まりに沿わない設定キーと通知が、RND の外に残る（全体は調べていない） |
 | [issue-20261103-145ee2](../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | コード | RFD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [RFD0152](../../memo/0152_metric_targeted_hyperparam_control_10rfd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
 | [issue-20261115-b02db6](../../management/issues/issue-20261115-b02db6.md) | 未着手 | 1.3 | [issue-20261103-b4e5c9](../../management/issues/issue-20261103-b4e5c9.md) | コード | その他 | 316_config, 324_dqn, 315_nn | 基盤 | リファクタリング | — | 残件有り | RND の Head の出力次元 intrinsic.rnd.output_dim が rnd の直下にあり、Head の初期値 intrinsic.rnd.head.init.* と置き場が分かれている |
 
-着手できる 13 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 15 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

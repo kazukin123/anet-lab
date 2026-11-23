@@ -213,7 +213,8 @@
       "title": "条件つきの呼び出し",
       "items": [
         "EpisodeEndEvent は終端時、LearnEvent は結果が 1 件以上の時だけ",
-        "Sample は CanUpdate が真で update credit が残る間だけ繰り返す"
+        "Sample は CanUpdate が真で update credit が残る間だけ繰り返す",
+        "decomposed は外的・内的の報酬を 2 列で"
       ]
     },
     {

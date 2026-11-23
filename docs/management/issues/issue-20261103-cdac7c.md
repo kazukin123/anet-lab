@@ -11,7 +11,7 @@ area:
 type: 機能改善
 domain: アルゴリズム
 ai_judge: 残件有り
-ai_judged: 2026-11-09
+ai_judged: 2026-11-23
 docs: []
 rfd: "[[0148_target_update_step_axis_10rfd]]"
 priority: 中

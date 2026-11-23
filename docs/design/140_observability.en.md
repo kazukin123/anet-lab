@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:4407bae94d7dc933ad9ca4b62edfbea44c1223fd date:2026-11-21 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:b0b72ae63a09787734c180766018e8f4fe2f6476 date:2026-11-23 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -357,7 +357,7 @@ Agent creates an `AgentStepDiagnosticsProvider` through `CreateStepDiagnosticsPr
 
 The concrete DQN provider and key recognition stay inside DQN. DQN step diagnostics use Q-hint generation shared with Actor, n-step assembly shared with replay, and the existing initial-priority estimator. Q calculations for the existing three keys are independent of PER and add no Q forward or RNG consumption. The reward scaler applies its current transform without updating statistics or clipping rates. RunningStdRewardScaler publishes the std computed by Scale and the std at Reset or Load through an atomic; diagnostics read only this value without accessing mutable Tensor statistics. Dynamic extrinsic and intrinsic reward scalers save their statistics in checkpoints. Windows containing truncation leave priority unavailable. Nonterminal values fill their original row once bootstrap Q is available; terminal steps resolve shorter windows. Intrinsic initial-priority estimates at non_episodic terminals also omit bootstrap.
 
-The builder reports row additions separately from delayed column resolution. Images are not retained for rows beyond the GUI's retention limit. Verify public paths for column parsing, timing, diagnostics, playback, and numerical equivalence with the [PRD094 validation resources](../../src/core/base/testdata/rfd0094/README.md).
+The builder reports row additions separately from delayed column resolution. Images are not retained for rows beyond the GUI's retention limit. Verify public paths for column parsing, timing, diagnostics, playback, and numerical equivalence with the [RFD0094 validation resources](../../src/core/base/testdata/rfd0094/README.md).
 
 ## 7. Output and Lifetimes
 
@@ -375,7 +375,7 @@ The builder reports row additions separately from delayed column resolution. Ima
 
 `MetricsLogger` is a process singleton owning the Run directory under the assumption of one active Run per process. `Reset()` releases it at Run end. Preserve application shutdown order so video loggers and wxLog chains are not destroyed while files are in use.
 
-Concrete Env text logs begin with `env.[<Env name>]`, or for a single Env with the lane name that further appends `.[<lane index>]` (for example, `env.[train].[37]: `, `env.[eval_target].[0]: `, `env.[EvalPanel].[0]: `), allowing people to distinguish Train, configured Eval, EvalPanel, and batch lanes. This is the same configuration notation as `eval.[<tag>]: ` on evaluation-session lines, and for configured Eval the string inside `[ ]` matches the tag. `SingleDiscreteEnvBase` and `BatchEnvBase` hold protected `anet::log::Logger log`; concrete Envs use `log.info()`, `log.verbose()`, `log.warn()`, and `log.error()`. Do not use `LOG::` directly inside Envs or scatter prefix formatting/`GetName()` concatenation across log lines. Factories, free functions, Runners, Agents, and Views outside Env continue using `LOG::`.
+Concrete Env text logs begin with `env.[<Env name>]`, or for a single Env with the lane name that further appends `.[<lane index>]` (for example, `env.[train].[37]: `, `env.[eval_target].[0]: `, `env.[EvalPanel].[0]: `), allowing people to distinguish Train, configured Eval, EvalPanel, and batch lanes. This is the same configuration notation as `run.eval.[<tag>]: ` on evaluation-session lines, and for configured Eval the string inside `[ ]` matches the tag. `SingleDiscreteEnvBase` and `BatchEnvBase` hold protected `anet::log::Logger log`; concrete Envs use `log.info()`, `log.verbose()`, `log.warn()`, and `log.error()`. Do not use `LOG::` directly inside Envs or scatter prefix formatting/`GetName()` concatenation across log lines. Factories, free functions, Runners, Agents, and Views outside Env continue using `LOG::`.
 
 Debug logs use `ANET_LOG_DEBUG_PREFIXED(expr)`, delegating to `ANET_LOG_DEBUG(log.prefix() << expr)` and preserving debugger/level guards, source information, and non-evaluation with `ANET_ENABLE_DEBUG_LOG=0`. Env names are opaque display strings and neither replace nor change MetricsLogger tags, JSONL fields, artifact paths, or runner scopes. Views may display them through common Env accessors but must not use them to branch Env behavior or metric identity.
 
@@ -387,7 +387,7 @@ Source key, event, target, interval, runner scope, and eval name are passed to A
 
 ### 7.2 Evaluation Session Logs
 
-Configured Eval writes one verbose-level `eval.[<tag>]: session start` and one `session end` line.
+Configured Eval writes one verbose-level `run.eval.[<tag>]: session start` line and one `run.eval.[<tag>]: session end` line.
 The start line is written from the train thread when the evaluation fires, that is, before any wait for the previous background session to complete; the end line is written from the thread that ran the session.
 Both lines' learn_step/exp_step are session-start coordinates supplied by Train and correspond to session_end scalars.
 The end line's elapsed time runs from before Sync through after SessionEnd notification, in seconds with two decimals; it is not Train's actual background wait time. Nor does it match the time elapsed since the start line.
@@ -397,7 +397,11 @@ When a wait occurs, the lines appear in the order `session start`, `waiting for 
 The end line includes mean.episode_return, max.episode_return, mean.episode_steps, and max.episode_steps matching finalized scalars.
 For a session lasting at least 30 seconds, the executing thread writes one info-level `session progress completed=<adopted>/<requested> elapsed=... eta=... learn_step=... exp_step=...` line every 30 seconds. As in the end line, elapsed is measured from before Sync; eta estimates the remaining seconds from the time per adopted episode and is `n/a` until at least one episode is adopted. No progress line is written after all episodes are adopted, and sessions shorter than 30 seconds have only start and end lines.
 When the exit drain waits, `draining in-flight session on exit` is written; when it switches to cooperative cancellation, `cancelling in-flight session on exit reason=close|config|timeout` is written. When a cancellation completes, the normal `session end` is not written; `session cancelled learn_step=... exp_step=... elapsed=... completed=...` is written instead. The corresponding session scalars are not emitted, and traces of completed episodes are retained.
-Abnormal termination does not emit a normal end line. Startup emits `eval.[<tag>]: scheduled (interval=…, offset=…, warmup_count=…, background=…, wait_on_exit=…, episodes=…, batch_size=…)`, including default offset and warmup_count values.
+Abnormal termination does not emit a normal end line. The startup `scheduled` line shows each field by its full key and also records the default `offset` and `warmup_count`.
+
+```text
+run.eval.[<tag>]: scheduled (run.eval_schedule.[<tag>].interval=…, run.eval_schedule.[<tag>].offset=…, run.eval_schedule.[<tag>].warmup_count=…, run.eval_schedule.[<tag>].use_background=…, run.eval_schedule.[<tag>].wait_on_exit=…, run.eval.[<tag>].eval_episodes=…, run.eval.[<tag>].eval_batch_size=…)
+```
 Generic evaluation episode lengths are available in baseline/full through `21_eval/05_target_ep_steps`–`08_policy_ep_steps_max`.
 
 ### 7.3 Image Memory Ownership
@@ -415,15 +419,15 @@ TimeHeatMap in Scale mode, Histgram, and SweepedHeatMap draw into pixel storage 
 
 ## 9. Tests and Extension Checks
 
-See the [PRD127 validation assets](../../src/core/base/testdata/rfd0127/README.md) for intrinsic scoring, synchronization, suspension, and learning invariance.
+See the [RFD0127 validation assets](../../src/core/base/testdata/rfd0127/README.md) for intrinsic scoring, synchronization, suspension, and learning invariance.
 
 The fixed-pixel and ownership regression tests are in `heat_map_test.cpp`. Successful rendering alone does not verify allocator compatibility or allocation failure handling; use the [image memory verification materials](../../src/core/base/testdata/rfd0115/README.md) to exercise the actual wxWidgets boundary.
 
-- See the [PRD170 validation assets](../../src/core/base/testdata/rfd0170/README.md) for nn_trace acceptance checks.
+- See the [RFD0170 validation assets](../../src/core/base/testdata/rfd0170/README.md) for nn_trace acceptance checks.
 
 ### TempoRL Scalars and Trace
 
-Read a variable Actor's limit through `$actor skip_max_length @learn $exp_step` and opt into `50_agent_skip/07_max_length` using the group's configuration keys. The default metric chain does not include it. Full/single/disabled skip return NaN for the recognized key. Single has decision rate and mean length 1, while trace skip_q.[j] still accepts 1..J. Existing 13_sample_k_mean, 14_kmax_mean and 11_loss describe auxiliary windows. See [PRD104 validation](../../src/core/base/testdata/rfd0104/README.md).
+Read a variable Actor's limit through `$actor skip_max_length @learn $exp_step` and opt into `50_agent_skip/07_max_length` using the group's configuration keys. The default metric chain does not include it. Full/single/disabled skip return NaN for the recognized key. Single has decision rate and mean length 1, while trace skip_q.[j] still accepts 1..J. Existing 13_sample_k_mean, 14_kmax_mean and 11_loss describe auxiliary windows. See [RFD0104 validation](../../src/core/base/testdata/rfd0104/README.md).
 
 DefaultDQN skip metrics use the `50_agent_skip` group. Selecting `metrics.scalar.@skip` in metrics_scalar.txt records Actor decision_rate, mean length over decision lanes, per-length proportions, and the Q difference between the selected length and j=1, together with Learner loss, mean absolute TD, mean k, mean k_max, and gradient norm before clipping. `skip_length_rate.[j]` uses 1-based indices; an index greater than the declared J fails fast.
 
@@ -431,11 +435,11 @@ Scalar tags may also contain indices. For example, configuration key `metrics.sc
 
 Actor `skip_length_mean`, `skip_length_rate.[j]`, and `skip_q_gap` aggregate only decision lanes and return NaN on steps without decisions. Recognized keys also return NaN when skip is disabled. Payloads are aggregated on device and transferred together to the CPU on first access. Learner results likewise own seven metrics and transfer them on first access. Additional `17_skip_primary_grad_norm` and `18_skip_primary_clip_ratio` represent the pre-clipping norm of the skip gradient entering the primary network in split mode and a flag indicating threshold exceedance; both are NaN outside split. `19_skip_primary_clip_ratio_ema` is an EMA of the flag in 18 using the default coefficient and is not emitted outside split.
 
-Read evaluation `skip_session_decision_rate`, `skip_session_length_mean`, and `skip_session_length_rate.[j]` through `$eval.[greedy] $actor @session_end`. Actor retains decision counts, selected lengths, and lane-step counts between Sync calls, returning the decision rate, mean length, and per-length proportions. Tags are `21_greedy_decision_rate`, `22_greedy_length_mean`, and `23_greedy_length_rate.[01]` onward, recorded with `runner=train` in training-side coordinates. These are approximate decision-count metrics for sessions with multiple lanes and early termination. GridMaze/LunarLander/DropMerge greedy reward uses `21_eval/09_greedy_reward`; its EMA, episode steps, and maximum steps use `10`–`12`. Atari also uses session name `greedy`, retaining the existing `53_evalg` group and evaluation conditions. See [PRD103 validation assets](../../src/core/base/testdata/rfd0103/README.md) for numerical examples, shortened Runs, and metric-definition checks.
+Read evaluation `skip_session_decision_rate`, `skip_session_length_mean`, and `skip_session_length_rate.[j]` through `$eval.[greedy] $actor @session_end`. Actor retains decision counts, selected lengths, and lane-step counts between Sync calls, returning the decision rate, mean length, and per-length proportions. Tags are `21_greedy_decision_rate`, `22_greedy_length_mean`, and `23_greedy_length_rate.[01]` onward, recorded with `runner=train` in training-side coordinates. These are approximate decision-count metrics for sessions with multiple lanes and early termination. GridMaze/LunarLander/DropMerge greedy reward uses `21_eval/09_greedy_reward`; its EMA, episode steps, and maximum steps use `10`–`12`. Atari also uses session name `greedy`, retaining the existing `53_evalg` group and evaluation conditions. See [RFD0103 validation assets](../../src/core/base/testdata/rfd0103/README.md) for numerical examples, shortened Runs, and metric-definition checks.
 
-Evaluation Trace reads a specified lane through `$action_info skip_decision` and `$action_info skip_length`. Length remains the initially selected j during continuation. Each Env's `run.@skip` declares these two columns. Additional `skip_q.[j]` reads the specified lane's Q value for length j: j must be 1..J, out-of-range values are errors, and disabled skip returns NaN. Q columns are not added by default; specify them in the Env or CLI, for example `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1`. The first skip-diagnostic read transfers Q values into the same cache, avoiding per-column synchronization. See [PRD098 validation assets](../../src/core/base/testdata/rfd0098/README.md) for performance, equivalence across four Envs, and learning verification.
+Evaluation Trace reads a specified lane through `$action_info skip_decision` and `$action_info skip_length`. Length remains the initially selected j during continuation. Each Env's `run.@skip` declares these two columns. Additional `skip_q.[j]` reads the specified lane's Q value for length j: j must be 1..J, out-of-range values are errors, and disabled skip returns NaN. Q columns are not added by default; specify them in the Env or CLI, for example `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1`. The first skip-diagnostic read transfers Q values into the same cache, avoiding per-column synchronization. See [RFD0098 validation assets](../../src/core/base/testdata/rfd0098/README.md) for performance, equivalence across four Envs, and learning verification.
 
-- [PRD094 validation resources](../../src/core/base/testdata/rfd0094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
+- [RFD0094 validation resources](../../src/core/base/testdata/rfd0094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 
 When changing Observers or output formats, check the following:
 
@@ -448,7 +452,7 @@ When changing Observers or output formats, check the following:
 
 Main regression tests belong in [observers_test.cpp](../../src/core/base/src/observers_test.cpp), [metrics_logger_test.cpp](../../src/core/base/src/metrics_logger_test.cpp), [log_test.cpp](../../src/core/base/src/log_test.cpp), and [episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp).
 
-See [PRD158 validation assets](../../src/core/base/testdata/rfd0158/README.md) for evaluation firing sequences, configuration migration, and a short Run.
+See [RFD0158 validation assets](../../src/core/base/testdata/rfd0158/README.md) for evaluation firing sequences, configuration migration, and a short Run.
 
 ## 10. Related Documents
 

@@ -5146,8 +5146,8 @@
           <text data-detail="context" x="625" y="131" class="t-muted" font-size="8" text-anchor="middle">OnClose・OnExit</text>
         </g>
 
-        <g id="node-analyze" data-node-id="analyze" data-node-label="成果物の分析" tabindex="0" role="button" aria-label="Focus 成果物の分析, Metrics Viewer ほか, 評価・分析 › 終了と分析" aria-pressed="false" data-node-kind="external" data-node-sublabel="Metrics Viewer ほか" data-node-context="評価・分析 › 終了と分析">
-          <title>成果物の分析 · Metrics Viewer ほか · 評価・分析 › 終了と分析</title>
+        <g id="node-analyze" data-node-id="analyze" data-node-label="成果物の分析" tabindex="0" role="button" aria-label="Focus 成果物の分析, Metrics Viewer で比較, 評価・分析 › 終了と分析" aria-pressed="false" data-node-kind="external" data-node-sublabel="Metrics Viewer で比較" data-node-context="評価・分析 › 終了と分析">
+          <title>成果物の分析 · Metrics Viewer で比較 · 評価・分析 › 終了と分析</title>
           <rect x="573" y="341" width="104" height="52" rx="6" class="c-mask"/>
           <rect x="573" y="341" width="104" height="52" rx="6" class="c-external" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(579 347) scale(0.6875)">
@@ -5155,7 +5155,7 @@
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="625" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">成果物の分析</text>
-          <text data-detail="context" x="625" y="379" class="t-muted" font-size="8" text-anchor="middle">Metrics Viewer ほか</text>
+          <text data-detail="context" x="625" y="379" class="t-muted" font-size="7.6" text-anchor="middle">Metrics Viewer で比較</text>
         </g>
 
         <!-- Edge labels -->
@@ -5394,7 +5394,7 @@
         </div>
         <ul>
           <li>&bull; --workspace・選択 dialog・前回の順で決め、無ければ _default。--config は直接モード</li>
-          <li>&bull; 構築は背景 thread。構築中の Close は保留して完了後に閉じる</li>
+          <li>&bull; 構築は背景 thread。設定の誤りは完全キーで示して止め、構築中の Close は完了後に閉じる</li>
         </ul>
       </div>
 
@@ -5405,18 +5405,18 @@
         </div>
         <ul>
           <li>&bull; DoUpdateFrame(1) を COMPLETED まで繰り返す。Pause は step の境目で効く</li>
-          <li>&bull; interval&gt;0 の評価タグだけが LearnEvent で発火し、warmup_count 回は抑止する</li>
+          <li>&bull; interval&gt;0 の評価タグだけが LearnEvent で発火し、offset と warmup_count で発火を遅らせる</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot rose"></div>
-          <h3>終了と失敗</h3>
+          <h3>終了と分析</h3>
         </div>
         <ul>
-          <li>&bull; Close は agent_close.anet を保存して排水し、ログを閉じる</li>
-          <li>&bull; worker の例外は main thread で報告し、exit code 1 で終わる</li>
+          <li>&bull; Close は agent_close.anet を保存して排水し、ログを閉じる。worker の例外は exit code 1</li>
+          <li>&bull; Viewer は Graphs と Config のタブで、scalar・範囲の統計・設定の差を Run ごとに並べる</li>
         </ul>
       </div>
     </div>

@@ -1,4 +1,4 @@
-<!-- translated-from: 214_value_decomposition.jp.md blob:1a7e94b88f52ef95c71314f14c60c39d28f82da3 date:2026-11-21 progress:done -->
+<!-- translated-from: 214_value_decomposition.jp.md blob:ebf8872bdfddb41f9896d6085f38f4d13f2f7d22 date:2026-11-23 progress:done -->
 # Extrinsic and Intrinsic Value Decomposition
 
 > Main perspective: DefaultDQNAgent reward components, heads, action selection, learning, diagnostics, and persistence.
@@ -158,7 +158,7 @@ Old constant-scale combined checkpoints remain readable. Old checkpoints without
 
 ## 7. Tests and extension checks
 
-See [testdata/prd121](../../src/core/base/testdata/rfd0121/README.md) for acceptance procedures and rerun entry points, and the [implementation memo](../memo/0121_extrinsic_intrinsic_value_decomposition_20impl.md) for the plan and validation record.
+See [testdata/rfd0121](../../src/core/base/testdata/rfd0121/README.md) for acceptance procedures and rerun entry points, and the [implementation memo](../memo/0121_extrinsic_intrinsic_value_decomposition_20impl.md) for the plan and validation record.
 
 When adding a policy or diagnostic forward, apply combination to head outputs before reading q/q_dist. When adding reward components to Replay, check single-component shapes and operation order, constant-return storage, scheduled-component-only recomputation, initial priorities, and discount lifetimes under prefetch. Window rules with multiple components are unsupported and rejected during construction.
 

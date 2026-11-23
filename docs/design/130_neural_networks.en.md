@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:274a70ebae8bd71ce81956f82b4018a4ed0fb123 date:2026-11-21 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:952271b6c82731b25b0faacebe740e8c82039ed8 date:2026-11-23 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -375,7 +375,7 @@ Cloning, hard/soft copying, and serialization include μ/σ parameters and exist
 
 See the [extension point table in the framework overview](010_framework_overview.en.md#43-extension-points) for the public extension points.
 
-- [PRD117 validation resources](../../src/core/base/testdata/rfd0117/README.md): closed validation of referenced blocks/profiles, handling of unreferenced definitions, and checks of the shipped configuration.
+- [RFD0117 validation resources](../../src/core/base/testdata/rfd0117/README.md): closed validation of referenced blocks/profiles, handling of unreferenced definitions, and checks of the shipped configuration.
 
 When changing Networks, check the following:
 
@@ -388,11 +388,11 @@ When changing Networks, check the following:
 7. Preserve GraphViz/Trace and expose visualization support where needed.
 8. When extending bind, validate parsing, dependency order, cycles, runtime shapes, ToJson, GraphViz, and unused-input warnings under the same term/factor contract.
 
-See the [PRD 084 validation instructions](../../src/core/base/testdata/rfd0084/README.md) for execution-setting ownership and independent Module / Head extension tests.
+See the [RFD0084 validation instructions](../../src/core/base/testdata/rfd0084/README.md) for execution-setting ownership and independent Module / Head extension tests.
 
 Main unit tests are in [nn_test.cpp](../../src/core/base/src/nn_test.cpp); DQN/ImageCls tests also validate Agent integration.
 
-- See the [PRD170 validation assets](../../src/core/base/testdata/rfd0170/README.md) for nn_trace requests, full-value comparison, and propagation through Runner.
+- See the [RFD0170 validation assets](../../src/core/base/testdata/rfd0170/README.md) for nn_trace requests, full-value comparison, and propagation through Runner.
 
 ## 9. Related Documents
 

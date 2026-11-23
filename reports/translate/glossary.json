@@ -50,6 +50,8 @@
     "テスト用の口": "test-only interface",
     "Agent の系統": "Agent family",
     "実効 device": "effective device",
-    "完全キー": "full key"
+    "完全キー": "full key",
+    "範囲統計": "range statistics",
+    "報酬スケーラ": "reward scaler"
   }
 }

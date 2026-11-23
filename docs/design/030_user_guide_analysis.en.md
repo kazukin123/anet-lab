@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:d4d76c28bcebcffa3d825d755e037bc327f49ea7 date:2026-11-21 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:83909d78a5e5a8450059cc33a4912a6ad843c48d date:2026-11-23 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -69,7 +69,9 @@ When launched without a workspace argument, the launcher pauses after displaying
 |---|---|
 | `Workspace` | Switches to a workspace listed by the server and resets Run selection, colors, viewport, and legend state |
 | `Runs` | Clicking a row toggles it immediately. Clicking the same row again within 350 ms selects only that Run. Empty selection is allowed |
-| `Select All` / `Select Latest` | Selects all Runs or the latest Run |
+| `Filter runs` / `Filter tags` | Type words contained in names into the input box directly above each list to narrow it. Rows that contain all of the space-separated words remain. Upper- and lowercase input give the same result. The text remains when you switch workspaces |
+| `Select All` / `Select Latest` (Runs) | `Select All` adds the matching Runs to the selection. `Select Latest` selects the single latest matching Run. Clearing the text makes all Runs eligible |
+| `Select All` / `Clear All` (Tags) | Adds the tags matching the text filter to the selection or removes them from it |
 | `Recolor` | Redistributes maximally distinguishable colors among selected Runs. Colors follow a fixed sequence in selection order, so the same Run count produces the same color set |
 | `Auto Recolor` | Automatically assigns each newly selected Run (including the Run selected on initial display) the color most distinguishable from the other selected Runs. Colors of Runs that were already selected are left unchanged. ON by default |
 | `Tags` | Selects metric tags to display |
@@ -80,41 +82,44 @@ When launched without a workspace argument, the launcher pauses after displaying
 | `Selected Only` (Runs / Tags) | Header toggle that keeps only selected Runs or tags in the list. Bulk operations such as `Select All` turn it off. When you reopen the Viewer, the Runs toggle starts off |
 | Run row background and `%` | Per-Run progress importing the selected Metrics master into SQLite |
 | Hover over or right-click a Run row (press and hold on a touchscreen) | Opens the Run information panel. It shows the Run name, import status, maximum step, total and quarantined tag counts, total data points, and any import or tag issues. Click the Run name once to select it for copying, or use `Copy Name` to copy it to the clipboard. Click outside the panel or press Esc to close it |
-| `Reload` | Refetches the Run list, tags, and metric ranges for the current viewport, then redraws |
+| `Graphs` / `Config` | Switches between graphs and the configuration table. Opening Config shows the selected Runs as columns. The graph controls at the upper right are used in Graphs |
+| `Filter keys` / `Diff Only` | Finds rows by configuration key, or shows only the rows whose values or key presence differ between Runs. Both can be used at the same time. The search box and buttons stay visible when you scroll the table horizontally |
+| Hover over, click, or right-click a graph's tag name (tap on a touchscreen) | Shows per-Run statistics and `All runs`. Read the whole-period statistics under `All`. While the horizontal axis shows only part of the whole period, read the statistics for the visible range under `Viewing (start-end)`. `Copy Name` copies the tag name |
+| `Reload` | Rereads the Run list, tags, graph data, and the configuration table's settings |
 | `Auto Reload` | Refreshes metadata every 30 seconds and updates only graphs currently displaying the latest data |
 | `Height` | Use the upper-right slider to set the height of all graphs from 150 to 800 px in 50 px increments. The graphs redraw when you release the slider. Screens up to 900 px wide and screenshot mode use the saved height and hide the slider |
 | `LOD: MinMax / Mean / Band` | Global LOD display mode immediately before Scroll Lock at the upper right. Changing it does not refetch data |
 | Graph `Log` | Toggles signed-log display supporting positive, negative, and zero values |
 | Graph `p0–` / `–p100` | Narrows the Y-axis lower and upper limits to percentiles of the finite values currently displayed for each Run. Each press cycles the lower limit through `p0–` → `p1–` → `p5–` → `p0–` and the upper limit through `–p100` → `–p99` → `–p95` → `–p100`, and the two are chosen separately (for example, `p5–` with `–p100` trims only the bottom). `p0–` and `–p100` mean no limit |
 | `Scroll Lock` | Suppresses graph interaction and uses drag/swipe for vertical scrolling |
-| Screenshot button | Hides side panels for comparison screenshots. While active, drag/swipe over graphs scrolls vertically as with Scroll Lock. A spinner appears in the upper-left corner while data is loading |
+| Screenshot button | Hides the side panel and tabs and shows the contents of the open tab. While active, drag/swipe over graphs scrolls vertically as with Scroll Lock. A spinner appears in the upper-left corner while data is loading |
 
 The Plotly modebar provides zoom, pan, image saving, and `Reset axes`. The redundant `Autoscale` button is hidden. Double-clicking the graph preserves Plotly's axis reset while also triggering the Viewer's Reload.
 
 Only the initial display automatically selects the latest Run. Thereafter, manual empty selections and selections emptied by disappearing Runs are preserved.
 Reload preserves known OFF tags and automatically enables only newly discovered visible tags.
-The browser saves the selected workspace and tags, LOD mode, Scroll Lock, `Auto Recolor`, the Tags `Selected Only` toggle, graph height, and each tag’s Log setting and percentile limits in `localStorage`. The Viewer reassigns Run colors on reload and when you switch workspaces. Log and the percentile lower and upper limits apply to same-named tags across workspaces.
+The browser saves the selected workspace, the open tab, the selected tags, LOD mode, Scroll Lock, `Auto Recolor`, the Tags `Selected Only` toggle, graph height, and each tag’s Log setting and percentile limits in `localStorage`. The Viewer reassigns Run colors on reload and when you switch workspaces. Log and the percentile lower and upper limits apply to same-named tags across workspaces.
 
 The selected tag set name and per-set unsaved changes also persist in localStorage. Reloading retains unsaved tag selection. Unsaved changes stay in this browser only and do not appear in other browsers or devices. To return to the saved contents, call the set and press `Revert`. Saving a set under another name with `Save As` discards the original set's unsaved changes. Tag sets are shared across workspaces. Use ↑↓ and Enter in the menu, and Esc or an outside click to close it. Esc inside an input cancels only that edit.
 
 > [!NOTE]
 > The working file defaults to `metrics_viewer_tag_sets.json` directly under `metricsviewer.workspaces-dir`. Viewer creates missing parents and copies the bundled initial file only when the working file is absent. Override `--metricsviewer.tag-sets-file` to choose another location. External edits, including git changes, remain unseen until restart and are overwritten by UI saves. Restart Viewer after external editing before saving through the UI.
 
-Percentiles are computed independently for each Run from LOD rendering values in the current X range, excluding Runs hidden in the legend. The Y axis spans from the smallest of the Runs' lower-limit percentiles to the largest of their upper-limit percentiles. p0 and p100 are the minimum and maximum, respectively. Only the Y-axis display range is narrowed and the lines are unchanged, so points outside the range extend beyond the Y axis and are clipped. There is no minimum point count; the tooltip shows in-range and input counts. When combined with Log, percentiles are computed from raw values before transformation to signed-log coordinates. Manual Y zoom is preserved; `Reset View` or Plotly's axis reset returns to the percentile range. Graph-header statistics and raw client-cache values remain unchanged.
+Percentiles are computed independently for each Run from LOD rendering values in the current X range, excluding Runs hidden in the legend. The Y axis spans from the smallest of the Runs' lower-limit percentiles to the largest of their upper-limit percentiles. p0 and p100 are the minimum and maximum, respectively. Only the Y-axis display range is narrowed and the lines are unchanged, so points outside the range extend beyond the Y axis and are clipped. There is no minimum point count; the tooltip shows in-range and input counts. When combined with Log, percentiles are computed from raw values before transformation to signed-log coordinates. Manual Y zoom is preserved; `Reset View` or Plotly's axis reset returns to the percentile range.
 
-LOD `MinMax` connects each bucket's min, max, and last in their original step order. `Mean` displays bucket averages; `Band` overlays a mean line on a min/max band. When there are few enough points for L0, every mode displays the raw line. The graph header's `Min / Max / Avg / Std` combines `TagStats` over all committed raw points from selected Runs, rather than the viewport.
-
-Run lists and committed graphs remain interactive during ingestion. Run-level errors and tags quarantined for backward steps display `⚠` with a tooltip; their committed portions remain visible.
+LOD `MinMax` connects each bucket's min, max, and last in their original step order. `Mean` displays bucket averages; `Band` overlays a mean line on a min/max band. When there are few enough points for L0, every mode displays the raw line.
 
 Runs in the same graph use common Step intervals for the visible range. At the same range and screen width, selecting up to four Runs does not reduce resolution. Zooming or resizing updates all Runs to the same resolution; panning keeps the grid anchored. Missing observations are not filled in.
 
 Compact overviews appear first for all selected graphs. Detail data is prefetched nearest-first within the cache capacity and retained across scrolling. If detail loading has not caught up, overview lines remain visible until details are ready. Overviews show the same axes, legends, and control header as details; transitions retain the graph frame and scroll position. Overviews are static, while hover and zoom/pan are available on detailed plots. Screenshot mode loads all selected graphs sequentially; wait for loading to finish before capturing. After a cache format change, the first load automatically rebuilds caches; wait for Run ingestion to complete.
 
+Run lists and committed graphs remain interactive during ingestion. Run-level errors and tags quarantined for backward steps display `⚠` with a tooltip; their committed portions remain visible.
+
 ## 4. Comparing Runs
 
 ### 4.1 Check Comparison Conditions
 
-Before overlaying graphs, check the following for each Run.
+Before overlaying graphs, select the Runs to compare and open `Config`. Use `Diff Only` to narrow the table to rows with differences, and `Filter keys` to find the items you want to check. `(none)` indicates that the Run does not have the key. Check the following items in the configuration table and the Run folder.
 
 - `config/config_data.txt`: complete configuration after resolving includes and CLI overrides
 - `config/*.txt`: per-component injected configuration; Env uses `config/env.<Env name>.txt`
@@ -144,7 +149,7 @@ Run B: 0 - 70M exp_step
 比較window: 50M - 70M exp_step
 ```
 
-Within the same window, distinguish:
+Zoom the graph's horizontal axis to the shared range and open the information panel from the tag name. Check the step range shown in `Viewing (start-end)`, and read each Run's `Count`, `Max`, `Mean`, `Min`, `Std`, and `Last`. Within the same window, distinguish:
 
 - Level: window mean/median or evaluation EMA
 - Stability: fluctuations, sudden drops, and range/std across seeds

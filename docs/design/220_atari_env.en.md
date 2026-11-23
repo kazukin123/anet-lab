@@ -1,4 +1,4 @@
-<!-- translated-from: 220_atari_env.jp.md blob:b40f58b84a8165b5d1fef5d82cdaaa5ace136d04 date:2026-11-19 progress:done -->
+<!-- translated-from: 220_atari_env.jp.md blob:8164e4afe4229447696d07e93c5c16ec5c054e30 date:2026-11-23 progress:done -->
 # Atari Env (ALE Integration)
 
 > Primary perspective: concrete implementation specification (AtariEnv, including external ALE contracts, configuration keys, and View)
@@ -9,7 +9,7 @@
 
 This document describes `AtariEnv`, which integrates ALE (Arcade Learning Environment) directly in C++. As a concrete specification built on the common Env contract ([Environments](120_environments.en.md)), it records ALE configuration-key contracts, the preprocessing chain, termination semantics, and AtariView.
 
-See ADR 0025 (external-reference builds and licensing) and ADR 0026 (Single seam and preprocessing ownership) for adoption decisions, and `docs/memo/051_atari_ale_env_10prd.md` for the implementation plan. `CONTEXT.md` is authoritative for terminology (sticky actions / flavor / raw score / protocol preset).
+See ADR 0025 (external-reference builds and licensing) and ADR 0026 (Single seam and preprocessing ownership) for adoption decisions, and `docs/memo/0051_atari_ale_env_10rfd.md` for the implementation plan. `CONTEXT.md` is authoritative for terminology (sticky actions / flavor / raw score / protocol preset).
 
 ### 1.2 Intended Audience
 
@@ -306,7 +306,7 @@ montezuma_revenge has no stage boundaries, so number 1 uses the highest room num
 
 Numbers 3 to 6 track inventory. `0xC1` holds inventory bits: the key is 2 and the sword in room 6 is 32 (OC_Atari's annotations list keys as 2, 4, 8, 16 and swords as 32, 64). Number 3, `key_get`, is the number of key bits (mask 30) that went 0→1, that is, the number of keys picked up. Number 6, `door_open`, is the number of the same bits that went 1→0, that is, the number of times a key was used at a door. Number 5, `sword_get`, is the number of times sword bit 32 went 0→1, that is, the number of swords picked up. Number 4, `sword_kill`, is the number of times the same bit went 1→0, that is, the number of enemies defeated with the sword. Defeating an enemy with the sword makes the sword disappear and awards points (2,000 or 3,000 depending on the enemy). Points earned up to room 14 (key 100, door 300, sword 100, and defeated enemies) can be explained by the counts of `key_get`, `door_open`, `sword_get`, and `sword_kill`. Bits are counted separately, so holding a key and a sword at once counts both. Sword bit 64 is not counted. Number 7, `lives_lost`, is the number of times the remaining lives (`0xBA`, starting at 5) decreased; a game that ended in game over gives 5 (lives do not decrease when the last life is lost). Remaining lives also appear in graphs as `30_lives_mean`, so read 7, like 5 and 6, from the trace and the log line.
 
-In-progress values of numbered definitions are carried in AuxData as int64 `ram_metric.<label>`. The Step result's numbered keys query the same snapshot. These label keys also serve AtariView spectating. See [PRD082](../memo/done/0082_atari_ram_progress_metrics_10rfd.md) and [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) for the detailed investigation and known limits.
+In-progress values of numbered definitions are carried in AuxData as int64 `ram_metric.<label>`. The Step result's numbered keys query the same snapshot. These label keys also serve AtariView spectating. See [RFD0082](../memo/done/0082_atari_ram_progress_metrics_10rfd.md) and [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) for the detailed investigation and known limits.
 
 ## 5. AtariView
 
@@ -334,20 +334,20 @@ Uses `ViewBase<AtariData, AtariPanel>`, the same structure as ImageClsView. `Get
 - Three-valued cache variable `ANET_ENABLE_ATARI` = `AUTO` (default) / `ON` / `OFF`. AUTO checks `ALE_ROOT` and the existence of `src/ale/ale_interface.hpp`. ON with missing prerequisites produces a configure error. Log the decision at STATUS.
 - Only when enabled: `add_subdirectory(src/env/atari)`, link `AtariEnv` to runner and define `ANET_HAS_ATARI`, then call `InitAtari()` under `#ifdef ANET_HAS_ATARI` in `RunnerApp.cpp`.
 - Select ale.lib using `$<IF:$<CONFIG:Debug>,Debug,Release>`; RelWithDebInfo uses Release, matching IDL/CRT.
-- Tests build with the module. Ordinary ROM-dependent cases use Catch2 `SKIP()` if `ATARI_ROM_DIR` cannot be resolved. Mandatory PRD097 acceptance cases tagged `[prd097_atari]` use `REQUIRE` to check Asterix ROM availability; an unresolved ROM is neither a pass nor a skip. Preprocessing golden tests always run.
+- Tests build with the module. Ordinary ROM-dependent cases use Catch2 `SKIP()` if `ATARI_ROM_DIR` cannot be resolved. Mandatory RFD0097 acceptance cases tagged `[rfd0097_atari]` use `REQUIRE` to check Asterix ROM availability; an unresolved ROM is neither a pass nor a skip. Preprocessing golden tests always run.
 
 ### 6.1 Tests and Extension Checks
 
-For resize changes, follow the [PRD099 validation procedure](../../src/core/base/testdata/rfd0099/README.md). Each of 24 fixed images must have absolute error at most 1 and at least 99.9% exact pixels. Preserve the default learning-series checksum. Performance acceptance requires a median speed ratio of at least 0.98 at 84×84 with 64 envs; defer judgment if baseline-versus-baseline controls do not stay within 1%.
+For resize changes, follow the [RFD0099 validation procedure](../../src/core/base/testdata/rfd0099/README.md). Each of 24 fixed images must have absolute error at most 1 and at least 99.9% exact pixels. Preserve the default learning-series checksum. Performance acceptance requires a median speed ratio of at least 0.98 at 84×84 with 64 envs; defer judgment if baseline-versus-baseline controls do not stay within 1%.
 
-When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [PRD082 validation instructions](../../src/core/base/testdata/rfd0082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`. The per-group alignment of RAM metrics and the protocol preset values in the shipped `Atari.txt` are checked by `[shipped_config][atari]` in anet-core-base-test (`config_baseline_test.cpp`).
+When changing RAM definition numbers or reducers, check the ROM-independent and ROM-dependent tests in the [RFD0082 validation instructions](../../src/core/base/testdata/rfd0082/README.md). Unnumbered definitions are only validated and do not appear in AuxData, logs, or `GetScalar`. The per-group alignment of RAM metrics and the protocol preset values in the shipped `Atari.txt` are checked by `[shipped_config][atari]` in anet-core-base-test (`config_baseline_test.cpp`).
 
 ## 7. Related Documents
 
 - [Environments](120_environments.en.md) — Common Env contract and extension checklist (§8)
 - ADR 0025 / ADR 0026 — Adoption decisions
-- `docs/memo/051_atari_ale_env_10prd.md` — Implementation plan (PH1 scope and acceptance criteria)
+- `docs/memo/0051_atari_ale_env_10rfd.md` — Implementation plan (PH1 scope and acceptance criteria)
 - `reports/atari_env_survey_2026-08-13.md` — ALE survey (protocols and benchmark trends)
 - `CONTEXT.md` — Terminology (sticky actions / flavor / raw score / protocol preset)
 
-Transition observations, RGB, and aux are created before the auxiliary NOOP after life loss. If the NOOP ends the game, the Step result's finalized game values include its score and frames, but the returned reward/next_state/RGB/lives are not replaced. AtariView displays the result's rgb_frame, avoiding a shift to the screen after automatic Reset. Results are independent of later Steps and Resets, and the env carries no completion values forward. See [PRD097 validation](../../src/core/base/testdata/rfd0097/README.md) for Asterix RAM acceptance conditions and public-API tests.
+Transition observations, RGB, and aux are created before the auxiliary NOOP after life loss. If the NOOP ends the game, the Step result's finalized game values include its score and frames, but the returned reward/next_state/RGB/lives are not replaced. AtariView displays the result's rgb_frame, avoiding a shift to the screen after automatic Reset. Results are independent of later Steps and Resets, and the env carries no completion values forward. See [RFD0097 validation](../../src/core/base/testdata/rfd0097/README.md) for Asterix RAM acceptance conditions and public-API tests.

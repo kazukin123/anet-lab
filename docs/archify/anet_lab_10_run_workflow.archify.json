@@ -119,7 +119,7 @@
       "col": 5,
       "type": "external",
       "label": "成果物の分析",
-      "sublabel": "Metrics Viewer ほか",
+      "sublabel": "Metrics Viewer で比較",
       "width": 104
     }
   ],
@@ -197,7 +197,7 @@
       "title": "設定と構築",
       "items": [
         "--workspace・選択 dialog・前回の順で決め、無ければ _default。--config は直接モード",
-        "構築は背景 thread。構築中の Close は保留して完了後に閉じる"
+        "構築は背景 thread。設定の誤りは完全キーで示して止め、構築中の Close は完了後に閉じる"
       ]
     },
     {
@@ -205,15 +205,15 @@
       "title": "反復と評価",
       "items": [
         "DoUpdateFrame(1) を COMPLETED まで繰り返す。Pause は step の境目で効く",
-        "interval>0 の評価タグだけが LearnEvent で発火し、warmup_count 回は抑止する"
+        "interval>0 の評価タグだけが LearnEvent で発火し、offset と warmup_count で発火を遅らせる"
       ]
     },
     {
       "dot": "rose",
-      "title": "終了と失敗",
+      "title": "終了と分析",
       "items": [
-        "Close は agent_close.anet を保存して排水し、ログを閉じる",
-        "worker の例外は main thread で報告し、exit code 1 で終わる"
+        "Close は agent_close.anet を保存して排水し、ログを閉じる。worker の例外は exit code 1",
+        "Viewer は Graphs と Config のタブで、scalar・範囲の統計・設定の差を Run ごとに並べる"
       ]
     }
   ]

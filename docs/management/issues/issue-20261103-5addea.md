@@ -23,7 +23,7 @@ area:
 type: リファクタリング
 domain: 開発
 ai_judge: 残件有り
-ai_judged: 2026-11-21
+ai_judged: 2026-11-23
 docs: []
 rfd: "[[0079_cpp_internal_linkage_convention_10rfd]]"
 priority: 低
@@ -48,6 +48,7 @@ tags: []
 ## 事象
 
 対応するPRD: [079_cpp_internal_linkage_convention_10prd.md](../../memo/0079_cpp_internal_linkage_convention_10rfd.md)
+- 2026-11-23 監査（backlog）: 規約は `docs/quality/impl.md` の項番 32 に入った。`src` の `.cpp` には無名 namespace が 87 ブロックあり、本番は 41 ブロック・34 ファイルで、RFD の移行一覧（本番 16 ブロック・14 ファイル）より増えた。`tools/check_namespace_style.py`（D8）は無い。
 
 ## 影響
 

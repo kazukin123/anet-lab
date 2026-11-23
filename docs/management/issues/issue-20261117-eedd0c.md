@@ -10,8 +10,8 @@ area:
   - 110_runner_app
 type: 不具合
 domain: UI
-ai_judge: 未確認
-ai_judged:
+ai_judge: 残件無し
+ai_judged: 2026-11-23
 docs:
   - docs/memo/0170_nn_trace_capture_unification_20impl.md
   - docs/design/160_applications_and_tools.jp.md
@@ -41,6 +41,7 @@ PRD170 の実装で、変更前後の既定テスト一式を比較した際に�
 - PRD170 の着手前と最終実装後の通常 GUI 一式を、同じ Catch seed `3413744419` で実行すると、両方とも39 cases中38 pass / 1 fail、894 assertions中893 pass / 1 fail。失敗する条件は同じで、着手前は576行目、最終実装後は581行目だった。
 - 実画面の同じ操作が失敗するか、合成イベントの準備に原因があるかは未確認。製品の選択処理とテスト側のどちらを直すべきかは、まだ特定していない。
 - ローカルの証拠は `.scratch/prd170/gui-before.log`、`gui-after-results.log`、`gui-final-results.log`。これらはGit管理外であり、結果の要約は[PRD170実装記録](../../memo/0170_nn_trace_capture_unification_20impl.md)にも残っている。
+- 2026-11-23 監査（backlog）: db906214（2026-11-19、件名に eedd0c）で、テストの合成イベントの送り先を `GetFrozenColGridWindow()` に、座標を `CellToRect` と `CalcScrolledPosition` から取る形に直した（`src/apps/runner/src/EvalTracePanel_test.cpp:568-586`。製品のコードは変えていない）。RFD0195 の実装記録（177 行）では、2026-11-23 に Runner の GUI テスト 42 件がすべて通った。
 
 ## 影響
 
