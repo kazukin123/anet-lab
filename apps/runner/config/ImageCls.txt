@@ -454,38 +454,38 @@ net.block.[TransEnc_H256].tf.attn_dropout_rate = 0.0
 net.block.[TransEnc_H256].tf.droppath_rate = 0.1
 
 
-net.branch.@FoodResNet13.bind = grid
-net.branch.@FoodResNet13.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop
+net.branch.@FoodResNet13 : bind = grid
+net.branch.@FoodResNet13 : structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > Flatten > Drop
 
-net.branch.@FoodResNet13_GAP.bind = grid
-net.branch.@FoodResNet13_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop
+net.branch.@FoodResNet13_GAP : bind = grid
+net.branch.@FoodResNet13_GAP : structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > GAP2D > Drop
 
-net.branch.@ResNet18.bind = grid
-net.branch.@ResNet18.structure = ConvInit64_7x7 > BN64 > ReLU > MaxPool3x3s2 > ResNet18Block64(*2) > ResNet18Block128s2 > ResNet18Block128 > ResNet18Block256s2 > ResNet18Block256 > ResNet18Block512s2 > ResNet18Block512 > GAP2D
+net.branch.@ResNet18 : bind = grid
+net.branch.@ResNet18 : structure = ConvInit64_7x7 > BN64 > ReLU > MaxPool3x3s2 > ResNet18Block64(*2) > ResNet18Block128s2 > ResNet18Block128 > ResNet18Block256s2 > ResNet18Block256 > ResNet18Block512s2 > ResNet18Block512 > GAP2D
 
-net.branch.@ResNet18ish_MaxPool.bind = grid
-net.branch.@ResNet18ish_MaxPool.structure = ConvInit64_7x7 > BN64 > SiLU > MaxPool3x3s2 > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
+net.branch.@ResNet18ish_MaxPool : bind = grid
+net.branch.@ResNet18ish_MaxPool : structure = ConvInit64_7x7 > BN64 > SiLU > MaxPool3x3s2 > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
 
-net.branch.@ResNet18ish_std.bind = grid
-net.branch.@ResNet18ish_std.structure   = ConvInit64 > BN64 > SiLU > ConvDown64 > BN64 > SiLU > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
+net.branch.@ResNet18ish_std : bind = grid
+net.branch.@ResNet18ish_std : structure   = ConvInit64 > BN64 > SiLU > ConvDown64 > BN64 > SiLU > ResBlock64(*2) > ResBlock128s2 > ResBlock128 > ResBlock256s2 > ResBlock256 > ResBlock512s2 > ResBlock512 > GAP2D > DropHead
 
-net.branch.@ResNet18ish_hr.bind = grid
-net.branch.@ResNet18ish_hr.structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead
+net.branch.@ResNet18ish_hr : bind = grid
+net.branch.@ResNet18ish_hr : structure = ConvInit64 > BN64 > SiLU > ResBlock64(*2) > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > ConvDown512 > BN512 > SiLU > ResBlock512(*2) > GAP2D > DropHead
 
-net.branch.@ResNet18ish_mr.bind = grid
-net.branch.@ResNet18ish_mr.structure = ConvInit32 > BN32 > SiLU > ResBlock32(*2) > ConvDown64  > BN64  > SiLU > ResBlock64(*2)  > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > GAP2D > DropHead
+net.branch.@ResNet18ish_mr : bind = grid
+net.branch.@ResNet18ish_mr : structure = ConvInit32 > BN32 > SiLU > ResBlock32(*2) > ConvDown64  > BN64  > SiLU > ResBlock64(*2)  > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > ResBlock256(*2) > GAP2D > DropHead
 
-net.branch.@Hybrid_CLS.bind = grid
-net.branch.@Hybrid_CLS.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract
+net.branch.@Hybrid_CLS : bind = grid
+net.branch.@Hybrid_CLS : structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > ClsAppend > TransEnc_H256 > ClsExtract
 
-net.branch.@Hybrid_GAP.bind = grid
-net.branch.@Hybrid_GAP.structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > TransEnc_H256 > GAP1D
+net.branch.@Hybrid_GAP : bind = grid
+net.branch.@Hybrid_GAP : structure = ConvInit32 > BN32 > SiLU > ResBlock32 > ConvDown64 > BN64 > SiLU > ResBlock64 > ConvDown128 > BN128 > SiLU > ResBlock128(*2) > ConvDown256 > BN256 > SiLU > PosEmbed2D > TransEnc_H256 > GAP1D
 
-net.branch.@ViT_S16_CLS.bind = grid
-net.branch.@ViT_S16_CLS.structure = PatchEmbed16 > PosEmbed2D > ClsAppend > TransEnc_ViT > ClsExtract
+net.branch.@ViT_S16_CLS : bind = grid
+net.branch.@ViT_S16_CLS : structure = PatchEmbed16 > PosEmbed2D > ClsAppend > TransEnc_ViT > ClsExtract
 
-net.branch.@ViT_S16_GAP.bind = grid
-net.branch.@ViT_S16_GAP.structure   = PatchEmbed16 > PosEmbed2D > TransEnc_ViT > GAP1D
+net.branch.@ViT_S16_GAP : bind = grid
+net.branch.@ViT_S16_GAP : structure   = PatchEmbed16 > PosEmbed2D > TransEnc_ViT > GAP1D
 
 
 ImageClsAgent.net.body.output.[features] = main_feature

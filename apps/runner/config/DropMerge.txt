@@ -1521,11 +1521,11 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.@visit-maxq
 
 #metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.@per-prio
-#image.thg.@per-prio.histgram.probe.value.key = replaybuffer.per.distribution
-#image.thg.@per-prio.histgram.frame_interval = 200 # 10
-#image.thg.@per-prio.interval = 100
-#image.thg.@per-prio.interval = 500
-#image.thg.@per-prio.interval = 1000
+#image.thg.@per-prio : histgram.probe.value.key = replaybuffer.per.distribution
+#image.thg.@per-prio : histgram.frame_interval = 200 # 10
+#image.thg.@per-prio : interval = 100
+#image.thg.@per-prio : interval = 500
+#image.thg.@per-prio : interval = 1000
 
 #metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.@qmax > image.shm.@s01
 #metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.@qmax > image.shm.@s02

@@ -751,14 +751,14 @@ DefaultDQNAgent.@iqn1024 : net.$ = net.@iqn1024
 DefaultDQNAgent.@iqn7744 : quantile_mode = iqn
 DefaultDQNAgent.@iqn7744 : net.$ = net.@iqn7744
 DefaultDQNAgent.@nature : head.use_dueling = false
-DefaultDQNAgent.@nature.learner.use_per = false
-DefaultDQNAgent.@nature.learner.use_double_dqn = false
-DefaultDQNAgent.@nature.learner.n_step = 1
-DefaultDQNAgent.@nature.learner.gamma = 0.99                    # discount factor
-DefaultDQNAgent.@nature.learner.replay_capacity = 1,000,000     # replay memory size
-DefaultDQNAgent.@nature.learner.update_warmup_steps = 50,000    # replay start size
-DefaultDQNAgent.@nature.model.soft_update_tau = 0               # soft を切って hard update へ
-DefaultDQNAgent.@nature.model.hard_update_interval = 10,000     # target network update frequency(更新回数単位)
+DefaultDQNAgent.@nature : learner.use_per = false
+DefaultDQNAgent.@nature : learner.use_double_dqn = false
+DefaultDQNAgent.@nature : learner.n_step = 1
+DefaultDQNAgent.@nature : learner.gamma = 0.99                    # discount factor
+DefaultDQNAgent.@nature : learner.replay_capacity = 1,000,000     # replay memory size
+DefaultDQNAgent.@nature : learner.update_warmup_steps = 50,000    # replay start size
+DefaultDQNAgent.@nature : model.soft_update_tau = 0               # soft を切って hard update へ
+DefaultDQNAgent.@nature : model.hard_update_interval = 10,000     # target network update frequency(更新回数単位)
 DefaultDQNAgent.@nature : actor.[train].policy.epsilon.start = 1.00 # initial exploration
 DefaultDQNAgent.@nature : actor.[train].policy.epsilon.end = 0.1 # final exploration(現行ベースラインの 0.01 と違う)
 DefaultDQNAgent.@nature : actor.[train].policy.epsilon.type = linear # final exploration frame 1M frames / frame_skip 4
@@ -943,8 +943,8 @@ net.block.[AtariImpalaRes64GN].res.norm_type = group
 net.block.[AtariImpalaRes64GN].res.group_norm_groups = 4
 net.block.[AtariImpalaRes64GN].res.droppath_rate = 0.0
 
-net.branch.@AtariImpalaX2GN.bind = grid
-net.branch.@AtariImpalaX2GN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+net.branch.@AtariImpalaX2GN : bind = grid
+net.branch.@AtariImpalaX2GN : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64GN(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
 # --- config のみの screening の群(可塑性)。素の X2 から 1 点だけ変えた 3 branch ---
 
@@ -966,8 +966,8 @@ net.block.[AtariImpalaRes64He].res.norm_type = none
 net.block.[AtariImpalaRes64He].res.droppath_rate = 0.0
 net.block.[AtariImpalaRes64He].init2.mode = he
 
-net.branch.@AtariImpalaX2He.bind = grid
-net.branch.@AtariImpalaX2He.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32He(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64He(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64He(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+net.branch.@AtariImpalaX2He : bind = grid
+net.branch.@AtariImpalaX2He : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32He(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64He(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64He(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
 net.block.[AtariImpalaRes32S].type = ResBlock
 net.block.[AtariImpalaRes32S].res.channels = 32
@@ -987,17 +987,17 @@ net.block.[AtariImpalaRes64S].res.droppath_rate = 0.0
 
 net.block.[AtariSiLU].type = SiLU
 
-net.branch.@AtariImpalaX2SiLU.bind = grid
-net.branch.@AtariImpalaX2SiLU.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32S(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64S(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64S(*2) > AtariSiLU > Flatten > AtariLinear512 > AtariSiLU
+net.branch.@AtariImpalaX2SiLU : bind = grid
+net.branch.@AtariImpalaX2SiLU : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32S(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64S(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64S(*2) > AtariSiLU > Flatten > AtariLinear512 > AtariSiLU
 
 net.block.[AtariLN512].type = LayerNorm
 net.block.[AtariLN512].normalized_shape = 512
 
-net.branch.@AtariImpalaX2LN.bind = grid
-net.branch.@AtariImpalaX2LN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2LN : bind = grid
+net.branch.@AtariImpalaX2LN : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
-net.branch.@AtariImpalaX2ViT64LN.bind = grid
-net.branch.@AtariImpalaX2ViT64LN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > PosEmbed2D > AtariImpalaTrans64 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2ViT64LN : bind = grid
+net.branch.@AtariImpalaX2ViT64LN : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > PosEmbed2D > AtariImpalaTrans64 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
 # --- SN screening(RFD0065)。全層適用: standalone Conv2d 3 + ResBlock 全部 + Linear512。
 # C 群は spectral + init2=he(zero-init は W/sigma と非互換で fail-fast)。D 群は cap + zero-init 維持。
@@ -1044,8 +1044,8 @@ net.block.[AtariLinear512SN].linear.out_features = 512
 net.block.[AtariLinear512SN].init.mode = xavier
 net.block.[AtariLinear512SN].weight_norm.mode = spectral
 
-net.branch.@AtariImpalaX2SN.bind = grid
-net.branch.@AtariImpalaX2SN.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > Flatten > AtariLinear512SN > ReLU
+net.branch.@AtariImpalaX2SN : bind = grid
+net.branch.@AtariImpalaX2SN : structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > Flatten > AtariLinear512SN > ReLU
 
 # D 群: weight_norm.mode = spectral_cap
 net.block.[AtariImpalaConv32CAP].type = Conv2d
@@ -1087,11 +1087,11 @@ net.block.[AtariLinear512CAP].linear.out_features = 512
 net.block.[AtariLinear512CAP].init.mode = xavier
 net.block.[AtariLinear512CAP].weight_norm.mode = spectral_cap
 
-net.branch.@AtariImpalaX2CAP.bind = grid
-net.branch.@AtariImpalaX2CAP.structure = StackMerge > AtariImpalaConv32CAP > AtariImpalaPool > AtariImpalaRes32CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > ReLU > Flatten > AtariLinear512CAP > ReLU
+net.branch.@AtariImpalaX2CAP : bind = grid
+net.branch.@AtariImpalaX2CAP : structure = StackMerge > AtariImpalaConv32CAP > AtariImpalaPool > AtariImpalaRes32CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > ReLU > Flatten > AtariLinear512CAP > ReLU
 
-net.branch.@AtariImpalaX2LNCAP.bind = grid
-net.branch.@AtariImpalaX2LNCAP.structure = StackMerge > AtariImpalaConv32CAP > AtariImpalaPool > AtariImpalaRes32CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > ReLU > Flatten > AtariLinear512CAP > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2LNCAP : bind = grid
+net.branch.@AtariImpalaX2LNCAP : structure = StackMerge > AtariImpalaConv32CAP > AtariImpalaPool > AtariImpalaRes32CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > AtariImpalaConv64CAP > AtariImpalaPool > AtariImpalaRes64CAP(*2) > ReLU > Flatten > AtariLinear512CAP > AtariLN512 > ReLU
 
 # --- BTR 忠実版 SN: residual conv のみ(BTR networks.py 実装と同範囲)。
 
@@ -1115,11 +1115,11 @@ net.block.[AtariImpalaRes64SNR].res.droppath_rate = 0.0
 net.block.[AtariImpalaRes64SNR].weight_norm.mode = spectral
 net.block.[AtariImpalaRes64SNR].init2.mode = he
 
-net.branch.@AtariImpalaX2SNR.bind = grid
-net.branch.@AtariImpalaX2SNR.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+net.branch.@AtariImpalaX2SNR : bind = grid
+net.branch.@AtariImpalaX2SNR : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
-net.branch.@AtariImpalaX2LNSNR.bind = grid
-net.branch.@AtariImpalaX2LNSNR.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2LNSNR : bind = grid
+net.branch.@AtariImpalaX2LNSNR : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SNR(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
 net.block.[AtariImpalaRes32CAPR].type = ResBlock
 net.block.[AtariImpalaRes32CAPR].res.channels = 32
@@ -1159,8 +1159,8 @@ net.block.[AtariIQNTauProj7744].type = Linear
 net.block.[AtariIQNTauProj7744].linear.out_features = 7744
 net.block.[AtariIQNTauProj7744].init.mode = xavier
 
-net.branch.@AtariImpalaX2CAPR.bind = grid
-net.branch.@AtariImpalaX2CAPR.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+net.branch.@AtariImpalaX2CAPR : bind = grid
+net.branch.@AtariImpalaX2CAPR : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64CAPR(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
 # --- Atari IMPALA + ViT ハイブリッド ---
 
@@ -1225,14 +1225,14 @@ net.block.[AtariIQNTauProj7744].type = Linear
 net.block.[AtariIQNTauProj7744].linear.out_features = 7744
 net.block.[AtariIQNTauProj7744].init.mode = xavier
 
-net.branch.@AtariImpalaX2SNPool6Flat.bind = grid
-net.branch.@AtariImpalaX2SNPool6Flat.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten
+net.branch.@AtariImpalaX2SNPool6Flat : bind = grid
+net.branch.@AtariImpalaX2SNPool6Flat : structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten
 
-net.branch.@AtariImpalaX2SNPool6Trunk.bind = grid
-net.branch.@AtariImpalaX2SNPool6Trunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2SNPool6Trunk : bind = grid
+net.branch.@AtariImpalaX2SNPool6Trunk : structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
-net.branch.@AtariImpalaX2SNTrunk.bind = grid
-net.branch.@AtariImpalaX2SNTrunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2SNTrunk : bind = grid
+net.branch.@AtariImpalaX2SNTrunk : structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
 net.block.[AtariPool4].type = MaxPool2d
 net.block.[AtariPool4].pool.kernel_size = 3
@@ -1244,57 +1244,57 @@ net.block.[AtariPool3].pool.kernel_size = 3
 net.block.[AtariPool3].pool.stride = 3
 net.block.[AtariPool3].pool.padding = 0
 
-net.branch.@AtariImpalaX2SNPool4Trunk.bind = grid
-net.branch.@AtariImpalaX2SNPool4Trunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool4 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2SNPool4Trunk : bind = grid
+net.branch.@AtariImpalaX2SNPool4Trunk : structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool4 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
-net.branch.@AtariImpalaX2SNPool3Trunk.bind = grid
-net.branch.@AtariImpalaX2SNPool3Trunk.structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool3 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2SNPool3Trunk : bind = grid
+net.branch.@AtariImpalaX2SNPool3Trunk : structure = StackMerge > AtariImpalaConv32SN > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64SN > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool3 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
-net.branch.@AtariImpalaX2SN12Pool6Flat.bind = grid
-net.branch.@AtariImpalaX2SN12Pool6Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten
+net.branch.@AtariImpalaX2SN12Pool6Flat : bind = grid
+net.branch.@AtariImpalaX2SN12Pool6Flat : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > Flatten
 
-net.branch.@AtariImpalaX2SN12ViT64Pool6Flat.bind = grid
-net.branch.@AtariImpalaX2SN12ViT64Pool6Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > PosEmbed2D > AtariImpalaTrans64 > Flatten
+net.branch.@AtariImpalaX2SN12ViT64Pool6Flat : bind = grid
+net.branch.@AtariImpalaX2SN12ViT64Pool6Flat : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool6 > PosEmbed2D > AtariImpalaTrans64 > Flatten
 
-net.branch.@AtariImpalaX2SN12Pool4Flat.bind = grid
-net.branch.@AtariImpalaX2SN12Pool4Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool4 > Flatten
+net.branch.@AtariImpalaX2SN12Pool4Flat : bind = grid
+net.branch.@AtariImpalaX2SN12Pool4Flat : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64SN(*2) > ReLU > AtariPool4 > Flatten
 
-net.branch.@AtariImpalaX2Pool6Flat.bind = grid
-net.branch.@AtariImpalaX2Pool6Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten
+net.branch.@AtariImpalaX2Pool6Flat : bind = grid
+net.branch.@AtariImpalaX2Pool6Flat : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten
 
-net.branch.@AtariImpalaX2LNPool6.bind = grid
-net.branch.@AtariImpalaX2LNPool6.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2LNPool6 : bind = grid
+net.branch.@AtariImpalaX2LNPool6 : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool6 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
 # @AtariImpalaX2LN に AtariPool4 を 1 個挟むだけ。Flatten 入力が 11x11x64=7,744 から
 # 4x4x64=1,024 になり AtariLinear512 が 3.96M -> 0.52M param。融合次元は trunk 出力の
 # 512 のままなので @iqn の差し替えは要らない。
-net.branch.@AtariImpalaX2LNPool4.bind = grid
-net.branch.@AtariImpalaX2LNPool4.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool4 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaX2LNPool4 : bind = grid
+net.branch.@AtariImpalaX2LNPool4 : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > AtariPool4 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
-net.branch.@AtariImpalaX2Flat.bind = grid
-net.branch.@AtariImpalaX2Flat.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten
+net.branch.@AtariImpalaX2Flat : bind = grid
+net.branch.@AtariImpalaX2Flat : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten
 
 # --- ブランチプロファイル ---
 
-net.branch.@AtariNature.bind = grid
-net.branch.@AtariNature.structure = StackMerge > AtariConv32 > ReLU > AtariConv64 > ReLU > AtariConv64Final > ReLU > Flatten > AtariLinear512 > ReLU
+net.branch.@AtariNature : bind = grid
+net.branch.@AtariNature : structure = StackMerge > AtariConv32 > ReLU > AtariConv64 > ReLU > AtariConv64Final > ReLU > Flatten > AtariLinear512 > ReLU
 
 # Flatten で止める Nature（Dopamine の IQN と同じく τ を flatten のすぐあとで混ぜる @iqn7744 と組む）。padding 2/2/1 で 11×11×64＝7744、padding 0 なら 7×7×64＝3136。
-net.branch.@AtariNatureFlat.bind = grid
-net.branch.@AtariNatureFlat.structure = StackMerge > AtariConv32 > ReLU > AtariConv64 > ReLU > AtariConv64Final > ReLU > Flatten
+net.branch.@AtariNatureFlat : bind = grid
+net.branch.@AtariNatureFlat : structure = StackMerge > AtariConv32 > ReLU > AtariConv64 > ReLU > AtariConv64Final > ReLU > Flatten
 
-net.branch.@AtariImpala.bind = grid
-net.branch.@AtariImpala.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+net.branch.@AtariImpala : bind = grid
+net.branch.@AtariImpala : structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
 # Scale=2。84 -> pool -> 42 -> pool -> 21 -> pool -> 11。Flatten 64*11*11=7744。
-net.branch.@AtariImpalaX2.bind = grid
-net.branch.@AtariImpalaX2.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten > AtariLinear512 > ReLU
+net.branch.@AtariImpalaX2 : bind = grid
+net.branch.@AtariImpalaX2 : structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > Flatten > AtariLinear512 > ReLU
 
-net.branch.@AtariImpalaViT.bind = grid
-net.branch.@AtariImpalaViT.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariViTProj128 > SiLU > PosEmbed2D > AtariImpalaTrans128 > Flatten > AtariLinear512 > ReLU
+net.branch.@AtariImpalaViT : bind = grid
+net.branch.@AtariImpalaViT : structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariViTProj128 > SiLU > PosEmbed2D > AtariImpalaTrans128 > Flatten > AtariLinear512 > ReLU
 
-net.branch.@AtariImpalaViTLN.bind = grid
-net.branch.@AtariImpalaViTLN.structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariViTProj128 > SiLU > PosEmbed2D > AtariImpalaTrans128 > Flatten > AtariLinear512 > AtariLN512 > ReLU
+net.branch.@AtariImpalaViTLN : bind = grid
+net.branch.@AtariImpalaViTLN : structure = StackMerge > AtariImpalaConv16 > AtariImpalaPool > AtariImpalaRes16(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariViTProj128 > SiLU > PosEmbed2D > AtariImpalaTrans128 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
 DefaultDQNAgent.net.body.output.[value_feature] = value_stream
 DefaultDQNAgent.net.body.output.[adv_feature] = adv_stream
@@ -1358,28 +1358,28 @@ env.class_id = AtariEnv
 # 「v5」は noop を含意しないので 2 本に分ける。差分は noop_max だけ(docs/design/220_atari_env.jp.md 3 章)。
 
 # raw ALE v5 準拠(sticky のみが確率源)
-AtariEnv.@v5_noop0.repeat_action_probability = 0.25
-AtariEnv.@v5_noop0.noop_max = 0
-AtariEnv.@v5_noop0.episodic_life = false
-AtariEnv.@v5_noop0.fire_reset = false
+AtariEnv.@v5_noop0 : repeat_action_probability = 0.25
+AtariEnv.@v5_noop0 : noop_max = 0
+AtariEnv.@v5_noop0 : episodic_life = false
+AtariEnv.@v5_noop0 : fire_reset = false
 
 # v5 + Gymnasium AtariPreprocessing 既定(sticky と noop の併用)
-AtariEnv.@v5_noop30.repeat_action_probability = 0.25
-AtariEnv.@v5_noop30.noop_max = 30
-AtariEnv.@v5_noop30.episodic_life = false
-AtariEnv.@v5_noop30.fire_reset = false
+AtariEnv.@v5_noop30 : repeat_action_probability = 0.25
+AtariEnv.@v5_noop30 : noop_max = 30
+AtariEnv.@v5_noop30 : episodic_life = false
+AtariEnv.@v5_noop30 : fire_reset = false
 
 # クラシック(DeepMind 2015 系。CleanRL/SB3 の数字と比較する時用)
-AtariEnv.@classic.repeat_action_probability = 0.0
-AtariEnv.@classic.noop_max = 30
-AtariEnv.@classic.episodic_life = true
-AtariEnv.@classic.fire_reset = true
+AtariEnv.@classic : repeat_action_probability = 0.0
+AtariEnv.@classic : noop_max = 30
+AtariEnv.@classic : episodic_life = true
+AtariEnv.@classic : fire_reset = true
 
 # Atari-100k(SimPLe 起点。26 ゲーム・400k frames)。共通不変は sticky なしと予算だけで残りは実装系統で分裂。exp_pause/exit_step = 100,000 とセット。
-AtariEnv.@100k.repeat_action_probability = 0.0
-AtariEnv.@100k.noop_max = 30
-AtariEnv.@100k.episodic_life = true
-AtariEnv.@100k.fire_reset = false
+AtariEnv.@100k : repeat_action_probability = 0.0
+AtariEnv.@100k : noop_max = 30
+AtariEnv.@100k : episodic_life = true
+AtariEnv.@100k : fire_reset = false
 
 
 # --- デフォルト設定 ---
@@ -1485,7 +1485,7 @@ run.eval.[greedy_single].actor = greedy_single
 
 
 # 別 flavor / 別ゲーム eval の雛形(必要時に有効化)
-#AtariEnv.@test1.difficulty = 1
+#AtariEnv.@test1 : difficulty = 1
 #run.eval_schedule.[test1].interval = 5000
 #run.eval.[test1].run_mode = eval
 #run.eval.[test1].env.$ = AtariEnv.@v5_noop0 > AtariEnv.@test1 > E1
@@ -1634,28 +1634,28 @@ metrics.scalar.@breakout : [42_env/41_game_score_ge432_ema] = $env_step mean.gam
 metrics.scalar.@breakout : [42_env/42_game_score_ge600]     = $env_step mean.game_score.ge.[600] @episode_end $exp_step
 metrics.scalar.@breakout : [42_env/43_game_score_ge600_ema] = $env_step mean.game_score.ge.[600] @episode_end $exp_step $ema ema_alpha:0.001
 
-metrics.scalar.@breakout.[51_eval1/40_game_score_ge432]     = $eval.[eval_target] @session_end $env mean.game_score.ge.[432]
-metrics.scalar.@breakout.[51_eval1/41_game_score_ge432_ema] = $eval.[eval_target] @session_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
-metrics.scalar.@breakout.[51_eval1/42_game_score_ge600]     = $eval.[eval_target] @session_end $env mean.game_score.ge.[600]
-metrics.scalar.@breakout.[51_eval1/43_game_score_ge600_ema] = $eval.[eval_target] @session_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
+metrics.scalar.@breakout : [51_eval1/40_game_score_ge432]     = $eval.[eval_target] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout : [51_eval1/41_game_score_ge432_ema] = $eval.[eval_target] @session_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
+metrics.scalar.@breakout : [51_eval1/42_game_score_ge600]     = $eval.[eval_target] @session_end $env mean.game_score.ge.[600]
+metrics.scalar.@breakout : [51_eval1/43_game_score_ge600_ema] = $eval.[eval_target] @session_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
 
-metrics.scalar.@breakout.[52_eval2/40_game_score_ge432]     = $eval.[eval] @session_end $env mean.game_score.ge.[432]
-metrics.scalar.@breakout.[52_eval2/41_game_score_ge432_ema] = $eval.[eval] @session_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
-metrics.scalar.@breakout.[52_eval2/42_game_score_ge600]     = $eval.[eval] @session_end $env mean.game_score.ge.[600]
-metrics.scalar.@breakout.[52_eval2/43_game_score_ge600_ema] = $eval.[eval] @session_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
+metrics.scalar.@breakout : [52_eval2/40_game_score_ge432]     = $eval.[eval] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout : [52_eval2/41_game_score_ge432_ema] = $eval.[eval] @session_end $env mean.game_score.ge.[432] $ema ema_alpha:0.1
+metrics.scalar.@breakout : [52_eval2/42_game_score_ge600]     = $eval.[eval] @session_end $env mean.game_score.ge.[600]
+metrics.scalar.@breakout : [52_eval2/43_game_score_ge600_ema] = $eval.[eval] @session_end $env mean.game_score.ge.[600] $ema ema_alpha:0.1
 
-metrics.scalar.@breakout.[53_evalg/40_game_score_ge432]     = $eval.[greedy] @session_end $env mean.game_score.ge.[432]
-metrics.scalar.@breakout.[53_evalg/42_game_score_ge600]     = $eval.[greedy] @session_end $env mean.game_score.ge.[600]
+metrics.scalar.@breakout : [53_evalg/40_game_score_ge432]     = $eval.[greedy] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout : [53_evalg/42_game_score_ge600]     = $eval.[greedy] @session_end $env mean.game_score.ge.[600]
 
-metrics.scalar.@breakout.[54_evalgs/40_game_score_ge432]    = $eval.[greedy_single] @session_end $env mean.game_score.ge.[432]
-metrics.scalar.@breakout.[54_evalgs/42_game_score_ge600]    = $eval.[greedy_single] @session_end $env mean.game_score.ge.[600]
+metrics.scalar.@breakout : [54_evalgs/40_game_score_ge432]    = $eval.[greedy_single] @session_end $env mean.game_score.ge.[432]
+metrics.scalar.@breakout : [54_evalgs/42_game_score_ge600]    = $eval.[greedy_single] @session_end $env mean.game_score.ge.[600]
 
 # --- SN 実験用(63/64=実効ノルム、65/66=sigma。@baseline では既定 OFF) ---
 
-metrics.scalar.@sn.[34_agent_plasticity/63_weight_norm_feature_effective] = plasticity_weight_norm_feature_effective @learn $learn_step $update_result interval:500
-metrics.scalar.@sn.[34_agent_plasticity/64_weight_norm_readout_effective] = plasticity_weight_norm_readout_effective @learn $learn_step $update_result interval:500
-metrics.scalar.@sn.[34_agent_plasticity/65_spectral_sigma_feature]        = plasticity_spectral_sigma_feature @learn $learn_step $update_result interval:500
-metrics.scalar.@sn.[34_agent_plasticity/66_spectral_sigma_readout]        = plasticity_spectral_sigma_readout @learn $learn_step $update_result interval:500
+metrics.scalar.@sn : [34_agent_plasticity/63_weight_norm_feature_effective] = plasticity_weight_norm_feature_effective @learn $learn_step $update_result interval:500
+metrics.scalar.@sn : [34_agent_plasticity/64_weight_norm_readout_effective] = plasticity_weight_norm_readout_effective @learn $learn_step $update_result interval:500
+metrics.scalar.@sn : [34_agent_plasticity/65_spectral_sigma_feature]        = plasticity_spectral_sigma_feature @learn $learn_step $update_result interval:500
+metrics.scalar.@sn : [34_agent_plasticity/66_spectral_sigma_readout]        = plasticity_spectral_sigma_readout @learn $learn_step $update_result interval:500
 
 
 # ==============================================================================

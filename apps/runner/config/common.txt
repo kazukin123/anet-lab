@@ -36,16 +36,16 @@ agent.device ?= auto
 # replay_ratio      : ENVステップあたりのUpdate回数→大きいほど学習効率が上がるが実時間がかかる
 
 # 早い(局所解に陥りやすい？)
-DefaultDQNAgent.@fast.learner.replay_batch_size = 1024
-DefaultDQNAgent.@fast.learner.replay_ratio = 4
+DefaultDQNAgent.@fast : learner.replay_batch_size = 1024
+DefaultDQNAgent.@fast : learner.replay_ratio = 4
 
 # バランス型
-DefaultDQNAgent.@balance.learner.replay_batch_size = 256
-DefaultDQNAgent.@balance.learner.replay_ratio = 2
+DefaultDQNAgent.@balance : learner.replay_batch_size = 256
+DefaultDQNAgent.@balance : learner.replay_ratio = 2
 
 # 高精度(遅い)
-DefaultDQNAgent.@heavy.learner.replay_batch_size = 256
-DefaultDQNAgent.@heavy.learner.replay_ratio = 4
+DefaultDQNAgent.@heavy : learner.replay_batch_size = 256
+DefaultDQNAgent.@heavy : learner.replay_ratio = 4
 
 
 # --- env
@@ -97,13 +97,13 @@ backend.deterministic_algorithms ?= true   # ★ true:SDPA等の非決定opも�
 backend.deterministic_warn_only ?= false   # true:非決定opを例外でなく警告で素通り(再現性は保証されない/将来op追加でthrowした時の一時退避)
 
 
-backend.@deterministic.cudnn_benchmark = false
-backend.@deterministic.cudnn_deterministic = true
-backend.@deterministic.deterministic_algorithms = true
+backend.@deterministic : cudnn_benchmark = false
+backend.@deterministic : cudnn_deterministic = true
+backend.@deterministic : deterministic_algorithms = true
 
-backend.@non-deterministic.cudnn_benchmark = true
-backend.@non-deterministic.cudnn_deterministic = false
-backend.@non-deterministic.deterministic_algorithms = false
+backend.@non-deterministic : cudnn_benchmark = true
+backend.@non-deterministic : cudnn_deterministic = false
+backend.@non-deterministic : deterministic_algorithms = false
 
 
 

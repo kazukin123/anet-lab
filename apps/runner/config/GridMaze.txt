@@ -221,10 +221,10 @@ DefaultDQNAgent.net.body.output.[features] = main_feature
 
 metrics.scalar.$ = metrics.scalar.@baseline > M1
 
-#metrics.scalar.@baseline.[21_eval/03_target_reward_ema] = mean.episode_return $runner @session_end $eval.[eval_target] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
-#metrics.scalar.@baseline.[21_eval/04_policy_reward_ema] = mean.episode_return $runner @session_end $eval.[eval] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+#metrics.scalar.@baseline : [21_eval/03_target_reward_ema] = mean.episode_return $runner @session_end $eval.[eval_target] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
+#metrics.scalar.@baseline : [21_eval/04_policy_reward_ema] = mean.episode_return $runner @session_end $eval.[eval] $ema ema_alpha:0.0002  # 変動が大きいのでema_alphaを小さく
 
-#metrics.scalar.@baseline.[37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
+#metrics.scalar.@baseline : [37_agent_qtd/22_grad_norm_ema] = grad_norm @learn interval:10 $ema clip:10.0 # 初期の変動をclip
 #metrics.scalar.[90_perf/82_exp_step] = exp_step @train $runner interval:100
 metrics.scalar.[32_agent_base/04_uqe_tau_target] = $agent target_policy.uqe_tau @learn $exp_step
 
@@ -257,8 +257,8 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.interval = 1   # 毎ステップ出力
 #metrics.image.interval = 10   # 通常運用
 
-image.phm.@per-prio.heatmap.width = 10
-image.phm.@per-prio.heatmap.height = 10
+image.phm.@per-prio : heatmap.width = 10
+image.phm.@per-prio : heatmap.height = 10
 
 #metrics.image.[43_agent_img/52_per_hm_prio_01].$ = image.phm.@per-prio > image.phm.@s01
 #metrics.image.[45_agent_img/05_shm_01_maxq_01].$ = image.shm.@qmax > image.shm.01
