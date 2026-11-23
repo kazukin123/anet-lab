@@ -30,7 +30,7 @@ class TagSetPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 
 	private static Path createWorkspaces() {
 		try {
-			Path root = Files.createTempDirectory("prd111-workspaces-");
+			Path root = Files.createTempDirectory("rfd0111-workspaces-");
 			Files.createDirectories(root.resolve("_default/config"));
 			return root;
 		} catch (IOException exception) {
@@ -322,7 +322,7 @@ class TagSetPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 				}
 				"""));
 		page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions()
-				.setPath(Path.of("target/prd111-" + (mobile ? "mobile" : "desktop") + ".png")));
+				.setPath(Path.of("target/rfd0111-" + (mobile ? "mobile" : "desktop") + ".png")));
 	}
 
 	@Test
@@ -409,7 +409,7 @@ class TagSetPlaywrightTest extends MetricsViewerPlaywrightTestSupport {
 	@Test
 	void reloadActivatesNewTagsFromRealMetricsAndMarksTheSelectedSetModified() throws IOException {
 		// マスタへ実際に追記し、取り込み・metadata・新規tag自動選択を通す。
-		Path run = WORKSPACES.resolve("_default/runs/run_tmp_prd111");
+		Path run = WORKSPACES.resolve("_default/runs/run_tmp_rfd0111");
 		Files.createDirectories(run);
 		Path metrics = run.resolve("metrics.jsonl");
 		Files.writeString(metrics, "{\"type\":\"scalar\",\"tag\":\"real/old\",\"step\":0,\"value\":1}\n");

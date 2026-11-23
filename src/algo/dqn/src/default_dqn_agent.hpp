@@ -282,7 +282,7 @@ namespace anet::rl::dqn {
                     ValidateRange(std::isfinite(*entry.intrinsic.action_beta) && *entry.intrinsic.action_beta >= 0,
                         GetFullKey("actor.[" + key + "].intrinsic.action_beta"), *entry.intrinsic.action_beta, "finite >= 0");
             }
-            // PRDの判定表に従い、値の検証後に組み合わせ、gamma、Actorの必須値を順に判定する。
+            // RFDの判定表に従い、値の検証後に組み合わせ、gamma、Actorの必須値を順に判定する。
             anet::rl::ValidateRewardScalerConfig(reward_scaler);
             anet::rl::ValidateRewardScalerConfig(intrinsic.reward_scaler, intrinsic.enabled);
             if (decomposed && (!intrinsic.enabled || skip.enabled))

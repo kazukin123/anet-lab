@@ -1,6 +1,6 @@
 # Replay は報酬を成分ごとに記録し、成分ごとの割引率で収益を作る。成分の意味は持たない
 
-価値の分解（[PRD 121](../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)）で外的報酬と内的報酬を別々の Head で学び、内的だけ割引率を変えられるようにするため、Replay は 1 step の報酬を複数の成分で受け取り、成分ごとの割引率で n-step の収益と初期優先度の見積もりの入力を作ることに決める。成分の数は Replay を組むときに決まり、1 成分なら今と同じ値になる。Replay は成分の意味も、合わせるときの重みも、終端のマスクも持たず、定数と schedule の割引率の扱いは [ADR 0065](0065-scheduled-gamma-recomputes-return-at-sample.md) の規則を成分ごとに当てる。
+価値の分解（[PRD 121](../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)）で外的報酬と内的報酬を別々の Head で学び、内的だけ割引率を変えられるようにするため、Replay は 1 step の報酬を複数の成分で受け取り、成分ごとの割引率で n-step の収益と初期優先度の見積もりの入力を作ることに決める。成分の数は Replay を組むときに決まり、1 成分なら今と同じ値になる。Replay は成分の意味も、合わせるときの重みも、終端のマスクも持たず、定数と schedule の割引率の扱いは [ADR 0065](0065-scheduled-gamma-recomputes-return-at-sample.md) の規則を成分ごとに当てる。
 
 ## Considered Options
 

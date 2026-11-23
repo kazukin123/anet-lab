@@ -22,7 +22,7 @@ Before the closing question, run a **final simplification pass**, measured again
 5. **Phase independence** — does each phase deliver net value on its own, and can the effort stop after any phase without leaving things worse?
 6. **Success measurability** — how will we know the claimed benefit materialised? Prefer mechanically checkable indicators (lines to edit for a routine task, recurrence of a named incident, workaround code deleted).
 
-Record the verdicts (keep / shrink / defer-behind-gate / cut) in the session's output artifact — e.g. a "complexity audit" section in the PRD — so future readers can see why something was deliberately not built.
+Record the verdicts (keep / shrink / defer-behind-gate / cut) in the session's output artifact — e.g. a "complexity audit" section in the RFD — so future readers can see why something was deliberately not built.
 
 At the end of the grilling session, do not automatically request plan approval or start implementation.
 

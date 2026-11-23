@@ -158,7 +158,7 @@ Old constant-scale combined checkpoints remain readable. Old checkpoints without
 
 ## 7. Tests and extension checks
 
-See [testdata/prd121](../../src/core/base/testdata/prd121/README.md) for acceptance procedures and rerun entry points, and the [implementation memo](../memo/121_extrinsic_intrinsic_value_decomposition_20impl.md) for the plan and validation record.
+See [testdata/prd121](../../src/core/base/testdata/rfd0121/README.md) for acceptance procedures and rerun entry points, and the [implementation memo](../memo/0121_extrinsic_intrinsic_value_decomposition_20impl.md) for the plan and validation record.
 
 When adding a policy or diagnostic forward, apply combination to head outputs before reading q/q_dist. When adding reward components to Replay, check single-component shapes and operation order, constant-return storage, scheduled-component-only recomputation, initial priorities, and discount lifetimes under prefetch. Window rules with multiple components are unsupported and rejected during construction.
 

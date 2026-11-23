@@ -11,7 +11,7 @@
 #include <vector>
 
 namespace {
-TEST_CASE("Skip Head exposes action and duration dimensions", "[dqn][prd098]")
+TEST_CASE("Skip Head exposes action and duration dimensions", "[dqn][rfd0098]")
 {
     anet::nn::WeightInitConfig init;
     anet::rl::dqn::SkipHeadFactory factory(3, 4, anet::rl::dqn::SkipNetworkMode::ActionOut, "qr", 5, init);
@@ -1172,7 +1172,7 @@ TEST_CASE("DQN Heads validate used settings during preparation", "[dqn][head][no
     CHECK_THROWS_WITH(validate(data), Catch::Matchers::ContainsSubstring("noisy.count"));
 }
 
-TEST_CASE("Skip Head graph describes mean Q and quantile distribution axes", "[dqn][head][prd098][prd098-r2-dot]")
+TEST_CASE("Skip Head graph describes mean Q and quantile distribution axes", "[dqn][head][rfd0098][rfd0098-r2-dot]")
 {
     const auto mode = GENERATE(std::string("none"), std::string("qr"), std::string("iqn"));
     const auto action_in = GENERATE(false, true);

@@ -68,9 +68,9 @@ app.run_name = run_{t}_dm_iqn-k32-n32-m32
 
 対象の設定キーへのRun・CLI指定は`=`の個別指定にも勝つ。一方、選択キーへのCLIはチェーンだけを置き換える。ベース定義の`?=`も、選択元の最終値になって継承された後は通常の値であり、`>`の右側にある値が左側の値に勝つ。
 
-内部では必要な定義の有効化とキー集合を確定し、具体的なowner・term順に値の供給元を決め、個別指定を優先して依存を評価する。循環・深さ検証は値のキャッシュと分離し、宣言順やキャッシュで深さ10の判定を変えない。契約と具体例は[PRD072](../memo/done/072_config_selection_final_value_10prd.md)、判断理由は[ADR0042](../adr/0042-config-inheritance-as-differential-base.md)を参照する。
+内部では必要な定義の有効化とキー集合を確定し、具体的なowner・term順に値の供給元を決め、個別指定を優先して依存を評価する。循環・深さ検証は値のキャッシュと分離し、宣言順やキャッシュで深さ10の判定を変えない。契約と具体例は[RFD0072](../memo/done/0072_config_selection_final_value_10rfd.md)、判断理由は[ADR0042](../adr/0042-config-inheritance-as-differential-base.md)を参照する。
 
-DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId() + ".net"`を最終NNツリーの読込prefixとして`NetworkConfig`へ渡す。branch・body・outputは`DefaultDQNAgent.net.*`、`ImageClsAgent.net.*`、`RainbowAgent.net.*`のようにAgent所有のサブツリーから読み、ブロックカタログ`net.block.[*]`と`net.config_profile`はグローバル共有定義としてagent-local定義へmergeする。DefaultDQN Factoryは両Config構築後かつNetworkModel構築前に、`DefaultDQNAgent.quantile_mode=iqn`ならいずれかのbranch bindが`taus`を直接含み、`qr` / `none`なら含まないことをfail-fast検証する。MuZeroの実最終ツリー`net.rep` / `net.dyn` / `net.pred`は保留中の別構造であり、PRD 059 Phase 1aではrootに維持する。
+DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId() + ".net"`を最終NNツリーの読込prefixとして`NetworkConfig`へ渡す。branch・body・outputは`DefaultDQNAgent.net.*`、`ImageClsAgent.net.*`、`RainbowAgent.net.*`のようにAgent所有のサブツリーから読み、ブロックカタログ`net.block.[*]`と`net.config_profile`はグローバル共有定義としてagent-local定義へmergeする。DefaultDQN Factoryは両Config構築後かつNetworkModel構築前に、`DefaultDQNAgent.quantile_mode=iqn`ならいずれかのbranch bindが`taus`を直接含み、`qr` / `none`なら含まないことをfail-fast検証する。MuZeroの実最終ツリー`net.rep` / `net.dyn` / `net.pred`は保留中の別構造であり、RFD0059 Phase 1aではrootに維持する。
 
 `--config`明示時は手順2のworkspace解決・注入・後読みを省略する完全自己記述モードである。`--config`、`--workspace`、`--select-workspace`は相互排他である。
 
@@ -181,7 +181,7 @@ RunnerThread --> TrainRunner : stepを反復
 
 `RunManager`はprivateな入れ子`MetricsWiring`を所有し、Run構築時にscope解決、dormant tagのRunごとに一度だけのINFO、event別のObserver登録、attach済みのscalar/trace定義の出力、scalar購読ヒントの通知を委譲する。宣言はtrainer.hppのRunManager内部、定義はtrainer.cppに置く。`ObserverFactory`の解析と、Observerによる値の取得・集約は別の責務である。構築後の鏡写しinstanceへのtrace配線は本機構には含めない。
 
-領域の検証手順は[PRD094検証資材](../../src/core/base/testdata/prd094/README.md)を参照する。
+領域の検証手順は[RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md)を参照する。
 
 ## 6. 処理フロー
 
@@ -384,10 +384,10 @@ sequenceDiagram
 
 ## 8. テストと拡張時の確認事項
 
-- [PRD117検証資材](../../src/core/base/testdata/prd117/README.md): 元キーの追跡、閉じたカタログ、未読一覧、Run単位の通知、通常RunのWARN 0件の対象と停止条件。
-- [PRD194検証資材](../../src/core/base/testdata/prd194/README.md)に、診断が示す設定キーの集計と期待一覧との照合手順を置く。
+- [RFD0117検証資材](../../src/core/base/testdata/rfd0117/README.md): 元キーの追跡、閉じたカタログ、未読一覧、Run単位の通知、通常RunのWARN 0件の対象と停止条件。
+- [RFD0194検証資材](../../src/core/base/testdata/rfd0194/README.md)に、診断が示す設定キーの集計と期待一覧との照合手順を置く。
 
-- [PRD094検証資材](../../src/core/base/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
+- [RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
 - [config_test.cpp](../../src/core/base/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
 - [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): 出荷設定の検査`[shipped_config]`（共通層の既定、全Actor参照の解決、Atariのプロトコルプリセットと群ごとのRAM指標の揃い）。本番設定を読むテストが固定してよいものの線引きは[実装 品質確認観点](../quality/impl.md#テスト)「テスト」の規約
@@ -396,7 +396,7 @@ sequenceDiagram
 - [episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制行動
 - [init_test.cpp](../../src/core/base/src/init_test.cpp): 初期化とbackend設定
 - [app_util_test.cpp](../../src/core/base/src/app_util_test.cpp): executable rootと出力path
-- [testdata/prd072/README.md](../../src/core/base/testdata/prd072/README.md): 設定resolverの固定17入力golden比較と既定キー`?=`検査の手順
+- [testdata/rfd0072/README.md](../../src/core/base/testdata/rfd0072/README.md): 設定resolverの固定17入力golden比較と既定キー`?=`検査の手順
 
 現行`trainer_test.cpp`はSerial/Pipeline全体、count、shutdownを広く覆うものではない。これらを変更する場合は、Serial/Pipelineのaction/snapshot境界が一致すること、B=1と複数laneのcount、Evalのscope、停止時のworker回収を対象とする回帰testを追加して確認する。
 

@@ -1,6 +1,6 @@
 # 価値の分解の内的の Head は、補助 Network ではなく、primary の Network の合成 Head に置く
 
-価値の分解（[PRD 121](../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)）の内的の Head の置き場は、primary の Network の Head を 2 組の出力を出す合成 Head にするか、skip と同じ補助 Network にするかの 2 つで、**合成 Head にする**ことに決める。forward が 1 回のままで、target の同期・Actor の写し・checkpoint が今の Network の仕組みにそのまま乗るためである。[ADR 0062](0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md) が skip でこの形を退けた理由のうち「行動を入力に取る構成で forward が 2 回になる」は内的の Head には当たらず、skip の判断は変えない。
+価値の分解（[PRD 121](../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)）の内的の Head の置き場は、primary の Network の Head を 2 組の出力を出す合成 Head にするか、skip と同じ補助 Network にするかの 2 つで、**合成 Head にする**ことに決める。forward が 1 回のままで、target の同期・Actor の写し・checkpoint が今の Network の仕組みにそのまま乗るためである。[ADR 0062](0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md) が skip でこの形を退けた理由のうち「行動を入力に取る構成で forward が 2 回になる」は内的の Head には当たらず、skip の判断は変えない。
 
 ## Considered Options
 

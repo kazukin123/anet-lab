@@ -22,7 +22,7 @@
 #include "anet/trainer.hpp"
 #include "anet/test/util.hpp"
 
-TEST_CASE("GridMaze Step statistics survive automatic reset and later transitions", "[gridmaze][prd097_gridmaze]")
+TEST_CASE("GridMaze Step statistics survive automatic reset and later transitions", "[gridmaze][rfd0097_gridmaze]")
 {
     const int outcome = GENERATE(0, 1, 2);
     const bool goal = outcome == 1;
@@ -123,7 +123,7 @@ std::vector<int64_t> FindGoalPath(const anet::rl::AuxData& aux)
 
 } // namespace
 
-TEST_CASE("GridMaze replaces unsolvable seed with a reachable maze", "[gridmaze][prd100][prd100_seed2]")
+TEST_CASE("GridMaze replaces unsolvable seed with a reachable maze", "[gridmaze][rfd0100][rfd0100_seed2]")
 {
     anet::test::LogCaptureGuard logs;
     const auto config = FixedMazeConfig();
@@ -140,7 +140,7 @@ TEST_CASE("GridMaze replaces unsolvable seed with a reachable maze", "[gridmaze]
     }
 }
 
-TEST_CASE("GridMaze fixed seeds preserve maps and reproduce from the accepted seed", "[gridmaze][prd100][prd100_repro]")
+TEST_CASE("GridMaze fixed seeds preserve maps and reproduce from the accepted seed", "[gridmaze][rfd0100][rfd0100_repro]")
 {
     anet::test::LogCaptureGuard logs;
     const auto seed = GENERATE(anet::seed_t{0}, anet::seed_t{2}, anet::seed_t{6545537233705677626ULL}, ~anet::seed_t{0});
@@ -177,7 +177,7 @@ TEST_CASE("GridMaze fixed seeds preserve maps and reproduce from the accepted se
     }
 }
 
-TEST_CASE("GridMaze rejects identical fixed coordinates at construction", "[gridmaze][prd100][prd100_coordinate]")
+TEST_CASE("GridMaze rejects identical fixed coordinates at construction", "[gridmaze][rfd0100][rfd0100_coordinate]")
 {
     anet::test::LogCaptureGuard logs;
     auto config = FixedMazeConfig();
@@ -193,7 +193,7 @@ TEST_CASE("GridMaze rejects identical fixed coordinates at construction", "[grid
     }
 }
 
-TEST_CASE("GridMaze identifies an invalid board dimension before generation", "[gridmaze][prd100][prd100_dimension]")
+TEST_CASE("GridMaze identifies an invalid board dimension before generation", "[gridmaze][rfd0100][rfd0100_dimension]")
 {
     anet::test::LogCaptureGuard logs;
     auto config = FixedMazeConfig();
@@ -209,7 +209,7 @@ TEST_CASE("GridMaze identifies an invalid board dimension before generation", "[
     }
 }
 
-TEST_CASE("GridMaze reports the override keys that supplied invalid evaluation geometry", "[prd194][prd194_env]")
+TEST_CASE("GridMaze reports the override keys that supplied invalid evaluation geometry", "[rfd0194][rfd0194_env]")
 {
     anet::test::LogCaptureGuard logs;
     const std::string prefix = "run.eval.[greedy].env";
@@ -222,12 +222,12 @@ TEST_CASE("GridMaze reports the override keys that supplied invalid evaluation g
     data.Set(prefix + ".init_pos_y", -1);
 
     const anet::rl::env::GridMazeEnvConfig config(data, prefix);
-    CHECK_THROWS_WITH((anet::rl::env::GridMazeEnv(config, torch::kCPU, "prd194-grid", 1)),
+    CHECK_THROWS_WITH((anet::rl::env::GridMazeEnv(config, torch::kCPU, "rfd0194-grid", 1)),
         Catch::Matchers::ContainsSubstring(prefix + ".init_pos_x=-1")
         && Catch::Matchers::ContainsSubstring(prefix + ".width=1"));
 }
 
-TEST_CASE("GridMaze validates coordinate ranges before coordinate relationships", "[gridmaze][prd100][prd100_range]")
+TEST_CASE("GridMaze validates coordinate ranges before coordinate relationships", "[gridmaze][rfd0100][rfd0100_range]")
 {
     anet::test::LogCaptureGuard logs;
     auto config = FixedMazeConfig();
@@ -250,7 +250,7 @@ TEST_CASE("GridMaze validates coordinate ranges before coordinate relationships"
     }
 }
 
-TEST_CASE("GridMaze rejects an empty random-start candidate set", "[gridmaze][prd100][prd100_empty]")
+TEST_CASE("GridMaze rejects an empty random-start candidate set", "[gridmaze][rfd0100][rfd0100_empty]")
 {
     anet::test::LogCaptureGuard logs;
     auto config = FixedMazeConfig();
@@ -268,7 +268,7 @@ TEST_CASE("GridMaze rejects an empty random-start candidate set", "[gridmaze][pr
     }
 }
 
-TEST_CASE("GridMaze automatic seeds and random coordinates always produce reachable maps", "[gridmaze][prd100][prd100_random]")
+TEST_CASE("GridMaze automatic seeds and random coordinates always produce reachable maps", "[gridmaze][rfd0100][rfd0100_random]")
 {
     anet::test::LogCaptureGuard logs;
     const int mode = GENERATE(0, 1, 2, 3, 4, 5, 6, 7, 8);
@@ -302,7 +302,7 @@ TEST_CASE("GridMaze automatic seeds and random coordinates always produce reacha
     for (const auto& record : logs.Records()) CHECK(record.message.find("GridMaze maze regenerated:") == std::string::npos);
 }
 
-TEST_CASE("GridMaze reports bounded failure with generation context", "[gridmaze][prd100][prd100_limit]")
+TEST_CASE("GridMaze reports bounded failure with generation context", "[gridmaze][rfd0100][rfd0100_limit]")
 {
     anet::test::LogCaptureGuard logs;
     auto config = FixedMazeConfig();
@@ -319,7 +319,7 @@ TEST_CASE("GridMaze reports bounded failure with generation context", "[gridmaze
     }
 }
 
-TEST_CASE("GridMaze retry notice is emitted once across concurrent instances", "[.][prd100_log]")
+TEST_CASE("GridMaze retry notice is emitted once across concurrent instances", "[.][rfd0100_log]")
 {
     // 他のseed2テストで共有記録を先に埋めないよう、このタグは別プロセスで実行する。
     anet::test::LogCaptureGuard logs;
@@ -357,7 +357,7 @@ TEST_CASE("GridMaze retry notice is emitted once across concurrent instances", "
     CHECK(notices.front().find("actual_seed=" + std::to_string(accepted)) != std::string::npos);
 }
 
-TEST_CASE("GridMaze default process seed is logged once and reproduces the maze", "[.][prd102_process]")
+TEST_CASE("GridMaze default process seed is logged once and reproduces the maze", "[.][rfd0102_process]")
 {
     // 初回の構築から公開auxと共通通知までを独立プロセスで通す。
     anet::test::LogCaptureGuard logs;
@@ -397,7 +397,7 @@ TEST_CASE("GridMaze default process seed is logged once and reproduces the maze"
     CHECK(restored_aux.at("seed").item<int64_t>() == initial.at("seed").item<int64_t>());
 }
 
-TEST_CASE("GridMaze shares the process seed across concurrent instances and recreation", "[.][prd102_concurrent]")
+TEST_CASE("GridMaze shares the process seed across concurrent instances and recreation", "[.][rfd0102_concurrent]")
 {
     // 同時に初回構築し、通知と入力seedの共有を独立プロセスで確かめる。
     anet::test::LogCaptureGuard logs;
@@ -435,7 +435,7 @@ TEST_CASE("GridMaze shares the process seed across concurrent instances and recr
     CHECK(notices == 1);
 }
 
-TEST_CASE("GridMaze episode mode resamples without a seed and reproduces every accepted maze", "[gridmaze][prd102_episode]")
+TEST_CASE("GridMaze episode mode resamples without a seed and reproduces every accepted maze", "[gridmaze][rfd0102_episode]")
 {
     // 自動採番の重複を禁止せず、公開値から各盤面を復元できることを確かめる。
     anet::test::LogCaptureGuard logs;
@@ -478,7 +478,7 @@ int main(int argc, char* argv[])
     return session.run(test_args.Argc(), test_args.Argv());
 }
 
-TEST_CASE("GridMaze validates modes even with an explicit seed and rejects invalid seeds", "[.][prd102_settings]")
+TEST_CASE("GridMaze validates modes even with an explicit seed and rejects invalid seeds", "[.][rfd0102_settings]")
 {
     anet::test::LogCaptureGuard logs;
     // 設定読込と、読込後にDTOを変えた直接構築の双方を検証する。
@@ -523,7 +523,7 @@ TEST_CASE("GridMaze validates modes even with an explicit seed and rejects inval
     }
 }
 
-TEST_CASE("GridMaze initializes the process seed lazily and shares only the input seed", "[.][prd102_late]")
+TEST_CASE("GridMaze initializes the process seed lazily and shares only the input seed", "[.][rfd0102_late]")
 {
     anet::test::LogCaptureGuard logs;
     auto first = FixedMazeConfig();
@@ -568,13 +568,13 @@ TEST_CASE("GridMaze initializes the process seed lazily and shares only the inpu
     }
 }
 
-TEST_CASE("GridMaze configuration comparison resolves every manifest input", "[.][prd102_config_snapshot]")
+TEST_CASE("GridMaze configuration comparison resolves every manifest input", "[.][rfd0102_config_snapshot]")
 {
     // Propertiesの情報通知もcaptureし、無人検証でダイアログを開かない。
     anet::test::LogCaptureGuard logs;
     const auto repo = std::filesystem::current_path();
-    const auto output = repo / ".scratch" / "prd102";
-    std::ifstream source(repo / "src/core/base/testdata/prd102/manifest.json");
+    const auto output = repo / ".scratch" / "rfd0102";
+    std::ifstream source(repo / "src/core/base/testdata/rfd0102/manifest.json");
     REQUIRE(source.good());
     const auto manifest = anet::json::parse(source);
     std::filesystem::create_directories(output / "config-inputs");
@@ -629,7 +629,7 @@ public:
         anet::MetricsLoggerConfig config;
         config.run_name_tmpl = "gridmaze_process_test";
         anet::MetricsLogger::Init(std::make_unique<GridMazeNoopMetricsBackend>(), config,
-            std::filesystem::current_path() / ".scratch/prd102/runner-metrics");
+            std::filesystem::current_path() / ".scratch/rfd0102/runner-metrics");
     }
     ~GridMazeMetricsGuard() { anet::MetricsLogger::Reset(); }
 };
@@ -652,13 +652,13 @@ TEST_CASE("GridMaze initialization keeps its first Env factory and View creator"
     CHECK(views.GetViewCreator(kClassId) == creator);
 }
 
-TEST_CASE("RunManager shares GridMaze process seed across training evaluation panels and Runs", "[.][prd102_runner]")
+TEST_CASE("RunManager shares GridMaze process seed across training evaluation panels and Runs", "[.][rfd0102_runner]")
 {
     anet::test::LogCaptureGuard logs;
     GridMazeMetricsGuard metrics;
     anet::rl::env::InitGridMaze();
     const auto repo = std::filesystem::current_path();
-    const auto path = repo / ".scratch/prd102/runner-input.txt";
+    const auto path = repo / ".scratch/rfd0102/runner-input.txt";
     std::filesystem::create_directories(path.parent_path());
     {
         std::ofstream stream(path);

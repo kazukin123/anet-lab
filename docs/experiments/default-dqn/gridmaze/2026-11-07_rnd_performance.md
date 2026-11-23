@@ -81,4 +81,4 @@ CSVの `total_perc` は採取前も含むprocess起点の時計を分母にす�
 
 ## 検証資材
 
-[PRD116検証資材](../../../../src/core/base/testdata/prd116/README.md)の `run_performance.py` を使った。段階はprepare、pilot、measure、profile、summarizeで、測定区間は保存済みpilot.jsonから固定する。各caseの終了値・時計・設定・実行体の識別情報は実行記録へ保存する。測定ログと元Runは `.scratch/prd116/grid-performance-20261107-r1/`、各段階の要約ログは `.scratch/prd116/grid-performance-*.log` にある。
+[PRD116検証資材](../../../../src/core/base/testdata/rfd0116/README.md)の `run_performance.py` を使った。段階はprepare、pilot、measure、profile、summarizeで、測定区間は保存済みpilot.jsonから固定する。各caseの終了値・時計・設定・実行体の識別情報は実行記録へ保存する。測定ログと元Runは `.scratch/prd116/grid-performance-20261107-r1/`、各段階の要約ログは `.scratch/prd116/grid-performance-*.log` にある。

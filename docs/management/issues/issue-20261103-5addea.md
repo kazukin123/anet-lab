@@ -1,10 +1,10 @@
 ---
 id: issue-20261103-5addea
-title: "PRD 079: .cpp の内部リンケージと namespace インデント規約"
+title: "RFD0079: .cpp の内部リンケージと namespace インデント規約"
 status: 未着手
 raised: 2026-11-03
-phase: PRD
-scope: "PRD 079: .cpp の内部リンケージと namespace インデント規約"
+phase: RFD
+scope: "RFD0079: .cpp の内部リンケージと namespace インデント規約"
 kind: コード
 area:
   - 311_dev_tools
@@ -25,7 +25,7 @@ domain: 開発
 ai_judge: 残件有り
 ai_judged: 2026-11-21
 docs: []
-prd: "[[079_cpp_internal_linkage_convention_10prd]]"
+rfd: "[[0079_cpp_internal_linkage_convention_10rfd]]"
 priority: 低
 depends: []
 parent:
@@ -47,7 +47,7 @@ tags: []
 
 ## 事象
 
-対応するPRD: [079_cpp_internal_linkage_convention_10prd.md](../../memo/079_cpp_internal_linkage_convention_10prd.md)
+対応するPRD: [079_cpp_internal_linkage_convention_10prd.md](../../memo/0079_cpp_internal_linkage_convention_10rfd.md)
 
 ## 影響
 

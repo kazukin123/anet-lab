@@ -1,6 +1,6 @@
 # Perception の stack の対象のキーは、1 枚でも必ず stack 軸を持つ
 
-重ねる枚数が 1 のとき、行動選択と可視化には長さ 1 の軸があり、Network の入力 spec と Sample には無い、という食い違いがあった（[PRD161](../memo/161_observation_pipeline_10prd.md)）。**stack の対象のキーは必ず `[B, S, *shape]`（S は 1 以上。枚数の既定は 1 で、重ねる部品を設定に書かなくても 1 枚の重ねが入る）とし、Network の定義は先頭の module で軸の扱いを書き、書いていないときは WARN で知らせて止めない**ことを決定する。stack の有無で形の意味が変わらず、軸の扱いが定義から読める。
+重ねる枚数が 1 のとき、行動選択と可視化には長さ 1 の軸があり、Network の入力 spec と Sample には無い、という食い違いがあった（[PRD161](../memo/0161_observation_pipeline_10rfd.md)）。**stack の対象のキーは必ず `[B, S, *shape]`（S は 1 以上。枚数の既定は 1 で、重ねる部品を設定に書かなくても 1 枚の重ねが入る）とし、Network の定義は先頭の module で軸の扱いを書き、書いていないときは WARN で知らせて止めない**ことを決定する。stack の有無で形の意味が変わらず、軸の扱いが定義から読める。
 
 ## Considered Options
 

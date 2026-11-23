@@ -263,7 +263,7 @@ LunarLanderViewは機体のまわりの矢印を3段で出す。中クリック�
 
 公開の拡張点は[フレームワーク全体概要の拡張点の表](010_framework_overview.jp.md#43-拡張点)を参照。
 
-DropMergeの`[noop_penalty]`テストは、同seed・同行動列の2個体で罰だけを変え、4行動モード、NOOP変換、未実行DROP、終了stepと累積報酬、複数物理stepを比較する。関連する[PRD115検証資材](../../src/core/base/testdata/prd115/README.md)に実行条件をまとめる。
+DropMergeの`[noop_penalty]`テストは、同seed・同行動列の2個体で罰だけを変え、4行動モード、NOOP変換、未実行DROP、終了stepと累積報酬、複数物理stepを比較する。関連する[RFD0115検証資材](../../src/core/base/testdata/rfd0115/README.md)に実行条件をまとめる。
 
 Envを追加・変更する場合は次を確認する。
 
@@ -275,9 +275,9 @@ Envを追加・変更する場合は次を確認する。
 6. Viewを追加する場合はEnv class IDと`ViewRepository`登録を一致させる。
 7. 頻繁に呼ばれるReset/Stepへ意味のあるprofile rangeを置く。
 
-通知中のscalar・tensor、auxのlane対応、結果の不変性、Runner種別ごとの通知順序と再現性・性能の受入手順は[PRD097検証資材](../../src/core/base/testdata/prd097/README.md)を参照する。
+通知中のscalar・tensor、auxのlane対応、結果の不変性、Runner種別ごとの通知順序と再現性・性能の受入手順は[RFD0097検証資材](../../src/core/base/testdata/rfd0097/README.md)を参照する。
 
-GridMazeの盤面golden、到達可能性、座標検証、ログ件数、短いRunの全scalar一致の手順は[PRD100検証資材](../../src/core/base/testdata/prd100/README.md)を参照する。
+GridMazeの盤面golden、到達可能性、座標検証、ログ件数、短いRunの全scalar一致の手順は[RFD0100検証資材](../../src/core/base/testdata/rfd0100/README.md)を参照する。
 
 専用testがあるEnvは次のとおりである。
 
@@ -289,7 +289,7 @@ GridMazeの盤面golden、到達可能性、座標検証、ログ件数、短い
 
 single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。ImageCls testはnative batch、Dataset catalog/cache、eval window、worker方式を直接検証する。Envまたはwrapperを変更する場合は、必要なworker方式を明示して回帰testを追加する。
 
-採番単位・指定seed優先・並行初期化・構築し直し・RunManager経路・共通optional設定・設定値差分の検証手順は[PRD102検証資材](../../src/core/base/testdata/prd102/README.md)を参照する。
+採番単位・指定seed優先・並行初期化・構築し直し・RunManager経路・共通optional設定・設定値差分の検証手順は[RFD0102検証資材](../../src/core/base/testdata/rfd0102/README.md)を参照する。
 
 ## 9. 関連文書
 
@@ -299,7 +299,7 @@ single具象Env testは`VectorizedDiscreteBatchEnv`を通る経路も含む。Im
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
 - [用語集](../../CONTEXT.md)
-- [ImageCls batch入力PRD](../memo/done/034_imagecls_batch_input_10prd.md)
+- [ImageCls batch入力RFD](../memo/done/0034_imagecls_batch_input_10rfd.md)
 - [ImageCls batch Env seam ADR](../adr/0009-imagecls-batch-env-seam.md)
 
 ### 具象Envの遷移統計

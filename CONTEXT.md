@@ -149,7 +149,7 @@ _Avoid_: 探索指標（探索の良さは示さない）, 不確実性（較正
 
 **spatial exploration（ε ラダー）**:
 学習の lane ごとに探索の強さ（ε や UQE の τ）を、両端の値と並べ方（log・linear）で段状に割り当てる方式。両端は時間で変わってよく、全 lane で 1 つの値を使う探索（時間の値）とは別のキーで持つ。
-_Avoid_: vectorized exploration（導入時の名。PRD002）, ε 分布, lane ごとの減衰（時間の値と紛れる）
+_Avoid_: vectorized exploration（導入時の名。RFD0002）, ε 分布, lane ごとの減衰（時間の値と紛れる）
 
 **時間の値**:
 全 lane に共通で、学習の進み（exp_step）に沿って変わる探索・学習パラメータの値。探索ではラダーの両端とは別のキーで持ち、どちらを使うかはラダーの有効化だけで決まる。
@@ -243,14 +243,14 @@ _Avoid_: raw config, config provenance, runtime property, EnvSpec metadata
 構築時に設定から導出された値、`auto`戦略の選択結果、または実行中の状態など、Moduleの実動情報。Module Configとは別の自己記述情報として扱い、`ConfigData`へ混在させない。
 _Avoid_: config, resolved config
 
-設定用語の改訂契約は[PRD 072](docs/memo/done/072_config_selection_final_value_10prd.md)と[ADR 0042](docs/adr/0042-config-inheritance-as-differential-base.md)を参照する。
+設定用語の改訂契約は[RFD0072](docs/memo/done/0072_config_selection_final_value_10rfd.md)と[ADR 0042](docs/adr/0042-config-inheritance-as-differential-base.md)を参照する。
 
 **プロファイル (設定プロファイル)**:
 `@` セグメントで命名する、選択や値参照の入力となる設定部品。実効側へ組み込む前の定義であり、カタログ項目の identity とは区別する。
 _Avoid_: 素材(旧称), プリセット, テンプレート, ワークスペース(別概念)
 
 **選択チェーン**:
-`コピー先.$ = 選択元 > 差分`の形で、各選択元の最終値を右側の差分で重ね、その設定のベースを作る指定。ベースに対する個別・部分指定と、同じ選択キーの再指定は区別する(PRD 072改訂契約)。既定キーはチェーンの置き換えと独立に残る。
+`コピー先.$ = 選択元 > 差分`の形で、各選択元の最終値を右側の差分で重ね、その設定のベースを作る指定。ベースに対する個別・部分指定と、同じ選択キーの再指定は区別する(RFD0072改訂契約)。既定キーはチェーンの置き換えと独立に残る。
 _Avoid_: include(入力を取り込む処理), マージ(適用規則が曖昧)
 
 **カタログ**:
@@ -355,7 +355,7 @@ _Avoid_: action feedback, action echo
 
 **prev-action trio**:
 DropMergeのvector観測末尾へ連結する [valid, noop, drop_x] の3 scalar。drop_xは直前DROP命令列の中心を [-1,1] 正規化した値で、非DROPは0。独立した観測キーではない。
-_Avoid_: prev_actionキー（PRD142の別キー設計と混同）, action one-hot
+_Avoid_: prev_actionキー（RFD0142の別キー設計と混同）, action one-hot
 
 **DROP列マーカー**:
 direct系action modeでは未使用になるgridのdropper classを再利用し、直前DROPの命令列をtop rowに描画するマーカー。move系の「現在のdropper位置」表示とは別意味。
@@ -398,7 +398,7 @@ _Avoid_: 集約（lane 方向と混同）, min / max（集約 prefix の語）, 
 ### 実行系統
 
 **RunMode**:
-Train / Eval 系（Eval, Eval1, Eval2）という Env の実行系統の区分。Env は生成時に自分の RunMode を固定して保持し（Sampler 選択・終端契約・挙動分岐に使う。`GetRunMode()` で参照）、Reset / Step の実行時引数では受け取らない。Agent インタフェース（Actor 生成要求）は RunMode を受け取らず、Actor の方策・network 選択は Actor 設定が決める。Eval1 / Eval2 の区別は Env 用途にだけ残る（PRD 061 P3 で再考）。configured eval tag のタグ名（eval_target 等）とは別概念。
+Train / Eval 系（Eval, Eval1, Eval2）という Env の実行系統の区分。Env は生成時に自分の RunMode を固定して保持し（Sampler 選択・終端契約・挙動分岐に使う。`GetRunMode()` で参照）、Reset / Step の実行時引数では受け取らない。Agent インタフェース（Actor 生成要求）は RunMode を受け取らず、Actor の方策・network 選択は Actor 設定が決める。Eval1 / Eval2 の区別は Env 用途にだけ残る（RFD0061 P3 で再考）。configured eval tag のタグ名（eval_target 等）とは別概念。
 _Avoid_: per-call mode, eval flag, 実行時モード引数, actor mode（Actor の用途ラベルとしては使わない）
 
 **online 構成**:
@@ -770,3 +770,9 @@ _Avoid_: テストユーティリティ, テストサポート
 **Agent の系統**:
 共通部品を分け合う Agent の実装の括り。DQN 系、MuZero 系など。
 _Avoid_: ファミリー
+
+### 開発の工程
+
+**RFD**:
+Request for Discussion。1 回の変更について、開発者と AI がグリルで決めたことを、要求から設計の契約まで、AI がそのまま実装し確かめられる形で書き、理由と退けた案も残す文書。番号は 0 埋めの 4 桁で、コミット・課題・テストをつなぐ。
+_Avoid_: PRD（本来は製品の要求書を指す。RFD0195 より前の記録とコミット件名には残る）

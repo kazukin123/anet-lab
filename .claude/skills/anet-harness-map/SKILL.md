@@ -5,7 +5,7 @@ description: Regenerate anet-lab's AI harness reading-path map (harness map). In
 
 # ANET Harness Map
 
-anet-lab の AI ハーネス(エージェントの振る舞いを決めるファイル群: 指示、規約、設計文書、PRD/ADR/用語集、検証資材、skill、memory、CI)を現行 checkout とユーザー環境から調査し、**動線マップ**を再生成する。公開版は `docs/agents/` へ、個人版は `.scratch/harness-map/` へ出力する。一度きりの成果物ではなく、ハーネスが変わるたびに作り直す。
+anet-lab の AI ハーネス(エージェントの振る舞いを決めるファイル群: 指示、規約、設計文書、RFD/ADR/用語集、検証資材、skill、memory、CI)を現行 checkout とユーザー環境から調査し、**動線マップ**を再生成する。公開版は `docs/agents/` へ、個人版は `.scratch/harness-map/` へ出力する。一度きりの成果物ではなく、ハーネスが変わるたびに作り直す。
 
 ## 起動条件
 
@@ -56,7 +56,7 @@ anet-lab の AI ハーネス(エージェントの振る舞いを決めるファ
 ## 禁止
 
 - git の書き込み操作(add、commit、push、checkout、stash、branch、reset)。人間が行う。
-- `AGENTS.md`、`CLAUDE.md`、skill、設計文書、user-level のファイルの修正。発見事項(shadow、実体コピーのドリフト、欠落、死んだ動線)は名指しするだけで直さない。直すのは別の PRD の仕事。
+- `AGENTS.md`、`CLAUDE.md`、skill、設計文書、user-level のファイルの修正。発見事項(shadow、実体コピーのドリフト、欠落、死んだ動線)は名指しするだけで直さない。直すのは別の RFD の仕事。
 - 固定マニフェスト以外への書き込み。`docs/` は GitHub Pages に配信されるので、個人環境の実体(どの skill が shadow か、memory の内容)を公開版に書かない。
 
 ## 完了報告

@@ -1,6 +1,6 @@
 ---
 name: anet-review
-description: Send anet-lab artifacts (files changed in this conversation, a PRD, an implementation plan, or given paths) to the review agent anet-review-agent with a request built per docs/process/protocol.md section 2, then save its raw response and show the user a plain Japanese explanation of it, and stop. Continues the same review agent when the same target is resubmitted in the conversation. Offers a fix-and-re-review action when fixes are needed; edits only after the user selects it. Use only when the user invokes $anet-review or /anet-review, optionally with PRD or plan filenames and file or directory paths.
+description: Send anet-lab artifacts (files changed in this conversation, a RFD, an implementation plan, or given paths) to the review agent anet-review-agent with a request built per docs/process/protocol.md section 2, then save its raw response and show the user a plain Japanese explanation of it, and stop. Continues the same review agent when the same target is resubmitted in the conversation. Offers a fix-and-re-review action when fixes are needed; edits only after the user selects it. Use only when the user invokes $anet-review or /anet-review, optionally with RFD or plan filenames and file or directory paths.
 ---
 
 # ANET Review
@@ -21,20 +21,20 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 
 | 引数 | 対象 | 成果物キー |
 | --- | --- | --- |
-| PRD（名前が `_10prd.md` で終わるファイル） | その PRD | `prd` |
+| RFD（名前が `_10rfd.md` で終わるファイル） | その RFD | `rfd` |
 | 実装計画（名前が `_2[0-9]impl.md` で終わるファイル） | その実装計画 | `impl-plan` |
 | そのほかのファイルのパス | そのファイル | `impl` |
 | ディレクトリのパス | その配下で、基準コミットから変わったファイルと、Git が追跡していない新しいファイル | `impl` |
 
 - 基準コミットは `HEAD` にする。ユーザーが別のコミットを示したときは、それを使う。
-- PRD と実装計画がファイル名だけで渡されたときは、`docs/memo/` を再帰的に探し、完全一致で解決する。新しい PRD は直下に置き、状態は PRD の課題（`prd` でその PRD を指す課題）が持つ。過去の保管場所（`done/` `frozen/` `dropped/`）も完全一致で探す対象にする。一致が無いときと、複数あるときは、呼ばずに、探した場所と候補を示して尋ねる。
+- RFD と実装計画がファイル名だけで渡されたときは、`docs/memo/` を再帰的に探し、完全一致で解決する。新しい RFD は直下に置き、状態は RFD の課題（`rfd` でその RFD を指す課題）が持つ。過去の保管場所（`done/` `frozen/` `dropped/`）も完全一致で探す対象にする。一致が無いときと、複数あるときは、呼ばずに、探した場所と候補を示して尋ねる。
 - ディレクトリの配下のファイルは、`git diff --name-only --no-renames <基準コミット> -- <ディレクトリ>` と `git ls-files --others --exclude-standard -- <ディレクトリ>` で挙げる。
 
 ### 引数にパスが無いとき
 
 - その会話で変更したファイルを対象にする。成果物キーは、上の表と同じに決める。
 - 「その会話で変更したファイル」は、この会話の中で、ファイルを書く道具かコマンドで、作った・変えた・消したファイルである。リポジトリの外のファイルと、Git が無視するファイル（`git check-ignore` が当たるもの。`.scratch/` など）は除く。
-- 対象に PRD があるときは、同じ会話で変えた `docs/adr/` のファイルと `CONTEXT.md` を `impl` に入れず、その PRD の依頼の変更箇所に書く（2 の「あわせて書くもの」）。
+- 対象に RFD があるときは、同じ会話で変えた `docs/adr/` のファイルと `CONTEXT.md` を `impl` に入れず、その RFD の依頼の変更箇所に書く（2 の「あわせて書くもの」）。
 - その会話で変更したファイルも無いときは、**レビューエージェントを呼ばない。** `git status --short` の結果を示して、対象を尋ねる。**未コミットの変更すべてを、黙って対象にしない。** 作業ツリーには、ほかの会話の変更が同時にあるためである。
 
 ### 実装計画を渡されたとき
@@ -52,8 +52,8 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 ### 依頼の分け方
 
 - 観点ファイルは、成果物キーで、`docs/process/registry.md` の成果物レジストリから引く。
-- 観点ファイルが同じ成果物（`impl-plan` と `impl`、複数の PRD）は、1 回の依頼にまとめる。
-- 観点ファイルが違う成果物（`prd` と `impl`）は、別々のレビューエージェントへの依頼に分ける。
+- 観点ファイルが同じ成果物（`impl-plan` と `impl`、複数の RFD）は、1 回の依頼にまとめる。
+- 観点ファイルが違う成果物（`rfd` と `impl`）は、別々のレビューエージェントへの依頼に分ける。
 
 ## 2. 依頼を組み立てる
 
@@ -69,16 +69,16 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 | --- | --- |
 | 成果物キー、レビュー対象パス | 1 で決めたもの |
 | テンプレートパス、品質確認観点パス | レジストリの行から引く |
-| 入力元パス | `prd` は、レジストリの「入力資料」の定めで決める。PRD が本文で名指しした `reports/` と `docs/experiments/` のファイルで、無ければ「なし」と書く。`impl-plan` は、対の PRD（同じディレクトリで、名前の `_2[0-9]impl.md` を `_10prd.md` に置き換えたもの）。`impl` は、対象の実装計画と、その対の PRD。実装計画が無ければ、その会話の作業が従った PRD。どれも無ければ「なし」と書く |
-| 変更箇所 | `prd` は、Git が追跡していないか、基準コミットから変わっていなければ「全体」。変わっていれば、`git diff <基準コミット> -- <PRD>` を見て、変えた節を挙げる。`impl-plan` と `impl` は、`docs/quality/impl.md` の位置づけの「変更箇所の渡し方」による。差分は、先にファイルへ書き出す（下の「差分を書き出す」） |
+| 入力元パス | `rfd` は、レジストリの「入力資料」の定めで決める。RFD が本文で名指しした `reports/` と `docs/experiments/` のファイルで、無ければ「なし」と書く。`impl-plan` は、対の RFD（同じディレクトリで、名前の `_2[0-9]impl.md` を `_10rfd.md` に置き換えたもの）。`impl` は、対象の実装計画と、その対の RFD。実装計画が無ければ、その会話の作業が従った RFD。どれも無ければ「なし」と書く |
+| 変更箇所 | `rfd` は、Git が追跡していないか、基準コミットから変わっていなければ「全体」。変わっていれば、`git diff <基準コミット> -- <RFD>` を見て、変えた節を挙げる。`impl-plan` と `impl` は、`docs/quality/impl.md` の位置づけの「変更箇所の渡し方」による。差分は、先にファイルへ書き出す（下の「差分を書き出す」） |
 | 既知の事項 | 同じ会話の前の往復で、レビューエージェントが報告したもの。ほかは、ユーザーが挙げたものだけを書く。無ければ「なし」 |
 | 起草時の論点 | その会話で、判断に迷った箇所。無ければ「なし」 |
 
 あわせて書くもの:
 
-- PRD のレビューでは、あわせて起こした・変えた ADR と、`CONTEXT.md` の変更があれば、変更箇所に書く。`docs/quality/prd.md` の「ADR と用語」の適用範囲が、それで決まる。
+- RFD のレビューでは、あわせて起こした・変えた ADR と、`CONTEXT.md` の変更があれば、変更箇所に書く。`docs/quality/rfd.md` の「ADR と用語」の適用範囲が、それで決まる。
 - 実装のレビューでは、実行した検証（コマンドと結果）を書く。実装計画に記録があれば、その節を指す。
-- PRD に沿わない変更（入力元が「なし」）では、変更の目的を 1〜2 文で書く。
+- RFD に沿わない変更（入力元が「なし」）では、変更の目的を 1〜2 文で書く。
 - 会話から分からないものは「記述なし」と書く。推測で埋めない。
 
 依頼文は「レビューを依頼します。依頼の形式は `docs/process/protocol.md` 2 節によります。」で始め、項目を箇条書きで並べる。まとめて依頼するときは、品質確認観点パスを 1 回だけ書き、ほかの項目を成果物ごとのブロックに分ける。
@@ -91,9 +91,9 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 
 ### 差分を書き出す
 
-`impl-plan` か `impl` を出すときは、依頼を書く前に、差分をファイルへ書き出す。レビューエージェントは、それを読む。`prd` を出すときは、書き出さない。
+`impl-plan` か `impl` を出すときは、依頼を書く前に、差分をファイルへ書き出す。レビューエージェントは、それを読む。`rfd` を出すときは、書き出さない。
 
-1. 置き場を作る。応答を保存する置き場（4 の定めによる。`.scratch/prdNNN/` か `.scratch/review/`）の下の、`diff-<YYYYMMDD-HHMM>/` にする（時刻の取り方は「原文を保存する」による）。起動のたびに新しく作り、前の置き場を使い回さない。
+1. 置き場を作る。応答を保存する置き場（4 の定めによる。`.scratch/rfdNNNN/` か `.scratch/review/`）の下の、`diff-<YYYYMMDD-HHMM>/` にする（時刻の取り方は「原文を保存する」による）。起動のたびに新しく作り、前の置き場を使い回さない。
 2. Git が追跡している変更ファイルごとに、`git diff --output=<置き場>/<名前>.diff <基準コミット> -- <変更ファイル>` を実行する。`<名前>` は、変更ファイルのパスの `/` を `__` に置き換え、先頭に `__` を付けたものである（例: `docs/quality/impl.md` の差分は、`__docs__quality__impl.md.diff` に書く）。先頭に `__` を付けるのは、`.agents/` などの配下のファイルで、名前が `.` で始まらないようにするためである。`.` で始まる名前は、`ls` や `rg --files` の一覧に出ない。
 3. 依頼の変更箇所に、置き場のパスと、名前の決め方を書く。
 
@@ -123,8 +123,8 @@ description: Send anet-lab artifacts (files changed in this conversation, a PRD,
 
 ### 原文を保存する
 
-- 応答を受け取ったら、毎回、原文をそのまま保存する。置き場は、PRD に沿った作業なら `.scratch/prdNNN/`（`NNN` は、対象か入力元の PRD の番号）、PRD の無い変更なら `.scratch/review/` にする。
-- 名前は `review-<YYYYMMDD-HHMM>.md` にする。依頼を分けたときは、成果物キーを足す（`review-<YYYYMMDD-HHMM>-prd.md` など）。ユーザーが名前を示したときは、それを使う。
+- 応答を受け取ったら、毎回、原文をそのまま保存する。置き場は、RFD に沿った作業なら `.scratch/rfdNNNN/`（`NNNN` は、対象か入力元の RFD の番号）、RFD の無い変更なら `.scratch/review/` にする。
+- 名前は `review-<YYYYMMDD-HHMM>.md` にする。依頼を分けたときは、成果物キーを足す（`review-<YYYYMMDD-HHMM>-rfd.md` など）。ユーザーが名前を示したときは、それを使う。
 - 名前の時刻は推測で書かず、保存の直前にコマンドで取る（Bash は `date +%Y%m%d-%H%M`、PowerShell は `Get-Date -Format yyyyMMdd-HHmm`）。PowerShell の `date` は、PATH によって別の命令に当たるので使わない。
 - Codex で、親のスレッドが読み取り専用のときは、保存できない。そのときは、説明のあとに原文を全文で示し、保存できなかった旨を示す。
 

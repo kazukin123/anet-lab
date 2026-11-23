@@ -792,7 +792,7 @@ TEST_CASE("EnvRepository dispatches a per-class native batch factory variant", "
     CHECK(rl::EnvRepository::Instance().GetSingleDiscreteEnvFactory("NameTestNativeBatchEnv") == nullptr);
 }
 
-TEST_CASE("Evaluation sessions accumulate adopted Step results after automatic reset", "[env][prd097_session_result]")
+TEST_CASE("Evaluation sessions accumulate adopted Step results after automatic reset", "[env][rfd0097_session_result]")
 {
     const bool shared = GENERATE(false, true);
     auto inner = std::make_shared<ScriptedSessionEnv>(2,
@@ -807,7 +807,7 @@ TEST_CASE("Evaluation sessions accumulate adopted Step results after automatic r
     CHECK(result->GetScalar("score", shared ? -1 : 0) == (shared ? 15.0f : 10.0f));
 }
 
-TEST_CASE("Single results own scalar aux and distinguish unavailable and non-scalar keys", "[env][prd097_single_result]")
+TEST_CASE("Single results own scalar aux and distinguish unavailable and non-scalar keys", "[env][rfd0097_single_result]")
 {
     rl::SingleEnvResult result(rl::AuxData{
         {"score", torch::tensor(7.0f)},
@@ -823,7 +823,7 @@ TEST_CASE("Single results own scalar aux and distinguish unavailable and non-sca
     CHECK(result.GetScalar("score") == 7.0f);
 }
 
-TEST_CASE("BatchEnv operation failures propagate to the caller", "[env][prd097_worker_failure]")
+TEST_CASE("BatchEnv operation failures propagate to the caller", "[env][rfd0097_worker_failure]")
 {
     const bool threaded = GENERATE(false, true);
     const std::string failure = GENERATE("reset", "step", "ended_reset");
@@ -845,7 +845,7 @@ TEST_CASE("BatchEnv operation failures propagate to the caller", "[env][prd097_w
     env->Shutdown();
 }
 
-TEST_CASE("BatchEnv snapshots mixed terminal lanes and empty aux slots", "[env][prd097_result_ownership]")
+TEST_CASE("BatchEnv snapshots mixed terminal lanes and empty aux slots", "[env][rfd0097_result_ownership]")
 {
     const bool threaded = GENERATE(false, true);
     auto factory = std::make_shared<ResetProbeFactory>(std::vector<int>{0, 1, 2});

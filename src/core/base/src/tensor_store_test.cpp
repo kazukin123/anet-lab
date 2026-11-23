@@ -2,7 +2,7 @@
 #include <array>
 #include "anet/tensor_store.hpp"
 
-TEST_CASE("Lane-time tensor store preserves stored observations by lane and time", "[prd191][tensor_store]")
+TEST_CASE("Lane-time tensor store preserves stored observations by lane and time", "[rfd0191][tensor_store]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");

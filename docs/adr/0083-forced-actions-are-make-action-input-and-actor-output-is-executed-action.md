@@ -1,6 +1,6 @@
 # 強制行動は `MakeAction` の入力とし、Actor の出力を実行された行動にする
 
-強制行動を Runner が Actor の出力のあとで差し替えていたので、Actor は自分の出力が実行されたかを知らず、初期優先度のヒントを作り直す専用の仕組み（`WithAction` と、そのためだけの aux）が要り、TempoRL の skip の状態は強制を知らなかった（[PRD161](../memo/161_observation_pipeline_10prd.md)）。**強制行動は lane ごとの入力として `MakeAction` へ渡し、Actor が方策の選択のあとに反映して、Actor の出力をそのまま実行する**ことを決定する。行動から作る値（ヒント、skip の判断、直前の行動）が、どれも実行された 1 つの行動から作られる。
+強制行動を Runner が Actor の出力のあとで差し替えていたので、Actor は自分の出力が実行されたかを知らず、初期優先度のヒントを作り直す専用の仕組み（`WithAction` と、そのためだけの aux）が要り、TempoRL の skip の状態は強制を知らなかった（[PRD161](../memo/0161_observation_pipeline_10rfd.md)）。**強制行動は lane ごとの入力として `MakeAction` へ渡し、Actor が方策の選択のあとに反映して、Actor の出力をそのまま実行する**ことを決定する。行動から作る値（ヒント、skip の判断、直前の行動）が、どれも実行された 1 つの行動から作られる。
 
 ## Considered Options
 

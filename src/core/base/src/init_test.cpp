@@ -200,7 +200,7 @@ TEST_CASE("BackendConfig rejects invalid cuda_launch_blocking values", "[backend
     }
 }
 
-TEST_CASE("PRD070 parses device specifications and preserves current CUDA index", "[device][prd070]")
+TEST_CASE("RFD0070 parses device specifications and preserves current CUDA index", "[device][rfd0070]")
 {
     // 値の文法とautoの選択を公開パーサ経由で確認する。
     constexpr auto* key = "agent.device";
@@ -217,7 +217,7 @@ TEST_CASE("PRD070 parses device specifications and preserves current CUDA index"
     CHECK_THROWS(anet::ParseDevice("cpu", ""));
 }
 
-TEST_CASE("InitRL reports the original value of every explicit CUDA key", "[device][prd070][prd194][prd194_cuda]")
+TEST_CASE("InitRL reports the original value of every explicit CUDA key", "[device][rfd0070][rfd0194][rfd0194_cuda]")
 {
     if (torch::cuda::is_available()) SKIP("CUDA is available");
 
@@ -285,12 +285,12 @@ TEST_CASE("InitRL leaves CUDA_LAUNCH_BLOCKING unchanged for inherit", "[backend]
     anet::MetricsLogger::Reset();
 }
 
-TEST_CASE("InitRL rejects an invalid device when only that key is specified", "[prd122][prd070][device]")
+TEST_CASE("InitRL rejects an invalid device when only that key is specified", "[rfd0122][rfd0070][device]")
 {
     // 未指定の2キーを足さず、書かれた1キーの失敗が識別できることを確認する。
     const auto* key = GENERATE("agent.device", "env.device", "run.eval_device");
     CapturingBackend* backend = nullptr;
-    InitCapturingLogger(backend, "prd122_explicit_device");
+    InitCapturingLogger(backend, "rfd0122_explicit_device");
     anet::ConfigData data;
     data.Set(key, "invalid-device");
     CHECK_THROWS_WITH(anet::rl::InitRL(anet::rl::BackendConfig(), data),
@@ -298,7 +298,7 @@ TEST_CASE("InitRL rejects an invalid device when only that key is specified", "[
     anet::MetricsLogger::Reset();
 }
 
-TEST_CASE("InitRL logs one fatal with the full key of an invalid device", "[device][prd194]")
+TEST_CASE("InitRL logs one fatal with the full key of an invalid device", "[device][rfd0194]")
 {
     const auto* key = GENERATE("agent.device", "env.device", "run.eval_device");
     anet::ConfigData data;

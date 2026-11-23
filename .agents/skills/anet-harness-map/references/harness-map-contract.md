@@ -1,6 +1,6 @@
 # ANET Harness Map Contract
 
-動線マップの出力仕様。起票時の判断は `docs/memo/done/080_harness_map_10prd.md` にあり、本契約が出力の正本になる。
+動線マップの出力仕様。起票時の判断は `docs/memo/done/0080_harness_map_10rfd.md` にあり、本契約が出力の正本になる。
 
 ## 用語
 
@@ -8,7 +8,7 @@
 
 | 語 | 定義 | 避け語 |
 |---|---|---|
-| **AI ハーネス** | エージェント(Claude Code / Codex)の振る舞いを決めるファイル群の総体。指示・規約・設計文書・PRD/ADR/用語集・検証資材・skill・memory・CI。コード本体は含まない | 環境、設定 |
+| **AI ハーネス** | エージェント(Claude Code / Codex)の振る舞いを決めるファイル群の総体。指示・規約・設計文書・RFD/ADR/用語集・検証資材・skill・memory・CI。コード本体は含まない | 環境、設定 |
 | **入口** | 条件なしに毎セッション読まれるファイル。`CLAUDE.md`、`AGENTS.md`、global `CLAUDE.md`、memory の index | 常時読み、エントリ |
 | **条件読み** | 作業種別や領域で読むかどうかが決まる読み。入口以外の読みはすべてこれ | 参照、オンデマンド |
 | **動線** | 入口から末端(文書の章・skill・ツール)まで、エージェントが辿る参照の連なり。参照元の無い末端は「死んだ動線」 | 流路、経路、フロー |
@@ -38,8 +38,8 @@ shadow は消すべき事故、実体コピーは意図した構造で同期だ�
 公開版 `README.md` は次の 6 節を持つ。**表の各行に根拠(確認したファイルと行、または節名)を必須**とし、陳腐化を `rg` で検出できるようにする。
 
 1. **凡例と図の索引**。用語 6 語。図の索引表は `docs/archify/README.md` の「推奨閲覧順」と同じ形式で、列 = 順序 / 図 / 何が分かるか / 表示 / ファイル。「表示」は GitHub Pages の URL `https://kazukin123.github.io/anet-lab/docs/agents/<basename>.html`、「ファイル」は `.html` と `.archify.json` への相対リンク。生成根拠の Git revision を書く。日本語は Viewer UI の対応 locale ではないため `meta.locale` を省略しており、固定 Viewer UI と `<html lang>` が英語であることを明記する。
-2. **表 1 ノード在庫**。ファイル単位で全列挙する。対象は `CLAUDE.md`、`AGENTS.md`、`docs/agents/*.md`、設計文書(`docs/design/*.jp.md` と `README.jp.md`)、`CONTEXT.md`、`docs/ownership_guideline.md`、`docs/memo/README.md`、`docs/experiments/README.md`、`src/core/base/testdata/*/README.md`、`.github/workflows/*.yml`、`AGENTS.md` が名指しする Python tool。ADR(`docs/adr/`)と PRD(`docs/memo/` の直下・`done`・`frozen`・`dropped`)は読む条件が一律(ファイル名で絞る / 状態は PRD の課題で表し、過去の保管場所も読む)なので**フォルダ単位 1 行**に件数を添える。列 = 種別 / パス / 読む条件 / 誰が読む(人間・Claude・Codex)/ 参照元(どこからリンク・名指しされているか。**空 = 死んだ動線**)/ 根拠。
-3. **表 2 作業 → 読む文書**。列 = これから何をするか / 読むもの(文書と章)/ 読まなくてよいとき / 根拠。workflow 図はラベルしか持てないので、条件文はこの表が持つ。行は `AGENTS.md` が定める読む条件と skill の手順から起こし、PRD ライフサイクルの工程(起票・再グリル・実装計画・検証)も行にする。
+2. **表 1 ノード在庫**。ファイル単位で全列挙する。対象は `CLAUDE.md`、`AGENTS.md`、`docs/agents/*.md`、設計文書(`docs/design/*.jp.md` と `README.jp.md`)、`CONTEXT.md`、`docs/ownership_guideline.md`、`docs/memo/README.md`、`docs/experiments/README.md`、`src/core/base/testdata/*/README.md`、`.github/workflows/*.yml`、`AGENTS.md` が名指しする Python tool。ADR(`docs/adr/`)と RFD(`docs/memo/` の直下・`done`・`frozen`・`dropped`)は読む条件が一律(ファイル名で絞る / 状態は RFD の課題で表し、過去の保管場所も読む)なので**フォルダ単位 1 行**に件数を添える。列 = 種別 / パス / 読む条件 / 誰が読む(人間・Claude・Codex)/ 参照元(どこからリンク・名指しされているか。**空 = 死んだ動線**)/ 根拠。
+3. **表 2 作業 → 読む文書**。列 = これから何をするか / 読むもの(文書と章)/ 読まなくてよいとき / 根拠。workflow 図はラベルしか持てないので、条件文はこの表が持つ。行は `AGENTS.md` が定める読む条件と skill の手順から起こし、RFD ライフサイクルの工程(起票・再グリル・実装計画・検証)も行にする。
 4. **表 3 AGENTS.md の節の配置**。`AGENTS.md` の全 `##` 節について、列 = 節名 / 行数 / 分類 / 移設先候補 / 根拠。分類は「常時必要(入口に残す)」「条件付き(特定の作業でしか要らない。移設先候補を書く)」「どの作業からも到達しない」の 3 値。末尾に集計行(条件付きの節数と行数合計)を置く。これが入口の削減候補の測定器になる。
 5. **表 4 skill 在庫**。project の skill をファイル単位で全列挙し、列 = 名前 / 所在(project・user-level・両方)/ 実体コピーの同期状態(`.agents` と `.claude` が一致 / どちらが新しいか)/ shadow(user-level に同名があるか。Claude 側・Codex 側)/ Codex 表示名(`agents/openai.yaml`)の有無 / 根拠。user-level にしかない skill は本数と集合の差だけ書き、名前の列挙は個人版に置く。
 6. **発見事項**。次の分類で名指しする。修正はしない。
@@ -53,7 +53,7 @@ shadow は消すべき事故、実体コピーは意図した構造で同期だ�
 ## architecture 図
 
 - `meta.quality_profile: "showcase"`。主要ノードは 3 個以上 12 個以下。
-- ノード候補: `CLAUDE.md`、`AGENTS.md`、`docs/agents`、設計文書(1xx・2xx)、ユーザーガイド(0xx)、`CONTEXT.md`、ADR、PRD(`docs/memo`)、testdata README、skill(実体コピー 2 系統を 1 ノードにしカードで説明)、CI workflows、ユーザー環境(抽象境界ノード)。実在を確認できたものだけを置く。
+- ノード候補: `CLAUDE.md`、`AGENTS.md`、`docs/agents`、設計文書(1xx・2xx)、ユーザーガイド(0xx)、`CONTEXT.md`、ADR、RFD(`docs/memo`)、testdata README、skill(実体コピー 2 系統を 1 ノードにしカードで説明)、CI workflows、ユーザー環境(抽象境界ノード)。実在を確認できたものだけを置く。
 - 境界は 2 種: リポジトリ内 / ユーザー環境、両エージェントが読むもの / 片方だけが読むもの。
 - 主経路は 1 本: 入口 → 規約 → 領域の設計文書 → テスト章 → testdata README。
 - 各ノードの `sources` は判定力の高いリポジトリ相対参照を最大 3 件。ユーザー環境ノードの根拠は、リポジトリ内で観測できる事実(skills README の実体コピー記述、`CLAUDE.md` の global 指示への言及)に限る。
@@ -66,14 +66,14 @@ shadow は消すべき事故、実体コピーは意図した構造で同期だ�
   **レーンはエージェント名でなく役割名にする**(担当はトークン予算で入れ替わるため)。phases = 入口 → 設計 → 実装 → 検証 → 引き渡し。
 - Archify の `workflow` は列を 0〜5 の 6 本しか持たず、同じレーンで隣り合う列も使えない(列ピッチ約 80px に対しノード幅 92px で、辺の最短 28px を満たせない)。
   主経路の工程が 6 を超えるときは**隣接する工程を 1 ノードへ畳んでよい**。畳んだ内訳は sublabel と README の表 2 に書き、工程そのものは落とさない。
-- 主経路 = **PRD ライフサイクル**。正本は [docs/memo/README.md](../../../../docs/memo/README.md) の §工程と担当 で、図はそれを描く:
-  入口読み → グリルして起票(起票側。`anet-create-prd`)→ **再グリル**(起票側とは別の枠が精査する)→
-  **調整**(人間。必要なら人間が仲介してエージェント間を往復させる)→ 実装計画(`anet-impl-prd`。**実装する枠**が作る)→
+- 主経路 = **RFD ライフサイクル**。正本は [docs/memo/README.md](../../../../docs/memo/README.md) の §工程と担当 で、図はそれを描く:
+  入口読み → グリルして起票(起票側。`anet-create-rfd`)→ **再グリル**(起票側とは別の枠が精査する)→
+  **調整**(人間。必要なら人間が仲介してエージェント間を往復させる)→ 実装計画(`anet-impl-rfd`。**実装する枠**が作る)→
   編集前の条件読み(設計文書・ADR・`CONTEXT.md`)→ 編集 → 検証(設計文書のテスト章 → testdata README)→
   レビュー(起票側)→ **人間のレビュー**(コミット前)→ コミット(commit と push は人間のみ。`anet-prepare-commit` は文案と、選ばれたときの課題の解決とステージまで)。
 - **担当は固定しない。** どの枠がどの工程を持つかはトークン予算で変わる。図が描くのは「起票・精査・実装は別の枠に置ける」
   「実装計画は実装する枠が作る」「コミット前に人間がレビューする」という**工程の非対称**だけで、特定のエージェント名に結び付けない。
-  正本が更新されたら図もそれに従う。正本と実測(PRD の改訂履歴行)が食い違う場合は、両方を発見事項に記録する。
+  正本が更新されたら図もそれに従う。正本と実測(RFD の改訂履歴行)が食い違う場合は、両方を発見事項に記録する。
 - 側枝: Run 分析(030、`inspect_run.py`)/ 実験記録(`docs/experiments/README.md`)/ ビルド詰まり(040)/ 定常整備(`anet-housekeeping` → 各 skill)。
   側枝は主経路の最寄りノードから出す。引けない場合(Archify の交差制約)は意味が最も近い工程から出し、理由を記録する。
 - **設定変更を側枝にしない。** 設定ファイルと 020 §3 のドキュメントは実装時に同時更新されるので、実装ノードへ畳む

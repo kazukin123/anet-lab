@@ -105,7 +105,7 @@ TEST_CASE("Conv2dVisualizer rejects invalid layer margin", "[image][conv2d]")
     CHECK_THROWS(visualizer.Visualize(/*step=*/1, MakeConv2dLayoutTrace()));
 }
 
-TEST_CASE("ImageProviderManager rejects duplicate tags without replacing the provider", "[prd117][image][image_registry]")
+TEST_CASE("ImageProviderManager rejects duplicate tags without replacing the provider", "[rfd0117][image][image_registry]")
 {
     ScopedImageMetricsLogger metrics_logger;
     anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);
@@ -123,7 +123,7 @@ TEST_CASE("ImageProviderManager rejects duplicate tags without replacing the pro
     CHECK(manager.List().size() == 2);
 }
 
-TEST_CASE("Image catalog rejects unknown fields even after another reader consumed them", "[prd117][image][image_catalog]")
+TEST_CASE("Image catalog rejects unknown fields even after another reader consumed them", "[rfd0117][image][image_catalog]")
 {
     ScopedImageMetricsLogger metrics_logger;
     anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);
@@ -138,7 +138,7 @@ TEST_CASE("Image catalog rejects unknown fields even after another reader consum
         && Catch::Matchers::ContainsSubstring("9"));
 }
 
-TEST_CASE("Image catalog reads known fields outside the selected image type", "[prd117][image][image_catalog]")
+TEST_CASE("Image catalog reads known fields outside the selected image type", "[rfd0117][image][image_catalog]")
 {
     ScopedImageMetricsLogger metrics_logger;
     anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);
@@ -150,7 +150,7 @@ TEST_CASE("Image catalog reads known fields outside the selected image type", "[
         Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("expected"));
 }
 
-TEST_CASE("Image defaults are read without creating image providers", "[prd117][image][image_catalog]")
+TEST_CASE("Image defaults are read without creating image providers", "[rfd0117][image][image_catalog]")
 {
     ScopedImageMetricsLogger metrics_logger;
     anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);
@@ -165,7 +165,7 @@ TEST_CASE("Image defaults are read without creating image providers", "[prd117][
     CHECK(unread[0].first == "some.setting");
 }
 
-TEST_CASE("Image catalog merges typed defaults and retains original read records", "[prd117][image][image_catalog]")
+TEST_CASE("Image catalog merges typed defaults and retains original read records", "[rfd0117][image][image_catalog]")
 {
     ScopedImageMetricsLogger metrics_logger;
     anet::rl::ImageProviderManager manager(anet::rl::EnvSpec{}, nullptr);

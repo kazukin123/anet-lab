@@ -49,9 +49,9 @@
 
 namespace {
 
-static void SavePrd170Trace(const anet::rl::AuxData& aux, const char* name)
+static void SaveRfd0170Trace(const anet::rl::AuxData& aux, const char* name)
 {
-    constexpr const char* kOutputEnv = "ANET_PRD170_TRACE_DIR";
+    constexpr const char* kOutputEnv = "ANET_RFD0170_TRACE_DIR";
     const auto* directory = std::getenv(kOutputEnv);
     if (!directory) return;
     // 比較用の全要素を辞書順で保存し、表示の丸めや省略を介さずに突き合わせる。
@@ -70,104 +70,104 @@ static void SavePrd170Trace(const anet::rl::AuxData& aux, const char* name)
     output << snapshot.dump(2) << '\n';
 }
 
-constexpr const char* kPrd121AdvFeature = "adv_feature";
+constexpr const char* kRfd0121AdvFeature = "adv_feature";
 
-constexpr const char* kPrd121ExtrinsicQArgmaxDisagreement = "extrinsic_q_argmax_disagreement";
+constexpr const char* kRfd0121ExtrinsicQArgmaxDisagreement = "extrinsic_q_argmax_disagreement";
 
-constexpr const char* kPrd121ExtrinsicQArgmaxDisagreementRate = "extrinsic_q_argmax_disagreement_rate";
+constexpr const char* kRfd0121ExtrinsicQArgmaxDisagreementRate = "extrinsic_q_argmax_disagreement_rate";
 
-constexpr const char* kPrd121ExtrinsicQGapMean = "extrinsic_q_gap_mean";
+constexpr const char* kRfd0121ExtrinsicQGapMean = "extrinsic_q_gap_mean";
 
-constexpr const char* kPrd121ExtrinsicQRegret = "extrinsic_q_regret";
+constexpr const char* kRfd0121ExtrinsicQRegret = "extrinsic_q_regret";
 
-constexpr const char* kPrd121ExtrinsicQRegretMean = "extrinsic_q_regret_mean";
+constexpr const char* kRfd0121ExtrinsicQRegretMean = "extrinsic_q_regret_mean";
 
-constexpr const char* kPrd121ExtrinsicQSessionArgmaxDisagreementRate = "extrinsic_q_session_argmax_disagreement_rate";
+constexpr const char* kRfd0121ExtrinsicQSessionArgmaxDisagreementRate = "extrinsic_q_session_argmax_disagreement_rate";
 
-constexpr const char* kPrd121ExtrinsicQSessionRegretMean = "extrinsic_q_session_regret_mean";
+constexpr const char* kRfd0121ExtrinsicQSessionRegretMean = "extrinsic_q_session_regret_mean";
 
-constexpr const char* kPrd121Gap = "_gap";
+constexpr const char* kRfd0121Gap = "_gap";
 
-constexpr const char* kPrd121GapMean = "gap_mean";
+constexpr const char* kRfd0121GapMean = "gap_mean";
 
-constexpr const char* kPrd121Intrinsic = "intrinsic";
+constexpr const char* kRfd0121Intrinsic = "intrinsic";
 
-constexpr const char* kPrd121IntrinsicPrefix = "intrinsic_";
+constexpr const char* kRfd0121IntrinsicPrefix = "intrinsic_";
 
-constexpr const char* kPrd121IntrinsicQGap = "intrinsic_q_gap";
+constexpr const char* kRfd0121IntrinsicQGap = "intrinsic_q_gap";
 
-constexpr const char* kPrd121IntrinsicQGapMean = "intrinsic_q_gap_mean";
+constexpr const char* kRfd0121IntrinsicQGapMean = "intrinsic_q_gap_mean";
 
-constexpr const char* kPrd121IntrinsicQSessionGapMean = "intrinsic_q_session_gap_mean";
+constexpr const char* kRfd0121IntrinsicQSessionGapMean = "intrinsic_q_session_gap_mean";
 
-constexpr const char* kPrd121OnlineReuse = "online_reuse";
+constexpr const char* kRfd0121OnlineReuse = "online_reuse";
 
-constexpr const char* kPrd121PlasticityTargetSrank = "plasticity_target_srank";
+constexpr const char* kRfd0121PlasticityTargetSrank = "plasticity_target_srank";
 
-constexpr const char* kPrd121ValueFeature = "value_feature";
+constexpr const char* kRfd0121ValueFeature = "value_feature";
 
-// PRD121の入力・公開識別子を、同じ意味の検査で共有する。
-constexpr const char* kPrd121Eval = "eval";
+// RFD0121の入力・公開識別子を、同じ意味の検査で共有する。
+constexpr const char* kRfd0121Eval = "eval";
 
-constexpr const char* kPrd121ExtrinsicGradNorm = "extrinsic_grad_norm";
+constexpr const char* kRfd0121ExtrinsicGradNorm = "extrinsic_grad_norm";
 
-constexpr const char* kPrd121ExtrinsicHead = "extrinsic";
+constexpr const char* kRfd0121ExtrinsicHead = "extrinsic";
 
-constexpr const char* kPrd121ExtrinsicLoss = "extrinsic_loss";
+constexpr const char* kRfd0121ExtrinsicLoss = "extrinsic_loss";
 
-constexpr const char* kPrd121ExtrinsicQ = "extrinsic_q";
+constexpr const char* kRfd0121ExtrinsicQ = "extrinsic_q";
 
-constexpr const char* kPrd121ExtrinsicQDist = "extrinsic_q_dist";
+constexpr const char* kRfd0121ExtrinsicQDist = "extrinsic_q_dist";
 
-constexpr const char* kPrd121ExtrinsicQGap = "extrinsic_q_gap";
+constexpr const char* kRfd0121ExtrinsicQGap = "extrinsic_q_gap";
 
-constexpr const char* kPrd121ExtrinsicQSessionGapMean = "extrinsic_q_session_gap_mean";
+constexpr const char* kRfd0121ExtrinsicQSessionGapMean = "extrinsic_q_session_gap_mean";
 
-constexpr const char* kPrd121Features = "features";
+constexpr const char* kRfd0121Features = "features";
 
-constexpr const char* kPrd121FixedTauMode = "fixed";
+constexpr const char* kRfd0121FixedTauMode = "fixed";
 
-constexpr const char* kPrd121HeadExtrinsicLinearBias = "head.extrinsic.linear.bias";
+constexpr const char* kRfd0121HeadExtrinsicLinearBias = "head.extrinsic.linear.bias";
 
-constexpr const char* kPrd121HeadIntrinsicLinearBias = "head.intrinsic.linear.bias";
+constexpr const char* kRfd0121HeadIntrinsicLinearBias = "head.intrinsic.linear.bias";
 
-constexpr const char* kPrd121Inf = "inf";
+constexpr const char* kRfd0121Inf = "inf";
 
-constexpr const char* kPrd121IntrinsicAdvFeature = "intrinsic_adv_feature";
+constexpr const char* kRfd0121IntrinsicAdvFeature = "intrinsic_adv_feature";
 
-constexpr const char* kPrd121IntrinsicFeatures = "intrinsic_features";
+constexpr const char* kRfd0121IntrinsicFeatures = "intrinsic_features";
 
-constexpr const char* kPrd121IntrinsicGradNorm = "intrinsic_grad_norm";
+constexpr const char* kRfd0121IntrinsicGradNorm = "intrinsic_grad_norm";
 
-constexpr const char* kPrd121IntrinsicLoss = "intrinsic_loss";
+constexpr const char* kRfd0121IntrinsicLoss = "intrinsic_loss";
 
-constexpr const char* kPrd121IntrinsicQ = "intrinsic_q";
+constexpr const char* kRfd0121IntrinsicQ = "intrinsic_q";
 
-constexpr const char* kPrd121IntrinsicQDist = "intrinsic_q_dist";
+constexpr const char* kRfd0121IntrinsicQDist = "intrinsic_q_dist";
 
-constexpr const char* kPrd121IntrinsicValueFeature = "intrinsic_value_feature";
+constexpr const char* kRfd0121IntrinsicValueFeature = "intrinsic_value_feature";
 
-constexpr const char* kPrd121Invalid = "invalid";
+constexpr const char* kRfd0121Invalid = "invalid";
 
-constexpr const char* kPrd121Linear = "linear";
+constexpr const char* kRfd0121Linear = "linear";
 
-constexpr const char* kPrd121Nan = "nan";
+constexpr const char* kRfd0121Nan = "nan";
 
-constexpr const char* kPrd121Off = "off";
+constexpr const char* kRfd0121Off = "off";
 
-constexpr const char* kPrd121OnlineLogPolicyMode = "online";
+constexpr const char* kRfd0121OnlineLogPolicyMode = "online";
 
-constexpr const char* kPrd121OnlineNetworkMode = "online";
+constexpr const char* kRfd0121OnlineNetworkMode = "online";
 
-constexpr const char* kPrd121Q = "q";
+constexpr const char* kRfd0121Q = "q";
 
-constexpr const char* kPrd121QDist = "q_dist";
+constexpr const char* kRfd0121QDist = "q_dist";
 
-constexpr const char* kPrd121ReplayFitUniformTdMean = "replay_fit_uniform_td_mean";
+constexpr const char* kRfd0121ReplayFitUniformTdMean = "replay_fit_uniform_td_mean";
 
-constexpr const char* kPrd121SharedBranchKey = "shared";
+constexpr const char* kRfd0121SharedBranchKey = "shared";
 
-constexpr const char* kPrd121TargetLogPolicyMode = "target";
+constexpr const char* kRfd0121TargetLogPolicyMode = "target";
 
 static constexpr anet::seed_t kTestAgentSeed = 6000;
 
@@ -786,7 +786,7 @@ anet::ConfigData MakeIqnTracerConfigData()
 
 void PrepareNativeStackNetworkTest()
 {
-    // mkldnnはmain_test.cppのmainが全テストの前に切るので、ここでは切らない（PRD124）。
+    // mkldnnはmain_test.cppのmainが全テストの前に切るので、ここでは切らない（RFD0124）。
     anet::test::RegisterStandardNetworkModules();
 }
 
@@ -1686,7 +1686,7 @@ anet::TensorDict MakeTauEchoObservation()
     };
 }
 
-anet::ConfigData MakePrd104ConfigData()
+anet::ConfigData MakeRfd0104ConfigData()
 {
     auto data = MakeDeviceForwardDefaultDqnConfig().GetScopedConfigData();
     data.Set("DefaultDQNAgent.quantile_mode", "none");
@@ -1713,9 +1713,9 @@ anet::ConfigData MakePrd104ConfigData()
     return WithDefaultForwardConfig(data);
 }
 
-constexpr const char* kPrd106QValuesKey = "q_values";
+constexpr const char* kRfd0106QValuesKey = "q_values";
 
-anet::ConfigData MakePrd106IqnConfigData()
+anet::ConfigData MakeRfd0106IqnConfigData()
 {
     auto data = MakeIqnTracerConfigData();
     data.Set("DefaultDQNAgent.skip.enabled", true);

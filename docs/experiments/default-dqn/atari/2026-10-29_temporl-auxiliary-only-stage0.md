@@ -15,7 +15,7 @@
 
 ## 目的と比較条件
 
-[PRD104](../../../memo/done/104_temporl_skip_auxiliary_only_10prd.md) §7の段0。「固定して集めたデータで育ったQそのものが遅い」のか、「そのQでも評価時に固定を外せば戻る」のかを切り分ける。
+[PRD104](../../../memo/done/0104_temporl_skip_auxiliary_only_10rfd.md) §7の段0。「固定して集めたデータで育ったQそのものが遅い」のか、「そのQでも評価時に固定を外せば戻る」のかを切り分ける。
 
 - 学習元はqbertのサンプル効率優先50M、各腕seed1の終了時`agent_close.anet`。当初の無効、合算、遮断、重み0.3の4本をすべて読み込めたので、条件付きfallbackは使わなかった。その後、ユーザー指定でPRD103 splitのcheckpointを追加比較として採った。
 - 現在のAtari連鎖へ元CLI26葉を重ねる。元CLIのprofileが選んだmain_feature/tau_embeddingのstructure、HeadFC512とhead.projectionのNoisy有効、resize_modeの5葉も元dumpから展開し、形状と入力を合わせた。単に現在の既定ネットを使うと旧checkpointと形状が違う。
@@ -76,7 +76,7 @@ singleで元の3本は突破率と平均長が上がった。追加の分割は�
 - 元の4 Runは7 session・計1,400件、追加のsplitは2 session・400件で、全5 Runがexit0。各sessionに200件、合計1,800件の採用traceがあり、平均点・突破率・長さを独立集計して自動集計と一致した。
 - `inspect_run.py metrics`へ5 Runと`53_evalg/*`をまとめて渡し、`trace-csv`から個体行を抽出した。平均得点は1 sessionにつき1 scalar点。これを複数時点の学習曲線とは読まない。
 - 元のRunとの`config --diff --effective-only`では、ネット構造・前処理の5葉を一致させた。評価専用化、session名/本数、train lane数、新しい既定葉、学習をしないLearnerの条件差を区別した。
-- 評価Runは上表の5つのRunフォルダ名で特定する。追加splitは参考比較として記録し、元3本の多数決は維持した。固定入力と生成手順は[PRD104検証資材](../../../../src/core/base/testdata/prd104/README.md)を参照する。
+- 評価Runは上表の5つのRunフォルダ名で特定する。追加splitは参考比較として記録し、元3本の多数決は維持した。固定入力と生成手順は[PRD104検証資材](../../../../src/core/base/testdata/rfd0104/README.md)を参照する。
 
 ## 追加splitと別枠の評価
 

@@ -21,9 +21,9 @@ Headers for the test-only interface live in `src/core/base/include/anet/test/`, 
 
 A test that uses multiple libraries is placed in the library that is its subject, with the other parties composed of stand-ins. When the combination itself is the subject, a dedicated test application is placed under `src/apps/`. Shipped configuration and validation resources are readable from the repository root.
 
-Check target and include dependencies with the [PRD182 validation resources](../../src/core/base/testdata/prd182/README.md#%E3%83%A9%E3%82%A4%E3%83%96%E3%83%A9%E3%83%AA%E3%81%AE%E4%BE%9D%E5%AD%98).
+Check target and include dependencies with the [PRD182 validation resources](../../src/core/base/testdata/rfd0182/README.md#%E3%83%A9%E3%82%A4%E3%83%96%E3%83%A9%E3%83%AA%E3%81%AE%E4%BE%9D%E5%AD%98).
 
-Check data migration and placement with the [PRD182 migration validation](../../src/core/base/testdata/prd182/README.md#%E5%AE%9F%E6%A9%9F%E3%81%AE%E3%83%87%E3%83%BC%E3%82%BF%E3%82%92%E7%A7%BB%E3%81%99%E5%89%8D%E3%81%AE%E7%A2%BA%E8%AA%8D).
+Check data migration and placement with the [PRD182 migration validation](../../src/core/base/testdata/rfd0182/README.md#%E5%AE%9F%E6%A9%9F%E3%81%AE%E3%83%87%E3%83%BC%E3%82%BF%E3%82%92%E7%A7%BB%E3%81%99%E5%89%8D%E3%81%AE%E7%A2%BA%E8%AA%8D).
 
 ## Output Locations
 

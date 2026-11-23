@@ -5,12 +5,12 @@
 #include <wx/frame.h>
 #include "anet/gui.hpp"
 
-TEST_CASE("Panel forwards each char hook once from the innermost panel", "[prd122][panel_keys]")
+TEST_CASE("Panel forwards each char hook once from the innermost panel", "[rfd0122][panel_keys]")
 {
     using namespace anet::rl::gui;
     // 実際の発生元へCHAR_HOOKを渡し、親へ伝わる経路を通して回数と発行元を数える。
     const int scenario = GENERATE(0, 1, 2, 3);
-    auto frame = std::make_unique<wxFrame>(nullptr, wxID_ANY, "PRD122 key characterization");
+    auto frame = std::make_unique<wxFrame>(nullptr, wxID_ANY, "RFD0122 key characterization");
     auto* outer = new Panel(frame.get());
     auto* inner = new Panel(outer);
     auto* nested = new wxWindow(inner, wxID_ANY);

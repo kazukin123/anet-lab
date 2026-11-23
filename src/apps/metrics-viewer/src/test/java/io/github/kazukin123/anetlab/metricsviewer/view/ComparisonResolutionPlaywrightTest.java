@@ -196,12 +196,12 @@ class ComparisonResolutionPlaywrightTest extends MetricsViewerPlaywrightTestSupp
 				}
 				"""));
 		page.evaluate("window.initialFrame=document.querySelector(\".graph-block[data-tag-key='00/train']\")");
-		page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(Path.of("target/prd089-validation/initial-overview.png")));
+		page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(Path.of("target/rfd0089-validation/initial-overview.png")));
 		page.click("#btn-select-all-runs");
 		waitForOverview("00/train",4);
 		waitForOverview("01/ema",4);
 		assertEquals(true,page.evaluate("window.initialFrame===document.querySelector(\".graph-block[data-tag-key='00/train']\")"));
-		page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(Path.of("target/prd089-validation/multi-run-overview.png")));
+		page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(Path.of("target/rfd0089-validation/multi-run-overview.png")));
 
 		// 概観の共通headerから表示設定を変え、同じPlotlyの軸・Band描画へ反映する。
 		page.evaluate("window.previousOverview=document.querySelector(\".graph-block[data-tag-key='01/ema'] img.graph-preview\").src");
@@ -222,13 +222,13 @@ class ComparisonResolutionPlaywrightTest extends MetricsViewerPlaywrightTestSupp
 					"""));
 		}
 		waitForOverview("01/ema",4);
-		page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(Path.of("target/prd089-validation/multi-run-overview-log.png")));
+		page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(Path.of("target/rfd0089-validation/multi-run-overview-log.png")));
 		pauseDetail.set(false);
 		for(var route:paused) route.resume();
 		page.waitForFunction("document.getElementById(graphId('00/train'))?.data?.length===4 && document.getElementById(graphId('01/ema'))?.data?.length===4");
 		assertEquals(true,page.evaluate("window.initialFrame===document.querySelector(\".graph-block[data-tag-key='00/train']\")"));
 		assertEquals("true",page.locator(".graph-block[data-tag-key='01/ema'] .graph-log-toggle").getAttribute("aria-pressed"));
-		page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(Path.of("target/prd089-validation/multi-run-detail.png")));
+		page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(Path.of("target/rfd0089-validation/multi-run-detail.png")));
 	}
 
 	@Test

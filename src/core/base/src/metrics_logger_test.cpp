@@ -263,7 +263,7 @@ TEST_CASE("VideoLogger resolves configured video codec", "[metrics][video]")
     CHECK_FALSE(passthrough.requested_auto);
 }
 
-TEST_CASE("Pinned auto video selection preserves explicit codec requests", "[metrics][video][prd117]")
+TEST_CASE("Pinned auto video selection preserves explicit codec requests", "[metrics][video][rfd0117]")
 {
     anet::test::LogCaptureGuard logs;
     anet::detail::VideoCodecSelection selection;
@@ -274,11 +274,11 @@ TEST_CASE("Pinned auto video selection preserves explicit codec requests", "[met
     CHECK_THROWS(selection.Resolve("h264_nvenc", 128, 128, "invalid.mkv"));
 }
 
-TEST_CASE("MetricsLogger reports unread codec keys for manually built settings", "[metrics][video][prd194][prd194_codec]")
+TEST_CASE("MetricsLogger reports unread codec keys for manually built settings", "[metrics][video][rfd0194][rfd0194_codec]")
 {
     anet::MetricsLoggerConfig config;
     config.video_codec = "h264_nvenc";
-    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "prd194-manual-codec";
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "rfd0194-manual-codec";
     anet::MetricsLogger logger(std::make_unique<NullBackend>(), config, root);
     try {
         logger.Log("small", 0, wxImage(128, 128));
@@ -408,10 +408,10 @@ TEST_CASE("MetricsLogger drops mismatched video frames and warns once per tag", 
     std::filesystem::remove_all(root, cleanup_error);
 }
 
-TEST_CASE("MetricsLogger pins auto video fallback only for the current Run", "[.prd117_video_fallback]")
+TEST_CASE("MetricsLogger pins auto video fallback only for the current Run", "[.rfd0117_video_fallback]")
 {
-    constexpr char kTraceEnvironment[] = "PRD117_FFMPEG_TRACE";
-    constexpr char kOutputEnvironment[] = "PRD117_VIDEO_TEST_ROOT";
+    constexpr char kTraceEnvironment[] = "RFD0117_FFMPEG_TRACE";
+    constexpr char kOutputEnvironment[] = "RFD0117_VIDEO_TEST_ROOT";
     wxString trace_path;
     wxString root_path;
     REQUIRE(wxGetEnv(kTraceEnvironment, &trace_path));

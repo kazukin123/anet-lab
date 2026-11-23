@@ -21,7 +21,7 @@
 #include "anet/test/util.hpp"
 
 
-// PRD121の入力・公開識別子を、同じ意味の検査で共有する。
+// RFD0121の入力・公開識別子を、同じ意味の検査で共有する。
 
 constexpr char kTraceActionLabel[] = "a0";
 constexpr char kTraceActorKey[] = "trace";
@@ -79,7 +79,7 @@ static anet::ConfigData RndTestConfig()
     return data;
 }
 
-TEST_CASE("RND requires independent target and predictor configurations", "[prd116][rnd_reference_network]")
+TEST_CASE("RND requires independent target and predictor configurations", "[rfd0116][rnd_reference_network]")
 {
     // 2つのBodyを明示して公開Factoryから採点・学習まで通す。
     anet::nn::InitNN();
@@ -117,7 +117,7 @@ namespace {
 
 
 
-TEST_CASE("RND warmup counts observations and reports optimizer progress", "[prd116][intrinsic][rnd_warmup_count]")
+TEST_CASE("RND warmup counts observations and reports optimizer progress", "[rfd0116][intrinsic][rnd_warmup_count]")
 {
     anet::nn::InitNN();
     const int num_lanes = GENERATE(2, 4);
@@ -150,7 +150,7 @@ static anet::TensorDict RndTestObservation()
     return obs;
 }
 
-TEST_CASE("RND learns during warmup without collecting errors", "[prd123][intrinsic]")
+TEST_CASE("RND learns during warmup without collecting errors", "[rfd0123][intrinsic]")
 {
     // 公開 Factory から採点と補助学習を通し、新しい既定の warm-up を確認する。
     anet::nn::InitNN();
@@ -179,7 +179,7 @@ TEST_CASE("RND learns during warmup without collecting errors", "[prd123][intrin
     CHECK(alpha.mean().item<float>() == Catch::Approx(expected).margin(1e-5));
 }
 
-TEST_CASE("RND zero predictor wait keeps the same scoring", "[prd123][intrinsic]")
+TEST_CASE("RND zero predictor wait keeps the same scoring", "[rfd0123][intrinsic]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -200,7 +200,7 @@ TEST_CASE("RND zero predictor wait keeps the same scoring", "[prd123][intrinsic]
     }
 }
 
-TEST_CASE("RND EMA weights scored observations independently of batch splitting", "[prd123][intrinsic]")
+TEST_CASE("RND EMA weights scored observations independently of batch splitting", "[rfd0123][intrinsic]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -237,7 +237,7 @@ TEST_CASE("RND EMA weights scored observations independently of batch splitting"
     CHECK(last->Diagnostics().at(kErrorStd) == 0.0f);
 }
 
-TEST_CASE("RND centering and clipping are independent scoring choices", "[prd123][intrinsic]")
+TEST_CASE("RND centering and clipping are independent scoring choices", "[rfd0123][intrinsic]")
 {
     anet::nn::InitNN();
     const bool center = GENERATE(false, true);
@@ -262,7 +262,7 @@ TEST_CASE("RND centering and clipping are independent scoring choices", "[prd123
     }
 }
 
-TEST_CASE("RND validates inactive settings without notifications", "[prd123][intrinsic][config]")
+TEST_CASE("RND validates inactive settings without notifications", "[rfd0123][intrinsic][config]")
 {
     anet::nn::InitNN();
     // モードが使わない値も、通知より先に検証する。
@@ -320,7 +320,7 @@ TEST_CASE("RND validates inactive settings without notifications", "[prd123][int
     }
 }
 
-TEST_CASE("RND checkpoint format follows error statistics and resumes scoring", "[prd123][intrinsic][checkpoint]")
+TEST_CASE("RND checkpoint format follows error statistics and resumes scoring", "[rfd0123][intrinsic][checkpoint]")
 {
     anet::nn::InitNN();
     const auto choice = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
@@ -370,7 +370,7 @@ TEST_CASE("RND checkpoint format follows error statistics and resumes scoring", 
         Catch::Matchers::ContainsSubstring(expected) && Catch::Matchers::ContainsSubstring(unexpected));
 }
 
-TEST_CASE("RND unclipped multiplier preserves negative bonuses", "[prd116][rnd_reference_multiplier]")
+TEST_CASE("RND unclipped multiplier preserves negative bonuses", "[rfd0116][rnd_reference_multiplier]")
 {
     // 既知の平均より小さい誤差でも、unclippedは倍率を1へ切り上げない。
     anet::nn::InitNN();
@@ -392,7 +392,7 @@ TEST_CASE("RND unclipped multiplier preserves negative bonuses", "[prd116][rnd_r
     CHECK(estimator->Diagnostics().at(kClipRatio) == 0.0f);
 }
 
-TEST_CASE("RND variance feedback follows sequential moments and resumes them", "[prd116][rnd_reference_feedback]")
+TEST_CASE("RND variance feedback follows sequential moments and resumes them", "[rfd0116][rnd_reference_feedback]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -469,7 +469,7 @@ TEST_CASE("RND variance feedback follows sequential moments and resumes them", "
 }
 
 TEST_CASE("Raw RND uses the error during the scaler wait and starts diagnostic statistics afterward",
-    "[prd191][intrinsic][rnd_raw_formula]")
+    "[rfd0191][intrinsic][rnd_raw_formula]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -526,7 +526,7 @@ TEST_CASE("Raw RND uses the error during the scaler wait and starts diagnostic s
         standard->EstimateWithoutUpdate(obs).diagnostics.at(kLaneError)));
 }
 
-TEST_CASE("RND applies predictor and error waits independently", "[prd191][intrinsic][rnd_waits]")
+TEST_CASE("RND applies predictor and error waits independently", "[rfd0191][intrinsic][rnd_waits]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -565,7 +565,7 @@ TEST_CASE("RND applies predictor and error waits independently", "[prd191][intri
     CHECK(immediate[0].item<float>() != 1.0f);
 }
 
-TEST_CASE("RND factory scores observations and warms up statistics", "[prd116][intrinsic]")
+TEST_CASE("RND factory scores observations and warms up statistics", "[rfd0116][intrinsic]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -585,7 +585,7 @@ TEST_CASE("RND factory scores observations and warms up statistics", "[prd116][i
     }
 }
 
-TEST_CASE("RND learns supplied observations without preceding scoring", "[prd116][intrinsic][rnd_independent]")
+TEST_CASE("RND learns supplied observations without preceding scoring", "[rfd0116][intrinsic][rnd_independent]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -608,7 +608,7 @@ TEST_CASE("RND learns supplied observations without preceding scoring", "[prd116
     CHECK(estimator->Diagnostics().at(kPredictorLoss) < expected * 0.1f);
 }
 
-TEST_CASE("RND learning is independent of repeated scoring and leaves statistics unchanged", "[prd116][intrinsic][rnd_independent]")
+TEST_CASE("RND learning is independent of repeated scoring and leaves statistics unchanged", "[rfd0116][intrinsic][rnd_independent]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -658,7 +658,7 @@ TEST_CASE("RND learning is independent of repeated scoring and leaves statistics
         CHECK(estimator->Diagnostics().at(key) == before.at(key));
 }
 
-TEST_CASE("RND returns estimates on the input device", "[prd116][intrinsic][rnd_device]")
+TEST_CASE("RND returns estimates on the input device", "[rfd0116][intrinsic][rnd_device]")
 {
     anet::nn::InitNN();
     if (!torch::cuda::is_available()) { SKIP("CUDA is unavailable"); }
@@ -688,7 +688,7 @@ TEST_CASE("RND returns estimates on the input device", "[prd116][intrinsic][rnd_
     }
 }
 
-TEST_CASE("RND predictor learns repeated observations", "[prd116][intrinsic]")
+TEST_CASE("RND predictor learns repeated observations", "[rfd0116][intrinsic]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -711,7 +711,7 @@ TEST_CASE("RND predictor learns repeated observations", "[prd116][intrinsic]")
     CHECK(estimator->Diagnostics().at(kErrorStep) < initial * 0.1f);
 }
 
-TEST_CASE("RND checkpoint preserves normalization warmup and training continuation", "[prd116][intrinsic]")
+TEST_CASE("RND checkpoint preserves normalization warmup and training continuation", "[rfd0116][intrinsic]")
 {
     anet::nn::InitNN();
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
@@ -748,7 +748,7 @@ TEST_CASE("RND checkpoint preserves normalization warmup and training continuati
     }
 }
 
-TEST_CASE("RND checkpoint can resume at every operation boundary", "[prd116][intrinsic][rnd_boundary]")
+TEST_CASE("RND checkpoint can resume at every operation boundary", "[rfd0116][intrinsic][rnd_boundary]")
 {
     anet::nn::InitNN();
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
@@ -790,7 +790,7 @@ TEST_CASE("RND checkpoint can resume at every operation boundary", "[prd116][int
     CHECK(learned_steps > 0);
 }
 
-TEST_CASE("RND rejects invalid configuration before building networks", "[prd116][intrinsic][config]")
+TEST_CASE("RND rejects invalid configuration before building networks", "[rfd0116][intrinsic][config]")
 {
     const auto invalid = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
         {"head.output_dim", "0"},
@@ -816,7 +816,7 @@ TEST_CASE("RND rejects invalid configuration before building networks", "[prd116
         || Catch::Matchers::ContainsSubstring("key=" + key + " value=\"" + invalid.second + "\" expected="));
 }
 
-TEST_CASE("RND Head retains the default initialization settings", "[intrinsic][config][prd193]")
+TEST_CASE("RND Head retains the default initialization settings", "[intrinsic][config][rfd0193]")
 {
     const anet::rl::intrinsic::RndNoveltyEstimatorConfig config(RndTestConfig(), "rnd");
     CHECK(config.head.init.mode == "xavier");
@@ -824,7 +824,7 @@ TEST_CASE("RND Head retains the default initialization settings", "[intrinsic][c
     CHECK(config.head.init.variance_scale == 1.0);
 }
 
-TEST_CASE("RND feedback preserves category IDs at the network boundary", "[prd116][rnd_reference_category]")
+TEST_CASE("RND feedback preserves category IDs at the network boundary", "[rfd0116][rnd_reference_category]")
 {
     // カテゴリと連続値の混在でも、IDのone-hot化はNetwork境界に任せる。
     anet::nn::InitNN();
@@ -870,7 +870,7 @@ TEST_CASE("RND feedback preserves category IDs at the network boundary", "[prd11
     CHECK(feedback->Diagnostics().at(kPredictorLoss) == restored->Diagnostics().at(kPredictorLoss));
 }
 
-TEST_CASE("RND identifies each missing network role", "[prd116][intrinsic][config]")
+TEST_CASE("RND identifies each missing network role", "[rfd0116][intrinsic][config]")
 {
     const auto role = GENERATE(kTargetRole, kPredictorRole);
     const auto missing = std::string(kRndPrefix) + "." + role + ".net";
@@ -882,7 +882,7 @@ TEST_CASE("RND identifies each missing network role", "[prd116][intrinsic][confi
         Catch::Matchers::ContainsSubstring(missing));
 }
 
-TEST_CASE("RND applies head initialization to each independently seeded network", "[prd116][intrinsic][config]")
+TEST_CASE("RND applies head initialization to each independently seeded network", "[rfd0116][intrinsic][config]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -917,7 +917,7 @@ TEST_CASE("RND applies head initialization to each independently seeded network"
     CHECK(target_bytes(xavier) != target_bytes(zero));
 }
 
-TEST_CASE("RND leaves unused clipping and observation settings silent", "[prd116][intrinsic][rnd_reference_warnings]")
+TEST_CASE("RND leaves unused clipping and observation settings silent", "[rfd0116][intrinsic][rnd_reference_warnings]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -945,7 +945,7 @@ TEST_CASE("RND leaves unused clipping and observation settings silent", "[prd116
 }
 
 
-TEST_CASE("RND feedback warmup ends by observation count", "[prd116][intrinsic][rnd_reference_feedback]")
+TEST_CASE("RND feedback warmup ends by observation count", "[rfd0116][intrinsic][rnd_reference_feedback]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -964,7 +964,7 @@ TEST_CASE("RND feedback warmup ends by observation count", "[prd116][intrinsic][
     CHECK(estimator->Diagnostics().at(kErrorMean) >= 0.0f);
 }
 
-TEST_CASE("RND rejects features with extra axes at construction", "[prd116][intrinsic][config]")
+TEST_CASE("RND rejects features with extra axes at construction", "[rfd0116][intrinsic][config]")
 {
     anet::nn::InitNN();
     auto spec = RndTestSpec();
@@ -975,7 +975,7 @@ TEST_CASE("RND rejects features with extra axes at construction", "[prd116][intr
         && Catch::Matchers::ContainsSubstring("expected [B, F]"));
 }
 
-TEST_CASE("RND whitens byte observations like float observations", "[prd116][intrinsic]")
+TEST_CASE("RND whitens byte observations like float observations", "[rfd0116][intrinsic]")
 {
     anet::nn::InitNN();
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
@@ -999,7 +999,7 @@ TEST_CASE("RND whitens byte observations like float observations", "[prd116][int
     }
 }
 
-TEST_CASE("RND mixed observations follow double precision reference statistics", "[prd130][intrinsic]")
+TEST_CASE("RND mixed observations follow double precision reference statistics", "[rfd0130][intrinsic]")
 {
     // CPU の倍精度で観測と誤差の統計を作り、公開の採点と保存状態に照らす。
     // 観測の統計の差を測るため、行列積は先行テストの TF32 設定によらず FP32 に揃える。
@@ -1110,7 +1110,7 @@ TEST_CASE("RND mixed observations follow double precision reference statistics",
     }
 }
 
-TEST_CASE("RND keeps its seeded target fixed and uses preceding error statistics", "[prd116][intrinsic]")
+TEST_CASE("RND keeps its seeded target fixed and uses preceding error statistics", "[rfd0116][intrinsic]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -1174,7 +1174,7 @@ TEST_CASE("RND keeps its seeded target fixed and uses preceding error statistics
     CHECK(torch::equal(initial_target_output, target_output(repeated_after.first)));
 }
 
-TEST_CASE("RND rejects nonfinite prediction errors before publishing statistics", "[prd116][intrinsic]")
+TEST_CASE("RND rejects nonfinite prediction errors before publishing statistics", "[rfd0116][intrinsic]")
 {
     anet::nn::InitNN();
     auto data = RndTestConfig();
@@ -1198,7 +1198,7 @@ TEST_CASE("RND rejects nonfinite prediction errors before publishing statistics"
 
 
 
-TEST_CASE("RND checkpoint applies current optimizer options", "[prd116][intrinsic][checkpoint]")
+TEST_CASE("RND checkpoint applies current optimizer options", "[rfd0116][intrinsic][checkpoint]")
 {
     anet::nn::InitNN();
     const auto changed_key = GENERATE("learning_rate", "weight_decay", "adam_eps");
@@ -1244,7 +1244,7 @@ TEST_CASE("RND checkpoint applies current optimizer options", "[prd116][intrinsi
 // 公開checkpointのRND節を読む。private stateや偽推定器をテスト用に公開しない。
 
 
-TEST_CASE("RND rejects mismatched checkpoint formats before reading payload", "[prd116][intrinsic][rnd_schedule_edges]")
+TEST_CASE("RND rejects mismatched checkpoint formats before reading payload", "[rfd0116][intrinsic][rnd_schedule_edges]")
 {
     anet::nn::InitNN();
     const std::string format = GENERATE("RndNoveltyEstimator-1", "RndNoveltyEstimator-2", "unknown-rnd-format");
@@ -1259,7 +1259,7 @@ TEST_CASE("RND rejects mismatched checkpoint formats before reading payload", "[
 }
 
 
-TEST_CASE("RND mixed observation snapshots and checkpoints preserve subsequent learning", "[prd130][intrinsic][checkpoint]")
+TEST_CASE("RND mixed observation snapshots and checkpoints preserve subsequent learning", "[rfd0130][intrinsic][checkpoint]")
 {
     // 混合辞書の公開口で、warm-up 境界のあとも保存・Clone・採点・補助学習が同じ結果になる。
     anet::nn::InitNN();
@@ -1322,7 +1322,7 @@ TEST_CASE("RND mixed observation snapshots and checkpoints preserve subsequent l
     }
 }
 
-TEST_CASE("RND read-only scoring leaves subsequent learning unchanged", "[prd127][intrinsic]")
+TEST_CASE("RND read-only scoring leaves subsequent learning unchanged", "[rfd0127][intrinsic]")
 {
     // 公開Factoryから読むだけの採点を挟み、学習の返値と全診断が一致することを確かめる。
     anet::nn::InitNN();
@@ -1350,7 +1350,7 @@ TEST_CASE("RND read-only scoring leaves subsequent learning unchanged", "[prd127
     }
 }
 
-TEST_CASE("RND scoring snapshots remain independent of training", "[prd127][intrinsic]")
+TEST_CASE("RND scoring snapshots remain independent of training", "[rfd0127][intrinsic]")
 {
     // 方式ごとに公開Factoryで育て、Clone の採点と独立した補助学習を確かめる。
     anet::nn::InitNN();
@@ -1401,7 +1401,7 @@ TEST_CASE("RND scoring snapshots remain independent of training", "[prd127][intr
 
 
 
-TEST_CASE("RND read-only formula follows current statistics and warmup", "[prd127][intrinsic]")
+TEST_CASE("RND read-only formula follows current statistics and warmup", "[rfd0127][intrinsic]")
 {
     anet::nn::InitNN();
     const auto mode = GENERATE(0, 1, 2);
@@ -1462,7 +1462,7 @@ namespace {
 }
 
 
-TEST_CASE("Read-only normalization leaves zero variances unavailable", "[prd127][intrinsic]")
+TEST_CASE("Read-only normalization leaves zero variances unavailable", "[rfd0127][intrinsic]")
 {
     anet::nn::InitNN();
     const auto mode = GENERATE(0, 1, 2);
@@ -1506,7 +1506,7 @@ TEST_CASE("Read-only normalization leaves zero variances unavailable", "[prd127]
     CHECK(torch::equal(result.multipliers, torch::ones({2})));
 }
 
-TEST_CASE("Read-only multiplier preserves overflow exactly as training does", "[prd127][prd127_overflow]")
+TEST_CASE("Read-only multiplier preserves overflow exactly as training does", "[rfd0127][rfd0127_overflow]")
 {
     anet::nn::InitNN();
     const bool clipped = GENERATE(false, true);

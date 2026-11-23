@@ -404,7 +404,7 @@ seed そのものをハイパーパラメータとして選んではならない
 - **1 本の last 値で比べず、ブレ幅と比べる。** 方向は正しい。ただし物差しの基準本数が足りない(§8.2 の 1)。
 - **同 seed の対をそのまま信じない。** 手元の作業メモの方針は Agarwal の Fig.A.13 と一致する。
 - **公開の曲線と同じフレーム数の窓で比べる。** §5.3 の 2 と同じである。
-- **PRD103 §7 の「上回る」**(3 seed の最小が相手の 3 seed の最大を超える、[PRD103](../docs/memo/done/103_temporl_reference_alignment_10prd.md) §7)は、差が無ければ片方向で 5% しか起きない。単発の判定としては筋が良い。
+- **PRD103 §7 の「上回る」**(3 seed の最小が相手の 3 seed の最大を超える、[PRD103](../docs/memo/done/0103_temporl_reference_alignment_10rfd.md) §7)は、差が無ければ片方向で 5% しか起きない。単発の判定としては筋が良い。
 
 ### 8.2 変えるとよい読み方
 
@@ -496,7 +496,7 @@ BTR との比較は、max の K の違いだけで Atari-5 回帰に 3〜10% の
 - [サンプル効率優先の実験記録](../docs/experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md)
 - [実時間優先の実験記録](../docs/experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)
 - [wiki qbert](../docs/wiki/subjects/qbert.md)
-- [PRD103](../docs/memo/done/103_temporl_reference_alignment_10prd.md)
+- [PRD103](../docs/memo/done/0103_temporl_reference_alignment_10rfd.md)
 - [atari5.py](../apps/tools/atari5.py)
 - [btr_hyperparams_survey](btr_hyperparams_survey_2026-08-26.md)、[btr_code_reading](btr_code_reading_2026-08-31.md)
 - 作業メモ: Claude の memory のうち `project_temporl_reference_alignment_prd103`、`project_prd104_stop_vs_off_investigation`、`feedback_judge_on_eval_side`(リポジトリの外にあり、正本ではない)

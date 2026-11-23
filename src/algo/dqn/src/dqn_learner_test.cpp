@@ -614,21 +614,21 @@ TEST_CASE("DQN learner BF16 autocast follows learner device", "[dqn][learner][am
     }
 }
 
-TEST_CASE("Skip forward mode validates recognized values even when skip is disabled", "[dqn][prd106][prd106-mode]")
+TEST_CASE("Skip forward mode validates recognized values even when skip is disabled", "[dqn][rfd0106][rfd0106-mode]")
 {
     const bool enabled = GENERATE(false, true);
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.skip.enabled", enabled);
     data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_mode", "unknown");
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring(
         "Invalid DefaultDQNAgent.actor.[eval].skip.nn_forward_mode='unknown'; expected shared or dedicated."));
 }
 
-TEST_CASE("Explicit skip forward references are validated in every mode", "[dqn][prd106][prd106-reference]")
+TEST_CASE("Explicit skip forward references are validated in every mode", "[dqn][rfd0106][rfd0106-reference]")
 {
     const bool enabled = GENERATE(false, true);
     const auto mode = GENERATE(std::string("shared"), std::string("dedicated"));
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.skip.enabled", enabled);
     data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_mode", mode);
     data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_key", "undeclared");
@@ -636,10 +636,10 @@ TEST_CASE("Explicit skip forward references are validated in every mode", "[dqn]
         "Invalid DefaultDQNAgent.actor.[eval].skip.nn_forward_key='undeclared'; expected a declared nn_forward key."));
 }
 
-TEST_CASE("Dedicated skip requires keys for all declared Actors only while enabled", "[dqn][prd106][prd106-required]")
+TEST_CASE("Dedicated skip requires keys for all declared Actors only while enabled", "[dqn][rfd0106][rfd0106-required]")
 {
     const bool enabled = GENERATE(false, true);
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.skip.enabled", enabled);
     data.Set("DefaultDQNAgent.actor.[train].skip.nn_forward_mode", "dedicated");
     data.Set("DefaultDQNAgent.actor.[eval].skip.nn_forward_mode", "dedicated");
@@ -654,11 +654,11 @@ TEST_CASE("Dedicated skip requires keys for all declared Actors only while enabl
     }
 }
 
-TEST_CASE("Shared skip warns once per explicit unused key only while enabled", "[dqn][prd106][prd106-warning]")
+TEST_CASE("Shared skip warns once per explicit unused key only while enabled", "[dqn][rfd0106][rfd0106-warning]")
 {
     const bool enabled = GENERATE(false, true);
     const auto mode = GENERATE(std::string("shared"), std::string("dedicated"));
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.skip.enabled", enabled);
     for (const auto* actor : {"train", "eval"}) {
         const auto prefix = std::string("DefaultDQNAgent.actor.[") + actor + "].skip.";
@@ -682,7 +682,7 @@ TEST_CASE("Shared skip warns once per explicit unused key only while enabled", "
     }
 }
 
-TEST_CASE("Skip length values are validated even when the Actor or Learner does not use them", "[dqn][prd104][config]")
+TEST_CASE("Skip length values are validated even when the Actor or Learner does not use them", "[dqn][rfd0104][config]")
 {
     const bool enabled = GENERATE(false, true);
     const bool learning = GENERATE(false, true);
@@ -690,7 +690,7 @@ TEST_CASE("Skip length values are validated even when the Actor or Learner does 
     const auto value = GENERATE(std::string("missing"), std::string("zero"), std::string("negative"),
         std::string("large"), std::string("valid"), std::string("unknown_type"));
     CAPTURE(enabled, learning, mode, value);
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.skip.enabled", enabled);
     data.Set("DefaultDQNAgent.learner.enabled", learning);
     data.Set("DefaultDQNAgent.actor.[train].skip.max_length_mode", mode);
@@ -704,7 +704,7 @@ TEST_CASE("Skip length values are validated even when the Actor or Learner does 
     else CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
 }
 
-TEST_CASE("Skip scalar readback timing", "[.][prd098-readback]")
+TEST_CASE("Skip scalar readback timing", "[.][rfd0098-readback]")
 {
     if (!torch::cuda::is_available()) return;
     // 代表のN=64/J=10で、初回取得の集約・同期転送とキャッシュ後の読取を合わせて測る。
@@ -735,7 +735,7 @@ TEST_CASE("Skip scalar readback timing", "[.][prd098-readback]")
     }
 }
 
-TEST_CASE("DQN checkpoint does not attribute fixed skip-primary decay to config", "[dqn][prd194]")
+TEST_CASE("DQN checkpoint does not attribute fixed skip-primary decay to config", "[dqn][rfd0194]")
 {
     anet::test::RegisterStandardNetworkModules();
     const auto env = MakeLearnerEnvSpec();
@@ -775,7 +775,7 @@ TEST_CASE("DQN checkpoint does not attribute fixed skip-primary decay to config"
     CHECK(anet::test::HasRecordContaining(logs.Records(), wxLOG_Message, {"optimizer options applied", "fixed weight decay 0"}));
 }
 
-TEST_CASE("Shared skip baseline and feature seam preserve their gradient contracts", "[dqn][prd098]")
+TEST_CASE("Shared skip baseline and feature seam preserve their gradient contracts", "[dqn][rfd0098]")
 {
     for (const bool distributional : {false, true}) {
         const auto options = torch::TensorOptions().requires_grad(true);
@@ -804,7 +804,7 @@ TEST_CASE("Shared skip baseline and feature seam preserve their gradient contrac
     }
 }
 
-TEST_CASE("Skip updates reject nonfinite gradients before either optimizer applies them", "[dqn][prd098][prd098-review-nan]")
+TEST_CASE("Skip updates reject nonfinite gradients before either optimizer applies them", "[dqn][rfd0098][rfd0098-review-nan]")
 {
 #if ANET_ENABLE_TENSOR_NAN_CHECK
     anet::test::RegisterStandardNetworkModules();
@@ -856,7 +856,7 @@ TEST_CASE("Skip updates reject nonfinite gradients before either optimizer appli
 #endif
 }
 
-TEST_CASE("Split skip update adds independent Adam updates from the same parameters", "[dqn][prd103][split_numeric]")
+TEST_CASE("Split skip update adds independent Adam updates from the same parameters", "[dqn][rfd0103][split_numeric]")
 {
     const bool fused = GENERATE(false, true);
     const bool clipped = GENERATE(false, true);
@@ -989,7 +989,7 @@ TEST_CASE("Split skip update adds independent Adam updates from the same paramet
     for (size_t i = 0; i < actual.size(); ++i) CHECK(torch::equal(actual[i], continued[i]));
 }
 
-TEST_CASE("Skip kmax weights multiply IS weights without changing TD", "[dqn][prd103][skip_kmax]")
+TEST_CASE("Skip kmax weights multiply IS weights without changing TD", "[dqn][rfd0103][skip_kmax]")
 {
     const bool per = GENERATE(false, true);
     const std::string weighting = GENERATE(std::string("uniform"), std::string("kmax"));
@@ -1053,7 +1053,7 @@ TEST_CASE("Skip kmax weights multiply IS weights without changing TD", "[dqn][pr
     CHECK(torch::equal(result->td_error, -samples.target_returns));
 }
 
-TEST_CASE("Skip target uses window return and duration and masks only terminal bootstrap", "[dqn][prd098]")
+TEST_CASE("Skip target uses window return and duration and masks only terminal bootstrap", "[dqn][rfd0098]")
 {
     anet::test::RegisterStandardNetworkModules();
     const bool hard_sync = GENERATE(false, true);
@@ -1123,7 +1123,7 @@ TEST_CASE("Skip target uses window return and duration and masks only terminal b
     CHECK(model.GetSkipTargetNetwork()->named_parameters()["head.linear.bias"][0].item<float>() == Catch::Approx(hard_sync ? 1.0f : 0.4375f));
 }
 
-TEST_CASE("Skip Munchausen targets match numeric returns for TD QR IQN and TBO", "[dqn][prd098][skip_numeric]")
+TEST_CASE("Skip Munchausen targets match numeric returns for TD QR IQN and TBO", "[dqn][rfd0098][skip_numeric]")
 {
     const auto mode = GENERATE(std::string("none"), std::string("qr"), std::string("iqn"));
     const auto bonus_mode = GENERATE(std::string("target"), std::string("online"), std::string("online_reuse"));
@@ -1228,7 +1228,7 @@ TEST_CASE("Skip Munchausen targets match numeric returns for TD QR IQN and TBO",
     }
 }
 
-TEST_CASE("Primary checkpoint group mismatch reports saved and expected counts when enabling skip", "[dqn][prd098][serialize][prd098-review-checkpoint]")
+TEST_CASE("Primary checkpoint group mismatch reports saved and expected counts when enabling skip", "[dqn][rfd0098][serialize][rfd0098-review-checkpoint]")
 {
     anet::test::RegisterStandardNetworkModules();
     const bool saved_noisy = GENERATE(false, true);
@@ -1266,13 +1266,13 @@ TEST_CASE("Primary checkpoint group mismatch reports saved and expected counts w
         && Catch::Matchers::ContainsSubstring("expected_primary_groups=" + std::to_string(saved_noisy ? 1 : 2)));
 }
 
-TEST_CASE("PRD061 captures fixed checkpoint inference", "[.][prd061-inference]")
+TEST_CASE("RFD0061 captures fixed checkpoint inference", "[.][rfd0061-inference]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();
     torch::NoGradGuard no_grad;
     wxString manifest_name;
-    REQUIRE(wxGetEnv("ANET_PRD061_INFERENCE", &manifest_name));
+    REQUIRE(wxGetEnv("ANET_RFD0061_INFERENCE", &manifest_name));
     std::ifstream manifest_file(std::filesystem::path(manifest_name.ToStdWstring()));
     REQUIRE(manifest_file.good());
     const auto manifest = anet::json::parse(manifest_file);
@@ -1360,7 +1360,7 @@ TEST_CASE("PRD061 captures fixed checkpoint inference", "[.][prd061-inference]")
     }
 }
 
-TEST_CASE("DefaultDQN selects six Head shapes and three Learner kinds", "[prd128][dqn][head]")
+TEST_CASE("DefaultDQN selects six Head shapes and three Learner kinds", "[rfd0128][dqn][head]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const std::string mode = GENERATE("none", "qr", "iqn");
@@ -1419,18 +1419,18 @@ TEST_CASE("QR selected crossing depth aggregates BF16 quantiles in float32", "[d
         == Catch::Approx(0.5f));
 }
 
-TEST_CASE("Decomposed combination preserves tau pairs and exact zero beta values", "[prd121][dqn][combine]")
+TEST_CASE("Decomposed combination preserves tau pairs and exact zero beta values", "[rfd0121][dqn][combine]")
 {
     const bool tbo = GENERATE(false, true);
     const float beta = GENERATE(0.0f, 0.3f);
     constexpr double epsilon = 0.01;
     const auto external = torch::tensor({{{0.1f, 0.5f, 1.0f}, {-0.25f, -1.5f, 2.0f}}});
     const auto internal = torch::tensor({{{-0.5f, 0.25f, 1.2f}, {0.2f, 1.0f, -0.8f}}});
-    anet::TensorDict output{{kPrd121ExtrinsicQDist, external}, {kPrd121IntrinsicQDist, internal}};
-    CHECK_FALSE(output.Contains(kPrd121Q));
-    CHECK_FALSE(output.Contains(kPrd121QDist));
+    anet::TensorDict output{{kRfd0121ExtrinsicQDist, external}, {kRfd0121IntrinsicQDist, internal}};
+    CHECK_FALSE(output.Contains(kRfd0121Q));
+    CHECK_FALSE(output.Contains(kRfd0121QDist));
     dqn::DecomposedValueCombiner::Combine(output, beta, tbo, epsilon);
-    if (beta == 0) CHECK(torch::equal(output.At(kPrd121QDist), external));
+    if (beta == 0) CHECK(torch::equal(output.At(kRfd0121QDist), external));
     const auto h = [](double value) { return std::copysign(std::sqrt(std::abs(value) + 1) - 1, value) + epsilon * value; };
     const auto inverse = [](double value) {
         const double root = (std::sqrt(1 + 4 * epsilon * (std::abs(value) + 1 + epsilon)) - 1) / (2 * epsilon);
@@ -1440,13 +1440,13 @@ TEST_CASE("Decomposed combination preserves tau pairs and exact zero beta values
         for (int tau = 0; tau < 3; ++tau) {
             const double ext = external[0][action][tau].item<float>(), intr = internal[0][action][tau].item<float>();
             const double expected = tbo ? h(inverse(ext) + beta * inverse(intr)) : ext + beta * intr;
-            CHECK(output.At(kPrd121QDist)[0][action][tau].item<float>() == Catch::Approx(expected).epsilon(1e-5).margin(1e-6));
+            CHECK(output.At(kRfd0121QDist)[0][action][tau].item<float>() == Catch::Approx(expected).epsilon(1e-5).margin(1e-6));
         }
     }
-    CHECK(torch::equal(output.At(kPrd121Q), output.At(kPrd121QDist).mean(2)));
+    CHECK(torch::equal(output.At(kRfd0121Q), output.At(kRfd0121QDist).mean(2)));
 }
 
-TEST_CASE("Decomposed Heads validate shared and dedicated feature shapes", "[prd121][dqn][decomposed_head]")
+TEST_CASE("Decomposed Heads validate shared and dedicated feature shapes", "[rfd0121][dqn][decomposed_head]")
 {
     const auto mode = GENERATE(std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn));
     const bool dueling = GENERATE(false, true);
@@ -1455,12 +1455,12 @@ TEST_CASE("Decomposed Heads validate shared and dedicated feature shapes", "[prd
     anet::TensorDict features;
     const auto external = torch::ones(iqn ? std::vector<int64_t>{2, 3, 4} : std::vector<int64_t>{2, 4});
     const auto internal = torch::ones(iqn ? std::vector<int64_t>{2, 3, 5} : std::vector<int64_t>{2, 5});
-    features.Set(kPrd121Features, external);
-    features.Set(kPrd121ValueFeature, external);
-    features.Set(kPrd121AdvFeature, external);
-    features.Set(kPrd121IntrinsicFeatures, internal);
-    features.Set(kPrd121IntrinsicValueFeature, internal);
-    features.Set(kPrd121IntrinsicAdvFeature, internal);
+    features.Set(kRfd0121Features, external);
+    features.Set(kRfd0121ValueFeature, external);
+    features.Set(kRfd0121AdvFeature, external);
+    features.Set(kRfd0121IntrinsicFeatures, internal);
+    features.Set(kRfd0121IntrinsicValueFeature, internal);
+    features.Set(kRfd0121IntrinsicAdvFeature, internal);
     anet::ConfigData projection;
     projection.Set("noisy.enabled", true);
     const anet::nn::WeightInitConfig init;
@@ -1474,23 +1474,23 @@ TEST_CASE("Decomposed Heads validate shared and dedicated feature shapes", "[prd
         return head->Forward(input, anet::nn::NetworkForwardContext::GetDefault());
     };
     const auto output = forward(features);
-    CHECK_FALSE(output.Contains(kPrd121Q));
-    CHECK_FALSE(output.Contains(kPrd121QDist));
-    CHECK(output.At(kPrd121ExtrinsicQ).sizes() == torch::IntArrayRef({2, 2}));
-    CHECK(output.At(kPrd121IntrinsicQ).sizes() == torch::IntArrayRef({2, 2}));
+    CHECK_FALSE(output.Contains(kRfd0121Q));
+    CHECK_FALSE(output.Contains(kRfd0121QDist));
+    CHECK(output.At(kRfd0121ExtrinsicQ).sizes() == torch::IntArrayRef({2, 2}));
+    CHECK(output.At(kRfd0121IntrinsicQ).sizes() == torch::IntArrayRef({2, 2}));
     if (!dedicated) return;
     anet::TensorDict missing;
-    for (const auto& [key, value] : features) if (!key.starts_with(kPrd121IntrinsicPrefix)) missing.Set(key, value);
+    for (const auto& [key, value] : features) if (!key.starts_with(kRfd0121IntrinsicPrefix)) missing.Set(key, value);
     CHECK_THROWS_WITH(forward(missing), Catch::Matchers::ContainsSubstring(
-        std::string("net.body.output.[") + kPrd121IntrinsicFeatures + "]"));
+        std::string("net.body.output.[") + kRfd0121IntrinsicFeatures + "]"));
     if (!dueling) {
         anet::TensorDict missing_default;
-        for (const auto& [key, value] : features) if (key != kPrd121IntrinsicFeatures) missing_default.Set(key, value);
+        for (const auto& [key, value] : features) if (key != kRfd0121IntrinsicFeatures) missing_default.Set(key, value);
         CHECK_THROWS_WITH(forward(missing_default), Catch::Matchers::ContainsSubstring(
-            std::string("net.body.output.[") + kPrd121IntrinsicFeatures + "]"));
+            std::string("net.body.output.[") + kRfd0121IntrinsicFeatures + "]"));
     }
     if (dueling) {
-        for (const auto* missing_key : {kPrd121IntrinsicValueFeature, kPrd121IntrinsicAdvFeature}) {
+        for (const auto* missing_key : {kRfd0121IntrinsicValueFeature, kRfd0121IntrinsicAdvFeature}) {
             anet::TensorDict partial;
             for (const auto& [key, value] : features) if (key != missing_key) partial.Set(key, value);
             CHECK_THROWS_WITH(forward(partial), Catch::Matchers::ContainsSubstring(
@@ -1499,23 +1499,23 @@ TEST_CASE("Decomposed Heads validate shared and dedicated feature shapes", "[prd
     }
     auto wrong_rank = features;
     const auto wrong = torch::ones(iqn ? std::vector<int64_t>{2, 5} : std::vector<int64_t>{2, 3, 5});
-    for (const auto* key : {kPrd121IntrinsicFeatures, kPrd121IntrinsicValueFeature, kPrd121IntrinsicAdvFeature}) wrong_rank.Set(key, wrong);
+    for (const auto* key : {kRfd0121IntrinsicFeatures, kRfd0121IntrinsicValueFeature, kRfd0121IntrinsicAdvFeature}) wrong_rank.Set(key, wrong);
     CHECK_THROWS(forward(wrong_rank));
     if (iqn) {
         auto wrong_taus = features;
-        for (const auto* key : {kPrd121IntrinsicFeatures, kPrd121IntrinsicValueFeature, kPrd121IntrinsicAdvFeature})
+        for (const auto* key : {kRfd0121IntrinsicFeatures, kRfd0121IntrinsicValueFeature, kRfd0121IntrinsicAdvFeature})
             wrong_taus.Set(key, torch::ones({2, 4, 5}));
         CHECK_THROWS(forward(wrong_taus));
     }
 }
 
-TEST_CASE("Decomposed learners match component Bellman targets and losses", "[prd121][dqn][decomposed_numeric]")
+TEST_CASE("Decomposed learners match component Bellman targets and losses", "[rfd0121][dqn][decomposed_numeric]")
 {
     ScopedNoopMetricsLogger logger;
     anet::test::RegisterStandardNetworkModules();
     const auto mode = GENERATE(std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeQr), std::string(anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn));
     const bool tbo = GENERATE(false, true);
-    const auto munch = GENERATE(std::string(kPrd121Off), std::string(kPrd121TargetLogPolicyMode), std::string(kPrd121OnlineLogPolicyMode), std::string(kPrd121OnlineReuse));
+    const auto munch = GENERATE(std::string(kRfd0121Off), std::string(kRfd0121TargetLogPolicyMode), std::string(kRfd0121OnlineLogPolicyMode), std::string(kRfd0121OnlineReuse));
     const bool separate = GENERATE(false, true);
     const bool continuing = GENERATE(false, true);
     const bool external_policy = GENERATE(false, true);
@@ -1525,7 +1525,7 @@ TEST_CASE("Decomposed learners match component Bellman targets and losses", "[pr
     const auto env = MakeIqnTracerEnvSpec();
     auto specs = env.state_spec.obs_spec;
     anet::nn::NetworkConfig net;
-    net.output_keys[kPrd121Features] = kVectorKey;
+    net.output_keys[kRfd0121Features] = kVectorKey;
     if (mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn) {
         net = anet::nn::NetworkConfig(MakeIqnTracerConfigData(), "DefaultDQNAgent.net");
         specs[anet::rl::dqn::kKey_Taus] = {.shape = {4}, .dtype = torch::kFloat32};
@@ -1546,8 +1546,8 @@ TEST_CASE("Decomposed learners match component Bellman targets and losses", "[pr
         torch::NoGradGuard guard;
         for (auto& entry : network->named_parameters()) {
             entry.value().zero_();
-            const bool ext = entry.key() == kPrd121HeadExtrinsicLinearBias;
-            const bool intr = entry.key() == kPrd121HeadIntrinsicLinearBias;
+            const bool ext = entry.key() == kRfd0121HeadExtrinsicLinearBias;
+            const bool intr = entry.key() == kRfd0121HeadIntrinsicLinearBias;
             if (!ext && !intr) continue;
             const auto& values = ext ? external : internal;
             const int64_t width = entry.value().numel() / 2;
@@ -1559,8 +1559,8 @@ TEST_CASE("Decomposed learners match component Bellman targets and losses", "[pr
     auto config = WithDefaultLearnerForwardConfig();
     config.quantile_mode = mode;
     config.num_quantiles = 3;
-    config.iqn.current_taus = {.sample_mode = kPrd121FixedTauMode, .num_taus = 4};
-    config.iqn.target_taus = {.sample_mode = kPrd121FixedTauMode, .num_taus = 3};
+    config.iqn.current_taus = {.sample_mode = kRfd0121FixedTauMode, .num_taus = 4};
+    config.iqn.target_taus = {.sample_mode = kRfd0121FixedTauMode, .num_taus = 3};
     config.intrinsic.decomposed = true;
     config.intrinsic.loss_weight = weight;
     config.intrinsic.priority_lambda = 0.3f;
@@ -1580,8 +1580,8 @@ TEST_CASE("Decomposed learners match component Bellman targets and losses", "[pr
     config.replay_capacity = 64;
     config.use_n_step = false;
     config.update_warmup_steps = 100000;
-    config.munchausen.enabled = munch != kPrd121Off;
-    config.munchausen.log_policy_mode = munch == kPrd121Off ? kPrd121TargetLogPolicyMode : munch;
+    config.munchausen.enabled = munch != kRfd0121Off;
+    config.munchausen.log_policy_mode = munch == kRfd0121Off ? kRfd0121TargetLogPolicyMode : munch;
     config.munchausen.alpha.value = 0.9f;
     config.munchausen.entropy_tau.value = 0.7f;
     dqn::ActionPolicyConfig policy_config;
@@ -1621,8 +1621,8 @@ TEST_CASE("Decomposed learners match component Bellman targets and losses", "[pr
     const auto combine = [](const auto& ext, const auto& intr) { return std::array<double, 2>{ext[0] + 0.5 * intr[0], ext[1] + 0.5 * intr[1]}; };
     const auto combined_next_log = log_policy(combine(target_external, target_internal));
     const auto external_next_log = log_policy(external_policy ? target_external : combine(target_external, target_internal));
-    const auto& current_ext = munch == kPrd121TargetLogPolicyMode ? target_external : online_external;
-    const auto& current_int = munch == kPrd121TargetLogPolicyMode ? target_internal : online_internal;
+    const auto& current_ext = munch == kRfd0121TargetLogPolicyMode ? target_external : online_external;
+    const auto& current_int = munch == kRfd0121TargetLogPolicyMode ? target_internal : online_internal;
     const auto current_log = log_policy(external_policy ? current_ext : combine(current_ext, current_int));
     const auto& selection_ext = double_dqn ? online_external : target_external;
     const auto& selection_int = double_dqn ? online_internal : target_internal;
@@ -1635,7 +1635,7 @@ TEST_CASE("Decomposed learners match component Bellman targets and losses", "[pr
         double external_bootstrap = target_external[external_policy ? 1 : combined_action];
         double internal_bootstrap = target_internal[combined_action];
         double bonus = 0;
-        if (munch != kPrd121Off) {
+        if (munch != kRfd0121Off) {
             bonus = 0.9 * std::clamp(current_log[action], static_cast<double>(config.munchausen.clip_value_min), 0.0);
             external_bootstrap = internal_bootstrap = 0;
             for (int next_action = 0; next_action < 2; ++next_action) {
@@ -1654,12 +1654,12 @@ TEST_CASE("Decomposed learners match component Bellman targets and losses", "[pr
         expected_external_loss += loss_factor * huber(external_error) / 4;
         expected_internal_loss += loss_factor * huber(internal_error) / 4;
     }
-    CHECK(*learner->GetScalar(kPrd121ExtrinsicLoss) == Catch::Approx(expected_external_loss).epsilon(1e-5).margin(1e-6));
-    CHECK(*learner->GetScalar(kPrd121IntrinsicLoss) == Catch::Approx(expected_internal_loss).epsilon(1e-5).margin(1e-6));
+    CHECK(*learner->GetScalar(kRfd0121ExtrinsicLoss) == Catch::Approx(expected_external_loss).epsilon(1e-5).margin(1e-6));
+    CHECK(*learner->GetScalar(kRfd0121IntrinsicLoss) == Catch::Approx(expected_internal_loss).epsilon(1e-5).margin(1e-6));
     CHECK(result->loss.item<float>() == Catch::Approx(expected_external_loss + weight * expected_internal_loss).epsilon(1e-5).margin(1e-6));
 }
 
-TEST_CASE("Shared episodic component targets reproduce a combined learner target", "[prd121][dqn][combined_target_equivalence]")
+TEST_CASE("Shared episodic component targets reproduce a combined learner target", "[rfd0121][dqn][combined_target_equivalence]")
 {
     ScopedNoopMetricsLogger logger;
     anet::test::RegisterStandardNetworkModules();
@@ -1669,7 +1669,7 @@ TEST_CASE("Shared episodic component targets reproduce a combined learner target
     const auto env = MakeIqnTracerEnvSpec();
     auto specs = env.state_spec.obs_spec;
     anet::nn::NetworkConfig net;
-    net.output_keys[kPrd121Features] = kVectorKey;
+    net.output_keys[kRfd0121Features] = kVectorKey;
     if (mode == anet::rl::dqn::ActionPolicyConfig::kQuantileModeIqn) {
         net = anet::nn::NetworkConfig(MakeIqnTracerConfigData(), "DefaultDQNAgent.net");
         specs[anet::rl::dqn::kKey_Taus] = {.shape = {4}, .dtype = torch::kFloat32};
@@ -1701,15 +1701,15 @@ TEST_CASE("Shared episodic component targets reproduce a combined learner target
             for (auto& parameter : model.GetTargetNetwork()->parameters()) parameter.zero_();
             for (auto& parameter : model.GetTargetNetwork()->named_parameters()) {
                 if (parameter.key() == "head.linear.bias") parameter.value().fill_(h(5));
-                if (parameter.key() == kPrd121HeadExtrinsicLinearBias) parameter.value().fill_(h(4));
-                if (parameter.key() == kPrd121HeadIntrinsicLinearBias) parameter.value().fill_(h(2));
+                if (parameter.key() == kRfd0121HeadExtrinsicLinearBias) parameter.value().fill_(h(4));
+                if (parameter.key() == kRfd0121HeadIntrinsicLinearBias) parameter.value().fill_(h(2));
             }
         }
         auto config = WithDefaultLearnerForwardConfig();
         config.quantile_mode = mode;
         config.num_quantiles = 3;
-        config.iqn.current_taus = {.sample_mode = kPrd121FixedTauMode, .num_taus = 4};
-        config.iqn.target_taus = {.sample_mode = kPrd121FixedTauMode, .num_taus = 3};
+        config.iqn.current_taus = {.sample_mode = kRfd0121FixedTauMode, .num_taus = 4};
+        config.iqn.target_taus = {.sample_mode = kRfd0121FixedTauMode, .num_taus = 3};
         config.intrinsic.decomposed = decomposed;
         config.gamma.value = 0.5f;
         config.use_tbo = tbo;
@@ -1749,8 +1749,8 @@ TEST_CASE("Shared episodic component targets reproduce a combined learner target
             std::make_shared<rl::BatchActionInfo>(samples.actions), torch::zeros_like(samples.target_returns),
             rl::BatchState(samples.obs, flags, flags, flags)}, 0.5f);
         const auto result = learner->UpdateFromSamples(samples);
-        if (decomposed) component_target = target_from_loss(*learner->GetScalar(kPrd121ExtrinsicLoss))
-            + 0.5 * target_from_loss(*learner->GetScalar(kPrd121IntrinsicLoss));
+        if (decomposed) component_target = target_from_loss(*learner->GetScalar(kRfd0121ExtrinsicLoss))
+            + 0.5 * target_from_loss(*learner->GetScalar(kRfd0121IntrinsicLoss));
         else combined_target = target_from_loss(result->loss.item<float>());
     }
     CAPTURE(mode, tbo, munchausen);
@@ -1758,7 +1758,7 @@ TEST_CASE("Shared episodic component targets reproduce a combined learner target
     CHECK(component_target == Catch::Approx(4.5 + (munchausen ? -0.4 * 0.7 * std::log(2.0) : 0)).epsilon(1e-5).margin(1e-6));
 }
 
-TEST_CASE("Decomposed updates reject nonfinite gradients before both optimizer steps", "[prd121][dqn][prd121-review-nan]")
+TEST_CASE("Decomposed updates reject nonfinite gradients before both optimizer steps", "[rfd0121][dqn][rfd0121-review-nan]")
 {
 #if ANET_ENABLE_TENSOR_NAN_CHECK
     anet::test::RegisterStandardNetworkModules();
@@ -1789,7 +1789,7 @@ TEST_CASE("Decomposed updates reject nonfinite gradients before both optimizer s
     for (const auto& parameter : parameters) before.push_back(parameter.detach().clone());
     bool hooked = false;
     for (const auto& entry : model.GetOnlineNetwork()->named_parameters()) {
-        if (entry.key().find(poison_intrinsic ? kPrd121Intrinsic : kPrd121ExtrinsicHead) == std::string::npos) continue;
+        if (entry.key().find(poison_intrinsic ? kRfd0121Intrinsic : kRfd0121ExtrinsicHead) == std::string::npos) continue;
         // forwardとlossは有限のまま、選んだHeadのbackwardだけを壊す。
         entry.value().register_hook([poison](torch::Tensor grad) { return torch::full_like(grad, poison); });
         hooked = true;
@@ -1811,7 +1811,7 @@ TEST_CASE("Decomposed updates reject nonfinite gradients before both optimizer s
 #endif
 }
 
-TEST_CASE("Decomposed split adds independently clipped Adam updates", "[prd121][dqn][split_numeric]")
+TEST_CASE("Decomposed split adds independently clipped Adam updates", "[rfd0121][dqn][split_numeric]")
 {
     const bool fused = GENERATE(false, true);
     const bool clipped = GENERATE(false, true);
@@ -1824,7 +1824,7 @@ TEST_CASE("Decomposed split adds independently clipped Adam updates", "[prd121][
     data.Set("net.block.[SharedLinear].linear.out_features", 2);
     data.Set("net.branch.[shared].bind", kVectorKey);
     data.Set("net.branch.[shared].structure", "SharedLinear");
-    data.Set("net.body.output.[features]", kPrd121SharedBranchKey);
+    data.Set("net.body.output.[features]", kRfd0121SharedBranchKey);
     const anet::nn::WeightInitConfig init;
     auto head = std::make_shared<dqn::DecomposedHeadFactory>(std::make_shared<dqn::LinearHeadFactory>(1, init),
         std::make_shared<dqn::LinearHeadFactory>(1, init), false, false,
@@ -1840,11 +1840,11 @@ TEST_CASE("Decomposed split adds independently clipped Adam updates", "[prd121][
     config.weight_decay.value = decay;
     config.update_warmup_steps = 100000;
     if (scheduled) {
-        config.learning_rate.type = kPrd121Linear;
+        config.learning_rate.type = kRfd0121Linear;
         config.learning_rate.start = 0.01f;
         config.learning_rate.end = 0.02f;
         config.learning_rate.steps = 4;
-        config.weight_decay.type = kPrd121Linear;
+        config.weight_decay.type = kRfd0121Linear;
         config.weight_decay.start = decay;
         config.weight_decay.end = decay + 0.1f;
         config.weight_decay.steps = 4;
@@ -1883,8 +1883,8 @@ TEST_CASE("Decomposed split adds independently clipped Adam updates", "[prd121][
     samples.next_state.terminals = torch::ones({2}, torch::kBool);
     samples.next_state.truncated = torch::zeros({2}, torch::kBool);
     const auto output = model.GetOnlineNetwork()->Forward(samples.obs);
-    const auto external_loss = torch::nn::functional::smooth_l1_loss(output.At(kPrd121ExtrinsicQ).squeeze(1), samples.target_returns.select(1, 0));
-    const auto internal_loss = config.intrinsic.loss_weight * torch::nn::functional::smooth_l1_loss(output.At(kPrd121IntrinsicQ).squeeze(1), samples.target_returns.select(1, 1));
+    const auto external_loss = torch::nn::functional::smooth_l1_loss(output.At(kRfd0121ExtrinsicQ).squeeze(1), samples.target_returns.select(1, 0));
+    const auto internal_loss = config.intrinsic.loss_weight * torch::nn::functional::smooth_l1_loss(output.At(kRfd0121IntrinsicQ).squeeze(1), samples.target_returns.select(1, 1));
     const auto norm = [&] {
         float squared = 0;
         for (const auto& parameter : parameters) if (parameter.grad().defined()) squared += parameter.grad().square().sum().item<float>();
@@ -1923,10 +1923,10 @@ TEST_CASE("Decomposed split adds independently clipped Adam updates", "[prd121][
         CAPTURE(i, fused, clipped);
         CHECK(torch::allclose(parameters[i], expected[i], 1e-5, 1e-6));
     }
-    REQUIRE(learner.GetScalar(kPrd121ExtrinsicGradNorm));
-    REQUIRE(learner.GetScalar(kPrd121IntrinsicGradNorm));
-    CHECK(*learner.GetScalar(kPrd121ExtrinsicGradNorm) == Catch::Approx(external_norm));
-    CHECK(*learner.GetScalar(kPrd121IntrinsicGradNorm) == Catch::Approx(internal_norm));
+    REQUIRE(learner.GetScalar(kRfd0121ExtrinsicGradNorm));
+    REQUIRE(learner.GetScalar(kRfd0121IntrinsicGradNorm));
+    CHECK(*learner.GetScalar(kRfd0121ExtrinsicGradNorm) == Catch::Approx(external_norm));
+    CHECK(*learner.GetScalar(kRfd0121IntrinsicGradNorm) == Catch::Approx(internal_norm));
     std::stringstream checkpoint(std::ios::in | std::ios::out | std::ios::binary);
     anet::OutputArchive archive(checkpoint);
     learner.Save(archive);
@@ -1946,7 +1946,7 @@ TEST_CASE("Decomposed split adds independently clipped Adam updates", "[prd121][
     for (size_t i = 0; i < parameters.size(); ++i) CHECK(torch::equal(parameters[i], continued[i]));
 }
 
-TEST_CASE("DQN initial priorities sum independent head errors", "[prd121][dqn][per][actor_initial]")
+TEST_CASE("DQN initial priorities sum independent head errors", "[rfd0121][dqn][per][actor_initial]")
 {
     const float weight = GENERATE(1.0f, 0.2f, 0.0f);
     const bool tbo = GENERATE(false, true);
@@ -2775,7 +2775,7 @@ TEST_CASE("DQN Learner uses selected contexts and separate boxes for current and
     }
 }
 
-TEST_CASE("Decomposed target plasticity captures only bootstrap rows", "[prd121][dqn][plasticity]")
+TEST_CASE("Decomposed target plasticity captures only bootstrap rows", "[rfd0121][dqn][plasticity]")
 {
     ScopedNoopMetricsLogger logger;
     anet::test::RegisterStandardNetworkModules();
@@ -2785,7 +2785,7 @@ TEST_CASE("Decomposed target plasticity captures only bootstrap rows", "[prd121]
     config.intrinsic.decomposed = true;
     config.quantile_mode = anet::rl::dqn::ActionPolicyConfig::kQuantileModeNone;
     config.munchausen.enabled = true;
-    config.munchausen.log_policy_mode = kPrd121TargetLogPolicyMode;
+    config.munchausen.log_policy_mode = kRfd0121TargetLogPolicyMode;
     config.final_feature_branch_key = "feature";
     config.current.nn_forward_key.clear();
     config.target.nn_forward_key.clear();
@@ -2798,7 +2798,7 @@ TEST_CASE("Decomposed target plasticity captures only bootstrap rows", "[prd121]
     auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
     dqn::TDLearner learner(config, model, vars, nullptr, rl::BatchEnvSpec{1, 1}, env,
         torch::kCPU, 121, kTestAgentSeed, policy, dqn::LearnerForwardResources{});
-    learner.ConfigureScalarMetricSubscriptions({{.source_key = kPrd121PlasticityTargetSrank,
+    learner.ConfigureScalarMetricSubscriptions({{.source_key = kRfd0121PlasticityTargetSrank,
         .event = rl::EventType::LEARN, .interval = 1, .scope = rl::RunnerScope::TRAIN}});
     bool updated = false;
     for (rl::step_t step = 0; step < 4; ++step) {
@@ -2815,7 +2815,7 @@ TEST_CASE("Decomposed target plasticity captures only bootstrap rows", "[prd121]
     CHECK(updated);
 }
 
-TEST_CASE("Learner checkpoint applies current optimizer options and preserves state", "[dqn][learner][serialize][prd091]")
+TEST_CASE("Learner checkpoint applies current optimizer options and preserves state", "[dqn][learner][serialize][rfd0091]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const bool noisy = GENERATE(false, true);
@@ -4025,7 +4025,7 @@ TEST_CASE("Gradient noise publishes NaN scales for a nonpositive smoothed signal
     }
 }
 
-TEST_CASE("Attention update results expose indexed sparse values", "[dqn][attention][prd093]")
+TEST_CASE("Attention update results expose indexed sparse values", "[dqn][attention][rfd0093]")
 {
     dqn::BatchUpdateResult result;
     REQUIRE(result.GetScalar("attention_entropy.[0]").has_value());
@@ -4039,7 +4039,7 @@ TEST_CASE("Attention update results expose indexed sparse values", "[dqn][attent
     }
 }
 
-TEST_CASE("Attention probe uses the union of subscription intervals and returns pre-update values", "[dqn][attention][prd093]")
+TEST_CASE("Attention probe uses the union of subscription intervals and returns pre-update values", "[dqn][attention][rfd0093]")
 {
     auto online = MakeAttentionProbeTestNetwork(), target = MakeAttentionProbeTestNetwork();
     online->CopyTo(*target);
@@ -4091,7 +4091,7 @@ TEST_CASE("Attention probe uses the union of subscription intervals and returns 
     CHECK(replay->unique_sample_count == samples);
 }
 
-TEST_CASE("Attention subscriptions reject malformed indices and unavailable layers at the intended boundary", "[dqn][attention][prd093][validation]")
+TEST_CASE("Attention subscriptions reject malformed indices and unavailable layers at the intended boundary", "[dqn][attention][rfd0093][validation]")
 {
     const bool transformer = GENERATE(false, true);
     auto online = MakeAttentionProbeTestNetwork(transformer), target = MakeAttentionProbeTestNetwork(transformer);
@@ -4118,7 +4118,7 @@ TEST_CASE("Attention subscriptions reject malformed indices and unavailable laye
     for (const auto& entry : online->named_buffers()) CHECK(torch::equal(entry.value(), buffers_before.at(entry.key())));
 }
 
-TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers", "[dqn][attention][prd093][determinism]")
+TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers", "[dqn][attention][rfd0093][determinism]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();
@@ -4278,7 +4278,7 @@ TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers
     CHECK(probes >= 2);
 }
 
-TEST_CASE("PRD101 learner evaluates learning rate before warmup and switches phases", "[prd101][dqn]")
+TEST_CASE("RFD0101 learner evaluates learning rate before warmup and switches phases", "[rfd0101][dqn]")
 {
     anet::ConfigData data;
     data.Set("DefaultDQNAgent.nn_forward.[mean].noisy.mode", "mu_only");
@@ -4308,7 +4308,7 @@ TEST_CASE("PRD101 learner evaluates learning rate before warmup and switches pha
     CHECK(learner.GetScalar("learning_rate").value() == Catch::Approx(0.0002f));
 }
 
-TEST_CASE("PRD101 optimizer schedules update every group and retain sigma decay", "[prd101][dqn]")
+TEST_CASE("RFD0101 optimizer schedules update every group and retain sigma decay", "[rfd0101][dqn]")
 {
     const bool skip = GENERATE(false, true);
     auto data = MakeNoisyOptimizerTestData();
@@ -4347,7 +4347,7 @@ TEST_CASE("PRD101 optimizer schedules update every group and retain sigma decay"
     }
 }
 
-TEST_CASE("PRD101 beta begins at zero and schedules the next sampling request", "[prd101][dqn]")
+TEST_CASE("RFD0101 beta begins at zero and schedules the next sampling request", "[rfd0101][dqn]")
 {
     auto data = MakeNoisyOptimizerTestData();
     data.Set("DefaultDQNAgent.learner.per_beta.type", "phased");
@@ -4377,7 +4377,7 @@ TEST_CASE("PRD101 beta begins at zero and schedules the next sampling request", 
     CHECK(replay->sampled_betas[1] == Catch::Approx(0.8f));
 }
 
-TEST_CASE("PRD101 soft target update uses the current scheduled tau", "[prd101][dqn]")
+TEST_CASE("RFD0101 soft target update uses the current scheduled tau", "[rfd0101][dqn]")
 {
     auto data = MakeNoisyOptimizerTestData();
     data.Set("DefaultDQNAgent.model.soft_update_tau.type", "linear");
@@ -4406,7 +4406,7 @@ TEST_CASE("PRD101 soft target update uses the current scheduled tau", "[prd101][
     }
 }
 
-TEST_CASE("PRD101 learner passes its current gamma to push and every sample", "[prd101][dqn]")
+TEST_CASE("RFD0101 learner passes its current gamma to push and every sample", "[rfd0101][dqn]")
 {
     auto data = MakeNoisyOptimizerTestData();
     data.Set("DefaultDQNAgent.learner.gamma.type", "linear");
@@ -4433,7 +4433,7 @@ TEST_CASE("PRD101 learner passes its current gamma to push and every sample", "[
     CHECK(*learner.GetScalar("gamma") == Catch::Approx(0.9f));
 }
 
-TEST_CASE("PRD101 learner exposes the current Munchausen values", "[prd101][dqn]")
+TEST_CASE("RFD0101 learner exposes the current Munchausen values", "[rfd0101][dqn]")
 {
     auto data = MakeNoisyOptimizerTestData();
     for (const auto* name : {"alpha", "entropy_tau"}) {
@@ -4459,7 +4459,7 @@ TEST_CASE("PRD101 learner exposes the current Munchausen values", "[prd101][dqn]
     CHECK(*learner.GetScalar("munchausen_entropy_tau") == Catch::Approx(0.7f));
 }
 
-TEST_CASE("Gradient noise local settings are validated without subscriptions", "[prd117][dqn][grad_noise_config]")
+TEST_CASE("Gradient noise local settings are validated without subscriptions", "[rfd0117][dqn][grad_noise_config]")
 {
     anet::test::LogCaptureGuard logs;
     const auto entry = GENERATE(std::pair{"num_micro_batches", "1"},
@@ -4470,7 +4470,7 @@ TEST_CASE("Gradient noise local settings are validated without subscriptions", "
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring(key));
 }
 
-TEST_CASE("Observation post process modes are rejected at construction", "[prd117][dqn][obs_config]")
+TEST_CASE("Observation post process modes are rejected at construction", "[rfd0117][dqn][obs_config]")
 {
     const int mode = GENERATE(-1, 4, 99);
     const bool pass_through = GENERATE(false, true);

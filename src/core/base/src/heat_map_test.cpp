@@ -43,7 +43,7 @@ void RequireRetainedImage(Factory factory, int width, int height,
 
 } // namespace
 
-TEST_CASE("TimeHeatMap retains its empty black Scale image", "[image][heat_map][prd115]")
+TEST_CASE("TimeHeatMap retains its empty black Scale image", "[image][heat_map][rfd0115]")
 {
     RequireRetainedImage([] {
         return std::make_unique<anet::TimeHeatMap>(kImageWidth, kImageHeight, 0.0f, 5.0f,
@@ -51,7 +51,7 @@ TEST_CASE("TimeHeatMap retains its empty black Scale image", "[image][heat_map][
     }, 1, 1, kTimeHeatMapSubtype, "000000");
 }
 
-TEST_CASE("TimeHeatMap preserves every Scale pixel and image ownership", "[image][heat_map][prd115]")
+TEST_CASE("TimeHeatMap preserves every Scale pixel and image ownership", "[image][heat_map][rfd0115]")
 {
     // 修正前の独立probeで採取した固定入力のRGB列。
     constexpr std::string_view kExpected =
@@ -71,7 +71,7 @@ TEST_CASE("TimeHeatMap preserves every Scale pixel and image ownership", "[image
     }, kImageWidth, kImageHeight, kTimeHeatMapSubtype, kExpected);
 }
 
-TEST_CASE("Histgram preserves empty and populated pixels after its source is destroyed", "[image][heat_map][prd115]")
+TEST_CASE("Histgram preserves empty and populated pixels after its source is destroyed", "[image][heat_map][rfd0115]")
 {
     SECTION("empty image is black")
     {
@@ -97,7 +97,7 @@ TEST_CASE("Histgram preserves empty and populated pixels after its source is des
     }
 }
 
-TEST_CASE("SweepedHeatMap preserves reset and evaluated pixels", "[image][heat_map][prd115]")
+TEST_CASE("SweepedHeatMap preserves reset and evaluated pixels", "[image][heat_map][rfd0115]")
 {
     SECTION("reset image has the original minimum color")
     {
@@ -127,7 +127,7 @@ TEST_CASE("SweepedHeatMap preserves reset and evaluated pixels", "[image][heat_m
     }
 }
 
-TEST_CASE("TimeHistogram retains empty and populated Scale images", "[image][heat_map][prd115]")
+TEST_CASE("TimeHistogram retains empty and populated Scale images", "[image][heat_map][rfd0115]")
 {
     SECTION("empty Scale image is black")
     {

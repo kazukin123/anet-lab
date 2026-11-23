@@ -71,7 +71,7 @@ TEST_CASE("Q heat map rejects an even number of smoothing weights", "[q_value_sm
         Catch::Matchers::ContainsSubstring("count=2"));
 }
 
-TEST_CASE("Q heat map raw and advantage processing is independent of windows", "[prd122][qvalue_heatmap]")
+TEST_CASE("Q heat map raw and advantage processing is independent of windows", "[rfd0122][qvalue_heatmap]")
 {
     // wxのwindowを作らず、共有snapshotを変更しない配列の加工だけを呼ぶ。
     const bool advantage = GENERATE(false, true);
@@ -86,7 +86,7 @@ TEST_CASE("Q heat map raw and advantage processing is independent of windows", "
     CHECK(input.vv == values);
 }
 
-TEST_CASE("Q heat map histogram mode matrix matches hand counted bins", "[prd122][qvalue_heatmap]")
+TEST_CASE("Q heat map histogram mode matrix matches hand counted bins", "[rfd0122][qvalue_heatmap]")
 {
     const int mode = GENERATE(0, 1, 2, 3, 4, 5, 6, 7);
     const bool smooth = GENERATE(false, true);
@@ -122,7 +122,7 @@ TEST_CASE("Q heat map histogram mode matrix matches hand counted bins", "[prd122
     CHECK(range.maximum == Catch::Approx(advantage ? 5.375f : 4.0f).margin(1e-6));
 }
 
-TEST_CASE("Q heat map handles constant values in raw and histogram modes", "[prd122][qvalue_heatmap]")
+TEST_CASE("Q heat map handles constant values in raw and histogram modes", "[rfd0122][qvalue_heatmap]")
 {
     const bool histogram = GENERATE(false, true);
     const bool advantage = GENERATE(false, true);
@@ -135,7 +135,7 @@ TEST_CASE("Q heat map handles constant values in raw and histogram modes", "[prd
     RequireHeatMapResult(actual, histogram ? 5 : 2, expected, histogram && advantage ? 0.0f : -1.0f);
 }
 
-TEST_CASE("Q heat map accumulated range grows immediately and shrinks only in auto", "[prd122][qvalue_heatmap]")
+TEST_CASE("Q heat map accumulated range grows immediately and shrinks only in auto", "[rfd0122][qvalue_heatmap]")
 {
     const bool auto_range = GENERATE(false, true);
     const std::vector<float> values{-4.0f, -4.0f, -4.0f, -4.0f, 0.0f, 0.0f, 1.0f, 4.0f};

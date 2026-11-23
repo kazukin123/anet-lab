@@ -15,14 +15,14 @@
 #include "image_cls_agent.hpp"
 
 
-TEST_CASE("PRD061 captures resolved and typed configuration", "[.][prd061-capture]")
+TEST_CASE("RFD0061 captures resolved and typed configuration", "[.][rfd0061-capture]")
 {
     // 採取先を明示し、変更前の記録を後段の実行で上書きしない。
     wxString output_directory;
-    REQUIRE(wxGetEnv("ANET_PRD061_OUTPUT", &output_directory));
+    REQUIRE(wxGetEnv("ANET_RFD0061_OUTPUT", &output_directory));
     const auto root = std::filesystem::path(output_directory.ToStdWstring());
     const auto repo = std::filesystem::current_path();
-    std::ifstream manifest_file(repo / "src/core/base/testdata/prd072/manifest.json");
+    std::ifstream manifest_file(repo / "src/core/base/testdata/rfd0072/manifest.json");
     REQUIRE(manifest_file.good());
     const auto manifest = anet::json::parse(manifest_file);
     std::filesystem::create_directories(root);
@@ -62,10 +62,10 @@ TEST_CASE("PRD061 captures resolved and typed configuration", "[.][prd061-captur
     }
 }
 
-TEST_CASE("PRD061 shipped configurations resolve every Actor reference without panel overrides", "[config][prd061][shipped_actors][shipped_config]")
+TEST_CASE("RFD0061 shipped configurations resolve every Actor reference without panel overrides", "[config][rfd0061][shipped_actors][shipped_config]")
 {
     const auto repo = std::filesystem::current_path();
-    const auto root = repo / "out/test-tmp/prd061-shipped-actors-imagecls";
+    const auto root = repo / "out/test-tmp/rfd0061-shipped-actors-imagecls";
     std::filesystem::create_directories(root);
     for (const auto env : {"ImageCls"}) {
         // 環境が宣言したappチェーンを読み、P1などの後続選択を保持する。
@@ -89,13 +89,13 @@ TEST_CASE("PRD061 shipped configurations resolve every Actor reference without p
                 std::ofstream output(input_path, std::ios::binary);
                 output << "$include <" << (repo / "apps/runner/config/_main.txt").generic_string() << ">\n"
                     << "$include <" << (repo / "apps/runner/config").generic_string() << "/" << env << ".txt>\n"
-                    << "P1.prd061_chain_probe = retained\n";
+                    << "P1.rfd0061_chain_probe = retained\n";
                 if (std::string(mode) == "batchrun") {
                     output << "app.$ = " << std::regex_replace(app_chain, online_term, "$1app.batchrun$2") << '\n';
                 }
             }
             const auto config = anet::ConfigManager(input_path).GetConfigData();
-            if (has_p1) CHECK(config.Get("app.prd061_chain_probe", "") == "retained");
+            if (has_p1) CHECK(config.Get("app.rfd0061_chain_probe", "") == "retained");
             const auto agent_class = config.Get("agent.class_id");
             anet::json typed;
             typed = anet::rl::img_cls::ImageClsAgentConfig(config).ToJson();
@@ -132,7 +132,7 @@ TEST_CASE("PRD061 shipped configurations resolve every Actor reference without p
     }
 }
 
-TEST_CASE("ImageCls configuration validates Actor and feature branch settings", "[config][prd117][attention][prd093][rename]")
+TEST_CASE("ImageCls configuration validates Actor and feature branch settings", "[config][rfd0117][attention][rfd0093][rename]")
 {
     SECTION("The public initializer registers its Agent factories") {
         anet::rl::algo::InitImageCls();

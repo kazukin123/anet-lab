@@ -25,7 +25,7 @@
 #endif
 #include "RunnerApp.hpp"
 
-constexpr char kPrd170TraceInput[] = "nn_trace/main/00_Input";
+constexpr char kRfd0170TraceInput[] = "nn_trace/main/00_Input";
 
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -43,7 +43,7 @@ public:
         const anet::rl::StepCounts&, const anet::rl::BatchState&, const anet::rl::MakeActionOptions& options = {}) const override
     {
         auto result = std::make_shared<anet::rl::BatchActionInfo>(torch::zeros({1}, torch::kInt64));
-        if (options.nn_trace) result->GetAuxData()[kPrd170TraceInput] = torch::ones({1, 1, 2, 2});
+        if (options.nn_trace) result->GetAuxData()[kRfd0170TraceInput] = torch::ones({1, 1, 2, 2});
         return result;
     }
     void Sync() override {}
@@ -194,7 +194,7 @@ struct StartupFixture {
     wxEventLoop loop;
     wxEventLoopActivator activator{&loop};
     const std::filesystem::path output = std::filesystem::temp_directory_path()
-        / ("anet-prd109-" + std::to_string(wxGetProcessId()));
+        / ("anet-rfd0109-" + std::to_string(wxGetProcessId()));
     wxWeakRef<wxFrame> frame;
     bool exited = false;
 
@@ -266,31 +266,31 @@ void RegisterStartupTestAgents()
     anet::rl::AgentRepository::Instance().Register(std::make_shared<CloseDrainTestAgentFactory>());
 }
 
-TEST_CASE("Runner validates values in an unused online mode", "[.][prd117_mode_online]")
+TEST_CASE("Runner validates values in an unused online mode", "[.][rfd0117_mode_online]")
 {
     StartupFixture app;
     CHECK_THROWS_WITH(app.Start("app.online.log_flush_interval_ms = -1\n"),
         Catch::Matchers::ContainsSubstring("app.online.log_flush_interval_ms"));
 }
 
-TEST_CASE("Runner names the configured video codec key in a recording error", "[.][prd194][prd194_codec]")
+TEST_CASE("Runner names the configured video codec key in a recording error", "[.][rfd0194][rfd0194_codec]")
 {
     StartupFixture app;
     app.Start("agent.construction_delay_ms = 0\napp.metrics_logger.video_codec = h264_nvenc\n");
 
-    CHECK_THROWS_WITH(anet::MetricsLogger::Instance()->Log("prd194-video", 0, wxImage(128, 128)),
+    CHECK_THROWS_WITH(anet::MetricsLogger::Instance()->Log("rfd0194-video", 0, wxImage(128, 128)),
         Catch::Matchers::ContainsSubstring("app.metrics_logger.video_codec=h264_nvenc")
         && Catch::Matchers::ContainsSubstring("Use app.metrics_logger.video_codec=auto"));
 }
 
-TEST_CASE("Runner validates values in an unused batchrun mode", "[.][prd117_mode_batchrun]")
+TEST_CASE("Runner validates values in an unused batchrun mode", "[.][rfd0117_mode_batchrun]")
 {
     StartupFixture app;
     CHECK_THROWS_WITH(app.Start("app.batchrun.log_flush_interval_ms = -1\n"),
         Catch::Matchers::ContainsSubstring("app.batchrun.log_flush_interval_ms"));
 }
 
-TEST_CASE("Runner reports unread config after app readers and before its first step", "[.][prd117_startup]")
+TEST_CASE("Runner reports unread config after app readers and before its first step", "[.][rfd0117_startup]")
 {
     StartupFixture app;
     app.Start("agent.construction_delay_ms = 0\napp.save_agent_on_close = false\n"
@@ -311,7 +311,7 @@ TEST_CASE("Runner reports unread config after app readers and before its first s
     CHECK(wxGetApp().IsTrainingPaused());
 }
 
-TEST_CASE("Runner warns once when the same Agent save produces zero bytes twice", "[.][prd117_save_zero]")
+TEST_CASE("Runner warns once when the same Agent save produces zero bytes twice", "[.][rfd0117_save_zero]")
 {
     StartupFixture app;
     app.Start("agent.construction_delay_ms = 0\napp.save_agent_on_close = false\n");
@@ -329,7 +329,7 @@ TEST_CASE("Runner warns once when the same Agent save produces zero bytes twice"
     CHECK(std::filesystem::file_size(path) == 0);
 }
 
-TEST_CASE("Runner construction keeps the event loop and logs active", "[.][prd109_startup][prd109_ready]")
+TEST_CASE("Runner construction keeps the event loop and logs active", "[.][rfd0109_startup][rfd0109_ready]")
 {
     StartupFixture app;
     app.Start();
@@ -362,7 +362,7 @@ TEST_CASE("Runner construction keeps the event loop and logs active", "[.][prd10
     CHECK(app.frame->GetStatusBar()->GetStatusText(0) == "Run initialized");
 }
 
-TEST_CASE("Runner status bar reports training started after construction", "[.][prd109_startup][prd109_status]")
+TEST_CASE("Runner status bar reports training started after construction", "[.][rfd0109_startup][rfd0109_status]")
 {
     StartupFixture app;
     app.Start("app.train_auto_start = true\n");
@@ -372,7 +372,7 @@ TEST_CASE("Runner status bar reports training started after construction", "[.][
     CHECK(app.frame->GetStatusBar()->GetStatusText(0) == "Training started");
 }
 
-TEST_CASE("Runner startup keeps panes usable and auxiliary views unavailable", "[.][prd109_startup][prd109_ui]")
+TEST_CASE("Runner startup keeps panes usable and auxiliary views unavailable", "[.][rfd0109_startup][rfd0109_ui]")
 {
     StartupFixture app;
     app.Start();
@@ -417,7 +417,7 @@ TEST_CASE("Runner startup keeps panes usable and auxiliary views unavailable", "
     CHECK(occurrences("Run initialized.") == 1);
 }
 
-TEST_CASE("Runner defers repeated close requests until construction completes", "[.][prd109_startup][prd109_close]")
+TEST_CASE("Runner defers repeated close requests until construction completes", "[.][rfd0109_startup][rfd0109_close]")
 {
     StartupFixture app;
     app.Start();
@@ -439,7 +439,7 @@ TEST_CASE("Runner defers repeated close requests until construction completes", 
     CHECK(std::filesystem::exists(app.output / kCloseAgentPath));
 }
 
-TEST_CASE("Runner waits for construction without vetoing session queries", "[.][prd109_startup][prd109_query]")
+TEST_CASE("Runner waits for construction without vetoing session queries", "[.][rfd0109_startup][rfd0109_query]")
 {
     StartupFixture app;
     app.Start();
@@ -457,7 +457,7 @@ TEST_CASE("Runner waits for construction without vetoing session queries", "[.][
     CHECK(std::filesystem::exists(app.output / kCloseAgentPath));
 }
 
-TEST_CASE("Runner waits on forced close before construction finishes", "[.][prd109_startup][prd109_forced_close]")
+TEST_CASE("Runner waits on forced close before construction finishes", "[.][rfd0109_startup][rfd0109_forced_close]")
 {
     StartupFixture app;
     app.Start();
@@ -471,7 +471,7 @@ TEST_CASE("Runner waits on forced close before construction finishes", "[.][prd1
     CHECK(std::filesystem::exists(app.output / kCloseAgentPath));
 }
 
-TEST_CASE("Runner reports construction failure and still closes forcibly", "[.][prd109_startup][prd109_close_failure]")
+TEST_CASE("Runner reports construction failure and still closes forcibly", "[.][rfd0109_startup][rfd0109_close_failure]")
 {
     StartupFixture app;
     app.Start("agent.construction_fails = true\n");
@@ -492,10 +492,10 @@ TEST_CASE("Runner reports construction failure and still closes forcibly", "[.][
     CHECK(wxTheApp->OnExit() == 1);
 }
 
-TEST_CASE("Runner can close an incomplete RunManager after construction", "[.][prd109_startup][prd109_incomplete_after]")
+TEST_CASE("Runner can close an incomplete RunManager after construction", "[.][rfd0109_startup][rfd0109_incomplete_after]")
 {
     StartupFixture app;
-    app.Start("env.class_id = Prd109UnregisteredEnv\n");
+    app.Start("env.class_id = Rfd0109UnregisteredEnv\n");
     REQUIRE(app.Wait([&] { return app.Log().find("Failed to initialize RunManager.") != std::string::npos; }));
     REQUIRE(app.frame);
     CHECK_FALSE(wxGetApp().IsRunInitialized());
@@ -510,7 +510,7 @@ TEST_CASE("Runner can close an incomplete RunManager after construction", "[.][p
     CHECK(wxTheApp->OnExit() == 0);
 }
 
-TEST_CASE("Runner joins construction after CallOnExit deletes its windows", "[.][prd109_startup][prd109_exit]")
+TEST_CASE("Runner joins construction after CallOnExit deletes its windows", "[.][rfd0109_startup][rfd0109_exit]")
 {
     StartupFixture app;
     app.Start();
@@ -532,10 +532,10 @@ TEST_CASE("Runner joins construction after CallOnExit deletes its windows", "[.]
     wxTheApp->ProcessPendingEvents();
 }
 
-TEST_CASE("Runner closes an incomplete RunManager requested before delivery", "[.][prd109_startup][prd109_incomplete_before]")
+TEST_CASE("Runner closes an incomplete RunManager requested before delivery", "[.][rfd0109_startup][rfd0109_incomplete_before]")
 {
     StartupFixture app;
-    app.Start("env.class_id = Prd109UnregisteredEnv\n");
+    app.Start("env.class_id = Rfd0109UnregisteredEnv\n");
     // 完了通知を処理する前なので、構築自体の速さによらず初期化中である。
     CHECK_FALSE(app.frame->Close());
     REQUIRE(app.frame);
@@ -546,7 +546,7 @@ TEST_CASE("Runner closes an incomplete RunManager requested before delivery", "[
     CHECK_FALSE(std::filesystem::exists(app.output / kCloseAgentPath));
 }
 
-TEST_CASE("Runner returns failure after windows are deleted during construction", "[.][prd109_startup][prd109_exit_failure]")
+TEST_CASE("Runner returns failure after windows are deleted during construction", "[.][rfd0109_startup][rfd0109_exit_failure]")
 {
     StartupFixture app;
     app.Start("agent.construction_fails = true\n");
@@ -560,9 +560,9 @@ TEST_CASE("Runner returns failure after windows are deleted during construction"
     wxTheApp->ProcessPendingEvents();
 }
 
-TEST_CASE("PRD109 captures configuration from frozen inputs", "[.][prd109_config]")
+TEST_CASE("RFD0109 captures configuration from frozen inputs", "[.][rfd0109_config]")
 {
-    constexpr char kOutputVariable[] = "PRD109_CONFIG_OUTPUT";
+    constexpr char kOutputVariable[] = "RFD0109_CONFIG_OUTPUT";
     const char* output_env = std::getenv(kOutputVariable);
     REQUIRE(output_env);
     const std::filesystem::path output(output_env);
@@ -608,9 +608,9 @@ TEST_CASE("Runner keeps train observers attached until background Eval drains on
     close_drain_probe.reset();
 }
 
-TEST_CASE("RunnerApp requests training nn_trace only for active Conv2d recordings", "[.][prd170][prd170_startup]")
+TEST_CASE("RunnerApp requests training nn_trace only for active Conv2d recordings", "[.][rfd0170][rfd0170_startup]")
 {
-    constexpr const char* kRegistrationEnv = "ANET_PRD170_IMAGE_REGISTRATION";
+    constexpr const char* kRegistrationEnv = "ANET_RFD0170_IMAGE_REGISTRATION";
     const auto* registration_value = std::getenv(kRegistrationEnv);
     const int registration = registration_value ? std::stoi(registration_value) : 0;
     REQUIRE(registration >= 0);
@@ -628,7 +628,7 @@ TEST_CASE("RunnerApp requests training nn_trace only for active Conv2d recording
     auto count = std::make_shared<std::atomic<int>>(0);
     auto correct = std::make_shared<std::atomic<bool>>(true);
     auto observer = std::make_shared<anet::rl::FunctionTrainObserver>([count, correct, registration](const anet::rl::TrainEvent& event) {
-        const bool traced = event.action_info->GetAuxData().contains(kPrd170TraceInput);
+        const bool traced = event.action_info->GetAuxData().contains(kRfd0170TraceInput);
         if (traced != (registration == 2)) correct->store(false);
         ++*count;
     });
@@ -640,10 +640,10 @@ TEST_CASE("RunnerApp requests training nn_trace only for active Conv2d recording
     notifier->Detach(observer);
 }
 
-TEST_CASE("GPU nn_trace allocation is recorded through the evaluation Runner", "[.][prd170_memory]")
+TEST_CASE("GPU nn_trace allocation is recorded through the evaluation Runner", "[.][rfd0170_memory]")
 {
-    constexpr const char* kConfigEnv = "ANET_PRD170_MEMORY_CONFIG";
-    constexpr const char* kOutputEnv = "ANET_PRD170_MEMORY_OUTPUT";
+    constexpr const char* kConfigEnv = "ANET_RFD0170_MEMORY_CONFIG";
+    constexpr const char* kOutputEnv = "ANET_RFD0170_MEMORY_OUTPUT";
     constexpr const char* kPeakBytes = "allocated_peak_bytes";
     const auto* config_path = std::getenv(kConfigEnv);
     const auto* output_path = std::getenv(kOutputEnv);
@@ -670,7 +670,7 @@ TEST_CASE("GPU nn_trace allocation is recorded through the evaluation Runner", "
 #endif
     else FAIL("Expected ImageClsEnv or AtariEnv");
     auto manager = std::make_shared<anet::rl::RunManager>(data);
-    auto runner = manager->CreateEvalRunner("prd170_memory", data.Get("app.eval_panel.eval_config_tag"));
+    auto runner = manager->CreateEvalRunner("rfd0170_memory", data.Get("app.eval_panel.eval_config_tag"));
     const auto device = manager->GetAgent()->GetDevice();
     REQUIRE(device.is_cuda());
     const auto index = device.has_index() ? device.index() : c10::cuda::current_device();

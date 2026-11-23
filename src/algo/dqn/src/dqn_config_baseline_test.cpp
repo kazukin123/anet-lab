@@ -22,14 +22,14 @@ constexpr const char* kGridMazeConfigName = "GridMaze";
 constexpr const char* kDropMergeConfigName = "DropMerge";
 constexpr const char* kSkipRunProfile = "run.@skip";
 
-TEST_CASE("PRD061 captures resolved and typed configuration", "[.][prd061-capture]")
+TEST_CASE("RFD0061 captures resolved and typed configuration", "[.][rfd0061-capture]")
 {
     // 採取先を明示し、変更前の記録を後段の実行で上書きしない。
     wxString output_directory;
-    REQUIRE(wxGetEnv("ANET_PRD061_OUTPUT", &output_directory));
+    REQUIRE(wxGetEnv("ANET_RFD0061_OUTPUT", &output_directory));
     const auto root = std::filesystem::path(output_directory.ToStdWstring());
     const auto repo = std::filesystem::current_path();
-    std::ifstream manifest_file(repo / "src/core/base/testdata/prd072/manifest.json");
+    std::ifstream manifest_file(repo / "src/core/base/testdata/rfd0072/manifest.json");
     REQUIRE(manifest_file.good());
     const auto manifest = anet::json::parse(manifest_file);
     std::filesystem::create_directories(root);
@@ -73,11 +73,11 @@ TEST_CASE("PRD061 captures resolved and typed configuration", "[.][prd061-captur
 }
 
 
-TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "[.][prd103-config]")
+TEST_CASE("RFD0103 skip profiles expose greedy session and padded metric tags", "[.][rfd0103-config]")
 {
     // 実際の設定を公開resolverに通し、変更前後の全キーを同時に保存する。
     wxString destination;
-    REQUIRE(wxGetEnv("ANET_PRD103_OUTPUT", &destination));
+    REQUIRE(wxGetEnv("ANET_RFD0103_OUTPUT", &destination));
     const auto output = std::filesystem::path(destination.ToStdWstring());
     std::filesystem::create_directories(output);
     const auto config = (std::filesystem::current_path() / "apps/runner/config").generic_string();
@@ -140,10 +140,10 @@ TEST_CASE("PRD103 skip profiles expose greedy session and padded metric tags", "
 }
 
 
-TEST_CASE("Value decomposition ships inactive defaults and optional metrics", "[prd121][shipped_config]")
+TEST_CASE("Value decomposition ships inactive defaults and optional metrics", "[rfd0121][shipped_config]")
 {
     const auto repo = std::filesystem::current_path();
-    const auto directory = repo / "out/test-tmp/prd121-config";
+    const auto directory = repo / "out/test-tmp/rfd0121-config";
     std::filesystem::create_directories(directory);
     const auto path = directory / "input.txt";
     const auto write = [&](bool value_metrics) {
@@ -186,12 +186,12 @@ TEST_CASE("Value decomposition ships inactive defaults and optional metrics", "[
     CHECK_NOTHROW(anet::rl::ObserverFactory(selected));
 }
 
-TEST_CASE("DQN shipped profiles provide default values, actors and metrics", "[prd121][shipped_config][config][prd104][prd061][actor_inheritance][shipped_actors][attention][prd093][profiles]")
+TEST_CASE("DQN shipped profiles provide default values, actors and metrics", "[rfd0121][shipped_config][config][rfd0104][rfd0061][actor_inheritance][shipped_actors][attention][rfd0093][profiles]")
 {
-    SECTION("PRD104 defaults and auxiliary arms preserve metrics and propagate Actor limits") {
+    SECTION("RFD0104 defaults and auxiliary arms preserve metrics and propagate Actor limits") {
         const auto repo = std::filesystem::current_path();
         const auto config_root = (repo / "apps/runner/config").generic_string();
-        const auto output = repo / "out/test-tmp/prd104-config";
+        const auto output = repo / "out/test-tmp/rfd0104-config";
         std::filesystem::create_directories(output);
         // 既定は env の設定を含めない共通の設定（agent.txt）で確かめる。env の設定が Actor ごとに選んだ値はここでは見ない。
         {
@@ -210,7 +210,7 @@ TEST_CASE("DQN shipped profiles provide default values, actors and metrics", "[p
             CAPTURE(env);
             const auto input = output / (env + ".txt");
             const auto includes = "$include <" + config_root + "/_main.txt>\n$include <" + config_root + "/" + env + ".txt>\n"
-                + "$include <" + (repo / "src/core/base/testdata/prd104/arms.txt").generic_string() + ">\n";
+                + "$include <" + (repo / "src/core/base/testdata/rfd0104/arms.txt").generic_string() + ">\n";
             { std::ofstream file(input); file << includes; }
             const auto defaults = anet::ConfigManager(input).GetConfigData();
             CHECK_FALSE(defaults.Has("metrics.scalar.[50_agent_skip/07_max_length]"));
@@ -238,10 +238,10 @@ TEST_CASE("DQN shipped profiles provide default values, actors and metrics", "[p
             }
         }
     }
-    SECTION("PRD061 target Actor inherits final eval policy with explicit override priority") {
+    SECTION("RFD0061 target Actor inherits final eval policy with explicit override priority") {
         // 現用のbaselineと環境別上書きを読み、CLIの最終値がtargetへ伝播することを確認する。
         const auto repo = std::filesystem::current_path();
-        const auto root = repo / "out/test-tmp/prd061-actor-inheritance";
+        const auto root = repo / "out/test-tmp/rfd0061-actor-inheritance";
         std::filesystem::create_directories(root);
         const auto input_path = root / "main.txt";
         {
@@ -267,9 +267,9 @@ TEST_CASE("DQN shipped profiles provide default values, actors and metrics", "[p
             CHECK(config.Get("DefaultDQNAgent.actor.[eval].network") == "online");
         }
     }
-    SECTION("PRD061 shipped configurations resolve every Actor reference without panel overrides") {
+    SECTION("RFD0061 shipped configurations resolve every Actor reference without panel overrides") {
         const auto repo = std::filesystem::current_path();
-        const auto root = repo / "out/test-tmp/prd061-shipped-actors-dqn";
+        const auto root = repo / "out/test-tmp/rfd0061-shipped-actors-dqn";
         std::filesystem::create_directories(root);
         for (const auto env : {"Atari", "LunarLander", "DropMerge", "GridMaze", "CartPole"}) {
             // 環境が宣言したappチェーンを読み、P1などの後続選択を保持する。
@@ -293,13 +293,13 @@ TEST_CASE("DQN shipped profiles provide default values, actors and metrics", "[p
                     std::ofstream output(input_path, std::ios::binary);
                     output << "$include <" << (repo / "apps/runner/config/_main.txt").generic_string() << ">\n"
                         << "$include <" << (repo / "apps/runner/config").generic_string() << "/" << env << ".txt>\n"
-                        << "P1.prd061_chain_probe = retained\n";
+                        << "P1.rfd0061_chain_probe = retained\n";
                     if (std::string(mode) == "batchrun") {
                         output << "app.$ = " << std::regex_replace(app_chain, online_term, "$1app.batchrun$2") << '\n';
                     }
                 }
                 const auto config = anet::ConfigManager(input_path).GetConfigData();
-                if (has_p1) CHECK(config.Get("app.prd061_chain_probe", "") == "retained");
+                if (has_p1) CHECK(config.Get("app.rfd0061_chain_probe", "") == "retained");
                 const auto agent_class = config.Get("agent.class_id");
                 anet::json typed;
                 if (agent_class == "DefaultDQNAgent") typed = anet::rl::dqn::DefaultDQNAgentConfig(config).ToJson();
@@ -355,7 +355,7 @@ TEST_CASE("DQN shipped profiles provide default values, actors and metrics", "[p
     SECTION("Attention Run profiles preserve existing metric definitions") {
         // 現用の既定Runチェーンへ末尾追加し、GPU資源を作らず最終metrics定義を検証する。
         const auto root = std::filesystem::current_path();
-        const auto directory = root / "out/test-tmp/prd093-profiles";
+        const auto directory = root / "out/test-tmp/rfd0093-profiles";
         std::filesystem::create_directories(directory);
         for (const auto& env : { "DropMerge", "Atari" }) {
             const auto input = directory / (std::string(env) + ".txt");
@@ -397,7 +397,7 @@ TEST_CASE("DQN shipped profiles provide default values, actors and metrics", "[p
     }
 }
 
-TEST_CASE("DQN Actor catalogs validate fields and network choices", "[config][prd117][prd061]")
+TEST_CASE("DQN Actor catalogs validate fields and network choices", "[config][rfd0117][rfd0061]")
 {
     SECTION("The public initializer registers its Agent factories") {
         anet::rl::algo::InitDqn();
@@ -439,7 +439,7 @@ TEST_CASE("DQN Actor catalogs validate fields and network choices", "[config][pr
     }
 }
 
-TEST_CASE("DQN feature diagnostics validate their learner settings", "[config][prd093][rename][attention]")
+TEST_CASE("DQN feature diagnostics validate their learner settings", "[config][rfd0093][rename][attention]")
 {
     SECTION("Final feature branch is a shared learner configuration") {
         // 特定診断に依存しない公開設定名で境界を指定する。

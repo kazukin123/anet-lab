@@ -1077,7 +1077,7 @@ A separate asset retrieval arrangement is needed for fully offline environments.
 
 ## 12. Tests and Extension Checklist
 
-Tag sets are covered by `TagSetStoreTest`, `TagSetApiIntegrationTest`, and `TagSetPlaywrightTest`. See the [PRD111 validation README](../../src/core/base/testdata/prd111/README.md) for procedures including packaging.
+Tag sets are covered by `TagSetStoreTest`, `TagSetApiIntegrationTest`, and `TagSetPlaywrightTest`. See the [PRD111 validation README](../../src/core/base/testdata/rfd0111/README.md) for procedures including packaging.
 
 ### 12.1 Test Organization
 
@@ -1097,14 +1097,14 @@ Each test opens a fresh context; routes, `localStorage`, and Plotly state are no
 
 ### 12.2 Change Checklist
 
-See the [PRD090 validation README](../../src/core/base/testdata/prd090/README.md) for procedures, performance comparisons, and persistent-data equality evidence.
+See the [PRD090 validation README](../../src/core/base/testdata/rfd0090/README.md) for procedures, performance comparisons, and persistent-data equality evidence.
 
 1. Increment `SCHEMA_VERSION` when changing the cache schema. Do not write migrations; test that old caches are silently discarded and rebuilt.
 2. The externalName values of `IngestState` and `SeriesAvailability` are persistent and exposed over HTTP. Adding values is allowed; renaming or removing existing values is incompatible.
 3. Add new ingestion work to the same transaction. Splitting L0, LOD, `TagStats`, and `source_meta` across commits breaks consistency on crashes.
 4. When changing LOD, verify both persistence of completed buckets only and reaggregation of partial edge buckets from lower levels. `LodPageCache` derives the completed-bucket count from the tag point count, so when changing when parents are written, change this derivation as well.
 5. Do not derive statistics from LOD. Build range-independent statistics from all committed L0 points.
-6. After changing Step resolution or point caps, test width consistency across 1–4 Runs, selection order, zoom/pan/reset/resize, and 422/503 boundaries. See the [validation README](../../src/core/base/testdata/prd089/README.md) for PRD089 procedures.
+6. After changing Step resolution or point caps, test width consistency across 1–4 Runs, selection order, zoom/pan/reset/resize, and 422/503 boundaries. See the [validation README](../../src/core/base/testdata/rfd0089/README.md) for PRD089 procedures.
 7. Keep new client state in the client app so it survives Plotly DOM reconstruction during Reload.
    If the input determines a graph's appearance, add it to the shared display model render key (`PlotlyController._graphModel` / `_graphDisplayKey`). State changed directly in Plotly must also be read back with `capturePlotState` and reflected in the model. An input omitted from the model cannot invalidate drawing or reject late results when it changes.
    If the condition affects a window's contents, also reflect it in the Reload freshness check (`DataCache.isOutdated`).
@@ -1120,4 +1120,4 @@ See the [PRD090 validation README](../../src/core/base/testdata/prd090/README.md
 - [ADR: Metrics Cache as a Disposable Derivative](../adr/0015-metrics-cache-disposable-derivative.md)
 - [Domain Glossary](../../CONTEXT.md)
 
-PRD089 comparison-resolution regression procedure: [README](../../src/core/base/testdata/prd089/README.md).
+PRD089 comparison-resolution regression procedure: [README](../../src/core/base/testdata/rfd0089/README.md).

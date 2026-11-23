@@ -325,11 +325,11 @@ reports/INDEX.md のキューの問いに、論文の記述の範囲で答える
 
 ## SMDP の PRD の検討に効く点
 
-対象は [docs/memo/956_smdp_transition_duration_10prd.md](../docs/memo/167_smdp_transition_duration_10prd.md) である（PRD114 で 999 から改番）。論文は SMDP も DropMerge も扱っていないので、この節は論文の記述ではなく本解説の推論である。§ は PRD の節を指す。
+対象は [docs/memo/956_smdp_transition_duration_10prd.md](../docs/memo/0167_smdp_transition_duration_10rfd.md) である（PRD114 で 999 から改番）。論文は SMDP も DropMerge も扱っていないので、この節は論文の記述ではなく本解説の推論である。§ は PRD の節を指す。
 
 1. 役割が違う。経過時間 $\tau$ は目的（何が最適か）を変えて、待つ値段と計画の見通しを分ける。行動ギャップを広げる作用素は最適方策を変えず（厳密な表現の場合、定理 1）、順位の逆転を減らすだけである。§1 の「本来の差 $(1-\gamma)V$ が揺れで入れ替わる」には直接効くが、§4 のストーリー 1 は満たせない。代わりに Env と replay の契約を変えず、$\tau$ の実装を待たずに比べられ、return の物差し（§5 の 6）も変わらない。
 2. 効く大きさは $1/(1-\alpha)$ 倍である（「キューの論点への答え」の 1）。PRD の差 0.3% は $\alpha=0.9$ で 3%、$\alpha=0.99$ で 30% になる。厳密な自己遷移に一貫ベルマン作用素を当てると差は $V$ 全体に広がる。
-3. 既存の Munchausen と同じ仕組みである。Munchausen のボーナスの差は clip にかからない範囲で $\alpha\times$（Q の差）で（[PRD067](../docs/memo/done/067_MunchausenRL_10prd.md) の「方策温度の効き方」）、A.L. の補正と同じ形をしている。§2 の Run は [$\alpha=0.9$](../docs/experiments/default-dqn/dropmerge/config/run_20261003-081944_dmfb_qr_munch.txt) で、健全な時期に差が約 5 倍（極限の 10 倍の内側）になったのに、NEET 期には順位が逆転した。差を広げるだけでは NEET を防げなかった実例として読める。したがって A.L. を新機構として足す前に、この結果の理由を見るほうが先である。ただし同じなのはボーナスの差の形までで、温度 $\tau_{\text{m}}>0$ の Munchausen はソフト値が $\max$ を上回るので（PRD067 の同じ節）、単独でも定理 1 の条件 1・2 を破りうる。定理の族に入るのは $\tau_{\text{m}}\to0$ の極限だけである [p.5, Section 4, Theorem 1]。Munchausen と A.L. を重ねるときの $\alpha$ の和が 1 未満という条件も、この極限でなければ十分ではない。なお PRD067 の拡大率 $(1+\alpha)$ は 1 回の適用の値で、反復の極限は $1/(1-\alpha)$ である。
+3. 既存の Munchausen と同じ仕組みである。Munchausen のボーナスの差は clip にかからない範囲で $\alpha\times$（Q の差）で（[PRD067](../docs/memo/done/0067_MunchausenRL_10rfd.md) の「方策温度の効き方」）、A.L. の補正と同じ形をしている。§2 の Run は [$\alpha=0.9$](../docs/experiments/default-dqn/dropmerge/config/run_20261003-081944_dmfb_qr_munch.txt) で、健全な時期に差が約 5 倍（極限の 10 倍の内側）になったのに、NEET 期には順位が逆転した。差を広げるだけでは NEET を防げなかった実例として読める。したがって A.L. を新機構として足す前に、この結果の理由を見るほうが先である。ただし同じなのはボーナスの差の形までで、温度 $\tau_{\text{m}}>0$ の Munchausen はソフト値が $\max$ を上回るので（PRD067 の同じ節）、単独でも定理 1 の条件 1・2 を破りうる。定理の族に入るのは $\tau_{\text{m}}\to0$ の極限だけである [p.5, Section 4, Theorem 1]。Munchausen と A.L. を重ねるときの $\alpha$ の和が 1 未満という条件も、この極限でなければ十分ではない。なお PRD067 の拡大率 $(1+\alpha)$ は 1 回の適用の値で、反復の極限は $1/(1-\alpha)$ である。
 4. $\tau$ と組み合わせるときの式の形が分かる。
    - §5 の 3: 補正項は今の状態の値で、$\gamma$ が掛からない。ボーナスは $\tau$ によらず残し、次の状態の soft value にだけ $\gamma^\tau$ を掛けるのが式の形に沿う。
    - §5 の 5: $\tau=0$ で次の状態がほぼ同じなら、待つ遷移の報酬を $c$（罰なら $c<0$）として $V-Q=-c/(1-\alpha)$ になる（本解説の計算）。$\tau_{\text{m}}>0$ の Munchausen では $V$ をソフト値に読み替えた同じ式になる。$\alpha=0.9$ では罰が 10 倍に効くので、罰の大きさは Munchausen の有無と一緒に決める。

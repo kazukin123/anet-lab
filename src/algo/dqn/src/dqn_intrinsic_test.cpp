@@ -56,55 +56,55 @@ constexpr char kIntrinsicPrefix[] = "DefaultDQNAgent.intrinsic";
 constexpr char kUnknownIntrinsicScalarKey[] = "intrinsic.unknown_key";
 constexpr char kRawErrorMode[] = "none";
 
-constexpr const char* kPrd121ExtrinsicGradNorm = "extrinsic_grad_norm";
+constexpr const char* kRfd0121ExtrinsicGradNorm = "extrinsic_grad_norm";
 
-constexpr const char* kPrd121ExtrinsicQSaMean = "extrinsic_q_sa_mean";
+constexpr const char* kRfd0121ExtrinsicQSaMean = "extrinsic_q_sa_mean";
 
-constexpr const char* kPrd121IntrinsicGradNorm = "intrinsic_grad_norm";
+constexpr const char* kRfd0121IntrinsicGradNorm = "intrinsic_grad_norm";
 
-constexpr const char* kPrd121IntrinsicQSaMean = "intrinsic_q_sa_mean";
+constexpr const char* kRfd0121IntrinsicQSaMean = "intrinsic_q_sa_mean";
 
-constexpr const char* kPrd121IntrinsicQShare = "intrinsic_q_share";
+constexpr const char* kRfd0121IntrinsicQShare = "intrinsic_q_share";
 
-constexpr const char* kPrd121ApproxPriority = "approx_priority";
+constexpr const char* kRfd0121ApproxPriority = "approx_priority";
 
-constexpr const char* kPrd121ExtrinsicHeadGradNorm = "extrinsic_head_grad_norm";
+constexpr const char* kRfd0121ExtrinsicHeadGradNorm = "extrinsic_head_grad_norm";
 
-constexpr const char* kPrd121ExtrinsicLoss = "extrinsic_loss";
+constexpr const char* kRfd0121ExtrinsicLoss = "extrinsic_loss";
 
-constexpr const char* kPrd121ExtrinsicQ = "extrinsic_q";
+constexpr const char* kRfd0121ExtrinsicQ = "extrinsic_q";
 
-constexpr const char* kPrd121ExtrinsicQSa = "extrinsic_q_sa";
+constexpr const char* kRfd0121ExtrinsicQSa = "extrinsic_q_sa";
 
-constexpr const char* kPrd121ExtrinsicStateValue = "extrinsic_state_value";
+constexpr const char* kRfd0121ExtrinsicStateValue = "extrinsic_state_value";
 
-constexpr const char* kPrd121FixedActorKey = "fixed";
+constexpr const char* kRfd0121FixedActorKey = "fixed";
 
-constexpr const char* kPrd121IntrinsicHeadGradNorm = "intrinsic_head_grad_norm";
+constexpr const char* kRfd0121IntrinsicHeadGradNorm = "intrinsic_head_grad_norm";
 
-constexpr const char* kPrd121IntrinsicLoss = "intrinsic_loss";
+constexpr const char* kRfd0121IntrinsicLoss = "intrinsic_loss";
 
-constexpr const char* kPrd121IntrinsicQ = "intrinsic_q";
+constexpr const char* kRfd0121IntrinsicQ = "intrinsic_q";
 
-constexpr const char* kPrd121IntrinsicQSa = "intrinsic_q_sa";
+constexpr const char* kRfd0121IntrinsicQSa = "intrinsic_q_sa";
 
-constexpr const char* kPrd121IntrinsicRewardScalerScale = "intrinsic.reward_scaler.scale";
+constexpr const char* kRfd0121IntrinsicRewardScalerScale = "intrinsic.reward_scaler.scale";
 
-constexpr const char* kPrd121IntrinsicStateValue = "intrinsic_state_value";
+constexpr const char* kRfd0121IntrinsicStateValue = "intrinsic_state_value";
 
-constexpr const char* kPrd121Learner = "learner";
+constexpr const char* kRfd0121Learner = "learner";
 
-constexpr const char* kPrd121NoisyQAbsDiff = "noisy_q_abs_diff";
+constexpr const char* kRfd0121NoisyQAbsDiff = "noisy_q_abs_diff";
 
-constexpr const char* kPrd121Off = "off";
+constexpr const char* kRfd0121Off = "off";
 
-constexpr const char* kPrd121PolicyChurnQDeltaAbsMean = "policy_churn_q_delta_abs_mean";
+constexpr const char* kRfd0121PolicyChurnQDeltaAbsMean = "policy_churn_q_delta_abs_mean";
 
-constexpr const char* kPrd121PolicyNetForward = "policy-net.forward";
+constexpr const char* kRfd0121PolicyNetForward = "policy-net.forward";
 
-constexpr const char* kPrd121Q = "q";
+constexpr const char* kRfd0121Q = "q";
 
-constexpr const char* kPrd121ReplayFitUniformTdMean = "replay_fit_uniform_td_mean";
+constexpr const char* kRfd0121ReplayFitUniformTdMean = "replay_fit_uniform_td_mean";
 
 constexpr std::array<const char*, 13> kAllIntrinsicScalarKeys{
     kBonusMean, "intrinsic.bonus_max", kBonusMin, kBonusPosRatio,
@@ -141,7 +141,7 @@ namespace {
 
 namespace {
     struct IntrinsicMetricsScope {
-            explicit IntrinsicMetricsScope(std::string run_name = "prd116_test") {
+            explicit IntrinsicMetricsScope(std::string run_name = "rfd0116_test") {
                 anet::MetricsLogger::Reset();
                 anet::MetricsLoggerConfig config;
                 config.run_name_tmpl = std::move(run_name);
@@ -212,10 +212,10 @@ static anet::rl::BatchExperience IntrinsicExperience(float scale, bool done, boo
             torch::full({2}, done, torch::kBool), torch::full({2}, truncated, torch::kBool), flags)};
 }
 
-TEST_CASE("DQN records target and predictor network graphs when RND is enabled", "[prd191][intrinsic][rnd_graphs]")
+TEST_CASE("DQN records target and predictor network graphs when RND is enabled", "[rfd0191][intrinsic][rnd_graphs]")
 {
     const bool enabled = GENERATE(false, true);
-    IntrinsicMetricsScope metrics(enabled ? "prd191_graphs_on_{t}" : "prd191_graphs_off_{t}");
+    IntrinsicMetricsScope metrics(enabled ? "rfd0191_graphs_on_{t}" : "rfd0191_graphs_off_{t}");
     const auto agent = MakeIntrinsicAgent(IntrinsicAgentData(enabled));
     const auto dot_dir = anet::MetricsLogger::Instance()->GetRunDir() / "dot";
     REQUIRE(std::filesystem::is_regular_file(dot_dir / "net.structure.dot"));
@@ -227,11 +227,11 @@ TEST_CASE("DQN records target and predictor network graphs when RND is enabled",
 }
 
 TEST_CASE("RND shipped Atari networks and Taiga settings match their contracts",
-    "[prd116][shipped_config][rnd_reference_shipped]")
+    "[rfd0116][shipped_config][rnd_reference_shipped]")
 {
     IntrinsicMetricsScope metrics;
     const auto root = std::filesystem::current_path();
-    const auto path = root / "out/test-tmp/prd116-reference-config.txt";
+    const auto path = root / "out/test-tmp/rfd0116-reference-config.txt";
     std::filesystem::create_directories(path.parent_path());
     const auto resolve = [&](const std::string& chain) {
         std::ofstream file(path);
@@ -337,7 +337,7 @@ TEST_CASE("RND shipped Atari networks and Taiga settings match their contracts",
     CHECK_NOTHROW(anet::test::ReadRndConfig(taiga, prefix));
 }
 
-TEST_CASE("DQN intrinsic validates beta only when enabled", "[prd116][intrinsic][config]")
+TEST_CASE("DQN intrinsic validates beta only when enabled", "[rfd0116][intrinsic][config]")
 {
     auto data = IntrinsicAgentData(false);
     data.Set("DefaultDQNAgent.intrinsic.beta", -1.0f);
@@ -348,7 +348,7 @@ TEST_CASE("DQN intrinsic validates beta only when enabled", "[prd116][intrinsic]
         Catch::Matchers::ContainsSubstring("intrinsic.beta"));
 }
 
-TEST_CASE("DQN collects RND errors while predictor learning waits", "[prd191][intrinsic][rnd_settings]")
+TEST_CASE("DQN collects RND errors while predictor learning waits", "[rfd0191][intrinsic][rnd_settings]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -365,7 +365,7 @@ TEST_CASE("DQN collects RND errors while predictor learning waits", "[prd191][in
     CHECK(agent->GetScalar(kIntrinsicLearnCount).value() == 1.0f);
 }
 
-TEST_CASE("DQN intrinsic state scoring ignores next observations and terminal masks", "[prd116][rnd_reference_observation]")
+TEST_CASE("DQN intrinsic state scoring ignores next observations and terminal masks", "[rfd0116][rnd_reference_observation]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -410,7 +410,7 @@ TEST_CASE("DQN intrinsic state scoring ignores next observations and terminal ma
     CHECK(share <= 1.0f);
 }
 
-TEST_CASE("DQN intrinsic learning cadence follows experience count", "[prd116][intrinsic][rnd_schedule]")
+TEST_CASE("DQN intrinsic learning cadence follows experience count", "[rfd0116][intrinsic][rnd_schedule]")
 {
     IntrinsicMetricsScope metrics;
     const int num_envs = GENERATE(2, 4);
@@ -437,7 +437,7 @@ TEST_CASE("DQN intrinsic learning cadence follows experience count", "[prd116][i
     CHECK(*agent->GetScalar(kIntrinsicLearnCount) * 2 == 8.0f);
 }
 
-TEST_CASE("DQN learns complete RND rollouts on the selected schedule", "[prd191][intrinsic][rnd_rollout]")
+TEST_CASE("DQN learns complete RND rollouts on the selected schedule", "[rfd0191][intrinsic][rnd_rollout]")
 {
     IntrinsicMetricsScope metrics;
     const bool spread = GENERATE(false, true);
@@ -494,7 +494,7 @@ TEST_CASE("DQN learns complete RND rollouts on the selected schedule", "[prd191]
     }
 }
 
-TEST_CASE("DQN intrinsic masks done but scores truncated lanes", "[prd116][intrinsic]")
+TEST_CASE("DQN intrinsic masks done but scores truncated lanes", "[rfd0116][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     const bool done = GENERATE(false, true);
@@ -517,7 +517,7 @@ TEST_CASE("DQN intrinsic masks done but scores truncated lanes", "[prd116][intri
     CHECK(std::isfinite(*agent->GetScalar(kIntrinsicErrorStep)));
 }
 
-TEST_CASE("DQN intrinsic known scalar keys stay NaN while disabled or suspended", "[prd116][intrinsic][prd117]")
+TEST_CASE("DQN intrinsic known scalar keys stay NaN while disabled or suspended", "[rfd0116][intrinsic][rfd0117]")
 {
     IntrinsicMetricsScope metrics;
     const auto mode = GENERATE(std::pair{false, true}, std::pair{false, false}, std::pair{true, false});
@@ -556,7 +556,7 @@ static anet::TensorDict RndTestObservation()
     return obs;
 }
 
-TEST_CASE("DQN validates the selected intrinsic observation only when enabled", "[prd116][intrinsic][config]")
+TEST_CASE("DQN validates the selected intrinsic observation only when enabled", "[rfd0116][intrinsic][config]")
 {
     auto data = IntrinsicAgentData(false);
     data.Set("DefaultDQNAgent.intrinsic.observation", kInvalidConfigValue);
@@ -567,7 +567,7 @@ TEST_CASE("DQN validates the selected intrinsic observation only when enabled", 
         && Catch::Matchers::ContainsSubstring(kInvalidConfigValue));
 }
 
-TEST_CASE("DQN scales the intrinsic reward before combining it with external reward", "[prd121][intrinsic]")
+TEST_CASE("DQN scales the intrinsic reward before combining it with external reward", "[rfd0121][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -595,7 +595,7 @@ TEST_CASE("DQN scales the intrinsic reward before combining it with external rew
     CHECK(*results.back()->GetScalar(kTdMean) == Catch::Approx(6.0f));
 }
 
-TEST_CASE("Intrinsic return scaling masks before statistics and stores components before beta", "[prd121][intrinsic][return_intake]")
+TEST_CASE("Intrinsic return scaling masks before statistics and stores components before beta", "[rfd0121][intrinsic][return_intake]")
 {
     IntrinsicMetricsScope metrics;
     const bool decomposed = GENERATE(false, true);
@@ -641,7 +641,7 @@ TEST_CASE("Intrinsic return scaling masks before statistics and stores component
         const auto expected = reference->Scale(torch::tensor({done ? 0.0f : raw, raw}));
         const auto updates = scaled->CreateLearner()->UpdateFromBatch({.exp_step = step * 2}, experience);
         CHECK(*scaled->GetScalar(kBonusMean) == Catch::Approx(0.5f * expected.mean().item<float>()));
-        CHECK(scaled->GetScalar(kPrd121IntrinsicRewardScalerScale) == reference->GetScalar(anet::rl::RewardScaler::kKeyScale));
+        CHECK(scaled->GetScalar(kRfd0121IntrinsicRewardScalerScale) == reference->GetScalar(anet::rl::RewardScaler::kKeyScale));
         if (step == 3 || step == 4) {
             REQUIRE_FALSE(updates.empty());
             CHECK(*updates.back()->GetScalar(kTdMean) == Catch::Approx(2.0f + (decomposed ? 1.0f : 0.5f) * previous.mean().item<float>()));
@@ -651,7 +651,7 @@ TEST_CASE("Intrinsic return scaling masks before statistics and stores component
     }
 }
 
-TEST_CASE("DQN warms the intrinsic return scaler with raw RND errors", "[prd191][intrinsic][rnd_raw_reward]")
+TEST_CASE("DQN warms the intrinsic return scaler with raw RND errors", "[rfd0191][intrinsic][rnd_raw_reward]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -668,15 +668,15 @@ TEST_CASE("DQN warms the intrinsic return scaler with raw RND errors", "[prd191]
         const auto experience = IntrinsicExperience(static_cast<float>(step), false, false, step == 2);
         immediate->CreateLearner()->UpdateFromBatch({.exp_step = step}, experience);
         delayed->CreateLearner()->UpdateFromBatch({.exp_step = step}, experience);
-        CHECK(delayed->GetScalar(kPrd121IntrinsicRewardScalerScale)
-            == immediate->GetScalar(kPrd121IntrinsicRewardScalerScale));
+        CHECK(delayed->GetScalar(kRfd0121IntrinsicRewardScalerScale)
+            == immediate->GetScalar(kRfd0121IntrinsicRewardScalerScale));
         const auto bonus = immediate->GetScalar(kBonusMean).value();
         CHECK(bonus > 0.0f);
         CHECK(delayed->GetScalar(kBonusMean).value() == (step <= 4 ? 0.0f : bonus));
     }
 }
 
-TEST_CASE("DQN learner consumes the scaled external reward plus intrinsic bonus", "[prd116][intrinsic]")
+TEST_CASE("DQN learner consumes the scaled external reward plus intrinsic bonus", "[rfd0116][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -704,7 +704,7 @@ TEST_CASE("DQN learner consumes the scaled external reward plus intrinsic bonus"
     CHECK(*results.back()->GetScalar(kTdMean) == Catch::Approx(4.0f));
 }
 
-TEST_CASE("DQN intrinsic done mask controls the actual learning reward", "[prd123][intrinsic]")
+TEST_CASE("DQN intrinsic done mask controls the actual learning reward", "[rfd0123][intrinsic]")
 {
     SECTION("validates enabled values and notifies ignored state masking once") {
         const std::string key = "DefaultDQNAgent.intrinsic.use_done_mask";
@@ -770,16 +770,16 @@ TEST_CASE("DQN intrinsic done mask controls the actual learning reward", "[prd12
     }
 }
 
-TEST_CASE("DQN checkpoint resumes dynamic reward scaler statistics", "[prd121][intrinsic][checkpoint]")
+TEST_CASE("DQN checkpoint resumes dynamic reward scaler statistics", "[rfd0121][intrinsic][checkpoint]")
 {
     // Agentの公開保存・自動読み込みを通し、統計が初期化されず続くことを確かめる。
     IntrinsicMetricsScope metrics;
     const auto outer_mode = GENERATE(std::string(anet::rl::RewardScaler::kRewardStdState), std::string(anet::rl::RewardScaler::kReturnStdState));
-    const auto inner_mode = GENERATE(std::string(kPrd121Off), std::string(anet::rl::RewardScaler::kConstantState), std::string(anet::rl::RewardScaler::kRewardStdState), std::string(anet::rl::RewardScaler::kReturnStdState));
+    const auto inner_mode = GENERATE(std::string(kRfd0121Off), std::string(anet::rl::RewardScaler::kConstantState), std::string(anet::rl::RewardScaler::kRewardStdState), std::string(anet::rl::RewardScaler::kReturnStdState));
     const bool decomposed = GENERATE(false, true);
-    if (decomposed && inner_mode == kPrd121Off) return;
+    if (decomposed && inner_mode == kRfd0121Off) return;
     CAPTURE(outer_mode, inner_mode, decomposed);
-    auto data = IntrinsicAgentData(inner_mode != kPrd121Off);
+    auto data = IntrinsicAgentData(inner_mode != kRfd0121Off);
     data.Set("DefaultDQNAgent.intrinsic.value_mode", decomposed ? anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed : anet::rl::dqn::DefaultDQNAgentConfig::kValueModeCombined);
     data.Set("DefaultDQNAgent.reward_scaler.use_dynamic_scaling", true);
     data.Set("DefaultDQNAgent.reward_scaler.use_auto_post_scale", false);
@@ -793,7 +793,7 @@ TEST_CASE("DQN checkpoint resumes dynamic reward scaler statistics", "[prd121][i
     auto first = IntrinsicExperience(1, false, false, true);
     first.reward = torch::tensor({1.0f, 3.0f});
     original->CreateLearner()->UpdateFromBatch({}, first);
-    const auto path = std::filesystem::temp_directory_path() / ("anet-prd121-"
+    const auto path = std::filesystem::temp_directory_path() / ("anet-rfd0121-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + kCheckpointExtension);
     IntrinsicCheckpointCleanup cleanup{.path = path};
     {
@@ -809,7 +809,7 @@ TEST_CASE("DQN checkpoint resumes dynamic reward scaler statistics", "[prd121][i
         mismatch = data;
         mismatch.Set("DefaultDQNAgent.reward_scaler.dynamic_mode", outer_mode == anet::rl::RewardScaler::kRewardStdState ? anet::rl::RewardScaler::kReturnStdState : anet::rl::RewardScaler::kRewardStdState);
         CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("reward_scaler kind"));
-        if (inner_mode != kPrd121Off) {
+        if (inner_mode != kRfd0121Off) {
             mismatch = data;
             mismatch.Set("DefaultDQNAgent.intrinsic.value_mode", decomposed ? anet::rl::dqn::DefaultDQNAgentConfig::kValueModeCombined : anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
             CHECK_THROWS_WITH(MakeIntrinsicAgent(mismatch), Catch::Matchers::ContainsSubstring("intrinsic.value_mode"));
@@ -828,19 +828,19 @@ TEST_CASE("DQN checkpoint resumes dynamic reward scaler statistics", "[prd121][i
     REQUIRE(original->GetScalar(key));
     REQUIRE(restored->GetScalar(key));
     CHECK(*restored->GetScalar(key) == *original->GetScalar(key));
-    if (inner_mode != kPrd121Off)
-        CHECK(original->GetScalar(kPrd121IntrinsicRewardScalerScale) == restored->GetScalar(kPrd121IntrinsicRewardScalerScale));
+    if (inner_mode != kRfd0121Off)
+        CHECK(original->GetScalar(kRfd0121IntrinsicRewardScalerScale) == restored->GetScalar(kRfd0121IntrinsicRewardScalerScale));
     auto next = IntrinsicExperience(1, false, false);
     next.reward = torch::tensor({2.0f, 6.0f});
     original->CreateLearner()->UpdateFromBatch({.exp_step = 2}, next);
     next.state.episode_start.fill_(true);
     restored->CreateLearner()->UpdateFromBatch({.exp_step = 2}, next);
     CHECK(original->GetScalar(anet::rl::RewardScaler::kKeyScale) == restored->GetScalar(anet::rl::RewardScaler::kKeyScale));
-    if (inner_mode != kPrd121Off)
-        CHECK(original->GetScalar(kPrd121IntrinsicRewardScalerScale) == restored->GetScalar(kPrd121IntrinsicRewardScalerScale));
+    if (inner_mode != kRfd0121Off)
+        CHECK(original->GetScalar(kRfd0121IntrinsicRewardScalerScale) == restored->GetScalar(kRfd0121IntrinsicRewardScalerScale));
 }
 
-TEST_CASE("DQN checkpoint requires matching intrinsic presence and resumes scoring", "[prd116][intrinsic][checkpoint]")
+TEST_CASE("DQN checkpoint requires matching intrinsic presence and resumes scoring", "[rfd0116][intrinsic][checkpoint]")
 {
     IntrinsicMetricsScope metrics;
     const bool enabled = GENERATE(false, true);
@@ -855,7 +855,7 @@ TEST_CASE("DQN checkpoint requires matching intrinsic presence and resumes scori
     }
     auto original = MakeIntrinsicAgent(data);
     original->CreateLearner()->UpdateFromBatch({}, IntrinsicExperience(1, false, false, true));
-    const auto path = std::filesystem::temp_directory_path() / ("anet-prd116-"
+    const auto path = std::filesystem::temp_directory_path() / ("anet-rfd0116-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".anet");
     IntrinsicCheckpointCleanup cleanup{.path = path};
     {
@@ -922,16 +922,16 @@ TEST_CASE("DQN checkpoint requires matching intrinsic presence and resumes scori
         std::ofstream stream(path, std::ios::binary | std::ios::trunc);
         anet::OutputArchive archive(stream);
         anet::ArchiveHeader unknown;
-        unknown.info = "unknown-prd116-header";
+        unknown.info = "unknown-rfd0116-header";
         archive.Write(unknown);
         archive.Write(std::string("{}"));
     }
     CHECK_THROWS_WITH(MakeIntrinsicAgent(data),
-        Catch::Matchers::ContainsSubstring("Invalid DefaultDQN checkpoint header='unknown-prd116-header'")
+        Catch::Matchers::ContainsSubstring("Invalid DefaultDQN checkpoint header='unknown-rfd0116-header'")
         && Catch::Matchers::ContainsSubstring("expected"));
 }
 
-TEST_CASE("DQN intrinsic checkpoint resumes fractional credit and selected observations", "[prd116][intrinsic][rnd_schedule_checkpoint]")
+TEST_CASE("DQN intrinsic checkpoint resumes fractional credit and selected observations", "[rfd0116][intrinsic][rnd_schedule_checkpoint]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -942,7 +942,7 @@ TEST_CASE("DQN intrinsic checkpoint resumes fractional credit and selected obser
     original->CreateLearner()->UpdateFromBatch({}, IntrinsicExperience(1, false, false, true));
     REQUIRE(*original->GetScalar(kIntrinsicLearnCount) == 1.0f);
     // 1.5 creditのうち1回を消費し、0.5と抽選済みの乱数状態を保存する。
-    const auto path = std::filesystem::temp_directory_path() / ("anet-prd116-schedule-"
+    const auto path = std::filesystem::temp_directory_path() / ("anet-rfd0116-schedule-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".anet");
     IntrinsicCheckpointCleanup cleanup{.path = path};
     {
@@ -964,7 +964,7 @@ TEST_CASE("DQN intrinsic checkpoint resumes fractional credit and selected obser
     }
 }
 
-TEST_CASE("DQN intrinsic consumes warmup credit and holds the last loss", "[prd116][intrinsic][rnd_schedule_edges]")
+TEST_CASE("DQN intrinsic consumes warmup credit and holds the last loss", "[rfd0116][intrinsic][rnd_schedule_edges]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -989,7 +989,7 @@ TEST_CASE("DQN intrinsic consumes warmup credit and holds the last loss", "[prd1
     }
 }
 
-TEST_CASE("DQN intrinsic validates schedule settings only when enabled", "[prd116][intrinsic][config][rnd_schedule_edges]")
+TEST_CASE("DQN intrinsic validates schedule settings only when enabled", "[rfd0116][intrinsic][config][rnd_schedule_edges]")
 {
     const auto invalid = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
         {"learn.intake.ratio", "0"}, {"learn.intake.ratio", "-0.1"}, {"learn.intake.ratio", "1.01"},
@@ -1022,7 +1022,7 @@ static std::string IntrinsicCheckpointPayload(const anet::rl::dqn::DefaultDQNAge
 }
 
 TEST_CASE("RND rollout checkpoint resumes the count and starts filling an empty rollout",
-    "[prd191][intrinsic][rnd_rollout_checkpoint]")
+    "[rfd0191][intrinsic][rnd_rollout_checkpoint]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -1036,7 +1036,7 @@ TEST_CASE("RND rollout checkpoint resumes the count and starts filling an empty 
         original->CreateLearner()->UpdateFromBatch({.exp_step = step * 2},
             IntrinsicExperience(static_cast<float>(step), false, false, step == 1));
     REQUIRE(original->GetScalar(kIntrinsicLearnCount).value() == 1.0f);
-    const auto path = std::filesystem::temp_directory_path() / ("anet-prd191-rollout-"
+    const auto path = std::filesystem::temp_directory_path() / ("anet-rfd0191-rollout-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + kCheckpointExtension);
     IntrinsicCheckpointCleanup cleanup{.path = path};
     {
@@ -1084,7 +1084,7 @@ static std::string RndPredictorBytes(std::istream& stream)
 }
 
 TEST_CASE("DQN validates RND rollout settings and only checks lane combinations when selected",
-    "[prd191][intrinsic][rnd_rollout_config]")
+    "[rfd0191][intrinsic][rnd_rollout_config]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -1137,7 +1137,7 @@ TEST_CASE("DQN validates RND rollout settings and only checks lane combinations 
     }
 }
 
-TEST_CASE("DQN intrinsic learns complete lane groups and rejects oversize batches", "[prd116][intrinsic][rnd_sampling][prd117]")
+TEST_CASE("DQN intrinsic learns complete lane groups and rejects oversize batches", "[rfd0116][intrinsic][rnd_sampling][rfd0117]")
 {
     IntrinsicMetricsScope metrics;
     const auto input_device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
@@ -1241,7 +1241,7 @@ static std::shared_ptr<anet::rl::Actor> MakeIntrinsicTraceActor(
 }
 
 TEST_CASE("Raw RND wait keeps both reward paths at zero after updating the scaler",
-    "[prd191][intrinsic][rnd_raw_trace]")
+    "[rfd0191][intrinsic][rnd_raw_trace]")
 {
     IntrinsicMetricsScope metrics;
     const bool decomposed = GENERATE(false, true);
@@ -1283,7 +1283,7 @@ TEST_CASE("Raw RND wait keeps both reward paths at zero after updating the scale
         } else {
             actor->Sync();
             const auto after = provider->Observe(sample);
-            const auto scale = agent->GetScalar(kPrd121IntrinsicRewardScalerScale).value();
+            const auto scale = agent->GetScalar(kRfd0121IntrinsicRewardScalerScale).value();
             for (int lane = 0; lane < 2; ++lane) {
                 const auto error = before.current->GetScalar(kStepIntrinsicError, lane).value();
                 const auto scaled = ((1.0f + error) - 1.0f) * scale;
@@ -1306,7 +1306,7 @@ TEST_CASE("Raw RND wait keeps both reward paths at zero after updating the scale
     }
 }
 
-TEST_CASE("Decomposed Q-only Trace avoids RND followers and scoring", "[prd121][intrinsic][prd121-review-trace]")
+TEST_CASE("Decomposed Q-only Trace avoids RND followers and scoring", "[rfd0121][intrinsic][rfd0121-review-trace]")
 {
     IntrinsicMetricsScope metrics;
     const bool with_actor = GENERATE(false, true);
@@ -1319,7 +1319,7 @@ TEST_CASE("Decomposed Q-only Trace avoids RND followers and scoring", "[prd121][
     auto actor = MakeIntrinsicTraceActor(agent);
     // Actorを渡さないQ専用の要求も通り、RNDのsync followerを接続しない。
     auto trace = agent->CreateStepDiagnosticsProvider({.num_lanes = 2,
-        .keys = {kPrd121ExtrinsicQSa, kPrd121IntrinsicQSa, kPrd121ExtrinsicStateValue, kPrd121IntrinsicStateValue},
+        .keys = {kRfd0121ExtrinsicQSa, kRfd0121IntrinsicQSa, kRfd0121ExtrinsicStateValue, kRfd0121IntrinsicStateValue},
         .actor = with_actor ? actor : nullptr});
     CHECK_FALSE(trace->Resume());
     for (anet::rl::step_t step = 0; step < 4; ++step) {
@@ -1327,8 +1327,8 @@ TEST_CASE("Decomposed Q-only Trace avoids RND followers and scoring", "[prd121][
         experience.action = actor->MakeAction({.train_step = step}, experience.state);
         const auto result = trace->Observe(experience);
         for (int lane = 0; lane < 2; ++lane) {
-            CHECK(std::isfinite(*result.current->GetScalar(kPrd121ExtrinsicQSa, lane)));
-            CHECK(std::isfinite(*result.current->GetScalar(kPrd121IntrinsicQSa, lane)));
+            CHECK(std::isfinite(*result.current->GetScalar(kRfd0121ExtrinsicQSa, lane)));
+            CHECK(std::isfinite(*result.current->GetScalar(kRfd0121IntrinsicQSa, lane)));
             CHECK(std::isnan(*result.current->GetScalar(kStepIntrinsicError, lane)));
         }
         // 未要求の内的報酬からpriorityを作るために採点しない。
@@ -1336,7 +1336,7 @@ TEST_CASE("Decomposed Q-only Trace avoids RND followers and scoring", "[prd121][
     }
 }
 
-TEST_CASE("Decomposed AMP updates both heads with merge and split", "[prd121][intrinsic][amp]")
+TEST_CASE("Decomposed AMP updates both heads with merge and split", "[rfd0121][intrinsic][amp]")
 {
     if (!torch::cuda::is_available()) {
         WARN("CUDA unavailable; decomposed AMP validation not executed.");
@@ -1358,7 +1358,7 @@ TEST_CASE("Decomposed AMP updates both heads with merge and split", "[prd121][in
     data.Set("DefaultDQNAgent.intrinsic.rnd.error_norm.standardize.warmup_steps", 0);
     const torch::Device device(torch::kCUDA, 0);
     auto agent = MakeIntrinsicAgent(data, 2, device);
-    const auto forward = agent->GetTensorDictFunction(kPrd121PolicyNetForward);
+    const auto forward = agent->GetTensorDictFunction(kRfd0121PolicyNetForward);
     REQUIRE(forward);
     const auto observations = RndTestObservation().To(device);
     const auto before = (*forward)(observations).Clone();
@@ -1366,28 +1366,28 @@ TEST_CASE("Decomposed AMP updates both heads with merge and split", "[prd121][in
         agent->CreateLearner()->UpdateFromBatch({.exp_step = step * 2}, IntrinsicExperience(1 + float(step), false, false, step == 0));
     const auto after = (*forward)(observations);
     CAPTURE(bf16, split);
-    CHECK_FALSE(torch::equal(before.At(kPrd121ExtrinsicQ), after.At(kPrd121ExtrinsicQ)));
-    CHECK_FALSE(torch::equal(before.At(kPrd121IntrinsicQ), after.At(kPrd121IntrinsicQ)));
-    for (const auto* key : {kPrd121ExtrinsicLoss, kPrd121IntrinsicLoss, kPrd121ExtrinsicHeadGradNorm, kPrd121IntrinsicHeadGradNorm}) {
+    CHECK_FALSE(torch::equal(before.At(kRfd0121ExtrinsicQ), after.At(kRfd0121ExtrinsicQ)));
+    CHECK_FALSE(torch::equal(before.At(kRfd0121IntrinsicQ), after.At(kRfd0121IntrinsicQ)));
+    for (const auto* key : {kRfd0121ExtrinsicLoss, kRfd0121IntrinsicLoss, kRfd0121ExtrinsicHeadGradNorm, kRfd0121IntrinsicHeadGradNorm}) {
         const auto value = agent->GetScalar(key);
         REQUIRE(value);
         CHECK(std::isfinite(*value));
     }
-    for (const auto* key : {kPrd121ExtrinsicGradNorm, kPrd121IntrinsicGradNorm}) {
+    for (const auto* key : {kRfd0121ExtrinsicGradNorm, kRfd0121IntrinsicGradNorm}) {
         const auto value = agent->GetScalar(key);
         REQUIRE(value);
         CHECK(std::isfinite(*value) == split);
     }
 }
 
-TEST_CASE("Decomposed Agent selects fixed-zero and learner beta per Actor", "[prd121][intrinsic][actor_beta]")
+TEST_CASE("Decomposed Agent selects fixed-zero and learner beta per Actor", "[rfd0121][intrinsic][actor_beta]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
     data.Set("DefaultDQNAgent.intrinsic.value_mode", anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
     data.Set("DefaultDQNAgent.intrinsic.value.head.use_dueling", false);
     data.Set("DefaultDQNAgent.intrinsic.beta", 10.0f);
-    for (const auto* name : {kPrd121FixedActorKey, kPrd121Learner}) {
+    for (const auto* name : {kRfd0121FixedActorKey, kRfd0121Learner}) {
         const auto prefix = std::string("DefaultDQNAgent.actor.[") + name + "]";
         data.Set(prefix + ".nn_forward_key", kTraceForwardKey);
         data.Set(prefix + ".network", "online");
@@ -1407,22 +1407,22 @@ TEST_CASE("Decomposed Agent selects fixed-zero and learner beta per Actor", "[pr
         net, anet::rl::BatchEnvSpec{2, 1}, spec, torch::kCPU, 123);
     const auto angles = torch::arange(64, torch::kFloat32) * (6.283185307f / 64);
     const anet::TensorDict observations{{kObservation, torch::stack({angles.cos(), angles.sin()}, 1)}};
-    const auto forward = agent->GetTensorDictFunction(kPrd121PolicyNetForward);
+    const auto forward = agent->GetTensorDictFunction(kRfd0121PolicyNetForward);
     REQUIRE(forward);
     const auto output = (*forward)(observations);
-    const auto external = output.At(kPrd121ExtrinsicQ).argmax(1);
-    const auto combined = output.At(kPrd121Q).argmax(1);
+    const auto external = output.At(kRfd0121ExtrinsicQ).argmax(1);
+    const auto combined = output.At(kRfd0121Q).argmax(1);
     REQUIRE(external.ne(combined).any().item<bool>());
-    for (const auto* name : {kPrd121FixedActorKey, kPrd121Learner}) {
+    for (const auto* name : {kRfd0121FixedActorKey, kRfd0121Learner}) {
         const auto actor = agent->CreateActor({.batch_env_spec = {64, 1}, .env_spec = spec,
             .device = torch::kCPU, .seed = 123, .actor_key = name});
         const auto flags = torch::zeros({64}, torch::kBool);
         const auto info = actor->MakeAction({}, anet::rl::BatchState(observations, flags, flags, ~flags));
-        CHECK(torch::equal(info->GetAction(), std::string(name) == kPrd121FixedActorKey ? external : combined));
+        CHECK(torch::equal(info->GetAction(), std::string(name) == kRfd0121FixedActorKey ? external : combined));
     }
 }
 
-TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[prd121][intrinsic]")
+TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[rfd0121][intrinsic]")
 {
     // 公開の設定・Actor・取り込み・Replay・更新をつないだ最初の検査。
     IntrinsicMetricsScope metrics;
@@ -1445,11 +1445,11 @@ TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[p
     auto actor = MakeIntrinsicTraceActor(agent);
     auto learner = agent->CreateLearner();
     agent->ConfigureScalarMetricSubscriptions({anet::rl::ScalarMetricSubscription{
-        .source_key = kPrd121ReplayFitUniformTdMean, .event = anet::rl::EventType::LEARN,
+        .source_key = kRfd0121ReplayFitUniformTdMean, .event = anet::rl::EventType::LEARN,
         .target = anet::rl::EventField::UPDATE_RESULT, .interval = 1, .scope = anet::rl::RunnerScope::TRAIN},
-        anet::rl::ScalarMetricSubscription{.source_key = kPrd121PolicyChurnQDeltaAbsMean, .event = anet::rl::EventType::LEARN,
+        anet::rl::ScalarMetricSubscription{.source_key = kRfd0121PolicyChurnQDeltaAbsMean, .event = anet::rl::EventType::LEARN,
         .target = anet::rl::EventField::UPDATE_RESULT, .interval = 1, .scope = anet::rl::RunnerScope::TRAIN},
-        anet::rl::ScalarMetricSubscription{.source_key = kPrd121NoisyQAbsDiff, .event = anet::rl::EventType::LEARN,
+        anet::rl::ScalarMetricSubscription{.source_key = kRfd0121NoisyQAbsDiff, .event = anet::rl::EventType::LEARN,
         .target = anet::rl::EventField::UPDATE_RESULT, .interval = 1, .scope = anet::rl::RunnerScope::TRAIN}});
     float replay_fit = std::numeric_limits<float>::quiet_NaN();
     float churn = std::numeric_limits<float>::quiet_NaN();
@@ -1460,11 +1460,11 @@ TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[p
         experience.action = actor->MakeAction(counts, experience.state);
         const auto updates = learner->UpdateFromBatch(counts, experience);
         if (!updates.empty()) {
-            const auto value = updates.back()->GetScalar(kPrd121ReplayFitUniformTdMean);
+            const auto value = updates.back()->GetScalar(kRfd0121ReplayFitUniformTdMean);
             if (value) replay_fit = *value;
-            const auto churn_value = updates.back()->GetScalar(kPrd121PolicyChurnQDeltaAbsMean);
+            const auto churn_value = updates.back()->GetScalar(kRfd0121PolicyChurnQDeltaAbsMean);
             if (churn_value) churn = *churn_value;
-            const auto noisy_value = updates.back()->GetScalar(kPrd121NoisyQAbsDiff);
+            const auto noisy_value = updates.back()->GetScalar(kRfd0121NoisyQAbsDiff);
             if (noisy_value) noisy = *noisy_value;
         }
     }
@@ -1472,17 +1472,17 @@ TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[p
     CHECK(std::isfinite(churn));
     CHECK(std::isfinite(noisy));
     CHECK(noisy > 0.0f);
-    const auto forward = agent->GetTensorDictFunction(kPrd121PolicyNetForward);
+    const auto forward = agent->GetTensorDictFunction(kRfd0121PolicyNetForward);
     REQUIRE(forward);
     const auto values = (*forward)(IntrinsicExperience(2.0f, false, false).state.obs);
-    CHECK(torch::allclose(values.At(kPrd121Q), values.At(kPrd121ExtrinsicQ) + 0.1f * values.At(kPrd121IntrinsicQ)));
+    CHECK(torch::allclose(values.At(kRfd0121Q), values.At(kRfd0121ExtrinsicQ) + 0.1f * values.At(kRfd0121IntrinsicQ)));
     auto trace = agent->CreateStepDiagnosticsProvider({.num_lanes = 2,
-        .keys = {kPrd121ApproxPriority, kPrd121ExtrinsicQSa, kPrd121IntrinsicQSa,
-            kPrd121ExtrinsicStateValue, kPrd121IntrinsicStateValue}, .actor = actor});
+        .keys = {kRfd0121ApproxPriority, kRfd0121ExtrinsicQSa, kRfd0121IntrinsicQSa,
+            kRfd0121ExtrinsicStateValue, kRfd0121IntrinsicStateValue}, .actor = actor});
     auto experience = IntrinsicExperience(2.0f, false, false, true);
     experience.action = actor->MakeAction({}, experience.state);
     const auto row = trace->Observe(experience);
-    for (const auto* key : {kPrd121ExtrinsicQSa, kPrd121IntrinsicQSa, kPrd121ExtrinsicStateValue, kPrd121IntrinsicStateValue}) {
+    for (const auto* key : {kRfd0121ExtrinsicQSa, kRfd0121IntrinsicQSa, kRfd0121ExtrinsicStateValue, kRfd0121IntrinsicStateValue}) {
         const auto value = row.current->GetScalar(key, 0);
         CAPTURE(key);
         REQUIRE(value);
@@ -1493,11 +1493,11 @@ TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[p
     const auto following = trace->Observe(next);
     REQUIRE_FALSE(following.completed.empty());
     for (const auto& completed : following.completed) {
-        REQUIRE(completed.values->GetScalar(kPrd121ApproxPriority, 0));
-        CHECK(std::isfinite(*completed.values->GetScalar(kPrd121ApproxPriority, 0)));
+        REQUIRE(completed.values->GetScalar(kRfd0121ApproxPriority, 0));
+        CHECK(std::isfinite(*completed.values->GetScalar(kRfd0121ApproxPriority, 0)));
     }
-    for (const auto* key : {kPrd121ExtrinsicLoss, kPrd121IntrinsicLoss, kPrd121ExtrinsicQSaMean, kPrd121IntrinsicQSaMean,
-        kPrd121ExtrinsicHeadGradNorm, kPrd121IntrinsicHeadGradNorm, kPrd121IntrinsicQShare}) {
+    for (const auto* key : {kRfd0121ExtrinsicLoss, kRfd0121IntrinsicLoss, kRfd0121ExtrinsicQSaMean, kRfd0121IntrinsicQSaMean,
+        kRfd0121ExtrinsicHeadGradNorm, kRfd0121IntrinsicHeadGradNorm, kRfd0121IntrinsicQShare}) {
         const auto value = agent->GetScalar(key);
         CAPTURE(key);
         REQUIRE(value);
@@ -1505,7 +1505,7 @@ TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[p
     }
 }
 
-TEST_CASE("DQN trace scores its Actor snapshot after synchronization", "[prd127][prd129][intrinsic]")
+TEST_CASE("DQN trace scores its Actor snapshot after synchronization", "[rfd0127][rfd0129][intrinsic]")
 {
     // 公開のAgent・Actor・step診断を通して、同期から列の読み出しまでを接続する。
     IntrinsicMetricsScope metrics;
@@ -1537,7 +1537,7 @@ TEST_CASE("DQN trace scores its Actor snapshot after synchronization", "[prd127]
     CHECK_FALSE(learned.current->GetScalar("intrinsic.unknown", 0));
 }
 
-TEST_CASE("Trace forwards requested intrinsic keys and Actor lifetime controls", "[prd127][prd129][intrinsic]")
+TEST_CASE("Trace forwards requested intrinsic keys and Actor lifetime controls", "[rfd0127][rfd0129][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -1576,7 +1576,7 @@ TEST_CASE("Trace forwards requested intrinsic keys and Actor lifetime controls",
     CHECK(rows[0]->values[1] == old_error);
 }
 
-TEST_CASE("Intrinsic diagnostics honor snapshot synchronization and suspension", "[prd127][intrinsic]")
+TEST_CASE("Intrinsic diagnostics honor snapshot synchronization and suspension", "[rfd0127][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     const bool enabled = GENERATE(false, true);
@@ -1641,7 +1641,7 @@ TEST_CASE("Intrinsic diagnostics honor snapshot synchronization and suspension",
     }
 }
 
-TEST_CASE("Intrinsic diagnostics wait only for an un-cloned requested estimator", "[prd127][intrinsic]")
+TEST_CASE("Intrinsic diagnostics wait only for an un-cloned requested estimator", "[rfd0127][intrinsic]")
 {
     class LockableAgent final : public anet::rl::dqn::DefaultDQNAgent {
     public:
@@ -1685,7 +1685,7 @@ TEST_CASE("Intrinsic diagnostics wait only for an un-cloned requested estimator"
     else CHECK(std::isnan(*result.current->GetScalar(kStepIntrinsicError, 0)));
 }
 
-TEST_CASE("Trace bonus equals the reward consumed by the real learner", "[prd127][intrinsic]")
+TEST_CASE("Trace bonus equals the reward consumed by the real learner", "[rfd0127][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     const auto mode = GENERATE(0, 1, 2);
@@ -1746,7 +1746,7 @@ TEST_CASE("Trace bonus equals the reward consumed by the real learner", "[prd127
     CHECK(flat[6].item<float>() == Catch::Approx(2.0f + bonus).epsilon(1e-5));
 }
 
-TEST_CASE("Interleaved Trace leaves learner rewards and saved intrinsic state unchanged", "[prd127][intrinsic]")
+TEST_CASE("Interleaved Trace leaves learner rewards and saved intrinsic state unchanged", "[rfd0127][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     const bool cloned = GENERATE(false, true);
@@ -1826,7 +1826,7 @@ TEST_CASE("Interleaved Trace leaves learner rewards and saved intrinsic state un
     }
 }
 
-TEST_CASE("Checkpoint trace scores bonus before the first learning intake", "[prd127][prd129][intrinsic]")
+TEST_CASE("Checkpoint trace scores bonus before the first learning intake", "[rfd0127][rfd0129][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     const bool learning_enabled = GENERATE(false, true);
@@ -1844,7 +1844,7 @@ TEST_CASE("Checkpoint trace scores bonus before the first learning intake", "[pr
     for (anet::rl::step_t step = 0; step < 4; ++step)
         trained->CreateLearner()->UpdateFromBatch({.exp_step = step * 2},
             IntrinsicExperience(2.0f + step, false, false, step == 0));
-    const auto path = std::filesystem::temp_directory_path() / ("anet-prd127-"
+    const auto path = std::filesystem::temp_directory_path() / ("anet-rfd0127-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".anet");
     IntrinsicCheckpointCleanup cleanup{.path = path};
     {
@@ -1872,7 +1872,7 @@ TEST_CASE("Checkpoint trace scores bonus before the first learning intake", "[pr
     CHECK(bonus == Catch::Approx(beta * std::clamp(normalized_error, 0.0f, multiplier_max - 1.0f)));
 }
 
-TEST_CASE("Disabled learning intake advances the Trace beta schedule", "[prd129][intrinsic]")
+TEST_CASE("Disabled learning intake advances the Trace beta schedule", "[rfd0129][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     const bool clone_model = GENERATE(false, true);
@@ -1890,7 +1890,7 @@ TEST_CASE("Disabled learning intake advances the Trace beta schedule", "[prd129]
     for (anet::rl::step_t step = 0; step < 4; ++step)
         trained->CreateLearner()->UpdateFromBatch({.exp_step = step * 2},
             IntrinsicExperience(2.0f + step, false, false, step == 0));
-    const auto path = std::filesystem::temp_directory_path() / ("anet-prd129-schedule-"
+    const auto path = std::filesystem::temp_directory_path() / ("anet-rfd0129-schedule-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + kCheckpointExtension);
     IntrinsicCheckpointCleanup cleanup{.path = path};
     {
@@ -1926,7 +1926,7 @@ TEST_CASE("Disabled learning intake advances the Trace beta schedule", "[prd129]
     }
 }
 
-TEST_CASE("Disabled learning intake preserves all intrinsic scalar diagnostics", "[prd129][intrinsic]")
+TEST_CASE("Disabled learning intake preserves all intrinsic scalar diagnostics", "[rfd0129][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     auto data = IntrinsicAgentData(true);
@@ -1936,7 +1936,7 @@ TEST_CASE("Disabled learning intake preserves all intrinsic scalar diagnostics",
         trained->CreateLearner()->UpdateFromBatch({.exp_step = step * 2},
             IntrinsicExperience(2.0f + step, false, false, step == 0));
     REQUIRE(*trained->GetScalar(kIntrinsicLearnCount) > 0.0f);
-    const auto path = std::filesystem::temp_directory_path() / ("anet-prd129-diagnostics-"
+    const auto path = std::filesystem::temp_directory_path() / ("anet-rfd0129-diagnostics-"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + kCheckpointExtension);
     IntrinsicCheckpointCleanup cleanup{.path = path};
     {
@@ -1967,7 +1967,7 @@ TEST_CASE("Disabled learning intake preserves all intrinsic scalar diagnostics",
     }
 }
 
-TEST_CASE("Read-only nonfinite errors remain unavailable and warn once", "[prd127][intrinsic]")
+TEST_CASE("Read-only nonfinite errors remain unavailable and warn once", "[rfd0127][intrinsic]")
 {
     IntrinsicMetricsScope metrics;
     anet::test::LogCaptureGuard logs;
@@ -2023,7 +2023,7 @@ namespace {
         };
 }
 
-TEST_CASE("Shipped RND profiles expose readable intrinsic Trace columns only when selected", "[prd127][shipped_config]")
+TEST_CASE("Shipped RND profiles expose readable intrinsic Trace columns only when selected", "[rfd0127][shipped_config]")
 {
     IntrinsicMetricsScope metrics;
     constexpr char kShippedLunarConfig[] = "LunarLander";
@@ -2035,7 +2035,7 @@ TEST_CASE("Shipped RND profiles expose readable intrinsic Trace columns only whe
         CAPTURE(env);
         for (const bool selected : {false, true}) {
             // 値や本数の写しを固定せず、選択した機能の欄がその機能の提供する鍵で読めるかを確かめる。
-            const auto path = std::filesystem::temp_directory_path() / ("anet-prd127-config-"
+            const auto path = std::filesystem::temp_directory_path() / ("anet-rfd0127-config-"
                 + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".txt");
             struct RemoveInput {
                 std::filesystem::path path;

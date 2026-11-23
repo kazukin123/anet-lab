@@ -30,7 +30,7 @@
 #include "anet/gui.hpp"
 #include "nn_impl.hpp"
 
-TEST_CASE("Pane open state survives temporary maximize hiding", "[gui][prd094][pane_open]")
+TEST_CASE("Pane open state survives temporary maximize hiding", "[gui][rfd0094][pane_open]")
 {
     wxWindow window;
     wxAuiPaneInfo pane;
@@ -56,7 +56,7 @@ TEST_CASE("Pane open state survives temporary maximize hiding", "[gui][prd094][p
     CHECK_FALSE(anet::rl::gui::IsPaneOpen(wxAuiPaneInfo(), true));
 }
 
-constexpr char kPrd170TraceInput[] = "nn_trace/main/00_Input";
+constexpr char kRfd0170TraceInput[] = "nn_trace/main/00_Input";
 
 namespace {
 
@@ -249,7 +249,7 @@ public:
         auto payload = torch::arange(
             1, num_envs_ * 3 + 1, torch::TensorOptions().dtype(torch::kFloat32)).reshape({ num_envs_, 3 });
         rl::AuxData aux;
-        if (options.nn_trace) aux[kPrd170TraceInput] = torch::ones({1, 1});
+        if (options.nn_trace) aux[kRfd0170TraceInput] = torch::ones({1, 1});
         return std::make_shared<rl::BatchActionInfo>(
             torch::zeros({ num_envs_ }, torch::kInt64),
             anet::TensorDict{},
@@ -654,10 +654,10 @@ std::shared_ptr<RunManagerEnvFactoryState> RegisterRunManagerNameTestFactories()
 
 } // namespace
 
-TEST_CASE("PRD070 records adopted devices in owner JSON without changing configuration", "[device][prd070]")
+TEST_CASE("RFD0070 records adopted devices in owner JSON without changing configuration", "[device][rfd0070]")
 {
     // 指定値と実効deviceの記録をRunManagerの公開生成経路から確認する。
-    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "prd070-device";
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "rfd0070-device";
     anet::MetricsLogger::Reset();
     anet::MetricsLoggerConfig logger_config;
     logger_config.run_name_tmpl = "device_test";
@@ -694,7 +694,7 @@ TEST_CASE("PRD070 records adopted devices in owner JSON without changing configu
     CHECK(read_json("agent.json").at("effective_device") == (torch::cuda::is_available() ? "cuda" : "cpu"));
 }
 
-TEST_CASE("Serial runner carries terminal results after the Env has automatically reset", "[trainer][prd097]")
+TEST_CASE("Serial runner carries terminal results after the Env has automatically reset", "[trainer][rfd0097]")
 {
     // 実際の逐次BatchEnvを通し、終端の通知がリセット前に届くことを確かめる。
     auto env = std::make_shared<rl::VectorizedDiscreteBatchEnv>(
@@ -1073,7 +1073,7 @@ TEST_CASE("EvalRunner delegates Actor device validation to its Agent", "[trainer
     CHECK(agent->GetLastActorKey() == "explicit");
 }
 
-TEST_CASE("RunManager validates train runner types before constructing Env", "[trainer][run_manager][prd117]")
+TEST_CASE("RunManager validates train runner types before constructing Env", "[trainer][run_manager][rfd0117]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     auto state = RegisterRunManagerNameTestFactories();
@@ -1380,7 +1380,7 @@ TEST_CASE("RunManager rejects negative Eval schedule intervals before constructi
     CHECK(factory_state->creation_count == 0);
 }
 
-TEST_CASE("RunManager validates Eval offset and warmup before constructing Env", "[prd158][trainer][eval_schedule]")
+TEST_CASE("RunManager validates Eval offset and warmup before constructing Env", "[rfd0158][trainer][eval_schedule]")
 {
     const std::string field = GENERATE("offset", "warmup_count");
     const int interval = GENERATE(0, 100);
@@ -1398,7 +1398,7 @@ TEST_CASE("RunManager validates Eval offset and warmup before constructing Env",
     CHECK(factory_state->creation_count == 0);
 }
 
-TEST_CASE("Eval declarations reject unknown fields regardless of scheduling", "[prd117][trainer][eval_catalog]")
+TEST_CASE("Eval declarations reject unknown fields regardless of scheduling", "[rfd0117][trainer][eval_catalog]")
 {
     const auto interval = GENERATE(Catch::Generators::values<std::optional<int>>({std::nullopt, 0, 100}));
     const std::string field = GENERATE("typo", "env.typo");
@@ -1416,7 +1416,7 @@ TEST_CASE("Eval declarations reject unknown fields regardless of scheduling", "[
         && Catch::Matchers::ContainsSubstring(field) && Catch::Matchers::ContainsSubstring("9"));
 }
 
-TEST_CASE("Eval schedules reject unknown fields even when disabled", "[prd117][trainer][eval_catalog]")
+TEST_CASE("Eval schedules reject unknown fields even when disabled", "[rfd0117][trainer][eval_catalog]")
 {
     const int interval = GENERATE(0, 100);
     ScopedRunManagerMetricsLogger metrics_logger;
@@ -1432,7 +1432,7 @@ TEST_CASE("Eval schedules reject unknown fields even when disabled", "[prd117][t
         && Catch::Matchers::ContainsSubstring("warmup_cout") && Catch::Matchers::ContainsSubstring("9"));
 }
 
-TEST_CASE("Dormant Eval Env values use the Env configuration reader", "[prd117][trainer][eval_catalog]")
+TEST_CASE("Dormant Eval Env values use the Env configuration reader", "[rfd0117][trainer][eval_catalog]")
 {
     const auto interval = GENERATE(Catch::Generators::values<std::optional<int>>({std::nullopt, 0}));
     ScopedRunManagerMetricsLogger metrics_logger;
@@ -1446,7 +1446,7 @@ TEST_CASE("Dormant Eval Env values use the Env configuration reader", "[prd117][
         Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("expected=int"));
 }
 
-TEST_CASE("Validated Eval Env overlays are read without constructing dormant Envs", "[prd117][trainer][eval_catalog]")
+TEST_CASE("Validated Eval Env overlays are read without constructing dormant Envs", "[rfd0117][trainer][eval_catalog]")
 {
     const auto interval = GENERATE(Catch::Generators::values<std::optional<int>>({std::nullopt, 0, 100}));
     ScopedRunManagerMetricsLogger metrics_logger;
@@ -1487,7 +1487,7 @@ TEST_CASE("RunManager treats a zero interval Eval schedule as definition-only", 
 }
 
 
-TEST_CASE("RunManager reads the run root and train child", "[trainer][prd061][run_root][prd076]")
+TEST_CASE("RunManager reads the run root and train child", "[trainer][rfd0061][run_root][rfd0076]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -1514,7 +1514,7 @@ TEST_CASE("RunManager reads the run root and train child", "[trainer][prd061][ru
     }));
 }
 
-TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer][eval_schedule][prd076]")
+TEST_CASE("RunManager creates Eval runners only for active schedules", "[trainer][eval_schedule][rfd0076]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -1641,7 +1641,7 @@ TEST_CASE("RunManager writes attached scalar and trace definitions separately", 
 {
     const bool active_trace = GENERATE(false, true);
     const bool shared = GENERATE(false, true);
-    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "prd069-defs";
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "rfd0069-defs";
     const auto run_dir = root / "runs" / "defs_test";
     anet::MetricsLogger::Reset();
     std::filesystem::remove(run_dir / "metrics.jsonl");
@@ -1746,7 +1746,7 @@ TEST_CASE("RunManager writes attached scalar and trace definitions separately", 
     CHECK(trace_defs == 1);
 }
 
-TEST_CASE("EvalRunner uses synchronized learning counts while keeping evaluation counts", "[trainer][prd061][actor_clock]")
+TEST_CASE("EvalRunner uses synchronized learning counts while keeping evaluation counts", "[trainer][rfd0061][actor_clock]")
 {
     auto env = std::make_shared<TestBatchEnv>("eval", 1, torch::Device(torch::kCPU));
     auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
@@ -1768,7 +1768,7 @@ TEST_CASE("EvalRunner uses synchronized learning counts while keeping evaluation
     CHECK(agent->GetLastActor()->GetLastCounts().exp_step == 1200);
 }
 
-TEST_CASE("RunManager resolves Actor names only for active Runners and seeds by Runner name", "[trainer][prd061][actor_request]")
+TEST_CASE("RunManager resolves Actor names only for active Runners and seeds by Runner name", "[trainer][rfd0061][actor_request]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     RegisterRunManagerNameTestFactories();
@@ -1803,7 +1803,7 @@ TEST_CASE("RunManager resolves Actor names only for active Runners and seeds by 
     CHECK(std::any_of(first.begin(), first.end(), [](const auto& request) { return request.actor_key == "selected"; }));
 }
 
-TEST_CASE("Runners retain transition results through evaluation cancellation and shutdown", "[trainer][prd097_runner]")
+TEST_CASE("Runners retain transition results through evaluation cancellation and shutdown", "[trainer][rfd0097_runner]")
 {
     const int mode = GENERATE(0, 1, 2, 3);
     auto env = std::make_shared<rl::VectorizedDiscreteBatchEnv>(
@@ -1872,7 +1872,7 @@ TEST_CASE("Runners retain transition results through evaluation cancellation and
     CHECK(agent->GetLastActor()->GetObservedStates() == std::vector<float>(mode == 3 ? 4 : 3, 0.0f));
 }
 
-TEST_CASE("Pipeline shutdown propagates its last learner failure without another Step", "[trainer][prd097_shutdown]")
+TEST_CASE("Pipeline shutdown propagates its last learner failure without another Step", "[trainer][rfd0097_shutdown]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     auto env = std::make_shared<TestBatchEnv>("shutdown-failure", 1, torch::Device(torch::kCPU));
@@ -1887,7 +1887,7 @@ TEST_CASE("Pipeline shutdown propagates its last learner failure without another
     CHECK_NOTHROW(runner->Shutdown());
 }
 
-TEST_CASE("EvalRunner publishes a transition reward as a step trace", "[trainer][prd094][step_trace]")
+TEST_CASE("EvalRunner publishes a transition reward as a step trace", "[trainer][rfd0094][step_trace]")
 {
     // 実Runnerの通知から列を読む経路を最小の1行で通す。
     auto env = std::make_shared<TestBatchEnv>("eval", 1, torch::Device(torch::kCPU));
@@ -1912,7 +1912,7 @@ TEST_CASE("EvalRunner publishes a transition reward as a step trace", "[trainer]
     CHECK(rows[0]->step == 1);
 }
 
-TEST_CASE("Forced Eval step publishes its flag through the transition notification", "[trainer][prd105][forced_trace]")
+TEST_CASE("Forced Eval step publishes its flag through the transition notification", "[trainer][rfd0105][forced_trace]")
 {
     // 実Runnerから同期通知で読む列までを、一つの強制stepで通す。
     auto env = std::make_shared<TestBatchEnv>("forced-trace", 1, torch::Device(torch::kCPU));
@@ -1944,7 +1944,7 @@ TEST_CASE("Forced Eval step publishes its flag through the transition notificati
     CHECK(rows.front()->values.front() == 1.0f);
 }
 
-TEST_CASE("Forced flag is EvalRunner lane data and is unknown to TrainRunner", "[trainer][prd105][forced_scope]")
+TEST_CASE("Forced flag is EvalRunner lane data and is unknown to TrainRunner", "[trainer][rfd0105][forced_scope]")
 {
     // 複数laneの初期状態と、別種のRunnerへの鍵の漏れを公開APIで確かめる。
     auto env = std::make_shared<TestBatchEnv>("forced-scope", 2, torch::Device(torch::kCPU));
@@ -1963,7 +1963,7 @@ TEST_CASE("Forced flag is EvalRunner lane data and is unknown to TrainRunner", "
     CHECK_FALSE(train->GetScalar("forced", 0));
 }
 
-TEST_CASE("Step trace reads one transition across Runner counters and terminal results", "[trainer][prd094][trace_timing]")
+TEST_CASE("Step trace reads one transition across Runner counters and terminal results", "[trainer][rfd0094][trace_timing]")
 {
     const bool terminal = GENERATE(false, true);
     std::shared_ptr<rl::BatchEnv> env;
@@ -2008,7 +2008,7 @@ TEST_CASE("Step trace reads one transition across Runner counters and terminal r
     }
 }
 
-TEST_CASE("View snapshots freeze one transition and return to the latest live data", "[prd094][trace_snapshot]")
+TEST_CASE("View snapshots freeze one transition and return to the latest live data", "[rfd0094][trace_snapshot]")
 {
     // native windowを作らず、Viewの公開snapshot/描画経路だけを検証する。
     class Window final : public wxWindow {
@@ -2064,7 +2064,7 @@ TEST_CASE("View snapshots freeze one transition and return to the latest live da
     CHECK_NOTHROW(orphan->show());
 }
 
-TEST_CASE("Runner forwards per-step nn_trace to every action and notification", "[prd170][runner]")
+TEST_CASE("Runner forwards per-step nn_trace to every action and notification", "[rfd0170][runner]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     const int kind = GENERATE(0, 1, 2);
@@ -2080,7 +2080,7 @@ TEST_CASE("Runner forwards per-step nn_trace to every action and notification", 
     std::vector<bool> trace;
     notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
         const auto& aux = event.action_info->GetAuxData();
-        trace.push_back(aux.contains(kPrd170TraceInput));
+        trace.push_back(aux.contains(kRfd0170TraceInput));
     }));
     // Pipeline の通知は遅れるので、公開経路で3 step進めて同じ入力の通知を得る。
     for (int i = 0; i < 3; ++i) runner->DoStep();
@@ -2102,7 +2102,7 @@ TEST_CASE("Runner forwards per-step nn_trace to every action and notification", 
     runner->Shutdown();
 }
 
-TEST_CASE("Configured evaluation sessions never request nn_trace", "[prd170][session]")
+TEST_CASE("Configured evaluation sessions never request nn_trace", "[rfd0170][session]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     auto env = std::make_shared<rl::VectorizedDiscreteBatchEnv>(anet::ConfigData{},

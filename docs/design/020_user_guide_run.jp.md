@@ -304,7 +304,7 @@ X.key ?= v              既定キー。X.$ に負ける
 運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な設定キーだけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
 
 ```bash
-.\.venv\Scripts\python.exe src/core/base/testdata/prd072/check_default_leaves.py
+.\.venv\Scripts\python.exe src/core/base/testdata/rfd0072/check_default_leaves.py
 ```
 
 `rg`(ripgrep)がPATHに必要である。意図的に`=`で書く既定値(`DropMerge_optuna.txt`のseed等)は検査器の分類理由に登録する。

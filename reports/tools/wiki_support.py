@@ -28,9 +28,9 @@ def application_paths(key):
     return {'110_runner_app': ('src/apps/runner/', 'apps/runner/'),
             '120_metrics_viewer': ('src/apps/metrics-viewer/', 'apps/metrics-viewer/')}[key]
 
-# 材料の集合はPRD095の契約どおりに限定する。英訳と派生ビューは含めない。
+# 材料の集合はRFD0095の契約どおりに限定する。英訳と派生ビューは含めない。
 MATERIAL_GLOBS = ('docs/experiments/**/*.md', 'reports/*.md',
-                  'docs/memo/**/*_10prd.md', 'docs/design/*.jp.md', 'docs/adr/*.md')
+                  'docs/memo/**/*_10rfd.md', 'docs/design/*.jp.md', 'docs/adr/*.md')
 
 
 def git(root, *args):
@@ -82,7 +82,7 @@ def broken_links(root):
         text = re.sub(r'```[^\n]*\n[\s\S]*?```', '', page.read_text(encoding='utf-8-sig'))
         text = re.sub(r'`[^`\n]+`', '', text)
         # 機械一覧は再生成で修復する。出典リンクの前提条件には数えない。
-        text = re.sub(r'(?ms)^## (?:ファイル|PRD の一覧|課題)\r?\n.*?(?=^## |\Z)', '', text)
+        text = re.sub(r'(?ms)^## (?:ファイル|RFD の一覧|課題)\r?\n.*?(?=^## |\Z)', '', text)
         for line in text.splitlines():
             for match in re.finditer(r'\]\(([^)]+)\)', line):
                 target = match[1]
@@ -105,8 +105,8 @@ def scan(root):
     # 材料全体をblobで比較し、点検の自己出力を候補にしない。
     root = Path(root).resolve()
     start, checkpoint, records = log_state(root)
-    implemented = implemented_prds(issue_records(root))
-    # 本文が同じまま実装が済んだPRDも、一度は意味を取り込み直す。
+    implemented = implemented_rfds(issue_records(root))
+    # 本文が同じまま実装が済んだRFDも、一度は意味を取り込み直す。
     log = (root/'docs/wiki/log.md').read_text(encoding='utf-8-sig')
     # 実装済みの日は課題の判定や解決のたびに動く導いた値なので、取り込み済みかはパスと blob だけで突き合わせる。
     acknowledged = {(m[1],m[2]) for m in re.finditer(r'^\d{4}-\d{2}-\d{2} (?:ingest|writeback) (.+?) blob:([0-9a-f]{40}) implemented:\d{4}-\d{2}-\d{2}',log,re.M)}
@@ -181,28 +181,40 @@ def file_rows(root, page, files, rules, app_key=None):
     return '\n'.join(lines)
 
 
-def subject_prd_numbers(subject):
-    # 過去の形のscopeと、今の形の件名末尾の参照の並びからPRD番号を読む。本題の文中の番号は拾わない。
+# 件名の番号の記号。RFD に続く 4 桁と、RFD0195 より前の件名に残る PRD に続く 3 桁（git の履歴は書き換えないので、
+# 旧い記号を読む処理は期間を限らず持つ）。どちらも、すぐ後ろに数字が続かないものだけを記号とする。
+SUBJECT_NUMBER = re.compile(r'RFD(\d{4})(?!\d)|PRD(\d{3})(?!\d)')
+SUBJECT_REFERENCES = re.compile(r'(?:\s+(?:RFD\d{4}(?!\d)|PRD\d{3}(?!\d)|[0-9a-f]{6}|#\d+))+\s*$')
+
+
+def subject_rfd_numbers(subject):
+    # 過去の形のscopeと、今の形の件名末尾の参照の並びからRFD番号を読む。本題の文中の番号は拾わない。
+    # 番号は値で扱い、0 埋めの 4 桁の文字列で返す（PRD195 と RFD0195 は同じ 0195）。
+    def numbers_in(text):
+        return {f'{int(new or old):04d}' for new, old in SUBJECT_NUMBER.findall(text)}
     numbers = set()
     scope = re.match(r'^[^()]+\(([^)]+)\):', subject)
     if scope:
-        numbers.update(re.findall(r'PRD(\d{3})', scope[1]))
-    references = re.search(r'(?:\s+(?:PRD\d{3}|[0-9a-f]{6}|#\d+))+\s*$', subject)
+        numbers.update(numbers_in(scope[1]))
+    references = SUBJECT_REFERENCES.search(subject)
     if references:
-        numbers.update(re.findall(r'PRD(\d{3})', references[0]))
+        numbers.update(numbers_in(references[0]))
     return numbers
 
 
 RENUMBER_PREFIX = re.compile(r'^> \d{4}-\d{2}-\d{2} 番号を')
-RENUMBER_LINE = re.compile(r'^> (\d{4}-\d{2}-\d{2}) 番号を (\d{3}) から (\d{3}) へ振り直した（PRD\d{3}）。$')
-RENUMBER_FORMAT = '"> YYYY-MM-DD 番号を NNN から NNN へ振り直した（PRDNNN）。"'
+# 振り直しの行は 2 つの形を読む。RFD0195 より前に書いた行は 3 桁と（PRDnnn）の形のまま残り、道具が読み続ける。
+RENUMBER_LINES = (re.compile(r'^> (\d{4}-\d{2}-\d{2}) 番号を (\d{4}) から (\d{4}) へ振り直した（RFD\d{4}）。$'),
+                  re.compile(r'^> (\d{4}-\d{2}-\d{2}) 番号を (\d{3}) から (\d{3}) へ振り直した（PRD\d{3}）。$'))
+RENUMBER_FORMAT = ('"> YYYY-MM-DD 番号を NNNN から NNNN へ振り直した（RFDNNNN）。" '
+                   'or the form before RFD0195 "> YYYY-MM-DD 番号を NNN から NNN へ振り直した（PRDNNN）。"')
 
 
 def renumber_declarations(root):
-    # PRD の題のあと最初の見出しまでにある振り直しの行を読み、(旧い番号, 振り直した日, PRD のパス) を返す（PRD131 D7・§5.3）。
+    # RFD の題のあと最初の見出しまでにある振り直しの行を読み、(旧い番号, 振り直した日, RFD のパス) を返す（RFD0131 D7・§5.3）。
     root = Path(root)
     result = []
-    for path in sorted((root/'docs/memo').rglob('*_10prd.md')):
+    for path in sorted((root/'docs/memo').rglob('*_10rfd.md')):
         name = path.relative_to(root).as_posix()
         # 1 行目は題。本文やコードの枠に書いた日付の例を読まないよう、最初の見出しで止める。
         lines = []
@@ -211,11 +223,12 @@ def renumber_declarations(root):
                 break
             if not RENUMBER_PREFIX.match(line):
                 continue
-            match = RENUMBER_LINE.match(line)
+            match = next((m for m in (p.match(line) for p in RENUMBER_LINES) if m), None)
             if not match:
                 raise ValueError(f'{name}:{number}: renumber line={line!r}; expected {RENUMBER_FORMAT}')
-            lines.append((match[1], match[2], match[3], number))
-        # 1 つの PRD の振り直しは、日付の順に旧い番号から新しい番号へつながり、最後がファイルの番号になる。
+            # 番号は形によらず値で比べるので、0 埋めの 4 桁にそろえて持つ。
+            lines.append((match[1], f'{int(match[2]):04d}', f'{int(match[3]):04d}', number))
+        # 1 つの RFD の振り直しは、日付の順に旧い番号から新しい番号へつながり、最後がファイルの番号になる。
         seen = set()
         for day, _, _, number in lines:
             if day in seen:
@@ -225,15 +238,15 @@ def renumber_declarations(root):
         for (_, _, new, _), (_, old, _, number) in zip(chain, chain[1:]):
             if old != new:
                 raise ValueError(f'{name}:{number}: renumber from {old}; expected from {new} (the previous renumber line)')
-        if chain and chain[-1][2] != path.name[:3]:
-            raise ValueError(f'{name}:{chain[-1][3]}: renumber to {chain[-1][2]}; expected the file number {path.name[:3]}')
+        if chain and chain[-1][2] != path.name[:4]:
+            raise ValueError(f'{name}:{chain[-1][3]}: renumber to {chain[-1][2]}; expected the file number {path.name[:4]}')
         result.extend((old, day, path) for day, old, _, _ in lines)
     return result
 
 
 def commit_history(root):
     # 全コミットの日付・件名と、触ったファイルを今のパスで返す。改名をたどるので、ファイルを移したあとも、
-    # 移す前のコミットが今のパスに当たる（PRD182 でソースを src/ へ移したあとも、PRD の一覧に移す前の PRD を残す）。
+    # 移す前のコミットが今のパスに当たる（RFD0182 でソースを src/ へ移したあとも、RFD の一覧に移す前の RFD を残す）。
     # Git は新しい順に出すので、改名を見るたびに、それより古いコミットの旧いパスを今のパスへ写す。
     log = git(root, 'log', '-M', '--name-status', '-z', '--date=short', '--format=%x01%ad%x09%s')
     current = {}
@@ -263,7 +276,7 @@ def commit_history(root):
     return history
 
 
-def prd_rows(root, page, files, pending=None, declarations=None, history=None):
+def rfd_rows(root, page, files, pending=None, declarations=None, history=None):
     # 件名の番号はコミットの日付と組で持つ（振り直しの行の日付と比べるため）。
     import datetime
     import os
@@ -273,36 +286,36 @@ def prd_rows(root, page, files, pending=None, declarations=None, history=None):
     mentions = set()
     for date, subject, touched in history:
         if touched & page_files:
-            mentions.update((number, date) for number in subject_prd_numbers(subject))
+            mentions.update((number, date) for number in subject_rfd_numbers(subject))
     # これから作るコミットも、触るファイルがページに当たれば履歴と同じに数える。日付は道具を回した日とする。
     if pending and pending['files'] & set(files):
         today = datetime.date.today().isoformat()
-        mentions.update((number, today) for number in subject_prd_numbers(pending['subject']))
+        mentions.update((number, today) for number in subject_rfd_numbers(pending['subject']))
     if declarations is None:
         declarations = renumber_declarations(root)
-    # 番号と日付の組を PRD に当てる。振り直しの行が先で、無ければファイル名の番号で探す（PRD131 §5.3）。
+    # 番号と日付の組を RFD に当てる。振り直しの行が先で、無ければファイル名の番号で探す（RFD0131 §5.3）。
     sources = set()
     unresolved_counts = {}
     for number, date in sorted(mentions):
         declared = sorted({path for old, day, path in declarations if old == number and day >= date})
-        matches = declared or sorted((Path(root)/'docs/memo').rglob(number+'_*_10prd.md'))
+        matches = declared or sorted((Path(root)/'docs/memo').rglob(number+'_*_10rfd.md'))
         if len(matches) == 1:
             sources.add(matches[0])
         else:
             # 共有番号と消えた番号はリンク無しで残し、点検側へ報告する。
             unresolved_counts.setdefault(number, len(matches))
-    # 同じ PRD に当たった番号は 1 行にまとめ、今の番号の順に並べる。
+    # 同じ RFD に当たった番号は 1 行にまとめ、今の番号の順に並べる。
     entries = []
     for source in sources:
-        number = source.name[:3]
+        number = source.name[:4]
         title = next((line.lstrip('# ').strip() for line in source.read_text(encoding='utf-8-sig').splitlines()
-                      if line.startswith('# ')), 'PRD'+number)
+                      if line.startswith('# ')), 'RFD'+number)
         target = Path(os.path.relpath(source, page.parent)).as_posix()
-        entries.append((number, target, f'- [PRD{number}]({target}) — {title}'))
-    entries.extend((number, '', f'- PRD{number} — （PRD を一意に決められない）')
+        entries.append((number, target, f'- [RFD{number}]({target}) — {title}'))
+    entries.extend((number, '', f'- RFD{number} — （RFD を一意に決められない）')
                    for number in unresolved_counts)
     rows = ['点検が作り直す。手で直さない。', '', *(row for _, _, row in sorted(entries))]
-    unresolved = [dict(prd='PRD'+number, matches=count) for number, count in sorted(unresolved_counts.items())]
+    unresolved = [dict(rfd='RFD'+number, matches=count) for number, count in sorted(unresolved_counts.items())]
     return ('\n'.join(rows) if mentions else '\n'.join(rows)+'なし'), unresolved
 
 
@@ -368,7 +381,7 @@ def validate_issue(root, path, record):
         ('ai_judge',('未確認','残件有り','残件無し','判定不能')),
         ('status',('未着手','調査中','対応中','中断中','保留','次版','解決')),
         ('kind',('コード','文書','ハーネス')),
-        ('phase',('PRD','実装','監査','ハーネス保守','その他'))):
+        ('phase',('RFD','実装','監査','ハーネス保守','その他'))):
         require(key,key in record and record[key] in values,values)
     keys = {c['key'] for c in CategoryRules(root).categories}
     for key in ('area','docs','depends'):
@@ -380,7 +393,7 @@ def validate_issue(root, path, record):
         valid = not Path(value).is_absolute() and target.is_relative_to(Path(root).resolve()) and target.is_file()
         require('docs',valid,'existing repository-relative document paths')
     require('id',isinstance(record.get('id'),str) and re.fullmatch(r'issue-\d{8}-[0-9a-f]{6}',record['id']) is not None and record['id']==path.stem,'the issue filename without .md')
-    # 課題と PRD を指す欄は Obsidian のリンクで書き、以後の処理には指す先の名前で渡す。
+    # 課題と RFD を指す欄は Obsidian のリンクで書き、以後の処理には指す先の名前で渡す。
     names = [link_name(v) for v in record['depends']]
     require('depends',all(n is not None and re.fullmatch(ISSUE_ID,n) for n in names),'Obsidian links to issues such as "[[issue-YYYYMMDD-xxxxxx]]"')
     record['depends'] = names
@@ -391,17 +404,17 @@ def validate_issue(root, path, record):
         name = link_name(parent)
         require('parent',name is not None and re.fullmatch(ISSUE_ID,name) is not None,'an Obsidian link to an issue such as "[[issue-YYYYMMDD-xxxxxx]]" or an empty value')
         record['parent'] = name
-    prd = record.get('prd')
-    if prd in (None,''):
-        record['prd'] = None
+    rfd = record.get('rfd')
+    if rfd in (None,''):
+        record['rfd'] = None
     else:
-        # 課題が指せるのは、作業中の PRD が置かれる docs/memo 直下の PRD だけである。
-        name = link_name(prd)
+        # 課題が指せるのは、作業中の RFD が置かれる docs/memo 直下の RFD だけである。
+        name = link_name(rfd)
         target = Path(root)/'docs/memo'/(str(name)+'.md')
-        require('prd',name is not None and re.fullmatch(r'\d{3}_.+_10prd',name) is not None and target.is_file(),
-                'an Obsidian link to an existing PRD directly under docs/memo such as "[[NNN_slug_10prd]]" or an empty value')
-        record['prd'] = 'docs/memo/'+name+'.md'
-        require('docs',record['prd'] not in record['docs'],'no copy of the PRD that prd already points to')
+        require('rfd',name is not None and re.fullmatch(r'\d{4}_.+_10rfd',name) is not None and target.is_file(),
+                'an Obsidian link to an existing RFD directly under docs/memo such as "[[NNNN_slug_10rfd]]" or an empty value')
+        record['rfd'] = 'docs/memo/'+name+'.md'
+        require('docs',record['rfd'] not in record['docs'],'no copy of the RFD that rfd already points to')
     # 完了の理由は解決の課題だけが持ち、解決でなくなった課題に古い理由を残さない。
     if record['status'] == '解決':
         require('resolution',record.get('resolution') in ISSUE_RESOLUTIONS,ISSUE_RESOLUTIONS)
@@ -436,15 +449,15 @@ def validate_issue(root, path, record):
     require('wsjf',type(score) in (int,float) and math.isfinite(score) and score==expected,str(expected)+' from (value + urgency + risk) / size')
 
 
-def implemented_prds(records):
-    # PRD の実装済みは PRD 自身にも課題の欄にも持たせず、その PRD を prd で指す課題から導く（PRD120 §5.2）。
+def implemented_rfds(records):
+    # RFD の実装済みは RFD 自身にも課題の欄にも持たせず、その RFD を rfd で指す課題から導く（RFD0120 §5.2）。
     groups = {}
     for record in records:
-        if record.get('prd'):
-            groups.setdefault(record['prd'],[]).append(record)
+        if record.get('rfd'):
+            groups.setdefault(record['rfd'],[]).append(record)
     result = {}
     for path, issues in groups.items():
-        # やらないと決めた仕事が残る PRD は、指示の全部が実装されていないので実装済みにしない。
+        # やらないと決めた仕事が残る RFD は、指示の全部が実装されていないので実装済みにしない。
         if any(r['status'] == '次版' or (r['status'] == '解決' and r.get('resolution') in ('対応しない','不要になった')) for r in issues):
             continue
         # 直す仕事が元から無い課題（重複・再現しない）は数えない。
@@ -501,7 +514,7 @@ def issue_table(root, page, records, all_records=None):
     # 同じ列とリンクの作り方をINDEXとトピック別まとめで使う。
     # 位置の番号の列は持たない。1 件の増減や並べ替えで、ほかの行まで書き換わってコミットの差分が膨らむため。
     import os
-    lines = ['| ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | PRD | AIの判定 | 課題 |',
+    lines = ['| ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |',
              '|---|---|---|---|---|---|---|---|---|---|---|---|']
     for record in records:
         target = Path(os.path.relpath(record['_path'], page.parent)).as_posix()
@@ -514,13 +527,13 @@ def issue_table(root, page, records, all_records=None):
             source = Path(root)/'docs/management/issues'/(key+'.md')
             link = Path(os.path.relpath(source,page.parent)).as_posix()
             waiting.append(f'[{key}]({link})' if source.exists() else key+'（無い）')
-        # PRD の列は、ファイル名の先頭の番号を表示し、PRD 本文へのリンクにする。
-        prd = '—'
-        if record.get('prd'):
-            prd_link = Path(os.path.relpath(Path(root)/record['prd'],page.parent)).as_posix()
-            prd = f"[PRD{Path(record['prd']).name[:3]}]({prd_link})"
+        # RFD の列は、ファイル名の先頭の番号を表示し、RFD 本文へのリンクにする。
+        rfd = '—'
+        if record.get('rfd'):
+            rfd_link = Path(os.path.relpath(Path(root)/record['rfd'],page.parent)).as_posix()
+            rfd = f"[RFD{Path(record['rfd']).name[:4]}]({rfd_link})"
         cells = [f"[{record['id']}]({target})", record['status'], wsjf, ', '.join(waiting) or '—',
-                 record['kind'], record['phase'], ', '.join(record['area']) or '—', record['domain'], record['type'], prd,
+                 record['kind'], record['phase'], ', '.join(record['area']) or '—', record['domain'], record['type'], rfd,
                  record['ai_judge'], record['title']]
         lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
     if records:
@@ -539,13 +552,13 @@ def issue_table(root, page, records, all_records=None):
     return '\n'.join(lines) if records else '課題はありません。'
 
 
-def direct_prds(root):
-    # 作業中の PRD は docs/memo の直下に置く。過去の置き場（done/ など）は含めない。
-    return sorted(p for p in (Path(root)/'docs/memo').glob('*_10prd.md') if re.match(r'\d{3}_',p.name))
+def direct_rfds(root):
+    # 作業中の RFD は docs/memo の直下に置く。過去の置き場（done/ など）は含めない。
+    return sorted(p for p in (Path(root)/'docs/memo').glob('*_10rfd.md') if re.match(r'\d{4}_',p.name))
 
 
-def prd_title(path):
-    # PRD の最初の見出しを題として使い、無ければファイル名にする。
+def rfd_title(path):
+    # RFD の最初の見出しを題として使い、無ければファイル名にする。
     return next((line.lstrip('# ').strip() for line in path.read_text(encoding='utf-8-sig').splitlines()
                  if line.startswith('# ')), path.stem)
 
@@ -568,17 +581,17 @@ def decision_sections(root, page, records):
             cells = [f"[{record['id']}]({target})", *values(record), record['title']]
             lines.append('| '+' | '.join(str(cell).replace('|','\\|').replace('\n',' ') for cell in cells)+' |')
         return '\n'.join(lines)
-    # どの課題の prd からも指されない直下の PRD は、一覧に載る課題を持たないので名指しで出す。
-    referenced = {r['prd'] for r in records if r.get('prd')}
-    orphans = [p for p in direct_prds(root) if p.relative_to(root).as_posix() not in referenced]
+    # どの課題の rfd からも指されない直下の RFD は、一覧に載る課題を持たないので名指しで出す。
+    referenced = {r['rfd'] for r in records if r.get('rfd')}
+    orphans = [p for p in direct_rfds(root) if p.relative_to(root).as_posix() not in referenced]
     if orphans:
-        lines = ['| PRD | 題 |', '|---|---|']
+        lines = ['| RFD | 題 |', '|---|---|']
         for path in orphans:
             target = Path(os.path.relpath(path, page.parent)).as_posix()
-            lines.append(f'| [{path.stem}]({target}) | '+prd_title(path).replace('|','\\|')+' |')
+            lines.append(f'| [{path.stem}]({target}) | '+rfd_title(path).replace('|','\\|')+' |')
         orphan_table = '\n'.join(lines)
     else:
-        orphan_table = '該当する PRD はありません。'
+        orphan_table = '該当する RFD はありません。'
     return '\n'.join([
         '## 解決待ち', '',
         'AI の判定が「残件無し」で、解決でない課題。解決にするかは開発者が決める（コミットの準備で持ちかける）。', '',
@@ -586,8 +599,8 @@ def decision_sections(root, page, records):
         '## 再開候補', '',
         '解決の日付以後に（解決の日付が無ければ日付によらず）AI の判定が「残件有り」になった解決の課題。状態を戻すかは開発者が決める。', '',
         table(reopen, ['ID','解決日','判定日','課題'], lambda r:[r.get('resolved') or '—',r['ai_judged']]), '',
-        '## 課題の無い PRD', '',
-        'docs/memo 直下の PRD のうち、どの課題の prd からも指されないもの。その PRD の仕事の課題を作るか、題材の課題の prd に書く。', '',
+        '## 課題の無い RFD', '',
+        'docs/memo 直下の RFD のうち、どの課題の rfd からも指されないもの。その RFD の仕事の課題を作るか、題材の課題の rfd に書く。', '',
         orphan_table, '',
         '## 対応内容のある未着手の課題', '',
         '状態が未着手なのに、対応内容に行がある課題。行の置き場（対応でない行は anet-create-issue の「起票のあとの追記」の節へ）と状態を確かめる。開発者が未着手へ戻した課題のように、どちらも正しければそのままでよい（状態は開発者が決める）。', '',
@@ -606,13 +619,13 @@ def issue_section(text, body, path):
 
 def regenerate_maps(root, pending_subject=None, pending_files=()):
     # 全ページとINDEXの生成結果を揃えてから書き戻す。
-    # pending_* はコミットの準備が渡す予定のコミット。PRD の一覧の行を、原因のコミットに入れるため。
+    # pending_* はコミットの準備が渡す予定のコミット。RFD の一覧の行を、原因のコミットに入れるため。
     root = Path(root).resolve()
     pending = (dict(subject=pending_subject, files={p.replace('\\', '/') for p in pending_files})
                if pending_subject else None)
     rules = CategoryRules(root)
     records = issue_order(issue_records(root))
-    # PRD の振り直しの行は全ページで同じなので、書く前に 1 回だけ読んで検査する（崩れていれば何も書かずに止まる）。
+    # RFD の振り直しの行は全ページで同じなので、書く前に 1 回だけ読んで検査する（崩れていれば何も書かずに止まる）。
     declarations = renumber_declarations(root)
     # 履歴も全ページで同じなので、1 回だけ読む。
     history = commit_history(root)
@@ -621,18 +634,18 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
     index_text = ('# 課題の一覧\n\n道具が作り直す。手で直さない。既定は本版（次版・解決を除く）。\n\n'+issue_table(root,index,current)+'\n\n'
                   +decision_sections(root,index,records)+'\n')
     updates = [] if index.is_file() and index.read_bytes() == index_text.encode('utf-8') else [(index,index_text)]
-    unresolved_prds = []
+    unresolved_rfds = []
     for folder in ['apps', 'categories']:
         for page in sorted((root/'docs/wiki'/folder).glob('*.md')):
             files = map_files(root, page.stem, folder, rules)
             text = page.read_bytes().decode('utf-8')
             result = replace_section(text, 'ファイル', file_rows(root, page, files, rules,
                                                                    page.stem if folder == 'apps' else None))
-            prds, unresolved = prd_rows(root, page, files, pending, declarations, history)
-            result = replace_section(result, 'PRD の一覧', prds)
+            rfds, unresolved = rfd_rows(root, page, files, pending, declarations, history)
+            result = replace_section(result, 'RFD の一覧', rfds)
             selected = [r for r in records if page.stem in r['area'] and r['status'] not in ('次版','解決')]
             result = issue_section(result, issue_table(root,page,selected,records), page.relative_to(root))
-            unresolved_prds.extend(dict(page=page.relative_to(root).as_posix(), **row)
+            unresolved_rfds.extend(dict(page=page.relative_to(root).as_posix(), **row)
                                    for row in unresolved)
             if result != text:
                 updates.append((page, result))
@@ -640,7 +653,7 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
         page.parent.mkdir(parents=True,exist_ok=True)
         page.write_bytes(text.encode('utf-8'))
     return dict(updated=[p.relative_to(root).as_posix() for p, _ in updates],
-                unresolved_prds=unresolved_prds)
+                unresolved_rfds=unresolved_rfds)
 
 def main():
     # skill内部の読み取り補助。利用者向けの起動入口は2つのskillに保つ。

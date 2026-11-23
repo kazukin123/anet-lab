@@ -61,9 +61,9 @@ private:
 static_assert(!std::is_copy_assignable_v<anet::log::Logger>);
 static_assert(!std::is_move_assignable_v<anet::log::Logger>);
 
-TEST_CASE("Run notifications occur once per source and target across threads", "[log][prd117]")
+TEST_CASE("Run notifications occur once per source and target across threads", "[log][rfd0117]")
 {
-    const auto path = std::filesystem::current_path() / ".scratch/prd117/log-once/run.log";
+    const auto path = std::filesystem::current_path() / ".scratch/rfd0117/log-once/run.log";
     std::filesystem::create_directories(path.parent_path());
     const auto emit = [](bool info, const std::string& key, int step) {
         if (info) {

@@ -54,7 +54,7 @@ namespace {
     };
 }
 
-TEST_CASE("MuZero Actor catalog owns temperature and exploration noise", "[prd061][muzero][actor_catalog][prd170][muzero]")
+TEST_CASE("MuZero Actor catalog owns temperature and exploration noise", "[rfd0061][muzero][actor_catalog][rfd0170][muzero]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();

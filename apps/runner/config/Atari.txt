@@ -160,7 +160,7 @@ DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2      # B
 #run.$ = run.@v5_iqn_impala_x2
 #run.$ = run.@v5_iqn_impala_x2 > run.@a5 >run.@a5_apex
 
-# 実時間優先プロファイルの 100M を online で回す構成。TempoRL は既定で無効（2026-10-31 に戻した。qbert のサンプル効率優先 50M で合算が Greedy の評価で無効の下だった。PRD098 §6 の 21）
+# 実時間優先プロファイルの 100M を online で回す構成。TempoRL は既定で無効（2026-10-31 に戻した。qbert のサンプル効率優先 50M で合算が Greedy の評価で無効の下だった。RFD0098 §6 の 21）
 run.$ = run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base>run.@hard125>run.@munch>run.@rfit>run.@a5_metrics>run.@cap2m>run.@eval2ch_r1>run.@to_100m
 
 # 実時間優先プロファイル、TempoRL（分離×合算）有効
@@ -401,7 +401,7 @@ run.@v5_iqn_impala_x2 : A2.actor.[eval].policy.spatial.epsilon.last = 0.01
 # metrics.scalar.$ は run.@a5_metrics の連鎖に @skip を足したもの（後ろの profile の連鎖だけが残るため、ここで全部書く）。
 run.@skip : DefaultDQNAgent.skip.enabled = true
 run.@skip : metrics.scalar.$ = metrics.scalar.@baseline > metrics.scalar.@munchausen > metrics.scalar.@replay_fit > M1 > M2 > metrics.scalar.@skip
-# 勾配クリップの閾値（A1 の 10）を TempoRL 有効では 30 にする。Q 側の勾配ノルムが無効の約 2 倍になり、10 では qbert の 10〜35M に 93〜100% 発火した。30 で 36→17%（PRD103 §7 の段 1）
+# 勾配クリップの閾値（A1 の 10）を TempoRL 有効では 30 にする。Q 側の勾配ノルムが無効の約 2 倍になり、10 では qbert の 10〜35M に 93〜100% 発火した。30 で 36→17%（RFD0103 §7 の段 1）
 run.@skip : DefaultDQNAgent.learner.grad_clip_tau = 30
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[02]] = skip_length_rate.[2] @train $action_info
 run.@skip : metrics.scalar.[50_agent_skip/03_skip_length_rate.[03]] = skip_length_rate.[3] @train $action_info
@@ -535,7 +535,7 @@ run.@eval2ch_r1_50m : run.eval_schedule.[greedy].interval = 19727  # RR1 で 50M
 # (battle_zone / phoenix)で結論を出すときに足す。
 run.@gdist400 : run.eval.[greedy].eval_episodes = 400
 
-# TempoRL の補助学習のみモード(PRD104): 毎 step 判断し、skip の出力は行動に使わず補助タスクとしてだけ学ぶ。
+# TempoRL の補助学習のみモード(RFD0104): 毎 step 判断し、skip の出力は行動に使わず補助タスクとしてだけ学ぶ。
 # 判断で区切らない窓は、宣言された全 Actor が single のときだけ構築できる。[greedy]・[eval_target]・[eval_panel] は [eval] から派生する。
 # 窓を終わりだけにするときは learner.skip.target_window = episode_end を重ねる。
 run.@skip_aux : DefaultDQNAgent.learner.skip.target_window = action_change
@@ -999,7 +999,7 @@ net.branch.@AtariImpalaX2LN.structure = StackMerge > AtariImpalaConv32 > AtariIm
 net.branch.@AtariImpalaX2ViT64LN.bind = grid
 net.branch.@AtariImpalaX2ViT64LN.structure = StackMerge > AtariImpalaConv32 > AtariImpalaPool > AtariImpalaRes32(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > AtariImpalaConv64 > AtariImpalaPool > AtariImpalaRes64(*2) > ReLU > PosEmbed2D > AtariImpalaTrans64 > Flatten > AtariLinear512 > AtariLN512 > ReLU
 
-# --- SN screening(PRD 065)。全層適用: standalone Conv2d 3 + ResBlock 全部 + Linear512。
+# --- SN screening(RFD0065)。全層適用: standalone Conv2d 3 + ResBlock 全部 + Linear512。
 # C 群は spectral + init2=he(zero-init は W/sigma と非互換で fail-fast)。D 群は cap + zero-init 維持。
 
 # C 群: weight_norm.mode = spectral
@@ -1520,7 +1520,7 @@ M1.[42_env/23_game_frames_mean_ema] = $env_step mean.game_frames @episode_end $e
 M1.[42_env/30_lives_mean]           = $env_step mean.lives       @train $exp_step
 M1.[42_env/31_lives_mean_ema]       = $env_step mean.lives       @train $exp_step $ema ema_alpha:0.001
 
-# RAM メトリクス。番号 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数、4 = 意味を決めない(ゲームごと)(220 §4.9)。4 の tag の 59 は番号の整理(PRD108)までの暫定
+# RAM メトリクス。番号 1 = 面クリア回数、2 = ボス撃破回数、3 = ボス命中回数、4 = 意味を決めない(ゲームごと)(220 §4.9)。4 の tag の 59 は番号の整理(RFD0108)までの暫定
 M1.[42_env/50_ram_metric_1_mean]     = $env_step mean.ram_metric.[1] @episode_end $exp_step
 M1.[42_env/51_ram_metric_1_mean_ema] = $env_step mean.ram_metric.[1] @episode_end $exp_step $ema ema_alpha:0.001
 M1.[42_env/52_ram_metric_2_mean]     = $env_step mean.ram_metric.[2] @episode_end $exp_step

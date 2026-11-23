@@ -531,7 +531,7 @@ Actorごとの `actor.[key].skip.max_length_mode` は `full`（既定、1〜J）
 
 Learnerの `learner.skip.target_window` は `decision`（既定）・`action_change`・`episode_end` を選ぶ。後者2つは補助学習用で、skipとLearnerが有効なら宣言された全Actorがsingle、またはvariableで常に1であることを構築時に検証する。用途名から学習Actorを推測しない。違反するActorはすべてエラーに含める。feature_gradient=stopは対照群として許し、共有部へ勾配が届かないこととpriority_lambdaによる優先度への影響をRunに1回INFOで説明する。Learner無効時は組み合わせを検査しない。
 
-max_lengthを指定した場合はモードによらずProfiledValueの共通検証で下限1、有効時は上限Jも検査する。variableの値はskip有効時に必須。full/singleで指定した値は使わず、skip有効ならActorごとに一度WARNする。skip無効では必須・上限Jの検査とWARNを行わない。既定の等価性・3モード・窓・短縮Run・実験の手順は[PRD104検証資材](../../src/core/base/testdata/prd104/README.md)を参照する。
+max_lengthを指定した場合はモードによらずProfiledValueの共通検証で下限1、有効時は上限Jも検査する。variableの値はskip有効時に必須。full/singleで指定した値は使わず、skip有効ならActorごとに一度WARNする。skip無効では必須・上限Jの検査とWARNを行わない。既定の等価性・3モード・窓・短縮Run・実験の手順は[RFD0104検証資材](../../src/core/base/testdata/rfd0104/README.md)を参照する。
 
 共通のskip設定はagent.txtの `DefaultDQNAgent.@baseline` に無効のまま `?=` で置く。共有網はnn.txtの `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` を使い、枝は `skip_context` をbindする。envは `skip.max_length ?= J` とIQNの融合済み `skip_context` を指定する。`run.@skip` はenabled・指標・Trace列・greedy評価を選び、Agentのチェーンを書き直さない。GridMazeはskip専用のepsilon-greedy（0.60→0.05）も選ぶ。feature_gradient・Dueling・action_in・層幅はCLIの設定キーで指定する。
 
@@ -557,7 +557,7 @@ skip currentの入力特徴量は`learner.skip.feature_gradient=stop`でdetach�
 
 Actorは判断時の長さ別回数をdevice上で累積し、`Sync()`（定期snapshotの同期も含む）で消す。`GetScalar()`の`skip_session_decision_rate`は判断回数／lane step数、`skip_session_length_mean`は選択長の平均、`skip_session_length_rate.[j]`は判断回数中の長さjの割合である。初回読出し時だけCPUへ転送し、stepごとの同期を増やさない。skip無効・未成立はNaN、添字範囲外はfail-fast。判断がないsessionでは判断率0、長さの平均・割合はNaNになる。`$eval.[greedy] $actor @session_end`の購読は学習側の座標に記録される。
 
-畳み込みまでの共有と完全非共有を比べる独立profile、数値例、checkpoint・設定移行・Run等価性の確認は[PRD103検証資材](../../src/core/base/testdata/prd103/README.md)を参照する。これらのprofileは既定のNetwork構造を変えず、既定構造のcheckpointとは互換にしない。
+畳み込みまでの共有と完全非共有を比べる独立profile、数値例、checkpoint・設定移行・Run等価性の確認は[RFD0103検証資材](../../src/core/base/testdata/rfd0103/README.md)を参照する。これらのprofileは既定のNetwork構造を変えず、既定構造のcheckpointとは互換にしない。
 
 ## 7. DefaultDQNとRainbowの構成・設定
 
@@ -613,7 +613,7 @@ Learner の forward_resources は必須の初期化入力である。有効時�
 
 通常/Fused AdamW は Noisy ON のとき σ 専用 group を使い、`learner.noisy_weight_decay=0` が既定。OFF は従来の単一 group と順序を維持する。μ-only の current は σ の gradient を作らず、σ を更新・decay しない。sample で成立した σ gradient は既存の全体 norm/clip に含まれる。checkpoint と snapshot の parameter に σ を含め、ε・時計・RNG は保存しない。checkpoint 引き継ぎ時は σ 専用 group にも現在の optimizer 設定を適用し、weight_decay は learner.noisy_weight_decay で決める。
 
-Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_reference` と `nz_reference_off` は4射影の default 初期化・σ0=0.5、Body2FCの force_fp32=true、既存チェーンのAMPと標準call/batchを揃え、Noisy enabled だけを変える。episode/sample は結合 Run の Actor 上書き条件として指定する。指定チェーン末尾へ profile を追加する実行例と受け入れ手順は [専用検証手順](../../src/core/base/testdata/prd084/README.md)を参照する。
+Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_reference` と `nz_reference_off` は4射影の default 初期化・σ0=0.5、Body2FCの force_fp32=true、既存チェーンのAMPと標準call/batchを揃え、Noisy enabled だけを変える。episode/sample は結合 Run の Actor 上書き条件として指定する。指定チェーン末尾へ profile を追加する実行例と受け入れ手順は [専用検証手順](../../src/core/base/testdata/rfd0084/README.md)を参照する。
 
 ## 8. lifetime・同期・保存読込
 
@@ -771,7 +771,7 @@ target組立は`MakeTarget`、サンプル別誤差は`ComputeElementError`を�
 
 各群の件数は`learner.replay_fit.probe.batch_size=1024`、IQNの固定分位点数は`learner.replay_fit.iqn.num_taus=32`で、どちらも正整数。結果は更新ごとの`BatchUpdateResult`に保存し、未購読・非測定回・件数不足・ゼロ分母はNaN、未知keyだけnulloptを返す。uniform TDは母数加重平均、比は平均同士の比である。空群は加重和へ寄与せず、非空の不足群は全体平均をNaNにする。
 
-学習有効時に解決済みtarget PolicyがThompsonSamplingであれば、購読設定時にfail-fastする。学習無効時は測定しない。採用理由と完全な指標表は[ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)と[PRD073](../memo/done/073_replay_fit_metrics_10prd.md)を参照する。
+学習有効時に解決済みtarget PolicyがThompsonSamplingであれば、購読設定時にfail-fastする。学習無効時は測定しない。採用理由と完全な指標表は[ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md)と[RFD0073](../memo/done/0073_replay_fit_metrics_10rfd.md)を参照する。
 
 ### 9.7 Noisy 診断
 
@@ -797,7 +797,7 @@ DefaultDQNのTD/QR/IQN共通Learnerは、`attention_entropy.[n]`の`@learn $upda
 
 captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各moduleの層数長Tensorを連結して全層まとめて1回CPUへ転送する。0始まりの通し番号で`BatchUpdateResult`へ格納し、再平均・再正規化しない。測らない更新とsample不足は`GetScalar`でNaNとなり、前回値は持ち越さない。非整数・負の番号は購読時、層数以上は最初の測定で鍵・層数・許容範囲・記入済み鍵ごとの層数を添えてfail-fastする。Transformer無しの閉包はcaptureの接頭辞未達で止まる。購読ゼロでは抽出・追加forward・エントロピー計算を行わない。
 
-値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[PRD093検証](../../src/core/base/testdata/prd093/README.md)を参照する。
+値は1つの層のhead・query・sampleの平均を`ln n`で正規化した0〜1の指標で、1が一様、0が1トークンへの集中である。層平均の集中度の推移と成績の時期を読むためのもので、一部headの集中の有無や成績低下との因果関係は判定しない。`metrics.scalar.@attention`（baseline外）は`48_agent_attention`へ4層分をinterval503で公開する。検証手順は[RFD0093検証](../../src/core/base/testdata/rfd0093/README.md)を参照する。
 
 ### 9.10 価値の分解
 
@@ -805,25 +805,25 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 
 ## 10. テストと拡張時の確認事項
 
-[PRD182の検証資材](../../src/core/base/testdata/prd182/README.md)で、ファイル分割の前後で定義とテストの本体が一致することと、Runnerの学習結果が一致することを確認する。
+[RFD0182の検証資材](../../src/core/base/testdata/rfd0182/README.md)で、ファイル分割の前後で定義とテストの本体が一致することと、Runnerの学習結果が一致することを確認する。
 
-価値の分解と報酬スケーラを変えるときは、[PRD121検証資材](../../src/core/base/testdata/prd121/README.md)の数値検査、checkpoint判定表、既定5構成の前後比較とAtari性能測定を確認する。
+価値の分解と報酬スケーラを変えるときは、[RFD0121検証資材](../../src/core/base/testdata/rfd0121/README.md)の数値検査、checkpoint判定表、既定5構成の前後比較とAtari性能測定を確認する。
 
-構築・設定読み込み・内的報酬・診断の責務を変えるときは、[PRD128検証資材](../../src/core/base/testdata/prd128/README.md)の34構成の前後比較、旧checkpointの継続、Releaseの速度、指標の並びの破壊検査を確認する。
+構築・設定読み込み・内的報酬・診断の責務を変えるときは、[RFD0128検証資材](../../src/core/base/testdata/rfd0128/README.md)の34構成の前後比較、旧checkpointの継続、Releaseの速度、指標の並びの破壊検査を確認する。
 
-TD・QR・IQN の更新の進行、Munchausen の評価、Bellmanターゲットの組み立てを変えるときは、[PRD125 検証資材](../../src/core/base/testdata/prd125/README.md)の基準保存、31 組と BF16 の前後比較、target の式の数値検査、Release の性能比較を確認する。
+TD・QR・IQN の更新の進行、Munchausen の評価、Bellmanターゲットの組み立てを変えるときは、[RFD0125 検証資材](../../src/core/base/testdata/rfd0125/README.md)の基準保存、31 組と BF16 の前後比較、target の式の数値検査、Release の性能比較を確認する。
 
-内的報酬の倍率・補助学習・保存再開・無効時の同一性・設定群・smoke は [PRD116 検証資材](../../src/core/base/testdata/prd116/README.md)を参照する。性能測定は他の Run と競合しない条件で別途行う。
+内的報酬の倍率・補助学習・保存再開・無効時の同一性・設定群・smoke は [RFD0116 検証資材](../../src/core/base/testdata/rfd0116/README.md)を参照する。性能測定は他の Run と競合しない条件で別途行う。
 
-Actorのskip側のNN実行設定、既定7構成の完全一致、4 env×既定/skipの全キー比較とqbertの評価による切り分けは[PRD106検証資材](../../src/core/base/testdata/prd106/README.md)を参照する。
+Actorのskip側のNN実行設定、既定7構成の完全一致、4 env×既定/skipの全キー比較とqbertの評価による切り分けは[RFD0106検証資材](../../src/core/base/testdata/rfd0106/README.md)を参照する。
 
-- [PRD104検証資材](../../src/core/base/testdata/prd104/README.md): Actorの幅、補助学習の窓、既定6構成の等価性、ステージ0・ステージ1の実行と集計。
+- [RFD0104検証資材](../../src/core/base/testdata/rfd0104/README.md): Actorの幅、補助学習の窓、既定6構成の等価性、ステージ0・ステージ1の実行と集計。
 
-skipの更新方式・重み・session指標・構造の群を変えるときは[PRD103検証資材](../../src/core/base/testdata/prd103/README.md)の数値、checkpoint、設定・Run比較を確認する。
+skipの更新方式・重み・session指標・構造の群を変えるときは[RFD0103検証資材](../../src/core/base/testdata/rfd0103/README.md)の数値、checkpoint、設定・Run比較を確認する。
 
-PRD101の比較・実Run手順は[PRD101検証資材](../../src/core/base/testdata/prd101/README.md)を参照する。
+RFD0101の比較・実Run手順は[RFD0101検証資材](../../src/core/base/testdata/rfd0101/README.md)を参照する。
 
-TempoRL の window・Actor・learner・checkpoint・指標を変える場合は、[PRD098検証資材](../../src/core/base/testdata/prd098/README.md) の契約テスト、4環境の無効時等価性、smoke、Atari性能比較を実行する。長時間学習の合否は短い検証とは分けて記録する。
+TempoRL の window・Actor・learner・checkpoint・指標を変える場合は、[RFD0098検証資材](../../src/core/base/testdata/rfd0098/README.md) の契約テスト、4環境の無効時等価性、smoke、Atari性能比較を実行する。長時間学習の合否は短い検証とは分けて記録する。
 
 主なDQN testはDQNの各役割と具象Agentの `dqn_*_test.cpp`と[dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp)に置く。探索ラダーは[dqn_actor_test.cpp](../../src/algo/dqn/src/dqn_actor_test.cpp)で検証する。DQNの検証には[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp)、[stacker_test.cpp](../../src/core/base/src/stacker_test.cpp)も使う。Replay共通testは[replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)に置く。
 
@@ -838,9 +838,9 @@ DQN系Agentを追加・変更する場合は、少なくとも次を確認する
 7. 保存対象と非保存Stateを列挙し、互換checkpointと非互換checkpointの結果をtestする。
 8. 追加metricのsource、step軸、未対応Agentでの`nullopt`または`NaN`条件を定義する。
 9. policy churnを変更する場合は、zero update、online差分、hard/soft target、FP32 autocast境界、IQN fixed taus、購読ゲート、caller-owned probe RNGの非干渉を確認する。
-10. 勾配ノイズ計測を変更する場合は、`Optimize`の第2引数の平均とlossの一致、推定式、群別の成立条件、購読の和集合と共有EMA、決定論環境のON/OFF非干渉を確認する。本線BF16 smoke・実時間/追加メモリ・値の未成立率を含む手順は [PRD092検証資材](../../src/core/base/testdata/prd092/README.md) を参照する。
+10. 勾配ノイズ計測を変更する場合は、`Optimize`の第2引数の平均とlossの一致、推定式、群別の成立条件、購読の和集合と共有EMA、決定論環境のON/OFF非干渉を確認する。本線BF16 smoke・実時間/追加メモリ・値の未成立率を含む手順は [RFD0092検証資材](../../src/core/base/testdata/rfd0092/README.md) を参照する。
 
-11. attention診断を変更する場合は、購読の和集合・更新前の層平均・captureの位置順・未測定NaN・RNG/統計/buffer/modeの非干渉を確認する。両smokeとGPU/性能受入の手順は [PRD093検証資材](../../src/core/base/testdata/prd093/README.md) を参照する。
+11. attention診断を変更する場合は、購読の和集合・更新前の層平均・captureの位置順・未測定NaN・RNG/統計/buffer/modeの非干渉を確認する。両smokeとGPU/性能受入の手順は [RFD0093検証資材](../../src/core/base/testdata/rfd0093/README.md) を参照する。
 
 ## 11. 関連文書
 

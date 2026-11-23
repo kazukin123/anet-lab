@@ -222,7 +222,7 @@ seed ごとの水準（学習の進みの 0–10M。nzrep は seed 1 だが 10/0
 
 ### 設定の差
 
-改名を読み替えた実効設定で学習に効く差は、学習 Actor の UQE の ε だけだった。旧は `uqe_eps_start = 0`、`uqe_eps_end = 0.0` の log ラダーで、0 が下限の 1e-4 に持ち上がって全 lane 1e-4 になる。新は `spatial.uqe.epsilon.first = 0`、`last = 0` で全 lane 0 である（[PRD101](../../../memo/done/101_exploration_schedule_profiled_value_10prd.md) の D14）。このほか新の Run には `[greedy]`・`[greedy_single]` の評価セッションと、その指標がある。
+改名を読み替えた実効設定で学習に効く差は、学習 Actor の UQE の ε だけだった。旧は `uqe_eps_start = 0`、`uqe_eps_end = 0.0` の log ラダーで、0 が下限の 1e-4 に持ち上がって全 lane 1e-4 になる。新は `spatial.uqe.epsilon.first = 0`、`last = 0` で全 lane 0 である（[PRD101](../../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md) の D14）。このほか新の Run には `[greedy]`・`[greedy_single]` の評価セッションと、その指標がある。
 
 ---
 

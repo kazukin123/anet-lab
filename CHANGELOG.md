@@ -1,12 +1,12 @@
 # anet-lab Change Log
 
 注記: v0.1.0 以降の変更を記載する。それ以前(V1 系の開発履歴)は git log を参照。
-1 行 = PRD・機能・不具合事象の 1 単位。末尾の (PRDnnn) は `docs/memo/` の PRD 番号、
+1 行 = RFD・機能・不具合事象の 1 単位。末尾の (RFDnnnn) は `docs/memo/` の RFD 番号、
 (ADRnnnn) は `docs/adr/` の設計判断。ハイパラ調整・実験記録・Run 設定だけの更新は載せない
 (`docs/experiments/` 側で追う)。
 
 更新のタイミング: リリース前にまとめて更新する。拾う先は `git log v0.3.0..main` と、
-`docs/memo/done/` へ移した PRD。未リリース節は main 8f683164(2026-09-25)時点。
+`docs/memo/done/` へ移した RFD。未リリース節は main 8f683164(2026-09-25)時点。
 
 
 ## v0.3.0 以降の非互換変更
@@ -16,40 +16,40 @@
 
 設定を書き換えないと起動できない変更:
 
-- 共用の特徴境界を DQN の `learner.final_feature_branch_key`、ImageCls の `final_feature_branch_key` へ改名。過去 dump の再生時は旧 `learner.plasticity.feature_key` / `plasticity.feature_key` を読み替える(PRD093)。
-- 設定体系をプロファイル(`@name`)と選択チェーン(`X.$ = A > B`)へ全面移行。旧 `*.baseline.*` の直書きは通らない(PRD059, ADR0030)。
-- Run 設定の root を `train.*` から `run.*` へ改名(`run.seed`、`run.train.num_envs`、`run.eval.[tag]`)(PRD061)。
-- eval のスケジュールを `run.eval_schedule.[tag].interval` へ分離。interval は必須で、0 が OFF(PRD052, ADR0027)。
-- 評価スロットの方策は Actor カタログ `<Agent>.actor.[key]` へ移動。`run.eval.[tag].actor` で名前参照する(PRD061, ADR0038)。
-- device 指定を `agent.device` / `env.device` / `run.eval_device` に統一。旧 `*_device_type` / `*_device_index` は無効(PRD070)。
-- QR-DQN の `use_qr` / `num_quantiles` は `quantile_mode = none|qr|iqn` / `qr.num_quantiles` へ(PRD001, ADR0018)。
-- Run は `apps/runner/workspaces/<ws>/runs` へ、Env 選択は workspace の `config/_main.txt` へ。`app.runs_dir` は指定禁止(PRD046, ADR0021)。
-- Runner は引数省略時に workspace 選択ダイアログを出す。bat / CLI からは `run.$=run.@name` で Run プロファイルを選ぶ(PRD046, PRD072)。
-- Metrics Viewer は workspace 単位で Runs を読む。Optuna 用の別起動 bat `22_metrics_viewer_java_optuna.bat` は廃止(PRD046)。
-- frame stack 用の Reshape ブロック(`ReS4F8` 等)は不要になり、NN 配線に残っていると shape が合わない(PRD057)。
+- 共用の特徴境界を DQN の `learner.final_feature_branch_key`、ImageCls の `final_feature_branch_key` へ改名。過去 dump の再生時は旧 `learner.plasticity.feature_key` / `plasticity.feature_key` を読み替える(RFD0093)。
+- 設定体系をプロファイル(`@name`)と選択チェーン(`X.$ = A > B`)へ全面移行。旧 `*.baseline.*` の直書きは通らない(RFD0059, ADR0030)。
+- Run 設定の root を `train.*` から `run.*` へ改名(`run.seed`、`run.train.num_envs`、`run.eval.[tag]`)(RFD0061)。
+- eval のスケジュールを `run.eval_schedule.[tag].interval` へ分離。interval は必須で、0 が OFF(RFD0052, ADR0027)。
+- 評価スロットの方策は Actor カタログ `<Agent>.actor.[key]` へ移動。`run.eval.[tag].actor` で名前参照する(RFD0061, ADR0038)。
+- device 指定を `agent.device` / `env.device` / `run.eval_device` に統一。旧 `*_device_type` / `*_device_index` は無効(RFD0070)。
+- QR-DQN の `use_qr` / `num_quantiles` は `quantile_mode = none|qr|iqn` / `qr.num_quantiles` へ(RFD0001, ADR0018)。
+- Run は `apps/runner/workspaces/<ws>/runs` へ、Env 選択は workspace の `config/_main.txt` へ。`app.runs_dir` は指定禁止(RFD0046, ADR0021)。
+- Runner は引数省略時に workspace 選択ダイアログを出す。bat / CLI からは `run.$=run.@name` で Run プロファイルを選ぶ(RFD0046, RFD0072)。
+- Metrics Viewer は workspace 単位で Runs を読む。Optuna 用の別起動 bat `22_metrics_viewer_java_optuna.bat` は廃止(RFD0046)。
+- frame stack 用の Reshape ブロック(`ReS4F8` 等)は不要になり、NN 配線に残っていると shape が合わない(RFD0057)。
 - ビルドに wxWidgets 3.3.3 が必要。DLL を差し替えると 3.3.1 でビルドした旧 exe は起動できない。
 
 黙って挙動・値が変わる変更:
 
-- RND の設定を段階・モード別に移行(PRD191, ADR0088)。`intrinsic.rnd` の `statistics_mode` は `statistics.mode`、`obs_norm.*` は `statistics.whiten.obs_norm.*`、feedback の観測 clip は `statistics.variance_feedback.obs_norm.clip_range`。 `error_norm.use_centering` / `average_mode` / `ema_steps` は `error_norm.standardize.*`。 `multiplier_mode` / `multiplier_max` は選ぶ方式の `use_clipping` / `multiplier_max` へ移す（`error_norm.standardize`、`error_norm.none`、`statistics.variance_feedback`）。`warmup_mode` / `warmup_steps` は、`learn_predictor` なら `error_norm.standardize.warmup_steps`、`collect_errors` なら標準化の待ちを 0 にして `predictor.warmup_steps`、feedback なら `predictor.warmup_steps` に移す。 `intrinsic.learn_ratio` / `intrinsic.learn_batch_size` は `intrinsic.learn.intake.ratio` / `intrinsic.learn.intake.batch_size`。feedback の倍率 clip の既定は偽。
+- RND の設定を段階・モード別に移行(RFD0191, ADR0088)。`intrinsic.rnd` の `statistics_mode` は `statistics.mode`、`obs_norm.*` は `statistics.whiten.obs_norm.*`、feedback の観測 clip は `statistics.variance_feedback.obs_norm.clip_range`。 `error_norm.use_centering` / `average_mode` / `ema_steps` は `error_norm.standardize.*`。 `multiplier_mode` / `multiplier_max` は選ぶ方式の `use_clipping` / `multiplier_max` へ移す（`error_norm.standardize`、`error_norm.none`、`statistics.variance_feedback`）。`warmup_mode` / `warmup_steps` は、`learn_predictor` なら `error_norm.standardize.warmup_steps`、`collect_errors` なら標準化の待ちを 0 にして `predictor.warmup_steps`、feedback なら `predictor.warmup_steps` に移す。 `intrinsic.learn_ratio` / `intrinsic.learn_batch_size` は `intrinsic.learn.intake.ratio` / `intrinsic.learn.intake.batch_size`。feedback の倍率 clip の既定は偽。
 
-- nn_trace は要求した step だけ生成する。Conv2d pane を閉じた間の Trace 行には中間出力を保持しない。Actor と Runner の step は `MakeActionOptions` を受け、NN の中間出力は capture に統合した(PRD170)。
+- nn_trace は要求した step だけ生成する。Conv2d pane を閉じた間の Trace 行には中間出力を保持しない。Actor と Runner の step は `MakeActionOptions` を受け、NN の中間出力は capture に統合した(RFD0170)。
 
-- eval schedule は先頭の発火を既定で 1 回抑止する（`warmup_count=1`）。学習直後の評価が要るタグは 0 を指定し、`offset`（既定 0）で learn step の発火列をずらす(PRD158, ADR0070)。
-- TempoRLにloss別Adam更新`split`・skip loss重み`kmax`・greedy評価sessionの判断率を追加。GridMazeのskip方策をepsilon-greedyへ、Atariのsession名を`greedy`へ、長さ別tagの添字を2桁へ移行。split checkpointは追加optimizer状態を持ち、stop/mergeへの読込は拒否する(PRD103)。
+- eval schedule は先頭の発火を既定で 1 回抑止する（`warmup_count=1`）。学習直後の評価が要るタグは 0 を指定し、`offset`（既定 0）で learn step の発火列をずらす(RFD0158, ADR0070)。
+- TempoRLにloss別Adam更新`split`・skip loss重み`kmax`・greedy評価sessionの判断率を追加。GridMazeのskip方策をepsilon-greedyへ、Atariのsession名を`greedy`へ、長さ別tagの添字を2桁へ移行。split checkpointは追加optimizer状態を持ち、stop/mergeへの読込は拒否する(RFD0103)。
 
-- 既定葉 `?=` を導入。`=` は個別葉としてチェーンの供給値に勝つため、共通ファイルに残した `=` は再確認する(PRD072, ADR0040, ADR0042)。
-- eval は `eval_batch_size`(lane 数)×`eval_episodes`(本数)の N 本平均を 1 点として記録する。1 エピソード 1 点ではない(PRD060, ADR0034)。
-- interval 系の発火が bucket-crossing 化され、perf メトリクスは時間重み EMA になった(PRD053, ADR0028)。
-- EMA メトリクスに初期値のバイアス補正が入り、序盤の値が変わる(PRD045)。
-- ReplayBuffer は ring 折り返しで stack 履歴を失った transition を sample 候補から外す(PRD050, ADR0024)。
-- 観測履歴は Push 時にエピソード開始から始める。旧実装で混入していた前エピソードのフレームは出ない(PRD078, ADR0044)。
+- 既定葉 `?=` を導入。`=` は個別葉としてチェーンの供給値に勝つため、共通ファイルに残した `=` は再確認する(RFD0072, ADR0040, ADR0042)。
+- eval は `eval_batch_size`(lane 数)×`eval_episodes`(本数)の N 本平均を 1 点として記録する。1 エピソード 1 点ではない(RFD0060, ADR0034)。
+- interval 系の発火が bucket-crossing 化され、perf メトリクスは時間重み EMA になった(RFD0053, ADR0028)。
+- EMA メトリクスに初期値のバイアス補正が入り、序盤の値が変わる(RFD0045)。
+- ReplayBuffer は ring 折り返しで stack 履歴を失った transition を sample 候補から外す(RFD0050, ADR0024)。
+- 観測履歴は Push 時にエピソード開始から始める。旧実装で混入していた前エピソードのフレームは出ない(RFD0078, ADR0044)。
 - Atari のメトリクスを `game_score` / `game_len` / `game_frames` / `hns57` / `hns49` に改名。
-- 解析用メタデータ `metrics.scalar.defs` / `metrics.trace.defs` を Runner が出力。解析側は設定から再導出しない(PRD054, PRD069, ADR0029)。
-- Run 終了時に background 評価セッションの完走を `app.drain_timeout_sec`(既定 3600 秒)まで待つ(PRD076, ADR0045)。
+- 解析用メタデータ `metrics.scalar.defs` / `metrics.trace.defs` を Runner が出力。解析側は設定から再導出しない(RFD0054, RFD0069, ADR0029)。
+- Run 終了時に background 評価セッションの完走を `app.drain_timeout_sec`(既定 3600 秒)まで待つ(RFD0076, ADR0045)。
 
 
-### PRD101 ProfiledValue のキー対応
+### RFD0101 ProfiledValue のキー対応
 
 探索・学習の時間の値をProfiledValueへ統一した。定数はbare、段の定数だけは `phase.[name].value` を使う。非constantの下へ継承したbareは保持するが評価・dumpしない。DropMergeとLunarLanderのlogラダー末端0を維持し、中間laneも旧系列から変わる。
 
@@ -74,22 +74,23 @@
 | `per_beta_end` | `per_beta.end` |
 | `per_beta_step` | `per_beta.steps` |
 
-時間変化は `type = linear` を明示し、旧decay長が0ならconstantとbare開始値へ移す。spatialの旧start/endは `spatial.epsilon.first/last`・`spatial.uqe.epsilon.first/last`・`spatial.uqe.tau.first/last` へ別に写す。共有baseのspatial epsilonは0.4/0.01。既存のbare `weight_decay`・`gamma`・Munchausen値・soft update τの行はそのまま定数になる。PER βは更新末尾に次の抽選要求用の値を評価し、適用時機を維持する。（PRD101）
+時間変化は `type = linear` を明示し、旧decay長が0ならconstantとbare開始値へ移す。spatialの旧start/endは `spatial.epsilon.first/last`・`spatial.uqe.epsilon.first/last`・`spatial.uqe.tau.first/last` へ別に写す。共有baseのspatial epsilonは0.4/0.01。既存のbare `weight_decay`・`gamma`・Munchausen値・soft update τの行はそのまま定数になる。PER βは更新末尾に次の抽選要求用の値を評価し、適用時機を維持する。（RFD0101）
 
 ## 0.4.0: (未リリース)
 
-- eval schedule に `offset` と `warmup_count` を追加。既定では学習直後に評価せず、位相のために曲げた間隔を offset に置き換えた。評価専用 Run は `warmup_count=0` を明示する(PRD158, ADR0070)。
-- TransformerEncoderの層平均attentionエントロピーを追加。`run.@attention` / `metrics.scalar.@attention`の購読時だけ更新前probeで測り、`48_agent_attention`へ公開する(PRD093)。
-- 実際の更新から勾配ノイズスケールを測る15指標を追加。`metrics.scalar.@gradnoise` の購読で有効化し、BF16とfeature/readoutに対応(PRD092)。
+- 文書の呼び名を PRD から RFD（Request for Discussion）に改め、番号を 0 埋めの 4 桁にした(RFD0195, ADR0093)。旧い名前と新しい名前の対応: skill `anet-create-prd`・`anet-impl-prd` → `anet-create-rfd`・`anet-impl-rfd`、ファイル名 `NNN_<slug>_10prd.md` → `NNNN_<slug>_10rfd.md`、課題の欄 `prd` → `rfd` と `phase: PRD` → `phase: RFD`、コミット件名の記号 `PRDnnn` → `RFDnnnn`、テストのタグ `[prdNNN…]` → `[rfdNNNN…]`、検証資材 `testdata/prdNNN/` → `testdata/rfdNNNN/`。
+- eval schedule に `offset` と `warmup_count` を追加。既定では学習直後に評価せず、位相のために曲げた間隔を offset に置き換えた。評価専用 Run は `warmup_count=0` を明示する(RFD0158, ADR0070)。
+- TransformerEncoderの層平均attentionエントロピーを追加。`run.@attention` / `metrics.scalar.@attention`の購読時だけ更新前probeで測り、`48_agent_attention`へ公開する(RFD0093)。
+- 実際の更新から勾配ノイズスケールを測る15指標を追加。`metrics.scalar.@gradnoise` の購読で有効化し、BF16とfeature/readoutに対応(RFD0092)。
 
 v0.3.0 以降の main の変更。非互換変更は冒頭の節を参照。
 
 全般:
 
-- 設定体系をプロファイル / 選択チェーンモデルへ全面移行し、ConfigResolver による解決基盤を導入(PRD059, ADR0030)。
-- 設定継承の既定葉 `?=` と個別葉 `=` を区別し、選択の最終値参照と Run プロファイルの優先段を導入(PRD072, ADR0040, ADR0042)。
-- device 指定を 3 キーへ統一し既定 `auto` を導入。CUDA 非搭載機では CPU で起動する(PRD070)。
-- Run 設定の root を `train.*` から `run.*` へ改名(PRD061)。
+- 設定体系をプロファイル / 選択チェーンモデルへ全面移行し、ConfigResolver による解決基盤を導入(RFD0059, ADR0030)。
+- 設定継承の既定葉 `?=` と個別葉 `=` を区別し、選択の最終値参照と Run プロファイルの優先段を導入(RFD0072, ADR0040, ADR0042)。
+- device 指定を 3 キーへ統一し既定 `auto` を導入。CUDA 非搭載機では CPU で起動する(RFD0070)。
+- Run 設定の root を `train.*` から `run.*` へ改名(RFD0061)。
 - 設定の bool 値が txt 保存時に true/false ではなく 1/0 になる問題を修正。
 - worker スレッドの停止通知の取りこぼしでハングする場合がある問題を修正。
 - メモリ確保失敗時に要求サイズを含む診断ログを出すよう強化。
@@ -97,33 +98,33 @@ v0.3.0 以降の main の変更。非互換変更は冒頭の節を参照。
 
 Agent・学習・評価:
 
-- IQN(Implicit Quantile Networks)に対応。`quantile_mode`、bind `*` 演算子、IQNHead / IQNLearner(PRD001, ADR0018, ADR0019)。
-- IQN の tau 配置方式を 5 方式(stratified / systematic / antithetic を含む)へ拡張(PRD044)。
-- Munchausen RL(M-DQN / M-QR / M-IQN)に対応(PRD067, ADR0035, ADR0036)。
-- 評価セッション契約を導入。L 並列 / N エピソード集計で 1 点を記録する(PRD060, ADR0034)。
-- eval 定義と定期スケジュールを `run.eval.[tag]` / `run.eval_schedule.[tag]` に分離(PRD052, ADR0027)。
-- Actor 設定カタログを導入し、評価スロットごとに方策・network・clone を名前で選べるようにした(PRD061, ADR0038)。
+- IQN(Implicit Quantile Networks)に対応。`quantile_mode`、bind `*` 演算子、IQNHead / IQNLearner(RFD0001, ADR0018, ADR0019)。
+- IQN の tau 配置方式を 5 方式(stratified / systematic / antithetic を含む)へ拡張(RFD0044)。
+- Munchausen RL(M-DQN / M-QR / M-IQN)に対応(RFD0067, ADR0035, ADR0036)。
+- 評価セッション契約を導入。L 並列 / N エピソード集計で 1 点を記録する(RFD0060, ADR0034)。
+- eval 定義と定期スケジュールを `run.eval.[tag]` / `run.eval_schedule.[tag]` に分離(RFD0052, ADR0027)。
+- Actor 設定カタログを導入し、評価スロットごとに方策・network・clone を名前で選べるようにした(RFD0061, ADR0038)。
 - 学習を完全停止した評価専用 Run 向けに `learner.enabled` を追加。
-- Run 終了時に background 評価セッションの終了を待つ(または破棄する)排水を追加(PRD076, ADR0045)。
-- DefaultDQN の stack 次元をネイティブ軸として扱い、Reshape ハックを廃止(PRD057)。
+- Run 終了時に background 評価セッションの終了を待つ(または破棄する)排水を追加(RFD0076, ADR0045)。
+- DefaultDQN の stack 次元をネイティブ軸として扱い、Reshape ハックを廃止(RFD0057)。
 
 ReplayBuffer:
 
-- ring 折り返しで stack 履歴を失った transition を sample 候補から除外。ready / sampleable を分離(PRD050, ADR0024)。
-- 観測履歴と bootstrap stack の整合性が壊れる問題を修正。履歴は Push 時にエピソード開始から始める(PRD078, ADR0044)。
-- sampleable index 列の確保を持続バッファ化(PRD077)。
+- ring 折り返しで stack 履歴を失った transition を sample 候補から除外。ready / sampleable を分離(RFD0050, ADR0024)。
+- 観測履歴と bootstrap stack の整合性が壊れる問題を修正。履歴は Push 時にエピソード開始から始める(RFD0078, ADR0044)。
+- sampleable index 列の確保を持続バッファ化(RFD0077)。
 - RB 履歴整合性テストを追加。`episode_start` 境界の既知失敗は shouldfail 化し、契約裁定を起票。
 
 NN:
 
-- Spectral Normalization(`weight_norm.mode`)に対応。自前実装で buffer 意味論を定義(PRD065, ADR0032)。
+- Spectral Normalization(`weight_norm.mode`)に対応。自前実装で buffer 意味論を定義(RFD0065, ADR0032)。
 
 Env:
 
-- AtariEnv を追加。ALE を C++ で直結し、前処理は自前、オプショナルビルド(PRD051, ADR0025, ADR0026)。
+- AtariEnv を追加。ALE を C++ で直結し、前処理は自前、オプショナルビルド(RFD0051, ADR0025, ADR0026)。
 - Atari: reset / episodic_life を標準実装に準拠させ、`game_*` メトリクスへ改名し HNS(hns57 / hns49)を追加。
 - Atari: スコア相転移計測用メトリクス(`game_score.ge.[N]`)とゲーム完了ログを追加。
-- Atari: ゲーム固有の進行(面クリア・ボス撃破・ボス命中)を RAM から番号付き汎用キーで取るメトリクスを追加(PRD082, ADR0046)。
+- Atari: ゲーム固有の進行(面クリア・ボス撃破・ボス命中)を RAM から番号付き汎用キーで取るメトリクスを追加(RFD0082, ADR0046)。
 - Atari: Atari-5 / Atari-100k のバッチ定義を追加。
 - Atari: sound 有効時に SDL_AUDIODRIVER を自動設定し、WASAPI 無音を回避。
 - Atari: AtariView でテキスト情報が見切れる問題を修正。
@@ -131,23 +132,23 @@ Env:
 
 メトリクス・可観測性:
 
-- メトリクス trace チャネル(1 件 = 1 レコード)と SessionEnd イベントを追加(PRD069, ADR0037)。
-- メトリクス定義に購読先・eval 条件・clip 指定を追加(PRD069)。
-- Runner が解析用メタデータ `metrics.defs` を出力(PRD054, ADR0029)。
-- EMA の初期値バイアス補正を導入(PRD045)。
-- interval 発火を bucket-crossing 化し、perf メトリクスを時間重み EMA 化(PRD053, ADR0028)。
-- 可塑性メトリクス(srank / dormant unit 率)と feature / readout 分割の weight norm を追加(PRD062, PRD063, ADR0031)。
-- policy churn メトリクスを追加(PRD066, ADR0033)。
-- replay 抽選履歴別の TD・損失メトリクス(replay_fit)を追加(PRD073, ADR0039)。
-- IQN 探索 P0 診断メトリクスと分位 tail 診断メトリクスを追加(PRD047, PRD048)。
-- 共通のエピソード長指標(episode_steps)と評価セッション・待機ログを追加(PRD075, ADR0043)。
+- メトリクス trace チャネル(1 件 = 1 レコード)と SessionEnd イベントを追加(RFD0069, ADR0037)。
+- メトリクス定義に購読先・eval 条件・clip 指定を追加(RFD0069)。
+- Runner が解析用メタデータ `metrics.defs` を出力(RFD0054, ADR0029)。
+- EMA の初期値バイアス補正を導入(RFD0045)。
+- interval 発火を bucket-crossing 化し、perf メトリクスを時間重み EMA 化(RFD0053, ADR0028)。
+- 可塑性メトリクス(srank / dormant unit 率)と feature / readout 分割の weight norm を追加(RFD0062, RFD0063, ADR0031)。
+- policy churn メトリクスを追加(RFD0066, ADR0033)。
+- replay 抽選履歴別の TD・損失メトリクス(replay_fit)を追加(RFD0073, ADR0039)。
+- IQN 探索 P0 診断メトリクスと分位 tail 診断メトリクスを追加(RFD0047, RFD0048)。
+- 共通のエピソード長指標(episode_steps)と評価セッション・待機ログを追加(RFD0075, ADR0043)。
 
 Runner:
 
-- workspace 機構を導入。Run を workspace フォルダで分類し、Runner / Viewer / Optuna を統合(PRD046, ADR0021, ADR0022)。
-- ツールバー 4 本(対象軸)、View FPS メニュー、checkpoint 保存を追加(PRD055)。
+- workspace 機構を導入。Run を workspace フォルダで分類し、Runner / Viewer / Optuna を統合(RFD0046, ADR0021, ADR0022)。
+- ツールバー 4 本(対象軸)、View FPS メニュー、checkpoint 保存を追加(RFD0055)。
 - AlwaysOnTop に対応。FPS メニューに 15 を追加。
-- batchrun 向けにエラーダイアログ抑止・終了コード・bat 側の致命エラー検出を追加(PRD068)。
+- batchrun 向けにエラーダイアログ抑止・終了コード・bat 側の致命エラー検出を追加(RFD0068)。
 - Eval pane 表示切替時の window 自動リサイズを廃止。右クリックの Eval resume 時も EvalPanel を表示。
 - pane 見出しと workspace 履歴の視認性を改善。
 - EvalPanel の FPS を 0 にするとエラーになる問題を修正。
@@ -155,10 +156,10 @@ Runner:
 
 Metrics Viewer:
 
-- workspace 切替に対応(PRD046)。
-- 放棄された query が permit を握り続け、素早い操作で `Update failed` になる問題を修正(サーバ側 supersede)(PRD049, ADR0023)。
-- 不変 Run の定常取り込み I/O を抑制(PRD064)。
-- 選択中 Run の色を分離。Recolor ボタンと AutoRecolor を追加(PRD074, ADR0041)。
+- workspace 切替に対応(RFD0046)。
+- 放棄された query が permit を握り続け、素早い操作で `Update failed` になる問題を修正(サーバ側 supersede)(RFD0049, ADR0023)。
+- 不変 Run の定常取り込み I/O を抑制(RFD0064)。
+- 選択中 Run の色を分離。Recolor ボタンと AutoRecolor を追加(RFD0074, ADR0041)。
 - グラフのホバー表示を自前描画に置き換え。終了済み系列に別 step の値が混ざる問題を修正。
 - タグ別 percentile Y 軸範囲と表示設定の永続化を追加。
 - Runs に SelectedOnly トグルを追加。
@@ -168,8 +169,8 @@ Metrics Viewer:
 
 ツール:
 
-- AI 向け Run 解析 CLI `inspect_run.py` を追加。subcommand 分割と trace-csv(PRD054)。
-- Optuna ハーネスを workspace へ統合(PRD046)。
+- AI 向け Run 解析 CLI `inspect_run.py` を追加。subcommand 分割と trace-csv(RFD0054)。
+- Optuna ハーネスを workspace へ統合(RFD0046)。
 - workspace metrics の一括 gzip 圧縮(`70_compress_workspace_metrics.bat`)を追加。
 - Atari-5 の 5 本の Run を 1 つのベンチマークとして集計するスクリプトを追加。
 - Atari-5 専用 bat を `11_batch_run.bat` / `12_batch_run.bat` へ統合。
@@ -187,10 +188,10 @@ Metrics Viewer:
 
 - 設計文書の英語版(`*.en.md`)を追加。
 - アーキテクチャ Atlas(5 図と索引)と生成 skill `anet-archify-atlas` を追加。
-- AI ハーネス動線マップと生成 skill `anet-harness-map` を追加(PRD080)。
+- AI ハーネス動線マップと生成 skill `anet-harness-map` を追加(RFD0080)。
 - 開発支援 skill 群(anet-stats / audit / housekeeping / survey-queue / translate-docs、prepare-commit)を追加。
-- grill skill に goal anchor と簡素化パスを追加(PRD058)。
-- PRD を状態別フォルダ(done / frozen / dropped)へ振り分け、バックログを Phase 別に採番。
+- grill skill に goal anchor と簡素化パスを追加(RFD0058)。
+- RFD を状態別フォルダ(done / frozen / dropped)へ振り分け、バックログを Phase 別に採番。
 - AGENTS.md にクリーンブレーク方針、責任境界、Fail-Fast 原則、GetScalar 規約、実験記録と実効 config の保存ルール、Run 命名規約を追記。
 - Atari / DropMerge / LunarLander の実験記録と、サーベイ(SimPLe、報酬スケールと割引率、target 更新速度、BTR)を追加。
 

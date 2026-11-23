@@ -4,7 +4,7 @@ title: ADR へのたどり方を改善する（wiki への取り込み遅れと�
 status: 未着手
 raised: 2026-11-14
 phase: ハーネス保守
-scope: ADR を読む道筋（AGENTS.md の読む条件、wiki のトピック別まとめ、設計文書、PRD、サブエージェントの手順）
+scope: ADR を読む道筋（AGENTS.md の読む条件、wiki のトピック別まとめ、設計文書、RFD、サブエージェントの手順）
 kind: ハーネス
 area: []
 type: 機能改善
@@ -14,10 +14,10 @@ ai_judged:
 docs:
   - AGENTS.md
   - docs/wiki/README.md
-  - .agents/skills/anet-create-prd/SKILL.md
+  - .agents/skills/anet-create-rfd/SKILL.md
   - .agents/skills/anet-audit/SKILL.md
   - .claude/agents/anet-review-agent.md
-prd:
+rfd:
 priority: 中
 depends: []
 parent:

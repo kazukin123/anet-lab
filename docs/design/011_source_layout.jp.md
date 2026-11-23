@@ -20,9 +20,9 @@
 
 複数のライブラリを使うテストは、主題となるライブラリに置き、相手は代役で構成する。組み合わせが主題であれば `src/apps/` に専用のテストアプリを置く。出荷設定と検証資材はリポジトリの根から読める。
 
-ターゲットと include の依存は[PRD182の検証資材](../../src/core/base/testdata/prd182/README.md#ライブラリの依存)で確認する。
+ターゲットと include の依存は[RFD0182の検証資材](../../src/core/base/testdata/rfd0182/README.md#ライブラリの依存)で確認する。
 
-データの移行と置き場は[PRD182の移行検証](../../src/core/base/testdata/prd182/README.md#実機のデータを移す前の確認)で確認する。
+データの移行と置き場は[RFD0182の移行検証](../../src/core/base/testdata/rfd0182/README.md#実機のデータを移す前の確認)で確認する。
 
 ## 出力の置き場
 

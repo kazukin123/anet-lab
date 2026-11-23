@@ -224,7 +224,7 @@ struct TraceUiFixture {
     double last_notify_ms = 0;
 };
 }
-TEST_CASE("Trace ignores show notifications once destruction starts", "[prd094][trace_ui_close]")
+TEST_CASE("Trace ignores show notifications once destruction starts", "[rfd0094][trace_ui_close]")
 {
     TraceUiFixture ui;
     auto* follower = new TraceCloseFollowerProbe(&ui.frame);
@@ -261,7 +261,7 @@ TEST_CASE("Trace ignores show notifications once destruction starts", "[prd094][
     CHECK(follower->live_calls == live_before);
 }
 
-TEST_CASE("Trace grid follows numeric sorting and preserves row selection and playback", "[prd105][trace_ui_sort]")
+TEST_CASE("Trace grid follows numeric sorting and preserves row selection and playback", "[rfd0105][trace_ui_sort]")
 {
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.max_rows", "3");
@@ -308,7 +308,7 @@ TEST_CASE("Trace grid follows numeric sorting and preserves row selection and pl
     CHECK_FALSE(ui.grid->IsSortOrderAscending());
 }
 
-TEST_CASE("Trace header paints the current sorting direction", "[prd105][trace_ui_sort_icon]")
+TEST_CASE("Trace header paints the current sorting direction", "[rfd0105][trace_ui_sort_icon]")
 {
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.columns.[1]", "$env_step reward label:r");
@@ -321,7 +321,7 @@ TEST_CASE("Trace header paints the current sorting direction", "[prd105][trace_u
     wxClientDC label_dc(ui.grid);
     label_dc.SetFont(ui.grid->GetLabelFont());
     CHECK(ui.grid->GetColSize(1) >= label_dc.GetTextExtent("step").x + ui.grid->FromDIP(24));
-    constexpr const char* kCaptureDirEnv = "PRD105_SORT_CAPTURE_DIR";
+    constexpr const char* kCaptureDirEnv = "RFD0105_SORT_CAPTURE_DIR";
     constexpr const char* kCapturePrefix = "sort-header-";
     const char* capture_directory = std::getenv(kCaptureDirEnv);
     int capture_number = 0;
@@ -368,7 +368,7 @@ TEST_CASE("Trace header paints the current sorting direction", "[prd105][trace_u
     CHECK((pixels() == descending));
 }
 
-TEST_CASE("Trace row retains its notification until eviction and dumps it on double click", "[prd105][trace_ui_dump]")
+TEST_CASE("Trace row retains its notification until eviction and dumps it on double click", "[rfd0105][trace_ui_dump]")
 {
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.max_rows", "2");
@@ -443,7 +443,7 @@ TEST_CASE("Trace row retains its notification until eviction and dumps it on dou
     ui.run->GetNotifier()->Detach(observer);
 }
 
-TEST_CASE("A percentile of step sorts by its displayed value without a default step marker", "[prd105][trace_ui_step_pct]")
+TEST_CASE("A percentile of step sorts by its displayed value without a default step marker", "[rfd0105][trace_ui_step_pct]")
 {
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.columns.[1]", "$runner exp_step display:pct label:rank");
@@ -597,7 +597,7 @@ TEST_CASE("Trace keeps one selected row and fixed row heights", "[trace_ui_singl
     CHECK(ui.panel->IsTraceMode());
 }
 
-TEST_CASE("Visible Trace survives deferred frame destruction", "[prd094][trace_ui_close]")
+TEST_CASE("Visible Trace survives deferred frame destruction", "[rfd0094][trace_ui_close]")
 {
     // 通知資源はフレームの外で生存させ、実フレームの所有順序だけを検証する。
     anet::ConfigData config;
@@ -651,7 +651,7 @@ TEST_CASE("Visible Trace survives deferred frame destruction", "[prd094][trace_u
     CHECK(live_at_destroy == live_before);
 }
 
-TEST_CASE("Evaluation Trace presents six native playback tools", "[prd094][trace_ui_controls]")
+TEST_CASE("Evaluation Trace presents six native playback tools", "[rfd0094][trace_ui_controls]")
 {
     // 実際のwxの子ウィンドウと公開toolbar APIから操作列を確認する。
     wxFrame frame(nullptr, wxID_ANY, "Evaluation Trace acceptance");
@@ -677,7 +677,7 @@ TEST_CASE("Evaluation Trace presents six native playback tools", "[prd094][trace
     manager.UnInit();
 }
 
-TEST_CASE("Trace grid fits headers and grows only for longer displayed values", "[prd094][trace_ui_width]")
+TEST_CASE("Trace grid fits headers and grows only for longer displayed values", "[rfd0094][trace_ui_width]")
 {
     TraceUiFixture ui;
     REQUIRE(ui.grid != nullptr);
@@ -693,7 +693,7 @@ TEST_CASE("Trace grid fits headers and grows only for longer displayed values", 
     ui.Add(1.0f);
     CHECK(ui.grid->GetColSize(0) == wide);
 }
-TEST_CASE("Trace grid preserves manual widths and resets them on reopen", "[prd094][trace_ui_manual]")
+TEST_CASE("Trace grid preserves manual widths and resets them on reopen", "[rfd0094][trace_ui_manual]")
 {
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.max_rows", "1");
@@ -715,7 +715,7 @@ TEST_CASE("Trace grid preserves manual widths and resets them on reopen", "[prd0
     CHECK(ui.grid->GetColSize(0) == initial);
 }
 
-TEST_CASE("Trace grid expands the retained row when delayed diagnostics resolve", "[prd094][trace_ui_late]")
+TEST_CASE("Trace grid expands the retained row when delayed diagnostics resolve", "[rfd0094][trace_ui_late]")
 {
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.columns.[1]", "$env_step reward label:r");
@@ -732,7 +732,7 @@ TEST_CASE("Trace grid expands the retained row when delayed diagnostics resolve"
     CHECK(ui.grid->GetColSize(1) >= dc.GetTextExtent("2000000000").x + ui.grid->FromDIP(6));
 }
 
-TEST_CASE("Trace toolbar toggles playback and enters Live-relative frames", "[prd094][trace_ui_toggle]")
+TEST_CASE("Trace toolbar toggles playback and enters Live-relative frames", "[rfd0094][trace_ui_toggle]")
 {
     TraceUiFixture ui;
     ui.Add(1); ui.Add(2); ui.Add(3);
@@ -771,7 +771,7 @@ TEST_CASE("Trace toolbar toggles playback and enters Live-relative frames", "[pr
     CHECK_FALSE(ui.toolbar->GetToolEnabled(ui.toolbar->FindToolByIndex(0)->GetId()));
 }
 
-TEST_CASE("Trace minimum width keeps playback controls and the action column visible", "[prd094][trace_ui_minimum]")
+TEST_CASE("Trace minimum width keeps playback controls and the action column visible", "[rfd0094][trace_ui_minimum]")
 {
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.columns.[1]", "$runner exp_step label:step");
@@ -825,7 +825,7 @@ TEST_CASE("Trace minimum width keeps playback controls and the action column vis
     wxTheApp->Yield(true);
 }
 
-TEST_CASE("Trace without an action column reserves only the playback controls", "[prd094][trace_ui_minimum]")
+TEST_CASE("Trace without an action column reserves only the playback controls", "[rfd0094][trace_ui_minimum]")
 {
     TraceUiFixture ui;
     const int before = ui.panel->GetMinSize().x;
@@ -836,7 +836,7 @@ TEST_CASE("Trace without an action column reserves only the playback controls", 
     CHECK(ui.panel->GetMinSize().x == before);
 }
 
-TEST_CASE("Trace selection preserves the column header appearance", "[prd094][trace_ui_header]")
+TEST_CASE("Trace selection preserves the column header appearance", "[rfd0094][trace_ui_header]")
 {
     anet::ConfigData config;
     config.Set("app.eval_trace_panel.columns.[1]", "$env_step reward label:reward");
@@ -940,7 +940,7 @@ TEST_CASE("Trace keeps the leftmost column visible while scrolling horizontally"
     CHECK(ui.grid->GetNumberFrozenCols() == 1);
 }
 
-TEST_CASE("Trace grid uses native theme colours and terminal tint precedence", "[prd094][trace_ui_palette]")
+TEST_CASE("Trace grid uses native theme colours and terminal tint precedence", "[rfd0094][trace_ui_palette]")
 {
     TraceUiFixture ui;
     CHECK(ui.grid->GetDefaultCellBackgroundColour() == wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
@@ -958,7 +958,7 @@ TEST_CASE("Trace grid uses native theme colours and terminal tint precedence", "
         CHECK(ui.grid->GetCellTextColour(row, 0) == wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
 }
 
-TEST_CASE("Trace grid follows a font change without overriding a manual column", "[prd094][trace_ui_font]")
+TEST_CASE("Trace grid follows a font change without overriding a manual column", "[rfd0094][trace_ui_font]")
 {
     TraceUiFixture ui;
     ui.Add(-123456789.0f);
@@ -977,7 +977,7 @@ TEST_CASE("Trace grid follows a font change without overriding a manual column",
     CHECK(ui.grid->GetColSize(0) == 25);
 }
 
-TEST_CASE("Trace UI twelve columns and two delayed values measurement", "[.][prd094][trace_ui_perf]")
+TEST_CASE("Trace UI twelve columns and two delayed values measurement", "[.][rfd0094][trace_ui_perf]")
 {
     anet::ConfigData config;
     for (int i = 1; i <= 10; ++i)
@@ -999,7 +999,7 @@ TEST_CASE("Trace UI twelve columns and two delayed values measurement", "[.][prd
     CHECK(ui.grid->GetNumberRows() == 1000);
 }
 
-TEST_CASE("Trace control bar renders a stable border across playback Live and theme changes", "[.][prd094][trace_ui_visual]")
+TEST_CASE("Trace control bar renders a stable border across playback Live and theme changes", "[.][rfd0094][trace_ui_visual]")
 {
     anet::ConfigData config;
     const std::array<const char*, 12> definitions{
@@ -1014,11 +1014,11 @@ TEST_CASE("Trace control bar renders a stable border across playback Live and th
     ui.frame.Show();
     ui.frame.Raise();
     wxTheApp->Yield(true);
-    const char* capture_directory = std::getenv("PRD094_UI_CAPTURE_DIR");
+    const char* capture_directory = std::getenv("RFD0094_UI_CAPTURE_DIR");
     const auto directory = capture_directory ? std::filesystem::path(capture_directory) : TraceUiOutputDirectory() / "captures";
     std::filesystem::create_directories(directory);
     std::cout << "TRACE_UI_CAPTURE_DIR " << directory.string() << '\n';
-    const std::string theme = std::getenv("PRD094_UI_DARK") ? "dark" : "light";
+    const std::string theme = std::getenv("RFD0094_UI_DARK") ? "dark" : "light";
     const auto capture = [&](const std::string& name) {
         ui.panel->Refresh();
         ui.panel->Update();
@@ -1355,13 +1355,13 @@ TEST_CASE("Runner menu changes Eval steps and preserves Custom cancellation", "[
 }
 
 // RunnerAppの起動を含むため、このタグだけを別processで実行する。
-TEST_CASE("Runner forwards Trace arrows without steps and reports successful forced actions", "[.][prd105_ui_keys]")
+TEST_CASE("Runner forwards Trace arrows without steps and reports successful forced actions", "[.][rfd0105_ui_keys]")
 {
     const auto directory = TraceUiOutputDirectory();
     std::filesystem::create_directories(directory);
-    constexpr const char* kRealConfigEnv = "PRD105_UI_CONFIG";
+    constexpr const char* kRealConfigEnv = "RFD0105_UI_CONFIG";
     const char* real_config = std::getenv(kRealConfigEnv);
-    const auto config_path = real_config ? std::filesystem::path(real_config) : directory / "prd105_keys.txt";
+    const auto config_path = real_config ? std::filesystem::path(real_config) : directory / "rfd0105_keys.txt";
     if (!real_config) {
         std::ofstream config(config_path);
         config << "env.class_id = CartPoleEnv\nenv.worker_type = 1\nenv.device = cpu\n"
@@ -1370,7 +1370,7 @@ TEST_CASE("Runner forwards Trace arrows without steps and reports successful for
             "run.eval.[panel].run_mode = eval\napp.eval_panel.eval_config_tag = panel\n"
             "app.train_auto_start = false\napp.save_agent_on_close = false\napp.show_error_dialog = false\n"
             "app.main_view = train\napp.train_panel.fps = 0\napp.eval_panel.fps = 0\napp.eval_panel.auto_start = false\n"
-            "backend.torch_num_threads = 1\napp.run_name = run_{t}_prd105_keys\n"
+            "backend.torch_num_threads = 1\napp.run_name = run_{t}_rfd0105_keys\n"
             "app.eval_trace_panel.columns.[1] = $runner exp_step label:step\n"
             "app.eval_trace_panel.columns.[2] = $runner forced label:forced\n"
             "app.eval_trace_panel.columns.[3] = $action_info action\n"
@@ -1568,7 +1568,7 @@ TEST_CASE("Runner forwards Trace arrows without steps and reports successful for
             CHECK(added.Contains("verbose") == (std::string_view(level) == "verbose"));
             const double elapsed = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - start).count();
-            std::cout << "PRD105_REAL_UI config=" << config_path.string() << " level=" << level
+            std::cout << "RFD0105_REAL_UI config=" << config_path.string() << " level=" << level
                 << " dump_to_log_ms=" << elapsed << " chars=" << added.size() << '\n';
         }
         show_trace(false);
@@ -1601,7 +1601,7 @@ int main(int argc, char** argv)
     char* wxargv[] = {argv[0], nullptr};
     bool records_gpu_memory = false;
     for (int i = 1; i < arguments.Argc(); ++i) {
-        records_gpu_memory |= std::string_view(arguments.Argv()[i]).find("[prd170_memory]") != std::string_view::npos;
+        records_gpu_memory |= std::string_view(arguments.Argv()[i]).find("[rfd0170_memory]") != std::string_view::npos;
     }
     // ImageData の wxInitialize と同じ初期化カウンタで、測定専用プロセスを起動する。
     if (records_gpu_memory ? !wxInitialize() : !wxEntryStart(wxargc, wxargv)) return 2;
@@ -1609,25 +1609,25 @@ int main(int argc, char** argv)
     wxSetAssertHandler([](const wxString&, int, const wxString&, const wxString& condition, const wxString& message) {
         throw std::runtime_error((condition + ": " + message).ToStdString());
     });
-    wxTheApp->SetAppearance(std::getenv("PRD094_UI_DARK") ? wxApp::Appearance::Dark : wxApp::Appearance::Light);
+    wxTheApp->SetAppearance(std::getenv("RFD0094_UI_DARK") ? wxApp::Appearance::Dark : wxApp::Appearance::Light);
     // RunnerAppを起動する明示tagは別process専用。Env登録はOnInit側へ任せる。
     bool starts_runner_app = false;
     for (int i = 1; i < arguments.Argc(); ++i) {
         const std::string_view argument(arguments.Argv()[i]);
         starts_runner_app |= argument.find("[runner_close_drain]") != std::string_view::npos
-            || argument.find("[prd127]") != std::string_view::npos
-            || argument.find("[prd127_ui_lifecycle]") != std::string_view::npos;
-        starts_runner_app |= argument.find("[prd170_gui]") != std::string_view::npos
-            || argument.find("[prd170_startup]") != std::string_view::npos
-            || argument.find("[prd194]") != std::string_view::npos
-            || argument.find("[prd194_codec]") != std::string_view::npos;
+            || argument.find("[rfd0127]") != std::string_view::npos
+            || argument.find("[rfd0127_ui_lifecycle]") != std::string_view::npos;
+        starts_runner_app |= argument.find("[rfd0170_gui]") != std::string_view::npos
+            || argument.find("[rfd0170_startup]") != std::string_view::npos
+            || argument.find("[rfd0194]") != std::string_view::npos
+            || argument.find("[rfd0194_codec]") != std::string_view::npos;
         starts_runner_app |= argument.find("eval_steps_menu") != std::string_view::npos
-            || argument.find("prd105_ui_keys") != std::string_view::npos
-            || argument.find("[prd109_") != std::string_view::npos
-            || argument.find("[prd110_") != std::string_view::npos
-            || argument.find("[prd117_startup]") != std::string_view::npos
-            || argument.find("[prd117_mode_") != std::string_view::npos
-            || argument.find("[prd117_save_zero]") != std::string_view::npos
+            || argument.find("rfd0105_ui_keys") != std::string_view::npos
+            || argument.find("[rfd0109_") != std::string_view::npos
+            || argument.find("[rfd0110_") != std::string_view::npos
+            || argument.find("[rfd0117_startup]") != std::string_view::npos
+            || argument.find("[rfd0117_mode_") != std::string_view::npos
+            || argument.find("[rfd0117_save_zero]") != std::string_view::npos
             || argument.find("[q_value_") != std::string_view::npos
             || argument.find("[toolbar_full_width]") != std::string_view::npos
             || argument.find("[fps_menu]") != std::string_view::npos;
@@ -1664,12 +1664,12 @@ TEST_CASE("CartPole initialization keeps its first Env factory and View creator"
     CHECK(views.GetViewCreator(kClassId) == creator);
 }
 
-TEST_CASE("Trace pane forwards suspension and requests one Actor synchronization", "[.][prd127][prd127_ui_lifecycle]")
+TEST_CASE("Trace pane forwards suspension and requests one Actor synchronization", "[.][rfd0127][rfd0127_ui_lifecycle]")
 {
     // SyncModelは実EvalPanelの公開初期化を通すため、View factoryを持つRunnerAppも起動する。
     const auto directory = TraceUiOutputDirectory();
     std::filesystem::create_directories(directory);
-    const auto config_path = directory / "prd127_lifecycle.txt";
+    const auto config_path = directory / "rfd0127_lifecycle.txt";
     {
         std::ofstream config(config_path);
         config << "env.class_id = CartPoleEnv\nenv.worker_type = 1\nenv.device = cpu\n"
@@ -1678,7 +1678,7 @@ TEST_CASE("Trace pane forwards suspension and requests one Actor synchronization
             "run.eval.[panel].run_mode = eval\napp.eval_panel.eval_config_tag = panel\n"
             "app.train_auto_start = false\napp.save_agent_on_close = false\napp.show_error_dialog = false\n"
             "app.main_view = train\napp.train_panel.fps = 0\napp.eval_panel.fps = 0\napp.eval_panel.auto_start = false\n"
-            "backend.torch_num_threads = 1\napp.run_name = run_{t}_prd127_lifecycle\n"
+            "backend.torch_num_threads = 1\napp.run_name = run_{t}_rfd0127_lifecycle\n"
             "app.eval_trace_panel.columns.[1] = $runner exp_step label:step\n"
             "app.runs_dir = " << directory.generic_string() << '\n';
     }

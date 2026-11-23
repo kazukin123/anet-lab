@@ -1,7 +1,7 @@
 #include "anet/test/catch.hpp"
 #include "dqn_fixture_test.hpp"
 
-TEST_CASE("PRD101 step diagnostics use the carried gamma at bootstrap completion", "[prd101][dqn][step_diagnostics]")
+TEST_CASE("RFD0101 step diagnostics use the carried gamma at bootstrap completion", "[rfd0101][dqn][step_diagnostics]")
 {
     auto config = WithDefaultLearnerForwardConfig();
     config.gamma.type = "linear";

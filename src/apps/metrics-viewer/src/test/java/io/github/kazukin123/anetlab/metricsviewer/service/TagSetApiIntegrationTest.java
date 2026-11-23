@@ -27,7 +27,7 @@ class TagSetApiIntegrationTest {
 	private final ObjectMapper mapper = new ObjectMapper();
 
 	private static Path createWorkspaces() {
-		try { return Files.createTempDirectory("prd111-api-"); }
+		try { return Files.createTempDirectory("rfd0111-api-"); }
 		catch (java.io.IOException exception) { throw new IllegalStateException(exception); }
 	}
 

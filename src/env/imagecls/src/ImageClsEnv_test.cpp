@@ -40,7 +40,7 @@ TEST_CASE("ImageCls initialization keeps its first Env factory and View creator"
     CHECK(views.GetViewCreator(kClassId) == creator);
 }
 
-TEST_CASE("Dataset catalog validates item keys independently of earlier reads", "[prd117][dataset_catalog]")
+TEST_CASE("Dataset catalog validates item keys independently of earlier reads", "[rfd0117][dataset_catalog]")
 {
     anet::test::LogCaptureGuard logs;
     anet::ConfigData data;
@@ -56,7 +56,7 @@ TEST_CASE("Dataset catalog validates item keys independently of earlier reads", 
         Catch::Matchers::ContainsSubstring("ImageDataset.[test].image_wdith = 17"));
 }
 
-TEST_CASE("Dataset catalog reads common values and every declared item without image IO", "[prd117][dataset_catalog]")
+TEST_CASE("Dataset catalog reads common values and every declared item without image IO", "[rfd0117][dataset_catalog]")
 {
     anet::test::LogCaptureGuard logs;
     anet::ConfigData data;
@@ -680,7 +680,7 @@ int main(int argc, char* argv[])
     return session.run(test_args.Argc(), test_args.Argv());
 }
 
-TEST_CASE("ImageCls results retain the scored window accuracy and epoch", "[image_cls_env][prd097_imagecls_result]")
+TEST_CASE("ImageCls results retain the scored window accuracy and epoch", "[image_cls_env][rfd0097_imagecls_result]")
 {
     EnsureWxImageSupport();
     TinyImageClsDataset dataset(4);
@@ -711,7 +711,7 @@ TEST_CASE("ImageCls results retain the scored window accuracy and epoch", "[imag
     CHECK_FALSE(window->GetScalar("unknown").has_value());
 }
 
-TEST_CASE("ImageCls shared result exposes batch transition fields", "[image_cls_env][prd097_shared_fields]")
+TEST_CASE("ImageCls shared result exposes batch transition fields", "[image_cls_env][rfd0097_shared_fields]")
 {
     EnsureWxImageSupport();
     TinyImageClsDataset dataset(4);
@@ -734,7 +734,7 @@ TEST_CASE("ImageCls shared result exposes batch transition fields", "[image_cls_
     CHECK(first->GetScalar("done") == 0.0f);
 }
 
-TEST_CASE("ImageCls continue state reuses the Step prefetch", "[image_cls_env][prd097_prefetch]")
+TEST_CASE("ImageCls continue state reuses the Step prefetch", "[image_cls_env][rfd0097_prefetch]")
 {
     EnsureWxImageSupport();
     TinyImageClsDataset dataset(3);

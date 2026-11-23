@@ -1,6 +1,6 @@
 # Actor Q ヒントを常時 5 列にし、価値の分解の Head ごとの値を運ぶ。列の数はモードで変えない
 
-価値の分解（[PRD 121](../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md)）は、PER の優先度を Head ごとの TD 誤差の重み付きの和にするので、Actor の値から初期優先度を見積もる構成（`actor_approx`）では Head ごとの Q_sa と V_s が要り、Actor Q ヒントを `[q_sa, state_value, munchausen_term, intrinsic_q_sa, intrinsic_state_value]` の**常時 5 列**にすることに決める。価値の分解が有効のとき前の 3 列は外的の Head の値で、無効のとき前の 3 列は今と同じ 1 本の Q の値、後ろの 2 列は 0 にする。[ADR 0036](0036-actor-q-hint-three-columns-munchausen.md) の「列の数をモードで変えず、使わない列を 0 にする」判断を保ち、列の数だけを 3 から 5 に改める。
+価値の分解（[PRD 121](../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)）は、PER の優先度を Head ごとの TD 誤差の重み付きの和にするので、Actor の値から初期優先度を見積もる構成（`actor_approx`）では Head ごとの Q_sa と V_s が要り、Actor Q ヒントを `[q_sa, state_value, munchausen_term, intrinsic_q_sa, intrinsic_state_value]` の**常時 5 列**にすることに決める。価値の分解が有効のとき前の 3 列は外的の Head の値で、無効のとき前の 3 列は今と同じ 1 本の Q の値、後ろの 2 列は 0 にする。[ADR 0036](0036-actor-q-hint-three-columns-munchausen.md) の「列の数をモードで変えず、使わない列を 0 にする」判断を保ち、列の数だけを 3 から 5 に改める。
 
 ## Considered Options
 

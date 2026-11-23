@@ -13,9 +13,9 @@ domain: UI
 ai_judge: 未確認
 ai_judged:
 docs:
-  - docs/memo/170_nn_trace_capture_unification_20impl.md
+  - docs/memo/0170_nn_trace_capture_unification_20impl.md
   - docs/design/160_applications_and_tools.jp.md
-prd:
+rfd:
 priority: 中
 depends: []
 parent:
@@ -40,7 +40,7 @@ PRD170 の実装で、変更前後の既定テスト一式を比較した際に�
 - テストは3行を追加したGridで、0行目のセルに合成した左ボタン押下を送り、押したまま1行目・2行目へ移動し、2行目でボタンを離す。その直後の `REQUIRE(ui.panel->IsTraceMode())` が false になる。
 - PRD170 の着手前と最終実装後の通常 GUI 一式を、同じ Catch seed `3413744419` で実行すると、両方とも39 cases中38 pass / 1 fail、894 assertions中893 pass / 1 fail。失敗する条件は同じで、着手前は576行目、最終実装後は581行目だった。
 - 実画面の同じ操作が失敗するか、合成イベントの準備に原因があるかは未確認。製品の選択処理とテスト側のどちらを直すべきかは、まだ特定していない。
-- ローカルの証拠は `.scratch/prd170/gui-before.log`、`gui-after-results.log`、`gui-final-results.log`。これらはGit管理外であり、結果の要約は[PRD170実装記録](../../memo/170_nn_trace_capture_unification_20impl.md)にも残っている。
+- ローカルの証拠は `.scratch/prd170/gui-before.log`、`gui-after-results.log`、`gui-final-results.log`。これらはGit管理外であり、結果の要約は[PRD170実装記録](../../memo/0170_nn_trace_capture_unification_20impl.md)にも残っている。
 
 ## 影響
 

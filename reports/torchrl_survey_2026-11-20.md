@@ -559,7 +559,7 @@ Meta は 2025-10-22 に TorchForge を発表した。TorchRL がそれに統合�
 |---|---|---|
 | EnvBase、ParallelEnv・SerialEnv | Env、BatchEnv（[120](../docs/design/120_environments.jp.md)） | TorchRL は終わった要素の reset を `"_reset"` のマスクで指示する。anet の BatchEnv は終端の lane を Step の中で自動で Reset し、Replay へは Reset 前の終端観測を渡す（[150 §2.1](../docs/design/150_replay_buffer.jp.md)） |
 | env 側の Transform | Env の中の前処理（[220](../docs/design/220_atari_env.jp.md)、ADR 0026） | TorchRL は env の外に重ねる。anet の Atari は Env の中に前処理を持つ |
-| 観測を Network の入力にする Transform | 観測パイプライン（[PRD161](../docs/memo/161_observation_pipeline_10prd.md)、暫定）、`DictFrameStacker`、`ObservationNormalizer` | §11.3 |
+| 観測を Network の入力にする Transform | 観測パイプライン（[PRD161](../docs/memo/0161_observation_pipeline_10rfd.md)、暫定）、`DictFrameStacker`、`ObservationNormalizer` | §11.3 |
 | Collector | TrainRunner（SerialTrainRunner、PipelineTrainRunner）と Actor（[100](../docs/design/100_runtime_and_configuration.jp.md)、[110](../docs/design/110_agents_and_learning.jp.md)） | TorchRL の collector は方策を受け取って rollout し、`frames_per_batch` 単位の TensorDict を返す。anet は Runner が Actor・Env・Learner の呼び出しの順序を持つ |
 | ReplayBuffer（storage・sampler・writer・transform） | ReplayBuffer（DefaultReplayBuffer、PrefetchingReplayBuffer。[150](../docs/design/150_replay_buffer.jp.md)） | TorchRL は部品を差し替える構成。anet は N-step・stack の再構成・PER・prefetch を 1 つの契約にまとめる |
 | LossModule、value estimator、target の更新 | `dqn::Learner`（[200](../docs/design/200_dqn_agents.jp.md)） | TorchRL は損失を独立した部品にする。anet は Learner が損失と更新をまとめて持つ |

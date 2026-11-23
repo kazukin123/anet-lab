@@ -86,7 +86,7 @@ TrainEvent DiagnosticEvent(int64_t lanes, step_t step)
 
 } // namespace
 
-TEST_CASE("Agent-step columns resolve independently through GetScalar across lanes", "[prd094][generic_step_completion]")
+TEST_CASE("Agent-step columns resolve independently through GetScalar across lanes", "[rfd0094][generic_step_completion]")
 {
     anet::ConfigData config;
     const std::vector<std::string> keys{"entropy", "known_nan", "late_a", "late_b", "late_a"};
@@ -136,7 +136,7 @@ TEST_CASE("Agent-step columns resolve independently through GetScalar across lan
 }
 
 TEST_CASE("Diagnostic providers validate unknown keys at first read and wait only for selected columns",
-    "[prd094][generic_step_keys]")
+    "[rfd0094][generic_step_keys]")
 {
     auto agent = std::make_shared<DiagnosticAgent>();
     anet::ConfigData config;
@@ -164,7 +164,7 @@ TEST_CASE("Diagnostic providers validate unknown keys at first read and wait onl
 }
 
 TEST_CASE("Resolved column notifications update percentile windows after display eviction exactly once",
-    "[prd094][generic_step_percentile]")
+    "[rfd0094][generic_step_percentile]")
 {
     anet::ConfigData config;
     const std::vector<std::string> keys{"entropy", "late_a", "late_b"};
@@ -195,7 +195,7 @@ TEST_CASE("Resolved column notifications update percentile windows after display
     CHECK(AppendTracePercentile(windows[1], 100, 10) == 30.0f);
 }
 
-TEST_CASE("Unsupported diagnostics leave arbitrary agent-step columns empty", "[prd094][generic_step_keys]")
+TEST_CASE("Unsupported diagnostics leave arbitrary agent-step columns empty", "[rfd0094][generic_step_keys]")
 {
     // 非対応のnamespaceは、DQNの既知キー一覧に依存せず空欄として記録する。
     EnvSpec spec;
@@ -217,7 +217,7 @@ TEST_CASE("Unsupported diagnostics leave arbitrary agent-step columns empty", "[
     CHECK(row->complete);
 }
 
-TEST_CASE("Step trace column parsing consumes original config definitions", "[prd117][columns]")
+TEST_CASE("Step trace column parsing consumes original config definitions", "[rfd0117][columns]")
 {
     anet::ConfigData data;
     data.Set("app.eval_trace_panel.columns.[1]", "$runner episode_return");
@@ -229,7 +229,7 @@ TEST_CASE("Step trace column parsing consumes original config definitions", "[pr
     CHECK(unread.front().first == "unread.sentinel");
 }
 
-TEST_CASE("Step trace columns parse ordered declarations and reject invalid contracts", "[prd094][columns]")
+TEST_CASE("Step trace columns parse ordered declarations and reject invalid contracts", "[rfd0094][columns]")
 {
     EnvSpec spec;
     spec.action_spec.is_discrete = true;
@@ -266,7 +266,7 @@ TEST_CASE("Step trace columns parse ordered declarations and reject invalid cont
     CHECK_THROWS(StepTraceColumnSpec::Parse(continuous, spec));
 }
 
-TEST_CASE("Step trace rejects malformed column locations before recording", "[prd094][column_bounds]")
+TEST_CASE("Step trace rejects malformed column locations before recording", "[rfd0094][column_bounds]")
 {
     EnvSpec spec;
     const std::string key = GENERATE("app.eval_trace_panel.columns.foo", "app.eval_trace_panel.columns.[1].label");
@@ -277,7 +277,7 @@ TEST_CASE("Step trace rejects malformed column locations before recording", "[pr
     CHECK_THROWS(StepTraceBuilder(empty, spec, nullptr, -1, nullptr));
 }
 
-TEST_CASE("Step trace reads continuous actions and reserves transition fields", "[prd094][trace_reader]")
+TEST_CASE("Step trace reads continuous actions and reserves transition fields", "[rfd0094][trace_reader]")
 {
     EnvSpec spec;
     spec.action_spec.is_discrete = false;
@@ -306,7 +306,7 @@ TEST_CASE("Step trace reads continuous actions and reserves transition fields", 
     CHECK_THROWS(unknown.OnTrain(event));
 }
 
-TEST_CASE("Lane action reads reject incomplete dimension syntax", "[prd094][trace_action_dimension]")
+TEST_CASE("Lane action reads reject incomplete dimension syntax", "[rfd0094][trace_action_dimension]")
 {
     const auto info = std::make_shared<BatchActionInfo>(torch::tensor({{0.25f, -0.5f}}));
     const MetricValueContext context{.action_info=info.get()};

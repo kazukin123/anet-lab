@@ -18,7 +18,7 @@ ImageCls を batch-native 化するにあたり、既存の `EnvRepository`（cl
 
 ## Follow-up: PRD 037先行によるEnv name伝播
 
-このfollow-upは、上記のregistry variant化、Factory/Builder再レイヤ、configured EvalのBuilder統一という元の決定と理由を変更しない。[PRD 037](../memo/done/037_env_instance_name_10prd.md)を[PRD 034](../memo/done/034_imagecls_batch_input_10prd.md)より先に実装することに伴い、Env生成seamへ人間向けの必須`name`を追加する。
+このfollow-upは、上記のregistry variant化、Factory/Builder再レイヤ、configured EvalのBuilder統一という元の決定と理由を変更しない。[PRD 037](../memo/done/0037_env_instance_name_10rfd.md)を[PRD 034](../memo/done/0034_imagecls_batch_input_10rfd.md)より先に実装することに伴い、Env生成seamへ人間向けの必須`name`を追加する。
 
 - 実装順序をPRD 037→PRD 034とし、PRD 034 Phase 0はPRD 037完了後をbaselineとする。
 - PRD 034 Phase 0では、旧top-level `BatchEnvFactory::CreateBatchEnv(name, seed, num_envs)`を維持したまま`DefaultBatchEnvFactory`を`BatchEnvBuilder`へ改名する。

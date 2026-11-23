@@ -196,7 +196,7 @@ namespace {
     };
 }
 
-TEST_CASE("Runner selects an Actor catalog entry and exposes its epsilon", "[trainer][prd061][actor_catalog_tracer]")
+TEST_CASE("Runner selects an Actor catalog entry and exposes its epsilon", "[trainer][rfd0061][actor_catalog_tracer]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();

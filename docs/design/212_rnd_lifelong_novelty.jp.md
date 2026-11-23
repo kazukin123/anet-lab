@@ -356,9 +356,9 @@ RND無効時とlearner停止による休止中も、既知キーは`NaN`を返�
 
 入力はCPUでもCUDAでも受け取る。whiten は観測を Factory の計算 device へ送り、変換・正規化・観測と target 出力の batch の集計を行う。累積統計は CPU・倍精度のままで、誤差の有限検査、α の計算、誤差の統計と診断値の組み立ても CPU に残す。返す α は入力と同じ device に置く。Coordinatorは先にlaneを選び、`Learn` は渡された全k件を転送してから変換・正規化する。CUDA入力の選択番号はintakeごとに1回、pinnedメモリから非同期で送る。laneごとの同期転送は置かない。
 
-RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn.intake.ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。GridMazeとAtariの既存の性能測定は次節に記す。統計更新専用の口と device 配置を変更したステージ 1 の結果と、統計方式を分けたステージ 2 の主・副・Taiga 設定の性能比較結果は [PRD130 実装メモ](../memo/130_rnd_estimate_statistics_perf_20impl.md) にある。ステージ 2 は固定した実行体の交互比較を各条件で 3 巡行い、3 条件とも受入を満たした。
+RNDはFP32で独立したモデルを持つ。採点は全N観測にforwardを2回、補助学習は各k件にforwardを2回とbackwardを1回行う。warm-up後、上限に当たらない場合の平均step数はintakeあたり `N × learn.intake.ratio / k`。既定のN=128なら1回・32件となる。採点のグラフを再利用しないため学習時にもforwardが要る。GridMazeとAtariの既存の性能測定は次節に記す。統計更新専用の口と device 配置を変更したステージ 1 の結果と、統計方式を分けたステージ 2 の主・副・Taiga 設定の性能比較結果は [RFD0130 実装メモ](../memo/0130_rnd_estimate_statistics_perf_20impl.md) にある。ステージ 2 は固定した実行体の交互比較を各条件で 3 巡行い、3 条件とも受入を満たした。
 
-variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×head.output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md) に記録する。Taiga 設定の性能比較結果は上記の PRD130 実装メモにある。
+variance_feedbackの観測統計はCPUでlane順に更新し、その結果をまとめてforwardする。target_feature_varを蓄積するため、採点時は誤差に加えてN×head.output_dimのtarget出力をCPUへ戻す。Taiga設定ではk=1・ratio=1なのでintakeあたりN回backwardし、既定の刻みとは費用が大きく異なる。転送・同期の見積もりと実際に確認した範囲は [23impl](../memo/0116_rnd_lifelong_novelty_23impl.md) に記録する。Taiga 設定の性能比較結果は上記の RFD0130 実装メモにある。
 
 Q学習の回数とは別にbatchごとに採点・補助学習するため、Qの更新間隔を大きくしてもRNDの費用が同じ比率で減るとは限らない。計測区間は抽選、正規化、入力転送、target / predictorの順伝播、誤差転送、統計、backward、optimizerのstepを区別する。採点の統計の区間は、内側の観測の統計の更新と、続くtargetの出力の統計、診断値の読み出しを別の区間で測れる。観測の正規化の部品は、統計の更新（batchの集計、転送、累積への合流）と、正規化（統計の作り直し、割り算、後処理、clip）を区別する。採点を呼ぶ側は、採点、ボーナスの計算、診断値の読み出しを区別する。
 
@@ -366,17 +366,17 @@ Q学習の回数とは別にbatchごとに採点・補助学習するため、Q�
 
 ### 9.6 検証の記録
 
-設定の移行前後の比較、旧 checkpoint の読み込み、補助学習の実時間の測定手順は [PRD191 検証資材](../../src/core/base/testdata/prd191/README.md) にある。
+設定の移行前後の比較、旧 checkpoint の読み込み、補助学習の実時間の測定手順は [RFD0191 検証資材](../../src/core/base/testdata/rfd0191/README.md) にある。
 
-PRD130 の機能検証と性能測定の手順は [検証資材](../../src/core/base/testdata/prd130/README.md)、実施結果と未実施の範囲は [実装メモ](../memo/130_rnd_estimate_statistics_perf_20impl.md) に置く。以下の性能値は、それぞれの測定当時の実行体による記録である。
+RFD0130 の機能検証と性能測定の手順は [検証資材](../../src/core/base/testdata/rfd0130/README.md)、実施結果と未実施の範囲は [実装メモ](../memo/0130_rnd_estimate_statistics_perf_20impl.md) に置く。以下の性能値は、それぞれの測定当時の実行体による記録である。
 
-価値の分解・内的スケーラ・動的スケーラの保存復元の検証は[PRD121検証資材](../../src/core/base/testdata/prd121/README.md)に置く。
+価値の分解・内的スケーラ・動的スケーラの保存復元の検証は[RFD0121検証資材](../../src/core/base/testdata/rfd0121/README.md)に置く。
 
-構造の分離後の前後比較、旧checkpointの継続、Releaseの速度は [PRD128検証資材](../../src/core/base/testdata/prd128/README.md)を参照する。
+構造の分離後の前後比較、旧checkpointの継続、Releaseの速度は [RFD0128検証資材](../../src/core/base/testdata/rfd0128/README.md)を参照する。
 
-誤差統計・待ち・中心化・終端の mask の検証手順は [PRD123 検証資材](../../src/core/base/testdata/prd123/README.md) にある。当時の誤差を先に集める設定、variance_feedback、RND 無効の前後比較と、EMA の手計算・保存復元を記録している。
+誤差統計・待ち・中心化・終端の mask の検証手順は [RFD0123 検証資材](../../src/core/base/testdata/rfd0123/README.md) にある。当時の誤差を先に集める設定、variance_feedback、RND 無効の前後比較と、EMA の手計算・保存復元を記録している。
 
-公開実装の形と選択肢を追加した2026-11-07の検証は [23impl](../memo/116_rnd_lifelong_novelty_23impl.md)、再検証の入口は [PRD116 検証資材](../../src/core/base/testdata/prd116/README.md) に置く。過去の検証は [20impl](../memo/116_rnd_lifelong_novelty_20impl.md)、[21impl](../memo/116_rnd_lifelong_novelty_21impl.md)、[22impl](../memo/116_rnd_lifelong_novelty_22impl.md) を参照する。有効時の学習系列はNetworkと設定の変更により過去のRunと異なる。
+公開実装の形と選択肢を追加した2026-11-07の検証は [23impl](../memo/0116_rnd_lifelong_novelty_23impl.md)、再検証の入口は [RFD0116 検証資材](../../src/core/base/testdata/rfd0116/README.md) に置く。過去の検証は [20impl](../memo/0116_rnd_lifelong_novelty_20impl.md)、[21impl](../memo/0116_rnd_lifelong_novelty_21impl.md)、[22impl](../memo/0116_rnd_lifelong_novelty_22impl.md) を参照する。有効時の学習系列はNetworkと設定の変更により過去のRunと異なる。
 
 | 確認 | 結果と範囲 |
 | --- | --- |
@@ -397,9 +397,9 @@ PRD130 の機能検証と性能測定の手順は [検証資材](../../src/core/
 
 短期動作確認は、計算・報酬加算・学習・記録がつながっていることを確かめるものである。外的な成績が改善すること、難しいゲームの探索問題を解決すること、性能上の費用が許容できることまでは示していない。
 
-特に、一度慣れた経路を再び探索する動機、エピソードごとの新しさ、探索の強さが異なる方策の組は、今回の RND 単独実装とは別の論点である。関連する選択肢と未決は [PRD173](../memo/173_intrinsic_reward_novelty_10prd.md) にある。
+特に、一度慣れた経路を再び探索する動機、エピソードごとの新しさ、探索の強さが異なる方策の組は、今回の RND 単独実装とは別の論点である。関連する選択肢と未決は [RFD0173](../memo/0173_intrinsic_reward_novelty_10rfd.md) にある。
 
-run.@rnd_taigaもTaigaらの完全な再現ではない。QはC51でなくIQN、CNNはSAMEでなくVALID paddingであり、Qの埋め込み・初期値・PER・統計を数える単位・ALEの版も異なる。補助学習時には更新後の統計で入力を正規化し直す。残る差の一覧は [23implの表](../memo/116_rnd_lifelong_novelty_23impl.md#本家との残る差) にある。
+run.@rnd_taigaもTaigaらの完全な再現ではない。QはC51でなくIQN、CNNはSAMEでなくVALID paddingであり、Qの埋め込み・初期値・PER・統計を数える単位・ALEの版も異なる。補助学習時には更新後の統計で入力を正規化し直す。残る差の一覧は [23implの表](../memo/0116_rnd_lifelong_novelty_23impl.md#本家との残る差) にある。
 
 ### 9.7 保存と再開
 
@@ -415,24 +415,24 @@ RND を含む Agent checkpoint には `;intrinsic` の識別子を使い、読�
 
 DefaultDQN の run.@rnd は 235 rnd_bonus、600 rnd_err、610 rnd_norm を出す。各列は内的報酬、誤差 e、倍率から 1 を引いた clip 前の値に対応する。none では rnd_norm に e が入る。対応する待ちの間、rnd_bonus は 0 になる。誤差が非有限な lane は未成立として扱う。
 
-Trace は推定器の写しの観測統計と件数で採点し、内的報酬スケーラの現在の統計を読む。どちらの統計や件数も更新しない。β は Actor 同期時点の値を使う。評価専用などで写しを持たない Actor は、学習側の値を読む。開いている行を変更しても過去の行を採点し直さない。計測条件と結果は [PRD127 の検証資材](../../src/core/base/testdata/prd127/README.md) に記録している。
+Trace は推定器の写しの観測統計と件数で採点し、内的報酬スケーラの現在の統計を読む。どちらの統計や件数も更新しない。β は Actor 同期時点の値を使う。評価専用などで写しを持たない Actor は、学習側の値を読む。開いている行を変更しても過去の行を採点し直さない。計測条件と結果は [RFD0127 の検証資材](../../src/core/base/testdata/rfd0127/README.md) に記録している。
 
 forwardで乱数を引くdropout・droppathは共有乱数列を進めるので、Actorが写しを持つ場合も学習不変性の保証外である。BatchNormの更新は写しの中に閉じるが、写しを持たないActorでは学習側の統計も変わる。この場合も保証外である。これらの層は検出もWARNもしない。出荷のRND構成には含まれない。
 
-受入と費用の測定手順は[PRD127検証資材](../../src/core/base/testdata/prd127/README.md)に置く。KFMの実時間優先＋`run.@rnd`（128 lane、CUDA、Release）と、それに`run.@rainbow_like`・`run.@rnd_taiga`を重ねた構成で、EvalPanelを再生したまま、paneを閉じた状態と開いた状態を交互に3回ずつ測った。各状態は、切り替えの25秒後から90秒の学習exp step/sと、続く12秒のTracyの区間時間である。
+受入と費用の測定手順は[RFD0127検証資材](../../src/core/base/testdata/rfd0127/README.md)に置く。KFMの実時間優先＋`run.@rnd`（128 lane、CUDA、Release）と、それに`run.@rainbow_like`・`run.@rnd_taiga`を重ねた構成で、EvalPanelを再生したまま、paneを閉じた状態と開いた状態を交互に3回ずつ測った。各状態は、切り替えの25秒後から90秒の学習exp step/sと、続く12秒のTracyの区間時間である。
 
 | 構成 | 学習exp step/s、閉じた状態（中央値、範囲） | 開いた状態 | Observe 1回（平均、最大） | うち採点（`EstimateWithoutUpdate`、平均） | 推定器とβの写し 1回 |
 |---|---|---|---|---|---|
 | 通常RND | 3,633（3,303〜3,666） | 3,164（3,156〜3,355） | 2.15〜2.25 ms、最大8.9 ms | 1.35〜1.39 ms | 166〜176 ms |
 | Taiga式 | 249（241〜249） | 233（227〜234） | 1.51〜1.73 ms、最大12.0 ms | 1.23〜1.40 ms | 152〜189 ms |
 
-Observeの時間は、内側で呼ぶDQNのstep診断（通常RNDで平均0.74〜0.82 ms、Taiga式で0.26〜0.33 ms）を含む。行は1秒に約50行できた。写しは定期のActor同期（EvalPanelの既定で10秒ごと）のたびに1回入り、ほぼ全部がRNDの推定器の写し（`RndNoveltyEstimator::Clone`）だった。paneを閉じた状態では、採点も写しも行われなかった。写しの時間は、[PRD127](../memo/127_eval_trace_intrinsic_reward_columns_10prd.md)が見積もった数ミリ秒の約50倍だった。
+Observeの時間は、内側で呼ぶDQNのstep診断（通常RNDで平均0.74〜0.82 ms、Taiga式で0.26〜0.33 ms）を含む。行は1秒に約50行できた。写しは定期のActor同期（EvalPanelの既定で10秒ごと）のたびに1回入り、ほぼ全部がRNDの推定器の写し（`RndNoveltyEstimator::Clone`）だった。paneを閉じた状態では、採点も写しも行われなかった。写しの時間は、[RFD0127](../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)が見積もった数ミリ秒の約50倍だった。
 
 ### 9.9 出典と関連文書
 
 - [Burda ら, Exploration by Random Network Distillation](https://arxiv.org/pdf/1810.12894), §2.2。固定教師と predictor による新しさ評価の出典。
 - [Badia ら, Never Give Up: Learning Directed Exploration Strategies](https://arxiv.org/pdf/2002.06038), §2・式(1)。一生の新しさを倍率として使う考え方の出典。
-- [PRD116](../memo/116_rnd_lifelong_novelty_10prd.md)、[初回実装記録（20impl）](../memo/116_rnd_lifelong_novelty_20impl.md)、[公開API見直しの実装記録（21impl）](../memo/116_rnd_lifelong_novelty_21impl.md)、[刻み・件数見直しの実装記録（22impl）](../memo/116_rnd_lifelong_novelty_22impl.md)。採用した契約、実装時の判断、検証結果。Estimate/Learnの独立化とdevice・保存の契約は21impl、credit・観測件数・bool結果は22implを参照する。
-- [公開実装に合わせた選択肢とNetwork修正（23impl）](../memo/116_rnd_lifelong_novelty_23impl.md)。別々のNetwork、統計・観測・倍率の選択、Head初期値、Adam eps、診断と書式3の実装・検証。
+- [RFD0116](../memo/0116_rnd_lifelong_novelty_10rfd.md)、[初回実装記録（20impl）](../memo/0116_rnd_lifelong_novelty_20impl.md)、[公開API見直しの実装記録（21impl）](../memo/0116_rnd_lifelong_novelty_21impl.md)、[刻み・件数見直しの実装記録（22impl）](../memo/0116_rnd_lifelong_novelty_22impl.md)。採用した契約、実装時の判断、検証結果。Estimate/Learnの独立化とdevice・保存の契約は21impl、credit・観測件数・bool結果は22implを参照する。
+- [公開実装に合わせた選択肢とNetwork修正（23impl）](../memo/0116_rnd_lifelong_novelty_23impl.md)。別々のNetwork、統計・観測・倍率の選択、Head初期値、Adam eps、診断と書式3の実装・検証。
 - [200 DQN 系 Agent](200_dqn_agents.jp.md)。内的報酬が入る前後を含めた Agent の仕様。
 - [110 Agent と学習](110_agents_and_learning.jp.md)、[130 ニューラルネットワーク](130_neural_networks.jp.md)、[150 ReplayBuffer](150_replay_buffer.jp.md)。利用する共通部品の仕様。

@@ -12,7 +12,7 @@
 using namespace anet::rl::env;
 namespace {
 
-// PRD102の限定例外。共有するのは採番済み入力seedと初期化結果だけ。
+// RFD0102の限定例外。共有するのは採番済み入力seedと初期化結果だけ。
 class GridMazeProcessSeedState {
 public:
     anet::seed_t Get(const anet::log::Logger& logger)
@@ -51,7 +51,7 @@ private:
 
 GridMazeProcessSeedState process_seed_state;
 
-// PRD100で許容した限定例外。共有するのは通知済みseedだけで、生成状態は個体が持つ。
+// RFD0100で許容した限定例外。共有するのは通知済みseedだけで、生成状態は個体が持つ。
 std::mutex regeneration_notice_mutex;
 std::unordered_set<anet::seed_t> regeneration_notice_seeds;
 

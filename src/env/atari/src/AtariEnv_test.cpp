@@ -41,7 +41,7 @@ TEST_CASE("Atari initialization keeps its first Env factory and View creator", "
     CHECK(views.GetViewCreator(kClassId) == creator);
 }
 
-TEST_CASE("Atari factory validates local values without loading ROM resources", "[prd117][factory_config]")
+TEST_CASE("Atari factory validates local values without loading ROM resources", "[rfd0117][factory_config]")
 {
     anet::test::LogCaptureGuard logs;
     const auto entry = GENERATE(std::pair{"frame_skip", "0"},
@@ -50,7 +50,7 @@ TEST_CASE("Atari factory validates local values without loading ROM resources", 
         std::pair{"max_episode_frames", "-1"}, std::pair{"game", "Bad-Game"});
     anet::ConfigData data;
     data.Set("AtariEnv.game", "pong");
-    data.Set("AtariEnv.rom_dir", "missing-prd117-rom-directory");
+    data.Set("AtariEnv.rom_dir", "missing-rfd0117-rom-directory");
     const std::string prefix = "run.eval.[dormant].env";
     const auto key = prefix + "." + entry.first;
     data.Set(key, entry.second);
@@ -59,16 +59,16 @@ TEST_CASE("Atari factory validates local values without loading ROM resources", 
         Catch::Matchers::ContainsSubstring(key));
 }
 
-TEST_CASE("Atari factory accepts valid configuration without a ROM", "[prd117][factory_config]")
+TEST_CASE("Atari factory accepts valid configuration without a ROM", "[rfd0117][factory_config]")
 {
     anet::ConfigData data;
     data.Set("AtariEnv.game", "pong");
-    data.Set("AtariEnv.rom_dir", "missing-prd117-rom-directory");
+    data.Set("AtariEnv.rom_dir", "missing-rfd0117-rom-directory");
     const anet::rl::env::AtariEnvFactory factory;
     CHECK_NOTHROW(factory.ValidateConfig(data, anet::rl::RunMode::Eval, "run.eval.[dormant].env"));
 }
 
-TEST_CASE("Atari RAM catalog records reads for every game without creating an Env", "[prd117][ram_catalog]")
+TEST_CASE("Atari RAM catalog records reads for every game without creating an Env", "[rfd0117][ram_catalog]")
 {
     anet::test::LogCaptureGuard logs;
     anet::ConfigData data;
@@ -521,7 +521,7 @@ TEST_CASE("InterleavedRgbToChw preserves adjacent RGB pixel channels", "[atari][
     CHECK(output[2][0][1].item<uint8_t>() == 60);
 }
 
-TEST_CASE("Atari display_screen warns once across ALE instances using a dummy display", "[.][atari][rom][prd117_display]")
+TEST_CASE("Atari display_screen warns once across ALE instances using a dummy display", "[.][atari][rom][rfd0117_display]")
 {
     // SDLのdummy driverを子プロセスの環境で指定し、実際の窓を開かず表示経路を通す。
     constexpr char kSdlVideoDriverEnv[] = "SDL_VIDEODRIVER";
@@ -638,7 +638,7 @@ constexpr char kRamKeyRiseDefinition[] = "0xC1 bit_rise_count:030";
 constexpr char kRamSwordUseDefinition[] = "0xC1 bit_fall_count:0x20";
 constexpr char kRamInventoryBindings[] = "1:keys 2:sword";
 
-TEST_CASE("RAM distinct values include the initial value and reset per game", "[atari][ram_metric][config][prd126]")
+TEST_CASE("RAM distinct values include the initial value and reset per game", "[atari][ram_metric][config][rfd0126]")
 {
     anet::ConfigData data;
     data.Set("AtariEnv.game", kAtariTestGame);
@@ -662,7 +662,7 @@ TEST_CASE("RAM distinct values include the initial value and reset per game", "[
     CHECK(state.Value() == 2);
 }
 
-TEST_CASE("RAM rising bits count every masked transition but not initial inventory", "[atari][ram_metric][config][prd126]")
+TEST_CASE("RAM rising bits count every masked transition but not initial inventory", "[atari][ram_metric][config][rfd0126]")
 {
     const auto entry = GENERATE(std::array<int, 4>{0, 2, 1, 0},
         std::array<int, 4>{2, 6, 1, 0}, std::array<int, 4>{2, 34, 0, 1},
@@ -684,7 +684,7 @@ TEST_CASE("RAM rising bits count every masked transition but not initial invento
     }
 }
 
-TEST_CASE("RAM falling bits count each masked removal", "[atari][ram_metric][config][prd126]")
+TEST_CASE("RAM falling bits count each masked removal", "[atari][ram_metric][config][rfd0126]")
 {
     const auto entry = GENERATE(std::array<int, 4>{0, 2, 0, 0},
         std::array<int, 4>{2, 6, 0, 0}, std::array<int, 4>{2, 34, 0, 0},
@@ -708,7 +708,7 @@ TEST_CASE("RAM falling bits count each masked removal", "[atari][ram_metric][con
     }
 }
 
-TEST_CASE("RAM reducer masks preserve accepted spellings and diagnose invalid values", "[atari][ram_metric][config][prd126]")
+TEST_CASE("RAM reducer masks preserve accepted spellings and diagnose invalid values", "[atari][ram_metric][config][rfd0126]")
 {
     const std::string reducer = GENERATE("bit_rise_count", "bit_fall_count");
     const std::string key = "AtariEnv.ram_metric.[pong].[inventory]";
@@ -823,7 +823,7 @@ TEST_CASE("AtariEnvConfig reports accepted RAM declarations in its effective con
     CHECK(config.ToJson().at("ram_metric.[pong].metrics") == "1:score");
 }
 
-TEST_CASE("Atari RAM new reducers retain numbered definitions in effective config", "[atari][ram_metric][config][prd126]")
+TEST_CASE("Atari RAM new reducers retain numbered definitions in effective config", "[atari][ram_metric][config][rfd0126]")
 {
     constexpr char kProgressBindings[] = "1:rooms 2:keys 3:used";
     anet::ConfigData data;
@@ -845,7 +845,7 @@ TEST_CASE("Atari RAM new reducers retain numbered definitions in effective confi
     }
 }
 
-TEST_CASE("Atari RAM evaluation overrides remain unread until the tag check", "[atari][ram_metric][config][prd126]")
+TEST_CASE("Atari RAM evaluation overrides remain unread until the tag check", "[atari][ram_metric][config][rfd0126]")
 {
     anet::test::LogCaptureGuard logs;
     anet::ConfigData data;
@@ -1644,7 +1644,7 @@ int main(int argc, char* argv[])
     return session.run(test_args.Argc(), test_args.Argv());
 }
 
-TEST_CASE("Atari life-loss NOOP result retains final game values after automatic reset", "[atari][rom][prd097_atari]")
+TEST_CASE("Atari life-loss NOOP result retains final game values after automatic reset", "[atari][rom][rfd0097_atari]")
 {
     const auto rom = FindRom("asterix");
     // 必須受入なのでROMやC++ ALEの条件が欠けた場合はskipしない。
@@ -1697,7 +1697,7 @@ TEST_CASE("Atari life-loss NOOP result retains final game values after automatic
     CHECK(torch::equal(rgb, step->GetAuxDataList(0).at(0).at("rgb_frame")));
 }
 
-TEST_CASE("Atari Step results answer provisional derived and numbered RAM scalars", "[atari][rom][prd097_atari_derived]")
+TEST_CASE("Atari Step results answer provisional derived and numbered RAM scalars", "[atari][rom][rfd0097_atari_derived]")
 {
     const auto rom = FindRom("pong");
     REQUIRE(rom.has_value());
@@ -1739,7 +1739,7 @@ TEST_CASE("Atari Step results answer provisional derived and numbered RAM scalar
         CHECK_FALSE(env->GetScalar(key).has_value());
 }
 
-TEST_CASE("Atari factory reports the default resize mode with its Reset observation", "[atari][prd099][resize-config]")
+TEST_CASE("Atari factory reports the default resize mode with its Reset observation", "[atari][rfd0099][resize-config]")
 {
     // 工場からResetまで通し、実効設定と観測契約を同時に確認する。
     const auto rom = FindRom("pong");
@@ -1748,7 +1748,7 @@ TEST_CASE("Atari factory reports the default resize mode with its Reset observat
     data.Set("AtariEnv.game", "pong");
     data.Set("AtariEnv.rom_dir", rom->parent_path().string());
     anet::rl::env::AtariEnvFactory factory;
-    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "prd099-default", 123);
+    const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "rfd0099-default", 123);
     const auto reset = env->Reset();
     CHECK(env->GetSpec().state_spec.ValidateObservation(reset->state.obs, false));
     const auto effective = env->GetConfigData();
@@ -1757,7 +1757,7 @@ TEST_CASE("Atari factory reports the default resize mode with its Reset observat
     CHECK(effective->Get("AtariEnv.resize_mode") == "adaptive_average");
 }
 
-TEST_CASE("GrayscaleResizer uses pixel overlap for fractional downsampling", "[atari][prd099][resize-area]")
+TEST_CASE("GrayscaleResizer uses pixel overlap for fractional downsampling", "[atari][rfd0099][resize-area]")
 {
     // 3→2の境界をまたぐ画素で、等重みのadaptive平均との違いを固定する。
     const std::vector<uint8_t> source{0, 0, 90, 0, 0, 90, 90, 90, 90};
@@ -1769,10 +1769,10 @@ TEST_CASE("GrayscaleResizer uses pixel overlap for fractional downsampling", "[a
     CHECK(output.flatten().to(torch::kInt64).equal(torch::tensor({0, 60, 60, 80}, torch::kInt64)));
 }
 
-TEST_CASE("Pixel area matches each fixed OpenCV reference image", "[atari][prd099][resize-golden]")
+TEST_CASE("Pixel area matches each fixed OpenCV reference image", "[atari][rfd0099][resize-golden]")
 {
     // 同じ入力と最終uint8期待値を読み、画像ごとに許容を判定する。
-    const auto directory = std::filesystem::path(ANET_SOURCE_DIR) / "src/core/base/testdata/prd099";
+    const auto directory = std::filesystem::path(ANET_SOURCE_DIR) / "src/core/base/testdata/rfd0099";
     const auto read = [](const std::filesystem::path& path) {
         std::ifstream stream(path, std::ios::binary);
         REQUIRE(stream.good());
@@ -1808,11 +1808,11 @@ TEST_CASE("Pixel area matches each fixed OpenCV reference image", "[atari][prd09
         total_mismatches += mismatches;
     }
     CHECK(differs_from_adaptive);
-    std::cout << "PRD099 golden: frames=24 max_error=" << maximum_error
+    std::cout << "RFD0099 golden: frames=24 max_error=" << maximum_error
         << " mismatches=" << total_mismatches << "/" << 24 * 84 * 84 << std::endl;
 }
 
-TEST_CASE("Atari resize configuration rejects unknown modes at reading", "[atari][prd099][resize-invalid-mode]")
+TEST_CASE("Atari resize configuration rejects unknown modes at reading", "[atari][rfd0099][resize-invalid-mode]")
 {
     // 共通値と評価個別値の両方で、利用者が直すキーと指定値を診断する。
     for (const auto& prefix : {std::string("AtariEnv"), std::string("run.eval.[eval_panel].env")}) {
@@ -1832,7 +1832,7 @@ TEST_CASE("Atari resize configuration rejects unknown modes at reading", "[atari
     }
 }
 
-TEST_CASE("Pixel area rejects invalid sizes with the responsible configuration key", "[atari][prd099][resize-invalid-size]")
+TEST_CASE("Pixel area rejects invalid sizes with the responsible configuration key", "[atari][rfd0099][resize-invalid-size]")
 {
     // ROMを読む前に、型・範囲と評価個別の指定箇所を診断する。
     anet::rl::env::AtariEnvFactory factory;
@@ -1859,7 +1859,7 @@ TEST_CASE("Pixel area rejects invalid sizes with the responsible configuration k
     }
 }
 
-TEST_CASE("Atari resize configuration inherits common values and keeps explicit overrides", "[atari][prd099][resize-profile][config]")
+TEST_CASE("Atari resize configuration inherits common values and keeps explicit overrides", "[atari][rfd0099][resize-profile][config]")
 {
     // 継承と評価個別の上書きを合成入力で確認し、出荷設定の実験値には依存しない。
     constexpr char kCommonMode[] = "pixel_area";
@@ -1878,7 +1878,7 @@ TEST_CASE("Atari resize configuration inherits common values and keeps explicit 
     CHECK(inherited.resize_mode == anet::rl::env::atari::ResizeMode::PixelArea);
 }
 
-TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari][prd099][resize-boundary]")
+TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari][rfd0099][resize-boundary]")
 {
     using anet::rl::env::atari::GrayscaleResizer;
     // 半整数と途中丸めを、二進で正確な重みになる入力で固定する。
@@ -1971,7 +1971,7 @@ TEST_CASE("Pixel area preserves numeric rules and all supported sizes", "[atari]
     CHECK(owned.item<uint8_t>() == 7);
 }
 
-TEST_CASE("Atari Reset and Step apply resize mode without changing the emulator", "[atari][prd099][resize-env]")
+TEST_CASE("Atari Reset and Step apply resize mode without changing the emulator", "[atari][rfd0099][resize-env]")
 {
     // 同じseedと行動を与え、公開RGBは一致したまま観測だけが方式で変わることを確認する。
     const auto rom = FindRom("qbert");
@@ -1985,8 +1985,8 @@ TEST_CASE("Atari Reset and Step apply resize mode without changing the emulator"
     data.Set("AtariEnv.noop_max", 30);
     data.Set("run.eval.[eval_panel].env.resize_mode", "adaptive_average");
     anet::rl::env::AtariEnvFactory factory;
-    const auto area = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "prd099-area", 13);
-    const auto panel = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "prd099-panel", 13,
+    const auto area = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "rfd0099-area", 13);
+    const auto panel = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "rfd0099-panel", 13,
         anet::rl::RunMode::Eval1, "run.eval.[eval_panel].env");
     CHECK(area->GetConfigData()->Get("AtariEnv.resize_mode") == "pixel_area");
     CHECK(panel->GetConfigData()->Get("run.eval.[eval_panel].env.resize_mode") == "adaptive_average");
@@ -2023,7 +2023,7 @@ TEST_CASE("Atari Reset and Step apply resize mode without changing the emulator"
     CHECK(step_differs);
 }
 
-TEST_CASE("Pixel area optimization preserves the fixed integer reference", "[.][prd099-perf-exact]")
+TEST_CASE("Pixel area optimization preserves the fixed integer reference", "[.][rfd0099-perf-exact]")
 {
     using anet::rl::env::atari::GrayscaleResizer;
     // 各サイズの参照と実装を再利用し、呼び出しを繰り返したときの作業領域も検査する。
@@ -2049,7 +2049,7 @@ TEST_CASE("Pixel area optimization preserves the fixed integer reference", "[.][
     };
 
     // 固定24枚はS=84だけでなく、対応する全160サイズで比較する。
-    const auto path = std::filesystem::path(ANET_SOURCE_DIR) / "src/core/base/testdata/prd099/frames_210x160.u8";
+    const auto path = std::filesystem::path(ANET_SOURCE_DIR) / "src/core/base/testdata/rfd0099/frames_210x160.u8";
     std::ifstream stream(path, std::ios::binary);
     REQUIRE(stream.good());
     const std::vector<uint8_t> frames(std::istreambuf_iterator<char>(stream), {});
@@ -2085,14 +2085,14 @@ TEST_CASE("Pixel area optimization preserves the fixed integer reference", "[.][
     const GrayscaleResizer wide_actual(3000, 3000, 1, anet::rl::env::atari::ResizeMode::PixelArea);
     REQUIRE(torch::equal(wide_reference.Resize(large.data()), wide_actual.Resize(large.data())));
     CHECK(wide_actual.Resize(large.data()).item<uint8_t>() == 255);
-    std::cout << "PRD099 exact equivalence comparisons=" << comparisons << " pixels=" << pixels
+    std::cout << "RFD0099 exact equivalence comparisons=" << comparisons << " pixels=" << pixels
         << " mismatches=0 random_images=1000 sizes=1..160 wide_case=passed" << std::endl;
 }
 
-TEST_CASE("PRD099 resize prototype timings", "[.][prd099-resize-probe]")
+TEST_CASE("RFD0099 resize prototype timings", "[.][rfd0099-resize-probe]")
 {
     // 同じ実行体の中で高速化前の参照・現在方式・既定を交互に測る。正式なEnv Step受入ではない。
-    const auto path = std::filesystem::path(ANET_SOURCE_DIR) / "src/core/base/testdata/prd099/frames_210x160.u8";
+    const auto path = std::filesystem::path(ANET_SOURCE_DIR) / "src/core/base/testdata/rfd0099/frames_210x160.u8";
     std::ifstream stream(path, std::ios::binary);
     REQUIRE(stream.good());
     const std::vector<uint8_t> frames(std::istreambuf_iterator<char>(stream), {});
@@ -2124,12 +2124,12 @@ TEST_CASE("PRD099 resize prototype timings", "[.][prd099-resize-probe]")
             else elapsed = time(adaptive, 2000);
             CHECK(elapsed > 0);
             samples[variant].push_back(elapsed);
-            std::cout << "PRD099 resize probe round=" << round << " variant=" << names[variant]
+            std::cout << "RFD0099 resize probe round=" << round << " variant=" << names[variant]
                 << " us=" << elapsed << std::endl;
         }
     }
     for (auto& values : samples) std::sort(values.begin(), values.end());
-    std::cout << "PRD099 resize probe median_baseline_us=" << samples[0][2]
+    std::cout << "RFD0099 resize probe median_baseline_us=" << samples[0][2]
         << " median_current_us=" << samples[1][2] << " median_adaptive_us=" << samples[2][2]
         << " speed_ratio=" << samples[0][2] / samples[1][2] << " checksum=" << checksum
         << " formal_env_acceptance=not_measured" << std::endl;

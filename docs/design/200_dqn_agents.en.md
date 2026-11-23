@@ -535,7 +535,7 @@ Each Actor selects its length range with `actor.[key].skip.max_length_mode`: `fu
 
 `learner.skip.target_window` selects `decision` (default), `action_change`, or `episode_end`. The latter two are for auxiliary-only learning: with skip and Learner enabled, construction requires every declared Actor to use single or variable with all active values equal to 1. It does not infer training Actors from role names and reports all offending Actors. feature_gradient=stop is allowed as a control group, with one INFO per Run explaining that gradients do not reach shared features and that priority_lambda may affect priorities. Disabled Learner skips combination checks.
 
-An explicit max_length receives shared ProfiledValue validation in every mode: lower bound 1, and upper bound J when skip is enabled. Enabled variable requires a value. Full/single ignore a supplied value and warn once per Actor when skip is enabled. Disabled skip performs neither required-value/J checks nor WARNs. See [PRD104 validation assets](../../src/core/base/testdata/prd104/README.md) for default equivalence, all three modes, windows, shortened Runs, and experiments.
+An explicit max_length receives shared ProfiledValue validation in every mode: lower bound 1, and upper bound J when skip is enabled. Enabled variable requires a value. Full/single ignore a supplied value and warn once per Actor when skip is enabled. Disabled skip performs neither required-value/J checks nor WARNs. See [PRD104 validation assets](../../src/core/base/testdata/rfd0104/README.md) for default equivalence, all three modes, windows, shortened Runs, and experiments.
 
 Shared skip settings remain disabled under `DefaultDQNAgent.@baseline` in agent.txt, using `?=`. The shared network uses `SkipFC1 > SkipReLU > SkipFC2 > SkipReLU` in nn.txt, with the branch bound to `skip_context`. Each Env supplies `skip.max_length ?= J` and IQN's fused `skip_context`. `run.@skip` selects enabled, metrics, Trace columns, and greedy evaluation without replacing the Agent chain. GridMaze also selects a separate skip epsilon-greedy policy (0.60→0.05). feature_gradient, Dueling, action_in, and layer widths are selected through CLI configuration keys.
 
@@ -561,7 +561,7 @@ Learner creates Q's n-step target and the window's skip target from the same Rep
 
 Actor accumulates decision-length counts on device and clears them on `Sync()`, including periodic snapshot synchronization. `GetScalar()` exposes `skip_session_decision_rate` as decisions/lane steps, `skip_session_length_mean` as mean selected length, and `skip_session_length_rate.[j]` as the proportion of decisions selecting j. Only first access transfers to CPU, adding no per-step synchronization. Disabled/unavailable values are NaN; invalid indices fail fast. A session without decisions has rate 0 and NaN length means/proportions. `$eval.[greedy] $actor @session_end` subscriptions use training-side coordinates.
 
-See [PRD103 validation assets](../../src/core/base/testdata/prd103/README.md) for independent profiles comparing sharing through convolution against fully separate networks, numerical examples, checkpoints, configuration migration, and Run equivalence. These profiles do not change the default Network topology and are incompatible with its checkpoints.
+See [PRD103 validation assets](../../src/core/base/testdata/rfd0103/README.md) for independent profiles comparing sharing through convolution against fully separate networks, numerical examples, checkpoints, configuration migration, and Run equivalence. These profiles do not change the default Network topology and are incompatible with its checkpoints.
 
 ## 7. DefaultDQN and Rainbow Composition and Configuration
 
@@ -615,7 +615,7 @@ Learner forward_resources is a required initialization argument. Before preparat
 
 Ordinary and Fused AdamW use a separate σ group when enabled, defaulting to `learner.noisy_weight_decay=0`. OFF retains the previous single group and ordering. μ-only current evaluation creates no σ gradient and performs no σ update/decay. Defined sample σ gradients join the existing global norm/clip. Checkpoints and snapshots include σ parameters but exclude ε, clocks, and RNGs. When loading a checkpoint into a new Run, the σ group also uses the current optimizer settings, with weight_decay determined by learner.noisy_weight_decay.
 
-Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` / `nz_reference_off` use four default-initialized projections with σ0=0.5, force_fp32=true for both Body FCs, inherited AMP, and standard call/batch; only Noisy enabled differs. Episode/sample is an Actor override for the integration run. Append these profiles to the specified chain; see the [validation guide](../../src/core/base/testdata/prd084/README.md).
+Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` / `nz_reference_off` use four default-initialized projections with σ0=0.5, force_fp32=true for both Body FCs, inherited AMP, and standard call/batch; only Noisy enabled differs. Episode/sample is an Actor override for the integration run. Append these profiles to the specified chain; see the [validation guide](../../src/core/base/testdata/rfd0084/README.md).
 
 ## 8. Lifetime, Synchronization, and Save/Load
 
@@ -773,7 +773,7 @@ Target construction shares `MakeTarget` and per-sample errors share `ComputeElem
 
 Each group's count is configured by `learner.replay_fit.probe.batch_size=1024`, and IQN fixed quantile count by `learner.replay_fit.iqn.num_taus=32`; both must be positive integers. Results are stored in each update's `BatchUpdateResult`. Unsubscribed, non-measurement, insufficient-count, and zero-denominator cases return NaN; only unknown keys return nullopt. Uniform TD is population-weighted, and ratios are ratios of means. Empty groups contribute nothing to the weighted sum; a nonempty group with insufficient samples makes the overall mean NaN.
 
-If learning is enabled and the resolved target Policy is ThompsonSampling, subscription configuration fails fast. With learning disabled, no measurement occurs. See [ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md) and [PRD073](../memo/done/073_replay_fit_metrics_10prd.md) for the rationale and complete metric table.
+If learning is enabled and the resolved target Policy is ThompsonSampling, subscription configuration fails fast. With learning disabled, no measurement occurs. See [ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md) and [PRD073](../memo/done/0073_replay_fit_metrics_10rfd.md) for the rationale and complete metric table.
 
 ### 9.7 Noisy Diagnostics
 
@@ -799,7 +799,7 @@ The shared DefaultDQN TD/QR/IQN Learner takes the union of updates due from `att
 
 Capture requests `TransformerEncoder/attention_entropy/`. Layer-count-length Tensors from each executed module are concatenated in execution order and transferred to CPU once for all layers. Results enter `BatchUpdateResult` with zero-based global indices, without further averaging or normalization. Unmeasured updates and insufficient samples return NaN through `GetScalar` without carrying values forward. Noninteger or negative indices fail fast during subscription; out-of-range indices fail at the first measurement with the key, layer count, valid range, and layer count for each populated capture key. A dependency closure without a Transformer stops because the capture prefix is unfulfilled. With no subscriptions, no sampling, extra forward, or entropy calculation occurs.
 
-Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../src/core/base/testdata/prd093/README.md).
+Each value averages over a layer's heads, queries, and samples and normalizes by `ln n` to lie in 0–1: 1 means uniform attention and 0 concentration on one token. It supports comparing layer-average concentration over time with performance, without identifying individual concentrated heads or establishing causality for performance decline. `metrics.scalar.@attention` (outside baseline) publishes four layers under `48_agent_attention` at interval 503. See [PRD093 validation](../../src/core/base/testdata/rfd0093/README.md).
 
 ### 9.10 Value decomposition
 
@@ -807,25 +807,25 @@ Each value averages over a layer's heads, queries, and samples and normalizes by
 
 ## 10. Tests and Extension Checklist
 
-Use the [PRD182 validation assets](../../src/core/base/testdata/prd182/README.md) to confirm that definitions and test bodies match before and after the file split, and that Runner learning results match.
+Use the [PRD182 validation assets](../../src/core/base/testdata/rfd0182/README.md) to confirm that definitions and test bodies match before and after the file split, and that Runner learning results match.
 
-When changing value decomposition or reward scalers, use [PRD121 validation assets](../../src/core/base/testdata/prd121/README.md) for numerical checks, the checkpoint decision table, before/after comparison of five default configurations, and Atari performance measurements.
+When changing value decomposition or reward scalers, use [PRD121 validation assets](../../src/core/base/testdata/rfd0121/README.md) for numerical checks, the checkpoint decision table, before/after comparison of five default configurations, and Atari performance measurements.
 
-When changing construction, configuration reading, intrinsic reward, or diagnostic responsibilities, use the [PRD128 validation assets](../../src/core/base/testdata/prd128/README.md) for before/after comparisons across 34 configurations, continuation from an old checkpoint, Release performance, and metric-order mutation checks.
+When changing construction, configuration reading, intrinsic reward, or diagnostic responsibilities, use the [PRD128 validation assets](../../src/core/base/testdata/rfd0128/README.md) for before/after comparisons across 34 configurations, continuation from an old checkpoint, Release performance, and metric-order mutation checks.
 
-When changing the TD/QR/IQN update flow, Munchausen evaluation, or Bellman target assembly, use the [PRD125 validation assets](../../src/core/base/testdata/prd125/README.md) for baseline capture, comparisons across 31 configurations and BF16, numerical target checks, and Release performance comparisons.
+When changing the TD/QR/IQN update flow, Munchausen evaluation, or Bellman target assembly, use the [PRD125 validation assets](../../src/core/base/testdata/rfd0125/README.md) for baseline capture, comparisons across 31 configurations and BF16, numerical target checks, and Release performance comparisons.
 
-See [PRD116 validation](../../src/core/base/testdata/prd116/README.md) for intrinsic scoring, training, checkpoint continuation, disabled equivalence, profiles, and smoke runs. Measure performance separately without competing runs.
+See [PRD116 validation](../../src/core/base/testdata/rfd0116/README.md) for intrinsic scoring, training, checkpoint continuation, disabled equivalence, profiles, and smoke runs. Measure performance separately without competing runs.
 
-See [PRD106 validation assets](../../src/core/base/testdata/prd106/README.md) for Actor skip NN execution settings, exact equality across seven defaults, all-key comparisons of four Envs with default/skip configurations, and isolation through qbert evaluation.
+See [PRD106 validation assets](../../src/core/base/testdata/rfd0106/README.md) for Actor skip NN execution settings, exact equality across seven defaults, all-key comparisons of four Envs with default/skip configurations, and isolation through qbert evaluation.
 
-- [PRD104 validation](../../src/core/base/testdata/prd104/README.md): Actor length ranges, auxiliary windows, six default-equivalence cases, and stage 0/1 execution and aggregation.
+- [PRD104 validation](../../src/core/base/testdata/rfd0104/README.md): Actor length ranges, auxiliary windows, six default-equivalence cases, and stage 0/1 execution and aggregation.
 
-For skip update modes, weights, session metrics and convolution-sharing arms, use the numerical, checkpoint, configuration and Run checks in [PRD103 validation assets](../../src/core/base/testdata/prd103/README.md).
+For skip update modes, weights, session metrics and convolution-sharing arms, use the numerical, checkpoint, configuration and Run checks in [PRD103 validation assets](../../src/core/base/testdata/rfd0103/README.md).
 
-See [PRD101 validation assets](../../src/core/base/testdata/prd101/README.md) for comparisons and actual-Run procedures.
+See [PRD101 validation assets](../../src/core/base/testdata/rfd0101/README.md) for comparisons and actual-Run procedures.
 
-Changes to TempoRL windows, Actor, Learner, checkpoints, or metrics require the contract tests, disabled-skip equivalence across four Envs, smoke checks, and Atari performance comparisons in [PRD098 validation assets](../../src/core/base/testdata/prd098/README.md). Record long-learning acceptance separately from short validation.
+Changes to TempoRL windows, Actor, Learner, checkpoints, or metrics require the contract tests, disabled-skip equivalence across four Envs, smoke checks, and Atari performance comparisons in [PRD098 validation assets](../../src/core/base/testdata/rfd0098/README.md). Record long-learning acceptance separately from short validation.
 
 Main DQN tests reside in `dqn_*_test.cpp` for each DQN role and concrete Agent and in [dqn_test.cpp](../../src/algo/dqn/src/dqn_test.cpp); see also [dqn_actor_test.cpp](../../src/algo/dqn/src/dqn_actor_test.cpp) (exploration ladder), [intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp), and [stacker_test.cpp](../../src/core/base/src/stacker_test.cpp). Shared Replay tests are in [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp).
 
@@ -841,9 +841,9 @@ When adding or modifying a DQN Agent, check at least the following:
 8. Define each added metric's source, step axis, and `nullopt` or `NaN` conditions for unsupported Agents.
 9. When modifying policy churn, check zero updates, online differences, hard/soft targets, the FP32 autocast boundary, IQN fixed taus, subscription gates, and non-interference from caller-owned probe RNGs.
 
-10. When changing gradient noise measurement, verify that the mean of `Optimize`'s second argument matches loss, the estimation formulas, per-group availability, subscription unions/shared EMA, and ON/OFF non-interference in a deterministic environment. See [PRD092 validation assets](../../src/core/base/testdata/prd092/README.md) for mainline BF16 smoke, wall time/additional memory, and unavailable-value rates.
+10. When changing gradient noise measurement, verify that the mean of `Optimize`'s second argument matches loss, the estimation formulas, per-group availability, subscription unions/shared EMA, and ON/OFF non-interference in a deterministic environment. See [PRD092 validation assets](../../src/core/base/testdata/rfd0092/README.md) for mainline BF16 smoke, wall time/additional memory, and unavailable-value rates.
 
-11. When changing attention diagnostics, verify subscription unions, pre-update layer averages, capture positional order, unmeasured NaN, and non-interference with RNG/statistics/buffers/modes. See [PRD093 validation assets](../../src/core/base/testdata/prd093/README.md) for both smoke runs and GPU/performance acceptance.
+11. When changing attention diagnostics, verify subscription unions, pre-update layer averages, capture positional order, unmeasured NaN, and non-interference with RNG/statistics/buffers/modes. See [PRD093 validation assets](../../src/core/base/testdata/rfd0093/README.md) for both smoke runs and GPU/performance acceptance.
 
 ## 11. Related Documents
 

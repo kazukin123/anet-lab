@@ -521,7 +521,7 @@ anet::ConfigData MakeScalarConfig(const std::string& value)
 
 } // namespace
 
-TEST_CASE("Scalar metric tags retain an indexed source name inside the tag", "[observers][prd098][skip_metric_tag]")
+TEST_CASE("Scalar metric tags retain an indexed source name inside the tag", "[observers][rfd0098][skip_metric_tag]")
 {
     // tag内の添字の閉じ括弧を、設定keyの終端と取り違えない。
     anet::ConfigData config;
@@ -1502,7 +1502,7 @@ TEST_CASE("ScalarMetricDefsToJson emits the metrics.scalar.defs payload", "[obse
     CHECK(learn_payload.at("learn_td_update").at("target").get<std::string>() == "update_result");
 }
 
-TEST_CASE("Image observers suppress repeated mismatch and unexpected episode starts", "[observers][prd117][notification_repetition]")
+TEST_CASE("Image observers suppress repeated mismatch and unexpected episode starts", "[observers][rfd0117][notification_repetition]")
 {
     // 同じ不一致を2回、未終了のepisode開始を続けて3回渡し、各対象の通知を数える。
     const auto state = MakeState({false}, {false}, std::vector<bool>{true});
@@ -1625,7 +1625,7 @@ TEST_CASE("EpisodeEvalObserver rethrows background eval failure on next learn", 
     CHECK(rethrown);
 }
 
-TEST_CASE("EpisodeEvalObserver shutdown rethrows a background failure", "[prd076][observers][eval_runner]")
+TEST_CASE("EpisodeEvalObserver shutdown rethrows a background failure", "[rfd0076][observers][eval_runner]")
 {
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>(0.0f, false, 0.0f, "forced shutdown failure");
@@ -1650,7 +1650,7 @@ TEST_CASE("EpisodeEvalObserver shutdown rethrows a background failure", "[prd076
         Catch::Matchers::ContainsSubstring("forced shutdown failure"));
 }
 
-TEST_CASE("EpisodeEvalObserver destructor catches a background failure", "[prd076][observers][eval_runner]")
+TEST_CASE("EpisodeEvalObserver destructor catches a background failure", "[rfd0076][observers][eval_runner]")
 {
     anet::test::LogCaptureGuard logs;
     auto notifier = std::make_shared<rl::Notifier>();
@@ -1755,7 +1755,7 @@ TEST_CASE("Shared metric token classification preserves scalar last assignment a
     CHECK(def.interval == 1);
 }
 
-TEST_CASE("ObserverFactory rejects unknown controls and missing keys at construction", "[observer_factory][observers][prd117]")
+TEST_CASE("ObserverFactory rejects unknown controls and missing keys at construction", "[observer_factory][observers][rfd0117]")
 {
     const auto input = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
         {"scalar", "score $runner event:unknown"},
@@ -1776,7 +1776,7 @@ TEST_CASE("ObserverFactory rejects unknown controls and missing keys at construc
         && Catch::Matchers::ContainsSubstring(expression));
 }
 
-TEST_CASE("Metric catalogs reject fields below a flat definition", "[prd117][observers][metric_catalog]")
+TEST_CASE("Metric catalogs reject fields below a flat definition", "[rfd0117][observers][metric_catalog]")
 {
     const auto input = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
         {"scalar", "score $runner @train"},
@@ -1793,7 +1793,7 @@ TEST_CASE("Metric catalogs reject fields below a flat definition", "[prd117][obs
         Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("expected"));
 }
 
-TEST_CASE("Metric catalogs read complete nested tags and consume their declarations", "[prd117][observers][metric_catalog]")
+TEST_CASE("Metric catalogs read complete nested tags and consume their declarations", "[rfd0117][observers][metric_catalog]")
 {
     anet::ConfigData data;
     data.Set("metrics.scalar.[rate.[01]]", "score $runner @train");
@@ -1831,7 +1831,7 @@ TEST_CASE("Train trace reads keys in declaration order and preserves nonfinite f
     anet::MetricsLoggerConfig logger_config;
     logger_config.run_name_tmpl = "trace_probe";
     anet::MetricsLogger::Init(std::move(backend), logger_config,
-        std::filesystem::current_path() / "out" / "test-tmp" / "prd069");
+        std::filesystem::current_path() / "out" / "test-tmp" / "rfd0069");
     struct LoggerReset { ~LoggerReset() { anet::MetricsLogger::Reset(); } } logger_reset;
     auto env = std::make_shared<ProbeEnv>();
     auto agent = std::make_shared<TestAgent>();
@@ -1906,13 +1906,13 @@ TEST_CASE("Episode steps presets resolve to Runner session metrics", "[observer_
     }
 }
 
-TEST_CASE("env_step aggregates ended lanes and updates EMA once per Step", "[observers][prd097_step_metrics]")
+TEST_CASE("env_step aggregates ended lanes and updates EMA once per Step", "[observers][rfd0097_step_metrics]")
 {
     anet::MetricsLogger::Reset();
     auto backend = std::make_unique<CapturingBackend>();
     auto* captured = backend.get();
     anet::MetricsLoggerConfig logger;
-    logger.run_name_tmpl = "prd097_step_metrics";
+    logger.run_name_tmpl = "rfd0097_step_metrics";
     anet::MetricsLogger::Init(std::move(backend), logger, "C:/tmp");
     struct Cleanup { ~Cleanup() { anet::MetricsLogger::Reset(); } } cleanup;
     auto env = std::make_shared<TestBatchEnv>("step-metrics", 3);
@@ -1940,12 +1940,12 @@ TEST_CASE("env_step aggregates ended lanes and updates EMA once per Step", "[obs
     CHECK(HasScalarRecord(*captured, "all", 23, 34.0));
 }
 
-TEST_CASE("env_step trace reads each completed lane from its Step result", "[observers][prd097_step_trace]")
+TEST_CASE("env_step trace reads each completed lane from its Step result", "[observers][rfd0097_step_trace]")
 {
     anet::MetricsLogger::Reset();
     auto backend = std::make_unique<CapturingBackend>();
     auto* captured = backend.get();
-    anet::MetricsLoggerConfig logger; logger.run_name_tmpl = "prd097_step_trace";
+    anet::MetricsLoggerConfig logger; logger.run_name_tmpl = "rfd0097_step_trace";
     anet::MetricsLogger::Init(std::move(backend), logger, "C:/tmp");
     struct Cleanup { ~Cleanup() { anet::MetricsLogger::Reset(); } } cleanup;
     anet::ConfigData config;
@@ -1971,7 +1971,7 @@ TEST_CASE("env_step trace reads each completed lane from its Step result", "[obs
     CHECK(factory.GetTraceMetricDefs().front().target == "env_step");
 }
 
-TEST_CASE("env_step rejects events that have no Step result at construction", "[observers][prd097_step_invalid]")
+TEST_CASE("env_step rejects events that have no Step result at construction", "[observers][rfd0097_step_invalid]")
 {
     const std::string declaration = GENERATE(std::string("$env_step mean.reward @learn"),
         std::string("$eval.[eval] $env_step mean.reward @session_end"));
@@ -1979,7 +1979,7 @@ TEST_CASE("env_step rejects events that have no Step result at construction", "[
         Catch::Matchers::ContainsSubstring("$env_step"));
 }
 
-TEST_CASE("env_step fails at the first unknown or nonscalar read", "[observers][prd097_unknown_result]")
+TEST_CASE("env_step fails at the first unknown or nonscalar read", "[observers][rfd0097_unknown_result]")
 {
     const bool trace = GENERATE(false, true);
     anet::ConfigData config;
@@ -1996,14 +1996,14 @@ TEST_CASE("env_step fails at the first unknown or nonscalar read", "[observers][
     CHECK_THROWS_WITH(runner->FireEpisodeEnd(result, {}), Catch::Matchers::ContainsSubstring("missing"));
 }
 
-TEST_CASE("Scalar action-info action keys keep the scalar-provider contract", "[metrics][observers][prd094][scalar_action_contract]")
+TEST_CASE("Scalar action-info action keys keep the scalar-provider contract", "[metrics][observers][rfd0094][scalar_action_contract]")
 {
     const std::string key = GENERATE("action", "action.[x]", "action.[0]");
     anet::MetricsLogger::Reset();
     auto backend = std::make_unique<CapturingBackend>();
     auto* captured = backend.get();
     anet::MetricsLoggerConfig config;
-    config.run_name_tmpl = "prd094_scalar_action";
+    config.run_name_tmpl = "rfd0094_scalar_action";
     anet::MetricsLogger::Init(std::move(backend), config, "C:/tmp");
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
@@ -2024,11 +2024,11 @@ TEST_CASE("Scalar action-info action keys keep the scalar-provider contract", "[
     anet::MetricsLogger::Reset();
 }
 
-TEST_CASE("Unknown non-DQN action scalar follows the standard missing-value warning", "[prd094][observers][action_info_module]")
+TEST_CASE("Unknown non-DQN action scalar follows the standard missing-value warning", "[rfd0094][observers][action_info_module]")
 {
     anet::MetricsLogger::Reset();
     anet::MetricsLoggerConfig config;
-    config.run_name_tmpl = "prd094_action_module";
+    config.run_name_tmpl = "rfd0094_action_module";
     anet::MetricsLogger::Init(std::make_unique<CapturingBackend>(), config, "C:/tmp");
     anet::test::LogCaptureGuard logs;
     auto info = std::make_shared<rl::BatchActionInfo>(torch::tensor({0}, torch::kInt64));
@@ -2056,7 +2056,7 @@ TEST_CASE("Unknown non-DQN action scalar follows the standard missing-value warn
     anet::MetricsLogger::Reset();
 }
 
-TEST_CASE("Base ActionInfo exposes lane actions without scalar aggregation", "[prd094][action_info_lane]")
+TEST_CASE("Base ActionInfo exposes lane actions without scalar aggregation", "[rfd0094][action_info_lane]")
 {
     const rl::BatchActionInfo discrete(torch::tensor({1, 2}, torch::kInt64));
     const anet::Module& module = discrete;

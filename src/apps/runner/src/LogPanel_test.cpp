@@ -188,9 +188,9 @@ TEST_CASE("Logs tint warning error and verbose lines for the theme", "[log_panel
     Log(wxLOG_Warning, "careful");
     Log(wxLOG_Error, "broken");
     Log(wxLOG_Info, "detail");
-    // 起動時に選んだテーマ（PRD094_UI_DARK）の配色を確かめていることを先に確認する。
+    // 起動時に選んだテーマ（RFD0094_UI_DARK）の配色を確かめていることを先に確認する。
     const bool dark = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW).GetLuminance() < 0.5;
-    CHECK(dark == (std::getenv("PRD094_UI_DARK") != nullptr));
+    CHECK(dark == (std::getenv("RFD0094_UI_DARK") != nullptr));
 
     // 時刻の後ろに ": " を付けず、半角スペース 1 つで種類へ続ける。
     const wxString first_line = ui.text->GetValue().BeforeFirst('\n');
@@ -546,11 +546,11 @@ TEST_CASE("Logs search older and newer matches without case and continue from th
     CHECK_FALSE(ui.SearchArrowsEnabled());
 }
 
-TEST_CASE("Logs and Run file count once notifications independently and hide resets", "[log_panel][prd117]")
+TEST_CASE("Logs and Run file count once notifications independently and hide resets", "[log_panel][rfd0117]")
 {
     LogUiFixture ui;
     const auto path = std::filesystem::temp_directory_path()
-        / ("anet-prd117-log-chain-" + std::to_string(wxGetProcessId()) + ".log");
+        / ("anet-rfd0117-log-chain-" + std::to_string(wxGetProcessId()) + ".log");
     FILE* file = nullptr;
     REQUIRE(fopen_s(&file, path.string().c_str(), "w") == 0);
     REQUIRE(file != nullptr);
@@ -558,7 +558,7 @@ TEST_CASE("Logs and Run file count once notifications independently and hide res
         wxLogChain chain(new anet::log::FileLogger(file));
         anet::log::ResetNotifications();
         const auto emit = [](const std::string& prefix, const std::string& target) {
-            anet::log::Logger(prefix).warn_once(target) << "prd117-once-" << target;
+            anet::log::Logger(prefix).warn_once(target) << "rfd0117-once-" << target;
         };
         std::vector<std::thread> workers;
         for (int i = 0; i < 8; ++i) {
@@ -584,7 +584,7 @@ TEST_CASE("Logs and Run file count once notifications independently and hide res
     std::ifstream input(path);
     const std::string text{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
     size_t count = 0;
-    for (size_t pos = 0; (pos = text.find("prd117-once-", pos)) != std::string::npos; ++pos) ++count;
+    for (size_t pos = 0; (pos = text.find("rfd0117-once-", pos)) != std::string::npos; ++pos) ++count;
     CHECK(count == 3);
     input.close();
     std::filesystem::remove(path);

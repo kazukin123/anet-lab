@@ -40,7 +40,7 @@ TEST_CASE("DQN initialization retains the original failure after partial registr
     CHECK(repository.GetAgentFactory(kDefaultDqnClassId) == existing_default);
 }
 
-TEST_CASE("DefaultDQN skip requires an explicit positive duration limit", "[dqn][config][prd098]")
+TEST_CASE("DefaultDQN skip requires an explicit positive duration limit", "[dqn][config][rfd0098]")
 {
     auto data = WithDefaultForwardConfig();
     data.Set("DefaultDQNAgent.skip.enabled", true);
@@ -216,7 +216,7 @@ TEST_CASE("DefaultDQNAgent preserves the native stack axis for temporal Conv1d",
     REQUIRE(action_info != nullptr);
     REQUIRE(ShapeOf(action_info->GetAction()) == std::vector<int64_t>{ 2 });
     REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
-    SavePrd170Trace(action_info->GetAuxData(), "native-1");
+    SaveRfd0170Trace(action_info->GetAuxData(), "native-1");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
@@ -256,7 +256,7 @@ TEST_CASE("DefaultDQNAgent flattens native vector stacks for MLP branches", "[dq
 
     REQUIRE(action_info != nullptr);
     REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
-    SavePrd170Trace(action_info->GetAuxData(), "native-2");
+    SaveRfd0170Trace(action_info->GetAuxData(), "native-2");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
@@ -293,7 +293,7 @@ TEST_CASE("DefaultDQNAgent merges continuous Grid stacks before Conv2d", "[dqn][
 
     REQUIRE(action_info != nullptr);
     REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
-    SavePrd170Trace(action_info->GetAuxData(), "native-3");
+    SaveRfd0170Trace(action_info->GetAuxData(), "native-3");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 1, 4, 4 });
@@ -328,7 +328,7 @@ TEST_CASE("DefaultDQNAgent keeps discrete Grid one-hot channel merging", "[dqn][
 
     REQUIRE(action_info != nullptr);
     REQUIRE(ShapeOf(action_info->GetAuxData().at("q_values")) == std::vector<int64_t>{ 2, 2 });
-    SavePrd170Trace(action_info->GetAuxData(), "native-4");
+    SaveRfd0170Trace(action_info->GetAuxData(), "native-4");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 12, 4, 4 });
@@ -370,7 +370,7 @@ TEST_CASE("DefaultDQNAgent leaves stack_keys exclusions unstacked", "[dqn][nativ
         });
 
     REQUIRE(action_info != nullptr);
-    SavePrd170Trace(action_info->GetAuxData(), "native-5");
+    SaveRfd0170Trace(action_info->GetAuxData(), "native-5");
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains("main_feature/00_Input"));
     REQUIRE(trace.Contains("aux_feature/00_Input"));
@@ -405,7 +405,7 @@ TEST_CASE("DefaultDQNAgent TensorDictFunction accepts CPU input on CUDA agent", 
     CHECK(out.At("q").device().type() == torch::kCUDA);
 }
 
-TEST_CASE("DefaultDQN constructs skip networks only when enabled", "[dqn][prd098][prd098-r2-disabled]")
+TEST_CASE("DefaultDQN constructs skip networks only when enabled", "[dqn][rfd0098][rfd0098-r2-disabled]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto config = MakeDeviceForwardDefaultDqnConfig();
@@ -422,7 +422,7 @@ TEST_CASE("DefaultDQN constructs skip networks only when enabled", "[dqn][prd098
     else REQUIRE_NOTHROW(make());
 }
 
-TEST_CASE("DefaultDQN learns skip values from replay windows", "[dqn][prd098]")
+TEST_CASE("DefaultDQN learns skip values from replay windows", "[dqn][rfd0098]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto config = MakeDeviceForwardDefaultDqnConfig();
@@ -451,7 +451,7 @@ TEST_CASE("DefaultDQN learns skip values from replay windows", "[dqn][prd098]")
     CHECK(*results.front()->GetScalar("skip_sample_k_mean") == 1.0f);
 }
 
-TEST_CASE("Dedicated skip forward configuration reaches Actor values independently of Q", "[dqn][prd106][prd106-forward]")
+TEST_CASE("Dedicated skip forward configuration reaches Actor values independently of Q", "[dqn][rfd0106][rfd0106-forward]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const auto q_key = GENERATE(std::string("test_default"), std::string("sample"));
@@ -459,7 +459,7 @@ TEST_CASE("Dedicated skip forward configuration reaches Actor values independent
     const bool clone = GENERATE(false, true);
     CAPTURE(q_key, skip_key, clone);
     // 公開特徴量と一つの行動を固定し、Q と skip の設定を独立に確かめる。
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.head.projection.noisy.enabled", true);
     data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.mode", "sample");
     data.Set("DefaultDQNAgent.nn_forward.[sample].noisy.hold", "call");
@@ -480,7 +480,7 @@ TEST_CASE("Dedicated skip forward configuration reaches Actor values independent
     const auto first = actor->MakeAction({}, state);
     const auto second = actor->MakeAction({}, state);
     CHECK(torch::equal(first->GetAction(), second->GetAction()));
-    CHECK(torch::equal(first->GetAuxData().at(kPrd106QValuesKey), second->GetAuxData().at(kPrd106QValuesKey)) == (q_key == "test_default"));
+    CHECK(torch::equal(first->GetAuxData().at(kRfd0106QValuesKey), second->GetAuxData().at(kRfd0106QValuesKey)) == (q_key == "test_default"));
     const bool skip_sample = skip_key == "sample" || (skip_key == "shared" && q_key == "sample");
     CHECK(torch::equal(first->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues), second->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues)) == !skip_sample);
     if (skip_key == "shared") {
@@ -497,11 +497,11 @@ TEST_CASE("Dedicated skip forward configuration reaches Actor values independent
     }
 }
 
-TEST_CASE("Dedicated IQN skip taus separate fixed values from random Q values through fused features", "[dqn][prd106][prd106-tau]")
+TEST_CASE("Dedicated IQN skip taus separate fixed values from random Q values through fused features", "[dqn][rfd0106][rfd0106-tau]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const bool q_random = GENERATE(false, true);
-    auto data = MakePrd106IqnConfigData();
+    auto data = MakeRfd0106IqnConfigData();
     data.Set("DefaultDQNAgent.actor.[train].policy.tau_rule.sample_mode", q_random ? "random" : "fixed");
     data.Set("DefaultDQNAgent.actor.[train].skip.policy.tau_rule.sample_mode", q_random ? "fixed" : "random");
     const auto spec = MakeIqnTracerEnvSpec();
@@ -519,15 +519,15 @@ TEST_CASE("Dedicated IQN skip taus separate fixed values from random Q values th
     REQUIRE(same_action.any().item<bool>());
     CHECK(first->GetInfo().At(rl::BatchActionInfo::kKeyDecision).all().item<bool>());
     CHECK(second->GetInfo().At(rl::BatchActionInfo::kKeyDecision).all().item<bool>());
-    CHECK(torch::equal(first->GetAuxData().at(kPrd106QValuesKey), second->GetAuxData().at(kPrd106QValuesKey)) == !q_random);
+    CHECK(torch::equal(first->GetAuxData().at(kRfd0106QValuesKey), second->GetAuxData().at(kRfd0106QValuesKey)) == !q_random);
     CHECK(torch::equal(first->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues).index({same_action}),
         second->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues).index({same_action})) == q_random);
 }
 
-TEST_CASE("Fixed IQN skip query records grid equivalence without making it an acceptance condition", "[dqn][prd106][prd106-grid]")
+TEST_CASE("Fixed IQN skip query records grid equivalence without making it an acceptance condition", "[dqn][rfd0106][rfd0106-grid]")
 {
     ScopedNoopMetricsLogger metrics_logger;
-    auto shared_data = MakePrd106IqnConfigData();
+    auto shared_data = MakeRfd0106IqnConfigData();
     shared_data.Set("DefaultDQNAgent.actor.[train].policy.tau_rule.sample_mode", "fixed");
     auto dedicated_data = shared_data;
     dedicated_data.Set("DefaultDQNAgent.actor.[train].skip.policy.tau_rule.sample_mode", "fixed");
@@ -549,13 +549,13 @@ TEST_CASE("Fixed IQN skip query records grid equivalence without making it an ac
     const bool match = torch::allclose(shared->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues).index({same_action}),
         dedicated->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues).index({same_action}));
     // 不一致は経路の失敗ではなく、評価に G' が要るという観察として記録する。
-    SUCCEED("PRD106 shared_vs_dedicated_fixed_grid_equal=" << match);
+    SUCCEED("RFD0106 shared_vs_dedicated_fixed_grid_equal=" << match);
 }
 
-TEST_CASE("Single skip configuration keeps every lane decision and learns one-step auxiliary targets", "[dqn][prd104][prd104-single]")
+TEST_CASE("Single skip configuration keeps every lane decision and learns one-step auxiliary targets", "[dqn][rfd0104][rfd0104-single]")
 {
     ScopedNoopMetricsLogger metrics_logger;
-    const auto data = MakePrd104ConfigData();
+    const auto data = MakeRfd0104ConfigData();
     const auto spec = MakeLearnerEnvSpec();
     const rl::BatchEnvSpec batch{.num_envs = 2, .num_threads = 1};
     auto agent = std::make_shared<dqn::DefaultDQNAgent>(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)),
@@ -582,10 +582,10 @@ TEST_CASE("Single skip configuration keeps every lane decision and learns one-st
     CHECK(*actor->GetScalar("skip_session_decision_rate") == 1.0f);
 }
 
-TEST_CASE("Action change auxiliary windows cross identical actions at every-step decisions", "[dqn][prd104][prd104-action-change]")
+TEST_CASE("Action change auxiliary windows cross identical actions at every-step decisions", "[dqn][rfd0104][rfd0104-action-change]")
 {
     ScopedNoopMetricsLogger metrics_logger;
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.learner.skip.target_window", "action_change");
     const auto spec = MakeLearnerEnvSpec();
     const rl::BatchEnvSpec batch{.num_envs = 2, .num_threads = 1};
@@ -610,10 +610,10 @@ TEST_CASE("Action change auxiliary windows cross identical actions at every-step
     CHECK(*results.front()->GetScalar("skip_kmax_mean") == 3.0f);
 }
 
-TEST_CASE("Episode end auxiliary windows ignore changing actions and decision flags", "[dqn][prd104][prd104-episode-end]")
+TEST_CASE("Episode end auxiliary windows ignore changing actions and decision flags", "[dqn][rfd0104][rfd0104-episode-end]")
 {
     ScopedNoopMetricsLogger metrics_logger;
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.learner.skip.target_window", "episode_end");
     auto spec = MakeLearnerEnvSpec();
     spec.action_spec.value_labels = {"a0", "a1"};
@@ -637,10 +637,10 @@ TEST_CASE("Episode end auxiliary windows ignore changing actions and decision fl
     CHECK(*results.front()->GetScalar("skip_kmax_mean") == 3.0f);
 }
 
-TEST_CASE("Variable skip limit follows exp step and restricts only duration selection", "[dqn][prd104][prd104-variable]")
+TEST_CASE("Variable skip limit follows exp step and restricts only duration selection", "[dqn][rfd0104][rfd0104-variable]")
 {
     ScopedNoopMetricsLogger metrics_logger;
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.actor.[train].skip.max_length_mode", "variable");
     data.Set("DefaultDQNAgent.actor.[train].skip.max_length.type", "linear");
     data.Set("DefaultDQNAgent.actor.[train].skip.max_length.start", 3);
@@ -682,13 +682,13 @@ TEST_CASE("Variable skip limit follows exp step and restricts only duration sele
     }
 }
 
-TEST_CASE("Auxiliary catalog checks use active fields for every ProfiledValue type", "[dqn][prd104][config]")
+TEST_CASE("Auxiliary catalog checks use active fields for every ProfiledValue type", "[dqn][rfd0104][config]")
 {
     const auto type = GENERATE(std::string("constant"), std::string("linear"), std::string("exponential"),
         std::string("cosine"), std::string("cosine_restart"), std::string("phased"));
     const bool one = GENERATE(false, true);
     CAPTURE(type, one);
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.learner.skip.target_window", "episode_end");
     data.Set("DefaultDQNAgent.actor.[train].skip.max_length_mode", "variable");
     const std::string key = "DefaultDQNAgent.actor.[train].skip.max_length";
@@ -714,7 +714,7 @@ TEST_CASE("Auxiliary catalog checks use active fields for every ProfiledValue ty
     else CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring("active_range"));
 }
 
-TEST_CASE("Disabled skip has no required J or variable limit but still validates recognized values", "[dqn][prd104][config]")
+TEST_CASE("Disabled skip has no required J or variable limit but still validates recognized values", "[dqn][rfd0104][config]")
 {
     anet::ConfigData data;
     data.Set("DefaultDQNAgent.actor.[custom].network", "online");
@@ -737,9 +737,9 @@ TEST_CASE("Disabled skip has no required J or variable limit but still validates
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data), Catch::Matchers::ContainsSubstring("skip.target_window"));
 }
 
-TEST_CASE("Skip length diagnostics identify the configured mode", "[dqn][prd194]")
+TEST_CASE("Skip length diagnostics identify the configured mode", "[dqn][rfd0194]")
 {
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     const std::string prefix = "DefaultDQNAgent.actor.[train].skip.";
     const std::string mode_source = "Trial.actor.[train].skip.max_length_mode";
     anet::ConfigData source;
@@ -761,7 +761,7 @@ TEST_CASE("Skip length diagnostics identify the configured mode", "[dqn][prd194]
         {length_source, "is unused with " + mode_source + "=single", "expected " + mode_source + "=variable"}));
 }
 
-TEST_CASE("DefaultDQN checkpoint headers identify Agent serialization formats", "[dqn][serialize][prd098][checkpoint-format]")
+TEST_CASE("DefaultDQN checkpoint headers identify Agent serialization formats", "[dqn][serialize][rfd0098][checkpoint-format]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     // 定数倍率は既存の版、動的スケーラは状態を保存する第3版を使う。
@@ -789,7 +789,7 @@ TEST_CASE("DefaultDQN checkpoint headers identify Agent serialization formats", 
         CHECK(header.info == (dynamic ? "DefaultDQNAgent-3" : enabled ? "DefaultDQNAgent-2" : "DefaultDQNAgent"));
 }
 
-TEST_CASE("Skip checkpoint restores skip values across construction seeds", "[dqn][serialize][prd098]")
+TEST_CASE("Skip checkpoint restores skip values across construction seeds", "[dqn][serialize][rfd0098]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto config = MakeDeviceForwardDefaultDqnConfig();
@@ -805,7 +805,7 @@ TEST_CASE("Skip checkpoint restores skip values across construction seeds", "[dq
     };
     const auto source = make_agent(config, 98);
     const auto checkpoint = std::filesystem::temp_directory_path()
-        / ("anet_prd098_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".bin");
+        / ("anet_rfd0098_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".bin");
     {
         std::ofstream stream(checkpoint, std::ios::binary);
         anet::OutputArchive archive(stream);
@@ -825,7 +825,7 @@ TEST_CASE("Skip checkpoint restores skip values across construction seeds", "[dq
     CHECK(same);
 }
 
-TEST_CASE("Skip checkpoint migration initializes only missing split moments and rejects dropping them", "[dqn][serialize][prd103]")
+TEST_CASE("Skip checkpoint migration initializes only missing split moments and rejects dropping them", "[dqn][serialize][rfd0103]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const std::string saved_mode = GENERATE(std::string("off"), std::string("stop"), std::string("merge"), std::string("split"));
@@ -843,7 +843,7 @@ TEST_CASE("Skip checkpoint migration initializes only missing split moments and 
     };
     const auto source = make_agent(config);
     const auto path = std::filesystem::temp_directory_path()
-        / ("anet_prd103_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".bin");
+        / ("anet_rfd0103_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".bin");
     {
         std::ofstream stream(path, std::ios::binary);
         anet::OutputArchive archive(stream);
@@ -907,7 +907,7 @@ TEST_CASE("Skip checkpoint migration initializes only missing split moments and 
     std::filesystem::remove(path);
 }
 
-TEST_CASE("Skip learning supports distribution, target and feature-gradient combinations", "[dqn][prd098][prd103][skip_matrix]")
+TEST_CASE("Skip learning supports distribution, target and feature-gradient combinations", "[dqn][rfd0098][rfd0103][skip_matrix]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const bool split = GENERATE(false, true);
@@ -1013,7 +1013,7 @@ TEST_CASE("Skip learning supports distribution, target and feature-gradient comb
     }
 }
 
-TEST_CASE("Skip weighting and gradient enums are validated even while disabled", "[dqn][config][prd103]")
+TEST_CASE("Skip weighting and gradient enums are validated even while disabled", "[dqn][config][rfd0103]")
 {
     auto data = WithDefaultForwardConfig();
     data.Set("DefaultDQNAgent.skip.enabled", false);
@@ -1028,7 +1028,7 @@ TEST_CASE("Skip weighting and gradient enums are validated even while disabled",
     CHECK_THROWS(dqn::DefaultDQNAgentConfig(data));
 }
 
-TEST_CASE("Split gradient noise measures only Q loss while skip gradients change", "[dqn][prd103][gradnoise]")
+TEST_CASE("Split gradient noise measures only Q loss while skip gradients change", "[dqn][rfd0103][gradnoise]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::ConfigData network;
@@ -1092,20 +1092,20 @@ TEST_CASE("Split gradient noise measures only Q loss while skip gradients change
     CHECK(skip_gradient_seen);
 }
 
-TEST_CASE("PRD103 convolution sharing arms construct and act through IQN", "[.][prd103-arms]")
+TEST_CASE("RFD0103 convolution sharing arms construct and act through IQN", "[.][rfd0103-arms]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();
     const bool separate = GENERATE(false, true);
     const auto root = std::filesystem::current_path();
-    const auto output = root / ".scratch/prd103/arms";
+    const auto output = root / ".scratch/rfd0103/arms";
     std::filesystem::create_directories(output);
     const auto input = output / (separate ? "separate.txt" : "shared.txt");
     {
         std::ofstream file(input);
         file << "$include <" << (root / "apps/runner/config/_main.txt").generic_string() << ">\n"
             << "$include <" << (root / "apps/runner/config/Atari.txt").generic_string() << ">\n"
-            << "$include <" << (root / "src/core/base/testdata/prd103/arms.txt").generic_string() << ">\n"
+            << "$include <" << (root / "src/core/base/testdata/rfd0103/arms.txt").generic_string() << ">\n"
             << "run.$ = run.@va_base > run.@skip > run.@skip_conv_" << (separate ? "separate" : "shared") << '\n';
     }
     const auto data = anet::ConfigManager(input).GetConfigData();
@@ -1136,7 +1136,7 @@ TEST_CASE("PRD103 convolution sharing arms construct and act through IQN", "[.][
     CHECK(*actor->GetScalar("skip_session_decision_rate") == 1.0f);
 }
 
-TEST_CASE("Primary checkpoint branches into skip with identical next primary optimizer update", "[dqn][serialize][prd098]")
+TEST_CASE("Primary checkpoint branches into skip with identical next primary optimizer update", "[dqn][serialize][rfd0098]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     for (const bool noisy : {false, true}) {
@@ -1183,7 +1183,7 @@ TEST_CASE("Primary checkpoint branches into skip with identical next primary opt
         };
         update(source);
         const auto file = std::filesystem::temp_directory_path()
-            / ("anet_prd098_branch_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".bin");
+            / ("anet_rfd0098_branch_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".bin");
         { std::ofstream stream(file, std::ios::binary); anet::OutputArchive archive(stream); source->Save(archive); }
         config.auto_load_file = file.string();
         config.learner.learning_rate.value *= 0.5f;
@@ -1207,7 +1207,7 @@ TEST_CASE("Primary checkpoint branches into skip with identical next primary opt
     }
 }
 
-TEST_CASE("Rainbow rejects invalid initialization during config loading", "[dqn][config][prd098][review-fix-rainbow]")
+TEST_CASE("Rainbow rejects invalid initialization during config loading", "[dqn][config][rfd0098][review-fix-rainbow]")
 {
     // Networkを作る前に、認識した初期化modeの誤りを公開設定経路で拒否する。
     anet::ConfigData data;
@@ -1215,7 +1215,7 @@ TEST_CASE("Rainbow rejects invalid initialization during config loading", "[dqn]
     REQUIRE_THROWS(dqn::RainbowAgentConfig(data));
 }
 
-TEST_CASE("Rainbow records all nested initialization settings", "[dqn][config][prd098][review-fix-rainbow]")
+TEST_CASE("Rainbow records all nested initialization settings", "[dqn][config][rfd0098][review-fix-rainbow]")
 {
     // 外部の設定キー8件と設定記録が同じhead.init階層に揃うことを確かめる。
     anet::ConfigData data;
@@ -1258,7 +1258,7 @@ TEST_CASE("Rainbow records all nested initialization settings", "[dqn][config][p
     CHECK(recorded_keys == expected_keys);
 }
 
-TEST_CASE("DQN and Rainbow read Head nonlinearity with a linear default", "[dqn][config][prd193]")
+TEST_CASE("DQN and Rainbow read Head nonlinearity with a linear default", "[dqn][config][rfd0193]")
 {
     const bool explicit_relu = GENERATE(false, true);
     auto dqn_data = WithDefaultForwardConfig();
@@ -1276,7 +1276,7 @@ TEST_CASE("DQN and Rainbow read Head nonlinearity with a linear default", "[dqn]
     CHECK(rainbow_config.GetConfigData().Get("head.init.nonlinearity") == expected);
 }
 
-TEST_CASE("Skip Head inherits variance scaling and can override its scale", "[dqn][config][prd193]")
+TEST_CASE("Skip Head inherits variance scaling and can override its scale", "[dqn][config][rfd0193]")
 {
     const bool override_scale = GENERATE(false, true);
     auto data = WithDefaultForwardConfig();
@@ -1293,7 +1293,7 @@ TEST_CASE("Skip Head inherits variance scaling and can override its scale", "[dq
     CHECK(config.skip.head.init.variance_scale == (override_scale ? 2.0 : 0.5));
 }
 
-TEST_CASE("DQN and Rainbow reject a zero Head variance scale with full config keys", "[dqn][config][prd193]")
+TEST_CASE("DQN and Rainbow reject a zero Head variance scale with full config keys", "[dqn][config][rfd0193]")
 {
     const std::string key = GENERATE(
         "DefaultDQNAgent.head.init.variance_scale", "DefaultDQNAgent.skip.head.init.variance_scale",
@@ -1308,7 +1308,7 @@ TEST_CASE("DQN and Rainbow reject a zero Head variance scale with full config ke
     }
 }
 
-TEST_CASE("Disabled skip uses common projection validation", "[dqn][config][prd098][review-fix-projection]")
+TEST_CASE("Disabled skip uses common projection validation", "[dqn][config][rfd0098][review-fix-projection]")
 {
     // 無効のskipでも明示されたboolとsigmaを検証し、負値の診断に論理キーを残す。
     for (const auto& [key, value] : std::vector<std::pair<std::string, std::string>>{
@@ -1327,7 +1327,7 @@ TEST_CASE("Disabled skip uses common projection validation", "[dqn][config][prd0
     CHECK_NOTHROW(dqn::DefaultDQNAgentConfig(data));
 }
 
-TEST_CASE("Primary initialization is validated before skip overrides", "[dqn][config][prd098][weight-init-validation]")
+TEST_CASE("Primary initialization is validated before skip overrides", "[dqn][config][rfd0098][weight-init-validation]")
 {
     // primaryの未知modeは、skip側で上書きしても設定読込時に拒否する。
     auto data = WithDefaultForwardConfig();
@@ -1337,7 +1337,7 @@ TEST_CASE("Primary initialization is validated before skip overrides", "[dqn][co
         Catch::Matchers::ContainsSubstring("DefaultDQNAgent.head.init.mode"));
 }
 
-TEST_CASE("Head configuration uses nested init and projection keys with skip inheritance", "[dqn][config][prd098][prd098-config-head]")
+TEST_CASE("Head configuration uses nested init and projection keys with skip inheritance", "[dqn][config][rfd0098][rfd0098-config-head]")
 {
     // 公開設定の読み込みで新しい階層と未指定値の継承を確かめる。
     auto data = WithDefaultForwardConfig();
@@ -1366,7 +1366,7 @@ TEST_CASE("Head configuration uses nested init and projection keys with skip inh
     }
 }
 
-TEST_CASE("Skip network mode and action binding must agree at Agent construction", "[dqn][config][prd098][prd098-config-bind]")
+TEST_CASE("Skip network mode and action binding must agree at Agent construction", "[dqn][config][rfd0098][rfd0098-config-bind]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     // 同じ公開構築経路の正例を先に通し、逆のbindだけを契約違反にする。
@@ -1400,14 +1400,14 @@ TEST_CASE("Skip network mode and action binding must agree at Agent construction
     }
 }
 
-TEST_CASE("Disabled skip still validates explicit initialization settings", "[dqn][config][prd098]")
+TEST_CASE("Disabled skip still validates explicit initialization settings", "[dqn][config][rfd0098]")
 {
     auto data = WithDefaultForwardConfig();
     data.Set("DefaultDQNAgent.skip.head.init.mode", "not_an_initializer");
     CHECK_THROWS(dqn::DefaultDQNAgentConfig(data));
 }
 
-TEST_CASE("Skip recognized settings reject invalid values even when disabled", "[dqn][config][prd098]")
+TEST_CASE("Skip recognized settings reject invalid values even when disabled", "[dqn][config][rfd0098]")
 {
     for (const auto& [key, value] : std::vector<std::pair<std::string, std::string>>{
         {"skip.max_length", "0"}, {"skip.head.use_dueling", "average"}, {"learner.skip.feature_gradient", "other"},
@@ -1460,7 +1460,7 @@ TEST_CASE("DefaultDQNAgent IQN acts through the public ConfigData path", "[dqn][
         actor->MakeAction(rl::StepCounts{}, state, {.nn_trace = true}));
 
     REQUIRE(action_info != nullptr);
-    SavePrd170Trace(action_info->GetAuxData(), "iqn");
+    SaveRfd0170Trace(action_info->GetAuxData(), "iqn");
     constexpr char kTauInputTrace[] = "tau_embedding/00_Input";
     const auto trace = rl::ExtractNnTrace(action_info->GetAuxData());
     REQUIRE(trace.Contains(kTauInputTrace));
@@ -1864,7 +1864,7 @@ TEST_CASE("DefaultDQNAgent decides whether an Eval EnvSpec is acceptable", "[dqn
     CHECK_THROWS(agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch_env_spec, .env_spec = incompatible_eval_spec, .device = torch::Device(torch::kCPU), .seed = 123, .actor_key = "eval"}));
 }
 
-TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded network", "[dqn][actor][snapshot][serialize][prd091]")
+TEST_CASE("DefaultDQNAgent creates the initial snapshot from an auto-loaded network", "[dqn][actor][snapshot][serialize][rfd0091]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const auto env_spec = MakeLearnerEnvSpec();
@@ -1987,7 +1987,7 @@ TEST_CASE("RainbowAgentFactory reads its class-owned net tree", "[dqn][rainbow][
     REQUIRE(agent != nullptr);
 }
 
-TEST_CASE("Rainbow CPU learning preserves loss and linear parameter checksum", "[prd128][dqn][rainbow]")
+TEST_CASE("Rainbow CPU learning preserves loss and linear parameter checksum", "[rfd0128][dqn][rainbow]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const bool quantile = GENERATE(false, true);
@@ -2041,7 +2041,7 @@ TEST_CASE("Rainbow CPU learning preserves loss and linear parameter checksum", "
     CHECK(checksum == (quantile ? 2.81837368f : -0.843238711f));
 }
 
-TEST_CASE("Agent diagnostic resubscription preserves the probe random sequence", "[prd128][dqn][probe-resubscribe]")
+TEST_CASE("Agent diagnostic resubscription preserves the probe random sequence", "[rfd0128][dqn][probe-resubscribe]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto data = WithDefaultForwardConfig();
@@ -2145,25 +2145,25 @@ TEST_CASE("RainbowAgent omits DefaultDQN snapshot diagnostics", "[dqn][actor][sn
     CHECK_THROWS(agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch_env_spec, .env_spec = env_spec, .device = torch::Device(torch::kCUDA, 0), .seed = 123, .actor_key = "train"}));
 }
 
-TEST_CASE("Decomposition config rejects invalid explicit values even when inactive", "[prd121][dqn][config]")
+TEST_CASE("Decomposition config rejects invalid explicit values even when inactive", "[rfd0121][dqn][config]")
 {
     const bool intrinsic = GENERATE(false, true);
     const auto invalid = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
-        {"intrinsic.value_mode", kPrd121Invalid}, {"learner.intrinsic.discount_mode", kPrd121Invalid},
-        {"learner.intrinsic.gamma", "0"}, {"learner.intrinsic.gamma", "1"}, {"learner.intrinsic.gamma", kPrd121Nan},
-        {"learner.intrinsic.gamma.type", kPrd121Invalid}, {"learner.intrinsic.terminal_mode", kPrd121Invalid},
-        {"learner.intrinsic.loss_weight", "0"}, {"learner.intrinsic.loss_weight", kPrd121Inf},
-        {"learner.intrinsic.priority_lambda", "-1"}, {"learner.intrinsic.priority_lambda", kPrd121Nan},
-        {"learner.intrinsic.extrinsic_bootstrap_mode", kPrd121Invalid}, {"learner.intrinsic.feature_gradient", "stop"},
-        {"intrinsic.value.head.input_mode", kPrd121Invalid}, {"intrinsic.value.head.use_dueling", kPrd121Invalid},
-        {"intrinsic.value.head.init.mode", kPrd121Invalid}, {"intrinsic.value.head.init.manual_gain", kPrd121Nan},
+        {"intrinsic.value_mode", kRfd0121Invalid}, {"learner.intrinsic.discount_mode", kRfd0121Invalid},
+        {"learner.intrinsic.gamma", "0"}, {"learner.intrinsic.gamma", "1"}, {"learner.intrinsic.gamma", kRfd0121Nan},
+        {"learner.intrinsic.gamma.type", kRfd0121Invalid}, {"learner.intrinsic.terminal_mode", kRfd0121Invalid},
+        {"learner.intrinsic.loss_weight", "0"}, {"learner.intrinsic.loss_weight", kRfd0121Inf},
+        {"learner.intrinsic.priority_lambda", "-1"}, {"learner.intrinsic.priority_lambda", kRfd0121Nan},
+        {"learner.intrinsic.extrinsic_bootstrap_mode", kRfd0121Invalid}, {"learner.intrinsic.feature_gradient", "stop"},
+        {"intrinsic.value.head.input_mode", kRfd0121Invalid}, {"intrinsic.value.head.use_dueling", kRfd0121Invalid},
+        {"intrinsic.value.head.init.mode", kRfd0121Invalid}, {"intrinsic.value.head.init.manual_gain", kRfd0121Nan},
         {"intrinsic.value.head.init.variance_scale", "0"}, {"intrinsic.value.head.init.nonlinearity", "selu"},
-        {"intrinsic.value.head.projection.noisy.enabled", kPrd121Invalid}, {"intrinsic.value.head.projection.noisy.sigma0", "-1"},
-        {"actor.[train].intrinsic.action_beta_mode", kPrd121Invalid}, {"actor.[train].intrinsic.action_beta", "-1"},
-        {"actor.[train].intrinsic.action_beta", kPrd121Inf}, {"reward_scaler.dynamic_mode", kPrd121Invalid},
-        {"intrinsic.reward_scaler.dynamic_mode", kPrd121Invalid}}));
+        {"intrinsic.value.head.projection.noisy.enabled", kRfd0121Invalid}, {"intrinsic.value.head.projection.noisy.sigma0", "-1"},
+        {"actor.[train].intrinsic.action_beta_mode", kRfd0121Invalid}, {"actor.[train].intrinsic.action_beta", "-1"},
+        {"actor.[train].intrinsic.action_beta", kRfd0121Inf}, {"reward_scaler.dynamic_mode", kRfd0121Invalid},
+        {"intrinsic.reward_scaler.dynamic_mode", kRfd0121Invalid}}));
     anet::ConfigData base;
-    base.Set("DefaultDQNAgent.actor.[train].network", kPrd121OnlineNetworkMode);
+    base.Set("DefaultDQNAgent.actor.[train].network", kRfd0121OnlineNetworkMode);
     auto data = WithDefaultForwardConfig(base);
     data.Set("DefaultDQNAgent.intrinsic.enabled", intrinsic);
     data.Set("DefaultDQNAgent." + invalid.first, invalid.second);
@@ -2178,28 +2178,28 @@ TEST_CASE("Decomposition config rejects invalid explicit values even when inacti
     }
 }
 
-TEST_CASE("Decomposition mode errors precede numeric errors in other components", "[prd121][dqn][config][prd121-review-config]")
+TEST_CASE("Decomposition mode errors precede numeric errors in other components", "[rfd0121][dqn][config][rfd0121-review-config]")
 {
     const auto numeric_key = GENERATE("learner.intrinsic.loss_weight", "learner.intrinsic.gamma", "actor.[a].intrinsic.action_beta");
     const auto mode_key = GENERATE(
         "actor.[z].intrinsic.action_beta_mode", "intrinsic.value.head.init.mode", "intrinsic.value.head.init.nonlinearity");
     anet::ConfigData base;
-    base.Set("DefaultDQNAgent.actor.[a].network", kPrd121OnlineNetworkMode);
-    base.Set("DefaultDQNAgent.actor.[z].network", kPrd121OnlineNetworkMode);
+    base.Set("DefaultDQNAgent.actor.[a].network", kRfd0121OnlineNetworkMode);
+    base.Set("DefaultDQNAgent.actor.[z].network", kRfd0121OnlineNetworkMode);
     auto data = WithDefaultForwardConfig(base);
     data.Set("DefaultDQNAgent." + std::string(numeric_key), -1);
     data.Set("DefaultDQNAgent." + std::string(mode_key),
-        std::string_view(mode_key).ends_with(".nonlinearity") ? "selu" : kPrd121Invalid);
+        std::string_view(mode_key).ends_with(".nonlinearity") ? "selu" : kRfd0121Invalid);
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
         Catch::Matchers::ContainsSubstring(mode_key) && Catch::Matchers::ContainsSubstring("expected"));
 }
 
-TEST_CASE("Decomposition validates individual fields before scaler combinations", "[prd121][dqn][config][prd121-review-order]")
+TEST_CASE("Decomposition validates individual fields before scaler combinations", "[rfd0121][dqn][config][rfd0121-review-order]")
 {
     const bool intrinsic_scaler = GENERATE(false, true);
     const int error = GENERATE(0, 1, 2, 3, 4, 5, 6, 7);
     anet::ConfigData base;
-    base.Set("DefaultDQNAgent.actor.[z].network", kPrd121OnlineNetworkMode);
+    base.Set("DefaultDQNAgent.actor.[z].network", kRfd0121OnlineNetworkMode);
     auto data = WithDefaultForwardConfig(base);
     data.Set("DefaultDQNAgent.intrinsic.enabled", true);
     const std::string scaler = intrinsic_scaler ? "intrinsic.reward_scaler" : "reward_scaler";
@@ -2213,13 +2213,13 @@ TEST_CASE("Decomposition validates individual fields before scaler combinations"
         "learner.intrinsic.loss_weight", "learner.intrinsic.gamma",
         "actor.[z].intrinsic.action_beta", "intrinsic.value.head.init.manual_gain"};
     const auto& key = keys[error];
-    data.Set("DefaultDQNAgent." + key, error < 4 ? kPrd121Invalid : (error == 7 ? kPrd121Nan : "-1"));
+    data.Set("DefaultDQNAgent." + key, error < 4 ? kRfd0121Invalid : (error == 7 ? kRfd0121Nan : "-1"));
     CAPTURE(scaler, key);
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(data),
         Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("expected"));
 }
 
-TEST_CASE("Decomposition still rejects each active scaler combination", "[prd121][dqn][config][prd121-review-order]")
+TEST_CASE("Decomposition still rejects each active scaler combination", "[rfd0121][dqn][config][rfd0121-review-order]")
 {
     const bool intrinsic_scaler = GENERATE(false, true);
     auto data = WithDefaultForwardConfig();
@@ -2233,7 +2233,7 @@ TEST_CASE("Decomposition still rejects each active scaler combination", "[prd121
         && Catch::Matchers::ContainsSubstring("expected DefaultDQNAgent." + scaler + ".use_auto_post_scale=false"));
 }
 
-TEST_CASE("Decomposition names the mode requiring a fixed actor beta", "[dqn][prd194]")
+TEST_CASE("Decomposition names the mode requiring a fixed actor beta", "[dqn][rfd0194]")
 {
     anet::ConfigData data;
     data.Set("DefaultDQNAgent.intrinsic.enabled", true);
@@ -2247,11 +2247,11 @@ TEST_CASE("Decomposition names the mode requiring a fixed actor beta", "[dqn][pr
         && Catch::Matchers::ContainsSubstring("Trial.actor.[train].intrinsic.action_beta_mode=fixed"));
 }
 
-TEST_CASE("Unused decomposition settings warn only for explicit nondefaults", "[prd121][dqn][config]")
+TEST_CASE("Unused decomposition settings warn only for explicit nondefaults", "[rfd0121][dqn][config]")
 {
     const int scenario = GENERATE(0, 1, 2, 3, 4, 5, 6);
     anet::ConfigData base;
-    base.Set("DefaultDQNAgent.actor.[train].network", kPrd121OnlineNetworkMode);
+    base.Set("DefaultDQNAgent.actor.[train].network", kRfd0121OnlineNetworkMode);
     auto data = WithDefaultForwardConfig(base);
     std::string key;
     if (scenario == 0 || scenario == 2) {
@@ -2283,7 +2283,7 @@ TEST_CASE("Unused decomposition settings warn only for explicit nondefaults", "[
     CHECK(count == (scenario == 0 ? 0 : 1));
 }
 
-TEST_CASE("Inactive value decomposition warns once for explicit nondefault Head initialization settings", "[dqn][config][prd193]")
+TEST_CASE("Inactive value decomposition warns once for explicit nondefault Head initialization settings", "[dqn][config][rfd0193]")
 {
     const bool use_defaults = GENERATE(false, true);
     auto data = WithDefaultForwardConfig();
@@ -2303,24 +2303,24 @@ TEST_CASE("Inactive value decomposition warns once for explicit nondefault Head 
     }
 }
 
-TEST_CASE("Combined Actor leaves inactive fixed beta unset", "[prd121][dqn][config]")
+TEST_CASE("Combined Actor leaves inactive fixed beta unset", "[rfd0121][dqn][config]")
 {
     ScopedNoopMetricsLogger logger;
     auto config = MakeDeviceForwardDefaultDqnConfig();
-    config.actor[kPrd121Eval].intrinsic.action_beta_mode = anet::rl::dqn::DQNActorConfig::kActionBetaFixed;
+    config.actor[kRfd0121Eval].intrinsic.action_beta_mode = anet::rl::dqn::DQNActorConfig::kActionBetaFixed;
     const auto env = MakeLearnerEnvSpec();
     auto agent = std::make_shared<dqn::DefaultDQNAgent>(config, MakeAgentForwardNetworkConfig(), rl::BatchEnvSpec{1, 1}, env, torch::kCPU, 121);
     CHECK_NOTHROW(agent->CreateActor({.batch_env_spec = {1, 1}, .env_spec = env,
-        .device = torch::kCPU, .seed = 121, .actor_key = kPrd121Eval}));
+        .device = torch::kCPU, .seed = 121, .actor_key = kRfd0121Eval}));
 }
 
-TEST_CASE("Decomposed config accepts an explicit gamma schedule without a constant value", "[prd121][dqn][config]")
+TEST_CASE("Decomposed config accepts an explicit gamma schedule without a constant value", "[rfd0121][dqn][config]")
 {
     auto data = WithDefaultForwardConfig();
     data.Set("DefaultDQNAgent.intrinsic.enabled", true);
     data.Set("DefaultDQNAgent.intrinsic.value_mode", anet::rl::dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
     data.Set("DefaultDQNAgent.learner.intrinsic.discount_mode", anet::rl::dqn::LearnerConfig::kDiscountSeparate);
-    data.Set("DefaultDQNAgent.learner.intrinsic.gamma.type", kPrd121Linear);
+    data.Set("DefaultDQNAgent.learner.intrinsic.gamma.type", kRfd0121Linear);
     data.Set("DefaultDQNAgent.learner.intrinsic.gamma.start", 0.9f);
     data.Set("DefaultDQNAgent.learner.intrinsic.gamma.end", 0.99f);
     data.Set("DefaultDQNAgent.learner.intrinsic.gamma.steps", 100);
@@ -2882,7 +2882,7 @@ TEST_CASE("DQN plasticity feature key is validated only when subscribed", "[dqn]
     } }), Catch::Matchers::ContainsSubstring("available_branches"));
 }
 
-TEST_CASE("Rainbow rejects quantile counts that contradict QR mode", "[prd117][dqn][rainbow][qr_config]")
+TEST_CASE("Rainbow rejects quantile counts that contradict QR mode", "[rfd0117][dqn][rainbow][qr_config]")
 {
     const int count = GENERATE(-1, 0, 1, 2);
     const bool use_qr = GENERATE(false, true);
@@ -2899,7 +2899,7 @@ TEST_CASE("Rainbow rejects quantile counts that contradict QR mode", "[prd117][d
     }
 }
 
-TEST_CASE("DQN feature diagnostics use the settings read by each agent config", "[prd194][prd194_dqn]")
+TEST_CASE("DQN feature diagnostics use the settings read by each agent config", "[rfd0194][rfd0194_dqn]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();
@@ -2932,7 +2932,7 @@ TEST_CASE("DQN feature diagnostics use the settings read by each agent config", 
         && !Catch::Matchers::ContainsSubstring("DefaultDQNAgent"));
 }
 
-TEST_CASE("Default DQN reader reports the full key that supplied an invalid setting", "[prd194]")
+TEST_CASE("Default DQN reader reports the full key that supplied an invalid setting", "[rfd0194]")
 {
     auto data = WithDefaultForwardConfig();
     anet::ConfigData input;
@@ -2944,7 +2944,7 @@ TEST_CASE("Default DQN reader reports the full key that supplied an invalid sett
         && Catch::Matchers::ContainsSubstring("expected finite <= 0"));
 }
 
-TEST_CASE("DQN configuration leaves root-level relative learner settings unread", "[prd194][prd194_dqn_config]")
+TEST_CASE("DQN configuration leaves root-level relative learner settings unread", "[rfd0194][rfd0194_dqn_config]")
 {
     auto data = WithDefaultForwardConfig();
     data.Set("learner.per_alpha", 2.f);
@@ -2958,7 +2958,7 @@ TEST_CASE("DQN configuration leaves root-level relative learner settings unread"
     }));
 }
 
-TEST_CASE("DQN Learners name the source of an invalid priority floor", "[prd194][prd194_per]")
+TEST_CASE("DQN Learners name the source of an invalid priority floor", "[rfd0194][rfd0194_per]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();
@@ -2984,7 +2984,7 @@ TEST_CASE("DQN Learners name the source of an invalid priority floor", "[prd194]
     }
 }
 
-TEST_CASE("Rainbow validates directly modified quantile configuration before building networks", "[prd117][dqn][rainbow][qr_config]")
+TEST_CASE("Rainbow validates directly modified quantile configuration before building networks", "[rfd0117][dqn][rainbow][qr_config]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto config = MakeDeviceForwardRainbowConfig();
@@ -2997,7 +2997,7 @@ TEST_CASE("Rainbow validates directly modified quantile configuration before bui
         && Catch::Matchers::ContainsSubstring("expected"));
 }
 
-TEST_CASE("Rainbow Actor catalog selects its own epsilon", "[dqn][prd061][rainbow]")
+TEST_CASE("Rainbow Actor catalog selects its own epsilon", "[dqn][rfd0061][rainbow]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto config = MakeDeviceForwardRainbowConfig();
@@ -3084,7 +3084,7 @@ TEST_CASE("DefaultDQN Actor owns Noisy draws and advances its action clock", "[d
     CHECK(torch::equal(mean, q(eval)));
 }
 
-TEST_CASE("Default DQN numeric validation reports the key value and expected range", "[dqn][prd128][config-format]")
+TEST_CASE("Default DQN numeric validation reports the key value and expected range", "[dqn][rfd0128][config-format]")
 {
     auto data = WithDefaultForwardConfig();
     data.Set("DefaultDQNAgent.learner.noisy_probe.num_draws", 0);
@@ -3092,7 +3092,7 @@ TEST_CASE("Default DQN numeric validation reports the key value and expected ran
         "Invalid DefaultDQNAgent.learner.noisy_probe.num_draws=0; expected integer >= 1."));
 }
 
-TEST_CASE("Default DQN choice validation lists three alternatives", "[dqn][prd128][config-format]")
+TEST_CASE("Default DQN choice validation lists three alternatives", "[dqn][rfd0128][config-format]")
 {
     auto data = WithDefaultForwardConfig();
     data.Set("DefaultDQNAgent.quantile_mode", "unknown");
@@ -3123,12 +3123,12 @@ TEST_CASE("Noisy probe sizes and sigma decay validate written values even when d
     CHECK(defaults.noisy_probe.iqn.num_taus == 32);
 }
 
-TEST_CASE("PRD084 profile punctuation preserves all resolved and typed values", "[.][prd084-config-equivalence]")
+TEST_CASE("RFD0084 profile punctuation preserves all resolved and typed values", "[.][rfd0084-config-equivalence]")
 {
     anet::test::RegisterStandardNetworkModules();
     wxString before_directory, output_directory;
-    REQUIRE(wxGetEnv("ANET_PRD084_CONFIG_BEFORE", &before_directory));
-    REQUIRE(wxGetEnv("ANET_PRD084_CONFIG_OUTPUT", &output_directory));
+    REQUIRE(wxGetEnv("ANET_RFD0084_CONFIG_BEFORE", &before_directory));
+    REQUIRE(wxGetEnv("ANET_RFD0084_CONFIG_OUTPUT", &output_directory));
     const auto before = std::filesystem::path(before_directory.ToStdWstring());
     const auto output = std::filesystem::path(output_directory.ToStdWstring());
     const auto after = std::filesystem::current_path() / "apps/runner/config";
@@ -3251,7 +3251,7 @@ TEST_CASE("Gradient noise validates subscribed settings and warns once for mixed
     }) == 1);
 }
 
-TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and complete a bootstrap", "[dqn][prd094][step_diagnostics]")
+TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and complete a bootstrap", "[dqn][rfd0094][step_diagnostics]")
 {
     ScopedNoopMetricsLogger logger;
     auto config = MakeDeviceForwardDefaultDqnConfig();
@@ -3338,7 +3338,7 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
 
 }
 
-TEST_CASE("DQN step diagnostics match replay completion for n-step episode boundaries", "[dqn][prd094][diagnostic_replay]")
+TEST_CASE("DQN step diagnostics match replay completion for n-step episode boundaries", "[dqn][rfd0094][diagnostic_replay]")
 {
     const int n = GENERATE(1, 3);
     const int boundary = GENERATE(0, 1, 2, 3);
@@ -3408,7 +3408,7 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
     }
 }
 
-TEST_CASE("DQN diagnostics do not wait for the learner Agent mutex", "[dqn][prd094][diagnostic_no_wait]")
+TEST_CASE("DQN diagnostics do not wait for the learner Agent mutex", "[dqn][rfd0094][diagnostic_no_wait]")
 {
     class LockableAgent final : public dqn::DefaultDQNAgent {
     public:
@@ -3442,7 +3442,7 @@ TEST_CASE("DQN diagnostics do not wait for the learner Agent mutex", "[dqn][prd0
     CHECK(result.current->GetScalar("q_sa", 0) == 1.0f);
 }
 
-TEST_CASE("DefaultDQN baseline uses Head booleans and leaves omitted skip length unset", "[dqn][prd098][prd098-r2-baseline]")
+TEST_CASE("DefaultDQN baseline uses Head booleans and leaves omitted skip length unset", "[dqn][rfd0098][rfd0098-r2-baseline]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     // 未指定は有効なJと区別し、明示した0は無効Runでも拒否する。
@@ -3490,7 +3490,7 @@ TEST_CASE("DefaultDQN baseline uses Head booleans and leaves omitted skip length
     CHECK(torch::allclose(action->GetAuxData().at("skip_q_values"), expected));
 }
 
-TEST_CASE("Skip IQN consumes fused primary features with optional action input", "[dqn][prd098][prd098-r2-fused]")
+TEST_CASE("Skip IQN consumes fused primary features with optional action input", "[dqn][rfd0098][rfd0098-r2-fused]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     const bool action_in = GENERATE(false, true);
@@ -3541,7 +3541,7 @@ TEST_CASE("Skip IQN consumes fused primary features with optional action input",
     CHECK_THROWS_WITH(make(invalid), Catch::Matchers::ContainsSubstring("rank=3"));
 }
 
-TEST_CASE("PRD101 Actor values survive transfer and action replacement", "[prd101][dqn]")
+TEST_CASE("RFD0101 Actor values survive transfer and action replacement", "[rfd0101][dqn]")
 {
     ScopedNoopMetricsLogger logger;
     auto config = MakeDeviceForwardDefaultDqnConfig();
@@ -3572,7 +3572,7 @@ TEST_CASE("PRD101 Actor values survive transfer and action replacement", "[prd10
     CHECK(*first->GetScalar("gamma") == Catch::Approx(0.1f));
 }
 
-TEST_CASE("DQN classifies unused forward entries and inactive owned prefixes", "[prd117][dqn][config_inventory]")
+TEST_CASE("DQN classifies unused forward entries and inactive owned prefixes", "[rfd0117][dqn][config_inventory]")
 {
     anet::test::LogCaptureGuard logs;
     auto data = WithDefaultForwardConfig(anet::ConfigData{});
@@ -3594,7 +3594,7 @@ TEST_CASE("DQN classifies unused forward entries and inactive owned prefixes", "
         {"DefaultDQNAgent.skip", "enabled=false"}));
 }
 
-TEST_CASE("DQN reads opaque projection values from their original keys", "[prd117][dqn][config_inventory]")
+TEST_CASE("DQN reads opaque projection values from their original keys", "[rfd0117][dqn][config_inventory]")
 {
     auto data = WithDefaultForwardConfig(anet::ConfigData{});
     data.Set("DefaultDQNAgent.head.projection.noisy.sigma0", 0.7);
@@ -3605,7 +3605,7 @@ TEST_CASE("DQN reads opaque projection values from their original keys", "[prd11
     CHECK(unread.front().first == "unread.sentinel");
 }
 
-TEST_CASE("PRD101 Agent publishes all learner schedule scalars", "[prd101][dqn]")
+TEST_CASE("RFD0101 Agent publishes all learner schedule scalars", "[rfd0101][dqn]")
 {
     ScopedNoopMetricsLogger logger;
     auto config = MakeDeviceForwardDefaultDqnConfig();
@@ -3634,7 +3634,7 @@ TEST_CASE("PRD101 Agent publishes all learner schedule scalars", "[prd101][dqn]"
     }
 }
 
-TEST_CASE("DQN horizon logging names the field that supplied the initial discount", "[dqn][prd194]")
+TEST_CASE("DQN horizon logging names the field that supplied the initial discount", "[dqn][rfd0194]")
 {
     ScopedNoopMetricsLogger logger;
     const auto initial_key = GENERATE(std::string("start"), std::string("phase.[warmup].value"));
@@ -3659,7 +3659,7 @@ TEST_CASE("DQN horizon logging names the field that supplied the initial discoun
         {gamma + "." + initial_key + "=0.5", "EffectiveHorizon: 2 steps"}));
 }
 
-TEST_CASE("PRD101 Rainbow Actor honors spatial selection and moving endpoints", "[prd101][dqn][rainbow]")
+TEST_CASE("RFD0101 Rainbow Actor honors spatial selection and moving endpoints", "[rfd0101][dqn][rainbow]")
 {
     ScopedNoopMetricsLogger logger;
     const bool spatial = GENERATE(false, true);
@@ -3686,7 +3686,7 @@ TEST_CASE("PRD101 Rainbow Actor honors spatial selection and moving endpoints", 
     CHECK(*actor->GetScalar("epsilon_lane_max") == Catch::Approx(spatial ? 0.4f : 0.9f));
 }
 
-TEST_CASE("Rainbow rejects intrinsic Trace columns at the first scalar read", "[prd127][step_diagnostics]")
+TEST_CASE("Rainbow rejects intrinsic Trace columns at the first scalar read", "[rfd0127][step_diagnostics]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto agent = std::make_shared<dqn::RainbowAgent>(MakeDeviceForwardRainbowConfig(), MakeAgentForwardNetworkConfig(),
@@ -3705,8 +3705,8 @@ TEST_CASE("Rainbow rejects intrinsic Trace columns at the first scalar read", "[
         Catch::Matchers::ContainsSubstring("column=600") && Catch::Matchers::ContainsSubstring("key='intrinsic.error'"));
 }
 
-TEST_CASE("PRD128 Rainbow rejects unsupported actor policies in both construction paths",
-    "[prd128][rainbow][policy-validation]")
+TEST_CASE("RFD0128 Rainbow rejects unsupported actor policies in both construction paths",
+    "[rfd0128][rainbow][policy-validation]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();
@@ -3729,8 +3729,8 @@ TEST_CASE("PRD128 Rainbow rejects unsupported actor policies in both constructio
         Catch::Matchers::ContainsSubstring("policy_type (not read from config)" + message));
 }
 
-TEST_CASE("PRD128 Rainbow validates actor tau rules in both construction paths",
-    "[prd128][rainbow][tau-validation]")
+TEST_CASE("RFD0128 Rainbow validates actor tau rules in both construction paths",
+    "[rfd0128][rainbow][tau-validation]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();
@@ -3759,8 +3759,8 @@ TEST_CASE("PRD128 Rainbow validates actor tau rules in both construction paths",
         Catch::Matchers::ContainsSubstring(relative_key + " (not read from config)"));
 }
 
-TEST_CASE("PRD128 Rainbow accepts epsilon-greedy aliases and shared scalar routes",
-    "[prd128][rainbow][scalar-routes]")
+TEST_CASE("RFD0128 Rainbow accepts epsilon-greedy aliases and shared scalar routes",
+    "[rfd0128][rainbow][scalar-routes]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();

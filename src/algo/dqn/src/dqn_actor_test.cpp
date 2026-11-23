@@ -7,7 +7,7 @@
 #include <limits>
 #include <torch/cuda.h>
 
-TEST_CASE("Skip Actor retains an action and resets duration on episode start", "[dqn][prd098]")
+TEST_CASE("Skip Actor retains an action and resets duration on episode start", "[dqn][rfd0098]")
 {
     anet::test::RegisterStandardNetworkModules();
     torch::NoGradGuard no_grad;
@@ -62,7 +62,7 @@ TEST_CASE("Skip Actor retains an action and resets duration on episode start", "
     CHECK(reset->GetAuxData().at("skip_length").item<int64_t>() == 1);
 }
 
-TEST_CASE("Skip Actor session statistics count decision lanes and reset on Sync", "[dqn][prd103][skip_session]")
+TEST_CASE("Skip Actor session statistics count decision lanes and reset on Sync", "[dqn][rfd0103][skip_session]")
 {
     anet::test::RegisterStandardNetworkModules();
     torch::NoGradGuard no_grad;
@@ -119,7 +119,7 @@ TEST_CASE("Skip Actor session statistics count decision lanes and reset on Sync"
     CHECK(*actor.GetScalar("skip_session_length_rate.[1]") == 1.0f);
 }
 
-TEST_CASE("Dedicated IQN skip policy queries its own mean or risk range in one shared forward", "[dqn][prd098][skip_policy]")
+TEST_CASE("Dedicated IQN skip policy queries its own mean or risk range in one shared forward", "[dqn][rfd0098][skip_policy]")
 {
     // primaryは0.9分位、skipは平均または0.2分位。primaryの分位だけでは長さが逆転する。
     const auto kind = GENERATE(std::string("EpsilonGreedy"), std::string("UQE"), std::string("ThompsonSampling"));
@@ -181,7 +181,7 @@ TEST_CASE("Dedicated IQN skip policy queries its own mean or risk range in one s
     CHECK(primary_state->last_taus.size(1) > 8);
 }
 
-TEST_CASE("Skip forward samples only its execution config with fixed observation features and action", "[dqn][prd106][prd106-fixed-input]")
+TEST_CASE("Skip forward samples only its execution config with fixed observation features and action", "[dqn][rfd0106][rfd0106-fixed-input]")
 {
     anet::test::RegisterStandardNetworkModules();
     const bool sample = GENERATE(false, true);
@@ -213,7 +213,7 @@ TEST_CASE("Skip forward samples only its execution config with fixed observation
     CHECK(torch::equal(first->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues), second->GetAuxData().at(dqn::DQNActionInfo::kSkipQValues)) == !sample);
 }
 
-TEST_CASE("Skip target windows validate the entire Actor catalog and warn for intentional controls", "[dqn][prd104][prd104-validation]")
+TEST_CASE("Skip target windows validate the entire Actor catalog and warn for intentional controls", "[dqn][rfd0104][rfd0104-validation]")
 {
     const bool enabled = GENERATE(false, true);
     const bool learning = GENERATE(false, true);
@@ -223,7 +223,7 @@ TEST_CASE("Skip target windows validate the entire Actor catalog and warn for in
         std::string("linear_one"), std::string("linear_two"), std::string("phased_one"), std::string("phased_two"));
     const auto gradient = GENERATE(std::string("merge"), std::string("stop"));
     CAPTURE(enabled, learning, window, width, gradient);
-    auto data = MakePrd104ConfigData();
+    auto data = MakeRfd0104ConfigData();
     data.Set("DefaultDQNAgent.skip.enabled", enabled);
     data.Set("DefaultDQNAgent.learner.enabled", learning);
     data.Set("DefaultDQNAgent.learner.skip.target_window", window);
@@ -288,7 +288,7 @@ TEST_CASE("Skip target windows validate the entire Actor catalog and warn for in
     }
 }
 
-TEST_CASE("Variable Actor preserves a held action when its scheduled limit drops", "[dqn][prd104][prd104-held]")
+TEST_CASE("Variable Actor preserves a held action when its scheduled limit drops", "[dqn][rfd0104][rfd0104-held]")
 {
     anet::test::RegisterStandardNetworkModules();
     torch::NoGradGuard no_grad;
@@ -332,7 +332,7 @@ TEST_CASE("Variable Actor preserves a held action when its scheduled limit drops
     CHECK(torch::equal(fourth->GetAuxData().at("skip_length"), torch::ones({2}, torch::kLong)));
 }
 
-TEST_CASE("Variable IQN skip selection keeps full auxiliary values for each policy", "[dqn][prd104][prd104-distribution]")
+TEST_CASE("Variable IQN skip selection keeps full auxiliary values for each policy", "[dqn][rfd0104][rfd0104-distribution]")
 {
     const auto kind = GENERATE(std::string("EpsilonGreedy"), std::string("UQE"), std::string("ThompsonSampling"));
     auto primary_state = std::make_shared<TauEchoState>();
@@ -365,7 +365,7 @@ TEST_CASE("Variable IQN skip selection keeps full auxiliary values for each poli
     CHECK(torch::equal(primary_state->last_taus, skip_state->last_taus));
 }
 
-TEST_CASE("Skip action scalars distinguish decisions, durations and inactive values", "[dqn][prd098][prd098-r2-qtrace]")
+TEST_CASE("Skip action scalars distinguish decisions, durations and inactive values", "[dqn][rfd0098][rfd0098-r2-qtrace]")
 {
     const auto actions = torch::zeros({3}, torch::kInt64);
     dqn::DQNActionInfo info(actions, anet::TensorDict{}, rl::AuxData{
@@ -1402,15 +1402,15 @@ TEST_CASE("DQNActionInfo exposes episode-start action margin scalar metrics", "[
     CHECK_THROWS(info.GetScalar("episode_start_action_q_margin.[3]"));
 }
 
-TEST_CASE("Decomposed Actor hints reuse policy selection and exclude full queries", "[prd121][dqn][decomposed_hint_policy]")
+TEST_CASE("Decomposed Actor hints reuse policy selection and exclude full queries", "[rfd0121][dqn][decomposed_hint_policy]")
 {
     const bool iqn = GENERATE(false, true);
     const auto external = iqn ? torch::tensor({{{1.0f, 200.0f, 200.0f, 200.0f, 200.0f}, {2.0f, 100.0f, 100.0f, 100.0f, 100.0f}}})
         : torch::tensor({{{0.0f, 0.0f, 12.0f}, {6.0f, 6.0f, 6.0f}}});
     const auto internal = iqn ? torch::tensor({{{3.0f, 50.0f, 50.0f, 50.0f, 50.0f}, {4.0f, 100.0f, 100.0f, 100.0f, 100.0f}}})
         : torch::zeros_like(external);
-    anet::TensorDict observations{{kPrd121ExtrinsicQDist, external}, {kPrd121IntrinsicQDist, internal},
-        {kPrd121ExtrinsicQ, external.mean(2)}, {kPrd121IntrinsicQ, internal.mean(2)}};
+    anet::TensorDict observations{{kRfd0121ExtrinsicQDist, external}, {kRfd0121IntrinsicQDist, internal},
+        {kRfd0121ExtrinsicQ, external.mean(2)}, {kRfd0121IntrinsicQ, internal.mean(2)}};
     anet::TensorSpecMap specs;
     anet::nn::NetworkConfig net;
     for (const auto& [key, value] : observations) {
@@ -1424,9 +1424,9 @@ TEST_CASE("Decomposed Actor hints reuse policy selection and exclude full querie
     config.uqe.tau.value = 1;
     config.uqe.use_tail_mean = false;
     config.uqe.epsilon.value = 0;
-    config.tau_rule = {.sample_mode = kPrd121FixedTauMode, .num_taus = 1};
+    config.tau_rule = {.sample_mode = kRfd0121FixedTauMode, .num_taus = 1};
     config.full_distribution_query.enabled = iqn;
-    config.full_distribution_query.tau_rule = {.sample_mode = kPrd121FixedTauMode, .num_taus = 4};
+    config.full_distribution_query.tau_rule = {.sample_mode = kRfd0121FixedTauMode, .num_taus = 4};
     auto policy = dqn::DqnComponentAssembler::CreateActionPolicy(config, config.quantile_mode, false, 1, torch::kCPU);
     dqn::ActorQHintConfig hint;
     hint.decomposed = true;
@@ -1447,7 +1447,7 @@ TEST_CASE("Decomposed Actor hints reuse policy selection and exclude full querie
     CHECK(replacement.intrinsic_q_sa.item<float>() == Catch::Approx(iqn ? 3 : 0));
 }
 
-TEST_CASE("Extrinsic bootstrap preserves UQE risk selection in learning and diagnostics", "[prd121][dqn][decomposed_risk]")
+TEST_CASE("Extrinsic bootstrap preserves UQE risk selection in learning and diagnostics", "[rfd0121][dqn][decomposed_risk]")
 {
     ScopedNoopMetricsLogger logger;
     anet::test::RegisterStandardNetworkModules();
@@ -1455,7 +1455,7 @@ TEST_CASE("Extrinsic bootstrap preserves UQE risk selection in learning and diag
     auto env = MakeLearnerEnvSpec();
     env.action_spec.value_labels = {"a0", "a1"};
     anet::nn::NetworkConfig net;
-    net.output_keys[kPrd121Features] = kVectorKey;
+    net.output_keys[kRfd0121Features] = kVectorKey;
     const anet::nn::WeightInitConfig init;
     auto factory = std::make_shared<dqn::QuantileHeadFactory>(2, 3, init);
     auto head = std::make_shared<dqn::DecomposedHeadFactory>(factory, factory, false, false,
@@ -1465,8 +1465,8 @@ TEST_CASE("Extrinsic bootstrap preserves UQE risk selection in learning and diag
         torch::NoGradGuard guard;
         for (auto& entry : network->named_parameters()) {
             entry.value().zero_();
-            if (entry.key() == kPrd121HeadExtrinsicLinearBias) entry.value().copy_(external.flatten());
-            if (entry.key() == kPrd121HeadIntrinsicLinearBias) entry.value().copy_(internal.flatten());
+            if (entry.key() == kRfd0121HeadExtrinsicLinearBias) entry.value().copy_(external.flatten());
+            if (entry.key() == kRfd0121HeadIntrinsicLinearBias) entry.value().copy_(internal.flatten());
         }
     };
     const auto external = tail ? torch::tensor({{-100.0f, 0.0f, 0.0f}, {-1.0f, -1.0f, -1.0f}})
@@ -1517,35 +1517,35 @@ TEST_CASE("Extrinsic bootstrap preserves UQE risk selection in learning and diag
     const float expected = std::abs(external[0].mean().item<float>() - (tail ? 2.0f : 3.0f))
         + std::abs(internal[0].mean().item<float>() - (tail ? 1.0f : 0.5f));
     CHECK(torch::allclose(result->td_error, torch::full({2}, expected), 1e-5, 1e-5));
-    learner.ConfigureScalarMetricSubscriptions({{.source_key = kPrd121ReplayFitUniformTdMean, .event = rl::EventType::LEARN,
+    learner.ConfigureScalarMetricSubscriptions({{.source_key = kRfd0121ReplayFitUniformTdMean, .event = rl::EventType::LEARN,
         .target = rl::EventField::UPDATE_RESULT, .interval = 1, .scope = rl::RunnerScope::TRAIN}});
     experience.state.episode_start.zero_();
     const auto updates = learner.UpdateFromBatch({.exp_step = 2}, experience, 0.5f);
     REQUIRE_FALSE(updates.empty());
-    REQUIRE(updates.back()->GetScalar(kPrd121ReplayFitUniformTdMean));
-    CHECK(std::isfinite(*updates.back()->GetScalar(kPrd121ReplayFitUniformTdMean)));
+    REQUIRE(updates.back()->GetScalar(kRfd0121ReplayFitUniformTdMean));
+    CHECK(std::isfinite(*updates.back()->GetScalar(kRfd0121ReplayFitUniformTdMean)));
 }
 
-TEST_CASE("Decomposition validates all Actor and Head values before combinations", "[prd121][dqn][config][prd121-review-config]")
+TEST_CASE("Decomposition validates all Actor and Head values before combinations", "[rfd0121][dqn][config][rfd0121-review-config]")
 {
     const int combination = GENERATE(0, 1, 2, 3);
     const auto invalid = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
-        {"intrinsic.value.head.input_mode", kPrd121Invalid},
-        {"intrinsic.value.head.init.manual_gain", kPrd121Nan},
+        {"intrinsic.value.head.input_mode", kRfd0121Invalid},
+        {"intrinsic.value.head.init.manual_gain", kRfd0121Nan},
         {"intrinsic.value.head.projection.noisy.sigma0", "-1"},
-        {"actor.[z].intrinsic.action_beta_mode", kPrd121Invalid},
+        {"actor.[z].intrinsic.action_beta_mode", kRfd0121Invalid},
         {"actor.[z].intrinsic.action_beta", "-1"}}));
     anet::ConfigData base;
-    base.Set("DefaultDQNAgent.actor.[a].network", kPrd121OnlineNetworkMode);
-    base.Set("DefaultDQNAgent.actor.[z].network", kPrd121OnlineNetworkMode);
+    base.Set("DefaultDQNAgent.actor.[a].network", kRfd0121OnlineNetworkMode);
+    base.Set("DefaultDQNAgent.actor.[z].network", kRfd0121OnlineNetworkMode);
     auto data = WithDefaultForwardConfig(base);
     data.Set("DefaultDQNAgent.intrinsic.value_mode", dqn::DefaultDQNAgentConfig::kValueModeDecomposed);
     data.Set("DefaultDQNAgent.intrinsic.enabled", combination != 0);
     if (combination == 1) {
         data.Set("DefaultDQNAgent.skip.enabled", true);
         data.Set("DefaultDQNAgent.skip.max_length", 2);
-        data.Set("DefaultDQNAgent.skip.net.branch.[shared].bind", kPrd121Features);
-        data.Set("DefaultDQNAgent.skip.net.body.output.[features]", kPrd121SharedBranchKey);
+        data.Set("DefaultDQNAgent.skip.net.branch.[shared].bind", kRfd0121Features);
+        data.Set("DefaultDQNAgent.skip.net.body.output.[features]", kRfd0121SharedBranchKey);
     }
     if (combination == 2)
         data.Set("DefaultDQNAgent.learner.intrinsic.discount_mode", dqn::LearnerConfig::kDiscountSeparate);
@@ -1579,7 +1579,7 @@ TEST_CASE("DQN Actor Q hint schema packs and decodes five columns", "[dqn][per][
     CHECK_THROWS(dqn::DecodeActorQHint(std::span<const float>(row.data(), 1)));
 }
 
-TEST_CASE("Actor Q hint names invalid intrinsic tensors and their actual metadata", "[prd121][dqn][hint][prd121-review-pack]")
+TEST_CASE("Actor Q hint names invalid intrinsic tensors and their actual metadata", "[rfd0121][dqn][hint][rfd0121-review-pack]")
 {
     const bool state_value = GENERATE(false, true);
     const int invalid = GENERATE(0, 1, 2);
@@ -2340,7 +2340,7 @@ TEST_CASE("DefaultDQNAgent forwards Munchausen settings to Actor approximation",
     }
 }
 
-TEST_CASE("IQN Actor catalogs are independent of train and of other Actor clocks and RNGs", "[dqn][prd061][actor_catalog]")
+TEST_CASE("IQN Actor catalogs are independent of train and of other Actor clocks and RNGs", "[dqn][rfd0061][actor_catalog]")
 {
     const bool clone = GENERATE(false, true);
     ScopedNoopMetricsLogger metrics_logger;
@@ -2408,7 +2408,7 @@ TEST_CASE("IQN Actor catalogs are independent of train and of other Actor clocks
     CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)), Catch::Matchers::ContainsSubstring("requires DefaultDQNAgent.actor.[train].policy"));
 }
 
-TEST_CASE("Optimistic target warns for a non optimistic Actor source and preserves explicit overrides", "[dqn][prd061][config]")
+TEST_CASE("Optimistic target warns for a non optimistic Actor source and preserves explicit overrides", "[dqn][rfd0061][config]")
 {
     anet::ConfigData data;
     data.Set("DefaultDQNAgent.use_optimistic_target", true);
@@ -2458,7 +2458,7 @@ TEST_CASE("Noisy probe metrics share draws and average action entropy per state"
     CHECK(fixed[2] == 0.0f);
 }
 
-TEST_CASE("PRD101 policy reads a phased exponential epsilon and turns exploration off", "[dqn][prd101]")
+TEST_CASE("RFD0101 policy reads a phased exponential epsilon and turns exploration off", "[dqn][rfd0101]")
 {
     anet::ConfigData data;
     data.Set("DefaultDQNAgent.nn_forward.[mean].noisy.mode", "mu_only");
@@ -2484,7 +2484,7 @@ TEST_CASE("PRD101 policy reads a phased exponential epsilon and turns exploratio
     CHECK(*policy.GetScalar("epsilon") == 0.0f);
 }
 
-TEST_CASE("PRD101 spatial log ladder preserves zero endpoints and follows its schedules", "[dqn][prd101][spatial]")
+TEST_CASE("RFD0101 spatial log ladder preserves zero endpoints and follows its schedules", "[dqn][rfd0101][spatial]")
 {
     anet::ConfigData data;
     const std::string key = "DefaultDQNAgent.actor.[train].policy.";
@@ -2516,7 +2516,7 @@ static double D8LadderValue(double first, double last, double t)
     return last + (first - last) * (raw - b) / (a - b);
 }
 
-TEST_CASE("PRD101 spatial endpoints enforce bounds without caller metadata", "[prd101][dqn]")
+TEST_CASE("RFD0101 spatial endpoints enforce bounds without caller metadata", "[rfd0101][dqn]")
 {
     dqn::ActionPolicyConfig::LadderConfig config;
     config.first.value = 0.4f;
@@ -2532,7 +2532,7 @@ TEST_CASE("PRD101 spatial endpoints enforce bounds without caller metadata", "[p
         anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("spatial.scale")));
 }
 
-TEST_CASE("PRD101 spatial constants reuse storage and moving endpoints replace it", "[prd101][dqn]")
+TEST_CASE("RFD0101 spatial constants reuse storage and moving endpoints replace it", "[rfd0101][dqn]")
 {
     dqn::ActionPolicyConfig::LadderConfig config;
     config.first.value = 0.4f;
@@ -2554,7 +2554,7 @@ TEST_CASE("PRD101 spatial constants reuse storage and moving endpoints replace i
     CHECK_FALSE(torch::equal(moving.Tensor(), old_moving));
 }
 
-TEST_CASE("PRD101 spatial log endpoints remain continuous across the floor", "[prd101][dqn]")
+TEST_CASE("RFD0101 spatial log endpoints remain continuous across the floor", "[rfd0101][dqn]")
 {
     dqn::ActionPolicyConfig::LadderConfig config;
     config.first.value = 0.4f;
@@ -2569,7 +2569,7 @@ TEST_CASE("PRD101 spatial log endpoints remain continuous across the floor", "[p
     CHECK((ladder.Tensor() - before).abs().max().item<float>() < 1e-6f);
 }
 
-TEST_CASE("PRD101 spatial first crosses the log floor without cancellation", "[prd101][dqn]")
+TEST_CASE("RFD0101 spatial first crosses the log floor without cancellation", "[rfd0101][dqn]")
 {
     const auto check_device = [&](torch::Device device) {
         dqn::ActionPolicyConfig::LadderConfig config;
@@ -2604,7 +2604,7 @@ TEST_CASE("PRD101 spatial first crosses the log floor without cancellation", "[p
     }
 }
 
-TEST_CASE("PRD101 spatial log ladder preserves a tiny last endpoint", "[prd101][dqn]")
+TEST_CASE("RFD0101 spatial log ladder preserves a tiny last endpoint", "[rfd0101][dqn]")
 {
     const auto check_device = [](torch::Device device) {
         dqn::ActionPolicyConfig::LadderConfig config;
@@ -2634,7 +2634,7 @@ TEST_CASE("PRD101 spatial log ladder preserves a tiny last endpoint", "[prd101][
     }
 }
 
-TEST_CASE("PRD101 spatial validation reports keys values and expected ranges", "[prd101][config][dqn]")
+TEST_CASE("RFD0101 spatial validation reports keys values and expected ranges", "[rfd0101][config][dqn]")
 {
     anet::ConfigData data;
     dqn::ActionPolicyConfig policy;
@@ -2696,7 +2696,7 @@ TEST_CASE("PRD101 spatial validation reports keys values and expected ranges", "
         && Catch::Matchers::ContainsSubstring(expected));
 }
 
-TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "[prd121][dqn]")
+TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "[rfd0121][dqn]")
 {
     // 非零値は相対1e-5、零値だけ絶対1e-6で検査する。
     const auto approximate = [](float expected) {
@@ -2709,10 +2709,10 @@ TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "
     const bool single_action = GENERATE(false, true);
     const int64_t actions = single_action ? 1 : 3;
     constexpr int64_t quantiles = 5;
-    constexpr const char* external_key = kPrd121ExtrinsicQ;
-    constexpr const char* internal_key = kPrd121IntrinsicQ;
-    constexpr const char* external_dist_key = kPrd121ExtrinsicQDist;
-    constexpr const char* internal_dist_key = kPrd121IntrinsicQDist;
+    constexpr const char* external_key = kRfd0121ExtrinsicQ;
+    constexpr const char* internal_key = kRfd0121IntrinsicQ;
+    constexpr const char* external_dist_key = kRfd0121ExtrinsicQDist;
+    constexpr const char* internal_dist_key = kRfd0121IntrinsicQDist;
     const auto external = torch::tensor({{1.0f, 1.02f, 0.9f}, {0.5f, 0.6f, 0.4f}}).narrow(1, 0, actions);
     const auto internal = torch::tensor({{8.0f, 5.0f, 12.0f}, {0.0f, 1.0f, 2.0f}}).narrow(1, 0, actions);
     anet::TensorDict observations;
@@ -2759,10 +2759,10 @@ TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "
         float second;
     };
     for (const auto& expected : std::array<Expected, 4>{{
-        {.lane_key = kPrd121ExtrinsicQArgmaxDisagreement, .mean_key = kPrd121ExtrinsicQArgmaxDisagreementRate, .first = 1.0f, .second = 0.0f},
-        {.lane_key = kPrd121ExtrinsicQRegret, .mean_key = kPrd121ExtrinsicQRegretMean, .first = 0.02f, .second = 0.0f},
-        {.lane_key = kPrd121ExtrinsicQGap, .mean_key = kPrd121ExtrinsicQGapMean, .first = 0.02f, .second = 0.1f},
-        {.lane_key = kPrd121IntrinsicQGap, .mean_key = kPrd121IntrinsicQGapMean, .first = 0.04f, .second = 0.01f}}}) {
+        {.lane_key = kRfd0121ExtrinsicQArgmaxDisagreement, .mean_key = kRfd0121ExtrinsicQArgmaxDisagreementRate, .first = 1.0f, .second = 0.0f},
+        {.lane_key = kRfd0121ExtrinsicQRegret, .mean_key = kRfd0121ExtrinsicQRegretMean, .first = 0.02f, .second = 0.0f},
+        {.lane_key = kRfd0121ExtrinsicQGap, .mean_key = kRfd0121ExtrinsicQGapMean, .first = 0.02f, .second = 0.1f},
+        {.lane_key = kRfd0121IntrinsicQGap, .mean_key = kRfd0121IntrinsicQGapMean, .first = 0.04f, .second = 0.01f}}}) {
         CAPTURE(mode, tbo, expected.lane_key);
         const auto first = info->GetScalar(expected.lane_key, 0);
         const auto second = info->GetScalar(expected.lane_key, 1);
@@ -2772,12 +2772,12 @@ TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "
         REQUIRE(average);
         CHECK_THROWS(info->GetScalar(expected.lane_key, 2));
         CHECK_THROWS(info->GetScalar(expected.lane_key, -1));
-        if (single_action && std::string(expected.lane_key).ends_with(kPrd121Gap)) {
+        if (single_action && std::string(expected.lane_key).ends_with(kRfd0121Gap)) {
             CHECK(std::isnan(*first));
             CHECK(std::isnan(*second));
             CHECK(std::isnan(*average));
         } else {
-            const bool zero = single_action || (zero_beta && std::string(expected.lane_key) != kPrd121ExtrinsicQGap);
+            const bool zero = single_action || (zero_beta && std::string(expected.lane_key) != kRfd0121ExtrinsicQGap);
             CHECK(*first == approximate(zero ? 0 : expected.first));
             CHECK(*second == approximate(zero ? 0 : expected.second));
             CHECK(*average == approximate(zero ? 0 : (expected.first + expected.second) / 2));
@@ -2789,17 +2789,17 @@ TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "
     next_observations.Set(internal_dist_key, torch::zeros_like(observations.At(internal_dist_key)));
     actor->MakeAction({.exp_step = 2}, rl::BatchState(next_observations, flags, flags, flags));
     const std::array<std::pair<const char*, float>, 4> session_values{{
-        {kPrd121ExtrinsicQSessionArgmaxDisagreementRate, 0.25f},
-        {kPrd121ExtrinsicQSessionRegretMean, 0.005f},
-        {kPrd121ExtrinsicQSessionGapMean, 0.06f},
-        {kPrd121IntrinsicQSessionGapMean, 0.0125f}}};
+        {kRfd0121ExtrinsicQSessionArgmaxDisagreementRate, 0.25f},
+        {kRfd0121ExtrinsicQSessionRegretMean, 0.005f},
+        {kRfd0121ExtrinsicQSessionGapMean, 0.06f},
+        {kRfd0121IntrinsicQSessionGapMean, 0.0125f}}};
     for (const auto& [key, expected] : session_values) {
         const auto value = actor->GetScalar(key);
         CAPTURE(key);
         REQUIRE(value);
-        if (single_action && std::string(key).ends_with(kPrd121GapMean)) CHECK(std::isnan(*value));
+        if (single_action && std::string(key).ends_with(kRfd0121GapMean)) CHECK(std::isnan(*value));
         else {
-            const bool zero = single_action || (zero_beta && std::string(key) != kPrd121ExtrinsicQSessionGapMean);
+            const bool zero = single_action || (zero_beta && std::string(key) != kRfd0121ExtrinsicQSessionGapMean);
             CHECK(*value == approximate(zero ? 0 : expected));
         }
     }
@@ -2811,7 +2811,7 @@ TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "
     }
 }
 
-TEST_CASE("DQN action without a request does not create nn_trace", "[prd170][dqn][no_trace]")
+TEST_CASE("DQN action without a request does not create nn_trace", "[rfd0170][dqn][no_trace]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     PrepareNativeStackNetworkTest();

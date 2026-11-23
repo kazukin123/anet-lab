@@ -54,16 +54,16 @@ void WriteConfig(const std::filesystem::path& path, std::initializer_list<std::s
     }
 }
 
-TEST_CASE("ConfigManager satisfies PRD072 manual examples", "[config][resolver][prd072]")
+TEST_CASE("ConfigManager satisfies RFD0072 manual examples", "[config][resolver][rfd0072]")
 {
     // 設定例をデータとして保持し、実パーサから公開値まで同じ経路で検証する。
     const auto root = std::filesystem::current_path();
-    std::ifstream examples_file(root / "src" / "core" / "base" / "testdata" / "config_resolver_prd072.json");
+    std::ifstream examples_file(root / "src" / "core" / "base" / "testdata" / "config_resolver_rfd0072.json");
     REQUIRE(examples_file.good());
     const auto examples = anet::json::parse(examples_file);
     for (const auto& example : examples) {
         DYNAMIC_SECTION(example["id"].get<std::string>()) {
-            const auto path = root / "out" / "test-tmp" / "config-prd072-manual" / "config.txt";
+            const auto path = root / "out" / "test-tmp" / "config-rfd0072-manual" / "config.txt";
             std::filesystem::create_directories(path.parent_path());
             {
                 std::ofstream config_file(path);
@@ -1113,7 +1113,7 @@ TEST_CASE("ConfigManager applies a CLI source-prefix leaf before selection", "[c
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("Default Evaluation Trace columns add forced without changing existing declarations", "[config][prd105][forced_columns][shipped_config]")
+TEST_CASE("Default Evaluation Trace columns add forced without changing existing declarations", "[config][rfd0105][forced_columns][shipped_config]")
 {
     // 共通設定の公開読込経路で、既定列の差分を一つに限定する。
     const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path().parent_path();
@@ -1130,10 +1130,10 @@ TEST_CASE("Default Evaluation Trace columns add forced without changing existing
     }
 }
 
-TEST_CASE("Main View follows application selection and explicit overrides", "[config][prd110]")
+TEST_CASE("Main View follows application selection and explicit overrides", "[config][rfd0110]")
 {
     // 選択の仕組みは出荷設定の写しではなく合成入力で確かめる。
-    const auto directory = std::filesystem::current_path() / "out/test-tmp/prd110-selection";
+    const auto directory = std::filesystem::current_path() / "out/test-tmp/rfd0110-selection";
     std::filesystem::create_directories(directory);
     const auto path = directory / "selection.txt";
     WriteConfig(path, {"app.main_view ?= eval", "app.online.main_view = train",
@@ -1501,7 +1501,7 @@ TEST_CASE("ConfigManager resolves include paths from config search dirs", "[conf
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("ConfigManager rejects missing and malformed include inputs", "[config][prd117]")
+TEST_CASE("ConfigManager rejects missing and malformed include inputs", "[config][rfd0117]")
 {
     const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "config-manager-missing-include-test";
     std::filesystem::remove_all(root);
@@ -1550,7 +1550,7 @@ TEST_CASE("ConfigManager resolves relative main config from cwd before config se
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("Config optional values preserve absence and typed prefix overrides", "[config][prd102_optional]")
+TEST_CASE("Config optional values preserve absence and typed prefix overrides", "[config][rfd0102_optional]")
 {
     struct OptionalValueConfig : anet::Config {
         std::optional<uint64_t> number;
@@ -1595,7 +1595,7 @@ TEST_CASE("Config optional values preserve absence and typed prefix overrides", 
     CHECK_THROWS(OptionalValueConfig(data));
 }
 
-TEST_CASE("Config optional native leaves preserve explicit empty values and round trip", "[config][prd102_optional]")
+TEST_CASE("Config optional native leaves preserve explicit empty values and round trip", "[config][rfd0102_optional]")
 {
     struct OptionalLeavesConfig : anet::Config {
         std::optional<std::string> text;
@@ -1627,7 +1627,7 @@ TEST_CASE("Config optional native leaves preserve explicit empty values and roun
     CHECK(restored.items == original.items);
 }
 
-TEST_CASE("PRD101 bare profiled values record only active fields", "[config][prd101]")
+TEST_CASE("RFD0101 bare profiled values record only active fields", "[config][rfd0101]")
 {
     anet::ConfigData data;
     data.Set("ScheduleTestAgent.learning_rate", "0.25");
@@ -1645,7 +1645,7 @@ TEST_CASE("PRD101 bare profiled values record only active fields", "[config][prd
     CHECK(linear.ToJson().size() == 4);
 }
 
-TEST_CASE("Nested config catalogs retain exact prefixes and original read keys", "[config][prd117]")
+TEST_CASE("Nested config catalogs retain exact prefixes and original read keys", "[config][rfd0117]")
 {
     anet::ConfigData data;
     data.Set("net.branch.[feature].config_profile.[used].end", 0.5);
@@ -1662,7 +1662,7 @@ TEST_CASE("Nested config catalogs retain exact prefixes and original read keys",
     CHECK(unread.at(1).first == "other.net.branch.[feature].config_profile.[foreign].end");
 }
 
-TEST_CASE("A typed read failure in a catalog names the complete source key", "[prd194][prd194_config]")
+TEST_CASE("A typed read failure in a catalog names the complete source key", "[rfd0194][rfd0194_config]")
 {
     anet::ConfigData root;
     root.Set("net.block.[sample].width", "invalid");
@@ -1672,7 +1672,7 @@ TEST_CASE("A typed read failure in a catalog names the complete source key", "[p
         Catch::Matchers::ContainsSubstring("key=net.block.[sample].width"));
 }
 
-TEST_CASE("ConfigData preserves complete keys through value transfers", "[prd194][prd194_config]")
+TEST_CASE("ConfigData preserves complete keys through value transfers", "[rfd0194][rfd0194_config]")
 {
     anet::ConfigData root;
     root.Set("net.block.[shared].width", 3);
@@ -1712,7 +1712,7 @@ TEST_CASE("ConfigData preserves complete keys through value transfers", "[prd194
     CHECK(extended.GetFullKey("height") == "net.block.[shared].height");
 }
 
-TEST_CASE("Config ignores root keys when there is no override scope", "[prd194][prd194_empty_override]")
+TEST_CASE("Config ignores root keys when there is no override scope", "[rfd0194][rfd0194_empty_override]")
 {
     struct WidthConfig final : anet::Config {
         int width = 3;
@@ -1743,7 +1743,7 @@ TEST_CASE("Config ignores root keys when there is no override scope", "[prd194][
     CHECK(evaluation.scope.Has("run.eval.[greedy].env.width"));
 }
 
-TEST_CASE("Config records where each typed value came from independently of its dump", "[prd194][prd194_config]")
+TEST_CASE("Config records where each typed value came from independently of its dump", "[rfd0194][rfd0194_config]")
 {
     struct ValueConfig final : anet::Config {
         int width = 3;
@@ -1781,7 +1781,7 @@ TEST_CASE("Config records where each typed value came from independently of its 
     CHECK(copied.GetFullKey("dimension") == "dimension (not read from config)");
 }
 
-TEST_CASE("Closed catalogs use their recorded location and complete unread keys", "[prd194][prd194_unread]")
+TEST_CASE("Closed catalogs use their recorded location and complete unread keys", "[rfd0194][rfd0194_unread]")
 {
     anet::ConfigData data;
     data.Set("Agent.net.block.[sample].typo", 2);
@@ -1792,10 +1792,10 @@ TEST_CASE("Closed catalogs use their recorded location and complete unread keys"
         && Catch::Matchers::ContainsSubstring("Agent.net.block.[sample].typo = 2"));
 }
 
-TEST_CASE("Config reads from a catalog preserve original unread keys", "[config][prd117]")
+TEST_CASE("Config reads from a catalog preserve original unread keys", "[config][rfd0117]")
 {
     // ファイルの解決から子設定の読み取りまでを通して、元キーの差を確かめる。
-    const auto path = std::filesystem::current_path() / ".scratch" / "prd117" / "tracer.txt";
+    const auto path = std::filesystem::current_path() / ".scratch" / "rfd0117" / "tracer.txt";
     const std::string assignment = GENERATE("?=", "=");
     WriteConfig(path, {"part.[one].value " + assignment + " 7", "part.[one].typo " + assignment + " 9"});
     const anet::ConfigManager manager(path);
@@ -1815,7 +1815,7 @@ TEST_CASE("Config reads from a catalog preserve original unread keys", "[config]
         "Unread config keys: 1. These keys were not read by any component.\npart.[one].typo = 9");
 }
 
-TEST_CASE("Config overrides retain both original read records", "[config][prd117]")
+TEST_CASE("Config overrides retain both original read records", "[config][rfd0117]")
 {
     // 上書きした元キーは消費済みとし、最終値を読んだことは局所側にも届く。
     anet::ConfigData base;
@@ -1831,7 +1831,7 @@ TEST_CASE("Config overrides retain both original read records", "[config][prd117
     CHECK(local.GetUnreadKeys().empty());
 }
 
-TEST_CASE("Config inventory follows copies without bypassing a closed schema", "[config][prd117]")
+TEST_CASE("Config inventory follows copies without bypassing a closed schema", "[config][rfd0117]")
 {
     anet::ConfigData data;
     data.Set("part.[one].value", 7);
@@ -1852,10 +1852,10 @@ TEST_CASE("Config inventory follows copies without bypassing a closed schema", "
         Catch::Matchers::ContainsSubstring("typo = 9"));
 }
 
-TEST_CASE("Config resolution retains every declared normal selection source as inventory", "[config][prd117]")
+TEST_CASE("Config resolution retains every declared normal selection source as inventory", "[config][rfd0117]")
 {
     // 置き換えられた宣言と未選択の Run 内の宣言も、解決入力の一部である。
-    const auto root = std::filesystem::current_path() / ".scratch/prd117/selection-inventory";
+    const auto root = std::filesystem::current_path() / ".scratch/rfd0117/selection-inventory";
     const auto input = root / "main.txt";
     const auto extra = root / "extra.txt";
     WriteConfig(input, {
@@ -1892,7 +1892,7 @@ TEST_CASE("Config resolution retains every declared normal selection source as i
         "Unread config keys: 2. These keys were not read by any component.\ncli.typo = 9\nunused.wait = true");
 }
 
-TEST_CASE("Unread config reports warn once without rejecting construction", "[config][prd117]")
+TEST_CASE("Unread config reports warn once without rejecting construction", "[config][rfd0117]")
 {
     anet::ConfigData data;
     data.Set("z.typo", 9);

@@ -564,7 +564,7 @@ constexpr const char* kScheduleActorKey = "eval";
 constexpr const char* kScheduleRunnerName = "eval1";
 constexpr anet::seed_t kScheduleSeed = 123;
 
-TEST_CASE("EpisodeEvalObserver suppresses the first scheduled evaluation by default", "[prd158][eval_schedule]")
+TEST_CASE("EpisodeEvalObserver suppresses the first scheduled evaluation by default", "[rfd0158][eval_schedule]")
 {
     struct ScheduleCase {
         int offset;
@@ -604,7 +604,7 @@ TEST_CASE("EpisodeEvalObserver suppresses the first scheduled evaluation by defa
     CHECK(sessions->learn_steps == schedule.expected);
 }
 
-TEST_CASE("EpisodeEvalObserver shifts the sequence and counts observed firings without catch-up", "[prd158][eval_schedule]")
+TEST_CASE("EpisodeEvalObserver shifts the sequence and counts observed firings without catch-up", "[rfd0158][eval_schedule]")
 {
     // 格子から決めた期待座標を固定し、共通ゲートの実装をテストへ写さない。
     struct SequenceCase {
@@ -840,13 +840,13 @@ TEST_CASE("SessionProgressLog leaves eta unknown before the first episode", "[ev
     CHECK(*line == "run.eval.[eval1]: session progress completed=0/200 elapsed=45.00s eta=n/a learn_step=0 exp_step=0");
 }
 
-TEST_CASE("Notifier shutdown drains a scoped background evaluation", "[prd076][eval_session][shutdown]")
+TEST_CASE("Notifier shutdown drains a scoped background evaluation", "[rfd0076][eval_session][shutdown]")
 {
     anet::MetricsLogger::Reset();
     auto backend = std::make_unique<CapturingBackend>();
     auto* backend_raw = backend.get();
     anet::MetricsLoggerConfig logger_config;
-    logger_config.run_name_tmpl = "prd076_shutdown";
+    logger_config.run_name_tmpl = "rfd0076_shutdown";
     anet::MetricsLogger::Init(std::move(backend), logger_config, "C:/tmp");
     struct LoggerReset { ~LoggerReset() { anet::MetricsLogger::Reset(); } } logger_reset;
 
@@ -888,14 +888,14 @@ TEST_CASE("Notifier shutdown drains a scoped background evaluation", "[prd076][e
     CHECK(HasScalarRecord(*backend_raw, "session_score", 456, 20.0));
 }
 
-TEST_CASE("Notifier cancellation stops a background evaluation at the next Step boundary", "[prd076][eval_session][shutdown]")
+TEST_CASE("Notifier cancellation stops a background evaluation at the next Step boundary", "[rfd0076][eval_session][shutdown]")
 {
     anet::test::LogCaptureGuard logs(wxLOG_Message);
     anet::MetricsLogger::Reset();
     auto backend = std::make_unique<CapturingBackend>();
     auto* backend_raw = backend.get();
     anet::MetricsLoggerConfig logger_config;
-    logger_config.run_name_tmpl = "prd076_cancel";
+    logger_config.run_name_tmpl = "rfd0076_cancel";
     anet::MetricsLogger::Init(std::move(backend), logger_config, "C:/tmp");
     struct LoggerReset { ~LoggerReset() { anet::MetricsLogger::Reset(); } } logger_reset;
 
@@ -975,7 +975,7 @@ TEST_CASE("Notifier cancellation stops a background evaluation at the next Step 
     notifier->Shutdown(std::chrono::steady_clock::now(), rl::ShutdownMode::CANCEL);
 }
 
-TEST_CASE("Episode evaluation applies configured and timeout cancellation policies", "[prd076][eval_session][shutdown]")
+TEST_CASE("Episode evaluation applies configured and timeout cancellation policies", "[rfd0076][eval_session][shutdown]")
 {
     const bool timeout = GENERATE(false, true);
     anet::test::LogCaptureGuard logs(wxLOG_Message);
@@ -1015,7 +1015,7 @@ TEST_CASE("Episode evaluation applies configured and timeout cancellation polici
     }));
 }
 
-TEST_CASE("All scoped observer wrappers forward shutdown queries and calls", "[prd076][shutdown][observer]")
+TEST_CASE("All scoped observer wrappers forward shutdown queries and calls", "[rfd0076][shutdown][observer]")
 {
     class MultiObserver final : public rl::TrainObserver,
         public rl::LearnObserver,
@@ -1050,7 +1050,7 @@ TEST_CASE("All scoped observer wrappers forward shutdown queries and calls", "[p
     CHECK(observer->shutdown_count == 4);
 }
 
-TEST_CASE("Episode evaluation reports whether shutdown wait will block", "[prd076][shutdown][observer]")
+TEST_CASE("Episode evaluation reports whether shutdown wait will block", "[rfd0076][shutdown][observer]")
 {
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
@@ -1139,7 +1139,7 @@ TEST_CASE("Trace DSL records adopted episode values in JSONL before the next Ste
     const auto observers = factory.GetEpisodeEndObservers();
     REQUIRE(observers.size() == 1);
 
-    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "prd069-trace";
+    const auto root = std::filesystem::current_path() / "out" / "test-tmp" / "rfd0069-trace";
     const auto jsonl_path = root / "runs" / "trace_test" / "metrics.jsonl";
     anet::MetricsLogger::Reset();
     std::filesystem::remove(jsonl_path);
@@ -1216,7 +1216,7 @@ TEST_CASE("Background trace observer failure reaches the next learn callback", "
         Catch::Matchers::ContainsSubstring("tag='broken' key='unknown_score' lane=0 target=env"));
 }
 
-TEST_CASE("Batch step end masks retain values across repeated reads", "[prd097_mask][episode_end]")
+TEST_CASE("Batch step end masks retain values across repeated reads", "[rfd0097_mask][episode_end]")
 {
     const int pattern = GENERATE(0, 1, 2);
     torch::Device device(torch::kCPU);
@@ -1242,7 +1242,7 @@ TEST_CASE("Batch step end masks retain values across repeated reads", "[prd097_m
     }
 }
 
-TEST_CASE("Batch step end masks support simultaneous first reads", "[prd097_mask][episode_end]")
+TEST_CASE("Batch step end masks support simultaneous first reads", "[rfd0097_mask][episode_end]")
 {
     const int pattern = GENERATE(0, 1, 2);
     torch::Device device(torch::kCPU);

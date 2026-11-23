@@ -377,7 +377,7 @@ TEST_CASE("ProfiledValue rejects invalid bounds and nonfinite active fields", "[
     CHECK_THROWS_AS(anet::ProfiledValue<double>(invalid_cycle), std::runtime_error);
 }
 
-TEST_CASE("PRD101 exponential profiles match the BTR recurrence and retain their phase endpoint", "[profiled_value][prd101]")
+TEST_CASE("RFD0101 exponential profiles match the BTR recurrence and retain their phase endpoint", "[profiled_value][rfd0101]")
 {
     anet::ProfiledValueConfig<double> exponential{
         .type = "exponential", .start = 1.0, .end = 0.01, .time_constant = 2000000.0};

@@ -1,6 +1,6 @@
 # Actor Qヒントを3列へ拡張し、近似Actor初期優先度をMunchausenターゲットと同型にする
 
-> 2026-11-13 注記（[PRD121](../memo/121_extrinsic_intrinsic_value_decomposition_10prd.md) D12、[ADR 0075](0075-actor-q-hint-five-columns-carry-per-head-values.md)）: 価値の分解で、Actor Q ヒントを常時 5 列（内的の Head の Q_sa と V_s の 2 列を足す）に広げた。列の数をモードで変えず、使わない列を 0 にする本 ADR の判断（Considered Options の「ON時だけ3列にする」の棄却）は変えない。価値の分解が無効のとき、足した 2 列は 0 で、初期優先度の数値は 3 列のときと同じである。
+> 2026-11-13 注記（[PRD121](../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md) D12、[ADR 0075](0075-actor-q-hint-five-columns-carry-per-head-values.md)）: 価値の分解で、Actor Q ヒントを常時 5 列（内的の Head の Q_sa と V_s の 2 列を足す）に広げた。列の数をモードで変えず、使わない列を 0 にする本 ADR の判断（Considered Options の「ON時だけ3列にする」の棄却）は変えない。価値の分解が無効のとき、足した 2 列は 0 で、初期優先度の数値は 3 列のときと同じである。
 
 ADR 0010 / ADR 0012のActor Qヒントは `[Q(s,a), max_a Q(s,.)]` の2列で、`DqnInitialPriorityEstimator` はその値から近似Bellmanターゲットを作る。PRD 067でLearner targetへMunchausen項とsoft価値を導入すると、従来のhintでは `per_initial_priority_mode=actor_approx` の初期優先度がLearner targetと構造的に一致しない。
 

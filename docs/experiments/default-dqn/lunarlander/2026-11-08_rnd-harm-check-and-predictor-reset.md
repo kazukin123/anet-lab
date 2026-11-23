@@ -4,7 +4,7 @@
 
 | 項目 | 内容 |
 |---|---|
-| 目的 | [PRD116](../../../memo/116_rnd_lifelong_novelty_10prd.md) §7の「害の確認」。易しい環境でRNDの内的報酬を既定の方策に混ぜても成績を落とさないかを、RNDなしの基準3群9本と比べる。続けて、新しさが尽きたあとにbonusを作り直す案（PRD116 §8の18。predictorと誤差統計を採点50,000件ごとに初期化してwarm-upをやり直す）を同じ条件で試す |
+| 目的 | [PRD116](../../../memo/0116_rnd_lifelong_novelty_10rfd.md) §7の「害の確認」。易しい環境でRNDの内的報酬を既定の方策に混ぜても成績を落とさないかを、RNDなしの基準3群9本と比べる。続けて、新しさが尽きたあとにbonusを作り直す案（PRD116 §8の18。predictorと誤差統計を採点50,000件ごとに初期化してwarm-upをやり直す）を同じ条件で試す |
 | 対象 | LunarLander、DefaultDQNAgent、IQN＋Munchausen、TempoRL分離×合算（`learner.skip.feature_gradient=merge`）、J=4、256 env、batch256、replay ratio8、replay容量512,000、n_step 5、`update_warmup_steps=8,192`。RNDは`run.@rnd`（β 0.1、観測は`next_state`、`clipped`・上限5、`whiten`、warm-up 12,800件、output_dim 128、target・predictorとも`net.branch.@RndMlp`＝Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU、`learn_ratio` 0.25、`learn_batch_size` 32、学習率1e-4）。3 seed、各2M experience |
 | 実行 | リセット無し: 2026-11-08 06:10〜07:30 JST、3本を順次実行。周期リセット: 同日12:55〜14:35 JST、3本を順次実行。最後の評価点は全本1,998,848、stderrは全本空、logにWARN・ERRORなし |
 | 実行体 | 同じRelease実行体（2026-11-08 00:31）。SHA256は`198a90e347ce1034c3bb96cef0730c6b7c161d1608278815c94400342f2b77e5`。周期リセットの機構を含むビルドで、リセット無しの群は`reset.mode=none` |

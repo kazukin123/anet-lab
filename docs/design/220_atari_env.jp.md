@@ -8,7 +8,7 @@
 
 本書は、ALE（Arcade Learning Environment）を C++ 直結で統合する `AtariEnv` の実装仕様を説明する。Env 共通 contract（[環境](120_environments.jp.md)）の上に成り立つ具象仕様として、ALE 側の設定キー契約、前処理チェーン、終端意味論、AtariView を記録する。
 
-導入判断の経緯は ADR 0025（外部参照ビルドとライセンス）、ADR 0026（Single seam と前処理所有権）、実装計画は `docs/memo/051_atari_ale_env_10prd.md` を参照。用語（sticky actions / flavor / 生スコア / プロトコルプリセット）は `CONTEXT.md` を正とする。
+導入判断の経緯は ADR 0025（外部参照ビルドとライセンス）、ADR 0026（Single seam と前処理所有権）、実装計画は `docs/memo/0051_atari_ale_env_10rfd.md` を参照。用語（sticky actions / flavor / 生スコア / プロトコルプリセット）は `CONTEXT.md` を正とする。
 
 ### 1.2 対象読者
 
@@ -305,7 +305,7 @@ montezuma_revenge には面の区切りが無いので、1 には到達した最
 
 3〜6 は持ち物を追う。`0xC1` は持ち物のビットで、鍵は 2、部屋 6 の剣は 32 である（OC_Atari の注釈では、鍵は 2・4・8・16、剣は 32・64）。3 の `key_get` は鍵のビット（マスク 30）が 0→1 になった数で、鍵を拾った回数である。6 の `door_open` は同じビットが 1→0 になった数で、扉で鍵を使った回数である。5 の `sword_get` は剣のビット 32 が 0→1 になった数で、剣を拾った回数である。4 の `sword_kill` は同じビットが 1→0 になった数で、剣で敵を倒した回数である。剣で敵を倒すと剣が消えて得点が入る（敵によって 2,000 点か 3,000 点）。部屋 14 までに入る得点（鍵 100・扉 300・剣 100・倒した敵）は、`key_get`・`door_open`・`sword_get`・`sword_kill` の数で説明できる。ビットごとに数えるので、鍵と剣を同時に持っていても両方を数える。剣のビット 64 は数えない。7 の `lives_lost` は残機（`0xBA`、開始 5）が減った回数で、ゲームオーバーで終わったゲームは 5 になる（最後の命を失うときは減らない）。残機は `30_lives_mean` でもグラフに出るので、7 は 5・6 と同じく trace とログ行で読む。
 
-番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。Step結果の番号キーは同じsnapshotへ問い合わせる。こちらのラベルキーはAtariViewの観戦表示にも使う。詳細な調査根拠と既知の限界は [PRD082](../memo/done/082_atari_ram_progress_metrics_10prd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
+番号付き定義の進行中の値は AuxData の `ram_metric.<label>` に int64 で載せる。Step結果の番号キーは同じsnapshotへ問い合わせる。こちらのラベルキーはAtariViewの観戦表示にも使う。詳細な調査根拠と既知の限界は [RFD0082](../memo/done/0082_atari_ram_progress_metrics_10rfd.md) と [ADR 0046](../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) を参照する。
 
 ## 5. AtariView
 
@@ -333,20 +333,20 @@ montezuma_revenge には面の区切りが無いので、1 には到達した最
 - 三値 cache 変数 `ANET_ENABLE_ATARI` = `AUTO`（既定）/`ON`/`OFF`。AUTO は `ALE_ROOT` の存在と `src/ale/ale_interface.hpp` の実在で判定。ON で不備なら configure エラー。判定結果は STATUS ログへ。
 - 有効時のみ: `add_subdirectory(src/env/atari)`、runner へ `AtariEnv` リンク + `ANET_HAS_ATARI` 定義、`RunnerApp.cpp` の `#ifdef ANET_HAS_ATARI` で `InitAtari()`。
 - ale.lib は `$<IF:$<CONFIG:Debug>,Debug,Release>` で選択（RelWithDebInfo は Release 側。IDL/CRT 整合）。
-- テストは module と同時ビルド。通常の ROM 依存ケースは `ATARI_ROM_DIR` 未解決なら Catch2 `SKIP()`。PRD097 の必須受入 `[prd097_atari]` は Asterix ROM の利用を `REQUIRE` で検査し、未解決を合格・skip扱いにしない。前処理 golden テストは常時実行。
+- テストは module と同時ビルド。通常の ROM 依存ケースは `ATARI_ROM_DIR` 未解決なら Catch2 `SKIP()`。RFD0097 の必須受入 `[rfd0097_atari]` は Asterix ROM の利用を `REQUIRE` で検査し、未解決を合格・skip扱いにしない。前処理 golden テストは常時実行。
 
 ### 6.1 テストと拡張時の確認事項
 
-縮小方式の変更時は[PRD099検証手順](../../src/core/base/testdata/prd099/README.md)を参照する。固定24画像は各画像で全画素差1以下・99.9%以上一致を要求し、既定の学習系列のchecksumを保持する。性能受入は84×84・64 envの交互比較で速度比中央値0.98以上、現行同士の対照が1%以内に収まらない場合は判定保留とする。
+縮小方式の変更時は[RFD0099検証手順](../../src/core/base/testdata/rfd0099/README.md)を参照する。固定24画像は各画像で全画素差1以下・99.9%以上一致を要求し、既定の学習系列のchecksumを保持する。性能受入は84×84・64 envの交互比較で速度比中央値0.98以上、現行同士の対照が1%以内に収まらない場合は判定保留とする。
 
-RAM 定義の番号や畳み方を変更するときは [PRD082 検証手順](../../src/core/base/testdata/prd082/README.md) の ROM 不要テストと ROM 依存テストを確認する。未番号付け定義は検証のみ行い、AuxData・ログ・`GetScalar` へ出さない。既定 `Atari.txt` の群ごとの RAM 指標の揃いとプロトコルプリセットの値は、anet-core-base-test の `[shipped_config][atari]`（`config_baseline_test.cpp`）が検査する。
+RAM 定義の番号や畳み方を変更するときは [RFD0082 検証手順](../../src/core/base/testdata/rfd0082/README.md) の ROM 不要テストと ROM 依存テストを確認する。未番号付け定義は検証のみ行い、AuxData・ログ・`GetScalar` へ出さない。既定 `Atari.txt` の群ごとの RAM 指標の揃いとプロトコルプリセットの値は、anet-core-base-test の `[shipped_config][atari]`（`config_baseline_test.cpp`）が検査する。
 
 ## 7. 関連文書
 
 - [環境](120_environments.jp.md) — Env 共通 contract と追加チェックリスト（§8）
 - ADR 0025 / ADR 0026 — 導入判断
-- `docs/memo/051_atari_ale_env_10prd.md` — 実装計画（PH1 スコープ・受入基準）
+- `docs/memo/0051_atari_ale_env_10rfd.md` — 実装計画（PH1 スコープ・受入基準）
 - `reports/atari_env_survey_2026-08-13.md` — ALE サーベイ（プロトコル・ベンチマーク動向）
 - `CONTEXT.md` — 用語（sticky actions / flavor / 生スコア / プロトコルプリセット）
 
-遷移の観測・RGB・auxは残機喪失時の補助NOOPより前に作る。NOOPでゲームが終わったとき、Step結果のゲーム確定値にはNOOPの得点とframeを含めるが、返すreward/next_state/RGB/livesは置き換えない。AtariViewは結果のrgb_frameを表示するため、自動Reset後の画面へずれない。結果は後続StepやResetから独立し、envへ完了値を持ち越さない。受入AsterixのRAM条件と公開API試験は[PRD097検証手順](../../src/core/base/testdata/prd097/README.md)を参照する。
+遷移の観測・RGB・auxは残機喪失時の補助NOOPより前に作る。NOOPでゲームが終わったとき、Step結果のゲーム確定値にはNOOPの得点とframeを含めるが、返すreward/next_state/RGB/livesは置き換えない。AtariViewは結果のrgb_frameを表示するため、自動Reset後の画面へずれない。結果は後続StepやResetから独立し、envへ完了値を持ち越さない。受入AsterixのRAM条件と公開API試験は[RFD0097検証手順](../../src/core/base/testdata/rfd0097/README.md)を参照する。

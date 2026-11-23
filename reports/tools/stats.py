@@ -465,29 +465,43 @@ def collect_health(repo, rules: Rules, size, files, today):
             "issues": issues, "config_keys_4w_ago": keys_4w, "rev_4w_ago": rev4[:7] if rev4 else None}
 
 
-def prd_state(issues):
-    # 直下のPRDの状態を、そのPRDを指す課題の状態から、上の行から順に当てて導く（PRD120 D16）。
+def rfd_state(issues):
+    # 直下のRFDの状態を、そのRFDを指す課題の状態から、上の行から順に当てて導く（RFD0120 D16）。
     statuses = [r["status"] for r in issues]
     # すべて解決なら、直した課題が1件も無いものを見送りとして解決と分ける。
     if all(s == "解決" for s in statuses):
         return "解決" if any(r.get("resolution") == "対応済み" for r in issues) else "見送り"
     if all(s in ("解決", "次版") for s in statuses):
         return "次版"
-    # 手を動かしている課題があれば、最も進んだ状態をPRDの状態にする。
+    # 手を動かしている課題があれば、最も進んだ状態をRFDの状態にする。
     for status in ("対応中", "調査中", "中断中", "保留"):
         if status in statuses:
             return status
     return "未着手"
 
 
+def archived_date(repo, path):
+    # 保管場所の文書の移した日。改名をたどり、パスが初めて done/・frozen/・dropped/ の下に入ったコミットの日にする。
+    # 保管場所の中の改名（9xx の振り直し）と、RFD0195 で番号の桁を改めた改名では、移した日を動かさない。
+    log = git(repo, "log", "--follow", "-M", "--name-status", "--format=%x01%ad", "--date=short", "--", path)
+    # Git は新しい順に出すので、古いコミットから順に、そのコミットのあとのパスを見る。
+    for chunk in reversed(log.split("")[1:]):
+        day, *changes = [line for line in chunk.splitlines() if line.strip()]
+        for change in changes:
+            after = change.split("	")[-1]
+            if re.match(r"^docs/memo/(done|frozen|dropped)/", after):
+                return dt.date.fromisoformat(day)
+    return None
+
+
 def collect_process(repo, rules: Rules, files, flow, today):
-    # 未追跡のPRDも、それを指す課題と同じ作業ツリーで数える。
+    # 未追跡のRFDも、それを指す課題と同じ作業ツリーで数える。
     root = Path(repo)
-    prds = sorted(p.relative_to(root).as_posix() for p in (root/"docs/memo").rglob("*_10prd.md") if re.match(r"\d{3}_",p.name))
+    rfds = sorted(p.relative_to(root).as_posix() for p in (root/"docs/memo").rglob("*_10rfd.md") if re.match(r"\d{4}_",p.name))
     groups = collections.defaultdict(list)
     for record in issue_records(repo):
-        if record.get("prd"):
-            groups[record["prd"]].append(record)
+        if record.get("rfd"):
+            groups[record["rfd"]].append(record)
     by_status = collections.Counter()
     historical = collections.Counter()
     created_m = collections.Counter()
@@ -495,7 +509,7 @@ def collect_process(repo, rules: Rules, files, flow, today):
     lead = []
     batch_moved = 0
     rows = []
-    for p in prds:
+    for p in rfds:
         state = "active"
         m = re.match(r"^docs/memo/(done|frozen|dropped)/", p)
         if m:
@@ -503,13 +517,12 @@ def collect_process(repo, rules: Rules, files, flow, today):
             historical[state] += 1
         else:
             if p not in groups:
-                raise ValueError(f"{p}: expected at least one issue whose prd points to this PRD")
-            state = prd_state(groups[p])
+                raise ValueError(f"{p}: expected at least one issue whose rfd points to this RFD")
+            state = rfd_state(groups[p])
             by_status[state] += 1
         cr = git(repo, "log", "--follow", "--diff-filter=A", "--format=%ad", "--date=short", "--", p).split()
-        st = git(repo, "log", "--format=%ad", "--date=short", "--", p).split()
         created = dt.date.fromisoformat(cr[-1]) if cr else None
-        moved = dt.date.fromisoformat(st[-1]) if st else None
+        moved = archived_date(repo, p) if m else None
         if not m:
             # gitに無い作成日は、指す課題の最も古い起票日で補い、解決の日は最も新しい解決の日にする。
             created = created or min(dt.date.fromisoformat(r["raised"]) for r in groups[p])
@@ -533,12 +546,12 @@ def collect_process(repo, rules: Rules, files, flow, today):
     diff = git(repo, "diff", "--shortstat").strip() + " " + git(repo, "diff", "--cached", "--shortstat").strip()
     ins = sum(int(x) for x in re.findall(r"(\d+) insertion", diff))
     dele = sum(int(x) for x in re.findall(r"(\d+) deletion", diff))
-    return {"prd_count": len(prds), "wip": wip, "unstarted": backlog, "by_status": dict(by_status), "historical_folders": dict(historical), "monthly": monthly,
+    return {"rfd_count": len(rfds), "wip": wip, "unstarted": backlog, "by_status": dict(by_status), "historical_folders": dict(historical), "monthly": monthly,
             "lead_time_days": {"n": len(lead), "median": statistics.median(lead) if lead else None,
                                 "p25": statistics.quantiles(lead, n=4)[0] if len(lead) >= 4 else None,
                                 "p75": statistics.quantiles(lead, n=4)[2] if len(lead) >= 4 else None,
                                 "batch_moved_on_convention_day": batch_moved, "valid_after": rules.done_convention.isoformat()},
-            "uncommitted": {"entries": len(status), "insertions": ins, "deletions": dele}, "prds": rows}
+            "uncommitted": {"entries": len(status), "insertions": ins, "deletions": dele}, "rfds": rows}
 
 
 def collect_activity(repo, rules: Rules, flow, today, use_runs, out_dir):
@@ -628,7 +641,7 @@ def build_flags(stats):
     if h.get("todo_4w_ago") is not None and h["todo_now"] - h["todo_4w_ago"] >= 5:
         flags.append({"kind": "todo_growth", "level": "info", "text": f"TODO/FIXME が 4 週で +{h['todo_now'] - h['todo_4w_ago']}(参考値)"})
     if stats["process"]["wip"] > 6:
-        flags.append({"kind": "wip_high", "level": "watch", "text": f"対応中・調査中・中断中の PRD が {stats['process']['wip']} 本(WIP 多め)"})
+        flags.append({"kind": "wip_high", "level": "watch", "text": f"対応中・調査中・中断中の RFD が {stats['process']['wip']} 本(WIP 多め)"})
     cc = sum(w["code_commits"] for w in l4)
     cd = sum(w["code_with_docs"] for w in l4)
     if cc >= 8 and cd / cc < 0.3:
@@ -661,7 +674,7 @@ def write_summary(stats, out_dir):
              f"- 稼働日 {P['active_days']}、コミット {P['commits']}、Run 起動 {P['runs']}、連続稼働 {stats['activity']['streak_weeks']} 週",
              f"- コード 追加 {P['code_add']:,} / 削除 {P['code_del']:,}(うちテスト 追加 {P['test_add']:,})、docs 追加 {P['docs_add']:,} / 削除 {P['docs_del']:,}、config 追加 {P['config_add']:,} / 削除 {P['config_del']:,}",
              f"- 主種別 {P['top_type']}、主 Topic {('#%s %s' % tuple(P['top_topic'])) if P['top_topic'] else '-'}、コード変更コミットの docs 同時更新 {P['code_with_docs']}/{P['code_commits']}",
-             f"- PRD: 着手済み {stats['process']['wip']} 本、未着手 {stats['process']['unstarted']} 本、未コミット {stats['process']['uncommitted']['entries']} 件(+{stats['process']['uncommitted']['insertions']:,}/-{stats['process']['uncommitted']['deletions']:,})",
+             f"- RFD: 着手済み {stats['process']['wip']} 本、未着手 {stats['process']['unstarted']} 本、未コミット {stats['process']['uncommitted']['entries']} 件(+{stats['process']['uncommitted']['insertions']:,}/-{stats['process']['uncommitted']['deletions']:,})",
              "", "## テスト充足(C++)",
              f"- 全体 test/prod {T['total']['test_loc'] / max(1, T['total']['prod_loc']):.2f}、被テスト(直接) {T['total']['direct']}/{T['total']['prod_files']}、被テスト(間接込み) {T['total']['any']}/{T['total']['prod_files']}",
              ]
@@ -727,8 +740,8 @@ def write_trend_md(stats, out_dir, nweeks):
     # プロセス
     Pp = stats["process"]
     out += ["## プロセス", "",
-            md_table(["月", "PRD 起票", "done", "frozen", "dropped"], [[m["month"], m["created"], m["done"], m["frozen"], m["dropped"]] for m in Pp["monthly"][-8:]]), "",
-            f"- 着手済み {Pp['wip']} 本、未着手 {Pp['unstarted']} 本、PRD 総数 {Pp['prd_count']}。状態別 {Pp['by_status']}。過去の保管場所 {Pp['historical_folders']}。",
+            md_table(["月", "RFD 起票", "done", "frozen", "dropped"], [[m["month"], m["created"], m["done"], m["frozen"], m["dropped"]] for m in Pp["monthly"][-8:]]), "",
+            f"- 着手済み {Pp['wip']} 本、未着手 {Pp['unstarted']} 本、RFD 総数 {Pp['rfd_count']}。状態別 {Pp['by_status']}。過去の保管場所 {Pp['historical_folders']}。",
             f"- リードタイム(done 規約 {Pp['lead_time_days']['valid_after']} より後に完了した {Pp['lead_time_days']['n']} 本): 中央値 {Pp['lead_time_days']['median']} 日、p25 {Pp['lead_time_days']['p25']}、p75 {Pp['lead_time_days']['p75']}。規約導入日の一括移動 {Pp['lead_time_days']['batch_moved_on_convention_day']} 本は除外。",
             f"- 未コミット {Pp['uncommitted']['entries']} 件、+{Pp['uncommitted']['insertions']:,} / -{Pp['uncommitted']['deletions']:,}。", ""]
     out += ["## insight flags", ""] + [f"- [{f['level']}] {f['text']}" for f in stats["flags"]] + [""]
@@ -776,7 +789,7 @@ const T=S.tests;const trows=Object.entries(T.categories).filter(([k])=>k!=='test
  return [lab[k]||k,v.prod_files,v.prod_loc,v.test_loc,`<span class="bar" style="width:${Math.min(100,r*60)}px"></span> ${r.toFixed(2)}`,`${v.direct}/${v.prod_files}`,`${v.any}/${v.prod_files}`,T.era_mode==='blame'?`${v.pre_tested}/${v.pre_files}`:'-',T.era_mode==='blame'?`${v.post_tested}/${v.post_files}`:'-',T.era_mode==='blame'?(pre*100).toFixed(0)+'%':'-'];});
 table('tests',['カテゴリ','prodファイル','prod行','test行','L0','L1直接','L1間接込み','以前の被テスト','以後の被テスト','以前の行割合'],trows);
 table('debt',['LOC','churn90','ファイル','カテゴリ','年代'],T.untested.slice(0,20).map(u=>[u.loc,u.churn90,u.path,lab[u.category]||u.category,u.era||'?']));
-table('process',['月','PRD起票','done','frozen','dropped'],S.process.monthly.slice(-12).map(m=>[m.month,m.created,m.done,m.frozen,m.dropped]));
+table('process',['月','RFD起票','done','frozen','dropped'],S.process.monthly.slice(-12).map(m=>[m.month,m.created,m.done,m.frozen,m.dropped]));
 </script></body></html>
 """
 
@@ -786,7 +799,7 @@ def write_trend_html(stats, out_dir, nweeks):
     slim = {k: v for k, v in stats.items() if k != "size"}
     slim["size"] = {k: v for k, v in stats["size"].items() if k != "per_file_code"}
     slim["tests"] = {k: v for k, v in stats["tests"].items() if k != "files"}
-    slim["process"] = {k: v for k, v in stats["process"].items() if k != "prds"}
+    slim["process"] = {k: v for k, v in stats["process"].items() if k != "rfds"}
     data = json.dumps(slim, ensure_ascii=False).replace("</", "<\\/")
     out = HTML_TEMPLATE.replace("__DATA__", data).replace("__NWEEKS__", str(nweeks))
     with open(os.path.join(out_dir, "trend.html"), "w", encoding="utf-8", newline="\n") as f:
@@ -832,7 +845,7 @@ def main():
     process = collect_process(repo, rules, files, flow, today)
     activity = collect_activity(repo, rules, flow, today, not args.no_runs, out_dir)
     period["runs"] = sum(1 for d in activity["runs_dates"] if since <= dt.date.fromisoformat(d) <= until)
-    period["prds_done"] = sum(1 for r in process["prds"] if r["state"] in ("done", "解決") and r["moved"] and since <= dt.date.fromisoformat(r["moved"]) <= until)
+    period["rfds_done"] = sum(1 for r in process["rfds"] if r["state"] in ("done", "解決") and r["moved"] and since <= dt.date.fromisoformat(r["moved"]) <= until)
 
     stats = {"meta": {"generated": today.isoformat(), "head": git(repo, "rev-parse", "--short", "HEAD").strip(), "repo": repo,
                       "category_labels": rules.cat_label, "test_target": rules.cat_test_target, "topics": {str(k): v for k, v in rules.topics.items()},

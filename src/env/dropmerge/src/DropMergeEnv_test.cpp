@@ -1183,7 +1183,7 @@ int main(int argc, char* argv[])
     return session.run(test_args.Argc(), test_args.Argv());
 }
 
-TEST_CASE("DropMerge Step results retain statistics and View history through Reset", "[dropmerge][prd097_dropmerge]")
+TEST_CASE("DropMerge Step results retain statistics and View history through Reset", "[dropmerge][rfd0097_dropmerge]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::LogCaptureGuard logs(wxLOG_Info);
@@ -1226,7 +1226,7 @@ TEST_CASE("DropMerge Step results retain statistics and View history through Res
     CHECK_FALSE(env->GetScalar("unknown").has_value());
 }
 
-TEST_CASE("DropMerge results retain every auxiliary value before first materialization", "[dropmerge][prd097_dropmerge][aux_snapshot]")
+TEST_CASE("DropMerge results retain every auxiliary value before first materialization", "[dropmerge][rfd0097_dropmerge][aux_snapshot]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::LogCaptureGuard logs(wxLOG_Info);

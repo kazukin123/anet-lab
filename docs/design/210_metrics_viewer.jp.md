@@ -1110,7 +1110,7 @@ Plotlyはjarに含むWebJarから配信するため、ブラウザが外部へ�
 
 ## 12. テストと拡張時の確認事項
 
-タグセットは `TagSetStoreTest`・`TagSetApiIntegrationTest`・`TagSetPlaywrightTest` で検証する。梱包を含む手順は [PRD111検証README](../../src/core/base/testdata/prd111/README.md)。
+タグセットは `TagSetStoreTest`・`TagSetApiIntegrationTest`・`TagSetPlaywrightTest` で検証する。梱包を含む手順は [RFD0111検証README](../../src/core/base/testdata/rfd0111/README.md)。
 
 ### 12.1 テストの構成
 
@@ -1131,14 +1131,14 @@ Playwrightテストは既定でMicrosoft Edgeを起動する。Edgeが無い環�
 
 ### 12.2 変更時の確認事項
 
-検証手順・性能比較・データ一致の記録は[PRD090検証README](../../src/core/base/testdata/prd090/README.md)を参照する。
+検証手順・性能比較・データ一致の記録は[RFD0090検証README](../../src/core/base/testdata/rfd0090/README.md)を参照する。
 
 1. cache schemaを変えるときは`SCHEMA_VERSION`を上げる。migrationは書かず、旧cacheが警告なしで破棄・再構築されることをtestする。
 2. `IngestState`と`SeriesAvailability`のexternalNameは永続値かつHTTP公開値である。値の追加は可、既存値の改名・削除は非互換とみなす。
 3. 取り込みの新しい処理は同一transactionへ入れる。L0、LOD、`TagStats`、`source_meta`が別commitへ分かれるとcrash時に整合が壊れる。
 4. LODを触るときは、完成bucketだけ永続化する契約と、端の部分bucketを下位levelから再集約する経路の両方を検証する。`LodPageCache`は完成bucket数をtag点数から導くので、親を書く契機を変えるときはこの導出も合わせて変える。
 5. TagStatsはcommit済みL0全点から、範囲統計は指定step範囲のcommit済みL0全点から作る。設定TXTのフレームワークの行規則を変えたら、Viewerの `ConfigTextReader` と検証も同じ変更で更新する。
-6. Step粒度または点数上限を変えたら、1〜4Runの幅一致、選択順序・zoom/pan/reset/resize、422と503をtestする。PRD089の手順は[検証README](../../src/core/base/testdata/prd089/README.md)を参照する。
+6. Step粒度または点数上限を変えたら、1〜4Runの幅一致、選択順序・zoom/pan/reset/resize、422と503をtestする。RFD0089の手順は[検証README](../../src/core/base/testdata/rfd0089/README.md)を参照する。
 7. clientへ新しい状態を足すときは、Reload時にPlotly DOMを再構築しても保たれるようclient app側に持たせる。
    graphの見た目を決める入力なら、共通表示モデルの描画key（`PlotlyController._graphModel` / `_graphDisplayKey`）へ加える。Plotly上で直接変わる状態も`capturePlotState`で読み戻してモデルへ反映する。モデルへ反映されない入力は、変わっても描画更新や遅着結果の排除に使われない。
    windowの中身を左右する条件なら、Reloadの鮮度判定（`DataCache.isOutdated`）にも反映する。

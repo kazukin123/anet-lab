@@ -653,7 +653,7 @@ def _file_sha256_range(path: Path, start: int, length: int) -> str:
 
 
 def validate_cache(cache_path: Path, master_path: Path | None, master_stat) -> CacheStatus:
-    """PRD の eligibility 6条件を順に判定する。cache contract は独自に再定義しない。"""
+    """RFD の eligibility 6条件を順に判定する。cache contract は独自に再定義しない。"""
     if not cache_path.is_file():
         return CacheStatus("absent", "cache file does not exist")
 

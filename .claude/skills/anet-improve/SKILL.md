@@ -1,13 +1,13 @@
 ---
 name: anet-improve
-description: Find the rework in the current anet-lab conversation (review findings, user corrections, redone work, misunderstandings, tool failures), classify why the current harness did not prevent each, show candidate countermeasures for the harness (AGENTS.md, docs/quality, docs/process, skills, agent definitions) as an overview followed by per-problem selection, apply the selected ones in place, self-check them, record the declined ones and the ones that need a PRD in docs/management/issues/, and stop. Use only when the user invokes /anet-improve or $anet-improve, or picks the anet-improve candidate offered in the completion report of anet-create-prd or anet-impl-prd.
+description: Find the rework in the current anet-lab conversation (review findings, user corrections, redone work, misunderstandings, tool failures), classify why the current harness did not prevent each, show candidate countermeasures for the harness (AGENTS.md, docs/quality, docs/process, skills, agent definitions) as an overview followed by per-problem selection, apply the selected ones in place, self-check them, record the declined ones and the ones that need a RFD in docs/management/issues/, and stop. Use only when the user invokes /anet-improve or $anet-improve, or picks the anet-improve candidate offered in the completion report of anet-create-rfd or anet-impl-rfd.
 ---
 
 # ANET Improve
 
 この会話で起きた手戻りを拾い、なぜ今のハーネスで防げなかったかを分けて、改善策の候補を示す。ユーザーが選んだものをその場で反映し、確かめて止まる。
 
-動くのは、ユーザーが `/anet-improve` か `$anet-improve` で呼んだときと、`anet-create-prd`・`anet-impl-prd` の完了報告で、この skill の候補を選んだときだけである。
+動くのは、ユーザーが `/anet-improve` か `$anet-improve` で呼んだときと、`anet-create-rfd`・`anet-impl-rfd` の完了報告で、この skill の候補を選んだときだけである。
 
 ハーネスは、AI エージェントが読んで従う決まりと手順である。直す先は次に限る。
 
@@ -32,7 +32,7 @@ description: Find the rework in the current anet-lab conversation (review findin
 | 材料 | 見るもの |
 | --- | --- |
 | この会話のやり取り（覚えている範囲） | レビューの指摘、ユーザーの訂正・差し戻し・不満、やり直した作業、取り違え、ツールとコマンドの失敗 |
-| この会話で保存したレビュー応答の原文（`.scratch/prdNNN/review-*.md`、`.scratch/review/review-*.md`） | 指摘の 1 件ずつの中身 |
+| この会話で保存したレビュー応答の原文（`.scratch/rfdNNNN/review-*.md`、`.scratch/review/review-*.md`） | 指摘の 1 件ずつの中身 |
 | この会話で変えたファイルと、その差分 | 手戻りの前後で、何をどう直したか |
 | この会話で書いた・直した feedback memory（Claude Code だけ） | ユーザーの訂正の記録 |
 | kind がハーネス、phase がハーネス保守の issue（状態を問わない） | 前にも出た問題と対応内容 |
@@ -75,7 +75,7 @@ description: Find the rework in the current anet-lab conversation (review findin
 | 効く問題 | 問題の番号 |
 | 費用 | 毎回読む量が増えるか（`AGENTS.md` は、すべての作業で読む）、レビューの時間が増えるか（観点の項目）、問いの数が増えるか |
 | 推し | 推す対策に ★ を付ける。同じ効き目なら、毎回読む量とレビューの時間が増えないものを推す |
-| PRD が要る | 次のどれかに当たる対策に、印を付ける。新しいファイルとしてスクリプト・skill・エージェントを足すもの、既存の ADR の判断と食い違うもの、工程の順序を組み替えるもの。品質確認観点の検査の表に 1 行のコマンドを足すのは、これに当たらない |
+| RFD が要る | 次のどれかに当たる対策に、印を付ける。新しいファイルとしてスクリプト・skill・エージェントを足すもの、既存の ADR の判断と食い違うもの、工程の順序を組み替えるもの。品質確認観点の検査の表に 1 行のコマンドを足すのは、これに当たらない |
 
 issue に同じ問題があれば、「前回も出た」と、初出の日付、今の状態、履歴にある再発の回数を添える。前回に採らなかった問題が再び起きたことは、推しの理由に足す。
 
@@ -83,8 +83,8 @@ issue に同じ問題があれば、「前回も出た」と、初出の日付�
 
 次の順で示す。
 
-1. 問題の表: 番号、何が起きたか、分類、なぜ防げなかったか、対策（記号と短い名前。★ と「PRD が要る」の印を付ける）、前回も出たか。影響の大きい順に、すべて並べる。
-2. 対策の表: 記号、中身、置き場、効く問題、費用、PRD が要るか。
+1. 問題の表: 番号、何が起きたか、分類、なぜ防げなかったか、対策（記号と短い名前。★ と「RFD が要る」の印を付ける）、前回も出たか。影響の大きい順に、すべて並べる。
+2. 対策の表: 記号、中身、置き場、効く問題、費用、RFD が要るか。
 3. 見送り（1 回限り）: 1 件ずつ、何が起きたかと、候補にしない理由。ユーザーが拾えるようにするためである。
 4. 覚えていないこと。
 
@@ -111,7 +111,7 @@ issue に同じ問題があれば、「前回も出た」と、初出の日付�
 
 ## 6. 反映する
 
-- 「PRD が要る」の対策は、採っても書かない。8 で、その問題を issue へ積む。同じ問題のほかの対策を反映しても、積む。報告で、PRD の題材として示す。
+- 「RFD が要る」の対策は、採っても書かない。8 で、その問題を issue へ積む。同じ問題のほかの対策を反映しても、積む。報告で、RFD の題材として示す。
 - それ以外の採った対策を、置き場へ書く。書く前に、`AGENTS.md` の「作業ごとに読むもの」の表で置き場に当たる行（skill は「skill を書く・直す」、それ以外のハーネスは `AGENTS.md`・品質確認観点・プロセス契約とレジストリ・エージェント定義の行）の節を読み、読んだ節の名前を応答に 1 行で示す。
 - 書く前に、[プロセス契約](../../../docs/process/protocol.md) の 1.3 節「直した箇所の帰結を自分で洗う」の表（見出し `#### 直した箇所の帰結を自分で洗う` から、次の `####` の見出しの前まで）も読み、足した規則の写し（別ファイルにある同じ一覧など）・件数・参照を同じ応答で直す。足した文は、分岐先・根拠の形・件数に別の読みが成り立たないかを 1 行で確かめる。
 - 観点に項目を足すときは、その観点ファイルの「位置づけ」の決まり（項番の振り方など）に従う。節の規約を直したら、同じ節の項目も見直す。
@@ -129,7 +129,7 @@ issue に同じ問題があれば、「前回も出た」と、初出の日付�
 
 ### 1 回分の記録
 
-`.scratch/anet-improve/<YYYYMMDD-HHMM>_<題>.md` に、4 の一覧、選んだ結果、反映したファイルと節、7 の結果、PRD 送りと見送りを書く。`<題>` は、この会話の作業を表す短い英小文字の語にする。
+`.scratch/anet-improve/<YYYYMMDD-HHMM>_<題>.md` に、4 の一覧、選んだ結果、反映したファイルと節、7 の結果、RFD 送りと見送りを書く。`<題>` は、この会話の作業を表す短い英小文字の語にする。
 
 ### issue
 
@@ -137,9 +137,9 @@ issue に同じ問題があれば、「前回も出た」と、初出の日付�
 
 | 問題 | 記録 |
 |---|---|
-| PRD が要る対策を採った | 未着手で起票する |
+| RFD が要る対策を採った | 未着手で起票する |
 | 対策をすべて採らなかった | 次版で起票する |
-| 対策を反映し、PRD 送りが無い | 新規には起票しない。既存の同じ issue は判定で残件無しにする |
+| 対策を反映し、RFD 送りが無い | 新規には起票しない。既存の同じ issue は判定で残件無しにする |
 | 1 回限り | 起票しない |
 
 新規は kind をハーネス、phase をハーネス保守、type を機能改善、domain を開発、area を該当する key（通常 311_dev_tools）にする。本文に事象・再発した場合の影響・選んだ対策を分けて書き、WSJF の 4 つの値は課題の skill の定義で見立て、priority は中を置く。既存 issue の status と監理項目は AI の判断で変えない。
@@ -156,7 +156,7 @@ repo の `.venv` から `reports/tools/wiki_support.py maps` を実行し、INDE
 
 - 反映したファイルと節。
 - 7 の結果（自己点検、機械検査、今回の形に当てた結果）。
-- PRD 送りの対策と、issue の ID。`/anet-create-prd`（Codex は `$anet-create-prd`）の題材になる。同じ問題の既存 issue には今回の対策を追記したことを添える。
+- RFD 送りの対策と、issue の ID。`/anet-create-rfd`（Codex は `$anet-create-rfd`）の題材になる。同じ問題の既存 issue には今回の対策を追記したことを添える。
 - 見送りと、issue に積んだもの・状態を変えたもの。
 - 1 回分の記録の置き場。
 - 変えたファイルの一覧。ほかの作業と別のコミットにできるようにする。Topic は `#7`。コミットの文案は `anet-prepare-commit` に任せる。

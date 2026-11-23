@@ -1,6 +1,6 @@
 # Notifier の Detach は進行中の通知を待たず、Observer はロックの外で呼ぶ
 
-`Notifier` の Observer の列は、学習・評価・GUI の 3 つのスレッドが排他なしに読み書きしていた（[PRD192](../memo/192_concurrency_and_boundary_defect_fixes_10prd.md)）。列を守るにあたり、`Detach` はすぐ戻り、その時点で始まっていた通知は外した Observer にも届きうる形にし、その通知が終わるまで Observer は `Notifier` が生かして、Observer を呼ぶあいだ `Notifier` はロックを持たない。外した Observer は通知のスレッドで壊れうるので、Observer は、触る相手（Panel など）の寿命を自分で確かめ、どのスレッドで壊れてもよいように書く。
+`Notifier` の Observer の列は、学習・評価・GUI の 3 つのスレッドが排他なしに読み書きしていた（[PRD192](../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)）。列を守るにあたり、`Detach` はすぐ戻り、その時点で始まっていた通知は外した Observer にも届きうる形にし、その通知が終わるまで Observer は `Notifier` が生かして、Observer を呼ぶあいだ `Notifier` はロックを持たない。外した Observer は通知のスレッドで壊れうるので、Observer は、触る相手（Panel など）の寿命を自分で確かめ、どのスレッドで壊れてもよいように書く。
 
 ## Considered Options
 

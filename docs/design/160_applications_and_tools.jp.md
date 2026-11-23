@@ -136,7 +136,7 @@ TraceモードはTracePlayerの選択の有無で判定する。RunnerFrameはan
 
 行のダブルクリックは行選択と通知内容のダンプを行う。`TraceDumpFormatter`はGUIに依らず、`Trace dump step=... lane=...:`で始まるINFOの1行とVERBOSEの複数行1件を作る。INFOには全列（表の書式、未確定はpending）と、名前・countsの全欄・実行行動・forced・報酬・終端・action_infoのinfo/aux・step_resultのauxを出す。通知項目は列の構成によらず出す。単一要素Tensorは値、複数要素と空Tensorは形・型・元deviceのみ、未定義はundefinedとする。VERBOSEは状態・行動情報・Step結果の既存の文字列化にinfoと不透明なReplay初期優先度ヒントを加える。転送と文字列化はダンプ時だけ行い、GPUの内容はCPUへ写して書く。追従paneのsnapshotは出さない。ログ欄の既存のlevel処理を維持する。
 
-[PRD094検証資材](../../src/core/base/testdata/prd094/README.md)に、pane同期・プレイヤー・速度とメモリの受入手順を置く。[PRD105検証資材](../../src/core/base/testdata/prd105/README.md)に、矢印・forced・並べ替え・再生順・ダンプと4環境の学習値比較の手順を置く。
+[RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md)に、pane同期・プレイヤー・速度とメモリの受入手順を置く。[RFD0105検証資材](../../src/core/base/testdata/rfd0105/README.md)に、矢印・forced・並べ替え・再生順・ダンプと4環境の学習値比較の手順を置く。
 
 ### 3.5 Logs
 
@@ -409,29 +409,29 @@ sequenceDiagram
 ### 7.4 wikiと課題の保守
 
 - wikiは外の正本を束ね、書く部分の意味はエージェントが判断する。材料・取り込み・記録は[wikiの規約](../wiki/README.md)に従う。
-- 課題の正本はdocs/management/issues/の単票。解決・次版の状態と監理の項目は人が決め、それ以外の状態はグリルの開始や実装計画の保存などの工程の出来事に合わせてAIが書く。AIの判定は別の欄で持ち、判定が済みを示す課題の解決はコミットの準備で持ちかける。課題は種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）と分類（domain）を持ち、prd欄でその課題を直すPRDを1本だけ指す（課題とPRDはN:1）。parent・depends・prdはObsidianのリンクで書く。新しいPRDは直下に保持し、prdでそれを指す課題を1件以上伴う。
-- reports/tools/wiki_support.pyのscanは読み取りだけで材料・blob・リンクと実装済みのPRDの取り込み漏れを返す。PRDの実装済みは、そのPRDを指す課題の判定と状態から導き（解決の課題は済みとして数え、次版・対応しない・不要になったの課題が残るPRDは実装済みにしない）、取り込み済みかはパスとblobで突き合わせる。mapsはINDEX（表のあとの解決待ち・再開候補・課題の無いPRD・対応内容のある未着手の課題を含む）、トピック別まとめのファイル・PRD一覧と課題の目印の間を作り直す。全入力と目印の検証が済むまで出力せず、区画外とwikiログは保つ。PRD一覧はファイルに触れたコミットの件名から作るので、コミットの準備は予定のコミットの件名と対象ファイル（`--pending-subject`・`--pending-files`）を渡し、そのコミットの行を同じコミットに入れる。
+- 課題の正本はdocs/management/issues/の単票。解決・次版の状態と監理の項目は人が決め、それ以外の状態はグリルの開始や実装計画の保存などの工程の出来事に合わせてAIが書く。AIの判定は別の欄で持ち、判定が済みを示す課題の解決はコミットの準備で持ちかける。課題は種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）と分類（domain）を持ち、rfd欄でその課題を直すRFDを1本だけ指す（課題とRFDはN:1）。parent・depends・rfdはObsidianのリンクで書く。新しいRFDは直下に保持し、rfdでそれを指す課題を1件以上伴う。
+- reports/tools/wiki_support.pyのscanは読み取りだけで材料・blob・リンクと実装済みのRFDの取り込み漏れを返す。RFDの実装済みは、そのRFDを指す課題の判定と状態から導き（解決の課題は済みとして数え、次版・対応しない・不要になったの課題が残るRFDは実装済みにしない）、取り込み済みかはパスとblobで突き合わせる。mapsはINDEX（表のあとの解決待ち・再開候補・課題の無いRFD・対応内容のある未着手の課題を含む）、トピック別まとめのファイル・RFD一覧と課題の目印の間を作り直す。全入力と目印の検証が済むまで出力せず、区画外とwikiログは保つ。RFD一覧はファイルに触れたコミットの件名から作るので、コミットの準備は予定のコミットの件名と対象ファイル（`--pending-subject`・`--pending-files`）を渡し、そのコミットの行を同じコミットに入れる。
 - reports/tools/stage_issue_memos.pyは、課題の管理外のメモ（priority・memo・tags）の変更だけを、indexの中身を土台に欄の単位でindexへ載せる。作業ツリーとほかの欄・本文は変えないので、Obsidianでの手入れを、同じファイルにあるAIの作業の変更と分けてコミットできる。読めない課題が1件でもあれば何も載せない。テストはreports/tools/stage_issue_memos_test.py。
 - .agents/hooks/commit_cue.pyは、Claude Code（.claude/settings.json）とCodex（.codex/hooks.json）のUserPromptSubmitのhookで、前の発言のあとに入ったコミットをAIへ知らせる。commitは人がAIの知らないところで行うので、AIの覚えている「未コミット」を古いまま言わせないためである。セッションごとに前に見たHEADを.git/anet-commit-cue/に覚え、新しいコミットがあったときだけ、件名を新しい順に3件まで出す。初めての発言、変化なし、resetで戻ったとき、失敗したときは何も出さない。Codexは、人が`/hooks`で信頼してから動く。テストは.agents/hooks/commit_cue_test.py。
 - .agents/hooks/search_guard.pyは、Claude Code（.claude/settings.json）とCodex（.codex/hooks.json）のPreToolUseのhookで、ディスク全体（`/`・`C:\`・ホームなど）を起点にした再帰の検索を、実行の前に止める。ツールの打ち切りや停止のあとも検索のプロセスが残り、端末全体が重くなったためである。コマンドをパイプや`;`で区切り、引用符の中は区切らずに、grep -r・rg・find・Get-ChildItem -Recurseなどの起点の引数を見る。読めないときや失敗したときは通す。Codexは、人が`/hooks`で信頼してから動く。テストは.agents/hooks/search_guard_test.py。
-- 一覧の既定は本版。依存とWSJFの継承は全件で計算し、アプリケーションの課題はareaに自身のkeyがあるものだけを出す。一覧の列は対象・工程・領域・分類・種類・PRDを持つ。INDEXとトピック別まとめの表は位置の番号の列を持たず、1件の増減や並べ替えでほかの行を書き換えない（コミットの差分を変わった課題の行だけにする）。統計は単票から状態・種類・分類・完了の理由を集計し、直下PRDの状態はそれを指す課題の状態から導く。過去の保管場所の集計は保持する。
+- 一覧の既定は本版。依存とWSJFの継承は全件で計算し、アプリケーションの課題はareaに自身のkeyがあるものだけを出す。一覧の列は対象・工程・領域・分類・種類・RFDを持つ。INDEXとトピック別まとめの表は位置の番号の列を持たず、1件の増減や並べ替えでほかの行を書き換えない（コミットの差分を変わった課題の行だけにする）。統計は単票から状態・種類・分類・完了の理由を集計し、直下RFDの状態はそれを指す課題の状態から導く。過去の保管場所の集計は保持する。
 - PyYAML 6.0.3をreports/tools/requirements.txtで明示する。repoの.venvへ導入して使う。
 
 ## 8. テストと変更時の確認事項
 
-- [PRD122検証資材](../../src/core/base/testdata/prd122/README.md): windowを作らないQ-Values加工の単体テスト、Panelのキー転送の特性テスト、coreの9箇所の破壊検査と4環境の全scalar比較。GUIの表示・フォーカス・実キーの動作は人が確認する。
+- [RFD0122検証資材](../../src/core/base/testdata/rfd0122/README.md): windowを作らないQ-Values加工の単体テスト、Panelのキー転送の特性テスト、coreの9箇所の破壊検査と4環境の全scalar比較。GUIの表示・フォーカス・実キーの動作は人が確認する。
 
-- [PRD114検証資材](../../src/core/base/testdata/prd114/README.md): issueからINDEX・トピック別まとめ・統計への公開CLI、依存とWSJF継承、不正入力時の全出力不変、同blobの実装済み検出、隔離したskill試走と移行の検証。
+- [RFD0114検証資材](../../src/core/base/testdata/rfd0114/README.md): issueからINDEX・トピック別まとめ・統計への公開CLI、依存とWSJF継承、不正入力時の全出力不変、同blobの実装済み検出、隔離したskill試走と移行の検証。
 
-- [PRD110検証資材](../../src/core/base/testdata/prd110/README.md): 主paneの初期表示・Centre昇格とdock位置復帰、三導線の開閉制限、最大化中の開閉、Train描画timer、未知経路の保険とWARN、既定スイートの失敗集合を確認する。captionのドラッグと実画面の幅は人が確認する。
+- [RFD0110検証資材](../../src/core/base/testdata/rfd0110/README.md): 主paneの初期表示・Centre昇格とdock位置復帰、三導線の開閉制限、最大化中の開閉、Train描画timer、未知経路の保険とWARN、既定スイートの失敗集合を確認する。captionのドラッグと実画面の幅は人が確認する。
 
-- [PRD109検証資材](../../src/core/base/testdata/prd109/README.md): 構築中のtimer・ログ・pane操作、初期化中のCloseとOS終了問い合わせ、失敗と不完全な構築、ウィンドウ先行破棄、既定スイートの失敗集合、4環境の全scalar点の完全一致。実機の描画とOSの「応答なし」は人が確認する。
+- [RFD0109検証資材](../../src/core/base/testdata/rfd0109/README.md): 構築中のtimer・ログ・pane操作、初期化中のCloseとOS終了問い合わせ、失敗と不完全な構築、ウィンドウ先行破棄、既定スイートの失敗集合、4環境の全scalar点の完全一致。実機の描画とOSの「応答なし」は人が確認する。
 
-- [PRD105検証資材](../../src/core/base/testdata/prd105/README.md): Traceモードの転送矢印、forcedの通知時点、並べ替えと再生順、ダンプの書式と実画面での表示時間、4環境の数値等価性。
+- [RFD0105検証資材](../../src/core/base/testdata/rfd0105/README.md): Traceモードの転送矢印、forcedの通知時点、並べ替えと再生順、ダンプの書式と実画面での表示時間、4環境の数値等価性。
 
-- [PRD095検証資材](../../src/core/base/testdata/prd095/README.md): トピック別まとめ・blob・リンクの読み取りと、取り込み・点検・housekeepingの試走を確認する。
+- [RFD0095検証資材](../../src/core/base/testdata/rfd0095/README.md): トピック別まとめ・blob・リンクの読み取りと、取り込み・点検・housekeepingの試走を確認する。
 
-- [PRD094検証資材](../../src/core/base/testdata/prd094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
+- [RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
 
 - Runner UI変更: Frame close順序、toolbarのdock/float/reset、pane/menu/toolbar連動、Train/Eval入力、model sync、FPS、status snapshot、theme変更時のSVG差し替えを確認する。 step数の変更は`AnetRLRunner-gui-test "[eval_steps]"`で設定検証・Trace保持を確認し、実RunnerAppのメニュー・Custom入力・キャンセル・自動評価・手動Stepは`AnetRLRunner-gui-test "[eval_steps_menu]"`を単独processで実行する。後者は通常スイートには含めない。Frame close時に背景評価の排水の後でtrain observerをDetachすることは、`AnetRLRunner-gui-test "[runner_close_drain]"`を単独processで実行して確認する。これも通常スイートには含めない。Logs paneは`AnetRLRunner-gui-test "[log_panel]"`で末尾の空行・時刻の形と色・選択と表示位置・未読の行数と`+N`の読み進め・Auto-scrollの自動解除と再開・設定からの既定・Wrap・Indent・検索・未確認の警告を確認する。Copy allは利用者のクリップボードを書き換えるため、`"[log_panel_clipboard]"`を明示したときだけ実行する。`"[log_panel_demo]"`はRunを起こさずに各levelの行を1秒ごとに足す窓を開き、閉じるまで手で操作を試せる（Panels toolbarの印はRunnerで確かめる）。
 - Metrics Viewer backend変更: SQLite/source identity、ingest/LOD、range API、scheduler、query concurrencyの各integration testを実行する。

@@ -896,10 +896,10 @@ TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distribu
     }
 }
 
-TEST_CASE("DQN target evaluation preserves the PRD073 pre-change baseline", "[dqn][replay_fit_baseline]")
+TEST_CASE("DQN target evaluation preserves the RFD0073 pre-change baseline", "[dqn][replay_fit_baseline]")
 {
     // 明示指定された検証出力先へ、公開結果とnetwork境界のTensorを損失なく保存する。
-    const char* output_dir = std::getenv("ANET_PRD073_BASELINE_DIR");
+    const char* output_dir = std::getenv("ANET_RFD0073_BASELINE_DIR");
     if (output_dir == nullptr) return;
     std::filesystem::create_directories(output_dir);
     const std::string kind = GENERATE("none", "qr", "iqn");
@@ -1017,7 +1017,7 @@ TEST_CASE("DQN target evaluation preserves the PRD073 pre-change baseline", "[dq
     REQUIRE(output.good());
 }
 
-TEST_CASE("PRD125 Bellman target preserves returns, discounts, and terminal bonuses", "[dqn][munchausen][prd125]")
+TEST_CASE("RFD0125 Bellman target preserves returns, discounts, and terminal bonuses", "[dqn][munchausen][rfd0125]")
 {
     // 既存の構築経路を使い、共通の式の入出力だけをテスト側で公開する。
     class BellmanTargetReader final : public anet::rl::dqn::Learner {

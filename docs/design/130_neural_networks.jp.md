@@ -372,7 +372,7 @@ clone・hard/soft copy・保存読込は μ/σ を含む parameter と既存 buf
 
 公開の拡張点は[フレームワーク全体概要の拡張点の表](010_framework_overview.jp.md#43-拡張点)を参照。
 
-- [PRD117検証資材](../../src/core/base/testdata/prd117/README.md): block/profileの参照時の閉じた検証、未参照の定義の扱い、出荷設定の検査。
+- [RFD0117検証資材](../../src/core/base/testdata/rfd0117/README.md): block/profileの参照時の閉じた検証、未参照の定義の扱い、出荷設定の検査。
 
 Networkを変更する場合は次を確認する。
 
@@ -385,11 +385,11 @@ Networkを変更する場合は次を確認する。
 7. GraphViz/Traceを壊さず、必要なら可視化可能性を公開する。
 8. bindを拡張する場合はparse、依存順、循環、実行shape、ToJson、GraphViz、未使用入力WARNを同じterm/factor契約で確認する。
 
-実行設定の責任境界・独自 Module / Head の拡張テストは [PRD 084 検証手順](../../src/core/base/testdata/prd084/README.md)を参照する。
+実行設定の責任境界・独自 Module / Head の拡張テストは [RFD0084 検証手順](../../src/core/base/testdata/rfd0084/README.md)を参照する。
 
 主なunit testは[nn_test.cpp](../../src/core/base/src/nn_test.cpp)にあり、Agentとの結合はDQN/ImageClsのtestでも検証する。
 
-- nn_trace の要求と全値比較、Runner からの受け渡しの確認は [PRD170 の検証資材](../../src/core/base/testdata/prd170/README.md)を参照する。
+- nn_trace の要求と全値比較、Runner からの受け渡しの確認は [RFD0170 の検証資材](../../src/core/base/testdata/rfd0170/README.md)を参照する。
 
 ## 9. 関連文書
 

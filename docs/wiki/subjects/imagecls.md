@@ -8,7 +8,7 @@ Food-101のスクラッチ学習の到達点はResNet18ish_hr＋cosine＋Mixup/C
 
 ## 分かっていること
 
-- ImageCls（Food-101、101 クラス、224×224）は train が高く eval が低い過学習だった。当時の FoodResNet13 は空間 28×28 のまま Flatten して 100,352 次元にし、最終段の LinearOut（in 100,352 × out 101）に約 1014 万 parameter が 1 枚で集中していた（出典: [023_imagecls_gap_head_10prd.md](../../memo/done/023_imagecls_gap_head_10prd.md)、Context（背景・目的））。
+- ImageCls（Food-101、101 クラス、224×224）は train が高く eval が低い過学習だった。当時の FoodResNet13 は空間 28×28 のまま Flatten して 100,352 次元にし、最終段の LinearOut（in 100,352 × out 101）に約 1014 万 parameter が 1 枚で集中していた（出典: [0023_imagecls_gap_head_10rfd.md](../../memo/done/0023_imagecls_gap_head_10rfd.md)、Context（背景・目的））。
 - Flatten → GAP2D だけを変えると、eval は 8.71M で 44.5 → 61.1% に上がり、parameter は 10.91M → 0.79M になった。同じ step の train の正解率も 70.3 → 73.9% と下がらなかった（出典: [2026-06-25_food101-scratch.md](../../experiments/image-cls/imagecls/2026-06-25_food101-scratch.md)、現時点のまとめ2・探索ブロック01。Run: run_20260625-231716_imgcls_022aug / run_20260626-012847_imgcls_023gap）。
 - 定数 LR・10M の Body の比較では、ResNet18ish_hr（最終解像度 14×14）が peak 76.5%・final 71.9% で最も高かった。標準の ResNet18（7×7）は 66.5%、ConvNeXt Nano は 57.3%、Hybrid は 56.2〜60.3%、ViT は 36.5〜42.5%（final）だった（出典: [2026-06-25_food101-scratch.md](../../experiments/image-cls/imagecls/2026-06-25_food101-scratch.md)、現時点のまとめ3・探索ブロック02・03。Run: run_20260630-004827_imgcls_ResNet18ish_hr / run_20260629-093157_imgcls_Res18 / run_20260703-015300_imgcls_cn-nano）。
 - ResNet18ish に DropHead 0.2 と ResBlock の droppath を入れると、5.07M で 68.7 → 76.1% に上がった。weight decay 0.05 → 0.1 は 7.57M で 69.3 → 64.6% に下げ、標準の ResNet18 に DropHead だけを入れても 7.32M で 66.8 → 66.2% と上がらなかった（出典: [2026-06-25_food101-scratch.md](../../experiments/image-cls/imagecls/2026-06-25_food101-scratch.md)、探索ブロック02。Run: run_20260626-025438_imgcls_Res18 / run_20260627-234723_imgcls_Res18_do1 / run_20260627-053928_imgcls_Res18-3）。
@@ -34,11 +34,11 @@ Food-101のスクラッチ学習の到達点はResNet18ish_hr＋cosine＋Mixup/C
 
 - [環境](../../design/120_environments.jp.md)、§2.3（ImageCls は native batch Env）。
 - [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.4（登録済み Agent）。
-- [ImageCls 過学習対策①: train 専用データ拡張の PRD](../../memo/done/022_imagecls_augmentation_10prd.md)。
-- [ImageCls 過学習対策②: 最終段 Flatten → GAP2D の PRD](../../memo/done/023_imagecls_gap_head_10prd.md)。
-- [Mixup / CutMix 導入の PRD](../../memo/done/030_imagecls_mixup_cutmix_10prd.md)。
-- [ProfiledValue による learning_rate 制御の PRD](../../memo/done/031_imagecls_cosine_lr_10prd.md)。
-- [BF16 と Head 化の PRD](../../memo/done/033_imagecls_bf16_head_10prd.md)。
-- [batch 入力の PRD](../../memo/done/034_imagecls_batch_input_10prd.md)。
+- [ImageCls 過学習対策①: train 専用データ拡張の RFD](../../memo/done/0022_imagecls_augmentation_10rfd.md)。
+- [ImageCls 過学習対策②: 最終段 Flatten → GAP2D の RFD](../../memo/done/0023_imagecls_gap_head_10rfd.md)。
+- [Mixup / CutMix 導入の RFD](../../memo/done/0030_imagecls_mixup_cutmix_10rfd.md)。
+- [ProfiledValue による learning_rate 制御の RFD](../../memo/done/0031_imagecls_cosine_lr_10rfd.md)。
+- [BF16 と Head 化の RFD](../../memo/done/0033_imagecls_bf16_head_10rfd.md)。
+- [batch 入力の RFD](../../memo/done/0034_imagecls_batch_input_10rfd.md)。
 - [評価と比較の条件](../mechanisms/evaluation.md)。
 - [322 Env個別実装のトピック別まとめ](../categories/322_env_individual.md)。

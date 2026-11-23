@@ -22,7 +22,7 @@
 #include "RunnerApp.hpp"
 #include "anet/test/util.hpp"
 
-TEST_CASE("Conv2d panel configuration is validated without opening the panel", "[prd117][conv2d_config]")
+TEST_CASE("Conv2d panel configuration is validated without opening the panel", "[rfd0117][conv2d_config]")
 {
     anet::test::LogCaptureGuard logs;
     const auto entry = GENERATE(std::pair{"margin_x", "-1"}, std::pair{"margin_y", "-1"},
@@ -34,7 +34,7 @@ TEST_CASE("Conv2d panel configuration is validated without opening the panel", "
     CHECK_THROWS_WITH(Conv2dPanel::Config(data), Catch::Matchers::ContainsSubstring(key));
 }
 
-TEST_CASE("Conv2d panel configuration consumes its original keys without windows", "[prd117][conv2d_config]")
+TEST_CASE("Conv2d panel configuration consumes its original keys without windows", "[rfd0117][conv2d_config]")
 {
     anet::ConfigData data;
     data.Set("Conv2dPanel.conv2d.margin_x", 3);
@@ -64,7 +64,7 @@ struct MainPaneFixture {
     wxEventLoop loop;
     wxEventLoopActivator activator{&loop};
     const std::filesystem::path output = std::filesystem::temp_directory_path()
-        / ("anet-prd110-" + std::to_string(wxGetProcessId()));
+        / ("anet-rfd0110-" + std::to_string(wxGetProcessId()));
     wxWeakRef<wxFrame> frame;
 
     void Pump()
@@ -331,7 +331,7 @@ struct MainPaneFixture {
 
 } // namespace
 
-TEST_CASE("Main panes start with only Eval occupying the centre", "[.][prd110_main_pane][prd110_default]")
+TEST_CASE("Main panes start with only Eval occupying the centre", "[.][rfd0110_main_pane][rfd0110_default]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -341,7 +341,7 @@ TEST_CASE("Main panes start with only Eval occupying the centre", "[.][prd110_ma
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Shown main panes keep the toolbar selection outline while disabled", "[.][prd110_main_pane][prd110_toolbar]")
+TEST_CASE("Shown main panes keep the toolbar selection outline while disabled", "[.][rfd0110_main_pane][rfd0110_toolbar]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -379,7 +379,7 @@ TEST_CASE("Shown main panes keep the toolbar selection outline while disabled", 
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Main panes share guarded toggles and restore the previous Eval dock", "[.][prd110_main_pane][prd110_transitions]")
+TEST_CASE("Main panes share guarded toggles and restore the previous Eval dock", "[.][rfd0110_main_pane][rfd0110_transitions]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -461,7 +461,7 @@ TEST_CASE("Main panes share guarded toggles and restore the previous Eval dock",
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Hidden Train stops its rendering timer and retains the selected FPS", "[.][prd110_main_pane][prd110_timer]")
+TEST_CASE("Hidden Train stops its rendering timer and retains the selected FPS", "[.][rfd0110_main_pane][rfd0110_timer]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -486,7 +486,7 @@ TEST_CASE("Hidden Train stops its rendering timer and retains the selected FPS",
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Train startup and Reset retain the configured main View", "[.][prd110_main_pane][prd110_train]")
+TEST_CASE("Train startup and Reset retain the configured main View", "[.][rfd0110_main_pane][rfd0110_train]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = train\n");
@@ -509,7 +509,7 @@ TEST_CASE("Train startup and Reset retain the configured main View", "[.][prd110
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Both main Views start in the home split", "[.][prd110_main_pane][prd110_both]")
+TEST_CASE("Both main Views start in the home split", "[.][rfd0110_main_pane][rfd0110_both]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -528,7 +528,7 @@ TEST_CASE("Both main Views start in the home split", "[.][prd110_main_pane][prd1
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Main View normalization accepts uppercase and surrounding spaces", "[.][prd110_main_pane][prd110_normalized]")
+TEST_CASE("Main View normalization accepts uppercase and surrounding spaces", "[.][rfd0110_main_pane][rfd0110_normalized]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view =   EVAL  \n");
@@ -540,7 +540,7 @@ TEST_CASE("Main View normalization accepts uppercase and surrounding spaces", "[
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Train visibility and FPS are safe and retained before initialization", "[.][prd110_main_pane][prd110_preinit]")
+TEST_CASE("Train visibility and FPS are safe and retained before initialization", "[.][rfd0110_main_pane][rfd0110_preinit]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -568,7 +568,7 @@ TEST_CASE("Train visibility and FPS are safe and retained before initialization"
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Floating Eval cannot leave Train without a docked partner", "[.][prd110_main_pane][prd110_float]")
+TEST_CASE("Floating Eval cannot leave Train without a docked partner", "[.][rfd0110_main_pane][rfd0110_float]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -613,7 +613,7 @@ TEST_CASE("Floating Eval cannot leave Train without a docked partner", "[.][prd1
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("A floating Centre pane can close before the next UI declaration", "[.][prd110_main_pane][prd110_float_before_declaration]")
+TEST_CASE("A floating Centre pane can close before the next UI declaration", "[.][rfd0110_main_pane][rfd0110_float_before_declaration]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -633,7 +633,7 @@ TEST_CASE("A floating Centre pane can close before the next UI declaration", "[.
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Floating Train promotes Eval on UI update and preserves its floating state", "[.][prd110_main_pane][prd110_train_float]")
+TEST_CASE("Floating Train promotes Eval on UI update and preserves its floating state", "[.][rfd0110_main_pane][rfd0110_train_float]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -669,7 +669,7 @@ TEST_CASE("Floating Train promotes Eval on UI update and preserves its floating 
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Stale pin buttons cannot float the last docked main pane", "[.][prd110_main_pane][prd110_pin_guard]")
+TEST_CASE("Stale pin buttons cannot float the last docked main pane", "[.][rfd0110_main_pane][rfd0110_pin_guard]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -697,7 +697,7 @@ TEST_CASE("Stale pin buttons cannot float the last docked main pane", "[.][prd11
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Pin respects a lone main pane and restores a maximized pane before floating", "[.][prd110_main_pane][prd110_pin_maximize]")
+TEST_CASE("Pin respects a lone main pane and restores a maximized pane before floating", "[.][rfd0110_main_pane][rfd0110_pin_maximize]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -723,7 +723,7 @@ TEST_CASE("Pin respects a lone main pane and restores a maximized pane before fl
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Auxiliary pin buttons float panes without changing the main pane roles", "[.][prd110_main_pane][prd110_aux_pin]")
+TEST_CASE("Auxiliary pin buttons float panes without changing the main pane roles", "[.][rfd0110_main_pane][rfd0110_aux_pin]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -747,7 +747,7 @@ TEST_CASE("Auxiliary pin buttons float panes without changing the main pane role
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Docked Train keeps its side position while Eval owns the centre", "[.][prd110_main_pane][prd110_side_owner]")
+TEST_CASE("Docked Train keeps its side position while Eval owns the centre", "[.][rfd0110_main_pane][rfd0110_side_owner]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -800,7 +800,7 @@ TEST_CASE("Docked Train keeps its side position while Eval owns the centre", "[.
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Eval Step and Resume reclaim its centre without a fallback", "[.][prd110_main_pane][prd110_eval_show]")
+TEST_CASE("Eval Step and Resume reclaim its centre without a fallback", "[.][rfd0110_main_pane][rfd0110_eval_show]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -826,7 +826,7 @@ TEST_CASE("Eval Step and Resume reclaim its centre without a fallback", "[.][prd
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Maximized main panes restore before hiding and preserve explicit closes", "[.][prd110_main_pane][prd110_maximize]")
+TEST_CASE("Maximized main panes restore before hiding and preserve explicit closes", "[.][rfd0110_main_pane][rfd0110_maximize]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -897,7 +897,7 @@ TEST_CASE("Maximized main panes restore before hiding and preserve explicit clos
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Toggling a pane while another is maximized restores the layout first", "[.][prd110_main_pane][prd110_maximize_toggle]")
+TEST_CASE("Toggling a pane while another is maximized restores the layout first", "[.][rfd0110_main_pane][rfd0110_maximize_toggle]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -927,7 +927,7 @@ TEST_CASE("Toggling a pane while another is maximized restores the layout first"
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Eval Step while another pane is maximized restores the layout before showing Eval", "[.][prd110_main_pane][prd110_maximize_eval_show]")
+TEST_CASE("Eval Step while another pane is maximized restores the layout before showing Eval", "[.][rfd0110_main_pane][rfd0110_maximize_eval_show]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = train\n");
@@ -948,7 +948,7 @@ TEST_CASE("Eval Step while another pane is maximized restores the layout before 
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Reset Layout during maximize leaves the sashes usable", "[.][prd110_main_pane][prd110_maximize_reset]")
+TEST_CASE("Reset Layout during maximize leaves the sashes usable", "[.][rfd0110_main_pane][rfd0110_maximize_reset]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -972,7 +972,7 @@ TEST_CASE("Reset Layout during maximize leaves the sashes usable", "[.][prd110_m
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("A maximize released without a restore event resumes the Train view", "[.][prd110_main_pane][prd110_maximize_dock_release]")
+TEST_CASE("A maximize released without a restore event resumes the Train view", "[.][rfd0110_main_pane][rfd0110_maximize_dock_release]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -989,7 +989,7 @@ TEST_CASE("A maximize released without a restore event resumes the Train view", 
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("An unknown direct hide repairs the centre and warns only once", "[.][prd110_main_pane][prd110_fallback]")
+TEST_CASE("An unknown direct hide repairs the centre and warns only once", "[.][rfd0110_main_pane][rfd0110_fallback]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1046,7 +1046,7 @@ TEST_CASE("An unknown direct hide repairs the centre and warns only once", "[.][
     CHECK(centres_log.find(kWarning, first + sizeof(kWarning) - 1) == std::string::npos);
 }
 
-TEST_CASE("A redundant show keeps unknown double centres on the fallback path", "[.][prd110_main_pane][prd110_redundant_show]")
+TEST_CASE("A redundant show keeps unknown double centres on the fallback path", "[.][rfd0110_main_pane][rfd0110_redundant_show]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1068,7 +1068,7 @@ TEST_CASE("A redundant show keeps unknown double centres on the fallback path", 
     CHECK(log.find("No main pane occupies the centre.") == std::string::npos);
 }
 
-TEST_CASE("Train centre reserves its minimum and leaves a shared side column to wx", "[.][prd110_main_pane][prd110_train_columns]")
+TEST_CASE("Train centre reserves its minimum and leaves a shared side column to wx", "[.][rfd0110_main_pane][rfd0110_train_columns]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = train\n");
@@ -1112,7 +1112,7 @@ TEST_CASE("Train centre reserves its minimum and leaves a shared side column to 
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Main pane widths reserve the right columns and allow a single Eval minimum", "[.][prd110_main_pane][prd110_columns]")
+TEST_CASE("Main pane widths reserve the right columns and allow a single Eval minimum", "[.][rfd0110_main_pane][rfd0110_columns]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1140,7 +1140,7 @@ TEST_CASE("Main pane widths reserve the right columns and allow a single Eval mi
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("A left main pane becomes equal width on placement change and resize", "[.][prd110_main_pane][prd110_width_left]")
+TEST_CASE("A left main pane becomes equal width on placement change and resize", "[.][rfd0110_main_pane][rfd0110_width_left]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1159,7 +1159,7 @@ TEST_CASE("A left main pane becomes equal width on placement change and resize",
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("An outer right main pane excludes the intervening and opposite columns", "[.][prd110_main_pane][prd110_width_outer]")
+TEST_CASE("An outer right main pane excludes the intervening and opposite columns", "[.][rfd0110_main_pane][rfd0110_width_outer]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1187,7 +1187,7 @@ TEST_CASE("An outer right main pane excludes the intervening and opposite column
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Outer Bottom and shared side main docks retain wx dimensions", "[.][prd110_main_pane][prd110_width_exclusions]")
+TEST_CASE("Outer Bottom and shared side main docks retain wx dimensions", "[.][rfd0110_main_pane][rfd0110_width_exclusions]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1213,7 +1213,7 @@ TEST_CASE("Outer Bottom and shared side main docks retain wx dimensions", "[.][p
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Width alone does not retrigger equalization and maximize keeps remembered width", "[.][prd110_main_pane][prd110_width_stability]")
+TEST_CASE("Width alone does not retrigger equalization and maximize keeps remembered width", "[.][rfd0110_main_pane][rfd0110_width_stability]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1248,7 +1248,7 @@ TEST_CASE("Width alone does not retrigger equalization and maximize keeps rememb
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Centre captions follow visible docked ownership and preserve Trace annotations", "[.][prd110_main_pane][prd110_centre_caption]")
+TEST_CASE("Centre captions follow visible docked ownership and preserve Trace annotations", "[.][rfd0110_main_pane][rfd0110_centre_caption]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -1298,7 +1298,7 @@ TEST_CASE("Centre captions follow visible docked ownership and preserve Trace an
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Trace row movement preserves Centre captions without rebuilding layouts", "[.][prd110_main_pane][prd110_trace_caption]")
+TEST_CASE("Trace row movement preserves Centre captions without rebuilding layouts", "[.][rfd0110_main_pane][rfd0110_trace_caption]")
 {
     // 公開のroot sizerの破棄で全体更新を観測し、本体にtest-only APIを足さない。
     class LayoutRebuildProbe final : public wxBoxSizer {
@@ -1426,21 +1426,21 @@ void CheckPausedViewResize(MainPaneFixture& ui)
 
 } // namespace
 
-TEST_CASE("Paused LunarLander View repaints cleanly after resizing", "[.][prd110_main_pane][prd110_resize_paint]")
+TEST_CASE("Paused LunarLander View repaints cleanly after resizing", "[.][rfd0110_main_pane][rfd0110_resize_paint]")
 {
     MainPaneFixture ui;
     ui.Start("env.class_id = LunarLanderEnv\napp.train_panel.fps = 0\n");
     CheckPausedViewResize(ui);
 }
 
-TEST_CASE("Paused CartPole View inherits clean resize painting", "[.][prd110_main_pane][prd110_cartpole_resize]")
+TEST_CASE("Paused CartPole View inherits clean resize painting", "[.][rfd0110_main_pane][rfd0110_cartpole_resize]")
 {
     MainPaneFixture ui;
     ui.Start("app.train_panel.fps = 0\n");
     CheckPausedViewResize(ui);
 }
 
-TEST_CASE("A same-width main band splits the centre height after docking and resizing", "[.][prd110_main_pane][prd110_height_split]")
+TEST_CASE("A same-width main band splits the centre height after docking and resizing", "[.][rfd0110_main_pane][rfd0110_height_split]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1465,7 +1465,7 @@ TEST_CASE("A same-width main band splits the centre height after docking and res
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Main height splitting preserves outer Q-Values and Trace column widths", "[.][prd110_main_pane][prd110_height_columns]")
+TEST_CASE("Main height splitting preserves outer Q-Values and Trace column widths", "[.][rfd0110_main_pane][rfd0110_height_columns]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1492,7 +1492,7 @@ TEST_CASE("Main height splitting preserves outer Q-Values and Trace column width
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Shared main bands stay unchanged and a separate row preserves Logs", "[.][prd110_main_pane][prd110_height_shared]")
+TEST_CASE("Shared main bands stay unchanged and a separate row preserves Logs", "[.][rfd0110_main_pane][rfd0110_height_shared]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1531,7 +1531,7 @@ TEST_CASE("Shared main bands stay unchanged and a separate row preserves Logs", 
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Height splitting restores placement and respects manual sizing and minimum space", "[.][prd110_main_pane][prd110_height_restore]")
+TEST_CASE("Height splitting restores placement and respects manual sizing and minimum space", "[.][rfd0110_main_pane][rfd0110_height_restore]")
 {
     MainPaneFixture ui;
     ui.Start("app.main_view = both\n");
@@ -1837,7 +1837,7 @@ TEST_CASE("Q-Values alone in a new band takes only its action rows", "[.][runner
     ui.CheckNoMainPaneFallback();
 }
 
-TEST_CASE("Common Panel redraws its whole stopped scene on resize with either style", "[.][prd110_main_pane][prd110_panel_repaint]")
+TEST_CASE("Common Panel redraws its whole stopped scene on resize with either style", "[.][rfd0110_main_pane][rfd0110_panel_repaint]")
 {
     MainPaneFixture ui;
     ui.Start();
@@ -1893,7 +1893,7 @@ TEST_CASE("Common Panel redraws its whole stopped scene on resize with either st
     }
 }
 
-TEST_CASE("Conv2d panes request nn_trace for Step actions and timer events", "[.][prd170][gui][prd170_gui]")
+TEST_CASE("Conv2d panes request nn_trace for Step actions and timer events", "[.][rfd0170][gui][rfd0170_gui]")
 {
     MainPaneFixture ui;
     ui.Start("app.eval_panel.step_per_frame = 1\n");

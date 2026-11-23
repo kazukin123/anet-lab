@@ -1,6 +1,6 @@
 # 行動選択に添える入力は Runner の step と MakeAction の引数で都度渡し、core に要求の登録を持たない
 
-Conv2d の可視化が読む nn_trace は、読む人がいなくても Actor が `MakeAction` のたびに作っており（[ADR 0031](0031-plasticity-metrics-out-of-band-partial-forward.md) の A''、[PRD938](../memo/170_nn_trace_capture_unification_10prd.md)）、読む側は Run の途中で開閉するので、学習の前に 1 回だけ渡す購読ヒントには乗らない。そこで「その回の行動選択に何を添えるか」を構造体 `MakeActionOptions` にし、step を進める側（EvalPanel、学習のスレッド）が毎回決めて `Runner::DoStep`・`DoUpdateFrame` の引数で渡し、Runner がそのまま `Actor::MakeAction` へ渡す。入力は引数で渡し、出力は Observer で受けるという分担を保つことと、step と行動選択の結果が引数だけで決まることを、読む側が自分だけで要求できる手軽さより優先した。
+Conv2d の可視化が読む nn_trace は、読む人がいなくても Actor が `MakeAction` のたびに作っており（[ADR 0031](0031-plasticity-metrics-out-of-band-partial-forward.md) の A''、[PRD938](../memo/0170_nn_trace_capture_unification_10rfd.md)）、読む側は Run の途中で開閉するので、学習の前に 1 回だけ渡す購読ヒントには乗らない。そこで「その回の行動選択に何を添えるか」を構造体 `MakeActionOptions` にし、step を進める側（EvalPanel、学習のスレッド）が毎回決めて `Runner::DoStep`・`DoUpdateFrame` の引数で渡し、Runner がそのまま `Actor::MakeAction` へ渡す。入力は引数で渡し、出力は Observer で受けるという分担を保つことと、step と行動選択の結果が引数だけで決まることを、読む側が自分だけで要求できる手軽さより優先した。
 
 ## Considered Options
 

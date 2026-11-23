@@ -1403,7 +1403,7 @@ M1.[42_env/15_tr_overflow_mean] = $env_step mean.term_reason_overflow @episode_e
 M1.[42_env/17_ep_mean_settle_steps] = $env_step mean.ep_mean_settle_steps @episode_end $train_step
 M1.[42_env/18_tr_no_legal_mean] = $env_step mean.term_reason_no_legal_drop @episode_end $train_step
 
-# --- NoLegal candidate 診断 (PRD039 PH1) ---
+# --- NoLegal candidate 診断 (RFD0039 PH1) ---
 M1.[42_env/21_blkdrop_cand_mean]      = $env_step mean.blocked_drop_on_candidate @episode_end $train_step
 M1.[42_env/22_timeout_cand_mean]      = $env_step mean.no_drop_timeout_on_candidate @episode_end $train_step
 M1.[42_env/23_ep_mean_blocked_frames] = $env_step mean.ep_mean_blocked_frames @episode_end $train_step

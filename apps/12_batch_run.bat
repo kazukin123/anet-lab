@@ -4,7 +4,7 @@ title %~nx0
 cd /d "%~dp0runner"
 for %%I in ("%~dp0..\data\workspaces") do SET "DATA_WORKSPACES=%%~fI"
 
-SET "QUEUE=mz_prd191"
+SET "QUEUE=mz_rfd0191"
 if not "%~1"=="" SET "QUEUE=%~1"
 if /I "%QUEUE%"=="ll_rnd" goto :skipwait
 
@@ -17,8 +17,8 @@ REM 47c uses the exact exe of 47b (11/01 01:31), not the current build.
 REM 2026-11-02 night: 47c is done and skipped. 47b and 47c (new build) both ran below the old-build runs from 30M on,
 REM although the 10/15 and 11/01 exes learn identically in deterministic mode. Two checks, 50M each:
 REM   47d: the 10/15 exe with the resolved config of 40_s2 (old keys), seed 1, rerun on today's machine.
-REM   47e: the 47b recipe with the UQE epsilon ladder at the old effective value (1e-4 on all lanes; PRD101 D14 made it 0).
-REM Queue order (>= 16 h): 47d, 47f (TempoRL auxiliary-only, PRD104), 47e, 47g (control seed 3, spread of the new build).
+REM   47e: the 47b recipe with the UQE epsilon ladder at the old effective value (1e-4 on all lanes; RFD0101 D14 made it 0).
+REM Queue order (>= 16 h): 47d, 47f (TempoRL auxiliary-only, RFD0104), 47e, 47g (control seed 3, spread of the new build).
 REM 2026-11-02 morning: 47d (10/15 exe, run today) came back in the old-build band, so 47f was stopped at about 10M and the
 REM queue now starts with the long deterministic pair: the 10/15 exe and the 11/01 exe on the regression-hunt configs
 REM (backend deterministic, evals off, seed 1, the new exe with the UQE epsilon ladder at 1e-4) to 30M each, into the
@@ -83,8 +83,8 @@ REM Long deterministic pair: the arguments of the regression hunt (.scratch/dm-r
 SET "DET=app.exp_exit_step=30000000 app.batchrun.exp_exit_step=30000000 app.save_agent_on_close=false app.show_error_dialog=false app.train_auto_start=true run.seed=1 backend.cudnn_benchmark=false backend.cudnn_deterministic=true backend.deterministic_algorithms=true backend.deterministic_warn_only=false run.eval_schedule.[eval_target].interval=0 run.eval_schedule.[eval].interval=0 run.eval_schedule.[eval_target_greedy].interval=0"
 SET "DETNEW=run.eval_schedule.[greedy].interval=0 run.eval_schedule.[greedy_single].interval=0 DefaultDQNAgent.actor.[train].policy.spatial.uqe.epsilon.first=0.0001 DefaultDQNAgent.actor.[train].policy.spatial.uqe.epsilon.last=0.0001"
 SET "EPS4=A3.actor.[train].policy.spatial.uqe.epsilon.first=0.0001 A3.actor.[train].policy.spatial.uqe.epsilon.last=0.0001"
-REM TempoRL auxiliary-only (PRD104 run.@skip_aux): no action is held while training or in the in-training evals;
-REM the skip loss only adds its gradient to the shared features. PRD104 rejects any holding Actor with this window,
+REM TempoRL auxiliary-only (RFD0104 run.@skip_aux): no action is held while training or in the in-training evals;
+REM the skip loss only adds its gradient to the shared features. RFD0104 rejects any holding Actor with this window,
 REM so [greedy] (copied from [eval_target]) is single too and 53_evalg equals 54_evalgs, as in the TempoRL-off runs.
 SET "AUX=DefaultDQNAgent.learner.skip.target_window=action_change DefaultDQNAgent.actor.[train].skip.max_length_mode=single DefaultDQNAgent.actor.[eval].skip.max_length_mode=single DefaultDQNAgent.actor.[eval_target].skip.max_length_mode=single DefaultDQNAgent.actor.[eval_panel].skip.max_length_mode=single"
 SET "B1024RR1=A3.learner.replay_batch_size=1024 A3.learner.replay_ratio=1 A3.model.soft_update_tau=0.02 run.eval_schedule.[eval_target].interval=25 run.eval_schedule.[eval].interval=25 run.eval_schedule.[eval_target_greedy].interval=50"
@@ -362,7 +362,7 @@ goto :summary
 :mz_g99
 :mz_seed2
 :mz_n10
-:mz_prd191
+:mz_rfd0191
 copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab12.exe" >nul
 if errorlevel 1 goto :no_exe
 for %%F in ("bin\%BUILD%\AnetRLRunner.exe") do echo %DATE% %TIME% EXE %%~fF built %%~tF
@@ -414,7 +414,7 @@ if /I "%QUEUE%"=="mz_rr4" goto :mz_rr4_stages
 if /I "%QUEUE%"=="mz_g99dec" goto :mz_g99dec_stages
 if /I "%QUEUE%"=="mz_seed2" goto :mz_seed2_stages
 if /I "%QUEUE%"=="mz_n10" goto :mz_n10_stages
-if /I "%QUEUE%"=="mz_prd191" goto :mz_prd191_stages
+if /I "%QUEUE%"=="mz_rfd0191" goto :mz_rfd0191_stages
 
 SET "RUN_EXIT_CODE=0"
 call :wait_disk
@@ -524,7 +524,7 @@ call :find_done mz_tg_g99_rr4_s2
 if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99ONLY% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_g99_rr4_s2"
 goto :summary
 
-:mz_prd191_stages
+:mz_rfd0191_stages
 SET "RUN_EXIT_CODE=0"
 call :wait_disk
 echo === 46. montezuma_revenge 30m seed 1: same as 44 (n-step 10) but the RND predictor learns from rollouts of 128 intakes, 4 epochs, each observation 4 times in batches of 128 ===
@@ -566,11 +566,11 @@ for /f %%m in ('powershell -NoProfile -Command "[math]::Floor((Get-CimInstance W
 exit /b 0
 
 :qrnd
-REM 2026-11-14: DropMerge x RND (PRD116/PRD123), a short trial. From scratch to 100M; judge at 50M whether to go on.
+REM 2026-11-14: DropMerge x RND (RFD0116/RFD0123), a short trial. From scratch to 100M; judge at 50M whether to go on.
 REM Recipe of 47e (nzrep, seed 1, UQE epsilon 1e-4): nzrep, 47d and 47e (same seed and epsilon) agree within 40 points
 REM of Greedy up to 40M. 50a feeds RND the board only (run.@rnd); 50b adds the vector (run.@rnd_vec) to see whether
 REM no_drop_timeout_ratio and the previous action make waiting look novel (NoDropTimeout first).
-REM The exe is the Atari frame's r125 (HEAD 16449ea8 + PRD125, = fcaa39b5).
+REM The exe is the Atari frame's r125 (HEAD 16449ea8 + RFD0125, = fcaa39b5).
 REM A run closed by hand has no 'Stop training requested' and would start again; to go on with 50b, run with qrnd_vec.
 call :use_rnd_exe
 

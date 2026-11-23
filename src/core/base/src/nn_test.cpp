@@ -28,7 +28,7 @@
 #include <type_traits>
 #include <vector>
 
-constexpr char kPrd170TraceFeature[] = "feature";
+constexpr char kRfd0170TraceFeature[] = "feature";
 
 namespace {
 // テストの既定経路も、製品と同じ統合factoryで生成する。
@@ -83,7 +83,7 @@ size_t CountProfileOperator(const std::function<void()>& operation, const std::s
 void EnsureNNInitialized()
 {
     static const bool initialized = [] {
-        // mkldnnはmain_test.cppのmainが全テストの前に切るので、ここでは切らない（PRD124）。
+        // mkldnnはmain_test.cppのmainが全テストの前に切るので、ここでは切らない（RFD0124）。
         anet::nn::InitNN();
         return true;
     }();
@@ -1749,7 +1749,7 @@ TEST_CASE("Network config profile supports branch-local overrides", "[nn][config
         && Catch::Matchers::ContainsSubstring("typo = 9"));
 }
 
-TEST_CASE("Unused shared NN definitions are validated only when referenced", "[nn][config][prd117]")
+TEST_CASE("Unused shared NN definitions are validated only when referenced", "[nn][config][rfd0117]")
 {
     EnsureNNInitialized();
     anet::ConfigData data;
@@ -1774,7 +1774,7 @@ TEST_CASE("Unused shared NN definitions are validated only when referenced", "[n
     }());
 }
 
-TEST_CASE("NN catalog reads distinguish shared inventory from unused branch profiles", "[nn][config][prd117]")
+TEST_CASE("NN catalog reads distinguish shared inventory from unused branch profiles", "[nn][config][rfd0117]")
 {
     EnsureNNInitialized();
     anet::ConfigData data;
@@ -1920,7 +1920,7 @@ TEST_CASE("Network config profile expands same group independently per branch", 
     CHECK(b_rates[2] == Catch::Approx(0.5).margin(1.0e-12));
 }
 
-TEST_CASE("Branch config profile diagnostics identify the profile's full location", "[nn][config_profile][prd194]")
+TEST_CASE("Branch config profile diagnostics identify the profile's full location", "[nn][config_profile][rfd0194]")
 {
     EnsureNNInitialized();
     anet::ConfigData data;
@@ -2032,7 +2032,7 @@ TEST_CASE("Body-only Network exposes forward TensorDictFunction", "[nn][function
 static constexpr char kLinearWeightParameter[] = "linear.weight";
 static constexpr char kConv2dWeightParameter[] = "conv2d.weight";
 
-TEST_CASE("Linear and Conv2d blocks apply variance scaling from their configuration", "[nn][init][prd193]")
+TEST_CASE("Linear and Conv2d blocks apply variance scaling from their configuration", "[nn][init][rfd0193]")
 {
     EnsureNNInitialized();
     const auto scale_text = GENERATE("0.5773502691896258", "1.0");
@@ -2077,7 +2077,7 @@ TEST_CASE("Linear and Conv2d blocks apply variance scaling from their configurat
     }
 }
 
-TEST_CASE("Variance scaling rejects bounds the weight dtype cannot represent", "[nn][init][prd193][variance-scaling-bounds]")
+TEST_CASE("Variance scaling rejects bounds the weight dtype cannot represent", "[nn][init][rfd0193][variance-scaling-bounds]")
 {
     const double scale = GENERATE(1.0e-100, 1.0e80);
     auto layer = torch::nn::Linear(torch::nn::LinearOptions(256, 32).bias(true));
@@ -2097,7 +2097,7 @@ TEST_CASE("Variance scaling rejects bounds the weight dtype cannot represent", "
     CHECK(torch::equal(layer->bias, original_bias));
 }
 
-TEST_CASE("Variance scaling rejects complex weights before writing parameters", "[nn][init][prd193][variance-scaling-dtype]")
+TEST_CASE("Variance scaling rejects complex weights before writing parameters", "[nn][init][rfd0193][variance-scaling-dtype]")
 {
     auto layer = torch::nn::Linear(torch::nn::LinearOptions(4, 3).bias(true));
     layer->to(torch::kComplexFloat);
@@ -2112,7 +2112,7 @@ TEST_CASE("Variance scaling rejects complex weights before writing parameters", 
     CHECK(torch::equal(layer->bias, original_bias));
 }
 
-TEST_CASE("Variance scaling requires weight output and input axes", "[nn][init][prd193][variance-scaling-shape]")
+TEST_CASE("Variance scaling requires weight output and input axes", "[nn][init][rfd0193][variance-scaling-shape]")
 {
     auto layer = torch::nn::Linear(torch::nn::LinearOptions(4, 3).bias(true));
     const auto rank = GENERATE(0, 1);
@@ -2130,7 +2130,7 @@ TEST_CASE("Variance scaling requires weight output and input axes", "[nn][init][
     CHECK(torch::equal(layer->bias, original_bias));
 }
 
-TEST_CASE("Variance scaling keeps low-precision samples within the configured bound", "[nn][init][prd193][variance-scaling-precision]")
+TEST_CASE("Variance scaling keeps low-precision samples within the configured bound", "[nn][init][rfd0193][variance-scaling-precision]")
 {
     const auto device = GENERATE(torch::kCPU, torch::kCUDA);
     CAPTURE(device);
@@ -2159,7 +2159,7 @@ TEST_CASE("Variance scaling keeps low-precision samples within the configured bo
     CHECK(torch::equal(layer->bias, torch::zeros_like(layer->bias)));
 }
 
-TEST_CASE("Block factories reject invalid variance scales before forward", "[nn][init][prd193]")
+TEST_CASE("Block factories reject invalid variance scales before forward", "[nn][init][rfd0193]")
 {
     EnsureNNInitialized();
     const auto [factory_name, prefix] = GENERATE(Catch::Generators::values<std::pair<std::string, std::string>>({
@@ -2175,7 +2175,7 @@ TEST_CASE("Block factories reject invalid variance scales before forward", "[nn]
         Catch::Matchers::ContainsSubstring("Invalid " + key + "=0; expected > 0."));
 }
 
-TEST_CASE("Blocks keep first-forward weight initialization failures", "[nn][init][prd193][weight-init-failure]")
+TEST_CASE("Blocks keep first-forward weight initialization failures", "[nn][init][rfd0193][weight-init-failure]")
 {
     EnsureNNInitialized();
     anet::ConfigData config;
@@ -2238,7 +2238,7 @@ TEST_CASE("Blocks keep first-forward weight initialization failures", "[nn][init
     CHECK(module->named_children().is_empty());
 }
 
-TEST_CASE("Blocks retain their default weight initialization distributions", "[nn][init][prd193]")
+TEST_CASE("Blocks retain their default weight initialization distributions", "[nn][init][rfd0193]")
 {
     EnsureNNInitialized();
     torch::manual_seed(19302);
@@ -3606,7 +3606,7 @@ TEST_CASE("Network branch capture returns the actual forward feature without cha
     anet::nn::NetworkForwardCapture expected_capture({std::string(anet::nn::kNnTracePrefix)});
     const auto expected = network->Forward(input, &expected_capture);
     const auto expected_trace = expected_capture.GetAll(anet::nn::kNnTracePrefix);
-    anet::nn::NetworkForwardCapture capture({kPrd170TraceFeature, std::string(anet::nn::kNnTracePrefix)});
+    anet::nn::NetworkForwardCapture capture({kRfd0170TraceFeature, std::string(anet::nn::kNnTracePrefix)});
     const auto actual = network->Forward(input, &capture);
     const auto actual_trace = capture.GetAll(anet::nn::kNnTracePrefix);
 
@@ -4702,7 +4702,7 @@ TEST_CASE("Noisy spectral Linear normalizes only the mean and preserves spectral
     }
 }
 
-TEST_CASE("Named forward catalogs reject unknown fields independently of previous reads", "[prd117][nn][forward_catalog]")
+TEST_CASE("Named forward catalogs reject unknown fields independently of previous reads", "[rfd0117][nn][forward_catalog]")
 {
     EnsureNNInitialized();
     const bool noisy_enabled = GENERATE(false, true);
@@ -4726,7 +4726,7 @@ TEST_CASE("Named forward catalogs reject unknown fields independently of previou
         && Catch::Matchers::ContainsSubstring("unknown_field") && Catch::Matchers::ContainsSubstring("7"));
 }
 
-TEST_CASE("Ordinary projections consume explicit forward fields without changing their computation", "[prd117][nn][forward_catalog]")
+TEST_CASE("Ordinary projections consume explicit forward fields without changing their computation", "[rfd0117][nn][forward_catalog]")
 {
     EnsureNNInitialized();
     anet::ConfigData data;
@@ -5276,7 +5276,7 @@ TEST_CASE("Default execution bypasses concrete preparation", "[nn][noisynet][sim
 
 
 
-TEST_CASE("Forward capture enforces requested unique keys and preserves write order", "[nn][capture][prd093]")
+TEST_CASE("Forward capture enforces requested unique keys and preserves write order", "[nn][capture][rfd0093]")
 {
     anet::nn::NetworkForwardCapture capture({ "X/", "branch" });
     const auto value = torch::ones({ 2 });
@@ -5303,7 +5303,7 @@ TEST_CASE("Forward capture enforces requested unique keys and preserves write or
     CHECK(capture.Unfulfilled().size() == 2);
 }
 
-TEST_CASE("Network partial and prepared forwards reset capture and reject unmet requests", "[nn][capture][prd093]")
+TEST_CASE("Network partial and prepared forwards reset capture and reject unmet requests", "[nn][capture][rfd0093]")
 {
     EnsureNNInitialized();
     anet::ConfigData data;
@@ -5335,7 +5335,7 @@ TEST_CASE("Network partial and prepared forwards reset capture and reject unmet 
         anet::TensorSpecMap{ { "obs", spec } }, nullptr, 0, torch::kCPU), Catch::Matchers::ContainsSubstring("must not contain '/'") );
 }
 
-TEST_CASE("Attention entropy normalizes uniform concentration and singleton sequences", "[nn][attention][prd093]")
+TEST_CASE("Attention entropy normalizes uniform concentration and singleton sequences", "[nn][attention][rfd0093]")
 {
     const auto input = torch::eye(4).unsqueeze(0).requires_grad_(true);
     const auto zero = torch::zeros({ 8, 4 });
@@ -5348,7 +5348,7 @@ TEST_CASE("Attention entropy normalizes uniform concentration and singleton sequ
     CHECK(std::isnan(anet::ComputeAttentionEntropy(input.narrow(1, 0, 1), identity, {}, 1).item<float>()));
 }
 
-TEST_CASE("Transformer entropy matches independent per-head MHA probabilities", "[nn][attention][prd093][reference]")
+TEST_CASE("Transformer entropy matches independent per-head MHA probabilities", "[nn][attention][rfd0093][reference]")
 {
     EnsureNNInitialized();
     const bool norm_first = GENERATE(false, true);
@@ -5418,7 +5418,7 @@ TEST_CASE("Transformer entropy matches independent per-head MHA probabilities", 
     for (const auto& item : module->named_buffers()) CHECK(torch::equal(item.value(), buffers.at(item.key())));
 }
 
-TEST_CASE("Repeated Transformer captures have stable positions and execution-order layers", "[nn][attention][capture][prd093]")
+TEST_CASE("Repeated Transformer captures have stable positions and execution-order layers", "[nn][attention][capture][rfd0093]")
 {
     EnsureNNInitialized();
     anet::ConfigData data;
@@ -5459,7 +5459,7 @@ TEST_CASE("Repeated Transformer captures have stable positions and execution-ord
     CHECK(torch::equal(torch::cat({ prepared[0].second, prepared[1].second }), layers));
 }
 
-TEST_CASE("Network feature-last concat broadcasts missing intermediate axes", "[nn][bind][prd098][prd098-r2-bind]")
+TEST_CASE("Network feature-last concat broadcasts missing intermediate axes", "[nn][bind][rfd0098][rfd0098-r2-bind]")
 {
     const int64_t count = GENERATE(1, 3);
     const bool reverse = GENERATE(false, true);
@@ -5483,7 +5483,7 @@ TEST_CASE("Network feature-last concat broadcasts missing intermediate axes", "[
         Catch::Matchers::ContainsSubstring("batch size mismatch"));
 }
 
-TEST_CASE("Projection validation shares the concrete Linear contract", "[nn][noisynet][config][prd098][review-fix-projection]")
+TEST_CASE("Projection validation shares the concrete Linear contract", "[nn][noisynet][config][rfd0098][review-fix-projection]")
 {
     EnsureNNInitialized();
     // 事前検証は射影資源を作らず、既定とゼロsigmaをそのまま受理する。
@@ -5519,7 +5519,7 @@ TEST_CASE("Projection validation shares the concrete Linear contract", "[nn][noi
         Catch::Matchers::ContainsSubstring("probe.projection.noisy.sigma0"));
 }
 
-TEST_CASE("NN block diagnostics identify the source of shared and Agent-specific fields", "[prd194][prd194_block]")
+TEST_CASE("NN block diagnostics identify the source of shared and Agent-specific fields", "[rfd0194][rfd0194_block]")
 {
     EnsureNNInitialized();
     anet::test::LogCaptureGuard logs;
@@ -5550,7 +5550,7 @@ TEST_CASE("NN block diagnostics identify the source of shared and Agent-specific
     }
 }
 
-TEST_CASE("A missing block field uses the location that supplied the block type", "[prd194][prd194_block]")
+TEST_CASE("A missing block field uses the location that supplied the block type", "[rfd0194][rfd0194_block]")
 {
     EnsureNNInitialized();
     anet::test::LogCaptureGuard logs;
@@ -5569,7 +5569,7 @@ TEST_CASE("A missing block field uses the location that supplied the block type"
         Catch::Matchers::ContainsSubstring(expected));
 }
 
-TEST_CASE("Linear reports one fatal for invalid forward configuration", "[prd194][prd194_linear]")
+TEST_CASE("Linear reports one fatal for invalid forward configuration", "[rfd0194][rfd0194_linear]")
 {
     EnsureNNInitialized();
     anet::ConfigData data;
@@ -5594,7 +5594,7 @@ TEST_CASE("Linear reports one fatal for invalid forward configuration", "[prd194
     }) == 1);
 }
 
-TEST_CASE("Instantiated network blocks reject unread config keys", "[nn][config][prd117]")
+TEST_CASE("Instantiated network blocks reject unread config keys", "[nn][config][rfd0117]")
 {
     EnsureNNInitialized();
     // module が読まないキーを、実際の構築の入口で拒否する。
@@ -5616,7 +5616,7 @@ TEST_CASE("Instantiated network blocks reject unread config keys", "[nn][config]
         && !Catch::Matchers::ContainsSubstring(", out_channels"));
 }
 
-TEST_CASE("Block schema rejects file defaults and type-only Run overrides", "[nn][config][prd117][block_schema_file]")
+TEST_CASE("Block schema rejects file defaults and type-only Run overrides", "[nn][config][rfd0117][block_schema_file]")
 {
     EnsureNNInitialized();
     anet::test::LogCaptureGuard logs;
@@ -5624,7 +5624,7 @@ TEST_CASE("Block schema rejects file defaults and type-only Run overrides", "[nn
     const bool type_override = GENERATE(false, true);
     const bool referenced = GENERATE(false, true);
     CAPTURE(assignment, type_override, referenced);
-    const auto directory = std::filesystem::current_path() / "out/test-tmp/prd117-block-schema";
+    const auto directory = std::filesystem::current_path() / "out/test-tmp/rfd0117-block-schema";
     std::filesystem::create_directories(directory);
     const auto path = directory / "input.txt";
     {
@@ -5654,7 +5654,7 @@ TEST_CASE("Block schema rejects file defaults and type-only Run overrides", "[nn
     }
 }
 
-TEST_CASE("nn_trace capture respects exact and prefix requests", "[prd170][nn][capture]")
+TEST_CASE("nn_trace capture respects exact and prefix requests", "[rfd0170][nn][capture]")
 {
     const auto request = GENERATE(std::string("nn_trace/feature/00_Input"),
         std::string("nn_trace/feature/01_Conv2d_0"), std::string("nn_trace/feature/"), std::string("nn_trace/"));
@@ -5669,8 +5669,8 @@ TEST_CASE("nn_trace capture respects exact and prefix requests", "[prd170][nn][c
         CHECK(value.sizes().vec() == std::vector<int64_t>{2, 1, 2, 2});
     }
     // branch の診断だけを要求したときは nn_trace を混ぜず、同じ出力を返す。
-    anet::nn::NetworkForwardCapture branch({kPrd170TraceFeature});
+    anet::nn::NetworkForwardCapture branch({kRfd0170TraceFeature});
     const auto without_trace = network->Forward(input, &branch);
     CHECK(branch.GetAll(anet::nn::kNnTracePrefix).empty());
-    CHECK(torch::equal(actual.At(kPrd170TraceFeature), without_trace.At(kPrd170TraceFeature)));
+    CHECK(torch::equal(actual.At(kRfd0170TraceFeature), without_trace.At(kRfd0170TraceFeature)));
 }

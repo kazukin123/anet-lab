@@ -14,10 +14,10 @@
 
 
 
-TEST_CASE("PRD117 captures current Env defaults for key comparison", "[.][prd117-capture]")
+TEST_CASE("RFD0117 captures current Env defaults for key comparison", "[.][rfd0117-capture]")
 {
     // 履歴の固定入力ではなく、今回変更する出荷設定の全キーを採取する。
-    constexpr const char* kCaptureOutput = "ANET_PRD117_CAPTURE_OUTPUT";
+    constexpr const char* kCaptureOutput = "ANET_RFD0117_CAPTURE_OUTPUT";
     wxString output_directory;
     REQUIRE(wxGetEnv(kCaptureOutput, &output_directory));
     const auto root = std::filesystem::path(output_directory.ToStdWstring());
@@ -41,10 +41,10 @@ TEST_CASE("PRD117 captures current Env defaults for key comparison", "[.][prd117
     }
 }
 
-TEST_CASE("PRD117 resolves an acceptance Run with scalar definitions", "[.][prd117-resolve]")
+TEST_CASE("RFD0117 resolves an acceptance Run with scalar definitions", "[.][rfd0117-resolve]")
 {
-    constexpr char kResolveInput[] = "ANET_PRD117_RESOLVE_INPUT";
-    constexpr char kResolveOutput[] = "ANET_PRD117_RESOLVE_OUTPUT";
+    constexpr char kResolveInput[] = "ANET_RFD0117_RESOLVE_INPUT";
+    constexpr char kResolveOutput[] = "ANET_RFD0117_RESOLVE_OUTPUT";
     wxString input;
     wxString output;
     REQUIRE(wxGetEnv(kResolveInput, &input));
@@ -100,9 +100,9 @@ TEST_CASE("Atari.txt presets and RAM metric groups follow the shipped rules", "[
     CHECK(classic.Get<bool>("AtariEnv.episodic_life"));
     CHECK(classic.Get<bool>("AtariEnv.fire_reset"));
 
-    // RAM の指標の群の規則（PRD082 D19）。得点の平均を持つ群は番号 1〜4 の mean と max を持ち、得点の EMA を持つ群は EMA も持つ。
+    // RAM の指標の群の規則（RFD0082 D19）。得点の平均を持つ群は番号 1〜4 の mean と max を持ち、得点の EMA を持つ群は EMA も持つ。
     // 軸・event・eval 名・interval は同じ群の得点の指標に揃える。tag の番号は mean 50/52/54/59、EMA 51/53/55/59、max 56/57/58/59。
-    // 4 の 59 は指標の番号の整理（PRD108）までの暫定。
+    // 4 の 59 は指標の番号の整理（RFD0108）までの暫定。
     const anet::rl::ObserverFactory metric_factory(v5);
     const auto& scalar_defs = metric_factory.GetScalarMetricDefs();
     const auto find_scalar = [&](const std::string& tag) {
@@ -166,25 +166,25 @@ TEST_CASE("Atari.txt presets and RAM metric groups follow the shipped rules", "[
     }
 }
 
-TEST_CASE("ConfigManager compares frozen PRD072 configuration inputs", "[.][prd072-baseline]")
+TEST_CASE("ConfigManager compares frozen RFD0072 configuration inputs", "[.][rfd0072-baseline]")
 {
     // 入力定義とgoldenを版管理し、固定設定の展開と比較結果だけをローカルへ置く。
     const auto repo = std::filesystem::current_path();
     wxString prepared_root;
-    constexpr const char* kPrd072RootEnv = "ANET_PRD072_ROOT";
-    REQUIRE(wxGetEnv(kPrd072RootEnv, &prepared_root));
+    constexpr const char* kRfd0072RootEnv = "ANET_RFD0072_ROOT";
+    REQUIRE(wxGetEnv(kRfd0072RootEnv, &prepared_root));
     const auto root = std::filesystem::path(prepared_root.ToStdWstring());
-    std::ifstream manifest_file(repo / "src/core/base/testdata/prd072/manifest.json");
+    std::ifstream manifest_file(repo / "src/core/base/testdata/rfd0072/manifest.json");
     REQUIRE(manifest_file.good());
     const auto manifest = anet::json::parse(manifest_file);
     std::ifstream prepared_file(root / "manifest.json");
     REQUIRE(prepared_file.good());
     REQUIRE(anet::json::parse(prepared_file) == manifest);
-    const bool capture = wxGetEnv("ANET_PRD072_CAPTURE", nullptr);
+    const bool capture = wxGetEnv("ANET_RFD0072_CAPTURE", nullptr);
     for (const auto& input : manifest["inputs"]) {
         const auto id = input["id"].get<std::string>();
         INFO(id);
-        const auto baseline_path = repo / "src/core/base/testdata/prd072/baseline" / (id + ".json");
+        const auto baseline_path = repo / "src/core/base/testdata/rfd0072/baseline" / (id + ".json");
         if (capture) {
             REQUIRE_FALSE(std::filesystem::exists(baseline_path));
         }
@@ -232,7 +232,7 @@ TEST_CASE("ConfigManager compares frozen PRD072 configuration inputs", "[.][prd0
             CHECK(baseline["baseline_commit"] == manifest["commit"]);
             // json objectはキー順に保持される。文字列表記は正規化しない。
             CHECK(actual["values"] == baseline["values"]);
-            std::ifstream expected_file(repo / "src/core/base/testdata/prd072/resolution" / (id + ".json"));
+            std::ifstream expected_file(repo / "src/core/base/testdata/rfd0072/resolution" / (id + ".json"));
             CHECK(expected_file.good());
             if (expected_file.good()) {
                 auto expected = anet::json::parse(expected_file);
@@ -252,15 +252,15 @@ TEST_CASE("ConfigManager compares frozen PRD072 configuration inputs", "[.][prd0
 
 
 
-TEST_CASE("PRD093 snapshots current configuration inputs", "[.][prd093-config-snapshot]")
+TEST_CASE("RFD0093 snapshots current configuration inputs", "[.][rfd0093-config-snapshot]")
 {
     // 現用設定を全キー・文字列値で採取し、過去の固定入力には触れない。
     wxString directory;
-    REQUIRE(wxGetEnv("ANET_PRD093_OUTPUT", &directory));
+    REQUIRE(wxGetEnv("ANET_RFD0093_OUTPUT", &directory));
     const auto output = std::filesystem::path(directory.ToStdWstring());
     std::filesystem::create_directories(output);
     wxString config_root;
-    const auto config = wxGetEnv("ANET_PRD093_CONFIG_ROOT", &config_root)
+    const auto config = wxGetEnv("ANET_RFD0093_CONFIG_ROOT", &config_root)
         ? std::filesystem::path(config_root.ToStdWstring()).generic_string()
         : (std::filesystem::current_path() / "apps/runner/config").generic_string();
     for (const auto& env : {"Atari", "DropMerge", "LunarLander", "ImageCls", "GridMaze", "GridMaze_muzero", "CartPole"}) {
@@ -283,9 +283,9 @@ constexpr const char* kSkipRunProfile = "run.@skip";
 
 
 
-TEST_CASE("PRD158 captures and checks migrated evaluation schedules", "[.][prd158-config]")
+TEST_CASE("RFD0158 captures and checks migrated evaluation schedules", "[.][rfd0158-config]")
 {
-    constexpr const char* kOutputEnv = "ANET_PRD158_OUTPUT";
+    constexpr const char* kOutputEnv = "ANET_RFD0158_OUTPUT";
     constexpr const char* kEvalTargetTag = "eval_target";
     constexpr const char* kEvalTag = "eval";
     constexpr const char* kGreedyTag = "greedy";
@@ -354,11 +354,11 @@ TEST_CASE("PRD158 captures and checks migrated evaluation schedules", "[.][prd15
 
 
 
-TEST_CASE("PRD103 resolves the actual validation input", "[.][prd103-resolve]")
+TEST_CASE("RFD0103 resolves the actual validation input", "[.][rfd0103-resolve]")
 {
     wxString input, output;
-    REQUIRE(wxGetEnv("ANET_PRD103_INPUT", &input));
-    REQUIRE(wxGetEnv("ANET_PRD103_OUTPUT", &output));
+    REQUIRE(wxGetEnv("ANET_RFD0103_INPUT", &input));
+    REQUIRE(wxGetEnv("ANET_RFD0103_OUTPUT", &output));
     const anet::ConfigManager manager(std::filesystem::path(input.ToStdWstring()));
     std::ofstream file(std::filesystem::path(output.ToStdWstring()));
     REQUIRE(file.good());
@@ -366,14 +366,14 @@ TEST_CASE("PRD103 resolves the actual validation input", "[.][prd103-resolve]")
     REQUIRE(file.good());
 }
 
-TEST_CASE("PRD093 validation conditions survive the Atari Run chain", "[.][prd093-validation-config]")
+TEST_CASE("RFD0093 validation conditions survive the Atari Run chain", "[.][rfd0093-validation-config]")
 {
     // 実際のPython採取器が生成した入力をConfigManagerの公開経路で解決する。
     wxString input;
-    REQUIRE(wxGetEnv("ANET_PRD093_VALIDATION_CONFIG", &input));
+    REQUIRE(wxGetEnv("ANET_RFD0093_VALIDATION_CONFIG", &input));
     const anet::ConfigManager manager(std::filesystem::path(input.ToStdWstring()));
     const auto data = manager.GetConfigData();
-    CHECK(data.Get("app.run_name") == "run_{t}_prd093_contract_atari");
+    CHECK(data.Get("app.run_name") == "run_{t}_rfd0093_contract_atari");
     CHECK(data.Get("app.batchrun.exp_exit_step") == "478528");
     CHECK(data.Get("app.exp_exit_step") == "478528");
     for (const auto& [key, value] : data.Map()) {
@@ -471,10 +471,10 @@ static void ValidateUnusedCatalogs(const anet::ConfigData& data)
     }
 }
 
-TEST_CASE("Shipped configuration reads every unused NN catalog entry", "[prd117][shipped_config]")
+TEST_CASE("Shipped configuration reads every unused NN catalog entry", "[rfd0117][shipped_config]")
 {
     const auto config_root = std::filesystem::current_path() / "apps/runner/config";
-    const auto output = std::filesystem::current_path() / "out/test-tmp/prd117-shipped-catalogs";
+    const auto output = std::filesystem::current_path() / "out/test-tmp/rfd0117-shipped-catalogs";
     std::filesystem::create_directories(output);
     for (const auto* env : {"Atari", "CartPole", "DropMerge", "GridMaze", "GridMaze_muzero", "ImageCls", "LunarLander"}) {
         CAPTURE(env);
@@ -489,7 +489,7 @@ TEST_CASE("Shipped configuration reads every unused NN catalog entry", "[prd117]
     }
 }
 
-TEST_CASE("Shipped catalog checker rejects unread fields in unused definitions", "[prd117][shipped_config]")
+TEST_CASE("Shipped catalog checker rejects unread fields in unused definitions", "[rfd0117][shipped_config]")
 {
     anet::test::LogCaptureGuard logs;
     const std::string kind = GENERATE("block", "profile", "forward");
@@ -512,7 +512,7 @@ TEST_CASE("Shipped catalog checker rejects unread fields in unused definitions",
     CHECK_THROWS_WITH(ValidateUnusedCatalogs(data), Catch::Matchers::ContainsSubstring(kind == "block" ? "out_channels" : "typo"));
 }
 
-TEST_CASE("Shipped catalog checker accepts branch-only profiles and dormant forward modes", "[prd117][shipped_config]")
+TEST_CASE("Shipped catalog checker accepts branch-only profiles and dormant forward modes", "[rfd0117][shipped_config]")
 {
     anet::ConfigData data;
     data.Set("net.block.[Drop].type", "Dropout");

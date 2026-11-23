@@ -20,7 +20,7 @@ checkpoint 由来の指標は anet-lab 側が learn_step 軸なので、BTR の�
 
 BTR の eval はオンライン網を読むので eval2 へ対応させる (eval1 = target 網に
 相当するものが BTR に無い)。EMA は runner と同じゼロ初期化 + 逐次積 debias
-(PRD 045 案A) で、alpha は train 0.001 / eval 0.1。
+(RFD0045 案A) で、alpha は train 0.001 / eval 0.1。
 
 probe 指標は全 checkpoint へ同一の観測バッチを食わせて測る。観測は最新
 checkpoint の方策で 1 度だけ収集し、out 配下へ残して再利用する。
@@ -197,7 +197,7 @@ def checkpoint_steps(btr_run):
 
 
 def split_weight_norms(state_dict):
-    """feature / readout の依存閉包で重みノルムを分ける (PRD 063 と同じ 2 群)。"""
+    """feature / readout の依存閉包で重みノルムを分ける (RFD0063 と同じ 2 群)。"""
     import torch
 
     feature_sq, readout_sq = 0.0, 0.0

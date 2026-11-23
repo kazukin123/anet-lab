@@ -24,7 +24,7 @@
 #include <thread>
 #include <vector>
 
-TEST_CASE("ExperienceSamples transfers and visits every populated field in order", "[prd128][replay_buffer]")
+TEST_CASE("ExperienceSamples transfers and visits every populated field in order", "[rfd0128][replay_buffer]")
 {
     const bool cuda = GENERATE(false, true);
     if (cuda && !torch::cuda::is_available()) {
@@ -67,7 +67,7 @@ TEST_CASE("ExperienceSamples transfers and visits every populated field in order
     CHECK(transferred.ToString().find("target_returns") != std::string::npos);
 }
 
-TEST_CASE("ExperienceSamples string describes every field including undefined fields", "[prd128][replay_buffer]")
+TEST_CASE("ExperienceSamples string describes every field including undefined fields", "[rfd0128][replay_buffer]")
 {
     const anet::rl::ExperienceSamples samples;
     const auto text = samples.ToString();
@@ -80,7 +80,7 @@ TEST_CASE("ExperienceSamples string describes every field including undefined fi
     }
 }
 
-TEST_CASE("ExperienceSamples retains undefined core tensors on CPU and CUDA", "[prd128][replay_buffer]")
+TEST_CASE("ExperienceSamples retains undefined core tensors on CPU and CUDA", "[rfd0128][replay_buffer]")
 {
     const int missing = GENERATE(0, 1, 2);
     const bool cuda = GENERATE(false, true);
@@ -884,7 +884,7 @@ void RequireSlotsIn(
     }
 }
 
-TEST_CASE("Replay windows stop at the next decision and return discounted transitions", "[replay_buffer][prd098]")
+TEST_CASE("Replay windows stop at the next decision and return discounted transitions", "[replay_buffer][rfd0098]")
 {
     const int execution = GENERATE(0, 1, 2);
     if (execution == 2 && !torch::cuda::is_available()) return;
@@ -925,7 +925,7 @@ TEST_CASE("Replay windows stop at the next decision and return discounted transi
     CHECK(history.sampled->window.next_obs.device().is_cpu());
 }
 
-TEST_CASE("Decision window margin does not delay PER initial-priority completion", "[replay_buffer][prd098]")
+TEST_CASE("Decision window margin does not delay PER initial-priority completion", "[replay_buffer][rfd0098]")
 {
     // J=4のsampleableは8件だが、n_step=2の優先度は10件完成している。
     auto config = MakeConfig(32, 2, 0.5f, 1, rl::ReplaySamplerType::PRIORITIZED);
@@ -942,7 +942,7 @@ TEST_CASE("Decision window margin does not delay PER initial-priority completion
     CHECK(buffer.rb->Size() == 8);
 }
 
-TEST_CASE("Replay requires one return recompute flag per component", "[prd121][replay_buffer][rb_flag_count]")
+TEST_CASE("Replay requires one return recompute flag per component", "[rfd0121][replay_buffer][rb_flag_count]")
 {
     // 未指定の空配列も含め、成分数と違う長さを構築時に拒否する。
     const int components = GENERATE(1, 2, 3);
@@ -960,7 +960,7 @@ TEST_CASE("Replay requires one return recompute flag per component", "[prd121][r
     }
 }
 
-TEST_CASE("Replay recomputes only the scheduled reward component", "[prd121][replay_buffer]")
+TEST_CASE("Replay recomputes only the scheduled reward component", "[rfd0121][replay_buffer]")
 {
     // 公開のPushと抽選を通し、定数の成分とscheduleの成分を同じ標本で比べる。
     const int components = GENERATE(2, 3);
@@ -1012,7 +1012,7 @@ TEST_CASE("Replay recomputes only the scheduled reward component", "[prd121][rep
     CHECK_THROWS_WITH(MakeBuffer(config, 1), Catch::Matchers::ContainsSubstring("component"));
 }
 
-TEST_CASE("Replay windows retain episode boundaries through ring wrap and transfer", "[replay_buffer][prd098]")
+TEST_CASE("Replay windows retain episode boundaries through ring wrap and transfer", "[replay_buffer][rfd0098]")
 {
     auto config = MakeConfig(16, 2, 0.5f, 3, rl::ReplaySamplerType::UNIFORM);
     config.window_rule = rl::CreateDecisionWindowRule(4);
@@ -1056,7 +1056,7 @@ TEST_CASE("Replay windows retain episode boundaries through ring wrap and transf
     }
 }
 
-TEST_CASE("Replay decision windows preserve margins and sample lengths uniformly", "[replay_buffer][prd098]")
+TEST_CASE("Replay decision windows preserve margins and sample lengths uniformly", "[replay_buffer][rfd0098]")
 {
     auto config = MakeConfig(32, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
     const auto ordinary = MakeBuffer(config, 1);
@@ -1087,7 +1087,7 @@ TEST_CASE("Replay decision windows preserve margins and sample lengths uniformly
     CHECK_THROWS(MakeBuffer(config, 1));
 }
 
-TEST_CASE("Replay rejects action changes inside a decision window", "[replay_buffer][prd098]")
+TEST_CASE("Replay rejects action changes inside a decision window", "[replay_buffer][rfd0098]")
 {
     auto config = MakeConfig(16, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
     config.window_rule = rl::CreateDecisionWindowRule(3);
@@ -1108,7 +1108,7 @@ TEST_CASE("Replay rejects action changes inside a decision window", "[replay_buf
     CHECK_THROWS_WITH(buffer->SampleUniqueUniform(sample, 1, random, std::array{config.gamma}), Catch::Matchers::ContainsSubstring("Invalid window action"));
 }
 
-TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring wrap", "[replay_buffer][prd104][prd104-windows]")
+TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring wrap", "[replay_buffer][rfd0104][rfd0104-windows]")
 {
     const bool action_change = GENERATE(false, true);
     const bool prefetch = GENERATE(false, true);
@@ -1164,7 +1164,7 @@ TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring w
     }
 }
 
-TEST_CASE("Auxiliary window rules reject dummy slots inside a window", "[replay_buffer][prd104][prd104-windows]")
+TEST_CASE("Auxiliary window rules reject dummy slots inside a window", "[replay_buffer][rfd0104][rfd0104-windows]")
 {
     const bool action_change = GENERATE(false, true);
     auto config = MakeConfig(8, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
@@ -1928,7 +1928,7 @@ TEST_CASE("ReplayBuffer visualization accessors expose PER priorities", "[replay
     RequireFlatApprox(*env0_value, { env0_priority });
 }
 
-TEST_CASE("PER falls back once when repeated rejection draws cannot select a positive priority", "[replay_buffer][per][prd117_rejection]")
+TEST_CASE("PER falls back once when repeated rejection draws cannot select a positive priority", "[replay_buffer][per][rfd0117_rejection]")
 {
     // 0は有効な明示priorityである。全slotを0にし、乱数に依存せず拒否上限へ到達させる。
     auto config = MakeConfig(8);
@@ -2420,7 +2420,7 @@ TEST_CASE("Initial priority completer rejects a bootstrap logical time mismatch"
     CHECK(priority_store.initial_writes.empty());
 }
 
-TEST_CASE("ValidIndexManager reuses sampleable index storage", "[replay_buffer][valid_index][prd077]")
+TEST_CASE("ValidIndexManager reuses sampleable index storage", "[replay_buffer][valid_index][rfd0077]")
 {
     rl::ValidIndexManager manager(1, 8);
     // 非空の候補列を作り、最初のTensorを保持してallocatorの偶然の再利用を防ぐ。
@@ -2435,7 +2435,7 @@ TEST_CASE("ValidIndexManager reuses sampleable index storage", "[replay_buffer][
     CHECK(first.data_ptr<int64_t>() == second.data_ptr<int64_t>());
 }
 
-TEST_CASE("ValidIndexManager cloned indices survive subsequent enumeration", "[replay_buffer][valid_index][prd077]")
+TEST_CASE("ValidIndexManager cloned indices survive subsequent enumeration", "[replay_buffer][valid_index][rfd0077]")
 {
     rl::ValidIndexManager manager(1, 8);
     // 同一状態での列挙結果と、次回呼び出しを跨ぐ所有snapshotを確認する。
@@ -2456,7 +2456,7 @@ TEST_CASE("ValidIndexManager cloned indices survive subsequent enumeration", "[r
     CHECK(TensorToInt64Vector(snapshot) == std::vector<int64_t>{ 0, 1 });
 }
 
-TEST_CASE("ValidIndexManager returns an empty index tensor before any samples are ready", "[replay_buffer][valid_index][prd077]")
+TEST_CASE("ValidIndexManager returns an empty index tensor before any samples are ready", "[replay_buffer][valid_index][rfd0077]")
 {
     // 未書き込み状態でも、呼び出し側の空集合判定に使える1D Tensorを返す。
     const rl::ValidIndexManager manager(1, 8);
@@ -3336,7 +3336,7 @@ TEST_CASE("PrefetchingReplayBuffer waits for cold sample before push", "[replay_
     CHECK_FALSE(inner_state->PushWasCalledBeforeFirstSampleFinished());
 }
 
-TEST_CASE("PrefetchingReplayBuffer owns gammas across worker boundaries", "[prd121][replay_buffer][prefetch][rb_gamma_ownership]")
+TEST_CASE("PrefetchingReplayBuffer owns gammas across worker boundaries", "[rfd0121][replay_buffer][prefetch][rb_gamma_ownership]")
 {
     auto inner = std::make_shared<BlockingReplayBuffer>();
     rl::PrefetchingReplayBuffer rb(inner, torch::kCPU);
@@ -4644,7 +4644,7 @@ TEST_CASE("ReplayBuffer integrity assay matches independent input histories acro
                         }
 }
 
-TEST_CASE("PRD101 scheduled gamma rebuilds sampled returns after the push boundary", "[prd101][replay_buffer]")
+TEST_CASE("RFD0101 scheduled gamma rebuilds sampled returns after the push boundary", "[rfd0101][replay_buffer]")
 {
     auto config = MakeConfig(32, 3, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
     config.needs_return_recompute = {true};
@@ -4666,7 +4666,7 @@ TEST_CASE("PRD101 scheduled gamma rebuilds sampled returns after the push bounda
     REQUIRE(found);
 }
 
-TEST_CASE("PRD101 prefetch keeps reward snapshots through wrap and episode boundaries", "[prd101][replay_buffer][prefetch]")
+TEST_CASE("RFD0101 prefetch keeps reward snapshots through wrap and episode boundaries", "[rfd0101][replay_buffer][prefetch]")
 {
     const bool cuda = GENERATE(false, true);
     const bool windows = GENERATE(false, true);
@@ -4718,7 +4718,7 @@ TEST_CASE("PRD101 prefetch keeps reward snapshots through wrap and episode bound
     }
 }
 
-TEST_CASE("PRD101 constant gamma retains saved returns without reward snapshots", "[prd101][replay_buffer]")
+TEST_CASE("RFD0101 constant gamma retains saved returns without reward snapshots", "[rfd0101][replay_buffer]")
 {
     auto buffer = MakeBuffer(MakeConfig(16, 3, 0.5f, 1, rl::ReplaySamplerType::UNIFORM), 1);
     for (int step = 0; step < 5; ++step) {
@@ -4737,7 +4737,7 @@ TEST_CASE("PRD101 constant gamma retains saved returns without reward snapshots"
     }
 }
 
-TEST_CASE("PRD101 sampling-history diagnostics receive their own current gamma", "[prd101][replay_buffer]")
+TEST_CASE("RFD0101 sampling-history diagnostics receive their own current gamma", "[rfd0101][replay_buffer]")
 {
     auto config = MakeConfig(16, 3, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
     config.needs_return_recompute = {true};
@@ -4757,7 +4757,7 @@ TEST_CASE("PRD101 sampling-history diagnostics receive their own current gamma",
     }
 }
 
-TEST_CASE("Replay constructor requires priority store and completer together", "[prd122][replay_buffer][per]")
+TEST_CASE("Replay constructor requires priority store and completer together", "[rfd0122][replay_buffer][per]")
 {
     // ファクトリが作らない片方だけの構成も、公開コンストラクタの境界で拒否する。
     const bool store_present = GENERATE(false, true);

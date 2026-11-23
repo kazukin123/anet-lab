@@ -17,16 +17,16 @@ RAM の 0x80 はセクター番号、0x94 はボスを魚雷で倒したフレ�
 - ボス 1 回の点の推定は約 1,400〜1,600 点だった。スキップなし s2 のボス 0 回のゲームに当てた得点の曲線との差を、ボスの回数で割った値で、ボス 5 回以上の帯で 1,364〜1,640。曲線のセクター 25 での傾きは 3,336 点である（出典: [2026-11-04_temporl-freeway-beamrider.md](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、探索ブロック05）。
 - 公開の `results.csv` の窓平均は 141〜160M フレームで 57,361、161〜180M で 76,001、181〜199M で 87,561 だった。手元で流した BTR の公開実装（評価 10 ゲーム）は同じ窓で 21,861、16,341、17,085、セクターは 11.8、9.4、9.8（181〜200M）だった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、現時点のまとめ7・探索ブロック02）。
 - 40〜50M の Q の最大の平均は、single の Greedy の 40.6・45.65M のクリップ後の報酬の密度（報酬の合計 ÷ step）に 1/(1−γ)=333 を掛けた値に近かった（スキップなし s1 9.34 対 9.22、s2 11.3 対 11.13、補助学習のみ s1 9.50 対 9.37、合算 s1 9.17 対 9.17）。1 セクターは 584〜687 step だった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、探索ブロック05・06）。
-- RAM 0x80 はセクター番号（1 始まり）で、セクターが変わるフレームで 1 ずつ増え、ランダムな行動の 12 ゲームでは死亡とゲームオーバーで増えなかった。15 機を倒しきったあとのボスの場面で死ぬと、復帰と同じフレームで増えた。（出典: [082_atari_ram_progress_metrics_10prd.md](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、Context「beam_rider と freeway の RAM」）
-- RAM 0xD4 はそのセクターで残っている敵の数で、セクターの開始で 15、白い円盤を倒すたびに 1 減り、15 機目のあと 0 → 255 になった。（出典: [082_atari_ram_progress_metrics_10prd.md](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、Context「beam_rider と freeway の RAM」）
-- RAM 0x94 は、ボスを魚雷で倒したフレームで 1 回だけ 141 になった（セクター 2・3 で 1 回ずつ、得点は 360・390）。倒さない枝と倒していない 2 万フレームでは 141 に入らず、ゲームオーバーでは 140 で止まった。（出典: [082_atari_ram_progress_metrics_10prd.md](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、Context「beam_rider と freeway の RAM」）
-- RAM 0xD3 は魚雷の残り（セクターの開始で 3）で、魚雷の行動のフレームだけ 1 減り、死亡では減らなかった。（出典: [082_atari_ram_progress_metrics_10prd.md](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、Context「beam_rider と freeway の RAM」）
-- ボスを倒すと残機の数だけボーナス（セクター 2 は 120 点、3 は 130 点）が 1 回ずつ入り、そのたびに残機の 0x85 が 1 減って最後に戻った。ALE の `lives()` も 3 → 1 → 3 と動くので、episodic_life を有効にしたプロファイルではボスを倒すたびに残機を失った扱いになる。（出典: [082_atari_ram_progress_metrics_10prd.md](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、Context「beam_rider と freeway の RAM」）
-- 既定設定の RAM 定義は、1 = `sector_clear`（0x80 inc_count）、2 = `boss_kill`（0x94 reach_count:141）、4 = `torpedo_fired`（0xD3 dec_count）である。ボスは魚雷 1 発で倒れるので 3 は置かない。（出典: [220_atari_env.jp.md](../../design/220_atari_env.jp.md)、§4.9 RAM メトリクス。[082_atari_ram_progress_metrics_10prd.md](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、D21・Context「beam_rider と freeway の RAM」）
+- RAM 0x80 はセクター番号（1 始まり）で、セクターが変わるフレームで 1 ずつ増え、ランダムな行動の 12 ゲームでは死亡とゲームオーバーで増えなかった。15 機を倒しきったあとのボスの場面で死ぬと、復帰と同じフレームで増えた。（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「beam_rider と freeway の RAM」）
+- RAM 0xD4 はそのセクターで残っている敵の数で、セクターの開始で 15、白い円盤を倒すたびに 1 減り、15 機目のあと 0 → 255 になった。（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「beam_rider と freeway の RAM」）
+- RAM 0x94 は、ボスを魚雷で倒したフレームで 1 回だけ 141 になった（セクター 2・3 で 1 回ずつ、得点は 360・390）。倒さない枝と倒していない 2 万フレームでは 141 に入らず、ゲームオーバーでは 140 で止まった。（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「beam_rider と freeway の RAM」）
+- RAM 0xD3 は魚雷の残り（セクターの開始で 3）で、魚雷の行動のフレームだけ 1 減り、死亡では減らなかった。（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「beam_rider と freeway の RAM」）
+- ボスを倒すと残機の数だけボーナス（セクター 2 は 120 点、3 は 130 点）が 1 回ずつ入り、そのたびに残機の 0x85 が 1 減って最後に戻った。ALE の `lives()` も 3 → 1 → 3 と動くので、episodic_life を有効にしたプロファイルではボスを倒すたびに残機を失った扱いになる。（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「beam_rider と freeway の RAM」）
+- 既定設定の RAM 定義は、1 = `sector_clear`（0x80 inc_count）、2 = `boss_kill`（0x94 reach_count:141）、4 = `torpedo_fired`（0xD3 dec_count）である。ボスは魚雷 1 発で倒れるので 3 は置かない。（出典: [220_atari_env.jp.md](../../design/220_atari_env.jp.md)、§4.9 RAM メトリクス。[0082_atari_ram_progress_metrics_10rfd.md](../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、D21・Context「beam_rider と freeway の RAM」）
 
 ## 分かっていないこと
 
-- セクター 1 と、セクター 4 より先でも、ボスを倒したときに 0x94 が 1 回だけ 141 になるか。（出典: [082_atari_ram_progress_metrics_10prd.md](../../memo/done/082_atari_ram_progress_metrics_10prd.md)、既知の限界と後続「beam_rider の確認範囲」）
+- セクター 1 と、セクター 4 より先でも、ボスを倒したときに 0x94 が 1 回だけ 141 になるか。（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、既知の限界と後続「beam_rider の確認範囲」）
 
 ## 撤回・更新
 
@@ -36,6 +36,6 @@ RAM の 0x80 はセクター番号、0x94 はボスを魚雷で倒したフレ�
 
 - [atari](../subjects/atari.md)。
 - [220 §4.9 RAM メトリクス](../../design/220_atari_env.jp.md)。
-- [PRD082](../../memo/done/082_atari_ram_progress_metrics_10prd.md)。
+- [RFD0082](../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)。
 - [行動の時間尺度](../mechanisms/temporal_abstraction.md)。
 - [BeamRider と Freeway での TempoRL の記録](../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)。

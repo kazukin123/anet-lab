@@ -68,7 +68,7 @@ app.run_name = run_{t}_dm_iqn-k32-n32-m32
 
 Run and CLI assignments to the target key override explicit `=` assignments too. A CLI assignment to a selection key, however, replaces only the chain. A base definition using `?=` becomes an ordinary value after being resolved in its source and inherited; values on the right of `>` override those on the left.
 
-Internally, the resolver activates required definitions and determines key sets, selects value suppliers in concrete owner/term order, and evaluates dependencies with explicit assignments taking precedence. Cycle/depth validation is separate from value caching, so declaration order or caching cannot change the depth-10 decision. See [PRD072](../memo/done/072_config_selection_final_value_10prd.md) for contracts and examples and [ADR0042](../adr/0042-config-inheritance-as-differential-base.md) for rationale.
+Internally, the resolver activates required definitions and determines key sets, selects value suppliers in concrete owner/term order, and evaluates dependencies with explicit assignments taking precedence. Cycle/depth validation is separate from value caching, so declaration order or caching cannot change the depth-10 decision. See [PRD072](../memo/done/0072_config_selection_final_value_10rfd.md) for contracts and examples and [ADR0042](../adr/0042-config-inheritance-as-differential-base.md) for rationale.
 
 The DefaultDQN, ImageCls, and Rainbow Agent Factories pass `GetTargetAgentClassId() + ".net"` to `NetworkConfig` as the final NN-tree read prefix. Branches, bodies, and outputs are read from Agent-owned subtrees such as `DefaultDQNAgent.net.*`, `ImageClsAgent.net.*`, and `RainbowAgent.net.*`; the block catalog `net.block.[*]` and `net.config_profile` are global shared definitions merged into Agent-local definitions. After constructing both Configs and before constructing NetworkModel, DefaultDQN Factory fails fast unless a branch bind directly includes `taus` when `DefaultDQNAgent.quantile_mode=iqn`, or excludes it for `qr` / `none`. MuZero's actual final trees `net.rep` / `net.dyn` / `net.pred` remain a separate pending structure at the root in PRD 059 Phase 1a.
 
@@ -181,7 +181,7 @@ TrainRunner uses the main Train Env; each EvalRunner gets its own Env and Actor.
 
 `RunManager` owns the private nested `MetricsWiring` and delegates scope resolution, INFO notifications once per Run for dormant tags, Observer registration by event, output of attached scalar/trace definitions, and notification of scalar subscription hints during Run construction. Its declaration is inside RunManager in trainer.hpp, and its definition is in trainer.cpp. Parsing by `ObserverFactory` and value retrieval/aggregation by Observers remain separate responsibilities. Trace wiring to mirror instances created after construction is outside this mechanism.
 
-See the [PRD094 validation resources](../../src/core/base/testdata/prd094/README.md) for validation procedures in this area.
+See the [PRD094 validation resources](../../src/core/base/testdata/rfd0094/README.md) for validation procedures in this area.
 
 ## 6. Processing Flows
 
@@ -384,10 +384,10 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` value type
 
 ## 8. Tests and Extension Checks
 
-- [PRD117 validation resources](../../src/core/base/testdata/prd117/README.md): original-key tracking, closed catalogs, unread config key lists, notifications per Run, and the configurations and stop conditions for normal Runs with zero WARNs.
-- The [PRD194 validation resources](../../src/core/base/testdata/prd194/README.md) describe how to inventory the configuration keys in diagnostic messages and compare them with the expected list.
+- [PRD117 validation resources](../../src/core/base/testdata/rfd0117/README.md): original-key tracking, closed catalogs, unread config key lists, notifications per Run, and the configurations and stop conditions for normal Runs with zero WARNs.
+- The [PRD194 validation resources](../../src/core/base/testdata/rfd0194/README.md) describe how to inventory the configuration keys in diagnostic messages and compare them with the expected list.
 
-- [PRD094 validation resources](../../src/core/base/testdata/prd094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
+- [PRD094 validation resources](../../src/core/base/testdata/rfd0094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 
 - [config_test.cpp](../../src/core/base/src/config_test.cpp): conversion fail-fast, missing-key defaults, structured configuration, includes, selections, two-phase CLI handling, value references, and golden equivalence with old AutoMerge
 - [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): checks of the shipped configuration (`[shipped_config]`): common-layer defaults, resolution of every Actor reference, and the Atari protocol presets and per-group RAM metric alignment. What a test that reads the shipped configuration may pin is defined in the Tests rules of [Implementation Quality Viewpoints](../quality/impl.md#%E3%83%86%E3%82%B9%E3%83%88)
@@ -396,7 +396,7 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` value type
 - [episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp): Runner episode-end notifications and forced actions in Eval
 - [init_test.cpp](../../src/core/base/src/init_test.cpp): initialization and backend settings
 - [app_util_test.cpp](../../src/core/base/src/app_util_test.cpp): executable root and output paths
-- [testdata/prd072/README.md](../../src/core/base/testdata/prd072/README.md): procedure for the fixed 17-input golden comparison of the configuration resolver and the default-key `?=` audit
+- [testdata/prd072/README.md](../../src/core/base/testdata/rfd0072/README.md): procedure for the fixed 17-input golden comparison of the configuration resolver and the default-key `?=` audit
 
 Current `trainer_test.cpp` does not broadly cover complete Serial/Pipeline behavior, counts, or shutdown. When changing these areas, add regression tests for matching Serial/Pipeline action/snapshot boundaries, counts for B=1 and multiple lanes, Eval scope, and worker collection on shutdown.
 

@@ -38,8 +38,8 @@ int main(int argc, char* argv[])
     // どのテストより先に、プロセス全体の MKLDNN を 1 回だけ切る。
     // Debug 版 libtorch の oneDNN は CPU の Conv で thread 数を確かめる assert（nthr_ == nthr）を起こし、
     // 実行体ごと止まる（PyTorch issue #104421）。Catch2 の既定の実行順はランダムなので、
-    // テストの中で切ると、そのテストが先に回ったかで止まるかが変わる（PRD124）。
-    // ビルド構成を問わず切る。Release 版 libtorch と GPU の本番では起きないため、本番の初期化には入れない（PRD028、PRD124 D4）。
+    // テストの中で切ると、そのテストが先に回ったかで止まるかが変わる（RFD0124）。
+    // ビルド構成を問わず切る。Release 版 libtorch と GPU の本番では起きないため、本番の初期化には入れない（RFD0028、RFD0124 D4）。
     at::globalContext().setUserEnabledMkldnn(false);
 
     Catch::Session session;

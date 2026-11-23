@@ -384,9 +384,9 @@ TEST_CASE("WorkspaceService skips malformed history entries without discarding v
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("WorkspaceService reports an unreadable history once per path", "[workspace][history][prd117]")
+TEST_CASE("WorkspaceService reports an unreadable history once per path", "[workspace][history][rfd0117]")
 {
-    const auto root = std::filesystem::current_path() / "out/test-tmp/prd117-history-read";
+    const auto root = std::filesystem::current_path() / "out/test-tmp/rfd0117-history-read";
     WriteWorkspaceTestFile(root / "appdata/history.txt", "$include <missing-history.txt>\n");
     anet::WorkspaceService service(root / "data", root / "runner" / "config", root / "appdata");
     anet::test::LogCaptureGuard logs;
@@ -399,10 +399,10 @@ TEST_CASE("WorkspaceService reports an unreadable history once per path", "[work
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("Unavailable last workspace can fall back through isolated public workspace operations", "[workspace][prd117]")
+TEST_CASE("Unavailable last workspace can fall back through isolated public workspace operations", "[workspace][rfd0117]")
 {
     // RunnerAppの起動分岐が使う同じ公開部品を、実workspaceから隔離して確認する。
-    const auto root = std::filesystem::current_path() / "out/test-tmp/prd117-workspace-fallback";
+    const auto root = std::filesystem::current_path() / "out/test-tmp/rfd0117-workspace-fallback";
     WriteWorkspaceTestFile(root / "runner/config/_workspace_template.txt", "env.class_id = CartPoleEnv\n");
     WriteWorkspaceTestFile(root / "appdata/history.txt", "workspace.history.0 = missing-workspace\n");
     const anet::WorkspaceService service(root / "data", root / "runner" / "config", root / "appdata");
@@ -416,10 +416,10 @@ TEST_CASE("Unavailable last workspace can fall back through isolated public work
 }
 
 #ifdef _WIN32
-TEST_CASE("Standard stream redirection failures warn once per path", "[workspace][prd117][stream_failure]")
+TEST_CASE("Standard stream redirection failures warn once per path", "[workspace][rfd0117][stream_failure]")
 {
     // 通常ファイルの代わりに同名directoryを置き、標準ハンドルを変更する前に失敗させる。
-    const auto root = std::filesystem::current_path() / "out/test-tmp/prd117-stream-failure";
+    const auto root = std::filesystem::current_path() / "out/test-tmp/rfd0117-stream-failure";
     std::filesystem::create_directories(root / "stdout.log");
     std::filesystem::create_directories(root / "stderr.log");
     anet::test::LogCaptureGuard logs;

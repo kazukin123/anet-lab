@@ -431,7 +431,7 @@ TempoRL の列は本論文の記述 [p.5, Exploration-Favor] [p.10, TempoRL] と
 
 ## PRD958 の検討に効く点
 
-[PRD958](../docs/memo/183_temporl_skip_followups_10prd.md) の §9 の 1 に照らした、本解説の読みである。論文の主張ではない。PRD は変更していない。
+[PRD958](../docs/memo/0183_temporl_skip_followups_10rfd.md) の §9 の 1 に照らした、本解説の読みである。論文の主張ではない。PRD は変更していない。
 
 合っていた点:
 
@@ -451,7 +451,7 @@ TempoRL の列は本論文の記述 [p.5, Exploration-Favor] [p.10, TempoRL] と
 
 7. §8 の $\lambda$ の自動調整の再開条件（env ごとに最良の値が大きく違う）の根拠になるのは、Chain MDP の $+2.0$ と Gridworlds の $-1.5$ である。Atari のゲームごとの差は項目 8 のとおり標準偏差の内なので、根拠にしない。論文の自動調整は $\lambda=0$ に対して 12 ゲームで 7 勝 1 分 4 敗である。最良の固定値を上回るのは 3 ゲームだが、この相手は 8 値からの事後の最大である。$\tau$、$\beta$、$\epsilon_{ucb}$ の値は無い。エピソード単位で選ぶので、多数の lane を並べる anet にはそのまま載らない。
 8. Atari で $\bar{\sigma}$ の効果を大きく見込まないほうがよい。Table 10 の平均は TempoRL 1.29、UTE（1-step、最良の $\lambda$）1.34、UTE（n-step）1.81 で、伸びの大半は Q 側の n-step の側にある。最良の $\lambda$ の上乗せも 12 ゲームすべてで標準偏差の内で、8 値からの事後の選択である。学習も 1000 万フレームなので、50M の qbert の比較（[実験記録](../docs/experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)）には直接使えない。
-9. Q 側の $n\le j$ の n-step は §3 の非ゴール（primary の学習を変えない）の外にある。論文の Atari の伸びの主因に見えるので、取り込むなら別 PRD の候補になる。[914](../docs/memo/162_decision_aligned_nstep_10prd.md) は「判断」の定義が別である。
+9. Q 側の $n\le j$ の n-step は §3 の非ゴール（primary の学習を変えない）の外にある。論文の Atari の伸びの主因に見えるので、取り込むなら別 PRD の候補になる。[914](../docs/memo/0162_decision_aligned_nstep_10rfd.md) は「判断」の定義が別である。
 10. D11 の判断（(U) を作らない）を覆す材料ではない。論文の Lava で TempoRL が DDQN を大きく下回る結果は過大評価で説明されているが、anet の 5×5 は skip の方策を ε-greedy にするだけで届いた（§7）。ε-greedy の平均と負の $\lambda$ を同じ条件で比べた実験は論文に無いので、(U) を再開するときはこの比較が要る。
 
 ## 本解説で省略した内容と、確かめられなかった点

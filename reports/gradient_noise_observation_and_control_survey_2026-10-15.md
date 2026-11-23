@@ -419,11 +419,11 @@ The optimal values of most hyperparameters are sensitive to the batch size.
 
 **この章は本調査による考察・提案であり、外部論文がanet-labへ適用を推奨しているという意味ではない。現行PRDの変更決定でもない。**
 
-読んだローカル資料は[PRD092](../docs/memo/done/092_gradient_noise_scale_10prd.md)、[ハイパラ自律調整の暫定PRD](../docs/memo/152_metric_targeted_hyperparam_control_10prd.md)、[ADR0031](../docs/adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR0048](../docs/adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)。規約上、現在のコードと設定も必要箇所だけ読み取った。
+読んだローカル資料は[PRD092](../docs/memo/done/0092_gradient_noise_scale_10rfd.md)、[ハイパラ自律調整の暫定PRD](../docs/memo/0152_metric_targeted_hyperparam_control_10rfd.md)、[ADR0031](../docs/adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR0048](../docs/adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)。規約上、現在のコードと設定も必要箇所だけ読み取った。
 
 ### 7.1 GNSを測る方向は妥当だが、成績の因果判定には足りない
 
-PRD092の「勾配normだけでは平均とばらつきを分けられない」「信号と分散を別々に記録する」「自動制御より先に測る」は、§3の一般事例と整合する。[PRD092, §1・4–5](../docs/memo/done/092_gradient_noise_scale_10prd.md)。
+PRD092の「勾配normだけでは平均とばらつきを分けられない」「信号と分散を別々に記録する」「自動制御より先に測る」は、§3の一般事例と整合する。[PRD092, §1・4–5](../docs/memo/done/0092_gradient_noise_scale_10rfd.md)。
 
 ただし、simple GNSが256を超えたことだけで「B512の成績改善はノイズが原因」と言い切れない。逆に256を大きく下回っても、AdamでB増加が効く可能性を棄却できない。§4.6のOLMoは、まさにsimple GNSと実際の有効Bが一致しない事例である。GNSを機序の観測、分岐Runを介入効果の検証として使うのが、本調査の推奨。
 
@@ -431,7 +431,7 @@ PRD092の「勾配normだけでは平均とばらつきを分けられない」�
 
 ### 7.2 現在のmicrobatch案は共有ノイズを固定している
 
-PRD092の§5は一回のforwardからmicrobatch勾配を取る。§9の#11はNoisyNetの抽選をbatchで共有し、経験とτのばらつきを測ると明記している。基準設定もlearner.currentとlearner.targetにbatch共有のact_sampleを参照させる。[PRD092, §5・9](../docs/memo/done/092_gradient_noise_scale_10prd.md)、[agent.txt, 130–139付近](../apps/runner/config/agent.txt)、[nn_modules.cpp, 284–296付近](../src/core/base/src/nn_modules.cpp)。
+PRD092の§5は一回のforwardからmicrobatch勾配を取る。§9の#11はNoisyNetの抽選をbatchで共有し、経験とτのばらつきを測ると明記している。基準設定もlearner.currentとlearner.targetにbatch共有のact_sampleを参照させる。[PRD092, §5・9](../docs/memo/done/0092_gradient_noise_scale_10rfd.md)、[agent.txt, 130–139付近](../apps/runner/config/agent.txt)、[nn_modules.cpp, 284–296付近](../src/core/base/src/nn_modules.cpp)。
 
 したがって現案を「NoisyNetも含む総更新ノイズ」と読むのは広すぎる。共有抽選Zを固定した条件付きのsample分散を主に測る案である。§3.3のノイズ床を別に観測しなければ、総ノイズがBでどれだけ減るかは分からない。
 
@@ -458,7 +458,7 @@ $$
 
 ### 7.4 前処理つきGNSと実更新を区別する
 
-PRD092は現在のAdamのv̂によるP=diag(1/(√v̂+ε))を勾配へ掛ける。[PRD092, §5.4](../docs/memo/done/092_gradient_noise_scale_10prd.md)。
+PRD092は現在のAdamのv̂によるP=diag(1/(√v̂+ε))を勾配へ掛ける。[PRD092, §5.4](../docs/memo/done/0092_gradient_noise_scale_10rfd.md)。
 
 固定Pなら、PGとPΣPᵀに対するGNSを測れる。一方、Adamの実更新にはmの履歴と、今回の勾配によるvの更新も入る。clippingとAdamWのweight decayも、歩幅に影響する。したがって前処理つきGNSを「実際の歩幅のSNR」と同一視しないことを提案する。根拠となる更新式は§5.1。
 
@@ -466,7 +466,7 @@ PRD092は現在のAdamのv̂によるP=diag(1/(√v̂+ε))を勾配へ掛ける�
 
 ### 7.5 B・学習率・更新回数を分けて比較する
 
-現コードはreplay_ratioが正の場合、更新creditをnum_envs×RR/Bで計算する。従ってRR固定でBを倍にすると、経験あたりの更新数が半減する。[dqn_based_agent.cpp:2037](../src/core/base/src/dqn_based_agent.cpp)。PRD092もこの交絡を記載している。[PRD092, §3](../docs/memo/done/092_gradient_noise_scale_10prd.md)。
+現コードはreplay_ratioが正の場合、更新creditをnum_envs×RR/Bで計算する。従ってRR固定でBを倍にすると、経験あたりの更新数が半減する。[dqn_based_agent.cpp:2037](../src/core/base/src/dqn_based_agent.cpp)。PRD092もこの交絡を記載している。[PRD092, §3](../docs/memo/done/0092_gradient_noise_scale_10rfd.md)。
 
 以下は、091によって継続Runの学習率変更が有効になった後の**提案**。実行していない。η₀は選んだ基準Runの実効学習率であり、新しい数値の指定ではない。
 
@@ -498,7 +498,7 @@ Bとηの同時scalingで並列化を目的にする試験は、§4.4に沿う�
 | §7: GNSが小さければノイズでは説明できない | 単純尺度の誤差、共有ノイズ、optimizer依存がある | 検討対象をsample分散の仮説に限定する |
 | §7: 何回かの測定後に有限かつ正になる | G≈0や識別困難な領域でも比が有限とは限らない | 合成問題で正しさを検証し、実Runでは信号・分散・成立可否を読む |
 
-自律調整の暫定PRDが要求する「観測量と成績の較正が先」という順序は維持する。GNS/B=1を、そのまま普遍的な制御目標へ置く根拠は今回の調査では得られなかった。[ハイパラ自律調整の暫定PRD, 前提として先に要る作業](../docs/memo/152_metric_targeted_hyperparam_control_10prd.md)。
+自律調整の暫定PRDが要求する「観測量と成績の較正が先」という順序は維持する。GNS/B=1を、そのまま普遍的な制御目標へ置く根拠は今回の調査では得られなかった。[ハイパラ自律調整の暫定PRD, 前提として先に要る作業](../docs/memo/0152_metric_targeted_hyperparam_control_10rfd.md)。
 
 ## 8. 総合評価と調査の限界
 

@@ -375,7 +375,7 @@ Cloning, hard/soft copying, and serialization include μ/σ parameters and exist
 
 See the [extension point table in the framework overview](010_framework_overview.en.md#43-extension-points) for the public extension points.
 
-- [PRD117 validation resources](../../src/core/base/testdata/prd117/README.md): closed validation of referenced blocks/profiles, handling of unreferenced definitions, and checks of the shipped configuration.
+- [PRD117 validation resources](../../src/core/base/testdata/rfd0117/README.md): closed validation of referenced blocks/profiles, handling of unreferenced definitions, and checks of the shipped configuration.
 
 When changing Networks, check the following:
 
@@ -388,11 +388,11 @@ When changing Networks, check the following:
 7. Preserve GraphViz/Trace and expose visualization support where needed.
 8. When extending bind, validate parsing, dependency order, cycles, runtime shapes, ToJson, GraphViz, and unused-input warnings under the same term/factor contract.
 
-See the [PRD 084 validation instructions](../../src/core/base/testdata/prd084/README.md) for execution-setting ownership and independent Module / Head extension tests.
+See the [PRD 084 validation instructions](../../src/core/base/testdata/rfd0084/README.md) for execution-setting ownership and independent Module / Head extension tests.
 
 Main unit tests are in [nn_test.cpp](../../src/core/base/src/nn_test.cpp); DQN/ImageCls tests also validate Agent integration.
 
-- See the [PRD170 validation assets](../../src/core/base/testdata/prd170/README.md) for nn_trace requests, full-value comparison, and propagation through Runner.
+- See the [PRD170 validation assets](../../src/core/base/testdata/rfd0170/README.md) for nn_trace requests, full-value comparison, and propagation through Runner.
 
 ## 9. Related Documents
 

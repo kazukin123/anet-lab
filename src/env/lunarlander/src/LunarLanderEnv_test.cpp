@@ -283,7 +283,7 @@ int main(int argc, char* argv[])
     return session.run(test_args.Argc(), test_args.Argv());
 }
 
-TEST_CASE("LunarLander results retain their drawing data after later Step and Reset", "[lunarlander][prd097_lunar_result]")
+TEST_CASE("LunarLander results retain their drawing data after later Step and Reset", "[lunarlander][rfd0097_lunar_result]")
 {
     auto env = MakeEnv(false);
     env->Reset();

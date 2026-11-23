@@ -23,9 +23,9 @@
 - [Auto Recolor は選択中だった Run の色を変えず、新しく選んだ Run へ毎回最良の色を配る](../../adr/0050-auto-recolor-colors-only-newly-selected-runs.md)。
 - [metrics query の latest-wins をサーバ側で強制し、その単位を query channel（ブラウザタブ）とする](../../adr/0023-server-enforced-query-supersede-per-channel.md)。channel の単位は ADR 0090 で改めた。
 - [query channel の単位を、ブラウザタブと問い合わせの種類の組にする](../../adr/0090-query-channel-is-per-tab-and-query-kind.md)。
-- [PRD 090: MetricsViewerのキャッシュ再構築を高速化し全ワークスペースで事前実行する](../../memo/done/090_metricsviewer_cache_rebuild_10prd.md)。
-- [PRD 089: MetricsViewerの比較粒度を表示Step範囲でそろえる](../../memo/done/089_metricsviewer_comparison_resolution_10prd.md)。
-- [MetricsViewer SQLite キャッシュ化(Phase 1: OOM 解消・LOD・viewport API)](../../memo/done/041_metrics_sqlite_cache_10prd.md)。
+- [RFD0090: MetricsViewerのキャッシュ再構築を高速化し全ワークスペースで事前実行する](../../memo/done/0090_metricsviewer_cache_rebuild_10rfd.md)。
+- [RFD0089: MetricsViewerの比較粒度を表示Step範囲でそろえる](../../memo/done/0089_metricsviewer_comparison_resolution_10rfd.md)。
+- [MetricsViewer SQLite キャッシュ化(Phase 1: OOM 解消・LOD・viewport API)](../../memo/done/0041_metrics_sqlite_cache_10rfd.md)。
 - [共通Step区間を採った理由](../../adr/0052-metrics-display-uses-common-step-bins-and-factor4-storage.md)、本文。
 - [現行の共通Step区間とcache契約](../../design/210_metrics_viewer.jp.md)、§2.7・§6.2・§6.3。
 - [atari](../subjects/atari.md)。

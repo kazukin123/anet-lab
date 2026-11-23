@@ -33,7 +33,7 @@ static std::shared_ptr<anet::nn::Network> MakeScalarSpectralNetwork()
         {{anet::rl::ObsKeys::kVector, spec}}, nullptr, 122, torch::Device(torch::kCPU));
 }
 
-TEST_CASE("Batch update scalar characterization covers all recognized keys", "[prd122][dqn][scalar]")
+TEST_CASE("Batch update scalar characterization covers all recognized keys", "[rfd0122][dqn][scalar]")
 {
     // 固定した小さな値から、キーごとの現行の戻り値を独立に計算する。
     const float nan = std::numeric_limits<float>::quiet_NaN();
@@ -145,7 +145,7 @@ TEST_CASE("Batch update scalar characterization covers all recognized keys", "[p
         "plasticity_weight_norm_feature_effective", "plasticity_weight_norm_readout_effective",
         "plasticity_spectral_sigma_feature", "plasticity_spectral_sigma_readout"}};
     check_group(norms);
-    CHECK_FALSE(empty.GetScalar("prd122_unknown").has_value());
+    CHECK_FALSE(empty.GetScalar("rfd0122_unknown").has_value());
 
     // 同じキーの値未成立と、優先順位・要求の境目も現行どおりに保つ。
     full.grad_norm.reset();
@@ -156,7 +156,7 @@ TEST_CASE("Batch update scalar characterization covers all recognized keys", "[p
     CHECK(std::isnan(*full.GetScalar(kPerPrioClipRatio)));
 }
 
-TEST_CASE("Batch update scalar characterization covers all system error paths", "[prd122][dqn][scalar]")
+TEST_CASE("Batch update scalar characterization covers all system error paths", "[rfd0122][dqn][scalar]")
 {
     BatchUpdateResult result;
     SECTION("Malformed attention key") {

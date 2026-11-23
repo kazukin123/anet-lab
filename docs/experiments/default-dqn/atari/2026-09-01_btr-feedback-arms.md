@@ -832,7 +832,7 @@ soft008 対の累積突破本数:
 - [2026-08-31_rr4-ceiling-ln512.md](2026-08-31_rr4-ceiling-ln512.md) — RR4 天井・LN512・432 点の壁・eval1 の検出力。本記録の判定基準はこちらに依存する。
 - [reports/btr_code_reading_2026-08-31.md](../../../../reports/btr_code_reading_2026-08-31.md) — BTR 公開実装のソース読解。本記録の各腕はここで特定した差分に対応する。
 - [2026-08-30_protection-screening.md](2026-08-30_protection-screening.md) — RR8 崩壊 assay での 5 腕スクリーニング。SN 腕の先行測定。
-- [docs/memo/done/066_policy_churn_metrics_10prd.md](../../../memo/done/066_policy_churn_metrics_10prd.md) — `35_agent_churn/*` の定義と契約。
+- [docs/memo/done/066_policy_churn_metrics_10prd.md](../../../memo/done/0066_policy_churn_metrics_10rfd.md) — `35_agent_churn/*` の定義と契約。
 
 ## 探索ブロック 28: Munchausen RL（PRD 067）
 

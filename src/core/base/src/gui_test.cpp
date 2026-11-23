@@ -10,7 +10,7 @@
 using namespace anet::rl;
 using namespace anet::rl::gui;
 
-TEST_CASE("Trace player obeys Live entry playback boundaries and row eviction", "[prd094][trace_player]")
+TEST_CASE("Trace player obeys Live entry playback boundaries and row eviction", "[rfd0094][trace_player]")
 {
     TracePlayer player;
     CHECK_FALSE(player.GetSelected());
@@ -55,7 +55,7 @@ TEST_CASE("Trace player obeys Live entry playback boundaries and row eviction", 
     CHECK(player.Play().empty());
 }
 
-TEST_CASE("Trace display uses rolling midrank and preserves integer formatting", "[prd094][trace_display]")
+TEST_CASE("Trace display uses rolling midrank and preserves integer formatting", "[rfd0094][trace_display]")
 {
     std::deque<float> window;
     CHECK(AppendTracePercentile(window, 1.0f, 3) == 50.0f);
@@ -85,7 +85,7 @@ TEST_CASE("Trace display uses rolling midrank and preserves integer formatting",
     CHECK(FormatTraceValue(action, 1.0f, actions) == "1");
 }
 
-TEST_CASE("Trace playback availability follows the current base rate", "[prd094][trace_play_available]")
+TEST_CASE("Trace playback availability follows the current base rate", "[rfd0094][trace_play_available]")
 {
     TracePlayer player;
     CHECK_FALSE(player.CanPlay(30.0));
@@ -107,7 +107,7 @@ TEST_CASE("Trace playback availability follows the current base rate", "[prd094]
     CHECK(player.CanPlay(15.0));
 }
 
-TEST_CASE("Trace Live stepping selects the adjacent frame and reports boundaries", "[prd094][trace_live_step]")
+TEST_CASE("Trace Live stepping selects the adjacent frame and reports boundaries", "[rfd0094][trace_live_step]")
 {
     TracePlayer player;
     player.SetRows({10, 11, 12});
@@ -120,7 +120,7 @@ TEST_CASE("Trace Live stepping selects the adjacent frame and reports boundaries
     CHECK_FALSE(player.IsPlaying());
 }
 
-TEST_CASE("Trace Live stepping handles empty and single-row histories", "[prd094][trace_live_boundary]")
+TEST_CASE("Trace Live stepping handles empty and single-row histories", "[rfd0094][trace_live_boundary]")
 {
     TracePlayer player;
     CHECK(player.StepBack().empty());
@@ -134,7 +134,7 @@ TEST_CASE("Trace Live stepping handles empty and single-row histories", "[prd094
     CHECK(player.GetSelected() == 42);
 }
 
-TEST_CASE("Trace row sorting uses numeric steps and toggles the selected column", "[prd105][trace_sort]")
+TEST_CASE("Trace row sorting uses numeric steps and toggles the selected column", "[rfd0105][trace_sort]")
 {
     // 表示文字列ではなく数値で並べ、step列の再クリックで向きを変える。
     TraceRowSorter sorter;
@@ -155,7 +155,7 @@ TEST_CASE("Trace row sorting uses numeric steps and toggles the selected column"
     CHECK(sorter.GetDisplayOrder() == std::vector<int64_t>{9, 100, 10});
 }
 
-TEST_CASE("Trace sorting keeps blanks last and evicts by step after delayed updates", "[prd105][trace_sort_updates]")
+TEST_CASE("Trace sorting keeps blanks last and evicts by step after delayed updates", "[rfd0105][trace_sort_updates]")
 {
     // 表示順を変えても、保持する時間の範囲は変えない。
     TraceRowSorter sorter;
@@ -179,7 +179,7 @@ TEST_CASE("Trace sorting keeps blanks last and evicts by step after delayed upda
     CHECK(sorter.GetDisplayOrder() == std::vector<int64_t>{3, 5, 4, 2, 6});
 }
 
-TEST_CASE("Trace playback follows display order even when row IDs are not chronological", "[prd105][trace_sorted_playback]")
+TEST_CASE("Trace playback follows display order even when row IDs are not chronological", "[rfd0105][trace_sorted_playback]")
 {
     TracePlayer player;
     player.SetRows({100, 9, 10}); // 表の下端から上端。
@@ -199,7 +199,7 @@ TEST_CASE("Trace playback follows display order even when row IDs are not chrono
     CHECK(player.GetSelected() == 9);
 }
 
-TEST_CASE("Trace dump separates scalar summaries from the complete notification text", "[prd105][trace_dump]")
+TEST_CASE("Trace dump separates scalar summaries from the complete notification text", "[rfd0105][trace_dump]")
 {
     // 通知から保持する部品だけで文字列を作り、GUIやAgent固有の値へ問い合わせない。
     const BatchState state{anet::TensorDict{{"obs", torch::tensor({{11.0f, 22.0f}})}},
@@ -249,7 +249,7 @@ TEST_CASE("Trace dump separates scalar summaries from the complete notification 
     CHECK(verbose.find(result->ToString()) != std::string::npos);
 }
 
-TEST_CASE("Trace speed labels use decimal multipliers", "[prd094][trace_speed_label]")
+TEST_CASE("Trace speed labels use decimal multipliers", "[rfd0094][trace_speed_label]")
 {
     TracePlayer player;
     const std::array<const char*, 7> labels{"x0.125", "x0.25", "x0.5", "x1", "x2", "x4", "x8"};

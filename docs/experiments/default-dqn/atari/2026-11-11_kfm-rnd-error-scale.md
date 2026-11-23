@@ -17,7 +17,7 @@
 
 ## 目的と比較条件
 
-PRD123（RND の誤差の統計を warm-up 中の誤差で膨らませない）の効果を、同じ実行体で今の中身を再現した群と並べて確かめる（[PRD123](../../../memo/123_rnd_intrinsic_reward_scale_10prd.md) §7.1）。あわせて、§8 の U1（β の既定）を決め直すための β 0.03 の群と、§8 の U2（warm-up の長さ）を見るための、β 0.03 で warm-up を 1,000,000 件にした群を足した。
+PRD123（RND の誤差の統計を warm-up 中の誤差で膨らませない）の効果を、同じ実行体で今の中身を再現した群と並べて確かめる（[PRD123](../../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md) §7.1）。あわせて、§8 の U1（β の既定）を決め直すための β 0.03 の群と、§8 の U2（warm-up の長さ）を見るための、β 0.03 で warm-up を 1,000,000 件にした群を足した。
 
 - 共通の構成: 実時間優先の構成（[2026-10-15](2026-10-15_kfm-boss-route.md) の既定 10M と同じ。replay ratio 1、128 env、IQN、Munchausen 有効）に `run.@rnd` を足した。`[eval]` の τ は固定（RND なしの Run と同じ）。予算 10M（exp step）。
 - RND: `clipped`・`whiten`、倍率の上限 5、採点は次観測、出力 512。新しい既定の群は、warm-up 200,000 件の間は predictor だけを学び、誤差を誤差の統計に入れない（`warmup_mode = learn_predictor`）。誤差の統計は累積（`error_norm.average_mode = cumulative`）。

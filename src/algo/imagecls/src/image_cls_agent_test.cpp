@@ -35,9 +35,9 @@ TEST_CASE("ImageCls Agent initialization keeps its first Agent factory registrat
     CHECK(repository.GetAgentFactory(kClassId) == factory);
 }
 
-static void SavePrd170Trace(const anet::rl::AuxData& aux, const char* name)
+static void SaveRfd0170Trace(const anet::rl::AuxData& aux, const char* name)
 {
-    constexpr const char* kOutputEnv = "ANET_PRD170_TRACE_DIR";
+    constexpr const char* kOutputEnv = "ANET_RFD0170_TRACE_DIR";
     const auto* directory = std::getenv(kOutputEnv);
     if (!directory) return;
     // 比較用の全要素を辞書順で保存し、表示の丸めや省略を介さずに突き合わせる。
@@ -1422,7 +1422,7 @@ TEST_CASE("ImageClsActor stores nn trace in action aux for Conv2dPanel", "[image
 
     auto action_info = actor.MakeAction(anet::rl::StepCounts{}, state, {.nn_trace = true});
 
-    SavePrd170Trace(action_info->GetAuxData(), "image-cls");
+    SaveRfd0170Trace(action_info->GetAuxData(), "image-cls");
     auto action = action_info->GetAction(torch::kCPU);
     REQUIRE(action.sizes().vec() == std::vector<int64_t>{ 2 });
     REQUIRE(torch::equal(action, torch::ones({ 2 }, torch::TensorOptions().dtype(torch::kInt64))));
@@ -1744,7 +1744,7 @@ TEST_CASE("ImageCls plasticity feature key is NoCare without subscriptions", "[i
     } }));
 }
 
-TEST_CASE("ImageCls action only includes requested nn_trace", "[prd170][image_cls][no_trace]")
+TEST_CASE("ImageCls action only includes requested nn_trace", "[rfd0170][image_cls][no_trace]")
 {
     auto network = MakeImageClsTraceTestNetwork();
     auto mutex = std::make_shared<std::shared_mutex>();

@@ -46,7 +46,7 @@
 
 ### 探索観点
 
-[PRD 065](../../../memo/done/065_nn_spectral_norm_10prd.md) の SN を初めて実行する。PRD の検証計画は「初手は全層（standalone Conv2d 3 本 + ResBlock 全部 + Linear512）」を推奨していた — 2026-08-28 の GroupNorm 試験が ResBlock 内部のみで測定点を覆わず公正にならなかった反省による。
+[PRD 065](../../../memo/done/0065_nn_spectral_norm_10rfd.md) の SN を初めて実行する。PRD の検証計画は「初手は全層（standalone Conv2d 3 本 + ResBlock 全部 + Linear512）」を推奨していた — 2026-08-28 の GroupNorm 試験が ResBlock 内部のみで測定点を覆わず公正にならなかった反省による。
 
 ### 探索結果
 
@@ -89,7 +89,7 @@ C2 / D2 は σ が 1.73 → 1.91 とほぼ動かず、除算量が一定なの�
 
 **適用範囲を広げる根拠は失われた。** 全層適用は「GroupNorm の部分適用の罠を避ける」という議論から来ているが、**GroupNorm は②を潰す機構で測定点を覆う必要があり、SN は①を潰す機構でその必要が無い**。機構をまたいだ議論の転用だった。
 
-**`65_spectral_sigma_feature` は BTR 範囲の SN を評価できない。** （**2026-08-31 訂正**: 当初「SN 非適用層が max を占める」としたが誤り。`sigma_max` は `GetSpectralNormEntries()` のループでのみ更新され、SN 無効モジュールは空を返す（`nn_impl.cpp:1746`）ので、65 は **SN 適用層だけの max σ** である。）それでも評価には使えない — 12 層の max なので zero-init conv2 の σ や個別層の cap 発動が隠れ、`63` は非 SN 層を含む依存閉包全体なので巨大な Linear512 に局所効果が埋もれる。**層別 σ（[920_nn_block_metrics](../../../memo/135_nn_block_metrics_10prd.md) の領分）が無いと SN の評価が成立しない。**
+**`65_spectral_sigma_feature` は BTR 範囲の SN を評価できない。** （**2026-08-31 訂正**: 当初「SN 非適用層が max を占める」としたが誤り。`sigma_max` は `GetSpectralNormEntries()` のループでのみ更新され、SN 無効モジュールは空を返す（`nn_impl.cpp:1746`）ので、65 は **SN 適用層だけの max σ** である。）それでも評価には使えない — 12 層の max なので zero-init conv2 の σ や個別層の cap 発動が隠れ、`63` は非 SN 層を含む依存閉包全体なので巨大な Linear512 に局所効果が埋もれる。**層別 σ（[920_nn_block_metrics](../../../memo/0135_nn_block_metrics_10rfd.md) の領分）が無いと SN の評価が成立しない。**
 
 ---
 

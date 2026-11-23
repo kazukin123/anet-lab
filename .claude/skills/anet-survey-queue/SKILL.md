@@ -26,10 +26,10 @@ description: Run the next item in anet-lab's survey queue (reports/INDEX.md) wit
 
 3. そのスキルの契約(`documenting-with-sources`、`writing-quotation` を含む)に従って調査し、`reports/<slug>_survey_<YYYY-MM-DD>.md`(paper は `reports/<slug>_paper_<YYYY-MM-DD>.md`)に書く。既存 reports の様式(`# Survey: ...`、Date、Scope、Table of Contents)に揃える。論点メモに書かれた問いに必ず答える。
 4. `reports/INDEX.md` を更新する。キューから行を消し、済みに 日付 | ファイル | テーマ | 関連 を追加する。
-5. 完了報告: テーマ、出力パス、主要な結論 3 行、関連 PRD へ反映すべき点(あれば。PRD 自体は変えない)。
+5. 完了報告: テーマ、出力パス、主要な結論 3 行、関連 RFD へ反映すべき点(あれば。RFD 自体は変えない)。
 
 ## 禁止
 
-- PRD と実験記録を変えない。キューに項目を足さない。
+- RFD と実験記録を変えない。キューに項目を足さない。
 - git の書き込み操作をしない。
 - 質問して止まらない。

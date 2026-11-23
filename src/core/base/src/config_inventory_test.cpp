@@ -58,7 +58,7 @@ namespace {
 
 } // namespace
 
-TEST_CASE("Inventory prefix exclusions retain active descendants", "[prd117][config_inventory]")
+TEST_CASE("Inventory prefix exclusions retain active descendants", "[rfd0117][config_inventory]")
 {
     anet::ConfigData data;
     data.Set("inventory.shared.active.typo", "kept");
@@ -69,7 +69,7 @@ TEST_CASE("Inventory prefix exclusions retain active descendants", "[prd117][con
     CHECK(unread.front().first == "inventory.shared.active.typo");
 }
 
-TEST_CASE("Agent repositories classify factory-owned prefixes without constructing resources", "[prd117][config_inventory]")
+TEST_CASE("Agent repositories classify factory-owned prefixes without constructing resources", "[rfd0117][config_inventory]")
 {
     const auto suffix = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     const auto active = "InventoryActiveAgent" + suffix;
@@ -88,7 +88,7 @@ TEST_CASE("Agent repositories classify factory-owned prefixes without constructi
     CHECK(unread.front().first == "inventory.shared.active.typo");
 }
 
-TEST_CASE("Env repositories respect Single prefixes and Batch-owned extra prefixes", "[prd117][config_inventory]")
+TEST_CASE("Env repositories respect Single prefixes and Batch-owned extra prefixes", "[rfd0117][config_inventory]")
 {
     const auto suffix = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     const auto active = "InventoryActiveBatch" + suffix;

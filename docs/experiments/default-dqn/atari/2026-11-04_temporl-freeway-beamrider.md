@@ -16,7 +16,7 @@
 
 ## 目的と比較条件
 
-qbert では合算の変種 8 本がどれもスキップなしを下回った（[qbert の記録](2026-10-31_temporl-qbert-50m-learning.md)）。別のゲームで同じ構成の TempoRL を流し、[PRD103](../../../memo/done/103_temporl_reference_alignment_10prd.md) §8 の再開条件に当てる。
+qbert では合算の変種 8 本がどれもスキップなしを下回った（[qbert の記録](2026-10-31_temporl-qbert-50m-learning.md)）。別のゲームで同じ構成の TempoRL を流し、[PRD103](../../../memo/done/0103_temporl_reference_alignment_10rfd.md) §8 の再開条件に当てる。
 
 - 構成はサンプル効率優先（RR4、64 env、replay 1,048,576、γ=0.997、n_step 3、IQN、NoisyNet、SN・he の初期値、pixel_area 縮小）。予算は BeamRider が 50M、Freeway が 10M（exp step）。TempoRL の群は J=10、`skip_context = iqn_fusion`。
 - Train Actor の ε は、1.0 から 0.01 へ時定数 2M の指数で 25M まで下げ、そのあと 0 にする。

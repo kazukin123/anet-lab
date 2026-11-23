@@ -8,11 +8,11 @@
 #include "anet/test/util.hpp"
 #include "scaler_impl.hpp"
 
-// PRD121の入力・公開識別子を、同じ意味の検査で共有する。
-constexpr const char* kPrd121IntrinsicRewardScaler = "intrinsic.reward_scaler";
+// RFD0121の入力・公開識別子を、同じ意味の検査で共有する。
+constexpr const char* kRfd0121IntrinsicRewardScaler = "intrinsic.reward_scaler";
 const std::string kDirectGammaKey = anet::ConfigFullKeyTable::FormatKeyNotReadFromConfig("gamma");
 
-TEST_CASE("Return reward scaling follows per-lane discounted returns", "[prd121][scaler]")
+TEST_CASE("Return reward scaling follows per-lane discounted returns", "[rfd0121][scaler]")
 {
     // 2 laneの割引和の累積分散を、公開factoryの変換結果から確かめる。
     anet::rl::RewardScalerConfig config;
@@ -31,20 +31,20 @@ TEST_CASE("Return reward scaling follows per-lane discounted returns", "[prd121]
     CHECK(scaler->GetScalar(anet::rl::RewardScaler::kKeyCount) == count);
 }
 
-TEST_CASE("Return scaler checkpoints retain statistics and reset only changed lanes", "[prd121][scaler][checkpoint]")
+TEST_CASE("Return scaler checkpoints retain statistics and reset only changed lanes", "[rfd0121][scaler][checkpoint]")
 {
     const int lanes = GENERATE(2, 3);
     anet::rl::RewardScalerConfig config;
     config.dynamic_mode = anet::rl::RewardScaler::kReturnStdState;
     config.use_auto_post_scale = false;
     config.epsilon = 0.01f;
-    auto source = anet::rl::RewardScalerFactory(config, kPrd121IntrinsicRewardScaler).CreateRewardScaler(0.5f, 2, kDirectGammaKey);
+    auto source = anet::rl::RewardScalerFactory(config, kRfd0121IntrinsicRewardScaler).CreateRewardScaler(0.5f, 2, kDirectGammaKey);
     source->Scale(torch::tensor({1.0f, 3.0f}));
     source->Scale(torch::tensor({2.0f, 1.0f}));
     std::stringstream checkpoint(std::ios::in | std::ios::out | std::ios::binary);
     anet::OutputArchive output(checkpoint);
     source->Save(output);
-    auto restored = anet::rl::RewardScalerFactory(config, kPrd121IntrinsicRewardScaler).CreateRewardScaler(0.5f, lanes, kDirectGammaKey);
+    auto restored = anet::rl::RewardScalerFactory(config, kRfd0121IntrinsicRewardScaler).CreateRewardScaler(0.5f, lanes, kDirectGammaKey);
     anet::test::LogCaptureGuard logs;
     anet::InputArchive input(checkpoint);
     restored->Load(input);
@@ -91,7 +91,7 @@ TEST_CASE("Constant reward scaler exposes a defined clipping ratio", "[scaler][m
     CHECK(scaler->GetScalar(anet::rl::RewardScaler::kKeyClipRatio) == 0.0f);
 }
 
-TEST_CASE("Reward diagnostic scaling preserves statistics and clipping metrics", "[scaler][prd094][diagnostic_scaling]")
+TEST_CASE("Reward diagnostic scaling preserves statistics and clipping metrics", "[scaler][rfd0094][diagnostic_scaling]")
 {
     const bool dynamic = GENERATE(false, true);
     anet::rl::RewardScalerConfig config;
@@ -116,7 +116,7 @@ TEST_CASE("Reward diagnostic scaling preserves statistics and clipping metrics",
     CHECK(scaler->GetScalar(anet::rl::RewardScaler::kKeyClipRatio) == ratio);
 }
 
-TEST_CASE("Published reward transform follows statistics and Reset", "[scaler][prd094][diagnostic_scaling]")
+TEST_CASE("Published reward transform follows statistics and Reset", "[scaler][rfd0094][diagnostic_scaling]")
 {
     anet::rl::RewardScalerConfig config;
     config.use_dynamic_scaling = true;
@@ -138,7 +138,7 @@ TEST_CASE("Published reward transform follows statistics and Reset", "[scaler][p
     CHECK(torch::allclose(scaler->ScaleWithoutUpdate(probe), probe / 1.25f * 2.0f));
 }
 
-TEST_CASE("Reward auto post scale uses the discounted reference Q scale", "[prd122][scaler][auto_post_scale]")
+TEST_CASE("Reward auto post scale uses the discounted reference Q scale", "[rfd0122][scaler][auto_post_scale]")
 {
     // gammaと1-gammaを取り違えると異なる値になる条件で、公開の変換を通す。
     constexpr float gamma = 0.8f;
@@ -164,7 +164,7 @@ static std::shared_ptr<anet::rl::ObservationNormalizer> MakeScalerObservationNor
     return anet::rl::ObservationNormalizerFactory(config).CreateObservationNormalizer(spec);
 }
 
-TEST_CASE("Robust normalization admits warmup rows and rejects only outlier rows", "[prd122][scaler][robust_update]")
+TEST_CASE("Robust normalization admits warmup rows and rejects only outlier rows", "[rfd0122][scaler][robust_update]")
 {
     anet::test::LogCaptureGuard logs;
     // 件数は行数で数える。境目の直前の外れ値は採用し、境目の直後は除外する。
@@ -201,7 +201,7 @@ TEST_CASE("Robust normalization admits warmup rows and rejects only outlier rows
     CHECK(anet::test::CountRecords(logs.Records(), wxLOG_Warning) == 0);
 }
 
-TEST_CASE("Observation SymLog keeps its positive non-unit scale", "[prd122][scaler][symlog]")
+TEST_CASE("Observation SymLog keeps its positive non-unit scale", "[rfd0122][scaler][symlog]")
 {
     // 統計未更新の標準偏差1+epsilonから手で計算し、scaleの掛け戻しを検出する。
     anet::rl::ObservationNormalizerConfig config;
@@ -218,7 +218,7 @@ TEST_CASE("Observation SymLog keeps its positive non-unit scale", "[prd122][scal
     CHECK(torch::allclose(actual, torch::tensor({{-magnitude}, {0.0f}, {magnitude}})));
 }
 
-TEST_CASE("Observation statistics update without normalizing a mixed dictionary", "[prd130][scaler]")
+TEST_CASE("Observation statistics update without normalizing a mixed dictionary", "[rfd0130][scaler]")
 {
     // Factory から統計更新専用の口を通し、通常更新と同じ次回の正規化になることを確かめる。
     constexpr char kCategoryKey[] = "category";
@@ -255,7 +255,7 @@ TEST_CASE("Observation statistics update without normalizing a mixed dictionary"
     CHECK(actual.At(anet::rl::ObsKeys::kGrid).scalar_type() == torch::kUInt8);
 }
 
-TEST_CASE("Statistics-only update rejects a mismatched observation before mutation", "[prd130][scaler]")
+TEST_CASE("Statistics-only update rejects a mismatched observation before mutation", "[rfd0130][scaler]")
 {
     // broadcast で計算できても、宣言した feature 軸と異なる入力は統計を進めない。
     anet::rl::ObservationNormalizerConfig config;
@@ -266,7 +266,7 @@ TEST_CASE("Statistics-only update rejects a mismatched observation before mutati
     CHECK(normalizer->GetScalar(anet::rl::ObservationNormalizer::kKeyCount) == 0.0f);
 }
 
-TEST_CASE("Statistics-only update preserves robust and constant normalization behavior", "[prd130][scaler]")
+TEST_CASE("Statistics-only update preserves robust and constant normalization behavior", "[rfd0130][scaler]")
 {
     // 外れ値を含む行、全行除外、素通し、固定値を通常の更新と対比する。
     const auto mode = GENERATE(0, 1, 2);
@@ -294,7 +294,7 @@ TEST_CASE("Statistics-only update preserves robust and constant normalization be
     }
 }
 
-TEST_CASE("Read-only normalization uses current statistics after updates load and reset", "[prd130][scaler]")
+TEST_CASE("Read-only normalization uses current statistics after updates load and reset", "[rfd0130][scaler]")
 {
     // 異なる統計で育てた部品へ Load しても、保存元と同じ値を使う。
     anet::rl::ObservationNormalizerConfig config;
@@ -328,7 +328,7 @@ TEST_CASE("Read-only normalization uses current statistics after updates load an
                        reference->Normalize(values).At(anet::rl::ObsKeys::kVector)));
 }
 
-TEST_CASE("Normalization accepts a different device than its statistics update", "[prd130][scaler]")
+TEST_CASE("Normalization accepts a different device than its statistics update", "[rfd0130][scaler]")
 {
     if (!torch::cuda::is_available()) SKIP("CUDA is unavailable");
     // 更新に使った device の写しがあっても、別の device で同じ正規化を行う。
@@ -346,7 +346,7 @@ TEST_CASE("Normalization accepts a different device than its statistics update",
     CHECK(normalizer->GetScalar(anet::rl::ObservationNormalizer::kKeyCount) == 2.0f);
 }
 
-TEST_CASE("Batch moments agree with an independent double precision reference", "[prd130][scaler]")
+TEST_CASE("Batch moments agree with an independent double precision reference", "[rfd0130][scaler]")
 {
     // batch の分割、空の入力、1 件の更新を含め、累積の不偏分散を手計算する。
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
