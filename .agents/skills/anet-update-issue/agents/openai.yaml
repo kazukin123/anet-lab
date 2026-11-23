@@ -1,0 +1,4 @@
+interface:
+  display_name: "ANET Update Issue"
+  short_description: "課題の状態・監理項目とAIの判定を更新する"
+  default_prompt: "anet-update-issue の手順で、指示された課題の項目を更新してください。"

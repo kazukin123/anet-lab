@@ -26,24 +26,27 @@ DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、Replay
 ### 2.1 Agent、Actor、Learner
 
 - `Agent`はRunから利用する入口であり、ActorとLearnerを生成する。device取得、保存・読込、可視化用functionの公開境界でもある。
-- `Actor`は`StepCounts`と`BatchState`から`BatchActionInfo`を生成する。`Sync()`はActor固有のsourceから推論Resourceを強制同期する。
+- `Actor::MakeAction(step, state, options)`は`StepCounts`、`BatchState`、空の既定値つきの`MakeActionOptions`から`BatchActionInfo`を生成する。`Sync()`はActor固有のsourceから推論Resourceを強制同期する。
+- `MakeActionOptions.nn_trace`は既定で偽。その回に真を渡したときだけ、対応するActorが行動forwardのnn_traceを作り、AuxDataへ入れる。偽ではcapture、env 0の切り出し、FP32化、cloneを行わない。非対応のActorは最初の要求だけWARNし、nn_traceを入れずに続ける。要求は呼び出しごとに渡し、ActorやNotifierへ登録しない。
 - 同一Actor instanceの`MakeAction()`と`Sync()`は並行呼出ししない。必要な直列化はActorを利用するRunner側が守る。
-- `Agent::CreateActor()`の`clone_model_override`はoptionalであり、`std::nullopt`はmodel複製の既定を具象Agentへ委譲する。値が指定された場合の対応可否、同期source、同期時点も具象Agentの契約である。
-- `Agent::CreateActor()`は`BatchEnvSpec`の後に対象Envの`EnvSpec`を受け取り、そのActorを生成できるかを具象Agentが判断する。通常の同一state/action契約には`EnvSpec::CheckSameStateActionSpec()`を使用できるが、異なるspecを扱えるAgentへ共通層が一律制約を課さない。
+- `Agent::CreateActor(const ActorRequest&)`は対象spec、device、seed、`actor_key`を受け取る。Agentは構築時に読んだtyped Actorカタログから名前を解決し、方策、network、cloneを選ぶ。未定義名や非対応clone、sharedのdevice不一致は生成前にfail-fastする。
+- `Agent::CreateActor()`はrequest内に対象Envの`BatchEnvSpec`と`EnvSpec`を受け取り、そのActorを生成できるかを具象Agentが判断する。通常の同一state/action契約には`EnvSpec::CheckSameStateActionSpec()`を使用できるが、異なるspecを扱えるAgentへ共通層が一律制約を課さない。
 - `Learner`は`BatchExperience`を受け取り、0件以上の`BatchUpdateResult`を`BatchUpdateResultList`として返す。1回のExperience受入れが必ずparameter更新を発生させるとは限らない。
-- `AgentBase`はdevice、Envのspec、RunMode別RNG、共有mutexなど、複数Agentに共通する実行資源を保持する。
+- `AgentBase`はdevice、Envのspec、共有mutexなど、複数Agentに共通する実行資源を保持する。
 
 `Actor`と`Learner`は行動選択と学習更新の依存方向を分けるinterfaceである。ActorまたはPolicyからLearnerの内部状態を参照してはならない。
 
-### 2.2 RunModeとActor生成
+### 2.2 Actorカタログと生成
 
-`RunMode`には`Train`、`Eval`、`Eval1`、`Eval2`があり、Train Runner、設定済みEval、GUIのEvalPanelなどが用途ごとにActorを生成する。`Sync()`は強制同期の共通操作だけを定義し、定期同期や共有modelの挙動を共通層で仮定しない。
+`run.train.actor`は既定`train`、`run.eval.[tag].actor`は既定タグ名で、`<Agent>.actor.[key]`を参照する。EvalPanelは参照する評価タグの指定を使う。Actor用seedは`actor/<Runner名>`から派生し、各Actorが独立した乱数・方策状態を持つ。RunModeはEnvの用途選択だけに残る。
+
+ActorはModuleでもあり、`Runner::GetActor()`とmetricsの`$actor`からepsilon・温度などを参照できる。方策スケジュールは`MakeAction`の学習側countsで進む。EvalRunnerは`Sync(source_counts)`で学習側countsを保持し、評価イベント自体のcountsは別に数える。
 
 ### 2.3 StateとResource
 
 Agent系の所有権は次の原則に従う。
 
-- Network、Optimizer、ReplayBuffer、RNG、ConfigなどのResourceは、AgentをRun単位のlifetime ownerとする。
+- Network、Optimizer、ReplayBuffer、RNG、ConfigなどのResourceは、AgentをRun単位のlifetime ownerとする。DQN の probe 専用 RNG は、内側の Learner が Agent の基の seed と用途ごとの名前から構築して所有する。購読を設定し直しても作り直さない。
 - 「Agent所有」はAgent classの直接fieldだけを意味しない。Agentが所有するLearnerやActorの配下へ配置しても、Agentのlifetime内に閉じていればよい。
 - epsilon、EMA、warmup counterなどの可変Stateは、それを更新するコンポーネントが所有する。
 - 特定Actorだけが使用するsnapshot NetworkはActor所有のprivate Resource、複数ActorとLearnerが参照するNetworkはAgent所有のshared Resourceとして区別する。
@@ -56,11 +59,12 @@ Agent系の所有権は次の原則に従う。
 | `agent.class_id` | 位置付け | 詳細 |
 |---|---|---|
 | `DefaultDQNAgent` | 設定可能なDQN系Agent | [DQN系Agent](200_dqn_agents.jp.md) |
-| `RainbowAgent` | Rainbow構成を持つDQN系Agent | [DQN系Agent](200_dqn_agents.jp.md) |
+| `RainbowAgent` | DQN 系の共通部品の責務分担を確かめる2つ目の Agent。Run では使わない | [DQN系Agent](200_dqn_agents.jp.md) |
 | `MuZeroAgent` | MuZeroの試作実装 | 現行コードを参照 |
 | `ImageClsAgent` | 共通Run/Agent contract上で画像分類を学習する実装 | 現行コードを参照 |
 
-登録は`InitRL()`で行われ、`AgentRepository`がclass IDから`AgentFactory`を解決する。
+Runner が系統の公開初期化関数を呼んで登録し、`AgentRepository`がclass IDから`AgentFactory`を解決する。
+公開初期化関数は、同じ関数が複数回呼ばれても登録を1回だけ行う。初回の登録が途中で失敗した場合は、以後の呼び出しも失敗する。Repositoryに同じclass IDのfactoryを直接登録すると例外になり、先に登録したfactoryが残る。
 
 ## 3. コンポーネント定義
 
@@ -68,11 +72,10 @@ Agent系の所有権は次の原則に従う。
 |---|---|
 | `AgentRepository` | process内のAgentFactory registry。class IDをfactoryへ対応付ける |
 | `AgentFactory` | EnvSpec、BatchEnvSpec、device、ConfigData、seedから具象Agentを構築するinterface |
-| `DefaultAgentFactory` | `agent.class_id`と`agent.device_*`を解決し、登録済みfactoryへ構築を委譲する |
+| `DefaultAgentFactory` | `agent.class_id`と`agent.device`を解決し、登録済みfactoryへ構築を委譲する |
 | `Agent` | Actor/Learner生成、device、保存・読込を公開する共通interface |
-| `AgentBase` | device、Env情報、RunMode別RNG、共有mutexを提供する基底実装 |
+| `AgentBase` | device、Env情報、共有mutexを提供する基底実装 |
 | `Actor` | BatchStateからBatchActionInfoを生成し、必要に応じて推論Resourceを同期するinterface |
-| `ActionContext` | Observationのstack、device転送など、行動選択前の状態加工を担当する |
 | `Learner` | Experienceを受け取り、0件以上の更新結果を返すinterface |
 | Agent Resource | Network、Optimizer、ReplayBufferなど、具象Agentが必要に応じて構成するResource |
 
@@ -80,12 +83,12 @@ Agent系の所有権は次の原則に従う。
 
 | 領域 | 主なファイル |
 |---|---|
-| 共通contract | [rl.hpp](../../core/anet-core/include/anet/rl.hpp) |
-| Agent基盤・repository・factory | [agent.hpp](../../core/anet-core/include/anet/agent.hpp)、[agent.cpp](../../core/anet-core/src/agent.cpp) |
+| 共通contract | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
+| Agent基盤・repository・factory | [agent.hpp](../../src/core/base/include/anet/agent.hpp)、[agent.cpp](../../src/core/base/src/agent.cpp) |
 | DQN系 | [DQN系Agent](200_dqn_agents.jp.md) |
-| ImageCls | [image_cls_agent.hpp](../../core/anet-core/include/anet/image_cls_agent.hpp)、[image_cls_agent.cpp](../../core/anet-core/src/image_cls_agent.cpp) |
-| MuZero試作 | [muzero_proto_agent.hpp](../../core/anet-core/include/anet/muzero_proto_agent.hpp)、[muzero_proto_agent.cpp](../../core/anet-core/src/muzero_proto_agent.cpp) |
-| 初期登録 | [init.cpp](../../core/anet-core/src/init.cpp) |
+| ImageCls | [image_cls_agent.hpp](../../src/algo/imagecls/src/image_cls_agent.hpp)、[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp) |
+| MuZero試作 | [muzero_proto_agent.hpp](../../src/algo/muzero/src/muzero_proto_agent.hpp)、[muzero_proto_agent.cpp](../../src/algo/muzero/src/muzero_proto_agent.cpp) |
+| 初期登録 | [init.cpp](../../src/core/base/src/init.cpp) |
 
 ## 5. 静的構造
 
@@ -110,7 +113,7 @@ class Agent {
 }
 class AgentBase
 class Actor {
-  +MakeAction(step, state)
+  +MakeAction(step, state, options)
   +Sync()
 }
 class Learner {
@@ -138,10 +141,10 @@ sequenceDiagram
     participant G as Agent
     participant A as Actor
 
-    R->>G: CreateActor(batch_env_spec, env_spec, run_mode, override, device)
+    R->>G: CreateActor(actor_request)
     G-->>R: Actor
     loop Runner step
-        R->>A: MakeAction(step_counts, batch_state)
+        R->>A: MakeAction(step_counts, batch_state, options)
         A-->>R: BatchActionInfo
     end
     opt 強制同期が必要
@@ -151,6 +154,12 @@ sequenceDiagram
 ```
 
 Actor内部のObservation加工、Network forward、Policy、snapshot同期は具象実装の責務である。RunnerによるActor生成と同期の利用箇所は[実行基盤と設定](100_runtime_and_configuration.jp.md)、GUI Evalの同期は[アプリケーションとツール](160_applications_and_tools.jp.md)を参照する。
+
+DefaultDQNのskip網は `skip.network_mode=action_out|action_in` で構成を選ぶ。action_inはaction入力のbindを必須とし、action_outはそのbindを禁止する。有効時だけskip網を構築し、無効時は設定値だけを検証する。IQNの既定入力はprimaryの融合済み特徴で、skip側のtaus bindは必須にしない。Jはenvが既定を持ち、実装既定は未指定（0）。明示1は許し、明示0以下は無効時も拒否する。
+
+DefaultDQNのskip有効時は、Actorがlane別に継続行動・選択した長さ・残り回数を所有する。`episode_start`で継続を解除し、infoの`decision`で新しい判断を示す。RunnerのstepやEnvのframe skipは変えず、primaryのforwardも毎step行う。primary／skipのcloneと同期は同じAgentのロック内で行う。強制行動`WithAction`は実行行動とQヒントを差し替えるが、Actorの継続状態を更新しない。
+
+DefaultDQNのActorごとの `skip.max_length_mode` はfull・single・variableを選ぶ。full/variableは継続状態をActorが所有し、singleは毎step判断して方策の提案をそのまま使う。variableの整数ProfiledValueはMakeActionの学習側exp_stepで進める（評価側は直近Syncのcounts）。skip NetworkのforwardとJ本のauxはどのモードも維持する。幅と補助学習用の窓の組み合わせはAgentがカタログ全体に対して検証し、Runnerの用途を推測しない。具体的な契約は[DQN系列](200_dqn_agents.jp.md)のskip方策、確認手順は[RFD0104検証資材](../../src/core/base/testdata/rfd0104/README.md)を参照する。
 
 ### 6.2 Experience受入れと更新結果
 
@@ -179,10 +188,10 @@ sequenceDiagram
 ### 7.1 構築設定
 
 - `agent.class_id`が具象AgentFactoryを選ぶ。
-- `agent.device_type`はCPU/CUDA、`agent.device_index`は対象deviceを指定する。
+- `agent.device`は`auto`、`cpu`、`cuda`、`cuda:N`で対象deviceを指定する。既定は`auto`で、実効deviceは`json/agent.json`に記録する。
 - EnvSpec、BatchEnvSpec、device、seed、ConfigDataはfactoryから具象Agentへ渡す。
 - アルゴリズム固有設定は具象AgentのConfigが読み取る。存在する値の型変換失敗は共通`ConfigData`がfail-fastし、既定値はキー欠落時だけ使う。enum、範囲、組み合わせは各具象Configまたは再利用設定型の構築時validatorが検証する。
-- ActorのRunModeとmodel複製有無は、Runnerのoverrideと具象Agentの既定をAgent生成境界で解決する。
+- Actorの方策・network選択・model複製有無は、`ActorRequest::actor_key`で参照するActorカタログ（`<Agent>.actor.[key]`）から具象Agentが解決する。RunModeは受け取らない。
 
 設定一覧の正本は実際のConfig classと[apps/runner/config](../../apps/runner/config)であり、本書では全キーを複製しない。
 
@@ -204,13 +213,19 @@ checkpoint対応を追加・変更するときは、保存しないStateを明�
 - Actor推論とLearner更新は高頻度境界であり、Network forward、optimizer、ReplayBuffer、device転送などの具象処理へ計測範囲を置く。
 - model cloneと同期は一貫したsnapshotを得られる一方、copy時間と追加memoryを伴う。共有か複製かをRunModeごとに実測する。
 
+### 7.5 scalar metric購読
+
+`RunManager`は実際にattachしたscalar metrics定義を`ScalarMetricSubscription`へ変換し、学習開始前に`Agent::ConfigureScalarMetricSubscriptions()`へ1回渡す。購読はsource key、event、optional target、interval、runner scope、eval名を保持する。基底Agentはno-opであり、具象Agentは自身が所有するtrain-scope `LEARN` keyだけをfilterして、重いcaptureやprobeのON/OFFとcadenceを決める。購読が無いmetric処理は完全に不活性でなければならない。 DQN の内側 Learner は、購読の振り分け、検証、Resource の準備を分ける。固定指標の4群は `DiagnosticDemandTable` で gate と要求を共有し、plasticity のチャネルと attention の層別要求は固有構造を保つ。
+
 ## 8. テストと拡張時の確認事項
 
-共通のfactory登録とRunner連携は[init_test.cpp](../../core/anet-core/src/init_test.cpp)と[trainer_test.cpp](../../core/anet-core/src/trainer_test.cpp)、アルゴリズム内部は各具象Agentのtestで確認する。
+公開の拡張点は[フレームワーク全体概要の拡張点の表](010_framework_overview.jp.md#43-拡張点)を参照。
+
+共通のfactory登録とRunner連携は[init_test.cpp](../../src/core/base/src/init_test.cpp)と[trainer_test.cpp](../../src/core/base/src/trainer_test.cpp)、アルゴリズム内部は各具象Agentのtestで確認する。Actorカタログの公開契約test `[rfd0061]` と、設定改名・カタログ移行の比較手順は[testdata/rfd0061/README.md](../../src/core/base/testdata/rfd0061/README.md)を参照する。
 
 Agentを追加・変更する場合は、少なくとも次を確認する。
 
-1. factoryを一意なclass IDで`InitRL()`へ登録する。
+1. 系統の公開初期化関数から `RegisterAgentFactory` を呼び、一意な class ID で factory を登録する。
 2. EnvSpec/BatchEnvSpecとのshape・action数の整合を構築時に検証する。
 3. Trainと各Eval用途について、Actorの共有・複製・`Sync()`契約を定義する。
 4. `UpdateFromBatch()`が更新なしを空listで表し、1件以上の結果を正しい順序で返す。

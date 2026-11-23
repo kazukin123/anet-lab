@@ -1,0 +1,116 @@
+﻿#include "anet/agent.hpp"
+#include "anet/config.hpp"
+#include "anet/tensor_util.hpp"
+#include "anet/tensor_check.hpp"
+#include "anet/profile.hpp"
+#include "anet/log.hpp"
+#include "anet/metrics_logger.hpp"
+
+using namespace anet::rl;
+namespace LOG = anet::log;
+
+
+// =============================================================
+// AgentBase
+// =============================================================
+
+AgentBase::AgentBase(torch::Device device,
+    const BatchEnvSpec& batch_env_spec,
+    const EnvSpec& env_spec,
+    std::optional<seed_t> seed)
+    : RandomHolder(seed), device_(device)
+    , env_spec_(env_spec)
+    , n_actions_(env_spec.action_spec.GetNumActions())
+    , num_envs_(batch_env_spec.num_envs)
+{
+    mutex_ = std::make_shared<std::shared_mutex>();
+}
+
+void AgentBase::ValidateActorDevice(bool clone_model, const torch::Device& actor_device) const
+{
+    // 共有networkではdeviceを変換できないため、生成時に宣言違反を検出する。
+    const auto index = [](const torch::Device& device) {
+        return device.has_index() && device.index() >= 0 ? device.index() : 0;
+    };
+    const bool same = actor_device.type() == device_.type()
+        && (actor_device.type() != torch::kCUDA || index(actor_device) == index(device_));
+    if (!clone_model && !same) {
+        ANET_SYSTEM_ERROR("Shared Actor device mismatch: clone_model=false actor_device="
+            << actor_device.str() << " agent_device=" << device_.str()
+            << ". Expected the Agent device or clone_model=true in the Actor catalog.");
+    }
+}
+
+
+// =============================================================
+// AgentRepository
+// =============================================================
+
+void AgentRepository::Register(std::shared_ptr<AgentFactory> factory)
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    auto class_id = factory->GetTargetAgentClassId();
+    if (!factories_.try_emplace(class_id, std::move(factory)).second) {
+        ANET_SYSTEM_ERROR("Agent factory is already registered. class_id='" << class_id << "'");
+    }
+}
+
+std::shared_ptr<AgentFactory> AgentRepository::GetAgentFactory(const std::string& id) const
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    auto it = factories_.find(id);
+    if (it == factories_.end()) return nullptr;
+    return it->second;
+}
+
+void AgentRepository::MarkUnusedConfigInventory(const ConfigData& data, const std::string& active_class_id) const
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto selected = factories_.find(active_class_id);
+    if (selected == factories_.end()) {
+        ANET_SYSTEM_ERROR("Unknown active Agent " << data.GetFullKey("agent.class_id")
+            << "='" << active_class_id << "'; expected a registered factory.");
+    }
+    const auto active_prefixes = selected->second->GetConfigPrefixes();
+    for (const auto& [id, factory] : factories_) {
+        if (id == active_class_id) continue;
+        for (const auto& prefix : factory->GetConfigPrefixes()) data.MarkInventory(prefix, active_prefixes);
+    }
+}
+
+
+// =============================================================
+// DefaultAgentFactory
+// =============================================================
+
+DefaultAgentFactory::DefaultAgentFactory(
+    const DefaultAgentFactoryConfig& config,
+    const EnvSpec& env_spec,
+    const BatchEnvSpec& batch_env_spec,
+    const ConfigData& config_data,
+    std::optional<seed_t> seed)
+    : config_(config)
+    , env_spec_(env_spec)
+    , batch_env_spec_(batch_env_spec)
+    , config_data_(config_data)
+    , seed_(seed)
+    , device_(anet::ParseDevice(config_.device, "agent.device"))
+{
+    // Agentの構築に採用するdeviceを、指定値とは別の個別JSONフィールドに記録する。
+    config_.RecordEffectiveDevice(device_);
+    LOG::info() << "DefaultAgentFactory effective_device=" << device_;
+    anet::MetricsLogger::Instance()->Log(config_);
+}
+
+std::shared_ptr<Agent> DefaultAgentFactory::CreateAgent(
+    std::shared_ptr<anet::rl::Notifier> notifier) const
+{
+    auto factory = AgentRepository::Instance().GetAgentFactory(config_.class_id);
+    if (factory == nullptr)
+        return nullptr;
+
+    auto agent = factory->CreateAgent(
+        env_spec_, batch_env_spec_, device_, config_data_, notifier, seed_);
+    
+    return agent;
+}

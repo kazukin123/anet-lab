@@ -1,0 +1,415 @@
+#pragma once
+
+#include "anet/agent.hpp"
+#include "anet/schedule.hpp"
+
+namespace anet::rl::dqn {
+
+        class Actor;
+        struct RuntimeVars;         ///< Agent内部変数
+        class NetworkModel;              ///< NN
+        class ActionPolicy;         ///< 行動選択アルゴリズム
+        class Learner;              ///< 学習アルゴリズム
+        class TDLearner;
+        class QRLearner;
+        class BatchUpdateResult;
+
+        std::string GetInitialProfiledValueKey(const anet::ProfiledValueConfig<float>& config);
+
+        struct NetworkModelConfig {
+            anet::ProfiledValueConfig<float> soft_update_tau{ .value = 0.01f, .min_value = 0.0f, .max_value = 1.0f };
+            int hard_update_interval = -1;
+            ConfigFullKeyTable full_keys;
+        };
+
+        static constexpr int kActionPolicyType_EpsilonGreedy = 0;
+        static constexpr int kActionPolicyType_UQE = 1;
+        static constexpr int kActionPolicyType_ThompsonSampling = 2;
+
+        static constexpr const char* kActionPolicyTypeStr_EpsilonGreedy = "EpsilonGreedy";
+        static constexpr const char* kActionPolicyTypeStr_UQE = "UQE";
+        static constexpr const char* kActionPolicyTypeStr_ThompsonSampling = "ThompsonSampling";
+        static constexpr const char* kActionPolicyTypeStr_Greedy = "Greedy";
+
+        struct TauRuleConfig {
+            std::string sample_mode = "random";
+            int num_taus = 32;
+        };
+
+        struct FullDistributionQueryConfig {
+            bool enabled = false;
+            TauRuleConfig tau_rule{
+                .sample_mode = "fixed",
+                .num_taus = 32,
+            };
+        };
+
+        struct ActionPolicyConfig {
+            static constexpr const char* kQuantileModeNone = "none";
+            static constexpr const char* kQuantileModeQr = "qr";
+            static constexpr const char* kQuantileModeIqn = "iqn";
+
+            // Poilcy選択
+            std::string policy_type = "EpsilonGreedy"; ///< "EpsilonGreedy", "UQE", "ThompsonSampling", "Greedy"
+
+            anet::ProfiledValueConfig<float> epsilon{
+                .value = 1.0f, .start = 1.0f, .end = 0.05f, .min_value = 0.0f, .max_value = 1.0f };
+            struct UqeConfig {
+                anet::ProfiledValueConfig<float> epsilon{
+                    .value = 0.0f, .min_value = 0.0f, .max_value = 1.0f };
+                anet::ProfiledValueConfig<float> tau{
+                    .value = 0.5f, .start = 0.5f, .end = 0.5f, .min_value = 0.0f, .max_value = 1.0f };
+                bool use_tail_mean = true;
+            } uqe;
+            struct LadderConfig {
+                anet::ProfiledValueConfig<float> first;
+                anet::ProfiledValueConfig<float> last;
+            };
+            struct SpatialConfig {
+                bool enabled = false;
+                std::string scale = "log";
+                LadderConfig epsilon{
+                    .first = {.value = 0.4f, .min_value = 0.0f, .max_value = 1.0f},
+                    .last = {.value = 0.01f, .min_value = 0.0f, .max_value = 1.0f} };
+                struct {
+                    LadderConfig epsilon{
+                        .first = {.value = 0.05f, .min_value = 0.0f, .max_value = 1.0f},
+                        .last = {.value = 0.05f, .min_value = 0.0f, .max_value = 1.0f} };
+                    LadderConfig tau{
+                        .first = {.value = 0.9f, .min_value = 0.0f, .max_value = 1.0f},
+                        .last = {.value = 0.5f, .min_value = 0.0f, .max_value = 1.0f} };
+                } uqe;
+            } spatial;
+
+            // ==========================================
+            // 推論（Forward）時の精度設定
+            // ==========================================
+            bool use_amp = false;
+            bool use_amp_bf16 = false;
+
+            TauRuleConfig tau_rule;
+            FullDistributionQueryConfig full_distribution_query;
+            std::string quantile_mode = kQuantileModeNone;
+            ConfigFullKeyTable full_keys;
+
+            bool IsThompsonSampling() const
+            {
+                return policy_type == "ThompsonSampling" || policy_type == "2";
+            }
+        };
+
+        inline void ValidateTauRule(const TauRuleConfig& rule, const ConfigFullKeyTable& keys, const std::string& prefix)
+        {
+            if (rule.num_taus <= 0) {
+                ANET_SYSTEM_ERROR("Invalid " << keys.GetFullKey(prefix + "num_taus") << ": value=" << rule.num_taus << " expected > 0");
+            }
+            if (rule.sample_mode != "random" && rule.sample_mode != "fixed"
+                && rule.sample_mode != "stratified" && rule.sample_mode != "systematic"
+                && rule.sample_mode != "antithetic") {
+                ANET_SYSTEM_ERROR("Invalid " << keys.GetFullKey(prefix + "sample_mode") << ": value='" << rule.sample_mode
+                    << "' expected one of: random, fixed, stratified, systematic, antithetic");
+            }
+        }
+
+        inline void ValidateActionPolicy(const ActionPolicyConfig& policy)
+        {
+            const auto& quantile_mode = policy.quantile_mode;
+            const auto is_uqe = [](const std::string& type) { return type == "UQE" || type == "1"; };
+            const auto& type = policy.policy_type;
+            if (type != kActionPolicyTypeStr_Greedy && type != kActionPolicyTypeStr_EpsilonGreedy && type != "0" && !is_uqe(type) && !policy.IsThompsonSampling()) {
+                ANET_SYSTEM_ERROR("Invalid " << policy.full_keys.GetFullKey("policy_type") << "='" << type
+                    << "'; expected " << kActionPolicyTypeStr_Greedy << ", " << kActionPolicyTypeStr_EpsilonGreedy
+                    << ", " << kActionPolicyTypeStr_UQE << ", or " << kActionPolicyTypeStr_ThompsonSampling << ".");
+            }
+            ValidateTauRule(policy.tau_rule, policy.full_keys, "tau_rule.");
+            ValidateTauRule(policy.full_distribution_query.tau_rule, policy.full_keys, "full_distribution_query.tau_rule.");
+
+            if ((is_uqe(policy.policy_type) || policy.IsThompsonSampling()) && quantile_mode == ActionPolicyConfig::kQuantileModeNone) {
+                ANET_SYSTEM_ERROR("Invalid " << policy.full_keys.GetFullKey("policy_type") << ": value='" << policy.policy_type
+                    << "' expected " << policy.full_keys.GetFullKey("quantile_mode") << "=" << ActionPolicyConfig::kQuantileModeQr
+                    << " or " << ActionPolicyConfig::kQuantileModeIqn);
+            }
+            // full queryはIQN専用の任意機能とし、他のquantile modeでは休眠設定として保持する。
+            if (policy.full_distribution_query.enabled
+                && quantile_mode == ActionPolicyConfig::kQuantileModeIqn && !is_uqe(policy.policy_type)) {
+                ANET_SYSTEM_ERROR("Invalid " << policy.full_keys.GetFullKey("full_distribution_query.enabled") << ": value=true"
+                    << " expected " << policy.full_keys.GetFullKey("policy_type") << "=UQE when "
+                    << policy.full_keys.GetFullKey("quantile_mode") << "=" << ActionPolicyConfig::kQuantileModeIqn
+                    << ", actual " << policy.full_keys.GetFullKey("quantile_mode") << "='"
+                    << quantile_mode << "' " << policy.full_keys.GetFullKey("policy_type") << "='" << policy.policy_type << "'");
+            }
+
+        }
+
+        inline void ValidateSpatialScale(const std::string& scale, const std::string& key)
+        {
+            if (scale != "log" && scale != "linear")
+                ANET_SYSTEM_ERROR("Invalid " << key << "=" << scale << " expected=log|linear");
+        }
+
+        struct DQNActorConfig {
+            static constexpr char kActionBetaLearner[] = "learner";
+            static constexpr char kActionBetaFixed[] = "fixed";
+            static constexpr const char* kMaxLengthSingle = "single";
+            static constexpr const char* kMaxLengthFull = "full";
+            static constexpr const char* kMaxLengthVariable = "variable";
+            static constexpr const char* kForwardShared = "shared";
+            static constexpr const char* kForwardDedicated = "dedicated";
+
+            ActionPolicyConfig policy;
+            ActionPolicyConfig skip_policy;
+            struct {
+                std::string action_beta_mode = kActionBetaLearner;
+                std::optional<float> action_beta;
+            } intrinsic;
+            bool has_skip_policy = false;
+            struct {
+                std::string max_length_mode = kMaxLengthFull;
+                std::optional<anet::ProfiledValueConfig<int>> max_length;
+                std::string nn_forward_mode = kForwardShared;
+                std::optional<std::string> nn_forward_key;
+            } skip;
+            std::string network = "online";
+            bool clone_model = false;
+            std::optional<anet::ProfiledValueConfig<step_t>> sync_interval;
+            std::string nn_forward_key;
+            ConfigFullKeyTable full_keys;
+        };
+
+        enum class SkipNetworkMode { ActionOut, ActionIn };
+
+        struct SkipConfig {
+            static constexpr const char* kNetworkModeActionOut = "action_out";
+            static constexpr const char* kNetworkModeActionIn = "action_in";
+
+            bool enabled = false;
+            int max_length = 0;
+            SkipNetworkMode network_mode = SkipNetworkMode::ActionOut;
+            struct {
+                bool use_dueling = false;
+                anet::nn::WeightInitConfig init;
+                anet::ConfigData projection; ///< 構築設定の解釈は選択された Head の具象クラスが所有する。
+            } head;
+            ConfigFullKeyTable full_keys;
+        };
+
+        struct StuckerConfig {
+            bool use_stacker = false;
+            int stack_count = 4;
+			std::vector<std::string> stack_keys; // obs内のどのキーをスタックするか。空なら全てスタック
+        };
+
+        struct MunchausenValues {
+            static constexpr char kLogPolicyTarget[] = "target";
+            static constexpr char kLogPolicyOnline[] = "online";
+            static constexpr char kLogPolicyOnlineReuse[] = "online_reuse";
+            bool enabled = false;
+            std::string log_policy_mode = kLogPolicyTarget; ///< Learner専用。Actorのヒント生成では参照しない。
+            float alpha = 0.9f;
+            float entropy_tau = 0.03f;
+            float clip_value_min = -1.0f;
+        };
+
+        struct MunchausenConfig {
+            bool enabled = false;
+            std::string log_policy_mode = MunchausenValues::kLogPolicyTarget;
+            anet::ProfiledValueConfig<float> alpha{ .value = 0.9f, .min_value = 0.0f, .max_value = 1.0f };
+            anet::ProfiledValueConfig<float> entropy_tau{ .value = 0.03f, .min_value = std::numeric_limits<float>::denorm_min() };
+            float clip_value_min = -1.0f;
+
+            MunchausenValues Resolve(float alpha_value, float entropy_tau_value) const
+            {
+                return { .enabled = enabled, .log_policy_mode = log_policy_mode,
+                    .alpha = alpha_value, .entropy_tau = entropy_tau_value, .clip_value_min = clip_value_min };
+            }
+        };
+
+        /// Agent prefixを含めず、選択項目を識別するNN実行設定キーを作る。
+        inline std::string MakeNetworkForwardConfigKey(const std::string& key)
+        {
+            return "nn_forward.[" + key + "]";
+        }
+
+        struct LearnerConfig {
+            static constexpr char kDiscountShared[] = "shared";
+            static constexpr char kDiscountSeparate[] = "separate";
+            static constexpr char kTerminalEpisodic[] = "episodic";
+            static constexpr char kTerminalNonEpisodic[] = "non_episodic";
+            static constexpr char kBootstrapCombined[] = "combined";
+            static constexpr char kBootstrapExtrinsic[] = "extrinsic";
+            static constexpr const char* kFeatureGradientStop = "stop";
+            static constexpr const char* kFeatureGradientMerge = "merge";
+            static constexpr const char* kFeatureGradientSplit = "split";
+            struct {
+                bool decomposed = false; ///< Agent が価値の構成から解決する。
+                std::string discount_mode = kDiscountShared;
+                anet::ProfiledValueConfig<float> gamma{.value = 0.99f, .min_value = std::numeric_limits<float>::min(),
+                    .max_value = std::nextafter(1.0f, 0.0f)};
+                std::string terminal_mode = kTerminalEpisodic;
+                float loss_weight = 1.0f;
+                float priority_lambda = 1.0f;
+                std::string extrinsic_bootstrap_mode = kBootstrapCombined;
+                std::string feature_gradient = kFeatureGradientMerge;
+            } intrinsic;
+            static constexpr const char* kSampleWeightUniform = "uniform";
+            static constexpr const char* kSampleWeightKmax = "kmax";
+            static constexpr const char* kTargetWindowDecision = "decision";
+            static constexpr const char* kTargetWindowActionChange = "action_change";
+            static constexpr const char* kTargetWindowEpisodeEnd = "episode_end";
+
+            struct {
+                std::string target_window = kTargetWindowDecision;
+                std::string feature_gradient = kFeatureGradientStop;
+                std::string sample_weight = kSampleWeightUniform;
+                float loss_weight = 1.0f;
+                float priority_lambda = 0.0f;
+            } skip;
+            struct ForwardSelection {
+                std::string nn_forward_key;
+            };
+            ForwardSelection current;
+            ForwardSelection target;
+            bool enabled = true;         ///< falseで学習を完全停止する(評価専用Run)。ReplayBuffer構築も勾配更新も行わない
+            std::string quantile_mode = ActionPolicyConfig::kQuantileModeNone; ///< Agent config から解決して渡す内部mode
+            anet::ProfiledValueConfig<float> learning_rate{ .value = 1e-3f, .min_value = 0.0f };
+            anet::ProfiledValueConfig<float> weight_decay{ .value = 1e-2f, .min_value = 0.0f };
+            float noisy_weight_decay = 0.0f; ///< 勾配が成立した Noisy sigma の専用 decay
+            float adam_eps = 1e-5;       ///< ゼロ除算防止項。LibTorchのデフォルトは1e-8。大きくすることで小さな勾配の変化に敏感になりすぎるのを防ぎ学習をマイルドに。
+            bool use_fused_optimizer = true; ///< ATen fused AdamWを使うか。falseで従来AdamWへ戻す。
+
+            anet::ProfiledValueConfig<float> gamma{ .value = 0.99f, .min_value = 0.0f, .max_value = 1.0f };
+
+            bool use_grad_clip = true;
+            float grad_clip_tau = 30.0f;
+            bool use_td_clip = true;
+            float td_clip_value = 4.0f;
+
+            int replay_capacity = 10000;
+            int replay_batch_size = 128;
+            int update_warmup_steps = 1000;
+            int update_interval = 2;         ///< 何ステップに1回Updateするか。replay_ratioが正なら使われない。
+            float replay_ratio = -1;         ///< 環境遷移1件あたり平均何サンプルを学習に使うか(更新回数ではない。1更新=replay_batch_size件)。num_envsに依存しない。負数ではupdate_intervalのみ使う
+            bool use_rb_prefetch = false;    ///< ReplayBuffer Sample + H2Dを1バッチ先読みし、armed後のPushを遅延投入するか
+
+            int n_step = 3;
+
+            float per_alpha = 0.6f;            ///< 優先度の反映度合い (0:uniform, 1:full)
+            anet::ProfiledValueConfig<float> per_beta{ .value = 0.4f,
+                .start = 0.4f, .end = 1.0f, .steps = 100000, .min_value = 0.0f, .max_value = 1.0f };
+            float per_eps = 1e-6f;             ///< 優先度加算用微小値
+            float per_initial_priority = 1.0f; ///< 新規データの初期優先度
+            std::string per_initial_priority_mode = "fixed"; ///< fixed / max / actor_approx
+            bool use_per_prio_clip = false;    ///< 優先度をクリッピングするか
+            float per_prio_clip_value = 50.0f; ///< 優先度の上限値
+
+            bool use_double_dqn = true;   ///< Double DQN 有効化フラグ
+            MunchausenConfig munchausen;
+            bool use_n_step = true;       ///< N-STEPを使用するか
+            bool use_per = true;          ///< PERを使用するか
+
+            bool use_tbo = false;         ///< Transformed Bellman Operatorを使用するか
+            float tbo_epsilon = 1e-2f;    ///< TBO変換関数hの正則化項
+
+            int num_quantiles = 51;         ///< 分位数 N (デフォルト51)
+            float quantile_huber_kappa = 1.0f;///< Huber Loss の閾値 kappa
+
+            struct IqnConfig {
+                TauRuleConfig current_taus{
+                    .sample_mode = "random",
+                    .num_taus = 64,
+                };
+                TauRuleConfig target_taus{
+                    .sample_mode = "random",
+                    .num_taus = 64,
+                };
+            } iqn;
+
+            struct GradNoiseConfig {
+                int num_micro_batches = 8;
+                double ema_alpha = 0.05;
+                void Validate(const ConfigFullKeyTable& keys, const std::string& prefix) const
+                {
+                    if (num_micro_batches < 2) {
+                        ANET_SYSTEM_ERROR("Invalid " << keys.GetFullKey(prefix + "num_micro_batches") << "=" << num_micro_batches << "; expected integer >= 2.");
+                    }
+                    if (!std::isfinite(ema_alpha) || ema_alpha <= 0.0 || ema_alpha > 1.0) {
+                        ANET_SYSTEM_ERROR("Invalid " << keys.GetFullKey(prefix + "ema_alpha") << "=" << ema_alpha << "; expected finite (0,1].");
+                    }
+                }
+            } grad_noise;
+
+            struct NoisyProbeConfig {
+                struct ProbeConfig { int batch_size = 128; } probe;
+                int num_draws = 32;
+                struct IqnConfig { int num_taus = 32; } iqn;
+            } noisy_probe;
+
+            std::string final_feature_branch_key;
+            struct AttentionEntropyConfig {
+                struct ProbeConfig { int batch_size = 256; } probe;
+            } attention_entropy;
+
+
+            struct PlasticityConfig {
+                struct ProbeConfig {
+                    int batch_size = 512;
+                } probe;
+            } plasticity;
+
+            struct PolicyChurnConfig {
+                struct ProbeConfig {
+                    int batch_size = 1024;
+                } probe;
+                struct IqnConfig {
+                    int num_taus = 32;
+                } iqn;
+            } policy_churn;
+
+            struct ReplayFitConfig {
+                struct ProbeConfig {
+                    int batch_size = 1024;
+                } probe;
+                struct IqnConfig {
+                    int num_taus = 32;
+                } iqn;
+            } replay_fit;
+
+            bool use_amp = false;
+            bool use_amp_bf16 = false;
+            ConfigFullKeyTable full_keys;
+        };
+    
+} // namespace anet::rl::dqn
+
+namespace anet {
+    template<> struct ConfigReader<rl::dqn::ActionPolicyConfig> {
+        static constexpr bool kEnabled = true;
+        static void Read(Config& owner, const ConfigData& data, const std::string& key,
+            rl::dqn::ActionPolicyConfig& value)
+        {
+            // 時間の値とラダー両端を独立に読み、休眠側も値域を検証する。
+            owner.ReadInheritedSubConfig(data, key, "policy_type", value.policy_type, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "epsilon", value.epsilon, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "uqe.epsilon", value.uqe.epsilon, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "uqe.tau", value.uqe.tau, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "uqe.use_tail_mean", value.uqe.use_tail_mean, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.enabled", value.spatial.enabled, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.scale", value.spatial.scale, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.epsilon.first", value.spatial.epsilon.first, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.epsilon.last", value.spatial.epsilon.last, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.uqe.epsilon.first", value.spatial.uqe.epsilon.first, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.uqe.epsilon.last", value.spatial.uqe.epsilon.last, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.uqe.tau.first", value.spatial.uqe.tau.first, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "spatial.uqe.tau.last", value.spatial.uqe.tau.last, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "use_amp", value.use_amp, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "use_amp_bf16", value.use_amp_bf16, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "tau_rule.sample_mode", value.tau_rule.sample_mode, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "tau_rule.num_taus", value.tau_rule.num_taus, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "full_distribution_query.enabled", value.full_distribution_query.enabled, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "full_distribution_query.tau_rule.sample_mode", value.full_distribution_query.tau_rule.sample_mode, value.full_keys);
+            owner.ReadInheritedSubConfig(data, key, "full_distribution_query.tau_rule.num_taus", value.full_distribution_query.tau_rule.num_taus, value.full_keys);
+            value.full_keys = owner.GetFullKeys().Extract(key);
+            rl::dqn::ValidateSpatialScale(value.spatial.scale, value.full_keys.GetFullKey("spatial.scale"));
+        }
+    };
+}

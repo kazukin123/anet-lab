@@ -1,0 +1,319 @@
+<title>題を記入</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* 色はすべてここのトークンで指定する。場面の節に足す見た目も、このトークンを使ってこの style に足す。 */
+  :root {
+    --page: #f3f6fa;
+    --surface: #ffffff;
+    --text: #18243a;
+    --muted: #4a5870;
+    --line: #cbd5e3;
+    --accent: #2457ad;
+    --shadow: #18243a22;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #111827;
+      --surface: #1a2436;
+      --text: #edf3fe;
+      --muted: #b7c4d8;
+      --line: #465875;
+      --accent: #adcaff;
+      --shadow: #00000066;
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --page: #111827;
+    --surface: #1a2436;
+    --text: #edf3fe;
+    --muted: #b7c4d8;
+    --line: #465875;
+    --accent: #adcaff;
+    --shadow: #00000066;
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: var(--page);
+    color: var(--text);
+    font: 0.9375rem/1.6 "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  }
+
+  .conversation-summary {
+    box-sizing: border-box;
+    max-inline-size: 52rem;
+    margin: 0 auto;
+    padding-block: clamp(0.75rem, 3vw, 1.5rem) 4.5rem;
+    overflow-wrap: anywhere;
+  }
+
+  .conversation-summary :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  .conversation-summary h1,
+  .conversation-summary h2 {
+    margin-block: 0 0.5rem;
+    line-height: 1.35;
+  }
+
+  .conversation-summary h1 {
+    font-size: clamp(1.4rem, 4vw, 1.8rem);
+  }
+
+  .conversation-summary h2 {
+    font-size: 1.12rem;
+  }
+
+  .conversation-summary p {
+    margin-block: 0.4rem;
+  }
+
+  .conversation-summary .summary-note {
+    margin-block: 0.3rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+
+  .conversation-summary a {
+    color: var(--accent);
+    text-underline-offset: 0.18em;
+  }
+
+  .conversation-summary nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.1rem 0.9rem;
+    margin-block: 0.6rem 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .conversation-summary nav a,
+  .conversation-summary summary {
+    display: inline-block;
+    padding-block: 0.3rem;
+  }
+
+  .conversation-summary section {
+    margin-block-start: 1.25rem;
+    scroll-margin-block-start: 1rem;
+  }
+
+  .conversation-summary .position {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: 0.5rem;
+    margin: 0;
+  }
+
+  /* WAITING・DOING・TODO・DONE の 4 欄は同じ形にする。どれか 1 つだけ色や大きさを変えない。 */
+  .conversation-summary .position > div,
+  .conversation-summary details {
+    min-width: 0;
+    padding: 0.55rem 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 0.65rem;
+    background: var(--surface);
+  }
+
+  .conversation-summary .position dt {
+    margin-block-end: 0.2rem;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .conversation-summary dd,
+  .conversation-summary .position ol {
+    margin: 0;
+  }
+
+  .conversation-summary .position ol {
+    padding-inline-start: 1.35rem;
+  }
+
+  .conversation-summary details + details {
+    margin-block-start: 0.5rem;
+  }
+
+  .conversation-summary summary {
+    display: list-item;
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  /* 最終更新の行と節の見出しの行は、右にスクリプトが足す開け閉めのボタンを並べる。 */
+  .conversation-summary .summary-meta,
+  .conversation-summary .section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.25rem 0.75rem;
+  }
+
+  .conversation-summary .section-head {
+    margin-block-end: 0.5rem;
+  }
+
+  .conversation-summary .section-head h2 {
+    margin: 0;
+  }
+
+  .conversation-summary .fold-buttons {
+    display: inline-flex;
+    flex-shrink: 0;
+    gap: 0.35rem;
+  }
+
+  .conversation-summary .fold-buttons button {
+    min-block-size: 1.9rem;
+    padding: 0.15rem 0.65rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .conversation-summary .fold-buttons button:hover {
+    border-color: var(--accent);
+  }
+
+  .conversation-summary .summary-footer {
+    margin-block-start: 1.5rem;
+    padding-block-start: 0.5rem;
+    border-block-start: 1px solid var(--line);
+  }
+
+  .conversation-summary .back-to-top {
+    position: fixed;
+    z-index: 1;
+    inset-inline-end: calc(0.85rem + env(safe-area-inset-right, 0px));
+    inset-block-end: calc(0.85rem + env(safe-area-inset-bottom, 0px));
+    display: grid;
+    place-items: center;
+    min-block-size: 44px;
+    padding-inline: 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow: 0 0.2rem 0.7rem var(--shadow);
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+</style>
+
+<article class="conversation-summary" lang="ja">
+  <header id="page-top">
+    <!-- 題は先頭の <title> とこの <h1> の両方に同じものを書く。 -->
+    <h1>題を記入</h1>
+    <!-- 塊をまとめて開け閉めするボタンは、末尾のスクリプトがこの行の右に足す。 -->
+    <div class="summary-meta">
+      <p class="summary-note">最終更新 <time>日時を記入</time></p>
+    </div>
+    <!-- 前のページから続けた別の枠では、ここに前のページへのリンクを置く。 -->
+    <nav aria-label="目次">
+      <ul>
+        <li><a href="#position">進行状況</a></li>
+        <li><a href="#symbols">案と論点の一覧</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <section id="position" aria-labelledby="position-title">
+    <h2 id="position-title">進行状況</h2>
+    <dl class="position">
+      <div>
+        <dt>WAITING（あなたの返事待ち）</dt>
+        <dd>返事を待っていることを記入</dd>
+      </div>
+      <div>
+        <dt>DOING（進行中）</dt>
+        <dd>進行中の作業を記入</dd>
+      </div>
+      <div>
+        <dt>TODO（次にすること）</dt>
+        <dd>
+          <ol>
+            <li>次にすることを記入</li>
+            <li>残っている作業を続けて記入</li>
+          </ol>
+        </dd>
+      </div>
+      <div>
+        <dt>DONE（直前に済んだこと）</dt>
+        <dd>直前に済んだ作業を記入</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section id="symbols" aria-labelledby="symbols-title">
+    <h2 id="symbols-title">案と論点の一覧</h2>
+    <!-- 記号がなければ「まだありません」と記入。済んだ塊は open を外す。 -->
+    <details open>
+      <summary>記号と短い名前を記入</summary>
+      <p>要点を記入</p>
+      <p class="summary-note">状態を記入</p>
+    </details>
+  </section>
+
+  <footer class="summary-footer">
+    <p class="summary-note">見返し用の写しです。正本は会話と RFD・実験記録・課題にあります。</p>
+  </footer>
+
+  <a class="back-to-top" href="#page-top">先頭へ戻る</a>
+
+  <script>
+    // 塊（details）をまとめて開け閉めするボタンを、冒頭の最終更新の行と、塊を持つ節の見出しの行に足す。
+    // スクリプトが動かないところではボタンが出ないだけで、塊は 1 つずつ開け閉めできる。
+    (() => {
+      const root = document.querySelector('.conversation-summary');
+      // 塊が 1 つも無いページでは、押しても何も変わらないボタンを出さない。
+      if (!root || !root.querySelector('details')) return;
+
+      // 「開く」「閉じる」の 2 つのボタンの組を作る。押すと scope の中の塊をすべて開くか閉じる。
+      // targetName は、読み上げ用の名前（aria-label）に入れる、開け閉めする範囲の呼び名（文字列）。
+      const makeButtons = (scope, openText, closeText, targetName) => {
+        const group = document.createElement('span');
+        group.className = 'fold-buttons';
+        for (const [text, open] of [[openText, true], [closeText, false]]) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = text;
+          button.setAttribute('aria-label', targetName + 'の塊を' + (open ? '開く' : '閉じる'));
+          button.addEventListener('click', () => {
+            for (const details of scope.querySelectorAll('details')) details.open = open;
+          });
+          group.append(button);
+        }
+        return group;
+      };
+
+      // ページ全体のボタンは、冒頭の最終更新の行（.summary-meta）の右に並べる。
+      const meta = root.querySelector('.summary-meta');
+      if (meta) meta.append(makeButtons(root, 'すべて開く', 'すべて閉じる', 'ページのすべて'));
+
+      // 塊を持つ節ごとに、直下の h2 を新しい div.section-head へ移し、同じ行の右にその節のボタンを並べる。
+      // CSS の .section-head（横並び）と .section-head h2（余白 0）は、この組み替えを前提にしている。
+      for (const section of root.querySelectorAll('section')) {
+        const heading = section.querySelector(':scope > h2');
+        if (!heading || !section.querySelector('details')) continue;
+        const head = document.createElement('div');
+        head.className = 'section-head';
+        heading.before(head);
+        head.append(heading, makeButtons(section, '開く', '閉じる', heading.textContent));
+      }
+    })();
+  </script>
+</article>

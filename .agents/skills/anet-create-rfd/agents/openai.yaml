@@ -1,0 +1,4 @@
+interface:
+  display_name: "ANET Create RFD"
+  short_description: "グリルで RFD を起こし、自己点検とレビューまで行って停止する。既存 RFD は要点を示してから改訂する"
+  default_prompt: "$anet-create-rfd を使って、次の題材か RFD をグリルしてください。"

@@ -1,0 +1,7 @@
+interface:
+  display_name: "ANET Archify Atlas"
+  short_description: "anet-labを5種のArchify Atlasとして可視化する"
+  default_prompt: "$anet-archify-atlas を使って、現在のanet-labから5種の対話型Atlasを生成してください。"
+
+policy:
+  allow_implicit_invocation: false

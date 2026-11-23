@@ -1,0 +1,7 @@
+interface:
+  display_name: "ANET Improve"
+  short_description: "この会話の手戻りから、ハーネスの改善策を選んで反映する"
+  default_prompt: "$anet-improve を使って、この会話の手戻りから改善策を出してください。"
+
+policy:
+  allow_implicit_invocation: false

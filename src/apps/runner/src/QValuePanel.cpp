@@ -1,0 +1,1065 @@
+﻿// QValuePanel.cpp
+#include "QValuePanel.hpp"
+
+#include <algorithm>
+#include <cstdint>
+#include <utility>
+#include <wx/weakref.h>
+#include <wx/dcbuffer.h>
+#include "anet/config.hpp"
+#include "anet/observers.hpp"
+#include "anet/heat_map.hpp"
+
+
+//static constexpr int kRowHeight = 24;   ///< 行の高さ（GridとHeatMapの同期用）
+static constexpr int kActionNameColWidth = 100;
+static constexpr int kActionNameColMinWidth = 50;
+static constexpr size_t kInitialValueChars = 6;  ///< 数値列を最初に合わせる文字数 ("-0.000")
+static constexpr bool kHistDefaultCheck = true;
+static constexpr bool kAdvDefaultCheck = true;
+static constexpr bool kLogScaleDefaultCheck = false;
+static constexpr bool kAutoRangeDefaultCheck = true;
+
+
+// ----------------------------------------------------------------------------
+// QValuePanel::Config
+// ----------------------------------------------------------------------------
+
+struct QValuePanel::Config : public anet::Config {
+    int row_height = 24;
+    bool use_hist_smooth = true;
+    int smooth_radius = 4;
+    int hist_bins = 510;
+    float hist_range_k = 1.0;
+
+    Config(const anet::ConfigData& config_data) : anet::Config("QValuePanel")
+    {
+        constexpr int kMinSmoothRadius = 1;
+        ANET_READ_CONFIG(config_data, row_height);
+        ANET_READ_CONFIG(config_data, hist_bins);
+        ANET_READ_CONFIG(config_data, hist_range_k);
+        ANET_READ_CONFIG(config_data, use_hist_smooth);
+        ANET_READ_CONFIG(config_data, smooth_radius);
+        if (smooth_radius < kMinSmoothRadius) {
+            ANET_SYSTEM_ERROR(GetConfigPrefix() << ".smooth_radius=" << smooth_radius
+                << " must be an integer >= " << kMinSmoothRadius << ".");
+        }
+    }
+};
+
+
+// ----------------------------------------------------------------------------
+// QValueHeatMapPanel
+// ----------------------------------------------------------------------------
+
+QValueHeatMapPanel::QValueHeatMapPanel(wxWindow* parent)
+    : anet::rl::gui::Panel(parent, wxID_ANY)
+{
+    // ちらつき防止: 背景スタイルを設定
+    SetBackgroundStyle(wxBG_STYLE_PAINT);
+    SetBackgroundColour(wxColour(0, 0, 0));
+
+    // Bind形式でのイベント設定
+    Bind(wxEVT_PAINT, &QValueHeatMapPanel::OnPaint, this);
+    Bind(wxEVT_ERASE_BACKGROUND, &QValueHeatMapPanel::OnEraseBackground, this);
+}
+
+//void QValueHeatMapPanel::UpdateHeatMap(const wxImage& heatmap_image, int y_offset, int target_height)
+void QValueHeatMapPanel::UpdateHeatMap(const wxImage& heatmap_image, int y_offset, int target_height, float guide_line_pos)
+{
+    heatmap_image_ = heatmap_image;
+    y_offset_ = y_offset;
+    target_height_ = target_height;
+    guide_line_pos_ = guide_line_pos; // 位置を保存
+    Refresh(false); // OnPaintをトリガー
+}
+
+void QValueHeatMapPanel::SetScrollOffsetY(int scroll_y)
+{
+    scroll_y = std::max(0, scroll_y);
+    if (scroll_y_ == scroll_y) return;
+
+    scroll_y_ = scroll_y;
+    Refresh(false);
+    Update();
+}
+
+void QValueHeatMapPanel::OnEraseBackground(wxEraseEvent& event)
+{
+    // 【重要】ダブルバッファリング時のちらつき防止
+    // デフォルト処理（背景を白で塗りつぶす等）を行わせないために
+    // 何もせず、event.Skip() も呼ばない。
+}
+
+void QValueHeatMapPanel::OnPaint(wxPaintEvent& event)
+{
+    wxAutoBufferedPaintDC dc(this);
+    wxSize client_size = GetClientSize();
+
+    dc.SetPen(*wxTRANSPARENT_PEN);
+    dc.SetBrush(wxBrush(GetBackgroundColour()));
+    dc.DrawRectangle(0, 0, client_size.GetWidth(), client_size.GetHeight());
+
+    if (!heatmap_image_.IsOk()) return;
+
+    // パネルの現在のクライアント幅を取得
+    int width = client_size.GetWidth();
+
+    // 幅が0以下や画像がない場合は描画しない
+    if (width > 0 && target_height_ > 0) {
+        // ウィンドウ幅に合わせて画像をリサイズ
+        //wxImage scaled_img = heatmap_image_.Scale(width, target_height_);
+        //wxImage scaled_img = heatmap_image_.Scale(width, target_height_, wxIMAGE_QUALITY_HIGH);
+        wxImage scaled_img = heatmap_image_.Scale(width, target_height_, wxIMAGE_QUALITY_NEAREST);
+        int draw_y = y_offset_ - scroll_y_;
+
+        // 描画
+        dc.DrawBitmap(wxBitmap(scaled_img), 0, draw_y, false);
+
+        // センターライン（ガイドライン）の描画
+        if (guide_line_pos_ >= 0.0f && guide_line_pos_ <= 1.0f) {
+            int line_x = static_cast<int>(guide_line_pos_ * width);
+
+            // シアン色 (0, 255, 255), 太さ2px
+            wxPen pen(wxColour(0, 255, 255), 2, wxPENSTYLE_SOLID);
+            dc.SetPen(pen);
+
+            // 縦線を引く
+            dc.DrawLine(line_x, draw_y, line_x, draw_y + target_height_);
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// QValuePanel Implementation
+// ----------------------------------------------------------------------------
+
+QValuePanel::QValuePanel(wxWindow* parent, const anet::ConfigData& config_data)
+    : anet::rl::gui::Panel(parent, wxID_ANY)
+{
+    // Config
+    config_ = std::make_unique<QValuePanel::Config>(config_data);
+
+    // ガウス分布風の重みテーブルを事前に作っておく（高速化）
+    if (config_->use_hist_smooth) {
+        // 半径から個数と距離の二乗を求める間は 64 bit で計算する。
+        const auto radius = static_cast<std::int64_t>(config_->smooth_radius);
+        hist_weights_.resize(static_cast<size_t>(2 * radius + 1));
+        const float sigma = static_cast<float>(radius) / 2.0f;
+        for (std::int64_t offset = -radius; offset <= radius; ++offset) {
+            const float distance_squared = static_cast<float>(offset * offset);
+            hist_weights_[static_cast<size_t>(offset + radius)] = std::exp(-distance_squared / (2.0f * sigma * sigma));
+        }
+    }
+
+    // UIレイアウト初期化
+    InitLayout();
+
+    // 必要に応じてパネル全体のリサイズイベントもBind可能
+    Bind(wxEVT_SIZE, &QValuePanel::OnSize, this);
+    Bind(wxEVT_CLOSE_WINDOW, &QValuePanel::OnCloseWindow, this);
+}
+
+void QValuePanel::InitLayout()
+{
+    auto* main_sizer = new wxBoxSizer(wxHORIZONTAL);
+
+    // ====================================================================
+    // 左側: Grid
+    // ====================================================================
+    grid_ = new wxGrid(this, wxID_ANY);
+    SetupGrid();
+    main_sizer->Add(grid_, 0, wxEXPAND, 0);
+
+    // ====================================================================
+    // 右側: 縦並び (ヘッダーエリア + ヒートマップエリア)
+    // ====================================================================
+    auto* right_sizer = new wxBoxSizer(wxVERTICAL);
+
+    // --------------------------------------------------
+    // 右上: ヘッダーエリア (チェックボックス配置)
+    // --------------------------------------------------
+    header_panel_ = new wxPanel(this, wxID_ANY);
+
+    auto* header_sizer = new wxBoxSizer(wxHORIZONTAL);
+
+    // Reset Range Button (いちばん使うので、ヒートマップが狭くても見える左端に置く)
+    reset_range_button_ = new wxButton(header_panel_, wxID_ANY, "Reset Range", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+    reset_range_button_->Bind(wxEVT_BUTTON, &QValuePanel::OnResetRangeClick, this);
+    header_sizer->Add(reset_range_button_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
+
+    // Hist CheckBox
+    hist_check_ = new wxCheckBox(header_panel_, wxID_ANY, "Hist");
+    hist_check_->SetValue(kHistDefaultCheck);
+    hist_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
+    header_sizer->Add(hist_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
+
+    // Advantage CheckBox
+    adv_check_ = new wxCheckBox(header_panel_, wxID_ANY, "Advantage");
+    adv_check_->SetValue(kAdvDefaultCheck);
+    adv_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
+    header_sizer->Add(adv_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
+
+    // Log Scale CheckBox
+    log_scale_check_ = new wxCheckBox(header_panel_, wxID_ANY, "Log Scale");
+    log_scale_check_->SetValue(kLogScaleDefaultCheck);
+    log_scale_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
+    header_sizer->Add(log_scale_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
+
+    // Auto Range CheckBox
+    auto_range_check_ = new wxCheckBox(header_panel_, wxID_ANY, "Auto Range");
+    auto_range_check_->SetValue(kAutoRangeDefaultCheck);
+    auto_range_check_->Bind(wxEVT_CHECKBOX, &QValuePanel::OnCheck, this);
+    header_sizer->Add(auto_range_check_, 0, wxALIGN_CENTER_VERTICAL | wxALL, 0);
+
+    // ヘッダパネルを追加
+    header_panel_->SetSizer(header_sizer);
+    const int header_height = std::max(config_->row_height, header_sizer->CalcMin().GetHeight());
+    header_panel_->SetMinSize(wxSize(-1, header_height));
+    header_panel_->SetMaxSize(wxSize(-1, header_height));
+    grid_->SetColLabelSize(header_height);
+    right_sizer->Add(header_panel_, 0, wxEXPAND, 0);
+
+    // --------------------------------------------------
+    // 右下: HeatMapパネル
+    // --------------------------------------------------
+    heatmap_panel_ = new QValueHeatMapPanel(this);
+    right_sizer->Add(heatmap_panel_, 1, wxEXPAND, 0);
+
+    main_sizer->Add(right_sizer, 1, wxEXPAND, 0);
+    SetSizer(main_sizer);
+    UpdateGridWidth();
+    Layout();
+    RefreshLayoutChildren();
+}
+
+void QValuePanel::SetupGrid()
+{
+    grid_->CreateGrid(0, kColumnCount);
+    grid_->SetColLabelValue(kActionCol, "Action");
+    grid_->SetColLabelValue(kMeanCol, "Mean");
+    grid_->SetColLabelValue(kMaxCol, "Max");
+    grid_->SetColLabelValue(kMinCol, "Min");
+    grid_->SetColLabelValue(kStdCol, "Std");
+
+    grid_->SetDefaultRowSize(config_->row_height, true);
+    grid_->SetColLabelSize(config_->row_height); // ヘッダー高さ
+    grid_->SetRowLabelSize(30);
+    grid_->DisableDragRowSize(); // 高さ同期のため固定
+    grid_->EnableEditing(false);
+    grid_->SetColSize(kActionCol, kActionNameColWidth);
+    grid_->SetColMinimalWidth(kActionCol, kActionNameColMinWidth);
+    grid_->ShowScrollbars(wxSHOW_SB_NEVER, wxSHOW_SB_DEFAULT);  // 横スクロールバーを強制非表示に
+
+    grid_->SetDefaultCellAlignment(wxALIGN_LEFT, wxALIGN_CENTER);
+    for (int col = kMeanCol; col < kColumnCount; ++col) {
+        wxGridCellAttr* align_attr = new wxGridCellAttr();
+        align_attr->SetAlignment(wxALIGN_RIGHT, wxALIGN_CENTER);
+        grid_->SetColAttr(col, align_attr);
+        // 見出しと "-0.000" が入る幅から始め、長い値が出たら広げる
+        grid_->SetColSize(col, MeasureColumnWidth(grid_->GetColLabelValue(col), kInitialValueChars));
+        fitted_value_chars_[col] = kInitialValueChars;
+    }
+
+    // セル選択を無効化
+    grid_->DisableOverlaySelection();
+    grid_->Bind(wxEVT_GRID_SELECT_CELL, [this](wxGridEvent& e) {
+            e.Veto();              // 現在セルにしない（枠も動かない）
+            grid_->ClearSelection();
+        });
+    grid_->Bind(wxEVT_GRID_CELL_LEFT_CLICK, &QValuePanel::OnGridActionClick, this);
+    grid_->Bind(wxEVT_GRID_LABEL_LEFT_CLICK, &QValuePanel::OnGridActionClick, this);
+
+    grid_->Bind(wxEVT_SCROLLWIN_TOP, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_BOTTOM, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_LINEUP, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_LINEDOWN, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_PAGEUP, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_PAGEDOWN, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_THUMBTRACK, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_SCROLLWIN_THUMBRELEASE, &QValuePanel::OnGridScroll, this);
+    grid_->Bind(wxEVT_MOUSEWHEEL, &QValuePanel::OnGridMouseWheel, this);
+    grid_->Bind(wxEVT_KEY_UP, &QValuePanel::OnGridKeyUp, this);
+
+    if (auto* grid_window = grid_->GetGridWindow()) {
+        grid_window->Bind(wxEVT_MOUSEWHEEL, &QValuePanel::OnGridMouseWheel, this);
+        grid_window->Bind(wxEVT_KEY_UP, &QValuePanel::OnGridKeyUp, this);
+    }
+}
+
+void QValuePanel::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager, std::shared_ptr<anet::rl::EvalRunner> runner)
+{
+    runner_ = runner;
+
+    // アクション名
+    auto action_spec = runner->GetBatchEnv()->GetSpec().action_spec;
+    action_names_.insert(action_names_.begin(), action_spec.value_labels.begin(), action_spec.value_labels.end());
+    BuildRows();
+
+	// Observer生成&登録
+    auto notifier = run_manager->GetNotifier();
+    // この Eval Runner の通知も Panel の破棄も GUI スレッドで行う。通知時に弱い参照を確認する。
+    this->observer_ = notifier->AttachScoped<anet::rl::FunctionTrainObserver>(
+        runner,
+        [weak = wxWeakRef<QValuePanel>(this)](const anet::rl::TrainEvent& event) {
+            if (!weak) return;
+            weak->latest_step_ = event.counts.exp_step;
+            weak->latest_data_.reset();
+            auto data = weak->CreateData(event);
+            if (data) weak->ApplyData(std::move(*data));
+        },
+        "QValuePanel");
+
+    // Detach用にNotifierを保持
+    notifier_ = notifier;
+    no_data_label_ = new wxStaticText(this, wxID_ANY, "no data for this step");
+    GetSizer()->Add(no_data_label_, 0, wxALL, 8);
+    no_data_label_->Hide();
+}
+
+void QValuePanel::SetActionHandler(std::function<void(int64_t)> action_handler)
+{
+    action_handler_ = std::move(action_handler);
+}
+
+std::optional<QValueData> QValuePanel::CreateData(const anet::rl::TrainEvent& event)
+{
+    ANET_PROFILE_FUNC();
+
+    const auto& aux_data = event.action_info->GetAuxData();
+    auto q_values_itr = aux_data.find("q_values");
+    if (q_values_itr == aux_data.end()) return std::nullopt;
+
+    torch::Tensor q_values_plain = q_values_itr->second;
+    auto q_quantiles_itr = aux_data.find("q_quantiles");
+    auto full_q_quantiles_itr = aux_data.find("full_q_quantiles");
+    torch::Tensor q_values = q_values_plain;
+    
+    // 観測用full分布があれば優先し、未生成時は従来のrisk分布・scalar Qへ順にfallbackする。
+    if (full_q_quantiles_itr != aux_data.end() && full_q_quantiles_itr->second.defined()) {
+        q_values = full_q_quantiles_itr->second;
+    } else if (q_quantiles_itr != aux_data.end() && q_quantiles_itr->second.defined()) {
+        q_values = q_quantiles_itr->second;
+    }
+
+    auto raw_actions_itr = aux_data.find("raw_actions");
+    torch::Tensor raw_actions;
+    if (raw_actions_itr != aux_data.end()) raw_actions = raw_actions_itr->second;
+
+    //ANET_LOG_DEBUG("q_values=" << anet::ToString(q_values));
+
+    ANET_CHECK(q_values.size(0) > 0);
+    //ANET_ASSERT_SHAPE(q_values, { ANET_SHAPE_ANY, static_cast<int64_t>(action_names_.size()), ANET_SHAPE_ENDANY });
+    // 要素ごとの .item<float>() は毎回GPU→CPU同期が走り非常に重いため、
+    // 先頭env分だけ一括でCPUへ転送し、以降は生ポインタで読む(同期は実質この1回)
+    const torch::Tensor first_env_q =
+        q_values[0].detach().to(torch::kCPU, torch::kFloat).contiguous(); // PlainQ:(A,) / QR:(A,W)
+    ANET_CHECK(first_env_q.size(0) == action_names_.size());
+    const auto n_actions = first_env_q.size(0);
+
+    // PlainQ(A,) と QR(A,W) を幅widthの行列として統一的に扱う
+    const int width = (first_env_q.dim() == 2) ? static_cast<int>(first_env_q.size(1)) : 1;
+    const float* q_ptr = first_env_q.data_ptr<float>();
+
+    QValueData data;
+
+    // Action表示データ設定
+    if (raw_actions.defined()) {
+        // 人間が指示したかもしれない実際に実行したActionではなく、Agentが選択したActionを画面表示データに設定
+        data.selected_action = raw_actions[0].item<int64_t>();
+    } else {
+        // raw_actionが見れない場合は仕方ないので実際に実行したActionを画面表示データに設定
+        data.selected_action = event.action_info->GetAction(torch::kCPU)[0].item<int64_t>();
+    }
+
+    // 統計値生成 (Tensor reduction + .item() の繰り返しはGPU同期が多発するため、CPU上で1パス集計)
+    data.stats.resize(n_actions);
+    for (int i = 0; i < n_actions; i++) {
+        const float* row = q_ptr + static_cast<size_t>(i) * width;
+        double sum = 0.0;
+        double sq_sum = 0.0;
+        float min_val = row[0];
+        float max_val = row[0];
+        for (int x = 0; x < width; x++) {
+            const float v = row[x];
+            sum += v;
+            sq_sum += static_cast<double>(v) * v;
+            min_val = std::min(min_val, v);
+            max_val = std::max(max_val, v);
+        }
+        const double mean = sum / width;
+        // torch::Tensor::std() に合わせた不偏分散(N-1)。width=1 のときは 0 扱い
+        const double var = (width > 1) ? std::max(0.0, (sq_sum - width * mean * mean) / (width - 1)) : 0.0;
+        data.stats[i].mean = static_cast<float>(mean);
+        data.stats[i].std_dev = static_cast<float>(std::sqrt(var));
+        data.stats[i].max = max_val;
+        data.stats[i].min = min_val;
+    }
+
+    // HeatMap用データ生成 (PlainQ/QRとも行優先の格子値として一括コピー)
+    data.vv.assign(q_ptr, q_ptr + static_cast<size_t>(n_actions) * width);
+
+    // データ設定
+    data.width = width;
+    data.height = n_actions;
+
+    return data;
+}
+
+void QValuePanel::ApplyData(QValueData data)
+{
+    ANET_PROFILE_FUNC();
+
+    // 最新断面を保存
+    latest_data_ = std::make_shared<const QValueData>(std::move(data));
+    data_store_.Update(latest_data_);
+
+    // 画面更新はイベントループへ1回だけ予約する
+    // (タイマーハンドラ内で毎Step呼ばれても、Update()の実行はフレームあたり1回に集約される)
+    if (!update_pending_.exchange(true)) {
+        CallAfter([weak = wxWeakRef<QValuePanel>(this)] {
+            if (!weak) return;
+            weak->update_pending_.store(false);
+            weak->Update();
+        });
+    }
+}
+
+QValueHeatMapResult ComputeQValueHeatMap(const QValueData& input,
+    const QValueHeatMapRequest& request, QValueHeatMapRangeState& range)
+{
+    ANET_PROFILE_FUNC();
+    const auto weights = request.hist_weights;
+    if (!weights.empty() && weights.size() % 2 == 0) {
+        ANET_SYSTEM_ERROR("QValueHeatMap requires an empty or odd number of smoothing weights. count=" << weights.size());
+    }
+    const size_t radius = weights.size() / 2;
+
+    // 共有snapshotは変更せず、加工用の格子値だけを1回写す。
+    QValueHeatMapResult data{ .width = input.width, .height = input.height,
+        .vv = input.vv, .guide_line_ratio = -1.0f };
+    const bool is_hist = request.histogram;
+    const bool is_adv = request.advantage;
+    const bool is_log = request.log_scale;
+
+    double sum = std::accumulate(data.vv.begin(), data.vv.end(), 0.0);
+    double global_mean = sum / data.vv.size();
+
+    // 分散・標準偏差計算
+    double sq_sum = std::inner_product(data.vv.begin(), data.vv.end(), data.vv.begin(), 0.0);
+    double global_stdev = std::sqrt(sq_sum / data.vv.size() - global_mean * global_mean);
+
+
+    // --------------------------------------------------------
+    // HeatMapデータ加工プロセス
+    // --------------------------------------------------------
+
+    // [Phase A] 値の変換 (Advantage)
+    float shift_val = 0.0f;
+    if (is_adv) {
+        shift_val = static_cast<float>(global_mean);
+        for (auto& val : data.vv) {
+            val -= shift_val;
+        }
+        // global_mean は中心化したので 0.0 として扱う
+        global_mean = 0.0;
+    }
+
+    // ==========================================
+    // [Phase B] ヒストグラム化 (Histogram)
+    // ==========================================
+    int n_bins = request.hist_bins;
+    float guide_line_ratio = -1.0f; // ガイドライン位置 (0.0~1.0, 負なら非表示)
+
+    if (is_hist) {
+        // ----------------------------------------------------
+        // 現在のフレームでの有効範囲を計算 (Mean ± Xσ)
+        // ----------------------------------------------------
+        float range_k = request.hist_range_k;// 1.0f;
+        float current_min = static_cast<float>(global_mean - range_k * global_stdev);
+        float current_max = static_cast<float>(global_mean + range_k * global_stdev);
+
+        // Min/Maxも考慮してデータが存在する範囲を含める
+        auto mm = std::minmax_element(data.vv.begin(), data.vv.end());
+        if (current_min > *mm.first) current_min = *mm.first;
+        if (current_max < *mm.second) current_max = *mm.second;
+
+        bool is_auto_range = request.auto_range;
+        float shrink_rate = is_auto_range ? 0.05f : 0.0f;
+
+        // ----------------------------------------------------
+        // 累積範囲 (カメラ) の更新
+        // ----------------------------------------------------
+
+        // --- Max側の更新 ---
+        if (current_max > range.maximum) {
+            // 広がる方向は常に即時反映 (データが見切れるのを防ぐため)
+            range.maximum = current_max;
+        } else {
+            // 狭まる方向は shrink_rate に従う (AutoRangeOFFなら狭まらない)
+            range.maximum = range.maximum + (current_max - range.maximum) * shrink_rate;
+        }
+
+        // --- Min側の更新 ---
+        if (current_min < range.minimum) {
+            // 広がる方向は常に即時反映 (データが見切れるのを防ぐため)
+            range.minimum = current_min;
+        } else {
+            // 狭まる方向は shrink_rate に従う (AutoRangeOFFなら狭まらない)
+            range.minimum = range.minimum + (current_min - range.minimum) * shrink_rate;
+        }
+
+        // Advantageモードの場合は、0を中心に対称にする（左右のバランスを保つため）
+        if (is_adv) {
+            float abs_max = std::max(std::abs(range.minimum), std::abs(range.maximum));
+            range.minimum = -abs_max;
+            range.maximum = abs_max;
+        }
+
+        // 最終的なヒストグラム範囲
+        float hist_min = range.minimum;
+        float hist_max = range.maximum;
+
+        // 幅が極小の場合の安全策
+        if (std::abs(hist_max - hist_min) < 1e-4) {
+            hist_max = hist_min + 1.0f;
+        }
+
+        // ----------------------------------------------------
+        // センターライン (0の位置) の計算
+        // ----------------------------------------------------
+        // Advantageなら 0.0 は平均値の位置。Rawなら絶対値の0。
+        float zero_point = 0.0f;
+        if (zero_point >= hist_min && zero_point <= hist_max) {
+            guide_line_ratio = (zero_point - hist_min) / (hist_max - hist_min);
+        }
+
+        // ----------------------------------------------------
+        // 投票 (Voting)
+        // ----------------------------------------------------
+        int n_actions = data.height;
+
+        std::vector<float> new_vv;
+        int total_points = n_actions * n_bins;
+        new_vv.assign(total_points, 0.0f);
+
+        float inv_range = 1.0f / (hist_max - hist_min);
+
+        for (size_t i = 0; i < data.vv.size(); ++i) {
+            int action_idx = static_cast<int>(i / data.width); // vvは行優先格子なので行番号=Action
+            float val = data.vv[i];
+
+            float norm = (val - hist_min) * inv_range;
+            int center_bin_idx = static_cast<int>(std::floor(norm * n_bins));
+
+            // Clamp (画面外の値を両端に寄せる)
+            if (center_bin_idx < 0) center_bin_idx = 0;
+            if (center_bin_idx >= n_bins) center_bin_idx = n_bins - 1;
+
+            if (!weights.empty()) {
+                // 中心ビンの左右で、ヒストグラムに収まる範囲の重みだけを加算する。
+                const auto base = static_cast<size_t>(action_idx) * n_bins;
+                const auto center = static_cast<size_t>(center_bin_idx);
+                const auto first = center - std::min(center, radius);
+                const auto last = center + std::min(static_cast<size_t>(n_bins - 1) - center, radius);
+                auto weight_index = radius - (center - first);
+                for (auto bin = first; bin <= last; ++bin, ++weight_index) {
+                    new_vv[base + bin] += weights[weight_index];
+                }
+            } else {
+                // スムージングなし (点描画)
+                new_vv[action_idx * n_bins + center_bin_idx] += 1.0f;
+            }
+        }
+
+        data.vv = std::move(new_vv);
+        data.width = n_bins;
+    }
+
+
+    // ==========================================
+    // [Phase C] 色付けのための手動正規化 (Manual Normalization)
+    // ==========================================
+    float disp_min = 0.0f;
+    float disp_max = 1.0f;
+
+    if (is_hist) {
+        //  色の基準(disp_max)を決める際、「両端のビン（外れ値のゴミ箱）」を除外して中央部分のピークを探す
+
+        disp_min = 0.0f;
+        disp_max = 1.0f; // fallback
+
+        // ビンデータの中から最大値を探す (ただし両端 0, n_bins-1 は無視)
+        float max_val_in_center = 0.0f;
+
+        // データ構造は [Action0のBin0..N, Action1のBin0..N, ...]
+        for (int i = 0; i < data.vv.size(); ++i) {
+            int bin_idx = i % n_bins;
+            // 両端のビンは無視
+            if (bin_idx == 0 || bin_idx == n_bins - 1) continue;
+
+            if (data.vv[i] > max_val_in_center) {
+                max_val_in_center = data.vv[i];
+            }
+        }
+
+        // もし中央にデータが全くない場合は、全体の最大値を使う（真っ黒回避）
+        if (max_val_in_center < 1e-6) {
+            auto mm = std::minmax_element(data.vv.begin(), data.vv.end());
+            max_val_in_center = *mm.second;
+        }
+
+        disp_max = max_val_in_center;
+
+        // LogScale対応
+        if (is_log) {
+            for (auto& val : data.vv) val = std::log1p(val);
+            disp_max = std::log1p(disp_max);
+        }
+    } else {
+        // Raw / Advantage (変更なし)
+        if (is_adv) {
+            auto mm = std::minmax_element(data.vv.begin(), data.vv.end());
+            float abs_max = std::max(std::abs(*mm.first), std::abs(*mm.second));
+            disp_min = -abs_max;
+            disp_max = abs_max;
+        } else {
+            auto mm = std::minmax_element(data.vv.begin(), data.vv.end());
+            disp_min = *mm.first;
+            disp_max = *mm.second;
+        }
+    }
+
+    // 正規化実行
+    if (std::abs(disp_max - disp_min) > 1e-6) {
+        float inv_range = 1.0f / (disp_max - disp_min);
+        for (auto& val : data.vv) {
+            val = (val - disp_min) * inv_range;
+            if (val < 0.0f) val = 0.0f;
+            if (val > 1.0f) val = 1.0f;
+        }
+    } else {
+        std::fill(data.vv.begin(), data.vv.end(), 0.5f);
+    }
+
+    data.guide_line_ratio = guide_line_ratio;
+    return data;
+}
+
+void QValuePanel::Update()
+{
+    ANET_PROFILE_FUNC();
+    const auto data_opt = data_store_.Get();
+    const auto selected = trace_mode_ ? trace_data_ : (data_opt ? *data_opt : nullptr);
+    if (!selected || selected->vv.empty()) return;
+
+    // モードと設定を1回読み、表の更新・配列の加工・描画を順に進める。
+    const QValueHeatMapRequest request{
+        .histogram = IsHistogram(), .advantage = IsAdvantage(), .log_scale = IsLogScale(),
+        .auto_range = auto_range_check_->GetValue(), .hist_bins = config_->hist_bins,
+        .hist_range_k = config_->hist_range_k, .hist_weights = hist_weights_ };
+    UpdateGrid(*selected);
+    const auto result = ComputeQValueHeatMap(*selected, request, heatmap_range_);
+    RenderHeatMap(result);
+}
+
+void QValuePanel::UpdateGrid(const QValueData& data)
+{
+    ANET_PROFILE_FUNC();
+    // --------------------------------------------------------
+    // Grid更新 (Advantage対応)
+    // --------------------------------------------------------
+    // 行と行動名は Initialize で作り、ここでは数値と選択行だけを更新する
+    const int rows = grid_->GetNumberRows();
+
+    // 最大のMeanを持つアクションを特定する
+    //float max_mean_val = -std::numeric_limits<float>::infinity();
+    //int max_mean_idx = -1;
+
+    //for (int i = 0; i < rows; ++i) {
+    //    // 統計データが揃っていない場合のガード
+    //    if (i < data.stats.size()) {
+    //        if (data.stats[i].mean > max_mean_val) {
+    //            max_mean_val = data.stats[i].mean;
+    //            max_mean_idx = i;
+    //        }
+    //    }
+    //}
+
+    // 選択されたアクションを特定
+    int64_t selected_idx = data.selected_action;
+
+    grid_->BeginBatch();
+
+    // Grid表示用のオフセット値 ★混乱するので無効化
+    float grid_offset = 0.0f;// is_adv ? static_cast<float>(global_mean) : 0.0f;
+
+    // 数値セルを毎回更新し、今までより長い値が出た列だけ広げる
+    bool widened = false;
+    for (int i = 0; i < rows; ++i) {
+        // AdvantageONなら、平均値を引いた値を表示して確認できるようにする
+        // Std(ばらつき)はシフトしても変わらないのでそのまま
+        const std::pair<int, float> values[] = {
+            {kMeanCol, data.stats[i].mean - grid_offset},
+            {kMaxCol, data.stats[i].max - grid_offset},
+            {kMinCol, data.stats[i].min - grid_offset},
+            {kStdCol, data.stats[i].std_dev},
+        };
+        for (const auto& [col, value] : values) {
+            const auto text = wxString::Format("%.3f", value);
+            widened |= FitValueColumn(col, text);
+            grid_->SetCellValue(i, col, text);
+        }
+    }
+
+    // 選択行ハイライト (毎回全行を塗り直すとattr更新が支配的になるため、変化した行だけ差分更新)
+    const int selected_row = static_cast<int>(selected_idx);
+    if (selected_row != last_selected_row_) {
+        if (last_selected_row_ >= 0 && last_selected_row_ < rows) {
+            for (int col = 0; col < kColumnCount; ++col) {
+                // wxNullColourでリセット（システムデフォルトに戻る）
+                grid_->SetCellBackgroundColour(last_selected_row_, col, wxNullColour);
+                grid_->SetCellTextColour(last_selected_row_, col, wxNullColour);
+            }
+        }
+        if (selected_row >= 0 && selected_row < rows) {
+            const wxColour kHighlightBg = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT);
+            const wxColour kHighlightText = wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT);
+            for (int col = 0; col < kColumnCount; ++col) {
+                grid_->SetCellBackgroundColour(selected_row, col, kHighlightBg);
+                grid_->SetCellTextColour(selected_row, col, kHighlightText); // 文字色も合わせる
+            }
+        }
+        last_selected_row_ = selected_row;
+    }
+
+    grid_->EndBatch();
+
+    // 表の幅とレイアウトの再計算は列が広がったときだけ行う
+    // (毎Step実行すると全子ウィンドウの同期再描画が支配的コストになる)
+    if (widened) ApplyGridWidth();
+
+}
+
+void QValuePanel::RenderHeatMap(const QValueHeatMapResult& data)
+{
+    ANET_PROFILE_FUNC();
+    // 描画 (vvは行優先格子なのでSetGridValuesの一括設定パスを使う)
+    uint32_t flags = anet::HeatMapFlags::HM_SumMode | anet::HeatMapFlags::HM_FlipY;
+    anet::HeatMap heat_map(data.width, data.height, 0, data.width, 0, data.height, 0, flags);
+    heat_map.SetGridValues(data.vv.data(), data.width, data.height);
+    auto heatmap_image = heat_map.Render();
+
+    int total_rows = static_cast<int>(action_names_.size());
+    int target_height = total_rows * config_->row_height;
+    heatmap_panel_->UpdateHeatMap(heatmap_image, 0, target_height, data.guide_line_ratio);
+    SyncHeatMapScroll(false);
+}
+
+
+void QValuePanel::ResetRange() {
+    heatmap_range_ = {};
+}
+
+int QValuePanel::GetPreferredDockWidth() const
+{
+    // 表の幅にヒートマップの幅を足す。pane の最小幅と既定幅の両方に使う
+    static constexpr int kPreferredHeatMapWidth = 180;
+    return grid_width_ + kPreferredHeatMapWidth;
+}
+
+int QValuePanel::GetPreferredDockHeight() const
+{
+    // 見出しと行動数ぶんの行がちょうど収まる高さ。行動数が決まる前は既定の下限を返す
+    static constexpr int kDefaultDockHeight = 150;
+
+    if (!grid_ || action_names_.empty()) {
+        return kDefaultDockHeight;
+    }
+
+    const int rows = static_cast<int>(action_names_.size());
+    return grid_->GetColLabelSize() + rows * grid_->GetDefaultRowSize() + grid_->GetWindowBorderSize().GetHeight();
+}
+
+wxSize QValuePanel::GetFloatingMinSize() const
+{
+    // float の窓は表が全部見える幅と、見出し＋1 行の高さまで縮められる。残りの行は縦スクロールで見る
+    return {grid_width_, grid_->GetColLabelSize() + grid_->GetDefaultRowSize() + grid_->GetWindowBorderSize().GetHeight()};
+}
+
+void QValuePanel::SetDockSizeHandler(std::function<void()> handler)
+{
+    dock_size_handler_ = std::move(handler);
+}
+
+void QValuePanel::BuildRows()
+{
+    // 行動名は Initialize 後に変わらないので、行と行番号・行動名はここで一度だけ作る
+    const int rows = static_cast<int>(action_names_.size());
+    grid_->BeginBatch();
+    grid_->AppendRows(rows);
+    for (int row = 0; row < rows; ++row) {
+        grid_->SetRowLabelValue(row, wxString::Format("%d", row));
+        grid_->SetCellValue(row, kActionCol, action_names_[row]);
+    }
+    grid_->EndBatch();
+    // 行動名の列と行番号は文字幅に合わせる (wx の自動幅と同じ余白)
+    grid_->AutoSizeColumn(kActionCol, false);
+    if (rows > 0) {
+        grid_->SetRowLabelSize(MeasureTextWidth(wxString::Format("%d", rows - 1), grid_->GetLabelFont())
+            + grid_->FromDIP(10));
+    }
+    last_selected_row_ = -1;
+    ApplyGridWidth();
+}
+
+int QValuePanel::MeasureTextWidth(const wxString& text, const wxFont& font) const
+{
+    int width = 0;
+    int height = 0;
+    grid_->GetTextExtent(text, &width, &height, nullptr, nullptr, &font);
+    return width;
+}
+
+int QValuePanel::MeasureColumnWidth(const wxString& label, size_t chars) const
+{
+    // wx の自動幅と同じく、見出しと値の文字幅の大きいほうに余白 10 DIP を足す。
+    // 値は "-" や "." より幅のある "0" を同じ文字数だけ並べて測り、上限とする
+    return std::max(MeasureTextWidth(label, grid_->GetLabelFont()),
+        MeasureTextWidth(wxString('0', chars), grid_->GetDefaultCellFont())) + grid_->FromDIP(10);
+}
+
+bool QValuePanel::FitValueColumn(int col, const wxString& text)
+{
+    // 文字数が増えたときだけ測り、列は広げるだけで縮めない
+    if (text.length() <= fitted_value_chars_[col]) return false;
+    fitted_value_chars_[col] = text.length();
+    const int width = MeasureColumnWidth(grid_->GetColLabelValue(col), text.length());
+    if (width <= grid_->GetColSize(col)) return false;
+    grid_->SetColSize(col, width);
+    return true;
+}
+
+bool QValuePanel::NeedsVerticalScroll() const
+{
+    // 隠れている間の大きさは当てにならない。pane の最小の高さは全行が入る高さなので、収まる前提にする
+    return grid_->IsShownOnScreen() && GetPreferredDockHeight() > grid_->GetSize().y;
+}
+
+bool QValuePanel::UpdateGridWidth()
+{
+    // 行番号と各列の幅に、行が収まらないときだけ縦スクロールの幅を足して表の幅を固定する
+    int width = grid_->GetRowLabelSize() + grid_->GetWindowBorderSize().x;
+    for (int col = 0; col < kColumnCount; ++col) width += grid_->GetColSize(col);
+    if (NeedsVerticalScroll()) width += wxSystemSettings::GetMetric(wxSYS_VSCROLL_X, grid_);
+    if (width == grid_width_) return false;
+    grid_width_ = width;
+    grid_->SetMinSize(wxSize(width, -1));
+    grid_->SetMaxSize(wxSize(width, -1));
+    return true;
+}
+
+void QValuePanel::ApplyGridWidth()
+{
+    if (!UpdateGridWidth()) return;
+    Layout();
+    RefreshLayoutChildren();
+    if (dock_size_handler_) dock_size_handler_();
+}
+
+void QValuePanel::SyncHeatMapScroll(bool refresh_grid)
+{
+    if (!grid_ || !heatmap_panel_) return;
+
+    int scroll_x = 0;
+    int scroll_y = 0;
+    grid_->CalcUnscrolledPosition(0, 0, &scroll_x, &scroll_y);
+    heatmap_panel_->SetScrollOffsetY(scroll_y);
+
+    if (refresh_grid) {
+        grid_->Refresh(false);
+        grid_->Update();
+        if (auto* grid_window = grid_->GetGridWindow()) {
+            grid_window->Refresh(false);
+            grid_window->Update();
+        }
+    }
+}
+
+void QValuePanel::RefreshLayoutChildren()
+{
+    // wxGrid とネイティブコントロールはレイアウト直後に古い描画が残ることがあるため、
+    // QValuePanel 内の子ウィンドウへ背景消去付きの再描画を明示的に要求する。
+    Refresh(true);
+    if (header_panel_) header_panel_->Refresh(true);
+    if (hist_check_) hist_check_->Refresh(true);
+    if (adv_check_) adv_check_->Refresh(true);
+    if (log_scale_check_) log_scale_check_->Refresh(true);
+    if (auto_range_check_) auto_range_check_->Refresh(true);
+    if (reset_range_button_) reset_range_button_->Refresh(true);
+
+    if (grid_) {
+        grid_->Refresh(true);
+        if (auto* grid_window = grid_->GetGridWindow()) {
+            grid_window->Refresh(true);
+        }
+    }
+    if (heatmap_panel_) heatmap_panel_->Refresh(true);
+
+    wxPanel::Update();
+    if (header_panel_) header_panel_->Update();
+    if (hist_check_) hist_check_->Update();
+    if (adv_check_) adv_check_->Update();
+    if (log_scale_check_) log_scale_check_->Update();
+    if (auto_range_check_) auto_range_check_->Update();
+    if (reset_range_button_) reset_range_button_->Update();
+    if (grid_) {
+        grid_->Update();
+        if (auto* grid_window = grid_->GetGridWindow()) {
+            grid_window->Update();
+        }
+    }
+    if (heatmap_panel_) heatmap_panel_->Update();
+}
+
+bool QValuePanel::IsHistogram() const
+{
+    return hist_check_->GetValue();
+}
+
+bool QValuePanel::IsAdvantage() const
+{
+    return adv_check_->GetValue();
+}
+
+bool QValuePanel::IsLogScale() const
+{
+    return log_scale_check_->GetValue();
+}
+
+void QValuePanel::OnCheck(wxCommandEvent& event)
+{
+    // モードが変わったら範囲をリセットしないと、
+    // Advantage(-5~+5) と Raw(-100~+1000) が混ざって見えなくなる
+    bool current_adv = IsAdvantage();
+    bool current_hist = IsHistogram();
+    bool current_log = IsLogScale();
+
+    if (current_adv != last_is_adv_ || current_hist != last_is_hist_ || current_log != last_is_log_) {
+        ResetRange();
+        last_is_adv_ = current_adv;
+        last_is_hist_ = current_hist;
+        last_is_log_ = current_log;
+    }
+    Update();
+}
+
+void QValuePanel::OnResetRangeClick(wxCommandEvent& event)
+{
+    // 蓄積された最大・最小範囲をクリア（無限大/無限小に戻す）
+    ResetRange();
+
+    // 画面を更新
+    Update();
+}
+
+void QValuePanel::OnGridActionClick(wxGridEvent& event)
+{
+    int row = event.GetRow();
+    if (!runner_ || row < 0 || row >= static_cast<int>(action_names_.size())) return;
+
+    int64_t action = static_cast<int64_t>(row);
+    if (action_handler_) {
+        action_handler_(action);
+    } else {
+        runner_->DoStep(action);
+    }
+    grid_->ClearSelection();
+}
+
+void QValuePanel::OnGridScroll(wxScrollWinEvent& event)
+{
+    event.Skip();
+    CallAfter(&QValuePanel::SyncHeatMapScroll, true);
+}
+
+void QValuePanel::OnGridMouseWheel(wxMouseEvent& event)
+{
+    event.Skip();
+    CallAfter(&QValuePanel::SyncHeatMapScroll, true);
+}
+
+void QValuePanel::OnGridKeyUp(wxKeyEvent& event)
+{
+    event.Skip();
+    CallAfter(&QValuePanel::SyncHeatMapScroll, true);
+}
+
+void QValuePanel::OnSize(wxSizeEvent& event)
+{
+    Layout();
+    // 高さが変わって縦スクロールの要否が変わったら、表の幅を当て直して pane へ知らせる
+    if (UpdateGridWidth()) {
+        Layout();
+        if (dock_size_handler_) dock_size_handler_();
+    }
+    RefreshLayoutChildren();
+    CallAfter(&QValuePanel::SyncHeatMapScroll, true);
+    event.Skip();
+}
+
+void QValuePanel::OnCloseWindow(wxCloseEvent& event)
+{
+    if (notifier_ && observer_) {
+        notifier_->Detach(observer_);
+    }
+}
+
+std::shared_ptr<const anet::rl::gui::TraceSnapshot> QValuePanel::CreateTraceSnapshot(const anet::rl::TrainEvent& event)
+{
+    ANET_PROFILE_FUNC();
+    // 通常Observerが作った同じstepの値を共有し、計算を重複させない。
+    if (!latest_step_ || *latest_step_ != event.counts.exp_step) {
+        latest_step_ = event.counts.exp_step;
+        latest_data_.reset();
+        if (auto data = CreateData(event)) ApplyData(std::move(*data));
+    }
+    if (!latest_data_) return nullptr;
+    // Traceは表の実行行動と揃える。LiveのAgent選択表示と共有データは変更しない。
+    auto trace_data = std::make_shared<QValueData>(*latest_data_);
+    trace_data->selected_action = event.action_info->GetAction(torch::kCPU)[0].item<int64_t>();
+    // IQNの観測用full分布の平均ではなく、その判断に用いたQを数値欄へ出す。
+    const auto q = event.action_info->GetAuxData().at("q_values")[0]
+        .detach().to(torch::kCPU, torch::kFloat32).contiguous();
+    ANET_CHECK(q.dim() == 1 && q.size(0) == trace_data->stats.size());
+    const auto* q_values = q.data_ptr<float>();
+    for (size_t i = 0; i < trace_data->stats.size(); ++i) trace_data->stats[i].mean = q_values[i];
+    return std::make_shared<const anet::rl::gui::TraceSnapshot>(anet::rl::gui::TraceSnapshot{
+        .show = [weak = wxWeakRef<QValuePanel>(this), data = std::shared_ptr<const QValueData>(std::move(trace_data))] {
+            if (!weak) return;
+            weak->trace_data_ = data;
+            weak->Update();
+        } });
+}
+
+void QValuePanel::ShowTraceSnapshot(std::shared_ptr<const anet::rl::gui::TraceSnapshot> snapshot)
+{
+    trace_mode_ = true;
+    trace_data_.reset();
+    grid_->Show(static_cast<bool>(snapshot));
+    heatmap_panel_->Show(static_cast<bool>(snapshot));
+    if (no_data_label_) no_data_label_->Show(!snapshot);
+    if (snapshot && snapshot->show) snapshot->show();
+    Layout();
+}
+
+void QValuePanel::ReturnToLive()
+{
+    trace_mode_ = false;
+    trace_data_.reset();
+    grid_->Show(true);
+    heatmap_panel_->Show();
+    if (no_data_label_) no_data_label_->Hide();
+    Update();
+    Layout();
+}

@@ -1,0 +1,148 @@
+﻿//anet/replay_buffer.hpp
+
+#pragma once
+
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+#include <random>
+#include <span>
+#include <torch/torch.h>
+#include "anet/config.hpp"
+#include "anet/random.hpp"
+#include "anet/rl.hpp"
+
+namespace anet::rl {
+
+    class SampleWindowRule;
+    /// 判断で区切った区間内の窓を選ぶ規則を生成する。
+    std::shared_ptr<const SampleWindowRule> CreateDecisionWindowRule(int max_length);
+    /// 起点と同じ行動が続く区間内の窓を選ぶ規則を生成する。
+    std::shared_ptr<const SampleWindowRule> CreateActionChangeWindowRule(int max_length);
+    /// 上限とエピソードの終わりだけで窓を閉じる規則を生成する。
+    std::shared_ptr<const SampleWindowRule> CreateEpisodeEndWindowRule(int max_length);
+
+
+    // ======================================================
+    // Config & Data Structures
+    // ======================================================
+
+    enum class ReplaySamplerType {
+        UNIFORM = 0,
+        PRIORITIZED   // PER
+    };
+
+    enum class ReplayInitialPriorityMode {
+        FIXED = 0,
+        MAX,
+        ACTOR_APPROX,
+    };
+
+    struct InitialPriorityEstimateInput {
+        std::span<const float> start_hint;     ///< 開始stepのopaqueなhint行。呼び出し中だけ有効
+        std::span<const float> bootstrap_hint; ///< bootstrap stepのopaqueなhint行。真の終端では空
+        float target_return = 0.0f;            ///< 確定済みのn-step収益
+        float discount = 0.0f;                 ///< 実n-step数を反映したbootstrap割引率
+        std::span<const float> extra_component_returns; ///< 2成分目以降の収益。
+        std::span<const float> extra_component_discounts; ///< 2成分目以降のbootstrap割引率。
+        bool terminal = false;                 ///< bootstrapを行わない真の終端か
+        int actual_n_steps = 1;                ///< 終端短縮を反映した実n-step数
+    };
+
+    class InitialPriorityEstimator {
+    public:
+        virtual bool ValidateHint(std::span<const float> hint) const = 0; ///< schema違反は停止し、nonfiniteだけfalseを返す
+        virtual std::optional<float> Estimate(const InitialPriorityEstimateInput& input) const = 0;
+        virtual ~InitialPriorityEstimator() = default;
+    };
+
+    struct ReplayBufferConfig {
+
+        std::shared_ptr<const SampleWindowRule> window_rule; ///< 未指定なら追加の窓を抽出しない。
+
+        int64_t capacity = 100000;              // ENV毎の容量ではなく、全ENVの総容量(1Dツリーサイズ)
+        ReplaySamplerType sampler_type = ReplaySamplerType::UNIFORM;
+
+        // N-step 用
+        int n_step = 1;
+        int reward_component_count = 1;
+        /// 成分数のstd::vector<bool>。真の成分はsampled_rewardsから収益を作り直す必要があり、FinalizeReturnsが消費時のγで計算する。
+        std::vector<bool> needs_return_recompute{false};
+
+        // PER系
+        float per_alpha = 0.5f;
+        float per_initial_priority = 1.0f; ///< FIXEDで使うraw初期優先度
+        ReplayInitialPriorityMode per_initial_priority_mode = ReplayInitialPriorityMode::FIXED; ///< 初期優先度の決定方式
+
+        // Stacking
+        int stack_count = 1;                    ///< 過去方向へのスライス数 (Frame Stacking)
+		std::vector<std::string> stack_keys;    ///< Stacking対象のDictキー。空の場合は全てのキーをスタッキングする
+
+		// MuZero系
+        struct {
+            int unroll_steps = 0;                   // 未来方向へのスライス数 (MuZero Unroll 等)
+        } muzero;   /// @todo MuZeroのキーワードは排除して「未来方向」で一般化？
+        ConfigFullKeyTable full_keys;
+    };
+
+
+    // ======================================================
+    // Factory
+    // ======================================================
+
+    std::shared_ptr<ReplayBuffer> CreateReplayBuffer(
+        const ReplayBufferConfig& config,
+        const EnvSpec& env_spec,
+        int64_t num_envs,
+        torch::Device storage_device,
+        bool pin_memory = true,
+        std::optional<uint64_t> seed = std::nullopt,
+        std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator = nullptr
+    );
+
+    /// ReplayBuffer を 1-deep で先読みする decorator。
+    ///
+    /// `Sample()` は cold start では同期 `Fetch()` を返し、その同じ排他区間で次の
+    /// background `Fetch()` を起動する。以後は前回 future を `get()` で消費してから
+    /// 次 future を起動するため、同時に in-flight になる prefetch は最大 1 本。
+    ///
+    /// `Push()` は future 未起動の cold/warmup 区間では同期的に inner へ委譲する。future が
+    /// 起動済みなら caller 側で stable 化済みの BatchExperience を浅く保持し、同じ worker
+    /// FIFO へ write-behind task として積む。queued Push は現在 consume する prefetched batch
+    /// には反映されず、次の `Fetch()` より前に実行されるため、次以降の prefetched batch から見える。
+    ///
+    /// `UpdatePriorities()` は従来通り in-flight future を `wait()` してから inner へ mutation を
+    /// 委譲する。これにより `Push -> next SampleIndices -> UpdatePriorities` の順序を固定する。
+    /// `wait()` は future を消費しないため、prefetch worker の例外は次回 `Sample()` が future を
+    /// `get()` するときに表面化する。write-behind Push の例外は次の同期境界で回収する。
+    ///
+    /// CPU path は background `Sample()+To(CPU)` のみを行う。CUDA path は CPU sample を
+    /// pinned 化し、copy stream の non-blocking H2D と CUDAEvent 待ちで転送完了を保証する。
+    class PrefetchingReplayBuffer final : public ReplayBuffer {
+    public:
+        PrefetchingReplayBuffer(std::shared_ptr<ReplayBuffer> inner, torch::Device target_device);
+        ~PrefetchingReplayBuffer() override;
+
+        void Push(const BatchExperience& batch_exp, std::span<const float> gammas) override;
+        void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, std::span<const float> gammas) const override;
+        bool SampleUniqueUniform(
+            ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, std::span<const float> gammas) const override;
+        SamplingHistoryProbeResult ProbeSamplingHistory(
+            const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, std::span<const float> gammas) const override;
+        int64_t Size() const override;
+        ReplayPriorityUpdateResult UpdatePriorities(
+            const std::vector<int64_t>& item_keys, const std::vector<float>& priorities) override;
+
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::optional<std::vector<torch::Tensor>> GetTensorVector(const std::string& key, int64_t index = -1) const override;
+    private:
+        struct State;
+
+        std::shared_ptr<ReplayBuffer> inner_;
+        torch::Device target_device_;
+        std::unique_ptr<State> state_;
+    };
+
+} // namespace anet

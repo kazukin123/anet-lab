@@ -3,11 +3,34 @@
 
 /*.md text eol=lf
 
+.agents/**/*.md text eol=lf
+.agents/**/*.yaml text eol=lf
+.agents/**/*.py text eol=lf
+.claude/**/*.md text eol=lf
+.claude/**/*.yaml text eol=lf
+.claude/**/*.json text eol=lf
+.codex/**/*.toml text eol=lf
+.codex/**/*.json text eol=lf
 apps/**/*.hpp text eol=lf
 apps/**/*.cpp text eol=lf
 apps/**/*.bat text eol=crlf
-core/**/*.hpp text eol=lf
-core/**/*.cpp text eol=lf
+apps/**/*.cmd text eol=crlf
+src/apps/metrics-viewer/mvnw text eol=lf
+src/core/**/*.hpp text eol=lf
+src/core/**/*.cpp text eol=lf
+src/core/**/*.json text eol=lf
+src/algo/**/*.hpp text eol=lf
+src/algo/**/*.cpp text eol=lf
 docs/**/*.md text eol=lf
-viewers/**/*.java text eol=lf
-viewers/**/*.md text eol=lf
+reports/**/*.py text eol=lf
+src/env/**/*.hpp text eol=lf
+src/env/**/*.cpp text eol=lf
+src/env/**/*.json text eol=lf
+src/apps/runner/**/*.hpp text eol=lf
+src/apps/runner/**/*.cpp text eol=lf
+src/apps/metrics-viewer/**/*.bat text eol=crlf
+src/apps/metrics-viewer/**/*.cmd text eol=crlf
+
+# 移動前と同じく、この2本はリポジトリの既定の改行変換に従う。
+apps/tools/start_mlflow.bat !text !eol
+apps/tools/start_tb.bat !text !eol

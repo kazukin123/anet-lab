@@ -1,0 +1,4 @@
+interface:
+  display_name: "会話のまとめページ"
+  short_description: "会話の案・判断・進捗・残件をスマホで見返せるページにまとめる"
+  default_prompt: "$anet-summary-page でこの会話のまとめページを作ってください。"

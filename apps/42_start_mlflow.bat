@@ -1,10 +1,14 @@
 @echo off
+title %~nx0
 
 setlocal
 
+call "%~dp0tools\resolve_workspace.bat" "%~1"
+if errorlevel 1 exit /b 1
+
 set VENV_PYTHON=..\..\.venv\Scripts\python.exe
 set MLFLOW_EXE=..\..\.venv\Scripts\mlflow.exe
-set MLFLOW_REQUIREMENTS=..\..\viewers\metrics-tools\requirements.txt
+set MLFLOW_REQUIREMENTS=..\tools\requirements.txt
 
 cd /d "%~dp0runner"
 
@@ -21,15 +25,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist "runs" (
-    mkdir "runs"
-    if errorlevel 1 (
-        echo [ERROR] Failed to create MLflow database directory: "%CD%\runs"
-        exit /b 1
-    )
-)
-
-start "" "%MLFLOW_EXE%" server --backend-store-uri sqlite:///runs/mlflow.db
+set "MLFLOW_DB=%RUNS_DIR%\mlflow.db"
+set "MLFLOW_DB_URI=%MLFLOW_DB:\=/%"
+start "" "%MLFLOW_EXE%" server --backend-store-uri "sqlite:///%MLFLOW_DB_URI%"
 timeout /t 16 /nobreak >nul
 start "" "http://localhost:5000/"
 

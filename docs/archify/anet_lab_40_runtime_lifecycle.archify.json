@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "anet-lab runtime の状態遷移",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1000,
+      640
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Runner の段階"
+    },
+    {
+      "id": "waiting",
+      "label": "一時停止"
+    },
+    {
+      "id": "terminal",
+      "label": "失敗による終了"
+    }
+  ],
+  "states": [
+    {
+      "id": "resolve",
+      "type": "start",
+      "label": "設定の解決",
+      "sublabel": "OnInit・workspace",
+      "lane": "main",
+      "col": 0,
+      "step": "01"
+    },
+    {
+      "id": "constructing",
+      "type": "active",
+      "label": "構築中",
+      "sublabel": "RunManager",
+      "lane": "main",
+      "col": 1,
+      "step": "02"
+    },
+    {
+      "id": "running",
+      "type": "active",
+      "label": "実行中",
+      "sublabel": "RunnerThread",
+      "lane": "main",
+      "col": 2,
+      "step": "03"
+    },
+    {
+      "id": "closing",
+      "type": "decision",
+      "label": "終了処理",
+      "sublabel": "Stop・排水",
+      "lane": "main",
+      "col": 3,
+      "step": "04"
+    },
+    {
+      "id": "exited",
+      "type": "success",
+      "label": "終了",
+      "sublabel": "exit code 0",
+      "lane": "main",
+      "col": 4,
+      "step": "05"
+    },
+    {
+      "id": "paused",
+      "type": "waiting",
+      "label": "一時停止",
+      "sublabel": "paused_ フラグ",
+      "lane": "waiting",
+      "col": 0
+    },
+    {
+      "id": "failed",
+      "type": "failure",
+      "label": "例外で終了",
+      "sublabel": "exit code 1",
+      "lane": "terminal",
+      "col": 1
+    }
+  ],
+  "transitions": [
+    {
+      "id": "start-construct",
+      "from": "resolve",
+      "to": "constructing",
+      "label": "構築 thread",
+      "variant": "emphasis",
+      "labelDy": -25
+    },
+    {
+      "id": "construct-run",
+      "from": "constructing",
+      "to": "running",
+      "label": "Start()",
+      "variant": "emphasis",
+      "labelDy": -25
+    },
+    {
+      "id": "run-close",
+      "from": "running",
+      "to": "closing",
+      "label": "Close",
+      "variant": "emphasis",
+      "route": "top-channel",
+      "fromSide": "top",
+      "toSide": "top"
+    },
+    {
+      "id": "close-exit",
+      "from": "closing",
+      "to": "exited",
+      "label": "OnExit",
+      "variant": "emphasis",
+      "labelDy": -25
+    },
+    {
+      "id": "run-pause",
+      "from": "running",
+      "to": "paused",
+      "label": "Pause",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        437,
+        233
+      ]
+    },
+    {
+      "id": "pause-run",
+      "from": "paused",
+      "to": "running",
+      "label": "Resume",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelAt": [
+        367,
+        233
+      ]
+    },
+    {
+      "id": "run-fail",
+      "from": "running",
+      "to": "failed",
+      "label": "worker 例外",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [
+        479,
+        350
+      ]
+    },
+    {
+      "id": "construct-fail",
+      "from": "constructing",
+      "to": "failed",
+      "label": "構築の例外",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "left"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "状態の実体",
+      "items": [
+        "RunnerStatus は NOT_INITIALIZED・RUNNING・COMPLETED。exit step 到達は STOP から Close へ",
+        "評価は独立状態でなく、実行中の LearnEvent で起きるセッション"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "一時停止と終了処理",
+      "items": [
+        "Pause は step の境目で効くフラグ。Close 時の Keep running は同じ RunnerThread を再始動する",
+        "終了処理は保存・排水・ログを閉じる順。Frame の Observer は排水の後に外す"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "失敗の扱い",
+      "items": [
+        "設定の誤りは完全キーを添えた例外で構築を止める",
+        "例外は main thread で投げ直して報告し、OnExit が排水して 1 を返す。Env か Agent を作れない時は学習を始めない"
+      ]
+    }
+  ]
+}
