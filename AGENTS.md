@@ -759,24 +759,3 @@ out\test\Debug\anet-core-base-test.exe
 
 テスト実行ファイルは意図的に `out/test/<Config>` 配下へ出力します。
 CMake は libtorch と wxWidgets の DLL を、同じ構成のテストが共有するフォルダへまとめて配置します。
-
-## Agent skills
-
-### Issue tracker
-
-Implementation issues live as Markdown files under `.scratch/<feature>/`;
-RFDs and implementation plans remain under `docs/memo/`.
-New RFDs stay directly under `docs/memo/`; their state and order live in
-`docs/management/issues/`. Existing `done/`, `frozen/`, and `dropped/` folders
-are historical storage; see `docs/memo/README.md`.
-See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Canonical roles map 1:1 to local issue status strings (no overrides).
-See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` and `docs/adr/` at the repo root.
-See `docs/agents/domain.md`.

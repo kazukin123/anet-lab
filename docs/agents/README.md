@@ -30,9 +30,6 @@ shadow は消すべき事故、実体コピーは意図した構造で同期だ�
 | 入口 | [CLAUDE.md](../../CLAUDE.md) | 常時 | Claude | AGENTS.md:23、.agents/skills/anet-housekeeping/SKILL.md:37、.claude/skills/anet-housekeeping/SKILL.md:37 ほか 3 ファイル | CLAUDE.md:4 |
 | 入口 | [AGENTS.md](../../AGENTS.md) | 常時 | 人間・Claude・Codex | CLAUDE.md:4、.agents/skills/anet-audit/SKILL.md:24、.agents/skills/anet-create-issue/SKILL.md:156 ほか 216 ファイル | AGENTS.md:22 |
 | 規約・索引 | [docs/agents/README.md](README.md) | 工程ごとの読む条件を引くとき | 人間・Claude・Codex | .agents/skills/anet-housekeeping/SKILL.md:37、.claude/skills/anet-housekeeping/SKILL.md:37、docs/memo/README.md:45 ほか 12 ファイル | docs/memo/README.md:45 |
-| 規約・索引 | [docs/agents/domain.md](domain.md) | ドメイン文書の置き場を引くとき | 人間・Claude・Codex | AGENTS.md:770、docs/memo/done/087_review_agent_quality_viewpoints_10prd.md:449、reports/stats/stats.json:4859 | AGENTS.md:770「Agent skills」 |
-| 規約・索引 | [docs/agents/issue-tracker.md](issue-tracker.md) | 課題・PRD・実装計画の置き場を引くとき | 人間・Claude・Codex | AGENTS.md:760、docs/memo/114_findings_intake_and_fix_prd_10prd.md:37、docs/memo/120_issue_work_type_and_prd_link_10prd.md:213 ほか 3 ファイル | AGENTS.md:760「Agent skills」 |
-| 規約・索引 | [docs/agents/triage-labels.md](triage-labels.md) | 課題の状態の語を引くとき | 人間・Claude・Codex | AGENTS.md:765、reports/stats/stats.json:8072 | AGENTS.md:765「Agent skills」 |
 | 設計文書 | [docs/design/010_framework_overview.jp.md](../../docs/design/010_framework_overview.jp.md) | 拡張点を基盤の外で書けるようにするとき・全体像を引くとき | 人間・Claude・Codex | AGENTS.md:50、.agents/skills/README.md:18、.agents/skills/anet-translate-docs/SKILL.md:12 ほか 26 ファイル | AGENTS.md:50「基本方針」 |
 | 設計文書 | [docs/design/011_source_layout.jp.md](../../docs/design/011_source_layout.jp.md) | ソース配置・公開ヘッダ・テストの置き場を変えるとき | 人間・Claude・Codex | docs/design/README.jp.md:37、docs/design/011_source_layout.en.md:1 | docs/design/README.jp.md:37「ドキュメント一覧」・AGENTS.md:431 |
 | 設計文書 | [docs/design/020_user_guide_run.jp.md](../../docs/design/020_user_guide_run.jp.md) | Runner を起動するとき・設定ファイルを書くとき | 人間・Claude・Codex | AGENTS.md:72、docs/design/010_framework_overview.jp.md:223、docs/design/030_user_guide_analysis.jp.md:325 ほか 60 ファイル | AGENTS.md:72「作業ごとに読むもの」 |
@@ -188,7 +185,6 @@ shadow は消すべき事故、実体コピーは意図した構造で同期だ�
 | 実験記録と実効 config の保存ルール | 32 | 条件付き | docs/experiments/README.md | AGENTS.md:616 |
 | AI エージェントのRun結果分析ルール | 54 | 条件付き | docs/design/030_user_guide_analysis.jp.md | AGENTS.md:648 |
 | AI エージェントでのビルド注意事項 (Windows/MSVC) | 49 | 条件付き | docs/design/040_development_environment.jp.md | AGENTS.md:702 |
-| Agent skills | 20 | 条件付き | docs/agents/issue-tracker.md・triage-labels.md・domain.md | AGENTS.md:751 |
 | 集計 | 全 29 節・768 行 | 条件付き 21 節・606 行（到達しない節 0） | 移設はこの作業の対象外 | AGENTS.md の全 `##` 見出し |
 
 ## 表 4 skill 在庫
@@ -272,7 +268,6 @@ user-level にしかない skill: `~/.claude/skills` に 36 件、`~/.agents/ski
 - 索引に無い設計文書: `docs/design/optuna.md`（`NNN_*.jp.md` の命名でもない）。030・140・160 の本文と関連文書からは引かれている。
 - Codex 表示名（`agents/openai.yaml`）の無い project skill: anet-impl-prd, grill-me, handoff, improve-codebase-architecture, karpathy-guidelines, tdd。汎用 skill にも必須かは決まっていない。
 - 資料と実測の不一致: 検証資材の README 31 本（計 129 行）の実行手順に、PRD182 で移す前のパスと実行体名が残る。PRD182 の D23 の決定どおり、先頭に「AGENTS.md「検証」に合わせて読み替える」の注記が 1 行ある。ただし AGENTS.md「検証」は標準手順だけを持ち、旧い名前から新しい名前への対応表は持たない（対応は PRD182 の §5 にある）。動線の末端で、読み替えの材料が入口から引けない。
-- 資料と実測の不一致: `docs/agents/issue-tracker.md` と AGENTS.md「Agent skills」（AGENTS.md:755）は実装の課題を `.scratch/` の下（issue-tracker.md では `.scratch/<feature-slug>/issues/`）に置くと書くが、その置き場は 0 件。課題の単票はすべて `docs/management/issues/`（221 件）にある。
 - 資料と実測の不一致: 契約は工程図のレーンを「人間 / 起票側 / 精査側 / 実装側 / 共通文書 / CI」の 6 本と定めるが、図は CI を外した 5 本にした。Archify の workflow はレーンの高さが 104px 固定で、6 本では図の高さが 838px 以上になる。showcase の可読性（1440×900 で文字 6px 以上）を満たす幅は 1240px 以下で、画面内に収める横長の比（1.55 以上）と両立しない（6 本では幅 1310px で文字 5.7px になり検証が落ちた）。CI の読む条件と参照元は表 1、push 後の CI は俯瞰図の CI ノードが持つ。
 - 資料と実測の不一致: 工程図の「ユーザー環境」は主経路に置いたが、列が足りず「設計」の列に入る。Archify の workflow は列の位置が固定（88・220・300・430・500・625）で、1・2 列目と 3・4 列目は同じレーンに並べられない。
 

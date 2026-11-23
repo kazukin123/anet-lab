@@ -19,7 +19,7 @@ shadow は消すべき事故、実体コピーは意図した構造で同期だ�
 
 ## 公開マニフェスト
 
-`docs/agents/` には次の固定名だけを置く。更新時は同じ名前を置換し、世代別コピーを作らない。`docs/agents/` にある他のファイル(`domain.md`、`issue-tracker.md`、`triage-labels.md` など)には触れない。
+`docs/agents/` には次の固定名だけを置く。更新時は同じ名前を置換し、世代別コピーを作らない。`docs/agents/` にある他のファイルには触れない。
 
 | Archify type | basename | 役割 |
 |---|---|---|
