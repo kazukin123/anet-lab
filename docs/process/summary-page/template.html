@@ -110,7 +110,7 @@
     margin: 0;
   }
 
-  /* DOING・TODO・WAITING・DONE の 4 欄は同じ形にする。どれか 1 つだけ色や大きさを変えない。 */
+  /* WAITING・DOING・TODO・DONE の 4 欄は同じ形にする。どれか 1 つだけ色や大きさを変えない。 */
   .conversation-summary .position > div,
   .conversation-summary details {
     min-width: 0;
@@ -172,15 +172,19 @@
     <!-- 前のページから続けた別の枠では、ここに前のページへのリンクを置く。 -->
     <nav aria-label="目次">
       <ul>
-        <li><a href="#position">いまの位置</a></li>
+        <li><a href="#position">進行状況</a></li>
         <li><a href="#symbols">案と論点の一覧</a></li>
       </ul>
     </nav>
   </header>
 
   <section id="position" aria-labelledby="position-title">
-    <h2 id="position-title">いまの位置</h2>
+    <h2 id="position-title">進行状況</h2>
     <dl class="position">
+      <div>
+        <dt>WAITING（あなたの返事待ち）</dt>
+        <dd>返事を待っていることを記入</dd>
+      </div>
       <div>
         <dt>DOING（進行中）</dt>
         <dd>進行中の作業を記入</dd>
@@ -193,10 +197,6 @@
             <li>残っている作業を続けて記入</li>
           </ol>
         </dd>
-      </div>
-      <div>
-        <dt>WAITING（あなたの返事待ち）</dt>
-        <dd>返事を待っていることを記入</dd>
       </div>
       <div>
         <dt>DONE（直前に済んだこと）</dt>
