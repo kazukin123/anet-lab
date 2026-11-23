@@ -1,6 +1,6 @@
-# PRD109 起動の非同期化の検証
+# RFD0109 起動の非同期化の検証
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 正本は [実装メモ](../../../../../docs/memo/done/0109_runner_startup_background_init_20impl.md)。結果、コマンド、未実施と理由は実装メモへ追記する。
 
@@ -24,13 +24,13 @@ RunnerApp を起動するテストは隠しタグ `[.][rfd0109_startup]` を持�
 
 テスト用 SlowInitTestAgent は gui-test だけに登録する。製品設定には追加しない。3秒の構築中の100ms timer、完了前のログ、menu/pane/resize、終了要求の重複、OS終了問い合わせ、強制Close、構築失敗、RUNNINGでない結果、CallOnExitでFrameを先に削除する道を確認する。待機上限は30秒とする。
 
-待機上限30秒は、承認済み計画と改訂PRD §6の6の明示値を使う。GUI子process全体の上限は60秒とし、待機のほかに起動と後始末を含める。
+待機上限30秒は、承認済み計画と改訂RFD §6の6の明示値を使う。GUI子process全体の上限は60秒とし、待機のほかに起動と後始末を含める。
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/rfd0109/run_validation.py gui --output .scratch/rfd0109/gui-validation
 ```
 
-`fatal` は未知のeval scheduleで実Runnerを起動し、終了コード1、Runログに `Unknown run.eval_schedule tag 'nosuch'` があり、`stderr.log` には無いことを確かめる。Frame表示後のログ先はLogPanelとRunログであり、stderrへは重ねて出さない（改訂PRD受入5、PRD068のD5）。
+`fatal` は未知のeval scheduleで実Runnerを起動し、終了コード1、Runログに `Unknown run.eval_schedule tag 'nosuch'` があり、`stderr.log` には無いことを確かめる。Frame表示後のログ先はLogPanelとRunログであり、stderrへは重ねて出さない（改訂RFD受入5、RFD0068のD5）。
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/rfd0109/run_validation.py fatal --output .scratch/prd109/fatal-routing-fixed-20261031-1947
@@ -38,7 +38,7 @@ RunnerApp を起動するテストは隠しタグ `[.][rfd0109_startup]` を持�
 
 ## 学習値の比較
 
-PRD098 の短縮条件生成と PRD084 の正規化を再利用する。前後の Runner には同じ凍結 config を渡し、現在の実験設定の編集を比較へ混ぜない。過去の PRD105 の実行結果は使い回さない。
+RFD0098 の短縮条件生成と RFD0084 の正規化を再利用する。前後の Runner には同じ凍結 config を渡し、現在の実験設定の編集を比較へ混ぜない。過去の RFD0105 の実行結果は使い回さない。
 
 GridMaze・LunarLander・Atari qbert・DropMerge を環境ごとに前後各1本、逐次実行する。seed=1、8lane、batch=16、warmup=256、replay ratio=1、8,704experience、評価停止、FP32、決定的backend。GridMaze/LunarLanderはCPU、qbert/DropMergeはCUDA。90_perf/・91_resource/・92_resource/を除く全scalar点をtag・step・値とも完全一致で比較し、点数とchecksumを保存する。
 

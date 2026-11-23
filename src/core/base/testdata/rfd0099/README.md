@@ -1,8 +1,8 @@
-# PRD099 Atari縮小方式の検証
+# RFD0099 Atari縮小方式の検証
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
-[PRD](../../../../../docs/memo/done/0099_atari_resize_mode_10rfd.md)・[実装メモ](../../../../../docs/memo/done/0099_atari_resize_mode_20impl.md)・[Atari設計](../../../../../docs/design/220_atari_env.jp.md)。リポジトリルートから実行する。
+[RFD](../../../../../docs/memo/done/0099_atari_resize_mode_10rfd.md)・[実装メモ](../../../../../docs/memo/done/0099_atari_resize_mode_20impl.md)・[Atari設計](../../../../../docs/design/220_atari_env.jp.md)。リポジトリルートから実行する。
 
 ## 固定画像
 
@@ -31,7 +31,7 @@ $goldenOutput = '/mnt/c/dev/anet-lab/.scratch/rfd0099/golden-' + (Get-Date -Form
 .\.scratch\prd099\bin-perf\Debug\AtariEnv-test.exe "[atari]"
 ```
 
-数値テストはROM不要。工場・Reset・Stepを通すPRD099のテストはATARI_ROM_DIRからPong/QbertのROMが得られることをREQUIREし、未解決を成功やskipにしない。既存の通常ROM依存テストのskip方針は変えない。
+数値テストはROM不要。工場・Reset・Stepを通すRFD0099のテストはATARI_ROM_DIRからPong/QbertのROMが得られることをREQUIREし、未解決を成功やskipにしない。既存の通常ROM依存テストのskip方針は変えない。
 
 テストは、既定と実効設定、非整数比の面積平均、固定24画像、半整数の偶数丸め（210×160入力の1×1・84×84縮小を含む）、途中丸めなし、定数と入力範囲の保持、整数比、S=1/84/160、未知・空の方式、不正型・範囲、評価個別上書き、Runプロファイル、Reset/Stepへの適用を確認する。privateな重みの取り出し口は設けず、定数の保持と独立な合成入力の期待値から数値規則を検査する。
 
@@ -51,11 +51,11 @@ run_validation.pyは、隔離Release Runnerを使い、CPU・1 torch thread・4 
 .\.venv\Scripts\python.exe core/anet-core/testdata/rfd0099/run_validation.py after
 ```
 
-比較にはPRD094のcompare_metricsを再利用し、scalar全点とtraceの行・定義・WARNを照合する。時刻は数値化の対象にせず、90_perf/・91_resource/・92_resource/だけを除く。学習値を除外して一致させない。解決後の全キー・文字列値も照合し、出力先・Run名以外の既存値を保持し、追加はAtariEnv.resize_mode=adaptive_averageだけを許す。実効Envの設定はRun内のconfig/env.*.txtでも確認する。
+比較にはRFD0094のcompare_metricsを再利用し、scalar全点とtraceの行・定義・WARNを照合する。時刻は数値化の対象にせず、90_perf/・91_resource/・92_resource/だけを除く。学習値を除外して一致させない。解決後の全キー・文字列値も照合し、出力先・Run名以外の既存値を保持し、追加はAtariEnv.resize_mode=adaptive_averageだけを許す。実効Envの設定はRun内のconfig/env.*.txtでも確認する。
 
 ## 性能と実Runの受入
 
-短い縮小単体の試作測定は内部方式の判断材料であり、PRDの性能受入を代替しない。正式な受入は、負荷のない環境でQbert・84×84・64 envのBatch Env Step区間を測定する。
+短い縮小単体の試作測定は内部方式の判断材料であり、RFDの性能受入を代替しない。正式な受入は、負荷のない環境でQbert・84×84・64 envのBatch Env Step区間を測定する。
 
 現行方式同士の対照を5組実行し、各組の速度比が0.99〜1.01に収まることを確認する。その後adaptive_average→pixel_areaを5組、各試行30秒準備＋60秒計測で比較し、組ごとの速度比の中央値が0.98以上なら合格。終端・自動Resetの費用を含み、学習や描画の時間を混ぜない。競合する重い処理、対照のばらつき超過、試行の欠損があれば判定保留とする。
 

@@ -1,4 +1,4 @@
-# Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`）PRD
+# Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`）RFD
 
 > 2026-11-02 起票（暫定。質疑を省き、既定を置いて、決めることを §9 に残した。番号はユーザーの指示で連番）。数値と行番号は起票時点のもので、実装時は取り直す。
 > 起点: 2026-10-31〜11-02 の会話。LLM-Wiki（[PRD095](done/0095_llm_wiki_10rfd.md)）の目的と実績を整理したところ、Claude Code の memory に結果の数値と古い状態の記述が溜まり直していると分かった。ユーザーの望みは「memory の整合チェックとお掃除を、wiki の保守とは別に定期的に回す。まず Claude Code、そのあと Codex 側の対応を検討する」。
@@ -11,8 +11,8 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
 解く問題は次の 4 つ（事実は §2）。
 
 1. memory の索引（`MEMORY.md`）が公式の読み込み上限を超えている。超えた分は会話の始めに読み込まれない。新しい項目は末尾に足されるので、読まれなくなるのは新しい項目である。
-2. 状態の記述（未コミット、実装済みなど）が古くなる。書いた時点では正しくても、コミットや PRD の `done/` への移動で事実が変わる。memory は書いたときにしか直されない。
-3. 知見（Run の数値、調査の結論）が memory に溜まり直している。PRD095 の段階 3 で一度ポインタ化したが、その後も索引と topic file に結果の数値が書き足されている。memory は Claude Code だけが読めるので、正本と二重に持つと食い違いの元になる。
+2. 状態の記述（未コミット、実装済みなど）が古くなる。書いた時点では正しくても、コミットや RFD の `done/` への移動で事実が変わる。memory は書いたときにしか直されない。
+3. 知見（Run の数値、調査の結論）が memory に溜まり直している。RFD0095 の段階 3 で一度ポインタ化したが、その後も索引と topic file に結果の数値が書き足されている。memory は Claude Code だけが読めるので、正本と二重に持つと食い違いの元になる。
 4. memory を定期的に見直す仕組みが無い。既存の仕組みは対象が狭いか、anet の規則（状態はフォルダと git、知見は正本から wiki へ）を知らない。
 
 ### 1.1 用語
@@ -24,7 +24,7 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
 | memory | Claude Code の auto memory。Claude が会話をまたいで残す覚え書きで、索引と topic file から成る |
 | 索引 | memory の `MEMORY.md`。1 行 1 項目で topic file を指す |
 | topic file | memory の 1 件 1 ファイルの本文 |
-| 正本 | [wiki の規約](../wiki/README.md)の語。実験記録、サーベイ、PRD、設計文書、ADR |
+| 正本 | [wiki の規約](../wiki/README.md)の語。実験記録、サーベイ、RFD、設計文書、ADR |
 | 正本なし | memory にしか無く、正本に同じ中身が見つからない知見 |
 | ポインタにする | topic file の中身を、正本や規約の所在へのリンクと、正本に無い経緯だけに縮めること |
 
@@ -43,12 +43,12 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
 3. 状態の記述。
    - 索引に「未コミット」を含む行が 16 行ある。
    - そのうち 4 件を git で確かめたところ、どれもコミット済みだった。
-     - PRD095 段階 3: `docs/memo/done/095_llm_wiki_22impl.md` が 0dc43645（10/23）。
+     - RFD0095 段階 3: `docs/memo/done/0095_llm_wiki_22impl.md` が 0dc43645（10/23）。
      - 動線マップ: `docs/agents/README.md` が 36cc56eb（10/31）。
      - 空き時間スキル群: `.agents/skills/anet-housekeeping/SKILL.md` が 9f0f0cc8（10/22）。
      - anet-improve: `.agents/skills/anet-improve/SKILL.md` が d8ee7501（11/02）。
 4. 知見。10/24〜11/02 に更新した project 型の topic file のうち、17 本が数値の知見（%・seed・中央値・倍）を持つ。そのうち 16 本は repo のパスも書いている。正本を指しながら、数値も memory に写している。
-5. 段階 3 の移し替え（[PRD095](done/0095_llm_wiki_10rfd.md) §4.5 の 3、[記録](done/0095_llm_wiki_22impl.md)の「2026-10-23 Claude Code の memory の移し替え」）。
+5. 段階 3 の移し替え（[RFD0095](done/0095_llm_wiki_10rfd.md) §4.5 の 3、[記録](done/0095_llm_wiki_22impl.md)の「2026-10-23 Claude Code の memory の移し替え」）。
    - 10/23 に 97 本をポインタ化した。
    - Run で確かめると、memory の値に誤りが多数見つかった（打ち切り扱いが完走、複製扱いが別設定、Run フォルダの改名など）。
    - このため、memory の数値は正本へ写す前に Run で確かめる。
@@ -61,7 +61,7 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
      - 公式では「上級者向けのヒント」（[Claude Code power user tips](https://support.claude.com/en/articles/14554000-claude-code-power-user-tips)）に名前が出るだけである。
      - 第三者の解説は、裏での整理と実行前のバックアップを挙げている（例: [claudefa.st](https://claudefa.st/blog/guide/mechanics/auto-dream)）。挙動は確かめていない。
    - [anet-improve](../../.agents/skills/anet-improve/SKILL.md) の「memory（Claude Code だけ）」。対象は、その会話で書いた・直した feedback memory のうち規約へ移したものだけである。
-   - [anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)。材料は repo の中の文書だけである（[PRD095](done/0095_llm_wiki_10rfd.md) §4.7）。[wiki の規約](../wiki/README.md)は「memory は出典にしない」と定めている。
+   - [anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)。材料は repo の中の文書だけである（[RFD0095](done/0095_llm_wiki_10rfd.md) §4.7）。[wiki の規約](../wiki/README.md)は「memory は出典にしない」と定めている。
    - [anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)。
      - memory の候補は無い。
      - 禁止事項に「各スキルの出力先と `reports/housekeeping/` 以外への書き込み」がある。
@@ -77,7 +77,7 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
    - LangMem の background memory manager（[Background Quickstart](https://langchain-ai.github.io/langmem/background_quickstart)）: memory の抽出とまとめを会話から切り離して後で処理する。
 8. Codex の memory。
    - 置き場は `~/.codex/memories/`（`MEMORY.md`、`memory_summary.md`、`raw_memories.md`、`rollout_summaries/`）で、Codex アプリが更新する。
-   - PRD095 D38 で「読むだけで書き換えない」と決めた。
+   - RFD0095 D38 で「読むだけで書き換えない」と決めた。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -91,7 +91,7 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
 
 ### 3.2 非ゴール
 
-- memory を出典にして wiki や正本を書くこと。退ける案は「整備のついでに正本・wiki へ書き出す」案である。PRD095 D2 の原則で、memory の値には誤りが多かった（§2 の 5）。正本へ起こすのはユーザーが選んだものだけで、Run で確かめる作業は実験記録や PRD の工程で行う。正本の質を保つための本当の制約で、移しても解けない。
+- memory を出典にして wiki や正本を書くこと。退ける案は「整備のついでに正本・wiki へ書き出す」案である。RFD0095 D2 の原則で、memory の値には誤りが多かった（§2 の 5）。正本へ起こすのはユーザーが選んだものだけで、Run で確かめる作業は実験記録や RFD の工程で行う。正本の質を保つための本当の制約で、移しても解けない。
 - Codex の memory の整備。退ける案は「段階 1 で Codex の memory も整備する」案である。本当の制約ではなく、書き換えの可否を確かめるまでの先送りである（§8）。
 - `CLAUDE.md`（ユーザーの全体の指示、プロジェクトの指示）を直すこと。退ける案は「`CLAUDE.md` も整備の対象にする」案である。人が書く指示で、Claude が書く memory とは書き手が違う。書き手の違いによる本当の制約である。
 - Auto-dream を使うかどうかを決めること。退ける案は「Auto-dream を有効にして任せる」案である。挙動の記述が公式に出るまでの先送りで、本当の制約ではない（§8）。
@@ -128,9 +128,9 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
 
 | # | 決定 | 理由 |
 |---|---|---|
-| D1 | 対象は、Claude Code の、この repo の memory の置き場（索引 `MEMORY.md` と topic file）だけとする。置き場は、会話のシステムプロンプトの auto memory の節が名指すフォルダから実行時に決める | 問題はここで起きている（§2 の 2〜4）。パスはユーザー名を含むので、skill と PRD に書かない |
+| D1 | 対象は、Claude Code の、この repo の memory の置き場（索引 `MEMORY.md` と topic file）だけとする。置き場は、会話のシステムプロンプトの auto memory の節が名指すフォルダから実行時に決める | 問題はここで起きている（§2 の 2〜4）。パスはユーザー名を含むので、skill と RFD に書かない |
 | D2 | 整備は skill `anet-tidy-memory` に置き、`.agents/skills` と `.claude/skills` の両方に同じ中身を置く。Codex で起動されたときは、何も書かずに「Claude Code の memory は Codex からは整備しない」と報告して終える | skills README の両方に置く約束（§2 の 6）に従う。段階 1 は Claude Code だけ（D12） |
-| D3 | 見るものは 7 つとし、それぞれ確かめる先を決める。(1) 索引の大きさ → 公式の上限。(2) 索引と topic file の対応 → 置き場のファイル。(3) 状態の記述 → git（log・status）と `docs/memo/` のフォルダ。(4) repo のパスの実在 → 作業ツリー。(5) 知見 → 正本（実験記録、PRD、ADR、設計文書、`reports/` の報告）と wiki。(6) feedback → `AGENTS.md`、`docs/quality/`、`docs/process/`、skill。(7) 重複と終わった仕事 → topic file どうしと `docs/memo/done/` | 問題 2・3 の原因は、memory の外の事実が変わることである（§1）。外の事実と照合しないと直せない。(7) は `consolidate-memory` の考え方を借りる（§2 の 6） |
+| D3 | 見るものは 7 つとし、それぞれ確かめる先を決める。(1) 索引の大きさ → 公式の上限。(2) 索引と topic file の対応 → 置き場のファイル。(3) 状態の記述 → git（log・status）と `docs/memo/` のフォルダ。(4) repo のパスの実在 → 作業ツリー。(5) 知見 → 正本（実験記録、RFD、ADR、設計文書、`reports/` の報告）と wiki。(6) feedback → `AGENTS.md`、`docs/quality/`、`docs/process/`、skill。(7) 重複と終わった仕事 → topic file どうしと `docs/memo/done/` | 問題 2・3 の原因は、memory の外の事実が変わることである（§1）。外の事実と照合しないと直せない。(7) は `consolidate-memory` の考え方を借りる（§2 の 6） |
 | D4 | 直し方は種類ごとに決める（§5.1 の表）。索引には git とフォルダで答えが出る状態の語を置かない | 状態の語は時間で古くなり（問題 2）、索引の長さも増やす（問題 1）。答えは git とフォルダで引き直せる。D3 に依存する |
 | D5 | 書き込む前に、memory の置き場の全体を `.scratch/anet-tidy-memory/<run_id>/before/` へ写す。直しは、書く・消すファイルの組（まとまり）ごとに、書く直前に中身が写したときと同じかを確かめ、違えばまとまりごと触らずに報告する。同じ topic file への直しはすべて 1 つのまとまりに合わせ、まとまりどうしを重ねない（各 topic file は 1 回の実行で多くとも 1 回だけ書く）。索引は最後に読み直し、今の索引に行の単位で当て直す（§5.2） | memory は git の管理外で、ほかに戻す手段が無い。同じ repo のほかの会話（worktree を含む）が同じ置き場を同時に書きうる（§2 の 1）。一般の事例も元を壊さない（§2 の 7） |
 | D6 | 1 回分の記録（直したもの、正本なしの一覧、パス切れ、戻し方）は `.scratch/anet-tidy-memory/<run_id>/report.md` に置く。前回の実行の記録は `.scratch/anet-tidy-memory/state.json` に置く。`.scratch/anet-tidy-memory/` は、どの worktree から起動しても主 worktree（`git rev-parse --git-common-dir` が指す共通の git ディレクトリの親）の下に置く。本書の `.scratch/anet-tidy-memory/` はすべてこの置き場を指す。`reports/` と `docs/` には memory の中身を書かない。housekeeping 経由のときは、`runs.jsonl` の `note` に件数だけを書く | repo は公開しており、memory には私的な事柄がある（§3.2）。`.scratch/` は git の管理外である（§2 の 6）。memory の置き場は同じ repo の worktree で共有される（§2 の 1）ので、前回の記録と写しも worktree によらず 1 か所にしないと、前回の実行と差分の基準が worktree ごとに割れる |
@@ -139,7 +139,7 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
 | D9 | 機械的な部分は補助スクリプト `reports/tools/memory_support.py` が受け持つ（§5.2）。本文の照合と縮め方の判断は skill を実行する側が行う | 決まった検査を毎回同じに数え、読む量を減らす。`wiki_support.py` と同じ分け方である（[wiki の規約](../wiki/README.md)の「機械処理の補助」） |
 | D10 | anet-housekeeping に候補 `memory-tidy` を足す（§5.3） | 定期的に回すため（G4）。索引が上限を超えると、超えた分は会話の始めに読まれない（§2 の 1）ので、早めに回す。D7 と D8 に依存する |
 | D11 | 名前は、skill が `anet-tidy-memory`、housekeeping の候補が `memory-tidy`、補助スクリプトが `memory_support.py` とする | 既存の形に揃える（[実装 品質確認観点](../quality/impl.md#名前)「名前」の 3）。skill は動詞＋目的語（`anet-lint-wiki`・`anet-ingest-wiki`）、候補は目的語＋動作（`wiki-lint`）、補助は `wiki_support.py` に揃える |
-| D12 | Codex の memory（段階 2）は本書では作らず、§8 に先送りとして残す | ユーザーの指示（まず Claude Code）。Codex の memory は Codex アプリが更新し、PRD095 D38 で読むだけと決めている（§2 の 8） |
+| D12 | Codex の memory（段階 2）は本書では作らず、§8 に先送りとして残す | ユーザーの指示（まず Claude Code）。Codex の memory は Codex アプリが更新し、RFD0095 D38 で読むだけと決めている（§2 の 8） |
 | D13 | ADR は起こさない | skill と補助スクリプトは後から変えやすく、戻しにくさの条件を満たさない |
 
 ## 5. 実装契約
@@ -154,7 +154,7 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
 | repo のパス | 移った先が 1 つに決まれば直す（`done/` への移動、改名）。決まらなければ、パスの後ろに「（パス切れ）」と注記する | 直す |
 | 知見 | 正本に同じ中身があれば、topic file を「正本（と wiki のページ）へのポインタ」と「正本に無い経緯（なぜ・どう使うか）」だけに縮め、数値は写さない。正本に無ければ触らず、正本なしの一覧に挙げる | 正本にあるものだけ直す |
 | feedback | `AGENTS.md`・`docs/quality/`・`docs/process/`・skill に同じ中身があれば、規約の所在へのポインタに縮める。全部が移っていれば topic file と索引の行を消す（anet-improve の memory の扱いと同じ考え） | 規約に同じ中身があるものだけ直す |
-| 重複と終わった仕事 | 重複はまとめ、中身の多い側のファイル名を残す。相対日付は絶対日付にする。`done/` へ移った PRD だけを指し、残す教訓の無い project 型は引退させる（topic file と索引の行を消す） | 日付だけ直す。まとめと引退は報告に挙げる |
+| 重複と終わった仕事 | 重複はまとめ、中身の多い側のファイル名を残す。相対日付は絶対日付にする。`done/` へ移った RFD だけを指し、残す教訓の無い project 型は引退させる（topic file と索引の行を消す） | 日付だけ直す。まとめと引退は報告に挙げる |
 
 ### 5.2 補助スクリプト `reports/tools/memory_support.py`
 
@@ -223,7 +223,7 @@ skill の引数は `full` だけである。ほかの語が付いたときは、
 - `.agents/skills/anet-housekeeping/SKILL.md` と `.claude/skills/anet-housekeeping/SKILL.md`。候補表、既定の優先順、禁止事項、`runs.jsonl` の `note` の説明を直す。あわせて、frontmatter の `description` と `agents/openai.yaml` の `short_description`（両方）を、`memory-tidy` を含む今の候補表に合わせる。この 2 か所は起票時点で候補表とずれている（`description` に wiki-lint が無い。`short_description` に wiki-lint・harness-map・atlas が無く、候補表に無い「コミット案」がある）ので、同じ変更で揃える。
 - skills README（両方）。表の行、「anet-housekeeping が呼ぶ候補と対応」、共通の約束を直す。共通の約束には「`anet-tidy-memory` だけは memory の置き場と `.scratch/anet-tidy-memory/` へ書き、`reports/` と `docs/` に memory の中身を書かない」を足す。
 - `reports/tools/memory_support.py`（新規）。
-- 検証資材 `core/anet-core/testdata/prd112/`（`README.md`、`memory_support_test.py`）。
+- 検証資材 `core/anet-core/testdata/rfd0112/`（`README.md`、`memory_support_test.py`）。
 - [160 アプリケーションとツール](../design/160_applications_and_tools.jp.md)。§7.4 の隣に memory の整備の節を足し、§8 に検証資材への 1 行を足す。英訳（`.en.md`）は anet-translate-docs が追う。
 - 動線マップ（`docs/agents/`）は、`.agents/skills` の変化を anet-harness-map の前提条件が拾って作り直すので、この変更では直さない。
 - `reports/housekeeping/runs.jsonl` の既存の行は書き換えない。新しい候補の行を足すだけである。
@@ -290,14 +290,14 @@ skill の引数は `full` だけである。ほかの語が付いたときは、
 
 | 案 | 裁定 | 理由と再開条件 |
 |---|---|---|
-| Codex の memory の整備（段階 2） | 先送り | Codex の memory は Codex アプリが更新し、PRD095 D38 で読むだけと決めた。書き換えてよいか（アプリが作り直すか、どのファイルなら手で直せるか）を確かめていない。再開条件: 段階 1 を 2 回以上回して §3.4 の数を見たうえで、Codex の memory の書き換えの可否を確かめたとき。そのとき比べる形は 2 つある。読むだけで「正本へ移す候補」と「Claude の memory との食い違い」を挙げる形と、同じ整備を Codex の memory に行う形である |
+| Codex の memory の整備（段階 2） | 先送り | Codex の memory は Codex アプリが更新し、RFD0095 D38 で読むだけと決めた。書き換えてよいか（アプリが作り直すか、どのファイルなら手で直せるか）を確かめていない。再開条件: 段階 1 を 2 回以上回して §3.4 の数を見たうえで、Codex の memory の書き換えの可否を確かめたとき。そのとき比べる形は 2 つある。読むだけで「正本へ移す候補」と「Claude の memory との食い違い」を挙げる形と、同じ整備を Codex の memory に行う形である |
 | Auto-dream に任せる | 先送り | 公式に挙動と設定の記述が無く（§2 の 6）、anet の規則（D3・D4）を渡せるか分からない。再開条件: 公式に挙動・設定が文書化されたとき。併用は妨げず、同時の書き込みは D5 の確かめで上書きしない |
 | `consolidate-memory` をそのまま定期に回す | 不採用 | git・フォルダ・正本・規約と照合しないので、古い状態の記述をそのまま整えて残し、知見を memory の中でまとめて二重持ちを固める（問題 2・3） |
-| anet-lint-wiki に memory の点検を足す | 不採用 | wiki の点検の材料は repo の中の文書だけという契約で（PRD095 §4.7）、前提条件も材料と blob の記録だけで決まる。memory は repo の外にあり、Claude Code からしか見えない。関心が別である |
-| anet-improve の memory の扱いを広げる | 不採用 | 対象がその会話の手戻りで、起動のきっかけ（明示起動か PRD 工程の完了報告）も定期の棚卸しと違う |
+| anet-lint-wiki に memory の点検を足す | 不採用 | wiki の点検の材料は repo の中の文書だけという契約で（RFD0095 §4.7）、前提条件も材料と blob の記録だけで決まる。memory は repo の外にあり、Claude Code からしか見えない。関心が別である |
+| anet-improve の memory の扱いを広げる | 不採用 | 対象がその会話の手戻りで、起動のきっかけ（明示起動か RFD 工程の完了報告）も定期の棚卸しと違う |
 | memory を書くたびに hook で検査する | 不採用 | 古くなる原因はコミットと時間の経過で、書いた時点では正しい。大きさの知らせは Claude Code が書き込みのたびに出す（§2 の 1） |
 | memory の置き場を repo の中へ移し、Codex と共有する（`autoMemoryDirectory`） | 範囲外 | 公開 repo に私的な memory が入る。共有の仕方は段階 2 と一緒に決める。再開条件: 段階 2 のグリル |
-| 正本なしの知見を、整備の中で正本へ起こす | 範囲外 | 値を Run で確かめる作業で（§2 の 5）、実験記録・PRD の工程に属する。再開条件: 正本なしの一覧が 3 回続けて減らないとき、一覧の扱いを運用として見直す |
+| 正本なしの知見を、整備の中で正本へ起こす | 範囲外 | 値を Run で確かめる作業で（§2 の 5）、実験記録・RFD の工程に属する。再開条件: 正本なしの一覧が 3 回続けて減らないとき、一覧の扱いを運用として見直す |
 
 ## 9. 未決
 
@@ -307,7 +307,7 @@ skill の引数は `full` だけである。ほかの語が付いたときは、
 | 2 | 索引の目標の大きさ | 160 行・20,000 バイト（§6 の 1） |
 | 3 | 定期の間隔 | 7 日（§6 の 3） |
 | 4 | 明示起動の了承の選択肢 | 「全部直す」「正誤が決まるものだけ直す」「やめる」（D7） |
-| 5 | 引退の基準と、無人で引退させるか | `done/` の PRD だけを指し、残す教訓の無い project 型を、明示起動でだけ引退させる（§5.1） |
+| 5 | 引退の基準と、無人で引退させるか | `done/` の RFD だけを指し、残す教訓の無い project 型を、明示起動でだけ引退させる（§5.1） |
 | 6 | 上限の数え方（バイトか文字か）と、超えた分の実際の扱い。起票時の会話では、28,845 バイトの索引の末尾まで読めていた | 安全側にバイトで数える（25,000 バイト）。実装時に、索引の末尾に目印の行を置いて新しい会話で見えるかを確かめ、結果を実装計画に書く |
 | 7 | 正本なしの一覧を毎回ユーザーに聞くか | 聞かずに報告に挙げるだけにする。扱いはユーザーが別に決める |
 | 8 | `.scratch/anet-tidy-memory/` の古い写しを消すか | 消さない。大きくなったら人が消す |
@@ -318,13 +318,13 @@ skill の引数は `full` だけである。ほかの語が付いたときは、
 
 ## 10. 依存と順序
 
-- 先に要る PRD は無い。PRD095 の wiki と anet-lint-wiki の上に乗る。
+- 先に要る RFD は無い。RFD0095 の wiki と anet-lint-wiki の上に乗る。
 - anet-housekeeping の候補を足すので、anet-housekeeping の SKILL.md（両方）と同じ変更で入れる。
 - 段階 1 を 2 回以上回してから、段階 2（Codex）をグリルする（§8）。
 
 ## 11. 参照
 
-- [PRD095 LLM-Wiki](done/0095_llm_wiki_10rfd.md)、[段階 3 の記録](done/0095_llm_wiki_22impl.md)、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)
+- [RFD0095 LLM-Wiki](done/0095_llm_wiki_10rfd.md)、[段階 3 の記録](done/0095_llm_wiki_22impl.md)、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)
 - [anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)、[skills README](../../.agents/skills/README.md)
-- [wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md)、[PRD095 の検証資材](../../src/core/base/testdata/rfd0095/README.md)
+- [wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md)、[RFD0095 の検証資材](../../src/core/base/testdata/rfd0095/README.md)
 - [How Claude remembers your project](https://code.claude.com/docs/en/memory)、[Claude Code power user tips](https://support.claude.com/en/articles/14554000-claude-code-power-user-tips)、[Dreams](https://platform.claude.com/docs/en/managed-agents/dreams)、[LangMem Background Quickstart](https://langchain-ai.github.io/langmem/background_quickstart)

@@ -1,4 +1,4 @@
-# Episode Forensics（特殊挙動エピソード自動捕捉・事後調査）暫定 PRD
+# Episode Forensics（特殊挙動エピソード自動捕捉・事後調査）暫定 RFD
 
 > 2026-11-17 番号を 932 から 144 へ振り直した（PRD131）。
 > 状態: 暫定メモ。長期 Run 中に発生する希少挙動を、発生後でも元エピソードまで遡って調査できる仕組みの要求と設計候補を記録する。
@@ -60,7 +60,7 @@ Episode Forensics は、全エピソードを無制限に動画保存する仕�
 - Env instance と lane を含む Run-scoped な `EpisodeId` を発番する。
 - エピソード内の各遷移へ Run-scoped な `TransitionId` を付与する。
 - 識別子は Experience から ReplayBuffer、`ExperienceSamples` まで値を変えずに伝播させる。
-- PRD035 の generation 付き replay item key は、物理 slot 上書き後の誤更新を防ぐ一時的な Replay identity である。Episode Forensics の永続識別子とは目的を分け、相互に記録できるようにする。
+- RFD0035 の generation 付き replay item key は、物理 slot 上書き後の誤更新を防ぐ一時的な Replay identity である。Episode Forensics の永続識別子とは目的を分け、相互に記録できるようにする。
 - ID は Run artifact 内で一意とし、Run を跨いだ global uniqueness は要求しない。Run ID と組み合わせて識別する。
 
 ### 2. 容量制限付き Episode Journal を常時保持する
@@ -134,13 +134,13 @@ Episode Forensics は、全エピソードを無制限に動画保存する仕�
 
 - Phase 2: 長時間 NOOP、NOOP margin、NoDrop timeout、NoLegal、終端理由、rank 更新など、Env/Actor 系 detector を追加する。
 - Phase 3: Bundle 一覧、条件検索、step 表、Observation 表示、動画または既存 View による再生を Viewer へ統合する。
-- 個別 detector の学習制御への利用は、本機構の観測結果を得てから別 PRD で判断する。
+- 個別 detector の学習制御への利用は、本機構の観測結果を得てから別 RFD で判断する。
 
 ## Testing Decisions
 
 - テストは private container の形ではなく、入力イベント、発生 trigger、保存された Bundle、明示された不完全状態という外部契約を検証する。
 - ID 伝播テストでは、複数 Env/lane、episode reset、terminal/truncated、n-step、Replay 上書き、prefetch を通っても対象 episode/transition が一致することを確認する。
-- PRD035 の replay item key テストを先例とし、物理 slot の再利用と永続 identity を混同しないことを検証する。
+- RFD0035 の replay item key テストを先例とし、物理 slot の再利用と永続 identity を混同しないことを検証する。
 - Detector 単体テストでは、閾値境界、連続条件、hysteresis、cooldown、cluster、非 finite 入力、良い希少事象を含む reason/severity を確認する。
 - Journal lifecycle テストでは、trigger 前履歴、active episode の固定、post-trigger 追記、終端確定、容量 eviction を確認する。
 - Learner tracer bullet の統合テストでは、既知の一要素だけが極端な Q/TD 値を持つ batch を与え、該当 Sample index と元 episode が保存されることを確認する。

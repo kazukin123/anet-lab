@@ -1,6 +1,6 @@
-# PRD102 GridMaze seed_mode 検証
+# RFD0102 GridMaze seed_mode 検証
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 ## 契約
 
@@ -28,7 +28,7 @@ processの共有タグは独立プロセスで実行する。episodeは50回Rese
 .\.venv\Scripts\python.exe core/anet-core/testdata/rfd0102/run_validation.py settings
 ```
 
-[manifest.json](manifest.json)の現用17入力を、今回の編集前に保存した`.scratch/prd102/baseline-config`と現用設定でそれぞれ解決する。Run選択は実際のCLI parserから渡す。PRD072の17入力を基にし、既に定義のないAtariのnature_dqn/classic_iqn_impala_x2の2条件は、現用の既定/base条件へ置き換えた。過去のmanifestやbaselineは変更しない。全キー・文字列値を保存し、GridMazeの旧bool削除・process追加・MuZero用のseed既定削除以外に差分がないことを確認する。GridMaze.txtのユーザーの実験用seed指定は保持する。`config-before.json`・`config-after.json`・`config-comparison.json`へ記録する。PRD072の過去baselineを更新しない。
+[manifest.json](manifest.json)の現用17入力を、今回の編集前に保存した`.scratch/prd102/baseline-config`と現用設定でそれぞれ解決する。Run選択は実際のCLI parserから渡す。RFD0072の17入力を基にし、既に定義のないAtariのnature_dqn/classic_iqn_impala_x2の2条件は、現用の既定/base条件へ置き換えた。過去のmanifestやbaselineは変更しない。全キー・文字列値を保存し、GridMazeの旧bool削除・process追加・MuZero用のseed既定削除以外に差分がないことを確認する。GridMaze.txtのユーザーの実験用seed指定は保持する。`config-before.json`・`config-after.json`・`config-comparison.json`へ記録する。RFD0072の過去baselineを更新しない。
 
 既定キーの監査もリポジトリ規約どおり実行する。
 
@@ -38,7 +38,7 @@ processの共有タグは独立プロセスで実行する。episodeは50回Rese
 
 ## 固定条件の短Run
 
-変更前の実行体・DLL・設定・driverと実出力を`.scratch/rfd0102/`へ隔離してから本体を変更する。今回は`before/`にrun seed1・迷路seed6545537233705677626・8 lane・CPU/FP32・8704 experienceの変更前結果を保存した。基準ビルドは実施済みで、実行体と設定のhashは`before/execution.json`に残る。以前のPRD100記録は上書きしない。
+変更前の実行体・DLL・設定・driverと実出力を`.scratch/rfd0102/`へ隔離してから本体を変更する。今回は`before/`にrun seed1・迷路seed6545537233705677626・8 lane・CPU/FP32・8704 experienceの変更前結果を保存した。基準ビルドは実施済みで、実行体と設定のhashは`before/execution.json`に残る。以前のRFD0100記録は上書きしない。
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/rfd0102/run_validation.py after
@@ -48,4 +48,4 @@ processの共有タグは独立プロセスで実行する。episodeは50回Rese
 .\.venv\Scripts\python.exe core/anet-core/testdata/rfd0102/run_validation.py compare
 ```
 
-現行PRD100 driverの実行体隔離・Noisy被覆・正規化を再利用し、出力だけPRD102へ分離する。変更後はseedだけを指定して固定する。時間・資源以外を全tag/step/値で完全比較し、点数・SHA256を`comparison.json`へ保存する。保存済み条件がない場合は比較を成功扱いせず失敗する。再試行時は既存stageを別名へ退避してから実行する。
+現行RFD0100 driverの実行体隔離・Noisy被覆・正規化を再利用し、出力だけRFD0102へ分離する。変更後はseedだけを指定して固定する。時間・資源以外を全tag/step/値で完全比較し、点数・SHA256を`comparison.json`へ保存する。保存済み条件がない場合は比較を成功扱いせず失敗する。再試行時は既存stageを別名へ退避してから実行する。

@@ -229,7 +229,7 @@
 - [RFD0093](../../memo/done/0093_attention_entropy_diagnostics_10rfd.md) — TransformerEncoder の attention エントロピー診断 PRD
 - [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 - [RFD0097](../../memo/done/0097_env_auto_reset_after_notification_10rfd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
-- [RFD0098](../../memo/0098_temporl_skip_policy_10rfd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）PRD
+- [RFD0098](../../memo/0098_temporl_skip_policy_10rfd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）RFD
 - [RFD0099](../../memo/done/0099_atari_resize_mode_10rfd.md) — Atari の観測の縮小方式を設定で切り替える PRD
 - [RFD0100](../../memo/done/0100_gridmaze_solvable_maze_10rfd.md) — GridMaze の迷路を必ず解ける形にする — 解けない seed は派生 seed で決定的に引き直す PRD
 - [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md) — 探索と学習のパラメータを ProfiledValue で時間変化させる PRD
@@ -238,21 +238,21 @@
 - [RFD0105](../../memo/done/0105_eval_trace_arrow_key_forced_action_10rfd.md) — Evaluation Trace の矢印キーと強制した step の見分け、表の並べ替えと行のダンプ PRD
 - [RFD0106](../../memo/done/0106_temporl_skip_forward_noise_key_10rfd.md) — TempoRL の skip 側の forward のノイズを Q 側と分けて指定する（`full` でだけノイズが効く仕組みの切り分け）PRD
 - [RFD0109](../../memo/done/0109_runner_startup_background_init_10rfd.md) — Runner の起動で RunManager を別スレッドで構築する PRD
-- [RFD0116](../../memo/0116_rnd_lifelong_novelty_10rfd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD
-- [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md) — PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
-- [RFD0119](../../memo/0119_small_doc_comment_config_fixes_10rfd.md) — PRD119: 文書・コメント・設定の小さな食い違いをまとめて直す
-- [RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md) — 外的と内的の価値の分解（Q を外的報酬と内的報酬の 2 つの Head で学ぶ） PRD
-- [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md) — PRD122: 小さなリファクタリングとテストの空白をまとめて片づける
-- [RFD0123](../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md) — RND の内的報酬の尺度（誤差の統計の取り方・warm-up・平均を引かない形・終端の mask） PRD
-- [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
-- [RFD0158](../../memo/0158_eval_schedule_first_fire_10rfd.md) — PRD158: eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする
-- [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md) — PRD170: forward の名前付き出力を capture に一本化し、nn_trace を要求した step だけ作る PRD
-- [RFD0182](../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
-- [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) — PRD191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） PRD
-- [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md) — PRD192: 監査で見つかった不具合 5 件をまとめて直す（Notifier の同時実行、動画の画像の大きさ、強制行動の device、重複登録、QValuePanel の平滑化）
-- [RFD0193](../../memo/0193_variance_scaling_weight_init_10rfd.md) — PRD193: 重みの初期化に、分散を倍率÷fan_in にする一様分布の方式を足し、初期化の設定の読み取りを 1 つの口にまとめる（Dopamine の IQN・Rainbow と同じ初期値） PRD
-- [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md) — PRD194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
-- [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — PRD195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
+- [RFD0116](../../memo/0116_rnd_lifelong_novelty_10rfd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 RFD
+- [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md) — RFD0117: WARN の意味の線引きと、読まれない設定の検出 RFD
+- [RFD0119](../../memo/0119_small_doc_comment_config_fixes_10rfd.md) — RFD0119: 文書・コメント・設定の小さな食い違いをまとめて直す
+- [RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md) — 外的と内的の価値の分解（Q を外的報酬と内的報酬の 2 つの Head で学ぶ） RFD
+- [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md) — RFD0122: 小さなリファクタリングとテストの空白をまとめて片づける
+- [RFD0123](../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md) — RND の内的報酬の尺度（誤差の統計の取り方・warm-up・平均を引かない形・終端の mask） RFD
+- [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）RFD
+- [RFD0158](../../memo/0158_eval_schedule_first_fire_10rfd.md) — RFD0158: eval スケジュールの発火の列 — 学習直後の評価を既定で止め、発火の時点をずらせるようにする
+- [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md) — RFD0170: forward の名前付き出力を capture に一本化し、nn_trace を要求した step だけ作る RFD
+- [RFD0182](../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）RFD
+- [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) — RFD0191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） RFD
+- [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md) — RFD0192: 監査で見つかった不具合 5 件をまとめて直す（Notifier の同時実行、動画の画像の大きさ、強制行動の device、重複登録、QValuePanel の平滑化）
+- [RFD0193](../../memo/0193_variance_scaling_weight_init_10rfd.md) — RFD0193: 重みの初期化に、分散を倍率÷fan_in にする一様分布の方式を足し、初期化の設定の読み取りを 1 つの口にまとめる（Dopamine の IQN・Rainbow と同じ初期値） RFD
+- [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
+- [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 
 ## 課題
 

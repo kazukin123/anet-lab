@@ -1,4 +1,4 @@
-# 標準 Spectral Normalization と residual identity 開始を両立する α ゲート暫定 PRD
+# 標準 Spectral Normalization と residual identity 開始を両立する α ゲート暫定 RFD
 
 > 2026-11-17 番号を 951 から 150 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 951 へ振り直した（PRD114）。
@@ -11,14 +11,14 @@
 
 ## Problem Statement
 
-PRD 065 では、ResBlock の最終 conv weight を完全に zero-init する現行方式と、常時
+RFD0065 では、ResBlock の最終 conv weight を完全に zero-init する現行方式と、常時
 `W / σ` を使う標準 `spectral` は両立しないと裁定した。
 
 - 初期状態では `σ=0` となり、標準 SN の除算が未定義になる。
 - weight がゼロを離れた直後も、標準 SN は微小 weight を実効 spectral norm 約 1 へ射影するため、
   「identity から徐々に residual branch を育てる」という生 weight ZeroInit の意味論を維持できない。
 
-PRD 065 はこの問題に対し、`W / max(1, |σ_raw|)` を使う独立モード `spectral_cap` を採用した。
+RFD0065 はこの問題に対し、`W / max(1, |σ_raw|)` を使う独立モード `spectral_cap` を採用した。
 これは完全な zero-init、初期 residual 出力ゼロ、初回 backward からの最終 conv weight 勾配を維持する。
 
 一方、4 腕 screening の結果によっては、次の組み合わせが同時に観測される可能性がある。
@@ -47,7 +47,7 @@ post-add処理を変更せず、加算へ入るresidual寄与だけを制御す�
 この方式は **ZeroInit互換とは呼ばない**。保証するのは初期residual出力ゼロであり、生weight ZeroInitの
 学習動態ではない。特にα=0の初回backwardではresidual branchのweight勾配が0になり、まずαが育つ。
 
-PRD 065の`weight_norm.mode`は変更しない。αゲートはweight normalizationとは別関心なので、
+RFD0065の`weight_norm.mode`は変更しない。αゲートはweight normalizationとは別関心なので、
 将来実装する場合も`weight_norm.mode`へ`spectral_alpha`等の複合モードを追加せず、ResBlock側の独立した
 設定Interfaceとして扱う。
 
@@ -56,7 +56,7 @@ PRD 065の`weight_norm.mode`は変更しない。αゲートはweight normalizat
 | 案 | 内容 | 現行コードでの実現性 | 裁定 |
 |---|---|---|---|
 | 1. Near-Zero Init | 最終convを完全な0でなく、極小分散の乱数で初期化する | `init2.mode=trunc_normal`と`trunc_std`により設定だけで構成可能 | **cut** |
-| 2. αゲート | 非退化weightへ標準SNを適用し、residual出力へ0初期化した学習可能αを掛ける | ResBlockにgate parameterと乗算が無いため実装が必要 | **本PRDの唯一のdeferred候補** |
+| 2. αゲート | 非退化weightへ標準SNを適用し、residual出力へ0初期化した学習可能αを掛ける | ResBlockにgate parameterと乗算が無いため実装が必要 | **本RFDの唯一のdeferred候補** |
 | 3. normalization γ=0 | 最終conv後のnormalization affine scaleを0初期化してresidual出力を止める | 現行Atari ResBlockはpre-activationかつnormなし。γ初期値Interfaceも無い | **cut** |
 
 ### 1. Near-Zero Initを棄却した理由
@@ -100,7 +100,7 @@ ResBlock内の順序まで同時に変わる。
 直前に置かれる。引用案の「最終conv直後のnormalization γ=0」とは構造が異なる。αゲートだけを調べたい局面で
 normalizationまで導入すると因果分離が悪いため、本件では採らない。
 
-将来、normalization自体を採用する独立の理由が生じた場合、そのPRDでγ初期値を検討する。
+将来、normalization自体を採用する独立の理由が生じた場合、そのRFDでγ初期値を検討する。
 
 ## User Stories
 
@@ -117,20 +117,20 @@ normalizationまで導入すると因果分離が悪いため、本件では採�
 6. 実験結果の読者として、αゲート腕を標準SN＋zero-output gateと呼びたい。そうすることで、BTR parityや
    ZeroInit互換を過剰主張せずに済む。
 7. 保守者として、αゲートを使わない既存ResBlockのparameter集合とforwardを不変にしたい。そうすることで、
-   PRD 065および既存Runの解釈へ影響を与えずに済む。
+   RFD0065および既存Runの解釈へ影響を与えずに済む。
 
 ## Implementation Decisions（暫定）
 
 | # | 決定 | 内容 |
 |---|---|---|
-| D1 | 候補の位置づけ | αゲートだけをdeferred候補として残す。Near-Zero Initとnormalization γ=0は本PRDから実装しない |
+| D1 | 候補の位置づけ | αゲートだけをdeferred候補として残す。Near-Zero Initとnormalization γ=0は本RFDから実装しない |
 | D2 | SNとの関係 | 実験候補は非退化init＋標準`spectral`＋α初期値0。`spectral`の数理・state・メトリクス契約は変更しない |
 | D3 | 関心の分離 | αゲートはResBlockのresidual制御であり、weight normalization modeではない。独立設定にする |
 | D4 | 適用位置 | residual branch内の全変換後、DropPathとshortcut加算の直前で、branch寄与全体へ適用する |
 | D5 | 初期出力契約 | α=0では加算へ入るresidual寄与が0になる。pre-activation・同一shapeなら出力は入力と一致する。post-activationでは既存のpost-add activation、downsample時は既存shortcut射影が残るため、block出力全般をidentityとは呼ばない |
 | D6 | 初回勾配契約 | α=0ではαに勾配が流れ、residual branchのweight勾配は0になり得ることを正常動作としてpinする |
 | D7 | 既存挙動 | gate無効時はparameterを追加せず、forward・serialize・copy・soft copy・cloneの既存挙動を変えない |
-| D8 | 実装時期 | §Promotion Gateを満たすまで実装しない。PRD 065の実装・4腕screeningを妨げない |
+| D8 | 実装時期 | §Promotion Gateを満たすまで実装しない。RFD0065の実装・4腕screeningを妨げない |
 
 ### 実装へ昇格するときに裁定する事項
 
@@ -144,7 +144,7 @@ normalizationまで導入すると因果分離が悪いため、本件では採�
 
 ## Promotion Gate
 
-PRD 065の4腕screeningを先に実施する。
+RFD0065の4腕screeningを先に実施する。
 
 | 腕 | 構成 | 読み方 |
 |---|---|---|
@@ -188,8 +188,8 @@ PRD 065の4腕screeningを先に実施する。
 
 ## Out of Scope
 
-- PRD 065の`spectral` / `spectral_cap`の数理、power iteration、buffer、seed、copy、メトリクス契約の変更。
-- PRD 065の4腕screeningへのE腕の先行追加。
+- RFD0065の`spectral` / `spectral_cap`の数理、power iteration、buffer、seed、copy、メトリクス契約の変更。
+- RFD0065の4腕screeningへのE腕の先行追加。
 - Near-Zero Initの追加実験。既存設定で構成可能でも、標準SNとのidentity開始両立策にはならない。
 - normalization γ=0、BatchNorm / GroupNorm / LayerNormの追加、normalization affine初期値Interfaceの拡張。
 - αゲートをZeroInit、BTR準拠、ReZero完全再現と呼ぶこと。
@@ -198,8 +198,8 @@ PRD 065の4腕screeningを先に実施する。
 
 ## Further Notes
 
-- 本PRDは「標準SNとidentity開始を同時に欲しくなった場合の退避候補」を失わないための記録であり、
+- 本RFDは「標準SNとidentity開始を同時に欲しくなった場合の退避候補」を失わないための記録であり、
   現時点の推奨実装ではない。
-- 現時点の第一候補はPRD 065の`spectral_cap + zero-init`である。これはαゲートと異なり、初回backwardから
+- 現時点の第一候補はRFD0065の`spectral_cap + zero-init`である。これはαゲートと異なり、初回backwardから
   最終conv weightへ勾配が流れる生weight ZeroInitの動態を維持する。
 - 将来αゲートを実装しても、結果は「標準SN＋zero-output gate」として報告し、ZeroInit腕とは分けて読む。

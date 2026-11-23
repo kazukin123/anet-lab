@@ -1,4 +1,4 @@
-# Run Serialization（Run 全体 Save / Load）暫定 PRD
+# Run Serialization（Run 全体 Save / Load）暫定 RFD
 
 > 2026-11-17 番号を 930 から 143 へ振り直した（PRD131）。
 > 状態: 暫定メモ。Run 全体の Save / Load を再設計するため、現行 checkpoint の事実、Adam/AdamW で判明した問題、将来 contract の要求を記録する。
@@ -37,7 +37,7 @@
 
 `param_groups` の options には learning rate のほか、`weight_decay`、`eps`、betas などが含まれる。このため、例えば checkpoint が `alpha=1e-4` で作られ、新しい Run の Config が `alpha=5e-5` でも、load 後の実効 learning rate は `1e-4` へ戻る。
 
-今回確認した長期 Run 系列では、途中サイクルで行った `alpha` の変更は実効 optimizer へ反映されていなかったと判断する。該当 Run の差を learning rate 変更の効果として解釈しない。また、この系列で同じ `alpha` A/B を再検証することは本 PRD の目的外とする。
+今回確認した長期 Run 系列では、途中サイクルで行った `alpha` の変更は実効 optimizer へ反映されていなかったと判断する。該当 Run の差を learning rate 変更の効果として解釈しない。また、この系列で同じ `alpha` A/B を再検証することは本 RFD の目的外とする。
 
 optimizer options を含めて復元する挙動自体は、同一 Run を完全に再開する **exact continuation** では妥当である。一方、moment と step は継続しつつ現在 Config で learning rate を変更する **retune continuation** や、Network weights だけを移植する **weights-only transfer** では不適切である。問題は LibTorch の挙動そのものではなく、ANET が load の意図を区別せず、実効値も公開していないことである。
 
@@ -232,7 +232,7 @@ checkpoint の optimizer learning rate を `1e-4`、現在 Config を `5e-5` と
 - 決定論設定で同一 Run を 2 回実行し、State group ごとの payload digest が一致すること。manifest の Run metadata は一致しなくてよい。
 - group digest が manifest へ記録され、load 側が source と突合できること。
 - 保存時刻や build identifier を group payload へ混入させた変更が、この digest 比較で検出されること。
-- この regression が緑になるまで、他 PRD の等価性受入で raw checkpoint checksum をゲートに使わないこと。現行は非決定であり、判定不能である。
+- この regression が緑になるまで、他 RFD の等価性受入で raw checkpoint checksum をゲートに使わないこと。現行は非決定であり、判定不能である。
 
 ## Out of Scope
 
@@ -245,9 +245,9 @@ checkpoint の optimizer learning rate を `1e-4`、現在 Config を `5e-5` と
 
 ## 091 からの見送り事項（2026-10-15）
 
-[091](done/0091_checkpoint_load_optimizer_options_10rfd.md) の再グリルで、本 PRD の範囲として見送ったもの。
+[091](done/0091_checkpoint_load_optimizer_options_10rfd.md) の再グリルで、本 RFD の範囲として見送ったもの。
 
-- `continue` / `require_match` を選ぶ設定キー。091 は設定キーを足さず、Optimizer group の `retune` を唯一の挙動にした（[ADR 0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)）。policy の導入は本 PRD が扱い、そのとき ADR 0053 の先頭へ注記を足す。
+- `continue` / `require_match` を選ぶ設定キー。091 は設定キーを足さず、Optimizer group の `retune` を唯一の挙動にした（[ADR 0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)）。policy の導入は本 RFD が扱い、そのとき ADR 0053 の先頭へ注記を足す。
 - 実効 learning rate の GetScalar メトリクス。学習率 schedule が無い間は一定値で、ログと `config_data.txt` で足りる。schedule を入れるときに起票する。§Manifest と実効値の要求の「起動直後から確認可能にする」とは別口。
 - ImageCls の optimizer options。`ImageClsLearner::Load` も同じ経路で `weight_decay` が checkpoint の値に戻る（learning rate は毎 update 設定し直すので影響なし、eps は設定キーが無い）。ImageCls で optimizer 設定を変えて引き継ぐ実験が出たら 091 と同じ形で直す。
 

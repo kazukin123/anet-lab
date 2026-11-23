@@ -1,4 +1,4 @@
-# DropMerge の NEET 診断（trace で足りるか確かめてから指標化）暫定 PRD
+# DropMerge の NEET 診断（trace で足りるか確かめてから指標化）暫定 RFD
 
 > 2026-11-17 番号を 915 から 163 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 915 へ振り直した（PRD114）。
@@ -28,7 +28,7 @@ NEET（合法 DROP があるのに NOOP を選び続ける病理）を、Run の
 - 同じ写し方で、QR51 + Munchausen τ0.03 100M（`run_20261003-081944_dmfb_qr_munch`）も集計した。差は健全な時期に −0.10〜−0.16 で、NEET 期（10〜22M）には 12〜14M に +0.024 まで振れ、NOOP の選択率は 86% に達した。
 - 行動ごとの分位点の広がりは、EvalPanel の Q 値表（Std 列）でしか見られず、指標には無い。上の Run の 14M 付近の録画では、NOOP の広がりが 0.005〜0.007 と、DROP の 0.017〜0.045 より細かった。
 - Munchausen の `36_agent_munchausen/07_soft_gap` は、既定の購読から外してある（`apps/runner/config/metrics_scalar.txt:313` のコメント行）。上の Run では CLI で M2 に足して記録した。
-- trace チャネル（PRD069）と EvalPanel の trace（PRD081）がある。step ごとの行に必要な欄（行動、NOOP の差、ショットクロックの残り、lane、終了理由、スコア、果物数）を載せられれば、`inspect_run.py trace-csv` で同じ分析ができる可能性がある。
+- trace チャネル（RFD0069）と EvalPanel の trace（RFD0081）がある。step ごとの行に必要な欄（行動、NOOP の差、ショットクロックの残り、lane、終了理由、スコア、果物数）を載せられれば、`inspect_run.py trace-csv` で同じ分析ができる可能性がある。
 
 ## 3. 提案の骨子
 
@@ -47,11 +47,11 @@ NEET（合法 DROP があるのに NOOP を選び続ける病理）を、Run の
 1. trace の行の量（全 lane・全 step を載せるか、間引くか）。
 2. trace に lane 番号と終了理由を載せられるか。
 3. 段階 2 で指標にする集計の範囲と tag。
-4. PRD144（エピソードを丸ごと捕まえる仕組み）との分担。本 PRD はスカラーと trace の側に限る案を既定にする。
+4. RFD0144（エピソードを丸ごと捕まえる仕組み）との分担。本 RFD はスカラーと trace の側に限る案を既定にする。
 
 ## 6. 対象外
 
-- NEET への対策そのもの（[086](0086_dropmerge_macro_actions_10rfd.md)、[167_smdp_transition_duration](0167_smdp_transition_duration_10rfd.md)、[162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md)）。
+- NEET への対策そのもの（[086](0086_dropmerge_macro_actions_10rfd.md)、[0167_smdp_transition_duration](0167_smdp_transition_duration_10rfd.md)、[0162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md)）。
 
 ## 7. 依存と順序
 

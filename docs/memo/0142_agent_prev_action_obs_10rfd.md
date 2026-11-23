@@ -22,7 +22,7 @@ env ローカルの先行実装が 2 つあり、どちらも現用である。
 - [032](done/0032_lunarlander_obs_include_action_10rfd.md): LunarLanderEnv が 8 次元の `vector` に one-hot(4) を連結する（`E1.obs_include_action = true`）。
 - [040](done/0040_dropmerge_prev_action_obs_10rfd.md): DropMergeEnv の prev-action trio と DROP 列マーカー。040 の Context は、LunarLander で成績・安定性の両面の効果を確認済みと記している。
 
-本 PRD は env に依存しない恒久版である。env ごとに同じ機構を書き足さずに、任意の離散行動 env（Atari など）で使えるようにする。
+本 RFD は env に依存しない恒久版である。env ごとに同じ機構を書き足さずに、任意の離散行動 env（Atari など）で使えるようにする。
 
 配置は Agent 内部に確定した（2026-09-26）。理由は次の 3 つ。
 
@@ -263,7 +263,7 @@ stack された `prev_action`（`[B, S, A]`）は grid 扱いで `vector` の後
 | `docs/design/130_neural_networks.jp.md` §2.1 | Network の入力に、観測パイプラインのフレーム段が足すキーがあること |
 | `docs/design/150_replay_buffer.jp.md` §2.1 | ReplayBuffer へ渡る experience の obs は、フレーム段を通った後の frame であること |
 | `docs/design/200_dqn_agents.jp.md` §2.3、§6.1、§6.2、§7.2 | フレーム段の説明、行動選択と Experience 受入れの sequence 図、設定グループ |
-| `CONTEXT.md` | 「直前行動観測」を「観測と可視化」へ移し、観測キー `prev_action` を定義する。prev-action trio の `_Avoid_` にある PRD 番号での言及を、番号を使わない表現へ直す |
+| `CONTEXT.md` | 「直前行動観測」を「観測と可視化」へ移し、観測キー `prev_action` を定義する。prev-action trio の `_Avoid_` にある RFD 番号での言及を、番号を使わない表現へ直す |
 
 ## 検証
 
@@ -286,9 +286,9 @@ git diff --check
 
 ## 関連
 
-- [161_observation_pipeline_10prd.md](0161_observation_pipeline_10rfd.md) — 前提。フレーム段の置き場、フレーム spec、強制行動の `MakeAction` 入力。
-- [032_lunarlander_obs_include_action_10prd.md](done/0032_lunarlander_obs_include_action_10rfd.md) — env ローカルの先行実装（LunarLander）。
-- [040_dropmerge_prev_action_obs_10prd.md](done/0040_dropmerge_prev_action_obs_10rfd.md) — env ローカルの先行実装（DropMerge）。
-- [057_native_stack_dim_handling_10prd.md](done/0057_native_stack_dim_handling_10rfd.md) — stack 軸を Network の入力 spec に持つ現行契約。
-- [083_action_context_retire_10prd.md](done/0083_action_context_retire_10rfd.md) — ActionContext の廃止。
+- [0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md) — 前提。フレーム段の置き場、フレーム spec、強制行動の `MakeAction` 入力。
+- [0032_lunarlander_obs_include_action_10rfd.md](done/0032_lunarlander_obs_include_action_10rfd.md) — env ローカルの先行実装（LunarLander）。
+- [0040_dropmerge_prev_action_obs_10rfd.md](done/0040_dropmerge_prev_action_obs_10rfd.md) — env ローカルの先行実装（DropMerge）。
+- [0057_native_stack_dim_handling_10rfd.md](done/0057_native_stack_dim_handling_10rfd.md) — stack 軸を Network の入力 spec に持つ現行契約。
+- [0083_action_context_retire_10rfd.md](done/0083_action_context_retire_10rfd.md) — ActionContext の廃止。
 - [ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md) — 履歴開始と padding の規則。

@@ -1,4 +1,4 @@
-# TimeHistogram fine-bin保持・描画時集約 PRD
+# TimeHistogram fine-bin保持・描画時集約 RFD
 
 ## 問題
 
@@ -28,7 +28,7 @@ TimeHistgram型の画像メトリクス(例: `52_per_thg_prio`、probe=`replaybu
 ## 前提
 
 - 実測値・行番号はrun_20260720-141314時点のworking treeに基づく。
-- ObserverがTrainThread同期で呼ばれる構造(`Notifier::Notify`)は変えない。オフスレッド化はMetricsLoggerライフサイクル(PRD 026)系のスコープであり本PRDでは扱わない。
+- ObserverがTrainThread同期で呼ばれる構造(`Notifier::Notify`)は変えない。オフスレッド化はMetricsLoggerライフサイクル(RFD0026)系のスコープであり本RFDでは扱わない。
 - `ImageSource`インターフェイス(`RenderRaw`/`Reset`/`GetImageSubType`)、`TimeHistogramObserver`の公開API、EvalPanelの`GetImageData`経路は互換維持。
 - `HeatMap`/`TimeHeatMap`の外部仕様は変更しない(既存の`SetGridValues`高速パスを再利用するのみ)。
 - config追加はすべて既定値=現行挙動互換とする。既存run設定は無変更で従来どおり動く。
@@ -99,7 +99,7 @@ Observerのサンプリングモード。accumulate=毎learnでprobe取得しフ
 - `ProbeConfig`に`max_samples = 0`(0=無制限)を追加する。
 - `AgentTensorVectorProbe::GetVector`(`core/anet-core/src/probe.cpp`)で、flatten後の要素数nがmax_samplesを超える場合、`stride = ceil(n / max_samples)`のスライス間引き(`flat.slice(0, 0, n, stride)`+`contiguous()`)を**memcpy・vector化の前**に適用する。RBはCPU常駐のため`.to(kCPU)`はno-opであり、本手段が削るのはコピー量とAddBatch投入量(=TimeHistogram側のビニングコスト上限)である。RB側のgather・正規化除算O(N)は減らない(方針4のsnapshotが受け持つ)。
 - stride間引き(決定的)とし、乱択はしない(同seed再現性を壊さない)。RBのindex順は挿入順のため、strideサンプルは全時期を等間隔にカバーし分布推定として偏らない。
-- configパース追加は本PRDではTimeHistgramセクションの`histgram.probe.value.max_samples`のみ(ProbeConfig自体は共通structのため、他observerへの展開は将来必要時にパース行を足すだけでよい)。
+- configパース追加は本RFDではTimeHistgramセクションの`histgram.probe.value.max_samples`のみ(ProbeConfig自体は共通structのため、他observerへの展開は将来必要時にパース行を足すだけでよい)。
 - `image.thg.per-prio`プロファイルへ`histgram.probe.value.max_samples = 65536`を設定する。
 
 ## ユーザーストーリー
@@ -121,7 +121,7 @@ Observerのサンプリングモード。accumulate=毎learnでprobe取得しフ
 - snapshotの既定化はしない(既定accumulate)。batch TDエラー等「毎learnで異なる値が来る」probeにはaccumulateが正しく、既存設定の意味を黙って変えない。
 - `ANET_PROFILE_FUNC`/`ANET_PROFILE_SCOPE`は同名で維持し、改修後のTracy比較を可能にする(`RebuildFromRaw`ゾーンは削除されるので消滅が確認信号になる)。
 - 削除対象: `frames_raw_`、`cur_raw_`、`need_rebuild_`、`RebuildFromRaw`、`AppendCurrentFrameOnly`、`buffer_`(未使用ワークバッファ)。`TimeHeatMap::AddData/NextFrame`のTimeHistogramからの使用。
-- dead設定行`histgram.alpha`(パースがコメントアウト)は本PRDでは触らない(復活も削除もしない。対象外参照)。
+- dead設定行`histgram.alpha`(パースがコメントアウト)は本RFDでは触らない(復活も削除もしない。対象外参照)。
 
 ## テスト方針
 
@@ -165,11 +165,11 @@ heat_map系の単体テストは現存しないため、`core/anet-core/src/heat
 
 ## 対象外
 
-- Observerのオフスレッド化・MetricsLoggerライフサイクル(PRD 026系)
+- Observerのオフスレッド化・MetricsLoggerライフサイクル(RFD0026系)
 - `histgram.alpha`パースの復活、表示レンジEMA挙動の変更、`base_min`/`base_max`のconfigノブ追加(fineグリッド化でrebuildが消えるため、これらは純粋に見た目の関心として将来判断)
 - `HeatMap`/`TimeHeatMap`/`MultiPairHeatMapObserver`等、点列ベース設計の他クラスの再設計
 - `TimeHeatMap`のScroll/Overwriteの現行点列挙動の再現(TimeHistogram側で意味論を定義し直す)
-- VideoLogger関連(PRD 025)
+- VideoLogger関連(RFD0025)
 - `max_samples`のTimeHistgram以外のobserverセクションへのパース展開
 
 ## 実装時のドキュメント更新
@@ -178,6 +178,6 @@ heat_map系の単体テストは現存しないため、`core/anet-core/src/heat
 
 ## 補足
 
-現行Scale表示は「全点を保持し描画時にx圧縮」、本PRD後は「事前に2^k論理フレームを平均統合」となる。max_frames(=表示列数)以上の履歴を1000列に描く時点でどのみちピクセル集約されるため、視覚差は表示解像度未満に収まる。
+現行Scale表示は「全点を保持し描画時にx圧縮」、本RFD後は「事前に2^k論理フレームを平均統合」となる。max_frames(=表示列数)以上の履歴を1000列に描く時点でどのみちピクセル集約されるため、視覚差は表示解像度未満に収まる。
 
 性能見積り(N=RB valid件数、F=保持フレーム数): 現行はAddBatch O(N)/learn+rebuild O(累計生値)がほぼ毎フレーム。改修後はsnapshot時でAddBatch O(min(N, max_samples))/frame境界のみ、縮約O(F×fine_bins)が生涯log回、描画O(F×fine_bins+W×H)がlog_interval毎。TrainThread上の定常コストはフレーム境界のgather+除算+コピー+fine加算のみになる(RBはCPU常駐であり、この経路にD2Hは存在しない)。

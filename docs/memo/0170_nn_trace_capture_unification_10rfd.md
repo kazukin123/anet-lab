@@ -1,4 +1,4 @@
-# PRD170: forward の名前付き出力を capture に一本化し、nn_trace を要求した step だけ作る PRD
+# RFD0170: forward の名前付き出力を capture に一本化し、nn_trace を要求した step だけ作る RFD
 
 > 2026-11-17 番号を 938 から 170 へ振り直した（PRD131）。
 > 2026-11-14 改訂: §8 の表の 1・2 の行で、課題 24d885・aa5758 に記録した先を「対応内容」から「対応方針」へ直した。課題への追記の置き場を中身で決める規則（anet-create-issue の「起票のあとの追記」）に合わせて、課題の側で行を移したためである。決定と範囲は変えていない。
@@ -18,9 +18,9 @@ forward の途中で作った Tensor を外へ持ち出す口が 2 つある。
 | `TraceCallback` | forward の途中で関数を呼んで押し出す。何が欲しいかを指定する仕組みが無い | `NetworkStruct` | Actor が受け取り、AuxData の `nn_trace/…` に積む |
 | `NetworkForwardCapture`（093 で作った） | 呼ぶ側が鍵で要求し、forward のあとで取り出す。要求の無いものは作らない | body と module | Learner の診断 |
 
-違いは運び方だけで、関心は同じである（[ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) は「forward の持ち帰りの概念を 1 つに保つ」として、nn_trace の取り込みを本 PRD へ先送りした）。そのうえ `TraceCallback` は要求を受けないので、次の 2 つが起きている。
+違いは運び方だけで、関心は同じである（[ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) は「forward の持ち帰りの概念を 1 つに保つ」として、nn_trace の取り込みを本 RFD へ先送りした）。そのうえ `TraceCallback` は要求を受けないので、次の 2 つが起きている。
 
-- 読む人がいなくても、Actor が `MakeAction` のたびに nn_trace を作る（[ADR 0031](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md) の A''、[PRD006](done/0006_conv2d_visual_trace_10rfd.md) §7 の 8）。出荷設定では、学習側の Runner の nn_trace を読む人はいない（§2.4）。
+- 読む人がいなくても、Actor が `MakeAction` のたびに nn_trace を作る（[ADR 0031](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md) の A''、[RFD0006](done/0006_conv2d_visual_trace_10rfd.md) §7 の 8）。出荷設定では、学習側の Runner の nn_trace を読む人はいない（§2.4）。
 - 追加の計算が要る出力を、この口には乗せられない。要求が無いので、乗せると常に計算することになる。
 
 ## 2. 現状（2026-11-12 に作業ツリーで確認）
@@ -34,7 +34,7 @@ forward の途中で作った Tensor を外へ持ち出す口が 2 つある。
   - branch の入力を `00_Input` で渡す。形を問わず、全 branch で出る（IQN の `tau_embedding` の 2 次元の入力も出る）。
   - block の出力のうち、可視化できる block（`IsConv2dVisualizable`）の、4 次元・浮動小数・縦横が 2 以上のものを `<2 桁の番号>_<block 名>` で渡す。番号は、渡した出力だけを 1 から数えた通し番号で、block の位置ではない。
 - `NetworkBranch::Execute` が、鍵の頭に `<branch>/` を付ける。
-- Actor の側は、`dqn::Actor::MakeAction`（Rainbow も同じ Actor。[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp)）と `ImageClsActor::MakeAction`（[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp)）が、呼び出しのたびに `MakeActionTraceCallback` で callback を作る（[rl.cpp](../../src/core/base/src/rl.cpp)）。callback は env 0 の行を切り出し、勾配を切り、FP32 にして複製する。行動選択の forward は autocast の下で走るので FP32 にする必要があり、切り出しただけでは batch 全体の記憶域を持ち続けるので複製が要る（[PRD006](done/0006_conv2d_visual_trace_10rfd.md) §7 の 1・2）。
+- Actor の側は、`dqn::Actor::MakeAction`（Rainbow も同じ Actor。[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp)）と `ImageClsActor::MakeAction`（[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp)）が、呼び出しのたびに `MakeActionTraceCallback` で callback を作る（[rl.cpp](../../src/core/base/src/rl.cpp)）。callback は env 0 の行を切り出し、勾配を切り、FP32 にして複製する。行動選択の forward は autocast の下で走るので FP32 にする必要があり、切り出しただけでは batch 全体の記憶域を持ち続けるので複製が要る（[RFD0006](done/0006_conv2d_visual_trace_10rfd.md) §7 の 1・2）。
 - `AppendTraceAux` が鍵の頭に `nn_trace/` を付けて AuxData に入れる。AuxData の鍵は `nn_trace/<branch>/00_Input` と `nn_trace/<branch>/<2 桁の番号>_<block 名>` である。接頭辞の定数 `kNnTracePrefix` と、読む側の `ExtractNnTrace` は rl 層にある（[rl.hpp](../../src/core/base/include/anet/rl.hpp)）。
 - callback を forward まで運ぶだけの引数が、次にある。
   - forward の公開の口: `Network::Forward`、`NetworkForwardExecutor::Forward`（[nn.hpp](../../src/core/base/include/anet/nn.hpp)）。
@@ -105,8 +105,8 @@ Learner の診断は、学習の前に 1 回だけ渡す購読ヒント（`Agent
 - 表示の内容、鍵名、nn_trace に出す block を変えること。消える案は「`00_Input` を描画できる形の branch だけにする」「番号を全 block の通し番号にする」。鍵が変わり、Conv2d の pane とテストも一緒に直すことになるが、表示を変える理由が今は無い。
 - 093 の attention 診断を変えること。
 - 要求したときの nn_trace の費用を下げること。消える案は「複製や FP32 化を省く」「録画するエピソードの間だけ要求する」。費用を測っておらず、関心も別である。
-- 追加の計算が要る出力（attention の重みなど）を nn_trace に足すこと。読む人がいない。本 PRD の形にしておけば、あとで鍵を足すだけで出せる。
-- `EvalRunner::DoStep` の手動の行動の引数を `MakeActionOptions` にまとめること。[PRD161](0161_observation_pipeline_10rfd.md) の範囲である（§9）。
+- 追加の計算が要る出力（attention の重みなど）を nn_trace に足すこと。読む人がいない。本 RFD の形にしておけば、あとで鍵を足すだけで出せる。
+- `EvalRunner::DoStep` の手動の行動の引数を `MakeActionOptions` にまとめること。[RFD0161](0161_observation_pipeline_10rfd.md) の範囲である（§9）。
 - Learner の購読ヒントを見直すこと（§8 の 1）。
 
 ### 3.3 成功の測り方
@@ -148,7 +148,7 @@ nn_trace を読む側として数えるのは、Conv2d の pane、メトリク�
 
 `rl::Actor::MakeAction` に、3 つ目の入力として `MakeActionOptions` を足す。Actor は、その欄 `nn_trace` が真の呼び出しだけ nn_trace を作る。Actor は、読む側の数や状態を持たない。
 
-理由: 行動を決める点への入力として渡すと、何を求めた呼び出しかが呼び出しの場で読め、`MakeAction` の結果が引数だけで決まる。Actor の中に要求の数を持つ形は、別のスレッドから変わる値で出力が決まる。入力を構造体にしておけば、あとの入力（PRD161 の強制行動を含む）は欄の追加で済み、基底の引数を変えるのは今回の 1 回になる。依存: §2.5（購読ヒントは Run の途中の開閉に追従できない）。
+理由: 行動を決める点への入力として渡すと、何を求めた呼び出しかが呼び出しの場で読め、`MakeAction` の結果が引数だけで決まる。Actor の中に要求の数を持つ形は、別のスレッドから変わる値で出力が決まる。入力を構造体にしておけば、あとの入力（RFD0161 の強制行動を含む）は欄の追加で済み、基底の引数を変えるのは今回の 1 回になる。依存: §2.5（購読ヒントは Run の途中の開閉に追従できない）。
 
 ### D3. 3 つ目の引数には既定値を付ける
 
@@ -196,7 +196,7 @@ capture は、書かれた Tensor をそのまま持つ。env 0 の行の切り�
 
 `Network::Forward`・`NetworkForwardExecutor::Forward`・`Network::ForwardUpTo` が受けた capture を、入口で `NetworkForwardContext` に入れる。内部の `RunForward`・`NetworkBody::Forward`・`NetworkBody::ForwardUpTo` から capture の引数を消し、Body は Context から capture を受け取って、前回値の破棄と出口の検査を行う。公開の口が capture を引数で受ける形（ADR 0055）は変えない（変えない理由は D11）。Head へ渡す Context には capture を入れない（今と同じ）。前回値の破棄と出口の検査も、今と同じく Body の入口と出口で行う。
 
-理由: A で `NetworkStruct` も Context 経由で capture に書くので、持ち出しの道が Context の 1 本にそろう。D9 で同じ関数の引数を直すので、変更が 1 回で済む。課題 6a32b4 の 2026-11-11 の追記を取り込んだ。capture の書き手は body と module（と本 PRD の `NetworkStruct`）で、Head は書き手ではない。出口の検査は Head を動かす前にあるので、Head に capture を見せると、検査を通らない書き込みができてしまう。依存: D9。追記が触れている、既定の forward と準備済みの forward を切り替える呼び先の表の受け渡しは、nn_trace とは別の関心なので取り込まない（§8 の 3）。
+理由: A で `NetworkStruct` も Context 経由で capture に書くので、持ち出しの道が Context の 1 本にそろう。D9 で同じ関数の引数を直すので、変更が 1 回で済む。課題 6a32b4 の 2026-11-11 の追記を取り込んだ。capture の書き手は body と module（と本 RFD の `NetworkStruct`）で、Head は書き手ではない。出口の検査は Head を動かす前にあるので、Head に capture を見せると、検査を通らない書き込みができてしまう。依存: D9。追記が触れている、既定の forward と準備済みの forward を切り替える呼び先の表の受け渡しは、nn_trace とは別の関心なので取り込まない（§8 の 3）。
 
 ### D11. `SelectAction` 系は、callback の引数を capture の引数に置き換える
 
@@ -231,8 +231,8 @@ EvalPanel は、自分の Runner に付いた Conv2d の pane が 1 枚以上開
 ### D16. 用語集と ADR
 
 - 用語集: `capture` の項の定義の書き手に、`NetworkStruct`（nn_trace）を足す（D5・D10）。`capture` の項の「避ける語」と `trace` の項の説明・「避ける語」から、`TraceCallback` への言及を外す。`nn_trace` の項を足す（§3.4）。
-- ADR 0055: 「選ばなかった形」が nn_trace の capture への統合を本 PRD へ先送りしているので、統合を決めた旨を冒頭に注記する。本文は書き換えない。
-- ADR 0031: Consequences が、購読ヒントを「TraceCallback が常に作られる問題」へ流用することを想定している。本 PRD はこの流用を採らない（§4.1 の 1 行目）ので、その旨を冒頭に注記する。購読ヒントが Learner の診断を駆動する決定は変えない。
+- ADR 0055: 「選ばなかった形」が nn_trace の capture への統合を本 RFD へ先送りしているので、統合を決めた旨を冒頭に注記する。本文は書き換えない。
+- ADR 0031: Consequences が、購読ヒントを「TraceCallback が常に作られる問題」へ流用することを想定している。本 RFD はこの流用を採らない（§4.1 の 1 行目）ので、その旨を冒頭に注記する。購読ヒントが Learner の診断を駆動する決定は変えない。
 - 新しい ADR を 1 本立てる（[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）。「行動選択に添える入力は、Runner の step と `MakeAction` の引数で都度渡し、core に要求の登録を持たない」。
 
 理由: 用語は、消える型への言及を残さない（クリーンブレーク方針）。ADR は、基底のインタフェースの形で後から変えにくいこと、理由を知らないと「なぜ読む側が登録しないのか」と思う形であること、§4.1 の案と比べて選んだことの 3 つを満たす。依存: D2〜D6。
@@ -270,7 +270,7 @@ EvalPanel は、自分の Runner に付いた Conv2d の pane が 1 枚以上開
 | capture の要求に「先頭の 1 行だけ」のような行の指定を足し、capture が書き込みの時点でその行だけを複製して持つ | 先送り | 要求した step のメモリの山は今と同じになるが、汎用の器に指定が増える。再開条件: §8 の 4 で測った増分が、開発者が大きいと判断する量だったとき |
 | `NetworkForwardCallInfo` に capture を持たせる | 不採用 | D11 の理由（本当の制約ではないが、capture の引数が残って渡し方が 2 通りになる） |
 | Actor が forward を包み、`SelectAction` から引数を無くす | 不採用 | 包むための新しい型が要る。`SelectAction` は forward の実行器を直接受けている |
-| 読む側が、通知に載った観測から forward をやり直して途中の出力を得る（読む側が自立し、`MakeActionOptions` の受け渡しが要らなくなる） | 不採用 | [PRD006](done/0006_conv2d_visual_trace_10rfd.md) §2 が、行動選択に使った forward そのものの値を出す方針に決めている。やり直すと、NoisyNet の雑音や IQN の τ の抽選で値が食い違い、G2 が崩れる |
+| 読む側が、通知に載った観測から forward をやり直して途中の出力を得る（読む側が自立し、`MakeActionOptions` の受け渡しが要らなくなる） | 不採用 | [RFD0006](done/0006_conv2d_visual_trace_10rfd.md) §2 が、行動選択に使った forward そのものの値を出す方針に決めている。やり直すと、NoisyNet の雑音や IQN の τ の抽選で値が食い違い、G2 が崩れる |
 | 段階 1（統合だけ。常に要求）と段階 2（要求したときだけ）に分ける | 不採用 | G3 を範囲に入れたので、分けるのは実装の順番だけの話になる。実装の順番は実装計画で決める |
 | 構造体の名前 `ActorCallInfo`・`MakeActionRequest`・`ActionInput`・`ActionOptions` | 不採用 | D6 の理由 |
 
@@ -409,12 +409,12 @@ Conv2d の pane を開いた直後は、次の `MakeAction` から nn_trace が�
 | 設計文書 [130_neural_networks.jp.md](../design/130_neural_networks.jp.md) | `TraceCallback` を書いている 3 か所を直す。(1) forward の説明の「`TraceCallback` を渡すと中間 Tensor を収集できる」は、capture で `nn_trace/` を要求する記述にする。(2)「`GetTensorDictFunction` と TraceCallback が Network 内部へ到達する口」は、capture にする。(3) capture の節の「capture を渡さない forward は、TraceCallback と Actor の数値経路も維持する」は、`TraceCallback` への言及を外す。あわせて capture の節に、nn_trace の鍵と書き手（`NetworkStruct`）を足す |
 | 設計文書 [110_agents_and_learning.jp.md](../design/110_agents_and_learning.jp.md) | Actor の契約とクラス図に、`MakeAction` の 3 つ目の入力と、nn_trace を要求した呼び出しだけ作ることを足す |
 | 設計文書 [100_runtime_and_configuration.jp.md](../design/100_runtime_and_configuration.jp.md) | Runner の `DoStep`・`DoUpdateFrame` が `MakeActionOptions` を受け、そのまま Actor へ渡すことを足す |
-| 設計文書 [140_observability.jp.md](../design/140_observability.jp.md) | §5「処理フロー」に、nn_trace の要求から可視化までのシーケンス図を 1 枚足す。本 PRD の §5.1 の流れ（step を進める側が `MakeActionOptions` を決める → Runner の step → Actor の `MakeAction` → capture つきの forward → Actor が取り出して AuxData へ → 通知 → 読む側）を、EvalPanel と Conv2d の pane の経路で描き、学習側（RunnerApp が決めて `RunnerThread` が渡す）の違いを図か注記で示す。§2 の Image/Graph Observer の行に、Conv2d は要求した step だけ作られる nn_trace を読むことを足す |
+| 設計文書 [140_observability.jp.md](../design/140_observability.jp.md) | §5「処理フロー」に、nn_trace の要求から可視化までのシーケンス図を 1 枚足す。本 RFD の §5.1 の流れ（step を進める側が `MakeActionOptions` を決める → Runner の step → Actor の `MakeAction` → capture つきの forward → Actor が取り出して AuxData へ → 通知 → 読む側）を、EvalPanel と Conv2d の pane の経路で描き、学習側（RunnerApp が決めて `RunnerThread` が渡す）の違いを図か注記で示す。§2 の Image/Graph Observer の行に、Conv2d は要求した step だけ作られる nn_trace を読むことを足す |
 | 上の設計文書の `.en.md` | 同じ章を追随させる |
-| [CONTEXT.md](../../CONTEXT.md) | D16。本 PRD の起草で直した |
-| [ADR 0031](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)・[ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)（冒頭の注記）、[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)（新規） | D16。本 PRD の起草で書いた |
+| [CONTEXT.md](../../CONTEXT.md) | D16。本 RFD の起草で直した |
+| [ADR 0031](../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)・[ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)（冒頭の注記）、[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)（新規） | D16。本 RFD の起草で書いた |
 
-過去の記録（`docs/memo/done/` の PRD、ADR 0031・0037・0055 の本文、実験記録）は書き換えない。設計文書の図にある `MakeAction(state)`・`DoStep()` のような略記は、既定値つきの引数を省いた呼び方として正しいままなので直さない。
+過去の記録（`docs/memo/done/` の RFD、ADR 0031・0037・0055 の本文、実験記録）は書き換えない。設計文書の図にある `MakeAction(state)`・`DoStep()` のような略記は、既定値つきの引数を省いた呼び方として正しいままなので直さない。
 
 検索に使った語は `TraceCallback`、`MakeActionTraceCallback`、`AppendTraceAux`、`ExtractNnTrace`、`kNnTracePrefix`、`nn_trace`、`MakeAction`、`DoStep`、`DoUpdateFrame`、`SelectAction` で、追跡しているファイルの全体を引いた。型名を書かずに関数を渡す呼び出しは `TraceCallback` では出ないので、`std::string_view` と `torch::Tensor` を引数に取る関数の形でも `core/`・`apps/` を引いた。当たるのは、`TraceCallback` の定義、`NetworkBranch::Execute`、`MakeActionTraceCallback`、`nn_test.cpp` の 3 か所だけである。
 
@@ -441,7 +441,7 @@ Conv2d の pane を開いた直後は、次の `MakeAction` から nn_trace が�
 - **A8（D12）**: テストが、作ったばかりの `MuZeroActor` 1 つに、次の順で 3 回 `MakeAction` を呼んで確かめる。(1) まず `nn_trace` を偽で呼ぶ。WARN のログは出ない。(2) 続けて真で呼ぶ。AuxData に `nn_trace/` で始まる鍵が無く、WARN のログが 1 件出る。(3) もう一度真で呼ぶ。AuxData に `nn_trace/` で始まる鍵が無く、WARN のログは増えない。
 - **A9（G1）**: `git grep -n "TraceCallback"` と `git grep -n "MakeActionTraceCallback"` を `core/`・`apps/`・`CONTEXT.md`・`docs/design/` の範囲で引き、どちらも 0 件である。`docs/memo/`・`docs/adr/`・`docs/wiki/`・`docs/management/` は過去の記録と経緯を含むので、範囲に入れない。
 - **A10（D10）**: [nn_impl.hpp](../../src/core/base/src/nn_impl.hpp) の `NetworkBody` の `Forward`・`ForwardUpTo` の宣言と、[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) の `RunForward` の宣言に、`NetworkForwardCapture` が現れない。
-- **A11（093 を変えない）**: capture を渡さない forward の数値が変わらない。着手前に保存した実行体と実装後の実行体に同じ設定を渡し、[PRD103 の検証資材](../../src/core/base/testdata/rfd0103/README.md)の 6 構成（seed 1 つ、決定的なモード、同じ短縮条件と比べ方）で、metrics checksum が前後で一致する。比べる対象から除くのは、検証資材が除いている性能と資源の群だけである（Run ごとに変わるため）。checkpoint のファイルの SHA は比べない（直列化が決定的でないため）。093 の attention 診断と可塑性メトリクスの既存のテストが通る。
+- **A11（093 を変えない）**: capture を渡さない forward の数値が変わらない。着手前に保存した実行体と実装後の実行体に同じ設定を渡し、[RFD0103 の検証資材](../../src/core/base/testdata/rfd0103/README.md)の 6 構成（seed 1 つ、決定的なモード、同じ短縮条件と比べ方）で、metrics checksum が前後で一致する。比べる対象から除くのは、検証資材が除いている性能と資源の群だけである（Run ごとに変わるため）。checkpoint のファイルの SHA は比べない（直列化が決定的でないため）。093 の attention 診断と可塑性メトリクスの既存のテストが通る。
 - **A12**: 着手前に既定のテスト一式を流して結果を控え、実装後に流した結果と比べて、失敗するテストが増えていない。
 - **A13（流れの図）**: [140_observability.jp.md](../design/140_observability.jp.md) の §5 に、nn_trace の要求の流れのシーケンス図がある。図の登場者に、step を進める側（EvalPanel）、Runner、Actor、NN の forward、`Notifier`、読む側（Conv2d の pane）があり、`MakeActionOptions` が step を進める側から Runner、Actor へ渡ること、capture で取り出した nn_trace が AuxData に載って通知で読む側へ届くこと、要求しない step では作らないことが、図から読める。
 
@@ -460,15 +460,15 @@ Conv2d の pane を開いた直後は、次の `MakeAction` から nn_trace が�
 | # | 事項 | 扱い |
 |---|---|---|
 | 1 | Learner の購読ヒントの見直し。「この Run で使う診断の宣言（開始前。準備と開始前の検査に使う）」と「今回の呼び出しで足す要求（`UpdateFromBatchOptions`）」に役割を分ける案。購読の鍵が文字列で Agent と Learner の 2 層が解釈していること、間隔の規則を読む側と計算する側が別々に持つことが面倒さのもとで、渡す時機を変えるだけでは解けない。`UpdateFromBatch` は 1 回の呼び出しで学習を複数回走らせるので、呼ぶ側は学習回数ごとの要否を決められない | 範囲外（別の関心）。[issue-20261111-24d885](../management/issues/issue-20261111-24d885.md)（診断指標の群ごとの購読の重複）の対応方針へ追記した |
-| 2 | PRD161 の Q7（`MakeAction` の引数の形）は、本 PRD の D2・D3・D4・D6 に合わせる。強制行動は `MakeActionOptions` の欄にし、`EvalRunner::DoStep` の手動の行動の引数をそれにまとめられる | 範囲外（161 の範囲）。161 の課題 [issue-20261103-aa5758](../management/issues/issue-20261103-aa5758.md) の対応方針へ追記した |
-| 3 | 既定の forward と準備済みの forward を切り替える呼び先の表が、3 層を「null なら既定」で受け渡されている（課題 6a32b4 の 2026-11-11 の追記の一部） | 見送り（直さない）。本 PRD を実装すると内部の引数は 3 つと 5 つに減り、残るのは引数 1 つを 3 つの関数が順に渡すことだけで、必要性が無い（ユーザーの判断）。課題 6a32b4 の対応内容に書いた |
+| 2 | RFD0161 の Q7（`MakeAction` の引数の形）は、本 RFD の D2・D3・D4・D6 に合わせる。強制行動は `MakeActionOptions` の欄にし、`EvalRunner::DoStep` の手動の行動の引数をそれにまとめられる | 範囲外（161 の範囲）。161 の課題 [issue-20261103-aa5758](../management/issues/issue-20261103-aa5758.md) の対応方針へ追記した |
+| 3 | 既定の forward と準備済みの forward を切り替える呼び先の表が、3 層を「null なら既定」で受け渡されている（課題 6a32b4 の 2026-11-11 の追記の一部） | 見送り（直さない）。本 RFD を実装すると内部の引数は 3 つと 5 つに減り、残るのは引数 1 つを 3 つの関数が順に渡すことだけで、必要性が無い（ユーザーの判断）。課題 6a32b4 の対応内容に書いた |
 | 4 | nn_trace を要求した step の GPU メモリの増分（D7）。確かめ方: 実装のあと、ImageCls（`run.train.num_envs = 128` の出荷設定）の Runner で、Conv2d の pane を開く前と、開いて 100 step 以上進めたあとの GPU メモリの確保量を比べる。あわせて Atari の出荷設定でも比べる | 実装の報告に増分を書く。開発者が、行の指定つきの要求（§4.1）を課題にするかを決める。合否には数えない |
 
-## 9. ほかの PRD との関係
+## 9. ほかの RFD との関係
 
-- **093**（[done/093](done/0093_attention_entropy_diagnostics_10rfd.md)）: capture の今の決まり（鍵と接頭辞の要求、`GetAll`、実行位置の付与、出口の検査）が前提である。本 PRD は、公開の口が capture を引数で受ける形と、093 の診断を変えない。
-- **161**（[161](0161_observation_pipeline_10rfd.md)）: 強制行動を `MakeAction` の入力にする。本 PRD が、入力の構造体（`MakeActionOptions`）、既定値、Runner の step での受け渡しを先に決めた。161 は同じ構造体に欄を足す形になる（§8 の 2）。どちらを先に実装してもよい。161 を先に実装する場合は、本 PRD の D2・D3・D4・D6 の形で `MakeActionOptions` を作り、本 PRD はそこへ `nn_trace` の欄を足す。
-- **006**（[done/006](done/0006_conv2d_visual_trace_10rfd.md)）: §7 の 8 が先送りした「読む人がいるときだけ作る」を、本 PRD が step の引数の形で実現する。006 が挙げた、Actor 側に立てる印の形は採らない（§4.1）。
+- **093**（[done/093](done/0093_attention_entropy_diagnostics_10rfd.md)）: capture の今の決まり（鍵と接頭辞の要求、`GetAll`、実行位置の付与、出口の検査）が前提である。本 RFD は、公開の口が capture を引数で受ける形と、093 の診断を変えない。
+- **161**（[161](0161_observation_pipeline_10rfd.md)）: 強制行動を `MakeAction` の入力にする。本 RFD が、入力の構造体（`MakeActionOptions`）、既定値、Runner の step での受け渡しを先に決めた。161 は同じ構造体に欄を足す形になる（§8 の 2）。どちらを先に実装してもよい。161 を先に実装する場合は、本 RFD の D2・D3・D4・D6 の形で `MakeActionOptions` を作り、本 RFD はそこへ `nn_trace` の欄を足す。
+- **006**（[done/006](done/0006_conv2d_visual_trace_10rfd.md)）: §7 の 8 が先送りした「読む人がいるときだけ作る」を、本 RFD が step の引数の形で実現する。006 が挙げた、Actor 側に立てる印の形は採らない（§4.1）。
 - **096**（[096](0096_metrics_step_axis_interval_10rfd.md)）: §8 の 1 の Learner の見直しをするとき、間隔の単位で関係する。
 
 ## 10. 参照
@@ -477,5 +477,5 @@ Conv2d の pane を開いた直後は、次の `MakeAction` から nn_trace が�
 - [ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)（forward の持ち帰りは capture 1 つ）。
 - [ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)（設定キーで eval にだけ作らせる形を退けた）。
 - [ADR 0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) と [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則の表（WARN の線引き。D12）。
-- [ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)（本 PRD で立てた）。
+- [ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)（本 RFD で立てた）。
 - [docs/design/130_neural_networks.jp.md](../design/130_neural_networks.jp.md) の capture の節。

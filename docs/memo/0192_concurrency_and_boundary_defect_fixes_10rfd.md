@@ -1,4 +1,4 @@
-# PRD192: 監査で見つかった不具合 5 件をまとめて直す（Notifier の同時実行、動画の画像の大きさ、強制行動の device、重複登録、QValuePanel の平滑化）
+# RFD0192: 監査で見つかった不具合 5 件をまとめて直す（Notifier の同時実行、動画の画像の大きさ、強制行動の device、重複登録、QValuePanel の平滑化）
 
 > 2026-11-19 起票（anet-create-prd、Claude Code）。題材は課題 5 件（§4 の対応表）。グリルで、ゴールと非ゴール（§2）、Detach の保証（D2）、動画の大きさ違いの扱い（D8）、初期化関数を 2 回呼んだときの扱い（D11）、強制行動の device を合わせる側（D9）をユーザーが選び、細部 18 件（§10）は推奨の既定で埋めた。起草のあと、別モデル（Opus）の検討を 2026-11-20 に受け、分かった事実と、決定から導ける事項を足した（§10 の末尾）。別モデルが反対した 1 点（強制行動を差し替えた結果の行動の device）は、ユーザーが選び直した（D9）。工程末の起票の候補では、ユーザーの選択により、Runner が Observer を付ける箇所のコメントを D7 に足した（§10）。
 
@@ -8,9 +8,9 @@
 
 ### 1.1 経緯
 
-2026-07 の監査、2026-11 の監査、PRD122 の再グリルで見つかった不具合・不整合のうち、範囲外の読み・データ競合・黙った上書き・誤った停止に当たる 5 件が残っている。どれも小さく、互いに独立に直せるので、1 本の PRD にまとめる。
+2026-07 の監査、2026-11 の監査、RFD0122 の再グリルで見つかった不具合・不整合のうち、範囲外の読み・データ競合・黙った上書き・誤った停止に当たる 5 件が残っている。どれも小さく、互いに独立に直せるので、1 本の RFD にまとめる。
 
-課題の事象に書かれたパス（`core/anet-core/...`）と行番号は、[PRD182](0182_source_layout_10rfd.md)（ソース配置の見直し）より前のものである。本書の根拠は、2026-11-19 に今のコードで確かめ直した。
+課題の事象に書かれたパス（`core/anet-core/...`）と行番号は、[RFD0182](0182_source_layout_10rfd.md)（ソース配置の見直し）より前のものである。本書の根拠は、2026-11-19 に今のコードで確かめ直した。
 
 ### 1.2 今のコードで確かめたこと
 
@@ -32,7 +32,7 @@
 | 93f8a6 | ヒントは、`use_per` かつ初期優先度の方式が `actor_approx` なら、Actor の役割に依らず有効になる（[dqn_assembler.cpp](../../src/algo/dqn/src/dqn_assembler.cpp) 383・384 行）。評価の Actor の device が GPU のとき、Q 値は GPU にあり、強制行動で止まる。実行では確かめていない（CUDA が要る）。基底と MuZero の `WithAction` は行動を差し替えるだけで、device を問わない（[rl.hpp](../../src/core/base/include/anet/rl.hpp) 551 行） |
 | 93f8a6 | 行動の情報は、行動の CPU の写しと GPU の写しを別々に持ち、どちらが元かを記録しない。引数なしで行動を取ると、CPU の写しがあればそれが返る（[rl.hpp](../../src/core/base/include/anet/rl.hpp) 535〜542・571・572 行）。CPU の写しは、誰かが CPU で取り出した時点で作られる（[rl.cpp](../../src/core/base/src/rl.cpp) 444〜450 行） |
 | 1499d0 | 登録済みの名前で登録すると、Agent（[agent.cpp](../../src/core/base/src/agent.cpp) 49 行）・View（[gui.cpp](../../src/core/base/src/gui.cpp) 392 行）・NN module（[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) 2482 行）は上書きする。Env だけが `ANET_SYSTEM_ERROR` で止める（[env.cpp](../../src/core/base/src/env.cpp) 1137〜1155 行。[ADR 0009](../adr/0009-imagecls-batch-env-seam.md) が決めた） |
-| 1499d0 | 登録は、PRD182 で、ライブラリが公開する初期化関数をアプリが呼ぶ形になった。初期化関数は 10 個ある（§6.5）。製品は起動時に 1 回ずつ呼ぶ（[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) 393〜405 行。`InitNN` は 393 行の `InitRL` の中、[init.cpp](../../src/core/base/src/init.cpp) 168 行）。課題の「静的初期化の順で後のものが勝つ」は、今は起きない |
+| 1499d0 | 登録は、RFD0182 で、ライブラリが公開する初期化関数をアプリが呼ぶ形になった。初期化関数は 10 個ある（§6.5）。製品は起動時に 1 回ずつ呼ぶ（[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) 393〜405 行。`InitNN` は 393 行の `InitRL` の中、[init.cpp](../../src/core/base/src/init.cpp) 168 行）。課題の「静的初期化の順で後のものが勝つ」は、今は起きない |
 | 1499d0 | テストは同じプロセスの中で初期化関数を何度も呼ぶ。テストから `InitNN` に行き着く呼び出しは 109 か所ある（`InitNN()` の直接の呼び出し 38、テスト用の `RegisterStandardNetworkModules()` 63、`InitRL(` 8。2026-11-19 に `src` 全体を引き、`_test.cpp`・`_test.hpp`・`/test/` のファイルに絞って数えた）。Env の初期化関数は、Env の登録と View の登録を続けて行い（[GridMaze.cpp](../../src/env/gridmaze/src/GridMaze.cpp) 9〜13 行）、今は 2 回呼ぶと Env の重複で止まる |
 | 1499d0 | 製品の登録に、同じ名前の重複は無い。`InitNN` が登録する type 名は 29 個で、どれも別である（[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) 3309 行から）。Agent の class ID は 4 つ（`DefaultDQNAgent`・`RainbowAgent`・`ImageClsAgent`・`MuZeroAgent`）、View の class ID は 6 つ（Env の class ID と同じ）で、どれも別である（2026-11-20 に、`src/algo`・`src/env` の `GetTargetAgentClassId`・`GetTargetClassId` の返す値を引いた） |
 | 3f4e63 | `QValuePanel.smooth_radius` は小数として読まれ、値域の検証が無い（[QValuePanel.cpp](../../src/apps/runner/src/QValuePanel.cpp) 30・40 行）。平滑化の重みは、`use_hist_smooth` が真で半径が正のときだけ作る（138 行）。加工は `use_hist_smooth` だけを見て重みを読む（545〜556 行）。加工への入力（`QValueHeatMapRequest`）は、有効かどうか・半径・重みの 3 つを別々に持つ（[QValuePanel.hpp](../../src/apps/runner/src/QValuePanel.hpp) 69〜71 行） |
@@ -75,8 +75,8 @@
 
 非ゴール（退けた案と、それが本当の制約か）:
 
-- `AttachScoped` の戻り値で `Detach` できない件を本書で直す案 — 範囲外。[146_notifier_scoped_detach_10prd.md](0146_notifier_scoped_detach_10rfd.md) が扱う。制約ではなく別の関心で、同じ PRD に入れなくても題材は片付く。
-- 強制行動を `MakeAction` の入力にして `WithAction` を消す案 — 範囲外。[161_observation_pipeline_10prd.md](0161_observation_pipeline_10rfd.md) の単位 A が扱う。制約ではなく別の関心で、D9 はそれを待たずに直せる。
+- `AttachScoped` の戻り値で `Detach` できない件を本書で直す案 — 範囲外。[0146_notifier_scoped_detach_10rfd.md](0146_notifier_scoped_detach_10rfd.md) が扱う。制約ではなく別の関心で、同じ RFD に入れなくても題材は片付く。
+- 強制行動を `MakeAction` の入力にして `WithAction` を消す案 — 範囲外。[0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md) の単位 A が扱う。制約ではなく別の関心で、D9 はそれを待たずに直せる。
 - 4 つの Repository を 1 つの形にまとめ、登録の関数名をそろえる案 — 範囲外。課題 [issue-20261109-adc5c4](../management/issues/issue-20261109-adc5c4.md) が扱う。制約ではなく別の関心で、重複登録の扱いは 1 つずつ直せる。
 - `ComputeQValueHeatMap` を分割する案（課題 [issue-20261111-90fa5c](../management/issues/issue-20261111-90fa5c.md)）と、HeatMap の描画の重複を直す案（課題 [issue-20261103-e6dbb4](../management/issues/issue-20261103-e6dbb4.md)） — 範囲外。制約ではなく別の関心である。
 - 学習スレッドから Panel か Frame を触る 3 つの Observer（TrainPanel、EvalPanel が学習側の step 数を受ける Observer、RunnerFrame の状態表示用の Observer）を、終了の順序に頼らない作りに変える案 — 退ける。P20 のとおり、今は終了の順序で守られていて、D6 がその順序を保つ。制約ではないが、今ある危険が無く、得が小さい。ユーザーの選択である（§10）。
@@ -88,8 +88,8 @@
 |---|---|---|---|---|
 | P1 | 守る線 | 失敗の扱いは AGENTS.md の表で決める。構築が終わるまでに判定できる違反は止める。構築後にメトリクス・描画・GUI の一部だけが欠ける異常は、WARN を 1 回出して続ける | [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則の表 | 済み |
 | P2 | 守る線 | 契約を変えたら、現用のコード・設定・テスト・文書を同じ変更で移し、旧い形の互換は残さない。過去の記録は書き換えない | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針 | 済み |
-| P3 | 過去の判断 | `AttachScoped` で付けた Observer の `Detach` は、今は何も外さない。PRD146 がこれを直す計画で、その課題は 80c355 を待っている。PRD146 は排他を入れず、「Detach は停止後だけ」をコメントの決まりにする計画である | [146_notifier_scoped_detach_10prd.md](0146_notifier_scoped_detach_10rfd.md) の「Context / Problem Statement」・NG1・R3 | 済み |
-| P4 | 過去の判断 | PRD161 の単位 A は、`WithAction` を消し、device は Actor の側で合わせる計画である。暫定の PRD で、確定はしていない | [161_observation_pipeline_10prd.md](0161_observation_pipeline_10rfd.md) §4.6 | 済み |
+| P3 | 過去の判断 | `AttachScoped` で付けた Observer の `Detach` は、今は何も外さない。RFD0146 がこれを直す計画で、その課題は 80c355 を待っている。RFD0146 は排他を入れず、「Detach は停止後だけ」をコメントの決まりにする計画である | [0146_notifier_scoped_detach_10rfd.md](0146_notifier_scoped_detach_10rfd.md) の「Context / Problem Statement」・NG1・R3 | 済み |
+| P4 | 過去の判断 | RFD0161 の単位 A は、`WithAction` を消し、device は Actor の側で合わせる計画である。暫定の RFD で、確定はしていない | [0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md) §4.6 | 済み |
 | P5 | 事実 | 登録は初期化関数が行う。製品は起動時に 1 回ずつ呼び、テストは同じプロセスの中で何度も呼ぶ | §1.2 の 1499d0 の行 | 済み |
 | P6 | 既存部品の働き | `Notify` を呼ぶスレッドは 3 つある。Observer は `Notify` を呼んだスレッドの上で動く。Observer が触る相手（Panel や Frame）の寿命は、Notifier ではなく、Observer を付ける側が守っている。EvalPanel の Runner の通知を受ける Panel の Observer 4 つは、Panel への弱い参照を呼び出しの頭で確かめてから Panel を触り、GUI スレッドの上でだけ動く。学習の Runner の通知を受ける 3 つは、Panel か Frame を直接抱え、終了の順序で守られている（§1.2 の 80c355 の 7 行目） | §1.2 の 80c355 の行、[140_observability.jp.md](../design/140_observability.jp.md) §5.1、[Conv2dPanel.cpp](../../src/apps/runner/src/Conv2dPanel.cpp) 81・82 行 | 済み |
 | P7 | 事実 | Boost.Signals2（C++ の通知ライブラリ）は、切断と呼び出しが同時なら、切断のあとも相手が走りうると明記している。相手を呼ぶあいだロックを持たず、一覧は変更するときに写す | [Boost.Signals2 の Thread-Safety の節](https://www.boost.org/doc/libs/release/doc/html/signals2/thread-safety.html)（2026-11-19 に確認） | 対象外 |
@@ -122,14 +122,14 @@
 | # | 決定 | 理由と、よりどころ |
 |---|---|---|
 | D1 | `Notifier` の `Attach`・`Detach`・`Notify`・`Clear`・`Shutdown`・`WillBlockOnShutdown`・`LogObservers` は、どのスレッドから同時に呼んでも、Observer の列が壊れない | 題材 80c355 の事象。`Clear` 以下の 4 つも同じ列を読む・消すので、同じ排他の対象にする（§1.2 の 80c355 の 1 行目） |
-| D2 | `Detach` と `Clear` は、進行中の通知を待たずに戻る。戻った時点で始まっていた通知は、外した Observer を呼びうる。その通知が終わるまで、Observer は `Notifier` が生かしておく。`Detach` が戻ったあとに始まった通知は、外した Observer を呼ばない | ユーザーの選択（グリルの質問 1 の A。§10）。P3 から、待つ形の利点（Panel を安全に壊せる）は PRD146 のあとでしか出ない。待つ形は、待たれている Observer が GUI スレッドの持つロックを待つと固まる組み合わせを新しく作る（§5.1）。P7 の事例がこの形である。P6 のとおり、3 つのスレッドが `Notify` を呼び、Observer が触る相手の寿命は、今も Observer を付ける側が守っている（弱い参照の確かめか、終了の順序）。待たない形は、この分担を変えない。P17 から、今は学習中に外れる Observer が無いので、外した Observer に通知が届く場面と、Observer が通知のスレッドで壊れる場面（§6.2）は、PRD146 のあとに出る |
+| D2 | `Detach` と `Clear` は、進行中の通知を待たずに戻る。戻った時点で始まっていた通知は、外した Observer を呼びうる。その通知が終わるまで、Observer は `Notifier` が生かしておく。`Detach` が戻ったあとに始まった通知は、外した Observer を呼ばない | ユーザーの選択（グリルの質問 1 の A。§10）。P3 から、待つ形の利点（Panel を安全に壊せる）は RFD0146 のあとでしか出ない。待つ形は、待たれている Observer が GUI スレッドの持つロックを待つと固まる組み合わせを新しく作る（§5.1）。P7 の事例がこの形である。P6 のとおり、3 つのスレッドが `Notify` を呼び、Observer が触る相手の寿命は、今も Observer を付ける側が守っている（弱い参照の確かめか、終了の順序）。待たない形は、この分担を変えない。P17 から、今は学習中に外れる Observer が無いので、外した Observer に通知が届く場面と、Observer が通知のスレッドで壊れる場面（§6.2）は、RFD0146 のあとに出る |
 | D3 | `Notifier` は、Observer を呼ぶあいだ、自分のロックを持たない。Observer の中から `Attach`・`Detach`・`Notify` を呼んでよい。Observer の中で呼んだ `Attach`・`Detach` の効き目は、次に始まる通知からである。`Shutdown`・`WillBlockOnShutdown`・`LogObservers` も、Observer を呼ぶあいだロックを持たない | D2 の帰結。`Shutdown` は背景評価の排水で長く待つので、ロックを持ったままだと、その間の `Attach`・`Detach` が止まる |
 | D4 | Observer を呼ぶ順は登録順のまま、Observer が動くスレッドは `Notify` を呼んだスレッドのまま変えない | [140_observability.jp.md](../design/140_observability.jp.md) §5.1 の今の契約。退けた案は、通知を別のスレッドへ回す形である。制約ではないが、メトリクスの記録の順と step の対応が変わり、題材に要らない |
 | D5 | `Notify` 1 回に足す処理は、Observer の数に比例して増やさない | P9 から、LEARN の Observer が 134 個ある Run で、通知のたびに一覧を写すと、参照カウントの上げ下げが今より増える。P7 の事例も、変更のときだけ写す。見積もりは §1.3 |
 | D6 | RunnerFrame の終了時の順序（学習の停止、背景評価の排水、そのあとに状態表示用の Observer を `Detach`）は変えない | 今回のゴールに要らない。退けた案は、D1 で列が壊れなくなるので順序の決まりを外す形である。制約ではないが、D2 から、排水より前に外すと、外したあとの Observer に通知が届きうるので、今の順序は有効なままである |
 | D7 | 呼んでよいスレッドと時点を、宣言のコメントに書く。`Notifier` には D1〜D4 を書く。`BatchStepResult::GetEpisodeEndMask` には、同時に呼んでよいと書く。`ReplayInitialPriorityHint` と `BatchActionInfo` には、「同じ実体について、キャッシュを書きうる口（`GetPayloadCpu`、`GetAction(device)`、`GetScalar` の `action`）と、その実体を読む口・写す口を、別々のスレッドから同時に呼ばない。スレッドをまたいで渡すときは、渡し終えてから、受け取った側が呼ぶ」と書く。この 2 つに守りは足さない。Runner の Panel と RunnerFrame が Observer を付ける 8 か所（§1.2 の 80c355 の 7 行目）には、その Observer がどのスレッドで動くかと、Panel や Frame が先に壊れない理由を、コメントに書く | 題材 80c355 の対応方針の追記（2026-11-11）が、決まりを書くことを求めている。8 か所のコメントは、ユーザーの選択である（§10）。P20 のとおり、今の安全は、通知を受ける Runner と終了の順序に頼っていて、コードからは読めない。§1.2 の 80c355 の 5 行目のとおり、読んだ範囲では同時に呼ぶ経路が無いので、起きない経路の守りは足さない（[AGENTS.md](../../AGENTS.md) §LLM コーディング規律の Simplicity First）。退けた案は、3 つとも同じ守りにそろえる形である。制約ではないが、行動の 1 step ごとに通る箇所へ、使われない守りを足すことになる |
 | D8 | VideoLogger は、構築時と違う大きさの画像を、動画に書かない。その tag について、Run ごとに 1 回だけ WARN を出す。文言には、tag、最初の画像の大きさ、来た画像の大きさを、`<幅>x<高さ>` の形で入れる。同じ大きさの画像は書き続け、Run は止めない。落とした枚数は数えない。VideoLogger を作ったあとに来た無効な画像は、大きさ `0x0` の画像として、同じに扱う。PNG の個別保存（`app.metrics_logger.use_png_dump`）は、大きさが違っても今のまま書く | ユーザーの選択（質問 2 の B。§10）。P1 の、構築後にメトリクスの一部だけが欠ける異常の行に当たる。P10 から、起きるのは画像を作る側に不具合があるときで、診断用の動画のために長い Run を止める損のほうが大きい。無効な画像は、P18 のとおり大きさが 0 で、構築時と違う大きさの画像に当たるので、同じ扱いになる（ゴール 2 の、範囲外を読まないことから導ける）。PNG は 1 枚ずつ独立で、範囲外の読みが起きない。PNG について退けた案は、大きさの違う画像を PNG でも落とす形である。制約ではないが、落とす理由が無い |
-| D9 | DQN 系の `WithAction` は、ヒントの値を取り直すときだけ、渡された行動を Q 値の device へ写して使う。device の違いで止める検査は消す。結果の行動は、渡された行動のままにする。ヒントの値を、渡された行動の値に取り直す計算は変えない。基底と MuZero の `WithAction`、EvalRunner は変えない | ユーザーの選択（質問 4 の A と、質問 5 の B。§10）。P15 から、device をそろえる必要は DQN 系の中の計算から来ているので、その都合は DQN 系が持つ（[AGENTS.md](../../AGENTS.md) §汎用機構と利用側の責任境界）。P4 の、PRD161 が計画する向きと同じである。結果の行動を移さないのは、P19 から「差し替える前の行動の device」が一通りに決まらず、ゴール 3 に要るのは取り直しが止まらないことだけだからである。結果の形は、基底・MuZero と同じになる。「結果の行動は渡されたまま」で退けた案は §5.1 の「結果の行動も移す形」である。「計算は変えない」で退けた案は、取り直しをやめてヒントを捨てる形である。制約ではないが、ヒントが打った行動の値でなくなり、ゴール 3 に反する。「EvalRunner は変えない」で退けた案は §5.1 の「呼ぶ側で合わせる形」である。「基底と MuZero は変えない」で退けた案は、基底で一律に移す形である。制約ではないが、P15 のとおり device を問わないので、移す理由が無い |
+| D9 | DQN 系の `WithAction` は、ヒントの値を取り直すときだけ、渡された行動を Q 値の device へ写して使う。device の違いで止める検査は消す。結果の行動は、渡された行動のままにする。ヒントの値を、渡された行動の値に取り直す計算は変えない。基底と MuZero の `WithAction`、EvalRunner は変えない | ユーザーの選択（質問 4 の A と、質問 5 の B。§10）。P15 から、device をそろえる必要は DQN 系の中の計算から来ているので、その都合は DQN 系が持つ（[AGENTS.md](../../AGENTS.md) §汎用機構と利用側の責任境界）。P4 の、RFD0161 が計画する向きと同じである。結果の行動を移さないのは、P19 から「差し替える前の行動の device」が一通りに決まらず、ゴール 3 に要るのは取り直しが止まらないことだけだからである。結果の形は、基底・MuZero と同じになる。「結果の行動は渡されたまま」で退けた案は §5.1 の「結果の行動も移す形」である。「計算は変えない」で退けた案は、取り直しをやめてヒントを捨てる形である。制約ではないが、ヒントが打った行動の値でなくなり、ゴール 3 に反する。「EvalRunner は変えない」で退けた案は §5.1 の「呼ぶ側で合わせる形」である。「基底と MuZero は変えない」で退けた案は、基底で一律に移す形である。制約ではないが、P15 のとおり device を問わないので、移す理由が無い |
 | D10 | `AgentRepository`・`ViewRepository`・`NetworkModuleRepository` の登録は、登録済みの名前なら `ANET_SYSTEM_ERROR` で止める。文言は Env と同じ形（`... is already registered. <名前の種類>='<名前>'`）にし、名前を入れる。先に登録した factory は残る | 題材 1499d0 の対応方針。Env の扱い（§1.2）と [ADR 0009](../adr/0009-imagecls-batch-env-seam.md) の「二重登録は fail-fast」にそろえる。P1 の、構築が終わるまでに判定できる違反の行に当たる |
 | D11 | 初期化関数（§6.5 の 10 個）は、何度呼んでも、登録を 1 回だけ行う。2 回目からは何もしない。初期化関数が登録の途中で止まった場合、同じ関数をもう一度呼んでも止まる（どの名前で止まるかは問わない）。Repository を直接 2 回呼ぶ重複は、D10 のとおり止まる | ユーザーの選択（質問 3 の A。§10）。D10 だけだと、P12 のテストが 2 回目の呼び出しで止まる。P14 の事例がこの形で、決まりが 1 つで済む。許容した不利益は、P13 の、Env の初期化関数の 2 回目が「止まる」から「何もしない」へ変わる点である |
 | D12 | `QValuePanel.smooth_radius` は整数で、1 以上とする。上限は置かない。設定の読み込みで下の表のとおり検証する。`QValuePanel.use_hist_smooth` の値に依らず検証する。半径 0 以下を「平滑化なし」とは読まない。コードの既定は 4 のままにする | [AGENTS.md](../../AGENTS.md) §設定値の扱い（範囲外の値は止める。特定の値に別の意味を持たせない）と §汎用機構と利用側の責任境界（値域は設定の読み込み時に検証する）。上限を置かないのは、大きい半径は全体へ広げるだけで、不正ではないためである。メモリを確保できないほど大きい値は、確保の失敗として止まり、専用の検査は置かない。「既定は 4 のまま」で退けた案は、出荷設定の 5 にそろえる形である。制約ではないが、題材に要らない |
@@ -151,7 +151,7 @@ D12 の、`smooth_radius` の検証。上から順に当て、最初に当たっ
 
 | 案 | 退けた理由 |
 |---|---|
-| `Detach` が、その Observer への進行中の呼び出しが終わるまで待つ形（質問 1 の B） | 待たれている Observer が、GUI スレッドの持つロックや GUI の処理を待つと、互いに待って固まる。Observer の中から自分を外すときのための特例が要る。利点は PRD146 のあとでしか出ない（P3） |
+| `Detach` が、その Observer への進行中の呼び出しが終わるまで待つ形（質問 1 の B） | 待たれている Observer が、GUI スレッドの持つロックや GUI の処理を待つと、互いに待って固まる。Observer の中から自分を外すときのための特例が要る。利点は RFD0146 のあとでしか出ない（P3） |
 | 通知のたびに、ロックの中で Observer の一覧を写す形（題材 80c355 の対応方針の文面） | D5 の理由。Observer の数に比例する処理が、通知のたびに増える |
 | 動画の大きさ違いで Run を止める形（質問 2 の A。題材 ba635a の対応方針） | P1 の表では、構築後にメトリクスの一部だけが欠ける異常は、WARN を出して続ける行に当たる。止める形は、その行と食い違う。P11 のとおり、同じ VideoLogger の ffmpeg の停止とは扱いがそろうが、診断用の動画のために学習を止める |
 | 大きさが変わったら新しい動画ファイルに切り替える形（質問 2 の C） | ファイル名の決まり、動画の記録の行、読む側の扱いが増える。P10 から、使われる見込みが薄い |
@@ -246,7 +246,7 @@ D12 の、`smooth_radius` の検証。上から順に当て、最初に当たっ
 | 設計文書 | [110_agents_and_learning.jp.md](../design/110_agents_and_learning.jp.md)、[120_environments.jp.md](../design/120_environments.jp.md)、[130_neural_networks.jp.md](../design/130_neural_networks.jp.md) | Repository と初期化関数の説明に、D10・D11 を書く |
 | 設計文書 | [200_dqn_agents.jp.md](../design/200_dqn_agents.jp.md) §7 の、`To`・`WithAction` が値を引き継ぐ段落 | D9 を書く |
 | 英訳 | `docs/design/*.en.md` | 本書の実装では直さない。和文を直すと、翻訳の skill（`anet-translate-docs`）が「更新あり」として拾う |
-| 過去の記録 | 実験記録の設定の写し、検証資材の設定の写しと基準、課題の事象の行、過去の PRD | 直さない（D14、P2） |
+| 過去の記録 | 実験記録の設定の写し、検証資材の設定の写しと基準、課題の事象の行、過去の RFD | 直さない（D14、P2） |
 | 道具が作るもの | 課題の一覧と、wiki のトピック別まとめの「課題」の区画 | 手で直さない。課題の道具が作り直す |
 
 旧い契約のための仕組み（別名、互換の分岐、旧い値の読み替え）は残さない。`smooth_radius` に小数を書いた設定は、D12 の表の 1 行目で止まる。
@@ -264,12 +264,12 @@ D12 の、`smooth_radius` の検証。上から順に当て、最初に当たっ
 
 段階 1〜5 の順は問わない。
 
-### 6.9 ほかの PRD との順序
+### 6.9 ほかの RFD との順序
 
-- **PRD146**（`AttachScoped` の `Detach`）: 本書が先である。PRD146 が先に入った場合も、本書の内容は変わらない。PRD146 は `AttachScoped` の戻り値を変え、本書は列の守り方を変えるので、同じクラスの別の箇所である。段階 1 の途中で PRD146 が入るときは、段階 1 を終えてから入れる。PRD146 の「Detach は停止後だけ」のコメントの計画は、D1〜D3 と食い違う（§9 の U2）。
-- **PRD161 の単位 A**（強制行動を `MakeAction` の入力にする）: 単位 A が先に入れば、`WithAction` が消えるので、段階 3 は行わない。その場合、題材 93f8a6 は、単位 A の受入（強制した lane の値）で片付いたかを確かめて判定する。本書が先なら、単位 A が `WithAction` ごと消す。段階 3 の途中では入れない。PRD161 の §1.4 にある「device の検査で止まる読み」の記述は、段階 3 のあと古くなる。PRD161 は暫定の PRD で、再グリルで今のコードを読み直す。
-- **PRD159・PRD160・PRD176**: `WithAction` の経路を使うか、説明に出すだけである。D9 のあとも `WithAction` の口の形は同じなので、順序の決まりは無い。
-- **PRD056**: `Notifier` と `VideoLogger` は説明に出るだけである。順序の決まりは無い。
+- **RFD0146**（`AttachScoped` の `Detach`）: 本書が先である。RFD0146 が先に入った場合も、本書の内容は変わらない。RFD0146 は `AttachScoped` の戻り値を変え、本書は列の守り方を変えるので、同じクラスの別の箇所である。段階 1 の途中で RFD0146 が入るときは、段階 1 を終えてから入れる。RFD0146 の「Detach は停止後だけ」のコメントの計画は、D1〜D3 と食い違う（§9 の U2）。
+- **RFD0161 の単位 A**（強制行動を `MakeAction` の入力にする）: 単位 A が先に入れば、`WithAction` が消えるので、段階 3 は行わない。その場合、題材 93f8a6 は、単位 A の受入（強制した lane の値）で片付いたかを確かめて判定する。本書が先なら、単位 A が `WithAction` ごと消す。段階 3 の途中では入れない。RFD0161 の §1.4 にある「device の検査で止まる読み」の記述は、段階 3 のあと古くなる。RFD0161 は暫定の RFD で、再グリルで今のコードを読み直す。
+- **RFD0159・RFD0160・RFD0176**: `WithAction` の経路を使うか、説明に出すだけである。D9 のあとも `WithAction` の口の形は同じなので、順序の決まりは無い。
+- **RFD0056**: `Notifier` と `VideoLogger` は説明に出るだけである。順序の決まりは無い。
 
 ## 7. 受入
 
@@ -289,9 +289,9 @@ D12 の、`smooth_radius` の検証。上から順に当て、最初に当たっ
 | A8 | 初期化関数（D11）。同じ初期化関数を続けて 2 回呼んでも例外が出ず、登録した名前から factory を引ける。`InitNN` は `anet-core-base-test`、Agent の系統の 3 つはそれぞれの `anet-algo-*-test`、Env の 5 つ（Atari・DropMerge・GridMaze・ImageCls・LunarLander）はそれぞれの `anet-env-*-test` で確かめる。`env::InitCartPole` は、Env のテストの実行体が無いので、`AnetRLRunner-gui-test` で確かめる（この実行体は、今も起動時に `env::InitCartPole` を呼んでいる。[EvalTracePanel_test.cpp](../../src/apps/runner/src/EvalTracePanel_test.cpp) 1635 行） | それぞれの実行体のタグ `[init][idempotent]` が通る |
 | A9 | 今あるテストが、重複登録で止まらない。比べるのは、テストケースごとの合否である。実装の前からある既定のスイートのテストケースのうち、実装の前に通っていたものが、実装のあとも、すべて通る。本書が足すテストケース（A1〜A4・A6〜A8・A10・A11 のもの）は数えない。実装の前から落ちているテストケースも数えない。実装の前の結果は、実装に入る前の作業ツリーで 10 個の実行体をビルドし、引数なしで起動して取り、テストケースごとの合否を保存する。`AnetRLRunner-gui-test` も、同じく引数なしで起動して比べる | 10 個の実行体のそれぞれで、保存した実装の前の合否と、実装のあとの合否を、テストケースの名前で突き合わせ、通っていたものが落ちた件数が 0 件 |
 | A10 | `smooth_radius` の検証（D12 の表）。`QValuePanel.smooth_radius` が `0`・`-1`・`1.5` のとき、QValuePanel の構築が例外になり、文言に `smooth_radius` を含む。`0` と `-1` では、文言に `QValuePanel.smooth_radius` と指定値を含む。`1` と `5` では構築できる。`QValuePanel.use_hist_smooth` が偽で `smooth_radius` が `0` のときも例外になる | `AnetRLRunner-gui-test` のタグ `[q_value_smooth]` が通る |
-| A11 | 加工への入力の形（D13）と、値を変えない確かめ。加工の今の単体テストが、期待値を変えずに通る。重みが空のとき、平滑化なしの結果になる。偶数個の重みを渡すと例外になる | `AnetRLRunner-gui-test` のタグ `[prd122][qvalue_heatmap]`（今ある加工のテスト）と、足すテストが通る。検索は表の下の「検索 1」が 0 行 |
+| A11 | 加工への入力の形（D13）と、値を変えない確かめ。加工の今の単体テストが、期待値を変えずに通る。重みが空のとき、平滑化なしの結果になる。偶数個の重みを渡すと例外になる | `AnetRLRunner-gui-test` のタグ `[rfd0122][qvalue_heatmap]`（今ある加工のテスト）と、足すテストが通る。検索は表の下の「検索 1」が 0 行 |
 | A12 | device の検査の文言が消えた（D9） | 表の下の「検索 2」が 0 行 |
-| A13 | 既定の設定の Run の結果を変えない（ゴール 6、D15）。PRD103 の検証資材（[run_validation.py](../../src/core/base/testdata/rfd0103/run_validation.py)）と同じ 6 構成・同じ短縮条件（8 lane、batch 16、warmup 256、容量 4096、RR1、seed 1、8704 experience、FP32、決定論的 backend、評価停止）で、実装の前に保存した実行体と、実装のあとの実行体を走らせる。`90_perf/`・`91_resource/`・`92_resource/` を除く全 scalar の tag・step・値が、6 構成とも一致する。除くのは、実時間と資源の値で、走らせるたびに変わるためである。値は、検証資材が正規化した記録の表記で比べる（NaN は同じ表記どうしで一致とする） | 検証資材が正規化した記録が、実装の前後で、6 構成ともバイト単位で一致する |
+| A13 | 既定の設定の Run の結果を変えない（ゴール 6、D15）。RFD0103 の検証資材（[run_validation.py](../../src/core/base/testdata/rfd0103/run_validation.py)）と同じ 6 構成・同じ短縮条件（8 lane、batch 16、warmup 256、容量 4096、RR1、seed 1、8704 experience、FP32、決定論的 backend、評価停止）で、実装の前に保存した実行体と、実装のあとの実行体を走らせる。`90_perf/`・`91_resource/`・`92_resource/` を除く全 scalar の tag・step・値が、6 構成とも一致する。除くのは、実時間と資源の値で、走らせるたびに変わるためである。値は、検証資材が正規化した記録の表記で比べる（NaN は同じ表記どうしで一致とする） | 検証資材が正規化した記録が、実装の前後で、6 構成ともバイト単位で一致する |
 | A14 | 人が確かめる項。(a) 学習中に、メニューから Conv2d と HeatMap の Panel を、それぞれ 10 回ずつ開いて閉じ、Runner が落ちない。(b) `actor_approx` かつ `run.eval_device` が GPU の構成で Runner を起動し、EvalPanel で矢印キーを 10 回押して、Runner が止まらない | 人が Runner を操作して確かめ、結果を実装の報告に書く |
 | A15 | 設計文書と ADR。§6.7 の設計文書の行が直っている。[ADR 0082](../adr/0082-notifier-detach-does-not-wait-for-in-flight-notifications.md) がある。[rl.hpp](../../src/core/base/include/anet/rl.hpp) の `Notifier`・`BatchStepResult::GetEpisodeEndMask`・`ReplayInitialPriorityHint`・`BatchActionInfo` の宣言と、Runner の Panel と RunnerFrame が Observer を付ける 8 か所に、D7 のコメントがある。[rl.cpp](../../src/core/base/src/rl.cpp) の D1 の 7 つの口が、どれも同じ排他の下で列を読み書きしている | 文書とコードを読んで確かめる。A3 は、競合が無いことの証明ではなく、回帰の検知である。データ競合は、落ちずに通ることがあるためである |
 
@@ -318,7 +318,7 @@ git grep -n -F "across devices" -- src
 | # | 事項 | 扱い |
 |---|---|---|
 | U1 | Panel を閉じる瞬間に、その Panel の Observer が別のスレッドで動いていて、壊れかけの Panel を触る危険。起草の時点では「今もある危険」と書いていたが、たどり直すと、今のコードでは起きる経路が無かった（§1.2 の 80c355 の 7 行目） | 取り下げた（2026-11-20）。起票しない。今の安全が頼っているものは、D7 のコメントで残す |
-| U2 | PRD146 の R3・G3・AC5（「Detach は Runner の停止後だけ」をコメントの決まりにする）と NG1（排他を入れない）は、本書の D1〜D3 と食い違う。PRD146 で `Detach` が効くようになると、Panel への弱い参照を持つ Observer が、学習中に外れ、通知のスレッドで壊れうる（§6.2）。弱い参照は、GUI スレッドの外で壊すと、Panel の破棄と重なって守られない。PRD146 を使うときに、あわせて決める必要がある | 範囲外。PRD146 の課題 [issue-20261103-9df5c5](../management/issues/issue-20261103-9df5c5.md) の対応方針へ追記した（2026-11-20、ユーザーの選択） |
+| U2 | RFD0146 の R3・G3・AC5（「Detach は Runner の停止後だけ」をコメントの決まりにする）と NG1（排他を入れない）は、本書の D1〜D3 と食い違う。RFD0146 で `Detach` が効くようになると、Panel への弱い参照を持つ Observer が、学習中に外れ、通知のスレッドで壊れうる（§6.2）。弱い参照は、GUI スレッドの外で壊すと、Panel の破棄と重なって守られない。RFD0146 を使うときに、あわせて決める必要がある | 範囲外。RFD0146 の課題 [issue-20261103-9df5c5](../management/issues/issue-20261103-9df5c5.md) の対応方針へ追記した（2026-11-20、ユーザーの選択） |
 | U3 | 動画の最初の画像が無効だと、0×0 の大きさで VideoLogger が作られる（§1.2、§6.3）。以後の有効な画像は、D8 で大きさ違いとして落ちる | 範囲外。2026-11-20 の起票の候補では、採らなかった |
 
 ## 10. グリルの材料
@@ -334,7 +334,7 @@ git grep -n -F "across devices" -- src
 - 質問 4（強制行動の device を合わせる側）に「A（受ける側）」。
 - 細部 18 件の扱いに「推奨で埋める」。
 - 質問 5（2026-11-20。別モデルの検討のあと。強制行動を差し替えた結果の行動の device）に「B（渡されたまま）」。
-- 起票の候補 4 件（2026-11-20）に「1,2」と、「1 は起票したら本 PRD に含める」。候補 1 は U1 の当初の内容、候補 2 は U2、候補 3 は U3、候補 4 は PRD161 の §1.4 の記述だった。
+- 起票の候補 4 件（2026-11-20）に「1,2」と、「1 は起票したら本 RFD に含める」。候補 1 は U1 の当初の内容、候補 2 は U2、候補 3 は U3、候補 4 は RFD0161 の §1.4 の記述だった。
 - 候補 1 の根拠を AI がたどり直して誤りと分かり、扱いを聞き直した問い（2026-11-20）に「A で進める」。A は、起票せず、記述を事実に合わせて直し、Observer を付ける箇所のコメントの決まりを D7 に足す案である。
 
 AI が示した細部 18 件（推奨の既定）と、書いた先:
@@ -360,14 +360,14 @@ AI が示した細部 18 件（推奨の既定）と、書いた先:
 | 17. 設計文書を同じ変更で直す | §6.7 |
 | 18. 5 件を、1 件ずつ実装・検証できる段階に分ける | D16、§6.8 |
 
-AI が聞かずに決めた事項（規約と今のコードから 1 つに決まるとして示し、番号は挙がらなかった）: Observer を呼ぶ順とスレッドを変えない（D4）、重複登録を止める（D10）、`smooth_radius` の値域と検証の時機（D12）、既定の設定が検証を通ること（§6.7）、ヒントの取り直しの計算を変えないこと（D9）、本書を PRD146 より先に実装すること（§6.9）。
+AI が聞かずに決めた事項（規約と今のコードから 1 つに決まるとして示し、番号は挙がらなかった）: Observer を呼ぶ順とスレッドを変えない（D4）、重複登録を止める（D10）、`smooth_radius` の値域と検証の時機（D12）、既定の設定が検証を通ること（§6.7）、ヒントの取り直しの計算を変えないこと（D9）、本書を RFD0146 より先に実装すること（§6.9）。
 
 別モデル（Opus）の検討（2026-11-20）で足した・直した点。どれも、コードで確かめた事実か、決定から導ける事項である。
 
 - Observer が通知のスレッドで壊れうること（§6.2、U2、ADR 0082）と、今は学習中に外れる Observer が無いこと（P17）。
 - `Clear` と `Shutdown` が見る Observer の範囲（§6.2）。
 - キャッシュの決まりを、関数ではなく実体の単位で書くこと（D7）と、確かめた範囲（§1.2）。
-- 弱い参照の確かめは、スレッドをまたぐと守られないという指摘。起票の候補のあとにたどり直し、弱い参照を持つ Observer は GUI スレッドの上でだけ動くと分かったので、P6 にはその事実を書いた（末尾の「起票の候補のあとの訂正」）。PRD146 のあとに出る場面は U2 に書いた。あわせて、D2 の理由を並べ直した。
+- 弱い参照の確かめは、スレッドをまたぐと守られないという指摘。起票の候補のあとにたどり直し、弱い参照を持つ Observer は GUI スレッドの上でだけ動くと分かったので、P6 にはその事実を書いた（末尾の「起票の候補のあとの訂正」）。RFD0146 のあとに出る場面は U2 に書いた。あわせて、D2 の理由を並べ直した。
 - 無効な画像の扱い（D8、§6.3、P18、U3）。
 - 加工が受け付ける重みの数（§6.6、A11）。
 - 行動の情報が元の device を記録しないこと（P19）。これを受けて、D9 を質問 5 で決め直した。

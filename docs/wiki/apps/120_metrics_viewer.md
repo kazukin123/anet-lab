@@ -207,9 +207,9 @@
 
 - [RFD0064](../../memo/done/0064_metricsviewer_idle_ingest_io_10rfd.md) — Metrics Viewer 定常取り込み I/O 抑制 PRD
 - [RFD0069](../../memo/done/0069_metrics_trace_channel_10rfd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
-- [RFD0182](../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
-- [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — PRD195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
-- [RFD0196](../../memo/0196_metrics_viewer_run_comparison_10rfd.md) — PRD196: MetricsViewer で Run を比べる作業に要る機能を足す（設定表、Run・tag の絞り込み、tag の情報パネル、Plotly の同梱）
+- [RFD0182](../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）RFD
+- [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
+- [RFD0196](../../memo/0196_metrics_viewer_run_comparison_10rfd.md) — RFD0196: MetricsViewer で Run を比べる作業に要る機能を足す（設定表、Run・tag の絞り込み、tag の情報パネル、Plotly の同梱）
 
 ## 課題
 

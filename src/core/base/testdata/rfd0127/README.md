@@ -1,8 +1,8 @@
-# PRD127 の受入検証
+# RFD0127 の受入検証
 
-> この検証資材の設定キーは PRD191 より前の名前です。
+> この検証資材の設定キーは RFD0191 より前の名前です。
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 ## 比較の入力
 
@@ -18,19 +18,19 @@
 
 `anet-core-test.exe "[rfd0127]"` が読むだけの採点・統計方式・Clone・step診断・同期・ロック・checkpoint・学習不変性を確かめる。既存の `[rfd0116]`・`[rfd0123]`・`[step_diagnostics]`・`[diagnostic_replay]`・`[diagnostic_no_wait]` とmetricsの関連テストも実施する。出荷列は `[shipped_config]`、pane開閉は Runner の `[rfd0127]` テストで確認する。
 
-設定変更時はPRD072のcheck_default_leaves.pyと、変更前後の全キー・文字列値の比較を行う。追加を許すのは run.@rnd 選択時の235・600・610の3列だけで、選ばない解決は変更前と同じとする。`verify_configuration.py`は3環境それぞれで、空の選択・RND単独・TempoRL単独・両方の順序の併用の5通り、合計15通りを解決する。全キー・文字列値の比較で既存列の上書きが無いことを、列番号の昇順で235 `rnd_bonus`が230 `reward`の直後にあることを確かめる。実装時に採取済みの既定7環境の比較記録も再検査するが、現在のenvファイルの既定の選択は固定しない。
+設定変更時はRFD0072のcheck_default_leaves.pyと、変更前後の全キー・文字列値の比較を行う。追加を許すのは run.@rnd 選択時の235・600・610の3列だけで、選ばない解決は変更前と同じとする。`verify_configuration.py`は3環境それぞれで、空の選択・RND単独・TempoRL単独・両方の順序の併用の5通り、合計15通りを解決する。全キー・文字列値の比較で既存列の上書きが無いことを、列番号の昇順で235 `rnd_bonus`が230 `reward`の直後にあることを確かめる。実装時に採取済みの既定7環境の比較記録も再検査するが、現在のenvファイルの既定の選択は固定しない。
 
 ## 画面と費用
 
-PRD §7-13に従い、利用者のViewメニューかPanelツールバーの操作からTraceを開閉して確認する。3列の位置、最初の行、10秒以上閉じたあとの最初の行、過去の行の不変性、RND非選択時に列が無いことを見る。
+RFD §7-13に従い、利用者のViewメニューかPanelツールバーの操作からTraceを開閉して確認する。3列の位置、最初の行、10秒以上閉じたあとの最初の行、過去の行の不変性、RND非選択時に列が無いことを見る。
 
-PRD §7-14の費用はAtariの実時間優先＋run.@rnd、さらにrun.@rnd_taigaを重ねた2構成で測る。閉じた状態と開いてEvalPanel再生中の状態を交互に3巡以上採る。各状態のtrain exp step/sの中央値、Observeの時間の中央値・最大、同期のうち推定器とβの写しの時間の中央値・最大を設計文書212へ記録する。採点と写しには既存profiler形式の範囲を設ける。
+RFD §7-14の費用はAtariの実時間優先＋run.@rnd、さらにrun.@rnd_taigaを重ねた2構成で測る。閉じた状態と開いてEvalPanel再生中の状態を交互に3巡以上採る。各状態のtrain exp step/sの中央値、Observeの時間の中央値・最大、同期のうち推定器とβの写しの時間の中央値・最大を設計文書212へ記録する。採点と写しには既存profiler形式の範囲を設ける。
 
-GUIの利用者操作・測定ができない環境では実施済みとせず、課題と実装計画に残件として記録する。費用に合否の閾値は置かず、PRD U1の既定列の採否は測定後の判断とする。
+GUIの利用者操作・測定ができない環境では実施済みとせず、課題と実装計画に残件として記録する。費用に合否の閾値は置かず、RFD U1の既定列の採否は測定後の判断とする。
 
 ## 受入項目と公開経路の対応
 
-| PRD §7 | 検証 |
+| RFD §7 | 検証 |
 |---|---|
 | 1 | `RND read-only scoring leaves subsequent learning unchanged`（累積・EMA・variance_feedback） |
 | 2 | `RND read-only formula follows current statistics and warmup`（中心化・clip・次の1件） |
@@ -39,7 +39,7 @@ GUIの利用者操作・測定ができない環境では実施済みとせず�
 | 5 | `Trace bonus equals the reward consumed by the real learner`（3方式×state/next_state×done×mask） |
 | 6 | `Intrinsic diagnostics honor snapshot synchronization and suspension`、`Trace forwards requested intrinsic keys and Actor lifetime controls` |
 | 7 | `Intrinsic diagnostics wait only for an un-cloned requested estimator` |
-| 8 | `Checkpoint trace scores bonus before the first learning intake`（PRD129で、構築時のβによるボーナスも確認） |
+| 8 | `Checkpoint trace scores bonus before the first learning intake`（RFD0129で、構築時のβによるボーナスも確認） |
 | 9 | 無効・Actor欠けは同期テスト、Rainbowは `Rainbow rejects intrinsic Trace columns at the first scalar read`、非有限値は `Read-only nonfinite errors remain unavailable and warn once` |
 | 10 | `Interleaved Trace leaves learner rewards and saved intrinsic state unchanged`（3方式×Actor複製有無×state/next_state） |
 | 11 | `run_validation.py` の6条件。途中の失敗・中断は受入に数えない |

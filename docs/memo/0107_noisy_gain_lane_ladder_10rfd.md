@@ -1,4 +1,4 @@
-# 学習の Actor の lane ごとに NoisyNet のノイズの強さを変える（ノイズのラダー）PRD
+# 学習の Actor の lane ごとに NoisyNet のノイズの強さを変える（ノイズのラダー）RFD
 
 > 2026-10-29 起票（暫定。質疑を省き、既定を置いて、決めることを §9 に残した）。行番号は起票時点のもので、実装時は近傍のシンボル名で探し直す。
 > 起点: qbert の評価（Greedy）で、同じ得点で終わる決まった失敗の道が、スキップの有無や動かし方によらず見つかった（[PRD106](done/0106_temporl_skip_forward_noise_key_10rfd.md) §2.2 の 7）。Greedy がたどる道の状態が学習のデータに少ないので、その道の上の誤りが直らない、という見立てから、学習の lane の一部をノイズの弱い（ノイズの無い）動き方にして、Greedy に近い道のデータを replay に入れる形を起こした。lane ごとの強さを、ε のラダーと同じく ProfiledValue の両端で書く案は、2026-10-29 のユーザーの発案。
@@ -19,7 +19,7 @@ qbert のサンプル効率優先の構成（BTR に寄せた構成）では、�
 
 ### 2.1 実装と設定
 
-1. Actor の方策には、ε・UQE の値を lane ごとに変えるラダー（spatial exploration）がある。`spatial.enabled` で選び、`spatial.scale = linear｜log` と、`spatial.epsilon.first/last`・`spatial.uqe.epsilon.first/last`・`spatial.uqe.tau.first/last` で lane の両端を指定する。両端は ProfiledValue で、`SpatialLadderSchedule` が両端を評価してラダーを作る。1 lane のときは first になる。ラダーを使わないときの値は `epsilon` などの ProfiledValue で、全 lane に同じ値を使う（[200 DQN 系列（設計文書）](../design/200_dqn_agents.jp.md) 60-62 行）。使わない側の値は評価せず保持し、値そのものの検査は両側に行う。使わない側の値に WARN は出さない（[PRD101](done/0101_exploration_schedule_profiled_value_10rfd.md) D6 と受入 6。設定の読み取りは [agent.hpp:447-462](../../src/core/base/include/anet/agent.hpp)）。
+1. Actor の方策には、ε・UQE の値を lane ごとに変えるラダー（spatial exploration）がある。`spatial.enabled` で選び、`spatial.scale = linear｜log` と、`spatial.epsilon.first/last`・`spatial.uqe.epsilon.first/last`・`spatial.uqe.tau.first/last` で lane の両端を指定する。両端は ProfiledValue で、`SpatialLadderSchedule` が両端を評価してラダーを作る。1 lane のときは first になる。ラダーを使わないときの値は `epsilon` などの ProfiledValue で、全 lane に同じ値を使う（[200 DQN 系列（設計文書）](../design/200_dqn_agents.jp.md) 60-62 行）。使わない側の値は評価せず保持し、値そのものの検査は両側に行う。使わない側の値に WARN は出さない（[RFD0101](done/0101_exploration_schedule_profiled_value_10rfd.md) D6 と受入 6。設定の読み取りは [agent.hpp:447-462](../../src/core/base/include/anet/agent.hpp)）。
 2. NoisyNet のノイズは、NN の部品（Body の `Linear` と Head の射影）が、NN 実行設定（`nn_forward.[<name>]` の `noisy.mode`・`hold`・`share`・`count`）を準備時に解釈し、呼び出しごとに引く（[130 ニューラルネットワーク（設計文書）](../design/130_neural_networks.jp.md) 346-348 行）。Actor・Learner・共通の実行処理は、Noisy の有無で forward の挙動と設定の検証を切り替えない（[ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md) の Consequences）。Train Actor の設定 `act_sample` は `noisy.mode = sample`・`hold = call`・`share = batch`（1 回の forward で全 lane が同じノイズ）である（合算の Run の設定の写し [run_20261027-004945_a5_qb_aln_t98mrg_s1](../experiments/default-dqn/atari/config/run_20261027-004945_a5_qb_aln_t98mrg_s1.txt) 796-800 行）。
 3. forward の呼び出し情報（`NetworkForwardCallInfo`）は、時計の値、行ごとのエピソード開始のマスク、行対応を持つ（[nn.hpp:139-155](../../src/core/base/include/anet/nn.hpp)、[CONTEXT.md](../../CONTEXT.md) の「NN 呼び出し情報」）。行ごとの値を forward へ運ぶ口は、エピソード開始のマスクとしてすでにある。
 4. 合算の構成の Train Actor は、`spatial.enabled = false`、ε は `phased`（1.0 から時定数 2M で 0.01 へ下げ、25M で 0 にする）である（同じ写しの 809・831・928・932-936 行）。skip 専用の方策（`skip.policy.*`）は書かれていないので、skip 側は Q 側と同じ方策を使う（`skip.policy.` で始まるキーが 1 つでもあれば skip 専用の方策を作り、無いか方策が Greedy なら共有する。[default_dqn_agent.hpp:158](../../src/algo/dqn/src/default_dqn_agent.hpp)、[default_dqn_agent.cpp:575](../../src/algo/dqn/src/default_dqn_agent.cpp)）。skip 専用の方策の設定は、主の方策（`policy.*`）の設定を写し、書かれた `skip.policy.*` のキーだけで上書きして作る（[default_dqn_agent.hpp:486-487](../../src/algo/dqn/src/default_dqn_agent.hpp)）。
@@ -28,10 +28,10 @@ qbert のサンプル効率優先の構成（BTR に寄せた構成）では、�
 
 ### 2.2 実測
 
-1. Greedy の評価（各 200 ゲーム）で、同じ得点で終わる道の集中: 合算の `full` は面 5 で 45 本中 43 本が 14,550 点、分割の `full` は面 6 で 52 本中 51 本が 18,925 点（評価の seed 2 では 57 本すべて）、スキップなしの seed 1 は面 8 で 45 本が 25,750 点、seed 2 は面 5 で 32 本が 15,850 点・面 8 で 53 本が 26,050 点、分割の `single` はクリア数 8 で 60 本が 26,175 点（[PRD106](done/0106_temporl_skip_forward_noise_key_10rfd.md) §2.2 の 7）。同じ checkpoint の評価に skip 側の τ やノイズのランダムさを入れると、集中した面で終わるゲームの得点はばらける。Q 側の τ だけをランダムにした評価は、分割の面 6 の道からほとんど外れない（面 6 で終わった 35 本中 33 本が 18,925 点。同 §2.2 の 7）。
+1. Greedy の評価（各 200 ゲーム）で、同じ得点で終わる道の集中: 合算の `full` は面 5 で 45 本中 43 本が 14,550 点、分割の `full` は面 6 で 52 本中 51 本が 18,925 点（評価の seed 2 では 57 本すべて）、スキップなしの seed 1 は面 8 で 45 本が 25,750 点、seed 2 は面 5 で 32 本が 15,850 点・面 8 で 53 本が 26,050 点、分割の `single` はクリア数 8 で 60 本が 26,175 点（[RFD0106](done/0106_temporl_skip_forward_noise_key_10rfd.md) §2.2 の 7）。同じ checkpoint の評価に skip 側の τ やノイズのランダムさを入れると、集中した面で終わるゲームの得点はばらける。Q 側の τ だけをランダムにした評価は、分割の面 6 の道からほとんど外れない（面 6 で終わった 35 本中 33 本が 18,925 点。同 §2.2 の 7）。
 2. ε のラダー: qbert で ε のラダーを 1e-4〜0.05 へ下げて効いたのは、低 ε の lane の割合で、同じ ε での腕前ではなかった（[Qbert（wiki）](../wiki/subjects/qbert.md) の「分かっていること」。出典は [2026-09-25 の実験記録](../experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md) の現時点のまとめ 12）。
 3. NoisyNet と ε のラダー: Atari の実時間優先 50M で ε のラダーを NoisyNet に置き換えると 7 ゲームとも基準を下回り、Breakout の 2×2 では NoisyNet の有無の差がラダーありで +15.3、なしで +0.8 だった（[NoisyNet の観測（wiki）](../wiki/mechanisms/noisynet.md)。出典は [2026-10-11 の実験記録](../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)）。lane ごとに探索の強さを散らすことが効いている可能性を示すが、NoisyNet の強さのラダーを測った結果は無い。
-4. Evaluation Trace の観察（3 ゲーム）: 最後でない残機を失っても `V_s` はほとんど変わらなかった（[184_eval_session_step_trace](0184_eval_session_step_trace_10rfd.md) §1）。誤りを経験しても直す信号が弱い可能性があり、本書の効き目を弱めうる。
+4. Evaluation Trace の観察（3 ゲーム）: 最後でない残機を失っても `V_s` はほとんど変わらなかった（[0184_eval_session_step_trace](0184_eval_session_step_trace_10rfd.md) §1）。誤りを経験しても直す信号が弱い可能性があり、本書の効き目を弱めうる。
 
 ## 3. ゴール・非ゴール・仮説と成功の測り方
 
@@ -60,7 +60,7 @@ qbert のサンプル効率優先の構成（BTR に寄せた構成）では、�
 **成功の測り方**
 
 - G1: §7 の受入 1〜4 が通る。
-- G2: ステージ 1 の Run の 50M の checkpoint を Greedy で 200 ゲーム評価し、同じ得点で終わる道の集中（PRD106 D9 と同じ決め方）の数と、全体の 8 面突破率を、スキップなしの seed 1・seed 2 と並べて記録する。あわせて、学習側の読む値（§7）を記録する。
+- G2: ステージ 1 の Run の 50M の checkpoint を Greedy で 200 ゲーム評価し、同じ得点で終わる道の集中（RFD0106 D9 と同じ決め方）の数と、全体の 8 面突破率を、スキップなしの seed 1・seed 2 と並べて記録する。あわせて、学習側の読む値（§7）を記録する。
 
 ## 4. 確定事項（暫定の既定。§9 で見直す）
 
@@ -68,7 +68,7 @@ qbert のサンプル効率優先の構成（BTR に寄せた構成）では、�
 - **D2. 倍率は、forward の呼び出し情報に行ごとの値として載せて、NoisyNet の部品へ渡す。** 部品はノイズの項（σ とノイズの積）に、その行の倍率を掛ける。倍率 0 の行は μ だけの値になり、倍率 1 の行は今と同じ値になる。ノイズの引き方（`hold`・`share`）は変えない（`share = batch` なら、全行が同じノイズを引き、行ごとに倍率だけが違う）。理由: 呼び出し情報は、行ごとのエピソード開始のマスクをすでに運んでいて（§2.1 の 3）、ノイズは呼び出し側が持つ状態と設定で駆動する、という既存の判断（ADR 0048・0051）の中に収まる。既存の ADR との関係: [ADR 0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md) は、呼び出し情報を「時計・エピソード開始・行対応」を運ぶものとし、呼び出し情報を組み合わせる処理では抽選・State の更新・Tensor の計算をしないと決めている。本書は呼び出し情報に運ぶ値を 1 つ足す（拡張）。倍率を掛ける計算は NoisyNet の部品の本体で行い、呼び出し情報を組み合わせる処理には入れないので、後者の判断とは食い違わない。ADR にするかは §9 の 1。依存: §2.1 の 3。
 - **D3. 倍率は 0 以上の有限の値で、上限は置かない。** 負・NaN・∞ は、設定を読む時点でエラーにする。検査は、使う側か使わない側かによらず、時間の値と両端のすべてに、定数なら値そのもの、スケジュールなら各段の値に行う（ε の値の検査と同じ時機。§2.1 の 1）。理由: 1 を超える倍率（ノイズを強める）も、探索を強めるラダーとして意味がある。値の検査を読む時点にそろえれば、使わない側の不正な値も見逃さない。依存: D1。
 - **D4. Actor は、NN 実行設定と Network の中身によらず、倍率を呼び出し情報に載せる。倍率を使うのはノイズを引く NoisyNet の部品だけで、ノイズを引かない準備の部品（`noisy.mode = mu_only`）と、NoisyNet の無い Network では、倍率は値に効かない。DQN 側は、倍率が効くかどうかを見た検証も WARN もしない。** 理由: [ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md) は、Actor・Learner・共通の実行処理が Noisy の有無で forward の挙動と設定の検証を切り替えないと決めている（§2.1 の 2）。効かない倍率に WARN を出すには、DQN 側が `noisy.mode` か NoisyNet の有無を見る必要があり、この判断に反する。`mu_only` の forward は、倍率がいくつでも μ だけの値で、倍率 1 のときと同じ値になる（置き換えではなく、掛ける相手のノイズの項が無い）。部品の側で WARN を出すかは §9 の 5。依存: D2、ADR 0048。
-- **D5. 倍率は、その forward を動かす方策の値を使う。** Q 側の forward には Actor の方策（`policy.*`）の倍率を、skip 側の forward（PRD106）には skip 側の方策の倍率を載せる。skip 側が Q 側と方策を共有するとき（`skip.policy.*` が無いか、方策が Greedy。§2.1 の 4）は同じ倍率になり、skip 専用の方策があるときは、その方策の倍率を使う。skip 専用の方策の倍率は、ほかの方策の値と同じく主の方策から写り、`skip.policy.noisy_gain`・`skip.policy.spatial.noisy_gain.first/last` を書いたものだけが上書きされる（§2.1 の 4）。倍率が効くかは、forward ごとにその NN 実行設定で決まる（D4）。PRD106 の `shared` では Q 側と同じ NN 実行設定、`dedicated` では `skip.nn_forward_key` が指す NN 実行設定で、Q 側の設定とは独立に効く。理由: 倍率は方策の値である（D1）。skip 側の ε も、skip 側の方策の値を使っている。依存: D1、D4、PRD106 の実装（§10）。
+- **D5. 倍率は、その forward を動かす方策の値を使う。** Q 側の forward には Actor の方策（`policy.*`）の倍率を、skip 側の forward（RFD0106）には skip 側の方策の倍率を載せる。skip 側が Q 側と方策を共有するとき（`skip.policy.*` が無いか、方策が Greedy。§2.1 の 4）は同じ倍率になり、skip 専用の方策があるときは、その方策の倍率を使う。skip 専用の方策の倍率は、ほかの方策の値と同じく主の方策から写り、`skip.policy.noisy_gain`・`skip.policy.spatial.noisy_gain.first/last` を書いたものだけが上書きされる（§2.1 の 4）。倍率が効くかは、forward ごとにその NN 実行設定で決まる（D4）。RFD0106 の `shared` では Q 側と同じ NN 実行設定、`dedicated` では `skip.nn_forward_key` が指す NN 実行設定で、Q 側の設定とは独立に効く。理由: 倍率は方策の値である（D1）。skip 側の ε も、skip 側の方策の値を使っている。依存: D1、D4、RFD0106 の実装（§10）。
 - **D6. ステージ 1 の設定は、スキップなしの構成に、ラダーの両端 first = 1（今と同じ強さ）・last = 0（ノイズなし）・`spatial.scale = linear` を足す。** ε は今の `phased` を、ラダーの両端に同じスケジュールとして書いて保つ（`spatial.enabled = true` にすると ε もラダーの両端で決まるので、両端を同じにして全 lane を同じ ε にする。スキップなしの構成の Train Actor も、合算と同じく `spatial.enabled = false`・ε は `phased`。[実効設定の写し](../experiments/default-dqn/atari/config/run_20261025-231207_a5_qb_aln_btreps_s1.txt)）。skip は無効なので、skip 側の forward の倍率（D5）はステージ 1 では使わず、受入 2 の単体テストで確かめる。理由: lane の半分ほどがノイズの弱い動き方になり、ノイズの無い lane も含まれる。ε の扱いは今と同じにして、ノイズのラダーだけを比べる。2026-10-31 に合算の構成から置き直した（qbert の TempoRL の調査を区切ったので、比べる相手を TempoRL の無いスキップなしの 2 seed にする。決まった失敗の道はスキップなしにもある。§2.2 の 1）。依存: D1、§2.1 の 1、§2.2 の 1。
 
 ## 5. 実装契約
@@ -88,7 +88,7 @@ qbert のサンプル効率優先の構成（BTR に寄せた構成）では、�
 - `spatial.enabled = true` のときは両端のラダーを使い、`policy.noisy_gain` は評価せず保持する。`false` のときは `policy.noisy_gain` を使い、両端は評価せず保持する。使わない側の値に WARN は出さない。値の検査（D3）は両側に行う（ε・UQE と同じ規則。§2.1 の 1）。
 - skip 専用の方策の `skip.policy.noisy_gain`・`skip.policy.spatial.noisy_gain.first/last` も同じ型・値域・規則で、skip 側の forward に使う（D5）。書かなければ、表の既定（1）ではなく、主の方策の同じキーの値が写る（ほかの `skip.policy.*` と同じ。§2.1 の 4）。表の既定は主の方策（`policy.*`）の既定である。
 - `spatial.scale = log` の扱いは ε と同じ（`max(端, 1e-4)` の列を指定端へ伸縮し、0 の端は 0 のまま）。
-- 既定は C++ 側に置き、`agent.txt` にも `?=` で書く（`[train]` と `@eval_base` の `policy.*` の下。PRD104・PRD106 の Actor の skip の設定と同じ置き方）。`skip.policy.*` の下には書かない（書くと skip 専用の方策ができて、skip 側の方策の共有が変わる。§2.1 の 4）。
+- 既定は C++ 側に置き、`agent.txt` にも `?=` で書く（`[train]` と `@eval_base` の `policy.*` の下。RFD0104・RFD0106 の Actor の skip の設定と同じ置き方）。`skip.policy.*` の下には書かない（書くと skip 専用の方策ができて、skip 側の方策の共有が変わる。§2.1 の 4）。
 
 設定例（コロン記法。ステージ 1。ε は今の `phased` を両端に同じく書く）:
 
@@ -172,16 +172,16 @@ forward（Q 側と skip 側）ごとに、その forward の NN 実行設定と�
 
 - 群: スキップなしの構成（`run_20261025-231207_a5_qb_aln_btreps_s1` と同じ）に D6 の設定を足した qbert、サンプル効率優先、seed 1、50M。
 - 読む値:
-  1. 50M の checkpoint の Greedy の評価（200 ゲーム）: 全体の 8 面突破率と、同じ得点で終わる道の集中（PRD106 D9 の決め方。集中した面ごとに、最多の同じ得点の本数）。
+  1. 50M の checkpoint の Greedy の評価（200 ゲーム）: 全体の 8 面突破率と、同じ得点で終わる道の集中（RFD0106 D9 の決め方。集中した面ごとに、最多の同じ得点の本数）。
   2. 学習側の 8 面突破率が初めて 50% を超える 2.5M の窓。
-  3. 最初の 10M の学習側の平均点（PRD104 §2.2 と同じ 3 窓）と、5.05M・30〜45M の ε=0 の評価。
+  3. 最初の 10M の学習側の平均点（RFD0104 §2.2 と同じ 3 窓）と、5.05M・30〜45M の ε=0 の評価。
   4. `47_agent_noisy` の行動の食い違いの割合（`10_action_disagreement_ratio`）と、倍率の lane 平均・最小・最大（`12_gain`・`13_gain_lane_min`・`14_gain_lane_max`）。
 - 比べる相手: スキップなしの seed 1（`run_20261025-231207_a5_qb_aln_btreps_s1`）・seed 2（`run_20261028-132638_a5_qb_aln_btreps_s2`）。ビルドはどちらも本書の前。
 - 見込みありの読み: 同じ得点で終わる道の集中が、スキップなしの seed 1・seed 2 のどちらよりも小さく、全体の 8 面突破率が下がっていない。1 seed なので合否ではない。
 
 ### 受入（外から観測できるもの）
 
-1. 既定で今と同一: 本書の前のビルドと設定一式を着手前に snapshot し、[PRD103 の検証資材](../../src/core/base/testdata/rfd0103/README.md) の 6 構成と、skip 有効の LunarLander に `run.@noisy` を足した構成（NoisyNet と skip の両方を通す。PRD106 の受入 1 と同じ構成）の metrics checksum が、前後のビルドで一致する（同じ短縮条件と比べ方）。
+1. 既定で今と同一: 本書の前のビルドと設定一式を着手前に snapshot し、[RFD0103 の検証資材](../../src/core/base/testdata/rfd0103/README.md) の 6 構成と、skip 有効の LunarLander に `run.@noisy` を足した構成（NoisyNet と skip の両方を通す。RFD0106 の受入 1 と同じ構成）の metrics checksum が、前後のビルドで一致する（同じ短縮条件と比べ方）。
 2. 単体テスト:
    - 部品ごと: Head の射影（`LinearProjectionModule`）と Body の Noisy `Linear` のそれぞれを、ノイズを引く準備で単体に呼ぶ（活性化を含まない、ノイズを持つ線形の層だけを呼ぶ）。同じ入力・同じノイズの引き方で、行の倍率を 0・0.5・1 にすると、倍率 0 の行は `mu_only` の準備の出力と一致し、倍率 1 の行は倍率を省いた出力と一致し、倍率 0.5 の行は両者のちょうど中間（各出力について、倍率 0 の値との差が倍率 1 のときの半分）になる。
    - Network: Body と Head の両方にノイズのある Network（ノイズの層の後ろに活性化を含む）で、lane ごとに倍率 0 と 1 を与えると、倍率 0 の lane の全行は `mu_only` の forward の値と、倍率 1 の lane の全行は倍率を省いた forward の値と一致する。IQN の τ の行がある forward でも、lane の倍率がその lane の全行に当たる（同じ一致で確かめる）。
@@ -219,13 +219,13 @@ forward（Q 側と skip 側）ごとに、その forward の NN 実行設定と�
 
 ## 10. 依存と順序
 
-- [PRD084](done/0084_noisynet_10rfd.md)（NoisyNet）と [PRD101](done/0101_exploration_schedule_profiled_value_10rfd.md)（ProfiledValue と spatial のラダー）の実装に乗る。
-- D5（skip 側の forward の倍率）は [PRD106](done/0106_temporl_skip_forward_noise_key_10rfd.md) の実装と同じ forward に触れる。どちらを先に実装しても、skip 側の forward の呼び出し情報に skip 側の方策の倍率が載るようにする。
-- ステージ 1 の比べる相手のスキップなしの 2 seed は、どちらも 50M まで完走している（終了 checkpoint の Greedy の評価は、[PRD104 段 0 の実験記録](../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md) の探索ブロック 01（seed 1）と 03（seed 2）にある）。
+- [RFD0084](done/0084_noisynet_10rfd.md)（NoisyNet）と [RFD0101](done/0101_exploration_schedule_profiled_value_10rfd.md)（ProfiledValue と spatial のラダー）の実装に乗る。
+- D5（skip 側の forward の倍率）は [RFD0106](done/0106_temporl_skip_forward_noise_key_10rfd.md) の実装と同じ forward に触れる。どちらを先に実装しても、skip 側の forward の呼び出し情報に skip 側の方策の倍率が載るようにする。
+- ステージ 1 の比べる相手のスキップなしの 2 seed は、どちらも 50M まで完走している（終了 checkpoint の Greedy の評価は、[RFD0104 段 0 の実験記録](../experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md) の探索ブロック 01（seed 1）と 03（seed 2）にある）。
 
 ## 11. 参照
 
-- [PRD084 NoisyNet](done/0084_noisynet_10rfd.md)、[PRD101 探索と学習のスケジュール](done/0101_exploration_schedule_profiled_value_10rfd.md)、[PRD106](done/0106_temporl_skip_forward_noise_key_10rfd.md)、[PRD104](done/0104_temporl_skip_auxiliary_only_10rfd.md)、[184_eval_session_step_trace](0184_eval_session_step_trace_10rfd.md)
+- [RFD0084 NoisyNet](done/0084_noisynet_10rfd.md)、[RFD0101 探索と学習のスケジュール](done/0101_exploration_schedule_profiled_value_10rfd.md)、[RFD0106](done/0106_temporl_skip_forward_noise_key_10rfd.md)、[RFD0104](done/0104_temporl_skip_auxiliary_only_10rfd.md)、[0184_eval_session_step_trace](0184_eval_session_step_trace_10rfd.md)
 - [ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)、[ADR 0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)
 - [130 ニューラルネットワーク（設計文書）](../design/130_neural_networks.jp.md)、[200 DQN 系列（設計文書）](../design/200_dqn_agents.jp.md)
 - [NoisyNet の観測（wiki）](../wiki/mechanisms/noisynet.md)、[Qbert（wiki）](../wiki/subjects/qbert.md)、[2026-09-25 の実験記録](../experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md)、[2026-10-11 の実験記録](../experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md)

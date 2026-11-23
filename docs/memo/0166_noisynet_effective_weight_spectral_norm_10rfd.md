@@ -11,7 +11,7 @@ NoisyNet のノイズ込み重み \(W_\varepsilon=\mu^w+\sigma^w\odot\varepsilon
 
 さらに、μ-only で ε を 0 にすると、摂動だけでなく正規化分母も変わる。これは推定を十分正確にした後にも残る性質である。評価・追加診断を μ-only にする 084 の契約とどう組み合わせるかを含め、アルゴリズムとして別途裁定する必要がある。
 
-本 PRD は、ノイズ込み重みを正規化する具体的な必要性と、そのための推定・状態・評価・検証契約を検討する。SN の演算自体が原理的に不可能だと判断した記録ではない。084 は μ 正規化 \(\mathcal{S}(\mu^w)+\sigma^w\odot\varepsilon^w\) までで独立して完了できる。
+本 RFD は、ノイズ込み重みを正規化する具体的な必要性と、そのための推定・状態・評価・検証契約を検討する。SN の演算自体が原理的に不可能だと判断した記録ではない。084 は μ 正規化 \(\mathcal{S}(\mu^w)+\sigma^w\odot\varepsilon^w\) までで独立して完了できる。
 
 ## 2. 現行契約とレビューの根拠
 
@@ -71,11 +71,11 @@ Actor・target・追加診断は u/v を更新しない。ただし、正規化�
 | 既存 Linear / Head への NoisyNet、ノイズの保持・共有・役割分離 | 084 |
 | μ を対象とする既存 `spectral` / `spectral_cap` と NoisyNet の合成 | 084 |
 | FP32 / AMP 継承、σ の weight decay、μ-only 評価、既存追加診断の μ-only | 084 に残す |
-| \(\mathcal{S}(\mu^w+\sigma^w\odot\varepsilon^w)\) | 本暫定 PRD |
-| ノイズ込み重みに対応する推定・状態・μ-only の再検討 | 本暫定 PRD |
+| \(\mathcal{S}(\mu^w+\sigma^w\odot\varepsilon^w)\) | 本暫定 RFD |
+| ノイズ込み重みに対応する推定・状態・μ-only の再検討 | 本暫定 RFD |
 | ノイズ込み SN の完了待ち | 084 には要求しない |
 
-084 には正規化対象の切替設定や、未実装のノイズ込み SN を選ぶ予約値を追加しない。本 PRD の採用時に、設定と公開契約の変更を別途裁定する。
+084 には正規化対象の切替設定や、未実装のノイズ込み SN を選ぶ予約値を追加しない。本 RFD の採用時に、設定と公開契約の変更を別途裁定する。
 
 ## 5. 別途裁定する事項
 
@@ -113,9 +113,9 @@ Actor・target・追加診断は u/v を更新しない。ただし、正規化�
 
 ## 8. 参照
 
-- [PRD 084: NoisyNet](done/0084_noisynet_10rfd.md): μ 正規化を残す独立した先行課題。
+- [RFD0084: NoisyNet](done/0084_noisynet_10rfd.md): μ 正規化を残す独立した先行課題。
 - [NN 設計](../design/130_neural_networks.jp.md): 現行 SN の計算・状態・診断契約。
 - [ADR 0032](../adr/0032-spectral-norm-self-impl-buffer-semantics.md): 現行 SN の近似・buffer・更新条件を選んだ理由。
-- [SN PRD 065](done/0065_nn_spectral_norm_10rfd.md): 既存 SN の受け入れ条件。
+- [SN RFD0065](done/0065_nn_spectral_norm_10rfd.md): 既存 SN の受け入れ条件。
 - [SN 推定の実装](../../src/core/base/src/nn_impl.cpp)、[module からの更新ゲート](../../src/core/base/src/nn_modules.cpp)、[Atari 設定](../../apps/runner/config/Atari.txt)。
 - 2026-10-02 のレビュー指摘 A.1: §2.2 の数値の提供元。再現用資材の保存は正式化前の作業として残す。

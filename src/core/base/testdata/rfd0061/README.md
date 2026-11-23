@@ -1,6 +1,6 @@
-# PRD061 検証
+# RFD0061 検証
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 Actor カタログの公開契約は通常テストの `[rfd0061]` で検証する。設定からの Actor 生成、scalar 購読、学習 counts、独立 RNG、IQN の異なる K、clone/shared、未定義参照、dormant、EvalPanel の参照タグ、Agent 固有の検証を含む。
 
@@ -12,9 +12,9 @@ core\anet-core\bin\Debug\anet-core-test.exe "[rfd0061]"
 
 ## 移行比較
 
-`[rfd0061-capture]` は隠しテストで、PRD072 の固定17入力を現用設定に適用し、解決済み文字列値と Agent constructor の既定補完後の typed 設定を JSON に保存する。出力先は環境変数 `ANET_RFD0061_OUTPUT` で指定する。既存の JSON は上書きしない。Env・Agent の学習資源は生成しない。
+`[rfd0061-capture]` は隠しテストで、RFD0072 の固定17入力を現用設定に適用し、解決済み文字列値と Agent constructor の既定補完後の typed 設定を JSON に保存する。出力先は環境変数 `ANET_RFD0061_OUTPUT` で指定する。既存の JSON は上書きしない。Env・Agent の学習資源は生成しない。
 
-変更前、P1 後、P2 後を異なる出力先へ採取する。`compare_p1.py` は Runner 設定ルートの改名前後の全キー・文字列値および typed 設定を比較する。`compare_typed.py` は旧方策からカタログへの対応表に従い、未使用フィールドも含めて旧 typed 値を比較し、新規カタログフィールドを別途報告する。固定17入力の欠落や既存値の差分は失敗とする。PRD072 の golden は更新しない。
+変更前、P1 後、P2 後を異なる出力先へ採取する。`compare_p1.py` は Runner 設定ルートの改名前後の全キー・文字列値および typed 設定を比較する。`compare_typed.py` は旧方策からカタログへの対応表に従い、未使用フィールドも含めて旧 typed 値を比較し、新規カタログフィールドを別途報告する。固定17入力の欠落や既存値の差分は失敗とする。RFD0072 の golden は更新しない。
 
 今回の採取済み入力に対する再比較:
 

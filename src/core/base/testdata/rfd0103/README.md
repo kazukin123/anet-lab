@@ -1,8 +1,8 @@
-# PRD103 検証資材
+# RFD0103 検証資材
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
-正本は[PRD103](../../../../../docs/memo/done/0103_temporl_reference_alignment_10rfd.md)、実施記録は[実装メモ](../../../../../docs/memo/done/0103_temporl_reference_alignment_20impl.md)。実行はrepo rootのPowerShell。短縮受入から長時間の学習効果を判断しない。
+正本は[RFD0103](../../../../../docs/memo/done/0103_temporl_reference_alignment_10rfd.md)、実施記録は[実装メモ](../../../../../docs/memo/done/0103_temporl_reference_alignment_20impl.md)。実行はrepo rootのPowerShell。短縮受入から長時間の学習効果を判断しない。
 
 ## 入力と等価性
 
@@ -59,9 +59,9 @@
 
 ## 性能
 
-Release、Atari qbert+BTR、skip ON、N128/B256、BF16、prefetch、warmup256、RR1、capacity4096、82176 experience、評価停止。merge→split→split→mergeの4 Runで、`90_perf/98_prd098_time`のlearn step64～256の差を192で割る。比はsplit2本の合計／merge2本の合計。閾値は設けない。
+Release、Atari qbert+BTR、skip ON、N128/B256、BF16、prefetch、warmup256、RR1、capacity4096、82176 experience、評価停止。merge→split→split→mergeの4 Runで、`90_perf/98_rfd0098_time`のlearn step64～256の差を192で割る。比はsplit2本の合計／merge2本の合計。閾値は設けない。
 
-`performance-onoff`は同じ条件で、skip有効（merge）→無効→無効→有効の4 Runを測り、有効2本の合計／無効2本の合計を`on_off_ratio`、1.3以下かを`on_off_within_1_3`に残す。PRD098の受入4（有効/無効が1.3倍以内）をこの条件で測るためのもの。PRD098の検証資材の`performance`は、評価を止めるsessionの一覧を2026-10-24の解決済み設定（`greedy_dist`を含む）から取るので、今の設定では使えない。
+`performance-onoff`は同じ条件で、skip有効（merge）→無効→無効→有効の4 Runを測り、有効2本の合計／無効2本の合計を`on_off_ratio`、1.3以下かを`on_off_within_1_3`に残す。RFD0098の受入4（有効/無効が1.3倍以内）をこの条件で測るためのもの。RFD0098の検証資材の`performance`は、評価を止めるsessionの一覧を2026-10-24の解決済み設定（`greedy_dist`を含む）から取るので、今の設定では使えない。
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/rfd0103/run_current.py performance-onoff --label <新しいlabel>
@@ -92,9 +92,9 @@ Run は `.scratch/prd103/current/runs/` の `run_20261031-18*_t103_perf1031-*`�
 | 段 | 群 | seed・予算 | 読み方 |
 |---|---|---|---|
 | 1 | stop、merge+loss_weight0.3、merge+clip30（T2） | seed1・50M | 既存／実行中Runを使い段3の群を選ぶ |
-| 1' | GridMaze 6×10 | 実施済み3 seed・500k | PRDの結果を保持。再実行しない |
+| 1' | GridMaze 6×10 | 実施済み3 seed・500k | RFDの結果を保持。再実行しない |
 | 2 | merge、split、merge+kmax、skip epsilon-greedy（T10、spatial 0.3→0） | 3 seed・2M | policy報酬AUCとgreedy判断率・長さ別率 |
 | 3 | split、条件付きsplit+kmax、条件付きmerge seed2 | 各50M | kmaxは段2で基準以上、seed2は段1でばらつきが候補の場合だけ |
 | 4 | merge、T4非共有、T3畳み込み共有 | 2 seed・10M | 評価全体・評価7.5～10M・学習7.5～10Mと実時間 |
 
-既定採用の条件、ビルド差の扱い、機序の観察はPRD §7・§9に従う。split/kmaxの既定採用と性能閾値は未決のまま保持する。
+既定採用の条件、ビルド差の扱い、機序の観察はRFD §7・§9に従う。split/kmaxの既定採用と性能閾値は未決のまま保持する。

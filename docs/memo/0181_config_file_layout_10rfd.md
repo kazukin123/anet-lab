@@ -1,4 +1,4 @@
-# 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ）暫定 PRD
+# 設定ファイルの配置（Agent 全体・具象 Agent・機能 include・フォルダ）暫定 RFD
 
 > 2026-11-17 番号を 907 から 181 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 907 へ振り直した（PRD114）。
@@ -16,10 +16,10 @@
 - 規約の正本は [020 §3.6](../design/020_user_guide_run.jp.md#36-どのファイルに何を書くか) の表（ファイルの役割と演算子）と [impl.md の「設定ファイル」](../quality/impl.md#設定ファイル)（演算子とプロファイル境界）だけで、Agent の層も機能の層も無い。
 - `agent.txt`（413 行）に MuZeroAgent・DefaultDQNAgent・RainbowAgent・ImageClsAgent の 4 つが節で同居する。DefaultDQNAgent の節は 59〜301 行で、うち約 170 行は NN 実行設定の説明である。
 - `common.txt` に `DefaultDQNAgent.@fast` / `@balance` / `@heavy`（39〜48 行）が紛れている。表では切替プロファイルは `agent.txt` の役割である。
-- PRD098 の `skip.txt`（44 行）は、1 つの機能のために Agent のプロファイル・`net.block`・`metrics.scalar.@skip`・`run.@skip*`・`app.eval_trace_panel.columns` の 5 つの関心を 1 ファイルに置き、`_main.txt` が読む。`run.@` を共通ファイルで定義するのも表の外である。表では `run.@` は `<Env>.txt` の所有で、実際も Atari 161 本・DropMerge 84 本・LunarLander 14 本が env 側にあり、`agent.txt` には 1 本も無い。
-- 同じ機能系の先例は関心ごとの分散である。Munchausen は `DefaultDQNAgent.@munchausen`（agent.txt 82〜84 行）、`metrics.scalar.@munchausen`（metrics_scalar.txt 303〜313 行）、`run.@munch`（Atari・LunarLander・DropMerge）。PRD098 §5.6 の設定例も `DefaultDQNAgent.@skip` を Agent 側に置き、env の `run.@skip` がチェーンを書き直して選ぶ形である（チェーンへ項を足す記法は無く、`X.$ += …` と書くと `X.$+` という葉になって黙って無視される。2026-10-24 に `skip.txt` の `run.@skip_concat` で判明。§8 D12）。
+- RFD0098 の `skip.txt`（44 行）は、1 つの機能のために Agent のプロファイル・`net.block`・`metrics.scalar.@skip`・`run.@skip*`・`app.eval_trace_panel.columns` の 5 つの関心を 1 ファイルに置き、`_main.txt` が読む。`run.@` を共通ファイルで定義するのも表の外である。表では `run.@` は `<Env>.txt` の所有で、実際も Atari 161 本・DropMerge 84 本・LunarLander 14 本が env 側にあり、`agent.txt` には 1 本も無い。
+- 同じ機能系の先例は関心ごとの分散である。Munchausen は `DefaultDQNAgent.@munchausen`（agent.txt 82〜84 行）、`metrics.scalar.@munchausen`（metrics_scalar.txt 303〜313 行）、`run.@munch`（Atari・LunarLander・DropMerge）。RFD0098 §5.6 の設定例も `DefaultDQNAgent.@skip` を Agent 側に置き、env の `run.@skip` がチェーンを書き直して選ぶ形である（チェーンへ項を足す記法は無く、`X.$ += …` と書くと `X.$+` という葉になって黙って無視される。2026-10-24 に `skip.txt` の `run.@skip_concat` で判明。§8 D12）。
 
-PRD098 の skip は、本書とは別に案 A（関心ごとに既存ファイルへ分散。[PRD098 §5.6](0098_temporl_skip_policy_10rfd.md) の設定例の形）で戻す。本書が通れば機能ファイルへ 2 度目の移動になるが、44 行である。
+RFD0098 の skip は、本書とは別に案 A（関心ごとに既存ファイルへ分散。[RFD0098 §5.6](0098_temporl_skip_policy_10rfd.md) の設定例の形）で戻す。本書が通れば機能ファイルへ 2 度目の移動になるが、44 行である。
 
 ## 2. 現状（2026-10-24 の調査）
 
@@ -27,7 +27,7 @@ PRD098 の skip は、本書とは別に案 A（関心ごとに既存ファイ�
 
 | 種別 | ファイル（行数） |
 |---|---|
-| 共通 | `_main.txt` 8（include 一覧）、`common.txt` 169、`agent.txt` 413、`nn.txt` 382、`nn_cnx.txt` 214、`metrics_scalar.txt` 366、`metrics_image.txt` 115、`skip.txt` 44（PRD098） |
+| 共通 | `_main.txt` 8（include 一覧）、`common.txt` 169、`agent.txt` 413、`nn.txt` 382、`nn_cnx.txt` 214、`metrics_scalar.txt` 366、`metrics_image.txt` 115、`skip.txt` 44（RFD0098） |
 | env | `Atari.txt` 1,429、`DropMerge.txt` 1,694、`ImageCls.txt` 699、`LunarLander.txt` 480、`GridMaze.txt` 247、`GridMaze_muzero.txt` 258、`CartPole.txt` 86、`DropMerge_optuna.txt` 11、`LunarLander_cpu.txt` 2 |
 | workspace | `_workspace_template.txt` 11（workspace の `config/_main.txt` の雛形。env の include だけ） |
 
@@ -45,12 +45,12 @@ MuZeroAgent 7〜58 行、DefaultDQNAgent 59〜301 行（ALGO プロファイル 
 
 ### 2.5 `metrics_scalar.txt` のプロファイル
 
-`@full` 113 行、`@baseline` 90、`@gradnoise` 15、`@replay_fit` 13、`@noisy` 11、`@iqn_search_p0` 10、`@munchausen` 6、`@min` 5、`@attention` 4。機能ごとのプロファイルがカタログに並ぶ形が先例で、群番号（`50_agent_skip` など）の衝突は 1 ファイルに並んでいるから見つかる（PRD098 の起草で 53 の衝突を見つけた）。
+`@full` 113 行、`@baseline` 90、`@gradnoise` 15、`@replay_fit` 13、`@noisy` 11、`@iqn_search_p0` 10、`@munchausen` 6、`@min` 5、`@attention` 4。機能ごとのプロファイルがカタログに並ぶ形が先例で、群番号（`50_agent_skip` など）の衝突は 1 ファイルに並んでいるから見つかる（RFD0098 の起草で 53 の衝突を見つけた）。
 
 ### 2.6 道具
 
 - [check_default_leaves.py](../../src/core/base/testdata/rfd0072/): 演算子の規約検査。
-- 7 env の解決済み設定（全キーと文字列値）の前後比較。PRD098 の実装で `config-equivalence.json` として使った（[prd098 の README](../../src/core/base/testdata/rfd0098/README.md)）。
+- 7 env の解決済み設定（全キーと文字列値）の前後比較。RFD0098 の実装で `config-equivalence.json` として使った（[rfd0098 の README](../../src/core/base/testdata/rfd0098/README.md)）。
 - Run の `json/config_data.json` と `config/config_data.txt`（Run 設定の正本）。
 
 ## 3. ゴールと非ゴール
@@ -79,7 +79,7 @@ MuZeroAgent 7〜58 行、DefaultDQNAgent 59〜301 行（ALGO プロファイル 
 4. フォルダ。平ら（`apps/runner/config/` 直下）。フォルダ化は §7。
 5. `_main.txt` は L0〜L2 を include する。L3 は L2 から include する。`_workspace_template.txt` は変えない。
 6. 演算子の規約は変えない。L2・L3 は共通ファイル扱い。
-7. 移行。`common.txt` の `DefaultDQNAgent.@fast/@balance/@heavy` を `DefaultDQNAgent.txt` へ。`agent.txt` を 4 つに分ける。PRD098 の skip（案 A の後の形）を `DefaultDQNAgent_skip.txt` へ。1 回で行い、§6 の検査で解決値の不変を確かめる。
+7. 移行。`common.txt` の `DefaultDQNAgent.@fast/@balance/@heavy` を `DefaultDQNAgent.txt` へ。`agent.txt` を 4 つに分ける。RFD0098 の skip（案 A の後の形）を `DefaultDQNAgent_skip.txt` へ。1 回で行い、§6 の検査で解決値の不変を確かめる。
 8. 文書。020 §3.6 の表の `agent.txt` の行を L1・L2・L3 の 3 行にし、名前の規則を足す。impl.md の「設定ファイル」は演算子だけを持ち、配置は 020 を指す。CONTEXT.md に新語は足さない（§8 D9）。
 
 設定例（コロン記法）:
@@ -107,7 +107,7 @@ run.@skip : DefaultDQNAgent.skip.max_length = 7
 |---|---|---|
 | 3 層の表 | skip.txt の置き場を表で答えられず、2 点（機能ファイル、共通の `run.@`）が表の外になった | 作る |
 | 機能ファイルの境界（プロファイルと専用の配線・部品だけ） | metrics を同居させると群番号の衝突が見えない。`run.@` を同居させると env 所有の規則が崩れる。先例（Munchausen）は分散 | 作る |
-| metrics をカタログに残す | PRD098 で群番号 53 の衝突を 1 ファイルで見つけた | 残す |
+| metrics をカタログに残す | RFD0098 で群番号 53 の衝突を 1 ファイルで見つけた | 残す |
 | 平らなフォルダ | include は隣解決で届く。`_workspace_template.txt`・検索・設計文書の相対リンクがそのまま | 平ら |
 | `common.txt` の Agent プロファイルの移動 | 表の規約（切替は `agent.txt`）と食い違ったまま 3 本ある | 動かす |
 | 1 回の移行 | 機械的な移動で、7 env の解決値一致で守れる | 1 回 |
@@ -117,7 +117,7 @@ run.@skip : DefaultDQNAgent.skip.max_length = 7
 1. 7 env（`_workspace_template.txt` が include 候補に挙げる env ファイル）の解決済み設定が、全キーと文字列値で移行前後一致する。
 2. `check_default_leaves.py` が errors=0。
 3. 既存の bat と CLI（`run.$` と葉の上書きだけ）が変更なしで同じ `config_data.txt` を出す。
-4. 020 §3.6 の表で、PRD098 の全キー（`skip.*`・`learner.skip.*`・`actor.[key].skip.policy.*`・`metrics.scalar.@skip`・`run.@skip*`・trace 列）の置き場が 1 行ずつ答えられる。
+4. 020 §3.6 の表で、RFD0098 の全キー（`skip.*`・`learner.skip.*`・`actor.[key].skip.policy.*`・`metrics.scalar.@skip`・`run.@skip*`・trace 列）の置き場が 1 行ずつ答えられる。
 5. `skip.txt` は残らない。`_main.txt` の include は L0〜L2 だけ。
 6. 設計文書から設定ファイルへの相対リンクが切れていない。
 
@@ -147,14 +147,14 @@ run.@skip : DefaultDQNAgent.skip.max_length = 7
 
 ## 9. 依存と順序
 
-1. PRD098 の案 A（`skip.txt` の関心ごとの分散）が先。設定のウォークスルーの後に、設定関連の見直しとしてまとめて依頼する（2026-10-23 の裁定）。
+1. RFD0098 の案 A（`skip.txt` の関心ごとの分散）が先。設定のウォークスルーの後に、設定関連の見直しとしてまとめて依頼する（2026-10-23 の裁定）。
 2. 本書はグリル後に実装する。[999 ソース配置](0182_source_layout_10rfd.md)と同じ「具象 Agent」の単位を使う（設定の L2・L3 とソースの `src/agents/<agent>/`）。順序は独立。
 3. [999 設定 root 所有](0155_config_root_ownership_alignment_10rfd.md)は root 名の話で、本書の前でも後でもよい。
 
 ## 10. 再確認ポイント
 
 - 行番号・行数（2026-10-24）。`agent.txt` の節境界、`common.txt` の Agent プロファイル。
-- 7 env 比較の道具の所在と作り方（PRD098 の `run_validation.py` が `resolved-before/<env>.json` を作った手順）。
+- 7 env 比較の道具の所在と作り方（RFD0098 の `run_validation.py` が `resolved-before/<env>.json` を作った手順）。
 - `app.$` のチェーンにプロファイルを足せるか（D8）。足せても書き直しであり、追加記法は無い（D12）。
 - `check_default_leaves.py` が `X.$+` のような読まれないキーを検出するか（D12）。
 
@@ -163,6 +163,6 @@ run.@skip : DefaultDQNAgent.skip.max_length = 7
 - [020 §3.6 どのファイルに何を書くか](../design/020_user_guide_run.jp.md#36-どのファイルに何を書くか)
 - [impl.md 設定ファイル](../quality/impl.md#設定ファイル)
 - [config.cpp](../../src/core/base/src/config.cpp)（include の解決）
-- [PRD098 §5.6](0098_temporl_skip_policy_10rfd.md)、`apps/runner/config/skip.txt`、`agent.txt`、`common.txt`
+- [RFD0098 §5.6](0098_temporl_skip_policy_10rfd.md)、`apps/runner/config/skip.txt`、`agent.txt`、`common.txt`
 - [999 設定 root 所有](0155_config_root_ownership_alignment_10rfd.md)、[999 ソース配置](0182_source_layout_10rfd.md)
 - [059](done/0059_config_concept_tree_alignment_10rfd.md)、[072](done/0072_config_selection_final_value_10rfd.md)、[061](done/0061_eval_slot_policy_override_10rfd.md)

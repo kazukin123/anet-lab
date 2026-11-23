@@ -1,4 +1,4 @@
-# 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 暫定 PRD
+# 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 暫定 RFD
 
 > 2026-11-17 番号を 909 から 180 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 909 へ振り直した（PRD114）。
@@ -13,7 +13,7 @@
 
 問題は 2 つある。
 
-1. 候補が Claude Code の memory にだけあり、Codex からも、ほかの PRD づくりからも引けない。
+1. 候補が Claude Code の memory にだけあり、Codex からも、ほかの RFD づくりからも引けない。
 2. 3 か月のあいだにコードが変わり、どれが今も残っているかが分からない（§2）。
 
 ### ゴール
@@ -23,7 +23,7 @@
 
 ### 非ゴール
 
-- 監査に性能の観点を足すこと。退ける案は「anet-audit に perf の観点を足して台帳に載せる」案で、台帳の観点の集合と巡回の順を変える別の関心になる。本当の制約ではないので、性能の候補が増え続けると分かったら別の PRD で扱う。
+- 監査に性能の観点を足すこと。退ける案は「anet-audit に perf の観点を足して台帳に載せる」案で、台帳の観点の集合と巡回の順を変える別の関心になる。本当の制約ではないので、性能の候補が増え続けると分かったら別の RFD で扱う。
 - 5 件以外の性能の改善（GPU の計算の予算、replay の Push の細かい最適化など）。
 
 ## 2. 現状（2026-10-22 に確認したこと）
@@ -33,8 +33,8 @@
 | # | 2026-07 の観察 | 2026-10-22 の今のコード |
 | --- | --- | --- |
 | 1 | ImageCls の Learner が、1 回の更新で `loss.item`・`accuracy.item`・`clip_grad_norm_` の 3 回、GPU と同期する。DQN 側の、まとめて処理して値の取り出しを後回しにする書き方を移す案 | `core/anet-core/src/image_cls_agent.cpp` に `.item` の呼び出しは無い。`clip_grad_norm_` は 401 行に残る（戻り値を受けていないが、同期するかは要確認） |
-| 2 | TraceSink が、行動を選ぶたびに常に有効で、層ごとに切り出して複製している（可視化を使っていないときも）。録画中だけにする案 | `TraceSink` という名前は今のコードに無い。network の途中の値の取り出しは `NetworkForwardCapture`（`core/anet-core/include/anet/nn.hpp`）と、PRD 093 の capture 要求の明示渡しに変わっている。常に有効かは要確認 |
-| 3 | `VectorizedDiscreteBatchEnv::Step` が、env ごとに `fill_` を 8 回と `actions[i].item` を呼び、step のたびに StepResult を全部確保する（既知の TODO は、使い回す修正） | `core/anet-core/src/env.cpp` の `VectorizedDiscreteBatchEnv::Step`（758 行から）に、env ごとの `actions[i].item<int64_t>()` と、`done`・`truncated`・`episode_start`・`reward` などへの `fill_` が残る。StepResult の確保の仕方は要確認（PRD 097 で遷移の結果を Step の結果で運ぶ形に変わった） |
+| 2 | TraceSink が、行動を選ぶたびに常に有効で、層ごとに切り出して複製している（可視化を使っていないときも）。録画中だけにする案 | `TraceSink` という名前は今のコードに無い。network の途中の値の取り出しは `NetworkForwardCapture`（`core/anet-core/include/anet/nn.hpp`）と、RFD0093 の capture 要求の明示渡しに変わっている。常に有効かは要確認 |
+| 3 | `VectorizedDiscreteBatchEnv::Step` が、env ごとに `fill_` を 8 回と `actions[i].item` を呼び、step のたびに StepResult を全部確保する（既知の TODO は、使い回す修正） | `core/anet-core/src/env.cpp` の `VectorizedDiscreteBatchEnv::Step`（758 行から）に、env ごとの `actions[i].item<int64_t>()` と、`done`・`truncated`・`episode_start`・`reward` などへの `fill_` が残る。StepResult の確保の仕方は要確認（RFD0097 で遷移の結果を Step の結果で運ぶ形に変わった） |
 | 4 | Double DQN でないとき、target network の forward を 2 回計算する | 要確認 |
 | 5 | `trainer.cpp` で step のたびに MetricsLogger を Flush する（当時の 170 行） | `core/anet-core/src/trainer.cpp` の Flush（168 行）は、学習ステップの while ループの後ろにあり、ループの中には無い。この関数を呼ぶ側が何 step ずつ回すかで頻度が決まるので、要確認 |
 
@@ -48,7 +48,7 @@
 
 | 項目 | 裁定 | 理由と再開条件 |
 | --- | --- | --- |
-| 監査に性能の観点を足す | 範囲外（別の関心） | §1 の非ゴール。性能の候補が増え続けると分かったら、anet-audit の観点の PRD として起こす |
+| 監査に性能の観点を足す | 範囲外（別の関心） | §1 の非ゴール。性能の候補が増え続けると分かったら、anet-audit の観点の RFD として起こす |
 | 5 件をまとめて 1 つの変更で直す | 不採用（暫定） | 件ごとに効き目と再現性への影響が違い、まとめると差を切り分けられない |
 
 ## 5. User Stories
@@ -64,7 +64,7 @@
 | 2 | 費用の測り方（どの構成・何 step・何 Run） | 実時間優先の Atari 構成と LunarLander の CPU 構成で、交互に回して比べる |
 | 3 | 直すものの範囲と順 | 測った費用の大きい順 |
 | 4 | 2 の「録画中だけ」の判定をどこで持つか | 録画の開始・終了を知っている側（決定点）で、capture の要求として渡す |
-| 5 | 3 の StepResult の使い回しと、PRD 097 の Step の結果の受け渡しの関係 | PRD 097 の契約を変えない範囲でだけ使い回す |
+| 5 | 3 の StepResult の使い回しと、RFD0097 の Step の結果の受け渡しの関係 | RFD0097 の契約を変えない範囲でだけ使い回す |
 
 ## 7. 成功の測り方と受入の目安
 
@@ -77,6 +77,6 @@
 
 ## 9. 参照
 
-- [095_llm_wiki_10prd.md](done/0095_llm_wiki_10rfd.md)
+- [0095_llm_wiki_10rfd.md](done/0095_llm_wiki_10rfd.md)
 - [リファクタリング観点](../quality/refactor.md)
-- [097_env_auto_reset_after_notification_10prd.md](done/0097_env_auto_reset_after_notification_10rfd.md)
+- [0097_env_auto_reset_after_notification_10rfd.md](done/0097_env_auto_reset_after_notification_10rfd.md)

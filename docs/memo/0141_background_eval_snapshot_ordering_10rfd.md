@@ -15,7 +15,7 @@
 eval worker 上の `EvalRunner::Sync()` / actor forward と LearnThread 上の learner update の順序は明示的に確定されていない。
 そのため、個々の forward/update が data race 無く決定論的に実行されても、eval が採点する network version は run 間で変わり得る。
 
-本 PRD の目的は、演算レベルの決定論とは別に、background eval の **時間的順序**と **network snapshot の一貫性**を
+本 RFD の目的は、演算レベルの決定論とは別に、background eval の **時間的順序**と **network snapshot の一貫性**を
 明文化し、`LearnEvent[n]` に対応する eval が明示的に確定した単一 network version だけを評価する契約を定めることである。
 
 本競合の適用範囲は次のとおりである。
@@ -124,7 +124,7 @@ clone 後の pass 内一貫性は保たれるが、`LearnEvent[n]` がどの ver
 1. `LearnEvent[n]` によって起動された snapshot eval は、明示的に確定した **単一 network version**だけを全 batch で使用する。
 2. eval に使用する network version の確定は、次 learner update との順序が定義された同期境界で行う。
 3. 同じ seed、config、入力、learner update 列では、同じ eval trigger が同じ network version を評価する。
-4. `backend.deterministic_algorithms` は演算レベル、本 PRD の snapshot 契約は application thread の時間的順序を担当する。
+4. `backend.deterministic_algorithms` は演算レベル、本 RFD の snapshot 契約は application thread の時間的順序を担当する。
 5. 現行の per-forward `shared_lock` / per-update `unique_lock` による memory safety は維持する。
 6. snapshot を使わず学習中 network を追従する eval を残す場合は、snapshot eval と混同しない明示的な mode / 契約として分離する。
 
@@ -157,12 +157,12 @@ clone 後の pass 内一貫性は保たれるが、`LearnEvent[n]` がどの ver
 
 ## Grill 候補（未決事項）
 
-以下は本 PRD 作成時点で未決の論点であり、後続の grill セッションで確定する。
+以下は本 RFD 作成時点で未決の論点であり、後続の grill セッションで確定する。
 
 - **G1. 解決方式の選択**: 候補 A / B / C の性能・互換性・API 影響を比較し、採用方式を確定する。
 - **G2. 機構を置く層**: ImageCls agent 層（actor `Sync()` 相当の snapshot copy）か、
   `EpisodeEvalObserver` / `EvalRunner` の共通層か。採用層によって適用範囲（ImageCls 限定か全 agent か）が変わる。
-  `134_network_lock_audit_10prd.md` との棲み分けもここで確定する。
+  `0134_network_lock_audit_10rfd.md` との棲み分けもここで確定する。
 - **G3. 候補 A の詳細設計**: clone network の所有権、複数 eval runner 時の同期順、
   TrainThread ブロック増分（= snapshot copy 時間）の許容量。
 - **G4. live-weight eval の扱い**: 候補 C を残すか。残す場合の config / metrics / mode 名での区別方法。
@@ -170,13 +170,13 @@ clone 後の pass 内一貫性は保たれるが、`LearnEvent[n]` がどの ver
 
 ## 既存ドキュメントとの責務分担
 
-- `003_eval_10prd.md` / `003_eval_20impl.md`: `EpisodeEvalObserver` と `EvalRunner`、`EpisodeEndEvent`、metrics の構造を扱う。
-  worker 内 `Sync()` を採用した既存構造は本 PRD の出発点とする（候補 A は `Sync()` の TrainThread 側移設を含むため、
+- `0003_eval_10rfd.md` / `0003_eval_20impl.md`: `EpisodeEvalObserver` と `EvalRunner`、`EpisodeEndEvent`、metrics の構造を扱う。
+  worker 内 `Sync()` を採用した既存構造は本 RFD の出発点とする（候補 A は `Sync()` の TrainThread 側移設を含むため、
   この構造の維持までは意味しない）。
-- `134_network_lock_audit_10prd.md`: network read/write、Actor clone/sync、load/save 等の排他と memory safety を広く監査する。
-  本 PRD は lock の有無ではなく、eval trigger と snapshot の時間的順序へ限定する。
-- ADR 0006: ATen/cuDNN の演算決定論を扱う。本 PRD は backend flag が対象としない application thread scheduling を扱う。
-- `034_imagecls_batch_input_10prd.md`: ImageCls の batch-native input、Dataset/Sampler/cacheを扱う。本問題の競合構造は034以前から存在し、034の実装範囲へ含めない。
+- `0134_network_lock_audit_10rfd.md`: network read/write、Actor clone/sync、load/save 等の排他と memory safety を広く監査する。
+  本 RFD は lock の有無ではなく、eval trigger と snapshot の時間的順序へ限定する。
+- ADR 0006: ATen/cuDNN の演算決定論を扱う。本 RFD は backend flag が対象としない application thread scheduling を扱う。
+- `0034_imagecls_batch_input_10rfd.md`: ImageCls の batch-native input、Dataset/Sampler/cacheを扱う。本問題の競合構造は034以前から存在し、034の実装範囲へ含めない。
 
 ## 検証方針
 
@@ -217,10 +217,10 @@ clone 後の pass 内一貫性は保たれるが、`LearnEvent[n]` がどの ver
 - ATen/cuDNNの決定論アルゴリズム選択やADR 0006の再設計。
 - eval accuracyのsample数、batch size、episode/pass終端、metrics集計方法。
 - network lock全経路の包括監査、load/save、可視化callbackの排他。
-- 本PRD作成時点での解決候補の最終選択およびコード実装。
+- 本RFD作成時点での解決候補の最終選択およびコード実装。
 
 ## 後続
 
-1. 本PRDを起点に、Grill 候補 G1〜G5 をgrillし、採用方式と適用範囲を確定する。
+1. 本RFDを起点に、Grill 候補 G1〜G5 をgrillし、採用方式と適用範囲を確定する。
 2. 採用方式確定後に実装メモを作成し、barrier制御の回帰テストから実装する。
-3. 本PRDの作成後は `034_imagecls_batch_input_10prd.md` のレビューへ戻る。
+3. 本RFDの作成後は `0034_imagecls_batch_input_10rfd.md` のレビューへ戻る。

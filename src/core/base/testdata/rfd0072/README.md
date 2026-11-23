@@ -1,6 +1,6 @@
-# PRD072 検証
+# RFD0072 検証
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 設定 resolver の固定17入力比較と、既定キー `?=` の検査の実行手順。いずれも通常の Debug ビルド済みで、リポジトリルートから実行する。
 
@@ -16,7 +16,7 @@
 
 入力定義・旧golden・新しい記録期待値は`core/anet-core/testdata/rfd0072/`で管理する。manifestの固定commitを含むGit履歴が必要。生成物は`.scratch/rfd0072-differential/profiled-<hash>/`（移行入力から計算したhash）。固定設定の原本と`migrate.py`で既定キーの`?=`へ書き換えた設定を別々に保持する。全キー・文字列値を旧goldenと比較し、解決記録・Run差分を`resolution/`の期待値と比較する。空のRun差分も明示検査する。値はキーでソートして厳密比較し、行順の差分は比較しない(dumpに重複キーはない)。`expected.py`は入力宣言・旧goldenの参照値から期待値を検証し、実行結果から自動更新しない。
 
-`prepare.py compare` は準備した `prepare.ROOT` を子プロセスの必須環境変数 `ANET_RFD0072_ROOT` に設定してテストを実行する。`prepare.py prepare` は準備だけを行い、親PowerShellの環境変数は設定しない。環境変数名はPythonの `PRD072_ROOT_ENV` とC++の `kPrd072RootEnv` で同じ文字列 `ANET_RFD0072_ROOT` を定義する。
+`prepare.py compare` は準備した `prepare.ROOT` を子プロセスの必須環境変数 `ANET_RFD0072_ROOT` に設定してテストを実行する。`prepare.py prepare` は準備だけを行い、親PowerShellの環境変数は設定しない。環境変数名はPythonの `RFD0072_ROOT_ENV` とC++の `kRfd0072RootEnv` で同じ文字列 `ANET_RFD0072_ROOT` を定義する。
 
 テストを直接実行する場合は、上の `prepare` の成功後、同じ入力から求めた `prepare.ROOT` を親PowerShellへ設定して実行する。別hashのディレクトリを選ばないよう、最新ディレクトリの検索は使わない。
 

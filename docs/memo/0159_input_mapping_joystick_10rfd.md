@@ -1,4 +1,4 @@
-# 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel）暫定 PRD
+# 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel）暫定 RFD
 
 > 2026-11-17 番号を 922 から 159 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 922 へ振り直した（PRD114）。
@@ -27,7 +27,7 @@
 - `EvalPanel::DoStep(action)` → `EvalRunner::DoStep(action)` → `DoStepInternal` が `actor_->MakeAction(source_counts_, state_)` を呼んだ後、
   `action >= 0` なら `action_info_raw->WithAction(tensor{action})` で差し替える（[trainer.cpp](../../src/core/base/src/trainer.cpp)）。
   DQN の `WithAction` は Actor Q ヒントの行動 Q と Munchausen bonus を強制行動へ再 gather する（[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `DQNActionInfo::WithAction`）。
-  この事後差し替えは 142 の D1（2026-09-26）で「`MakeAction` の入力にする」と方針が決まっており、[083](done/0083_action_context_retire_10rfd.md) の後続 PRD が引き受ける。
+  この事後差し替えは 142 の D1（2026-09-26）で「`MakeAction` の入力にする」と方針が決まっており、[083](done/0083_action_context_retire_10rfd.md) の後続 RFD が引き受ける。
 - EvalPanel は 1 lane。timer は `app.eval_panel.fps` × `step_per_frame`（Atari は 14.5 fps × 1 = 実機速度）。
 
 ### 1.2 行動集合は Env ごとに違う（`ActionSpec.value_labels`）
@@ -133,15 +133,15 @@ RAM が完全一致した行動を「ゲームが同じに扱う行動」とす�
 - **G2**: 操作 → 行動の対応を設定ファイルで宣言でき、コードの固定表を消す。Env ごとに違う行動集合へ追従できる。
   Atari は全ゲーム共通の 1 枚で書け、ゲームごとの行動集合の違いは Env 側の別名表で吸収する（§3.8）。
 - **G3**: 複合行動（Atari の方向 + FIRE）を同時押しで表現できる。
-- **G4**: 入力の解釈（どの操作が押されているか → 行動番号）を Runner から分離し、対 PRD（入力先 Train）が同じ入力層を使える。
+- **G4**: 入力の解釈（どの操作が押されているか → 行動番号）を Runner から分離し、対 RFD（入力先 Train）が同じ入力層を使える。
 
 **非ゴール**
 
-- **NG1**: Train 側への入力（対 PRD）。
-- **NG2**: 連続値行動（スティックの倍率をそのまま行動にする）。本 PRD は離散行動のみ。
+- **NG1**: Train 側への入力（対 RFD）。
+- **NG2**: 連続値行動（スティックの倍率をそのまま行動にする）。本 RFD は離散行動のみ。
 - **NG3**: 操作の記録・再生（人間プレイのファイル保存）。
 - **NG4**: QValuePanel のクリック経路の変更。既存のまま `EvalPanel::DoStep(action)` を呼ぶ。
-- **NG5**: `WithAction` の廃止そのもの。083 後続の観測パイプライン PRD が担う。本 PRD は現行経路のまま動く形で書き、
+- **NG5**: `WithAction` の廃止そのもの。083 後続の観測パイプライン RFD が担う。本 RFD は現行経路のまま動く形で書き、
   `MakeAction` 入力化が入ったらその入力へ乗り換える（§3.4）。
 
 ## 3. 提案（暫定）
@@ -174,7 +174,7 @@ RAM が完全一致した行動を「ゲームが同じに扱う行動」とす�
 ### 3.2 操作マッピングの設定（案）
 
 行動集合は Env ごとなので、宣言は各 Env 設定ファイル（`Atari.txt` / `LunarLander.txt` …）の `app` 節へ置く。
-入力層は対 PRD で Train と共有するので、`app.eval_panel.*` ではなく **`app.input.*`** に置く。
+入力層は対 RFD で Train と共有するので、`app.eval_panel.*` ではなく **`app.input.*`** に置く。
 
 ```
 # 行動番号 → 同時押しの操作集合（空白区切り = 同時押し）。1 行 1 組み合わせ。
@@ -209,10 +209,10 @@ app.input.map.[UPRIGHTFIRE].[b]   = key:Up key:Right key:Z
 
 | モード | 挙動 | 使い所 |
 |---|---|---|
-| **保持型**（新設・主） | timer 駆動の各 step で押下状態をサンプルし、行動が引けたらその step を強制、引けなければ Actor が選ぶ | Joystick で遊ぶ。Train へ向ける対 PRD もこれ |
+| **保持型**（新設・主） | timer 駆動の各 step で押下状態をサンプルし、行動が引けたらその step を強制、引けなければ Actor が選ぶ | Joystick で遊ぶ。Train へ向ける対 RFD もこれ |
 | **押下型**（現行） | 1 押下 = 1 強制 step。timer と無関係に割り込む | pause 中にコマ送りで打つ |
 
-- 保持型が本命。Joystick は「押している間」が自然で、Train 側（対 PRD）も「決定点でサンプルする」しかない。
+- 保持型が本命。Joystick は「押している間」が自然で、Train 側（対 RFD）も「決定点でサンプルする」しかない。
 - 押下型は **EvalPanel が pause 中のときだけ**残す案（§6 Q3）。走行中にも割り込ませると 1 秒に 2 回動く。
 - 何も押していない step の扱い（Actor に任せる / NOOP）は §6 Q4。Atari の人間プレイは NOOP が自然、補助的に遊ぶなら Actor。
 
@@ -221,8 +221,8 @@ app.input.map.[UPRIGHTFIRE].[b]   = key:Up key:Right key:Z
 - 当面は既存の `EvalPanel::DoStep(action)` → `EvalRunner::DoStep(action)`（`WithAction`）で動かす。保持型は `EvalPanel::OnTimer` の
   `DoUpdateFrame` の中で step ごとに引く必要があるので、`DoUpdateFrame` の `pre_step_func` から次 step の強制行動を渡す口が要る
   （現行の `EvalRunner::DoStep(int64_t)` は 1 step 単位なので、timer 経路には乗らない）。
-- 083 後続の観測パイプライン PRD で forced action が `MakeAction` の入力（lane mask + action）になったら、**入力層の出力をその入力へ渡す**だけにし、
-  `WithAction` 経路は消える。本 PRD 単独で先に入る場合も、入力層の境界（「押下集合 → 行動番号 or 無し」）は変えない。
+- 083 後続の観測パイプライン RFD で forced action が `MakeAction` の入力（lane mask + action）になったら、**入力層の出力をその入力へ渡す**だけにし、
+  `WithAction` 経路は消える。本 RFD 単独で先に入る場合も、入力層の境界（「押下集合 → 行動番号 or 無し」）は変えない。
 
 ### 3.5 検証と fail-fast（AGENTS.md「Fail-Fast 原則」）
 
@@ -256,7 +256,7 @@ Joystick のボタンにこれらを割り当てたい（キーボード無し�
    押下の立ち上がりを次の step まで保持するか（Q12）。押し続けて同じ行動が続くのは実機でボタンを押し続けるのと同じ意味で、問題にならない。
 5. **パドルのゲームは専用の扱いが要らない。** breakout / pong は ALE が左右と FIRE をつまみ操作へ読み替えるので、左右 + ボタンの離散入力で遊べる。
    スティックの倒し量をつまみの速さにする（`paddle_strength`）のは NG2 の連続値行動に当たる。
-6. **sticky は Train 側で効く。** EvalPanel は sticky 0 なので押した行動がそのまま効く。Train へ向ける対 PRD では sticky 0.25 が効くため、
+6. **sticky は Train 側で効く。** EvalPanel は sticky 0 なので押した行動がそのまま効く。Train へ向ける対 RFD では sticky 0.25 が効くため、
    強制行動への切り替わりもフレームごとに 25% の確率で前の行動に置き換わって遅れる（ALE 側の処理で、入力層では消せない）。
 
 ### 3.8 行動集合に無い行動の解決（汎用規則 + ゲーム別の上書き）
@@ -291,20 +291,20 @@ AtariEnv.action_alias.[qbert].[UPRIGHTFIRE]   ?= NOOP
 AtariEnv.action_alias.[tetris].[DOWNRIGHT]    ?= DOWN
 ```
 
-- **実行する行動 = 記録する行動。** 別名で解決した行動番号がそのまま強制行動になり、Q 値の表示・081 のログ・対 PRD の replay に入るのもその番号。
+- **実行する行動 = 記録する行動。** 別名で解決した行動番号がそのまま強制行動になり、Q 値の表示・081 のログ・対 RFD の replay に入るのもその番号。
   汎用規則が実機と違うゲームでは操作感が実機と違うだけで、学習とログの整合は崩れない。
 - **起動時に別名表を 1 回ログへ出す**（18 ラベル → 実行するラベル、上書き由来かどうか）。どの入力が何になるかを遊ぶ前に確認できる。
 - **上書き表の中身は §1.5 の打ち比べで機械的に作れる。** 既定で同梱するか、空で始めるか、起動時に作るかは Q11。
 - **逆方向の同時押し**（キーボードで上と下、右と左）は、その軸を押していない扱いにする（装置層で正規化する。物理スティックでは起きない）。
 - **採らない代替: EvalPanel だけ `full_action_space = true`。** ALE に 18 行動をそのまま渡せば実機と完全に同じになるが、エージェントの出力番号（行動集合）を
-  18 行動へ読み替える層が要り、行動集合に無い強制行動には Q 値の表示も行動番号も無くなる。対 PRD（Train）には使えない。別名表なら両方に効く。
+  18 行動へ読み替える層が要り、行動集合に無い強制行動には Q 値の表示も行動番号も無くなる。対 RFD（Train）には使えない。別名表なら両方に効く。
 
-## 4. 用語（CONTEXT.md へ足す候補。正式 PRD で確定）
+## 4. 用語（CONTEXT.md へ足す候補。正式 RFD で確定）
 
 | 語 | 意味 | _Avoid_ 候補 |
 |---|---|---|
 | **操作入力**（operator input） | 人が入力装置（キーボード / Joystick）で与える行動の指示。装置に依らず「押下中の操作の集合」として扱う | 手動入力（QValuePanel のクリックと紛れる）, キー入力（装置を限定する） |
-| **強制行動**（forced action） | 操作入力によって Actor の選択を置き換えた実行行動。100 / 160 の「強制Action」を用語として確定する（2026-10-29 注記: [PRD105](done/0105_eval_trace_arrow_key_forced_action_10rfd.md) の D11 で確定し、[CONTEXT.md](../../CONTEXT.md) へ足した。定義は QValuePanel のクリックを含めて「人の操作（キー・クリックなど）によって」に広げた） | 手動 Action, manual action, 上書き（設定の上書き層と紛れる） |
+| **強制行動**（forced action） | 操作入力によって Actor の選択を置き換えた実行行動。100 / 160 の「強制Action」を用語として確定する（2026-10-29 注記: [RFD0105](done/0105_eval_trace_arrow_key_forced_action_10rfd.md) の D11 で確定し、[CONTEXT.md](../../CONTEXT.md) へ足した。定義は QValuePanel のクリックを含めて「人の操作（キー・クリックなど）によって」に広げた） | 手動 Action, manual action, 上書き（設定の上書き層と紛れる） |
 | **操作マッピング**（input mapping） | 操作の集合から行動の指定（番号かラベル）への対応表。設定 `app.input.map` で宣言する | キーバインド（キーボード限定に読める）, key config |
 | **行動の別名**（action alias） | Env の行動集合に無いラベルを、行動集合のどの行動で実行するかの対応。Atari が 18 ラベルについて持つ（汎用規則 + ゲーム別の上書き） | フォールバック（処理の失敗と紛れる）, 代替行動 |
 
@@ -327,7 +327,7 @@ AtariEnv.action_alias.[tetris].[DOWNRIGHT]    ?= DOWN
 | Q1 | 装置 API | (a) wxJoystick polling（最小、core に同梱） (b) XInput 直叩き (c) SDL2 GameController。(a) から始め、パッドによって効かなければ (b) |
 | Q2 | マッピングのキーは行動番号かラベルか | Atari はラベルで書く（§3.2・§3.8。ラベルは ALE の enum 名で安定、番号はゲームでも `full_action_space` でも変わる）。残る論点は番号も許すか: (a) ラベルだけ (b) 両方許す（番号は要件どおりの形）。LunarLander のラベルは空白を含む（`fire main`）ので、`[...]` のキーに書けるかは要確認 |
 | Q3 | 押下型（1 押下 = 1 step）を残すか | (a) pause 中だけ残す (b) 全廃して保持型のみ (c) 現行どおり常時併存。コマ送りの需要が (a) の根拠 |
-| Q4 | 何も押していない step | (a) Actor が選ぶ（現行の timer 挙動） (b) NOOP 固定 (c) 設定で選ぶ `app.input.idle = actor \| noop`。Train へ向けるとき（対 PRD）は (b) が要る場面がある |
+| Q4 | 何も押していない step | (a) Actor が選ぶ（現行の timer 挙動） (b) NOOP 固定 (c) 設定で選ぶ `app.input.idle = actor \| noop`。Train へ向けるとき（対 RFD）は (b) が要る場面がある |
 | Q5 | 既定マッピングの置き場 | common.txt に矢印 + テンキーの既定（`?=`）を置き、Env 側で足す / 上書き。矢印 0/2/1/3 は LunarLander 固有なので LunarLander.txt へ移す案もある |
 | Q6 | システム操作の Joystick 割当 | `app.input.system.[...]` を作るか、当面キーボード固定のままか |
 | Q7 | スティック軸のしきい値・デッドゾーン | 固定値（例: ±50%）か設定か。最初は固定 |
@@ -347,7 +347,7 @@ Atari の 2P 操作（`PLAYER_B_*`）とコンソールスイッチ（`RESET` / 
 
 - [RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) `OnKey` の行動 `switch` の撤去、入力層の生成と EvalPanel への接続。
 - [EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) `OnTimer` の保持型サンプリング（`DoUpdateFrame` の `pre_step_func` 経由か、
-  観測パイプライン PRD 後は `MakeAction` 入力）。
+  観測パイプライン RFD 後は `MakeAction` 入力）。
 - [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) `Config` の `app.input.*` 読み込みと検証（`MakeSubConfigData`）。
 - 入力層の新規ファイル（`apps/runner/src/` 配下。装置層・マッピング層・解決層。機能グループ単位で 1 組の `.hpp/.cpp`）。
 - [rl.hpp](../../src/core/base/include/anet/rl.hpp) の `ActionSpec` に別名表の欄（§3.8）。
@@ -358,7 +358,7 @@ Atari の 2P 操作（`PLAYER_B_*`）とコンソールスイッチ（`RESET` / 
 
 ## 9. 関連
 
-- [160_input_target_train_forced_action_10prd.md](0160_input_target_train_forced_action_10rfd.md) — 対 PRD。入力層（§3.1〜3.2）を共有する。
+- [0160_input_target_train_forced_action_10rfd.md](0160_input_target_train_forced_action_10rfd.md) — 対 RFD。入力層（§3.1〜3.2）を共有する。
 - [083](done/0083_action_context_retire_10rfd.md) / [142](0142_agent_prev_action_obs_10rfd.md) — forced action の `MakeAction` 入力化。§3.4 の乗り換え先。
 - [081](0081_evalpanel_episode_trace_10rfd.md) — D6 の手動行動ログ `EvalPanel: manual action=`。保持型では step ごとに出ると spam になるので、
   押下状態の変化時だけ出す形へ寄せる（081 実装時に整合を取る）。

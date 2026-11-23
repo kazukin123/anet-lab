@@ -1,10 +1,10 @@
-# PRD130 の検証資材
+# RFD0130 の検証資材
 
-> この検証資材の設定キーは PRD191 より前の名前です。
+> この検証資材の設定キーは RFD0191 より前の名前です。
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
-正本は [PRD130](../../../../../docs/memo/0130_rnd_estimate_statistics_perf_10rfd.md)、実施結果は [実装メモ](../../../../../docs/memo/0130_rnd_estimate_statistics_perf_20impl.md) に記録する。
+正本は [RFD0130](../../../../../docs/memo/0130_rnd_estimate_statistics_perf_10rfd.md)、実施結果は [実装メモ](../../../../../docs/memo/0130_rnd_estimate_statistics_perf_20impl.md) に記録する。
 
 ## 今回の範囲
 
@@ -28,7 +28,7 @@
 
 既存の入力・結果は上書きしない。`run --case` で選んだ条件だけを実行でき、独立した条件の失敗後も後続の条件は継続する。各 Run の process.log・終了値・設定ハッシュ・保存先を残す。
 
-子プロセスには `ANET_PRD` で始まる検証用の一時スイッチを継承させない。実際に渡した環境のハッシュ、バックエンドに関係する環境変数の値、除外したキー名を `inputs.json` へ記録する。環境全体の値は、秘密の値を写さないため保存しない。
+子プロセスには `ANET_RFD` で始まる検証用の一時スイッチを継承させない。実際に渡した環境のハッシュ、バックエンドに関係する環境変数の値、除外したキー名を `inputs.json` へ記録する。環境全体の値は、秘密の値を写さないため保存しない。
 
 現用の採取器は `run_p130_` で始まる Run 名を使う。比較と checkpoint の参照は Run 名を推測せず、各条件の `inputs.json` が記録したパスを使う。初回の採取で既に作った `p130_` の Run は、過去の証拠として改名せず保持する。
 
@@ -42,11 +42,11 @@
 
 変更後の Runner をビルドしてから `snapshot --label stage1` で別のパッケージを保存し、`run --label stage1` で同じ凍結入力を使う。無効と variance_feedback を `compare` で比較する。全 scalar 点を正規化し、時間・資源の 3 prefix だけを除く。変更前対ステージ 1 の variance_feedback だけは `56_agent_in/14_target_feature_var` も除く。
 
-`repeat` は同じ label の CUDA の 2 本を比べ、除くのは時間と資源だけ。変更前から再現しない場合だけ、PRD §7 の 6 の扱いへ戻る。`load --label stage1 --reference before --case cumulative ema feedback` は変更前の 100k 終了 checkpoint を同じ構成で読み、続きの 100k の完走を確認する。ステージ 1 では続きの値の同一性を求めない。
+`repeat` は同じ label の CUDA の 2 本を比べ、除くのは時間と資源だけ。変更前から再現しない場合だけ、RFD §7 の 6 の扱いへ戻る。`load --label stage1 --reference before --case cumulative ema feedback` は変更前の 100k 終了 checkpoint を同じ構成で読み、続きの 100k の完走を確認する。ステージ 1 では続きの値の同一性を求めない。
 
 ## 性能測定
 
-`run_performance.py` は PRD §7 の 1〜3 を扱う。`prepare` は機能検証で保存した before/stage1 の Release 実行体のハッシュを検査し、before の設定を新しい測定先へコピーする。コピーから可塑性メトリクスの定義を除き、実効設定と登録ログでも計算が無いことを確認する。出荷設定の原本は変えない。
+`run_performance.py` は RFD §7 の 1〜3 を扱う。`prepare` は機能検証で保存した before/stage1 の Release 実行体のハッシュを検査し、before の設定を新しい測定先へコピーする。コピーから可塑性メトリクスの定義を除き、実効設定と登録ログでも計算が無いことを確認する。出荷設定の原本は変えない。
 
 `measure --set main` と `legacy` は、変更後の同じ実行体で off/on/on/off を 3 巡測る。`grid` は RND 有効・CPU・256 lane を before/stage1/stage1/before で 3 巡測る。各組の pilot で最速群が約 20 秒になる経験数を決め、全群で固定する。Q warm-up は 20,000、RND warm-up は 12,800、計測開始は 32,768 experience、torch thread は 1。評価・描画・画像と終了時 checkpoint を止める。
 
@@ -56,7 +56,7 @@
 
 `profile` は本測定とは別の Run を起動し、warm-up のあとで Tracy を 8 秒採る。port 18086 を使い、休止中の利用者の Runner には接続しない。GridMaze は前後の 2 本、それ以外は変更後の RND 有効を採る。各 `capture.tracy`、`zones_all.csv`、`events_*.csv` と `breakdown.json` を保存する。集計は CPU host の完結した区間を包含関係で揃えたもので、GPU kernel 時間ではない。Nsight Systems の再採取は転送・同期の原因が不明な場合に行い、CLI と解析は `nsight-systems` の手順で確認する。
 
-PRD §7 の 13 は、以下のステージ 2 の性能比較で扱う。過去の stage 0 の採取結果を今回の受入として使わない。
+RFD §7 の 13 は、以下のステージ 2 の性能比較で扱う。過去の stage 0 の採取結果を今回の受入として使わない。
 
 ### 2026-11-16 のステージ 1 の結果
 

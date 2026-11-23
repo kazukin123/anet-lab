@@ -1,4 +1,4 @@
-# 出力の大きさで指定する max pooling（AdaptiveMaxPool2d）暫定 PRD
+# 出力の大きさで指定する max pooling（AdaptiveMaxPool2d）暫定 RFD
 
 > 2026-10-09 起票。詳細設計は別途グリルで行う前提で、決めることを §5 に残した（暫定の既定を置いてある）。
 > 2026-10-23 改訂: Run 名を今のフォルダ名に合わせた（2026-10-15〜17 の改名。対応は DropMerge の workspace の改名の対応表）。中身は変えていない。
@@ -44,7 +44,7 @@
 
 ### 2.3 Atari の背景（実験記録）
 
-- **adaptive pooling だけが残っている:** 2026-08-27 時点で、BTR の構成要素のうち未実装だったのは、Spectral Norm・Munchausen・NoisyNet・Adaptive Maxpool・100 本の評価だった（[Atari-5 の記録](../experiments/default-dqn/atari/2026-08-27_atari5.md) の 33 行目）。その後 Spectral Norm（PRD065）、Munchausen（PRD067）、NoisyNet（PRD084）は実装済みで、adaptive pooling だけが残っている。
+- **adaptive pooling だけが残っている:** 2026-08-27 時点で、BTR の構成要素のうち未実装だったのは、Spectral Norm・Munchausen・NoisyNet・Adaptive Maxpool・100 本の評価だった（[Atari-5 の記録](../experiments/default-dqn/atari/2026-08-27_atari5.md) の 33 行目）。その後 Spectral Norm（RFD0065）、Munchausen（RFD0067）、NoisyNet（RFD0084）は実装済みで、adaptive pooling だけが残っている。
 - **今の近似:** `AtariPool6` は、`MaxPool2d`（kernel 2、stride 2、padding 1）を Flatten の前に置き、11×11×64 = 7,744 を 6×6×64 = 2,304 にしている（[BTR との差分の腕](../experiments/default-dqn/atari/2026-09-01_btr-feedback-arms.md) 探索ブロック 06、`apps/runner/config/Atari.txt:1016-1019`）。
   - 出力の大きさは BTR と同じだが、窓は違う。11 → 6 の場合、`AdaptiveMaxPool2d` の窓は幅 2〜3 で隣と重なる。`AtariPool6` の窓は幅 1〜2 で重ならない。
   - 4×4 の版（`AtariPool4`、kernel 3、stride 3、padding 1）も、11×11 の入力のときだけ 4×4 になる（[BTR NN 構成の移植検証](../experiments/default-dqn/atari/2026-09-12_btr-network-port.md) 探索ブロック 08）。
@@ -62,8 +62,8 @@
 - **NEET の入口は ε のラダーだった:**
   - ε を NoisyNet に置き換えた Run（`run_20261008-015339_dmfb_21_nzrep`）は、100M まで NEET が出なかった。評価専用の成績は 1,873 / 1,788 / 1,844（UQE target / online / Greedy）で、基準と同等だった。
   - ε も NoisyNet も無い Run も NEET は出なかったが、成績は 1,644 に留まった（2026-10-09 集計）。
-- **ここから言えること:** NEET の無い基準ができたので、Atari で効いた「高い replay ratio と、共有トランクを持たない構成」の組を、DropMerge で試せる状態になった。その NN を設定で書くのに、本 PRD のブロックが要る。
-- **長期の目標との関係:** DropMerge の目標は、長期 Run（700M〜1000M）の最終成績である。7〜8 月の長期 Run（QR51、累計約 14 億 step）では、終盤の伸びの鈍化が課題だった（[DropMerge の長期 Run](../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)）。NN 構成はその打ち手の候補の 1 つで、効くかどうかは本 PRD の範囲外の実験で確かめる。
+- **ここから言えること:** NEET の無い基準ができたので、Atari で効いた「高い replay ratio と、共有トランクを持たない構成」の組を、DropMerge で試せる状態になった。その NN を設定で書くのに、本 RFD のブロックが要る。
+- **長期の目標との関係:** DropMerge の目標は、長期 Run（700M〜1000M）の最終成績である。7〜8 月の長期 Run（QR51、累計約 14 億 step）では、終盤の伸びの鈍化が課題だった（[DropMerge の長期 Run](../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)）。NN 構成はその打ち手の候補の 1 つで、効くかどうかは本 RFD の範囲外の実験で確かめる。
 
 ## 3. 提案の骨子
 
@@ -118,12 +118,12 @@ tau_embedding: IQNCosEmb > IQNTauProj3840 > SiLU
 | # | 項目 | 暫定の既定 |
 |---|---|---|
 | 1 | 平均の版（`AdaptiveAvgPool2d`）も入れるか | 入れない。実際に要るのは max だけで、BTR も max を使う |
-| 2 | 正方形でない `MaxPool2d`（kernel・stride・padding の 2 値指定）も入れるか | 入れない。列を残す縮約は、本 PRD のブロックで書ける |
+| 2 | 正方形でない `MaxPool2d`（kernel・stride・padding の 2 値指定）も入れるか | 入れない。列を残す縮約は、本 RFD のブロックで書ける |
 | 3 | `pool.output_size` の書式 | 正の整数 2 つ（高さ、幅）。1 つの値で正方形を表す書き方は持たない |
 | 4 | 出力が入力より大きいとき | 組み立て時に止める（§3.1 の 3） |
 | 5 | 決定的モード（`backend.@deterministic`）で、CUDA の backward が例外にならないか | 要確認。adaptive pooling の CUDA の backward は、libtorch の決定的アルゴリズムの対象外として例外を出す演算に入っている可能性がある。例外になるなら、決定的モードでの扱い（止めるか、別の実装にするか）を決める |
 | 6 | トークン列を盤面へ戻す専用のブロック | 作らない。`Permute` と `Reshape` で書ける。`Reshape` に盤面の大きさを直書きするので、盤面の大きさを変えるときは一緒に直す |
-| 7 | DropMerge の NN profile を、本 PRD の成果物に含めるか | 含める。§3.2 の形を `net.branch.@…` として `DropMerge.txt` に置く。既定の `run.$` は変えない |
+| 7 | DropMerge の NN profile を、本 RFD の成果物に含めるか | 含める。§3.2 の形を `net.branch.@…` として `DropMerge.txt` に置く。既定の `run.$` は変えない |
 | 8 | Atari の BTR 準拠のブロック | 足す（§3.3）。既存の `AtariPool6` は変えない |
 | 9 | 新しく記録する指標 | 足さない。既存の可塑性と Q の指標で足りる |
 
@@ -137,7 +137,7 @@ tau_embedding: IQNCosEmb > IQNTauProj3840 > SiLU
 ## 7. 依存と順序
 
 - 単独で作れる。NN の部品の追加で、Agent と Env には触れない。
-- DropMerge の「RR4・共有トランクの撤去・Spectral Norm」の腕は、本 PRD の実装の後に積む。それまでは、NN を変えない B512/RR2 の腕を先に流す。
+- DropMerge の「RR4・共有トランクの撤去・Spectral Norm」の腕は、本 RFD の実装の後に積む。それまでは、NN を変えない B512/RR2 の腕を先に流す。
 
 ## 8. 受け入れ条件
 

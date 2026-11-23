@@ -1,4 +1,4 @@
-# メトリクスの横軸と間隔を数える単位を分ける PRD
+# メトリクスの横軸と間隔を数える単位を分ける RFD
 
 > 2026-10-18 起票（グリル前の暫定版）。ユーザーの希望で、999 ではなく正式番号で起票した。
 > 起点: DropMerge の勾配ノイズ系列（[092](done/0092_gradient_noise_scale_10rfd.md) の本線分析、2026-10-16〜18）。B・RR の違う腕の学習時の診断（`49_agent_gradnoise` など）を、Viewer で経験数の横軸に重ねて見られず、毎回スクリプトで学習ステップの範囲を経験数へ換算した。
@@ -33,7 +33,7 @@
 
 092 の本線分析では、41a（B256/RR1）・41b（B512/RR1）・41d（B512/RR2）・42A/42D/42H（B256〜B1024、RR1〜RR2）の勾配ノイズを比べた。比較は全部スクリプトで、経験数の区間を各 Run の学習ステップへ換算してから区間平均を取った。Viewer では学習ステップの軸のまま重なるので、41b の勾配ノイズの曲線が半分の長さに描かれ、同じ横位置の成績と対応が取れなかった。
 
-092 のグリル（A17）は、記録の軸を学習ステップのままにし、腕どうしは経験数でそろえた区間で比べると決めた。これは文書上の取り決めで、道具の側は変えていない。本 PRD はその道具の側を作る。
+092 のグリル（A17）は、記録の軸を学習ステップのままにし、腕どうしは経験数でそろえた区間で比べると決めた。これは文書上の取り決めで、道具の側は変えていない。本 RFD はその道具の側を作る。
 
 ## 3. 現状（2026-10-18 に確認したこと）
 
@@ -70,7 +70,7 @@
 案 A を推す。学習ステップの軸の記録だけに経験数を添えるので、ファイルはほとんど太らない。全記録に全座標を書く形は、1 行あたり 40〜50 バイト増え、jsonl が 5 割近く太るので取らない。
 
 - **段階 1（Runner と inspect_run）:** 定義の軸が学習ステップの記録に `exp_step` の欄を足す。`metrics.defs` に「この指標は経験数の座標も持つ」ことを書く。inspect_run に範囲の軸を選ぶ指定を足し、学習ステップの軸の指標を経験数の範囲で集計できるようにする。
-- **段階 2（Viewer）:** 横軸の切り替え（既定は定義の軸、経験数を選ぶと学習ステップの軸の指標も経験数で描く）と、横軸の名前の表示。キャッシュ（PRD041）に経験数の列を足して作り直す。
+- **段階 2（Viewer）:** 横軸の切り替え（既定は定義の軸、経験数を選ぶと学習ステップの軸の指標も経験数で描く）と、横軸の名前の表示。キャッシュ（RFD0041）に経験数の列を足して作り直す。
 
 train_step の軸の記録（18.4%）は、経験数 = train_step × num_envs の一定の比なので、欄は足さず、Viewer が `metrics.defs` の num_envs で換算する案を未決に置く（§7.2）。
 
@@ -109,7 +109,7 @@ train_step の軸の記録（18.4%）は、経験数 = train_step × num_envs �
 | 添える座標 | 経験数だけ / 経験数と train_step | 経験数だけ |
 | train_step の軸の記録 | 欄を足す / Viewer が num_envs で換算 | 換算（num_envs が Run の中で変わらないことの確認が要る） |
 | Viewer の切り替えの単位 | 全体で 1 つ / グラフごと | 全体で 1 つ |
-| キャッシュ（PRD041） | 列を足して作り直す / 別表 | 列を足して作り直す |
+| キャッシュ（RFD0041） | 列を足して作り直す / 別表 | 列を足して作り直す |
 | inspect_run の指定 | 範囲の軸を選ぶ引数 / 範囲の書式に軸を含める | 引数 |
 | trace チャネル | 段階 1 に含める / 含めない | 含めない |
 | 案 B（間隔の軸を別に書く） | 段階 3 で作る / 作らない | 段階 1・2 の後に決める |
@@ -130,9 +130,9 @@ train_step の軸の記録（18.4%）は、経験数 = train_step × num_envs �
 
 ## 10. 参照
 
-- [092_gradient_noise_scale_10prd.md](done/0092_gradient_noise_scale_10rfd.md) §7.4、§9.1 A17・A19
-- [093_attention_entropy_diagnostics_10prd.md](done/0093_attention_entropy_diagnostics_10rfd.md)
-- [148_target_update_step_axis_10prd.md](0148_target_update_step_axis_10rfd.md)
-- [done/053_interval_gate_perf_ema_10prd.md](done/0053_interval_gate_perf_ema_10rfd.md)
-- [done/054_inspect_run_10prd.md](done/0054_inspect_run_10rfd.md)
+- [0092_gradient_noise_scale_10rfd.md](done/0092_gradient_noise_scale_10rfd.md) §7.4、§9.1 A17・A19
+- [0093_attention_entropy_diagnostics_10rfd.md](done/0093_attention_entropy_diagnostics_10rfd.md)
+- [0148_target_update_step_axis_10rfd.md](0148_target_update_step_axis_10rfd.md)
+- [done/0053_interval_gate_perf_ema_10rfd.md](done/0053_interval_gate_perf_ema_10rfd.md)
+- [done/0054_inspect_run_10rfd.md](done/0054_inspect_run_10rfd.md)
 - [ADR 0029](../adr/0029-analysis-metadata-emitted-by-runner.md)

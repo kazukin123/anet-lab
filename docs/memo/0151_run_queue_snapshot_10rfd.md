@@ -1,4 +1,4 @@
-# Run キュー（計画スナップショット + exe 固定）暫定 PRD
+# Run キュー（計画スナップショット + exe 固定）暫定 RFD
 
 > 2026-11-17 番号を 952 から 151 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 952 へ振り直した（PRD114）。
@@ -122,10 +122,10 @@ pin してあれば、**キューが走っている最中にビルドし直し�
 |---|---|---|
 | Q1 | 監督は誰か | (a) 小さな外部スクリプト (b) Runner のキュー実行モード (c) GUI パネル。(a) が最小で bat をそのまま置換できる |
 | Q2 | 走行中エントリの表現 | `running/` へ移動 / エントリ内マーカー / ロックファイル。移動が「真実はフォルダ」に最も一貫する |
-| Q3 | `config_data.txt` の冪等性 | **要検証**。破れる場合は専用のスナップショット形式が必要になり、本 PRD の前提が 1 段重くなる |
+| Q3 | `config_data.txt` の冪等性 | **要検証**。破れる場合は専用のスナップショット形式が必要になり、本 RFD の前提が 1 段重くなる |
 | Q4 | 完了エントリの寿命 | `done/` に残す / Run 側に同じ config があるので捨てる |
 | Q5 | Run とエントリの対応付け | Run フォルダ側にエントリ名を記録するか |
-| Q6 | 異常終了 | 068_batchrun_fatal_error_handling と統合 / 分離。あちらが先に決まると監督の仕様が定まる |
+| Q6 | 異常終了 | 0068_batchrun_fatal_error_handling と統合 / 分離。あちらが先に決まると監督の仕様が定まる |
 | Q7 | GUI からの投入 | Runner の画面から積めると便利。まず CLI で十分か |
 | Q8 | optuna ハーネスとの関係 | optuna も同じ workspace で Run を回す。キューを共有するか、無関係に併走させるか |
 | Q9 | ワークスペース跨ぎ | キューを WS 内で閉じるか跨ぐか。閉じるほうが箱型に一貫する |
@@ -141,8 +141,8 @@ pin してあれば、**キューが走っている最中にビルドし直し�
 
 ## スコープ外
 
-- **異常終了時のダイアログ抑止・終了コード・検出**。[068_batchrun_fatal_error_handling_10prd.md](done/0068_batchrun_fatal_error_handling_10rfd.md) が扱う。
+- **異常終了時のダイアログ抑止・終了コード・検出**。[0068_batchrun_fatal_error_handling_10rfd.md](done/0068_batchrun_fatal_error_handling_10rfd.md) が扱う。
 - **分散実行・複数 GPU への割り当て**。
 - **Run の一時停止と再開**。既存の `app.online.exp_pause_step` の領域。
 - **Metrics Viewer 側のキュー表示**。
-- **設定解決順序の修正**。[072_config_selection_final_value_10prd.md](done/0072_config_selection_final_value_10rfd.md) が扱う。ただしスナップショットは解決**結果**を凍結するので、そちらの修正が入っても本機構は影響を受けない。
+- **設定解決順序の修正**。[0072_config_selection_final_value_10rfd.md](done/0072_config_selection_final_value_10rfd.md) が扱う。ただしスナップショットは解決**結果**を凍結するので、そちらの修正が入っても本機構は影響を受けない。

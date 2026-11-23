@@ -1,6 +1,6 @@
-# PRD 084 の検証手順
+# RFD0084 の検証手順
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 ## 実行設定の責任境界
 
@@ -30,7 +30,7 @@ core/anet-core/bin/Debug/anet-core-test.exe
 
 レビューでは、具体的な設定型が具象クラス内部に閉じていること、共通層に Module 固有のフィールド・読み取り処理・型や有無の判定が無いことを確認する。`GetDefault()` は各計算部品の既定動作を明示的に要求する。具体的な設定値は持たず、Noisy の計算部品はこれを μ-only と解釈する。名前付き設定の項目不足とは区別し、暗黙の fallback にはしない。
 
-Noisy 演算・状態・optimizer・保存読込・診断は `[noisynet]` で検証する。現行の公開面整理の受け入れは `docs/memo/done/084_noisynet_24impl.md` を正本とする。23implは当時の記録として保持する。21impl・22impl の検証は当時の契約の記録として保持する。
+Noisy 演算・状態・optimizer・保存読込・診断は `[noisynet]` で検証する。現行の公開面整理の受け入れは `docs/memo/done/0084_noisynet_24impl.md` を正本とする。23implは当時の記録として保持する。21impl・22impl の検証は当時の契約の記録として保持する。
 
 ## OFF 回帰の数値比較
 
@@ -78,7 +78,7 @@ core/anet-core/bin/Debug/anet-core-test.exe '[noisynet]'
 
 ## 設定の監査
 
-既定キーはPRD072の `check_default_leaves.py` で監査する。`compare_resolved_settings.py OLD_CONFIG NEW_CONFIG` は既存の全キーと文字列値を厳密比較する。追加キーは一覧化し、artifactの `app.run_name` / `app.runs_dir` の2キーだけを場所の違いとして除く。旧Runの設定を上書きしない。
+既定キーはRFD0072の `check_default_leaves.py` で監査する。`compare_resolved_settings.py OLD_CONFIG NEW_CONFIG` は既存の全キーと文字列値を厳密比較する。追加キーは一覧化し、artifactの `app.run_name` / `app.runs_dir` の2キーだけを場所の違いとして除く。旧Runの設定を上書きしない。
 
 設定記法の前後比較には、隠しテスト `[rfd0084-config-equivalence]` を使う。`ANET_RFD0084_CONFIG_BEFORE` に編集前の設定フォルダ、`ANET_RFD0084_CONFIG_OUTPUT` に新しい採取先を指定する。Atari既定、効率優先、nz_learning、nz_reference、nz_reference_off、CPU LunarLanderの6構成について、公開ConfigManagerで全キー・文字列値・型付き設定を比較する。設定採取のみで学習資源は生成しない。今回の採取先は `.scratch/prd084/review-followup-20261005/config-final/`。
 
@@ -142,7 +142,7 @@ review_verification.mdに受け入れ結果を記録。review-fix/after-verified
 
 ## 時計の種類と残件の追加修正（22impl）
 
-承認済み計画は docs/memo/done/084_noisynet_22impl.md。時計はkNoneに加えてkTransientRows/kContinuingRowsの2種類へ統合した。episode_startとepisode保持は維持する。任意のB3は今回は入れない。
+承認済み計画は docs/memo/done/0084_noisynet_22impl.md。時計はkNoneに加えてkTransientRows/kContinuingRowsの2種類へ統合した。episode_startとepisode保持は維持する。任意のB3は今回は入れない。
 
 上記48本の性能結果は改名前の実行体（F7EB69FD…）での測定。offとhold_episodeのみ新実行体で3反復A/B交互に取り直した。各Run値と中央値は以下を参照。他10組、旧Runとsummary.jsonは当時の測定として保持する。同じ参照構成・Noisyありの14本でも学習中exp/sは1,005〜2,081だったため、数%の差はこの測定では読めない。
 
@@ -178,7 +178,7 @@ Noisy47件/10497 assertions、全core664passed/1skipped/34680 assertions、Debug
 
 ## Forward 事前準備の受け入れ
 
-計画: docs/memo/done/084_noisynet_23impl.md。基準は .scratch/prd084/forward-refactor/before/、変更後の出力は分離する。最終 Release の OFF 3 構成を各500k経験で旧 checksum と照合する。代表 ON は Actor episode/sample、Learner current/target call/sample、Munchausen target、AMP 継承・Body FP32、Breakout seed=1・128 env・全診断・greedy 無効、各500k経験を変更前／後3反復 A/Bで比較する。Noisy 指標も数値比較に含め、warmup200k以降の性能と中央値を保存する。同じ GPU に別の学習 Run があれば測定だけ保留する。過去48 Runは全面再測定しない。
+計画: docs/memo/done/0084_noisynet_23impl.md。基準は .scratch/prd084/forward-refactor/before/、変更後の出力は分離する。最終 Release の OFF 3 構成を各500k経験で旧 checksum と照合する。代表 ON は Actor episode/sample、Learner current/target call/sample、Munchausen target、AMP 継承・Body FP32、Breakout seed=1・128 env・全診断・greedy 無効、各500k経験を変更前／後3反復 A/Bで比較する。Noisy 指標も数値比較に含め、warmup200k以降の性能と中央値を保存する。同じ GPU に別の学習 Run があれば測定だけ保留する。過去48 Runは全面再測定しない。
 
 ## 事前準備リファクタリングの検証資材
 
@@ -206,7 +206,7 @@ Learner の forward_resources は必須で、有効時は current／target の�
 
 State/Contextは内部型、CallInfoは不変クラスとWithRowMappingを維持する。CreateDefaultForwardExecutorはModule/Headを準備せず、名前付きCreateForwardExecutorは既定設定を拒否する。BindNetworkは同じ設定・State・時計種別を継承する。Executorの部分Forwardは削除し、Networkの既定部分Forwardは維持する。カタログの参照存在は読込時、使用する内容は具象準備時に検証する。Noisy probeの平均側は既定Forwardを使う。
 
-[simplify_default]・[simplify_catalog]・[forward_context]・[prepared]と既存[noisynet]を確認する。全coreはCPU/CUDA、設定6構成は公開ConfigManagerの全解決値比較、既定キーはprd072資材で監査する。削除したAPIの残存とNN6ファイルのRL語を検索し、NetworkForwardClock以外のkNoneは対象にしない。
+[simplify_default]・[simplify_catalog]・[forward_context]・[prepared]と既存[noisynet]を確認する。全coreはCPU/CUDA、設定6構成は公開ConfigManagerの全解決値比較、既定キーはrfd0072資材で監査する。削除したAPIの残存とNN6ファイルのRL語を検索し、NetworkForwardClock以外のkNoneは対象にしない。
 
 今回の出力は.scratch/prd084/forward-refactor/simplify-20261010に分離する。最終ReleaseはCPU LunarLander OFF500k（88184点）と代表ON500k（Noisy込み109941点）を旧基準と比較する。-Cases lunarlander_cpuでOFFを絞り、指定しない場合は従来3構成を維持する。CPU OFFはGPU検査・計測に依存させない。同GPUの別学習RunがあればONのみ保留する。旧OFF checkpoint読込も確認する。性能再測定はしない。結果は[検証記録](forward_refactor_verification.md)の今回の節を参照する。
 

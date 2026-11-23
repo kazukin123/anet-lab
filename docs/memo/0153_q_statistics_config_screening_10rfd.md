@@ -1,4 +1,4 @@
-# Q 値統計による多環境ハイパラ健全性スクリーニング 暫定 PRD
+# Q 値統計による多環境ハイパラ健全性スクリーニング 暫定 RFD
 
 > 2026-11-17 番号を 947 から 153 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 947 へ振り直した（PRD114）。
@@ -80,7 +80,7 @@ Breakout / RR1 / 50M / V/A ReLU ベース。壁突破率は `42_env/10_game_scor
 progress = (v_half − v_start) / (v_final − v_start)
 ```
 
-Breakout での値は τ=0.001 が **68%**、0.008 / 0.020 / 0.050 が **98〜99%**。走り切った Run に対する事後統計なのでオンラインで出す必要がなく、[054_inspect_run_10prd.md](done/0054_inspect_run_10rfd.md) 側に `--stat progress` 相当を足すのが素直。env スカラーではなくメトリクス時系列への後処理である点が実装先の判断材料になる。
+Breakout での値は τ=0.001 が **68%**、0.008 / 0.020 / 0.050 が **98〜99%**。走り切った Run に対する事後統計なのでオンラインで出す必要がなく、[0054_inspect_run_10rfd.md](done/0054_inspect_run_10rfd.md) 側に `--stat progress` 相当を足すのが素直。env スカラーではなくメトリクス時系列への後処理である点が実装先の判断材料になる。
 
 ### 案 2: スクリーニング運用
 
@@ -88,7 +88,7 @@ Breakout での値は τ=0.001 が **68%**、0.008 / 0.020 / 0.050 が **98〜99
 
 事前分布は env-time で持ち込む。τ の最適点は grad step でも wall clock でもなく **env step で決まった**: τ=0.008 @ RR1（125 grad × 256）、hard C=125 @ RR1、BTR C=500 @ 1grad/64env のいずれも **32,000 env step**。独立な 3 設定が同じ env-time に落ちている。
 
-これは [148_target_update_step_axis_10prd.md](0148_target_update_step_axis_10rfd.md) が RR ラダーから提起した仮説（`soft_update_tau` は「更新あたり」なので RR を変えると target の遅れが exp 軸で変わってしまう）に対する、**独立な実測の裏付け**である。148 は「RR を変えると意図せず 2 変数動く」という A/B の健全性の話だったが、本 PRD の実測は**最適点そのものが env 軸で決まる**ことを示しており、単なる正規化ではなく事前分布として使える。RR4 移行時の env-time 等価は τ=0.002（= hard C=500）。
+これは [0148_target_update_step_axis_10rfd.md](0148_target_update_step_axis_10rfd.md) が RR ラダーから提起した仮説（`soft_update_tau` は「更新あたり」なので RR を変えると target の遅れが exp 軸で変わってしまう）に対する、**独立な実測の裏付け**である。148 は「RR を変えると意図せず 2 変数動く」という A/B の健全性の話だったが、本 RFD の実測は**最適点そのものが env 軸で決まる**ことを示しており、単なる正規化ではなく事前分布として使える。RR4 移行時の env-time 等価は τ=0.002（= hard C=500）。
 
 Atari-5 なら 5 本 → 鳴った 3 本 × 追加 2 点 = 11 本で、全スイープ 20 本より安い。env 数が増えるほど効く。
 
@@ -106,13 +106,13 @@ Atari-5 なら 5 本 → 鳴った 3 本 × 追加 2 点 = 11 本で、全スイ
 - **Q3**: 速すぎ側のガードを作れるか。実測 A では `03_q_delta_abs` が単調増だが、無次元化の方法が未定（`03/17` 比は E のとおり hard で破綻する）。実務上は遅すぎ側の損失（−43%）が速すぎ側（−25%）より大きいので、片側ガードでも価値の大半は取れる。
 - **Q4**: 対象は `soft_update_tau` だけか。同じ「価値伝播が律速されているか」の枠は gamma・n_step・replay_ratio にも当たるはずだが、未検証。
 - **Q5**: 負値 Q / 下降 Q の env（double_dunk・phoenix）を、案 1 で本当に救えるか。実データでの確認が要る。
-- **Q6**: [152_metric_targeted_hyperparam_control_10prd.md](0152_metric_targeted_hyperparam_control_10rfd.md) との境界。あちらは Run 中の閉ループ、本 PRD は Run 後の開ループ監査。τ は閉ループの標的として不適（目的関数が高コスト・むだ時間 25M・観測量に絶対基準なし）という結論は本 PRD 側の実測から出ており、あちらの標的選定にも反映が要る。
+- **Q6**: [0152_metric_targeted_hyperparam_control_10rfd.md](0152_metric_targeted_hyperparam_control_10rfd.md) との境界。あちらは Run 中の閉ループ、本 RFD は Run 後の開ループ監査。τ は閉ループの標的として不適（目的関数が高コスト・むだ時間 25M・観測量に絶対基準なし）という結論は本 RFD 側の実測から出ており、あちらの標的選定にも反映が要る。
 
 ## 着手条件
 
 **現時点では着手しない。** 理由は 2 つ。
 
-1. **Munchausen（[067](done/0067_MunchausenRL_10rfd.md)）が TD target に `α·τ·log π` を加算するため、Q のスケールが変わる。** 本 PRD の閾値は全て Munchausen 前の Q 統計で校正しており、実装後に校正し直しになる。
+1. **Munchausen（[067](done/0067_MunchausenRL_10rfd.md)）が TD target に `α·τ·log π` を加算するため、Q のスケールが変わる。** 本 RFD の閾値は全て Munchausen 前の Q 統計で校正しており、実装後に校正し直しになる。
 2. **RR4 移行で env-step ↔ grad-step の対応が 4 倍変わる。** 事前分布（32,000 env step）は保たれる想定だが、RR1 で校正した伸び率の閾値がそのまま使えるかは未確認。
 
 着手するなら Munchausen 実装 + RR4 移行の後。最小の検証は、Atari-5 の 3 ゲーム（battle_zone / qbert / name_this_game）で τ を env-time 32,000 相当へ上げて 1 本ずつ引くこと。ガードが「遅すぎ」と言った env で実際に成績が上がるかの直接検証になる。3 本 × 20M ≈ 3.5h。

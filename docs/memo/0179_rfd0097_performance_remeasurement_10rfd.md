@@ -1,4 +1,4 @@
-# PRD097: 判定不能4構成の性能再測定とDropMerge serial追加費用の調査
+# RFD0097: 判定不能4構成の性能再測定とDropMerge serial追加費用の調査
 
 > 2026-11-17 番号を 946 から 179 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 946 へ振り直した（PRD114）。
@@ -8,7 +8,7 @@
 
 ## 背景と問題
 
-[PRD097](done/0097_env_auto_reset_after_notification_10rfd.md)の再実装では、全7構成728534点のscalar/trace一致、ビルド・テスト・手動画面確認を終えた。性能はLunarLanderが合格し、下表の4構成はbeforeを5反復してもspread（最大/最小−1）が2%を超えたため判定不能となった。改訂PRD§7受入4に従って性能合否から除外し、本課題へ持ち越す。合格への読み替えは行わない。
+[RFD0097](done/0097_env_auto_reset_after_notification_10rfd.md)の再実装では、全7構成728534点のscalar/trace一致、ビルド・テスト・手動画面確認を終えた。性能はLunarLanderが合格し、下表の4構成はbeforeを5反復してもspread（最大/最小−1）が2%を超えたため判定不能となった。改訂RFD§7受入4に従って性能合否から除外し、本課題へ持ち越す。合格への読み替えは行わない。
 
 | 構成 | before中央値 exp/s | after中央値 exp/s | after変化 | before spread |
 |---|---:|---:|---:|---:|

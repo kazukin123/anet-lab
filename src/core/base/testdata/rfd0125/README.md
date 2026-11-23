@@ -1,10 +1,10 @@
-# PRD125 検証資材
+# RFD0125 検証資材
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
-正本は [PRD125](../../../../../docs/memo/0125_dqn_learner_update_skeleton_10rfd.md)、実施結果と未実施の項目は [20impl](../../../../../docs/memo/0125_dqn_learner_update_skeleton_20impl.md) に記録する。
+正本は [RFD0125](../../../../../docs/memo/0125_dqn_learner_update_skeleton_10rfd.md)、実施結果と未実施の項目は [20impl](../../../../../docs/memo/0125_dqn_learner_update_skeleton_20impl.md) に記録する。
 
-`run_validation.py` は PRD098 の短縮条件、PRD109 の隔離した process 実行と失敗ケース採取、PRD084 の scalar 正規化を呼ぶ。設定と実行体の保存先は `.scratch/rfd0125/`。既存の label と保存先の上書きは拒否する。
+`run_validation.py` は RFD0098 の短縮条件、RFD0109 の隔離した process 実行と失敗ケース採取、RFD0084 の scalar 正規化を呼ぶ。設定と実行体の保存先は `.scratch/rfd0125/`。既存の label と保存先の上書きは拒否する。
 
 ## 保存と入力
 

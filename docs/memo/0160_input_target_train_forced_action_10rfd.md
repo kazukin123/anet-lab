@@ -1,4 +1,4 @@
-# 操作入力の入力先切替と Train 側の強制行動（学習への反映）暫定 PRD
+# 操作入力の入力先切替と Train 側の強制行動（学習への反映）暫定 RFD
 
 > 2026-11-17 番号を 923 から 160 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 923 へ振り直した（PRD114）。
@@ -34,15 +34,15 @@
 
 - forced action は事後の hook や `WithAction` ではなく **`MakeAction` の入力（lane mask + action）** にする。決定点を 1 つに畳むと
   「Actor 出力 = 実行 action」が不変条件になり、lane メモリ（prev_action）、Actor Q ヒント、Munchausen 項、将来の log π(a) が自動で正しくなる。
-  この入力は 083 後続の観測パイプライン PRD が導入し、EvalRunner の `WithAction` 経路もそこで消える。
-- 本 PRD はその入力の **Train 側の最初の利用者**。入力化が先に入っていることを前提に書く（順序は §6 Q1）。
+  この入力は 083 後続の観測パイプライン RFD が導入し、EvalRunner の `WithAction` 経路もそこで消える。
+- 本 RFD はその入力の **Train 側の最初の利用者**。入力化が先に入っていることを前提に書く（順序は §6 Q1）。
 
 ## 2. ゴール / 非ゴール
 
 **ゴール**
 
 - **G1**: 操作入力の**入力先**を、Run の実行中に UI 操作（キー / ツールバー）で Eval（既存）と Train のあいだで何度でも切り替えられる。
-  設定で固定する方式ではない。Eval 側の挙動は対 PRD のまま変えない。
+  設定で固定する方式ではない。Eval 側の挙動は対 RFD のまま変えない。
 - **G2**: 入力先が Train のとき、操作対象 lane の行動が操作入力で決まり、**その行動で Env が進み、生じた遷移が通常どおり ReplayBuffer に入って学習に使われる**。
 - **G3**: 強制行動が Actor の出力として扱われる（不変条件）。経験・PER 初期優先度・Munchausen 項・prev_action の整合に特別扱いを足さない。
 - **G4**: 人が追従できる速さで Train ループを回せる（入力先が Train の間だけ）。
@@ -50,10 +50,10 @@
 **非ゴール**
 
 - **NG1**: デモ専用バッファ（R2D3 / DQfD 型の固定比率混合）、模倣損失（margin loss 等）、人間遷移の優先度ブースト。共有 ReplayBuffer は FIFO で
-  人間の遷移が薄まって消えるが、それは次の PRD の関心。本 PRD は「通常の経験として流す」まで。
+  人間の遷移が薄まって消えるが、それは次の RFD の関心。本 RFD は「通常の経験として流す」まで。
 - **NG2**: 複数 lane の同時操作、複数の操作者。
 - **NG3**: 人のプレイの記録・再生（ファイル化）。
-- **NG4**: 装置・マッピング（対 PRD）。
+- **NG4**: 装置・マッピング（対 RFD）。
 - **NG5**: batchrun 構成。人がいないので入力先は常に無効。
 - **NG6**: 同 seed 再現性の維持。操作入力がある Run は再現の対象外（実効設定にも記録されない「実行時 UI 操作」）。
 
@@ -65,7 +65,7 @@
   Run 制御ツールバーのトグルの両方から、何度でも `eval` ⇄ `train` を行き来できる。Train / Eval の pause トグルと同じ位置づけで、
   実効設定（config dump）には記録されない。
 - 現在の入力先はステータスバーに常時表示する（どちらに向いているか分からない事故を避ける）。切替はログ 1 行（`Input target: train lane=0` の形）。
-- `eval` のときは対 PRD の経路そのまま。`train` のときは Eval 側へは何も流れない（Eval は Actor で回り続ける）。
+- `eval` のときは対 RFD の経路そのまま。`train` のときは Eval 側へは何も流れない（Eval は Actor で回り続ける）。
 - Train が pause 中に `train` へ向けても何も起きない（step が無い）。pause 解除を自動でしない（§6 Q4）。
 - 設定は**起動時の初期値だけ**を持つ（持つかどうか自体は §6 Q10）。既定は現行挙動と同じ `eval`。
 
@@ -85,7 +85,7 @@ app.input.target ?= eval      # eval | train。起動時の初期値のみ。以
 ### 3.3 スレッド境界: 最新状態の 1 スロット
 
 - 操作入力の解決結果（行動番号 or 無し）は GUI スレッドで作られ、学習スレッドが `DoStep` ごとに読む。**キューではなく「最新値 1 スロット」**
-  （mutex か atomic）にする。保持型（対 PRD §3.3）なので「いま押されているもの」だけに意味があり、押下の取りこぼしを積む必要が無い。
+  （mutex か atomic）にする。保持型（対 RFD §3.3）なので「いま押されているもの」だけに意味があり、押下の取りこぼしを積む必要が無い。
 - 学習スレッド側は step ごとに 1 回読む。Pipeline の 1 step 遅れの学習投入には影響しない（経験の中身が変わるだけ）。
 - Runner への渡し方（`pre_step_func` のような関数注入か、Runner が参照する小さな共有オブジェクトか）は §6 Q2。
 
@@ -108,7 +108,7 @@ app.input.train_min_step_interval_ms ?= 0    # 0 = 制限なし。入力先が t
 - 入力先を `eval` に戻せば制限は消える。throughput への影響は操作中だけで、実効設定には残るが実行時 UI 操作の一部として扱う。
 - Train は 128 lane を同時に進めるので、人が操作している 1 lane 以外の 127 lane も同じ速さに落ちる。人間操作中の学習は「遅い」を受け入れる。
 
-### 3.6 学習への影響（把握しておくこと。本 PRD で対策しない）
+### 3.6 学習への影響（把握しておくこと。本 RFD で対策しない）
 
 | 事項 | 内容 |
 |---|---|
@@ -126,14 +126,14 @@ app.input.train_min_step_interval_ms ?= 0    # 0 = 制限なし。入力先が t
 | Train が pause 中に操作入力がある | 何も起きない。ログも出さない |
 | Learner 無効（`learner.enabled = false`）の Run で `target = train` | Env は進むが学習には入らない。契約違反ではないので 1 回 WARN |
 
-## 4. 用語（CONTEXT.md へ足す候補。対 PRD §4 と合わせて確定）
+## 4. 用語（CONTEXT.md へ足す候補。対 RFD §4 と合わせて確定）
 
 | 語 | 意味 | _Avoid_ 候補 |
 |---|---|---|
 | **入力先**（input target） | 操作入力が届く Runner の選択。`eval`（鏡写しインスタンス）か `train`（学習 Runner の操作対象 lane） | モード（用途ラベル）, 操作モード, フォーカス（GUI のフォーカスと紛れる） |
 | **操作対象 lane**（operator lane） | Train BatchEnv のうち操作入力を受ける 1 lane。View の代表 lane と揃える | player lane, human lane |
 
-「強制行動」「操作入力」「操作マッピング」は対 PRD §4。
+「強制行動」「操作入力」「操作マッピング」は対 RFD §4。
 
 ## 5. 受入条件（暫定）
 
@@ -141,7 +141,7 @@ app.input.train_min_step_interval_ms ?= 0    # 0 = 制限なし。入力先が t
    他 lane は方策で動く（テストは Actor に渡る lane mask + action と、`TrainEvent` の `action_info` で確認）。
 2. その step の経験が ReplayBuffer に入り、`UpdateFromBatch` に含まれる（強制 lane の遷移が sample されうる。Learner 側に特別扱いが無いこと）。
 3. 強制 lane の Actor Q ヒント・Munchausen 項・（142 後は）prev_action が実行行動と一致する。`WithAction` 相当の再 gather コードが Train 側に存在しない。
-4. 入力先が `eval` のときは既存挙動（対 PRD）と一致し、Train 側の `DoStep` に差分が観測されない（mask が全 false）。
+4. 入力先が `eval` のときは既存挙動（対 RFD）と一致し、Train 側の `DoStep` に差分が観測されない（mask が全 false）。
 5. `train_min_step_interval_ms` を設定すると、入力先が `train` の間だけ step 間隔が下限以上になり、`eval` へ戻すと制限が消える。
 6. 入力先の切替がステータスバーとログに出る。
 7. [020 §6](../design/020_user_guide_run.jp.md)、[100 §Runner](../design/100_runtime_and_configuration.jp.md)、[160](../design/160_applications_and_tools.jp.md) が新契約に同期している。
@@ -150,12 +150,12 @@ app.input.train_min_step_interval_ms ?= 0    # 0 = 制限なし。入力先が t
 
 | # | 論点 | 選択肢 / 備考 |
 |---|---|---|
-| Q1 | 順序 | (a) 観測パイプライン PRD（`MakeAction` 入力化）を待つ (b) 本 PRD が `MakeAction` 入力を先に導入し、EvalRunner の `WithAction` も同時に置き換える。142 の順序は (a)。(b) は 083 後続 PRD のスコープを本 PRD へ寄せる |
+| Q1 | 順序 | (a) 観測パイプライン RFD（`MakeAction` 入力化）を待つ (b) 本 RFD が `MakeAction` 入力を先に導入し、EvalRunner の `WithAction` も同時に置き換える。142 の順序は (a)。(b) は 083 後続 RFD のスコープを本 RFD へ寄せる |
 | Q2 | Runner への注入の形 | (a) `DoUpdateFrame` の `pre_step_func` 相当の関数を Runner が呼んで「次 step の強制指定」を受け取る (b) Runner が共有の小オブジェクト（最新値 1 スロット）を参照する (c) `TrainRunner` に `SetForcedAction(lane, action)` を生やす。GUI 依存を core へ持ち込まないのは全案共通 |
 | Q3 | 操作対象 lane の見せ方 | (a) モザイクのタイルに枠 (b) EvalPanel 相当の 1 lane 拡大 pane を Train 用にも出す (c) 何もしない（lane 0 は左上）。Atari の 128 タイルで (c) は厳しい |
 | Q4 | pause 中に `train` へ向けたとき | (a) 何もしない（提案） (b) 自動 resume。(b) は「Train を動かした覚えが無い」事故を作る |
 | Q5 | batchrun で初期値 `target = train`（Q10 で設定を残す場合だけ成立） | (a) fail-fast (b) WARN 1 回で無効化。batchrun は人がいないので (a) で困らない |
-| Q6 | 何も押していない step の扱い | 対 PRD Q4 と同じ。Train へ向けるときは「人が離した瞬間に方策へ戻る」(actor) と「離している間は NOOP」(noop) で学習に入る遷移が変わる。Env ごとに既定が違ってよい |
+| Q6 | 何も押していない step の扱い | 対 RFD Q4 と同じ。Train へ向けるときは「人が離した瞬間に方策へ戻る」(actor) と「離している間は NOOP」(noop) で学習に入る遷移が変わる。Env ごとに既定が違ってよい |
 | Q7 | 可観測性 | 強制 step 数や強制率を metrics に出すか。最小はログ（切替時と、操作の有無が変わったとき）。scalar を出すなら `$runner` 系の key 1 つ |
 | Q8 | ペースの入れ方 | (a) `pre_step_func` で sleep（最小） (b) Env step 側で待つ。(a) は Pipeline の学習投入も一緒に遅くなるが、操作中は許容 |
 | Q9 | 入力先の切替キー | `Tab` 候補。`SHIFT` / `SPACE` / `CTRL` の既存割当と衝突しないもの |
@@ -163,14 +163,14 @@ app.input.train_min_step_interval_ms ?= 0    # 0 = 制限なし。入力先が t
 
 ## 7. スコープ外（再掲）
 
-NG1〜NG6。特にデモバッファ・模倣損失・人間遷移の別扱いは、本 PRD で人の遷移が普通に流れることを確認してから次の PRD で扱う。
+NG1〜NG6。特にデモバッファ・模倣損失・人間遷移の別扱いは、本 RFD で人の遷移が普通に流れることを確認してから次の RFD で扱う。
 
 ## 8. 実装に触れる見込みの箇所
 
 - [trainer.hpp](../../src/core/base/include/anet/trainer.hpp) / [trainer.cpp](../../src/core/base/src/trainer.cpp) — `SerialTrainRunner::DoStep` / `PipelineTrainRunner::DoStep` の `MakeAction` 直前（lane mask + action の取り出し）。Q2 の形で注入口。
-- Actor 側の `MakeAction` 入力（観測パイプライン PRD の成果物。Q1 次第で本 PRD）。
+- Actor 側の `MakeAction` 入力（観測パイプライン RFD の成果物。Q1 次第で本 RFD）。
 - [RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) — `train_lane` / `train_min_step_interval_ms`（Q10 で残すなら `app.input.target` も）の読み込みと検証、`pre_train_step_func` のペース制御。
-- [RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) — 入力先トグル（キー + ツールバー）、ステータスバー表示、対 PRD の入力層の出力を入力先へ振り分け。
+- [RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) — 入力先トグル（キー + ツールバー）、ステータスバー表示、対 RFD の入力層の出力を入力先へ振り分け。
 - View（[AtariView.cpp](../../src/env/atari/src/AtariView.cpp) 等） — Q3 の見せ方。
 - [common.txt](../../apps/runner/config/common.txt) の既定、[020](../design/020_user_guide_run.jp.md) / [100](../design/100_runtime_and_configuration.jp.md) / [160](../design/160_applications_and_tools.jp.md)、CONTEXT.md（§4）。
 
@@ -178,7 +178,7 @@ NG1〜NG6。特にデモバッファ・模倣損失・人間遷移の別扱い�
 
 - [098 TempoRL](0098_temporl_skip_policy_10rfd.md) / [観測パイプライン単位A](0161_observation_pipeline_10rfd.md): skip有効時は強制したlaneの継続状態を捨て、強制したstep自体を `decision=true` で記録する。Replay窓は判断間の行動一致を前提とし、不一致はSample時にfail-fastするため、trainへの入力注入はこの2条件を満たすActorを前提にする。
 
-- [159_input_mapping_joystick_10prd.md](0159_input_mapping_joystick_10rfd.md) — 対 PRD。装置・マッピング・押下の意味論。
+- [0159_input_mapping_joystick_10rfd.md](0159_input_mapping_joystick_10rfd.md) — 対 RFD。装置・マッピング・押下の意味論。
 - [083](done/0083_action_context_retire_10rfd.md) / [142](0142_agent_prev_action_obs_10rfd.md) — `MakeAction` 入力化の方針と順序（142 D1、2026-09-26）。
 - [035](done/0035_approx_actor_priority_per_10rfd.md)（Actor Q ヒント）、[067](done/0067_MunchausenRL_10rfd.md)（log π 項）— 強制行動が Actor 出力になることで整合が自動になる対象。
 - [036](done/0036_train_actor_periodic_snapshot_10rfd.md) — Train Actor の snapshot 同期。強制行動は同期と無関係だが、Actor 内の mask 処理は snapshot 経路の外に置く。

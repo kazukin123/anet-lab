@@ -1,6 +1,6 @@
-# PRD115の検証資材
+# RFD0115の検証資材
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 画像メモリの確保・解放と確保失敗を、実際のheat_map.cppとwxWidgetsの組み合わせで確かめる。通常のC++回帰テストは`anet-core-test.exe "[image]"`と`DropMergeEnv-test.exe "[noop_penalty]"`にある。
 

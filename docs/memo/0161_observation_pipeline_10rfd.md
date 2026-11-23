@@ -1,4 +1,4 @@
-# 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 暫定 PRD
+# 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 暫定 RFD
 
 > 2026-11-17 番号を 944 から 161 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 944 へ振り直した（PRD114）。
@@ -30,9 +30,9 @@ DefaultDQN が「Env の出した Observation を Network の入力にする」�
 | 可視化 | [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 637〜678 行 | 合成した 1 Frame を stack の幅へ複製し、正規化する |
 | spec | [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 424〜447 行（`MakeNetworkInputSpec`） | Env の観測の spec を写し、stack の対象のキーの shape の先頭へ枚数を足す。taus の spec はそのあとに足す |
 
-「経験の受入れ」は、Env を 1 step 進めたあと、Agent が経験（観測・行動・報酬・終了・次の観測）を受け取って、ReplayBuffer に入れるまでの処理である（`DefaultDQNAgent::UpdateFromBatch`）。本 PRD では push とも書く。
+「経験の受入れ」は、Env を 1 step 進めたあと、Agent が経験（観測・行動・報酬・終了・次の観測）を受け取って、ReplayBuffer に入れるまでの処理である（`DefaultDQNAgent::UpdateFromBatch`）。本 RFD では push とも書く。
 
-「どのキーを重ねるか」「形がどう変わるか」「何で正規化するか」は 1 つの定義なのに、経路ごとに書き直されている。観測キーを 1 つ足す（PRD142 の直前の行動）には、この全部をそろえて直すことになる。
+「どのキーを重ねるか」「形がどう変わるか」「何で正規化するか」は 1 つの定義なのに、経路ごとに書き直されている。観測キーを 1 つ足す（RFD0142 の直前の行動）には、この全部をそろえて直すことになる。
 
 ### 1.2 stack の対象の判定と、無いキー名
 
@@ -47,19 +47,19 @@ DefaultDQN が「Env の出した Observation を Network の入力にする」�
 | c | Actor の正規化は、Agent の排他の外で統計を読む。統計の更新は排他の中で行う。背景評価と EvalPanel の Actor は、学習と並んで走る | 同上（統計を読まない） |
 | d | 正規化の統計は checkpoint に入らない | 同上 |
 
-a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
+a と b は本 RFD が直す。c と d は直さない（§2 の NG2）。
 
 ### 1.4 強制行動が Actor の外で、あとから差し替えられる
 
 - 経路は `EvalPanel`・`QValuePanel` → `EvalRunner::DoStep(action, …)` → `EvalRunner::DoStepInternal` の 1 本で、`MakeAction` の結果を `WithAction` で差し替える（[trainer.cpp](../../src/core/base/src/trainer.cpp) 288〜297 行）。負数が「強制なし」の印である。Train Runner に強制の口は無い。
 - `DQNActionInfo::WithAction`（[dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 183〜226 行）は、Actor Q ヒントと Munchausen の項を、強制行動で作り直す。そのためだけに、Actor は全行動ぶんの `munchausen_terms` を aux に載せている（1633 行）。
-- 行動を決める点が 2 つ（Actor の選択と Runner の差し替え）あるので、Actor は「自分の出力 = 実行された行動」を仮定できない。TempoRL の skip は Actor の中で行動を上書きして lane ごとの継続状態を持つが、強制はそのあとに差し替わるので、skip の状態は強制を知らない。PRD142 の直前の行動も、実行された行動から作る値である。
+- 行動を決める点が 2 つ（Actor の選択と Runner の差し替え）あるので、Actor は「自分の出力 = 実行された行動」を仮定できない。TempoRL の skip は Actor の中で行動を上書きして lane ごとの継続状態を持つが、強制はそのあとに差し替わるので、skip の状態は強制を知らない。RFD0142 の直前の行動も、実行された行動から作る値である。
 - 強制したかどうかは `EvalRunner` が lane ごとに覚えるが、今は全 lane を同じ値で埋めている（[trainer.cpp](../../src/core/base/src/trainer.cpp) 314 行）。
-- 旧ドラフトが所見に挙げた「GPU 推論で `WithAction` の device 検査に掛かって止まる」は、PRD192 が直した（`94182c99`）。
+- 旧ドラフトが所見に挙げた「GPU 推論で `WithAction` の device 検査に掛かって止まる」は、RFD0192 が直した（`94182c99`）。
 
-### 1.5 本 PRD を前提にする PRD
+### 1.5 本 RFD を前提にする RFD
 
-| PRD | 要るもの |
+| RFD | 要るもの |
 |---|---|
 | [142](0142_agent_prev_action_obs_10rfd.md)（直前の行動） | 観測キーを足す部品の置き場（単位 B）。Actor の出力 = 実行された行動（単位 A） |
 | [159](0159_input_mapping_joystick_10rfd.md)（操作マッピング）・[160](0160_input_target_train_forced_action_10rfd.md)（入力先の切り替え） | timer の経路と Train Runner から、同じ欄で強制行動を渡せること（単位 A） |
@@ -75,7 +75,7 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 - **G3**: 行動選択・可視化・Sample・Network の入力 spec の形が、枚数 1 を含む全設定で一致する。
 - **G4**: 成り立たない設定（観測に無いキー名、並びの誤り、知らない部品の種類）は構築時に止まる。
 - **G5**: 強制行動が `MakeAction` の入力になり、「Actor の出力 = 実行された行動」が不変条件になる。
-- **G6**: PRD142 が「部品を 1 つ足す」局所の変更で済む置き場になっている。
+- **G6**: RFD0142 が「部品を 1 つ足す」局所の変更で済む置き場になっている。
 - あわせて、題材の課題 2 件（§5）が片付く。
 
 **非ゴール**
@@ -84,14 +84,14 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 
 | # | 入れないもの（消える案） | 理由と、本当の制約か |
 |---|---|---|
-| NG1 | 直前の行動（`prev_action`）の中身と、その lane の記憶 | 別の関心（PRD142）。本 PRD は置き場と口までを決める。制約ではなく分担 |
-| NG2 | 統計つきの正規化を成立させること（統計の読み書きの競合、checkpoint、評価だけの Run での統計の凍結）。正規化を NN の block にする案 | 別の関心。出荷設定はどれも素通しで、今回の等価性の確かめに乗らない。本 PRD は、形の不成立（§1.3 b）だけを直す（D28）。制約ではなく分担で、作る条件は「統計つきの正規化を使う構成（連続制御など）を足すとき」 |
-| NG3 | RND の観測加工を同じ仕組みに載せること。RND の正規化の判定を尺度の属性に合わせること | 別の関心。RND は byte の画像を float に直して自前の統計で正規化していて、属性に合わせると Atari の動きが変わる（D33）。PRD191 が RND を先に直す。制約ではなく分担で、課題に記録した（§15）。着手の条件は、PRD191 の実装が済み、RND の入力に、Q の側の並びと同じ部品（重ねる、キーを落とす、正規化）を当てる構成が要るようになったとき |
+| NG1 | 直前の行動（`prev_action`）の中身と、その lane の記憶 | 別の関心（RFD0142）。本 RFD は置き場と口までを決める。制約ではなく分担 |
+| NG2 | 統計つきの正規化を成立させること（統計の読み書きの競合、checkpoint、評価だけの Run での統計の凍結）。正規化を NN の block にする案 | 別の関心。出荷設定はどれも素通しで、今回の等価性の確かめに乗らない。本 RFD は、形の不成立（§1.3 b）だけを直す（D28）。制約ではなく分担で、作る条件は「統計つきの正規化を使う構成（連続制御など）を足すとき」 |
+| NG3 | RND の観測加工を同じ仕組みに載せること。RND の正規化の判定を尺度の属性に合わせること | 別の関心。RND は byte の画像を float に直して自前の統計で正規化していて、属性に合わせると Atari の動きが変わる（D33）。RFD0191 が RND を先に直す。制約ではなく分担で、課題に記録した（§15）。着手の条件は、RFD0191 の実装が済み、RND の入力に、Q の側の並びと同じ部品（重ねる、キーを落とす、正規化）を当てる構成が要るようになったとき |
 | NG4 | 正規化の部品の内部の整理（定数がキー共通の 1 組であること、など） | 別の関心（部品の内部の作り）。観測の加工の定義を 1 か所にする今回の目的には要らない。制約ではなく分担で、課題に記録した（§15）。着手の条件は、統計つきか定数の正規化を、形の違う float のキーが複数ある構成で使うとき（§8 の 11）。NG2 の作業と一緒に行う |
-| NG5 | ReplayBuffer の重ね直し（ADR 0024・0044）と `DictFrameStacker` の契約の変更 | 保存した Frame の重ね直しと、逐次の観測の重ねを担う部品で、観測の加工の定義をそろえる今回の目的と別の処理方式の変更になる。本 PRD は 2 つをそのまま使う（D27）。移せない制約ではなく、範囲の線である |
+| NG5 | ReplayBuffer の重ね直し（ADR 0024・0044）と `DictFrameStacker` の契約の変更 | 保存した Frame の重ね直しと、逐次の観測の重ねを担う部品で、観測の加工の定義をそろえる今回の目的と別の処理方式の変更になる。本 RFD は 2 つをそのまま使う（D27）。移せない制約ではなく、範囲の線である |
 | NG6 | taus と、Env の中の前処理（Atari の縮小など）の統合。NN の入口の整形（byte→float、離散の one-hot）の置き換え | taus は forward のたびに引き直す Agent の入力、Env の中の前処理は Observation を作る側で、どちらも Perception を作る仕組みの外にある。NN の入口は、stack 軸の見分け方だけを直す（D32）。移せない制約ではなく、責務の線である |
 | NG7 | Rainbow・MuZero・ImageCls の観測の加工を、この仕組みに載せること | Rainbow は stack も正規化も持たず、MuZero は device へ移すだけ、ImageCls は対象外で、消す重複が無い。Network は 3 つとも `Forwarder` を実装する形に変わり（D20）、Env の spec の宣言（D18）は Env の側で変わる。制約ではなく、載せても消える重複が無いための線である |
-| NG8 | Train 側で、人の操作を強制行動として届ける配線 | 別の関心（PRD160）。Runner と Actor の口は Train 側にも開いている（D15）。制約ではなく分担 |
+| NG8 | Train 側で、人の操作を強制行動として届ける配線 | 別の関心（RFD0160）。Runner と Actor の口は Train 側にも開いている（D15）。制約ではなく分担 |
 | NG9 | PPO | 新しい Agent の実装で、今回の 2 つの単位に要らない。制約ではなく、別の機能の追加である |
 | NG10 | 逆方向（入れるとき用）の変換の口 | ReplayBuffer には加工前の Frame を入れるので、戻す処理が要らない。制約ではなく、要るようになったら足せる（見直しの条件は D6） |
 
@@ -130,14 +130,14 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | P3 | 事実 | `stucker.stack_keys` に観測に無いキー名を書いても、どこも検出しない | §1.2 | 済み |
 | P4 | 事実 | 出荷設定の観測の正規化はすべて素通し。素通しでない正規化は 1 Frame の形を検査するので、stack ありだと最初の行動選択で掛かる | §1.3 b | 済み |
 | P5 | 既存部品の働き | 強制行動は、EvalRunner が `MakeAction` の結果を `WithAction` で差し替えて作る。Train 側に口は無い | §1.4 | 済み |
-| P6 | 過去の判断 | `MakeAction` の追加の入力は `MakeActionOptions` で、Runner の `DoStep` がそのまま渡す。強制行動はこの欄として足す、と PRD170 が決めた | [rl.hpp](../../src/core/base/include/anet/rl.hpp) 357 行、[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)、[170_nn_trace_capture_unification_10prd.md](0170_nn_trace_capture_unification_10rfd.md) §9 | 済み |
+| P6 | 過去の判断 | `MakeAction` の追加の入力は `MakeActionOptions` で、Runner の `DoStep` がそのまま渡す。強制行動はこの欄として足す、と RFD0170 が決めた | [rl.hpp](../../src/core/base/include/anet/rl.hpp) 357 行、[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)、[0170_nn_trace_capture_unification_10rfd.md](0170_nn_trace_capture_unification_10rfd.md) §9 | 済み |
 | P7 | 既存部品の働き | 強制したかどうかは EvalRunner が lane ごとに覚え、`forced` の鍵で答える | [trainer.cpp](../../src/core/base/src/trainer.cpp) 314 行 | 済み |
-| P8 | 既存部品の働き | TempoRL の skip は Actor の中で行動を上書きし、lane ごとの継続状態を持つ。強制はそのあと差し替わるので、skip の状態は強制を知らない | [dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 1571・1581 行、[098_temporl_skip_policy_10prd.md](0098_temporl_skip_policy_10rfd.md) §9 | 済み |
+| P8 | 既存部品の働き | TempoRL の skip は Actor の中で行動を上書きし、lane ごとの継続状態を持つ。強制はそのあと差し替わるので、skip の状態は強制を知らない | [dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 1571・1581 行、[0098_temporl_skip_policy_10rfd.md](0098_temporl_skip_policy_10rfd.md) §9 | 済み |
 | P9 | 既存部品の働き | Actor Q ヒント（5 列）は `WithAction` が強制行動で作り直す。そのためだけに Actor は `munchausen_terms` を aux に載せている | [dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 183・1633 行 | 済み |
-| P10 | 過去の判断 | PRD083 は `ObservationPipeline` クラスを作らず、「要件がそろう後続の PRD で入れる」とした | [083_action_context_retire_10prd.md](done/0083_action_context_retire_10rfd.md) の複雑さの監査 | 済み |
+| P10 | 過去の判断 | RFD0083 は `ObservationPipeline` クラスを作らず、「要件がそろう後続の RFD で入れる」とした | [0083_action_context_retire_10rfd.md](done/0083_action_context_retire_10rfd.md) の複雑さの監査 | 済み |
 | P11 | 守る線 | 重ねる → 転送 → 正規化の並びと、乱数の消費順を変えない。等価性は同 seed の metrics checksum で確かめる | [321_agent_core.md](../wiki/categories/321_agent_core.md) の「変えるときの条件」 | 済み |
-| P12 | 事実 | 待っている PRD はすべて暫定。単位 A は 142・159・160・174・183、単位 B は 142・173（173 は、Q の入力に直前の行動・直前の報酬・方策番号を足す案を持ち、その置き場に単位 B を使う） | §1.5 | 済み |
-| P13 | 過去の判断 | RND は自前の観測の正規化を持ち、PRD130 は「観測の加工を 1 か所にまとめる話は PRD161 の題材」と送った | [130_rnd_estimate_statistics_perf_10prd.md](0130_rnd_estimate_statistics_perf_10rfd.md) の D3 | 済み |
+| P12 | 事実 | 待っている RFD はすべて暫定。単位 A は 142・159・160・174・183、単位 B は 142・173（173 は、Q の入力に直前の行動・直前の報酬・方策番号を足す案を持ち、その置き場に単位 B を使う） | §1.5 | 済み |
+| P13 | 過去の判断 | RND は自前の観測の正規化を持ち、RFD0130 は「観測の加工を 1 か所にまとめる話は RFD0161 の題材」と送った | [0130_rnd_estimate_statistics_perf_10rfd.md](0130_rnd_estimate_statistics_perf_10rfd.md) の D3 | 済み |
 | P14 | 事実 | DQN のファイル名は `dqn_based_*` から `dqn_*` に変わった | コミット `e72bab34`（`git log` で 2026-11-20 に確認） | 済み |
 | P15 | 既存部品の働き | ReplayBuffer は重ねる前の 1 Frame を保存し、Sample のときに重ね直す。加工の流れは保存の位置で切れる | [150_replay_buffer.jp.md](../design/150_replay_buffer.jp.md) §2.3 | 対象外 |
 | P16 | 既存部品の働き | `MakeAction` が受ける状態は観測・終了・episode の開始の印だけで、報酬は入っていない | [rl.hpp](../../src/core/base/include/anet/rl.hpp) 430 行 | 対象外 |
@@ -154,9 +154,9 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | P27 | 用語 | 「フレーム」は用語集で、エミュレータのフレームと stack の 1 枚の両方の意味に使われていた | [CONTEXT.md](../../CONTEXT.md)（2026-11-20 に確認。Frame の項目を足して書き分けた） | 対象外 |
 | P28 | 既存部品の働き | NN では、アルゴリズム設定から実装が Head と追加の入力 spec（taus）を作り、`net.*` は Body の配線だけを持つ | [130_neural_networks.jp.md](../design/130_neural_networks.jp.md) §2.1・§6.1 | 対象外 |
 | P29 | 守る線 | 境界の検査は局所で決まるものだけで、入力が出力に寄与するかは設定する側の責任 | [130_neural_networks.jp.md](../design/130_neural_networks.jp.md) §7.1、[AGENTS.md](../../AGENTS.md) | 対象外 |
-| P30 | 過去の判断 | PRD142 のドラフトは、直前の行動を Agent の設定キーで有効にし、NN で使うには `bind` に書くとしている | [142_agent_prev_action_obs_10prd.md](0142_agent_prev_action_obs_10rfd.md) の「設定」 | 対象外 |
-| P31 | 過去の判断 | PRD173 の NGU の基準案は、Q の条件づけに方策番号・直前の行動・直前の報酬を使う | [173_intrinsic_reward_novelty_10prd.md](0173_intrinsic_reward_novelty_10rfd.md) §4.5 | 対象外 |
-| P32 | 過去の判断 | PRD173 は、ある方策番号で集めた遷移を別の方策番号として学ぶ形を、決める候補に挙げている | [173_intrinsic_reward_novelty_10prd.md](0173_intrinsic_reward_novelty_10rfd.md) §4.5 | 対象外 |
+| P30 | 過去の判断 | RFD0142 のドラフトは、直前の行動を Agent の設定キーで有効にし、NN で使うには `bind` に書くとしている | [0142_agent_prev_action_obs_10rfd.md](0142_agent_prev_action_obs_10rfd.md) の「設定」 | 対象外 |
+| P31 | 過去の判断 | RFD0173 の NGU の基準案は、Q の条件づけに方策番号・直前の行動・直前の報酬を使う | [0173_intrinsic_reward_novelty_10rfd.md](0173_intrinsic_reward_novelty_10rfd.md) §4.5 | 対象外 |
+| P32 | 過去の判断 | RFD0173 は、ある方策番号で集めた遷移を別の方策番号として学ぶ形を、決める候補に挙げている | [0173_intrinsic_reward_novelty_10rfd.md](0173_intrinsic_reward_novelty_10rfd.md) §4.5 | 対象外 |
 | P33 | 用語 | 用語集は `action_mask` を「学習入力には含めない」観測キーとしている | [CONTEXT.md](../../CONTEXT.md) の「観測キー」 | 対象外 |
 | P34 | 事実 | RND の補助学習を、保存した標本から引きたいという課題がある | [issue-20261119-4976bf.md](../management/issues/issue-20261119-4976bf.md) | 対象外 |
 | P35 | 既存部品の働き | skip の Network と RND は、Q の Network とは別の入力を実装が組んでいる | [dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 1687 行、[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 242 行 | 対象外 |
@@ -170,7 +170,7 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | P43 | 既存部品の働き | taus は、行動選択と学習でそれぞれ引く。学習の中でも複数回引く | [dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 958 行、[dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) 2325 行 | 対象外 |
 | P44 | 既存部品の働き | stack の対象は、設定のキーの一覧で決まる。設定の一覧が空のとき、Agent は stacker に一覧を渡さず（指定なしにして）、stacker は、一覧の指定が無ければ全キーを重ねる | [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 735 行（`CreateFrameStacker`。空でないときだけ一覧を渡す）、[stacker.cpp](../../src/core/base/src/stacker.cpp) 56 行 | 対象外 |
 | P45 | 既存部品の働き | 正規化の対象は、キーの性質で決まる。float の連続値のキーにだけ作り、ほかは素通し | [scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp) 633〜649・760 行 | 対象外 |
-| P46 | 過去の判断 | PRD142 のドラフトは、直前の行動を float の one-hot の別キーにし、「足したキーは正規化しない」「stack の既定は全キー」としている | [142_agent_prev_action_obs_10prd.md](0142_agent_prev_action_obs_10rfd.md) の決定 2・7・8 | 対象外 |
+| P46 | 過去の判断 | RFD0142 のドラフトは、直前の行動を float の one-hot の別キーにし、「足したキーは正規化しない」「stack の既定は全キー」としている | [0142_agent_prev_action_obs_10rfd.md](0142_agent_prev_action_obs_10rfd.md) の決定 2・7・8 | 対象外 |
 | P47 | 既存部品の働き | 定数の正規化の平均と標準偏差は、全キー共通の 1 組 | [scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp) 769 行 | 対象外 |
 | P48 | 既存部品の働き | `TensorSpec` は、形の種類・shape・dtype・クラス数（0 なら連続値）・値の範囲を持つ。離散値は Env が宣言している | [common.hpp](../../src/core/base/include/anet/common.hpp) 94 行、[DropMergeEnv.cpp](../../src/env/dropmerge/src/DropMergeEnv.cpp) 294 行 | 対象外 |
 | P49 | 既存部品の働き | spec の検査は、離散値なのに float の指定を止める | [rl.cpp](../../src/core/base/src/rl.cpp) 82 行 | 対象外 |
@@ -199,25 +199,25 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | P73 | 事実 | 観測を元の値へ戻す処理は、いまの `src` に無い | `src` の hpp・cpp を、戻す処理の名前（Denormalize・Unnormalize・Inverse・Unscale）で検索。当たった 10 行はどれも勾配の GradScaler（2026-11-20 に確認） | 対象外 |
 | P74 | 事実 | ワークスペースの設定（`data/`）に、`stucker.`・`obs_norm.` のキーは無い | `git grep`（`data`、0 行。2026-11-21 に確認） | 対象外 |
 | P75 | 既存部品の働き | どの部品にも読まれなかった設定キーは、RunnerApp の起動時に WARN で一覧される。NN の block の定義の中は、読まれないキーがあるとエラーで止まる | [config.cpp](../../src/core/base/src/config.cpp) 353〜385 行、[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) 548 行、[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) 1699 行 | 対象外 |
-| P76 | 事実 | 単位 A を前提や利用先に挙げる PRD は 5 本（142・159・160・174・183）。単位 B を前提にするのは 2 本（142・173） | §1.5 | 対象外 |
-| P77 | 過去の判断 | PRD192 は、単位 A が先なら自分の段階 3 を行わず、PRD192 が先なら単位 A が `WithAction` ごと消す、と書いている | [192_concurrency_and_boundary_defect_fixes_10prd.md](0192_concurrency_and_boundary_defect_fixes_10rfd.md) §6.9 | 対象外 |
+| P76 | 事実 | 単位 A を前提や利用先に挙げる RFD は 5 本（142・159・160・174・183）。単位 B を前提にするのは 2 本（142・173） | §1.5 | 対象外 |
+| P77 | 過去の判断 | RFD0192 は、単位 A が先なら自分の段階 3 を行わず、RFD0192 が先なら単位 A が `WithAction` ごと消す、と書いている | [0192_concurrency_and_boundary_defect_fixes_10rfd.md](0192_concurrency_and_boundary_defect_fixes_10rfd.md) §6.9 | 対象外 |
 | P78 | 事実 | 課題 aa5758 は単位 A と B の両方を 1 件に含む。課題 b754ff は B だけ | §5 | 対象外 |
-| P79 | 過去の判断 | 旧ドラフトの起票のときの推奨は「単位 A を独立の PRD にして先行」だった | 旧ドラフトの §9 の Q1（`git show 94182c99:docs/memo/161_observation_pipeline_10prd.md` で、2026-11-21 に確認） | 対象外 |
-| P80 | 守る線 | 次に進めるのは PRD191 で、PRD161 を待つ後続は急ぎではない。グリルの作業効率を優先する | 開発者の発言（2026-11-20）。§13 | 対象外 |
-| P81 | 事実 | PRD191 は RND の内的報酬の式と predictor の学習の PRD | [191_rnd_raw_error_and_recent_learning_10prd.md](0191_rnd_raw_error_and_recent_learning_10rfd.md) の題と §1.1 | 対象外 |
+| P79 | 過去の判断 | 旧ドラフトの起票のときの推奨は「単位 A を独立の RFD にして先行」だった | 旧ドラフトの §9 の Q1（`git show 94182c99:docs/memo/0161_observation_pipeline_10rfd.md` で、2026-11-21 に確認） | 対象外 |
+| P80 | 守る線 | 次に進めるのは RFD0191 で、RFD0161 を待つ後続は急ぎではない。グリルの作業効率を優先する | 開発者の発言（2026-11-20）。§13 | 対象外 |
+| P81 | 事実 | RFD0191 は RND の内的報酬の式と predictor の学習の RFD | [0191_rnd_raw_error_and_recent_learning_10rfd.md](0191_rnd_raw_error_and_recent_learning_10rfd.md) の題と §1.1 | 対象外 |
 | P82 | 既存部品の働き | Runner の強制の口は、行動の引数を持つ `EvalRunner::DoStep` で、負数が強制なし。中で `WithAction` に 1 要素の行動を渡している | [trainer.hpp](../../src/core/base/include/anet/trainer.hpp) 137〜144 行、[trainer.cpp](../../src/core/base/src/trainer.cpp) 293 行 | 対象外 |
 | P83 | 事実 | 行動の引数つきの `EvalRunner::DoStep` を呼ぶのは、アプリの 2 か所（`EvalPanel.cpp` 219 行、`QValuePanel.cpp` 975 行）と、テストの 2 ファイル（`trainer_test.cpp`、`episode_end_test.cpp`） | `git grep`（`src`、2026-11-21 に確認） | 対象外 |
-| P84 | 過去の判断 | PRD159 は、押し続ける操作のために、timer の経路へ強制行動を渡す口が要るとしている。今の口は 1 step 単位で、timer の経路に乗らない | [159_input_mapping_joystick_10prd.md](0159_input_mapping_joystick_10rfd.md) 221 行 | 対象外 |
+| P84 | 過去の判断 | RFD0159 は、押し続ける操作のために、timer の経路へ強制行動を渡す口が要るとしている。今の口は 1 step 単位で、timer の経路に乗らない | [0159_input_mapping_joystick_10rfd.md](0159_input_mapping_joystick_10rfd.md) 221 行 | 対象外 |
 | P85 | 既存部品の働き | `nn_trace` は `MakeActionOptions` の欄で、Runner の `DoStep` と `DoUpdateFrame` が同じ構造体を受ける | [rl.hpp](../../src/core/base/include/anet/rl.hpp) 357 行、[trainer.hpp](../../src/core/base/include/anet/trainer.hpp) 32 行 | 対象外 |
 | P86 | 事実 | 今の強制の口は 1 要素の行動を渡す。Runner は lane ごとの「強制したか」の記録を、全 lane 同じ値で埋めている | [trainer.cpp](../../src/core/base/src/trainer.cpp) 293・314 行 | 対象外 |
-| P87 | 過去の判断 | PRD160 の Train の強制は、多 lane のうち 1 lane 固定。複数 lane の同時操作は非ゴール | [160_input_target_train_forced_action_10prd.md](0160_input_target_train_forced_action_10rfd.md) 54・98 行 | 対象外 |
+| P87 | 過去の判断 | RFD0160 の Train の強制は、多 lane のうち 1 lane 固定。複数 lane の同時操作は非ゴール | [0160_input_target_train_forced_action_10rfd.md](0160_input_target_train_forced_action_10rfd.md) 54・98 行 | 対象外 |
 | P88 | 既存部品の働き | DQN の Actor は、行動を選んだあと、その行動から初期優先度のヒントを作る。強制した行動は、この間に書けばヒントに反映される | [dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 1565・1615 行 | 対象外 |
 | P89 | 事実 | Stable-Baselines3 は、env を指す引数が無指定・番号 1 つ・番号の列を受け、中で番号の列に直す | 公開のソース `stable_baselines3/common/vec_env/base_vec_env.py`（master、2026-11-20 に確認） | 対象外 |
 | P90 | 事実 | Isaac Lab は、番号で指す書き込みの口と、印で指す口の対を持つ。番号は重複不可 | 公開のソース `isaaclab/assets/articulation/base_articulation.py`（main、2026-11-20 に確認。後半は要約で読んだ） | 対象外 |
 | P91 | 事実 | EnvPool は番号の列と同じ長さの行動の列、Gymnasium は env の数ぶんの印（reset だけ）、imitation の DAgger は印で方策の外から差し替える | EnvPool の Python interface の文書、Gymnasium `sync_vector_env.py`、imitation `dagger.py`（2026-11-20 に確認） | 対象外 |
 | P92 | 既存部品の働き | NN は、状態なしの `Network::Forward` と、状態つきの実行器の二段になっている | [nn.hpp](../../src/core/base/include/anet/nn.hpp) 210・221・263 行、[ADR 0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md) | 対象外 |
 | P93 | 事実 | stack の動きは、使われる所で 3 通りある（行動選択は履歴から重ねる、Sample は ReplayBuffer が重ね済み、可視化は複製する）。正規化の当て方は、使われる所によらない | §1.1 | 対象外 |
-| P94 | 事実 | DQN の観測に増強を足す PRD は、今は無い | `docs/memo` の PRD を、増強の語（DrQ・random shift・データ拡張・augment）で検索。当たった 7 本はどれも `done/` の ImageCls の PRD（2026-11-20 に確認） | 対象外 |
+| P94 | 事実 | DQN の観測に増強を足す RFD は、今は無い | `docs/memo` の RFD を、増強の語（DrQ・random shift・データ拡張・augment）で検索。当たった 7 本はどれも `done/` の ImageCls の RFD（2026-11-20 に確認） | 対象外 |
 | P95 | 事実 | 今は、stack を使う設定で 1 枚のとき、Network の入力 spec と学習側には軸が無く、行動選択と可視化には長さ 1 の軸がある | §1.3 a | 対象外 |
 | P96 | 過去の判断 | stack 軸を Network で扱う module（`StackMerge` など）は、設定に明示して書く | [130_neural_networks.jp.md](../design/130_neural_networks.jp.md) §2.2 | 対象外 |
 | P97 | 事実 | Gymnasium の frame stack は 1 枚でも先頭に長さ 1 の軸を足す。Stable-Baselines3 は既存の軸に沿って重ね、軸は増えない | 公開のソース Gymnasium `wrappers/stateful_observation.py`、Stable-Baselines3 `vec_env/stacked_observations.py`（2026-11-20 に確認） | 対象外 |
@@ -225,25 +225,25 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | P99 | 事実 | 出荷設定で、stack を使わない設定は今は無い（基準が「使う、4 枚」） | [agent.txt](../../apps/runner/config/agent.txt) 178〜180 行、`git grep`（`apps`、2026-11-20 に確認） | 対象外 |
 | P100 | 事実 | 設定の構造体の既定は「stack を使わない」。テストの一部は、この既定のまま Network を組んでいる | [dqn_config.hpp](../../src/algo/dqn/src/dqn_config.hpp) 190 行、`src` を `use_stacker` で検索（テスト 5 ファイルに 12 行） | 対象外 |
 | P101 | 事実 | PyTorch の LSTM は時系列の軸が必ずあり、1 step は長さ 1。RLlib は状態を持つモデルのときだけ軸を足す。rlpyt は軸が任意で、次元の数から推し量る | PyTorch の LSTM の文書、RLlib の ConnectorV2 の文書、rlpyt `utils/tensor.py`（2026-11-20 に確認） | 対象外 |
-| P102 | 過去の判断 | PRD057 は「先頭の block で畳み方を書く」と決めた。spec に印を持たせて組む側が見る案は、`TensorSpec` の直しが広いとして見送った。見直しの条件は「stack に依る block が増えたら」 | [057_native_stack_dim_handling_10prd.md](done/0057_native_stack_dim_handling_10rfd.md) 70・118〜127 行 | 対象外 |
+| P102 | 過去の判断 | RFD0057 は「先頭の block で畳み方を書く」と決めた。spec に印を持たせて組む側が見る案は、`TensorSpec` の直しが広いとして見送った。見直しの条件は「stack に依る block が増えたら」 | [0057_native_stack_dim_handling_10rfd.md](done/0057_native_stack_dim_handling_10rfd.md) 70・118〜127 行 | 対象外 |
 | P103 | 既存部品の働き | `Flatten` は軸があっても無くても動く。`StackMerge` は 5 次元なら畳み、4 次元ならそのまま通す | [nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) 873〜880・934〜947 行 | 対象外 |
 | P104 | 事実 | 出荷設定には、軸を畳む定義（Atari の 29 個が `StackMerge` 始まり、MLP は `Flatten` 始まり）と、軸を時間方向に使う定義（LunarLander）の両方がある | [Atari.txt](../../apps/runner/config/Atari.txt) 1278 行ほか、[LunarLander.txt](../../apps/runner/config/LunarLander.txt) 272 行、[nn.txt](../../apps/runner/config/nn.txt) 290・309 行 | 対象外 |
 | P105 | 既存部品の働き | NN の入力には、入口の変換を通さない印（raw）がある。離散の Grid は、入口が軸とクラスをチャネルへ畳んでいる | [nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) 945〜999・1228 行 | 対象外 |
 | P106 | 既存部品の働き | 正規化の部品は、軸なしの形を前提に形を検査する | §1.3 b | 対象外 |
 | P107 | 事実 | 出荷設定は、どれも素通し（基準の設定だけが `obs_norm` を書いている） | [agent.txt](../../apps/runner/config/agent.txt) 304〜316 行 | 対象外 |
 | P108 | 事実 | 設定の構造体の既定は「素通しでない」。テストの一部は、この既定のまま Agent を組んでいる | [scaler.hpp](../../src/core/base/include/anet/scaler.hpp) 48 行 | 対象外 |
-| P109 | 過去の判断 | 旧ドラフトは、統計つきの正規化を成立させる作業を別の PRD へ持ち越し、その中で「先頭の stack 軸へ統計を広げる」方向を挙げていた | 旧ドラフトの §10（`git show 94182c99:docs/memo/161_observation_pipeline_10prd.md` で、2026-11-21 に確認） | 対象外 |
+| P109 | 過去の判断 | 旧ドラフトは、統計つきの正規化を成立させる作業を別の RFD へ持ち越し、その中で「先頭の stack 軸へ統計を広げる」方向を挙げていた | 旧ドラフトの §10（`git show 94182c99:docs/memo/0161_observation_pipeline_10rfd.md` で、2026-11-21 に確認） | 対象外 |
 | P110 | 事実 | 既存の型に `Forwarder`・`Perception` で始まるものは無い。`Pipeline` を含むのは `PipelineTrainRunner` だけ。`ForwardExecutor` という名前の型は無い（近いのは `NetworkForwardExecutor` と `DqnForwardExecutor`） | `src` の hpp・cpp を型の名前で検索（2026-11-20・21 に確認） | 対象外 |
 | P111 | 既存部品の働き | NN の設定は、部品を `net.block`、並びを `structure` と書く。設定の種類が `Flatten` なら、クラスは `FlattenModule` | [nn.txt](../../apps/runner/config/nn.txt) 65・240 行、[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) 873 行 | 対象外 |
 | P112 | 既存部品の働き | forward の途中の値の持ち帰りは、鍵で要求する `NetworkForwardCapture` の 1 つに統一されている。`Network::Forward`・`ForwardUpTo`・実行器の `Forward` が任意で受け、渡さないときは「渡されたか」の判定だけで済む。要求した鍵が書かれなければ、Network の出口で止まる | [nn.hpp](../../src/core/base/include/anet/nn.hpp) 162・210〜215・270 行、[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) 135〜149 行、[ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) | 対象外 |
 | P113 | 既存部品の働き | Network は、構築と、実行器を作る口の 2 か所で seed を受ける。既定の設定では、実行器の seed は使われない。名前から seed を作る計算は、乱数を消費しない | [nn.hpp](../../src/core/base/include/anet/nn.hpp) 207・219〜222 行、[random.cpp](../../src/core/base/src/random.cpp) 190〜193 行、[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 337〜340 行 | 対象外 |
 | P114 | 過去の判断 | WARN は「利用者が確かめて、設定・コード・実行環境を直すべき状態」に限る。読まれない設定キーは、実体化したカタログ項目では構築時に止め、それ以外は Run の構築の終わりに WARN で一覧する | [ADR 0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) | 対象外 |
 | P115 | 既存部品の働き | DQN の Head の多くは、構築のとき、特徴の最後の次元だけを読む。IQN の Head は 3 次元の特徴を前提にする。Body の出力に stack 軸が残っていても、Head の構築では止まらない場合がある（動かして確かめてはいない） | [dqn_heads.cpp](../../src/algo/dqn/src/dqn_heads.cpp) 785・975・1016 行 | 対象外 |
-| P116 | 既存部品の働き | 設定の解決結果を、保存した基準（17 構成）と比べるテストがある。基準は、解決後の設定キーの名前を含む | [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp) 177〜187 行、`src/core/base/testdata/prd072/baseline/` | 対象外 |
-| P117 | 事実 | PRD192 と PRD190 は実装済み（PRD192 は `94182c99`）。PRD192 は `WithAction` の device の扱いを直し、そのテストを足した | [192_concurrency_and_boundary_defect_fixes_10prd.md](0192_concurrency_and_boundary_defect_fixes_10rfd.md) §6.4、[190_dqn_design_doc_alignment_10prd.md](0190_dqn_design_doc_alignment_10rfd.md) 115〜120 行、[dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 205 行 | 対象外 |
+| P116 | 既存部品の働き | 設定の解決結果を、保存した基準（17 構成）と比べるテストがある。基準は、解決後の設定キーの名前を含む | [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp) 177〜187 行、`src/core/base/testdata/rfd0072/baseline/` | 対象外 |
+| P117 | 事実 | RFD0192 と RFD0190 は実装済み（RFD0192 は `94182c99`）。RFD0192 は `WithAction` の device の扱いを直し、そのテストを足した | [0192_concurrency_and_boundary_defect_fixes_10rfd.md](0192_concurrency_and_boundary_defect_fixes_10rfd.md) §6.4、[0190_dqn_design_doc_alignment_10rfd.md](0190_dqn_design_doc_alignment_10rfd.md) 115〜120 行、[dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 205 行 | 対象外 |
 | P118 | 用語 | 設計文書は、重ねた枚数の軸を「stack 軸」と呼んでいる | [130_neural_networks.jp.md](../design/130_neural_networks.jp.md) §2.2（41 行） | 対象外 |
 | P119 | 事実 | メトリクスの鍵 `obs_norm.*`（`$agent obs_norm.count` など）は、設定キーとは別にあり、メトリクスの定義が使っている。RND は自前の設定キー `intrinsic.rnd.obs_norm.*` を持つ | [metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt) 301〜305 行、[agent.txt](../../apps/runner/config/agent.txt) 53 行 | 対象外 |
-| P120 | 事実 | 同じ箇所に触れる、まだ実装していない PRD は 13 本（081・134・141・142・143・159・160・173・174・176・180・183・191） | 課題の一覧（[INDEX.md](../management/issues/INDEX.md)）を、§7.11 の PRD の番号で引いた（2026-11-21 に確認） | 対象外 |
+| P120 | 事実 | 同じ箇所に触れる、まだ実装していない RFD は 13 本（081・134・141・142・143・159・160・173・174・176・180・183・191） | 課題の一覧（[INDEX.md](../management/issues/INDEX.md)）を、§7.11 の RFD の番号で引いた（2026-11-21 に確認） | 対象外 |
 | P121 | 事実 | 出荷設定の RND の Network の定義に、`StackMerge` で始まるものは無い | [Atari.txt](../../apps/runner/config/Atari.txt) 13〜17 行、[DropMerge.txt](../../apps/runner/config/DropMerge.txt) 536〜565 行、[GridMaze.txt](../../apps/runner/config/GridMaze.txt) 33 行、[LunarLander.txt](../../apps/runner/config/LunarLander.txt) 50 行 | 対象外 |
 | P122 | 既存部品の働き | Learner が、stack の設定（枚数とキー）を ReplayBuffer の設定へ写している | [dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) 927〜933 行 | 対象外 |
 | P123 | 既存部品の働き | ReplayBuffer の保存領域は、Env の spec から作る | [replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) 1475 行、[dqn_learner.cpp](../../src/algo/dqn/src/dqn_learner.cpp) 945 行 | 対象外 |
@@ -272,7 +272,7 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | [issue-20261103-aa5758](../management/issues/issue-20261103-aa5758.md) | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 | 321_agent_core、318_rl_core、324_dqn、314_tensor、325_muzero | [dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 1534・1541 行、[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 424・964 行、[trainer.cpp](../../src/core/base/src/trainer.cpp) 293 行 | D7〜D16（強制行動）、D17〜D24・D45（基盤）、D25〜D34・D39〜D44（Perception の仕組み） | 1〜34 |
 | [issue-20261103-b754ff](../management/issues/issue-20261103-b754ff.md) | `stucker.stack_keys` に存在しないキー名を書いても検出されない | 324_dqn | [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 435 行、[stacker.cpp](../../src/core/base/src/stacker.cpp) 56 行 | D30 | 21 |
 
-課題 aa5758 の 2026-11-11 の追記（正規化の部品の内部の 3 点）と、RND の観測加工は、本 PRD の範囲に入れない（NG3・NG4）。§15 のとおり、課題に記録した。
+課題 aa5758 の 2026-11-11 の追記（正規化の部品の内部の 3 点）と、RND の観測加工は、本 RFD の範囲に入れない（NG3・NG4）。§15 のとおり、課題に記録した。
 
 ## 6. 確定事項
 
@@ -282,11 +282,11 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 
 | # | 決定 | 理由 | 依存 |
 |---|---|---|---|
-| D1 | 語を 3 つに分ける。**Observation** は Env が Agent へ渡すもの。**Frame** は ReplayBuffer に保存する、観測側の 1 step 分。**Perception（知覚）** は、Agent が Observation と自分の持つ関連情報から作る、Network へ渡す入力で、taus を含めない。Perception は、渡す先の Network ごとにある（Q の Network、skip の補助 Network、RND の Network は、それぞれ別の入力を受ける）。本 PRD が並びで作るのは、DefaultDQN の Q の Network（primary）へ渡す Perception で、以下、Network の名を添えない Perception はこれを指す。Frame と Perception の定義は互いを参照しない。「Frame をもとに Perception を作る」という依存は、フレームワークの前提にしない | 「生か加工済みか」では線が引けない（Atari の Observation は Env の中で縮小を済ませている）ので、誰が形を決めるかで分ける。直線の依存を前提にすると、保存するが Network に入れない情報や、別の方策番号として学ぶ形を塞ぐ | P27、P32、P33、P42 |
-| D2 | Agent が足す情報（今回は無い。PRD142 の直前の行動など）は、行動選択のときに、Actor の実行器が 1 回だけ作る。作った値は、Perception の一部としてその場で Network へ渡し、あわせて行動の情報（`BatchActionInfo`）に載せて経験の受入れへ運び、Frame の一部として ReplayBuffer に入れる。受入れの側で、同じ値をもう一度作ることはしない。Perception そのものは運ばない。Learner の側の Perception は、Sample のときに、保存した Frame から作る（行動選択のほかに Perception を作るのは、Sample と可視化だけである）。今回は足す情報が無いので、Actor から受入れへ運ぶ観測側の値は無く、Frame は経験の Observation と同じ中身である。lane の履歴は、stack の部品ではなく、Actor ごとの実行器が持つ | Actor が作った値を行動の情報に載せて ReplayBuffer が使う道が既にある。行動選択の時点でその観測は ReplayBuffer に無く、評価用の Actor は ReplayBuffer に入れないので、ReplayBuffer の末尾を履歴に使えない。D7 で経験がすべて Actor を通るので、「Actor を通らない経験でも受入れ側だけで Frame が完成する」利点は効かない | P37、P38、P39、D7 |
+| D1 | 語を 3 つに分ける。**Observation** は Env が Agent へ渡すもの。**Frame** は ReplayBuffer に保存する、観測側の 1 step 分。**Perception（知覚）** は、Agent が Observation と自分の持つ関連情報から作る、Network へ渡す入力で、taus を含めない。Perception は、渡す先の Network ごとにある（Q の Network、skip の補助 Network、RND の Network は、それぞれ別の入力を受ける）。本 RFD が並びで作るのは、DefaultDQN の Q の Network（primary）へ渡す Perception で、以下、Network の名を添えない Perception はこれを指す。Frame と Perception の定義は互いを参照しない。「Frame をもとに Perception を作る」という依存は、フレームワークの前提にしない | 「生か加工済みか」では線が引けない（Atari の Observation は Env の中で縮小を済ませている）ので、誰が形を決めるかで分ける。直線の依存を前提にすると、保存するが Network に入れない情報や、別の方策番号として学ぶ形を塞ぐ | P27、P32、P33、P42 |
+| D2 | Agent が足す情報（今回は無い。RFD0142 の直前の行動など）は、行動選択のときに、Actor の実行器が 1 回だけ作る。作った値は、Perception の一部としてその場で Network へ渡し、あわせて行動の情報（`BatchActionInfo`）に載せて経験の受入れへ運び、Frame の一部として ReplayBuffer に入れる。受入れの側で、同じ値をもう一度作ることはしない。Perception そのものは運ばない。Learner の側の Perception は、Sample のときに、保存した Frame から作る（行動選択のほかに Perception を作るのは、Sample と可視化だけである）。今回は足す情報が無いので、Actor から受入れへ運ぶ観測側の値は無く、Frame は経験の Observation と同じ中身である。lane の履歴は、stack の部品ではなく、Actor ごとの実行器が持つ | Actor が作った値を行動の情報に載せて ReplayBuffer が使う道が既にある。行動選択の時点でその観測は ReplayBuffer に無く、評価用の Actor は ReplayBuffer に入れないので、ReplayBuffer の末尾を履歴に使えない。D7 で経験がすべて Actor を通るので、「Actor を通らない経験でも受入れ側だけで Frame が完成する」利点は効かない | P37、P38、P39、D7 |
 | D3 | Perception に「何の情報が入るか」はアルゴリズム設定が決めて実装が作り、「どういう形で入るか」だけを設定の並びで組む | NN が Head と taus を実装で作り、`net.*` が Body の配線だけを持つのと同じ線。全部を並びで書く形は、機能は有効なのに並びにその入力が無い、という食い違いが書ける | P28、P29、P31 |
-| D4 | 行動選択側と Sample 側の Perception が往復で一致するかは、Frame にキーを足す部品については PRD142 で確かめる。本 PRD の受入には、stack と正規化だけの往復のテストを入れる | Frame にキーを足す部品は本 PRD に無い。今は、Actor 側の stacker の出力と ReplayBuffer の Sample の出力を直接突き合わせるテストが無い | P36、D34 |
-| D5 | PRD は本 PRD の 1 本のままとし、段階を A（強制行動）、C（基盤）、B（Perception の仕組み）の順に分ける。課題の結び付けと、ほかの PRD からのリンクは変えない。題とファイル名も変えない | 後続は急ぎではなく、グリルの作業を 1 回で済ませる。共通の口（C）を、使う側（B）と一緒に決められる。実装の順は、B の運び方（D2）が A をよりどころにするので、A、C、B になる。題とファイル名を変えないのは、待っている PRD からのリンクを保つためである | P76、P78、P80、D2 |
+| D4 | 行動選択側と Sample 側の Perception が往復で一致するかは、Frame にキーを足す部品については RFD0142 で確かめる。本 RFD の受入には、stack と正規化だけの往復のテストを入れる | Frame にキーを足す部品は本 RFD に無い。今は、Actor 側の stacker の出力と ReplayBuffer の Sample の出力を直接突き合わせるテストが無い | P36、D34 |
+| D5 | RFD は本 RFD の 1 本のままとし、段階を A（強制行動）、C（基盤）、B（Perception の仕組み）の順に分ける。課題の結び付けと、ほかの RFD からのリンクは変えない。題とファイル名も変えない | 後続は急ぎではなく、グリルの作業を 1 回で済ませる。共通の口（C）を、使う側（B）と一緒に決められる。実装の順は、B の運び方（D2）が A をよりどころにするので、A、C、B になる。題とファイル名を変えないのは、待っている RFD からのリンクを保つためである | P76、P78、P80、D2 |
 | D6 | 共通の口は順方向だけとし、逆方向（入れるとき用）の変換の口は持たない。ReplayBuffer には加工前の Frame を入れ、読む側がどれも同じ並びを順に当てる。見直しの条件は、ReplayBuffer に入れる形を加工する要求か、行動の側を並びで加工する要求が出たとき | 入れるときに加工しないので、戻す処理が要らない。今回の部品（重ねる、統計つきの正規化、キーを落とす）は、どれも元に戻せない加工で、逆方向の口を足しても何もしない口になる。あとから既定つきの口を足せば、既存の部品は変えずに済む | P70、P71、P73 |
 
 ### 6.2 単位 A（強制行動）
@@ -298,10 +298,10 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | D9 | 欄の型は `ForcedActions` の 1 つで、作り方を 2 つ持つ。`ForcedActions::ByLane` は lane の番号と行動で 1 lane を指す。`ForcedActions::ByMask` は lane 数ぶんの印と行動でまとめて指す。差し替えと検査は型の中の 1 か所で行い、Actor は作り方の違いを見ない | 指定のほとんどは 1 lane なので、lane 数を知らずに書ける作り方が要る。複数 lane をまとめて指す形も塞がない。番号で指す口と印で指す口の対は、Isaac Lab と Stable-Baselines3 に事例がある | P87、P89、P90、P91 |
 | D10 | 検査は `ForcedActions` の中の 1 か所で行う。`ByLane` は、lane の番号が 0 以上 lane 数未満、行動が 0 以上 行動数未満であること。`ByMask` は、印が bool、行動が int64 の Tensor で、どちらも形が `[lane 数]` であること、印が真の lane の行動が 0 以上 行動数未満であること。印が偽の lane の行動の値は読まず、検査もしない（どんな値が入っていてもよい）。違反はエラーで止め、文言に lane・指定した値・行動数を入れる。連続行動の Env に強制行動を渡したときもエラーで止める。`EvalRunner` は、Reset より前にこの検査を呼ぶ。Actor も、差し替える直前に同じ検査を呼ぶ | 今の「Reset・Actor・Env より前に拒否する」を保つ。今は、連続行動の Env では範囲の検査を飛ばして通している。Train Runner を通る強制は Actor の検査で止まる。強制するかを表すのは印だけなので、印が偽の lane の値には意味を持たせない（値で「強制なし」を表す決まりを無くした D8 と同じ線） | P82、D8、D9、D15 |
 | D11 | 方策の処理（forward、探索の乱数、診断の集計）は、全 lane で今のとおり行い、そのあと強制した lane の行動を差し替える。強制していない lane の結果と乱数は、強制の有無で変わらない。行動から作る値（Actor Q ヒントの行動の Q、Munchausen の項、QR・IQN の tail の診断）は、差し替えたあとの行動から作る。値は今の `WithAction` と同じになる | 乱数の消費順を変えない線。DQN の Actor は、行動を選んだあとにその行動からヒントを作るので、その間で差し替えれば、ヒントはそのまま最終の行動を読む | P11、P88 |
-| D12 | `BatchActionInfo::WithAction` と、それを上書きする 2 つ（DQN、MuZero）、テスト用の差し替え、aux の `munchausen_terms` を消す。PRD192 が足した `WithAction` のテストも消し、`ForcedActions` 用に書き直す | 行動を決める点を Actor の中の 1 つにする。`munchausen_terms` を読むのは `WithAction` だけである | P9、P77、P117、D11 |
+| D12 | `BatchActionInfo::WithAction` と、それを上書きする 2 つ（DQN、MuZero）、テスト用の差し替え、aux の `munchausen_terms` を消す。RFD0192 が足した `WithAction` のテストも消し、`ForcedActions` 用に書き直す | 行動を決める点を Actor の中の 1 つにする。`munchausen_terms` を読むのは `WithAction` だけである | P9、P77、P117、D11 |
 | D13 | TempoRL の skip が有効な Actor では、強制した lane の継続状態（続けている行動と残りの step）を捨て、強制した step を新しい判断として記録する。強制した lane は、判断のフラグを真、skip 長を 1、残りの step を 0、続ける行動を強制行動にする。次の step は、方策が判断し直す。skip の診断（判断した lane の数と skip 長の分布）は、強制を反映したあとの値で数える。Train につなぐときではなく、今回入れる | Train Runner も同じ構造体を Actor へ渡すので、口は Train 側にも開く。区間の途中で行動が変わると、ReplayBuffer の窓が Sample のときに止まる | P8、D15 |
-| D14 | 強制行動に対応できない Actor は、強制した lane があるときにエラーで止める。今の 3 つの Actor はすべて対応する。MuZero と ImageCls は行動の差し替えだけにし、MuZero の探索木と info は探索の結果のままにする（今と同じ）。MuZero を Train で強制する形は PRD160 で決める | 黙って無視しない（Fail-Fast）。MuZero の今の `WithAction` が行動だけを差し替えている | [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則、[muzero_based_agent.cpp](../../src/algo/muzero/src/muzero_based_agent.cpp) の `MuZeroActionInfo::WithAction` |
-| D15 | Train Runner は、受けた `MakeActionOptions` をそのまま Actor へ渡す（今と同じ）。人の操作を Train へ届ける配線は入れない | 口は、今も Train Runner が構造体をそのまま渡す形で開いている。人の操作を届ける配線は別の関心で、PRD160 が決める（NG8） | P85 |
+| D14 | 強制行動に対応できない Actor は、強制した lane があるときにエラーで止める。今の 3 つの Actor はすべて対応する。MuZero と ImageCls は行動の差し替えだけにし、MuZero の探索木と info は探索の結果のままにする（今と同じ）。MuZero を Train で強制する形は RFD0160 で決める | 黙って無視しない（Fail-Fast）。MuZero の今の `WithAction` が行動だけを差し替えている | [AGENTS.md](../../AGENTS.md) §Fail-Fast 原則、[muzero_based_agent.cpp](../../src/algo/muzero/src/muzero_based_agent.cpp) の `MuZeroActionInfo::WithAction` |
+| D15 | Train Runner は、受けた `MakeActionOptions` をそのまま Actor へ渡す（今と同じ）。人の操作を Train へ届ける配線は入れない | 口は、今も Train Runner が構造体をそのまま渡す形で開いている。人の操作を届ける配線は別の関心で、RFD0160 が決める（NG8） | P85 |
 | D16 | Runner の「強制したか」の記録は、`ForcedActions` の lane の印から作る。EvalPanel の範囲外の入力は、今のまま、ステータスバーに出して何もしない | 今は全 lane を同じ値で埋めていて、一部の lane だけの強制を表せない。範囲外の入力の見せ方は、強制行動を渡す口とは別の関心で、変える理由が無い | P7、P86、D9 |
 
 ### 6.3 単位 C（基盤）
@@ -329,10 +329,10 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | D29 | `DropKeys` は、指定したキーを Perception から落とす。`keys` は、落とすキーの一覧で、必須である（モードを持たないので、スコープにしない）。spec に無いキーはエラー。全部のキーを落とす指定もエラー。Frame には残し、落とすのは Perception の側だけである | 汎用の部品の最初の 1 つ。黙って何もしない設定を作らない | D25 |
 | D30 | 構築時にエラーで止めるものは、§7.6 の表の 1〜9 を正本とする。並びを書かない設定と、`count` を書かない `FrameStack` は、エラーにしない（D27） | 成り立たない設定を、最初の行動選択まで潜ませない。block の中の読まれないキーは、NN の block と同じ扱いにする | P3、P75、D27 |
 | D31 | 4 つの口の役割を §7.4 のとおりにする。行動選択: Actor が実行器を 1 つ持ち、Observation と episode の開始の印を渡して Perception を受ける。経験の受入れ（push）: `FrameWithStatsUpdate` の Forwarder に経験の obs と next_obs を通し（今回、起きるのは統計の更新だけ。D40）、返った Frame（重ねも正規化もしていない）を ReplayBuffer へ渡す。Sample: Sample した観測のすべて（obs、next_obs、skip の学習の窓の終点の観測）に、`PerceptionFromStack` の Forwarder を当てる。可視化: `PerceptionFromFrame` の Forwarder と Network をつないで、`TensorDictFunction` を作る | D2・D6・D26 の帰結。Sample の側の正規化は今 3 か所ある | P72、D2、D6、D26 |
-| D32 | NN の側は 3 点を直す。(1) stack 軸を持つ入力を受ける branch の先頭が、「stack 軸つきの入力を扱う」と宣言した module でなければ、構築時に WARN を 1 回出して続ける。宣言は module の型ごとに持ち（今回は `Flatten`・`StackMerge`・`Permute`・`Reshape` と、軸のあるなしを自分で見分ける `SpatialEmbedder`・`HybridSpatialEmbedder`）、検査の側に一覧を持たない。(2) `StackMerge` は、5 次元以外の入力をエラーにする。(3) 入口の離散の Grid は、次元の数ではなく、属性で stack 軸を見分ける。畳む動きは今のままにする（そろえるかは、§15 の課題）。NN の入口で既定で畳む仕掛けは入れず、先頭の module で軸の扱いを書く決まり（PRD057）は変えない | 軸の扱いを曖昧にしないが、書き方は強制しない。一律のエラーは、軸を自分で扱う新しい module を塞ぐ。WARN は利用者が確かめて直す状態に限るので、正しい設計は module の宣言で WARN を消せるようにする。先頭が `Linear` のときは、書き忘れが構築で止まらない見込みである | P96、P102、P103、P114、P115、D19、D27 |
+| D32 | NN の側は 3 点を直す。(1) stack 軸を持つ入力を受ける branch の先頭が、「stack 軸つきの入力を扱う」と宣言した module でなければ、構築時に WARN を 1 回出して続ける。宣言は module の型ごとに持ち（今回は `Flatten`・`StackMerge`・`Permute`・`Reshape` と、軸のあるなしを自分で見分ける `SpatialEmbedder`・`HybridSpatialEmbedder`）、検査の側に一覧を持たない。(2) `StackMerge` は、5 次元以外の入力をエラーにする。(3) 入口の離散の Grid は、次元の数ではなく、属性で stack 軸を見分ける。畳む動きは今のままにする（そろえるかは、§15 の課題）。NN の入口で既定で畳む仕掛けは入れず、先頭の module で軸の扱いを書く決まり（RFD0057）は変えない | 軸の扱いを曖昧にしないが、書き方は強制しない。一律のエラーは、軸を自分で扱う新しい module を塞ぐ。WARN は利用者が確かめて直す状態に限るので、正しい設計は module の宣言で WARN を消せるようにする。先頭が `Linear` のときは、書き忘れが構築で止まらない見込みである | P96、P102、P103、P114、P115、D19、D27 |
 | D33 | RND の正規化の判定は変えない | RND は byte の画像を float に直して自前の統計で正規化していて、尺度の属性に合わせると Atari の動きが変わる | P68、NG3 |
 | D34 | 往復のテストを入れる。行動選択側の Perception と、同じ経験を ReplayBuffer に入れて Sample で作り直した Perception が一致することを、4 枚と 1 枚、episode の先頭、打ち切りの終端、n より手前で episode が終わる next_obs、skip の窓の終点で確かめる | D4。今は、2 つの出力を直接突き合わせるテストが無い | P26、P41、D4 |
-| D39 | Frame の spec は、Agent が 1 つ作る（Observation の spec に、実装が足すキーを合わせたもの。今回は足すキーが無い）。ReplayBuffer の生成と、並びの入力の両方に、この 1 つを渡す | PRD142 が Frame にキーを足すとき、直す spec が 1 か所で済む（G6）。今は、ReplayBuffer の保存領域を Env の spec から作り、Network の入力 spec は別の関数が作っている | P50、P123、D1 |
+| D39 | Frame の spec は、Agent が 1 つ作る（Observation の spec に、実装が足すキーを合わせたもの。今回は足すキーが無い）。ReplayBuffer の生成と、並びの入力の両方に、この 1 つを渡す | RFD0142 が Frame にキーを足すとき、直す spec が 1 か所で済む（G6）。今は、ReplayBuffer の保存領域を Env の spec から作り、Network の入力 spec は別の関数が作っている | P50、P123、D1 |
 | D40 | 観測の正規化の統計（ObservationNormalizer の平均と分散）は、`Normalize` の部品が 1 組持つ。更新するのは `FrameWithStatsUpdate` の依頼だけで、そのとき観測の値は変えずに返す。Perception を作る依頼（実行器を含む）は、統計を読んで当てるだけにする。Agent は、経験を受け取ったとき、`FrameWithStatsUpdate` の Forwarder に obs と next_obs を 1 回ずつ通す（今と同じ 2 回）。`Normalize` は並びに 1 つまでとする。メトリクスの鍵 `obs_norm.*` は、並びが部品へ問い合わせを回して答える。報酬の RewardScaler と、RND の観測の正規化は、今のまま Agent と RND が持つ。正規化の対象のキー（`Unscaled`）が 1 つも無い構成では、`Normalize` は並びに居ても何もせず、メトリクスの鍵 `obs_norm.*` は値を返さない（今の、float の連続値のキーが無い構成と同じ動き）。D18 の宣言で、GridMaze と DropMerge はこの構成になる（今は、素通しの部品が作られ、`obs_norm.count` が 0 を返す） | 依頼ごとの動きを部品が持つ形（D26）に収まる。統計の更新は、Frame を作ることに付随する処理なので、依頼の名前に `With` で表す（`And` だと、作るものが 2 つあるように読める）。Agent が部品の種類を知らずに済み、設定キーを部品へ移す決定（D25）も保てる。動きは今と同じである。RewardScaler と RND は観測の加工ではないので、並びに入れない。対象のキーが無い構成で `obs_norm.*` の返す値が変わる点は、出荷設定に、この鍵を記録する有効な定義が無いので、等価性の Run に現れない | P129、P136、P139、D1、D18、D25、D26、NG3 |
 | D41 | 並びの図（dot）を、NN の構造図と同じ仕組みで出す。`ForwarderChain` が図を作る口を持ち、`DefaultDQNAgent` が、Network の構造図を記録するのと同じ時機に、`perception.structure`（部品と順番だけ）と `perception.detail`（各段の spec と、部品の設定を足したもの）の 2 つを記録する。図は Run の `dot/` の下に出る。設定キーは足さない（§7.12） | 並びの中身（部品、順番、各段の形と属性）を、Run の記録で確かめられる。NN は、構造だけの図と詳しい図の 2 つを、同じ形で出している | P130、D25、D26 |
 | D42 | Actor が aux に載せている `raw_obs`（重ねたあと・正規化の前の観測）と `norm_obs`（正規化のあとの観測）を消す。途中の値が要るようになったら、capture の鍵として足す | 読むのはテストだけである。行動選択用の実行器が返すのは、最後の Perception だけになる。形の確かめは、Perception を直接見るテスト（受入 23）に移す | P127、D21、D31 |
@@ -346,7 +346,7 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | D35 | 等価性は、段階 A・C・B のそれぞれの前後で、LunarLander と GridMaze の同 seed の短い Run の metrics が一致することで確かめる。段階 C と B では、DropMerge と Atari の短い Run も 1 本ずつ足す。checkpoint の raw checksum は合否に使わない | 重ねる → 転送 → 正規化の並びと、乱数の消費順を変えない線。LunarLander は 4 枚、GridMaze は 1 枚で、形が変わる側を含む。DropMerge と Atari は、離散の Grid、Embedder、`StackMerge`、byte の画像の経路を通る。段階 A は強制行動で、題材によらない | P11、P98 |
 | D36 | テストのタグは `[forced_action]`・`[forwarder]`・`[perception]` とする | 今ある `[forced_action]` に合わせる | — |
 | D37 | ADR を 4 本起こす（ADR 0083〜0086）。設計文書を 1 本新設し（Forwarder と Perception の仕組み）、130 の §2.2 と 200 は書き直す | 決定の単位ごとに 1 本。新しい仕組みには設計文書を新設する | — |
-| D38 | ほかの PRD との順序は §7.11 のとおりにする。PRD192・PRD190 は実装済みで、本 PRD はその上に書く。PRD191 が先に入り、本 PRD は RND の観測加工に触れない | PRD192 と PRD190 は実装が済んでいる。開発者が、次に進めるのは PRD191 だと述べた。同じ箇所に触れる未実装の PRD ごとに、どちらが先でも成り立つ扱いを決めておく | P80、P117、P120 |
+| D38 | ほかの RFD との順序は §7.11 のとおりにする。RFD0192・RFD0190 は実装済みで、本 RFD はその上に書く。RFD0191 が先に入り、本 RFD は RND の観測加工に触れない | RFD0192 と RFD0190 は実装が済んでいる。開発者が、次に進めるのは RFD0191 だと述べた。同じ箇所に触れる未実装の RFD ごとに、どちらが先でも成り立つ扱いを決めておく | P80、P117、P120 |
 
 ### 6.6 退けた案
 
@@ -355,13 +355,13 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | 定義の持ち主のクラス 1 つ（旧ドラフトの `ObservationPipeline`）。部品を取り出して並べるのは各経路 | 部品が増えるたびに、取り出す口と呼ぶ側の両方が変わる |
 | 全体を「TensorDict を入れたら加工した TensorDict が出る」1 つの形にする | ReplayBuffer が重ねる前の 1 Frame を保存する位置で流れが切れ、重ねる処理には lane の履歴が要る。その形が成り立つ部分（正規化、キーを落とす、可視化）では、そのまま使う |
 | 全部を設定の並びで書く（情報を足す部品も並びに書く） | D3 の理由 |
-| 単位 A を別の PRD にして先行する（旧ドラフトの推奨） | D5 の理由 |
+| 単位 A を別の RFD にして先行する（旧ドラフトの推奨） | D5 の理由 |
 | 強制行動を lane 数ぶんの印と行動だけで表す（旧ドラフトの形） | 1 lane の指定で、呼ぶ側が lane 数を調べて組み立てることになる（D9） |
 | 1 枚のときは stack 軸を足さない（旧ドラフトの §4.4） | stack の有無で形の意味が変わり、見分ける道具が要る（D27） |
 | stack 軸を必ず持ち、NN の入口で既定で畳む | 軸の扱いが module の定義から読めなくなる（D32） |
 | stack ありで素通しでない正規化を構築時に止める（旧ドラフトの §4.5） | D28 の理由 |
 | 逆方向の口を、何もしない既定つきで足す | D6 の理由 |
-| 正規化を NN の block にする | 統計を更新する口と checkpoint の書式が要る。NG2 の PRD で決める |
+| 正規化を NN の block にする | 統計を更新する口と checkpoint の書式が要る。NG2 の RFD で決める |
 | 設定キーをそのままにして、並びだけ新しいキーにする | 書き方が 2 通りになる（D25） |
 | 正規化を、部品の種類で分ける（定数の部品と統計つきの部品。素通しは並びに書かない） | 統計を持つ部品が 2 種類になり、「正規化は並びに 1 つまで」が種類をまたぐ。素通しのとき、メトリクスの鍵 `obs_norm.*` が未知の鍵になる（D43） |
 | 正規化の設定キーを、今の名前のまま移す | モードで使うキーが変わるまとまりを移すときの決まりに、例外を残すことになる（D43） |
@@ -384,7 +384,7 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | 語 | 意味 | 既存の語で言い換えられない理由 |
 |---|---|---|
 | Frame | ReplayBuffer に保存する、観測側の 1 step 分 | 「フレーム」は ALE のエミュレータのフレームにも使われていた。slot は行動・報酬・終了も含む |
-| Perception（知覚） | Agent が作る、Network へ渡す入力（taus を含めない）。渡す先の Network ごとにあり、本 PRD が並びで作るのは、Q の Network への Perception である（D1） | Observation は Env が形を決めるもので、重ねたり情報を足したりしたあとの入力を指す語が無かった |
+| Perception（知覚） | Agent が作る、Network へ渡す入力（taus を含めない）。渡す先の Network ごとにあり、本 RFD が並びで作るのは、Q の Network への Perception である（D1） | Observation は Env が形を決めるもので、重ねたり情報を足したりしたあとの入力を指す語が無かった |
 | Forwarder | TensorDict を受けて返す変換。lane の履歴のような、呼ぶ側ごとの状態は持たない（重みや統計のような、共通の値は持つ。D20） | Network と観測の加工の部品を、1 つの語で指す語が無かった。Transform は Transformer と、パイプラインは `PipelineTrainRunner` と紛れる |
 | Forwarder の並び（ForwarderChain） | 設定に書いた順に Forwarder をつないだもの | NN の `structure` は module の並びを指す。部品の種類が違うので語を分ける |
 | Forward の依頼（ForwardRequest） | 並びに頼む変換の種類。何を渡して、何が欲しいかで区別する（統計を更新しつつ Frame を作る、重ねた束から Perception を作る、1 枚の Frame から Perception を作る） | 「経路」や「場面」は、呼ぶ側の状況を指す。頼む中身を指す語が無かった |
@@ -440,7 +440,7 @@ a と b は本 PRD が直す。c と d は直さない（§2 の NG2）。
 | 受け持つ関心 | 「TensorDict を受けて返す変換」の共通の口と、それを設定の順に並べて、依頼ごとの変換と行動選択用の実行器を出す仕組みと、並びに置く汎用の部品。特定の Agent・Env・アルゴリズムの名前や鍵に依らない |
 | 今回入るもの | 口の `Forwarder`・`SpecForwarder`、forward の途中の値を持ち帰る器の `ForwardCapture`、並びの仕組みの `ForwarderChain`・`ForwardRequest`・`ForwarderProvider`・`ForwardExecutor`、部品の `FrameStackForwarder`・`NormalizeForwarder`・`DropKeysForwarder` |
 | あとで入る見込みのもの | 題材やアルゴリズムに依らない汎用の部品（キーの改名、型の変換、学習側だけの増強など）。足す要求が出たときに入る |
-| 入れないもの | Agent が足す情報を作る部品（PRD142 の直前の行動、PRD173 の方策番号など。アルゴリズムの実装の側に置く。D3）。重ねる本体（`DictFrameStacker`。`stacker`）と、正規化の本体（`scaler`）。Network と module（`nn`） |
+| 入れないもの | Agent が足す情報を作る部品（RFD0142 の直前の行動、RFD0173 の方策番号など。アルゴリズムの実装の側に置く。D3）。重ねる本体（`DictFrameStacker`。`stacker`）と、正規化の本体（`scaler`）。Network と module（`nn`） |
 | 近い既存の機能グループと、入れない理由 | `tensor_util`（`TensorDict` と、tensor を扱う関数の集まり。口と並びの仕組みを入れると、関心が混ざる）。`stacker`（重ねる本体。契約を変えない。NG5）と、`scaler`（正規化の本体。stack 軸つきの入力を受けるようにする変更は、`scaler` の側で行う。D28）。`forwarder` の部品は、この 2 つを使う側である。`nn`（Network の側が `Forwarder` を実装する向きで、`nn` に置くと、観測の加工が NN のヘッダに依る） |
 | 機能カテゴリ | 314 テンソル処理（Topic #10）。[categories.json](../../reports/tools/categories.json) の 314 の行の `match` に `forwarder` を足す。`stacker`・`scaler`・`tensor_store` と同じ行である |
 | 設計文書 | 新設する 1 本（Forwarder と Perception の仕組み。D37）に書く。[130](../design/130_neural_networks.jp.md) の §2.2 と [200](../design/200_dqn_agents.jp.md) から案内する |
@@ -486,7 +486,7 @@ runner->DoStep(counts, options);
 | Sample | `dqn::Learner` | ReplayBuffer が重ねて返した Frame の束 | Perception | Q の Network（学習の forward） | obs、next_obs、skip の学習の窓の終点の観測に、同じ `PerceptionFromStack` の Forwarder を当てる |
 | 可視化 | `DefaultDQNAgent` | 合成した 1 Frame（可視化の側から） | Perception | Q の Network | `PerceptionFromFrame` の Forwarder と Network をつないだ `TensorDictFunction` を作って渡す |
 
-今回、Actor から経験の受入れへ運ぶ観測側の値は無い。Agent が足す情報を、行動の情報に載せて受入れへ運ぶ道（D2）を使うのは PRD142 からで、運んだ値を `FrameWithStatsUpdate` の依頼の入力にどう合わせるかは、PRD142 で決める（§15）。
+今回、Actor から経験の受入れへ運ぶ観測側の値は無い。Agent が足す情報を、行動の情報に載せて受入れへ運ぶ道（D2）を使うのは RFD0142 からで、運んだ値を `FrameWithStatsUpdate` の依頼の入力にどう合わせるかは、RFD0142 で決める（§15）。
 
 依頼ごとの部品の動きは次のとおり。1 列目の「実行器」は、1 枚の Frame と lane の履歴から Perception を作る依頼で、値ではなく、実行器を作る口で受ける。
 
@@ -607,7 +607,7 @@ NN の側（D32）。2 つの行は別の対象（branch の先頭の module、`
 | テスト | 並びを書かずに Network や Agent を組んでいるテスト（DefaultDQN の設定を組む箇所は、テスト 7 ファイルに約 145 行。P128） | 並びは書かなくてよい（1 枚の `FrameStack` だけになる）。stack 軸を扱う module を、Network の定義の先頭に足す。今の既定の正規化（素通しでない）に頼っているテストは、`Normalize` を並びに書く。件数は実装の入口で数える |
 | テスト | 旧い設定キーを文字で書いているテスト（`Agent.obs_norm.` が当たる 5 ファイル 12 行と、`stucker` が当たるテスト）。設定を組む箇所は多い（`DefaultDQNAgentConfig` が 11 ファイルに 248 行。P128） | 新しいキーへ書き換える。移し漏れると、読まれないキーはテストでは止まらず、既定の値に戻る。受入 18・19 の検索で確かめる |
 | テスト | `[native_stack]` のテストと、`StackMerge` に 4 次元を入れているテスト | D27・D32 に合わせる。件数は実装の入口で数える |
-| 検証資材 | `src/core/base/testdata/prd072/baseline/` の 17 ファイル | 設定キーを移したあとの解決結果で作り直す |
+| 検証資材 | `src/core/base/testdata/rfd0072/baseline/` の 17 ファイル | 設定キーを移したあとの解決結果で作り直す |
 | 設計文書（jp） | `110_agents_and_learning`、`130_neural_networks`（§2.2）、`140_observability`、`150_replay_buffer`、`200_dqn_agents`、`220_atari_env`、新設 1 本（Forwarder と Perception の仕組み） | 新しい契約に合わせる |
 | wiki | `110_runner_app`、`312_util`、`314_tensor`、`315_nn`、`318_rl_core`、`321_agent_core`、`322_env_individual`、`324_dqn` | 実装のあとの取り込みで直す |
 | 道具の設定 | [categories.json](../../reports/tools/categories.json) の 314 の行 | `match` に `forwarder` を足す（D45） |
@@ -617,20 +617,20 @@ NN の側（D32）。2 つの行は別の対象（branch の先頭の module、`
 
 | 種類 | 対象 | 理由 |
 |---|---|---|
-| 過去の記録 | `docs/experiments/`（560 ファイル）、`docs/memo/` のほかの PRD と実装記録、`reports/`、`CHANGELOG.md`、`docs/management/issues/` | 当時の記録 |
-| 検証資材 | `src/core/base/testdata/prd092/config/`（11 ファイル）、`src/core/base/testdata/prd121/README.md` | 過去の Run の設定の写しと、資材を作ったときの記録。テストは設定として読まない（`src` を `prd092` で検索して、資材の外に 0 行） |
+| 過去の記録 | `docs/experiments/`（560 ファイル）、`docs/memo/` のほかの RFD と実装記録、`reports/`、`CHANGELOG.md`、`docs/management/issues/` | 当時の記録 |
+| 検証資材 | `src/core/base/testdata/rfd0092/config/`（11 ファイル）、`src/core/base/testdata/rfd0121/README.md` | 過去の Run の設定の写しと、資材を作ったときの記録。テストは設定として読まない（`src` を `rfd0092` で検索して、資材の外に 0 行） |
 | 英訳 | `docs/design/*.en.md` | 翻訳の道具が作り直す |
 | 用語集 | [CONTEXT.md](../../CONTEXT.md) の、`ObservationNormalizer` に触れる 1 項目 | 設定キーの名前を書いていない。語は起草のときに足してある（§6.7） |
-| 待っている PRD | 142・159・160・173・174・183 の本文 | 再グリルで直す。材料は §15 |
-| 本 PRD | 本 PRD が旧い名前を書いている箇所 | 改訂の記録、移行対象、検索の文字列としての引用 |
+| 待っている RFD | 142・159・160・173・174・183 の本文 | 再グリルで直す。材料は §15 |
+| 本 RFD | 本 RFD が旧い名前を書いている箇所 | 改訂の記録、移行対象、検索の文字列としての引用 |
 
 検索の当たりの割り振り（2026-11-21。ファイル数）は次のとおりで、どの行にも入らないファイルは無い。
 
-- S5（`stucker`）: 621 ＝ 直す 33（`src` 9、`prd072/baseline` 17、`apps` 4、設計文書 jp 3）＋ wiki 5（取り込みで直る）＋ 直さない 583（`docs/experiments` 560、`prd092` 11、`docs/memo` 7、課題 4、ADR 1）。
-- S8（`WithAction`）: 51 ＝ 直す 14（`src` 11、設計文書 jp 3）＋ wiki 2 ＋ 直さない 35（`docs/memo` 25、設計文書 en 3、ADR 3、`reports` 2、課題 1、`prd121` の README 1）。
+- S5（`stucker`）: 621 ＝ 直す 33（`src` 9、`rfd0072/baseline` 17、`apps` 4、設計文書 jp 3）＋ wiki 5（取り込みで直る）＋ 直さない 583（`docs/experiments` 560、`rfd0092` 11、`docs/memo` 7、課題 4、ADR 1）。
+- S8（`WithAction`）: 51 ＝ 直す 14（`src` 11、設計文書 jp 3）＋ wiki 2 ＋ 直さない 35（`docs/memo` 25、設計文書 en 3、ADR 3、`reports` 2、課題 1、`rfd0121` の README 1）。
 - S4（`NetworkForwardCapture`）: 31 ＝ 直す 19（`src` 18、設計文書 jp 1）＋ wiki 1 ＋ 直さない 11（`docs/memo` 6、課題 2、ADR 2、設計文書 en 1）。
-- S1（`WithAction(`）: 23 ＝ 直す 13（`src` 11、設計文書 jp 2）＋ 直さない 10（`docs/memo` 8、設計文書 en 2）。S2: 8 ＝ 直す 5 ＋ 直さない 3（`docs/memo`）。S3: 10 ＝ 直す 2（`trainer.hpp`・`trainer.cpp`）＋ 直さない 8（`EvalPanel` の 2、`docs/memo` 5、課題 1）。S6: 2 ＝ 直す 1（`agent.txt`）＋ 直さない 1（本 PRD）。S7: 7 ＝ 直す 6 ＋ 直さない 1（本 PRD）。
-- S9（`Agent.obs_norm.`）: 598 ＝ 直す 22（`src` 5、`prd072/baseline` 17）＋ 直さない 576（`docs/experiments` 564、`prd092` 11、本 PRD 1）。S10: 2 ＝ 直す 1（`default_dqn_agent.hpp`）＋ 直さない 1（本 PRD）。S11・S12: それぞれ 4 ＝ 直す 2（`dqn_actor.cpp`・`dqn_concrete_test.cpp`）＋ 直さない 2（`docs/memo`）。
+- S1（`WithAction(`）: 23 ＝ 直す 13（`src` 11、設計文書 jp 2）＋ 直さない 10（`docs/memo` 8、設計文書 en 2）。S2: 8 ＝ 直す 5 ＋ 直さない 3（`docs/memo`）。S3: 10 ＝ 直す 2（`trainer.hpp`・`trainer.cpp`）＋ 直さない 8（`EvalPanel` の 2、`docs/memo` 5、課題 1）。S6: 2 ＝ 直す 1（`agent.txt`）＋ 直さない 1（本 RFD）。S7: 7 ＝ 直す 6 ＋ 直さない 1（本 RFD）。
+- S9（`Agent.obs_norm.`）: 598 ＝ 直す 22（`src` 5、`rfd0072/baseline` 17）＋ 直さない 576（`docs/experiments` 564、`rfd0092` 11、本 RFD 1）。S10: 2 ＝ 直す 1（`default_dqn_agent.hpp`）＋ 直さない 1（本 RFD）。S11・S12: それぞれ 4 ＝ 直す 2（`dqn_actor.cpp`・`dqn_concrete_test.cpp`）＋ 直さない 2（`docs/memo`）。
 
 ### 7.9 実装の入口で数えること
 
@@ -649,20 +649,20 @@ NN の側（D32）。2 つの行は別の対象（branch の先頭の module、`
 
 各段階のあとで、全テストが通り、等価性の Run が一致すること。段階の途中で止めない。
 
-### 7.11 ほかの PRD との順序
+### 7.11 ほかの RFD との順序
 
-| PRD | 触る同じ箇所 | 扱い |
+| RFD | 触る同じ箇所 | 扱い |
 |---|---|---|
-| [192](0192_concurrency_and_boundary_defect_fixes_10rfd.md)・[190](0190_dqn_design_doc_alignment_10rfd.md) | `WithAction`、設計文書 200 | 実装済み。本 PRD はその上に書く。PRD190 の本文は直さない |
-| [191](0191_rnd_raw_error_and_recent_learning_10rfd.md) | `default_dqn_agent.cpp` の受入れ、RND | PRD191 が先に入る。本 PRD は RND の観測加工に触れない。PRD191 が段階の切れ目で入るなら、次の段階の前に等価性の基準を取り直す。段階の途中では入れない |
-| [142](0142_agent_prev_action_obs_10rfd.md) | Actor、受入れ、spec | 本 PRD の A・B のあと。PRD142 のドラフトは、同じ部品を Actor と受入れ側に 1 つずつ持つ形で、D2 と違う。再グリルの材料は §15 |
-| [159](0159_input_mapping_joystick_10rfd.md)・[160](0160_input_target_train_forced_action_10rfd.md) | Runner の強制の口、EvalPanel | 本 PRD の A のあと。PRD160 の「lane の印と行動」の書き方は `ForcedActions` に合わせて直す（再グリル） |
-| [174](0174_llm_actor_10rfd.md)・[183](0183_temporl_skip_followups_10rfd.md) | Actor の強制、skip の状態 | 本 PRD の A のあと |
-| [176](0176_qvaluepanel_manual_action_state_alignment_10rfd.md) | `QValuePanel` の手動の行動、`WithAction` の経路 | どちらが先でもよい。本 PRD が先なら、PRD176 は「強制は `MakeAction` の入力」を前提に書き直す。PRD176 が先なら、本 PRD の A が `QValuePanel` の呼び出しを欄に直す |
+| [192](0192_concurrency_and_boundary_defect_fixes_10rfd.md)・[190](0190_dqn_design_doc_alignment_10rfd.md) | `WithAction`、設計文書 200 | 実装済み。本 RFD はその上に書く。RFD0190 の本文は直さない |
+| [191](0191_rnd_raw_error_and_recent_learning_10rfd.md) | `default_dqn_agent.cpp` の受入れ、RND | RFD0191 が先に入る。本 RFD は RND の観測加工に触れない。RFD0191 が段階の切れ目で入るなら、次の段階の前に等価性の基準を取り直す。段階の途中では入れない |
+| [142](0142_agent_prev_action_obs_10rfd.md) | Actor、受入れ、spec | 本 RFD の A・B のあと。RFD0142 のドラフトは、同じ部品を Actor と受入れ側に 1 つずつ持つ形で、D2 と違う。再グリルの材料は §15 |
+| [159](0159_input_mapping_joystick_10rfd.md)・[160](0160_input_target_train_forced_action_10rfd.md) | Runner の強制の口、EvalPanel | 本 RFD の A のあと。RFD0160 の「lane の印と行動」の書き方は `ForcedActions` に合わせて直す（再グリル） |
+| [174](0174_llm_actor_10rfd.md)・[183](0183_temporl_skip_followups_10rfd.md) | Actor の強制、skip の状態 | 本 RFD の A のあと |
+| [176](0176_qvaluepanel_manual_action_state_alignment_10rfd.md) | `QValuePanel` の手動の行動、`WithAction` の経路 | どちらが先でもよい。本 RFD が先なら、RFD0176 は「強制は `MakeAction` の入力」を前提に書き直す。RFD0176 が先なら、本 RFD の A が `QValuePanel` の呼び出しを欄に直す |
 | [081](0081_evalpanel_episode_trace_10rfd.md) | `EvalRunner::DoStep` の口 | どちらが先でもよい。あとの側が、行動の引数つきの口が無い形に合わせる |
-| [173](0173_intrinsic_reward_novelty_10rfd.md) | Network の入力へ足す情報 | 本 PRD の B のあと。材料は §15 |
+| [173](0173_intrinsic_reward_novelty_10rfd.md) | Network の入力へ足す情報 | 本 RFD の B のあと。材料は §15 |
 | [180](0180_core_perf_candidates_202607_10rfd.md) | `NetworkForwardCapture` | どちらが先でもよい。あとの側が `ForwardCapture` の名前に合わせる |
-| [134](0134_network_lock_audit_10rfd.md)・[141](0141_background_eval_snapshot_ordering_10rfd.md)・[143](0143_serialize_10rfd.md) | 排他、評価の順序、checkpoint | 本 PRD は排他と checkpoint を変えない（NG2）。順序の制約は無い |
+| [134](0134_network_lock_audit_10rfd.md)・[141](0141_background_eval_snapshot_ordering_10rfd.md)・[143](0143_serialize_10rfd.md) | 排他、評価の順序、checkpoint | 本 RFD は排他と checkpoint を変えない（NG2）。順序の制約は無い |
 
 ### 7.12 並びの図（dot）
 
@@ -704,16 +704,16 @@ NN の構造図と同じ仕組みで出す（D41）。
 | 17 | 評価用の Actor | 実行器は履歴を持ち、ReplayBuffer には入れない | 整合 |
 | 18 | Actor が複数 | 定義は 1 つ、実行器は Actor ごと、統計は共有 | 整合 |
 | 19 | Eval で強制行動 | Actor の出力が強制行動になり、Actor Q ヒントも Actor が作る | 整合 |
-| 20 | Train で強制行動（PRD160 のあと） | skip の継続状態を捨て、その step を判断として記録する | 整合 |
+| 20 | Train で強制行動（RFD0160 のあと） | skip の継続状態を捨て、その step を判断として記録する | 整合 |
 | 21 | 強制行動と、将来の「直前の行動」 | 次の step の直前の行動は、Actor の出力（強制行動）になる | 整合 |
 | 22 | primary の Network（IQN） | 入力の spec は Perception の spec に taus を足したもの。Network は出力の spec を持たない（D22） | 整合 |
 | 23 | skip の補助 Network | 入力の spec の作り方は今のまま（primary を仮の入力で 1 回通して、出力の形を読む。D22） | 整合 |
 | 24 | Network の複製（target、Actor 用） | 複製も `Forwarder` として同じに使える | 整合 |
 | 25 | 状態つきの実行（NoisyNet など） | 今の実行器のまま。共通の口の `Forward` は既定の動き | 整合 |
 | 26 | 可視化（状態スイープ） | 並びから関数を作る。1 枚でも長さ 1 の軸を足す | 整合 |
-| 27 | 直前の行動（PRD142。float の one-hot） | `Scaled` と宣言する。重ねると行動の履歴になる | 整合 |
-| 28 | 方策番号（PRD173。番号） | `keys.mode` が `all` だと重なる（意味は無い） | PRD173 で決める |
-| 29 | 直前の報酬（PRD173） | 行動選択の時点で、報酬が Actor に届かない | PRD173 で決める |
+| 27 | 直前の行動（RFD0142。float の one-hot） | `Scaled` と宣言する。重ねると行動の履歴になる | 整合 |
+| 28 | 方策番号（RFD0173。番号） | `keys.mode` が `all` だと重なる（意味は無い） | RFD0173 で決める |
+| 29 | 直前の報酬（RFD0173） | 行動選択の時点で、報酬が Actor に届かない | RFD0173 で決める |
 | 30 | 別の方策番号として学ぶ | Sample の口が Sample の結果を受けるので、口を変えずに足せる | 整合 |
 | 31 | 学習側だけの増強 | `ForwarderProvider` として、`PerceptionFromStack` の依頼のときだけ動く。往復の確かめの対象外と宣言する | 整合 |
 | 32 | キーを落とす部品 | Frame には残し、Perception を作る依頼だけで落とす | 整合 |
@@ -774,8 +774,8 @@ NN の構造図と同じ仕組みで出す（D41）。
 
 | # | 受入 |
 |---|---|
-| 18 | 検索 S5 が、`src`・`apps`・`data` で 0 行。`src/core/base/testdata/prd092/` は数えない（過去の Run の設定の写し） |
-| 19 | 検索 S6 が、`apps` と `data` で 0 行。検索 S9 と S10 が、`src` で 0 行（テストが文字で書く旧い設定キーと、旧いキーの読み取り）。`src/core/base/testdata/prd092/` は数えない（受入 18 と同じ理由） |
+| 18 | 検索 S5 が、`src`・`apps`・`data` で 0 行。`src/core/base/testdata/rfd0092/` は数えない（過去の Run の設定の写し） |
+| 19 | 検索 S6 が、`apps` と `data` で 0 行。検索 S9 と S10 が、`src` で 0 行（テストが文字で書く旧い設定キーと、旧いキーの読み取り）。`src/core/base/testdata/rfd0092/` は数えない（受入 18 と同じ理由） |
 | 20 | 検索 S7 が、`src` で 0 行。検索 S11 と S12 が、`src` と `apps` で 0 行（aux の `raw_obs`・`norm_obs`） |
 | 21 | `[perception]` のテスト: §7.6 の表の 1〜9 の各行で、構築がエラーになる。`structure` が `stack > norm >` の設定は、`stack > norm` と同じ並びとして組まれる |
 | 22 | `[perception]` の往復のテスト: 行動選択側の Perception と、同じ経験を ReplayBuffer に入れて Sample で作り直した Perception が一致する。条件は、4 枚と 1 枚、episode の先頭、打ち切りの終端、n より手前で episode が終わる next_obs、skip の窓の終点。あわせて、ReplayBuffer の設定に渡った枚数とキーが、行動選択の側と同じである |
@@ -814,27 +814,27 @@ S12: "norm_obs"
 
 **等価性の比べ方**（受入 10・17・30）: 段階の直前の HEAD の exe と、段階のあとの exe で、同じ設定・同じ seed の Run を 1 本ずつ流す。対象は、出荷の設定ファイルを、`run.$` の行もほかの行も書き換えずに流した Run である。LunarLander（[LunarLander.txt](../../apps/runner/config/LunarLander.txt)。4 枚）と GridMaze（[GridMaze.txt](../../apps/runner/config/GridMaze.txt)。1 枚）の 2 本を流し、段階 C と B（受入 17・30）では、DropMerge（[DropMerge.txt](../../apps/runner/config/DropMerge.txt)）と Atari（[Atari.txt](../../apps/runner/config/Atari.txt)）も 1 本ずつ足す。どの Run プロファイルとゲームで動くかは、設定ファイルが決める（2026-11-22 の時点で、LunarLander は `run.@munch > run.@skip`、Atari は 164 行の並びで、GridMaze と DropMerge は有効な `run.$` の行が無く、ファイルの本体の値で動く。P133）。段階 B のあとの Run は、新しい設定キーへ移した同じファイルを使う。実装計画に、Run ごとに解決された `run.$` と Atari のゲームを、Run の設定の写しから書く。Atari の Run の時間が重いときは、未決表 U4 による。長さは、learn の step が 1,000 に達するまでとする（そのための exp の step 数は実装計画に書く）。
 
-合否は、道具（`src/core/base/testdata/prd097/compare_metrics.py`）の出力で決める。次の 2 つをどちらも満たせば一致、どちらかを満たさなければ不一致とする。
+合否は、道具（`src/core/base/testdata/rfd0097/compare_metrics.py`）の出力で決める。次の 2 つをどちらも満たせば一致、どちらかを満たさなければ不一致とする。
 
 1. 段階の前の Run が、比べる中身を持つ。道具に `--output <ファイル>` を付けて書き出した JSON の `old.counts`（標準出力には出ない）で、`scalar:37_agent_qtd/01_td_mean`（学習の TD 誤差）と `scalar:20_eps/10_train_reward`（学習側の episode の return）の件数が、どちらも 1 以上である。満たさなければ、Run の長さを learn の step 10,000 まで伸ばして、前後の両方を取り直す。それでも満たさなければ、受入は不成立とし、実装を止めて開発者に示す。
 2. 道具の `exact_match` が真である。道具は、`metrics.jsonl` の `scalar` と `trace` の全レコード（tag・step・値）を比べ、片方にだけあるレコード（tag が片方に無い、点数が違う、値が違う）が 1 つでもあれば偽にする。値が NaN どうし、値なしどうしのレコードは、同じ tag・同じ step なら一致とする（道具が、値を 16 進の文字列にして比べるため。P132）。
 
-除くのは、実時間と資源に依る `90_perf/`・`91_resource/`・`92_resource/` で始まる tag である（PRD097 の比べ方と同じ）。道具の `--allow-lives-values` と `--allow-migrated-edges` は付けない。checkpoint の raw checksum は使わない。
+除くのは、実時間と資源に依る `90_perf/`・`91_resource/`・`92_resource/` で始まる tag である（RFD0097 の比べ方と同じ）。道具の `--allow-lives-values` と `--allow-migrated-edges` は付けない。checkpoint の raw checksum は使わない。
 
-S1 は括弧までを含める（`replay_buffer_test.cpp` の `PushTimeWithActionInfo` を数えないため）。今の当たりは、S1 が `src` の 11 ファイル 24 行、S2 が 5 ファイル 10 行、S3 が `trainer.hpp` の 2 行と `trainer.cpp` の 2 行（ほかに、数えない `EvalPanel` の 2 行）、S4 が `src` の 18 ファイル 74 行、S5 が `src` の 9 ファイル 52 行（資材を除く）と `prd072/baseline` の 17 ファイルと `apps` の 4 ファイル 17 行、S6 が `agent.txt` の 13 行、S7 が `src` の 6 ファイル 15 行、S9 が `src` のテスト 5 ファイル 12 行、S10 が `default_dqn_agent.hpp` の 13 行、S11 と S12 が合わせて `dqn_actor.cpp` の 2 行と `dqn_concrete_test.cpp` の 10 行である。新しい名前（`ForcedActions`、`ForwardCapture`、`perception.block`）は、S1〜S10 のどれにも当たらない。RND の設定キー `intrinsic.rnd.obs_norm.*` は、S6・S9・S10 のどれにも当たらない。
+S1 は括弧までを含める（`replay_buffer_test.cpp` の `PushTimeWithActionInfo` を数えないため）。今の当たりは、S1 が `src` の 11 ファイル 24 行、S2 が 5 ファイル 10 行、S3 が `trainer.hpp` の 2 行と `trainer.cpp` の 2 行（ほかに、数えない `EvalPanel` の 2 行）、S4 が `src` の 18 ファイル 74 行、S5 が `src` の 9 ファイル 52 行（資材を除く）と `rfd0072/baseline` の 17 ファイルと `apps` の 4 ファイル 17 行、S6 が `agent.txt` の 13 行、S7 が `src` の 6 ファイル 15 行、S9 が `src` のテスト 5 ファイル 12 行、S10 が `default_dqn_agent.hpp` の 13 行、S11 と S12 が合わせて `dqn_actor.cpp` の 2 行と `dqn_concrete_test.cpp` の 10 行である。新しい名前（`ForcedActions`、`ForwardCapture`、`perception.block`）は、S1〜S10 のどれにも当たらない。RND の設定キー `intrinsic.rnd.obs_norm.*` は、S6・S9・S10 のどれにも当たらない。
 
 ## 10. テスト項目
 
-受入 3〜9、11〜14、16、21〜29、33、34 のテストを足す。消す `WithAction` のテスト（`dqn_actor_test.cpp`・`dqn_concrete_test.cpp`・`dqn_munchausen_test.cpp`・`replay_buffer_test.cpp` の呼び出しと、PRD192 が足した device のテスト）は、期待値を変えずに、強制行動つきの `MakeAction` へ移す。既存の `[native_stack]` のテストは、D27・D32 に合わせて直す。等価性の Run（受入 10・17・30）は、段階の直前の HEAD で基準を取る。build と Run の起動は、実装する側が段取りを示して、開発者の承認を受けてから行う。
+受入 3〜9、11〜14、16、21〜29、33、34 のテストを足す。消す `WithAction` のテスト（`dqn_actor_test.cpp`・`dqn_concrete_test.cpp`・`dqn_munchausen_test.cpp`・`replay_buffer_test.cpp` の呼び出しと、RFD0192 が足した device のテスト）は、期待値を変えずに、強制行動つきの `MakeAction` へ移す。既存の `[native_stack]` のテストは、D27・D32 に合わせて直す。等価性の Run（受入 10・17・30）は、段階の直前の HEAD で基準を取る。build と Run の起動は、実装する側が段取りを示して、開発者の承認を受けてから行う。
 
 ## 11. 成功の測り方
 
 | 指標 | 測り方 |
 |---|---|
-| 観測キーを 1 つ足すときに触る箇所 | PRD142 の実装で、4 つの経路と spec の関数を直さずに、部品 1 つと設定で済む |
+| 観測キーを 1 つ足すときに触る箇所 | RFD0142 の実装で、4 つの経路と spec の関数を直さずに、部品 1 つと設定で済む |
 | 形の食い違い | 受入 23 が通り、枚数 1 の設定でも、行動選択・Sample・可視化の Perception と、Network の入力 spec の形が同じである |
 | 強制行動のための専用の仕組み | 受入 1・2 が通り、`WithAction` と `munchausen_terms` が無い |
-| 待っている PRD | 142・159・160・173・174・183 が、本 PRD の口を前提に再グリルできる |
+| 待っている RFD | 142・159・160・173・174・183 が、本 RFD の口を前提に再グリルできる |
 
 先送りしたものは、統計つきの正規化の成立（NG2）、RND の観測加工を同じ仕組みに載せること（NG3）、正規化の部品の内部の整理（NG4）、逆方向の口（D6）、Network の出力の spec（D22）、図の出し分けの設定（§7.12）である。どれも別の関心によるもので、作る条件は、それぞれの箇所に書いた。
 
@@ -842,7 +842,7 @@ S1 は括弧までを含める（`replay_buffer_test.cpp` の `PushTimeWithActio
 
 | # | 論点 | 確かめ方 | 結果ごとの分かれ方 |
 |---|---|---|---|
-| U1 | Frame にキーを足す部品で、行動選択側と Sample 側の Perception が往復で一致するか（P36） | PRD142 が、受入 22 と同じテストに自分の部品を載せる | 一致すれば、そのまま。一致しなければ、部品の依頼ごとの作り方だけを直し、4 つの口（§7.4）は変えない |
+| U1 | Frame にキーを足す部品で、行動選択側と Sample 側の Perception が往復で一致するか（P36） | RFD0142 が、受入 22 と同じテストに自分の部品を載せる | 一致すれば、そのまま。一致しなければ、部品の依頼ごとの作り方だけを直し、4 つの口（§7.4）は変えない |
 | U2 | 段階 B で、GridMaze の checksum が一致するか（Network の入力 spec の形が `[2]` から `[1,2]` に変わる） | 受入 30 | 一致すれば、そのまま。一致しなければ、原因を調べて、実装を止めて開発者に示す（形の変更に伴う初期化や乱数の順の変化なら、受入の扱いを開発者が決める） |
 | U3 | 出荷設定に、stack 軸つきのまま、宣言の無い module へ通す Network の定義が、DropMerge の Embedder のほかにあるか（Embedder の 2 種は、軸を自分で扱うので宣言に入れた。D32、P126） | 実装の入口で、出荷設定を組んで WARN を数える（§7.9） | 無ければ、そのまま。あれば、その module が軸を自分で扱っているなら宣言を足し、扱っていないなら、定義の先頭に module を足すかを開発者に聞く |
 | U4 | Atari の等価性の Run（learn の step が 1,000 に達するまで）に、どれだけ時間がかかるか | 実装の入口で、段階 C の前の基準の Run を 1 本流して、実時間を測る | 測った時間を開発者に示して、Run のままにするかの判断を受ける。Run をやめる場合は、Atari の出荷設定の構成で Agent を組み、固定の入力の forward の出力を、段階の前後で比べるテストに替える |
@@ -859,7 +859,7 @@ S1 は括弧までを含める（`replay_buffer_test.cpp` の `PushTimeWithActio
 - RB の登録単位を Frame と呼ぶとしたら、関連要素との関係性やデータフローはどうなるか。
 - アルゴリズム設定と構造定義設定の境界が気になる。NN では Head を実装側の生成にすることで最低限の境界を維持している。NGU の有効無効のような設定は、Perception の構築に影響する。これも構造定義に任せると、柔軟だが統制が取れなくなる懸念がある。
 - Observation 等 → Frame → Perception というデータフローの関係を、フレームワーク全体の前提に組み込むのは危険ではないか。
-- （往復の一致の確かめは）PRD142 で確認。
+- （往復の一致の確かめは）RFD0142 で確認。
 - Stacking する以上キューができるが、それが Stacking のモジュール単体の持ち物になるのは勿体ない。N-STEP は今回の論点にしなくてよいか。
 - Frame をもとに Perception を作るというような依存関係は想定しない（結果そうなるかもしれないけど）、でよいか。
 - 方策インデックスなどは、キーやデータ型というより、それ自体の性質として正規化の対象外で、注入する時点で決まっている。`TensorSpecMap` で TensorDict 自体の定義として注入するのが素直。`TensorSpecMap` も初期化時にチェインして生成する感じか。
@@ -869,7 +869,7 @@ S1 は括弧までを含める（`replay_buffer_test.cpp` の `PushTimeWithActio
 - 似た話が Stacking にもある。重ねるべき属性かどうか、というより、その処理を通過済みか。
 - （設定の境界は）案 Y でよい（案 Y は、何の情報を入れるかはアルゴリズム設定が決めて実装が作り、どういう形で入れるかだけを設定の並びで組む形で、D3 になった）。ただし実装前に、想定される限りのパターンを机上でシミュレーションして、矛盾が起きないか整理しておく。特定の Key を Drop するような、汎用的な Forwarder（仮称）も用意するとよい。
 - TorchRL の Transform は順方向と逆方向で双方向なのか。概念が複雑になりすぎる懸念の一方で、入れるときと出すときで整合を保つ場合はよい方法だと思う。
-- 次は PRD191 を予定していて、後続はそんなに急ぎではない。グリルの作業効率優先で考える。
+- 次は RFD0191 を予定していて、後続はそんなに急ぎではない。グリルの作業効率優先で考える。
 - `forced_action` は、指定するほとんどのケースでシングルレーンなので、その場合の実装のシンプルさも確保したい。Tensor でまとめて指定と、特定の Lane だけ指定は両極端だが、どちらかだけというわけにもいかない。`ForLane`/`ForMask` は違和感があるので `ByLane`/`ByMask` で。
 - Stack 無しの場合でも (B, S, *) の形に統一するのはやりすぎか。スタック有無で形状の意味が変わるのが面倒。
 - （先頭の module で扱いを書く形を選ぶ理由）スタック次元の扱いを曖昧にしない方が良い。
@@ -904,12 +904,12 @@ S1 は括弧までを含める（`replay_buffer_test.cpp` の `PushTimeWithActio
 
 | 旧 | 内容 | 行き先 |
 |---|---|---|
-| Q1 | 単位 A を別の PRD に切り出すか | D5 |
+| Q1 | 単位 A を別の RFD に切り出すか | D5 |
 | Q2 | `ObservationPipeline` をクラスにするか | D20・D26（§6.6 の 1 行目） |
 | Q3 | Actor と Learner が直接参照するか | D31（Actor が実行器を持ち、Learner が Sample 用の並びを当てる） |
 | Q4 | stack ありの素通しでない正規化を構築時に止めるか | D28（止めない） |
 | Q5 | 部品へ渡す `stack_keys` | D27（構築時に spec と照らして決める） |
-| Q6 | ファイル配置 | §7.1（クラス一覧の置き場と、機能グループの見込み。D45）。ファイルの中での並べ方は、PRD の契約に効かない実装の詳細として、実装計画で決める |
+| Q6 | ファイル配置 | §7.1（クラス一覧の置き場と、機能グループの見込み。D45）。ファイルの中での並べ方は、RFD の契約に効かない実装の詳細として、実装計画で決める |
 | Q7 | `MakeAction` の引数の形 | D7 |
 | Q8 | `EvalRunner::DoStep` の負数 | D8 |
 | Q9 | 設定キー `stucker.*` の綴り | D25（キーごと移すので、綴りの問題は消える） |
@@ -919,23 +919,23 @@ S1 は括弧までを含める（`replay_buffer_test.cpp` の `PushTimeWithActio
 | §4.6 | `ForcedAction`（印と行動）と契約 1〜8 | D7〜D16 |
 | §10 | 統計つきの正規化の持ち越し | NG2。「stack 軸へ統計を広げる」だけ今回入れた（D28） |
 
-## 15. 持ち越し（ほかの PRD・課題）
+## 15. 持ち越し（ほかの RFD・課題）
 
-| 事項 | 行き先 | 本 PRD に残したもの |
+| 事項 | 行き先 | 本 RFD に残したもの |
 |---|---|---|
-| 直前の行動のキーと設定キー、部品の依頼ごとの作り方、Frame にキーを足す部品の往復の確かめ | PRD142 | 置き場と口。D2（Agent が足す情報は、行動選択で 1 回作り、行動の情報に載せて受入れへ運ぶ）と PRD142 のドラフト（Actor と受入れ側に 1 つずつ）の違いが、再グリルの材料になる。stack の既定に足したキーを含めるか、も PRD142 で決める |
-| 直前の報酬を行動選択側へ届ける口、別の方策番号として学ぶ形、方策番号を重ねるか | PRD173 | Sample の口が Sample の結果を受けること |
-| Train 側で、人の操作を強制行動として届ける配線。MuZero の Train での強制 | PRD160 | Runner と Actor の口（Train 側にも開く）。PRD160 の「lane の印と行動」の書き方は `ForcedActions` と違う |
+| 直前の行動のキーと設定キー、部品の依頼ごとの作り方、Frame にキーを足す部品の往復の確かめ | RFD0142 | 置き場と口。D2（Agent が足す情報は、行動選択で 1 回作り、行動の情報に載せて受入れへ運ぶ）と RFD0142 のドラフト（Actor と受入れ側に 1 つずつ）の違いが、再グリルの材料になる。stack の既定に足したキーを含めるか、も RFD0142 で決める |
+| 直前の報酬を行動選択側へ届ける口、別の方策番号として学ぶ形、方策番号を重ねるか | RFD0173 | Sample の口が Sample の結果を受けること |
+| Train 側で、人の操作を強制行動として届ける配線。MuZero の Train での強制 | RFD0160 | Runner と Actor の口（Train 側にも開く）。RFD0160 の「lane の印と行動」の書き方は `ForcedActions` と違う |
 | 統計つきの正規化を成立させる（競合、checkpoint、統計の凍結）。正規化を NN の block にする案 | [issue-20261122-258ef8](../management/issues/issue-20261122-258ef8.md)（統計の読み書きの競合）と、[issue-20261113-b96b2c](../management/issues/issue-20261113-b96b2c.md)（checkpoint への保存。追記した）。NG2。着手は、統計つきの正規化を使う構成を足すとき | 形の不成立だけを直した（D28） |
-| RND の観測加工を同じ仕組みに載せる | [issue-20261122-ba42c9](../management/issues/issue-20261122-ba42c9.md)。NG3。着手は、PRD191 の実装が済み、RND の入力に Q の側と同じ部品を当てる構成が要るとき | — |
+| RND の観測加工を同じ仕組みに載せる | [issue-20261122-ba42c9](../management/issues/issue-20261122-ba42c9.md)。NG3。着手は、RFD0191 の実装が済み、RND の入力に Q の側と同じ部品を当てる構成が要るとき | — |
 | 正規化の部品の内部の整理（課題 aa5758 の 2026-11-11 の追記の 3 点） | [issue-20261111-5f695d](../management/issues/issue-20261111-5f695d.md)（追記した）。NG4。着手は、形の違う float のキーが複数ある構成で、統計つきか定数の正規化を使うとき | — |
 | NN の入口が、離散の Grid の stack 軸とクラスを暗黙にチャネルへ畳むこと。「軸の扱いを曖昧にしない」（D27・D32）に照らしてそろえるか | [issue-20261122-4b9e2d](../management/issues/issue-20261122-4b9e2d.md)。着手は、離散の Grid を、stack 軸を残したまま扱う module を足すとき | 見分け方だけを属性に直した（D32） |
 
 ## 16. 関連
 
-- [142_agent_prev_action_obs_10prd.md](0142_agent_prev_action_obs_10rfd.md)、[159_input_mapping_joystick_10prd.md](0159_input_mapping_joystick_10rfd.md)、[160_input_target_train_forced_action_10prd.md](0160_input_target_train_forced_action_10rfd.md)、[173_intrinsic_reward_novelty_10prd.md](0173_intrinsic_reward_novelty_10rfd.md)、[174_llm_actor_10prd.md](0174_llm_actor_10rfd.md)、[183_temporl_skip_followups_10prd.md](0183_temporl_skip_followups_10rfd.md) — 本 PRD を前提にする PRD。
-- [083_action_context_retire_10prd.md](done/0083_action_context_retire_10rfd.md) — 前の PRD。容器・用語・ADR を本 PRD へ送った。
-- [057_native_stack_dim_handling_10prd.md](done/0057_native_stack_dim_handling_10rfd.md) — stack 軸を Network の入力 spec に持ち、先頭の module で扱いを書く決まりの出所。
-- [170_nn_trace_capture_unification_10prd.md](0170_nn_trace_capture_unification_10rfd.md) — `MakeActionOptions` と capture の出所。
-- [098_temporl_skip_policy_10prd.md](0098_temporl_skip_policy_10rfd.md) — skip の継続状態と、判断のフラグ。
+- [0142_agent_prev_action_obs_10rfd.md](0142_agent_prev_action_obs_10rfd.md)、[0159_input_mapping_joystick_10rfd.md](0159_input_mapping_joystick_10rfd.md)、[0160_input_target_train_forced_action_10rfd.md](0160_input_target_train_forced_action_10rfd.md)、[0173_intrinsic_reward_novelty_10rfd.md](0173_intrinsic_reward_novelty_10rfd.md)、[0174_llm_actor_10rfd.md](0174_llm_actor_10rfd.md)、[0183_temporl_skip_followups_10rfd.md](0183_temporl_skip_followups_10rfd.md) — 本 RFD を前提にする RFD。
+- [0083_action_context_retire_10rfd.md](done/0083_action_context_retire_10rfd.md) — 前の RFD。容器・用語・ADR を本 RFD へ送った。
+- [0057_native_stack_dim_handling_10rfd.md](done/0057_native_stack_dim_handling_10rfd.md) — stack 軸を Network の入力 spec に持ち、先頭の module で扱いを書く決まりの出所。
+- [0170_nn_trace_capture_unification_10rfd.md](0170_nn_trace_capture_unification_10rfd.md) — `MakeActionOptions` と capture の出所。
+- [0098_temporl_skip_policy_10rfd.md](0098_temporl_skip_policy_10rfd.md) — skip の継続状態と、判断のフラグ。
 - [ADR 0013](../adr/0013-actor-network-resource-policy.md)、[ADR 0024](../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)、[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)。

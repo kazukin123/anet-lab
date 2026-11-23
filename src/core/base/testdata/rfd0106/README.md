@@ -1,14 +1,14 @@
-# PRD106 検証資材
+# RFD0106 検証資材
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
-正本は [PRD106](../../../../../docs/memo/done/0106_temporl_skip_forward_noise_key_10rfd.md)、作業と結果は [実装メモ](../../../../../docs/memo/done/0106_temporl_skip_forward_noise_key_20impl.md)。実行はリポジトリルートの PowerShell。
+正本は [RFD0106](../../../../../docs/memo/done/0106_temporl_skip_forward_noise_key_10rfd.md)、作業と結果は [実装メモ](../../../../../docs/memo/done/0106_temporl_skip_forward_noise_key_20impl.md)。実行はリポジトリルートの PowerShell。
 
 ## 既定の等価性
 
 `capture_baseline.py` は `.scratch/rfd0106/` に着手前の Debug / Release の実行体・DLL・設定・resolver の出力と SHA256 を保存する。既存の保存先は上書きしない。`baseline-manifest.json` に基準コミットと全ファイルの hash がある。
 
-`run_validation.py` は前後に同じ `baseline-config` を渡す。PRD103 の6構成に skip + NoisyNet の LunarLander を加える。8 lane、seed1、8704 experience、FP32、決定論的 backend、評価停止。Noisy を含め、`90_perf/`・`91_resource/`・`92_resource/` 以外の全 scalar 点を完全一致比較する。各入力・解決設定・実行体 hash・Run 名は `validation/` に残す。
+`run_validation.py` は前後に同じ `baseline-config` を渡す。RFD0103 の6構成に skip + NoisyNet の LunarLander を加える。8 lane、seed1、8704 experience、FP32、決定論的 backend、評価停止。Noisy を含め、`90_perf/`・`91_resource/`・`92_resource/` 以外の全 scalar 点を完全一致比較する。各入力・解決設定・実行体 hash・Run 名は `validation/` に残す。
 
 ```bash
 .\.venv\Scripts\python.exe core/anet-core/testdata/rfd0106/run_validation.py compare --label after
@@ -22,7 +22,7 @@
 .\.venv\Scripts\python.exe core/anet-core/testdata/rfd0106/verify_config.py
 ```
 
-`check_default_leaves.py` は PRD072 の既存手順で実行する。全体にある既存の指摘と、今回追加した2行への指摘を区別する。
+`check_default_leaves.py` は RFD0072 の既存手順で実行する。全体にある既存の指摘と、今回追加した2行への指摘を区別する。
 
 `verify_dump.py` は現行の凍結設定を使った512 experienceのGridMazeと、完了済みのAtariのGの実効dumpを検証する。全Actorがshared、既定のskip.nn_forward_keyなしである。結果は `.scratch/rfd0106/dump/summary.json`。7構成の完全一致と8入力の設定比較はすべて成功し、詳細な点数とhashは実装メモと各comparison.jsonを参照する。
 
@@ -34,7 +34,7 @@
 
 ## ステージ0
 
-評価専用で、Learner と保存は無効。checkpoint は分割と合算の2本。条件は G / NQ / NS / NB / TQ / TS / TB / TB_indep。分割は seed1/2 各200ゲーム、合算は seed1 から始める。信頼区間が PRD の追加条件に当たる場合だけ、合算の該当する条件へ seed2 を加える。
+評価専用で、Learner と保存は無効。checkpoint は分割と合算の2本。条件は G / NQ / NS / NB / TQ / TS / TB / TB_indep。分割は seed1/2 各200ゲーム、合算は seed1 から始める。信頼区間が RFD の追加条件に当たる場合だけ、合算の該当する条件へ seed2 を加える。
 
 実行と集計の実際のコマンド、実行体・設定・checkpoint の hash、trace 件数、結果は実装メモに記録する。h と k には同じビルドの G を使い、両者へ違うビルドを混ぜない。G4 の学習は、結果を提示してユーザーが選び、段取りを承認するまで開始しない。
 

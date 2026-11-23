@@ -220,13 +220,13 @@
 - [RFD0095](../../memo/done/0095_llm_wiki_10rfd.md) — LLM-Wiki 型のまとめの層（PRD の上流で、知見を題材と機構ごとに、実装の地図をアプリケーションと機能カテゴリごとにまとめる）PRD
 - [RFD0097](../../memo/done/0097_env_auto_reset_after_notification_10rfd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
 - [RFD0103](../../memo/done/0103_temporl_reference_alignment_10rfd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
-- [RFD0114](../../memo/0114_findings_intake_and_fix_rfd_10rfd.md) — 課題の記録を issue（1 課題 1 ファイル）に替え、仕事は issue・指示は PRD で持つ（台帳の退役、課題の仕組み、PRD の採番とフォルダの改め）PRD
-- [RFD0116](../../memo/0116_rnd_lifelong_novelty_10rfd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD
-- [RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md) — PRD120: 課題の種類を仕事の種類にし、PRD との結び付けを課題の prd 欄（Obsidian のリンク）に替える
-- [RFD0131](../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md) — PRD131: 9xx の番号の PRD 57 本を、起票の日の順に 900 未満の連番へ振り直す PRD
-- [RFD0182](../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
-- [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) — PRD191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） PRD
-- [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — PRD195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
+- [RFD0114](../../memo/0114_findings_intake_and_fix_rfd_10rfd.md) — 課題の記録を issue（1 課題 1 ファイル）に替え、仕事は issue・指示は RFD で持つ（台帳の退役、課題の仕組み、RFD の採番とフォルダの改め）RFD
+- [RFD0116](../../memo/0116_rnd_lifelong_novelty_10rfd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 RFD
+- [RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md) — RFD0120: 課題の種類を仕事の種類にし、RFD との結び付けを課題の rfd 欄（Obsidian のリンク）に替える
+- [RFD0131](../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md) — RFD0131: 9xx の番号の RFD 57 本を、起票の日の順に 900 未満の連番へ振り直す RFD
+- [RFD0182](../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）RFD
+- [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) — RFD0191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） RFD
+- [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 
 ## 課題
 

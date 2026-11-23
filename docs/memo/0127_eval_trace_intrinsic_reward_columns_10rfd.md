@@ -1,4 +1,4 @@
-# Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）PRD
+# Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）RFD
 
 > 2026-11-12 起票。グリルを行い（問い 9 つと細部 13 件）、別モデルの検討で出た論点を反映した。決定は §4。
 > 2026-11-12 改訂。共有乱数を使う層は推定器の写しだけでは隔離されないため、G2・D11の学習不変性を、写しを持つActorでも乱数を引く層を持たない構成に限定した（開発者の選択）。
@@ -33,10 +33,10 @@ G2 の保証は、写しを持つ Actor では forward で乱数を引く層を�
 | 退けた案 | 扱いと理由 |
 |---|---|
 | 学習用の内的報酬を Actor 側で計算し、外的報酬と分けて保存する | 範囲外。統計の更新順、補助学習の刻み、終端の扱い、Replay の保存形式が変わる。173 の問い 7・11 が持つ。本当の制約ではなく順序の選択で、移しても評価の値が可視化用であることは変わらない（§2.5） |
-| 仮説の検証そのもの（Montezuma・DropMerge の Run と分析） | 範囲外。本 PRD は道具までで、検証は実験記録に書く。制約ではなく、PRD の受入を実装とテストで閉じるための線引き |
+| 仮説の検証そのもの（Montezuma・DropMerge の Run と分析） | 範囲外。本 RFD は道具までで、検証は実験記録に書く。制約ではなく、RFD の受入を実装とテストで閉じるための線引き |
 | DropMerge 用の RND のプロファイル（`run.@rnd`） | 範囲外。DropMerge の観測は盤面とベクトルの組で、RND の Network の形を選ぶ必要がある。形の選択は検証の実験の設計に属する。再開条件は §4.1 |
 | 仮説が当たったときの改善策（Train の一部の lane を評価と同じ方策にする、方策の組） | 範囲外。別の関心（173）。制約ではなく、検証の結果が出てから決める順序の選択 |
-| 評価 session の step trace を Run の記録に残すこと | 範囲外。PRD184 が持つ。制約ではなく、記録の口を別の PRD が持つための線引きで、本 PRD の鍵は 184 でそのまま使える（§9） |
+| 評価 session の step trace を Run の記録に残すこと | 範囲外。RFD0184 が持つ。制約ではなく、記録の口を別の RFD が持つための線引きで、本 RFD の鍵は 184 でそのまま使える（§9） |
 | Greedy の軌跡の Q と、その後の割引収益の比較 | 範囲外。Evaluation Trace のダンプと集計でできて、実装が要らない。制約ではない |
 
 ### 1.4 機構とゴールの対応
@@ -100,15 +100,15 @@ whiten の採点は、今回の batch を入れる前の統計で倍率を作る
 - EvalPanel の同期は GUI のタイマーから呼ばれる（[EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) の `OnTimer` から `SyncModel`）。network を写すのは UI スレッドで、UI スレッドが Agent の読み取りロックを取る。
 - 同じ Actor の `MakeAction` と `Sync` は、並行に呼ばない契約である（rl.hpp の `Actor`）。Evaluation Trace の行は、Runner の step の通知の中で同期に作る。そのため、Actor の同期、行動選択、step 診断の `Observe` は、その Runner を進める 1 つのスレッドで順に走る。
 - EvalPanel の既定の進みは毎秒 15 step である（common.txt の `app.online.eval_panel.fps`・`app.batchrun.eval_panel.fps`）。
-- 既存の step 診断は Agent のロックを待たない。報酬スケーラは、学習が使った標準偏差を値 1 つとして公開し、診断側はそれを読む（[scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp) の `RunningStdRewardScaler::ScaleWithoutUpdate`）。テスト `[diagnostic_no_wait]`（[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp)）がこれを確かめている。[PRD094](done/0094_evalpanel_step_history_10rfd.md) は「step trace は UI スレッドで同期に作り、ロックを持たない」と書いている。
+- 既存の step 診断は Agent のロックを待たない。報酬スケーラは、学習が使った標準偏差を値 1 つとして公開し、診断側はそれを読む（[scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp) の `RunningStdRewardScaler::ScaleWithoutUpdate`）。テスト `[diagnostic_no_wait]`（[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp)）がこれを確かめている。[RFD0094](done/0094_evalpanel_step_history_10rfd.md) は「step trace は UI スレッドで同期に作り、ロックを持たない」と書いている。
 - 規約は、毎 step・毎 tick の経路に、別のスレッドのロック待ちと device 間の同期の転送を足さないこと、足すなら頻度と 1 回の時間の見積もりを書くことを求める（[impl.md](../quality/impl.md) の「計測」の規約）。[212 §5.1](../design/212_rnd_lifelong_novelty.jp.md) も「画面表示のために新しい学習ロック待ちを追加しない」と書いている。
-- 規約は、UI スレッド（GUI のイベントとタイマー）から、学習のスレッドが更新の間ずっと持つロックを取らないこと、学習側の可変状態は、学習のスレッドで作った写しか、atomic に公開した値を通して読むことも求める（impl.md の「C++ コード」の規約）。PRD094 の実装で UI スレッドが学習のロックを待った反省から入った。上の EvalPanel の Actor の同期は、この規約より前からある動きで、UI スレッドから同じロックを取っている。
+- 規約は、UI スレッド（GUI のイベントとタイマー）から、学習のスレッドが更新の間ずっと持つロックを取らないこと、学習側の可変状態は、学習のスレッドで作った写しか、atomic に公開した値を通して読むことも求める（impl.md の「C++ コード」の規約）。RFD0094 の実装で UI スレッドが学習のロックを待った反省から入った。上の EvalPanel の Actor の同期は、この規約より前からある動きで、UI スレッドから同じロックを取っている。
 
 ### 2.5 評価の値は可視化用にしかならない
 
 - 評価の遷移は Replay に入らず、学習されない。評価の step には「実際に使った内的報酬」が、採点をどこに置いても無い。実際に使った値があるのは Train の遷移だけである。
-- Actor の `MakeAction` は行動を選ぶ時点で呼ばれる。その時点では、既定で採点する遷移のあとの観測も、ボーナスに要る done も無い。終端の観測は `MakeAction` を通らない。[PRD116](0116_rnd_lifelong_novelty_10rfd.md) §1.3 が Actor での採点を退けた理由（1 step 遅れの採点を運ぶ契約が要る）と同じである。step 診断は、遷移の 4 つ組と done を受け取る。
-- 方策が内的報酬を入力に取る形（NGU の「直前の内的報酬」。[173](0173_intrinsic_reward_novelty_10rfd.md) §4.5）では、評価の Actor も行動のために内的報酬を計算する。その値は Actor が出す値で、本 PRD の列とは別のものになる。
+- Actor の `MakeAction` は行動を選ぶ時点で呼ばれる。その時点では、既定で採点する遷移のあとの観測も、ボーナスに要る done も無い。終端の観測は `MakeAction` を通らない。[RFD0116](0116_rnd_lifelong_novelty_10rfd.md) §1.3 が Actor での採点を退けた理由（1 step 遅れの採点を運ぶ契約が要る）と同じである。step 診断は、遷移の 4 つ組と done を受け取る。
+- 方策が内的報酬を入力に取る形（NGU の「直前の内的報酬」。[173](0173_intrinsic_reward_novelty_10rfd.md) §4.5）では、評価の Actor も行動のために内的報酬を計算する。その値は Actor が出す値で、本 RFD の列とは別のものになる。
 
 ### 2.6 評価専用の Run
 
@@ -133,7 +133,7 @@ whiten の採点は、今回の batch を入れる前の統計で倍率を作る
 - **誤差・倍率・ボーナス**: [212 §1.2・§3.3](../design/212_rnd_lifelong_novelty.jp.md) の語のまま使う。誤差は predictor と target の出力の差（予測誤差）、倍率は 1 を基準とする採点の結果、ボーナスは β × (倍率 − 1) である。
 - **標準化した値**: 倍率を作るときの「倍率 − 1」を、上下で切る前の値。212 が式の中で記号 z と書いている値である。鍵の名前は `normalized_error` にする（D5）。
 
-用語集（`CONTEXT.md`）は変えない。RND の語は用語集に無く、212 の用語の節が持っている。本 PRD が足す値の名前は、どれも 212 の語と既存の鍵（`intrinsic.error_mean` など）の言い換えで足りる。「同期に従うもの」は、上のとおり既存の語で言い換えられないので、新しい呼び名として決めた。Actor の実装の口の呼び名で、分野の語ではないので、用語集には入れず、設計文書 200 に書く。
+用語集（`CONTEXT.md`）は変えない。RND の語は用語集に無く、212 の用語の節が持っている。本 RFD が足す値の名前は、どれも 212 の語と既存の鍵（`intrinsic.error_mean` など）の言い換えで足りる。「同期に従うもの」は、上のとおり既存の語で言い換えられないので、新しい呼び名として決めた。Actor の実装の口の呼び名で、分野の語ではないので、用語集には入れず、設計文書 200 に書く。
 
 ## 4. 確定事項
 
@@ -149,13 +149,13 @@ whiten の採点は、今回の batch を入れる前の統計で倍率を作る
 
 ボーナスは「学習側がこの遷移を受け取ったら報酬に足す値」とし、学習と同じ式（β、上下の切り方、done の lane の扱い、warm-up）で作る。β は、学習の入口が直近に評価した値を Agent が覚え、推定器と同じ時機に写す（D4）。学習の入口をまだ通っていない間は、ボーナスだけが空欄になる。
 
-理由: RND の調整で繰り返し問題になったのは、内的報酬が外的報酬に比べてどれだけの大きさか、だった（[PRD123](0123_rnd_intrinsic_reward_scale_10rfd.md) §2.1）。学習の報酬と同じ単位の列があれば、止まった画面でその大きさを直接読める。β を学習の入口の値にすると、β を schedule にしても学習と同じ値になる。成立しないときは空欄にし、別の値で埋めない（[impl.md](../quality/impl.md) の「GetScalar」の規約）。依存: D1・D4、§2.4（学習と EvalPanel は同じ Agent を持つ）。
+理由: RND の調整で繰り返し問題になったのは、内的報酬が外的報酬に比べてどれだけの大きさか、だった（[RFD0123](0123_rnd_intrinsic_reward_scale_10rfd.md) §2.1）。学習の報酬と同じ単位の列があれば、止まった画面でその大きさを直接読める。β を学習の入口の値にすると、β を schedule にしても学習と同じ値になる。成立しないときは空欄にし、別の値で埋めない（[impl.md](../quality/impl.md) の「GetScalar」の規約）。依存: D1・D4、§2.4（学習と EvalPanel は同じ Agent を持つ）。
 
 ### D3. 列の鍵と Runner の Actor は、step 診断の部品を作るときに渡す
 
 Evaluation Trace の行を作る部品が、列の宣言から `$agent_step` の鍵の一覧を作り、その Runner の Actor とあわせて、`Agent::CreateStepDiagnosticsProvider` の入力として渡す。DefaultDQN の step 診断は、一覧に内的報酬の鍵があるときだけ、呼ばれた時点で読むだけの採点を行う。
 
-理由: 計算するかどうかを、部品を作る 1 か所で決められる。値を返す部品は、今と同じく値を持つだけになる。読み出しが forward を隠し持つ形は、読み手が増えたとき（PRD184）に計算の時点のずれを生みやすい。「何が要るかを、進める側が引数で渡し、core に登録を持たない」という考え方は PRD170（[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）と同じである。列の宣言は Run の間変わらないので、渡すのは作るときの 1 回で足りる（§2.3）。Actor を渡すのは、D4 が Actor の設定と同期に従うためである。D4 は、Actor に「同期に従うもの」をつなぐ。これは登録の形だが、ADR 0072 が退けた登録（step の結果を、引数に現れない値で変えるもの）には当たらない。つないでも、行動選択の出力も step の結果も変わらない。つなぐのは Agent で、呼び出す側（Evaluation Trace）は入力を渡すだけである。依存: D4、§2.3。
+理由: 計算するかどうかを、部品を作る 1 か所で決められる。値を返す部品は、今と同じく値を持つだけになる。読み出しが forward を隠し持つ形は、読み手が増えたとき（RFD0184）に計算の時点のずれを生みやすい。「何が要るかを、進める側が引数で渡し、core に登録を持たない」という考え方は RFD0170（[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）と同じである。列の宣言は Run の間変わらないので、渡すのは作るときの 1 回で足りる（§2.3）。Actor を渡すのは、D4 が Actor の設定と同期に従うためである。D4 は、Actor に「同期に従うもの」をつなぐ。これは登録の形だが、ADR 0072 が退けた登録（step の結果を、引数に現れない値で変えるもの）には当たらない。つないでも、行動選択の出力も step の結果も変わらない。つなぐのは Agent で、呼び出す側（Evaluation Trace）は入力を渡すだけである。依存: D4、§2.3。
 
 ### D4. 推定器の写しは、Actor が network を写し直すのと同じロックの中で写す
 
@@ -185,8 +185,8 @@ step 診断の部品は、その Runner の Actor の設定に従って、次の
 帰結:
 
 - 行の値の時点は、写しを持つ Actor では「Actor が最後に network を写し直した時点の、学習側の predictor・統計・β」で、同じ行の Q を出した network と同じ時点である。持たない Actor では「その step の瞬間」である。行は、それが学習の何 step 目の状態だったかを持たない。写し直しをまたいだ行どうしでは、採点した predictor の学習の進みが違う。
-- [PRD094](done/0094_evalpanel_step_history_10rfd.md) の「step trace はロックを持たない」は、写しを持つ Actor では、内的報酬の列を宣言してもそのまま成り立つ。step ごとに Agent の読み取りロックを取るのは、写しを持たない Actor で内的報酬の列を宣言した構成だけである。
-- PRD184 の評価 session では、session の開始の同期 1 回で、session の全体を同じ predictor で採点することになる。
+- [RFD0094](done/0094_evalpanel_step_history_10rfd.md) の「step trace はロックを持たない」は、写しを持つ Actor では、内的報酬の列を宣言してもそのまま成り立つ。step ごとに Agent の読み取りロックを取るのは、写しを持たない Actor で内的報酬の列を宣言した構成だけである。
+- RFD0184 の評価 session では、session の開始の同期 1 回で、session の全体を同じ predictor で採点することになる。
 - 変えるときの条件: Actor の network の同期を、規約どおりの形（学習のスレッドが写しを作って公開する）へ直すときは、推定器と β の写しも一緒に移す。既存の同期が規約に合っていないことは、別の課題にする（§8）。
 
 ### D5. 鍵の名前
@@ -217,7 +217,7 @@ step 診断の部品は、その Runner の Actor の設定に従って、次の
 
 `CreateStepDiagnosticsProvider` の入力（lane の数、鍵の一覧、Actor）は、呼び出しの全部が書く。
 
-理由: 呼び出しは本体 1 か所とテスト数か所で、書き換えが少ない。PRD170 が `MakeAction` の引数に既定値を付けたのは、テストの呼び出しが約 65 か所あるためで、事情が違う。依存: D3。
+理由: 呼び出しは本体 1 か所とテスト数か所で、書き換えが少ない。RFD0170 が `MakeAction` の引数に既定値を付けたのは、テストの呼び出しが約 65 か所あるためで、事情が違う。依存: D3。
 
 ### D10. 知らない鍵で止まる時機は変えない。出荷の列はテストで守る
 
@@ -274,7 +274,7 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 
 ### D18. ADR は起こさない
 
-理由: 足すだけの診断で、あとから変えにくい形を含まない。部品を作るときの入力を足す D3 は、PRD170 の ADR 0072 と同じ考え方に沿う。写しの扱い（D4）は実装の規約の例外だが、戻しにくい形ではない。写す場所を学習側の公開へ移しても、鍵、値の意味、設定は変わらない。例外にした理由と変えるときの条件は、D4 と wiki のトピック別まとめに残す。推定器の写しの持ち主は step 診断の部品で、Actor は写し直す時機に呼ぶだけである。Actor が forward に使う写し（ADR 0013 が Actor の所有と決めたもの）とは別で、ADR 0013 は変えない。採点の場所の判断（D1）は 173 に開いたまま残している。
+理由: 足すだけの診断で、あとから変えにくい形を含まない。部品を作るときの入力を足す D3 は、RFD0170 の ADR 0072 と同じ考え方に沿う。写しの扱い（D4）は実装の規約の例外だが、戻しにくい形ではない。写す場所を学習側の公開へ移しても、鍵、値の意味、設定は変わらない。例外にした理由と変えるときの条件は、D4 と wiki のトピック別まとめに残す。推定器の写しの持ち主は step 診断の部品で、Actor は写し直す時機に呼ぶだけである。Actor が forward に使う写し（ADR 0013 が Actor の所有と決めたもの）とは別で、ADR 0013 は変えない。採点の場所の判断（D1）は 173 に開いたまま残している。
 
 ### D19. 流れをシーケンス図で設計文書に書く
 
@@ -303,7 +303,7 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 
 - UI スレッドが Agent の読み取りロックを取る回数は、pane を開いて写しが無かったときに 1 回増える。取る箇所は、既存の EvalPanel の同期と同じである。
 - 同期を episode の単位にした設定（`app.eval_panel.model_sync.mode`）でも、pane を開いたときの同期は、episode の途中で起きる。
-- 「写しが無い」の NaN が出るのは、部品を作ってから Actor がまだ写し直していない間と、休んでいる間に写しを捨てたあと、Actor がまだ写し直していない間である。RunnerApp では、pane を開いたときの同期があるので、ほぼ出ない。Runner を直接使う構成（テスト、PRD184 の評価 session）では、最初の同期までの間に出る。
+- 「写しが無い」の NaN が出るのは、部品を作ってから Actor がまだ写し直していない間と、休んでいる間に写しを捨てたあと、Actor がまだ写し直していない間である。RunnerApp では、pane を開いたときの同期があるので、ほぼ出ない。Runner を直接使う構成（テスト、RFD0184 の評価 session）では、最初の同期までの間に出る。
 - RunnerApp は、起動時に pane が閉じていれば、行を作る部品を作った直後に休ませる。開閉の判定は、行を作るかどうかを決めている EvalTracePanel の既存の判定に従う。
 - 採点の費用と、推定器を写す費用がかかるのは、pane を開いている間だけである（D14 で測る）。
 
@@ -311,11 +311,11 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 
 | 形 | 裁定 | 理由 |
 |---|---|---|
-| PRD170 の `MakeActionOptions` に欄を足し、Actor に採点させる | 不採用 | `MakeAction` の時点では遷移のあとの観測も done も無く、終端の観測は通らない。Actor は推定器を持たない。RND の採点は Q の forward の副産物ではなく、capture で運べない（§2.5） |
+| RFD0170 の `MakeActionOptions` に欄を足し、Actor に採点させる | 不採用 | `MakeAction` の時点では遷移のあとの観測も done も無く、終端の観測は通らない。Actor は推定器を持たない。RND の採点は Q の forward の副産物ではなく、capture で運べない（§2.5） |
 | ボーナスの β を、Actor が行動のたびに評価する（γ と同じ扱い） | 不採用 | Actor に内的報酬の設定を持たせることになり、D1 に反する。写しと一緒に β を写せば、同じ時点の値になる（D2・D4） |
 | 誤差と標準化した値の 2 つだけを出す | 不採用 | 学習の報酬の単位で読むには、利用者が β と切り方を設定から当てはめる必要がある |
 | 内的報酬の鍵を読まれたときに計算する（課題に書いた形） | 不採用 | 値を返すだけに見える読み出しが forward を通す。読む時機で計算の時点がずれる（D3） |
-| RND が有効なら常に採点する | 不採用 | PRD184 で `q_sa` だけを記録する宣言をしたとき、評価の全 lane・全 step で使われない採点が走る |
+| RND が有効なら常に採点する | 不採用 | RFD0184 で `q_sa` だけを記録する宣言をしたとき、評価の全 lane・全 step で使われない採点が走る |
 | step 診断を呼ぶたびに鍵を渡す | 不採用 | 列の宣言は Run の間変わらない（§2.3） |
 | Actor の設定に依らず、Agent の読み取りロックを step ごとに取る | 不採用 | 写しを持つ Actor の Runner でも、Trace の step のたびに GUI のスレッドが Q の更新の終わりを待つ。規約と 212 の記述に反する（§2.4） |
 | 内的報酬だけのロックを作り、学習の採点・補助学習と Trace の採点を排他する | 不採用 | 学習の入口にロックが入る。Taiga 式では入口 1 回に補助学習が 128 回あり（§2.1）、Trace の step が採点か補助学習 1 回ぶんを毎回待ちうる。BatchNorm を入れた構成では学習が変わる |
@@ -331,7 +331,7 @@ DefaultDQN で `intrinsic.enabled=false` のとき、3 つの鍵は認識して 
 | 評価専用の Run でだけ出し、学習中の Run では空欄にする | 不採用 | ロックも写しも要らないが、学習中の Run を見ながら止まった画面を調べる使い方ができない。G3 を縮める |
 | 知らない `$agent_step` の鍵を、部品を作るときに検査して起動時に止める | 不採用 | D10。止まる時機が target ごとに分かれ、エラーの文に列番号を入れるには共通の口が 1 つ増える |
 | DropMerge の `run.@rnd` を足す | 範囲外 | §1.3。再開条件: DropMerge で仮説を確かめる実験を起こすとき |
-| 評価 session の新しさを scalar で残す | 範囲外 | 別の関心。step ごとの記録は PRD184 が担う。再開条件: 184 の記録だけでは Greedy と Train の誤差の比較が重いと分かったとき |
+| 評価 session の新しさを scalar で残す | 範囲外 | 別の関心。step ごとの記録は RFD0184 が担う。再開条件: 184 の記録だけでは Greedy と Train の誤差の比較が重いと分かったとき |
 | β を checkpoint に保存する | 不採用 | 本当の制約ではない（形式は変えられる）。保存して埋まるのは、再開から最初の学習の入口までの間のボーナスの列だけで、書式の識別子を上げて今ある checkpoint を読めなくする不利益に見合わない（D7） |
 | 乱数を引く層・状態を変える層を持つ RND の Network を検出して WARN する | 不採用 | D11 |
 
@@ -509,14 +509,14 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 
 ### 6.5 移行対象
 
-検索は 2026-11-12 に `git grep`（追跡しているファイルの全体。大文字小文字を区別しない）で行った。検索語と件数は、`CreateStepDiagnosticsProvider` が 16 ファイル 22 行（コード 8 ファイル、テスト 3 ファイル、設計文書 140 の日英、課題、PRD094、本 PRD の書き戻しで足した wiki の 1 行）、`StepTraceBuilder` がコードとテストで 7 ファイル 21 行、`agent_step` がコード・設定・設計文書で 13 ファイル、`CopySourceNetwork` が 5 ファイル 7 行（コード 2 ファイル、課題、過去の PRD 2 つ）、`anet::rl::Actor` を継ぐクラスが 9 つ（DQN 系の `Actor`、`MuZeroActor`、`ImageClsActor`、テスト用の 6 つ）、ほかに `eval_trace_panel.columns`、`ロックを持たない`、`ロック待ち` である。過去の記録（`docs/memo/done`、実装記録、`docs/experiments`、課題記録、Run の設定の写し）は書き換えない。
+検索は 2026-11-12 に `git grep`（追跡しているファイルの全体。大文字小文字を区別しない）で行った。検索語と件数は、`CreateStepDiagnosticsProvider` が 16 ファイル 22 行（コード 8 ファイル、テスト 3 ファイル、設計文書 140 の日英、課題、RFD0094、本 RFD の書き戻しで足した wiki の 1 行）、`StepTraceBuilder` がコードとテストで 7 ファイル 21 行、`agent_step` がコード・設定・設計文書で 13 ファイル、`CopySourceNetwork` が 5 ファイル 7 行（コード 2 ファイル、課題、過去の RFD 2 つ）、`anet::rl::Actor` を継ぐクラスが 9 つ（DQN 系の `Actor`、`MuZeroActor`、`ImageClsActor`、テスト用の 6 つ）、ほかに `eval_trace_panel.columns`、`ロックを持たない`、`ロック待ち` である。過去の記録（`docs/memo/done`、実装記録、`docs/experiments`、課題記録、Run の設定の写し）は書き換えない。
 
 - コード: §6.4 の各ファイル。`CreateStepDiagnosticsProvider` の宣言と実装（rl.hpp、default_dqn_agent.hpp・.cpp、rainbow_agent.hpp・.cpp、dqn_based_agent.hpp・.cpp）と、呼び出し（metrics.cpp）。`StepTraceBuilder` のコンストラクタ（metrics.hpp・.cpp）と、それを作る EvalTracePanel.cpp。`ActorSyncFollower` と `Actor::AttachSyncFollower`（rl.hpp）、DQN 系の `Actor` の実装と `CopySourceNetwork`（dqn_based_agent.hpp・.cpp）。`MuZeroActor`・`ImageClsActor`・テスト用の Actor は、基底の既定（つながない）のままで、変えない。`AgentStepDiagnosticsProvider` の `Suspend`・`Resume`（rl.hpp）と、DQN の部品の実装（dqn_based_agent.cpp）。`AgentStepDiagnosticsProvider` を継ぐクラスは 3 つ（DQN の部品と、テスト用の 2 つ）で、テスト用は基底の既定のままでよい。`StepTraceBuilder` の `Suspend`・`Resume`（metrics.hpp・.cpp）。pane の開閉の切り替え（EvalTracePanel.cpp の `SetActive` と `Initialize`）と、EvalPanel の同期の公開の口（EvalPanel.hpp・.cpp）。
 - 設定: Atari.txt・GridMaze.txt・LunarLander.txt の `run.@rnd` に §5.5 の 3 行を足す。common.txt の既定の列は変えない。
-- テスト（引数が変わるので直すもの）: [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) の `CreateStepDiagnosticsProvider` の呼び出し 4 か所（`[step_diagnostics]`・`[diagnostic_replay]`・`[diagnostic_no_wait]` と、`dqn::CreateStepDiagnosticsProvider` を直接呼ぶ `[prd101]` のテスト）、[metrics_test.cpp](../../src/core/base/src/metrics_test.cpp) と [EvalTracePanel_test.cpp](../../src/apps/runner/src/EvalTracePanel_test.cpp) のテスト用の Agent の override（各 1 か所）、`StepTraceBuilder` を作る箇所（dqn_based_agent_test.cpp の 2 か所、[trainer_test.cpp](../../src/core/base/src/trainer_test.cpp) の 3 か所、metrics_test.cpp の 8 か所）。どれも断定は変わらない。
-- テスト（足すもの）: §7 の 1〜10・12・15。タグ `[prd127]` を付ける。15 は [EvalTracePanel_test.cpp](../../src/apps/runner/src/EvalTracePanel_test.cpp) に足す。同ファイルの既存のテストは `SetActive` を呼んで pane の開閉を切り替えており（呼び出し 11 か所）、その断定は変わらない。
+- テスト（引数が変わるので直すもの）: [dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) の `CreateStepDiagnosticsProvider` の呼び出し 4 か所（`[step_diagnostics]`・`[diagnostic_replay]`・`[diagnostic_no_wait]` と、`dqn::CreateStepDiagnosticsProvider` を直接呼ぶ `[rfd0101]` のテスト）、[metrics_test.cpp](../../src/core/base/src/metrics_test.cpp) と [EvalTracePanel_test.cpp](../../src/apps/runner/src/EvalTracePanel_test.cpp) のテスト用の Agent の override（各 1 か所）、`StepTraceBuilder` を作る箇所（dqn_based_agent_test.cpp の 2 か所、[trainer_test.cpp](../../src/core/base/src/trainer_test.cpp) の 3 か所、metrics_test.cpp の 8 か所）。どれも断定は変わらない。
+- テスト（足すもの）: §7 の 1〜10・12・15。タグ `[rfd0127]` を付ける。15 は [EvalTracePanel_test.cpp](../../src/apps/runner/src/EvalTracePanel_test.cpp) に足す。同ファイルの既存のテストは `SetActive` を呼んで pane の開閉を切り替えており（呼び出し 11 か所）、その断定は変わらない。
 - 出荷設定のテスト: `[shipped_config]` に §7 の 12 を足す。既定の列の検査（[config_test.cpp](../../src/core/base/src/config_test.cpp) の `app.eval_trace_panel.columns` の一致）は変わらない。
-- 検証資材: `core/anet-core/testdata/prd127/README.md` を新設し、§7 の 11 の比較の手順と、§7 の 14 の測定の手順を書く。[PRD123 の検証資材](../../src/core/base/testdata/rfd0123/README.md)の比較の道具を使えるなら使う。
+- 検証資材: `core/anet-core/testdata/rfd0127/README.md` を新設し、§7 の 11 の比較の手順と、§7 の 14 の測定の手順を書く。[RFD0123 の検証資材](../../src/core/base/testdata/rfd0123/README.md)の比較の道具を使えるなら使う。
 - 設計文書 [140](../design/140_observability.jp.md): §5 に、Evaluation Trace の行を作る流れのシーケンス図を足す（D19）。§6.1 の target の表の `$agent_step` の行（DQN の鍵に内的報酬の 3 つを足す）と、`CreateStepDiagnosticsProvider` の段落（入力の型、鍵の一覧は計算するかどうかだけを決めること）を直す。英訳 [140 en](../design/140_observability.en.md) の同じ箇所。
 - 設計文書 [212](../design/212_rnd_lifelong_novelty.jp.md): Evaluation Trace で見る値の節を足す（3 つの値の意味、§5.1・§5.2 の表、値の時点（D4 の帰結）、どの画面の値か（D15 の帰結）、`variance_feedback` の値の単位（§5.1）、forward で乱数を引く層・状態を変える層の制約（D11））。§5.1 の「画面表示のために新しい学習ロック待ちを追加しない」の文を、D4・D20・§5.4 に合わせて直す（写しを持つ Actor では、Actor の同期と同じロックの中で写すので、定期の同期のロック待ちの回数は増えない。pane を開いて写しが無かったときに、同期が 1 回入り、GUI のスレッドが学習の入口 1 回の終わりを待つ。写しを持たない Actor では、step ごとに待つ。実装の規約の例外であることと、変えるときの条件も書く）。§7 の 14 の測定値を書く。英訳 [212 en](../design/212_rnd_lifelong_novelty.en.md) の同じ箇所。
 - 設計文書 [200](../design/200_dqn_agents.jp.md): §6.2 の RND の段落（読むだけの採点と、step 診断が持つ写し）、§9.1 の群 56 の段落の近くに step 診断の鍵を書く。Actor の `clone_model` を説明する箇所（同書に 2 か所）に、同期に従うもの（`ActorSyncFollower`）を network と同じ読み取りロックの中で呼ぶことと、step 診断の推定器の写しがそれに当たることを足す。英訳 [200 en](../design/200_dqn_agents.en.md) の同じ箇所。
@@ -524,13 +524,13 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 - 設計文書 [160](../design/160_applications_and_tools.jp.md): `EvalTracePanel` の節に、pane を閉じている間は step 診断の部品を休ませること、開いたときに写しが無ければ EvalPanel がその場で Actor を同期することを足す（D20）。英訳 [160 en](../design/160_applications_and_tools.en.md) の同じ箇所。
 - ユーザーガイド [020](../design/020_user_guide_run.jp.md): §6.5 の列番号の表に235 `rnd_bonus`と600〜699「内的報酬の誤差」を足し、`run.@rnd` の Run で出る 3 列の読み方（どの画面の値か、値の時点、方式による単位の違い）と、百分位の列の足し方（§5.5）を書く。EvalPanel の同期を説明する箇所（`app.eval_panel.model_sync.mode`）に、内的報酬の列を宣言した Run では、Evaluation Trace を開いたときにも同期が入ることがあると足す（D20）。英訳 [020 en](../design/020_user_guide_run.en.md) の同じ箇所。
 - wiki: トピック別まとめの [324 DQN 系列](../wiki/categories/324_dqn.md)・[321 Agent 共通基盤](../wiki/categories/321_agent_core.md)・[317 可視化・メトリクス](../wiki/categories/317_metrics.md)・[318 強化学習 共通基盤](../wiki/categories/318_rl_core.md)・[RunnerApp](../wiki/apps/110_runner_app.md)、[内的報酬のページ](../wiki/mechanisms/intrinsic_novelty.md)の「関連」（起票の書き戻しで直す）。
-- 直さないもの: `$agent_step` の既存の 3 つの鍵だけを使うテストの断定と、PRD094 の検証資材（`core/anet-core/testdata/prd094/compare_configs.py`。既定の列だけを比べる）。既定の列も既存の鍵も変えない。`StepTraceBuilder` に触れる過去の検証資材の説明（`core/anet-core/testdata/prd094/README.md`・`prd098/README.md`）は、当時の手順の記録なので書き換えない。
-- PRD116 の §1.3 の「評価での採点と診断」の行は、当時の判断として残す。診断を本 PRD で決めたことは、本 PRD の §9 と wiki に書く。
+- 直さないもの: `$agent_step` の既存の 3 つの鍵だけを使うテストの断定と、RFD0094 の検証資材（`core/anet-core/testdata/rfd0094/compare_configs.py`。既定の列だけを比べる）。既定の列も既存の鍵も変えない。`StepTraceBuilder` に触れる過去の検証資材の説明（`core/anet-core/testdata/rfd0094/README.md`・`rfd0098/README.md`）は、当時の手順の記録なので書き換えない。
+- RFD0116 の §1.3 の「評価での採点と診断」の行は、当時の判断として残す。診断を本 RFD で決めたことは、本 RFD の §9 と wiki に書く。
 - 実装の規約（impl.md の UI スレッドのロックの規約）は変えない。D4 が開発者の決めた例外であることを、実装計画と、実装のレビューの依頼に書く。
 
 ## 7. 成功の測り方と受入
 
-1〜12 と 15 はテストか検証資材で確かめる。13・14 は人が確かめる。新しいテストはタグ `[prd127]` を付ける。
+1〜12 と 15 はテストか検証資材で確かめる。13・14 は人が確かめる。新しいテストはタグ `[rfd0127]` を付ける。
 
 | # | 観点 | 観測する結果 |
 |---|---|---|
@@ -544,32 +544,32 @@ app.eval_trace_panel.columns.[605] = $agent_step intrinsic.error display:pct lab
 | 8 | 評価専用の Run | 学習した Agent の checkpoint を、`learner.enabled=false` の Agent が読む。`clone_model = true` の Actor を同期したあと、step 診断の `intrinsic.error` と `intrinsic.normalized_error` が有限で、`intrinsic.bonus` が NaN になる |
 | 9 | RND が無効、Rainbow、Actor の欠け、非有限の誤差 | §6.2 の表の行 1〜4 のそれぞれが、表のとおりになる。行 1 と行 3 の ERROR の文に、表が挙げるものが入る。行 4 の WARN は 1 回だけ出て、文に lane と値が入る |
 | 10 | Trace を挟んでも学習が変わらない | 同じ seed と設定の DefaultDQNAgent を 2 つ作り、同じ遷移の列を学習の入口へ渡す。片方だけ、毎 step、内的報酬の鍵を入力に入れた step 診断の `Observe` を呼び、途中で Actor を同期する。2 つの Agent で、Learner が受け取った報酬の列（偽の Learner の受信値、または n-step 無効時の公開 Replay 収益で確認する）と、`$agent intrinsic.*` の診断値がすべて一致する。`clone_model` が true と false の両方で確かめる |
-| 11 | Trace を使わない Run が今と同じ | 着手前に保存した実行体と、実装後の実行体に、着手前の設定の写しを渡して比べる。構成は次の 3 つで、どれも seed 1 本・決定的モードである。(a) LunarLander の既定の連鎖に `run.@rnd` を足した 100k exp step の Run。(b) 同じ連鎖に `run.@rnd` と、Atari の `run.@rnd_taiga` の 8 つの設定値を足した 100k exp step の Run。(c) `intrinsic.enabled = false` の GridMaze・LunarLander・Atari・DropMerge の既定の連鎖の Run、各 8,704 exp step（PRD123 の検証資材が RND 無効で比べた 4 本と同じ条件）。比べるのは全 scalar 点の checksum と `metrics.scalar.defs` で、除くのは時刻・資源の群だけである（実時間に依るため）。3 つとも一致する |
+| 11 | Trace を使わない Run が今と同じ | 着手前に保存した実行体と、実装後の実行体に、着手前の設定の写しを渡して比べる。構成は次の 3 つで、どれも seed 1 本・決定的モードである。(a) LunarLander の既定の連鎖に `run.@rnd` を足した 100k exp step の Run。(b) 同じ連鎖に `run.@rnd` と、Atari の `run.@rnd_taiga` の 8 つの設定値を足した 100k exp step の Run。(c) `intrinsic.enabled = false` の GridMaze・LunarLander・Atari・DropMerge の既定の連鎖の Run、各 8,704 exp step（RFD0123 の検証資材が RND 無効で比べた 4 本と同じ条件）。比べるのは全 scalar 点の checksum と `metrics.scalar.defs` で、除くのは時刻・資源の群だけである（実時間に依るため）。3 つとも一致する |
 | 12 | 出荷設定 | Atari・GridMaze・LunarLander の `run.@rnd` を解決すると、`app.eval_trace_panel.columns.[235]`・`[600]`・`[610]` が §5.5 の 3 行の値になる。235は230 `reward`の直後に並ぶ。`run.@rnd`単独、`run.@skip > run.@rnd`、`run.@rnd > run.@skip`で確かめ、RNDの3列以外の全キー・文字列値は着手前の同じ選択の解決と一致する。`run.@rnd`を選ばない空の選択と`run.@skip`単独では、この3つの設定キーが無く、全キー・文字列値が着手前と一致する（`verify_configuration.py`）。LunarLander の `run.@rnd` を解決した列の宣言で、DefaultDQN の行を 1 行作ると、3 つの鍵がエラーなく読める（`[shipped_config]`） |
 | 13 | 画面（人が確かめる） | LunarLander か Atari の `run.@rnd` の Run で Evaluation Trace を開くと、`rnd_bonus`が`reward`の直後、`rnd_err`・`rnd_norm`が`prio_pct`の右に出る。`rnd_err` は、pane を開いた直後の最初の行から値が入る。`rnd_norm` は誤差の統計ができたあと、`rnd_bonus` は学習の入口を通ったあとに、Actor が同期した行から値が入る。学習が進んでいる Run で、View メニューか Panel ツールバーの操作で pane を閉じ、10 秒以上おいてから同じ操作で開き直しても、最初の行から 3 列に値が入る（利用者の操作から、開いたときの同期までがつながっていること）。Trace モードで過去の行を選んでも、その行の 3 列の値が変わらない。`run.@rnd` を選ばない Run では 3 列が出ない |
-| 14 | 費用の記録（人が測る。合否なし） | Atari の実時間優先の構成に `run.@rnd` を足した Run と、さらに `run.@rnd_taiga` を足した Run のそれぞれで、Evaluation Trace を閉じた状態と、開いて EvalPanel を再生した状態を、交互に 3 巡以上測る。各状態の、学習側の 1 秒あたりの exp step の中央値、step 診断の `Observe` 1 回の時間の中央値と最大、Actor の同期 1 回のうち推定器と β を写す時間の中央値と最大を、設計文書 212 に書く。GUI を動かせない枠で実装を終えるときは、測らずに終え、本 PRD の課題に残りの作業として書く（課題の判定は「残件有り」） |
+| 14 | 費用の記録（人が測る。合否なし） | Atari の実時間優先の構成に `run.@rnd` を足した Run と、さらに `run.@rnd_taiga` を足した Run のそれぞれで、Evaluation Trace を閉じた状態と、開いて EvalPanel を再生した状態を、交互に 3 巡以上測る。各状態の、学習側の 1 秒あたりの exp step の中央値、step 診断の `Observe` 1 回の時間の中央値と最大、Actor の同期 1 回のうち推定器と β を写す時間の中央値と最大を、設計文書 212 に書く。GUI を動かせない枠で実装を終えるときは、測らずに終え、本 RFD の課題に残りの作業として書く（課題の判定は「残件有り」） |
 | 15 | pane の開閉と同期 | EvalTracePanel のテストで、テスト用の step 診断と Actor を使う。pane の開閉は、`EvalTracePanel::SetActive` を直接呼んで切り替える。これは公開の口で状態を作る準備で、利用者の操作から `SetActive` までのつながり（フレームの pane の表示・非表示の処理）は、人が 13 で確かめる。(a) `SetActive` を呼ばずに `Initialize` を終えると（pane が閉じた状態）、行を作る部品を作った直後に `Suspend` が 1 回呼ばれている。(b) `SetActive(true)` で `Resume` が呼ばれ、それが真を返すときは、Actor の `Sync` がちょうど 1 回呼ばれる。偽を返すときは呼ばれない。(c) `SetActive(false)` で `Suspend` が呼ばれる |
 
 ## 8. 決めること（未決表）
 
 残る未決は無い。U1（`run.@rnd` の既定に 3 列を入れたままにするか）は 2026-11-14 に決めた（冒頭の改訂と D12）。
 
-本 PRD で直さないが、課題として残す候補は次の 3 つである。工程の最後に起票の候補として挙げる。
+本 RFD で直さないが、課題として残す候補は次の 3 つである。工程の最後に起票の候補として挙げる。
 
 - DropMerge 用の RND のプロファイル（§1.3）。
 - Evaluation Trace の列に知らない鍵があると、Run の途中で pane を開いた時点で Run ごと止まること（全 target に共通。D10）。
 - EvalPanel の Actor の同期が、UI スレッドから学習のロックを取っていること（実装の規約より前からの動き。§2.4）。直すときは、推定器と β の写しも一緒に移す（D4）。
 
-## 9. ほかの PRD との関係
+## 9. ほかの RFD との関係
 
-- [PRD116](0116_rnd_lifelong_novelty_10rfd.md): §1.3 が「評価での採点と診断」を非ゴールにし、「評価で内的報酬を見たくなったら 173 の採点点の問いで決める」とした。本 PRD は、採点の場所を動かさずに診断だけを足す形で、この再開条件に応えた。学習用の採点の場所の問いは 173 に残る。
-- [PRD123](0123_rnd_intrinsic_reward_scale_10rfd.md): 誤差の統計の取り方、warm-up、平均を引かない形、done の lane の扱いは、本 PRD の読むだけの採点がそのまま従う（§5.1・§5.2）。
+- [RFD0116](0116_rnd_lifelong_novelty_10rfd.md): §1.3 が「評価での採点と診断」を非ゴールにし、「評価で内的報酬を見たくなったら 173 の採点点の問いで決める」とした。本 RFD は、採点の場所を動かさずに診断だけを足す形で、この再開条件に応えた。学習用の採点の場所の問いは 173 に残る。
+- [RFD0123](0123_rnd_intrinsic_reward_scale_10rfd.md): 誤差の統計の取り方、warm-up、平均を引かない形、done の lane の扱いは、本 RFD の読むだけの採点がそのまま従う（§5.1・§5.2）。
 - [173](0173_intrinsic_reward_novelty_10rfd.md): 問い 7（ボーナスの合成と尺度）と 11（保存する報酬）は開いたままである。Actor 側の採点や、方策が内的報酬を入力に取る形が入ると、Actor が出す値を読む列が別にできる。評価の Actor は学習用の統計を更新できないので、そのときも読むだけの採点の口と写しは使える。
-- [PRD121](0121_extrinsic_intrinsic_value_decomposition_10rfd.md)（外的と内的の価値の分解。暫定）: 内的の価値を別の Head で学ぶ形が入ると、`intrinsic.bonus` の列を内的の価値の列と並べて読める。本 PRD は 121 を待たない。
-- [PRD094](done/0094_evalpanel_step_history_10rfd.md): 「step trace はロックを持たない」は、写しを持つ Actor ではそのまま成り立つ。写しを持たない Actor で内的報酬の列を宣言した構成だけが例外になる（D4 の帰結）。PRD094 の再発防止として入った実装の規約（UI スレッドのロック）に対しては、D4 が例外である。
-- [PRD184](0184_eval_session_step_trace_10rfd.md)（暫定・未実装）: 同じ `$agent_step` の鍵と `StepTraceBuilder` を評価 session で使う。本 PRD の 3 つの鍵は、184 が入ればそのまま記録に使える。184 の再グリルでは、`CreateStepDiagnosticsProvider` の入力（D3）と、session の全体を開始の同期の時点の predictor で採点すること（D4 の帰結）を前提に入れる。step 診断の部品は、作った直後から「使っている」状態なので、session の記録は `Suspend`・`Resume` を呼ばなくてよい（D20）。部品を session の開始の同期より前に作っておけば、最初の step から値が入る。
-- [PRD170](0170_nn_trace_capture_unification_10rfd.md)（未実装）: `MakeAction` と Runner の step に引数を足す。本 PRD とは別の口だが、同じ基底（rl.hpp）とテスト用の Agent を触るので、実装の順によって書き換えが重なる。意味はぶつからない。
-- [PRD117](0117_warn_policy_and_unread_config_10rfd.md): §6.2 の行 4 の WARN は、「構築後に、学習と評価の値を変えずに表示の一部だけが欠ける異常」の行に当たる。
+- [RFD0121](0121_extrinsic_intrinsic_value_decomposition_10rfd.md)（外的と内的の価値の分解。暫定）: 内的の価値を別の Head で学ぶ形が入ると、`intrinsic.bonus` の列を内的の価値の列と並べて読める。本 RFD は 121 を待たない。
+- [RFD0094](done/0094_evalpanel_step_history_10rfd.md): 「step trace はロックを持たない」は、写しを持つ Actor ではそのまま成り立つ。写しを持たない Actor で内的報酬の列を宣言した構成だけが例外になる（D4 の帰結）。RFD0094 の再発防止として入った実装の規約（UI スレッドのロック）に対しては、D4 が例外である。
+- [RFD0184](0184_eval_session_step_trace_10rfd.md)（暫定・未実装）: 同じ `$agent_step` の鍵と `StepTraceBuilder` を評価 session で使う。本 RFD の 3 つの鍵は、184 が入ればそのまま記録に使える。184 の再グリルでは、`CreateStepDiagnosticsProvider` の入力（D3）と、session の全体を開始の同期の時点の predictor で採点すること（D4 の帰結）を前提に入れる。step 診断の部品は、作った直後から「使っている」状態なので、session の記録は `Suspend`・`Resume` を呼ばなくてよい（D20）。部品を session の開始の同期より前に作っておけば、最初の step から値が入る。
+- [RFD0170](0170_nn_trace_capture_unification_10rfd.md)（未実装）: `MakeAction` と Runner の step に引数を足す。本 RFD とは別の口だが、同じ基底（rl.hpp）とテスト用の Agent を触るので、実装の順によって書き換えが重なる。意味はぶつからない。
+- [RFD0117](0117_warn_policy_and_unread_config_10rfd.md): §6.2 の行 4 の WARN は、「構築後に、学習と評価の値を変えずに表示の一部だけが欠ける異常」の行に当たる。
 
 ## 10. issue の対応表
 

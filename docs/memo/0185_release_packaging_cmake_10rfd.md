@@ -1,4 +1,4 @@
-# リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする PRD
+# リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする RFD
 
 > 2026-11-17 番号を 949 から 185 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 949 へ振り直した（PRD114）。
@@ -31,10 +31,10 @@
 10. Metrics Viewer: jar は `apps/metrics-viewer/target/metrics-viewer.jar`（[pom.xml:86](../../src/apps/metrics-viewer/pom.xml)）。THIRD-PARTY の一覧は license-maven-plugin が `${project.build.directory}/generated-sources/license` に作る（pom.xml の 101・173 行）。Maven wrapper（[mvnw.cmd](../../src/apps/metrics-viewer/mvnw.cmd)）がある。ソース木の jar は、日常の Viewer の起動（`apps/22_metrics_viewer_java.bat`）が使う。
 11. Doxygen: `doc` ターゲットは Doxygen が見つかったときだけ作る（[CMakeLists.txt:244-255](../../CMakeLists.txt)）。[Doxyfile](../Doxyfile) は `OUTPUT_DIRECTORY` が `.`（`docs/` で実行するので出力は `docs/html`。77 行）、`HAVE_DOT` が `YES`（2642 行）で、Graphviz の `dot` が要る。
 12. PDB: Release 構成はダンプ解析用に完全な PDB を作る（[CMakeLists.txt:111-121](../../CMakeLists.txt)）。リリースの zip は `.pdb` を除く（release.yml 208 行）。[symbolize.py](../../apps/tools/symbolize.py) は exe と同じフォルダの PDB を探す（1〜4 行）。手元の `AnetRLRunner.pdb` は約 78MiB（81,760,256 bytes）。anet-core と各 Env は静的ライブラリである（例 [core/anet-core/CMakeLists.txt:28](../../src/core/base/CMakeLists.txt)）。
-13. 大きさ: bin の一式は展開して約 2.5GB、zip で約 1,798MB（[PRD043](done/0043_release_packaging_10rfd.md) 冒頭）。GitHub Release の 1 ファイルの上限は 2GiB。
+13. 大きさ: bin の一式は展開して約 2.5GB、zip で約 1,798MB（[RFD0043](done/0043_release_packaging_10rfd.md) 冒頭）。GitHub Release の 1 ファイルの上限は 2GiB。
 14. Windows 専用の部分: core の共通基盤に `windows.h` を読むファイルがある（`app_util.cpp`・`config.cpp`・`env.cpp`・`exception.cpp`・`profile.cpp`）。起動の launcher は bat だけである（`apps/*.bat`）。
 15. [apps/README.md](../../apps/README.md) の「リリース zip について」（42〜52 行）は Doxygen の zip を `anet-lab-docs-<version>.zip` と書いているが、release.yml が作る名前は `anet-lab-doxygen-<版>.zip`（241 行）である。
-16. リリースの実績: tag は v0.1.0（2026-06-26）・v0.2.0（07-01）・v0.3.0（08-09）。tag push は人間が行う（[PRD043](done/0043_release_packaging_10rfd.md) §0 の 11）。
+16. リリースの実績: tag は v0.1.0（2026-06-26）・v0.2.0（07-01）・v0.3.0（08-09）。tag push は人間が行う（[RFD0043](done/0043_release_packaging_10rfd.md) §0 の 11）。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -175,7 +175,7 @@ G3 と D12 の列挙を、今のステップに当てるとこうなる。
 - [AGENTS.md](../../AGENTS.md) §ビルドの「利用可能な preset」: `x64-ReleasePackage` を足す。
 - [apps/README.md](../../apps/README.md) の「リリース zip について」: Doxygen の zip の名前を今の名前へ直し（§2 の 15）、symbols の zip と `.sha256` を足す。
 - [動線マップ](../agents/README.md) の CI の行は、必要なら `anet-harness-map` で作り直す。
-- 変えないもの: windows-ci.yml（非ゴール）、CHANGELOG、PRD043、ADR の本文（注記を足すのは §9 の 8）。
+- 変えないもの: windows-ci.yml（非ゴール）、CHANGELOG、RFD0043、ADR の本文（注記を足すのは §9 の 8）。
 - 互換層は置かない。古い組み立てをドライランの経路にも残さない。
 
 ### 5.7 性能と資源
@@ -233,7 +233,7 @@ G3 と D12 の列挙を、今のステップに当てるとこうなる。
 | `apps/runner/bin/Release` やフォルダを丸ごと包む形 | 不採用 | 手元の作業ツリーでは、試行用の exe、管理外の DLL、Git が無視する `runs/` が混ざる（§2 の 9） |
 | exe の import の表から DLL を自動でたどる形 | 不採用 | 実行時に読み込む DLL（`third_party/runtime_dlls` の SDL2 など）を拾えない（§2 の 6） |
 | インストーラ（NSIS・WiX・Inno Setup） | 先送り | 2GiB の上限は形式で変わらず、今は要求が無い。再開条件: 展開ではなくインストールで配る需要が出たとき |
-| 7Z など圧縮率の高い形式、LibTorch の DLL を別の zip に分ける形 | 先送り | 今の zip は上限の内（約 1,798MB。[PRD043](done/0043_release_packaging_10rfd.md)）。再開条件: runtime zip が §5.4 の 6 の上限に近づいたとき（component を分ければ作れる） |
+| 7Z など圧縮率の高い形式、LibTorch の DLL を別の zip に分ける形 | 先送り | 今の zip は上限の内（約 1,798MB。[RFD0043](done/0043_release_packaging_10rfd.md)）。再開条件: runtime zip が §5.4 の 6 の上限に近づいたとき（component を分ければ作れる） |
 | Linux・macOS のリリース物 | 範囲外 | 先にビルドの移植が要る（§2 の 14）。再開条件: Linux でビルドが通ったとき |
 | windows-ci.yml の configure を preset へ寄せる | 範囲外 | CI のビルド確認の関心で、[999 CI/CD 改善](0156_cicd_improvement_10rfd.md) の L1 で扱う。再開条件: 本書の preset が入ったあと |
 | リリースの工程で test を回す | 範囲外 | 今の release.yml も回していない。テストの自動化は [999 CI/CD 改善](0156_cicd_improvement_10rfd.md) の L1 の関心。再開条件: L1 で CI のテストが回るようになり、リリースの前にも同じテストを通したくなったとき（workflow preset に test の工程を足せば作れる） |
@@ -254,17 +254,17 @@ G3 と D12 の列挙を、今のステップに当てるとこうなる。
 | 8 | ADR を起こすこと（D13） | グリルで D3〜D6 が決まったら、新しい ADR「リリース物の中身は CMake の install のルールで定め、CPack で包む」を起こし、ADR 0017 と ADR 0020 の先頭に注記を足す（戻しにくく、文脈が無いと意外で、別案との比較の結果なので、ADR の 3 条件に当たる見込み） |
 | 9 | symbols の zip を毎回 Release に添付するか | 添付する（約 78MiB。§2 の 12） |
 | 10 | Maven の出力先をビルド木にする方法（pom の property／ソースをビルド木へ写して作る） | pom に出力先の property を足し、既定は今の `target` |
-| 11 | G5（PDB の zip と SHA256。D10・D11）を本書に入れるか、別の PRD にするか。会話で示されたゴール（GitHub に依存せず、CMake に統合して手元でも作る）の外から、CPack を入れる利点として足したもの | 本書に入れる（同じ component と CPack の設定に乗る小さな追加で、別にすると install のルールを 2 度触る） |
+| 11 | G5（PDB の zip と SHA256。D10・D11）を本書に入れるか、別の RFD にするか。会話で示されたゴール（GitHub に依存せず、CMake に統合して手元でも作る）の外から、CPack を入れる利点として足したもの | 本書に入れる（同じ component と CPack の設定に乗る小さな追加で、別にすると install のルールを 2 度触る） |
 
 ## 10. 依存と順序
 
-- 先に要る PRD は無い（[PRD043](done/0043_release_packaging_10rfd.md) の実装の上に乗る）。
+- 先に要る RFD は無い（[RFD0043](done/0043_release_packaging_10rfd.md) の実装の上に乗る）。
 - [999 CI/CD 改善](0156_cicd_improvement_10rfd.md) の L1（windows-ci.yml の改修）とは独立している。L1 で preset を使うなら、本書の preset の書き方（schema 6）に合わせる。
 - 次のリリース（v0.4.0）の前に入れると、tag push の経路をそのリリースで確かめられる。
 
 ## 11. 参照
 
-- [PRD043 リリースパッケージング](done/0043_release_packaging_10rfd.md)、[999 CI/CD 改善](0156_cicd_improvement_10rfd.md)
+- [RFD0043 リリースパッケージング](done/0043_release_packaging_10rfd.md)、[999 CI/CD 改善](0156_cicd_improvement_10rfd.md)
 - [ADR 0017](../adr/0017-release-zip-mirrors-repo-layout.md)、[ADR 0020](../adr/0020-release-archives-carry-project-license.md)、[ADR 0025](../adr/0025-ale-external-build-reference-and-license.md)
 - [040 開発環境構築ガイド](../design/040_development_environment.jp.md) §3・§4.2・§6
 - [311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)

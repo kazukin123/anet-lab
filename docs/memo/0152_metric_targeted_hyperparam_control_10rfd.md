@@ -1,4 +1,4 @@
-# メトリクス目標値によるハイパラ自律調整 暫定 PRD
+# メトリクス目標値によるハイパラ自律調整 暫定 RFD
 
 > 2026-11-17 番号を 927 から 152 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 927 へ振り直した（PRD114）。
@@ -55,7 +55,7 @@
 2. **制御対象は既に config キーである。** `per_initial_priority` は `ReplayBufferConfig` の値で、実行時に差し替える先が明確。
 3. **EMA と interval のインフラがある。** メトリクス側に `$ema` と `interval` が既にあり（[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt)）、制御に必要な平滑化と発火間隔はそこに乗る。
 
-**逆に無いもの**: 実行中に設定値を書き換える経路。現状 config は起動時に解決して以後不変であり、これは意図した設計でもある（[151_run_queue_snapshot_10prd.md](0151_run_queue_snapshot_10rfd.md) は逆方向に「凍結」を強化している）。
+**逆に無いもの**: 実行中に設定値を書き換える経路。現状 config は起動時に解決して以後不変であり、これは意図した設計でもある（[0151_run_queue_snapshot_10rfd.md](0151_run_queue_snapshot_10rfd.md) は逆方向に「凍結」を強化している）。
 
 ## 前提として先に要る作業
 
@@ -96,7 +96,7 @@ control.[per_init].clamp     = 0.05, 5.0
 
 | 観測量 | 設定キー | 目標値の根拠 |
 |---|---|---|
-| `39_agent_per/07_evicted_unsampled_ratio` | `per_initial_priority` | **両方向の失敗を実測済み**（本 PRD 冒頭）。最有力 |
+| `39_agent_per/07_evicted_unsampled_ratio` | `per_initial_priority` | **両方向の失敗を実測済み**（本 RFD 冒頭）。最有力 |
 | **`13_target_q_delta_abs / 17_q_gap`** | **`soft_update_tau`** | **2026-09-03 追加。3 点（τ 0.001 / τ 0.008 / hard C=125）で成績と単調に対応。無次元。第 5 節** |
 | `37_agent_qtd/24_grad_clip_ratio` | `grad_clip_tau` | クリップは安全弁であって正規化器ではない、という既存判断がある（`tau=5` は毎 update 発動して劣化）。現状 0.0005 で不発 |
 | `34_agent_plasticity/42_probe_dead_ratio` | 学習率 / `weight_norm` | **不適。** 第 6 節 |
@@ -147,7 +147,7 @@ RR1 / V/A ReLU 基準で 3 点を測った。
 
 **(b) 業界慣行は「gradient step 軸で固定」である。** data-efficient Rainbow は replay period を 4 → 1 に変えても target 周期を 2,000 updates に据え置き、単位を脚注で明示している。Scaled-QL もバッチ 16 倍で gradient step 単位の周期を据え置く。**したがって RR を変えたときの再設定則は、文献に依拠できない。**
 
-**(c) 定数スケジュールは理論的に準最適だと証明されている。** ただし表形式 Q 学習が対象で、深層 RL での検証はない。同論文は精度トリガ型（平均 TD 誤差が閾値を下回ったら同期）も Appendix で提案しており、**本 PRD の形 A とは別系統のイベント駆動案として存在する。**
+**(c) 定数スケジュールは理論的に準最適だと証明されている。** ただし表形式 Q 学習が対象で、深層 RL での検証はない。同論文は精度トリガ型（平均 TD 誤差が閾値を下回ったら同期）も Appendix で提案しており、**本 RFD の形 A とは別系統のイベント駆動案として存在する。**
 
 **(d) 感度はアルゴリズム依存である。** Rainbow では K に対して性能が平坦（K=1 でも劣化なし）で、既定の 8,000 は「先行論文からの惰性」と評価されている。一方 DQN では大きい K が重要とされる。**「τ を制御する価値があるか」自体が構成依存**なので、較正キャンペーンは構成ごとに要る。
 
@@ -185,6 +185,6 @@ RR1 / V/A ReLU 基準で 3 点を測った。
 
 - **Run 間のハイパラ探索**。既存の optuna ハーネスの領域。本機構は 1 本の Run の中を扱う。
 - **`per_initial_priority` 以外の対の実装**。候補表は挙げるが、較正が済んでいるのは 1 対もない。
-- **`actor_approx`**（推定による初期優先度）。あちらは「1 件ごとに正しい値を推定する」方向で、本 PRD は「分布の統計量を目標に保つ」方向。[035_approx_actor_priority_per_10prd.md](done/0035_approx_actor_priority_per_10rfd.md) が扱う。
+- **`actor_approx`**（推定による初期優先度）。あちらは「1 件ごとに正しい値を推定する」方向で、本 RFD は「分布の統計量を目標に保つ」方向。[0035_approx_actor_priority_per_10rfd.md](done/0035_approx_actor_priority_per_10rfd.md) が扱う。
 - **`mode = max` のラチェット修正**。単調高水位を真のトラッカーへ変える改修は本機構と独立に可能で、別件。
-- **計画の凍結・キュー**。[151_run_queue_snapshot_10prd.md](0151_run_queue_snapshot_10rfd.md) が扱う。
+- **計画の凍結・キュー**。[0151_run_queue_snapshot_10rfd.md](0151_run_queue_snapshot_10rfd.md) が扱う。

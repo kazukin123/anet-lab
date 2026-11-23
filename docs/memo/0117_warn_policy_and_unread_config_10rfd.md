@@ -1,4 +1,4 @@
-# PRD117: WARN の意味の線引きと、読まれない設定の検出 PRD
+# RFD0117: WARN の意味の線引きと、読まれない設定の検出 RFD
 
 > 2026-11-07 起票（暫定。質疑を省き、既定を置いて、決めることを §9 に残した）。行番号は起票時点のもので、`default_dqn_agent.cpp`・`default_dqn_agent.hpp`・`intrinsic_rnd.cpp`・`nn.txt` は PRD116 の未コミットの変更を含む作業ツリーの位置である。実装時は近傍の記述で探し直す。
 > 2026-11-10 改訂: グリルを行い、暫定の印を外した。§4 を確定事項として書き直し（D1〜D13）、起票時の未決表の 19 行を確定事項・細部・範囲外へ振り分けた（対応は §9.1）。主な決定: 意図した休止と、checkpoint の値を今の設定で置き換えた通知は INFO（D8・D10）。checkpoint に無い部分の初期化は WARN のまま（D10）。構築後の異常を WARN で続ける今の作りを規約に書く（D1）。読まれない設定キーの一覧は `?=` を含めて WARN（D3・D4）。作ったカタログ項目の読まれない設定キーは止め、使わない定義は出荷設定の検査のテストで見る（D3・D13）。`learn_batch_size` が lane の数より大きい構成は止める（D11）。休止した機能の値は NaN で返す（D12）。課題 582880 を取り込んだ（D7）。§2.6 に再グリルで確かめた事実を足し、§2 の AGENTS.md と設計文書の行番号を 2026-11-10 時点に直した（コードの行番号は起票時点のまま）。ADR 0071 を起こし、ADR 0027・0047・0053 の先頭に注記した。起草のあと、別モデルの検討を受けて、在庫の 1 の条件（D4）、一覧を出す側と時機（§5.4）、読んだ設定キーの記録の契約（§5.2）、D1 の 3 の (j)、A2 の流し方、D13 の理由を直した。レビューの指摘で、§5.3 にカタログごとの「Run で実体化しない項目」を足して A3・A9・D13 を合わせ、§5.8 に D11 で止まるテストの補助を足し、D6 に ADR 0027 の NoCare との食い違いを書き、§5.5 の「1 回」の読み方を 1 つにした。レビューのあとで、RND を無効にしたときの値の鍵も NaN にすると決めた（D12）。
@@ -14,7 +14,7 @@ Logs pane は表示した WARN 以上の記録を「未確認の警告」とし�
 
 ### 1.2 書いた設定が読まれなくても、黙って通る
 
-設定基盤は、書かれた設定キーが読まれたかを見ない（§2.4）。[AGENTS.md](../../AGENTS.md) のクリーンブレーク方針も、旧キーについて「設定基盤が未知キーを一律検出しない場合は NoCare」としている（85・93 行）。2026-11-06〜07 の Atari の RND の Run は、block の直下に書いた `out_channels` などが読まれず、1 Network 105,006,592 パラメータ（意図は 854,240）で動いた（[PRD116](0116_rnd_lifelong_novelty_10rfd.md) §2.1）。設定の綴り違い（`mergin_x`、[issue-20261103-66100f](../management/issues/issue-20261103-66100f.md)）も同じく黙って通っている。
+設定基盤は、書かれた設定キーが読まれたかを見ない（§2.4）。[AGENTS.md](../../AGENTS.md) のクリーンブレーク方針も、旧キーについて「設定基盤が未知キーを一律検出しない場合は NoCare」としている（85・93 行）。2026-11-06〜07 の Atari の RND の Run は、block の直下に書いた `out_channels` などが読まれず、1 Network 105,006,592 パラメータ（意図は 854,240）で動いた（[RFD0116](0116_rnd_lifelong_novelty_10rfd.md) §2.1）。設定の綴り違い（`mergin_x`、[issue-20261103-66100f](../management/issues/issue-20261103-66100f.md)）も同じく黙って通っている。
 
 ### 1.3 WARN を出す基準が 1 つにまとまっていない
 
@@ -22,7 +22,7 @@ Logs pane は表示した WARN 以上の記録を「未確認の警告」とし�
 
 ### 1.4 設定の用語の「葉」が、日本語として通じない
 
-設定の階層の末端にある `key = value` の 1 つを、用語集と設計文書は「葉」と呼んでいる（「既定葉」「個別葉」「葉キー」）。英語の leaf の直訳で、日本語の「葉」には階層の末端という意味が無い。本 PRD も、起票時は「読まれない葉」と名付けていた（§2.6）。
+設定の階層の末端にある `key = value` の 1 つを、用語集と設計文書は「葉」と呼んでいる（「既定葉」「個別葉」「葉キー」）。英語の leaf の直訳で、日本語の「葉」には階層の末端という意味が無い。本 RFD も、起票時は「読まれない葉」と名付けていた（§2.6）。
 
 ## 2. 現状（2026-11-07 に確認したこと）
 
@@ -44,7 +44,7 @@ Logs pane は表示した WARN 以上の記録を「未確認の警告」とし�
 | `MetricsLogObserverBase::OnUpdate(): value not found. tag=56_agent_in/32_learn_count …` | 1 | 2026-11-07 | [observers.cpp](../../src/core/base/src/observers.cpp) 1115 行 |
 | `Checkpoint has no skip networks; …` | 1 | 2026-10-23 | default_dqn_agent.cpp 440 行 |
 
-各 workspace の直近 3 本では、Atari の Run（Atari-04・Atari5-01・AtariRnd-01・AtariTube-01）が全部 `eval_target` の WARN を 1 件ずつ出し、LunarLander・GridMaze・DropMerge-01 の直近の Run は 0 件だった。Atari の `eval_target` は `run.@eval2ch_r1` が `interval = 0` で意図して止めており（[Atari.txt](../../apps/runner/config/Atari.txt) 517 行）、WARN は PRD052 の D9 と PRD081（92 行）の契約どおりに出ている。評価だけの Run（`mz_nm_rnd_ev_taurnd`）の 4 件の分析は [issue-20261107-a9a0e3](../management/issues/issue-20261107-a9a0e3.md) の事象にある。
+各 workspace の直近 3 本では、Atari の Run（Atari-04・Atari5-01・AtariRnd-01・AtariTube-01）が全部 `eval_target` の WARN を 1 件ずつ出し、LunarLander・GridMaze・DropMerge-01 の直近の Run は 0 件だった。Atari の `eval_target` は `run.@eval2ch_r1` が `interval = 0` で意図して止めており（[Atari.txt](../../apps/runner/config/Atari.txt) 517 行）、WARN は RFD0052 の D9 と RFD0081（92 行）の契約どおりに出ている。評価だけの Run（`mz_nm_rnd_ev_taurnd`）の 4 件の分析は [issue-20261107-a9a0e3](../management/issues/issue-20261107-a9a0e3.md) の事象にある。
 
 ### 2.2 WARN の出し方と表示
 
@@ -85,12 +85,12 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 - 読み口は、`Config` の派生が 75、`ReadConfig`・`ANET_READ_CONFIG` の呼び出しが 610 ある。ほかに `ConfigData` の全キーを走査する読み口が 29 か所（`net.block` などのカタログの読み口）、`ConfigData` を直接 `Get`・`Read` する読み口がコアに 16 か所、アプリに約 10 か所（[EvalTracePanel.cpp](../../src/apps/runner/src/EvalTracePanel.cpp) 84・85 行など）ある。
 - NN の block は、`net.block.[<名前>].*` を全体とAgent の下から集め、`type` を除いた設定キーを相対のキーで block ごとの設定にまとめる（nn_impl.cpp 787〜845 行）。構造に現れた block だけを、module の factory がその設定から自分のキーを読んで作る（nn_impl.cpp 1776〜1806 行。Conv2d は `conv.out_channels` などを読む。nn_modules.cpp 2969 行・3050 行付近）。factory が読まない設定キーは、構築時にエラーにも WARN にもならない（0c34dd）。
 - 実際の Run（`mz_rbw_imp_s1`）の `config_data.txt` は 1,362 件、モジュールごとの記録は 671 件で、差の 1,009 件の内訳は `net.block` 447、`metrics.scalar` 123、`M1` 110、`RainbowAgent` 57、`A3` 56、`MuZeroAgent` 44、`A1` 35、`DefaultDQNAgent.actor` 17、`app.eval_trace_panel` 15、`DefaultDQNAgent.net` 14、`run.eval` 14、`A2` 12、`DefaultDQNAgent.intrinsic` 9 などだった。この差には、記録に残らない読み方（NN の branch、ProfiledValue の type、GUI の panel）で読まれた設定キーも含まれるので、記録は読まれたかの判定に使えない。
-- 実効側に残る、読まれなくてよい設定キーの種類は既に整理されている。プロファイル（`@` を持つ定義）は `ConfigData` から除かれる（[100](../design/100_runtime_and_configuration.jp.md) §2.1 の手順 7）。上書き層（A1・E1・M1 など）と mode（`app.online`・`app.batchrun`）は選択の源として残り、「既知 prefix として機械識別でき」る（[PRD059](done/0059_config_concept_tree_alignment_10rfd.md) の 36 行、D20・D25）。カタログの項目は名前で参照される部品の定義である（[CONTEXT.md](../../CONTEXT.md)「カタログ」）。共通の設定には、その Run で作らない Agent の既定（`RainbowAgent.*` は `?=` が 51 行、`=` が 6 行）も入る。
+- 実効側に残る、読まれなくてよい設定キーの種類は既に整理されている。プロファイル（`@` を持つ定義）は `ConfigData` から除かれる（[100](../design/100_runtime_and_configuration.jp.md) §2.1 の手順 7）。上書き層（A1・E1・M1 など）と mode（`app.online`・`app.batchrun`）は選択の源として残り、「既知 prefix として機械識別でき」る（[RFD0059](done/0059_config_concept_tree_alignment_10rfd.md) の 36 行、D20・D25）。カタログの項目は名前で参照される部品の定義である（[CONTEXT.md](../../CONTEXT.md)「カタログ」）。共通の設定には、その Run で作らない Agent の既定（`RainbowAgent.*` は `?=` が 51 行、`=` が 6 行）も入る。
 - 既定キー `?=` の集合は `Properties`・`ConfigManager` が解決の途中で持つが、`ConfigData` には渡さない（config.hpp 154〜160 行、config.cpp 675〜803 行）。
 - 遅れて設定を読む読み口がある。`Conv2dPanel` は View の menu で開いたときに作られ、そこで `Conv2dPanel.conv2d.*` を読む（[RunnerFrame.cpp](../../src/apps/runner/src/RunnerFrame.cpp) 1519 行、[Conv2dPanel.cpp](../../src/apps/runner/src/Conv2dPanel.cpp) 20〜30 行）。
 - 綴り違いの `Conv2dPanel.conv2d.mergin_x ?= 2` は既定キーで書かれている（[common.txt](../../apps/runner/config/common.txt) 75・76 行。[metrics_image.txt](../../apps/runner/config/metrics_image.txt) 96・97 行も同じ）。`=` だけを見る検出では拾えない。
 - 静的な検査は `?=` と `=` の使い分けを見る [check_default_leaves.py](../../src/core/base/testdata/rfd0072/check_default_leaves.py) と、`[shipped_config]` のテストだけで、書いた設定キーが読まれたかは見ない。
-- 起票時点の作業ツリー（PRD116 の実装）の `nn.txt` は、`Conv1d_S`・`Conv1d_M`・`Conv2d_S` などの設定キーを `conv.*` の下に書いていた。この直しは PRD116 でコミットされた（§2.6）。
+- 起票時点の作業ツリー（RFD0116 の実装）の `nn.txt` は、`Conv1d_S`・`Conv1d_M`・`Conv2d_S` などの設定キーを `conv.*` の下に書いていた。この直しは RFD0116 でコミットされた（§2.6）。
 
 ### 2.5 規約・文書・過去の判断の今の記述
 
@@ -103,19 +103,19 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 - [実装 品質確認観点](../quality/impl.md) 項番 24・25・27: 意図された休止をエラーにしない、代替は auto だけで 1 回 WARN、WARN は対象ごとに 1 回。
 - ADR: [0027](../adr/0027-eval-definition-schedule-separation.md) は本文で「旧位置キーの検出は NoCare」と決め、Consequences で dormant タグ参照の WARN の文言を定める。[0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) は「scalar は現行どおり dormant タグでは WARN して捨てる」とする。[0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md) は checkpoint の optimizer の options を今の設定で置き換える判断で、その中で「checkpoint と違った項目は WARN で示す」と決めている（3 行）。
 - 地図の「選ばなかった形」（[316](../wiki/categories/316_config.md)、[324](../wiki/categories/324_dqn.md)）:
-  - 個別の葉と継承値の競合の WARN — 不採用（PRD072）。本 PRD は競合を見ないので開き直さない。
-  - 旧キー（`use_qr`・`num_quantiles`）の tripwire — 不採用（PRD001 の D14）。本 PRD は旧キー専用の検出を作らない（D6）。
-  - DQN 側で Noisy の有無を見て効かない倍率に WARN を出す形 — 不採用（PRD107、ADR 0048）。本 PRD の一覧は「読まれたか」だけを見るので、読まれて効かない設定キーには出さず、開き直さない。
-  - 眠る bare の実行時・静的検査 — 先送り（PRD101 §7）。再開条件は「眠った値に気づかずに Run を回した事故が実際に起きたとき」。今回の RND の件は「読まれない設定キー」で、眠る bare（読まれて効かない値）とは別だが、近い事故である。扱いは §8（範囲外のまま）。
-- [317](../wiki/categories/317_metrics.md)・[318](../wiki/categories/318_rl_core.md) の「変えるときの条件」の「WARN・fail-fast の文言と時機を変えない」（PRD094）は、読み口と配線の整理のときの条件である。本 PRD は WARN のレベルと時機を意図して変えるので、変える箇所を §5.5 に列挙する。
+  - 個別の葉と継承値の競合の WARN — 不採用（RFD0072）。本 RFD は競合を見ないので開き直さない。
+  - 旧キー（`use_qr`・`num_quantiles`）の tripwire — 不採用（RFD0001 の D14）。本 RFD は旧キー専用の検出を作らない（D6）。
+  - DQN 側で Noisy の有無を見て効かない倍率に WARN を出す形 — 不採用（RFD0107、ADR 0048）。本 RFD の一覧は「読まれたか」だけを見るので、読まれて効かない設定キーには出さず、開き直さない。
+  - 眠る bare の実行時・静的検査 — 先送り（RFD0101 §7）。再開条件は「眠った値に気づかずに Run を回した事故が実際に起きたとき」。今回の RND の件は「読まれない設定キー」で、眠る bare（読まれて効かない値）とは別だが、近い事故である。扱いは §8（範囲外のまま）。
+- [317](../wiki/categories/317_metrics.md)・[318](../wiki/categories/318_rl_core.md) の「変えるときの条件」の「WARN・fail-fast の文言と時機を変えない」（RFD0094）は、読み口と配線の整理のときの条件である。本 RFD は WARN のレベルと時機を意図して変えるので、変える箇所を §5.5 に列挙する。
 
 ### 2.6 再グリルで確かめた事実（2026-11-10）
 
-- PRD116 のコミット（66d3e411）で、`nn.txt` の `Conv2d_S` などの設定キーは `conv.*` の下に直った（[nn.txt](../../apps/runner/config/nn.txt) 151〜155 行）。同じ名前の block の `type` を 2 通りに書いた箇所と、プロファイルで block の `type` を上書きした行は、出荷設定に 0 件。
+- RFD0116 のコミット（66d3e411）で、`nn.txt` の `Conv2d_S` などの設定キーは `conv.*` の下に直った（[nn.txt](../../apps/runner/config/nn.txt) 151〜155 行）。同じ名前の block の `type` を 2 通りに書いた箇所と、プロファイルで block の `type` を上書きした行は、出荷設定に 0 件。
 - 出荷設定（`apps/runner/config/*.txt`）の代入の行は約 3,800 行で、うち `?=` は約 1,200 行。名前の違う block は 224 個（`nn.txt` だけで 43 個）。block の設定キーを読む処理は module を作る処理と一体で（[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp) 1784〜1799 行）、module の種類は 28。module は block の設定だけで作れ、最初の入力が来るまで重みを確保しない（[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) の `Conv2dModule` など）。
 - 出荷設定の `$include` は 167 行で、先の無いものは 0 件。無くてよいファイル（workspace の `history.txt`・`prefs.txt`）は、呼ぶ側が先に有無を確かめてから読む（[app_util.cpp](../../src/core/base/src/app_util.cpp) 445 行、[WorkspaceDialog.cpp](../../src/apps/runner/src/WorkspaceDialog.cpp) 227 行）。
 - checkpoint の読み込みは、内的報酬の有無が設定と合わないときと、skip の Network を持つ checkpoint を skip 無効で読むときは ERROR で止め、skip 有効の設定で skip の Network を持たない checkpoint を読むときは初期化して WARN を出す（[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) 406〜409・439〜441 行）。
-- PRD116 は、`intrinsic.learn_batch_size` が lane の数 N より大きいときに N 件へ縮めて WARN を 1 回出すと決めている（[212](../design/212_rnd_lifelong_novelty.jp.md) §3.5 の 262 行、379 行の表、[200](../design/200_dqn_agents.jp.md) 402 行）。既定は 32（[agent.txt](../../apps/runner/config/agent.txt) 14 行）。出荷設定で RND を使う Run の lane は 256（LunarLander・GridMaze）と 128・64（Atari）で、縮む構成は無い。縮めたときも、Run の設定の dump（`config/config_data.txt`）には 32 が残る。
+- RFD0116 は、`intrinsic.learn_batch_size` が lane の数 N より大きいときに N 件へ縮めて WARN を 1 回出すと決めている（[212](../design/212_rnd_lifelong_novelty.jp.md) §3.5 の 262 行、379 行の表、[200](../design/200_dqn_agents.jp.md) 402 行）。既定は 32（[agent.txt](../../apps/runner/config/agent.txt) 14 行）。出荷設定で RND を使う Run の lane は 256（LunarLander・GridMaze）と 128・64（Atari）で、縮む構成は無い。縮めたときも、Run の設定の dump（`config/config_data.txt`）には 32 が残る。
 - PER の抽選の代替の WARN（replay_buffer_impl.cpp の `PER Rejection Sampling failed to fill batch. Falling back to uniform.`）は、§2.1 の 616 本に 1 件も無い。試行の上限は batch の大きさの 10 倍で、回数の抑えは無い。
 - `GetScalar()` の契約は既にある。未知の鍵は値なし、既知の鍵で今は値が成立しないときは `NaN` を返し、Observer は値なしを未知の鍵として扱う（[140](../design/140_observability.jp.md) 238・316 行）。PER の鍵は、PER を無効にしても、既知の鍵として `NaN` を返す（[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) の `DefaultReplayBuffer::GetScalar`。コメントは「PER を切っただけで metrics 定義を書き換えずに済むよう、既知キーは PER 無効でも NaN を返す」とする。2026-08-27 から）。140 の 238 行も、0 や既定値へ読み替えない状態の例に「PER無効」を挙げる。[150](../design/150_replay_buffer.jp.md) §7.5 の 314 行（en は 315 行）は「uniform sampler では PER の鍵を値なしで表す」と書いていて、実装と食い違う。RND は、無効のとき鍵が無く値なしで（[212](../design/212_rnd_lifelong_novelty.jp.md) 442 行、[200](../design/200_dqn_agents.jp.md) §9.1 の 633 行。intrinsic_test.cpp 390 行が断定している）、140 の決まりから外れている。
 - `run.train.runner_type` は、`pipeline`（大文字小文字を無視）と一致するかだけを見て、ほかの文字列をすべて serial として扱う（[trainer.cpp](../../src/core/base/src/trainer.cpp) の `RunnerFactory::CreateMainRunner`。読み取りは 816 行）。WARN は出さない。出荷設定の値は `serial` が 2 か所、`pipeline` が 1 か所だけ。
@@ -126,8 +126,8 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 - `app.save_agent_on_close` の既定は true で（RunnerApp.cpp 66 行）、`GridMaze_muzero.txt` は上書きしていない。MuZero の試作の Agent は保存で常に 0 を返すので（muzero_proto_agent.hpp 184 行）、その既定の Run は閉じるたびに 0 byte の WARN を出す。Atari の `run.@evalonly`（[Atari.txt](../../apps/runner/config/Atari.txt) 541〜557 行）は `auto_load_file` を持たない。
 - 設定の値は `${完全なキー}` で別の設定キーを 1 段だけ参照できる（[100](../design/100_runtime_and_configuration.jp.md) §2.1 の手順 7）。
 - カタログの読み口には、定義した全部の項目を読むものと、参照された項目だけを読むものがある。Actor 設定は、全部の項目を構築時に型付きの設定へ変える（[default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp) 193〜195 行）。scalar・trace・画像の metrics の定義と、評価の定義・schedule も、定義した全部を読む（observers.cpp の `ObserverFactory`、image.cpp 697〜754 行）。参照された項目だけを読むのは、構造に現れた block、branch が使う config_profile、参照された NN 実行設定（default_dqn_agent.hpp 650 行）である。
-- 「葉」は、[CONTEXT.md](../../CONTEXT.md) の「既定葉」「個別葉」「葉キー」（PRD072）に始まる。現用の範囲（[実装 品質確認観点](../quality/impl.md) の項番 71 が定める範囲と、規約・品質確認観点・プロセス・skill）の、Git が追跡しているファイルの 52 ファイル 151 行に出る（2026-11-11 の `git grep`。うち 2 行は「言葉」）。「既定葉」が 60 か所、「個別葉」が 20 か所、「葉キー」が 1 か所で、ほかに「葉値」「確定葉」、数え方の「6葉」などがある。用語集では、`=` で書く側の正式な語は「個別指定」で、「個別葉」はその括弧書きの別名である。
-- 課題と PRD の結び付けは課題の `prd` 欄で表す（PRD120、[ADR 0069](../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md)）。
+- 「葉」は、[CONTEXT.md](../../CONTEXT.md) の「既定葉」「個別葉」「葉キー」（RFD0072）に始まる。現用の範囲（[実装 品質確認観点](../quality/impl.md) の項番 71 が定める範囲と、規約・品質確認観点・プロセス・skill）の、Git が追跡しているファイルの 52 ファイル 151 行に出る（2026-11-11 の `git grep`。うち 2 行は「言葉」）。「既定葉」が 60 か所、「個別葉」が 20 か所、「葉キー」が 1 か所で、ほかに「葉値」「確定葉」、数え方の「6葉」などがある。用語集では、`=` で書く側の正式な語は「個別指定」で、「個別葉」はその括弧書きの別名である。
+- 課題と RFD の結び付けは課題の `rfd` 欄で表す（RFD0120、[ADR 0069](../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md)）。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -137,17 +137,17 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 - G2: 普通の Run（D2）で WARN が 0 件になる。Logs の印が付けば、確かめるべきことがあると読めるようにする。
 - G3: 書いた設定が読まれないことを検出する。実体化したカタログ項目の読まれない設定キーは構築時に止め、それ以外の読まれない設定キーは Run の構築の終わりに WARN で一覧する。NoCare をやめる。
 - G4: 出るべきなのに出ていない失敗を正す。未知の値と明示した入力の不在を、WARN で流さずに止める。黙って別の値として扱っている `run.train.runner_type` の未知の値も止める。
-- G5: 本 PRD を指す課題 6 件（§5.10）が片付く。
+- G5: 本 RFD を指す課題 6 件（§5.10）が片付く。
 - G6: 設定の用語から、日本語として通じない直訳の「葉」をなくす。
 
 ### 3.2 非ゴール
 
 | 退けた案・範囲 | 理由 |
 |---|---|
-| ログ基盤の作り替え（structured・JSON logging、thread-local の文脈） | 別の関心（[PRD038](done/0038_env_log_auto_prefix_10rfd.md) が範囲外とした）。WARN の意味と検出は今の基盤で表せる。本当の制約ではなく、別 PRD で選べる |
-| Logs pane・toolbar の表示の変更 | 既にある表示（160 §3.5）に意味を持たせるのが本 PRD である。表示を変える必要は見つかっていない。本当の制約ではなく、必要が出たら別 PRD で変えられる |
+| ログ基盤の作り替え（structured・JSON logging、thread-local の文脈） | 別の関心（[RFD0038](done/0038_env_log_auto_prefix_10rfd.md) が範囲外とした）。WARN の意味と検出は今の基盤で表せる。本当の制約ではなく、別 RFD で選べる |
+| Logs pane・toolbar の表示の変更 | 既にある表示（160 §3.5）に意味を持たせるのが本 RFD である。表示を変える必要は見つかっていない。本当の制約ではなく、必要が出たら別 RFD で変えられる |
 | 設定の値が指す名前の検証（`stack_keys` の名前、[issue-20261103-b754ff](../management/issues/issue-20261103-b754ff.md)） | 別の関心。値の参照先の検証で、設定キーが読まれたかとは別の仕組みになる。本当の制約ではなく、その issue で扱える |
-| WARN と ERROR の間に新しいレベルを足す | レベルを増やすと G1 の線引きがぼやける。必要が出たら別 PRD で選べる（本当の制約ではない） |
+| WARN と ERROR の間に新しいレベルを足す | レベルを増やすと G1 の線引きがぼやける。必要が出たら別 RFD で選べる（本当の制約ではない） |
 | 過去の Run のログの読み替え | 本当の制約である。クリーンブレーク方針（過去の Run artifact は当時の記録として残し、読み替えのコードを足さない） |
 | ERROR を出して続けている箇所のうち、設定の読み込みと metrics の定義以外（trainer.cpp 1020・1042 行、DropMergeEnv.cpp 900 行） | 別の関心。設定の失敗の扱いに範囲を限る。本当の制約ではなく、[issue-20261107-16ffd8](../management/issues/issue-20261107-16ffd8.md) で扱う |
 | 黙って通している未知の値の洗い出し（`run.train.runner_type` のほか） | 別の関心。WARN を出していない箇所は §2.3 の棚卸しに入っておらず、洗い出しは監査の仕事である。本当の制約ではなく、見つかった件ごとに課題で扱える |
@@ -162,7 +162,7 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 ### 3.4 用語
 
-本 PRD は次の 3 つの語を使う。「読まれない設定キー」と「在庫」は、[CONTEXT.md](../../CONTEXT.md) に足した。「既定キー」は、実装のときに用語集の「既定葉」を改める（D14）。
+本 RFD は次の 3 つの語を使う。「読まれない設定キー」と「在庫」は、[CONTEXT.md](../../CONTEXT.md) に足した。「既定キー」は、実装のときに用語集の「既定葉」を改める（D14）。
 
 - **読まれない設定キー**: Run の実効設定に残った設定キーのうち、どの読み口も読まなかったもの。「未知キー」（AGENTS.md の語）は現行契約に無いキーを指すが、契約にあるキーでも持ち主が作られなければ読まれないので、別の語にする。設定キーは、設定の階層の末端にある `key = value` の 1 つを指す。起票時は「読まれない葉」と呼んでいたが、「葉」は leaf の直訳で日本語として通じにくいので、2026-11-11 に改めた（D14）。
 - **既定キー**: `?=` で書く既定値の設定キー。今の用語集の語（「既定葉」）を改める（D14）。
@@ -184,7 +184,7 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 ## 4. 確定事項
 
-2026-11-10 のグリルで決めた（D12 の、設定で無効にした機能の扱いと、D14 は、2026-11-11 に決めた）。決定と、起票時の未決表の行との対応は §9.1 にある。本 PRD は新しい設定キーを足さない。
+2026-11-10 のグリルで決めた（D12 の、設定で無効にした機能の扱いと、D14 は、2026-11-11 に決めた）。決定と、起票時の未決表の行との対応は §9.1 にある。本 RFD は新しい設定キーを足さない。
 
 ### D1. ログのレベルの線引き
 
@@ -200,8 +200,8 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 - 1 の (a) は、休止したこと、または休止した機能への参照を飛ばしたことだけを知らせる通知に当たる。休止に加えて別の条件（読み込む checkpoint が無い、など）を知らせる通知は、その条件で 2 か 3 に当てる。
 - 「Run の構築」は、設定の読み込み・部品の構築・checkpoint の読み込みを指し、最初の step の前に終わる。
 - 「Run の入力」は Run の結果に効く入力（設定、データセット、checkpoint、ROM）を指す。workspace の履歴のような補助のファイルは含めない。
-- 2 の (a) の「判定する」は、今構築時に判定しているものと、本 PRD が構築時の判定へ移すもの（D7・D11、§5.5 の「ERROR へ」の行）を指す。判定する作りが無いもの（終了時の保存で Agent が Save を持たないことなど）は、構築のあとに起きる 3 の (f) に当たる。
-- 2 の (b) は、今 ERROR で止めている検査に限る。本 PRD は実行時の検査の ERROR を足しも減らしもしない。
+- 2 の (a) の「判定する」は、今構築時に判定しているものと、本 RFD が構築時の判定へ移すもの（D7・D11、§5.5 の「ERROR へ」の行）を指す。判定する作りが無いもの（終了時の保存で Agent が Save を持たないことなど）は、構築のあとに起きる 3 の (f) に当たる。
+- 2 の (b) は、今 ERROR で止めている検査に限る。本 RFD は実行時の検査の ERROR を足しも減らしもしない。
 - 1 の (d) と 3 の (b)・(c) の境目は、「書いた値を捨てるか、ほかの設定の効き目を弱めるか」である。
 - 「対象ごとに 1 回」の対象と数え方は §5.1 による。
 - 在庫（D4）の 1〜3 に当たる定義が使われなかったことは、どのレベルでもログに出さない。D4 の 4 の休止の宣言は、持ち主が 1 の (a) の INFO で出す。
@@ -214,15 +214,15 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 理由: Logs の未確認の警告は WARN 以上を数える（§2.2）ので、WARN を「手を打つべき状態」に限れば印に意味が出る（G1・G2）。1 を先に当てるのは、列挙した (a)〜(d) は利用者の選択どおりに起きたことで、手を打つことが無いため。2 の (a) を構築時に限るのは、[AGENTS.md](../../AGENTS.md) の「起動時・構築時に検証できるものを実行時まで潜伏させない」（197 行）を守りつつ、構築のあとの出力の側の異常で長い Run を落とさないため。3 の (e) を WARN にするのは、意図した移行か checkpoint の取り違えかを部品が見分けられず、取り違えると学習していない Network で評価した結果が黙って出るため（D10）。3 の (g) を名指しするのは、抽選の分布が変わるので (f) の「値を変えない異常」に入らないため（D9）。4 を INFO にするのは、行に当たらない状態を WARN にすると、WARN の意味がまた広がるため。依存: なし。
 
-今の規約との差: [AGENTS.md](../../AGENTS.md) の Fail-Fast の表（190 行）は「契約違反の内部状態」と「壊れた入力データ」を一律に fail-fast とするが、今の作りは、構築のあとの GUI の配置の修復（PRD110）や描画の打ち切りを WARN で続け、workspace の履歴の壊れも WARN で続けている（§2.3 の D 区分の 18 行）。D1 はこの作りを 2 と 3 の境目として書き、表の 190 行をこの条件へ改める（§5.8）。表の 191 行（意図された休止）は 1 の INFO へ改める。
+今の規約との差: [AGENTS.md](../../AGENTS.md) の Fail-Fast の表（190 行）は「契約違反の内部状態」と「壊れた入力データ」を一律に fail-fast とするが、今の作りは、構築のあとの GUI の配置の修復（RFD0110）や描画の打ち切りを WARN で続け、workspace の履歴の壊れも WARN で続けている（§2.3 の D 区分の 18 行）。D1 はこの作りを 2 と 3 の境目として書き、表の 190 行をこの条件へ改める（§5.8）。表の 191 行（意図された休止）は 1 の INFO へ改める。
 
 ### D2. 普通の Run の WARN を 0 件に保つ
 
 - 「普通の Run」は、意図どおりに組んだ構成の Run を指す。受入では §7 の A2 の Run（出荷設定の各 Env の既定の `run.$`、番号付き bat の Run の組み合わせ、Atari の `run.@evalonly`）で確かめる。
-- A2 の Run で WARN が 0 件であることを、本 PRD の受入にする。
+- A2 の Run で WARN が 0 件であることを、本 RFD の受入にする。
 - あとの実装が WARN・INFO を足す・変えるときの確かめを、[実装 品質確認観点](../quality/impl.md) の「失敗の扱い」に 1 項目足す。足した・変えた WARN と INFO が D1 のどの行に当たるかを示し、WARN は、意図どおりに組んだ構成の Run（関係する Env の既定の Run 1 本）で出ないことを確かめる。
 
-理由: 普通の Run で 1 件でも出れば、印が常に付き、D1 の線引きが効かない（G2）。項目を実装の観点に置くのは、WARN の多くが PRD ではなく実装の中で足されるため。依存: D1。
+理由: 普通の Run で 1 件でも出れば、印が常に付き、D1 の線引きが効かない（G2）。項目を実装の観点に置くのは、WARN の多くが RFD ではなく実装の中で足されるため。依存: D1。
 
 ### D3. 読まれない設定キーを 2 つの仕組みで検出する
 
@@ -231,7 +231,7 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 場面ごとの挙動（block の例）:
 
-| 場面 | 起票時 | 本 PRD |
+| 場面 | 起票時 | 本 RFD |
 |---|---|---|
 | block を定義したが、どの structure にも出てこない | 何も出ない | 何も出ない（在庫） |
 | block を使い、書いた設定キーをその種類の module が全部読む | 何も出ない | 何も出ない |
@@ -259,7 +259,7 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 既定キー `?=` で残った設定キーも、`=` や CLI の設定キーと同じに一覧の対象に含める（在庫にしない）。
 
-理由: 1・2 は PRD059 が「機械識別できる非実効行」とした種類で、解決とカタログの読み口が既に知っている。1 を選ばれた宣言だけに限らないのは、選ばれなかった側の設定キーも実効設定に残るためである（§2.6）。どの宣言にも現れない prefix に設定キーを書いたまま選び忘れた場合は、一覧に出る。名前の形（文字＋番号）では判定しない（PRD072 が上書き層の予約名による判定を不採用にしたのに合わせる。[316](../wiki/categories/316_config.md) の選ばなかった形）。2 の除外は、今も branch が使わない config_profile に WARN を出している（nn_impl.cpp 1838 行）のに合わせる。3 は Agent・Env の登録が知っている。4 はモードで使わない設定キーの持ち主だけが知っている。`?=` を含めるのは、綴り違いの `mergin_x` が `?=` で書かれており（§2.4）、外すと共通の設定の綴り違いと旧キーが黙って残るため。また、`?=` の情報は解決のあと捨てているので（§2.4）、含めないほうが配線が増える。普通の Run での誤検出は D2 の受入で 0 件にする（持ち主が読む、休止を宣言する、設定を直す）。依存: D3、D5。
+理由: 1・2 は RFD0059 が「機械識別できる非実効行」とした種類で、解決とカタログの読み口が既に知っている。1 を選ばれた宣言だけに限らないのは、選ばれなかった側の設定キーも実効設定に残るためである（§2.6）。どの宣言にも現れない prefix に設定キーを書いたまま選び忘れた場合は、一覧に出る。名前の形（文字＋番号）では判定しない（RFD0072 が上書き層の予約名による判定を不採用にしたのに合わせる。[316](../wiki/categories/316_config.md) の選ばなかった形）。2 の除外は、今も branch が使わない config_profile に WARN を出している（nn_impl.cpp 1838 行）のに合わせる。3 は Agent・Env の登録が知っている。4 はモードで使わない設定キーの持ち主だけが知っている。`?=` を含めるのは、綴り違いの `mergin_x` が `?=` で書かれており（§2.4）、外すと共通の設定の綴り違いと旧キーが黙って残るため。また、`?=` の情報は解決のあと捨てているので（§2.4）、含めないほうが配線が増える。普通の Run での誤検出は D2 の受入で 0 件にする（持ち主が読む、休止を宣言する、設定を直す）。依存: D3、D5。
 
 ### D5. 持ち主は自分の設定キーを構築時に読むか、休止を宣言する
 
@@ -275,7 +275,7 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 理由: 方針の「現在の汎用機構が未知識別子を検出できる場合は通常の未知識別子として扱う」（85 行）に、D3 の汎用の検出が当たる。旧キーだけを特別に扱わないので、クリーンブレーク方針と両立する（G3）。依存: D3。
 
-既存の判断との食い違い: [ADR 0027](../adr/0027-eval-definition-schedule-separation.md) の「旧位置キーの検出は NoCare」は、D3 の検出で変わる。評価の定義の中に残った旧位置のキー（`run.eval.[<tag>].interval` など）は、実体化した項目の読まれない設定キーとして構築時に止まり（D3(a)）、ほかの場所に残った旧キーは一覧に出る（D3(b)）。旧位置キー専用の検出を作らない判断は残る。PRD001 の D14（旧キーの tripwire を作らない。§2.5）も、専用の検出を作らない点は残り、旧キーが汎用の検出で見つかる点だけが変わる。ADR 0027 の先頭の注記に書き、判断は [ADR 0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) に書く。
+既存の判断との食い違い: [ADR 0027](../adr/0027-eval-definition-schedule-separation.md) の「旧位置キーの検出は NoCare」は、D3 の検出で変わる。評価の定義の中に残った旧位置のキー（`run.eval.[<tag>].interval` など）は、実体化した項目の読まれない設定キーとして構築時に止まり（D3(a)）、ほかの場所に残った旧キーは一覧に出る（D3(b)）。旧位置キー専用の検出を作らない判断は残る。RFD0001 の D14（旧キーの tripwire を作らない。§2.5）も、専用の検出を作らない点は残り、旧キーが汎用の検出で見つかる点だけが変わる。ADR 0027 の先頭の注記に書き、判断は [ADR 0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) に書く。
 
 ### D7. 明示した入力の不在と、未知の値を止める
 
@@ -296,13 +296,13 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 理由: どれも利用者が意図して組んだ状態で、D1 の 1 の (a) に当たる（G2・G5）。2 つの止め方を分けないのは、[ADR 0027](../adr/0027-eval-definition-schedule-separation.md) が `interval = 0` を schedule のエントリが無いのと同じ挙動と決めており、分けると休止の出どころを運ぶ分岐が増えるため。分けると、定義だけの tag を意図して置く使い方（EvalPanel 用の tag）でも WARN が出てしまう。`learn_batch_size` の検査は、補助学習が休止していれば意味を持たない。依存: D1、D11。
 
-既存の判断との食い違い: dormant の skip を INFO にするのは、ADR 0027 の Consequences の「metrics の dormant タグ参照 WARN」の行と、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) の「scalar は現行どおり dormant タグでは WARN して捨てる」の行のレベルの部分を改める（skip する振る舞いと文言は残る）。PRD052 の D9 と PRD081 の 92 行が定めたレベルも置き換わる（両 PRD の本文は当時の記録として書き換えない）。両 ADR の先頭へ注記し、判断は [ADR 0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) に書く。
+既存の判断との食い違い: dormant の skip を INFO にするのは、ADR 0027 の Consequences の「metrics の dormant タグ参照 WARN」の行と、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) の「scalar は現行どおり dormant タグでは WARN して捨てる」の行のレベルの部分を改める（skip する振る舞いと文言は残る）。RFD0052 の D9 と RFD0081 の 92 行が定めたレベルも置き換わる（両 RFD の本文は当時の記録として書き換えない）。両 ADR の先頭へ注記し、判断は [ADR 0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) に書く。
 
 ### D9. 既存の WARN の扱い
 
 §5.5 の表のとおり、各行を D1 の線引きで「WARN のまま」「INFO へ」「ERROR へ」「消す」「1 回にする」のどれかへ移す。PER の rejection sampling が埋まらないときに残りを一様に引く代替（replay_buffer_impl.cpp 1213 行）は残し、WARN を Run ごとに 1 回にする。
 
-理由: G1・G2・G4。表の行ごとの理由は表に書く。PER の代替を残すのは、§2.1 の 616 本で 1 度も起きていない保険で、起きる条件が分からないまま止める処理に変えると、正当な極初期の状況で Run を落とす恐れがあるため。実行時の検査の ERROR を足さない（D1 の 2 の (b)）こととも合う。代替そのものの是非は本 PRD の範囲外とする（§9 の 20）。依存: D1、D7、D8、D10、D11。
+理由: G1・G2・G4。表の行ごとの理由は表に書く。PER の代替を残すのは、§2.1 の 616 本で 1 度も起きていない保険で、起きる条件が分からないまま止める処理に変えると、正当な極初期の状況で Run を落とす恐れがあるため。実行時の検査の ERROR を足さない（D1 の 2 の (b)）こととも合う。代替そのものの是非は本 RFD の範囲外とする（§9 の 20）。依存: D1、D7、D8、D10、D11。
 
 ### D10. checkpoint の読み込みの通知
 
@@ -315,22 +315,22 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 ### D11. `intrinsic.learn_batch_size` が lane の数より大きい構成は止める
 
-RND の補助学習が動く Run（learner が有効）で、`DefaultDQNAgent.intrinsic.learn_batch_size` が `run.train.num_envs` より大きいときは、構築時に `ANET_SYSTEM_ERROR` で止める（キー、値、lane の数を示す）。1 step の件数は常に `learn_batch_size` とし、PRD116 の D7 が定めた「lane の数に縮める」（k = min(`learn_batch_size`, N)）をやめる。learner が無効の Run では検査しない（D8）。
+RND の補助学習が動く Run（learner が有効）で、`DefaultDQNAgent.intrinsic.learn_batch_size` が `run.train.num_envs` より大きいときは、構築時に `ANET_SYSTEM_ERROR` で止める（キー、値、lane の数を示す）。1 step の件数は常に `learn_batch_size` とし、RFD0116 の D7 が定めた「lane の数に縮める」（k = min(`learn_batch_size`, N)）をやめる。learner が無効の Run では検査しない（D8）。
 
 理由: Run の設定は dump（`config/config_data.txt`）を真実として読むので、dump の値（32）と実際の件数（N）が食い違う経路を残さない。[AGENTS.md](../../AGENTS.md) の「指定値を勝手に丸めない」（207 行）と「範囲外を clamp しない」（212 行）にも合う。出荷設定で RND を使う Run の lane は 64 以上で、影響を受けるのは lane を 32 未満に落として RND を試すときだけである（引数で `learn_batch_size` を明示する）。依存: D1、D8。
 
-既存の決定との関係: PRD116 の D7・§5 の表（285・369 行）が定めた縮小と WARN を置き換える。PRD116 の本文は当時の記録として書き換えず、設計文書 212・200 を直す（§5.8）。
+既存の決定との関係: RFD0116 の D7・§5 の表（285・369 行）が定めた縮小と WARN を置き換える。RFD0116 の本文は当時の記録として書き換えず、設計文書 212・200 を直す（§5.8）。
 
 ### D12. 休止した機能の値は、鍵を保って NaN で返す
 
 - 宣言した scalar の値が取れないときの Observer の WARN（`value not found`、observers.cpp 1115 行）は、tag ごとに 1 回にして残す（D1 の 3 の (f)）。
 - 休止を持つ部品は、休止中も、宣言した値の鍵を消さずに `NaN` を返す。`GetScalar()` の今の契約（未知の鍵は値なし、既知の鍵で値が成立しないときは `NaN`。§2.6）を、休止にも当てる。
-- 機能そのものを設定で無効にして、部品を作らない場合も同じに、その機能の値の鍵を既知の鍵として `NaN` を返す。140 の決まり（238 行）のとおりで、PER は既にそうなっている（§2.6）。今この決まりから外れているのは RND で（`DefaultDQNAgent.intrinsic.enabled = false` のとき鍵が無い）、本 PRD で直す。[212](../design/212_rnd_lifelong_novelty.jp.md) と [200](../design/200_dqn_agents.jp.md) が「RND が無効なら鍵は値なし」としているのを改める。
+- 機能そのものを設定で無効にして、部品を作らない場合も同じに、その機能の値の鍵を既知の鍵として `NaN` を返す。140 の決まり（238 行）のとおりで、PER は既にそうなっている（§2.6）。今この決まりから外れているのは RND で（`DefaultDQNAgent.intrinsic.enabled = false` のとき鍵が無い）、本 RFD で直す。[212](../design/212_rnd_lifelong_novelty.jp.md) と [200](../design/200_dqn_agents.jp.md) が「RND が無効なら鍵は値なし」としているのを改める。
 - ほかに外れている機能が A2 の Run で見つかったら（無効にした機能の鍵の `value not found` の WARN として現れる）、同じに直す。150 の 314 行の古い記述は、実装に合わせて直す（§5.8）。
 
 理由: Observer は値が取れない原因を知らないので、休止が原因のときと、鍵の綴りを誤ったときが同じ WARN になる。休止は出す側が知っているので、出す側が「休止中で値が無い」と分かる形で返せば、Observer の WARN は本物の誤り（鍵の綴り違い、出す側の不具合）だけに残る（G1）。値が取れないことを INFO にする形は、本物の誤りを INFO に埋めるので採らない。RND を無効にした場合も同じにするのは、RND を使う構成のまま引数で RND だけを切った対照の Run（`run.@rnd` を付けて `intrinsic.enabled=false`）で、宣言した scalar の tag ごとに WARN が出るのを避けるためである。dormant の tag を参照する scalar を INFO で飛ばす（D8）のと同じ考え方で、PER の実装のコメントも同じ理由を書いている（PER を切っただけで metrics の定義を書き換えずに済むように）。未知の鍵は値なしのままなので、綴り違いの検出は変わらない。依存: D1。
 
-既存の決定との関係: PRD116 が定めた「RND 無効時のキーは値なし」（212 の 442 行、200 の 633 行）を置き換える。PRD116 の本文は当時の記録として書き換えず、設計文書 212・200 を直す（§5.8）。
+既存の決定との関係: RFD0116 が定めた「RND 無効時のキーは値なし」（212 の 442 行、200 の 633 行）を置き換える。RFD0116 の本文は当時の記録として書き換えず、設計文書 212・200 を直す（§5.8）。
 
 ### D13. 使わない定義の誤りは、出荷設定の検査のテストで見る
 
@@ -352,13 +352,13 @@ RND の補助学習が動く Run（learner が有効）で、`DefaultDQNAgent.in
 | 数え方の「N 葉」 | N 件 |
 
 - 直すのは現用の範囲である。[実装 品質確認観点](../quality/impl.md) の項番 71 が定める範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki の実装の地図）に、規約・品質確認観点・プロセス・skill（`AGENTS.md`、`docs/quality/`、`docs/process/`、`.claude/skills/`、`.agents/skills/`）を足したもの。
-- 過去の記録（`docs/memo/` のほかの PRD と実装計画、`docs/experiments/`、`docs/adr/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し）は直さない。課題の題と本文も直さない（wiki の地図の「課題」の区画は、課題の題から道具が作る）。
+- 過去の記録（`docs/memo/` のほかの RFD と実装計画、`docs/experiments/`、`docs/adr/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し）は直さない。課題の題と本文も直さない（wiki の地図の「課題」の区画は、課題の題から道具が作る）。
 - `core/anet-core/testdata/` は、README・スクリプト・検証の記録を直す。Git が無視するファイル（Run の設定の写しなど）は直さない。
 - 英語の名前（`check_default_leaves.py`、コードの識別子、英語のログ）は変えない。
 - [AGENTS.md](../../AGENTS.md) の応答言語ルールの「避ける語」の表に、「既定葉」「個別葉」「葉キー」を検索する行として足す。単独の「葉」は「言葉」と紛れるので、検索しない行として足す。
 - 設定のキーと値、振る舞いは変えない。
 
-理由: 「葉」は英語の leaf の直訳で、日本語では階層の末端の意味を持たず、読んで意味が取れない（G6）。「設定キー」は規約と用語集が既に使っている語で、新しい語を増やさない。「既定キー」は「設定キー」に寄せた短い語である。本 PRD に入れるのは、本 PRD の実装が同じ文書（AGENTS.md、品質確認観点、CONTEXT.md、020、100、212）を直すので、まとめて済むためである。依存: なし。
+理由: 「葉」は英語の leaf の直訳で、日本語では階層の末端の意味を持たず、読んで意味が取れない（G6）。「設定キー」は規約と用語集が既に使っている語で、新しい語を増やさない。「既定キー」は「設定キー」に寄せた短い語である。本 RFD に入れるのは、本 RFD の実装が同じ文書（AGENTS.md、品質確認観点、CONTEXT.md、020、100、212）を直すので、まとめて済むためである。依存: なし。
 
 ## 5. 実装契約
 
@@ -371,7 +371,7 @@ RND の補助学習が動く Run（learner が有効）で、`DefaultDQNAgent.in
   - 同じ通知かどうかは、通知を出すソースの箇所（呼ぶ側が書かなくても決まる）と、呼ぶ側が任意で渡す対象の名前の組で決める。対象の名前を渡さない箇所は、箇所ごとに 1 回になる。対象ごと（tag ごと、キーごと）に出す箇所は、対象の名前を渡す。
   - 出した記録は、Run を作る側が、Run を作り始めるとき（部品を作る前）に空にする。
   - WARN と INFO の両方で使える。複数のスレッドから呼べる。
-  - §5.5 で「1 回」とした行と、本 PRD が足す通知は、この部品を使う。§2.2 に挙げた個別のフラグと集合も、この部品に置き換える。
+  - §5.5 で「1 回」とした行と、本 RFD が足す通知は、この部品を使う。§2.2 に挙げた個別のフラグと集合も、この部品に置き換える。
 - 休止の宣言の INFO は、持ち主の prefix と、休止の理由になった設定のキーと値を含める。
 - 足す・変える通知の文面は英語で書く（[実装 品質確認観点](../quality/impl.md) の「ログ」）。
 - ログのレベルの名前、Run のログの `[W]`・`[I]` の書式、Logs pane の数え方は変えない。
@@ -422,13 +422,13 @@ RND の補助学習が動く Run（learner が有効）で、`DefaultDQNAgent.in
 | RunnerApp.cpp 407 | Last workspace is unavailable; falling back to _default. | C | 残す | 3 の (d) | 自動の選択の代替 |
 | RunnerApp.cpp 131〜145・414 | Config key app.metrics_logger.runs_dir／root_dir is deprecated and ignored. | E | 消す | 通知を消す（旧キーは 3 の (a) の一覧に出る） | D6 |
 | RunnerApp.cpp 732 | Agent save produced zero bytes; … | D | 残す | 3 の (f) | 終了時の保存が 0 byte で、止めずに続ける。MuZero の試作の Agent は Save で 0 を返す（[muzero_proto_agent.hpp](../../src/algo/muzero/src/muzero_proto_agent.hpp) 184 行）ので、`GridMaze_muzero.txt` は終了時の保存を切る（§5.8） |
-| RunnerFrame.cpp 1029・1036 | No main pane occupies the centre. … / Both main panes occupy the centre. … | D | 残す・1 回 | 3 の (f) | 想定外の経路を GUI の配置の修復で正しい状態へ戻し、Run の結果は変わらない（PRD110）。修復のたびに出ている |
+| RunnerFrame.cpp 1029・1036 | No main pane occupies the centre. … / Both main panes occupy the centre. … | D | 残す・1 回 | 3 の (f) | 想定外の経路を GUI の配置の修復で正しい状態へ戻し、Run の結果は変わらない（RFD0110）。修復のたびに出ている |
 | default_dqn_agent.hpp 234 | use_optimistic_target=true copies … without optimism | B | 残す | 3 の (c) | 効き目が無くなる組み合わせ |
 | default_dqn_agent.hpp 381 | learner.use_tbo … double-compressed | B | 残す | 3 の (c) | 同上 |
 | default_dqn_agent.hpp 484 | learner.enabled=false without auto_load_file; … | B | 残す | 3 の (c) | 書き忘れの可能性（休止だけを知らせる通知ではない） |
 | default_dqn_agent.hpp 542 | … skip.max_length active_range=… is unused with max_length_mode=… | A | 残す | 3 の (b) | 書いた値が今のモードで効かない |
 | default_dqn_agent.hpp 557 | … skip.nn_forward_key=… is unused with skip.nn_forward_mode=shared | A | 残す | 3 の (b) | 同上 |
-| default_dqn_agent.hpp 590 | learner.skip.feature_gradient=stop with target_window=…: skip loss gradients do not reach shared features | B | INFO へ | 1 の (d) | `stop` は選べるモードで、文言はその定義の説明（PRD104 の STOP の Run で毎回出る） |
+| default_dqn_agent.hpp 590 | learner.skip.feature_gradient=stop with target_window=…: skip loss gradients do not reach shared features | B | INFO へ | 1 の (d) | `stop` は選べるモードで、文言はその定義の説明（RFD0104 の STOP の Run で毎回出る） |
 | default_dqn_agent.cpp 110 | intrinsic.learn_batch_size=N exceeds num_envs=M; … | C | ERROR へ（補助学習が動くときだけ検査する） | 2 の (a) | D11。縮める処理を消す |
 | default_dqn_agent.cpp 119 | intrinsic.enabled=true with learner.enabled=false: … suspended | A | INFO へ | 1 の (a) | D8 |
 | default_dqn_agent.cpp 440 | Checkpoint has no skip networks; … initialized skip networks … | D | 残す | 3 の (e) | D10 |
@@ -509,7 +509,7 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 | [020](../design/020_user_guide_run.jp.md) §3.4.9（260 行「見つからない場合はWARNを出して続行する」）・379 行の表・§3.6・§6.4（519 行「checkpointと違う値はログにWARNが出る」） | include の失敗は止まる。読まれない設定キーの一覧の見方。optimizer の差は INFO |
 | [220](../design/220_atari_env.jp.md) §4.2（167 行、68・143 行の表）・[040](../design/040_development_environment.jp.md) §3.6（185 行） | WARN を Run ごとに 1 回にするだけなら変えない。§9 の 9 で併用を止める形になったら追随させる |
 | 上の設計文書の `.en.md`（100・130・140・200・212・020。220・040 は §9 の 9 による） | 同じ章を追随させる。D12 の RND の鍵は、200 の en の 635 行（Disabled keys return nullopt）と、212 の en の 406 行 |
-| ADR 0027・0047・0053 | 先頭へ注記する（本文は書き換えない）。判断は ADR 0071 に書く。本 PRD の改訂で済ませる |
+| ADR 0027・0047・0053 | 先頭へ注記する（本文は書き換えない）。判断は ADR 0071 に書く。本 RFD の改訂で済ませる |
 | [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp) 1056 行 | dormant のレベルの断定を INFO へ |
 | [intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp) 1259・1315 行 | `exceeds num_envs` の断定を、learner が有効なら ERROR、無効なら検査なし、へ |
 | intrinsic_test.cpp の補助 `IntrinsicAgentData`（112〜131 行）と `MakeIntrinsicAgent`（132 行。既定の lane は 2） | 補助は `learn_batch_size` を設定しないので、コードの既定の 32（default_dqn_agent.hpp 88 行）が lane の数を超え、learner が有効なテストが D11 で構築時に止まる。当たるのは、`MakeIntrinsicAgent` の呼び出し 15 か所のうち、`learn_batch_size` を明示する 326・1134・1170・1259 行のテストと、RND を無効にした Agent を作る 389 行のテストを除くもの。補助が `learn_batch_size` を lane の数以下に設定するように直す |
@@ -520,8 +520,8 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 | WARN のレベルを断定するテスト（[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp) 24 か所、[config_test.cpp](../../src/core/base/src/config_test.cpp) 3、[nn_test.cpp](../../src/core/base/src/nn_test.cpp) 2、trainer_test.cpp 4、[GridMazeEnv_test.cpp](../../src/env/gridmaze/src/GridMazeEnv_test.cpp) 1 の `wxLOG_Warning`） | §5.5 の扱いに合わせて見直す（`optimizer option differs` は INFO へ、`no primary_skip optimizer role` は WARN のまま）。新しく止まる設定を入力に使うテストは、この表の intrinsic_test.cpp と config_test.cpp の行に挙げた。未知の `runner_type` と未知の属性を入力に使うテストは、2026-11-10 の検索では無かった（実装計画で引き直す）。`wxLOG_Warning` を持つ `LogPanel_test.cpp`（7 か所）と `log_test.cpp`（1 か所）は、Logs pane とログ基盤自身のテストで対象外 |
 | 出荷設定（`apps/runner/config/*.txt`、番号付き bat） | A2 の一覧に出た設定キーを直す（綴り違い・旧キー・持ち主のない設定キー）。綴り違いの `mergin_x`（66100f。common.txt 75・76 行、metrics_image.txt 96・97 行）を含む。`GridMaze_muzero.txt` に `app.save_agent_on_close = false` を足す（保存に対応していない Agent に、終了時の保存を求めているため）。新しく止まる書き方（metrics の定義の未知の属性など）が見つかれば直す |
 | [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp) | 出荷設定の検査のテスト（D13、A9）を足す |
-| [check_default_leaves.py](../../src/core/base/testdata/rfd0072/check_default_leaves.py) | 変えない（演算子の検査で、本 PRD の検出とは別） |
-| `core/anet-core/testdata/prd117/README.md`（新規） | A2 の Run の組み合わせ、止める条件、WARN を数える手順 |
+| [check_default_leaves.py](../../src/core/base/testdata/rfd0072/check_default_leaves.py) | 変えない（演算子の検査で、本 RFD の検出とは別） |
+| `core/anet-core/testdata/rfd0117/README.md`（新規） | A2 の Run の組み合わせ、止める条件、WARN を数える手順 |
 | 設定の用語の「葉」を使う、現用の文書・コード・設定（D14。2026-11-11 の検索で 52 ファイル 151 行） | D14 の表のとおり言い換える。多いのは、[020](../design/020_user_guide_run.jp.md)（jp 35 行、en 5 行）、[100](../design/100_runtime_and_configuration.jp.md)（8 行）、wiki の [316](../wiki/categories/316_config.md)（6 行。ほかに課題の区画の 1 行があり、これは除く）、[CONTEXT.md](../../CONTEXT.md)（6 行）、[実装 品質確認観点](../quality/impl.md)（5 行）、[212](../design/212_rnd_lifelong_novelty.jp.md)（5 行）、config_impl.cpp（4 行）、`core/anet-core/testdata/` の README とスクリプト、`apps/runner/config/` のコメント。設定のキーと値は変えない |
 | [AGENTS.md](../../AGENTS.md) の応答言語ルールの「避ける語」の表 | 「既定葉」「個別葉」「葉キー」の行と、単独の「葉」の行を足す（D14） |
 | wiki の [316](../wiki/categories/316_config.md)・[315](../wiki/categories/315_nn.md)・[317](../wiki/categories/317_metrics.md) | 実装の完了後に点検で拾う |
@@ -533,11 +533,11 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 - 規約・用語集・設計文書（jp）・品質確認観点・プロセス・skill（`AGENTS.md`、`CONTEXT.md`、`docs/design/*.jp.md`、`docs/quality`、`docs/process`、`.agents/skills`、`.claude/skills`）を、大文字小文字を区別せずに `NoCare|1 ?回だけ ?WARN|一度だけ(の)? ?WARN|WARN 1 回|1 回の WARN|1回WARN|WARNして|WARN後|エラーにならず続行|一度WARN|一度 WARN|一度警告|1 回警告` で検索: 11 ファイル 28 件。
 - `learn_batch_size` を `docs/design/*.md`、`docs/quality`、`AGENTS.md`、`CONTEXT.md`、`.agents/skills` で検索: 4 ファイル 15 件（200 の jp・en、212 の jp・en）。
 - `runner_type` を `docs/design/*.md`、`docs/quality`、`AGENTS.md`、`CONTEXT.md` で検索: 2 ファイル 2 件（100 の jp・en の 325 行）。
-- `葉` を、D14 の現用の範囲（`AGENTS.md`、`CONTEXT.md`、`docs/quality`、`docs/process`、`.claude/skills`、`.agents/skills`、`docs/design`、`docs/wiki/apps`、`docs/wiki/categories`、`core`、`apps`、`viewers`、`reports/tools`）で、`git grep`（Git が追跡しているファイル）で検索: 52 ファイル 151 行（うち「言葉」2 行）。Git が無視するファイル（`core/anet-core/testdata/prd103/baseline-config/` などの、Run の設定の写し）は入らない。`既定葉` 60 か所、`個別葉` 20 か所、`葉キー` 1 か所。
+- `葉` を、D14 の現用の範囲（`AGENTS.md`、`CONTEXT.md`、`docs/quality`、`docs/process`、`.claude/skills`、`.agents/skills`、`docs/design`、`docs/wiki/apps`、`docs/wiki/categories`、`core`、`apps`、`viewers`、`reports/tools`）で、`git grep`（Git が追跡しているファイル）で検索: 52 ファイル 151 行（うち「言葉」2 行）。Git が無視するファイル（`core/anet-core/testdata/rfd0103/baseline-config/` などの、Run の設定の写し）は入らない。`既定葉` 60 か所、`個別葉` 20 か所、`葉キー` 1 か所。
 
 1 つ目の結果のうち、上の表に行番号で挙げていない行は次のとおり（行単位）。
 
-- skill の本文で検索語そのものを例に引く行（`.agents/skills/anet-create-prd/SKILL.md` と `.claude/skills/anet-create-prd/SKILL.md` の 203 行）: 対象外。
+- skill の本文で検索語そのものを例に引く行（`.agents/skills/anet-create-rfd/SKILL.md` と `.claude/skills/anet-create-rfd/SKILL.md` の 203 行）: 対象外。
 - [210](../design/210_metrics_viewer.jp.md) の 129・474・975 行: Metrics Viewer 自身のログで、Run のログではないので対象外。
 - §5.5 で「残す」とした WARN を説明する行: 200 の 508・574・602・606・721・751 行、212 の 196・215 行。
 - AGENTS.md の 192 行: 表の行として上の表に含む。
@@ -633,7 +633,7 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 - アプリの側で読む設定キー（`metrics.image.*`、`app.eval_trace_panel.*` など）が一覧に出ないことも、この Run で確かめる。
 - 評価の中で出る WARN は、A5・A6 のテストで確かめる。
 
-データセットが手元に無い Env（ImageCls など）で流せなければ、その Run を未達として理由を記録する。A2 の Run の組み合わせ、止める条件、数え方は `core/anet-core/testdata/prd117/README.md` に置く。全部で約 25 本、1〜2 時間の見込みである（測っていない）。
+データセットが手元に無い Env（ImageCls など）で流せなければ、その Run を未達として理由を記録する。A2 の Run の組み合わせ、止める条件、数え方は `core/anet-core/testdata/rfd0117/README.md` に置く。全部で約 25 本、1〜2 時間の見込みである（測っていない）。
 
 ### A3. block の閉じたスキーマ
 
@@ -668,7 +668,7 @@ D7 の各入力（重ねる設定のファイルが開けない、include 先が
 
 ### A8. ビルドと既存のテスト
 
-[AGENTS.md](../../AGENTS.md) の手順で Debug ビルドを通し、既定のテストスイート、`"[shipped_config]"`、`AnetRLRunner-gui-test "[log_panel]"` を流す。既知の失敗（PRD093 の attention のテスト 1 件）以外の失敗が無い。結果と未実施の理由を実装計画に書く。
+[AGENTS.md](../../AGENTS.md) の手順で Debug ビルドを通し、既定のテストスイート、`"[shipped_config]"`、`AnetRLRunner-gui-test "[log_panel]"` を流す。既知の失敗（RFD0093 の attention のテスト 1 件）以外の失敗が無い。結果と未実施の理由を実装計画に書く。
 
 ### A9. 出荷設定の検査のテスト
 
@@ -692,8 +692,8 @@ D14 の現用の範囲を `git grep`（Git が追跡しているファイル）�
 
 | 項目 | 裁定 | 理由と再開条件 |
 |---|---|---|
-| 読まれない設定キーの一覧を ERROR にする | 先送り（実験の結果が要る） | 在庫の区別を実際の Run で確かめてからにする。再開条件: 本 PRD の実装をコミットした日から 1 か月のあいだ、A2 の Run と番号付き bat の Run のログ（`run_*.log`）で、一覧の WARN に出た設定キーがすべて設定の誤りだった（在庫の見分けの漏れが 1 件も無かった）とき |
-| 眠る bare の検出（読まれて効かない値） | 範囲外（別の関心） | 「読まれたか」と「効いたか」は別の仕組みになる。PRD101 §7 の再開条件（眠った値に気づかずに Run を回した事故）は揃っていない。今回の事故は読まれない設定キーだった（PRD116 §2.1）。揃ったら別 PRD で起こす |
+| 読まれない設定キーの一覧を ERROR にする | 先送り（実験の結果が要る） | 在庫の区別を実際の Run で確かめてからにする。再開条件: 本 RFD の実装をコミットした日から 1 か月のあいだ、A2 の Run と番号付き bat の Run のログ（`run_*.log`）で、一覧の WARN に出た設定キーがすべて設定の誤りだった（在庫の見分けの漏れが 1 件も無かった）とき |
+| 眠る bare の検出（読まれて効かない値） | 範囲外（別の関心） | 「読まれたか」と「効いたか」は別の仕組みになる。RFD0101 §7 の再開条件（眠った値に気づかずに Run を回した事故）は揃っていない。今回の事故は読まれない設定キーだった（RFD0116 §2.1）。揃ったら別 RFD で起こす |
 | 値の参照先の検証（`stack_keys` など） | 範囲外（別の関心） | §3.2。[issue-20261103-b754ff](../management/issues/issue-20261103-b754ff.md) で扱う |
 | WARN と ERROR の間のレベル | 不採用 | §3.2 |
 | `interval = 0` で止めた tag と、schedule の無い tag を分ける | 不採用 | D8。ADR 0027 が 1 つにまとめた dormant をまた 2 つに分け、休止の出どころを運ぶ分岐が増える |
@@ -705,7 +705,7 @@ D14 の現用の範囲を `git grep`（Git が追跡しているファイル）�
 | PER の抽選が埋まらないとき Run を止める | 不採用 | D9。起きる条件が分からず、実行時の検査の ERROR を足すことになる。代替の是非は §9 の 20 |
 | `learn_batch_size` の既定を lane の数に結び付ける（`?= ${run.train.num_envs}`） | 不採用 | D11。既定が「全部の lane」に変わり、lane が 64〜256 の出荷設定で RND の 1 step の件数が 2〜8 倍になる。32 件という既定の意味も変わる |
 | 「既定葉」を「既定指定」（「個別指定」と対にする）か「既定値の指定」に言い換える | 不採用 | D14。「設定キー」に寄せた短い語の「既定キー」にした |
-| 既存の用語の言い換えを、本 PRD と別の課題にする | 不採用 | D14。本 PRD の実装が同じ文書を直すので、まとめて済ませる |
+| 既存の用語の言い換えを、本 RFD と別の課題にする | 不採用 | D14。本 RFD の実装が同じ文書を直すので、まとめて済ませる |
 | Run を閉じるときにも、読まれない設定キーの一覧をもう 1 回出す | 不採用 | D3。「対象ごとに 1 回」の例外になる。無人の Run で気づけない弱点はどの WARN にも当たるので、運用の側の手当てとして §9 の 21 に送る |
 
 ## 9. 未決
@@ -715,10 +715,10 @@ Run を流して確かめる事項と、範囲外として課題に起票した�
 | # | 事項 | 確かめ方と、結果ごとの扱い |
 |---|---|---|
 | 3 | 一覧の時機に間に合わない、遅れて作る読み口がいくつあるか | §5.2 の記録と §5.4 の一覧を先に作り、A2 の Run で一覧に出た設定キーを持ち主ごとに数える。読む時機が遅いだけの持ち主は、構築時に読むようにする（D5） |
-| 5 | 在庫の 4 種類（D4）で足りるか | 3 と同じ Run で、一覧に出た設定キーを種類ごとに数える。学習の部品を作らない構成（Atari の `run.@evalonly`）から先に数える（§10）。設定の誤りなら設定を直す。誤りでも読む時機の遅れでもない種類が残ったら、在庫の種類を足して本 PRD を改訂する |
+| 5 | 在庫の 4 種類（D4）で足りるか | 3 と同じ Run で、一覧に出た設定キーを種類ごとに数える。学習の部品を作らない構成（Atari の `run.@evalonly`）から先に数える（§10）。設定の誤りなら設定を直す。誤りでも読む時機の遅れでもない種類が残ったら、在庫の種類を足して本 RFD を改訂する |
 | 9 | `AtariEnv.display_screen=true` を worker thread と併用したとき | 実装の最初に、worker の種類を知る側（BatchEnv の構築）で併用を判定できるかを確かめる。判定できれば、併用は非対応の明示要求として止め（D1 の 2 の (a)）、単発のデバッグ用の構成では何も出さない。そのときは [220](../design/220_atari_env.jp.md) §4.2 と [040](../design/040_development_environment.jp.md) §3.6 を追随させる。判定できなければ、WARN を Run ごとに 1 回のままにする（§5.5） |
-| 20 | PER の rejection sampling が埋まらないときの一様への代替を、やめるか | 範囲外。本 PRD は WARN を 1 回にするだけ（D9）。明示した PER の一部を別の方法に代える点が、明示要求を黙って代替しない規約と食い違う。[issue-20261111-e90762](../management/issues/issue-20261111-e90762.md) に起票した |
-| 21 | 無人で走る Run（番号付き bat）で、WARN に気づけない | 範囲外。本 PRD は一覧を構築の終わりに 1 回出すだけ（D3）。bat の終わりに各 Run の WARN の件数をまとめて出す、などの運用の側の手当ては、[issue-20261111-9e6e27](../management/issues/issue-20261111-9e6e27.md) に起票した |
+| 20 | PER の rejection sampling が埋まらないときの一様への代替を、やめるか | 範囲外。本 RFD は WARN を 1 回にするだけ（D9）。明示した PER の一部を別の方法に代える点が、明示要求を黙って代替しない規約と食い違う。[issue-20261111-e90762](../management/issues/issue-20261111-e90762.md) に起票した |
+| 21 | 無人で走る Run（番号付き bat）で、WARN に気づけない | 範囲外。本 RFD は一覧を構築の終わりに 1 回出すだけ（D3）。bat の終わりに各 Run の WARN の件数をまとめて出す、などの運用の側の手当ては、[issue-20261111-9e6e27](../management/issues/issue-20261111-9e6e27.md) に起票した |
 
 ### 9.1 再グリルで振り分けた行（2026-11-10）
 
@@ -748,7 +748,7 @@ Run を流して確かめる事項と、範囲外として課題に起票した�
 
 ## 10. 依存と順序
 
-- PRD116 の `nn.txt` の block の直しは、コミット済みである（§2.6）。
+- RFD0116 の `nn.txt` の block の直しは、コミット済みである（§2.6）。
 - D3(b) を入れると、A2 の Run で出た設定キーを直すまで D2 の受入が通らない。設定の直しには 66100f の `mergin_x` が入る。
 - 記録（§5.2）と一覧（§5.4）を先に作り、A2 の Run で一覧を測ってから、在庫の種類（§9 の 5）と遅れて読む読み口（§9 の 3）を片付ける順にすると、手戻りが少ない。
 - 在庫の確かめ（§9 の 5）は、学習の部品を作らない構成（Atari の `run.@evalonly`）から先に行う。読まれない設定キーが一番多く出る見込みで、休止の宣言の粒度（D4 の 4）が早く決まる。

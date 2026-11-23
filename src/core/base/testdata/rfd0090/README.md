@@ -1,12 +1,12 @@
-# PRD090 キャッシュ保守の検証
+# RFD0090 キャッシュ保守の検証
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 ## 1. 対象と隔離
 
 未選択workspaceの旧cache再構築、process全体の3:1配分、gzip resource保持、buffer/batch境界、transaction rollback、Run単位の失敗停止、ログ、query cancel、shutdownを検証する。既存のJava全テスト・Playwrightも回帰対象とする。C++は変更対象外。
 
-`verify_cache_rebuild.py` は通常JARと実Run cacheを変更せず、`apps/metrics-viewer/target/prd090-validation` と `target/prd090-performance` に生成物を置く。試行DBは一つずつ作成し、入力handleを閉じてから検証領域内だけで削除する。性能測定を同時に走らせない。
+`verify_cache_rebuild.py` は通常JARと実Run cacheを変更せず、`apps/metrics-viewer/target/rfd0090-validation` と `target/rfd0090-performance` に生成物を置く。試行DBは一つずつ作成し、入力handleを閉じてから検証領域内だけで削除する。性能測定を同時に走らせない。
 
 ## 2. 自動回帰
 
@@ -16,13 +16,13 @@ repo rootから実行する。Java/Mavenのパスはスクリプト既定値を�
 ./.venv/Scripts/python.exe core/anet-core/testdata/rfd0090/verify_cache_rebuild.py validate
 ```
 
-一時POMで `package` を一回実行し、関連テスト、全Maven test、Playwright、隔離JAR生成を検証する。結果は `target/prd090-performance/all-tests-package-final.log` に残す。
+一時POMで `package` を一回実行し、関連テスト、全Maven test、Playwright、隔離JAR生成を検証する。結果は `target/rfd0090-performance/all-tests-package-final.log` に残す。
 
 ## 3. 性能比較
 
-変更前の作業ツリーは、PRD089を含む未コミット変更を保持した状態で `target/prd090-baseline` にコピーしてビルドした。Git HEADとの差分比較ではなく、PRD090実装直前の実効コードをbaselineとする。再現時は同じように変更前snapshotを用意し、同じbenchmark mainをコンパイルする。
+変更前の作業ツリーは、RFD0089を含む未コミット変更を保持した状態で `target/rfd0090-baseline` にコピーしてビルドした。Git HEADとの差分比較ではなく、RFD0090実装直前の実効コードをbaselineとする。再現時は同じように変更前snapshotを用意し、同じbenchmark mainをコンパイルする。
 
-停止済みDropMergeマスタを `target/prd090-performance/input/metrics.jsonl.gz` へ複製し、同内容rawを生成する。gzipは534,402,924bytes、rawは4,699,829,874bytes。factor4、JDK25.0.3、`-Xms512m -Xmx2g`、各raw/gzip 3回、試行ごとに新しいDBを使う。入力は複製へhardlinkして再利用し、実Run cacheへは接続しない。変更後コードは `new-project` へ凍結コピーしてビルドする。
+停止済みDropMergeマスタを `target/rfd0090-performance/input/metrics.jsonl.gz` へ複製し、同内容rawを生成する。gzipは534,402,924bytes、rawは4,699,829,874bytes。factor4、JDK25.0.3、`-Xms512m -Xmx2g`、各raw/gzip 3回、試行ごとに新しいDBを使う。入力は複製へhardlinkして再利用し、実Run cacheへは接続しない。変更後コードは `new-project` へ凍結コピーしてビルドする。
 
 ```bash
 ./.venv/Scripts/python.exe core/anet-core/testdata/rfd0090/verify_cache_rebuild.py new
@@ -44,7 +44,7 @@ heap peakは各heap poolのpeak used bytesの合計で、同時点peakの上限�
 ./.venv/Scripts/python.exe core/anet-core/testdata/rfd0090/verify_cache_rebuild.py report
 ```
 
-12試行の全tableハッシュ一致、raw/gzip中央値短縮、反映待ちp95<=10秒を検証し、`target/prd090-performance/results.json` に集計する。結果の正本は本ディレクトリの `performance-results.json` に保存する。
+12試行の全tableハッシュ一致、raw/gzip中央値短縮、反映待ちp95<=10秒を検証し、`target/rfd0090-performance/results.json` に集計する。結果の正本は本ディレクトリの `performance-results.json` に保存する。
 
 ## 5. 今回の結果
 

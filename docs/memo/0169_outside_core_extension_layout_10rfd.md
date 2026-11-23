@@ -1,4 +1,4 @@
-# anet-core の外で実装する拡張点とコード配置の規約 暫定 PRD
+# anet-core の外で実装する拡張点とコード配置の規約 暫定 RFD
 
 > 2026-11-18 改訂: 本書の中身（規約 P1〜P4、拡張点の表、用語、自己登録マクロの削除）を [PRD182](0182_source_layout_10rfd.md) に統合した（同書の D10・§5.6）。§7 で先送りにした 2 件（Agent の外部登録口、NN の Head の部品の公開）も、同書の D6・D7 が行う。以下の本文は当時の記録として残し、実装は PRD182 に従う。
 > 2026-11-17 番号を 945 から 169 へ振り直した（PRD131）。
@@ -53,7 +53,7 @@ anet-core の外（同じリポジトリの別ターゲット）で何を実装�
 
 ### 2.4 次に増えるもの
 
-[docs/StampFly.md](../StampFly.md) では、SimStampFlyEnv は `core/envs/stampfly1`（Env の拡張点。今の規約で書ける）、PPO は PRD A で anet-core の中に置く。anet-core の外に Agent や NN の部品を置く計画は、起票時点では無い。
+[docs/StampFly.md](../StampFly.md) では、SimStampFlyEnv は `core/envs/stampfly1`（Env の拡張点。今の規約で書ける）、PPO は RFD A で anet-core の中に置く。anet-core の外に Agent や NN の部品を置く計画は、起票時点では無い。
 
 ## 3. ゴールと非ゴール
 
@@ -67,7 +67,7 @@ anet-core の外（同じリポジトリの別ターゲット）で何を実装�
 
 - 別リポジトリ向けのライブラリ配布と ABI の安定。リリースは実行用パッケージだけで（[ADR 0017](../adr/0017-release-zip-mirrors-repo-layout.md)、[043](done/0043_release_packaging_10rfd.md)）、`install` 規則も無い。
 - プラグインの動的読み込み。
-- Agent・Head・Module の設計や責務の変更（[165_nn_head_projection_separation_10prd.md](0165_nn_head_projection_separation_10rfd.md) の範囲）。
+- Agent・Head・Module の設計や責務の変更（[0165_nn_head_projection_separation_10rfd.md](0165_nn_head_projection_separation_10rfd.md) の範囲）。
 - NN module と Head の部品・登録口の公開、Agent の外部登録口（先送り）。
 - Observer と ReplayBuffer の差し替え口。
 
@@ -122,7 +122,7 @@ anet-core の外（同じリポジトリの別ターゲット）で何を実装�
 
 6. 「書ける」と宣言した拡張点（Env、View）には、公開ヘッダだけで実装した実例（`core/envs/` の 6 本）が表に挙がっている。
 7. `ANET_REGISTER_AGENT_FACTORY` が `core/` と `apps/` のどこにも無い（`grep -rn ANET_REGISTER_AGENT_FACTORY core apps` が空）。
-8. 文書のリンク切れが 0（[docs/quality/prd.md](../quality/rfd.md) の項番 4 と同じ検査を、変えた設計文書にも当てる）。
+8. 文書のリンク切れが 0（[docs/quality/rfd.md](../quality/rfd.md) の項番 4 と同じ検査を、変えた設計文書にも当てる）。
 9. 配置を動かした場合は、全ビルドと全テストが緑（AGENTS.md §検証の形）。文書とマクロ削除だけなら、`anet-core` のビルドと `anet-core-test` の全実行で足りる。
 
 成功の測り方: 次に「anet-core の外で X を書けるか」の問いが出たとき、010 の表の 1 行で答えが決まり、CMake・include・登録口の走査が要らないこと。今回の Head の問いでは、答えるまでにヘッダ 6 本、CMake 2 本、登録口 3 か所を読んだ。
@@ -146,7 +146,7 @@ anet-core の外（同じリポジトリの別ターゲット）で何を実装�
 | 7 | 新しい公開ヘッダの名前（6 を作るとき） | 未定。`nn.hpp` の「公開 Config・Network・Builder」とは分ける | `nn_parts.hpp`、`nn_modules.hpp` |
 | 8 | 自己登録マクロ | `ANET_REGISTER_AGENT_FACTORY` の定義とコメントアウトされた呼び出し 2 か所を削除。View 側の同型マクロ（gui.hpp）は使用箇所を確かめ、未使用なら同じく削除 | 残す（P3 と逆の形が残る） |
 | 9 | Observer・ReplayBuffer | 対象外 | Observer の設定からの生成に registry を足す |
-| 10 | 受入の検査の自動化 | しない。§6 の 2 コマンドを手順として書く | [156_cicd_improvement_10prd.md](0156_cicd_improvement_10rfd.md) の定点ジョブに乗せる |
+| 10 | 受入の検査の自動化 | しない。§6 の 2 コマンドを手順として書く | [0156_cicd_improvement_10rfd.md](0156_cicd_improvement_10rfd.md) の定点ジョブに乗せる |
 | 11 | 各設計文書 §8 の 1 行 | 足す。110「Agent は anet-core の中に置き、`InitRL()` へ登録する」、120「Env は公開ヘッダだけで書ける」、130「module と Head の部品は内部ヘッダにあり、外では書けない」 | 010 の表だけにする |
 
 用語（#3）の案:
@@ -158,9 +158,9 @@ anet-core の外（同じリポジトリの別ターゲット）で何を実装�
 ## 9. 依存と順序
 
 - 文書とマクロ削除だけなら、084 のコミットの前後どちらでも行える。
-- 084 の整理（`PreparedModuleChildren<N>` の `nn_impl.hpp` への移動）は本 PRD を待たない。P2 のとおりで、本 PRD は置き場を変えない。
-- [155_config_root_ownership_alignment_10prd.md](0155_config_root_ownership_alignment_10rfd.md) と正本の置き方を揃える（設定の規約は CONTEXT.md か 020、コードの規約は AGENTS.md と 010）。
-- StampFly の SimStampFlyEnv は Env の拡張点で、本 PRD の規約で書ける。PPO（PRD A）は anet-core の中に置く前提で、本 PRD の §7 の 1 とは独立に進められる。
+- 084 の整理（`PreparedModuleChildren<N>` の `nn_impl.hpp` への移動）は本 RFD を待たない。P2 のとおりで、本 RFD は置き場を変えない。
+- [0155_config_root_ownership_alignment_10rfd.md](0155_config_root_ownership_alignment_10rfd.md) と正本の置き方を揃える（設定の規約は CONTEXT.md か 020、コードの規約は AGENTS.md と 010）。
+- StampFly の SimStampFlyEnv は Env の拡張点で、本 RFD の規約で書ける。PPO（RFD A）は anet-core の中に置く前提で、本 RFD の §7 の 1 とは独立に進められる。
 
 ## 10. 再確認ポイント
 

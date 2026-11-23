@@ -1,4 +1,4 @@
-# PRD147: IQN初回Learner priorityのquantile-pair方式
+# RFD0147: IQN初回Learner priorityのquantile-pair方式
 
 > 2026-11-17 番号を 941 から 147 へ振り直した（PRD131）。
 
@@ -27,7 +27,7 @@ mean_td[b] = abs(mean_i(z[b,i]) - mean_j(y[b,j]))
 - IQNのcurrent/target τは有限本数であり、ランダムまたはstratifiedなτ集合に対して、平均TDだけでは分布上の局所的なずれを表せない。
 - PERが遷移をsampleしても、最初のLearner priority更新で大きなpairwise誤差が相殺されれば、次回以降のsampling massが小さくなり得る。
 
-PRD 047では、この議論の観測根拠として次を実装済みである。
+RFD0047では、この議論の観測根拠として次を実装済みである。
 
 ```text
 pair_abs_td[b] = mean_ij(abs(delta[b,i,j]))
@@ -57,7 +57,7 @@ raw_priority[b] = clip_if_enabled(signal[b] + per_eps)
 leaf_priority[b] = pow(raw_priority[b], per_alpha)
 ```
 
-`initial_update[b]`は、sample時点の優先度sourceが`fixed_initial`、`max_initial`、`actor_initial`のいずれかである行とする。`none`と`learner_updated`は含めない。この定義はPRD 047および`CONTEXT.md`の「初回Learner priority更新」と一致させる。
+`initial_update[b]`は、sample時点の優先度sourceが`fixed_initial`、`max_initial`、`actor_initial`のいずれかである行とする。`none`と`learner_updated`は含めない。この定義はRFD0047および`CONTEXT.md`の「初回Learner priority更新」と一致させる。
 
 初回更新以外は現行の平均TD priorityを維持する。IQN loss、target、optimizer、初期priority方式、Replay sampling、importance sampling weightは変更しない。
 
@@ -111,7 +111,7 @@ learner.iqn.first_priority_update_mode = mean_td | pair_abs_td
 
 ### 2. quantile-pair信号
 
-- IQN loss計算で既に生成する`delta[B,N,M]`から、PRD 047で既に計算済みの`pair_abs_td[B]`を再利用する。
+- IQN loss計算で既に生成する`delta[B,N,M]`から、RFD0047で既に計算済みの`pair_abs_td[B]`を再利用する。
 - pairwise tensorの再生成、追加forward、追加target計算を行わない。
 - `pair_abs_td`はfloat32かつ学習graphからdetachした値を使う。
 - `N != M`を許容し、全`N x M`ペアを同じ重みで平均する。
@@ -134,7 +134,7 @@ learner.iqn.first_priority_update_mode = mean_td | pair_abs_td
 
 ### 5. 観測
 
-- PRD 047の`iqn_first_pair_abs_td`、`iqn_first_cancellation_ratio`、`iqn_first_priority_mc_ratio`、`iqn_first_quantile_loss_norm`、`per_sample_initial_count`を第一の観測根拠とする。
+- RFD0047の`iqn_first_pair_abs_td`、`iqn_first_cancellation_ratio`、`iqn_first_priority_mc_ratio`、`iqn_first_quantile_loss_norm`、`per_sample_initial_count`を第一の観測根拠とする。
 - 暫定MVPでは新しいmetricを必須にしない。既存metricで適用後raw priorityとの対応が追えないと判明した場合だけ、初回行のclip前/後priority集約をP1として追加検討する。
 - Run artifactの実効設定からmodeを判別できるようにする。Run名だけを方式の正本にしない。
 
@@ -187,7 +187,7 @@ learner.iqn.first_priority_update_mode = mean_td | pair_abs_td
 - `K/N/M`、τ sampling mode、PER alpha/beta、BatchSize、ReplayRatio、学習率の探索。
 - 既定modeの変更、既存Run artifactの読み替え、実験Runの実施と採否判断。
 - Metrics Viewer UI、Optuna objective、外部Issue作成。
-- コード、設定、設計文書、実験記録の変更。本起票では本PRDファイルだけを新設する。
+- コード、設定、設計文書、実験記録の変更。本起票では本RFDファイルだけを新設する。
 
 ## Further Notes
 
@@ -204,6 +204,6 @@ learner.iqn.first_priority_update_mode = mean_td | pair_abs_td
 - pair方式によって初回priorityの識別が増えても、PER ESSの崩壊、priority clip率の増加、同じ高分散遷移への過集中が起きる場合は採用しない。
 - DropMerge成果が改善してもthroughput低下やseed依存が大きい場合は、同条件複数Runまたは短い別Env傾向確認を要求する。
 - `iqn_first_cancellation_ratio`が低い領域では両方式の差が小さいはずであり、その場合は追加複雑性に見合わない可能性がある。
-- 本方式は「外れτを完全に防ぐ」ものではない。τ集合の被覆はstratified/antithetic等、priority集約は本PRDとして別軸で評価する。
+- 本方式は「外れτを完全に防ぐ」ものではない。τ集合の被覆はstratified/antithetic等、priority集約は本RFDとして別軸で評価する。
 
-本PRDは忘却防止の暫定起票であり、実装開始条件は上記未決事項のレビューと、既存RunにおけるPRD 047 metricの再確認である。
+本RFDは忘却防止の暫定起票であり、実装開始条件は上記未決事項のレビューと、既存RunにおけるRFD0047 metricの再確認である。

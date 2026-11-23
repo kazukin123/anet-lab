@@ -1,6 +1,6 @@
 # 勾配ノイズスケールの検証資材
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 ## 対象と受入
 
@@ -31,7 +31,7 @@ MSVCはAGENTS.mdのVsDevCmd経由で初期化し、Debug全体と対象テスト
 
 保存したDebug Runnerとconfigから、LunarLander CPU・deterministic backend・seed 920・8 env・B64・容量4096・warmup128・FP32・QR8・終了8192経験の基準を採取した。NoisyとMunchausenを含む。評価は実在するeval/eval_targetのintervalを0にする。
 
-`run_validation.py` の `cpu` ステージは保存済み `cpu-before.txt` を基に、変更後OFF/ONを同じ条件で実行する。既存指標はPRD084のcompare_metricsでtag・step・float.hex値と点数を厳密比較する。性能・資源と新しい49群だけを除き、既存47群も比較する。基準対OFF、OFF対ONを確認し、OFFは全既存キー・文字列値の設定比較も行う。追加キーとartifactの場所だけを許容する。
+`run_validation.py` の `cpu` ステージは保存済み `cpu-before.txt` を基に、変更後OFF/ONを同じ条件で実行する。既存指標はRFD0084のcompare_metricsでtag・step・float.hex値と点数を厳密比較する。性能・資源と新しい49群だけを除き、既存47群も比較する。基準対OFF、OFF対ONを確認し、OFFは全既存キー・文字列値の設定比較も行う。追加キーとartifactの場所だけを許容する。
 
 ## 本線smokeと性能
 

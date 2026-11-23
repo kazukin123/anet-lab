@@ -1,4 +1,4 @@
-﻿# PRD134: train/eval mode 整理後の排他精査 PRD（草案）
+﻿# RFD0134: train/eval mode 整理後の排他精査 RFD（草案）
 
 > 2026-11-17 番号を 910 から 134 へ振り直した（PRD131）。
 > 改訂: 2026-10-26。PRD098の実装中に追加した、Actorの観測正規化とLearnerの統計更新が競合し得るかを調べる監査項目について、改訂記録を補足した。競合の有無と修正方式は調査対象として残す。
@@ -6,7 +6,7 @@
 ## Status
 
 - 番号: 999
-- 種別: PRD draft
+- 種別: RFD draft
 - 対象リポジトリ: `C:\dev\anet-lab`
 - 対象領域: DQN / Rainbow / ImageCls / MuZero の Agent・Actor・Learner・NetworkModel 周辺
 - 起点メモ: `C:\tmp\anet-lab-lock-audit-handoff.md`
@@ -26,7 +26,7 @@ Dropout 導入前の前提整理として、NN module の `train()` / `eval()` m
 - `DefaultDQNAgent::LoadNetwork()` は constructor 中の auto-load では安全に見えるが、runtime API として呼ばれる場合の排他契約が明確でない。
 - Actor clone network は共有 source とは別インスタンスだが、`Sync()` と `MakeAction()` が同一 Actor 上で並行し得る場合、clone 側にも actor-local な排他が必要になる可能性がある。
 
-`NetworkModel::SoftUpdate()` / `HardUpdate()` の `target_net_->eval()` は、mode 契約を曖昧にする「念のため」の修復として削除済み。本 PRD では、その後に残る排他制御の安全性を精査する。
+`NetworkModel::SoftUpdate()` / `HardUpdate()` の `target_net_->eval()` は、mode 契約を曖昧にする「念のため」の修復として削除済み。本 RFD では、その後に残る排他制御の安全性を精査する。
 
 ## Problem（解くべき問題）
 
@@ -91,7 +91,7 @@ Dropout 導入前の前提整理として、NN module の `train()` / `eval()` m
 - `Actor::Sync()` と同一 Actor の `MakeAction()` が並行し得るか。並行し得る場合、actor-private `network_` の `CopyTo()` と forward が race しないか。
 - `NetworkModel::Load()` の `eval()` は呼び出し元 lock によって守られているか。
 - `DefaultDQNAgent::LoadNetwork()` を runtime API として扱うなら、model / learner load 全体に `unique_lock` が必要か。
-- `Save()` / `torch::save` 経路が Actor/Learner と並行し得るか。PRD 055でRunnerからのruntime Saveを正式な経路とし、`DefaultDQNAgent::Save`のserialization全体をAgentの`shared_lock`で保護することを確定した。
+- `Save()` / `torch::save` 経路が Actor/Learner と並行し得るか。RFD0055でRunnerからのruntime Saveを正式な経路とし、`DefaultDQNAgent::Save`のserialization全体をAgentの`shared_lock`で保護することを確定した。
 - TensorFunction / visualization callback が lock scope 外へ shared network access を持ち出していないか。
 
 ### ImageCls
@@ -134,7 +134,7 @@ Dropout 導入前の前提整理として、NN module の `train()` / `eval()` m
 4. minimal fixes
    - 局所修正で閉じられるもの。
 5. deferred architecture cleanup
-   - Agent 側への lock 集約、Actor clone lifecycle 整理など、別 PRD に分けるべきもの。
+   - Agent 側への lock 集約、Actor clone lifecycle 整理など、別 RFD に分けるべきもの。
 
 ## Acceptance Criteria（受け入れ条件）
 
@@ -172,7 +172,7 @@ core\anet-core\bin\Debug\anet-core-test.exe
 - `CreateActor()` は学習開始後にも呼ばれ得るか、それとも runner lifecycle 上は初期化時だけか。
 - `Actor::Sync()` は同一 Actor の `MakeAction()` と並行し得るか。
 - `LoadNetwork()` は constructor auto-load 専用の実質 private API と見なせるか、runtime UI/API から呼ばれ得るか。
-- `Save()` は runner shutdown など Actor/Learner 停止後だけか、runtime 中にも呼ばれ得るか。**PRD 055で解決済み**: toolbarからruntime中にも呼ばれ、`DefaultDQNAgent`ではAgentの`shared_lock`を取得してLearnerの`unique_lock`と排他する。
+- `Save()` は runner shutdown など Actor/Learner 停止後だけか、runtime 中にも呼ばれ得るか。**RFD0055で解決済み**: toolbarからruntime中にも呼ばれ、`DefaultDQNAgent`ではAgentの`shared_lock`を取得してLearnerの`unique_lock`と排他する。
 - TensorFunction / visualization callback が lock scope 外で network を再 forward する経路が残っているか。
 
 ## Draft Recommendation（草案時点の仮説）
@@ -181,4 +181,4 @@ core\anet-core\bin\Debug\anet-core-test.exe
 - `DefaultDQNAgent::LoadNetwork()` は runtime 呼び出し可能なら `unique_lock` で囲む候補とする。
 - `CreateActor()` の clone は、runtime 呼び出し可能なら source read を `shared_lock` で囲む候補とする。
 - `Actor::Sync()` と `MakeAction()` が同一 Actor で並行し得るなら、actor-private clone 用の local mutex を検討する。
-- lock 所有者を Agent に寄せる大整理は、今回の精査結果を踏まえて別 PRD に分ける。
+- lock 所有者を Agent に寄せる大整理は、今回の精査結果を踏まえて別 RFD に分ける。

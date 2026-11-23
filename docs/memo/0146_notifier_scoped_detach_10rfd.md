@@ -1,4 +1,4 @@
-# Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す PRD
+# Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す RFD
 
 > 2026-11-17 番号を 942 から 146 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 942 へ振り直した（PRD114）。
@@ -35,7 +35,7 @@ std::shared_ptr<TrainObserver> AttachScoped(std::shared_ptr<TrainObserver> obser
 
 ### 実害の実測(優先度判断の根拠)
 
-**実害はほぼ出ていない。** 本 PRD の価値は「契約の修復」であって「現在のリークの停止」ではない。
+**実害はほぼ出ていない。** 本 RFD の価値は「契約の修復」であって「現在のリークの停止」ではない。
 
 1. **`TrainPanel::OnClose` / `EvalPanel::OnClose` はどこにも Bind されていない。** TrainPanel の Bind は `wxEVT_SIZE`([:38](../../src/apps/runner/src/TrainPanel.cpp)) と `wxEVT_TIMER`([:65](../../src/apps/runner/src/TrainPanel.cpp)) だけ、EvalPanel は `wxEVT_TIMER`([:122](../../src/apps/runner/src/EvalPanel.cpp)) だけ。AUI ペインは既定で hide のみ([RunnerFrame.cpp:361](../../src/apps/runner/src/RunnerFrame.cpp) のコメント)なので発火しない。つまり TrainPanel は「静かに失敗する」以前に **Detach 自体が呼ばれていない**。
 2. 実際に走る detach 経路は `EvalPanel::DoClose`([RunnerFrame.cpp:1072](../../src/apps/runner/src/RunnerFrame.cpp) と `~EvalPanel`)と `Conv2dPanel` の dtor で、どちらもアプリ終了時。
@@ -45,7 +45,7 @@ std::shared_ptr<TrainObserver> AttachScoped(std::shared_ptr<TrainObserver> obser
 
 現在は一致するものが無いため `erase(end(), end())` となり、要素の移動も破棄も起きない＝**実質読み取りだけ**。一方 `Notifier` は mutex を持たず、[`Notify`](../../src/core/base/src/rl.cpp) は `for (auto obs : train_observers_)` でメンバ vector を直接走査する。
 
-したがって **本修正は「無害な no-op」を「Trainer スレッドの反復中に起こりうる実 mutation」に変える**。現状安全なのは [RunnerFrame::OnClose](../../src/apps/runner/src/RunnerFrame.cpp) が `StopTraining()`(join まで実施) → `DetachTrainStatusObserver()` → `eval_panel_->DoClose()` の順だからであり、これは暗黙の前提である。本 PRD ではこれを **Notifier の契約として明文化する**(mutex 導入は非ゴール、NG1)。
+したがって **本修正は「無害な no-op」を「Trainer スレッドの反復中に起こりうる実 mutation」に変える**。現状安全なのは [RunnerFrame::OnClose](../../src/apps/runner/src/RunnerFrame.cpp) が `StopTraining()`(join まで実施) → `DetachTrainStatusObserver()` → `eval_panel_->DoClose()` の順だからであり、これは暗黙の前提である。本 RFD ではこれを **Notifier の契約として明文化する**(mutex 導入は非ゴール、NG1)。
 
 ただし `StopTraining()` の後というだけでは足りない。背景評価の worker も学習と同じ Notifier の train observer 列を走査するため、排水(`DrainBackgroundObservers()`)より前の Detach は走査と競合する。2026-11-01 に exp_exit の終了でこの経路の AV を dump で確かめた(台帳 F-0006)。OnClose は Detach を排水の後に置く。
 
@@ -59,7 +59,7 @@ std::shared_ptr<TrainObserver> AttachScoped(std::shared_ptr<TrainObserver> obser
 
 **非ゴール:**
 - **NG1**: `Notifier` のスレッド安全化(mutex 導入)。整合性の機構であり本件(契約の一致)とは別関心。`Notify` は hot path のため性能判断が別途必要。**別課題**。
-- **NG2**: `TrainPanel::OnClose` / `EvalPanel::OnClose` の Bind 欠落。本件(Notifier の契約バグ)とは別の欠陥。**別課題**、本 PRD では報告のみ。
+- **NG2**: `TrainPanel::OnClose` / `EvalPanel::OnClose` の Bind 欠落。本件(Notifier の契約バグ)とは別の欠陥。**別課題**、本 RFD では報告のみ。
 - **NG3**: dead code の削除。`Notifier::Detach(const TrainObserver*)` / `(const LearnObserver*)` / `(const EpisodeEndObserver*)` の 3 本([rl.cpp:938-975](../../src/core/base/src/rl.cpp))は呼出元 0、`ImageProviderManager::Remove()` も呼出元 0。既存 dead code は削除せず報告にとどめる(AGENTS.md「Surgical Changes」)。
 - **NG4**: `Detach` 側で wrapper の inner を辿る案。§設計判断 2 で棄却。
 
@@ -141,7 +141,7 @@ static ImageProviderBundle MakeBundle(std::shared_ptr<T> observer, std::shared_p
 }
 ```
 
-`RunnerFrame::AttachTrainStatusObserver`([:391-413](../../src/apps/runner/src/RunnerFrame.cpp)) は wrapper の自前生成と回避コメント([:409](../../src/apps/runner/src/RunnerFrame.cpp))を撤去し `train_status_observer_ = train_status_notifier_->AttachScoped(observer, train_runner);` にする。撤去しないと本 PRD で解消済みの問題を指すコメントが残る。`DetachTrainStatusObserver()` は変更不要。
+`RunnerFrame::AttachTrainStatusObserver`([:391-413](../../src/apps/runner/src/RunnerFrame.cpp)) は wrapper の自前生成と回避コメント([:409](../../src/apps/runner/src/RunnerFrame.cpp))を撤去し `train_status_observer_ = train_status_notifier_->AttachScoped(observer, train_runner);` にする。撤去しないと本 RFD で解消済みの問題を指すコメントが残る。`DetachTrainStatusObserver()` は変更不要。
 
 ### R3: Detach のスレッド契約を明記(G3)
 
@@ -167,7 +167,7 @@ static ImageProviderBundle MakeBundle(std::shared_ptr<T> observer, std::shared_p
 1. **wrapper を返す案を採る**。①4 パネルの `observer_` は既に `shared_ptr<TrainObserver>` 型かつ用途が Detach のみで、**呼び出し側の宣言変更が 0 行**で済む。②`AttachScoped` の戻り値を inner として使っている箇所が **0 件**(trainer.cpp は破棄、image.cpp は元の observer を別途 bundle に保持)。③`Attach` / `Attach<T>` が既に満たしている「戻り値＝Detach へ渡すもの」という不変条件の回復であり、新しい概念を増やさない。④[RunnerFrame.cpp:409-412](../../src/apps/runner/src/RunnerFrame.cpp) が既に手作業で実現している形と一致する。
 2. **`Detach` 側で inner を辿る案は採らない**。inner を辿るには型分岐が要り `dynamic_cast` は production 禁止(AGENTS.md「コーディング規約」)。基底に `GetInner()` を生やすのは wrapper 一族の都合で全 observer 契約を汚す。互換分岐を残す形になりクリーンブレーク方針にも反する。加えて semantics が変わり、同じ inner を 2 つの runner へ scoped attach した場合に `Detach(inner)` が両方を消してしまう。
 3. **多重継承 `T` は `static_assert` で弾く**。wrapper を 1 つ返す契約と、複数 wrapper を attach する現行実装は両立しない。現行 0 件なので実害なくコンパイル時に固定できる。「起こり得ない経路のエラー処理を足さない」と fail-fast を両立させる最小手段。
-4. **スレッド安全は分離する**。「整合性(lock)」と「契約の一致」は別関心であり、1 関心 1 機構で扱う。mutex は `Notify` の hot path に入るため、必要性が具体的な経路で示された時点で別 PRD にする。本 PRD では前提を明文化するにとどめる(R3)。
+4. **スレッド安全は分離する**。「整合性(lock)」と「契約の一致」は別関心であり、1 関心 1 機構で扱う。mutex は `Notify` の hot path に入るため、必要性が具体的な経路で示された時点で別 RFD にする。本 RFD では前提を明文化するにとどめる(R3)。
 5. **RunnerFrame の回避実装は同一変更内で撤去する**。回避が不要になったのは本修正の結果であり、残すと解消済みの問題を指すコメントが残留する(クリーンブレーク方針「移行漏れとして扱う」)。
 
 ## 影響・移行
@@ -186,7 +186,7 @@ static ImageProviderBundle MakeBundle(std::shared_ptr<T> observer, std::shared_p
 
 ## Testing Decisions
 
-- **単体**: R4 の T1〜T4。特に **T2 が本 PRD の受入中核**で、修正前に失敗し修正後に通ることを確認する。
+- **単体**: R4 の T1〜T4。特に **T2 が本 RFD の受入中核**で、修正前に失敗し修正後に通ることを確認する。
 - **回帰**: `anet-core-test` 全体。既知の失敗以外が増えないこと。
 - **手動**: Runner アプリを起動し、学習開始 → 通常終了でクラッシュ・ハングがないこと(Detach が実 mutation になるため、終了経路の順序 `StopTraining()` → Detach が守られていることの実地確認)。
 - `git diff --check` 必須。
@@ -200,6 +200,6 @@ static ImageProviderBundle MakeBundle(std::shared_ptr<T> observer, std::shared_p
 - **AC5**: `Notifier` に Attach / Detach / Notify のスレッド前提が明記されている。
 - **AC6**: `anet-core-test` が既存分も含めて回帰しない。
 
-## 後続の候補（2026-10-31、PRD110 から）
+## 後続の候補（2026-10-31、RFD0110 から）
 
-[PRD110](done/0110_runner_main_pane_dynamic_centre_10rfd.md) は Train View を隠せるようにしたが、隠している間も `TrainPanel` の Train 側 observer は外さず、描画 timer だけを止める（同 D6・NG2）。observer のコストは `Train View FPS` が 0 のときも残る既存の挙動で、`TrainPanel` の observer は本 PRD の該当箇所（`AttachScoped` の戻り値で `Detach` できない）に当たるため、本 PRD の修復が先に要る。本 PRD の修復が入ったら、Train View を隠している間と FPS 0 のときに observer を外して Train スレッド側の View 更新のコストも消す案を、別の PRD として起こす（PRD110 §8 の再開条件）。本 PRD の範囲は変えない。
+[RFD0110](done/0110_runner_main_pane_dynamic_centre_10rfd.md) は Train View を隠せるようにしたが、隠している間も `TrainPanel` の Train 側 observer は外さず、描画 timer だけを止める（同 D6・NG2）。observer のコストは `Train View FPS` が 0 のときも残る既存の挙動で、`TrainPanel` の observer は本 RFD の該当箇所（`AttachScoped` の戻り値で `Detach` できない）に当たるため、本 RFD の修復が先に要る。本 RFD の修復が入ったら、Train View を隠している間と FPS 0 のときに observer を外して Train スレッド側の View 更新のコストも消す案を、別の RFD として起こす（RFD0110 §8 の再開条件）。本 RFD の範囲は変えない。

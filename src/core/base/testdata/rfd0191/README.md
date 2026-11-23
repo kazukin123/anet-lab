@@ -1,6 +1,6 @@
-# PRD191 の検証資材
+# RFD0191 の検証資材
 
-[PRD191](../../../../../docs/memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) の受入と [実装メモ](../../../../../docs/memo/0191_rnd_raw_error_and_recent_learning_20impl.md) の実施記録を参照する。
+[RFD0191](../../../../../docs/memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) の受入と [実装メモ](../../../../../docs/memo/0191_rnd_raw_error_and_recent_learning_20impl.md) の実施記録を参照する。
 
 ## 既存挙動の比較
 

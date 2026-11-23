@@ -1,14 +1,14 @@
-# PRD128 検証資材
+# RFD0128 検証資材
 
-> この検証資材の設定キーは PRD191 より前の名前です。
+> この検証資材の設定キーは RFD0191 より前の名前です。
 
-正本は [PRD128](../../../../../docs/memo/0128_dqn_agent_refactor_bundle_10rfd.md)、結果は [実装メモ](../../../../../docs/memo/0128_dqn_agent_refactor_bundle_20impl.md) に記録する。
+正本は [RFD0128](../../../../../docs/memo/0128_dqn_agent_refactor_bundle_10rfd.md)、結果は [実装メモ](../../../../../docs/memo/0128_dqn_agent_refactor_bundle_20impl.md) に記録する。
 
-`run_validation.py` は PRD125 の実行・入力生成・scalar 正規化・suite・性能の検査を呼ぶ。原本の資材は変えない。保存先は `.scratch/rfd0128/acceptance/` で、既存 label の上書きは拒否する。
+`run_validation.py` は RFD0125 の実行・入力生成・scalar 正規化・suite・性能の検査を呼ぶ。原本の資材は変えない。保存先は `.scratch/rfd0128/acceptance/` で、既存 label の上書きは拒否する。
 
 ## 基準と入力
 
-実装前の Debug・Release を AGENTS.md の MSVC 初期化経由でビルドし、`snapshot` で実行体・DLL・設定・core テストを保存する。PRD129 適用後を基準にする。`prepare` は保存した GUI テストから設定を解決し、PRD125 の FP32 31 組、LunarLander/Atari の RND、DropMerge の全診断購読を凍結する。6 群の有限点の不足があれば U3 の追加構成を確定して記録する。
+実装前の Debug・Release を AGENTS.md の MSVC 初期化経由でビルドし、`snapshot` で実行体・DLL・設定・core テストを保存する。RFD0129 適用後を基準にする。`prepare` は保存した GUI テストから設定を解決し、RFD0125 の FP32 31 組、LunarLander/Atari の RND、DropMerge の全診断購読を凍結する。6 群の有限点の不足があれば U3 の追加構成を確定して記録する。
 
 条件は seed 1、8 lane、batch 16、warmup 256、replay ratio 1、8,704 experience、評価停止、決定的 backend、FP32。GridMaze/LunarLander は CPU、Atari qbert/DropMerge は CUDA。CPU は最大 4 組を並行し、CUDA は逐次実行する。
 
@@ -22,7 +22,7 @@ RND の LunarLander が終了時に保存した checkpoint から、新旧をそ
 
 ## 速さと破壊検査
 
-ステージ 1・3・4 で PRD125 の performance を呼ぶ。Release、Atari qbert、IQN、128 lane、batch 256、捨て Run 後に新旧交互 3 巡以上。変更後の中央値が基準の最大値以下を合格にする。ステージ 3 は RND を重ねる。他の Runner・test・build の実行中は測定しない。
+ステージ 1・3・4 で RFD0125 の performance を呼ぶ。Release、Atari qbert、IQN、128 lane、batch 256、捨て Run 後に新旧交互 3 巡以上。変更後の中央値が基準の最大値以下を合格にする。ステージ 3 は RND を重ねる。他の Runner・test・build の実行中は測定しない。
 
 指標の並び替えの破壊検査は、共通型に載る群と載らない群を選び、隣接 2 指標の交換でビルドが止まることと、復元後にビルドが成功することを記録する。
 

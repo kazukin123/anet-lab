@@ -1,4 +1,4 @@
-# 多数の seed で打席を稼ぐ（条件付きの打ち切りで、火が付かなかった Run を早く止める）暫定 PRD
+# 多数の seed で打席を稼ぐ（条件付きの打ち切りで、火が付かなかった Run を早く止める）暫定 RFD
 
 > 2026-11-17 番号を 955 から 175 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 955 へ振り直した（PRD114）。
@@ -26,9 +26,9 @@ Run の途中の決めた時点で、指標の条件を確かめ、満たさな�
 
 ## 2. 背景
 
-- KFM の実時間優先（既定）で、ボス行きに入ったのは 5 本中 1 本（seed 3、`run_20260925-130017_atari_kfm_rr1_100m_seed3`）。seed 2 との設定の差は `run.seed` だけだった。のちの既定の 10M × 16 seed を含めると、約 20 本に 1 本になる（[173_intrinsic_reward_novelty](0173_intrinsic_reward_novelty_10rfd.md) の §2.3）。
+- KFM の実時間優先（既定）で、ボス行きに入ったのは 5 本中 1 本（seed 3、`run_20260925-130017_atari_kfm_rr1_100m_seed3`）。seed 2 との設定の差は `run.seed` だけだった。のちの既定の 10M × 16 seed を含めると、約 20 本に 1 本になる（[0173_intrinsic_reward_novelty](0173_intrinsic_reward_novelty_10rfd.md) の §2.3）。
 - seed 3 の学習中のゲームは、3-4M にボス命中 10%・撃破 ÷ 命中 0.03、4-5M に命中 51%・撃破 ÷ 命中 0.24、6-7M に 0.71、11-16M に 0.9。
-- 挑むことは珍しくない。既定の 10M × 16 seed（s04〜s19）では、0.5M 窓の命中率のピークが 10% 以上の Run が 7 本あったが、挑んでいる間に撃破 ÷ 命中が上がった Run は無く、定着した Run も無かった。s08 は挑み始めの撃破 ÷ 命中が 0.22 と seed 3 とほぼ同じだったが、下がって 7.5M 以降は挑まなかった。壁は挑み始めることではなく、挑んでいる間に勝ち方を覚えることにある（[173_intrinsic_reward_novelty](0173_intrinsic_reward_novelty_10rfd.md) の §2.2・§2.3、[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の探索ブロック 04）。当初は「火が付くのは稼ぎの戦略が固まる 5M ごろまでで、付けば数 M で勝率が上がる」と書いたが、この 16 seed で覆った。
+- 挑むことは珍しくない。既定の 10M × 16 seed（s04〜s19）では、0.5M 窓の命中率のピークが 10% 以上の Run が 7 本あったが、挑んでいる間に撃破 ÷ 命中が上がった Run は無く、定着した Run も無かった。s08 は挑み始めの撃破 ÷ 命中が 0.22 と seed 3 とほぼ同じだったが、下がって 7.5M 以降は挑まなかった。壁は挑み始めることではなく、挑んでいる間に勝ち方を覚えることにある（[0173_intrinsic_reward_novelty](0173_intrinsic_reward_novelty_10rfd.md) の §2.2・§2.3、[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の探索ブロック 04）。当初は「火が付くのは稼ぎの戦略が固まる 5M ごろまでで、付けば数 M で勝率が上がる」と書いたが、この 16 seed で覆った。
 - 報酬クリップを外す、ライフで区切る、ε を下げる、UQE にする、などの設定では、1 本ずつの Run でボス行きに入らなかった（2026-10-14〜18）。1 本ずつでは seed の当たり外れと区別できない。
 - 公表値では、KFM で 20 万点を超えるのは R2D2・NGU・Agent57・MuZero など、Actor が数百・フレームが数十億〜数百億の分散学習ばかりで、200M フレーム級の DQN 系はどれも 8 万点未満（Atari-5 の公開データ）。打席の数が桁違いであることが共通している。
 - 2026-10-18 に、13 bat で既定の実時間優先・10M・seed 4〜19 の 16 本を回した（1 本約 1.5 時間）。結果は上の項のとおり。挑み方が良い Run を続けるには、今は最初から回し直すしかない。
@@ -37,7 +37,7 @@ Run の途中の決めた時点で、指標の条件を確かめ、満たさな�
 
 - Run の終わりは、`app.*.train_exit_step` と `exp_exit_step` の 2 つだけで、RunnerApp の学習の 1 step 前の関数で判定し、`ControlSignal::STOP` と終了要求を出す（[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp)）。指標の値で終える仕組みは無い。
 - チェックポイントからの再開（`A3.auto_load_file`）は、重みと optimizer だけを戻し、replay・step の数え方・評価の予定は戻らない（[143](0143_serialize_10rfd.md)、`docs/design/020_user_guide_run.jp.md`）。火が付いた Run を「10M で止めて、あとで続ける」と、火を支えていた replay の中身を失う。
-- KFM の RAM メトリクスは、学習側の 1 ゲームごとの平均として `42_env/54_ram_metric_3_mean`（ボス命中の回数）とその EMA（`55`）が出ている（[Atari.txt](../../apps/runner/config/Atari.txt) の `M1`）。「ボスに 1 回以上当てたゲームの割合」は指標に無く、Run ログの「Game over」行から数えている。閾値越え率の汎用化は [154_scalar_threshold_rate](0154_scalar_threshold_rate_10rfd.md) が扱う。
+- KFM の RAM メトリクスは、学習側の 1 ゲームごとの平均として `42_env/54_ram_metric_3_mean`（ボス命中の回数）とその EMA（`55`）が出ている（[Atari.txt](../../apps/runner/config/Atari.txt) の `M1`）。「ボスに 1 回以上当てたゲームの割合」は指標に無く、Run ログの「Game over」行から数えている。閾値越え率の汎用化は [0154_scalar_threshold_rate](0154_scalar_threshold_rate_10rfd.md) が扱う。
 - bat は、前の Run の終了コードとフォルダを見て次へ進む（`:run_exe` と `:find_ckpt`）。打ち切りで終えた Run も、終了コード 0 なら成功として数えられる。
 - RTX 4060 機（RAM 32GB）は、replay 2M の Run を 1 本ずつしか回せない（1 本で約 14GB）。
 
@@ -70,7 +70,7 @@ Run の途中の決めた時点で、指標の条件を確かめ、満たさな�
 | --- | --- | --- |
 | PBT（成績の良い個体の重みを悪い個体へコピーし、ハイパーパラメータをずらす） | 先送り | 個体を並行して回す計算機が要る（RTX 4060 機は 1 本ずつ）。点数で選ぶと、覚えている途中のボス行きを捨てる（seed 3 の eval2 は 10-15M 24.2k・15-20M 29.1k で、稼ぎの seed 1 の 30.1k・38.8k より低く、上回るのは 20M 以降）。並列の計算機と、点数以外の選ぶ基準が揃ってから起こす |
 | 10M で止めた Run を後から続ける | 先送り | replay を含めた保存と再開（[143](0143_serialize_10rfd.md)）が要る。段階 1 では、続ける Run は止めずに走らせる |
-| 規則で止める以外の動作（設定を変える、評価を増やす） | 対象外 | 設定を動かすのは [152_metric_targeted_hyperparam_control](0152_metric_targeted_hyperparam_control_10rfd.md) の側 |
+| 規則で止める以外の動作（設定を変える、評価を増やす） | 対象外 | 設定を動かすのは [0152_metric_targeted_hyperparam_control](0152_metric_targeted_hyperparam_control_10rfd.md) の側 |
 | 打ち切った Run の削除 | 対象外 | Run の削除はユーザーが行う（AGENTS.md の Run 命名・後片付けルール） |
 
 ## 7. 決めること（詳細設計で詰める）
@@ -82,7 +82,7 @@ Run の途中の決めた時点で、指標の条件を確かめ、満たさな�
 | 1 | 設定キー | `app.batchrun.metric_exit.[<規則名>].tag`（スカラーの tag）、`.at_exp_step`（正の整数）、`.window`（直近の点数、正の整数）、`.op`（`ge` / `le`。続ける条件）、`.threshold`（実数）。online の実行でも同じキーを `app.online.*` に置けるようにするか |
 | 2 | 不正値の扱い | 未知の `op`、正でない `at_exp_step` や `window`、非有限の `threshold`、購読されていない tag は構築時に fail-fast |
 | 3 | 指標の値の取り方 | スカラーの観測の仕組みに「直近の値を読む口」を足すか、規則専用の observer を同じ定義から作るか |
-| 4 | KFM の規則に使う指標 | 「学習側でボスに 1 回以上当てたゲームの割合」（閾値越え率。154_scalar_threshold_rate の仕組みか、RAM メトリクスの平均の EMA で代える）。既定の閾値 0.3（seed 3 は 4-5M で 0.51） |
+| 4 | KFM の規則に使う指標 | 「学習側でボスに 1 回以上当てたゲームの割合」（閾値越え率。0154_scalar_threshold_rate の仕組みか、RAM メトリクスの平均の EMA で代える）。既定の閾値 0.3（seed 3 は 4-5M で 0.51） |
 | 5 | RAM の値を実験の選別に使ってよいか | RAM はメトリクスとして読むだけという方針（2026-10-16）に対し、学習ではなく「どの Run を続けるか」の選別に使うのは境界にある。グリルでユーザーが裁定する。使わない場合は、ゲームに依らない指標（学習中のエピソードの長さなど）で代える |
 | 6 | 打ち切りの記録の形 | Run ログの 1 行と、Run フォルダの `metric_exit.json`（規則名・exp step・指標の値・閾値） |
 | 7 | 評価の排水 | `exp_exit_step` と同じ扱い（実行中の評価セッションの排水は既存の規則のまま） |
@@ -104,4 +104,4 @@ Run の途中の決めた時点で、指標の条件を確かめ、満たさな�
 
 ## 9. 依存と順序
 
-依存は無い。KFM の規則に閾値越え率を使う場合は、[154_scalar_threshold_rate](0154_scalar_threshold_rate_10rfd.md) との順序を決める（RAM メトリクスの平均の EMA で代えるなら依存しない）。
+依存は無い。KFM の規則に閾値越え率を使う場合は、[0154_scalar_threshold_rate](0154_scalar_threshold_rate_10rfd.md) との順序を決める（RAM メトリクスの平均の EMA で代えるなら依存しない）。

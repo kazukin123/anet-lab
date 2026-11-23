@@ -1,4 +1,4 @@
-# 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 暫定 PRD
+# 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 暫定 RFD
 
 > 2026-11-17 番号を 924 から 173 へ振り直した（PRD131）。
 > 2026-11-10 関連に [121](0121_extrinsic_intrinsic_value_decomposition_10rfd.md) を足した。121 は外的と内的の価値の分解と、外的と内的を分けて Replay に記録する口を先に作る暫定 PRD で、§8 の 2（条件付きの外的・内的価値分解）、11（外的と内的を分けて保存する）、15（目標値と PER の優先度の揃え方）の一部に当たる。関係は 121 §6。あわせて §2.7 の 923 へのリンクの文字に残っていた旧番号 999 を 923 に直した。ほかの本文と §8 の未決表は変えていない。
@@ -37,10 +37,10 @@
 
 - ゲーム固有の知識で報酬を作ること（RAM の値への報酬、ボス体力の減りへのシェーピング）。ユーザーの裁定で採らない（§2.4）。RAM メトリクスは効き目を測るためだけに使う。
 - 環境の仕様を変えること。KFM の途中の状態からの開始（§2.4 の裁定）と、GridMaze の学習時の開始位置を到達できるセル全体からばらすこと・迷路の盤面を観測に入れること（2026-10-24 のユーザーの方針: Env 固有の前提を入れず、Agent 側のアルゴリズムで対策する）を含む。どれも技術上の制約ではなくユーザーの裁定なので、裁定が変われば移せる。GridMaze の位置や盤面は、効き目を測るためだけに使う（§9.1）。
-- 実行時に、そのエピソードの経験で価値を補正する仕組み（EVA 型）と、eval の遷移（EvalPanel の手操作を含む）を学習に流すこと。学習の分布の外へ連れて行かれたときの備えだが、学習のデータの分布を広げる本 PRD とは別の関心なので別 PRD にする（§6）。
-- 認識論的な不確かさ（アンサンブル）による楽観。別の機構なので、必要になったら別 PRD にする（§6）。
-- LLM の好みを内的報酬にする方式（Motif 型）。[174_llm_actor_10prd.md](0174_llm_actor_10rfd.md) と [LLM の事前知識で RL の探索と報酬を補助する手法のサーベイ](../../reports/llm_prior_knowledge_rl_survey_2026-10-18.md)（2026-10-18）の側で扱う。
-- 成功したエピソードのリターンを記憶して Q の下限にする仕組み（EMDQN 型）。別の関心なので別 PRD にする（§6）。
+- 実行時に、そのエピソードの経験で価値を補正する仕組み（EVA 型）と、eval の遷移（EvalPanel の手操作を含む）を学習に流すこと。学習の分布の外へ連れて行かれたときの備えだが、学習のデータの分布を広げる本 RFD とは別の関心なので別 RFD にする（§6）。
+- 認識論的な不確かさ（アンサンブル）による楽観。別の機構なので、必要になったら別 RFD にする（§6）。
+- LLM の好みを内的報酬にする方式（Motif 型）。[0174_llm_actor_10rfd.md](0174_llm_actor_10rfd.md) と [LLM の事前知識で RL の探索と報酬を補助する手法のサーベイ](../../reports/llm_prior_knowledge_rl_survey_2026-10-18.md)（2026-10-18）の側で扱う。
+- 成功したエピソードのリターンを記憶して Q の下限にする仕組み（EMDQN 型）。別の関心なので別 RFD にする（§6）。
 
 ## 2. 背景: KFM のボス討伐と GridMaze の学習の分布の外
 
@@ -77,7 +77,7 @@
 - **2 つの戦略がほぼ同価値。** クリップ後の 1 step あたりの報酬は、ボス行きの seed 3 が 0.042、1 面の稼ぎが 0.048。どちらに落ちるかは序盤の経験で決まる。
 - **挑むことは珍しくなく、壁は挑んでいる間の上達にある（2026-10-19〜20）。** 既定の 16 seed のうち 7 本がボスに挑んだが、撃破 ÷ 命中が上がった Run は無い。seed 3 は挑み始めの撃破 ÷ 命中が 0.24 で、その後 0.40 → 0.71 と上がった。s08 は始まりが 0.22 とほぼ同じでも上がらずに退いた。既定の設定でボス行きが定着するのは、seed 3 を含めて約 20 本に 1 本。
 - **PER は珍しい経験を強めていない。** 1 遷移が寿命中に引かれる回数の期待値は約 1.0、4 件に 1 件は一度も引かれずに消える。`per_alpha` 0.2 では優先度が 20 倍でも引かれやすさは 1.8 倍。新しい遷移は最大の優先度で入るので、初回の抽選は TD と関係しない。ボスに当てた step は報酬 0 で TD 誤差も小さいので、TD の優先度では目立たない。
-- **人間との差。** 人間がボスを倒せるのは、事前知識（目的・表示の意味・戦い方）、内的な動機（好奇心・達成感・稼ぎへの飽き・上達の見込み）、成功の記憶があるから。このうち「飽き＋好奇心」と「当てたらバーが縮んだことへの手応え」に当たるのが新しさのボーナスで、本 PRD の対象である。事前知識は [174_llm_actor_10prd.md](0174_llm_actor_10rfd.md)、成功の記憶は EMDQN 型の価値の下限・SIL（未起票、§6）の側。
+- **人間との差。** 人間がボスを倒せるのは、事前知識（目的・表示の意味・戦い方）、内的な動機（好奇心・達成感・稼ぎへの飽き・上達の見込み）、成功の記憶があるから。このうち「飽き＋好奇心」と「当てたらバーが縮んだことへの手応え」に当たるのが新しさのボーナスで、本 RFD の対象である。事前知識は [0174_llm_actor_10rfd.md](0174_llm_actor_10rfd.md)、成功の記憶は EMDQN 型の価値の下限・SIL（未起票、§6）の側。
 
 ### 2.4 ユーザーの裁定（2026-10-16）
 
@@ -105,7 +105,7 @@
 | ② 目的を変えた方策の組 | 1 つのネットワークに方策の番号を入力し、β と γ の違う方策のうち 1 つを使う | NGU、Agent57 |
 | ③ 別々のパラメータ | ネットワークや価値関数そのものが別 | 独立の seed、PBT、Bootstrapped DQN の複数の Head |
 
-[NGU 原論文の付録 A「Distributed training」](https://arxiv.org/pdf/2002.06038#page=14) は、各 Actor に固定の β を割り当てる。方策の組を使うことと、いつ方策を選び直すかは別の選択である。本 PRD ではユーザー指定に従い、lane ごとのエピソード開始時に方策を選ぶ（§4.1）。
+[NGU 原論文の付録 A「Distributed training」](https://arxiv.org/pdf/2002.06038#page=14) は、各 Actor に固定の β を割り当てる。方策の組を使うことと、いつ方策を選び直すかは別の選択である。本 RFD ではユーザー指定に従い、lane ごとのエピソード開始時に方策を選ぶ（§4.1）。
 
 - KFM で seed 3 だけがボス行きに入ったのは ③ の違い（設定の差は `run.seed` だけ）で、ネットワークが別の谷に落ちた。seed 3 は 3-4M にボス命中 10%・撃破 ÷ 命中 0.03 だったのが、4-5M に命中 51% へ跳ね、6-7M に撃破 ÷ 命中 0.71、11-16M に 0.9 まで上がった。
 - ① では「ボスを練習し続ける性格」は生まれなかった。2026-10-17 の UQE（低い ε）の Run で、4〜12M のボス命中を lane の 4 区分で見ると 7.1% / 7.6% / 10.8% / 10.2% とほぼ一様で、lane ごとの τ の違いがあっても全 lane が 1 つの戦略として挑み、1 つの戦略として撤退した。
@@ -120,7 +120,7 @@
 - 観測は位置の (x, y) を 0〜1 に正規化した 2 次元のベクトルだけ（[GridMazeEnv.cpp](../../src/env/gridmaze/src/GridMazeEnv.cpp) の `GetObservation`）。迷路は固定の seed で毎回同じなので（[GridMaze.txt](../../apps/runner/config/GridMaze.txt) の `GridMazeEnv.randomize_seed ?= false`）、壁の配置は観測に無く、ネットワークの重みに覚え込まれる。
 - 開始位置は (0, 0) に固定（同 `GridMazeEnv.init_pos_x ?= 0`・`GridMazeEnv.init_pos_y ?= 0`）。学習のデータは (0, 0) から出た軌跡だけになる。
 - 学習と評価の方策は UQE、Body は 2 層の MLP（同 `A1.actor.[train].policy.policy_type = UQE`・`A1.actor.[eval].policy.policy_type = UQE`・`DefaultDQNAgent.net.body.$ = net.body.@MLP2`）。
-- 手操作の step は、EvalPanel が eval の runner へ行動を渡すだけで（[EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) の `DoStep(int64_t action)`）、eval の runner は Learner を呼ばないので、その遷移は学習に入らない（[160_input_target_train_forced_action §1.1](0160_input_target_train_forced_action_10rfd.md)）。
+- 手操作の step は、EvalPanel が eval の runner へ行動を渡すだけで（[EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) の `DoStep(int64_t action)`）、eval の runner は Learner を呼ばないので、その遷移は学習に入らない（[0160_input_target_train_forced_action §1.1](0160_input_target_train_forced_action_10rfd.md)）。
 - 壁や盤の外へ向かう行動では位置が変わらない（GridMazeEnv.cpp の `Step`）。手操作の step もエピソードの step 数に数えられ、`max_steps`（既定 100）で打ち切られる。
 
 **見立て（Run では未確認）。**
@@ -158,10 +158,10 @@
 
 ## 3. 現状（2026-10-27 に関連文書・コードを確認）
 
-- 内的報酬は本 PRD で追加する機能である。[048](done/0048_quantile_tail_metrics_10rfd.md) の量子化分布の指標とは別の関心になる。既存 Q 学習の位置は [DQN 系 Agent 設計](../design/200_dqn_agents.jp.md) を参照する。
+- 内的報酬は本 RFD で追加する機能である。[048](done/0048_quantile_tail_metrics_10rfd.md) の量子化分布の指標とは別の関心になる。既存 Q 学習の位置は [DQN 系 Agent 設計](../design/200_dqn_agents.jp.md) を参照する。
 - reward scaler を通してから Replay へ渡す経路がある（[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) の UpdateFromBatch）。Atari の報酬クリップは [AtariEnv.cpp](../../src/env/atari/src/AtariEnv.cpp) の Env 側で行う。内的報酬をどこで合成し、どの尺度を保存するかは §8 の 7・11 で決める。
 - Replay は **1 step ごとの報酬・終わり方・判断の旗を保持する**。[ADR 0063](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md) により、窓の規則から可変長の収益と窓の終点の観測をサンプル時に組める。旧記述の「1 step の報酬は後から取り出せない」は撤回する。
-- n-step の収益は、γ が定数なら Push 時の保存値を使い、schedule なら抽選後に保存済み step 報酬から現在の γ で作り直す（[ADR 0065](../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、[PRD101](done/0101_exploration_schedule_profiled_value_10rfd.md) D20）。これは共通の γ の経路であり、同じ学習バッチ内で方策ごとに異なる γ を使う契約は追加の検討が要る。
+- n-step の収益は、γ が定数なら Push 時の保存値を使い、schedule なら抽選後に保存済み step 報酬から現在の γ で作り直す（[ADR 0065](../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、[RFD0101](done/0101_exploration_schedule_profiled_value_10rfd.md) D20）。これは共通の γ の経路であり、同じ学習バッチ内で方策ごとに異なる γ を使う契約は追加の検討が要る。
 - [ExperienceSamples](../../src/core/base/include/anet/rl.hpp) の Q 用 next_state.next_obs は n-step 先で、window.next_obs は窓の長さ先である。unroll の行動・収益を得られることは、任意の未来観測列をそのまま取得できることを意味しない。SamplingHistoryProbeRequest は抽選履歴の診断であり、時系列観測の取得 API ではない。
 - [ReplayBufferConfig](../../src/core/base/include/anet/replay_buffer.hpp) の window_rule は 1 つで、TempoRL が使っている。長さ 1 の窓を使う案だけでは、TempoRL と Embedding 学習を同時に満たす契約は決まらない。done の最終観測の保持と autoreset の境界も含め、§8 の 10 で調べる。MuZero の [専用 Replay](../../src/algo/muzero/src/muzero_rb.hpp) の系列取得を、共通 Replay に既に存在する機能とみなさない。
 - Actor の frame stack と Replay の stack 再構成は、使う時点が異なる。[ADR 0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md) の履歴開始と [Replay 設計](../design/150_replay_buffer.jp.md) の境界を守る。短期記録用 Replay への統合は未決で、内的報酬の追加と同時に統合することは決めていない。
@@ -171,7 +171,7 @@
 
 ## 4. 提案の骨子と、今回整理した要件
 
-「確定」は本件でユーザーが指定した方針、「基準案」は以後の PRD 精査の出発点を表す。未決表の候補や数値を、確定済みの実装契約として扱わない。旧版の段階 1〜3 は、評価のゴールと整合しなかったため、そのまま実装順には使わない（§10）。
+「確定」は本件でユーザーが指定した方針、「基準案」は以後の RFD 精査の出発点を表す。未決表の候補や数値を、確定済みの実装契約として扱わない。旧版の段階 1〜3 は、評価のゴールと整合しなかったため、そのまま実装順には使わない（§10）。
 
 ### 4.1 確定した方向
 
@@ -263,7 +263,7 @@ Retrace なしでもエピソード内ボーナス・RND・条件付き Q の組
 - 逆動力学の教師行動と直前行動には、保持中の行動を含む **Env へ渡した行動** を使う。forward が提案したが SKIP により採用されなかった行動を使わない。ALE の sticky action による内部の行動変更は別の確率性であり、取得できない内部行動を教師とする前提を置かない。
 - skip の価値も、選択中の i に対応する目的で学ぶ。i を含む primary の特徴経由で渡すか、skip 側へ明示して渡すかは未決。
 - 長さ k の窓の収益と終点の primary Q の bootstrap は同じ β_i・γ_i を使い、割引の回数は実際の区間長に合わせる。判断境界を越えて、たまたま同じ行動が続いた部分を連結しない。
-- [ADR 0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md) の primary／skip の役割と、[ADR 0063](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md) の 1 つの Replay に step 記録を持つ形を出発点とする。これを変更する案を採るときは、どの判断を変更するかを PRD 精査で示す。
+- [ADR 0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md) の primary／skip の役割と、[ADR 0063](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md) の 1 つの Replay に step 記録を持つ形を出発点とする。これを変更する案を採るときは、どの判断を変更するかを RFD 精査で示す。
 
 ### 4.9 並列学習、保存・再開
 
@@ -295,12 +295,12 @@ Retrace なしでもエピソード内ボーナス・RND・条件付き Q の組
 | Retrace | 主要な off-policy 補正候補。初期導入の採否は §8 の 14。既存 n-step との差を測る場合は同じ経験予算・学習比率で比較する |
 | Agent57 の方策選択 | 成績に応じて方策の選択頻度を変える拡張。初期の割り当て結果を測ってから、均等・固定比率との比較を検討する |
 | 外的・内的の価値分解 | §8 の 2 で比較する候補。方策入力なしの 2 Head は、採用済みでも原論文 Agent57 と同一でもない。内的価値を非終端にする RND 論文の構成も別の判断 |
-| Bootstrapped DQN | パラメータの異なる価値群による不確かさは別の関心。[既存 PRD](0172_bootstrapped_multihead_q_10rfd.md) による |
+| Bootstrapped DQN | パラメータの異なる価値群による不確かさは別の関心。[既存 RFD](0172_bootstrapped_multihead_q_10rfd.md) による |
 | EMDQN・SIL | 成功経験を忘れない仕組みは別の関心。必要性が確認されたときに検討する。将来の共有を理由に、今回の新規性記憶を k 近傍の入れ物へ固定しない |
-| EVA 型の実行時補正 | 学習の分布を広げても届かない状態が残る場合の別の関心。既存構造の変更で作ることは技術的には可能だが、本 PRD のゴールに含めない |
+| EVA 型の実行時補正 | 学習の分布を広げても届かない状態が残る場合の別の関心。既存構造の変更で作ることは技術的には可能だが、本 RFD のゴールに含めない |
 | 学習用と短期記録用の Replay の統合設計 | 履歴管理を整理する独立した設計案。Actor の履歴、エピソード内の記憶、学習 Replay は寿命・目的が違うため、同じ入れ物への統合を今回の前提にしない（§8 の 12） |
-| ICM、LLM のボーナス | ICM の forward 予測誤差はこの PRD では採らず、逆動力学の特徴学習を使う。LLM は [対 PRD](0174_llm_actor_10rfd.md) の関心。技術的な非対応ではなく実験対象の選択 |
-| Env の変更・eval 遷移の学習 | §1 のユーザー裁定を維持する。RAM や位置は評価専用。人の操作を学習へ流す機構は [別 PRD](0160_input_target_train_forced_action_10rfd.md) |
+| ICM、LLM のボーナス | ICM の forward 予測誤差はこの RFD では採らず、逆動力学の特徴学習を使う。LLM は [対 RFD](0174_llm_actor_10rfd.md) の関心。技術的な非対応ではなく実験対象の選択 |
+| Env の変更・eval 遷移の学習 | §1 のユーザー裁定を維持する。RAM や位置は評価専用。人の操作を学習へ流す機構は [別 RFD](0160_input_target_train_forced_action_10rfd.md) |
 
 ## 7. 精査時に使う計算・既存接続の参考
 
@@ -385,8 +385,8 @@ Q^{ret}_t=Q(u_t,a_t,i)+
 | [default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) | Env の遷移を受ける。内的報酬の算出時点と Replay への保存内容 |
 | [dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp)・[同ヘッダ](../../src/core/base/src/dqn_based_agent.hpp) | Actor の条件付け、primary／skip の学習、補助ネットワークの更新・保存 |
 | [rl.hpp](../../src/core/base/include/anet/rl.hpp)・[replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp)・[実装](../../src/core/base/src/replay_buffer_impl.cpp) | 履歴・1-step 観測・方策ごとの割引を受け渡す。汎用 Replay に NGU／E3B の判定を持ち込まない |
-| [DQN 設計](../design/200_dqn_agents.jp.md)・[Replay 設計](../design/150_replay_buffer.jp.md)・[Actor 設定 PRD](done/0083_action_context_retire_10rfd.md) | 現行契約との整合、Actor ごとの設定と学習側の責任 |
-| [TempoRL PRD](0098_temporl_skip_policy_10rfd.md)・[schedule PRD](done/0101_exploration_schedule_profiled_value_10rfd.md) | 窓の共有、方策別 γ と時間で変わる γ の組み合わせ |
+| [DQN 設計](../design/200_dqn_agents.jp.md)・[Replay 設計](../design/150_replay_buffer.jp.md)・[Actor 設定 RFD](done/0083_action_context_retire_10rfd.md) | 現行契約との整合、Actor ごとの設定と学習側の責任 |
+| [TempoRL RFD](0098_temporl_skip_policy_10rfd.md)・[schedule RFD](done/0101_exploration_schedule_profiled_value_10rfd.md) | 窓の共有、方策別 γ と時間で変わる γ の組み合わせ |
 | [agent.txt](../../apps/runner/config/agent.txt)・[Atari.txt](../../apps/runner/config/Atari.txt)・[GridMaze.txt](../../apps/runner/config/GridMaze.txt) | 実装時の設定・実験腕と観測別 NN の定義。既存定義を今回編集する指示ではない |
 | [core のテスト](../../src/core/base)・[設計文書](../design) | 現行契約に関わるテスト・利用手順も実装と同じ変更で更新する。具体的なテストファイルの一覧は接続契約を決めてから確定する（§8 の 22） |
 
@@ -398,9 +398,9 @@ NGU は保持件数 M・特徴次元 d に対して概ね BMd の距離計算と
 
 旧案の「速度低下 15% 以内」は暫定候補で、合意済みの受入値ではない。モデル別の forward／backward、重みコピー、記憶操作、CPU 待ちを分けて試作で測り、既存との割合と実時間を出して §8 の 19 で予算を決める。性能予算の半分を超える見積もりとなる構成は、採用前に試作で測る。未測定のまま「E3B の方が速い」「stream 分割で改善する」と確定しない。
 
-## 8. 決めること（PRD 精査の未決表）
+## 8. 決めること（RFD 精査の未決表）
 
-本改訂は、会話の論点を既存の暫定 PRD へ統合する依頼による。以下は未解決のまま記録し、推奨案を自動採用しない。旧 §8 の数値・設定キーは暫定候補だったため、この表で再整理する。未決の解消を省略して実装へ進まない。
+本改訂は、会話の論点を既存の暫定 RFD へ統合する依頼による。以下は未解決のまま記録し、推奨案を自動採用しない。旧 §8 の数値・設定キーは暫定候補だったため、この表で再整理する。未決の解消を省略して実装へ進まない。
 
 | # | 未解決の事項 | 基準案・候補と、決めるための確認 |
 | --- | --- | --- |
@@ -426,7 +426,7 @@ NGU は保持件数 M・特徴次元 d に対して概ね BMd の距離計算と
 | 20 | 設定・用語・メトリクス | 方式、合成、学習頻度、方策の組、記憶、統計の設定を分ける。旧 intrinsic.type と群番号 56 は候補にとどめ、現用定義と照合する。「内的報酬」「エピソード内新規性」「方策インデックス」を CONTEXT に確定する時期も決める |
 | 21 | 実験と合否 | §9 の比較腕、seed 数、Env step／ALE frames／learn step の予算、打切り、指標の集約と数値閾値を確定する。KFM と GridMaze の効果を未実施のまま採用理由にしない |
 | 22 | 公開契約と変更対象 | 役割分担の候補は §8.1。公開 API・TensorDict キー・設定名を現行の NN／Replay の仕組みに合わせて確定し、コード・設定・テスト・サンプル・設計文書の移行一覧を絞り込む。旧名の互換層は既定で作らない |
-| 23 | replay の「window」の語の見直し | `SampleWindowRule`・`ExperienceSamples.window`・`ReplayBufferConfig.window_rule` の「window」は何の窓かを示さない名で、NGU の replay の変更にあわせて名を見直す。[PRD104](done/0104_temporl_skip_auxiliary_only_10rfd.md) D1 のグリル（2026-10-29）で「窓は何の窓かを示す 2 語の組にする」と決め、Learner 側のキーは `target_window` にしたが、replay 側の名はそのまま残した。PRD104 の工程末に記録 |
+| 23 | replay の「window」の語の見直し | `SampleWindowRule`・`ExperienceSamples.window`・`ReplayBufferConfig.window_rule` の「window」は何の窓かを示さない名で、NGU の replay の変更にあわせて名を見直す。[RFD0104](done/0104_temporl_skip_auxiliary_only_10rfd.md) D1 のグリル（2026-10-29）で「窓は何の窓かを示す 2 語の組にする」と決め、Learner 側のキーは `target_window` にしたが、replay 側の名はそのまま残した。RFD0104 の工程末に記録 |
 
 ### 8.1 役割とクラスの暫定一覧
 
@@ -493,9 +493,9 @@ Env step と ALE frames を区別し、経験予算・学習比率・seed を揃
 
 実装順は未決である。エピソード内ボーナスだけを比較する腕は必要だが、β=0 の評価と探索からの直接学習を後回しにしたまま、GridMaze のゴールを満たしたとはしない。RND はエピソード内だけとの比較を成立させる独立の腕であり、RND 単独はそれだけでも検証できる。
 
-今回の成果物はこの暫定 PRD の更新である。KFM・GridMaze の背景は保持し、旧案の不整合、数式の誤り、古い Replay の前提を訂正した。新しい実験、コード・設定の変更、正式採番、実装計画の作成は行わない。既存資料は出典として保持し、未決は §8 を正本とする。
+今回の成果物はこの暫定 RFD の更新である。KFM・GridMaze の背景は保持し、旧案の不整合、数式の誤り、古い Replay の前提を訂正した。新しい実験、コード・設定の変更、正式採番、実装計画の作成は行わない。既存資料は出典として保持し、未決は §8 を正本とする。
 
-文書の検証（2026-10-27）: 本文の相対リンク先、LF、状態行の不在、対象 PRD の git diff --check を確認した。NGU の式と Embedding 更新周期は原論文の Algorithm 1・Table 6 と照合し、Replay の前提は現行の API と ADR 0063・0065 に照合した。コードを変更していないため、ビルド・学習 Run・性能測定は実施していない。§8 の未決は、ユーザーが求めた暫定 PRD に残す扱いとし、本改訂で採否を補わない。
+文書の検証（2026-10-27）: 本文の相対リンク先、LF、状態行の不在、対象 RFD の git diff --check を確認した。NGU の式と Embedding 更新周期は原論文の Algorithm 1・Table 6 と照合し、Replay の前提は現行の API と ADR 0063・0065 に照合した。コードを変更していないため、ビルド・学習 Run・性能測定は実施していない。§8 の未決は、ユーザーが求めた暫定 RFD に残す扱いとし、本改訂で採否を補わない。
 
 ## 11. 参照
 

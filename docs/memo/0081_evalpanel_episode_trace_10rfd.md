@@ -1,4 +1,4 @@
-# EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る PRD
+# EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る RFD
 
 > 起点: 2026-09-23、kung_fu_master 100M Run の EvalPanel を録画と突き合わせようとしたが、EvalPanel のゲームは metrics / trace に 1 本も残っておらず、スコア分布の断絶（74,900 → 84,200）を越えたゲームがあったかを後から確かめられなかったこと。
 > 改訂: 2026-09-24 グリル（`/grill-with-docs`、9 問）で §1.4 の前提修正（EvalPanel の trace `step` は学習 `exp_step` にならない）と裁定。2026-09-26 再グリル: 起動時宣言（旧 D2。`CreateEvalRunner` 撤去）と定義レコードの `env_name` 欄（旧 D5）を取り下げ、`CreateEvalRunner` を残す原案 A1 の形へ戻した。突き合わせは序数の手順から trace 行の `timestamp` へ変更（ADR 0037 の行契約を改訂）。ログ prefix は `env.[<Env name>].[<lane>]:` 記法に追従。決定の記録は ADR 0047。
@@ -32,7 +32,7 @@ EvalPanel はデモ用のパネルで、`RunnerFrame::Initialize` が `RunManage
 
 ### 1.3 trace 行は時刻を持たない
 
-trace 行は `tag` / `step` / `lane` と `data` だけで、時刻を持たない（ADR 0037 / PRD 069 D6「scalar と同じ最小形」）。ログ行は時刻を持つが通し番号を持たない。序数（CONTEXT.md「序数」）で k 番目同士を対応させる手順は組めるが、録画の時刻から該当ゲームを引くたびにログと trace の両方を数えることになる。
+trace 行は `tag` / `step` / `lane` と `data` だけで、時刻を持たない（ADR 0037 / RFD0069 D6「scalar と同じ最小形」）。ログ行は時刻を持つが通し番号を持たない。序数（CONTEXT.md「序数」）で k 番目同士を対応させる手順は組めるが、録画の時刻から該当ゲームを引くたびにログと trace の両方を数えることになる。
 
 一方、`type:"json"` のレコードは既に `timestamp`（`MetricsLogger::GetCurrentTimeStr()`、`%Y-%m-%dT%H:%M:%S`、ローカル時刻、秒精度）を持ち（[metrics_logger.cpp:645](../../src/core/base/src/metrics_logger.cpp#L645)）、Metrics Viewer の cache は `json_lines.timestamp` 列を持ち、ingest は `timestamp` を汎用に拾う（[MetricsIngestor.java:329](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/service/MetricsIngestor.java#L329)、同 351）。trace 行に同じ欄を足せば、trace 1 行で「いつ・何が」が閉じる。
 
@@ -56,7 +56,7 @@ configured eval は `RunSession(event_counts)` の冒頭で `Sync(event_counts)`
 - trace 定義レコードは 9 欄（`step_axis / runner / scope / eval_name / eval_episodes / num_envs / event / target / keys`。[observers.cpp:1321](../../src/core/base/src/observers.cpp#L1321)）。`eval_episodes` / `num_envs` は `std::optional` で `null` を書ける。
 - `inspect_run.py trace-csv` の固定列は `row_no, run, tag, step, lane`（inspect_run.py:53）。`_trace_fields` は `tag / step / lane / data` を検証して返す（同 1005-1020）。
 - 手動行動の経路は RunnerFrame がハンドラを繋ぐ `EvalPanel::DoStep(action)` の 1 本（RunnerFrame.cpp:477-480 → EvalPanel.cpp:160-167）で、今は何もログしない（pause / resume は `LOG::info` で時刻付きに残る）。
-- ゲーム完了ログ（`RecordGameCompletion`、`Game over.` / `Game truncated by max_episode_frames.`、prefix は `env.[<Env name>].[<lane>]:`）と PRD 082 の `ram_metric.[n]` は未コミット差分にある。Atari.txt の trace 4 行へのキー追加はまだである。
+- ゲーム完了ログ（`RecordGameCompletion`、`Game over.` / `Game truncated by max_episode_frames.`、prefix は `env.[<Env name>].[<lane>]:`）と RFD0082 の `ram_metric.[n]` は未コミット差分にある。Atari.txt の trace 4 行へのキー追加はまだである。
 
 ## 2. ゴール / 非ゴール
 
@@ -70,7 +70,7 @@ configured eval は `RunSession(event_counts)` の冒頭で `Sync(event_counts)`
 **非ゴール:**
 
 - **NG1**: EvalPanel の scalar metrics。人が開始・停止し、QValuePanel から手で行動も打てるので、系列として読むと eval の測定値と誤読される。dormant tag に結び付いた scalar は現行どおり捨てる。
-- **NG2**: ゲーム固有の進行情報の新設。PRD 082 の `ram_metric.[n]` が Atari.txt の trace 行に入ったら、本 PRD の行もキー列を揃えるだけ（§3.7）。
+- **NG2**: ゲーム固有の進行情報の新設。RFD0082 の `ram_metric.[n]` が Atari.txt の trace 行に入ったら、本 RFD の行もキー列を揃えるだけ（§3.7）。
 - **NG3**: 144 の `EpisodeId` 全体（ReplayBuffer までの伝播）と trace 行の `episode_id` 欄（ADR 0037 のゲート）。
 - **NG4**: Metrics Viewer 側の trace 表示。
 - **NG5**: 突き合わせのための明示キー（`game_index` 等）と序数結合の手順の文書化。時刻で足りる。
@@ -80,7 +80,7 @@ configured eval は `RunSession(event_counts)` の冒頭で `Sync(event_counts)`
 
 ## 3. 確定契約
 
-### 3.1 用語（CONTEXT.md。本 PRD と同じ変更で改訂）
+### 3.1 用語（CONTEXT.md。本 RFD と同じ変更で改訂）
 
 - **鏡写しインスタンス（mirror eval instance）**（新語）: configured eval tag の内容（run_mode / env overlay / actor）を参照して、アプリケーションが名前を付けて `CreateEvalRunner(name, tag)` で作る 1 lane の EvalRunner インスタンス。タグ自身のインスタンス（configured eval）とは別で、eval schedule に駆動されず評価セッションを持たない。人が開始・停止・手動操作するので scalar の購読先にはならず、タグが dormant のときだけ最初に作られた鏡写しが trace の購読先になる。EvalPanel が唯一の利用者。_Avoid_: 動的 Eval、EvalPanel runner（アプリ側の名前）、ad-hoc eval / on-demand eval。
 - **dormant** に追記: dormant タグを参照する scalar は WARN で skip。trace は鏡写しインスタンスがあればそこへ結び付き、無ければ同じく WARN で skip。
@@ -132,14 +132,14 @@ metrics.trace.@atari.[54_evalpanel/episode] = $eval.[eval_panel] @episode_end $e
 ```
 
 - 番号は `42_env`（train）/ `51`〜`53`（eval）の次で `54`。既定 ON（Atari.txt は online 観戦構成が既定。batchrun で EvalPanel を動かさなければ行は出ない）。
-- キー列は `52_eval2/episode` 行と同じにする。PRD 082 で `ram_metric.[1] ram_metric.[2] ram_metric.[3]` が 51〜53 行に入ったら本行も揃える（同じ Env なので同じキーが取れる）。
+- キー列は `52_eval2/episode` 行と同じにする。RFD0082 で `ram_metric.[1] ram_metric.[2] ram_metric.[3]` が 51〜53 行に入ったら本行も揃える（同じ Env なので同じキーが取れる）。
 - Atari.txt の「デモ専用パネルなので … eval_panel は metrics を 1 つも出さない（51/52/53 はいずれも別の eval 定義に紐づく）ので、記録側の値には混ざらない」を「scalar は出さず trace（54）だけ出す。51/52/53 は別の eval 定義に紐づくので混ざらない」へ直す。
 - 他 env（DropMerge / GridMaze / LunarLander / ImageCls）は trace 宣言自体が無いので足さない（069 と同じ方針）。common.txt は変更なし。
 
 ### 3.8 帰結として決めたこと
 
 - batchrun でも鏡写しは生成される（現行どおり）。`auto_start=false` なら Step が進まないので行は出ないが、定義レコードには載る（§3.3）。
-- 鏡写しの trace は `episodic_life=false`（既定の `run.eval.[eval_panel].env.episodic_life = false`）でゲーム完了 = episode 終端になる。`episodic_life=true` の tag を鏡写しにすると、ライフ喪失の終端でも行が出て `game_score` は `null`。これは train の `42_env` と同じ挙動で、本 PRD では変えない。
+- 鏡写しの trace は `episodic_life=false`（既定の `run.eval.[eval_panel].env.episodic_life = false`）でゲーム完了 = episode 終端になる。`episodic_life=true` の tag を鏡写しにすると、ライフ喪失の終端でも行が出て `game_score` は `null`。これは train の `42_env` と同じ挙動で、本 RFD では変えない。
 
 ## 4. 実装ノート
 
@@ -172,11 +172,11 @@ metrics.trace.@atari.[54_evalpanel/episode] = $eval.[eval_panel] @episode_end $e
 
 ## 6. 文書同期
 
-### 6.1 今回の文書改訂（本 PRD と同じ変更）
+### 6.1 今回の文書改訂（本 RFD と同じ変更）
 
 | 文書 | 変更 |
 |---|---|
-| 本 PRD | 再グリル反映（§1.3、§2 NG5/NG8、§3.2〜3.5、§5、§8） |
+| 本 RFD | 再グリル反映（§1.3、§2 NG5/NG8、§3.2〜3.5、§5、§8） |
 | `CONTEXT.md` | 「鏡写しインスタンス」の定義を `CreateEvalRunner` で作る形へ。dormant / 学習側 counts の追記は維持 |
 | `docs/adr/0047-…md` | 決定の記録（改題・書き直し） |
 | `docs/adr/0037-…md` | Consequences に `timestamp` 欄と dormant trace の保持を追記（ADR 0047 参照） |

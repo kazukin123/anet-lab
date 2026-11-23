@@ -1,6 +1,6 @@
-# PRD078 検証
+# RFD0078 検証
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 ReplayBuffer の観測履歴と bootstrap stack の整合性（履歴開始）を検証する資材。可視の単体テストと、hidden の網羅 matrix の 2 層からなる。
 
@@ -36,4 +36,4 @@ ReplayBuffer の Storage 書込み、extractor の走査、`ValidIndexManager` �
 
 - 設計: [ReplayBuffer](../../../../../docs/design/150_replay_buffer.jp.md) §2.3、§8
 - 判断: [ADR 0044](../../../../../docs/adr/0044-replay-frame-history-start-from-episode-start-at-push.md)
-- 要求: PRD 078（`docs/memo` 配下、完了後は `done/`）§7.2〜§7.4
+- 要求: RFD0078（`docs/memo` 配下、完了後は `done/`）§7.2〜§7.4

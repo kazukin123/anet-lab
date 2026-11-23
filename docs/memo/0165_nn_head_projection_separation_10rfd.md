@@ -9,9 +9,9 @@
 
 新しい射影機能を追加するとき、Body の Linear と Head 内の Linear で、構築・設定・検証の経路が分かれている。NoisyNet の検討では両方へ同じ演算を適用する必要があり、演算の共用に加えて、射影の所有や設定経路まで揃える価値があるかが論点となった。
 
-本 PRD は、Head の最終射影と出力変換をどう分担すれば、機能追加時の重複実装・設定・検証を減らせるかを比較する。現行構造は意図された設計であり、Head が重みを持つこと自体を不具合とは扱わない。NoisyNet の演算共用だけで課題が解消する可能性も含め、構造変更の必要性から評価する。
+本 RFD は、Head の最終射影と出力変換をどう分担すれば、機能追加時の重複実装・設定・検証を減らせるかを比較する。現行構造は意図された設計であり、Head が重みを持つこと自体を不具合とは扱わない。NoisyNet の演算共用だけで課題が解消する可能性も含め、構造変更の必要性から評価する。
 
-NoisyNet は既存 Head が最終射影を所有する形で進める。本 PRD の裁定・実装を NoisyNet の前提条件にしない。
+NoisyNet は既存 Head が最終射影を所有する形で進める。本 RFD の裁定・実装を NoisyNet の前提条件にしない。
 
 ## 2. 現状と用語
 
@@ -110,7 +110,7 @@ Head を重み無しにすること自体、クラス数を減らすこと自体
 
 ## 7. 正式化への昇格条件
 
-次を裁定し、選択しなかった案の理由も残してから、正式な PRD・実装計画へ進む。
+次を裁定し、選択しなかった案の理由も残してから、正式な RFD・実装計画へ進む。
 
 1. 採用案、または C を選んで構造分離を行わない判断。
 2. 対象 Agent と Head、今回含める機能と対象外。
@@ -130,4 +130,4 @@ Head を重み無しにすること自体、クラス数を減らすこと自体
 - [NetworkHead interface](../../src/core/base/include/anet/nn.hpp)、[Body Linear と module Factory](../../src/core/base/src/nn_modules.cpp)。
 - [DQN Head 群](../../src/algo/dqn/src/dqn_based_heads.cpp)、[PassThroughHead・汎用 LinearHead](../../src/core/base/src/nn_head.cpp)。
 - [Network の FP32 境界と診断](../../src/core/base/src/nn_impl.cpp)。
-- [NoisyNet PRD](done/0084_noisynet_10rfd.md): 現行 Head を維持して演算を共用する、独立した先行課題。
+- [NoisyNet RFD](done/0084_noisynet_10rfd.md): 現行 Head を維持して演算を共用する、独立した先行課題。

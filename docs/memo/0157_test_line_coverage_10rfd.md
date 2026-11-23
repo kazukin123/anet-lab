@@ -1,4 +1,4 @@
-# 行カバレッジ計測（OpenCppCoverage）暫定 PRD
+# 行カバレッジ計測（OpenCppCoverage）暫定 RFD
 
 > 2026-11-17 番号を 959 から 157 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 959 へ振り直した（PRD114）。
@@ -30,7 +30,7 @@ L1 には次の限界があり、これを数値で裁定する手段が無い�
 1. **anet-core は STATIC ライブラリ**で、anet-core-test.exe に静的リンクされる。モジュールフィルタはテスト実行体 1 本でよく、libtorch などの巨大 DLL は自然に計測対象外になる。
 2. テスト実行体は `core/anet-core/bin/<Config>/` に出力され、libtorch の DLL が隣にコピー済み。リポジトリルートから実行する規約がある。Env テスト 4 本（Atari、DropMerge、ImageCls、LunarLander）も `add_test` 登録済み。
 3. OpenCppCoverage は PDB ベースで MSVC ビルドにそのまま使える。`--sources` と `--modules` と `--excluded_sources` で範囲を絞り、`--export_type cobertura:` で XML を出せる。`--export_type binary:` で出した複数実行体の結果は `--input_coverage` でマージできる。
-4. Catch2 のタグは機能単位（`[dqn]` `[config]` `[nn]` `[replay_buffer]` など）で、GPU 依存を示すタグは無い。GPU のある開発機で全件実行する前提なら支障はない。CI 側の扱いは CI PRD の Q2。
+4. Catch2 のタグは機能単位（`[dqn]` `[config]` `[nn]` `[replay_buffer]` など）で、GPU 依存を示すタグは無い。GPU のある開発機で全件実行する前提なら支障はない。CI 側の扱いは CI RFD の Q2。
 5. 機能カテゴリの対応表 `reports/tools/categories.json`（glob から Topic 31x〜32x へ）を anet-stats と共有する。年代は git blame の行日付で判定し、境界日は AGENTS.md 作成日の 2026-05-30 を既定にする。
 6. カバレッジは cloc と違い過去 revision に遡れない。計測ごとのスナップショット保存が要る。
 
@@ -83,7 +83,7 @@ Env テストも同じ形で binary に出し、`--input_coverage` でマージ�
 
 ## スコープ外
 
-- 計測の CI 化。[156_cicd_improvement_10prd.md](0156_cicd_improvement_10rfd.md) が扱う。
-- テストの追加そのもの。anet-audit の test-gap 観点から個別 PRD に切り出す。
+- 計測の CI 化。[0156_cicd_improvement_10rfd.md](0156_cicd_improvement_10rfd.md) が扱う。
+- テストの追加そのもの。anet-audit の test-gap 観点から個別 RFD に切り出す。
 - Java と Python のカバレッジ。Viewer の Java は test 行が prod 行を上回っており優先度が低い。
 - 分岐カバレッジと関数カバレッジ。行のみ。

@@ -1,4 +1,4 @@
-# replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る 暫定 PRD
+# replay の遷移が消えるまでの抽選回数と優先度を、PER の外の区分で測る 暫定 RFD
 
 > 2026-11-17 番号を 950 から 171 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 950 へ振り直した（PRD114）。
@@ -25,9 +25,9 @@ PER が効いているかを、PER の内側の量（優先度、TD 誤差）で
 
 ### 非ゴール
 
-- PER の改良そのもの（`per_alpha` の調整、優先度を手前の遷移へ流す方式、成功例の保持、SIL）。本 PRD はその効き目を測る計器だけを作る。
+- PER の改良そのもの（`per_alpha` の調整、優先度を手前の遷移へ流す方式、成功例の保持、SIL）。本 RFD はその効き目を測る計器だけを作る。
 - 学習系列を変えること。抽選・優先度・学習の値は変えない。
-- 引かれた遷移が学習に反映されたか（当てはまり）の判定。replay 当てはまり診断（PRD 073）の範囲である。
+- 引かれた遷移が学習に反映されたか（当てはまり）の判定。replay 当てはまり診断（RFD0073）の範囲である。
 - 消える遷移 1 件ずつの記録（trace 行）。§4 の先送りに置く。
 
 ## 2. 現状（2026-10-16 に確認したこと）
@@ -41,8 +41,8 @@ PER が効いているかを、PER の内側の量（優先度、TD 誤差）で
 - `Push` の時点で、その step の報酬（`QueueRecord.reward`）と終端（`done`）は分かる。replay に入る報酬は reward scaler を通した後の値（[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp) の `reward_scaler_->Scale`）。
 - Atari の報酬クリップ（`reward_clip=true`）では、kung_fu_master のボス撃破（2,000 点）も雑魚（100〜500 点）も学習報酬は +1 で、学習報酬では見分けられない。クリップ前の 1 step の報酬は `AtariEnv::Step` のローカル変数（[AtariEnv.cpp](../../src/env/atari/src/AtariEnv.cpp) の `reward_raw`）で、外へは出ていない。env の step の出力（`BatchState`、[rl.hpp](../../src/core/base/include/anet/rl.hpp)）は観測・done・truncated・episode_start だけで、step ごとの付帯値を replay まで運ぶ口は無い。
 - 報酬クリップを外して 1/200 倍にした Run（上と同じ Run）では、撃破は学習報酬 10、雑魚は 0.5〜2.5 になる。この Run で撃破が出たゲームは学習中の 0.1〜0.3% だった。
-- replay 当てはまり診断（PRD 073）は、`sampled_once_` で未抽選群と抽選済み群に分ける。[ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md) は「per-entry の抽選回数カウンタ」を、二群の比較には一度以上か否かで足り、Sample の hot path に加算が乗るとして不採用にした。本 PRD はその判断と見かけ上ぶつかる（§3 の 1、§6 の 5）。
-- trace チャネルの event は `@episode_end` だけで、追加の event は PRD 069 の範囲外とされている（[140_observability.jp.md](../design/140_observability.jp.md) の trace チャネルの節）。
+- replay 当てはまり診断（RFD0073）は、`sampled_once_` で未抽選群と抽選済み群に分ける。[ADR 0039](../adr/0039-replay-fit-sampling-history-groups-not-holdout.md) は「per-entry の抽選回数カウンタ」を、二群の比較には一度以上か否かで足り、Sample の hot path に加算が乗るとして不採用にした。本 RFD はその判断と見かけ上ぶつかる（§3 の 1、§6 の 5）。
+- trace チャネルの event は `@episode_end` だけで、追加の event は RFD0069 の範囲外とされている（[140_observability.jp.md](../design/140_observability.jp.md) の trace チャネルの節）。
 - 優先度について（2026-10-18 に確認）:
   - 分位点系の Learner（IQN・QR）の優先度の元になる TD は、「現在の分位点の平均 − target の分位点の平均」である（[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `QuantileLearnerBase::ComputeElementError`）。IQN では現在側・target 側とも τ を 8 本ずつランダムに引くので、収益の分布が広い状態ほど、学べる誤差とは別の揺らぎが優先度に乗る。
   - 優先度は、引かれて Learner が更新したときにだけ書き換わる（`ApplyLearnerPriorities`）。初期優先度は `per_initial_priority_mode`（実時間優先の構成では `max`）で決まり、各 slot の優先度 source（CONTEXT の「優先度source」）が `max_initial` などから `learner_updated` へ移る。CONTEXT の「初回Learner priority更新」がその最初の書き換えに当たる。
@@ -82,8 +82,8 @@ PER が効いているかを、PER の内側の量（優先度、TD 誤差）で
 
 | 項目 | 裁定 | 理由と再開条件 |
 | --- | --- | --- |
-| 消える遷移 1 件ずつの trace 行（lane、Push と退去の exp step、抽選回数、最後の優先度） | 先送り | trace に event を足すのは PRD 069 の範囲外で、段階 1 のスカラーで足りるかを先に見る。珍しい区分の件数が少なすぎて平均が読めないとき、または lane・年齢ごとに見たくなったときに起こす |
-| 退去の時点で、その遷移に学習が当てはまっていたか | 対象外 | replay 当てはまり診断（PRD 073）の範囲。区分別に見たくなったら 073 側の拡張として起こす |
+| 消える遷移 1 件ずつの trace 行（lane、Push と退去の exp step、抽選回数、最後の優先度） | 先送り | trace に event を足すのは RFD0069 の範囲外で、段階 1 のスカラーで足りるかを先に見る。珍しい区分の件数が少なすぎて平均が読めないとき、または lane・年齢ごとに見たくなったときに起こす |
+| 退去の時点で、その遷移に学習が当てはまっていたか | 対象外 | replay 当てはまり診断（RFD0073）の範囲。区分別に見たくなったら 073 側の拡張として起こす |
 | エピソードの成績（収益の上位など）による区分 | 先送り | エピソード終了後にそのエピソードの slot へ遡って印を付ける仕組みが要る。段階 2 の 1 step の値で足りないと分かったときに起こす |
 | Push から退去までの年齢、抽選の時期の分布 | 先送り | 平均の抽選回数と未抽選率で問いに答えられる。抽選が寿命の前半に偏るかを見たくなったときに起こす |
 
@@ -105,7 +105,7 @@ PER が効いているかを、PER の内側の量（優先度、TD 誤差）で
 | 2 | 不正値の扱い | `reward_edges` が空・非有限・0 以下・昇順でない、`window` が 1 未満は、Agent の構築時に設定キーと値を示して fail-fast。値を丸めたり既定へ置き換えたりしない |
 | 3 | 指標の tag と GetScalar のキー | 群番号 59 を使う（46〜50 は `46_agent_replay_fit`・`47_agent_noisy`・`48_agent_attention`・`49_agent_gradnoise`・`50_agent_skip` が使用中、51・52 は DropMerge の評価の群）。例: `59_agent_rb_evict/11_r1_mean_samples`。キーは `replaybuffer.eviction.[<区分>].<量>`。tag は AGENTS.md の規約どおり 40 文字以内 |
 | 4 | 区分の名前 | 報酬の区分は境界の番号で `r0`（0）、`r1`、`r2` …、終端は `terminal`、全体は `all` |
-| 5 | ADR 0039 との関係 | 0039 が不採用にしたのは「二群の比較のための」回数カウンタで、理由の 1 つは hot path の加算。本 PRD は回数そのものが目的で、フラグの書き込みを加算に替えるだけなので仕事量は変わらない。0039 の先頭に注記を足し、新しい ADR を起こすかをグリルで決める |
+| 5 | ADR 0039 との関係 | 0039 が不採用にしたのは「二群の比較のための」回数カウンタで、理由の 1 つは hot path の加算。本 RFD は回数そのものが目的で、フラグの書き込みを加算に替えるだけなので仕事量は変わらない。0039 の先頭に注記を足し、新しい ADR を起こすかをグリルで決める |
 | 6 | 用語 | 「抽選回数」（replay の遷移が、現在保持している遷移として学習用抽選で引かれた回数）を CONTEXT に足すか。段階 2 の「クリップ前の 1 step の報酬」の呼び名（生スコアは 1 ゲームの累計なので別の語が要る） |
 | 7 | 段階 2 の口 | env の step の付帯値を replay の Push まで運ぶ経路（`BatchState` に足すか、別の経路か）。値の名前を設定で選ぶ形にするか |
 | 8 | prefetch との関係 | `PrefetchingReplayBuffer` の先読み抽選も、抽選回数に数えるか。暫定は数える（`sampled_once_` が今そうであるのと同じ） |

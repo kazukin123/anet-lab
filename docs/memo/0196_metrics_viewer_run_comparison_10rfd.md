@@ -1,4 +1,4 @@
-# PRD196: MetricsViewer で Run を比べる作業に要る機能を足す（設定表、Run・tag の絞り込み、tag の情報パネル、Plotly の同梱）
+# RFD0196: MetricsViewer で Run を比べる作業に要る機能を足す（設定表、Run・tag の絞り込み、tag の情報パネル、Plotly の同梱）
 
 > 2026-11-22 起票（anet-create-prd、Claude Code）。題材は課題 1 件（§10 の対応表）。グリルで、ゴールと非ゴール（§2）、設定表に出すキー（D1）、設定の読み口（D2）と読み方（D3）、表示の切り替え（D4）、統計表の範囲（D5）、見出しの統計（D6）、絞り込みの一致の規則（D7）と一括操作（D8）、Plotly の同梱（D9）をユーザーが選び、細部 16 件（§5.2）は推奨の既定で埋めた。D10〜D26 は、規約と決定から導いて一覧で示し、ユーザーが戻さなかった。グリルの途中からプランモードで進め、承認を受けてから起草した。別モデルの検討は、ユーザーが入れないと選んだ。起草のあとの未決 6 件（§8）は、ユーザーが推奨の既定でまとめて埋めた（D24 の名前と D25 の送り方の直し、D27〜D30。§5.3）。レビュー（3 往復で OK）の指摘で見つかった未決 2 件も、ユーザーが推奨の既定で埋めた（D31・D32。§5.4）。
 
@@ -8,7 +8,7 @@
 
 ### 1.1 経緯
 
-2026-11-21 の会話で、MetricsViewer に足りない機能と問題点を洗い出した。ユーザーはその中から、設定の比較、Run・tag の検索、グラフごとの統計、オフラインでの動作の 4 つを選び、課題と PRD の数を増やさないよう 1 件の課題（[issue-20261121-201669](../management/issues/issue-20261121-201669.md)）にまとめた。
+2026-11-21 の会話で、MetricsViewer に足りない機能と問題点を洗い出した。ユーザーはその中から、設定の比較、Run・tag の検索、グラフごとの統計、オフラインでの動作の 4 つを選び、課題と RFD の数を増やさないよう 1 件の課題（[issue-20261121-201669](../management/issues/issue-20261121-201669.md)）にまとめた。
 
 Run のグラフを重ねて比べる作業は、比べる前に各 Run の設定を確かめ（[030](../design/030_user_guide_analysis.jp.md) の §4.1）、両方にデータがある共通の `exp_step` の範囲で水準・安定性・傾向を読む（同 §4.3）手順になっている。今の Viewer では、この 2 つを画面の中で済ませられない。
 
@@ -37,11 +37,11 @@ G1〜G4 は、題材の課題の 4 つの部分に当たり、どれも片付く
 
 | 非ゴール | 退けた案 | 本当の制約か |
 |---|---|---|
-| 設定以外の json（tag の定義など）・ログ・`dot/` の表示 | 設定表と同じタブに、Run フォルダの json とログを並べる | 制約ではない。別の関心で、別の課題か PRD で足せる |
+| 設定以外の json（tag の定義など）・ログ・`dot/` の表示 | 設定表と同じタブに、Run フォルダの json とログを並べる | 制約ではない。別の関心で、別の課題か RFD で足せる |
 | seed をまとめた帯の描画 | 統計表の全体の行に合わせて、seed の平均と範囲を線にする | 制約ではない。別の関心である |
-| あとから系列を足す仕組み（EMA の後付けなど） | 統計表に、範囲の EMA を足す | 制約ではない。[154_scalar_threshold_rate_10prd.md](0154_scalar_threshold_rate_10rfd.md) も同じ仕組みを待つ別の関心である |
+| あとから系列を足す仕組み（EMA の後付けなど） | 統計表に、範囲の EMA を足す | 制約ではない。[0154_scalar_threshold_rate_10rfd.md](0154_scalar_threshold_rate_10rfd.md) も同じ仕組みを待つ別の関心である |
 | キャッシュのディスク使用量 | 設定の読み口をキャッシュにして、キャッシュの扱いを一緒に見直す | 制約ではない。別の関心である |
-| 横軸の種類の表示 | 統計表の `View` の列の組に軸の名前を出す | 制約ではない。[096_metrics_step_axis_interval_10prd.md](0096_metrics_step_axis_interval_10rfd.md)（[issue-20261103-52bda0](../management/issues/issue-20261103-52bda0.md)）の範囲である |
+| 横軸の種類の表示 | 統計表の `View` の列の組に軸の名前を出す | 制約ではない。[0096_metrics_step_axis_interval_10rfd.md](0096_metrics_step_axis_interval_10rfd.md)（[issue-20261103-52bda0](../management/issues/issue-20261103-52bda0.md)）の範囲である |
 | 設定表の上書き層や、使っていない名前空間の区別 | モジュールが読んだキーに「実効」の印を付ける | 制約ではない。ユーザーが要らないと選んだ（D1） |
 
 ### 2.3 足す仕組みとゴールへの寄与
@@ -80,7 +80,7 @@ G1〜G4 は、題材の課題の 4 つの部分に当たり、どれも片付く
 | P7 | 事実 | TagStats は Run×tag ごとに、commit 済みの有効な全点から作る範囲によらない統計で、件数・平均・分散・標準偏差・最小・最大・最初と最後の step・最新値を持つ。統計は LOD から作らない | [210](../design/210_metrics_viewer.jp.md) §8.2 の `tag_stats`、[TagStats.java](../../src/apps/metrics-viewer/src/main/java/io/github/kazukin123/anetlab/metricsviewer/view/model/TagStats.java) | 済み |
 | P8 | 既存部品の働き | メインエリア（`#main-area`）はグラフの並びだけを持つ縦に送る要素で、上に 40px の余白がある。右上の操作は画面に固定した要素（`#floating-controls`）で、この余白の右に重なる。右上の操作（Height・LOD・Reset View・Scroll Lock）はグラフ用で、スクリーンショットモードはサイドパネルとこれらを隠す | [index.html](../../src/apps/metrics-viewer/src/main/resources/static/index.html) 72〜98 行、[metrics-viewer.css](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.css) 521〜527 行、[210](../design/210_metrics_viewer.jp.md) §3.4 | 済み |
 | P9 | 守る線 | 操作の部品は即時実行・トグル・巡回・開閉・連続値の 5 種類で、checkbox を使わない。絞り込み中に一括操作を押したときは、絞り込みを解除してから実行する | [210](../design/210_metrics_viewer.jp.md) §3.3 | 済み |
-| P10 | 過去の判断 | タグセットを足したときも、`Select All`・`Clear All`・`Selected Only` の動きは変えなかった | [111_metrics_viewer_tag_sets_10prd.md](0111_metrics_viewer_tag_sets_10rfd.md) の D3 | 済み |
+| P10 | 過去の判断 | タグセットを足したときも、`Select All`・`Clear All`・`Selected Only` の動きは変えなかった | [0111_metrics_viewer_tag_sets_10rfd.md](0111_metrics_viewer_tag_sets_10rfd.md) の D3 | 済み |
 | P11 | 事実 | Run 一覧と tag 一覧は名前順で、絞り込みは `Selected Only` だけである。LunarLander-01 は 165 Run、1 Run の tag は 189〜237 本。Run 名・tag・設定キーは `run_20261119-202718_mz_tg_g99ne_rr4_s2`・`42_env/10_game_score_mean`・`A1.actor.[train].policy.epsilon.end` のように `[`・`]`・`.`・`/` を含む | [metrics-viewer.js](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) 2198・2309 行、workspace を数えた（2026-11-21） | 済み |
 | P12 | 事実 | Plotly は CDN から読み、写しも SRI も無い。リリースの zip は Viewer の jar を同梱し、第三者ライセンスの一覧は Maven の依存から作る `THIRD-PARTY.txt` を `licenses/` に入れる | [index.html](../../src/apps/metrics-viewer/src/main/resources/static/index.html) 10 行、[release.yml](../../.github/workflows/release.yml) 241〜248 行 | 済み |
 | P13 | 事実 | 741 Run のうち 738 Run に `json/config_data.json` と `config/config_data.txt` の両方がある。残る 3 Run はどちらも無い。キャッシュを 60 件抜き出すと、どれも `json_lines` に `config_data` の行があり、状態は `ready` だった | workspace の全 Run を数えた（2026-11-22） | 対象外 |
@@ -144,7 +144,7 @@ G1〜G4 は、題材の課題の 4 つの部分に当たり、どれも片付く
 | D25 | **問い合わせの打ち切り。** 範囲統計の問い合わせは、グラフの問い合わせを打ち切らない。範囲統計は、同じタブでもグラフとは別の query channel で送る。用語集の「query channel」を、タブと問い合わせの種類ごとの系列に直す | 同じ query channel の新しい問い合わせは古いものを取り消すので（P23）、同じ単位で送るとパネルを開くたびにグラフの読み込みが止まる。違う channel どうしは取り消さないので、channel を分ければ今の取り消しの仕組みのまま満たせる。[ADR 0023](../adr/0023-server-enforced-query-supersede-per-channel.md) の、channel の単位を 1 つのブラウザタブとした判断と食い違うので、その単位を [ADR 0090](../adr/0090-query-channel-is-per-tab-and-query-kind.md) で改め、ADR 0023 の先頭に注記を足した。サーバ側の supersede の規則（ADR 0023 の残りの判断）は変えない。用語集の定義も直す（U2）。依存: D24・P23 |
 | D26 | **`All` の列の組。** `/api/runs.json` の TagStats から出す。新しい API は要らない | P7・D5 |
 | D27 | **設定のファイルの開き方。** 設定の API は、`config/config_data.txt` を要求ごとに開いて読み、閉じる。開いたまま持たない | Run フォルダの出し入れで Run を登録・解除する運用を妨げない（P26）。依存: D2・P26 |
-| D28 | **英訳。** `*.en.md` は実装で直さず、`anet-translate-docs` で作り直す | [194_config_key_full_names_in_messages_10prd.md](0194_config_key_full_names_in_messages_10rfd.md) の D15 と同じ扱い。英訳は日本語版の更新を追って作り直す |
+| D28 | **英訳。** `*.en.md` は実装で直さず、`anet-translate-docs` で作り直す | [0194_config_key_full_names_in_messages_10rfd.md](0194_config_key_full_names_in_messages_10rfd.md) の D15 と同じ扱い。英訳は日本語版の更新を追って作り直す |
 | D29 | **設定表の列の状態。** §6.1 の列の状態の表のとおりに出す。ファイルが無い Run は「設定なし」、エラーと作業セットに無い Run は `⚠` を出し、内容を title に入れる | tag 一覧の警告の `⚠` と title の形（[metrics-viewer.js](../../src/apps/metrics-viewer/src/main/resources/static/metrics-viewer.js) 2322〜2328 行）にそろえる。依存: D16・D18・D19 |
 | D30 | **絞り込みの文字と workspace の切り替え。** workspace を切り替えても、Runs と Tags の絞り込みの文字は残す | 絞り込みは選択でなく見え方で、workspace の切り替えが配り直す Run の選択と色（[030](../design/030_user_guide_analysis.jp.md) §3 の `Workspace` の行）とは別である。依存: D7 |
 | D31 | **語を区切る文字。** D7 の絞り込みは、JS の正規表現の `\s` が当たる文字すべてを語の区切りにする。半角の空白・タブ・改行の類に加えて、全角の空白（U+3000）、改行しない空白（U+00A0）、U+2000〜U+200A の空白、U+FEFF などを含む。続く区切りは 1 つとして扱い、前後の区切りは無視する | IME で語のあいだに全角の空白が入っても、半角の空白と同じ行が残るようにする。依存: D7 |
@@ -382,7 +382,7 @@ browser の部品をどのファイルに置くか（`metrics-viewer.js` に足�
 
 **ライセンス。** `licenses/` には足さない。WebJar は Maven の依存なので、`THIRD-PARTY.txt` に載る（P12・P21）。
 
-**直さないもの。** 過去の記録（実験記録、ADR、保管場所の PRD と実装記録、課題記録の事象）に書かれた CDN と見出しの統計の記述は、当時の記録として残す（過去の記録を書き換えない決まり。[AGENTS.md](../../AGENTS.md) の「クリーンブレーク方針」）。PRD089 の検証資材（[render_overview_benchmark.cjs](../../src/core/base/testdata/rfd0089/render_overview_benchmark.cjs) と [README](../../src/core/base/testdata/rfd0089/README.md)）は、当時の描画の比べ方を再現する資材なので、CDN の 2.27.0 を読むまま残す。
+**直さないもの。** 過去の記録（実験記録、ADR、保管場所の RFD と実装記録、課題記録の事象）に書かれた CDN と見出しの統計の記述は、当時の記録として残す（過去の記録を書き換えない決まり。[AGENTS.md](../../AGENTS.md) の「クリーンブレーク方針」）。RFD0089 の検証資材（[render_overview_benchmark.cjs](../../src/core/base/testdata/rfd0089/render_overview_benchmark.cjs) と [README](../../src/core/base/testdata/rfd0089/README.md)）は、当時の描画の比べ方を再現する資材なので、CDN の 2.27.0 を読むまま残す。
 
 **検索で当たるファイルの線引き。** 追跡しているファイルの全体を、固定文字列 `cdn.plot.ly`・`plotly-2.27`・`Plotly 2.27` で大文字小文字を区別せずに引くと、本書を除いて 7 ファイルに当たる（2026-11-22）。
 
@@ -391,13 +391,13 @@ browser の部品をどのファイルに置くか（`metrics-viewer.js` に足�
 | 直す（2） | [210](../design/210_metrics_viewer.jp.md)（219・1073 行）、[index.html](../../src/apps/metrics-viewer/src/main/resources/static/index.html)（10 行） |
 | 残す・英訳（1） | [210 の英訳](../design/210_metrics_viewer.en.md)（`anet-translate-docs` で作り直す） |
 | 残す・過去の記録（2） | [issue-20261121-201669](../management/issues/issue-20261121-201669.md) の事象、[089 の実装記録](done/0089_metricsviewer_comparison_resolution_22impl.md) |
-| 残す・検証資材（2） | PRD089 の `render_overview_benchmark.cjs` と README |
+| 残す・検証資材（2） | RFD0089 の `render_overview_benchmark.cjs` と README |
 
-### 6.7 ほかの PRD との順序
+### 6.7 ほかの RFD との順序
 
-- [096_metrics_step_axis_interval_10prd.md](0096_metrics_step_axis_interval_10rfd.md)（未実装）: 横軸の種類をグラフ上で分かるようにする。本書の D6 で見出しから統計が消えるので、どちらが先でもよい。096 が先なら、本書は見出しの軸の表示を残したまま統計だけを消す。本書が先なら、096 は統計の無い見出しに軸を足す。096 が横軸を経験数へ切り替える形を入れたら、`View` の範囲はその軸の範囲になる。範囲統計の API が受ける step がどの軸かは、096 の再グリルで扱う。
-- [154_scalar_threshold_rate_10prd.md](0154_scalar_threshold_rate_10rfd.md)（暫定）: Viewer に系列の導出を足す。どちらが先でもよい。導出した系列を tag の情報パネルの統計表に出すかは、154 の再グリルで扱う。
-- [108_metrics_tag_numbering_10prd.md](0108_metrics_tag_numbering_10rfd.md)（暫定）: tag の番号を振り直す。本書は tag を変えないので、順序の制約は無い。
+- [0096_metrics_step_axis_interval_10rfd.md](0096_metrics_step_axis_interval_10rfd.md)（未実装）: 横軸の種類をグラフ上で分かるようにする。本書の D6 で見出しから統計が消えるので、どちらが先でもよい。096 が先なら、本書は見出しの軸の表示を残したまま統計だけを消す。本書が先なら、096 は統計の無い見出しに軸を足す。096 が横軸を経験数へ切り替える形を入れたら、`View` の範囲はその軸の範囲になる。範囲統計の API が受ける step がどの軸かは、096 の再グリルで扱う。
+- [0154_scalar_threshold_rate_10rfd.md](0154_scalar_threshold_rate_10rfd.md)（暫定）: Viewer に系列の導出を足す。どちらが先でもよい。導出した系列を tag の情報パネルの統計表に出すかは、154 の再グリルで扱う。
+- [0108_metrics_tag_numbering_10rfd.md](0108_metrics_tag_numbering_10rfd.md)（暫定）: tag の番号を振り直す。本書は tag を変えないので、順序の制約は無い。
 
 ## 7. 受入
 

@@ -1,4 +1,4 @@
-# n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正）暫定 PRD
+# n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正）暫定 RFD
 
 > 2026-11-17 番号を 943 から 168 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 943 へ振り直した（PRD114）。
@@ -12,7 +12,7 @@
 
 n > 1 の n-step return を、Munchausen と強い探索（DropMerge の spatial exploration）がある設定でも、n = 1 より悪くならない形で使えるようにする。n-step は報酬の遡りを速めるはずだが、DropMerge では逆に成績を下げている。原因の候補は、互いに独立な次の 2 つである。
 
-1. **窓の途中の Munchausen の項が抜けている:** 今の実装は、Munchausen の bonus を n-step return の先頭の遷移にだけ足し、soft value は窓の終わりの bootstrap にだけ入れる（PRD067 の D3、BTR 互換）。1-step の再帰では、途中の各 step にも bonus と soft value のエントロピーの項が入る。そのため、今の n-step の目標値は、M-DQN の作用素を n step に展開した形と一致しない。先頭の bonus は replay の各遷移に掛かるので、判断の時点で行動の差を広げる働き自体は残る。
+1. **窓の途中の Munchausen の項が抜けている:** 今の実装は、Munchausen の bonus を n-step return の先頭の遷移にだけ足し、soft value は窓の終わりの bootstrap にだけ入れる（RFD0067 の D3、BTR 互換）。1-step の再帰では、途中の各 step にも bonus と soft value のエントロピーの項が入る。そのため、今の n-step の目標値は、M-DQN の作用素を n step に展開した形と一致しない。先頭の bonus は replay の各遷移に掛かるので、判断の時点で行動の差を広げる働き自体は残る。
 2. **探索の手が目標値に混ざる:** 補正のない n-step return は、窓の途中で挙動方策が実際に打った手の報酬と、その結果の状態をそのまま含む。ε の大きい lane のランダムな手が混ざると、精密な続きが要る組み立ての価値が低く見積もられ、安全で伸びない打ち方に寄る（局所解）。n = 1 の Q 学習では、探索の手は「どの状態を見たか」の広さにだけ効き、目標値には入らない。
 
 どちらがどれだけ効いているかは、まだ切り分けていない。
@@ -20,7 +20,7 @@ n > 1 の n-step return を、Munchausen と強い探索（DropMerge の spatial
 ## 2. 現状
 
 - n-step の積み上げは replay で行い、学習側の γ を使う（`core/anet-core/src/dqn_based_agent.cpp:2558`）。目標値の割引は `pow(γ, n_steps)` で、分布の目標値が `:3253`、Munchausen の分布の目標値が `:3334`、スカラーの目標値が `:3622`・`:3654`。
-- Munchausen の bonus は `alpha * clip(scaled_log_policy, clip_value_min, 0)`（同 `:92`）。集約済みの n-step return の先頭へ 1 回だけ加える（同 `:3333` のコメント、PRD067 の「N-step target」と D3）。PRD067 は、原論文が M-DQN を 1-step、M-IQN を 3-step で評価したことを記している。
+- Munchausen の bonus は `alpha * clip(scaled_log_policy, clip_value_min, 0)`（同 `:92`）。集約済みの n-step return の先頭へ 1 回だけ加える（同 `:3333` のコメント、RFD0067 の「N-step target」と D3）。RFD0067 は、原論文が M-DQN を 1-step、M-IQN を 3-step で評価したことを記している。
 - DropMerge の学習用 Actor は UQE（`uqe_tau` 0.95 → 0.85）で行動を選び、spatial exploration（log）で lane ごとの ε を 1e-4〜0.6 の段に固定している。ランダムな手は 59 行動から一様に選ぶので、ほとんどが DROP になる。
   - 全 lane の平均で、約 7% の手がランダムになる。
   - n = 3 の窓の後ろ 2 手にランダムな手が混ざる割合は、全 lane の平均で約 12%、ε 0.6 の lane では 84% になる。
@@ -71,17 +71,17 @@ n > 1 の n-step return を、Munchausen と強い探索（DropMerge の spatial
 5. PER の優先度、IQN と QR の分布の目標値、TBO の h 変換との組み合わせ。
 6. 既定（今の D3、補正なし）で今と metrics checksum が一致すること。
 7. Atari（BTR 互換の D3 で動いている）への影響。既定は変えず、DropMerge で切り替える案を既定にする。
-8. [162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md) との関係。窓を延ばす区間は待ちの区間なので、§3.1 と §3.2 の両方が効く。
+8. [0162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md) との関係。窓を延ばす区間は待ちの区間なので、§3.1 と §3.2 の両方が効く。
 
 ## 6. 対象外
 
-- 判断の区切りで窓を延ばす n-step（[162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md)）。
-- 経過時間を割引に通す仕組み（[167_smdp_transition_duration](0167_smdp_transition_duration_10rfd.md)）。
+- 判断の区切りで窓を延ばす n-step（[0162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md)）。
+- 経過時間を割引に通す仕組み（[0167_smdp_transition_duration](0167_smdp_transition_duration_10rfd.md)）。
 - ε の段（spatial exploration）の設計の変更。
 
 ## 7. 依存と順序
 
-単独で作れる。[162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md) は本 PRD の上に載る。順番待ちの候補として置く。
+単独で作れる。[0162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md) は本 RFD の上に載る。順番待ちの候補として置く。
 
 ## 8. 参照
 

@@ -9,7 +9,7 @@
 
 AMP（autocast）の有無と FP16 / BF16 の選択は、現在 DefaultDQN では Actor の ActionPolicy 設定（`actor.[key].policy.use_amp` / `use_amp_bf16`）、Learner 設定（`learner.use_amp` / `use_amp_bf16`）、target policy 設定（`target_policy.use_amp` / `use_amp_bf16`）に分かれている。ImageCls は別の `bf16.*` 設定を持ち、MuZero と Rainbow は AMP 設定を持たない。084 の NN 実行設定（`nn_forward`、[CONTEXT.md](../../CONTEXT.md)）は「その NN を今回どの条件で使うか」を名前付きで表す場所であり、精度はその候補になる。
 
-084 では精度を集約しない判断をした（§8.2、[ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)）。理由は、ノイズが target 構築全体で 1 つの契約なのに精度は target 行動選択と価値評価で別であること、`Network::Forward` が精度を適用する形にすると DefaultDQN 以外の Agent と診断の経路へ波及すること、NoisyNet の目的に必要でないことである。本 PRD は、精度を NN 実行設定へ集約するなら全 Agent を同じ契約で移行することを前提に、必要性と方式を別途検討する。
+084 では精度を集約しない判断をした（§8.2、[ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)）。理由は、ノイズが target 構築全体で 1 つの契約なのに精度は target 行動選択と価値評価で別であること、`Network::Forward` が精度を適用する形にすると DefaultDQN 以外の Agent と診断の経路へ波及すること、NoisyNet の目的に必要でないことである。本 RFD は、精度を NN 実行設定へ集約するなら全 Agent を同じ契約で移行することを前提に、必要性と方式を別途検討する。
 
 ## 2. 現行契約で確認したこと（2026-10-03）
 
@@ -24,7 +24,7 @@ AMP（autocast）の有無と FP16 / BF16 の選択は、現在 DefaultDQN で�
 
 | 論点 | 決める内容 |
 |---|---|
-| 必要性 | 設定の分散以外に、集約で解消する実害があるか。無ければ本 PRD を中止する |
+| 必要性 | 設定の分散以外に、集約で解消する実害があるか。無ければ本 RFD を中止する |
 | 適用者 | 精度を Network が適用するか、呼び出し側が従来どおり autocast guard を張るか。損失計算の scope をどうするか |
 | 用途の粒度 | DefaultDQN で Actor・Learner 現在値・target 行動選択・target 価値評価（追加 forward を含む）の 4 用途か、target を 1 つに揃えるか。現行の非対称を保存するか |
 | 対象 Agent | ImageCls・MuZero・Rainbow の設定と呼び出しをどう移行するか。二重運用を残さないために同一変更で揃える範囲 |
@@ -34,10 +34,10 @@ AMP（autocast）の有無と FP16 / BF16 の選択は、現在 DefaultDQN で�
 
 ## 4. 対象外
 
-本起票では実装、設定キーの確定、084 への組み込みを行わない。084 の `Linear.force_fp32`（構造設定）は本 PRD の対象ではなく、集約後も構造側に残す。
+本起票では実装、設定キーの確定、084 への組み込みを行わない。084 の `Linear.force_fp32`（構造設定）は本 RFD の対象ではなく、集約後も構造側に残す。
 
 ## 5. 参照
 
-- [PRD 084: NoisyNet](done/0084_noisynet_10rfd.md) §8.2、§13。
+- [RFD0084: NoisyNet](done/0084_noisynet_10rfd.md) §8.2、§13。
 - [ADR 0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md): AMP を束ねなかった理由。
 - [DQN 系 Agent 設計](../design/200_dqn_agents.jp.md)、[NN 設計](../design/130_neural_networks.jp.md)。

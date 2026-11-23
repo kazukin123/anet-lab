@@ -1,4 +1,4 @@
-# DefaultDQN Staged Batch / Replay Schedule 暫定 PRD
+# DefaultDQN Staged Batch / Replay Schedule 暫定 RFD
 
 > 2026-11-17 番号を 933 から 145 へ振り直した（PRD131）。
 > 番号 999。backlog / 検討草案。
@@ -87,7 +87,7 @@ Agent checkpoint だけを別 Run へ load し、schedule を自動で初期 pha
 11. As a configuration author, I want invalid phase definitions to fail at startup, so that malformed long Runs do not consume hours before the mistake becomes visible.
 12. As a framework maintainer, I want batch monotonicity left to the experiment configuration, so that the generic mechanism does not encode a DropMerge-specific assumption.
 13. As a researcher, I want B512/RR1 measured separately before attributing gains to staged batch growth, so that batch-size effects and replay-sample effects are not conflated.
-14. As a project maintainer, I want this proposal kept as a provisional backlog PRD, so that the long-Run finding is preserved without implying implementation approval.
+14. As a project maintainer, I want this proposal kept as a provisional backlog RFD, so that the long-Run finding is preserved without implying implementation approval.
 
 ## Implementation Decisions
 
@@ -101,7 +101,7 @@ Agent checkpoint だけを別 Run へ load し、schedule を自動で初期 pha
 
 ### 2. Configuration semantics
 
-- 将来の設定モデルは `constant | phased` とする。正式なキー名は本暫定 PRD では決めない。
+- 将来の設定モデルは `constant | phased` とする。正式なキー名は本暫定 RFD では決めない。
 - constant は単一の batch size と replay ratio を持ち、現行の replay ratio mode と同じ結果を生成する。
 - phased は順序付き phase を持ち、各 phase が正の期間、正の batch size、正の replay ratio を持つ。
 - phased mode は replay ratio mode 専用とし、`update_interval` mode と混在させない。
@@ -143,13 +143,13 @@ Agent checkpoint だけを別 Run へ load し、schedule を自動で初期 pha
 ### 7. Save / load dependency
 
 - lineage exp-step と sample credit は Run 全体の継続 State として保存する。
-- current phase は lineage exp-step から再解決し、保存値との不一致がある場合は fail-fast または明示診断する。具体契約は正式実装 PRD で確定する。
+- current phase は lineage exp-step から再解決し、保存値との不一致がある場合は fail-fast または明示診断する。具体契約は正式実装 RFD で確定する。
 - 現在の Agent-only checkpoint を別 Run へ load する方式は、段階 schedule の継続手段として扱わない。
 - 本機能の cross-Run 対応は Run 全体 serialize 機構の成立を前提とする。
 
 ### 8. Diagnostics
 
-少なくとも次を scalar または transition event として観測可能にする。正式な metric tag は実装 PRD で既存 taxonomy に合わせて決める。
+少なくとも次を scalar または transition event として観測可能にする。正式な metric tag は実装 RFD で既存 taxonomy に合わせて決める。
 
 - current batch size
 - current replay ratio
@@ -214,7 +214,7 @@ Agent checkpoint だけを別 Run へ load し、schedule を自動で初期 pha
 段階移行が結果的に成立したことは設計仮説の根拠にはなるが、各phaseが性能向上の原因だったとは断定しない。
 
 B512/RR2の改善は、batch size 512、replay ratio 2.0、PER coverage、optimizer update回数、target update cadenceが組み合わさった結果である。
-最初の追加実験はB512/RR1による機構分離を優先し、その結果を踏まえて正式番号の実装PRDへ昇格するか判断する。
+最初の追加実験はB512/RR1による機構分離を優先し、その結果を踏まえて正式番号の実装RFDへ昇格するか判断する。
 
-本PRDは`ready-for-agent`ではない。
-Run全体serializeの設計確定、B512/RR1分離診断、正式なconfig / metric契約のレビューを経た後に、実装用PRDを別途作成する。
+本RFDは`ready-for-agent`ではない。
+Run全体serializeの設計確定、B512/RR1分離診断、正式なconfig / metric契約のレビューを経た後に、実装用RFDを別途作成する。

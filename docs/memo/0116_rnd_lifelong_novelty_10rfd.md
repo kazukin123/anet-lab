@@ -1,4 +1,4 @@
-# RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 PRD
+# RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 RFD
 
 > 2026-11-06 起票（暫定）。質疑を省き、決めきれない点は §8 の未決表に置いた。確定事項（§4）の各行は暫定の既定であり、会話で合意した決定ではない。
 > 担当: 起票と精査を同じ枠でまとめる。理由は、実装の枠の予算が 2026-11-07 朝に切れる前に部品と対照腕を作り始めるためで、ユーザーの裁定（2026-11-06）で**暫定のまま実装へ出す**。実装は §4 の暫定の既定に従い、従えない事情があれば実装計画に理由を書いて変えてよい（質問しない）。設計の採否は [173](0173_intrinsic_reward_novelty_10rfd.md) の再グリルで見直す。
@@ -33,9 +33,9 @@ RND（Random Network Distillation）は、固定の乱数 Network の出力を�
 | 退けた案 | 扱いと理由 |
 | --- | --- |
 | エピソード内の新しさ（k 近傍・E3B）、Embedding と逆動力学 | 別の関心。173 の再グリルで採点点と Replay の契約を決めてから作る。技術の制約ではなく順序の選択 |
-| 方策の組（β_i・γ_i を変えた方策）、β=0 の評価 | 173 の問い 1・11 で決める。本 PRD の価値は 1 本で、評価も内的報酬込みで学んだ Q を使う |
-| 内的報酬を外的報酬と別に Replay へ保存すること | Replay の契約の変更（173 問い 4）。本 PRD は Push の前に報酬へ畳む仮の運び方（§4 D2）を使い、173 の契約が入った時点で置き換える。制約ではなく移行の順序 |
-| 2 本の価値 Head（RND 論文の V_E＋V_I）と非エピソード的な内的収益 | 価値の分解は 173 §6 の別の選択肢。本 PRD では終端で切る 1 本の価値のまま |
+| 方策の組（β_i・γ_i を変えた方策）、β=0 の評価 | 173 の問い 1・11 で決める。本 RFD の価値は 1 本で、評価も内的報酬込みで学んだ Q を使う |
+| 内的報酬を外的報酬と別に Replay へ保存すること | Replay の契約の変更（173 問い 4）。本 RFD は Push の前に報酬へ畳む仮の運び方（§4 D2）を使い、173 の契約が入った時点で置き換える。制約ではなく移行の順序 |
+| 2 本の価値 Head（RND 論文の V_E＋V_I）と非エピソード的な内的収益 | 価値の分解は 173 §6 の別の選択肢。本 RFD では終端で切る 1 本の価値のまま |
 | Actor での採点（173 の準備が推す最終形） | 採点を Actor に置くと 1 step 遅れる採点を Replay の注釈で運ぶ契約が要る。facade で次観測を採点すれば終端観測も採点でき契約を増やさない。最終形への移行は 173 |
 | 評価（configured eval・EvalPanel）での採点と診断 | eval の runner は `UpdateFromBatch` を呼ばず、採点点が facade なので構造上届かない。評価で内的報酬を見たくなったら 173 の採点点の問いで決める |
 | C51 の Head（Taiga らの Rainbow の Q 側）と、Dopamine の PER・Q の初期値の細部 | 別の関心（Q の手法）。anet は IQN で代用し、Q 側の差は §2.1 の「本家との残る差」に記す。技術の制約ではなく、Rainbow＋RND の再現の範囲を RND の部品に限る選択。C51 を作るかは `run.@rainbow_like` の結果を見て別に決める |
@@ -50,16 +50,16 @@ RND（Random Network Distillation）は、固定の乱数 Network の出力を�
 - checkpoint は header の識別子 `DefaultDQNAgent`（第 1 版）／`DefaultDQNAgent-2`（skip 有効）で形を区別し（[default_dqn_agent.cpp:29-30・:305](../../src/algo/dqn/src/default_dqn_agent.cpp)）、読込は `LoadNetwork`（:334）。識別子以外は ERROR（:355-358）、skip 有効の checkpoint を無効で読むと ERROR（:359）、skip 無効の checkpoint を有効で読むと skip を新規初期化して WARN 1 回（:368-370）。reward scaler と obs_norm の統計は保存していない（:314-315 の `@todo`）。
 - 設定の接頭辞は `DefaultDQNAgent`（[default_dqn_agent.hpp:102](../../src/algo/dqn/src/default_dqn_agent.hpp)）。節は `learner.`・`actor.[k].`・`reward_scaler.`・`obs_norm.`・`skip.` など。schedule を書ける値は `ProfiledValue`（[schedule.hpp:354](../../src/core/base/include/anet/schedule.hpp)）で、`ANET_READ_CONFIG` から自動で読む。
 - facade の統計をメトリクスへ出す経路は `$agent <key> @learn`（例: [metrics_scalar.txt:152](../../apps/runner/config/metrics_scalar.txt) の `reward_scaler.scale`）。腕ごとの tag は `run.@skip : metrics.scalar.[50_agent_skip/...] = ...` の形で腕のプロファイルにだけ足す（[Atari.txt:280](../../apps/runner/config/Atari.txt)）。
-- 無効時の同一性の受入は PRD098 の段 0 の手順（[testdata/prd098/README.md](../../src/core/base/testdata/rfd0098/README.md) の「段0・smoke」、`run_validation.py` の before／after／compare）。
-- 毎 step の経路に別スレッドのロック待ち・同期の転送を足さない規約は [impl.md:321-326](../quality/impl.md)。本 PRD の採点はロックの中の学習スレッドで行い、新しいロックは足さない。転送は、観測を RND の Network の device へ送る H2D と誤差を戻す D2H が step ごとに加わる（§5.3）。
+- 無効時の同一性の受入は RFD0098 の段 0 の手順（[testdata/rfd0098/README.md](../../src/core/base/testdata/rfd0098/README.md) の「段0・smoke」、`run_validation.py` の before／after／compare）。
+- 毎 step の経路に別スレッドのロック待ち・同期の転送を足さない規約は [impl.md:321-326](../quality/impl.md)。本 RFD の採点はロックの中の学習スレッドで行い、新しいロックは足さない。転送は、観測を RND の Network の device へ送る H2D と誤差を戻す D2H が step ごとに加わる（§5.3）。
 
 ### 2.1 2026-11-07 の追記（Atari の Run を担当した別の枠の調査と、原典コードの確認）
 
 Atari の Run を担当した別の枠（Codex、2026-11-07）が Run の checkpoint と設定から見つけたもの。表の値はその枠の測定と確認で、Taiga らの式と呼び方は Claude が原典のコードで確かめた（§11）。
 
-**Atari の RND の Network が意図と別の形で組まれている。** `nn.txt` の `Conv1d_S`・`Conv1d_M`・`Conv2d_S`・`Conv2d_M`（[nn.txt:123-148](../../apps/runner/config/nn.txt)）は `out_channels`・`kernel_size`・`stride`・`padding` を block の直下に書くが、`Conv1d`・`Conv2d` の読み込み（[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) の `Conv1dModuleFactory`・`Conv2dModuleFactory`、3020 行・3059 行付近）は `conv.out_channels` などを読む。直下の葉は黙って無視され、`ConvConfig` の既定（同 2969 行。128 チャンネル、3×3、stride 1、padding 0）で組まれる。`ConvProj32`（nn.txt:152-156）と Atari.txt の `AtariConv*` は `conv.*` で正しい。この 4 block を `structure` で使う現用の設定は Atari.txt の `run.@rnd`（[Atari.txt:10](../../apps/runner/config/Atari.txt)）だけで、nn.txt の見本 `@Conv1D`・`@Conv2D`・`@ViT_*` はどの env 設定からも参照されていない。`core/anet-core/testdata/prd092/config/` の 4 本にも同じ葉があるが、Run の設定の写し（記録）で、構造には使っていない。
+**Atari の RND の Network が意図と別の形で組まれている。** `nn.txt` の `Conv1d_S`・`Conv1d_M`・`Conv2d_S`・`Conv2d_M`（[nn.txt:123-148](../../apps/runner/config/nn.txt)）は `out_channels`・`kernel_size`・`stride`・`padding` を block の直下に書くが、`Conv1d`・`Conv2d` の読み込み（[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp) の `Conv1dModuleFactory`・`Conv2dModuleFactory`、3020 行・3059 行付近）は `conv.out_channels` などを読む。直下の葉は黙って無視され、`ConvConfig` の既定（同 2969 行。128 チャンネル、3×3、stride 1、padding 0）で組まれる。`ConvProj32`（nn.txt:152-156）と Atari.txt の `AtariConv*` は `conv.*` で正しい。この 4 block を `structure` で使う現用の設定は Atari.txt の `run.@rnd`（[Atari.txt:10](../../apps/runner/config/Atari.txt)）だけで、nn.txt の見本 `@Conv1D`・`@Conv2D`・`@ViT_*` はどの env 設定からも参照されていない。`core/anet-core/testdata/rfd0092/config/` の 4 本にも同じ葉があるが、Run の設定の写し（記録）で、構造には使っていない。
 
-| | 意図（起票時の PRD、212 §4.3） | 実物 |
+| | 意図（起票時の RFD、212 §4.3） | 実物 |
 | --- | --- | --- |
 | 畳み込み | 32@8/4、64@4/2（padding 1） | 128@3/1、128@3/1 |
 | Flatten | 6,400 | 819,200 |
@@ -124,13 +124,13 @@ Atari の Run を担当した別の枠（Codex、2026-11-07）が Run の checkp
 
 ## 3. 用語（暫定）
 
-[CONTEXT.md](../../CONTEXT.md) に無い概念で、既存の語（報酬スケーラ、spatial exploration）では言い換えられない。確定は 173 §8 の 20 の裁定に合わせ、本 PRD では次の語を使う。
+[CONTEXT.md](../../CONTEXT.md) に無い概念で、既存の語（報酬スケーラ、spatial exploration）では言い換えられない。確定は 173 §8 の 20 の裁定に合わせ、本 RFD では次の語を使う。
 
 | 語 | 意味 |
 | --- | --- |
 | 内的報酬 | Env の外的報酬とは別に、Agent が探索のために算出して学習報酬へ足す値 |
 | 一生の新しさ | Run の全履歴に照らした観測の新しさ。エピソードごとに戻らない（NGU の lifelong novelty） |
-| 新しさの倍率 α | 一生の新しさを、1 を基準にした倍率で表した値。既定（`clipped`）では [1, L] に収め、1 が「見慣れた」。`unclipped` では 1 ＋ z で、1 を下回る値も取る（D4）。NGU ではエピソード内ボーナスに掛ける倍率、本 PRD では α−1 を内的報酬にする |
+| 新しさの倍率 α | 一生の新しさを、1 を基準にした倍率で表した値。既定（`clipped`）では [1, L] に収め、1 が「見慣れた」。`unclipped` では 1 ＋ z で、1 を下回る値も取る（D4）。NGU ではエピソード内ボーナスに掛ける倍率、本 RFD では α−1 を内的報酬にする |
 
 ## 4. 確定事項（暫定の既定）
 
@@ -174,7 +174,7 @@ Atari の Run を担当した別の枠（Codex、2026-11-07）が Run の checkp
 
 DQN が見るのは口と Builder だけで、RND の型・設定 DTO・葉の名前は非公開ヘッダ（`src/intrinsic_rnd.hpp`）に閉じる。テストは非公開ヘッダを含めて RND を直接試験する。
 
-本 PRD の呼び方は、1 intake につき facade が `intrinsic.observation` で選んだ観測（既定は次観測）で `Estimate` を呼び、α から内的報酬を作って終端のマスク（次観測のときだけ）と β を掛け（D2）、credit（D7）が許す回数だけ、同じ観測から選んだ lane で `Learn` を呼ぶ。口は α までを返し、β・終端・刻み・抽選・どちらの観測かを知らない。2 つの操作は独立で、どちらをいつ呼んでもよく、Save/Load は呼び出しの途中を除きどの時点でもよい。device は入力に従い、計算の device は Builder に渡す。CPU を前提にしない。NGU（173）でも `Estimate` は行動時、`Learn` は Push 側（intake）の刻みのままとし、口は変えない。母集団を Replay に変えるか、Push 側を消すかは §8 の 12・13（経緯は §8.1）。173 でエピソード内の新しさが入るときは、同じ α をエピソード内ボーナスの倍率として使う。日本語との対応は、採点＝`Estimate`、補助学習＝`Learn`。
+本 RFD の呼び方は、1 intake につき facade が `intrinsic.observation` で選んだ観測（既定は次観測）で `Estimate` を呼び、α から内的報酬を作って終端のマスク（次観測のときだけ）と β を掛け（D2）、credit（D7）が許す回数だけ、同じ観測から選んだ lane で `Learn` を呼ぶ。口は α までを返し、β・終端・刻み・抽選・どちらの観測かを知らない。2 つの操作は独立で、どちらをいつ呼んでもよく、Save/Load は呼び出しの途中を除きどの時点でもよい。device は入力に従い、計算の device は Builder に渡す。CPU を前提にしない。NGU（173）でも `Estimate` は行動時、`Learn` は Push 側（intake）の刻みのままとし、口は変えない。母集団を Replay に変えるか、Push 側を消すかは §8 の 12・13（経緯は §8.1）。173 でエピソード内の新しさが入るときは、同じ α をエピソード内ボーナスの倍率として使う。日本語との対応は、採点＝`Estimate`、補助学習＝`Learn`。
 
 RND 以外の実装（RECODE 型など）が入るときも、この 4 つの操作で足りる見込みである。足りなくなったときは 173 の再グリルで口を変える。
 
@@ -300,7 +300,7 @@ Atari のチェーンは、実時間優先の既存の連鎖の後ろに `run.@r
 - `intrinsic.enabled`・`intrinsic.beta`・`intrinsic.observation`・`intrinsic.learn_ratio`・`intrinsic.learn_batch_size` は DQN が読む。`intrinsic.rnd.*` は Builder（§5.1）が接頭辞を受けて読み、検証する。DQN 側に RND の葉の読み込みを書かない。
 - `intrinsic.enabled=false` のときは `intrinsic.*` の他の葉を読まず、検証もしない（未指定のまま無効にできる）。
 - `intrinsic.enabled=true` で `intrinsic.rnd.target.net` と `intrinsic.rnd.predictor.net` のどちらかが無いときは ERROR。片方から他方を補わない。
-- モードが読まない葉（`unclipped` の `multiplier_max`、`variance_feedback` の `clip_range` 以外の `obs_norm.*`）は、値の検証を行ったうえで、解決した値（`?=`・個別指定・プロファイル・CLI のどれで与えられたかは問わない）が実装の既定値と違えば、構築時に葉ごとに WARN を 1 回出し、値は使わない。実装の既定値は RND の設定 DTO が持つ値で、`multiplier_max` は 5、`obs_norm.*` は RND が型の既定から変えている 4 葉（`use_centering` true・`use_robust_update` false・`post_process_type` none・`clip_range` 5。[intrinsic_rnd.cpp:62-65](../../src/core/base/src/intrinsic_rnd.cpp)）とそれ以外の `ObservationNormalizerConfig` の既定。このうち `agent.txt` の `@baseline` に `?=` があるのは `multiplier_max` と `obs_norm.clip_range` で、その値が実装の既定と一致することは §6.2 の「既定の一致」で確かめる（PRD072 の `check_default_leaves.py` は `?=` と `=` の使い分けの静的検査で、値の一致は見ない）。`obs_norm` のほかの葉は RND の内部の既定で、起票時のまま `@baseline` に置かない。したがって `@baseline` の `?=` のままなら WARN は出ず、Run プロファイル・個別指定・CLI で実装の既定と違う値を書いたときだけ出る。読まない値に別の意味を持たせない（AGENTS.md §設定値の扱い）。
+- モードが読まない葉（`unclipped` の `multiplier_max`、`variance_feedback` の `clip_range` 以外の `obs_norm.*`）は、値の検証を行ったうえで、解決した値（`?=`・個別指定・プロファイル・CLI のどれで与えられたかは問わない）が実装の既定値と違えば、構築時に葉ごとに WARN を 1 回出し、値は使わない。実装の既定値は RND の設定 DTO が持つ値で、`multiplier_max` は 5、`obs_norm.*` は RND が型の既定から変えている 4 葉（`use_centering` true・`use_robust_update` false・`post_process_type` none・`clip_range` 5。[intrinsic_rnd.cpp:62-65](../../src/core/base/src/intrinsic_rnd.cpp)）とそれ以外の `ObservationNormalizerConfig` の既定。このうち `agent.txt` の `@baseline` に `?=` があるのは `multiplier_max` と `obs_norm.clip_range` で、その値が実装の既定と一致することは §6.2 の「既定の一致」で確かめる（RFD0072 の `check_default_leaves.py` は `?=` と `=` の使い分けの静的検査で、値の一致は見ない）。`obs_norm` のほかの葉は RND の内部の既定で、起票時のまま `@baseline` に置かない。したがって `@baseline` の `?=` のままなら WARN は出ず、Run プロファイル・個別指定・CLI で実装の既定と違う値を書いたときだけ出る。読まない値に別の意味を持たせない（AGENTS.md §設定値の扱い）。
 - `learner.enabled=false` かつ `intrinsic.enabled=true` は ERROR にせず WARN 1 回（D10）。
 - 値域の検証は構築時（設定読み込み）に行う。観測の形・device の不一致は NN の既存の初期化検証に任せる。
 - 0 や負に別の意味を持たせない（0 は 0 として検証に掛かる）。
@@ -352,10 +352,10 @@ warm-up 中は bonus 系が 0、error 系は値を持つ。無効のときは ke
 
 ### 6.1 無効時の同一性
 
-- PRD098 の段 0 の手順（[testdata/prd098/README.md](../../src/core/base/testdata/rfd0098/README.md)）で、着手前に保存した実行体と新しい実行体を、Atari・DropMerge・GridMaze・LunarLander の既定（`intrinsic.enabled=false`）で動かし、全 scalar 点の checksum と `metrics.scalar.defs` が一致する。
+- RFD0098 の段 0 の手順（[testdata/rfd0098/README.md](../../src/core/base/testdata/rfd0098/README.md)）で、着手前に保存した実行体と新しい実行体を、Atari・DropMerge・GridMaze・LunarLander の既定（`intrinsic.enabled=false`）で動かし、全 scalar 点の checksum と `metrics.scalar.defs` が一致する。
 - 有効の checkpoint の読み書きが無効の checkpoint のバイト配置を変えない（無効で保存したファイルが着手前と同一）。
 
-### 6.2 正しさ（anet-core-test、タグ `[prd116]`）
+### 6.2 正しさ（anet-core-test、タグ `[rfd0116]`）
 
 | 観点 | 観測する結果 |
 | --- | --- |
@@ -389,7 +389,7 @@ warm-up 中は bonus 系が 0、error 系は値を持つ。無効のときは ke
 ### 6.3 性能
 
 - 群は有効（`run.@rnd`）と無効の 2 つに、Atari では `run.@rnd > run.@rnd_taiga` を足した 3 つ。群を交互に（ABBA の要領の巡回で）3 巡以上回し、群ごとの実時間の中央値と Tracy の内訳（target forward・predictor forward・backward・統計・転送）を記録する。環境は Atari（B=64）と GridMaze。
-- 合否の閾値は置かない。数値は基準 Run の事前測定と本測定を見て 173 問い 20 で置く。本 PRD では内訳と実時間を記録に残すことを受入にする。
+- 合否の閾値は置かない。数値は基準 Run の事前測定と本測定を見て 173 問い 20 で置く。本 RFD では内訳と実時間を記録に残すことを受入にする。
 
 ### 6.4 腕の smoke
 
@@ -401,9 +401,9 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 
 ## 7. 成功の測り方
 
-効果の判定は [173 §9.1](0173_intrinsic_reward_novelty_10rfd.md) に従い、本 PRD では機構の指標（§6.4）までを受入にする。173 の腕として回す Run の候補は次のとおりで、合否の数値は 173 問い 20・21 で置く。
+効果の判定は [173 §9.1](0173_intrinsic_reward_novelty_10rfd.md) に従い、本 RFD では機構の指標（§6.4）までを受入にする。173 の腕として回す Run の候補は次のとおりで、合否の数値は 173 問い 20・21 で置く。
 
-| Run | 見るもの | 本 PRD での位置づけ |
+| Run | 見るもの | 本 RFD での位置づけ |
 | --- | --- | --- |
 | GridMaze: 通っていないセルからの到達率 | RND だけで収束後も被覆が続くか。173 §2.7 の見立ては「続かない」。2026-11-07 の Run（256 lane・400k exp step、`run_20261107-212611`）では見立てどおり続かなかった: bonus は warm-up 直後の 9 点以外 0、predictor の誤差は 1e-9、手で通っていないセルへ誘導すると穴へ入る（未踏ではなく off-path の Q の粗さ。§8 の 18） | 判断に効く。続くなら方策の組の優先度が下がる |
 | LunarLander: 既定との比較 | 害の確認（易しい env で成績を落とさないか）。2026-11-08 の `run.@rnd`（β 0.1）3 seed × 2M は、評価側（UQE full `21_eval/02_policy_reward`）の 1.5〜2M が 181.1〜225.5 で、11/05 の基準 9 本の 188.6〜225.7 と同じ帯。害は見えない。ただし bonus は採点 5〜10 万件で消えた（predictor の誤差が whiten の一生平均を下回り続ける。GridMaze と同じ構造）ので、bonus が続く状態での害は未確認。[実験記録](../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md) | 173 §9.1 の害の確認 |
@@ -414,22 +414,22 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 
 | # | 事項 | 暫定の既定と候補 |
 | --- | --- | --- |
-| 1 | 内的報酬の式 | 既定は α−1（NGU の倍率の形、`clipped`）。Taiga らの z をそのまま使う形は `multiplier_mode=unclipped` にした（2026-11-07）。残る候補: RND 原典の e_t／σ_e（平均を引かない、上限なし）。差は尺度と下限。2026-11-11 に [PRD123](0123_rnd_intrinsic_reward_scale_10rfd.md) へ移した（平均を引かない形は 123 の D7） |
+| 1 | 内的報酬の式 | 既定は α−1（NGU の倍率の形、`clipped`）。Taiga らの z をそのまま使う形は `multiplier_mode=unclipped` にした（2026-11-07）。残る候補: RND 原典の e_t／σ_e（平均を引かない、上限なし）。差は尺度と下限。2026-11-11 に [RFD0123](0123_rnd_intrinsic_reward_scale_10rfd.md) へ移した（平均を引かない形は 123 の D7） |
 | 2 | target と predictor の形（Atari の既定） | 2026-11-07 に別々の Network 設定にして決着（D8）。残るのは Atari の既定の形で、暫定は公開実装の形（predictor に FC 512 ×2、出力 512）。候補: NGU の同形・出力 128。写しの比較では同形のほうが誤差の比が大きく（§2.1 の C・D）、長い学習での優劣は 173 の腕で確かめる |
-| 3 | 誤差統計の窓 | 既定は一生の累積。候補: EMA（係数をキーに）。2026-11-11 に [PRD123](0123_rnd_intrinsic_reward_scale_10rfd.md) へ移した（123 の D2・D3） |
+| 3 | 誤差統計の窓 | 既定は一生の累積。候補: EMA（係数をキーに）。2026-11-11 に [RFD0123](0123_rnd_intrinsic_reward_scale_10rfd.md) へ移した（123 の D2・D3） |
 | 4 | 補助学習の刻みと件数の既定値 | 既定は `learn_ratio` 0.25・`learn_batch_size` 32（N=128 の旧既定と同じ量。exp step あたり 1/128 回・32 件）。候補: Taiga らと同じ毎 exp step 1 回・1 件（`learn_ratio` 1・`learn_batch_size` 1。費用は N 倍の backward）、件数 64 で回数を半分。比較対象との差は §8.1 の 6。指標は内的報酬が消える速さ（§6.4） |
-| 5 | warm-up の既定値 | 既定は採点した観測 12,800 件（N=128 の旧既定と同じ長さ）。候補: RND 原典の正規化の初期化の長さに揃える。2026-11-11 に [PRD123](0123_rnd_intrinsic_reward_scale_10rfd.md) へ移した（123 の D4・D6） |
-| 6 | 終端遷移の内的報酬 | 既定は 0。候補: 採点して付ける（終端観測は facade に届く）。2026-11-11 に [PRD123](0123_rnd_intrinsic_reward_scale_10rfd.md) へ移した（123 の D16。既定は 0 のまま、設定で選べるようにする） |
+| 5 | warm-up の既定値 | 既定は採点した観測 12,800 件（N=128 の旧既定と同じ長さ）。候補: RND 原典の正規化の初期化の長さに揃える。2026-11-11 に [RFD0123](0123_rnd_intrinsic_reward_scale_10rfd.md) へ移した（123 の D4・D6） |
+| 6 | 終端遷移の内的報酬 | 既定は 0。候補: 採点して付ける（終端観測は facade に届く）。2026-11-11 に [RFD0123](0123_rnd_intrinsic_reward_scale_10rfd.md) へ移した（123 の D16。既定は 0 のまま、設定で選べるようにする） |
 | 7 | β を掛ける位置 | 既定は reward scaler の後。候補: scaler の前（スケールに乗せる） |
-| 8 | 評価での採点 | 本 PRD では無し（構造上届かない）。173 の採点点の問いで決める |
-| 9 | ADR 0062 の適用範囲の注記と、RND の Network の所有・補助学習の置き場と刻み（§8.1）を記す新 ADR | 本 PRD では起こさない。173 で起こす |
+| 8 | 評価での採点 | 本 RFD では無し（構造上届かない）。173 の採点点の問いで決める |
+| 9 | ADR 0062 の適用範囲の注記と、RND の Network の所有・補助学習の置き場と刻み（§8.1）を記す新 ADR | 本 RFD では起こさない。173 で起こす |
 | 10 | 用語の CONTEXT.md への追加 | §3 の 3 語。173 §8 の 20 と一緒に確定する |
 | 11 | 仮の運び方（D2）を 173 の注釈経路へ置き換える時期 | 173 の Replay 契約の段が入るとき。置き換えは同じ変更で行い、畳む経路を残さない |
 | 12 | 補助学習の母集団と置き場 | 既定は Push 側（facade が採点した intake の観測を exp step 基準の credit で渡す）。候補: Learner の step で Replay から抽出した観測を渡す（NGU の置き場）。2 つは等価でない（§8.1）。173 問い 13 と一緒に決める |
 | 13 | NGU 対応後に Push 側（intake での補助学習）を残すか | 既定は 173 の移行時にクリーンブレークで消す（1 関心 1 機構。RND 単独の腕は NGU の機構でエピソード内の β を 0 にして作る）。候補: 即時に反応する一生の新しさが要るなら残す。§8.1 |
 | 14 | 本家との残る差（§2.1 の表）をどこまで寄せるか | 既定は寄せない（C51・padding・Q の初期値・PER の細部・`Learn` の入力・n の数え方・実行環境）。`run.@rainbow_like` と `run.@rnd_taiga` の結果で再現が成らなければ、原典のコードを WSL で動かす再現環境を作って差を切り分ける（実験の結果が要る） |
-| 15 | Head の葉の置き場 | `intrinsic.rnd.output_dim` は `rnd` 直下、初期値は `rnd.head.init.*`。Head の設定の root の扱い（設定 root 所有の PRD、Head の `net.head` 候補）が決まれば揃える |
-| 16 | 設定の読まれない葉の検出 | 本 PRD の範囲外（§2.1 の不具合は 4 block の葉を直して閉じる）。`net.block` の未知の葉を構築時に検出する仕組みは [issue-20261107-0c34dd](../management/issues/issue-20261107-0c34dd.md) に起票した（2026-11-07、開発者の選択） |
+| 15 | Head の葉の置き場 | `intrinsic.rnd.output_dim` は `rnd` 直下、初期値は `rnd.head.init.*`。Head の設定の root の扱い（設定 root 所有の RFD、Head の `net.head` 候補）が決まれば揃える |
+| 16 | 設定の読まれない葉の検出 | 本 RFD の範囲外（§2.1 の不具合は 4 block の葉を直して閉じる）。`net.block` の未知の葉を構築時に検出する仕組みは [issue-20261107-0c34dd](../management/issues/issue-20261107-0c34dd.md) に起票した（2026-11-07、開発者の選択） |
 | 17 | `learn_batch_size` > N のときの縮小 | 既定は N 件で学習し構築時に WARN 1 回（2026-11-07 未明の改訂）。レビューで、明示した値を N へ丸めて続ける挙動が AGENTS.md §設定値の扱いの clamp に当たると指摘された（2026-11-07 昼）。候補: ERROR にして N 以下を要求する。173 で `learn_batch_size` の既定値（§8 の 4）と一緒に決める |
 | 18 | predictor の周期リセット（ユーザー案、2026-11-07） | 未決。一生の新しさが尽きた盤面で「最近の経験に対する新しさ」を作る案。predictor と誤差統計を一定間隔で初期化し warm-up をやり直す（target は固定のまま）。初期化の直後は predictor が訪問の多い状態から先に覚えるので、訪問の少ない状態の誤差がしばらく高く残り、その間だけ訪問回数の逆順に近い bonus が出る。統計を一緒に初期化しないと直後に全 lane が α = L に張り付く。近い事例は Q 側の周期リセット（primacy bias、BBF）とエピソード単位のリセット（NGU のエピソード記憶、E3B、NovelD のエピソード内ゲート）で、RND の predictor を周期的に初期化する既知の事例は 2026-11-07 時点で見つけていない。3 の EMA だけでは収束し切った誤差の差（1e-9）を拾えない。候補の葉: `intrinsic.rnd.reset.mode ?= none`（none｜predictor）と `intrinsic.rnd.reset.interval`（learn step）。エピソード内の新しさ（173）との優劣は 173 で決める。2026-11-08 に暫定実装（50,000 件ごと）で試した: GridMaze 1 本では warm-up 直後の窓にしか bonus が出ず、LunarLander 3 seed × 2M では bonus は続くが評価側の終盤は同じ帯で利得が無く、1 seed が途中で崩れて Q と勾配が膨らんだ。実装は戻し、考えと結果は [issue-20261108-227b05](../management/issues/issue-20261108-227b05.md) と[実験記録](../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md)に残した |
 
@@ -443,24 +443,24 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 4. 不変性と置き場は別（Claude の整理）。exp step 基準の credit を facade に置けば、Sample 側でも RR に不変にできる。RR に依るのは学習が起きる時刻の粒度だけ。
 5. 判断（本改訂の暫定の既定）: 置き場は Push 側、刻みは facade の credit（Learner の U と同じ形）、`Learn` は渡された観測で 1 step、母集団は intake の観測。173 で変えるとすれば母集団の 1 か所だけで、credit と `Learn` は残る。NGU 対応後に Push 側を消すかは §8 の 13。
 6. 比較対象の確認（2026-11-07。原典のコード [bonus_based_exploration](https://github.com/google-research/google-research/tree/master/bonus_based_exploration) の `intrinsic_motivation/intrinsic_rewards.py`・`base_intrinsic_agent.py`・`configs/rainbow_rnd.gin`）: Taiga らの Rainbow＋RND は Push 側。agent の `step`・`end_episode` が、行動した観測 1 件で `compute_intrinsic_reward` を呼び、その中で eval でなければ predictor の学習 op を 1 回走らせ（batch 1）、観測と誤差の移動統計を更新し、(誤差 − 平均) ÷ 分散に相当する値 × `reward_scale`（0.00005）を外的報酬（Dopamine の Runner が [−1, 1] に clip 済み）に足し、合計は clip せずに Replay に入れる（2026-11-07 に訂正。起票時は「÷ 標準偏差」「合計を [−1, 1] に clip」と書いていたが、`RNDRainbowAgent.clip_reward = False` と `_update_moments` の再帰を読み違えていた。式の詳細は §2.1）。Rainbow の `update_period` 4・batch 32 は Q の学習だけに効き、predictor は毎 agent step 更新する。採点する観測は行動した観測 x_t（anet と RND 原典は次観測）。exp step あたりの predictor の step 数と 1 step の件数で並べると、Taiga 1 回・1 件、anet の既定 1/128 回・32 件、RND 原典 約 1/1,000 回・約 1,000 件（rollout 128 × 128、4 epoch × 4 minibatch、割合 0.25 から計算）、NGU 約 1/13,000 回・320 件（learner 5 更新/秒 × 64 系列 × 末尾 5 フレーム、actor 256 × 260 step/秒から計算）。Adam の進みは lr × step 数が主なので、Taiga の predictor は anet の既定より 2 桁速く慣れる。KFM・Montezuma の結果を Taiga らと並べるときはこの差を添える。
-7. 本家再現への寄せ（2026-11-07 昼）: Atari の Run を担当した別の枠（Codex）が、RND ありの Run の checkpoint が 1.7GB 大きいことから、Atari の RND の Network が層カタログの葉の書き方の不具合で 1 億パラメータの別物になっていたことを見つけ（§2.1）、Taiga らの Rainbow＋RND の公開コードを読んで §8.1 の 6 の誤りと、再現に要る条件（行動した観測、分散に相当する値で割る統計、clip しない合計、毎 step 1 件の学習、公開実装の形の Network と直交初期値）を整理し、写しの比較（§2.1）で形と初期値の効き方を見た。その枠が推奨した内容（C51 は入れない、`run.@rnd` の既定の Network を公開実装の形へ、Taiga らの統計はモードとして入れて既定にしない、WSL の再現は保留）をユーザーが「一旦おすすめの内容で」と受け、本改訂は Claude が原典のコードで式を確かめたうえで PRD へ写した。D4・D5・D8 の既定を変えずにモード値と設定で選べる形にしたのは、173 の前提（NGU の倍率・同じ統計）を崩さず、比較対象と揃えた腕を同じ実装で回すためである。各判断は暫定の既定で、合意した決定ではない。
+7. 本家再現への寄せ（2026-11-07 昼）: Atari の Run を担当した別の枠（Codex）が、RND ありの Run の checkpoint が 1.7GB 大きいことから、Atari の RND の Network が層カタログの葉の書き方の不具合で 1 億パラメータの別物になっていたことを見つけ（§2.1）、Taiga らの Rainbow＋RND の公開コードを読んで §8.1 の 6 の誤りと、再現に要る条件（行動した観測、分散に相当する値で割る統計、clip しない合計、毎 step 1 件の学習、公開実装の形の Network と直交初期値）を整理し、写しの比較（§2.1）で形と初期値の効き方を見た。その枠が推奨した内容（C51 は入れない、`run.@rnd` の既定の Network を公開実装の形へ、Taiga らの統計はモードとして入れて既定にしない、WSL の再現は保留）をユーザーが「一旦おすすめの内容で」と受け、本改訂は Claude が原典のコードで式を確かめたうえで RFD へ写した。D4・D5・D8 の既定を変えずにモード値と設定で選べる形にしたのは、173 の前提（NGU の倍率・同じ統計）を崩さず、比較対象と揃えた腕を同じ実装で回すためである。各判断は暫定の既定で、合意した決定ではない。
 
 ## 9. 移行対象
 
 新しい契約へ移すもの（同じ変更で更新する）。旧契約の互換層は作らない。
 
 - コード: `core/anet-core/include/anet/intrinsic.hpp`（新規、口と Builder）、`src/intrinsic_rnd.hpp`・`src/intrinsic_rnd.cpp`（新規、RND の本体）、`default_dqn_agent.hpp`／`.cpp`（`enabled`・`beta` の読み込み、採点・畳み込み、checkpoint の節、GetScalar）、`CMakeLists.txt`。2026-11-07 の改訂: `intrinsic_rnd.hpp`／`.cpp`（2 つの Network 設定、Head の初期値、倍率と統計のモード、`adam_eps`、target の出力の統計、書式 3）、`default_dqn_agent.hpp`／`.cpp`（`intrinsic.observation` の読み込みと採点する観測の選択・mask、`bonus_share` の式、`bonus_min`・`bonus_pos_ratio`）。
-- テスト: `core/anet-core/src/intrinsic_test.cpp`（新規、`[prd116]`）、既存の DefaultDQN の checkpoint テストは無効時の形を変えないので断定は変わらない（`DefaultDQNAgent` の header の断定を検索して確かめる）。2026-11-07 の改訂: §6.2 の追加行に対応するテスト（出荷設定の形と既定の一致は `[shipped_config]`）。既存の `[prd116]` テストの `intrinsic.rnd.net` と `RndNoveltyEstimator-2` の断定は、2 つの Network 設定と書式 3 に読み替える。
-- 設定: `apps/runner/config/agent.txt`（`@baseline` の既定。2026-11-07 未明の改訂で `learn_ratio`・`learn_batch_size` を足し、`train_fraction` を消し、`warmup_steps` を件数へ）、`Atari.txt`・`GridMaze.txt`・`LunarLander.txt`（`run.@rnd` の腕と tag。`32_learn_count` を足す）。2026-11-07 昼の改訂: `nn.txt` の `Conv1d_S`・`Conv1d_M`・`Conv2d_S`・`Conv2d_M` の葉を `conv.*` へ（旧キーの別名・互換読み・案内は残さない）、`agent.txt` の `@baseline` に `observation`・`head.init.*`・`multiplier_mode`・`statistics_mode`・`adam_eps`、`Atari.txt` に `AtariRnd*` の層カタログ・`run.@rnd` の 2 つの Network（`output_dim` 512、Head の初期値）・`run.@rnd_taiga`・tag 4 つ（`run.@rainbow_like`・`run.@rainbow_like_impala`・`run.@no_munch` は 2026-11-07 に別の枠が追加済み）、`GridMaze.txt`・`LunarLander.txt` の `run.@rnd` を 2 つの Network と tag 4 つへ。`core/anet-core/testdata/prd092/config/` と `docs/experiments/*/config/` にある Run 設定の写し（同じ葉を含む）は記録なので触らない。
-- 検証資材: `core/anet-core/testdata/prd116/README.md`（段 0 の比較手順の参照と、§6.3・§6.4 の手順。2026-11-07 昼の改訂で 23impl の案内と Montezuma の smoke を足す）。
+- テスト: `core/anet-core/src/intrinsic_test.cpp`（新規、`[rfd0116]`）、既存の DefaultDQN の checkpoint テストは無効時の形を変えないので断定は変わらない（`DefaultDQNAgent` の header の断定を検索して確かめる）。2026-11-07 の改訂: §6.2 の追加行に対応するテスト（出荷設定の形と既定の一致は `[shipped_config]`）。既存の `[rfd0116]` テストの `intrinsic.rnd.net` と `RndNoveltyEstimator-2` の断定は、2 つの Network 設定と書式 3 に読み替える。
+- 設定: `apps/runner/config/agent.txt`（`@baseline` の既定。2026-11-07 未明の改訂で `learn_ratio`・`learn_batch_size` を足し、`train_fraction` を消し、`warmup_steps` を件数へ）、`Atari.txt`・`GridMaze.txt`・`LunarLander.txt`（`run.@rnd` の腕と tag。`32_learn_count` を足す）。2026-11-07 昼の改訂: `nn.txt` の `Conv1d_S`・`Conv1d_M`・`Conv2d_S`・`Conv2d_M` の葉を `conv.*` へ（旧キーの別名・互換読み・案内は残さない）、`agent.txt` の `@baseline` に `observation`・`head.init.*`・`multiplier_mode`・`statistics_mode`・`adam_eps`、`Atari.txt` に `AtariRnd*` の層カタログ・`run.@rnd` の 2 つの Network（`output_dim` 512、Head の初期値）・`run.@rnd_taiga`・tag 4 つ（`run.@rainbow_like`・`run.@rainbow_like_impala`・`run.@no_munch` は 2026-11-07 に別の枠が追加済み）、`GridMaze.txt`・`LunarLander.txt` の `run.@rnd` を 2 つの Network と tag 4 つへ。`core/anet-core/testdata/rfd0092/config/` と `docs/experiments/*/config/` にある Run 設定の写し（同じ葉を含む）は記録なので触らない。
+- 検証資材: `core/anet-core/testdata/rfd0116/README.md`（段 0 の比較手順の参照と、§6.3・§6.4 の手順。2026-11-07 昼の改訂で 23impl の案内と Montezuma の smoke を足す）。
 - 設計文書: [200_dqn_agents.jp.md](../design/200_dqn_agents.jp.md) の §6.2（前処理に内的報酬の採点を足す）、§7.2（設定グループに「内的報酬」）、§8.2（`intrinsic` 節と識別子）、§9.1（群 56）。2026-11-07 未明の改訂では §6.2 の RND の段落（採点のグラフの再利用・独立 RNG の lane 抽選・採点回数の warm-up は旧い記述）と §7.2 の葉を日英とも現在形に直す。2026-11-07 昼の改訂では §6.2（採点する観測・倍率と統計のモード・別々に組む 2 つの Network）、§7.2（葉）、§8.2（書式 3 と統計のモード）、§9.1（診断 4 つと `bonus_share` の式）を日英とも直す。
 - 設計文書の新設: [212_rnd_lifelong_novelty.jp.md](../design/212_rnd_lifelong_novelty.jp.md)（RND の概念・計算・設定・指標の現在形。2026-11-06 にユーザーが実装中に要望し、起票時の本節に書き漏れていた項目として追記した。英訳は別途。2026-11-07 未明の改訂では §3.4〜§3.6・§3.8・§4.2・§4.4・§4.5・§5.1・§5.2 を追随させる。2026-11-07 昼の改訂では §3.1〜§3.3（別々に組む 2 つの Network、統計と倍率のモード、採点する観測）、§3.5（warm-up 0）、§4.2（葉の表）、§4.3（Atari の構造と層カタログの名、`run.@rnd_taiga`）、§4.4（診断 4 つ、`bonus_share`）、§4.5（書式 3）、§5.1〜§5.3（費用・検証の記録・まだ言えないこと）を追随させる。英語版は anet-translate-docs で別途）。
-- 実装記録と索引: `docs/memo/116_rnd_lifelong_novelty_23impl.md`（新規。§2.1 の「本家との残る差」の表を写す）、索引 issue [issue-20261106-16b7af](../management/issues/issue-20261106-16b7af.md) の対応内容に 1 行。
-- wiki: [intrinsic_novelty](../wiki/mechanisms/intrinsic_novelty.md) に本 PRD を出典として足す（起票時に実施。2026-11-07 昼の改訂で Taiga らの式と、写しの比較で分かった尺度の条件を足した）。
+- 実装記録と索引: `docs/memo/0116_rnd_lifelong_novelty_23impl.md`（新規。§2.1 の「本家との残る差」の表を写す）、索引 issue [issue-20261106-16b7af](../management/issues/issue-20261106-16b7af.md) の対応内容に 1 行。
+- wiki: [intrinsic_novelty](../wiki/mechanisms/intrinsic_novelty.md) に本 RFD を出典として足す（起票時に実施。2026-11-07 昼の改訂で Taiga らの式と、写しの比較で分かった尺度の条件を足した）。
 
 ## 10. 173 との関係と、後で消すもの
 
-- 本 PRD は 173 の部品（一生の新しさの口と RND）を先に作り、173 の比較腕「RND 単独」を成立させる。173 §8 の 7・9・18 の一部（RND の統計・倍率・保存）に暫定の既定を与える。
+- 本 RFD は 173 の部品（一生の新しさの口と RND）を先に作り、173 の比較腕「RND 単独」を成立させる。173 §8 の 7・9・18 の一部（RND の統計・倍率・保存）に暫定の既定を与える。
 - 173 の再グリルで採点点が Actor になれば、`Estimate` を呼ぶ側が facade から Actor に移り、口はそのまま残る。Actor 側で統計を更新しない採点が要るなら、口に「更新なしの採点」を足す（173 で決める）。
 - D2 の畳む経路は仮で、173 の Replay の注釈経路が入る変更で削除する。残すと「外的・内的を別に保存する」契約と二重になる。
 - 補助学習の置き場は Push 側のまま 173 へ持ち越す。Sample 側（Learner の step で Replay から）へ変えるか、Push 側を消すかは 173 で決める（§8 の 12・13、§8.1）。credit と `Learn` の形は置き場に依らず残る。
@@ -471,4 +471,4 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 - Badia ら、[Never Give Up](https://arxiv.org/abs/2002.06038)、ICLR 2020。§2 式 1（α の clip）、付録 H.2（RND の構造、出力 128）、付録 B.3（L=5）、付録 A（actor が r^i_t を計算して Replay へ入れ、learner が抽出した系列の末尾 5 フレームで predictor を学習する）。
 - Taiga ら、[On Bonus-Based Exploration Methods in the Arcade Learning Environment](https://arxiv.org/abs/2109.11052)、ICLR 2020。易しいゲームでの害の確認の条件。公開コードは [bonus_based_exploration](https://github.com/google-research/google-research/tree/master/bonus_based_exploration)（predictor の学習の置き場と式は §8.1 の 6・§2.1）。2026-11-07 に読んだファイル: `intrinsic_motivation/intrinsic_rewards.py`（`RNDIntrinsicReward` の `_preprocess`・`_update_moments`・`_build_train_op`・`compute_intrinsic_reward`・`_target_network`・`_prediction_network`）、`intrinsic_motivation/base_intrinsic_agent.py`（`step`・`end_episode` が渡す観測）、`intrinsic_motivation/intrinsic_dqn_agent.py`（`RNDDQNAgent._add_intrinsic_reward` の `clip_reward`）、`intrinsic_motivation/intrinsic_rainbow_agent.py`、`configs/rainbow_rnd.gin`。あわせて Dopamine の `discrete_domains/run_experiment.py`（`clip_rewards` の既定 true）と `tf/agents/dqn/dqn_agent.py`（`begin_episode`・`step` の `_train_step` で `training_steps` が増える）。
 - Burda らの公開コード [random-network-distillation](https://github.com/openai/random-network-distillation)（`policies/cnn_policy_param_matched.py`・`utils.py`。`feat_var`・`max_feat` の監視）。CleanRL の [ppo_rnd_envpool.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_rnd_envpool.py)。形と初期値は §2.1 の表。
-- [173_intrinsic_reward_novelty_10prd.md](0173_intrinsic_reward_novelty_10rfd.md) §2.5・§4.3・§7.1・§8・§9.1・§10。
+- [0173_intrinsic_reward_novelty_10rfd.md](0173_intrinsic_reward_novelty_10rfd.md) §2.5・§4.3・§7.1・§8・§9.1・§10。

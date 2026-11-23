@@ -32,7 +32,7 @@
 | 保存内容は online net + target net + optimizer の 3 点。**RB / RNG / step counts / 正規化器は含まない** | `core/anet-core/src/default_dqn_agent.cpp:255-290`（`:270-272` に未対応の `@todo` が明記されている） |
 | サイズは online params の約 4 倍（model = online+target、adam = exp_avg+exp_avg_sq）。IMPALA 50.1MB（model 25.1 + adam 25.0）、Nature CNN 43.7MB、QR51 37.6MB | Run ログの内訳出力（`default_dqn_agent.cpp:283-287`） |
 | 所要時間 0.08〜0.58 秒。`WriteTorchObject` が `std::ostringstream` を経由するため、保存中は checkpoint サイズ相当のホストメモリを一時確保する | Run ログのタイムスタンプ差、`core/anet-core/include/anet/serialize.hpp:97-122` |
-| **`Agent::Save` は network mutex を取らない**。現状は「学習停止後にしか呼ばない」ことで成立している | `default_dqn_agent.cpp:255-290`（lock 文なし）。`134_network_lock_audit_10prd.md` が未決事項として起票済み |
+| **`Agent::Save` は network mutex を取らない**。現状は「学習停止後にしか呼ばない」ことで成立している | `default_dqn_agent.cpp:255-290`（lock 文なし）。`0134_network_lock_audit_10rfd.md` が未決事項として起票済み |
 | Load は `auto_load_file` 経由で存在するが、復元されるのは重み + optimizer のみ。step counts / RB / RNG は戻らないため「学習再開」ではなく warm start | `default_dqn_agent.cpp:214-217, 292-320` |
 | Observer から Agent へ到達できる（`Agent::Save` は const メソッド） | `core/anet-core/include/anet/rl.hpp:902`（`EpisodeEndEvent::agent`）、`rl.hpp:1075`（`Runner::GetAgent`） |
 | Run dir は core からも取得できる（`RunnerApp` 依存なしに完結可能） | `core/anet-core/include/anet/metrics_logger.hpp:186` |
@@ -64,9 +64,9 @@ Dopamine / dqn_zoo / rlpyt に best 機構が無いことから、**Atari 系の
 
 ### A. 判定に使えるスコアの質
 
-現行 eval は `eval_batch_size = 1` の 1 エピソード評価で、Breakout の直近実測が `[44, 57, 83, 56, 86, 97, 38]` と 2.5 倍の幅を持つ（`060_eval_batch_episodes_10prd.md`）。この生値で best 判定すると、性能ではなくノイズで更新が決まる。
+現行 eval は `eval_batch_size = 1` の 1 エピソード評価で、Breakout の直近実測が `[44, 57, 83, 56, 86, 97, 38]` と 2.5 倍の幅を持つ（`0060_eval_batch_episodes_10rfd.md`）。この生値で best 判定すると、性能ではなくノイズで更新が決まる。
 
-SB3 でさえ 5 エピソード平均であり、しかも移動平均・最小改善幅・連続改善要求のいずれも持たない。「ノイズを含む推定量の走査中最大値」は真の最大値を系統的に過大評価する（最大値選択バイアス）ため、**判定値の設計が本 PRD の中核**になる。
+SB3 でさえ 5 エピソード平均であり、しかも移動平均・最小改善幅・連続改善要求のいずれも持たない。「ノイズを含む推定量の走査中最大値」は真の最大値を系統的に過大評価する（最大値選択バイアス）ため、**判定値の設計が本 RFD の中核**になる。
 
 ### B. 保存コスト
 
@@ -74,11 +74,11 @@ IMPALA で 1 回 50.1MB。序盤は best が頻繁に更新されるため、無
 
 ### C. 排他
 
-`Agent::Save` は network mutex を取らない。background eval（`use_background = true`、Atari の現行設定）の worker から呼ぶと、**learner の update と並行して `torch::save` が走る**。`134_network_lock_audit_10prd.md` が同じ論点を未決として挙げている。
+`Agent::Save` は network mutex を取らない。background eval（`use_background = true`、Atari の現行設定）の worker から呼ぶと、**learner の update と並行して `torch::save` が走る**。`0134_network_lock_audit_10rfd.md` が同じ論点を未決として挙げている。
 
 ### D. 採点した weight と保存する weight の同一性
 
-background eval では eval が採点した network version が未確定（`141_background_eval_snapshot_ordering_10prd.md`）。best checkpoint は「そのスコアを出した重み」を保存する機構なので、**採点対象と保存対象がずれると機能自体が意味を失う**。
+background eval では eval が採点した network version が未確定（`0141_background_eval_snapshot_ordering_10rfd.md`）。best checkpoint は「そのスコアを出した重み」を保存する機構なので、**採点対象と保存対象がずれると機能自体が意味を失う**。
 
 ### E. eval 完走直後にスコアが読めない場合がある
 
@@ -103,7 +103,7 @@ background eval では eval が採点した network version が未確定（`141_
 ### 判定値
 
 - eval1 の生値（最も単純だが問題 A に直撃）
-- N 本平均（`060_eval_batch_episodes` の実装に依存）
+- N 本平均（`0060_eval_batch_episodes` の実装に依存）
 - window 平均 / EMA（`51_eval1/11_game_score_mean_ema` が既に存在。ema_alpha 0.1）
 - 最小改善幅（min_delta）や連続改善要求を足すか
 
@@ -114,17 +114,17 @@ background eval では eval が採点した network version が未確定（`141_
 
 ## 依存
 
-本 PRD は以下 3 件の未決事項に依存する。単独で着手すると設計が宙に浮く。
+本 RFD は以下 3 件の未決事項に依存する。単独で着手すると設計が宙に浮く。
 
-| PRD | 依存する理由 |
+| RFD | 依存する理由 |
 |---|---|
-| `060_eval_batch_episodes_10prd.md` | 判定に使うスコアの質（問題 A）。N 本平均が取れないと best 判定が成立しにくい |
-| `141_background_eval_snapshot_ordering_10prd.md` | 採点 weight と保存 weight の同一性（問題 D） |
-| `134_network_lock_audit_10prd.md` | 学習中に `Save` を呼ぶ場合の排他設計（問題 C）。同 PRD が `Save()` / `torch::save` 経路の並行可能性を未決として起票済み |
+| `0060_eval_batch_episodes_10rfd.md` | 判定に使うスコアの質（問題 A）。N 本平均が取れないと best 判定が成立しにくい |
+| `0141_background_eval_snapshot_ordering_10rfd.md` | 採点 weight と保存 weight の同一性（問題 D） |
+| `0134_network_lock_audit_10rfd.md` | 学習中に `Save` を呼ぶ場合の排他設計（問題 C）。同 RFD が `Save()` / `torch::save` 経路の並行可能性を未決として起票済み |
 
 ## スコープ外
 
-- 学習の完全再開機構（RB / RNG / step counts / 正規化器の直列化）。現行 Load は warm start であり、その拡張は別 PRD
+- 学習の完全再開機構（RB / RNG / step counts / 正規化器の直列化）。現行 Load は warm start であり、その拡張は別 RFD
 - 定期 checkpoint の世代管理（Dopamine 的な `keep_every` / GC）
 - best 選択を後処理で行う運用。学習曲線から best step を特定すること自体は現状でも可能だが、その時点の重みが残っていないため実行できない
 

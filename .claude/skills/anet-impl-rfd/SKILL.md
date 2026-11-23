@@ -1,9 +1,9 @@
 ---
 name: anet-impl-rfd
-description: Implement a repo PRD through docs-aware questions, a saved implementation plan, self-check, and review, then report unresolved items and stop. Use when the user invokes /anet-impl-rfd with a PRD filename such as 0013_sample_prefetch_10rfd.md, or asks to implement a *_10rfd.md file while saving a *_2ximpl.md plan.
+description: Implement a repo RFD through docs-aware questions, a saved implementation plan, self-check, and review, then report unresolved items and stop. Use when the user invokes /anet-impl-rfd with a RFD filename such as 0013_sample_prefetch_10rfd.md, or asks to implement a *_10rfd.md file while saving a *_2ximpl.md plan.
 ---
 
-# PRD 実装起動
+# RFD 実装起動
 
 ## クイックスタート
 
@@ -13,10 +13,10 @@ description: Implement a repo PRD through docs-aware questions, a saved implemen
 /anet-impl-rfd 0013_sample_prefetch_10rfd.md
 ```
 
-PRD ファイル名だけが渡された場合は、次の意図として解釈する:
+RFD ファイル名だけが渡された場合は、次の意図として解釈する:
 
-1. PRD を解決して読む。
-2. PRD に暫定の印があれば、PRD のレビューを受ける。
+1. RFD を解決して読む。
+2. RFD に暫定の印があれば、RFD のレビューを受ける。
 3. コード、`CONTEXT.md`、ADR に照らして未決事項監査ゲートを通す。
 4. 実装判断を変える未解決点だけを質問する。
 5. ブロッカーが 0 になったら、合意した実装計画を次に対応する `*_2ximpl.md` として保存する。
@@ -38,9 +38,9 @@ PRD ファイル名だけが渡された場合は、次の意図として解釈�
 
 ## ワークフロー
 
-1. `RFD-IMPLEMENTATION.md` の規則で PRD パスを解決する。
-2. PRD、現在の実装、近いテスト、設定、`CONTEXT.md`、関連 ADR を読む。PRD に暫定の印があれば、`RFD-IMPLEMENTATION.md` の「暫定の印がある PRD」に従って PRD のレビューを受ける。
-3. 未決事項監査ゲートの前に、[実装 品質確認観点](../../../docs/quality/impl.md)の「実装計画」を読み、読んだ節の名前を応答に 1 行で示す。その後、`RFD-IMPLEMENTATION.md` の未決事項監査ゲートを通し、PRD の決定点を repo evidence、ユーザー判断、`2ximpl` 前提、PRD 範囲外へ分類する。
+1. `RFD-IMPLEMENTATION.md` の規則で RFD パスを解決する。
+2. RFD、現在の実装、近いテスト、設定、`CONTEXT.md`、関連 ADR を読む。RFD に暫定の印があれば、`RFD-IMPLEMENTATION.md` の「暫定の印がある RFD」に従って RFD のレビューを受ける。
+3. 未決事項監査ゲートの前に、[実装 品質確認観点](../../../docs/quality/impl.md)の「実装計画」を読み、読んだ節の名前を応答に 1 行で示す。その後、`RFD-IMPLEMENTATION.md` の未決事項監査ゲートを通し、RFD の決定点を repo evidence、ユーザー判断、`2ximpl` 前提、RFD 範囲外へ分類する。
 4. リポジトリ探索で解ける疑問は、ユーザーへ質問せず探索で解決する。
 5. 回答によって実装挙動または計画形状が変わる場合だけ、ユーザーへ一問ずつ質問する。
 6. ユーザー判断が必要なブロッカーが 0 であることと、計画に固定する前提を短く提示する。
@@ -56,4 +56,4 @@ PRD ファイル名だけが渡された場合は、次の意図として解釈�
 - プランモードでは提案計画で止め、ファイル編集をしない。
 - 実行モードでは、未決事項監査ゲートを通過してから実装計画を保存し、コード変更前にその計画を正本にする。コード変更時は TDD の red-green-refactor を守る。
 
-レビューに出す前にPRDの課題（`rfd`でそのPRDを指す課題）のうち今回の実装の範囲に当たる課題の対応内容へ今回の対応を追記し、完了の報告前にそれらの課題を残件無し（実装したあとも事象が残るもの、段階の途中で残りの段階を持つものは残件有り）とする。PRDの実装済みは、PRDの課題から一覧の道具が導く。状態は、計画を保存したときに同じ課題を対応中にし、解決はコミットの準備で持ちかける。工程末の4区分とこの場で直す流れはレジストリ、対応内容の追記と判定の更新はRFD-IMPLEMENTATION.mdに従う。
+レビューに出す前にRFDの課題（`rfd`でそのRFDを指す課題）のうち今回の実装の範囲に当たる課題の対応内容へ今回の対応を追記し、完了の報告前にそれらの課題を残件無し（実装したあとも事象が残るもの、段階の途中で残りの段階を持つものは残件有り）とする。RFDの実装済みは、RFDの課題から一覧の道具が導く。状態は、計画を保存したときに同じ課題を対応中にし、解決はコミットの準備で持ちかける。工程末の4区分とこの場で直す流れはレジストリ、対応内容の追記と判定の更新はRFD-IMPLEMENTATION.mdに従う。

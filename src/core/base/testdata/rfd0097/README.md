@@ -1,8 +1,8 @@
-# PRD097 検証資材（結果所有契約）
+# RFD0097 検証資材（結果所有契約）
 
 現行正本は[22impl](../../../../../docs/memo/done/0097_env_auto_reset_after_notification_22impl.md)。Pythonはリポジトリの`.venv/Scripts/python.exe`で実行する。
 
-- `run_validation.py after`: 改訂D7の7構成、512000経験、seed1、決定的backend、同期評価。凍結済みbeforeを再監査して利用し、serialだけはCLI指定でbefore3/4・after3を追加実行する。afterは環境変数`PRD097_AFTER_NAME`で世代を分ける（今回の検証先は`after-d7-v3`、既定値は`after-d7-v1`）。afterの設定は凍結beforeを基にし、Atari/DropMerge/GridMazeの宣言ファイルだけを現行DSLへ差し替える。
+- `run_validation.py after`: 改訂D7の7構成、512000経験、seed1、決定的backend、同期評価。凍結済みbeforeを再監査して利用し、serialだけはCLI指定でbefore3/4・after3を追加実行する。afterは環境変数`RFD0097_AFTER_NAME`で世代を分ける（今回の検証先は`after-d7-v3`、既定値は`after-d7-v1`）。afterの設定は凍結beforeを基にし、Atari/DropMerge/GridMazeの宣言ファイルだけを現行DSLへ差し替える。
 - `compare_metrics.py`: scalar全点・trace全行。時間/資源3群とtrace timestamp、指定lives7タグの値だけを前後比較で除外する。`--allow-migrated-edges`は定義レコードからenv/train→env_step/episode_endと確認したtagだけ、pipeline最初/最後stepの両側を除外する。他の座標やNoisy指標は比較する。
 - `compare_metrics_test.py`: 上記例外の境界と重複行、Noisy、trace、livesのstep差を検出する。
 - `run_performance.py`: Atari1/GridMaze/Lunar CPU/DropMerge pipeline/serialを各3組、before/after交互。before spread>2%なら5組へ延長し、なお不安定なら判定不能。各Runは最後に報告された速度点のstepの半分超の中央値。中央値の比が0.98以上で合格。

@@ -1,4 +1,4 @@
-# target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 PRD
+# target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`）暫定 RFD
 
 > 2026-11-17 番号を 940 から 148 へ振り直した（PRD131）。
 > 状態: 暫定メモ。案 A〜D と決定事項 D1〜D8 は未確定。詳細は別途グリルで詰める。本 PRD は実装着手を意味しない。
@@ -100,5 +100,5 @@ exp_step 軸で見た target EMA の時定数は `(1 / τ) × B / RR` になる�
 ## 非目標
 
 - target network 機構そのものの変更（Polyak / hard の是非、二重 target 等）。
-- `train_actor.sync_interval` の軸統一。現状 exp_step 評価 + train_step age で混在しているが、本 PRD の範囲外。
+- `train_actor.sync_interval` の軸統一。現状 exp_step 評価 + train_step age で混在しているが、本 RFD の範囲外。
 - 探索ブロック 23・24 の結論の見直し。勾配 step 軸の比較はこの交絡を受けないため、`replay_ratio` が効くという結論は保たれる。

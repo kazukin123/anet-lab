@@ -1,4 +1,4 @@
-# ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）PRD
+# ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）RFD
 
 > 2026-11-19 改訂: レビューの指摘を受けて直した。受入の検索（§6）を、範囲・除くもの・新しい名前との重なりの扱いが決まる形にし、S1-7 を足した。過去の記録のリンクの扱いを決め直した（D23・C4。ステージ 2 で無くなる 3 本を指すリンクは直さない。課題記録・変更の記録・`reports/` の下の記録を過去の記録に入れた。英訳と生成物は、リンクだけを直す）。`.gitattributes` と、生成物の作り直しを起動する側を §5.2・§5.7 に足した。退けた案を §4.3 に 3 つ足し、非ゴールの最後の行と D7 に理由を書き、§5.6 に用語を足した理由を書いた。§2.4 の `bin/` の区分と、§5.4 の Runner の依存の行を直した。検証資材の文書（`testdata` の `.md`）を過去の記録として扱うことにし（D23・§4.3・§5.7・§6）、生成物の確かめを共通の受入 C5 へ移した。§5.2 に、生成物の作り直しと英訳の追随を人に頼む時機を、§5.3 に、テストで分けるファイルを書いた。検証資材のうち、過去の Run の記録の写しは中身を変えないと決めた（D23・§4.3・§5.7・§6）。レビューのあと、起票のために数え直して、テストの中の代役の Agent の数を 9 から 8 に直した（§2.3・D14・§7。Agent を作らない代役の factory 1 つを数えていた）。
 > 2026-11-18 改訂: グリルを行い、暫定の印を外した。起票時の未決表（D1〜D23）と §4 の暫定の既定をすべて仕分け、確定事項（§4 の D1〜D27）、現状（§2）、実装契約（§5）、受入（§6）へ振り分けた。振り分けは §4.2 に書いた。ゴールに DQN 系の中のファイルの分け方を足し、[PRD169](0169_outside_core_extension_layout_10rfd.md)（公開ヘッダの規約）を本書へ統合した。2026-11-17 に足した §12（再グリルの材料）の発言・事実・案は、§1・§2・§4 へ移して §12 を消した。題も内容に合わせて改めた。ADR [0078](../adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md)・[0079](../adr/0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public.md)・[0080](../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md) を起こした。
@@ -35,7 +35,7 @@
 | 実装の持ち主ごとの行数は、`Learner`（メソッド 57 個）2,385、共通の計算の関数 18 個 822、方策（`UQEActionPolicy`・`EpsilonGreedyActionPolicy`・`SpatialLadderSchedule`）574、`Actor` 378、`DQNActionInfo` 376、`BatchUpdateResult` 371、`NetworkModel` 289、分位の Learner（`QuantileLearnerBase`・`IQNLearner`）378、step 診断と初期優先度の推定 263、`DqnComponentAssembler` 179 | 行頭から始まる定義を、持ち主（`Class::`）ごとに次の定義までの行数で数えた |
 | ヘッダには、名前空間の直下に 57 の型がある。うち 13 は診断の指標の型である（290 行） | 字下げが 4 以下の `class`・`struct`・`enum` の宣言を数えた |
 | `dqn_based_agent_test.cpp` には 265 ケースがある | 行頭の `TEST_CASE` を数えた |
-| 系統ごとの量（テストを除く／テスト）は、DQN 系が 8 ファイル 11,261 行／5 ファイル 15,624 行、MuZero 系が 6 ファイル 2,206 行／1 ファイル 128 行、ImageCls が 2 ファイル 1,155 行／1 ファイル 1,797 行、内的報酬が 4 ファイル 1,130 行／1 ファイル 3,088 行 | `core/anet-core/src` と `core/anet-core/include` の追跡ファイルのうち、名前に `dqn`・`rainbow`・`intrinsic`・`muzero`・`image_cls`・`prd101` を含むもの（28 ファイル 36,389 行）を数えた |
+| 系統ごとの量（テストを除く／テスト）は、DQN 系が 8 ファイル 11,261 行／5 ファイル 15,624 行、MuZero 系が 6 ファイル 2,206 行／1 ファイル 128 行、ImageCls が 2 ファイル 1,155 行／1 ファイル 1,797 行、内的報酬が 4 ファイル 1,130 行／1 ファイル 3,088 行 | `core/anet-core/src` と `core/anet-core/include` の追跡ファイルのうち、名前に `dqn`・`rainbow`・`intrinsic`・`muzero`・`image_cls`・`rfd0101` を含むもの（28 ファイル 36,389 行）を数えた |
 | 基盤の CMake は `src/` の下を再帰で拾う。フォルダを切ってファイルを分けることは、今の CMake のままできる。ライブラリに分けて得られるのは、置き方の自由ではなく、依存の向きを機械が止めることである | [core/anet-core/CMakeLists.txt:16〜18](../../src/core/base/CMakeLists.txt) |
 
 ### 2.2 基盤と Agent の境界
@@ -61,7 +61,7 @@
 | 基盤と Env のテスト 7 本で、374 ケースのうち 57 ケースが具象 Agent に触れる。`intrinsic_test` 34／68、`config_baseline_test` 11／22、`config_test` 6／59、`nn_test` 3／143、`trainer_test` 1／49、`metrics_logger_test` 1／16、`GridMazeEnv_test` 1／17 | ケースごとに、具象 Agent の名前とヘッダの名前を検索した |
 | `intrinsic_test` は、内的報酬の内部ヘッダ（`intrinsic_rnd.hpp`）の型を 15 行で使う。DefaultDQN と組み合わせるケースの中にも、内部の設定の型を使うものがある | `RndNoveltyEstimator`・`intrinsic_rnd` を検索した |
 | 系統へ移す見込みのテストは、検証資材をリポジトリの根からのパスで読む（`config_baseline_test` 5 行、`dqn_based_agent_test` 1 行）。出荷設定（`apps/runner/config`）も、同じくパスで読む | `testdata` を検索した |
-| `GridMazeEnv_test` の 1 ケース（[GridMazeEnv_test.cpp:617](../../src/env/gridmaze/src/GridMazeEnv_test.cpp)、タグ `prd102_runner`）は、出荷設定を読んで `RunManager` で Run を組み、GridMaze の seed が Run をまたいで共有されることを確かめる。DefaultDQN は Run を作るために要るだけである。ほかの Env のテストは、Run を組まない | ケースを読んだ。Env のテストを `RunManager`・`Trainer`・`InitRL` で検索した（GridMaze の 3 行だけ） |
+| `GridMazeEnv_test` の 1 ケース（[GridMazeEnv_test.cpp:617](../../src/env/gridmaze/src/GridMazeEnv_test.cpp)、タグ `rfd0102_runner`）は、出荷設定を読んで `RunManager` で Run を組み、GridMaze の seed が Run をまたいで共有されることを確かめる。DefaultDQN は Run を作るために要るだけである。ほかの Env のテストは、Run を組まない | ケースを読んだ。Env のテストを `RunManager`・`Trainer`・`InitRL` で検索した（GridMaze の 3 行だけ） |
 | 系統のテスト 5 本は、基盤の公開しない側の名前を約 130 行で使う。用途は 4 つで、小さな Network を手で組む（Body を組む型 4 つ、60 行）、Head や module を単体で動かす実行状態を作る（`NetworkForwardState`、8 行）、標準の module を用意する（`InitNN` 59 行、`NetworkModuleRepository` 1 行）、基盤と同じ計算を比べる相手として作る（Replay の部品 3 つ、[dqn_based_agent_test.cpp:12112](../../src/core/base/src/dqn_based_agent_test.cpp) の 1 ケース）である。基盤の内部の状態を覗いて確かめるものは無い | 名前ごとに、系統のテストを単語で検索して中身を読んだ |
 | テストが自分で定義する module と Head は 13 クラスある | `NetworkModule`・`NetworkHead`・`NetworkHeadFactory` を継承する宣言を数えた |
 | 代役の Agent は、テストの中にすでに 8 個ある（[trainer_test.cpp:358](../../src/core/base/src/trainer_test.cpp)、[observers_test.cpp:289](../../src/core/base/src/observers_test.cpp)、[RunnerApp_test.cpp:57](../../src/apps/runner/src/RunnerApp_test.cpp) など）。ほかに、Agent を作らない代役の factory が 1 つある（`config_inventory_test.cpp`）。Agent は設定の名前で選ばれる（[agent.cpp:105](../../src/core/base/src/agent.cpp)） | `Agent` と `AgentFactory` を継承する宣言を、テストのファイルで検索した |
@@ -90,7 +90,7 @@
 
 旧いパスと名前を含む行の数（括弧はファイルの数）は次のとおり。`/` と `\` の両方の書き方を数えた。
 
-| 検索語 | 規約と用語 | 設計文書（和文） | 工程・品質・skill | wiki | ビルドと CI | bat・道具・設定 | PRD と実装計画 | 検証資材 |
+| 検索語 | 規約と用語 | 設計文書（和文） | 工程・品質・skill | wiki | ビルドと CI | bat・道具・設定 | RFD と実装計画 | 検証資材 |
 |---|---|---|---|---|---|---|---|---|
 | `core/anet-core` | 5(1) | 150(15) | 51(10) | 98(12) | 9(5) | 912(49) | 1,730(251) | 291(70) |
 | `core/envs` | 1(1) | 26(4) | 0 | 32(2) | 12(7) | 140(7) | 212(62) | 6(5) |
@@ -114,11 +114,11 @@
 
 | 外すもの | 本当の制約か |
 |---|---|
-| クラスの責務の作り直し（`Learner` を分ける、など） | 制約ではない。別の関心で、置き場ができたあとの別の PRD で扱う |
+| クラスの責務の作り直し（`Learner` を分ける、など） | 制約ではない。別の関心で、置き場ができたあとの別の RFD で扱う |
 | 設定キー、メトリクス名、checkpoint、名前空間（`anet::rl::dqn` など）の変更 | 制約ではない。配置と関係が無いので変えない |
 | 基盤そのものを分けること（NN・RL・GUI など） | 制約ではない。別の関心 |
-| 設定ファイルの配置 | 制約ではない。PRD181 が扱う |
-| リリースの組み立て方 | 制約ではない。PRD185 が扱う。本書は zip の中のパスだけを変える |
+| 設定ファイルの配置 | 制約ではない。RFD0181 が扱う |
+| リリースの組み立て方 | 制約ではない。RFD0185 が扱う。本書は zip の中のパスだけを変える |
 | Runner の実行体の名前（`AnetRLRunner`）と、トップの `apps/` という名前 | bat、文書、走っているプロセスの名前、zip の中のパスに出るので動かさない |
 | ルート直下の個人のファイル、`third_party/`、`docs/`、`reports/`、`licenses/` の整理 | 制約ではない。置き場の規則（D2）が扱うのは、このリポジトリで書くソースと、その出力と、実行時のデータである。外部のライブラリ、文書、個人のファイルは別の関心で、動かす理由が今は無い |
 
@@ -135,16 +135,16 @@
 
 | # | 決定 | 理由と前提 |
 |---|---|---|
-| D1 | 本書の範囲に、DQN 系の中のファイルの分け方を入れる | 起点（2026-11-17）のきっかけに直接効く。PRD125 と PRD128 が「ファイルに分けるのは本書の範囲」と送っている |
+| D1 | 本書の範囲に、DQN 系の中のファイルの分け方を入れる | 起点（2026-11-17）のきっかけに直接効く。RFD0125 と RFD0128 が「ファイルに分けるのは本書の範囲」と送っている |
 | D2 | 置き場の規則は 1 つにする。ビルドの入力は `src`、実行時の配置（配る形）は `apps`、実行時にできるものは `data`、配らないビルドの出力は `out` に置く | ゴール 3。規則が 1 つなら、新しいファイルの置き場を表を引かずに決められる。日常はビルドが `apps` へ直接出し、install を挟まない。今の作りと ADR 0017（開発と配布で同じ配置を使う）を保つ |
 | D3 | 層とフォルダは `src/core/base`、`src/env/<名前>`、`src/algo/<系統>`、`src/apps/<app>` にする。フォルダ名は英小文字で、Env は `lunarlander`・`dropmerge`・`atari`・`gridmaze`・`cartpole`・`imagecls`（末尾の数字を外す）、系統は `dqn`・`muzero`・`imagecls` | どの層も、ライブラリが 3 段目に来て形がそろう。`env` は include・名前空間・設定キーがすでに単数（§2.4）。Windows と Git では、大文字小文字だけの違いが事故になりやすい。末尾の数字は、版の意味が今は無い。`apps` だけ複数なのは、トップの `apps/` と対にするため。D2 に依存 |
 | D4 | ライブラリのターゲットは `anet-<層>-<名前>` にする。基盤は `anet-core-base`、系統は `anet-algo-dqn`・`anet-algo-muzero`・`anet-algo-imagecls`、Env は `anet-env-<名前>`。テスト実行体は、ターゲット名に `-test` を付ける。Runner の実行体 `AnetRLRunner` は変えない。文章の中の「anet-core」は、`src/core` の層を指す語として残す | 基盤だけ新しい形にすると、Env の `GridMazeEnv` などと形が食い違う。Env の名前を変える参照は CMake の 11 か所ほどで少ない。D3 に依存 |
-| D5 | Agent のライブラリは、系統ごとの 3 本にする。共通部品、DefaultDQN、Rainbow は `dqn` に入れる | 変更の多い DQN の内部ヘッダ（型 57）を公開面にしなくて済む。テストの割り振りが要らない。系統どうしの独立は機械が守る。DefaultDQN と Rainbow のあいだ、共通部品から具象への向きは、今 0 行で（§2.2）、検索の検査で保つ。RainbowAgent を共通部品の 2 つ目の利用者として保つ PRD128 の決定は変えない |
+| D5 | Agent のライブラリは、系統ごとの 3 本にする。共通部品、DefaultDQN、Rainbow は `dqn` に入れる | 変更の多い DQN の内部ヘッダ（型 57）を公開面にしなくて済む。テストの割り振りが要らない。系統どうしの独立は機械が守る。DefaultDQN と Rainbow のあいだ、共通部品から具象への向きは、今 0 行で（§2.2）、検索の検査で保つ。RainbowAgent を共通部品の 2 つ目の利用者として保つ RFD0128 の決定は変えない |
 | D6 | DQN が使う基盤の内部の部品は、公開する。対象は、Head を書くための型、汎用の Head、N-step の経験の組み立てである。DQN の Head と step 診断の部品は、DQN のライブラリへ出す。公開する型が要る定義（§2.2）も一緒に出す。DQN だけが使う定数 `kKey_Taus` は DQN のライブラリへ移す。Body を組む型、module の登録、SN と SDPA の補助は内部に残す | 基盤に DQN の Head を残すと、基盤が `q`・`q_dist`・`skip_q` などの名前と Dueling・分位・IQN の計算を持ち、[AGENTS.md](../../AGENTS.md) の「汎用機構と利用側の責任境界」に反する。step 診断を基盤に置くと、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md) の「n step の窓は Agent が持つ」と食い違う。内部に残すものは、系統の実装が使っていない（§2.2）。D5 に依存 |
 | D7 | 登録は、各ライブラリが公開する初期化関数を、Runner とテスト実行体が呼ぶ形にする。系統は `anet/algo/<系統>.hpp` に `anet::rl::algo::InitDqn()`・`InitMuZero()`・`InitImageCls()` を置く。このヘッダの名前は、フォルダ名と同じ英小文字にする。Env のヘッダ（`anet/env/GridMaze.hpp` など）は今の名前のままにする。`InitRL` の登録 4 行は外す。自己登録マクロ 2 つは消す | ゴール 2（基盤は具象 Agent を知らない）。Env の今の形（`anet/env/<Env>.hpp` と `anet::rl::env::Init<Env>()`）と対にする。自己登録マクロは使われていない（§2.2）。Env のヘッダの名前を英小文字にそろえる案は退けた（§4.3）。D3・D5 に依存 |
 | D8 | 具象 Agent のヘッダ 4 本（`default_dqn_agent.hpp`・`rainbow_agent.hpp`・`muzero_proto_agent.hpp`・`image_cls_agent.hpp`）は、系統のライブラリの内部へ移す。基盤の公開ヘッダ `agent.hpp` にある DQN の設定の型（名前空間 `anet::rl::dqn`）も、DQN のライブラリの内部へ移す。系統の公開ヘッダは、初期化関数のヘッダだけにする | 系統の外から読んでいたのは、登録とテストだけである（§2.2）。DQN の設定の型を基盤の公開ヘッダに残すと、基盤が Munchausen・skip・分位の名前を持ち続け、D6 の理由と食い違う。D7・D12 に依存 |
 | D9 | 内的報酬（RND）は基盤に残す | 公開の口にも実装にも DQN の名前が無い（§2.2）。DefaultDQN と組み合わせるテストは DQN のテストへ移す（D12） |
-| D10 | PRD169 を本書に統合する。規約 4 つ（§5.6）、拡張点の表、用語、自己登録マクロの削除を本書が行う | PRD169 が先送りした 2 件（Agent の外部登録口、Head の部品の公開）は、D6・D7 で本書が行う。残る規約と表は本書の結果そのもので、2 本に分けると同じ段落と同じ表を 2 回書くことになる |
+| D10 | RFD0169 を本書に統合する。規約 4 つ（§5.6）、拡張点の表、用語、自己登録マクロの削除を本書が行う | RFD0169 が先送りした 2 件（Agent の外部登録口、Head の部品の公開）は、D6・D7 で本書が行う。残る規約と表は本書の結果そのもので、2 本に分けると同じ段落と同じ表を 2 回書くことになる |
 | D11 | アプリのソースは `src/apps/runner`・`src/apps/metrics-viewer` へ移す。`apps/` には bin・config・道具・bat だけを残す。実行体の出力先（`apps/runner/bin/<構成>`）と bat の作業ディレクトリ（`apps/runner`）は変えない | D2 の規則どおり。`apps` のままだと、規則が「ライブラリのソースは `src`、アプリはソースも実行時の配置も `apps`」の 2 つになる |
 | D12 | テストの参照範囲と依存の向きを、次の 4 つにする。(1) 単体テストは対象のライブラリの中に置き、そのライブラリの内部まで読める。(2) ほかのライブラリは、公開ヘッダとテスト用の口だけを通して使う。(3) テストは、上位や兄弟のライブラリに依存しない。(4) 組み合わせを確かめるテストは D14 による。データのファイル（出荷設定、検証資材）は、この範囲の対象にしない。どのライブラリのテストも、リポジトリの根からのパスで読んでよい | 基盤が外に見せる面を絞る D6 を、テストが素通りしないようにする。ほかのライブラリの `src/` を相対パスで読む箇所が無くなり、同じリポジトリにあることに頼らない。[実装 品質確認観点](../quality/impl.md)の項番 46（テストは内部の構造を直接確かめない）とも合う |
 | D13 | テスト用の口は、基盤の `include/anet/test/` に置き、名前空間は `anet::test` にする。補助の実装は基盤の `src/test/` に置き、基盤とは別のターゲット（テスト用のライブラリ）に入れる。ヘッダの先頭にガードを置き、テスト用のライブラリにリンクした側だけが読めるようにする。中身は、組み立ての補助と、読むだけの口に限る。製品の処理は置かない。テスト用の口は、要るライブラリだけが持つ | 補助の実装が基盤のフォルダの中にあるので、ほかのフォルダの `src/` を読む箇所が残らない。ガードで、製品のコードが読もうとするとコンパイルが止まる。今のテスト用のヘッダがすでに `anet::test` である（§2.3）。D12 に依存 |
@@ -155,11 +155,11 @@
 | D18 | `data` の根は、今の config と同じく、実行体の位置から固定の相対で決める（配置の根の `data/`）。探して見つける形や、見つからないときの黙った代替は作らない。appdata は今の規則のまま移す（`data/appdata` があるときだけ使い、無ければ利用者の設定フォルダ）。追跡している 8 本（workspace ごとの設定 7 本とタグセット）は、workspaces と一緒に移す。`data` の根を返す口は 1 つにし、workspace の解決、相対で書いた Run の置き場の基準、appdata が同じ口を使う。設定のファイルを直接渡す起動でも、相対の Run の置き場は `data` の根からの相対にする（既定は `data/runs`）。Metrics Viewer と道具も、それぞれの位置から固定の相対で `data` に至る（§5.5） | 今の決め方（§2.4）と形をそろえる。今は Run の置き場の基準が 2 か所にあり、片方だけ変えると旧い置き場に Run ができる。[AGENTS.md](../../AGENTS.md) の「設定値の扱い」（黙った代替を作らない）。D17 に依存 |
 | D19 | 道具は `apps/tools/` の 1 か所に集める（`apps/runner/tools` の 11 本と `viewers/metrics-tools` の 16 本）。リリースの zip には `apps/tools` を丸ごと入れる。bat が使う Python の環境は、リポジトリの根の `.venv` にする | D2 の規則どおり（道具は、手で書いて実行時にそのまま読むもの）。トップの `viewers/` が無くなる。分析の道具も zip に入り、今は指す先が無い bat 4 本が zip でも動く。選り分けの規則を持たずに済む。Python の環境は、[AGENTS.md](../../AGENTS.md) の「Python 補助ツールの実行」が根の `.venv` を定めている。道具のフォルダに作ると、実行時にできるものが `apps` に入る |
 | D20 | ビルドの出力先を変える。`.lib` はビルドの木、テスト実行体は `out/test/<構成>/` の 1 か所、Metrics Viewer の jar は `apps/metrics-viewer/bin/metrics-viewer.jar`、Maven の中間物は `out/` の下にする。Runner のテスト実行体だけは、Runner の `bin` のままにする | D2 の規則（`src/` はビルドの入力だけ）。Runner のテスト実行体は、実行体の位置から config を引く（§2.4）。`.lib` は人が使わない中間物で、パスを書く箇所が無い（§2.4）。テスト実行体を 1 か所にすれば、DLL の写しが 1 組で済む。jar は Runner の `bin` とそろえる。zip の中のパスが 1 つ変わる |
-| D21 | testdata は、今の `prdNNN`（37 フォルダ）を `src/core/base/testdata` へまとめて移す。これから作る資材は、対象のライブラリの下に置く。検証資材は、入力のファイルも、それを確かめるスクリプトも、テストの入力として `src` の下に置く | 過去の PRD の検証資材を、ライブラリごとに振り分け直す得が無い |
+| D21 | testdata は、今の `rfdNNNN`（37 フォルダ）を `src/core/base/testdata` へまとめて移す。これから作る資材は、対象のライブラリの下に置く。検証資材は、入力のファイルも、それを確かめるスクリプトも、テストの入力として `src` の下に置く | 過去の RFD の検証資材を、ライブラリごとに振り分け直す得が無い |
 | D22 | 互換層を置かない。旧パスの symlink・junction・転送ヘッダを作らず、参照は同じ変更で移す。旧い置き場（`apps/runner/workspaces`・`apps/runner/appdata`）は読まず、あっても知らせない。各マシンの移動は人が行う | [AGENTS.md](../../AGENTS.md) のクリーンブレーク方針。Run フォルダの操作は人が行う決まり |
-| D23 | 過去の記録は、移る先が同じ文書であるリンクの、丸括弧の中のパスだけを直す。本文、課題記録の `scope` の欄、コードの枠の中は当時のまま残す。過去の記録に当たるのは、PRD と実装計画、ADR、実験記録、課題記録、`reports/` の下の記録（調査レポート、統計、定期作業の記録。`reports/tools` は除く）、wiki の作業の記録、変更の記録（`CHANGELOG.md`）のすでにある項である。ステージ 2 で分かれて無くなる 3 本（`dqn_based_agent.cpp`・`dqn_based_agent.hpp`・`dqn_based_agent_test.cpp`）を指すリンクは、同じ文書の新しいパスが無いので直さず、切れたまま残す。検証資材（`testdata`）の文書（`.md`。README と検証の記録）は、手順と当時の結果が同じ文書に混ざるので、過去の記録として扱い、リンクのほかに、先頭の注記 1 行だけを足す（パスと名前が本書で変わったことと、本文は当時のままであること）。検証資材のうち、過去の Run の記録をそのまま写したファイル（調査の時点では、`prd092` の `config` の下にある、Run の実効 config の写し 11 本）は、過去の記録として扱い、中身を変えない。現用の文書・設定と、検証資材のうち実行するもの（スクリプト）と、手で書いた入力のファイルは、本文も直す。英訳（`.en.md`）と生成物（動線マップ、architecture atlas）は、リンクの丸括弧の中のパスだけを実装する側が直し、本文は、人が翻訳の skill と生成の skill を起動して追随させる | [memo README](README.md) の「リンクの注意」は、同じ文書の新しいパスへ直すことだけを、書き換えに当たらないとする。課題記録の事象は書いた時点の観測で、行番号も当時のものである。検証資材のスクリプトは、あとの PRD の検証でも使う道具である。検証資材の文書は、設計文書から手順として参照されるが、日付のある結果の節を持ち、文ごとには分けられない。Run の記録の写しは、逐語で保存して hash を記録した当時の記録で、書き換えると写しでなくなる。翻訳と生成の skill は、人の起動でだけ動く |
-| D24 | 挙動を変えていないことは、着手前に保存した実行体と比べて確かめる。DQN 系は PRD128 の比べ方（全 scalar の点、設定の記録、ログの WARN と ERROR の行）を使う | PRD128 §6.2・§6.4・§7 で確かめ方が定まっている |
-| D25 | 受入の検査（§6）は、手で回すコマンドと検証資材として書く。CI には載せない。Observer と ReplayBuffer の差し替え口、NN module の登録口の公開は作らない | CI の整備は別の PRD の範囲。差し替え口と登録口は要求が無い |
+| D23 | 過去の記録は、移る先が同じ文書であるリンクの、丸括弧の中のパスだけを直す。本文、課題記録の `scope` の欄、コードの枠の中は当時のまま残す。過去の記録に当たるのは、RFD と実装計画、ADR、実験記録、課題記録、`reports/` の下の記録（調査レポート、統計、定期作業の記録。`reports/tools` は除く）、wiki の作業の記録、変更の記録（`CHANGELOG.md`）のすでにある項である。ステージ 2 で分かれて無くなる 3 本（`dqn_based_agent.cpp`・`dqn_based_agent.hpp`・`dqn_based_agent_test.cpp`）を指すリンクは、同じ文書の新しいパスが無いので直さず、切れたまま残す。検証資材（`testdata`）の文書（`.md`。README と検証の記録）は、手順と当時の結果が同じ文書に混ざるので、過去の記録として扱い、リンクのほかに、先頭の注記 1 行だけを足す（パスと名前が本書で変わったことと、本文は当時のままであること）。検証資材のうち、過去の Run の記録をそのまま写したファイル（調査の時点では、`rfd0092` の `config` の下にある、Run の実効 config の写し 11 本）は、過去の記録として扱い、中身を変えない。現用の文書・設定と、検証資材のうち実行するもの（スクリプト）と、手で書いた入力のファイルは、本文も直す。英訳（`.en.md`）と生成物（動線マップ、architecture atlas）は、リンクの丸括弧の中のパスだけを実装する側が直し、本文は、人が翻訳の skill と生成の skill を起動して追随させる | [memo README](README.md) の「リンクの注意」は、同じ文書の新しいパスへ直すことだけを、書き換えに当たらないとする。課題記録の事象は書いた時点の観測で、行番号も当時のものである。検証資材のスクリプトは、あとの RFD の検証でも使う道具である。検証資材の文書は、設計文書から手順として参照されるが、日付のある結果の節を持ち、文ごとには分けられない。Run の記録の写しは、逐語で保存して hash を記録した当時の記録で、書き換えると写しでなくなる。翻訳と生成の skill は、人の起動でだけ動く |
+| D24 | 挙動を変えていないことは、着手前に保存した実行体と比べて確かめる。DQN 系は RFD0128 の比べ方（全 scalar の点、設定の記録、ログの WARN と ERROR の行）を使う | RFD0128 §6.2・§6.4・§7 で確かめ方が定まっている |
+| D25 | 受入の検査（§6）は、手で回すコマンドと検証資材として書く。CI には載せない。Observer と ReplayBuffer の差し替え口、NN module の登録口の公開は作らない | CI の整備は別の RFD の範囲。差し替え口と登録口は要求が無い |
 | D26 | 設計文書を 1 本新設し、置き場の規則、ライブラリの境界、テストの参照範囲、テスト用の口の現在形を書く。拡張点の表は 010 に置く | 新しい仕組みには、現在形を書く場所が要る |
 | D27 | ADR を 3 本起こす。置き場の規則（ADR 0078）、Agent を系統ごとのライブラリにして Head を外で書ける拡張点にすること（ADR 0079）、テストの参照範囲（ADR 0080） | どれも戻しにくく、背景を知らないと意外で、案を比べて選んだ |
 
@@ -178,7 +178,7 @@
 | D11（段の順） | D16 |
 | D12（英訳） | D23 |
 | D13（台帳 `findings.jsonl` のパス） | 外した。台帳は追跡ファイルに無い（ファイル名の検索で 0 件） |
-| D14（用語のパス）・D20（PRD169 との進め方） | D10・§5.6 |
+| D14（用語のパス）・D20（RFD0169 との進め方） | D10・§5.6 |
 | D15（生成物と作業領域） | 非ゴール（§3） |
 | D16（リリースの同梱物） | §2.4 の事実と D19・D20・§5.5 |
 | D17（DQN の中のファイルの分け方） | D1・D15 |
@@ -196,10 +196,10 @@
 | Agent 全体を 1 本のライブラリにする | MuZero や ImageCls が DQN の部品を読むことを、機械が止めない |
 | DQN の Head と step 診断を基盤に残す | D6 の理由のとおり、汎用層の規約と ADR 0058 に反する |
 | 系統のライブラリが基盤の `src/` を include パスに足して内部ヘッダを読む | ゴール 2 を満たさない |
-| PRD169 を分けたまま、どちらかを先に確定する | 同じ段落と同じ表を 2 本の PRD が書く |
+| RFD0169 を分けたまま、どちらかを先に確定する | 同じ段落と同じ表を 2 本の RFD が書く |
 | アプリのソースを `apps/` に残す | 置き場の規則が 2 つになる |
 | config をソースの側に置き、ビルドで `apps/` へ写す | config を直してすぐ走らせる今の回し方に、写しの手順が挟まる |
-| data を別の PRD に分ける、または作らない | ユーザーの選択で本書に入れた。受入は最後のステージとして分ける |
+| data を別の RFD に分ける、または作らない | ユーザーの選択で本書に入れた。受入は最後のステージとして分ける |
 | 道具を 2 か所のまま、`viewers/` だけ `apps/` の下へ移す | 探す場所が 2 つ残る。workspace を解決する bat は、どちらの道具からも使われる |
 | テストを境界の対象にしない、テスト実行体を分けない | テストが、基盤の公開面を素通りして何にでも依存できる |
 | テストの向きだけ守り、系統のテストが基盤の `src/` を直接読む | 同じリポジトリにあることに頼る。テスト用の口を作る手間だけで避けられる |
@@ -275,7 +275,7 @@ third_party/、docs/、reports/、licenses/   変えない
 - 関数と型の本体は変えない。変えるのは、置き場、include、名前空間の開閉、リンケージの指定（ファイルの中だけで使う指定を、2 つ以上のファイルが使うものから外すこと）と、それに伴う宣言だけである。
 - テスト（`dqn_based_agent_test.cpp` の 265 ケース）も、同じ 5 つの役割と、具象 Agent と設定を確かめるケースの単位でファイルに分ける。ケースの本文は変えない。DQN 系のほかのテストのファイルは分けない。
 - `dqn_based_heads.hpp`・`dqn_based_heads.cpp` は分けない。
-- このステージは、同じファイルに触れる実装途中の PRD が無い時機に入れる（§9）。
+- このステージは、同じファイルに触れる実装途中の RFD が無い時機に入れる（§9）。
 
 ### 5.4 ステージ 3: ライブラリの分離
 
@@ -324,14 +324,14 @@ third_party/、docs/、reports/、licenses/   変えない
 - 用語集の「ワークスペース」の定義（既定の置き場）、[AGENTS.md](../../AGENTS.md) の Run の規約、ユーザーガイドを、新しい置き場に合わせる。
 - 各マシンでの移し方を、変更の記録（`CHANGELOG.md`）に書く。手順は、走っている Run を止める、`apps/runner/workspaces` の中身を `data/workspaces` へ移す、`apps/runner/appdata` を `data/appdata` へ移す、最後に開いた workspace を選び直す、の 4 つである。固定した古い実行体で流す bat は、その実行体の根から見た置き場を使い続けるので、引数の workspace を絶対パスで渡す。
 - workspaces と appdata を動かすのは人である。AI は動かさず、消さない。移動は、同じドライブの中でのフォルダの改名だけで行い、コピーと削除をしない。
-- 移すための道具を、本書の検証資材（`testdata` の `prd182`）に置く。リリースには入れない。道具は、何をどこへ動かすかを表示するだけの実行と、移す前後で workspace と Run フォルダの数を比べる確認を持つ。移す先に同じ名前があれば、上書きせずに止まる。
+- 移すための道具を、本書の検証資材（`testdata` の `rfd0182`）に置く。リリースには入れない。道具は、何をどこへ動かすかを表示するだけの実行と、移す前後で workspace と Run フォルダの数を比べる確認を持つ。移す先に同じ名前があれば、上書きせずに止まる。
 - `data/` や `data/workspaces/` が無いときは、今の `workspaces` が無いときと同じに扱う。workspace の一覧は空になり、workspace を新しく作るときにフォルダを作る。
 - appdata の置き場は、次を上から順に当てて決める。(1) `data/appdata` がフォルダとしてあれば、そこを使う。(2) 無ければ、利用者の設定フォルダの下を使う。(3) 利用者の設定フォルダも取れなければ、今と同じく構築で止める。
 - このステージは、走っている Run が無いときに入れる。
 
 ### 5.6 規約・拡張点の表・用語
 
-PRD169 から来る分である。
+RFD0169 から来る分である。
 
 - [AGENTS.md](../../AGENTS.md) の基本方針の「公開ヘッダへの変更は慎重に行う」を、次の 4 つに置き換える。
   1. 公開ヘッダに置くのは、基盤の外で書けると宣言した拡張点の interface・部品・登録口の一式である。
@@ -341,7 +341,7 @@ PRD169 から来る分である。
 - 同じ節に、D2 の置き場の規則と、D12 のテストの参照範囲を足す。
 - 設計文書 010 に拡張点の表を置く。列は「拡張点／interface／部品／登録口／基盤の外で書けるか／実例」で、行は Env・View・Agent・NN Head・NN module・Observer・ReplayBuffer の 7 つである。Agent と NN Head は「書ける」、NN module と ReplayBuffer の差し替えは「書けない」、Observer は「コードで付けるなら書ける」とする。NN module の行には、基底の型は公開ヘッダに見えるが、登録口が無いので書けない、と書く。
 - 設計文書 110・120・130 の「テストと拡張時の確認事項」に、表を指す 1 行を足す。
-- 用語集（[CONTEXT.md](../../CONTEXT.md) の「ソース構成」）に「公開ヘッダ」「内部ヘッダ」「テスト用の口」「Agent の系統」を足した（本書の起草で足した）。どれも、用語集の既存の語では言い換えられない。「公開ヘッダ」と「内部ヘッダ」は、ヘッダを読んでよい範囲で分ける語で、用語集にはヘッダを指す語が無かった（`AGENTS.md` は「公開ヘッダ」を定義なしで使っていた）。「テスト用の口」は、読める範囲がその 2 語のどちらとも違う（テスト実行体だけが使える）ので、2 語では言い分けられない。「Agent の系統」は、共通部品を分け合う Agent の実装の括りで、ライブラリの単位である。用語集には、この括りを指す語が無かった。用語集の「実行系統」は Env の RunMode の区分で、別の概念なので、「Agent の」を付けて言い分ける。PRD169 が挙げた「anet-core の外」は足さない。文章の中の「anet-core」は層の名前として残り（D4）、語として定義しなくても通じるためである。
+- 用語集（[CONTEXT.md](../../CONTEXT.md) の「ソース構成」）に「公開ヘッダ」「内部ヘッダ」「テスト用の口」「Agent の系統」を足した（本書の起草で足した）。どれも、用語集の既存の語では言い換えられない。「公開ヘッダ」と「内部ヘッダ」は、ヘッダを読んでよい範囲で分ける語で、用語集にはヘッダを指す語が無かった（`AGENTS.md` は「公開ヘッダ」を定義なしで使っていた）。「テスト用の口」は、読める範囲がその 2 語のどちらとも違う（テスト実行体だけが使える）ので、2 語では言い分けられない。「Agent の系統」は、共通部品を分け合う Agent の実装の括りで、ライブラリの単位である。用語集には、この括りを指す語が無かった。用語集の「実行系統」は Env の RunMode の区分で、別の概念なので、「Agent の」を付けて言い分ける。RFD0169 が挙げた「anet-core の外」は足さない。文章の中の「anet-core」は層の名前として残り（D4）、語として定義しなくても通じるためである。
 
 ### 5.7 移行対象
 
@@ -359,11 +359,11 @@ PRD169 から来る分である。
 | 生成物 | 動線マップ（`docs/agents`）、architecture atlas（`docs/archify`） | リンクの丸括弧の中のパスだけを実装する側が直す。作り直しは、人が skill を起動して行う（§5.2） |
 | Git の設定 | `.gitignore`、`.gitattributes` | 新しいパスにする |
 | 分類の設定 | `reports/tools/categories.json` と、それを読む道具 | 新しいパスにする |
-| 検証資材 | `testdata` のスクリプト（`.py`・`.ps1`・`.cjs`）と、手で書いた入力のファイル | 新しいパスと実行体の名前にする。ステージ 2 で分かれるファイルを名指すスクリプト（PRD125 の 2 本）は、分けたあとのファイルを指すように直す |
+| 検証資材 | `testdata` のスクリプト（`.py`・`.ps1`・`.cjs`）と、手で書いた入力のファイル | 新しいパスと実行体の名前にする。ステージ 2 で分かれるファイルを名指すスクリプト（RFD0125 の 2 本）は、分けたあとのファイルを指すように直す |
 | 検証資材の文書 | `testdata` の `.md`（README と検証の記録。旧いパスと名前を持つものは 33 本） | 過去の記録として扱う。リンクの丸括弧の中のパスを直し、旧いパスと名前を持つ文書の先頭に、注記を 1 行足す（D23） |
-| 検証資材の中の、過去の Run の記録の写し | `testdata` の `prd092` の `config` の下の 11 本（Run の実効 config の逐語の写し。うち 7 本が、旧い data のパスを絶対パスで持つ） | 過去の記録として扱い、中身を変えない（D23）。フォルダと一緒に移すだけである |
+| 検証資材の中の、過去の Run の記録の写し | `testdata` の `rfd0092` の `config` の下の 11 本（Run の実効 config の逐語の写し。うち 7 本が、旧い data のパスを絶対パスで持つ） | 過去の記録として扱い、中身を変えない（D23）。フォルダと一緒に移すだけである |
 | テスト | 具象 Agent を使う 57 ケース、基盤の内部の名前を使う約 130 行、テスト用のヘッダの include（`.cpp`・`.hpp` の追跡ファイルで、`anet/test_util.hpp` が 28 本、`anet/catch_test.hpp` が 49 本）、workspace の解決を確かめるテスト（タグ `[workspace]`）、道具のテスト | D12〜D14・D18 に合わせる |
-| 過去の記録 | PRD と実装計画（`docs/memo`）、ADR、実験記録、課題記録（`docs/management`）、`reports/` の下（`reports/tools` を除く）、`docs/wiki/log.md`、`CHANGELOG.md` のすでにある項 | 移る先が同じ文書であるリンクの、丸括弧の中のパスだけを直す（D23）。ステージ 2 で無くなる 3 本を指すリンクは直さない |
+| 過去の記録 | RFD と実装計画（`docs/memo`）、ADR、実験記録、課題記録（`docs/management`）、`reports/` の下（`reports/tools` を除く）、`docs/wiki/log.md`、`CHANGELOG.md` のすでにある項 | 移る先が同じ文書であるリンクの、丸括弧の中のパスだけを直す（D23）。ステージ 2 で無くなる 3 本を指すリンクは直さない |
 
 ### 5.8 クラスとファイルの一覧
 
@@ -380,7 +380,7 @@ PRD169 から来る分である。
 | `dqn_based_config.hpp` | 新規 | `agent.hpp` から移す DQN の設定の型 | DQN のライブラリの内部 |
 | `anet/algo/dqn.hpp`・`anet/algo/muzero.hpp`・`anet/algo/imagecls.hpp` | 新規 | 系統の初期化関数 | 系統の公開ヘッダ |
 | `ANET_REGISTER_AGENT_FACTORY`・`ANET_REGISTER_VIEW_CREATOR` | 削除 | 自己登録マクロ | `agent.hpp`・`gui.hpp` |
-| workspaces を移す道具 | 新規 | 動かすものの表示、改名、前後の数の確認 | 本書の検証資材（`testdata` の `prd182`） |
+| workspaces を移す道具 | 新規 | 動かすものの表示、改名、前後の数の確認 | 本書の検証資材（`testdata` の `rfd0182`） |
 | テスト用のライブラリ（ターゲット `anet-core-testing`）と、ガードの定義 `ANET_TEST_SUPPORT` | 新規 | テスト用の口の実装をまとめ、リンクした側にだけガードの定義を配る | 基盤の CMake |
 
 ## 6. 受入基準
@@ -391,7 +391,7 @@ PRD169 から来る分である。
 |---|---|
 | C1 | 3 つの構成（`x64-Debug`・`x64-RelWithDebInfo`・`x64-Release`）で build が通る |
 | C2 | その時点のすべてのテスト実行体が、既定のケースで通る。[AGENTS.md](../../AGENTS.md) の「検証」の標準テスト手順も、新しいパスで通る |
-| C3 | 着手前に保存した実行体と、PRD128 §6.4 の前後比較の組（PRD125 の短縮条件の 31 組と、PRD128 が足した 3 組。seed 1 本、決定的な backend で、GridMaze・LunarLander・Atari・DropMerge を含む）を比べ、全 scalar の点、設定の記録、ログの WARN と ERROR の行が完全に一致する。比べ方は PRD128 §6.2・§6.4・§7 による。ログの行は、ソースのファイル名と行番号の部分も、置き換えてから比べる。ファイルを移して分けると、挙動が同じでもこの部分が変わるためである（§2.4）。Run 名と Run フォルダのパスは、PRD128 §7 の 3 がすでに置き換えてから比べているので、ステージ 4 で置き場が変わっても比べ方は同じである |
+| C3 | 着手前に保存した実行体と、RFD0128 §6.4 の前後比較の組（RFD0125 の短縮条件の 31 組と、RFD0128 が足した 3 組。seed 1 本、決定的な backend で、GridMaze・LunarLander・Atari・DropMerge を含む）を比べ、全 scalar の点、設定の記録、ログの WARN と ERROR の行が完全に一致する。比べ方は RFD0128 §6.2・§6.4・§7 による。ログの行は、ソースのファイル名と行番号の部分も、置き換えてから比べる。ファイルを移して分けると、挙動が同じでもこの部分が変わるためである（§2.4）。Run 名と Run フォルダのパスは、RFD0128 §7 の 3 がすでに置き換えてから比べているので、ステージ 4 で置き場が変わっても比べ方は同じである |
 | C4 | docs 全体のリンク切れ検査（[memo README](README.md) の「リンクの注意」のスクリプト）で、着手前に同じ検査を回して記録した一覧から、増えた行が無い。ただしステージ 2 からは、分かれて無くなる 3 本（D23）を指す行だけは増えてよい。増えた行の指す先が、この 3 本だけであることを確かめる |
 | C5 | 人が skill（`anet-harness-map`・`anet-archify-atlas`）を起動して動線マップと architecture atlas を作り直したあと、`docs/agents` と `docs/archify` の追跡ファイルを、そのステージまでの検索の文字列（旧いパス、旧いファイル名、旧いヘッダの名前、旧い data のパス）で検索して 0 行である。人の起動が済むまでは、この項目だけを未了として残し、次のステージへ進んでよい。あとのステージのあとに作り直せば、前のステージの分も満たす |
 
@@ -432,8 +432,8 @@ PRD169 から来る分である。
 | 生成物。`docs/agents`、`docs/archify` | 人が skill を起動して作り直す。C5 で別に確かめる |
 | 設計文書の英訳（`docs/design` の `.en.md`） | 人が翻訳の skill を起動して追随させる。本書の受入では、リンク切れ（C4）だけを確かめる |
 | 検証資材の文書（`testdata` の `.md`） | 手順と当時の結果が混ざる検証の記録で、当時のパスと名前を残すため（D23） |
-| 検証資材の中の、過去の Run の記録の写し（`testdata` の `prd092` の `config` の下） | 逐語で保存した当時の記録で、中身を変えないため（D23） |
-| 本書の検証資材（`testdata` の `prd182`） | 移す前の名前と置き場を扱う道具と、着手前に取った記録を持つため |
+| 検証資材の中の、過去の Run の記録の写し（`testdata` の `rfd0092` の `config` の下） | 逐語で保存した当時の記録で、中身を変えないため（D23） |
+| 本書の検証資材（`testdata` の `rfd0182`） | 移す前の名前と置き場を扱う道具と、着手前に取った記録を持つため |
 | S4-2 のケースを持つテストのファイル。「旧い data のパス」の検索でだけ除く | 旧い置き場を読まないことを確かめるために、旧いパスを書くため |
 
 ```text
@@ -468,11 +468,11 @@ DefaultDQN と Rainbow の検査（固定文字列。テストのファイルは
 
 | 先送りするもの | 理由 | 作る条件 |
 |---|---|---|
-| 組み合わせそのものを確かめるテストのための、`src/apps/` の下の専用のアプリ | 別の関心（そのテストを足す PRD が作る）。今は入れるケースが無い | 組み合わせそのものが主題のテストを、最初に足すとき |
-| `Learner` などのクラスの責務の作り直し | 別の関心 | 置き場ができたあとの、責務を直す PRD |
+| 組み合わせそのものを確かめるテストのための、`src/apps/` の下の専用のアプリ | 別の関心（そのテストを足す RFD が作る）。今は入れるケースが無い | 組み合わせそのものが主題のテストを、最初に足すとき |
+| `Learner` などのクラスの責務の作り直し | 別の関心 | 置き場ができたあとの、責務を直す RFD |
 | 基盤そのものの分割 | 別の関心 | 基盤の中で、DQN と同じ肥大が問題になったとき |
 | テストごとに書かれている代役の Agent 8 個を、テスト用の口の代役に寄せること | 別の関心 | テスト用の口ができたあと |
-| 受入の検査を CI に載せること | 別の関心 | CI の整備の PRD |
+| 受入の検査を CI に載せること | 別の関心 | CI の整備の RFD |
 | NN module の登録口の公開、Observer と ReplayBuffer の差し替え口 | 別の関心 | 基盤の外で module を書く、または差し替えると決めたとき |
 
 ## 8. 未決
@@ -483,11 +483,11 @@ DefaultDQN と Rainbow の検査（固定文字列。テストのファイルは
 
 ## 9. 依存と順序
 
-- **PRD169。** 本書に統合した（D10）。PRD169 の本文は当時の記録として残す。
-- **[PRD185](0185_release_packaging_cmake_10rfd.md)（リリースの組み立てを CMake へ移す）。** 本書のステージ 1 と 4 のあとに実装するのを基本にする。包む中身を、新しい配置で 1 度だけ書くためである。PRD185 が先に実装された場合は、本書のステージ 1 と 4 が、包む中身のパスを直す。同書の「zip の中のパスを変えない」という条件は、同書の移行の前後を比べる条件なので、本書が決めた差（S1-4・S4-4）は、その比較の前か後に分けて入れる。
-- **DQN のファイルに触れる PRD。** `docs/memo` 直下の PRD のうち、本文に `dqn_based_agent` を持つものは 68 本ある（実装済みを含む）。ステージ 2 は、そのうち実装途中のものが無い時機に入れる。ステージ 2 のあと、まだ実装していない PRD が指す行番号とファイル名は、型と関数の名前で探し直す。
-- **ステージの切れ目と途中。** ステージの切れ目では、ほかの PRD の実装を入れてよい。ステージの途中に、同じファイルに触れるほかの PRD の変更が入ったときは、そのステージの基準（保存した実行体、リンク切れの一覧、定義の本文の集まり）を取り直す。
-- **[PRD181](0181_config_file_layout_10rfd.md)（設定ファイルの配置）。** 順序は独立である。同書は Agent の単位を「具象 Agent」と書くが、ソースの単位は系統になった（D5）。
+- **RFD0169。** 本書に統合した（D10）。RFD0169 の本文は当時の記録として残す。
+- **[RFD0185](0185_release_packaging_cmake_10rfd.md)（リリースの組み立てを CMake へ移す）。** 本書のステージ 1 と 4 のあとに実装するのを基本にする。包む中身を、新しい配置で 1 度だけ書くためである。RFD0185 が先に実装された場合は、本書のステージ 1 と 4 が、包む中身のパスを直す。同書の「zip の中のパスを変えない」という条件は、同書の移行の前後を比べる条件なので、本書が決めた差（S1-4・S4-4）は、その比較の前か後に分けて入れる。
+- **DQN のファイルに触れる RFD。** `docs/memo` 直下の RFD のうち、本文に `dqn_based_agent` を持つものは 68 本ある（実装済みを含む）。ステージ 2 は、そのうち実装途中のものが無い時機に入れる。ステージ 2 のあと、まだ実装していない RFD が指す行番号とファイル名は、型と関数の名前で探し直す。
+- **ステージの切れ目と途中。** ステージの切れ目では、ほかの RFD の実装を入れてよい。ステージの途中に、同じファイルに触れるほかの RFD の変更が入ったときは、そのステージの基準（保存した実行体、リンク切れの一覧、定義の本文の集まり）を取り直す。
+- **[RFD0181](0181_config_file_layout_10rfd.md)（設定ファイルの配置）。** 順序は独立である。同書は Agent の単位を「具象 Agent」と書くが、ソースの単位は系統になった（D5）。
 - **これから足す Env と系統。** 新しい Env は `src/env/` の下、新しい系統（PPO など）は `src/algo/` の下に、D3・D4・D7 の形で置く。
 
 ## 10. 参照
@@ -495,7 +495,7 @@ DefaultDQN と Rainbow の検査（固定文字列。テストのファイルは
 - [AGENTS.md](../../AGENTS.md)、[CONTEXT.md](../../CONTEXT.md)、[実装 品質確認観点](../quality/impl.md)
 - [010 フレームワーク概要](../design/010_framework_overview.jp.md)、[040 開発環境](../design/040_development_environment.jp.md)、[200 DQN 系 Agent](../design/200_dqn_agents.jp.md)
 - [ADR 0017](../adr/0017-release-zip-mirrors-repo-layout.md)、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、[ADR 0067](../adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md)、[ADR 0078](../adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md)、[ADR 0079](../adr/0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public.md)、[ADR 0080](../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)
-- [PRD169](0169_outside_core_extension_layout_10rfd.md)、[PRD181](0181_config_file_layout_10rfd.md)、[PRD185](0185_release_packaging_cmake_10rfd.md)、[PRD125](0125_dqn_learner_update_skeleton_10rfd.md)、[PRD128](0128_dqn_agent_refactor_bundle_10rfd.md)
+- [RFD0169](0169_outside_core_extension_layout_10rfd.md)、[RFD0181](0181_config_file_layout_10rfd.md)、[RFD0185](0185_release_packaging_cmake_10rfd.md)、[RFD0125](0125_dqn_learner_update_skeleton_10rfd.md)、[RFD0128](0128_dqn_agent_refactor_bundle_10rfd.md)
 - [CMakeLists.txt](../../CMakeLists.txt)、[core/anet-core/CMakeLists.txt](../../src/core/base/CMakeLists.txt)、[apps/runner/CMakeLists.txt](../../src/apps/runner/CMakeLists.txt)、[release.yml](../../.github/workflows/release.yml)、[app_util.cpp](../../src/core/base/src/app_util.cpp)
 - 配置の事例（2026-11-18 に確かめた）: [Pitchfork Layout](https://raw.githubusercontent.com/vector-of-bool/pitchfork/develop/data/spec.bs)、[Unreal Engine の Directory Structure](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-directory-structure)、[CMake の install](https://cmake.org/cmake/help/latest/command/install.html)
 - テストの参照範囲の事例（同上）: [Rust の Test Organization](https://doc.rust-lang.org/book/ch11-03-test-organization.html)、[Go の testing](https://pkg.go.dev/testing)、[Bazel の testonly と visibility](https://bazel.build/reference/be/common-definitions)、[Gradle の test fixtures](https://docs.gradle.org/current/userguide/java_testing.html)、[Chromium の checkdeps](https://chromium.googlesource.com/chromium/src/+/HEAD/buildtools/checkdeps/README.md)

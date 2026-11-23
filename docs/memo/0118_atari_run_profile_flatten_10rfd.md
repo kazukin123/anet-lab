@@ -1,4 +1,4 @@
-# PRD118: Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする）
+# RFD0118: Atari の Run プロファイルの整理（本流を 1 つの平らなプロファイルにする）
 
 > 2026-11-08 起票（暫定。質疑を省き、既定を §8 の未決表に置いた）。行番号は起票時点の作業ツリーの位置で、`apps/runner/config/Atari.txt` と `apps/11_batch_run.bat` は未コミットの変更を含む。実装時は近傍の記述で探し直す。
 > 起点: 2026-11-08 の会話。Montezuma の RND の Run を段取りする途中で、ユーザーが Atari.txt の Run プロファイルについて、「大量すぎてワケワカメ」「Run プロファイルを組み合わせて一つの設定にするのは無理があるのでは」「BTR 寄せのサンプル効率優先は本流のプロファイルとして用意しておきたいが、他プロファイルの組み合わせだと何が何だか分からない」「ベース部分は仕方ないかもしれないが、トップの Run プロファイルにフラットに設定を並べるなら人間でも分かる」「とにかく Atari.txt をきれいにしたい」と述べた。Atari を題材に整理の形を考え、その結果をほかの env へ広げるかは後で考えるとして、課題と暫定 PRD の起票を求めた。
@@ -95,7 +95,7 @@ bat・テスト・文書のどれにも名前が出ないものは 17 個ある:
 
 - 評価の間隔: `Atari.txt` 488〜489 行のコメント「interval は learn_step 基準なので、1 更新あたり exp が変わる replay_ratio ごとに換算が要る」。`eval2ch`（510・513 行、RR 4 で 3,906・78,907）と `eval2ch_r1`（518・521 行、RR 1 で 1,954・39,453）が別にある。
 - target の同期: 581〜586 行のコメント「env 時間 32,000 exp step で揃える」「RR と batch とセットで選ぶこと」。`hard125`／`hard250`／`hard500` が別にある。
-- 単位の直しは [PRD096](0096_metrics_step_axis_interval_10rfd.md)（評価の間隔など）と [PRD148](0148_target_update_step_axis_10rfd.md)（target の更新）が扱う。どちらも未実装。
+- 単位の直しは [RFD0096](0096_metrics_step_axis_interval_10rfd.md)（評価の間隔など）と [RFD0148](0148_target_update_step_axis_10rfd.md)（target の更新）が扱う。どちらも未実装。
 
 ### 2.6 規約と過去の判断
 
@@ -103,9 +103,9 @@ bat・テスト・文書のどれにも名前が出ないものは 17 個ある:
 - [CONTEXT.md](../../CONTEXT.md) 270 行: 上書き層 A1/A2/A3 は恒久度（大番号ほど一時的）を示す運用上の名前。
 - [ADR 0040](../adr/0040-config-selection-final-value-and-run-profile-tier.md): Run プロファイルの葉は CLI と同じ第 2 相で選択の後に勝つ。
 - [実装 品質確認観点](../quality/impl.md) の「設定ファイル」の規約: 選択宣言・Run プロファイル・CLI は常に `=`（153 行）。機能の有効化は葉 1 つで済むようにし、機能ごとの変種のために `@` プロファイルを作らない（174 行）。
-- [PRD181](0181_config_file_layout_10rfd.md) §7: `run.@` は `<Env>.txt` の所有。「env ファイルの中身（Run プロファイルの整理）」を別のグリルへ送った。
+- [RFD0181](0181_config_file_layout_10rfd.md) §7: `run.@` は `<Env>.txt` の所有。「env ファイルの中身（Run プロファイルの整理）」を別のグリルへ送った。
 - [020 §3.6](../design/020_user_guide_run.jp.md) の表: `<Env>.txt` にチェーン・プロファイル・上書き層・Run プロファイルを書き、bat・CLI が `run.$` の選択と葉の上書きを持つ。137 行の例は `run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base`。
-- [316 設定管理のトピック別まとめ](../wiki/categories/316_config.md) の「変えるときの条件」: 設定ファイルを分けたり移したりするときは、env の解決済み設定（全キーと文字列値）の前後一致と `check_default_leaves.py` の errors=0 を確かめる（出典は PRD181 §6）。
+- [316 設定管理のトピック別まとめ](../wiki/categories/316_config.md) の「変えるときの条件」: 設定ファイルを分けたり移したりするときは、env の解決済み設定（全キーと文字列値）の前後一致と `check_default_leaves.py` の errors=0 を確かめる（出典は RFD0181 §6）。
 
 ### 2.7 プロファイルの名前を参照するもの
 
@@ -114,9 +114,9 @@ bat・テスト・文書のどれにも名前が出ないものは 17 個ある:
 | bat | [11](../../apps/11_batch_run.bat)・[13](../../apps/13_batch_run.bat)（本流の部品・機能・予算） |
 | テスト（消える名前を書くもの） | `dqn_based_agent_test.cpp`（4370・9806〜9807 行）、`dqn_munchausen_test.cpp`（227・244 行）、`core/envs/atari1/src/AtariEnv_test.cpp`（1631 行） |
 | テスト（残る名前と既定の `run.$` を読むもの） | [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp)（既定の `run.$` を読み、`run.@skip` などを足す）、`intrinsic_test.cpp`（`run.@rnd`・`run.@rnd_taiga`） |
-| 固定入力 | `core/anet-core/testdata/prd072`（manifest の固定 commit を読む。[README](../../src/core/base/testdata/rfd0072/README.md)） |
-| 過去の PRD の検証資材 | `core/anet-core/testdata/prd084`・`prd094`・`prd097`・`prd099`・`prd102`・`prd103`・`prd104`・`prd106` のスクリプト・README・manifest。prd102 の manifest は今の設定を解決して比べる |
-| 文書 | [020](../design/020_user_guide_run.jp.md)（jp・en）137 行、ADR 0040、PRD117・172・181・158・161（`run.@aainit`、72 行）、実装済みの PRD098、wiki の breakout、issue-20261103-93f8a6・issue-20261107-a9a0e3、実験記録 |
+| 固定入力 | `core/anet-core/testdata/rfd0072`（manifest の固定 commit を読む。[README](../../src/core/base/testdata/rfd0072/README.md)） |
+| 過去の RFD の検証資材 | `core/anet-core/testdata/rfd0084`・`rfd0094`・`rfd0097`・`rfd0099`・`rfd0102`・`rfd0103`・`rfd0104`・`rfd0106` のスクリプト・README・manifest。rfd0102 の manifest は今の設定を解決して比べる |
+| 文書 | [020](../design/020_user_guide_run.jp.md)（jp・en）137 行、ADR 0040、RFD0117・0172・0181・0158・0161（`run.@aainit`、72 行）、実装済みの RFD0098、wiki の breakout、issue-20261103-93f8a6・issue-20261107-a9a0e3、実験記録 |
 | 同じ名前の別 env のプロファイル | LunarLander.txt に `run.@munch`・`run.@rfit` がある（DropMerge.txt には無い）。12 の bat、[実装 品質確認観点](../quality/impl.md) 178 行の例、wiki の lunarlander はそちらを指す |
 | workspace の設定（追跡外） | `apps/runner/workspaces/AtariRnd-01/config/rnd_explore.txt` は、先頭（6・7 行）で 2026-11-07 の写し `frozen/_main.txt`・`frozen/Atari.txt` を読み、`run.@rnd_nn` を定義する。11 の bat はこのファイルを `CFG`（36 行）にして `--config` で渡す（130 行）。13 の bat は workspace の `config/_main.txt`（`$include <Atari.txt>`）を通して今の `Atari.txt` を読む |
 
@@ -134,10 +134,10 @@ bat はステージを始めるたびに設定を読み直す。そのため、�
 ### 3.2 非ゴール
 
 - ほかの env（DropMerge・LunarLander・GridMaze など）の設定ファイルの整理。Atari で形を確かめてから別に判断する（起点の会話の方針。§8 の 17）。本当の制約ではなく、同じ形を後から広げられる。
-- 設定の文法や resolver の変更（チェーンへ項を足す記法など）。本当の制約ではなく、別の PRD で足すこともできるが、PRD181 の D12 で足さないとしており、本 PRD の形は今の文法で書けるので要らない。
-- learn step で数える値の単位の変更。PRD096・PRD148 の関心である。本 PRD は今の単位のまま、本流ごとに値を書く（§8 の 12）。
+- 設定の文法や resolver の変更（チェーンへ項を足す記法など）。本当の制約ではなく、別の RFD で足すこともできるが、RFD0181 の D12 で足さないとしており、本 RFD の形は今の文法で書けるので要らない。
+- learn step で数える値の単位の変更。RFD0096・RFD0148 の関心である。本 RFD は今の単位のまま、本流ごとに値を書く（§8 の 12）。
 - 実効の値の変更（性能や成績の改善）。整理は解決結果を保つ。
-- 過去の実験記録・Run の設定の写し・PRD072 の固定資料・ADR の書き換え（[AGENTS.md](../../AGENTS.md) のクリーンブレーク方針）。
+- 過去の実験記録・Run の設定の写し・RFD0072 の固定資料・ADR の書き換え（[AGENTS.md](../../AGENTS.md) のクリーンブレーク方針）。
 
 ### 3.3 成功の測り方
 
@@ -200,7 +200,7 @@ Run 名の既定 `app.run_name = run_{t}_atari_${E1.game}`（今は `run.@a5_ape
 
 ### 4.5 性能
 
-設定の解決は Run の起動時に 1 回だけ行う。本 PRD は Run の中の処理を変えない。
+設定の解決は Run の起動時に 1 回だけ行う。本 RFD は Run の中の処理を変えない。
 
 ## 5. 実装契約
 
@@ -233,17 +233,17 @@ Run 名の既定 `app.run_name = run_{t}_atari_${E1.game}`（今は `run.@a5_ape
 | [13 の bat](../../apps/13_batch_run.bat) | 本流の変数（`A5`・`RR1`・`RR4`・`RF` と、それを使う連結の変数）を、本流・機能・予算の名前に替える。bat の葉を正式名に揃える | 10・14 |
 | [11 の bat](../../apps/11_batch_run.bat) の、`CFG` が今の設定を指すステージ | 13 の bat と同じ | 10・14 |
 | `core/anet-core/src/dqn_based_agent_test.cpp`、`core/anet-core/src/dqn_munchausen_test.cpp`、`core/envs/atari1/src/AtariEnv_test.cpp` | 消えた名前を参照する行を、新しい名前か葉へ替える | 6・8 |
-| `core/anet-core/testdata/prd103`・`prd104` | 消えた名前を新しい名前へ替える | 15 |
+| `core/anet-core/testdata/rfd0103`・`rfd0104` | 消えた名前を新しい名前へ替える | 15 |
 | [020](../design/020_user_guide_run.jp.md)（jp・en） | 137 行の例と §3.6・§3.7 の Atari の説明を、本流・機能・予算の形にする | 16・18 |
-| `docs/memo` 直下の PRD のうち、索引の issue の AI の判定が実装済みでないもの（2026-11-08 時点で 117・172・181・158・161）、wiki の breakout | 消えた名前を今の状態として書いた箇所を、新しい置き場に替える | 16 |
+| `docs/memo` 直下の RFD のうち、索引の issue の AI の判定が実装済みでないもの（2026-11-08 時点で 117・172・181・158・161）、wiki の breakout | 消えた名前を今の状態として書いた箇所を、新しい置き場に替える | 16 |
 
 直さないもの:
 
 | 場所 | 理由 | 前提の番号 |
 | --- | --- | --- |
-| `docs/experiments/`、`docs/memo/done/`、`docs/memo` 直下の実装済みの PRD（索引の issue の AI の判定が実装済みのもの。2026-11-08 時点で 098）、`docs/adr/`、`docs/management/issues/`、`docs/wiki/log.md` | 過去の記録（[AGENTS.md](../../AGENTS.md) のクリーンブレーク方針） | 16 |
-| 本 PRD（`docs/memo/118_atari_run_profile_flatten_10prd.md`） | 整理の前の状態と、消す名前の一覧を記録する | 16 |
-| `core/anet-core/testdata/prd072`・`prd084`・`prd094`・`prd097`・`prd099`・`prd102`・`prd106` | 固定入力と、再実行を求められていない過去の検証資材 | 15 |
+| `docs/experiments/`、`docs/memo/done/`、`docs/memo` 直下の実装済みの RFD（索引の issue の AI の判定が実装済みのもの。2026-11-08 時点で 098）、`docs/adr/`、`docs/management/issues/`、`docs/wiki/log.md` | 過去の記録（[AGENTS.md](../../AGENTS.md) のクリーンブレーク方針） | 16 |
+| 本 RFD（`docs/memo/0118_atari_run_profile_flatten_10rfd.md`） | 整理の前の状態と、消す名前の一覧を記録する | 16 |
+| `core/anet-core/testdata/rfd0072`・`rfd0084`・`rfd0094`・`rfd0097`・`rfd0099`・`rfd0102`・`rfd0106` | 固定入力と、再実行を求められていない過去の検証資材 | 15 |
 | [11 の bat](../../apps/11_batch_run.bat) の、`CFG` が写し（`rnd_explore.txt`）を指すステージ | 写しは今の `Atari.txt` を読まず、旧い名前で起動する | 14 |
 | `apps/runner/config/LunarLander.txt`、`apps/12_batch_run.bat`、`docs/quality/impl.md` 178 行の例、`docs/wiki/subjects/lunarlander.md` | 同じ名前の LunarLander のプロファイルを指す | 16 |
 | 追跡外の workspace の設定 | リポジトリの外の運用。写しを使う bat の設定 | 14 |
@@ -270,7 +270,7 @@ Run 名の既定 `app.run_name = run_{t}_atari_${E1.game}`（今は `run.@a5_ape
 
 ### A2. 既定葉の検査
 
-[core/anet-core/testdata/prd072/README.md](../../src/core/base/testdata/rfd0072/README.md) の `check_default_leaves.py` が errors=0 で、`check_default_leaves_test.py` が通る。
+[core/anet-core/testdata/rfd0072/README.md](../../src/core/base/testdata/rfd0072/README.md) の `check_default_leaves.py` が errors=0 で、`check_default_leaves_test.py` が通る。
 
 ### A3. 出荷設定の検査と既存のテスト
 
@@ -306,9 +306,9 @@ Run 名の既定 `app.run_name = run_{t}_atari_${E1.game}`（今は `run.@a5_ape
 
 | 項目 | 裁定 | 理由と再開条件 |
 | --- | --- | --- |
-| ほかの env の設定ファイルの整理 | 先送り（別の関心） | Atari で形を確かめてから判断する（起点の会話の方針）。再開条件: 本 PRD の実装が済み、ユーザーが Atari の形を確かめたとき（§8 の 17） |
-| learn step で数える値の単位の変更 | 範囲外（別の関心） | PRD096・PRD148 で扱う。そちらが入ったら、本流の評価の間隔と target の同期を exp step の値に書き換えられる |
-| チェーンへ項を足す記法 | 不採用 | PRD181 D12 で足さないとした。本 PRD の形は今の文法で書ける |
+| ほかの env の設定ファイルの整理 | 先送り（別の関心） | Atari で形を確かめてから判断する（起点の会話の方針）。再開条件: 本 RFD の実装が済み、ユーザーが Atari の形を確かめたとき（§8 の 17） |
+| learn step で数える値の単位の変更 | 範囲外（別の関心） | RFD0096・RFD0148 で扱う。そちらが入ったら、本流の評価の間隔と target の同期を exp step の値に書き換えられる |
+| チェーンへ項を足す記法 | 不採用 | RFD0181 D12 で足さないとした。本 RFD の形は今の文法で書ける |
 
 ## 8. 未決
 
@@ -320,30 +320,30 @@ Run 名の既定 `app.run_name = run_{t}_atari_${E1.game}`（今は `run.@a5_ape
 | 2 | 本流の名前 | `run.@sample_efficient`・`run.@realtime`。Rainbow 寄せは `run.@rainbow_like` のまま | 略さずに読めることがゴール 1 に効く。Run 名の略号（`se`・`rt`）は bat の Run 名に残る。名前の基準は [実装 品質確認観点](../quality/impl.md) の「名前」 | 選択 |
 | 3 | 本流どうしで同じ値の置き場 | 各本流に重ねて書く。土台へ下ろさない | 1 か所で読めることがゴール 1。本流 2〜3 本なら重なりは数十行。重なりを減らすなら土台（A1）へ下ろすが、本流を読むのに土台も要る。#1 に依存 | 選択 |
 | 4 | 本流に書く範囲 | 土台との差を全部（Env・Agent のチェーン・Network・学習器・探索・Replay・target・評価・メトリクス）。予算・seed・Run 名は書かない | 予算は Run ごとに変わる別の関心。CONTEXT.md の Run プロファイルの定義は予算を含むが、予算のプロファイルを本流に足して選ぶので定義とは食い違わない | 選択 |
-| 5 | 予算の持ち方 | 予算のプロファイルは `to_10m`・`to_30m`・`to_50m`・`to_100m` の 4 個。`to_50m` は `run.@a5` の 50M を移して作る。`app.batchrun.exp_exit_step = ${@vars.max_exp_step}` は 4 個に持たせる。特別な長さの `to_50`・`to_400k`・`a5_20m` は値の腕として消し（#6）、要る Run は bat の引数で `@vars.max_exp_step` を書く | 予算は本流と別の関心（#4）。bat は今も予算をプロファイルで足す。`to_50` を使うのは固定入力の prd072 と過去の検証資材の prd102 だけで、どちらも直さない（#15） | 選択 |
+| 5 | 予算の持ち方 | 予算のプロファイルは `to_10m`・`to_30m`・`to_50m`・`to_100m` の 4 個。`to_50m` は `run.@a5` の 50M を移して作る。`app.batchrun.exp_exit_step = ${@vars.max_exp_step}` は 4 個に持たせる。特別な長さの `to_50`・`to_400k`・`a5_20m` は値の腕として消し（#6）、要る Run は bat の引数で `@vars.max_exp_step` を書く | 予算は本流と別の関心（#4）。bat は今も予算をプロファイルで足す。`to_50` を使うのは固定入力の rfd0072 と過去の検証資材の rfd0102 だけで、どちらも直さない（#15） | 選択 |
 | 6 | 値だけ違う腕 30 個 | 消す。値の実験は bat の引数で書く | [実装 品質確認観点](../quality/impl.md) 174 行（機能ごとの変種のために `@` プロファイルを作らない）。テストが使う腕はテストを葉へ替える | 選択 |
 | 7 | 参照の無い 17 個 | 消す | 実験記録は設定の写しを持つので、消しても再現できる | 選択 |
-| 8 | 機能のプロファイルの残し方 | 次の参照元のどれかに `run.@<名前>` が出る機能は残し、どれにも出ないものは消す。参照元: テストのソース（追跡している `*_test.cpp`）、13 の bat、11 の bat のうち `CFG` が今の設定を指すステージの行、§5.2 の「直すもの」の文書（020・PRD117・172・181・158・161・wiki の breakout）と検証資材（prd103・prd104）。残った機能の書き方は #9 で決める | 参照元は、今の `Atari.txt` を読む場所に限る。写しを読む 11 の bat のステージと、直さない過去の記録は今の `Atari.txt` を読まない。参照の無い機能は管理の手間だけを残す（#7 と同じ扱い）。2026-11-08 時点では、テストが `run.@skip`・`run.@skip_aux`・`run.@attention`・`run.@rnd`・`run.@rnd_taiga`・`run.@rainbow_like` を参照する | 選択 |
+| 8 | 機能のプロファイルの残し方 | 次の参照元のどれかに `run.@<名前>` が出る機能は残し、どれにも出ないものは消す。参照元: テストのソース（追跡している `*_test.cpp`）、13 の bat、11 の bat のうち `CFG` が今の設定を指すステージの行、§5.2 の「直すもの」の文書（020・RFD0117・0172・0181・0158・0161・wiki の breakout）と検証資材（rfd0103・rfd0104）。残った機能の書き方は #9 で決める | 参照元は、今の `Atari.txt` を読む場所に限る。写しを読む 11 の bat のステージと、直さない過去の記録は今の `Atari.txt` を読まない。参照の無い機能は管理の手間だけを残す（#7 と同じ扱い）。2026-11-08 時点では、テストが `run.@skip`・`run.@skip_aux`・`run.@attention`・`run.@rnd`・`run.@rnd_taiga`・`run.@rainbow_like` を参照する | 選択 |
 | 9 | #8 で残った機能が選択（`.$`）を書き直すこと | `metrics.scalar.$` は今の決まり（impl.md 178 行）のまま書き直してよい。本流どうしのメトリクスのチェーンを同じにする。`DefaultDQNAgent.$` か `main_feature.$` を書き直す機能は、同じキーを書き直すほかの機能と 1 つの Run で重ねない（§4.3） | 書き直しの順の依存（§2.4）を「本流の後ろに足す」の 1 つに減らす。残すかどうかは #8 で先に決まる（2026-11-08 時点で該当は `vitva` だけ）。消える `no_munch` に当たる Run（Munchausen なし）が要るときは、bat の引数で書く。葉 `DefaultDQNAgent.learner.munchausen.enabled = false` だけで書けるかは、その Run を作るときに確かめる | 選択 |
 | 10 | 葉の名前 | Run プロファイルと bat の葉は正式名（`DefaultDQNAgent.*`・`AtariEnv.*`）で書く。上書き層 A1/A2/A3 は設定ファイル本体の層としてだけ使う | 同じキーを別名と正式名で書くと正式名が勝ち、bat の別名の葉が黙って効かない（§1.5） | 選択 |
 | 11 | 本体の「実験」の節（A2 の行）と節の並び | 両方の本流が同じ値なら A1 へ、本流ごとに違うものは各本流へ移し、「実験」の節を消す。Run プロファイルは本流・機能・予算の順の節にまとめる（§4.4） | 本流を読むのに本体の A2 を重ねて読まずに済む。値の実験は bat の引数（#6） | 選択 |
-| 12 | learn step で数える値 | 本流ごとに、その本流の RR に合わせた値を書き、exp step をコメントで添える。bat で RR を変える Run は、評価の間隔と target の同期も bat で書く（今と同じ） | 単位の直しは PRD096・PRD148 の関心（§7） | 別の関心 |
+| 12 | learn step で数える値 | 本流ごとに、その本流の RR に合わせた値を書き、exp step をコメントで添える。bat で RR を変える Run は、評価の間隔と target の同期も bat で書く（今と同じ） | 単位の直しは RFD0096・RFD0148 の関心（§7） | 別の関心 |
 | 13 | 既定の `run.$` | `run.@realtime > run.@to_100m` | 今の既定（実時間優先 100M）と同じ構成 | 選択 |
 | 14 | 切り替えの時機 | 13 の bat が Atari のキューを流していないときに、`Atari.txt`・13 の bat・テストを同じ変更で切り替える。11 の bat は、写し（`rnd_explore.txt`）を読むステージを旧い名前のまま残し、今の設定を読むステージを足すときに新しい名前で書く。サブ機の作業ツリーの更新は人が行う | 今の `Atari.txt` を読む bat の後続のステージは、その時点の `Atari.txt` を読む。写しを読む bat は影響を受けない（§2.7）。消えた名前を読むと起動時に止まる。サブ機が読む `Atari.txt` の所在は ④（実装計画で確かめる） | 選択と④ |
-| 15 | 過去の PRD の検証資材と固定入力 | `core/anet-core/testdata/prd072`（固定入力）と、`prd084`・`prd094`・`prd097`・`prd099`・`prd102`・`prd106`（検証資材）は直さない。[316 のトピック別まとめ](../wiki/categories/316_config.md)の「変えるときの条件」が再実行を求める `prd103`・`prd104` だけを新しい名前へ直す | prd072 は manifest の固定 commit を読む。ほかの資材は、その PRD の実装を確かめ終えた記録。直さない資材を今の設定で流すと、消えた名前で起動時に止まる。prd103・prd104 の各資材が今の `Atari.txt` を読むかは ④（実装計画で確かめる） | 選択と④ |
-| 16 | 今の状態として名前を書いた文書 | 020（jp・en）と、`docs/memo` 直下の PRD のうち索引の issue の AI の判定が実装済みでないもの（2026-11-08 時点で 117・172・181・158・161）、wiki の breakout を直す。ADR・実験記録・done と実装済みの PRD（098）・issue の本文・wiki のログは直さない | クリーンブレーク方針（[AGENTS.md](../../AGENTS.md)）。ADR は書き換えない。実装前の PRD は、実装のときに今の状態として読まれる | 選択 |
-| 17 | ほかの env へ広げるか | 本 PRD では扱わない。Atari の形を確かめてから別の PRD で判断する | 起点の会話の方針（§3.2） | 後で決める |
+| 15 | 過去の RFD の検証資材と固定入力 | `core/anet-core/testdata/rfd0072`（固定入力）と、`rfd0084`・`rfd0094`・`rfd0097`・`rfd0099`・`rfd0102`・`rfd0106`（検証資材）は直さない。[316 のトピック別まとめ](../wiki/categories/316_config.md)の「変えるときの条件」が再実行を求める `rfd0103`・`rfd0104` だけを新しい名前へ直す | rfd0072 は manifest の固定 commit を読む。ほかの資材は、その RFD の実装を確かめ終えた記録。直さない資材を今の設定で流すと、消えた名前で起動時に止まる。rfd0103・rfd0104 の各資材が今の `Atari.txt` を読むかは ④（実装計画で確かめる） | 選択と④ |
+| 16 | 今の状態として名前を書いた文書 | 020（jp・en）と、`docs/memo` 直下の RFD のうち索引の issue の AI の判定が実装済みでないもの（2026-11-08 時点で 117・172・181・158・161）、wiki の breakout を直す。ADR・実験記録・done と実装済みの RFD（098）・issue の本文・wiki のログは直さない | クリーンブレーク方針（[AGENTS.md](../../AGENTS.md)）。ADR は書き換えない。実装前の RFD は、実装のときに今の状態として読まれる | 選択 |
+| 17 | ほかの env へ広げるか | 本 RFD では扱わない。Atari の形を確かめてから別の RFD で判断する | 起点の会話の方針（§3.2） | 後で決める |
 | 18 | 規約にするか | 020 の Atari の説明に書き、[実装 品質確認観点](../quality/impl.md) の「設定ファイル」の規約には #17 の判断のあとで足す | 規約にすると全 env に当たる。#17 に依存 | 選択 |
 | 19 | ADR を起こすか | グリルで確定したら起こす | 戻すのが重く、文脈なしでは意外で、連結の形との実際の得失がある見込み | グリルで確定後 |
 | 20 | 用語（§3.4）を CONTEXT.md に足すか | グリルで確定したら足す | 「Run プロファイル」の下位の呼び分けで足りるか、新しい語が要るか | グリルで確定後 |
 | 21 | `run.@batch`（`app.$ = app.batchrun > P1`、432 行） | 機能のプロファイルとして残す | 本流の構成ではなく、bat が Run の実行の形（batch run）を選ぶ切り替え。11・13 の bat の連結が使う。§2.2 では本流の部品に数えたが、移す先は機能 | 選択 |
-| 22 | 予算で変わる評価の間隔（`run.@eval2ch_r1_50m`、524 行。RR 1 で 50M 以下のとき Greedy の間隔 19,727） | プロファイルにせず、bat の引数 `run.eval_schedule.[greedy].interval=19727` で書く | 本流（予算を書かない。#4）にも予算（RR を知らない。#5）にも置けない。間隔の単位が exp step になれば（PRD096）、予算で変える必要自体が無くなる | 選択 |
+| 22 | 予算で変わる評価の間隔（`run.@eval2ch_r1_50m`、524 行。RR 1 で 50M 以下のとき Greedy の間隔 19,727） | プロファイルにせず、bat の引数 `run.eval_schedule.[greedy].interval=19727` で書く | 本流（予算を書かない。#4）にも予算（RR を知らない。#5）にも置けない。間隔の単位が exp step になれば（RFD0096）、予算で変える必要自体が無くなる | 選択 |
 | 23 | Run 名の既定（`app.run_name = run_{t}_atari_${E1.game}`、`run.@a5_apex` 443 行） | `Atari.txt` 本体の app の節（土台）に置く | どの本流でも同じ既定で、本流には Run 名を書かない（#4）。bat は今も Run 名を引数で書く | 選択 |
 
 ## 9. 依存と順序
 
 - §8 の 14 のとおり、今の `Atari.txt` を読む bat（13）のキューが止まっているときに切り替える。2026-11-08 時点で 11 の bat が流している Montezuma の 100M は写しを読むので、切り替えの影響を受けない。
-- 本 PRD を PRD096・PRD148 より先に入れても、あとから入れても、本流の値の書き換えで済む（§8 の 12）。
+- 本 RFD を RFD0096・RFD0148 より先に入れても、あとから入れても、本流の値の書き換えで済む（§8 の 12）。
 
 ## 10. 参照
 
@@ -351,6 +351,6 @@ Run 名の既定 `app.run_name = run_{t}_atari_${E1.game}`（今は `run.@a5_ape
 - 設定: [Atari.txt](../../apps/runner/config/Atari.txt)、[11 の bat](../../apps/11_batch_run.bat)、[13 の bat](../../apps/13_batch_run.bat)
 - 規約: [AGENTS.md](../../AGENTS.md) のクリーンブレーク方針、[実装 品質確認観点](../quality/impl.md) の「設定ファイル」、[CONTEXT.md](../../CONTEXT.md) の Run プロファイル・上書き層・個別指定
 - 設計文書: [020](../design/020_user_guide_run.jp.md) §3.6・§3.7
-- PRD: [PRD181](0181_config_file_layout_10rfd.md)、[PRD096](0096_metrics_step_axis_interval_10rfd.md)、[PRD148](0148_target_update_step_axis_10rfd.md)、[PRD059](done/0059_config_concept_tree_alignment_10rfd.md)、[PRD072](done/0072_config_selection_final_value_10rfd.md)
+- RFD: [RFD0181](0181_config_file_layout_10rfd.md)、[RFD0096](0096_metrics_step_axis_interval_10rfd.md)、[RFD0148](0148_target_update_step_axis_10rfd.md)、[RFD0059](done/0059_config_concept_tree_alignment_10rfd.md)、[RFD0072](done/0072_config_selection_final_value_10rfd.md)
 - ADR: [0040](../adr/0040-config-selection-final-value-and-run-profile-tier.md)、[0042](../adr/0042-config-inheritance-as-differential-base.md)
 - トピック別まとめ: [316 設定管理](../wiki/categories/316_config.md)、[322 個別 env](../wiki/categories/322_env_individual.md)

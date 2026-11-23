@@ -1,8 +1,8 @@
-# PRD121 受入検証
+# RFD0121 受入検証
 
-> この検証資材の設定キーは PRD191 より前の名前です。
+> この検証資材の設定キーは RFD0191 より前の名前です。
 
-正本は [PRD121](../../../../../docs/memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、経過と成否は [20impl](../../../../../docs/memo/0121_extrinsic_intrinsic_value_decomposition_20impl.md)を参照する。ここは再実行の入口であり、未実施の検証を成功として扱わない。
+正本は [RFD0121](../../../../../docs/memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、経過と成否は [20impl](../../../../../docs/memo/0121_extrinsic_intrinsic_value_decomposition_20impl.md)を参照する。ここは再実行の入口であり、未実施の検証を成功として扱わない。
 
 ## 保存した基準
 
@@ -29,7 +29,7 @@ Debug coreテストの`[rfd0121]`を使う。Replay、DQN、RND、scalerの既�
 
 ## 無効時の同一性
 
-`run_validation.py`はPRD109の起動・ハッシュの処理とPRD084のscalar正規化を使う。`snapshot`で実行体を保存し、`prepare`で入力を凍結、`before`で基準を採取、`after`で変更後を採取、`compare`で比較する。基準の`before --label baseline`は採取済みである。別の採取には別のlabelを使い、既存のRunを混ぜない。
+`run_validation.py`はRFD0109の起動・ハッシュの処理とRFD0084のscalar正規化を使う。`snapshot`で実行体を保存し、`prepare`で入力を凍結、`before`で基準を採取、`after`で変更後を採取、`compare`で比較する。基準の`before --label baseline`は採取済みである。別の採取には別のlabelを使い、既存のRunを混ぜない。
 
 比較対象はtagの集合と、時間・資源を除く全scalar点の完全一致である。値の近似一致や選んだtagだけの比較で置き換えない。summaryの終了値と失敗欄、正規化したJSONLのSHA256、comparisonの`exact_match`を確認する。
 
@@ -45,17 +45,17 @@ Atariの同じ入力、同じ実行体、Body共有・mergeで、combinedとdeco
 
 ## 設定と旧checkpoint
 
-`config`は現用17構成（Atari 5、DropMerge 3、LunarLander 3、GridMaze 2、CartPole、GridMaze MuZero、ImageCls 2）の全キー・文字列値を比較する。参照側は現在の設定を複製して`agent.txt`と`metrics_scalar.txt`だけをHEADへ戻すため、並行するEnv設定の変更を両側で同じに保つ。許す差はPRD121の追加既定値だけで、既存のscalar定義も一致させる。テスト実行体を採取先へ複製して使う。
+`config`は現用17構成（Atari 5、DropMerge 3、LunarLander 3、GridMaze 2、CartPole、GridMaze MuZero、ImageCls 2）の全キー・文字列値を比較する。参照側は現在の設定を複製して`agent.txt`と`metrics_scalar.txt`だけをHEADへ戻すため、並行するEnv設定の変更を両側で同じに保つ。許す差はRFD0121の追加既定値だけで、既存のscalar定義も一致させる。テスト実行体を採取先へ複製して使う。
 
-PRD072のgoldenはcommit `107a62c8`の履歴であり、現行で廃止済みの`run.@nature_dqn`などを含む。上書きせず、現用17構成の差分を`comparison.json`へ記録する。2026-11-14の`acceptance-r2-config`と`config-20261114-2244`で始まる採取は、どちらも17構成すべて成功した。
+RFD0072のgoldenはcommit `107a62c8`の履歴であり、現行で廃止済みの`run.@nature_dqn`などを含む。上書きせず、現用17構成の差分を`comparison.json`へ記録する。2026-11-14の`acceptance-r2-config`と`config-20261114-2244`で始まる採取は、どちらも17構成すべて成功した。
 
 `legacy`は変更前のAtari RND・DropMergeの`agent_close.anet`を変更後Debug Runnerの`DefaultDQNAgent.auto_load_file`から読み、学習を止めて8 experience進める。保存を止め、読んだcheckpointのSHA256が変わらないことも確かめる。新しい形式の種類・モード・状態の判定はcoreテストで検査する。
 
-## PRDの受入項目との対応
+## RFDの受入項目との対応
 
 テスト名はCatchの一覧から検索できる。数値テストはFP32で相対誤差1e-5、零付近の絶対許容1e-6を使う。分解のTBO逆変換は同じ逆関数を桁落ちのない式で計算し、既存combinedの計算は保持する。実施日時、ログと成否は20implを正とする。
 
-| PRD §9.2 | 検証する入口 |
+| RFD §9.2 | 検証する入口 |
 |---|---|
 | 1 | `before`・`after`・`compare`、5構成の全scalarとtag集合 |
 | 2 | `replay_buffer_test.cpp`の既存検査 |

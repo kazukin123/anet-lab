@@ -1,4 +1,4 @@
-# SMDP 対応（遷移ごとの経過時間を割引に通す）暫定 PRD
+# SMDP 対応（遷移ごとの経過時間を割引に通す）暫定 RFD
 
 > 2026-11-17 番号を 956 から 167 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 956 へ振り直した（PRD114）。
@@ -64,20 +64,20 @@ DropMerge で起きている問題は次のとおり。
 1. τ を運ぶ場所（`SingleStepResult` の欄か、aux か）と型（整数のフレーム数か、実数の時間か）。
 2. DROP 単位で γ^0 = 1 が続く NOOP の連鎖の扱い。ショットクロックで長さは有限だが、学習の安定性を確かめる。
 3. Munchausen の項（取った行動の log-policy の加点と、次の状態の soft value）を、τ = 0 の遷移でどう扱うか（ADR 0035 との整合）。
-4. PER の優先度と IS 重み、n-step の窓の長さとの関係（[162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md) と一緒に決める）。
-5. 待つ罰の大きさ、γ の値（調整の範囲なので本 PRD では決めない）。
+4. PER の優先度と IS 重み、n-step の窓の長さとの関係（[0162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md) と一緒に決める）。
+5. 待つ罰の大きさ、γ の値（調整の範囲なので本 RFD では決めない）。
 6. 比較の物差し。待つ罰を入れると return が変わるので、[085](0085_dropmerge_eval_score_axes_10rfd.md) のスコア軸で比べる。
 7. Rainbow など、DQN 系以外の Agent の扱い（τ を無視してよいか、対応させるか）。
 
 ## 6. 対象外
 
-- 続ける長さを学習すること（TempoRL、[098_temporl_skip_policy](0098_temporl_skip_policy_10rfd.md)）。
-- 次の判断まで遡る可変長の n-step（[162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md)）。
+- 続ける長さを学習すること（TempoRL、[0098_temporl_skip_policy](0098_temporl_skip_policy_10rfd.md)）。
+- 次の判断まで遡る可変長の n-step（[0162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md)）。
 - γ や待つ罰の値の調整。
 
 ## 7. 依存と順序
 
-比較には [085](0085_dropmerge_eval_score_axes_10rfd.md) の物差しが要る。[086](0086_dropmerge_macro_actions_10rfd.md) のマクロ行動とは独立に作れるが、マクロの時間を正確に数えるには本 PRD が要る。[098_temporl_skip_policy](0098_temporl_skip_policy_10rfd.md) と [162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md) は本 PRD の上に載る。
+比較には [085](0085_dropmerge_eval_score_axes_10rfd.md) の物差しが要る。[086](0086_dropmerge_macro_actions_10rfd.md) のマクロ行動とは独立に作れるが、マクロの時間を正確に数えるには本 RFD が要る。[0098_temporl_skip_policy](0098_temporl_skip_policy_10rfd.md) と [0162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md) は本 RFD の上に載る。
 
 ## 8. 参照
 

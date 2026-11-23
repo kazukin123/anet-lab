@@ -1,4 +1,4 @@
-# 外的と内的の価値の分解（Q を外的報酬と内的報酬の 2 つの Head で学ぶ） PRD
+# 外的と内的の価値の分解（Q を外的報酬と内的報酬の 2 つの Head で学ぶ） RFD
 
 > 2026-11-10 起票（暫定）。質疑を省いた。確定した決定は持たず、AI が置いた既定と決めきれない点を §8 の未決表に置いた。§5・§7・§9 は §8 の暫定の既定を前提に書き、前提にした行の番号を名指す。
 > 起点: Montezuma の RND の Run（§2.1）を見た 2026-11-10 の会話。会話で出た方向は次の 3 つで、どれも決定ではない。(1) 主題は 2500 点が評価側（Greedy）で安定するかで、途中の時期の差は Run ごとの揺れの内とみなす。(2) Body を分けるか共有するかは Network の設定で決まり、Agent57 型でも Burda 型でも Head の分離になるので、2 つの型の実装の違いは小さい見込み。(3) Q の計算を分けると、Learner だけでなく Replay にも影響が出る（§4）。
@@ -41,20 +41,20 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | B（内的の形） | 内的を終端で切らず、割引率を別にすると、探索する部屋の数と、2500 点のあとの平らな局面が変わる（Burda ら §3.2・§3.3） | 分解した Q の中で、内的を外的と同じ扱いにした群と、終端で切らず割引率を別にした群を比べる |
 
 - **終わり方**: 効果が出なくても、仕組みは残す。既定は無効で、173 の土台になる（§7）。効果が出たとき、Atari の RND の構成の既定に入れるかは、Atari の枠で決める（D19）。
-- 群の組み立て（構成、β の値、seed の数、長さ）は本 PRD で決めない。材料は §9.1 に書く。
+- 群の組み立て（構成、β の値、seed の数、長さ）は本 RFD で決めない。材料は §9.1 に書く。
 
 ### 1.4 非ゴール（退けた案と、本当の制約か）
 
 | 退けた案 | 理由 | 本当の制約か |
 |---|---|---|
-| エピソード内の新しさ（NGU・E3B）、方策の組（方策ごとの β_j・γ_j と、方策の番号の入力） | 別の関心として 173 で扱う。本 PRD は方策 1 つ（β 1 つ）のまま扱う | 制約ではない（173 が本 PRD の上に重ねる。§7） |
+| エピソード内の新しさ（NGU・E3B）、方策の組（方策ごとの β_j・γ_j と、方策の番号の入力） | 別の関心として 173 で扱う。本 RFD は方策 1 つ（β 1 つ）のまま扱う | 制約ではない（173 が本 RFD の上に重ねる。§7） |
 | Retrace などの方策オフの補正 | 別の関心で、173 と [168](0168_nstep_target_correction_10rfd.md) の範囲 | 制約ではない |
 | n-step の和に、次のエピソードの報酬まで足すこと | Replay の窓がエピソードをまたぐ契約の変更になる別の関心。終端で切らない形の bootstrap は、窓を変えずに作れる（D7） | 制約ではない |
 | Agent57 の方策の選択（バンディット） | 別の関心で、173 の範囲 | 制約ではない |
 | Atari のゲームの仕様を変えること、RAM の値を報酬にすること | 開発者の裁定（173 の非ゴールと同じ） | 本当の制約 |
 | 鍵の直後・剣のあとで Greedy が止まる型（§2.1）を直すこと | 外的の価値が大きい局面で行動間の差が小さい、という別の関心（割引率、命の扱い）。価値の分解で直る根拠が無い。Head ごとの Trace で、止まる局面の向きがどちらの Head から来ているかは読める（G5） | 制約ではない |
 | 価値の分解と TempoRL を同時に有効にすること | 先送り（実験の結果が要る）。§5.1 | 制約ではない |
-| 観測の正規化の統計を checkpoint に保存すること | 報酬スケーラの状態の保存（D16）と同じ場所の未対応だが、本 PRD の機構が要るのは報酬スケーラだけである。別の関心 | 制約ではない |
+| 観測の正規化の統計を checkpoint に保存すること | 報酬スケーラの状態の保存（D16）と同じ場所の未対応だが、本 RFD の機構が要るのは報酬スケーラだけである。別の関心 | 制約ではない |
 | Atari.txt の Run プロファイルと bat の群の組み立て | Run の条件に効く値は、実験の段取りと一緒に Atari の枠で決める（D19） | 制約ではない |
 | RainbowAgent への対応 | RainbowAgent は内的報酬を持たない（§4） | 制約ではない |
 | 行動の選び方を変えること（行動間の差を広げる学習則、Head ごとに差の大きさをそろえる正規化） | 別の関心。足す診断（D26）の結果を見てから考える。作る条件は §5.1 | 制約ではない |
@@ -81,7 +81,7 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 
 ### 2.1 Montezuma の RND の Run（2026-11-08〜12）
 
-5 本は同じ構成（Run 名に `mz_tg_` を持つ群）から、β・Munchausen・Double DQN・seed だけを変えた。内的報酬は、PRD123 より前の実行体の既定の式（`clipped`・`whiten`。1 step の内的報酬は β × (α − 1) で、α − 1 は 0〜4）で、外的報酬に足して 1 本の Q で学ぶ。割引率は 0.997、n-step は 3、分布の表し方は IQN、Dueling は有効、勾配の clip の上限は 10 である。Greedy は `53_evalg`（16 ゲーム、約 1M ごと）の値である。
+5 本は同じ構成（Run 名に `mz_tg_` を持つ群）から、β・Munchausen・Double DQN・seed だけを変えた。内的報酬は、RFD0123 より前の実行体の既定の式（`clipped`・`whiten`。1 step の内的報酬は β × (α − 1) で、α − 1 は 0〜4）で、外的報酬に足して 1 本の Q で学ぶ。割引率は 0.997、n-step は 3、分布の表し方は IQN、Dueling は有効、勾配の clip の上限は 10 である。Greedy は `53_evalg`（16 ゲーム、約 1M ごと）の値である。
 
 | Run | β | Munchausen | Double DQN | seed | Greedy の 2500 点（20.2〜29.2M の 160 ゲーム） | ε 0.01 の評価 |
 |---|---|---|---|---|---|---|
@@ -124,7 +124,7 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | 終端 | 両方とも終端で切る | 内的は切らない |
 | 内的報酬の正規化 | 誤差の標準偏差で割って切った倍率（NGU の形） | 割引収益の標準偏差で割る |
 | 目的 | 合わせた報酬で 1 本を学ぶのと同じ。変わるのは学び方（それぞれの大きさに合わせられる） | 目的そのものが変わる |
-| 本 PRD での指定 | 割引率と終端のモードが既定（D6・D7） | 割引率と終端のモードを変え、内的報酬用の報酬スケーラを使う（D6・D7・D9） |
+| 本 RFD での指定 | 割引率と終端のモードが既定（D6・D7） | 割引率と終端のモードを変え、内的報酬用の報酬スケーラを使う（D6・D7・D9） |
 
 ### 2.4 価値を分けた手法の優先度（2026-11-12 に確認）
 
@@ -148,7 +148,7 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 
 | 語 | 意味 |
 |---|---|
-| 価値の分解 | Q を外的の Head と内的の Head の和で表し、それぞれを別の報酬で学ぶこと。[CONTEXT.md](../../CONTEXT.md) の「価値ストリーム」（Dueling の V の流れ）とは別のもので、本 PRD ではストリームの語を使わない |
+| 価値の分解 | Q を外的の Head と内的の Head の和で表し、それぞれを別の報酬で学ぶこと。[CONTEXT.md](../../CONTEXT.md) の「価値ストリーム」（Dueling の V の流れ）とは別のもので、本 RFD ではストリームの語を使わない |
 | 外的の Head・内的の Head | 外的報酬で学ぶ Q の出力と、内的報酬で学ぶ Q の出力。Head・Body は訳さない |
 | 合成 Head | 外的の Head と内的の Head を束ね、1 つの Network の Head として 2 組の出力を出すもの |
 | 合わせた Q | Q_外 ＋ β·Q_内。行動の選択と bootstrap の行動の選択に使う。β は使う側（Actor・Learner）が持つ |
@@ -160,7 +160,7 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 
 ## 4. 現状（2026-11-12〜13 にコードで確認）
 
-同じファイルを触る作業が並行しており、本 PRD の実装は §7.3 の課題 5 件の直し（[128](0128_dqn_agent_refactor_bundle_10rfd.md)）のあとに行う（D18）。行番号がずれるファイル（default_dqn_agent・dqn_based_agent・rl）は関数の名前で示す。行番号を書いたものも、実装時は近くの記述で探し直す。
+同じファイルを触る作業が並行しており、本 RFD の実装は §7.3 の課題 5 件の直し（[128](0128_dqn_agent_refactor_bundle_10rfd.md)）のあとに行う（D18）。行番号がずれるファイル（default_dqn_agent・dqn_based_agent・rl）は関数の名前で示す。行番号を書いたものも、実装時は近くの記述で探し直す。
 
 - **取り込み**: `DefaultDQNAgent::UpdateFromBatch` が、報酬スケーラを通した外的報酬に、内的報酬 β × (α − 1) を足して 1 本の報酬にし、内側の Learner へ渡す（[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp)）。`next_state` を採点するとき、`intrinsic.use_done_mask` が真なら done の lane の内的報酬を 0 にする。内的報酬を持つのは DefaultDQNAgent だけである。
 - **受け渡しの形**: `BatchExperience` の報酬は 1 本（[rl.hpp](../../src/core/base/include/anet/rl.hpp)）。
@@ -170,12 +170,12 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 - **終端と打ち切りが同時に真の遷移**: 打ち切りの slot が挿入され、遷移は終端として保存される。返る次観測は打ち切り時点の観測で、この観測から始まる遷移は無い（学習されない）。
 - **標本**: n-step の収益、窓の収益、抽選時の step の報酬は、どれも 1 本（[rl.hpp](../../src/core/base/include/anet/rl.hpp) の `ExperienceSamples`）。
 - **PER の優先度**: 標本ごとの TD 誤差の絶対値。skip が有効なら、設定した重みで skip の誤差の絶対値を足す（`Learner::CombinePriorityErrors`）。初期優先度の見積もりの入力は、確定済みの n-step の収益 1 つと、bootstrap の割引と終端（[replay_buffer.hpp:41](../../src/core/base/include/anet/replay_buffer.hpp)）。Actor の hint は Q_sa・V_s・Munchausen項の 3 列を 1 つに詰めて運ぶ（[ADR 0012](../adr/0012-replay-initial-priority-hint-completion.md)）。列の数は Munchausen の有無に依らず 3 つで、無効のとき Munchausen項の列は 0 である（[ADR 0036](../adr/0036-actor-q-hint-three-columns-munchausen.md)、`kActorQHintColumnCount`）。hint を使うのは、初期優先度を Actor の値から見積もる構成（`learner.per_initial_priority_mode = actor_approx`）だけで、出荷の設定では、`Atari.txt` の `run.@aainit` と、`DropMerge.txt` の `run.@iqn32_actor_approx` が指定する。どちらも、既定の Run プロファイルの連鎖には入っていない。
-- **Learner**: 1 回の更新の進行は、基底の `dqn::Learner::UpdateFromSamples` に 1 本である（[dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp)。PRD125）。分布の表し方ごとの違いは、目標値（`MakeTarget`）と要素誤差（`ComputeElementError`）の上書きである。目標値の式「収益 ＋ γ^n ×（終端でない）× bootstrap」は `MakeBellmanTarget` の 1 か所にある。
+- **Learner**: 1 回の更新の進行は、基底の `dqn::Learner::UpdateFromSamples` に 1 本である（[dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp)。RFD0125）。分布の表し方ごとの違いは、目標値（`MakeTarget`）と要素誤差（`ComputeElementError`）の上書きである。目標値の式「収益 ＋ γ^n ×（終端でない）× bootstrap」は `MakeBellmanTarget` の 1 か所にある。
 - **`q`・`q_dist` の読み手**: forward の結果の `q`・`q_dist` を直接読む箇所が、[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) に 17 か所ある。行動の方策 3 種、bootstrap の行動の選択、Munchausen の目標値、NoisyNet の診断、policy churn の probe、学習のメトリクス、Actor の hint である。TBO が有効のとき、これらは h で圧縮した値の `q` を前提にしている。
 - **勾配の clip と、損失ごとの最適化**: clip は Network ごとに取る（`Learner::Optimize`）。skip の `learner.skip.feature_gradient = split`（[103](done/0103_temporl_reference_alignment_10rfd.md)）は、同じ forward の結果に対して backward を損失ごとに取り、損失ごとに clip し、primary の重みに損失ごとの Adam の状態を持つ。checkpoint の optimizer の状態に、役割が 1 つ増える。
 - **Head と Body**: Head は出力層だけを持つ。Dueling の Head が持つのは最終の Linear 2 本と合成で（[dqn_based_heads.cpp:229](../../src/algo/dqn/src/dqn_based_heads.cpp)）、V と A の隠れ層は Body の branch である（[Atari.txt:1281-1285](../../apps/runner/config/Atari.txt)）。Network は Head を 1 つだけ持つ（[nn.hpp:188-193](../../src/core/base/include/anet/nn.hpp)）。`NetworkModel` は、primary の Network のほかに、skip 用の補助 Network を名指しで持つ。
 - **報酬スケーラ**: 定数倍の種類と、1 step の報酬の標準偏差で割る動的な種類がある（[scaler_impl.hpp:182-215](../../src/core/base/src/scaler_impl.hpp)）。lane ごとの割引和は持たない。統計を更新せずに変換する口がある（[scaler.hpp:89](../../src/core/base/include/anet/scaler.hpp)）。構築のとき、step 0 の割引率を受け取る。自動の倍率（`use_auto_post_scale`）は、目標の Q の標準偏差に (1 − γ) を掛けた値である（[scaler_impl.cpp:884-902](../../src/core/base/src/scaler_impl.cpp)）。使っているのは外的報酬だけである。
-- **報酬スケーラの状態と checkpoint**: 報酬スケーラの状態と、観測の正規化の統計は、checkpoint に保存されていない（`DefaultDQNAgent::Save` に未対応の印がある）。動的な報酬スケーラを使う構成では、checkpoint 引き継ぎのたびに統計が 0 から始まる。PRD072の固定commitにおける解決済み設定の履歴（`core/anet-core/testdata/prd072/baseline/`）では、動的な種類を使うのは LunarLander・GridMaze・CartPole の既定で、Atari と DropMerge は定数の倍率である。これは現用設定の比較基準ではなく、本PRDの検証は§8.7の変更前後比較による。
+- **報酬スケーラの状態と checkpoint**: 報酬スケーラの状態と、観測の正規化の統計は、checkpoint に保存されていない（`DefaultDQNAgent::Save` に未対応の印がある）。動的な報酬スケーラを使う構成では、checkpoint 引き継ぎのたびに統計が 0 から始まる。RFD0072の固定commitにおける解決済み設定の履歴（`core/anet-core/testdata/rfd0072/baseline/`）では、動的な種類を使うのは LunarLander・GridMaze・CartPole の既定で、Atari と DropMerge は定数の倍率である。これは現用設定の比較基準ではなく、本RFDの検証は§8.7の変更前後比較による。
 - **Trace**: 評価の Trace の `q_sa`・`state_value` の列は、Agent の step の診断から読む（[common.txt:176-177](../../apps/runner/config/common.txt)、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)・[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)）。1 step の内的報酬の列は [127](0127_eval_trace_intrinsic_reward_columns_10rfd.md) が足す。127 は、`intrinsic.` で始まる鍵を、RND の推定器の写しを使う経路で計算する（127 の D3〜D5）。
 - **方策の診断と、行動の情報**: 方策は、行動を選ぶのに使った forward の結果から診断を作り、行動の情報に載せる。追加の forward はしない。値は Actor と同じ device に置き、読むときだけ CPU へ移す（[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `UQEActionPolicy::SelectAction`）。購読の有無に依らず、毎 step 作る。行動の情報の鍵には、lane の平均を返すもの（`skip_decision_rate`・`iqn_uqe_full_q_argmax_disagreement` など。lane の指定を使わない）と、lane ごとの値を返すもの（`skip_decision`・`skip_length`。lane の指定が要り、範囲の外なら ERROR）がある。学習の Actor のメトリクスは、前者を `@train $action_info` で読む。Evaluation Trace は、行ごとに lane を指定して読むので（[metrics.cpp](../../src/core/base/src/metrics.cpp) の、Trace の行を作る処理）、列にするのは後者である（[Atari.txt](../../apps/runner/config/Atari.txt) の `run.@skip` の列）。評価の lane が 2 つ以上の構成がある（[Atari.txt](../../apps/runner/config/Atari.txt) の `eval_batch_size`）。
 - **評価の Actor の指標**: 評価の Actor の値は、Actor が session のあいだ足し込み、session の終わりに `$eval.[<名前>] $actor @session_end` で読む（skip の `skip_session_decision_rate`。[103](done/0103_temporl_reference_alignment_10rfd.md) D8）。足し込みは Actor と同じ device で行い、session の始まりで 0 に戻す（`Actor::ResetSkipSession`）。数えた数が 0 の session で読むと、NaN を返す。評価の名前は、`[eval]`・`[eval_target]`・`[eval_panel]` がどの Env にもあり（[common.txt](../../apps/runner/config/common.txt)）、`[greedy]` などは Atari の設定だけにある。
@@ -183,9 +183,9 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 
 **触る既存部品と、トピック別まとめに書かれた選ばなかった形・変えるときの条件**
 
-| トピック別まとめの項目 | 本 PRD との関係 |
+| トピック別まとめの項目 | 本 RFD との関係 |
 |---|---|
-| 「1 つの Network に skip の branch と射影を足す形 — 不採用」（[324 DQN](../wiki/categories/324_dqn.md)。出典 [098](0098_temporl_skip_policy_10rfd.md) §4 D3、ADR 0062） | 本 PRD は、内的の Head を同じ Network の合成 Head に置く（D2）。ADR 0062 が退けた形と同じ形なので、開き直す条件は「別の題材での採用による前提の変化」に当たる。退けた理由 3 つとの関係は D2 に書く |
+| 「1 つの Network に skip の branch と射影を足す形 — 不採用」（[324 DQN](../wiki/categories/324_dqn.md)。出典 [098](0098_temporl_skip_policy_10rfd.md) §4 D3、ADR 0062） | 本 RFD は、内的の Head を同じ Network の合成 Head に置く（D2）。ADR 0062 が退けた形と同じ形なので、開き直す条件は「別の題材での採用による前提の変化」に当たる。退けた理由 3 つとの関係は D2 に書く |
 | 「特徴空間・行動価値・スキップ価値を別 Network にする 3 分割 — 不採用」（324。出典 098 §4 D3、ADR 0062） | 別 Network にすると checkpoint の形と、Network 1 つを前提にする診断・可視化へ波及する、という理由。D2 の根拠の 1 つ。開き直さない |
 | 「γ の schedule で常に抽選時に収益を作り直す形 — 不採用」（[318 RL 共通基盤](../wiki/categories/318_rl_core.md)。出典 ADR 0065） | 定数の割引率では Push 時の保存値の経路を保つ。D8 は、成分ごとにこの規則をそのまま当てる |
 | 「初期優先度のヒントを TensorDict で任意の named tensor として運ぶ形 — 不採用」（318。出典 ADR 0012） | hint は 1 つに詰めて運ぶ。hint の値が増えても、この形を保つ（D12） |
@@ -216,11 +216,11 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | D14 | **合わせる計算。** 分布型（QR・IQN）では、合わせた分位点を「同じ τ どうしを β で足した値」とする（近似）。`learner.use_tbo` が有効のときは、各 Head の出力を h の逆変換で戻してから β で合わせ、h を掛け直した値を読み手へ渡す | 分位点の平均は厳密に一致するので、平均を使う方策（Greedy、ε-greedy）の行動は近似の影響を受けない。分布を使う方策（UQE、Thompson）は、近似の影響を受ける。2 つの確率変数の和の分位点は、分位点の和にならないためである。TBO では Head の出力が h で圧縮した値で、h は和を保たない。h を掛け直すのは、読み手が h で圧縮した値を前提にしており（§4）、戻した値のまま渡すと逆変換が二重になるため。依存: D3、D24 |
 | D15 | **名前。** 設定キーと、Network の出力・Trace の鍵は §8.1・§8.4 のとおり。学習側のキーは `learner.intrinsic.*`、内的の Head の構造は `intrinsic.value.head.*`、Actor ごとのキーは `actor.[<名前>].intrinsic.*` に置く。内的の Head が読む Body の出力は、`intrinsic.value.head.input_mode`（`shared`｜`dedicated`）で選ぶ。内的の Head の設定キーの既定は `agent.txt` に書いた値で、外的の Head の解決後の値を継がない | 階層は、値を読む持ち主に合わせる（[実装 品質確認観点](../quality/impl.md) の「名前」の 1）。skip の `learner.skip.*`・`skip.head.*`・`actor.[<名前>].skip.*` と同じ分け方になる（同 3）。`value_mode` は何のモードかが名前に出る（同 4）。`priority_lambda` は skip の同じ役のキーと語をそろえる（同 3）。`feature_gradient` も、skip の同じ役のキー（`learner.skip.feature_gradient`）と、キーの語も値の語もそろえる（同 3）。`extrinsic_bootstrap_mode` は、誰の bootstrap かを名前に入れる（同 4）。`input_mode` は、共用か専用かをモードで書き、未指定に意味を持たせない。既定を継がないのも同じ理由である。Network の出力の鍵は、`skip_q` と同じ付け方にする（同 3）。Trace の鍵を `intrinsic.` で始めないのは、127 がその接頭辞の鍵を RND の推定器の写しを使う経路で計算するので（§4）、Q の列を見るだけで写しの費用がかかるためである（同 2）。依存: D1〜D13、D24、D25 |
 | D16 | **checkpoint。** 内的の Head は Network の一部として保存する。設定と checkpoint で、価値の分解の有無か、損失ごとの最適化のモード（D25）が違えば ERROR にする。状態を持つ報酬スケーラ（動的な種類）の状態を、外的報酬用も内的報酬用も保存する。報酬スケーラの種類が設定と checkpoint で違えば ERROR にする。`return_std` で lane の数が違う checkpoint は、統計を読み、割引和だけ 0 から始めて WARN を 1 回出す。互換の読み替えは作らない。状態を持つ報酬スケーラを使う構成の、今ある checkpoint は読めなくなる | 開発者の選択（外的報酬用も保存すること）。分解の有無が違う重みは Network の形が違うので、黙って読むと学習していない Head で動く。報酬スケーラの状態を保存しないと、checkpoint 引き継ぎの直後に標準偏差が小さく出て、割った報酬が大きく振れる。今の報酬スケーラも同じ未対応を持つので（§4）、同じ部品の扱いをそろえて片づける。読めなくなるのは LunarLander・GridMaze・CartPole の既定の構成の checkpoint で、Atari と DropMerge は定数の倍率なので、checkpoint の形が今と同じで影響を受けない（§4）。lane の数が違う場合の扱いは、checkpoint 引き継ぎで lane の数を変える使い方を止めないためで、[AGENTS.md](../../AGENTS.md) §Fail-Fast 原則の表の「checkpoint に設定が求める部分が無く、初期化した」に当たる。依存: D2、D9、D25 |
-| D17 | **無効のときの同一性。** `intrinsic.value_mode` と報酬スケーラの新しい設定キーが既定のとき、forward の回数と順、乱数の消費、loss、優先度を今と同じに保つ。checkpoint の形は、状態を持つ報酬スケーラを使わない構成では今と同じに保つ。記録されるメトリクスの tag も変えない（足す tag は、既定では選ばれない組に置く。D20）。Actor の hint を使う構成では、hint が 5 列になるが（D12）、足した 2 列は 0 で、初期優先度の値は今と同じである。実装前に保存した実行体と、同 seed・決定的モードの短い Run の metrics checksum を比べて確かめる | トピック別まとめの「変えるときの条件」（§4）。比較の相手は、実装前に保存した実行体にする（[324 DQN](../wiki/categories/324_dqn.md) の PRD084 の条件）。checkpoint の形の条件を狭めるのは、D16 で動的な報酬スケーラの状態を保存するため。hint の列が増えても初期優先度の値を同じに保つ形は、ADR 0036 が Munchausen 無効のときに置いた条件と同じである。依存: D1、D8、D9、D12、D16、D20 |
-| D18 | **順序。** 本 PRD の実装は、§7.3 に挙げるリファクタリングの課題 5 件を片づけたあとに行う。5 件は本 PRD の範囲に取り込まず、[128](0128_dqn_agent_refactor_bundle_10rfd.md) が扱う | 開発者の選択。5 件は、本 PRD が変更を足す場所（取り込み、標本、Head の選択、設定の読み取り、診断の群）の重複や散らばりである。先に片づけると、本 PRD の変更が 1 か所ずつで済む。取り込まないのは、機能の追加と挙動を変えない直しを 1 本に混ぜると、前後の比較で差が出たときに原因を分けにくいため（PRD125 と同じ進め方）。依存: なし |
-| D19 | **効果の確かめの置き場。** Atari.txt の Run プロファイルと bat の群の組み立ては、本 PRD の範囲に入れず、Atari の枠で実験の段取りと一緒に決める。本 PRD が足す設定は、`agent.txt` の既定の設定キーと、`metrics_scalar.txt` のメトリクスの組（既定では選ばれない。D20）だけにする。比較の基準は、PRD123 の新しい RND の条件で取り直す。実装の受入は正しさの項目だけにし（§9.2）、Run の結果は Atari の枠で実験記録に書く | 開発者の選択。Atari.txt は Run の開始ごとに読まれるので、Run の条件に効く値は、流す直前に、そのときの基準の Run と合わせて決める。基準の取り直しは [123](0123_rnd_intrinsic_reward_scale_10rfd.md) D15 による（b001 は PRD123 より前の中身の Run である）。依存: D18 |
-| D20 | **診断。** Evaluation Trace の `$agent_step` に、`extrinsic_q_sa`・`intrinsic_q_sa`・`extrinsic_state_value`・`intrinsic_state_value` の鍵を足す。今の `q_sa`・`state_value` は、その Actor の β で合わせた値を出す。既定の列には足さない。1 step の内的報酬の列は 127 が持ち、本 PRD は足さない。分解が有効のとき、今ある学習のメトリクス（`q_sa`・`max_q` など）は合わせた Q の値を出し、RND の診断の `bonus_*` は「β × 内的報酬用の報酬スケーラを通した値」を出す。メトリクスは §8.4 の 1〜5 を足す。tag の定義は、`metrics_scalar.txt` の組 `metrics.scalar.@value_decomposition` に置き、どの Run プロファイルの連鎖にも足さない | G5。鍵は Network の出力の鍵（`extrinsic_q`・`intrinsic_q`）と同じ付け方にする（D15）。今ある値は、今の意味を保つ。学習のメトリクスは行動に使う Q、`bonus_*` は学習に入る内的報酬の大きさなので、分解の有無をまたいで比べられる。足すメトリクスは、損失の重み（D4）と clip の共有（D2）が効いているかを学習中に読むためのものである。tag を組に置くのは、skip・Munchausen・NoisyNet の診断と同じ置き方（`metrics.scalar.@skip` など）で、使う Run が `metrics.scalar.$` の連鎖に足すまで、記録される tag が変わらないためである。RND の tag のように Env ごとの Run プロファイルへ書かないのは、価値の分解を使う Run プロファイルを本 PRD が作らないため（D19）。依存: D2、D4、D9、D13、D19、D24 |
-| D21 | **文書。** 設計文書 `docs/design/214_value_decomposition.jp.md` を新設し、今ある設計文書とユーザーガイドを追随させる（一覧は §8.7 が正本）。ADR は 0073・0074・0075 の 3 本を起こし、ADR 0036・ADR 0062・ADR 0065 の先頭に注記を足す。[CONTEXT.md](../../CONTEXT.md) に「価値の分解」と「報酬の成分」を足す。「Actor Qヒント」の項目の、運ぶ中身の説明（実行行動の価値、bootstrap 用の状態価値、Munchausen項）には、実装のときに、内的の Head の Q_sa と V_s を足す | 新しい仕組みなので、現在形を書く設計文書が要る。ADR は、戻しにくく、文脈が無いと驚き、本当のトレードオフがあった 3 つに限る（Replay の口、ADR 0062 が skip で退けた形を内的の Head で採ったこと、Actor の hint の列の数）。既存の ADR の判断を改めるときは、古い ADR の先頭に注記を足し、新しい ADR を起こす（[PRD 品質確認観点](../quality/rfd.md) の項番 23）。依存: D2、D8、D12 |
+| D17 | **無効のときの同一性。** `intrinsic.value_mode` と報酬スケーラの新しい設定キーが既定のとき、forward の回数と順、乱数の消費、loss、優先度を今と同じに保つ。checkpoint の形は、状態を持つ報酬スケーラを使わない構成では今と同じに保つ。記録されるメトリクスの tag も変えない（足す tag は、既定では選ばれない組に置く。D20）。Actor の hint を使う構成では、hint が 5 列になるが（D12）、足した 2 列は 0 で、初期優先度の値は今と同じである。実装前に保存した実行体と、同 seed・決定的モードの短い Run の metrics checksum を比べて確かめる | トピック別まとめの「変えるときの条件」（§4）。比較の相手は、実装前に保存した実行体にする（[324 DQN](../wiki/categories/324_dqn.md) の RFD0084 の条件）。checkpoint の形の条件を狭めるのは、D16 で動的な報酬スケーラの状態を保存するため。hint の列が増えても初期優先度の値を同じに保つ形は、ADR 0036 が Munchausen 無効のときに置いた条件と同じである。依存: D1、D8、D9、D12、D16、D20 |
+| D18 | **順序。** 本 RFD の実装は、§7.3 に挙げるリファクタリングの課題 5 件を片づけたあとに行う。5 件は本 RFD の範囲に取り込まず、[128](0128_dqn_agent_refactor_bundle_10rfd.md) が扱う | 開発者の選択。5 件は、本 RFD が変更を足す場所（取り込み、標本、Head の選択、設定の読み取り、診断の群）の重複や散らばりである。先に片づけると、本 RFD の変更が 1 か所ずつで済む。取り込まないのは、機能の追加と挙動を変えない直しを 1 本に混ぜると、前後の比較で差が出たときに原因を分けにくいため（RFD0125 と同じ進め方）。依存: なし |
+| D19 | **効果の確かめの置き場。** Atari.txt の Run プロファイルと bat の群の組み立ては、本 RFD の範囲に入れず、Atari の枠で実験の段取りと一緒に決める。本 RFD が足す設定は、`agent.txt` の既定の設定キーと、`metrics_scalar.txt` のメトリクスの組（既定では選ばれない。D20）だけにする。比較の基準は、RFD0123 の新しい RND の条件で取り直す。実装の受入は正しさの項目だけにし（§9.2）、Run の結果は Atari の枠で実験記録に書く | 開発者の選択。Atari.txt は Run の開始ごとに読まれるので、Run の条件に効く値は、流す直前に、そのときの基準の Run と合わせて決める。基準の取り直しは [123](0123_rnd_intrinsic_reward_scale_10rfd.md) D15 による（b001 は RFD0123 より前の中身の Run である）。依存: D18 |
+| D20 | **診断。** Evaluation Trace の `$agent_step` に、`extrinsic_q_sa`・`intrinsic_q_sa`・`extrinsic_state_value`・`intrinsic_state_value` の鍵を足す。今の `q_sa`・`state_value` は、その Actor の β で合わせた値を出す。既定の列には足さない。1 step の内的報酬の列は 127 が持ち、本 RFD は足さない。分解が有効のとき、今ある学習のメトリクス（`q_sa`・`max_q` など）は合わせた Q の値を出し、RND の診断の `bonus_*` は「β × 内的報酬用の報酬スケーラを通した値」を出す。メトリクスは §8.4 の 1〜5 を足す。tag の定義は、`metrics_scalar.txt` の組 `metrics.scalar.@value_decomposition` に置き、どの Run プロファイルの連鎖にも足さない | G5。鍵は Network の出力の鍵（`extrinsic_q`・`intrinsic_q`）と同じ付け方にする（D15）。今ある値は、今の意味を保つ。学習のメトリクスは行動に使う Q、`bonus_*` は学習に入る内的報酬の大きさなので、分解の有無をまたいで比べられる。足すメトリクスは、損失の重み（D4）と clip の共有（D2）が効いているかを学習中に読むためのものである。tag を組に置くのは、skip・Munchausen・NoisyNet の診断と同じ置き方（`metrics.scalar.@skip` など）で、使う Run が `metrics.scalar.$` の連鎖に足すまで、記録される tag が変わらないためである。RND の tag のように Env ごとの Run プロファイルへ書かないのは、価値の分解を使う Run プロファイルを本 RFD が作らないため（D19）。依存: D2、D4、D9、D13、D19、D24 |
+| D21 | **文書。** 設計文書 `docs/design/214_value_decomposition.jp.md` を新設し、今ある設計文書とユーザーガイドを追随させる（一覧は §8.7 が正本）。ADR は 0073・0074・0075 の 3 本を起こし、ADR 0036・ADR 0062・ADR 0065 の先頭に注記を足す。[CONTEXT.md](../../CONTEXT.md) に「価値の分解」と「報酬の成分」を足す。「Actor Qヒント」の項目の、運ぶ中身の説明（実行行動の価値、bootstrap 用の状態価値、Munchausen項）には、実装のときに、内的の Head の Q_sa と V_s を足す | 新しい仕組みなので、現在形を書く設計文書が要る。ADR は、戻しにくく、文脈が無いと驚き、本当のトレードオフがあった 3 つに限る（Replay の口、ADR 0062 が skip で退けた形を内的の Head で採ったこと、Actor の hint の列の数）。既存の ADR の判断を改めるときは、古い ADR の先頭に注記を足し、新しい ADR を起こす（[RFD 品質確認観点](../quality/rfd.md) の項番 23）。依存: D2、D8、D12 |
 | D22 | **性能。** 受入に閾値を置かない。実装後に、Atari の実時間を無効と有効（Body を共有する構成）で交互に測り、実装計画に記録する | 既定のモードでは、forward と backward の回数と順は変えない（D17）。足されるのは、Actor の forward ごとに Head の射影 1 組と合わせる計算、Learner の更新ごとに online と target の射影 1 組ずつと損失 1 つ、Replay の 1 step あたり報酬 1 つと slot あたり収益 1 つ、取り込みの lane あたりの四則演算数回、Actor の hint の値 2 つ、Actor の step ごとの診断（D26。行動の数の並びへの argmax と、1 位・2 位の取り出し）、評価の Actor の session の足し込み（D27。Actor と同じ device での加算）である。hint の 2 列は、hint を使う構成なら分解が無効でも増える（値は 0。D12）。`feature_gradient = split`（D25）では backward が 2 回になり、Body を別にする構成では Body の forward が 2 倍になるが、それは構成を選んだ利用側の費用である。依存: D2、D8、D12、D25、D26、D27 |
 | D23 | **互換。** 旧い Push の口の別名や互換の分岐は作らない。過去の Run・ADR・実験記録は書き換えない | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針。依存: D8 |
 | D24 | **合わせた Q の届け方。** 分解が有効のとき、Network は `q`・`q_dist` を出さない。合成 Head の出力は、外的が `extrinsic_q`・`extrinsic_q_dist`、内的が `intrinsic_q`・`intrinsic_q_dist` である。DQN 側の 1 つの関数が、forward の結果に、β で合わせた `q`・`q_dist` を足す（合わせ方は D14）。行動の方策や診断などの読み手は、今のまま `q`・`q_dist` を読む。外的の Q だけが要る箇所（D5 の `extrinsic`）は、`extrinsic_q` を名指しで読む。分解が無効のときは、今と同じく Network が `q`・`q_dist` を出す | 開発者の選択。`q`・`q_dist` を直接読む箇所が 17 か所ある（§4）。`q` を外的の Head の出力のままにして読み手ごとに合わせる形は、直し漏れた読み手が ERROR にならず、外的の Q だけで動く（[AGENTS.md](../../AGENTS.md) §Fail-Fast 原則に反する）。Network が `q` を出さなければ、合わせる関数を通し忘れた経路は、鍵が無いので必ず止まる。合わせる計算と TBO の扱いが 1 か所にまとまり、読み手を変えずに済む。β を Network の入力にする形を採らないのは、Head が TBO の変換を知る必要が出て、Network の入力の契約が変わるためである。依存: D2、D3、D14 |
@@ -254,8 +254,8 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | 行動の β を、β=0 だけ選べる 2 値のモードにする形 | 不採用 | 途中の値での評価ができない。実装の手間はほぼ変わらない（D13） |
 | `q` を外的の Head の出力のままにし、読み手ごとに合わせる形 | 不採用 | 直し漏れが黙って通る（D24） |
 | β を Network の入力にし、合成 Head が合わせた `q` も出す形 | 不採用 | Head が TBO の変換を知る必要が出て、Network の入力の契約が変わる（D24） |
-| リファクタリングの課題 5 件を本 PRD に取り込む形、順序を決めない形 | 不採用 | D18 の理由 |
-| Atari.txt の Run プロファイルの追加を本 PRD に入れる形 | 範囲外 | Atari の枠で決める（D19） |
+| リファクタリングの課題 5 件を本 RFD に取り込む形、順序を決めない形 | 不採用 | D18 の理由 |
+| Atari.txt の Run プロファイルの追加を本 RFD に入れる形 | 範囲外 | Atari の枠で決める（D19） |
 | Head ごとの行動間の差の比（β × 内的の 1 位と 2 位の差 ÷ 外的の 1 位と 2 位の差）を、1 つの値で出す形 | 不採用 | 外的の差が 0 に近い局面で、比が跳ね上がる。割らずに、2 つの差をそのまま並べる形にした（D26） |
 | 合わせた Q の 1 位と 2 位の差に占める内的の割合を出す形 | 不採用 | 向きを持たず、内的が同じ向きに押した標本と、逆らって及ばなかった標本が同じ値になる。内的が行動を変えた標本では 0.5 を超えやすく、平均が不一致率と混ざる。外的の差も内的の差も 0 に近い局面では、雑音で決まる（別モデルの検討で分かった。D26） |
 | lane ごとの値と lane の平均を、同じ鍵で返す形（lane を指定すればその値、指定しなければ平均） | 不採用 | 鍵は少なくなるが、同じクラスに、その形の鍵が無い。skip の鍵と同じく、別の名前にする（D27） |
@@ -268,7 +268,7 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 
 | 起票時の行 | 移した先 |
 |---|---|
-| 1（入れる範囲） | D1。課題 ab98b7 を先に片づけるかは、PRD125 で片づいた（§7.3） |
+| 1（入れる範囲） | D1。課題 ab98b7 を先に片づけるかは、RFD0125 で片づいた（§7.3） |
 | 2（Head の入れ方） | D2、D24、D25 |
 | 3（割引率） | D6 |
 | 4（終端） | D7（近似をやめ、終端のあとの最初の観測からの bootstrap にした） |
@@ -283,7 +283,7 @@ DQN 系の Agent は、内的報酬（RND の新しさ）を外的報酬に足�
 | 13（Trace の列）・14（メトリクス） | D20 |
 | 15（checkpoint） | D16 |
 | 16（実験の組み立て） | D19、§9.1（材料） |
-| 17（173 の課題との依存） | §7.3（173 の課題の待ちに、本 PRD の課題が入っている） |
+| 17（173 の課題との依存） | §7.3（173 の課題の待ちに、本 RFD の課題が入っている） |
 | 18（名前と用語） | D15、D21 |
 | 19（設計文書） | D21（設計文書を新設する形に変えた） |
 | 20（ADR） | D21 |
@@ -339,7 +339,7 @@ y_内 = 内的の収益 ＋ γ_内^n (1 − d_内) Σ_{a'} π(a') Q_内,target(s
 
 - 損失は L = L_外 ＋ w·L_内 である（D4）。L_外 と L_内 は、今の損失の計算を、それぞれの Head の現在値と目標値に当てたものである。各 Head の目標値は、今と同じく、TBO が有効なら h を掛けた値で組む。
 - 優先度は |δ_外| ＋ λ·|δ_内| である（D12）。δ は、今の優先度に使っている標本ごとの TD 誤差である。今の優先度の下限と上限の扱いは、足したあとの値に 1 回だけ当てる。
-- **内的の Head が学ぶ値の桁（目安）。** b001 では、β を掛ける前の 1 step の内的報酬が 0.023〜0.036 だった（§2.1）。割引率 0.997 なら、Q_内 は 0.03 ÷ (1 − 0.997) で 10 前後、0.99 なら 3 前後になる。外的の Q は 0.05〜2.7 だった。PRD123 の新しい RND では、内的報酬が数倍大きくなる見込みである（PRD123 の膨らみの直しからの推定で、Run では確かめていない）。
+- **内的の Head が学ぶ値の桁（目安）。** b001 では、β を掛ける前の 1 step の内的報酬が 0.023〜0.036 だった（§2.1）。割引率 0.997 なら、Q_内 は 0.03 ÷ (1 − 0.997) で 10 前後、0.99 なら 3 前後になる。外的の Q は 0.05〜2.7 だった。RFD0123 の新しい RND では、内的報酬が数倍大きくなる見込みである（RFD0123 の膨らみの直しからの推定で、Run では確かめていない）。
 - **損失の効く範囲。** 損失の折れ目（Huber と分位点の κ）と TD 誤差の clip は、外的と内的で共用する。内的の Head は値の桁が大きいので、今の 1 本の Q とは違う範囲（誤差が折れ目より大きい側）で学ぶことが多くなる。
 - **`feature_gradient = merge`（既定）。** 2 つの損失を足して 1 回の backward をするので、Body を共有する構成では、共有の Body に流れる勾配は内的が主になる。勾配の clip も共有である。調整の手段は、損失の重み（D4）、内的報酬用の報酬スケーラ（D9）、内的の割引率（D6）、Body の共有の度合い（§8.1 の `input_mode`）である。内的の Head だけが持つ重みは、Adam が歩幅をそろえるので、w を下げても学ぶ速さはあまり変わらない見込みである（Run では確かめていない）。
 - **`feature_gradient = split`。** backward を w·L_内 と L_外 で 1 回ずつ取り、損失ごとに clip し、共有の重みを損失ごとの Adam の状態で更新する（D25）。損失ごとに歩幅がそろうので、w はほとんど効かなくなる。
@@ -369,7 +369,7 @@ y_内 = 内的の収益 ＋ γ_内^n (1 − d_内) Σ_{a'} π(a') Q_内,target(s
 - 0 で割らないための扱い（`epsilon`）、切る範囲（`use_clipping`・`clip_range`）、手動の倍率（`manual_post_scale`）は、今の動的な種類と同じ設定キーで同じに効く。自動の倍率（`use_auto_post_scale = true`）との同時指定は ERROR である（D9）。
 - 統計を更新せずに変換する口は、R と σ_R を変えずに、今の σ_R で割った値を返す。
 - 状態（lane ごとの R と、σ_R の統計）は checkpoint に保存する（D16）。
-- **Burda らの式との違い。** Burda らは誤差そのものを σ_R で割る。本 PRD では、RND の推定器が返す倍率 − 1 を割る。Burda らの形に寄せるには、RND 側を「平均を引かない・切らない」の組（[123](0123_rnd_intrinsic_reward_scale_10rfd.md) §5.3 の 4 行目）にする。割る値が、誤差の標準偏差と割引収益の標準偏差の 2 段になる。誤差の標準偏差がゆっくりしか動かなければ、Burda らの式とほぼ同じ値になる。
+- **Burda らの式との違い。** Burda らは誤差そのものを σ_R で割る。本 RFD では、RND の推定器が返す倍率 − 1 を割る。Burda らの形に寄せるには、RND 側を「平均を引かない・切らない」の組（[123](0123_rnd_intrinsic_reward_scale_10rfd.md) §5.3 の 4 行目）にする。割る値が、誤差の標準偏差と割引収益の標準偏差の 2 段になる。誤差の標準偏差がゆっくりしか動かなければ、Burda らの式とほぼ同じ値になる。
 
 ### 6.7 Actor
 
@@ -406,27 +406,27 @@ D26〜D28 による。`decomposed` のとき、Actor が行動を選ぶたびに
 
 ### 7.1 アルゴリズム
 
-| | NGU | Agent57 | 本 PRD |
+| | NGU | Agent57 | 本 RFD |
 |---|---|---|---|
 | 方策の番号 j の入力（UVFA） | あり（one-hot） | あり（2 つの NN の両方に入力） | なし（方策 1 つ） |
 | 価値の分解 | なし（j ごとに合わせた報酬で 1 本） | あり（外的・内的の 2 つの NN） | あり（外的・内的の 2 つの Head） |
 | 割引率 | j ごとの γ_j | j ごとの γ_j を 2 つの NN で共通に使う | 外的と同じか、内的を別に持つ（D6） |
 | 方策の選択 | 均等 | バンディット | なし |
 
-入力側の分け方（j）と、価値の分解は、別の軸である。j は「どの β・γ の組の価値を求めるか」を指定し、価値の分解は「外的と内的を別の出力で学ぶか」を決める。Agent57 は NGU に価値の分解を重ねた。したがって本 PRD は 173 と食い違わず、173 が j を足すときは、2 つの Head の両方に j を入力する。
+入力側の分け方（j）と、価値の分解は、別の軸である。j は「どの β・γ の組の価値を求めるか」を指定し、価値の分解は「外的と内的を別の出力で学ぶか」を決める。Agent57 は NGU に価値の分解を重ねた。したがって本 RFD は 173 と食い違わず、173 が j を足すときは、2 つの Head の両方に j を入力する。
 
 173 が入るときに置き換えて消すものが 2 つある。
 
 - `extrinsic_bootstrap_mode = extrinsic`（D5）。173 の方策の組では、番号 0（β=0）の方策がこれに当たる。
 - Actor ごとの行動の β（D13）。173 が方策の番号で評価する形に決めたら、方策の番号の指定に置き換える。
 
-価値を分けるだけで、全方策の γ や bootstrap の方策の整合が解決するわけではない（173 §4.5）。本 PRD は方策 1 つなので、この問題を持ち込まない。
+価値を分けるだけで、全方策の γ や bootstrap の方策の整合が解決するわけではない（173 §4.5）。本 RFD は方策 1 つなので、この問題を持ち込まない。
 
 ### 7.2 実装
 
-| 部品 | 本 PRD | 173 で足すもの |
+| 部品 | 本 RFD | 173 で足すもの |
 |---|---|---|
-| Replay の報酬の成分 | 外的・内的の 2 成分を 1 step ごとに記録し、成分ごとの割引率で n-step の収益を作る（D8） | 方策の番号の保存と、方策ごとに違う γ を同じバッチで使う契約。本 PRD の割引率は成分ごとで、標本ごとではない。抽選時の step の報酬を成分ごとに返す口は、標本ごとの割引率で作り直すときに使える |
+| Replay の報酬の成分 | 外的・内的の 2 成分を 1 step ごとに記録し、成分ごとの割引率で n-step の収益を作る（D8） | 方策の番号の保存と、方策ごとに違う γ を同じバッチで使う契約。本 RFD の割引率は成分ごとで、標本ごとではない。抽選時の step の報酬を成分ごとに返す口は、標本ごとの割引率で作り直すときに使える |
 | 取り込み | 分解が有効なら、内的報酬を報酬へ足さず、別の成分で渡す | 採点の場所（Actor か取り込みか）が変わっても、成分で渡す形は同じ |
 | Q の Head | 内的の Head を足す（D2） | j の入力を Body に足す。2 つの Head の両方が j を受ける |
 | 合わせた Q | DQN 側の 1 つの関数が、β で合わせる（D24） | 方策ごとの β_j を、同じ関数に渡す |
@@ -440,24 +440,24 @@ D26〜D28 による。`decomposed` のとき、Actor が行動を選ぶたびに
 
 | 課題 | 関係 |
 |---|---|
-| [issue-20261110-0de9e7](../management/issues/issue-20261110-0de9e7.md) | 本 PRD の仕事 |
-| [issue-20261103-736e39](../management/issues/issue-20261103-736e39.md)（173） | 待ちに本 PRD の課題が入っている。173 の再グリルは本 PRD の契約を前提にできる |
+| [issue-20261110-0de9e7](../management/issues/issue-20261110-0de9e7.md) | 本 RFD の仕事 |
+| [issue-20261103-736e39](../management/issues/issue-20261103-736e39.md)（173） | 待ちに本 RFD の課題が入っている。173 の再グリルは本 RFD の契約を前提にできる |
 | [issue-20261106-16b7af](../management/issues/issue-20261106-16b7af.md)（116） | 内的報酬の出どころ。116 の部品は変えない |
-| [issue-20261107-1226e5](../management/issues/issue-20261107-1226e5.md)（Trace で内的報酬を見られない） | 127 が扱う。本 PRD は Head ごとの Q の列だけを足す（D20） |
-| [issue-20261103-ab98b7](../management/issues/issue-20261103-ab98b7.md)（TD・QR・IQN の更新の重複） | PRD125 で片づいた |
-| [issue-20261103-75b8da](../management/issues/issue-20261103-75b8da.md)（168） | n-step の窓の途中の Munchausen項を扱う。本 PRD の Munchausen の置き方（D10）とは独立 |
-| [issue-20261111-08d557](../management/issues/issue-20261111-08d557.md)（内的報酬の扱いが DefaultDQNAgent の 5 関数と 6 メンバに散っている） | 先に片づける（D18）。本 PRD は取り込みに、内的報酬用の報酬スケーラ、成分での受け渡し、保存する状態を足す |
-| [issue-20261111-288879](../management/issues/issue-20261111-288879.md)（ExperienceSamples のフィールドの並びが分かれている） | 先に片づける（D18）。本 PRD は成分ごとの収益を足す |
-| [issue-20261111-72d640](../management/issues/issue-20261111-72d640.md)（DefaultDQNAgent の構築と、Rainbow に写した Head の選択） | 先に片づける（D18）。本 PRD は Head の選択に合成 Head を足す |
-| [issue-20261111-e33797](../management/issues/issue-20261111-e33797.md)（DefaultDQNAgentConfig のコンストラクタが 534 行） | 先に片づける（D18）。本 PRD は設定キーを足す |
-| [issue-20261111-24d885](../management/issues/issue-20261111-24d885.md)（診断指標の群を足すたびに 12 か所前後を直す） | 先に片づける（D18）。本 PRD はメトリクスを足す |
-| [issue-20261113-b96b2c](../management/issues/issue-20261113-b96b2c.md)（観測の正規化の統計が checkpoint に保存されない） | 本 PRD の範囲の外（§1.4）。本 PRD の報酬スケーラの状態の保存（D16）のあとに、同じ形で足せる |
+| [issue-20261107-1226e5](../management/issues/issue-20261107-1226e5.md)（Trace で内的報酬を見られない） | 127 が扱う。本 RFD は Head ごとの Q の列だけを足す（D20） |
+| [issue-20261103-ab98b7](../management/issues/issue-20261103-ab98b7.md)（TD・QR・IQN の更新の重複） | RFD0125 で片づいた |
+| [issue-20261103-75b8da](../management/issues/issue-20261103-75b8da.md)（168） | n-step の窓の途中の Munchausen項を扱う。本 RFD の Munchausen の置き方（D10）とは独立 |
+| [issue-20261111-08d557](../management/issues/issue-20261111-08d557.md)（内的報酬の扱いが DefaultDQNAgent の 5 関数と 6 メンバに散っている） | 先に片づける（D18）。本 RFD は取り込みに、内的報酬用の報酬スケーラ、成分での受け渡し、保存する状態を足す |
+| [issue-20261111-288879](../management/issues/issue-20261111-288879.md)（ExperienceSamples のフィールドの並びが分かれている） | 先に片づける（D18）。本 RFD は成分ごとの収益を足す |
+| [issue-20261111-72d640](../management/issues/issue-20261111-72d640.md)（DefaultDQNAgent の構築と、Rainbow に写した Head の選択） | 先に片づける（D18）。本 RFD は Head の選択に合成 Head を足す |
+| [issue-20261111-e33797](../management/issues/issue-20261111-e33797.md)（DefaultDQNAgentConfig のコンストラクタが 534 行） | 先に片づける（D18）。本 RFD は設定キーを足す |
+| [issue-20261111-24d885](../management/issues/issue-20261111-24d885.md)（診断指標の群を足すたびに 12 か所前後を直す） | 先に片づける（D18）。本 RFD はメトリクスを足す |
+| [issue-20261113-b96b2c](../management/issues/issue-20261113-b96b2c.md)（観測の正規化の統計が checkpoint に保存されない） | 本 RFD の範囲の外（§1.4）。本 RFD の報酬スケーラの状態の保存（D16）のあとに、同じ形で足せる |
 
-### 7.4 ほかの PRD との順序
+### 7.4 ほかの RFD との順序
 
-- [128](0128_dqn_agent_refactor_bundle_10rfd.md)（§7.3 のリファクタリングの課題 5 件）を先に実装する（D18）。本 PRD の課題は、その 5 件を待つ。
-- 127（Trace の内的報酬の列）と本 PRD は、どちらが先に入ってもよい。あとから入る側が、Trace のボーナスの列を「内的報酬用の報酬スケーラを通した値に β を掛けた値」に合わせる（§8.7）。
-- 173 の再グリルは、本 PRD の契約（報酬の成分、内的の Head、合わせる関数、内的報酬用の報酬スケーラ）を前提に、j の入力と方策の組を重ねる。
+- [128](0128_dqn_agent_refactor_bundle_10rfd.md)（§7.3 のリファクタリングの課題 5 件）を先に実装する（D18）。本 RFD の課題は、その 5 件を待つ。
+- 127（Trace の内的報酬の列）と本 RFD は、どちらが先に入ってもよい。あとから入る側が、Trace のボーナスの列を「内的報酬用の報酬スケーラを通した値に β を掛けた値」に合わせる（§8.7）。
+- 173 の再グリルは、本 RFD の契約（報酬の成分、内的の Head、合わせる関数、内的報酬用の報酬スケーラ）を前提に、j の入力と方策の組を重ねる。
 
 ## 8. 実装契約
 
@@ -609,18 +609,18 @@ D16 による。次の表を上から順に当て、最初に当たった行で�
 
 ### 8.7 移行対象
 
-経路の検索（2026-11-12〜13、`git grep -il -F`、範囲は追跡している `core`・`apps`・`docs`・`viewers`・`reports`）: `target_returns`・`InitialPriorityEstimateInput`・`sampled_rewards`・`sampled_window_rewards`・`FinalizeReturns`・`GetStepReward`・`PackActorQHint`・`ActorQHint`・`CreateRewardScaler`・`use_dynamic_scaling`・`RewardScalerConfig`・`ScaleWithoutUpdate`・`報酬へ畳む`・`munchausen_terms`・`MakeBellmanTarget`・`CombinePriorityErrors`・`HeadFactory`・`RunningStdRewardScaler`・`kCheckpointFormat`・`kCheckpointIntrinsic`・`skip_primary_optimizer_`・`kFeatureGradientSplit`・`kQOutputKey`・`state_value`・`kActorQHintColumnCount`・`ReplayInitialPriorityHintRow`・`BatchExperience`・`iqn_uqe_full_q_argmax_disagreement`・`skip_session_decision_rate`・`ResetSkipSession` のどれかを含むファイルと、`ReplayBuffer` を継承するクラス（正規表現 `public (anet::)?(rl::)?ReplayBuffer\b` で引いた。本体の 2 つと、テスト用の 3 つ）のあるファイル、`Push(` を呼ぶファイル（正規表現 `(->|\.|::)Push\(`、範囲は `core`・`apps`。11 ファイルで、うち Atari の Env の 3 つは別の型の `Push` である）から、過去の PRD・実装計画・ADR・実験記録・課題・wiki・サーベイ（書き換えない）を除くと、現用のものは次のとおり。
+経路の検索（2026-11-12〜13、`git grep -il -F`、範囲は追跡している `core`・`apps`・`docs`・`viewers`・`reports`）: `target_returns`・`InitialPriorityEstimateInput`・`sampled_rewards`・`sampled_window_rewards`・`FinalizeReturns`・`GetStepReward`・`PackActorQHint`・`ActorQHint`・`CreateRewardScaler`・`use_dynamic_scaling`・`RewardScalerConfig`・`ScaleWithoutUpdate`・`報酬へ畳む`・`munchausen_terms`・`MakeBellmanTarget`・`CombinePriorityErrors`・`HeadFactory`・`RunningStdRewardScaler`・`kCheckpointFormat`・`kCheckpointIntrinsic`・`skip_primary_optimizer_`・`kFeatureGradientSplit`・`kQOutputKey`・`state_value`・`kActorQHintColumnCount`・`ReplayInitialPriorityHintRow`・`BatchExperience`・`iqn_uqe_full_q_argmax_disagreement`・`skip_session_decision_rate`・`ResetSkipSession` のどれかを含むファイルと、`ReplayBuffer` を継承するクラス（正規表現 `public (anet::)?(rl::)?ReplayBuffer\b` で引いた。本体の 2 つと、テスト用の 3 つ）のあるファイル、`Push(` を呼ぶファイル（正規表現 `(->|\.|::)Push\(`、範囲は `core`・`apps`。11 ファイルで、うち Atari の Env の 3 つは別の型の `Push` である）から、過去の RFD・実装計画・ADR・実験記録・課題・wiki・サーベイ（書き換えない）を除くと、現用のものは次のとおり。
 
 - **コード**: [nn.hpp](../../src/core/base/include/anet/nn.hpp)・[nn_impl.cpp](../../src/core/base/src/nn_impl.cpp)・[nn_modules.cpp](../../src/core/base/src/nn_modules.cpp)・[rl.hpp](../../src/core/base/include/anet/rl.hpp)・[rl.cpp](../../src/core/base/src/rl.cpp)・[replay_buffer.hpp](../../src/core/base/include/anet/replay_buffer.hpp)・[replay_buffer_impl.hpp](../../src/core/base/src/replay_buffer_impl.hpp)・[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp)・[dqn_based_agent.hpp](../../src/core/base/src/dqn_based_agent.hpp)・[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp)・[dqn_based_heads.hpp](../../src/algo/dqn/src/dqn_based_heads.hpp)・[dqn_based_heads.cpp](../../src/algo/dqn/src/dqn_based_heads.cpp)・[default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp)・[default_dqn_agent.cpp](../../src/algo/dqn/src/default_dqn_agent.cpp)・[scaler.hpp](../../src/core/base/include/anet/scaler.hpp)・[scaler_impl.hpp](../../src/core/base/src/scaler_impl.hpp)・[scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp)。dqn_based_agent.cpp では、forward の結果を読む経路に合わせる関数を通す。`q`・`q_dist` の読み手 17 か所は変えない。hint の列の数（`kActorQHintColumnCount`）と、hint を詰める・検証する・ほどく箇所（dqn_based_agent.hpp・dqn_based_agent.cpp）、hint の行の型（replay_buffer_impl.hpp の `ReplayInitialPriorityHintRow`）を、5 列に合わせる。
 - **口が変われば呼び出しを合わせるコード（動きは変えない）**: [rainbow_agent.cpp](../../src/algo/dqn/src/rainbow_agent.cpp)（Head の生成部品と、Actor の hint の設定を使う側。RainbowAgent は内的報酬を持たない）、[agent.hpp](../../src/core/base/include/anet/agent.hpp)（checkpoint の書式の識別子を使う側）。
-- **検索に当たるが変えないコード**: [nn_impl.hpp](../../src/core/base/src/nn_impl.hpp)・[nn_heads.hpp](../../src/core/base/include/anet/nn_head.hpp)・[nn_heads.cpp](../../src/core/base/src/nn_head.cpp)・[nn_test.cpp](../../src/core/base/src/nn_test.cpp)・[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp)・[muzero_based_agent.cpp](../../src/algo/muzero/src/muzero_based_agent.cpp)・[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp)・[optuna_common.py](../../apps/tools/optuna_common.py)・[config_test.cpp](../../src/core/base/src/config_test.cpp)。Network が Head を 1 つ持つ作り、Head の生成部品の口、RND の推定器、今ある Trace の鍵の名前は変えない（D2、D9、D20）。`BatchExperience` を含むファイルは 41 ある。上に挙げたもののほかは、報酬を 1 本で読むか、型を受け渡すだけの利用側（Trainer、Observer、probe、metrics、image、ImageClsAgent、Env の View、Runner のテストと、それぞれのテスト）で、1 成分のときの形が今と同じなので変えない（§8.2）。MuZero 系（[muzero_rb.hpp](../../src/algo/muzero/src/muzero_rb.hpp)・[muzero_rb.cpp](../../src/algo/muzero/src/muzero_rb.cpp)・[muzero_based_agent.hpp](../../src/algo/muzero/src/muzero_based_agent.hpp)・muzero_based_agent.cpp・[prd101_muzero_test.cpp](../../src/algo/muzero/src/rfd0101_muzero_test.cpp)）は、`MuZeroReplayBuffer` が `ReplayBuffer` を継承せず、自分の `Push` を持つので変えない。
+- **検索に当たるが変えないコード**: [nn_impl.hpp](../../src/core/base/src/nn_impl.hpp)・[nn_heads.hpp](../../src/core/base/include/anet/nn_head.hpp)・[nn_heads.cpp](../../src/core/base/src/nn_head.cpp)・[nn_test.cpp](../../src/core/base/src/nn_test.cpp)・[intrinsic_rnd.cpp](../../src/core/base/src/intrinsic_rnd.cpp)・[muzero_based_agent.cpp](../../src/algo/muzero/src/muzero_based_agent.cpp)・[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp)・[optuna_common.py](../../apps/tools/optuna_common.py)・[config_test.cpp](../../src/core/base/src/config_test.cpp)。Network が Head を 1 つ持つ作り、Head の生成部品の口、RND の推定器、今ある Trace の鍵の名前は変えない（D2、D9、D20）。`BatchExperience` を含むファイルは 41 ある。上に挙げたもののほかは、報酬を 1 本で読むか、型を受け渡すだけの利用側（Trainer、Observer、probe、metrics、image、ImageClsAgent、Env の View、Runner のテストと、それぞれのテスト）で、1 成分のときの形が今と同じなので変えない（§8.2）。MuZero 系（[muzero_rb.hpp](../../src/algo/muzero/src/muzero_rb.hpp)・[muzero_rb.cpp](../../src/algo/muzero/src/muzero_rb.cpp)・[muzero_based_agent.hpp](../../src/algo/muzero/src/muzero_based_agent.hpp)・muzero_based_agent.cpp・[rfd0101_muzero_test.cpp](../../src/algo/muzero/src/rfd0101_muzero_test.cpp)）は、`MuZeroReplayBuffer` が `ReplayBuffer` を継承せず、自分の `Push` を持つので変えない。
 - **テスト**: [replay_buffer_test.cpp](../../src/core/base/src/replay_buffer_test.cpp)・[dqn_based_agent_test.cpp](../../src/core/base/src/dqn_based_agent_test.cpp)・[dqn_based_test.cpp](../../src/algo/dqn/src/dqn_based_test.cpp)・[dqn_munchausen_test.cpp](../../src/algo/dqn/src/dqn_munchausen_test.cpp)・[intrinsic_test.cpp](../../src/core/base/src/intrinsic_test.cpp)・[scaler_test.cpp](../../src/core/base/src/scaler_test.cpp)・[trainer_test.cpp](../../src/core/base/src/trainer_test.cpp)・[config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp)（出荷の設定を読むテストを足す。§9.2 の 17・23）。Push の口が変わるので、Push を呼ぶテストと、`ReplayBuffer` を継承して `Push` を上書きするテスト用のクラス（dqn_based_agent_test.cpp の `RecordingReplayBuffer`、replay_buffer_test.cpp の `BlockingReplayBuffer`、trainer_test.cpp の `HintRecordingReplayBuffer`）は、新しい口に合わせる。hint を 3 列で断定するか、3 列で組んでいるテスト（dqn_based_agent_test.cpp の、`kActorQHintColumnCount` を使う断定と、hint の行を手で組む箇所）は、5 列に合わせる。1 成分のときの値は今と同じなので、既存の断定の期待値は変えない。checkpoint の書式と中身を断定するテスト（dqn_based_agent_test.cpp の `[dqn][serialize]` のタグのテスト、intrinsic_test.cpp の `[checkpoint]` のタグのテスト。`DefaultDQN checkpoint headers identify Agent serialization formats` など）は、動的な報酬スケーラを使う構成の checkpoint に報酬スケーラの状態が入ることに合わせて、断定を直す。設定の型の既定は動的な種類なので、既定の設定で Agent を作って保存するテストが当たる。§9.2 の受入のテストを足す。
 - **設定**: [agent.txt](../../apps/runner/config/agent.txt)（§8.1 の設定キーの既定）、[metrics_scalar.txt](../../apps/runner/config/metrics_scalar.txt)（組 `metrics.scalar.@value_decomposition` を足す。どの Run プロファイルの連鎖にも足さない。§8.4）。[Atari.txt](../../apps/runner/config/Atari.txt)・[DropMerge.txt](../../apps/runner/config/DropMerge.txt)・[GridMaze.txt](../../apps/runner/config/GridMaze.txt)・[common.txt](../../apps/runner/config/common.txt) は、検索に当たるが変えない（今ある報酬スケーラのキーは、新しい既定で今と同じ値になる。Trace の既定の列は足さない。`actor_approx` を指定する 2 つの Run プロファイルも、hint の列の数が設定に現れないので変えない）。[12_batch_run.bat](../../apps/12_batch_run.bat) は、skip の session の指標を引数で指定しているので検索に当たるが、変えない。
-- **設定の検証資材**: 現用17構成（Atari 5、DropMerge 3、LunarLander 3、GridMaze 2、CartPole、GridMaze MuZero、ImageCls 2）を、変更前後で全キー・文字列値を比較する。参照側は現用設定の写しから`agent.txt`と`metrics_scalar.txt`だけを本PRDの実装前へ戻し、並行するEnv設定の変更を両側で同じにする。既存キーの削除・値の変更を認めず、追加は本PRDが定めた既定キーとその既定値だけを許す。既存scalar定義も一致させる。足すメトリクスの組はどの構成の連鎖にも入らないので、解決値には現れない。手順と比較結果の形式は`core/anet-core/testdata/prd121/README.md`と`run_validation.py`に置く。`core/anet-core/testdata/prd072/baseline/`は固定commitの履歴で、現用で廃止されたプロファイルを含むため保持し、更新しない。`core/anet-core/testdata/prd084/`・`prd092/`・`prd094/`の資材も過去の検証の記録として保持する。
+- **設定の検証資材**: 現用17構成（Atari 5、DropMerge 3、LunarLander 3、GridMaze 2、CartPole、GridMaze MuZero、ImageCls 2）を、変更前後で全キー・文字列値を比較する。参照側は現用設定の写しから`agent.txt`と`metrics_scalar.txt`だけを本RFDの実装前へ戻し、並行するEnv設定の変更を両側で同じにする。既存キーの削除・値の変更を認めず、追加は本RFDが定めた既定キーとその既定値だけを許す。既存scalar定義も一致させる。足すメトリクスの組はどの構成の連鎖にも入らないので、解決値には現れない。手順と比較結果の形式は`core/anet-core/testdata/rfd0121/README.md`と`run_validation.py`に置く。`core/anet-core/testdata/rfd0072/baseline/`は固定commitの履歴で、現用で廃止されたプロファイルを含むため保持し、更新しない。`core/anet-core/testdata/rfd0084/`・`rfd0092/`・`rfd0094/`の資材も過去の検証の記録として保持する。
 - **設計文書**: `docs/design/214_value_decomposition.jp.md` を新設する（価値の分解の仕組み、式、合わせる関数、設定、診断とメトリクスの組、checkpoint。可塑性の診断で、内的の Head の重みが readout の側に入ることも書く）。[140_observability.jp.md](../design/140_observability.jp.md)（`$agent_step` の鍵と、報酬スケーラの診断の鍵の説明に、足す鍵と種類。行動の情報の鍵と、評価の session の累積の鍵の説明に、§8.4 の 6〜9）、[150_replay_buffer.jp.md](../design/150_replay_buffer.jp.md)（§2.1・§2.2・§2.4・§6.1・§6.1.1・§7.6・§8 に報酬の成分）、[200_dqn_agents.jp.md](../design/200_dqn_agents.jp.md)（§2.5 の Actor の hint の列を 5 つに。§6.2・§6.3・§7.2・§8.2・§9.1・§10 に価値の分解と、214 への参照。§8.2 の「報酬スケーラの統計を保存しない」の記述を、保存する形に直す）、[212_rnd_lifelong_novelty.jp.md](../design/212_rnd_lifelong_novelty.jp.md)（§3.6・§3.7 に、内的報酬用の報酬スケーラと成分での受け渡し）、[020_user_guide_run.jp.md](../design/020_user_guide_run.jp.md)（Evaluation Trace の鍵を挙げている箇所に、足す鍵）、[030_user_guide_analysis.jp.md](../design/030_user_guide_analysis.jp.md)（方策の診断の読み方を書いている箇所に、§8.4 の 6〜9 の読み方）。[130_neural_networks.jp.md](../design/130_neural_networks.jp.md) は、検索に当たるが、Network と Head の契約を変えないので変えない。en は `anet-translate-docs` で作る。
-- **検証資材**: `core/anet-core/testdata/prd121/README.md` を新設する（実装前の実行体の保存と、無効のときの metrics checksum の比較の手順。§9.2 の 1）。200 の §10 から参照する。
+- **検証資材**: `core/anet-core/testdata/rfd0121/README.md` を新設する（実装前の実行体の保存と、無効のときの metrics checksum の比較の手順。§9.2 の 1）。200 の §10 から参照する。
 - **127 との調整**: 127 が先に入っていれば、Trace のボーナスの列（`intrinsic.bonus`）の計算を、内的報酬用の報酬スケーラを通した値（統計を更新しない口）に β を掛けた値に合わせる。127 があとから入るなら、127 の実装がこの形に合わせる。
-- **用語集と ADR**: [CONTEXT.md](../../CONTEXT.md) の「価値の分解」「報酬の成分」、ADR 0073・0074・0075、ADR 0036・0062・0065 の先頭の注記は、PRD づくりで済ませた（D21）。[CONTEXT.md](../../CONTEXT.md) の「Actor Qヒント」の項目は、実装のときに、運ぶ中身の説明へ内的の Head の Q_sa と V_s を足す。実装が入るまでは、今の 3 つの中身の説明が正しいためである。
+- **用語集と ADR**: [CONTEXT.md](../../CONTEXT.md) の「価値の分解」「報酬の成分」、ADR 0073・0074・0075、ADR 0036・0062・0065 の先頭の注記は、RFD づくりで済ませた（D21）。[CONTEXT.md](../../CONTEXT.md) の「Actor Qヒント」の項目は、実装のときに、運ぶ中身の説明へ内的の Head の Q_sa と V_s を足す。実装が入るまでは、今の 3 つの中身の説明が正しいためである。
 - **互換層**: 作らない（D23）。
 
 ## 9. 成功の測り方と受入
@@ -629,7 +629,7 @@ D16 による。次の表を上から順に当て、最初に当たった行で�
 
 効果は §1.3 の仮説 A・B で確かめる。Run の組み立ては Atari の枠で決める（D19）。次は群を組むときの材料で、決定ではない。
 
-- **そろえる条件。** PRD123 の新しい RND の条件にする。Montezuma では Munchausen 無効・Double DQN 有効にする（Munchausen 有効は Greedy の 2500 点が 5/160 だった。§2.1）。
+- **そろえる条件。** RFD0123 の新しい RND の条件にする。Montezuma では Munchausen 無効・Double DQN 有効にする（Munchausen 有効は Greedy の 2500 点が 5/160 だった。§2.1）。
 - **seed。** 同じ構成でも seed 1 と 2 で Greedy の 2500 点が 99/160 と 81/160 に分かれたので、群ごとに 2 本以上にし、この幅を超える差だけを読む。
 - **仮説 A の群。** 1 本の Q と分解した Q（`discount_mode = shared`・`terminal_mode = episodic`・`extrinsic_bootstrap_mode = combined`）を、β 2 点以上で。分解した側は、次のような群を並べると、共有の Body への影響を分けて読める。損失の重みが 1.0 の群、損失の重みを β に近い値にした群、`feature_gradient = split` の群、内的報酬用の報酬スケーラの定数の倍率で内的の目標値の桁を外的に合わせた群（損失の効く範囲をそろえる。§6.4）。
 - **仮説 B の群。** 分解した Q で、内的を外的と同じ扱いにした群と、`separate`・`non_episodic` にした群。内的報酬用の報酬スケーラを `return_std` にし、`intrinsic.use_done_mask` を偽にした群を足すと、Burda らの形に寄る。

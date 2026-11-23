@@ -1,21 +1,21 @@
-# PRD093 検証
+# RFD0093 検証
 
-> PRD182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
+> RFD0182 で検証資材の置き場を変更した。本文のコマンドにある旧パスと実行体名は、現行の AGENTS.md「検証」に合わせて読み替える。
 
 ## 比較資料と現状
 
-実装の正本は `docs/memo/done/093_attention_entropy_diagnostics_20impl.md`。ログ・実行体・設定基準は `.scratch/rfd0093/` に保存する。
+実装の正本は `docs/memo/done/0093_attention_entropy_diagnostics_20impl.md`。ログ・実行体・設定基準は `.scratch/rfd0093/` に保存する。
 
 - `before/`: 変更前の Debug / Release Runner・DLL・config と対象ソース。`before-manifest.json` に hash とサイズを記録する。
 - `before-current/`: ConfigManager で解決した現用7環境の全キー・文字列値。過去の固定入力に依存しない。
 - `02-rename-red.log`: 初期の改名テストの失敗記録。後続の検証でgetterの観測先が誤っていたと判明したため、改名behaviorの有効なRED証拠とは扱わない。DTOの公開メンバを確認するテストへ修正した。
-- PRD061 の過去入力を現用設定へ当てる既存採取テストは、削除済み `run.@nature_dqn` により停止した。その出力は参考として保持し、今回の比較基準には使わない。
+- RFD0061 の過去入力を現用設定へ当てる既存採取テストは、削除済み `run.@nature_dqn` により停止した。その出力は参考として保持し、今回の比較基準には使わない。
 
 2026-10-17: GPU解放後の再開指示により、保留していた両本線smoke、Release OFF/ON、NVTX費用採取、Release関連テストまで完了した。結果は末尾の「GPU検証の最終結果」に集約する。過去段階の保留やTDD順序の未達は、その時点の記録として以下に残す。変更前Releaseの退避とユーザーの既存変更を保持し、commit/pushは行っていない。
 
 ## 検証する契約
 
-- 改名単独の前後比較はキー名以外の全キー・文字列値が一致すること。PRD072固定入力・golden・manifestは変更しない。
+- 改名単独の前後比較はキー名以外の全キー・文字列値が一致すること。RFD0072固定入力・golden・manifestは変更しない。
 - captureの完全一致・末尾 `/` の接頭辞、重複・未要求・未達、書込み順、入口Reset、位置付与、部分forward、detach。
 - エントロピーの独立MHA参照、一様・集中・系列長1、pre/post-LN、SN、CPU FP32とCUDA autocast。
 - 購読interval・更新前測定・不足時NaN・値失効・未購読時追加計算ゼロ・層番号検証。
@@ -31,7 +31,7 @@ CPUの再現手順はGPUを不可視にして実行し、ユーザー許可に�
 1. AGENTS.mdのVsDevCmd経由でDebug全体をビルドし、`anet-core-test.exe "[rfd0093]"`、関連`[plasticity]`・`[nn]`・ImageCls/Munchausenテスト、既定スイートを実行する。CUDA無しのskipをGPU受入成功と扱わない。
 2. `run_validation.py rename-snapshot`で退避した現用設定を複製して改名だけを施し、現在のConfigManagerで7入力を解決し直して、変更前の全キー・文字列値と比較する。追加診断キーやprofileの差分を改名比較へ混ぜない。現在の設定と複製元の差分も別途点検する。
 3. `run_validation.py before-cpu`、続いて`run_validation.py cpu`を実行する。保存済み旧Runner、変更後OFF、変更後ONの順に比較する。LunarLander CPU、seed931、8 env、FP32、B16、RR1、capacity4096、warmup256、16640経験、4層の小型Transformer、probe16件、Dropout有効を固定する。学習由来の全scalarをtag・step・float.hex・点数で比較し、性能・資源群と48群だけを除外する（47群は含む）。checkpoint SHAは等価性に使わない。
-4. `validate_run_test.py`の合成artifact回帰テスト、PRD072のprepare/compare、既定キー検査を実行する。PRD072の固定入力・golden・manifestは変更せず、`prd072-hashes.json`とも比較する。
+4. `validate_run_test.py`の合成artifact回帰テスト、RFD0072のprepare/compare、既定キー検査を実行する。RFD0072の固定入力・golden・manifestは変更せず、`rfd0072-hashes.json`とも比較する。
 5. `run_validation.py smoke`でDropMerge本線とAtari既定チェーン＋`@vitva > @attention`をDebug実行する。保存した既定のB/RR/warmupから1006更新点を越える予算を計算し、既存学習スケジュールを縮めない。`inspect_run.py tags`の出力も保存し、4タグのsource key・learn event・learn_step軸・update_result source・interval503と503/1006両点の有限な0〜1を確認する。Atariではmunchausen・replay_fitの定義が残ることも検証する。
 6. Release全体をビルドし、`run_validation.py performance`で各環境をOFF/ONの順に測定する。503→1006の同一更新区間の実時間、process実時間、CPU peak working set・private usage最大観測値、GPU device全体memory.usedの1秒サンプリング最大値を保存する。GPU値はallocator単体や瞬間ピークではない。1対の差を統計的な性能保証と扱わず、必要なら同一条件で反復する。
 7. NVTX/Tracyで`Learner::CaptureAttentionEntropy`のinclusive range合計を採取し、同じRun区間の実時間に対する割合を報告する。`CustomTransformerEncoderLayer::MeasureAttentionEntropy`・`ComputeAttentionEntropy`で内訳も追える。GPU非同期処理・同期の影響を説明し、OFF/ON実時間差をrange合計の代用品にしない。自動レポートの`profile_capture_seconds`と`profile_capture_ratio`は採取まではnull（未測定）とする。1%は目標であり、超過だけで不合格にしない。
@@ -80,7 +80,7 @@ CPU Runのchecksum採取後のproduction修正は、capture未達エラーに最
 
 DropMerge本線smokeは正常終了し、4タグの実効定義、503・1006の有限な測定値を確認した（`smoke_dropmerge.summary.json`、`smoke_dropmerge.tags.txt`）。初回のAtari smokeでは、既定プロファイルが検証用Run名・batch終了予算・評価無効化を上書きしていた。今回起動した検証子だけを停止し、Run出力と失敗採取記録を `failed-attempts/atari-profile-overrides/` の説明とともに保持した。
 
-採取器は検証条件を `run.@prd093_validation` として既定チェーンの末尾へ置くよう修正した。実際のPython生成入力をConfigManagerで読むhiddenテスト `[rfd0093-validation-config]` でRED（4失敗）を確認し、修正後は8アサーション成功（`43-config-contract-red.log`、`44-config-contract-green.log`）。Atariのみ再開する場合は `run_validation.py smoke --env Atari` を使用できる。再試行の実効dumpでも終了予算478528・全評価interval0・検証用Run名を確認した。
+採取器は検証条件を `run.@rfd0093_validation` として既定チェーンの末尾へ置くよう修正した。実際のPython生成入力をConfigManagerで読むhiddenテスト `[rfd0093-validation-config]` でRED（4失敗）を確認し、修正後は8アサーション成功（`43-config-contract-red.log`、`44-config-contract-green.log`）。Atariのみ再開する場合は `run_validation.py smoke --env Atari` を使用できる。再試行の実効dumpでも終了予算478528・全評価interval0・検証用Run名を確認した。
 
 Nsight Systems 2026.3.1の反復range採取は接続エラーとなり、reportを採取できなかった（`29-nsight-preflight.log`）。2026.1.1の通常NVTX採取でreport生成とSQLite exportを確認し、`profile_run.py --nsys` でこの経路を使う。`profile_run_test.py` は同一更新区間への対応、capture欠落のfail-fast、不正時計・duration、親範囲と内訳の二重加算防止の3テストをRED/GREENで確認済み（`33`〜`42`の関連ログ）。
 
@@ -133,4 +133,4 @@ NVTX採取の再現は `profile_run.py --nsys` に利用するnsys.exeの絶対�
 
 レビュー修正後のDebug全体ビルドは成功（`56-review-debug-build.log`）。CPU既定スイートは697ケース中688成功・9スキップ、91,719アサーション成功（`57-review-cpu-suite.log`）。未指定値の回帰、baseline適用後の値、DQN/ImageClsの購読時検証を含む。
 
-レビュー修正後のRelease全体ビルドも成功（`58-review-release-build.log`）。CPU指定のPRD093関連テストは12ケース中10成功・CUDA対象2スキップ、46,238アサーション成功（`59-review-release-tests.log`）。BOM・include順・改行、現用の旧契約参照なし、PRD072固定資料41本と既存gui.cppの保持を最終監査した（`review-audit.json`）。
+レビュー修正後のRelease全体ビルドも成功（`58-review-release-build.log`）。CPU指定のRFD0093関連テストは12ケース中10成功・CUDA対象2スキップ、46,238アサーション成功（`59-review-release-tests.log`）。BOM・include順・改行、現用の旧契約参照なし、RFD0072固定資料41本と既存gui.cppの保持を最終監査した（`review-audit.json`）。

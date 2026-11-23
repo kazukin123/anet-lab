@@ -1,4 +1,4 @@
-# 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 PRD
+# 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) 暫定 RFD
 
 > 2026-11-17 番号を 908 から 155 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 908 へ振り直した（PRD114）。
@@ -129,7 +129,7 @@ R4 は「差し替わらない部品(GUI パネル、ImageDataset)が class 名 
 
 ### 3.8 Head の設定: `<Agent>.head.*` → `<Agent>.net.head.*`（候補）
 
-[130](../design/130_neural_networks.jp.md) では Network は Body と Head をまとめた単位だが、Head の設定（init・projection・dueling、skip の action_input）は Agent が読み、factory を `BuildNetwork` に別引数で渡している（[dqn_based_agent.cpp:631](../../src/core/base/src/dqn_based_agent.cpp)・688）。R2 なら Head は `net` の下、R3 なら読み口は NetworkConfig であるべきで、今は両方を満たしていない。[PRD098](0098_temporl_skip_policy_10rfd.md) の設定見直しでは Agent 直下の `head.*` に統一し（案 C）、`net.head.*` は取らなかった（2026-10-24）。
+[130](../design/130_neural_networks.jp.md) では Network は Body と Head をまとめた単位だが、Head の設定（init・projection・dueling、skip の action_input）は Agent が読み、factory を `BuildNetwork` に別引数で渡している（[dqn_based_agent.cpp:631](../../src/core/base/src/dqn_based_agent.cpp)・688）。R2 なら Head は `net` の下、R3 なら読み口は NetworkConfig であるべきで、今は両方を満たしていない。[RFD0098](0098_temporl_skip_policy_10rfd.md) の設定見直しでは Agent 直下の `head.*` に統一し（案 C）、`net.head.*` は取らなかった（2026-10-24）。
 
 候補の形: NetworkConfig が `head` の子木を opaque に運び（`nn_forward.[key]` の先例、[200 §7](../design/200_dqn_agents.jp.md)）、Agent の HeadFactory だけが解釈する。読み口は NetworkConfig 1 つになり、`net.head.*`・`skip.net.head.*` と書ける。`quantile_mode` は Learner と方策にも効くので Agent 直下に残す。
 
@@ -144,7 +144,7 @@ R4 は「差し替わらない部品(GUI パネル、ImageDataset)が class 名 
 - **Q5 RUN_BUDGET**: 059 の app 配下裁定を維持するか。
 - **Q6 `eval_batch_size` / `eval_episodes`**: `eval_` を削るか。P1 同乗のみ。
 - **Q7 順序**: 070(device キー)と 061 P1 の順。先に 070 なら `train.eval_device` を経て P1 で `run.eval_device`。先に P1 なら 070 の D1 / D6 の表記を `run.` で書き直す。
-- **Q8 Head の設定の置き場**: §3.8 の候補（NetworkConfig が `head` を opaque に運ぶ形で `net.head.*`）を採るか。採るなら時期（Head の継ぎ目を触る PRD に同乗させる）。
+- **Q8 Head の設定の置き場**: §3.8 の候補（NetworkConfig が `head` を opaque に運ぶ形で `net.head.*`）を採るか。採るなら時期（Head の継ぎ目を触る RFD に同乗させる）。
 
 ## 5. 着手条件
 
@@ -152,7 +152,7 @@ R4 は「差し替わらない部品(GUI パネル、ImageDataset)が class 名 
 
 単独では着手しない。061 P1 の実装依頼を出す前にグリルで Q1〜Q7 を裁定し、`train.` → `run.` の機械走査と同じ変更で `app.run_name`(採用時)と GUI パネル(案 a 採用時)を処理する。R1〜R6 を採る場合は、061 P1 の受入(全テスト緑、smoke Run の `config_data.txt` がキー名置換を除いて一致)に「dump ファイル名(`config/run.txt` 等)と inspect_run の期待値が新 root に揃っている」を足す。
 
-## 付録: 棚卸し中に見つけた表記ずれ(本 PRD の対象外)
+## 付録: 棚卸し中に見つけた表記ずれ(本 RFD の対象外)
 
 - `RunnerApp::Config::run_name` の C++ 既定値が `"run_{%t}"`([RunnerApp.cpp:56](../../src/apps/runner/src/RunnerApp.cpp))。`MetricsLogger::CreateRunName` は `{t}` しか展開しない。`common.txt` が `app.run_name ?= run_{t}` を常に供給するため露見していない。
 - `Conv2dPanel.conv2d.mergin_x` / `mergin_y`([common.txt](../../apps/runner/config/common.txt)、[metrics_image.txt](../../apps/runner/config/metrics_image.txt) の `image.@conv2d.conv2d.mergin_*`)に対し、読み口は `conv2d.margin_x` / `margin_y`([Conv2dPanel.cpp:19-20](../../src/apps/runner/src/Conv2dPanel.cpp))。設定行は NoCare で、C++ 既定値が使われている。

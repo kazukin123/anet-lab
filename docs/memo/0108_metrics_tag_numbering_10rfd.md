@@ -1,4 +1,4 @@
-# メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）PRD
+# メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号）RFD
 
 > 2026-10-31 起票（暫定。質疑を省き、既定を置いて、決めることを §9 に残した）。番号はユーザーの指示で連番の 108 を振った。行番号は起票時点のもので、実装時は近傍の名前で探し直す。
 > 起点: 2026-10-31、beam_rider と freeway の RAM メトリクスに番号 4 を足すとき、Atari の env・評価の群の中の 50〜58 が RAM 1〜3 で埋まっていて、4 の tag を暫定の 59 に置いた（[PRD082](done/0082_atari_ram_progress_metrics_10rfd.md) D20）。振り方の案を比べるうちに、ユーザーが「全体を見た時、現状は理想とかけ離れてるね。Agent関連メトリクスがいろんな番号に散らばってる」「きれいに使えそうなのは6x以降」「ramだけに番号をあまりさきたくない。かと言って可読性を大きく落としたくもない」と述べ、番号の再編を全体整理として本 PRD で行うと決めた。既存 Run との tag の互換が切れることは許容し、メイン機の Workspace（Atari-xx と Atari5-xx の両方）を切り替える意向も同時に示した。
@@ -43,15 +43,15 @@ Metrics Viewer は tag を文字列の順で並べる（[MetricsRepository.java:
 
 ### 2.2 Atari の env・評価の群の中
 
-`42_env`・`51_eval1`・`52_eval2`・`53_evalg`・`54_evalgs` の中は、1x が得点（10 平均、11 平均の EMA、12〜15 HNS、16 max）、2x が長さ、3x が残機、4x が Breakout の閾値、5x が RAM である（[Atari.txt](../../apps/runner/config/Atari.txt) の `M1.[…]` の行）。RAM は 1〜3 が mean 50/52/54・EMA 51/53/55・max 56/57/58 で、4 は暫定で mean・EMA・max とも 59 にした（PRD082 D20）。evalg・evalgs は EMA を持たない。
+`42_env`・`51_eval1`・`52_eval2`・`53_evalg`・`54_evalgs` の中は、1x が得点（10 平均、11 平均の EMA、12〜15 HNS、16 max）、2x が長さ、3x が残機、4x が Breakout の閾値、5x が RAM である（[Atari.txt](../../apps/runner/config/Atari.txt) の `M1.[…]` の行）。RAM は 1〜3 が mean 50/52/54・EMA 51/53/55・max 56/57/58 で、4 は暫定で mean・EMA・max とも 59 にした（RFD0082 D20）。evalg・evalgs は EMA を持たない。
 
 ### 2.3 tag 名を持つもの
 
 - 設定: `apps/runner/config/` の `metrics_scalar.txt`・`metrics_image.txt` と env の設定ファイル。
 - テスト: [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp)（RAM の tag の規則、`50_agent_skip` などの群の確認）、[observers_test.cpp](../../src/core/base/src/observers_test.cpp)、[dqn_munchausen_test.cpp](../../src/algo/dqn/src/dqn_munchausen_test.cpp)（`36_agent_munchausen`）、[inspect_run_test.py](../../apps/tools/inspect_run_test.py)、[atari5_test.py](../../apps/tools/atari5_test.py)。
 - 解析ツール: [atari5.py](../../apps/tools/atari5.py)（`60_atari5`）、[btr_to_metrics.py](../../apps/tools/btr_to_metrics.py)。後者は RAM の max の tag を番号によらず `56_ram_metric_{n}_max` にしている（171〜183 行。1 以外では今の設定の tag と合わない）。
-- PRD の検証資材: `core/anet-core/testdata/prd0xx/` と `prd1xx/` の解析スクリプト（prd084・092・093・097・098・100・101・103・104・106 など）。
-- 文書: [AGENTS.md](../../AGENTS.md)（Run 結果分析の節が群を挙げる）、[020 Run 実行ユーザーガイド](../design/020_user_guide_run.jp.md)、[030 分析ユーザーガイド](../design/030_user_guide_analysis.jp.md)、[140 可観測性](../design/140_observability.jp.md)、[200 DQN 系列](../design/200_dqn_agents.jp.md)（`35_agent_churn`・`46_agent_replay_fit`・`47_agent_noisy`・`48_agent_attention`・`49_agent_gradnoise`）と各 `.en.md`、[220 Atari 環境](../design/220_atari_env.jp.md)、`docs/memo/` の PRD と実装計画、ADR（[0033](../adr/0033-policy-churn-fixed-probe-and-target-lag.md) など）、wiki のページ。
+- RFD の検証資材: `core/anet-core/testdata/rfd00xx/` と `rfd01xx/` の解析スクリプト（rfd0084・0092・0093・0097・0098・0100・0101・0103・0104・0106 など）。
+- 文書: [AGENTS.md](../../AGENTS.md)（Run 結果分析の節が群を挙げる）、[020 Run 実行ユーザーガイド](../design/020_user_guide_run.jp.md)、[030 分析ユーザーガイド](../design/030_user_guide_analysis.jp.md)、[140 可観測性](../design/140_observability.jp.md)、[200 DQN 系列](../design/200_dqn_agents.jp.md)（`35_agent_churn`・`46_agent_replay_fit`・`47_agent_noisy`・`48_agent_attention`・`49_agent_gradnoise`）と各 `.en.md`、[220 Atari 環境](../design/220_atari_env.jp.md)、`docs/memo/` の RFD と実装計画、ADR（[0033](../adr/0033-policy-churn-fixed-probe-and-target-lag.md) など）、wiki のページ。
 - 過去の記録: 実験記録と、その設定の写し（`docs/experiments/**/config/*.txt`）、Run のフォルダ。
 
 ### 2.4 Workspace
@@ -144,12 +144,12 @@ Metrics Viewer は tag を文字列の順で並べる（[MetricsRepository.java:
 | テスト | `config_baseline_test.cpp`（RAM の規則、群の確認）、`observers_test.cpp`、`dqn_munchausen_test.cpp`、`inspect_run_test.py`、`atari5_test.py` | 新しい tag に合わせる。D6 の規則のテストを足す |
 | 解析ツール | `atari5.py`（`EXPORT_GROUP` を `59_atari5` へ）、`btr_to_metrics.py`（RAM の tag を §5.2 の形にし、max の不具合も直す） | 新しい tag を出す・読む |
 | 文書 | AGENTS.md、020・030・140・200・220（`.jp.md` と `.en.md`）、impl.md（D6 の規約と観点の項目） | 群と tag の例を新しい番号に直す |
-| 実装計画の無い PRD | `docs/memo/` の、`NNN_*_2[0-9]impl.md` を持たず `done/` にも無い PRD（起票時点で 096・107 と `999_*`。本書を除く） | 契約・設定例・受入に出る tag を新しい番号に直す（これから実装するときに新しい tag を使うため） |
-| PRD082 | D19・D20 の行 | 本書へ置き換えた旨の注記を足す（本文は書き換えない） |
+| 実装計画の無い RFD | `docs/memo/` の、`NNNN_*_2[0-9]impl.md` を持たず `done/` にも無い RFD（起票時点で 096・107 と `999_*`。本書を除く） | 契約・設定例・受入に出る tag を新しい番号に直す（これから実装するときに新しい tag を使うため） |
+| RFD0082 | D19・D20 の行 | 本書へ置き換えた旨の注記を足す（本文は書き換えない） |
 | bat | `11_batch_run.bat`・`12_batch_run.bat` の `:use_ws Atari5-01` を `Atari5-02` へ、`13_batch_run.bat` の `:use_ws AtariSub-01` を `AtariSub-02` へ | D7 のとおり bat が止まっている間に直す |
 | Workspace | `Atari-05` | bat の `:use_ws` と同じ形（`config/_main.txt` に `$include <Atari.txt>`）で作る |
-| wiki | `docs/wiki/` のページ | 直接は書き換えない。上で直した設計文書と PRD を `anet-ingest-wiki` で取り込み、追従させる。実験記録から写した過去の tag はそのまま |
-| 直さない | 実験記録とその設定の写し、Run のフォルダ、ADR、`done/` にある PRD と、実装計画を持つ PRD の本文と実装計画（実装した時点の記録）、`core/anet-core/testdata/` の検証資材（§9 の 4） | 非ゴール |
+| wiki | `docs/wiki/` のページ | 直接は書き換えない。上で直した設計文書と RFD を `anet-ingest-wiki` で取り込み、追従させる。実験記録から写した過去の tag はそのまま |
+| 直さない | 実験記録とその設定の写し、Run のフォルダ、ADR、`done/` にある RFD と、実装計画を持つ RFD の本文と実装計画（実装した時点の記録）、`core/anet-core/testdata/` の検証資材（§9 の 4） | 非ゴール |
 
 ### 5.4 クラス一覧
 
@@ -172,8 +172,8 @@ Metrics Viewer は tag を文字列の順で並べる（[MetricsRepository.java:
      - (c) 名前が `ram_metric_` を含む tag は Atari の 5 つの群にだけあり、群の中の番号が 50 + RAM の番号である。
      - (d) tag が 40 文字以内。
 2. 旧 tag の不在: 次の範囲を、§5.1 の旧の群（`60_atari5` を含む）の文字列で、前後が英数字でも `_` でもない位置に限って検索し（正規表現 `(?<![0-9A-Za-z_])<旧の群>(?![0-9A-Za-z_])`。`/` の前に置いた tag も、`` `34_agent_plasticity`群 `` のように群だけを挙げた記述も当たり、`38_agent_loss` の中の `38_agent` は当たらない）、0 件。RAM は、`ram_metric_<n>_` の前の 2 桁が 50 + n でない tag が 0 件。
-   - 範囲: `apps/runner/config/`、`core/` の `src/`、`apps/runner/src/`、`apps/metrics-viewer/src/`、`viewers/metrics-tools/`、`docs/design/`、`docs/quality/`、`AGENTS.md`、§5.3 の「実装計画の無い PRD」。
-   - 範囲の外: 本書、§5.3 の「直さない」、PRD082（注記だけ）、wiki。
+   - 範囲: `apps/runner/config/`、`core/` の `src/`、`apps/runner/src/`、`apps/metrics-viewer/src/`、`viewers/metrics-tools/`、`docs/design/`、`docs/quality/`、`AGENTS.md`、§5.3 の「実装計画の無い RFD」。
+   - 範囲の外: 本書、§5.3 の「直さない」、RFD0082（注記だけ）、wiki。
 3. smoke: 各 env の設定で短い Run（`--config` 直接モード、CLI で `app.batchrun.exp_exit_step=1`）を流す。Run が起動時に書く `json/metrics.scalar.defs.json`・`json/metrics.trace.defs.json` の tag の群が、すべて §5.1 の新の群か変えない群で、旧の群が無い。定義は起動時に書かれるので、指標が発火するかどうかには依らない。既定の連鎖に入らない群は、受入 1 で確かめる。
 4. 解析ツール:
    - `atari5_test.py`・`inspect_run_test.py` が通る。
@@ -197,18 +197,18 @@ Metrics Viewer は tag を文字列の順で並べる（[MetricsRepository.java:
 | 1 | agent の群の分類の境目（6x・7x・8x に何を置くか。munchausen を学習の更新に置くか、方策に置くか。画像の群を NN の状態と同じ十の位に置くか） | §5.1 の表 |
 | 2 | env と評価の群の番号も動かすか。評価の群が `21_eval`・`22_eval`（GridMaze・LunarLander・DropMerge）と `51_eval1`〜`54_evalgs`（Atari・DropMerge）の 2 通りあるのを揃えるか | 動かさない、揃えない（D2） |
 | 3 | RAM の振り方（§8 の案 A・B・C・E と D4 のどれか） | D4（5n） |
-| 4 | 検証資材（`core/anet-core/testdata/` の解析スクリプト）を新しい tag へ移すか | 移さない（それぞれの PRD の段の Run を読むもので、その Run は旧 tag）。再開条件: 切り替えのあとにその PRD の段を流すとき、そのスクリプトだけ移す |
+| 4 | 検証資材（`core/anet-core/testdata/` の解析スクリプト）を新しい tag へ移すか | 移さない（それぞれの RFD の段の Run を読むもので、その Run は旧 tag）。再開条件: 切り替えのあとにその RFD の段を流すとき、そのスクリプトだけ移す |
 | 5 | Atari 以外の Workspace（DropMerge・GridMaze・GridMaze_muzero・LunarLander・ImageCls・CartPole）と、番号付きの bat が使わない Atari の `AtariTube-01` も切り替えるか | 切り替えない（D5）。`AtariTube-01` は使われているかが分からず、使うときに新しい番号の Workspace を作れば足りる。成績の比較に使う群（`21_eval`・`22_eval`・`51_eval1`・`52_eval2`）は変わらず、agent の群の tag だけが旧 Run と分かれる |
 | 6 | 群の番号の決まりを ADR にするか | 起こさない。規約（impl.md）とテストで足りるなら、ADR の 3 条件の「戻しにくい」に当たらない |
 | 7 | `38_agent`・`39_agent`（ImageCls）を 1 つの群にまとめるか、名前を付け直すか | まとめず、群の番号だけ 68・69 へ |
 
 ## 10. 依存と順序
 
-- PRD082 D20（RAM 4 の暫定の 59）を本書の §5.2 で置き換える。実装のとき、PRD082 の D19・D20 の行に本書への注記を足す。
+- RFD0082 D20（RAM 4 の暫定の 59）を本書の §5.2 で置き換える。実装のとき、RFD0082 の D19・D20 の行に本書への注記を足す。
 - 切り替えは、11・12・13 の bat が止まっている間に行う（D7）。
 
 ## 11. 参照
 
-- [PRD082 RAM メトリクス](done/0082_atari_ram_progress_metrics_10rfd.md)
+- [RFD0082 RAM メトリクス](done/0082_atari_ram_progress_metrics_10rfd.md)
 - [実装 品質確認観点](../quality/impl.md)（「metrics の tag の文字数」「並び順を番号で決める設定」）
 - [140 可観測性（設計文書）](../design/140_observability.jp.md)、[200 DQN 系列（設計文書）](../design/200_dqn_agents.jp.md)、[220 Atari 環境（設計文書）](../design/220_atari_env.jp.md)、[210 Metrics Viewer（設計文書）](../design/210_metrics_viewer.jp.md)

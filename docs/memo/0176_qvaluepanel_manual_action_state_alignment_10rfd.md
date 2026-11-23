@@ -1,4 +1,4 @@
-# QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ 暫定 PRD
+# QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ 暫定 RFD
 
 > 2026-11-17 番号を 948 から 176 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 948 へ振り直した（PRD114）。
@@ -19,8 +19,8 @@ QValuePanel で行動をクリックして EvalPanel を手動で進めるとき
 
 ### 非ゴール
 
-- Evaluation Trace（PRD 094）の Trace モードの表示。行 t の Q(s_t, ·) と行動 a_t は同じ時点にそろっていて、ずれは無い。
-- 学習側（train runner）への手動の入力。160_input_target_train_forced_action の範囲である。
+- Evaluation Trace（RFD0094）の Trace モードの表示。行 t の Q(s_t, ·) と行動 a_t は同じ時点にそろっていて、ずれは無い。
+- 学習側（train runner）への手動の入力。0160_input_target_train_forced_action の範囲である。
 
 ## 2. 現状（2026-10-19 にコードで確かめたこと）
 
@@ -28,7 +28,7 @@ QValuePanel で行動をクリックして EvalPanel を手動で進めるとき
 - QValuePanel は、この通知の `action_info` の aux から Q(s_t, ·) と a_t を出す（[QValuePanel.cpp:281-308](../../src/apps/runner/src/QValuePanel.cpp)、同 315-397）。EvalPanel の画面は、同じ通知の時点の env の画面 s_{t+1} を出す（[AtariView.cpp:218-257](../../src/env/atari/src/AtariView.cpp)）。待っている間、画面は s_{t+1}、Q は s_t のものである。
 - QValuePanel で行動をクリックすると `EvalPanel::DoStep(action)` が呼ばれ（[RunnerFrame.cpp:484-487](../../src/apps/runner/src/RunnerFrame.cpp)、[EvalPanel.cpp:161-168](../../src/apps/runner/src/EvalPanel.cpp)）、`MakeAction(s_{t+1})` のあとに、その行動が s_{t+1} に強制される。クリックしたときに見ていた Q は、s_{t+1} の Q ではない。
 - 行動の決定と env の step は同じ呼び出しの中で続けて起きるので、「s_{t+1} の Q を出して、行動を待つ」状態は今は無い。
-- PRD 097 の実装のあとも、自動リセットは `Step` の中で行い、Runner は次の状態を Step の結果の `continue_state` で受け取る（097 の D2）。画面は Step の結果から読むので、終端の step の通知では、画面は終端の画面 s_T になる（097 の D1）。次のクリックが当たるリセット後の s_0 は、画面に出ない（097 の D4。今は終端の step でだけ、リセット後の s_0 が偶然出ている）。手動で進めると、エピソードの境目では s_0 を見ずに最初の行動を選ぶことになる。
+- RFD0097 の実装のあとも、自動リセットは `Step` の中で行い、Runner は次の状態を Step の結果の `continue_state` で受け取る（097 の D2）。画面は Step の結果から読むので、終端の step の通知では、画面は終端の画面 s_T になる（097 の D1）。次のクリックが当たるリセット後の s_0 は、画面に出ない（097 の D4。今は終端の step でだけ、リセット後の s_0 が偶然出ている）。手動で進めると、エピソードの境目では s_0 を見ずに最初の行動を選ぶことになる。
 
 ## 3. 提案の骨子（暫定）
 
@@ -51,8 +51,8 @@ QValuePanel で行動をクリックして EvalPanel を手動で進めるとき
 | 1 | 案 A・B・C のどれにするか | B。ずれは残るが、変更が小さく、乱数の消費の時機を変えない |
 | 2 | 案 A のとき、先読みした行動を、モデルの同期（Sync）をまたいで使ってよいか | 同期をまたいだら先読みをやり直す |
 | 3 | キー（EvalPanel から転送される矢印キーなど）での手動の行動も同じ扱いにするか | 同じ扱いにする |
-| 4 | PRD 094 の Trace モードとの関係 | Trace モードの間は手動の行動の前に Live へ戻る（094 の D11）ので、Live の表示だけを対象にする |
-| 5 | エピソードの境目で、次のクリックが当たる s_0 の画面を出すか（PRD 097 の D4 で先送りした件。097 は Observer にエピソードの開始の通知を足していない） | 出す。出し方（エピソードの開始の通知を足すか、手動の step のあとに `continue_state` から画面を作るか）はグリルで決める |
+| 4 | RFD0094 の Trace モードとの関係 | Trace モードの間は手動の行動の前に Live へ戻る（094 の D11）ので、Live の表示だけを対象にする |
+| 5 | エピソードの境目で、次のクリックが当たる s_0 の画面を出すか（RFD0097 の D4 で先送りした件。097 は Observer にエピソードの開始の通知を足していない） | 出す。出し方（エピソードの開始の通知を足すか、手動の step のあとに `continue_state` から画面を作るか）はグリルで決める |
 | 6 | 案 A のとき、先読みを置く位置 | Step の結果の通知を済ませたあと。次の状態は Step の結果の `continue_state` だから（097 の §8） |
 
 ## 6. 成功の測り方の目安

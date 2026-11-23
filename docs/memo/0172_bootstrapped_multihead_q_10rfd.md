@@ -1,4 +1,4 @@
-# Bootstrapped DQN 型の複数の Head（1 本の Run の中に別々の価値関数を持つ）暫定 PRD
+# Bootstrapped DQN 型の複数の Head（1 本の Run の中に別々の価値関数を持つ）暫定 RFD
 
 > 2026-11-17 番号を 905 から 172 へ振り直した（PRD131）。
 > 2026-11-03 番号を 999 から 905 へ振り直した（PRD114）。
@@ -21,24 +21,24 @@
 
 ### 非ゴール
 
-- 独立のネットワークを複数持つこと（PBT や独立 seed は [175_seed_population_early_stop](0175_seed_population_early_stop_10rfd.md) の側）。
-- 目的（報酬の重みや割引率）を Head ごとに変えること（[173_intrinsic_reward_novelty](0173_intrinsic_reward_novelty_10rfd.md) の段階 3 の側）。
+- 独立のネットワークを複数持つこと（PBT や独立 seed は [0175_seed_population_early_stop](0175_seed_population_early_stop_10rfd.md) の側）。
+- 目的（報酬の重みや割引率）を Head ごとに変えること（[0173_intrinsic_reward_novelty](0173_intrinsic_reward_novelty_10rfd.md) の段階 3 の側）。
 - ゲームの仕様を変えること（2026-10-16 のユーザーの裁定）。
 
 ## 2. 背景
 
 - KFM の実時間優先（既定）で、ボス行きに入ったのは 5 本中 1 本（seed 3）。seed 3 と seed 2 の設定の差は `run.seed` だけだった。
 - seed 3 は 3-4M にボス命中 10%・撃破 ÷ 命中 0.03 で、2026-10-17 に挑んだが撤退した UQE の腕と同じ水準だった。そこから 4-5M に命中 51% へ跳ね、撃破 ÷ 命中は 4-5M の 0.24 から 5-6M に 0.40、6-7M に 0.71、11-16M に 0.9 まで上がった。
-- 挑むことは珍しくない。seed 3 と同じ既定の設定を 10M で 16 seed 回すと、0.5M 窓の命中率のピークが 10% 以上の Run が 7 本あったが、挑んでいる間に撃破 ÷ 命中が上がった Run は無く、定着した Run も無かった。s08 は挑み始めの撃破 ÷ 命中が 0.22 と seed 3 の 0.24 とほぼ同じだったが、0.14 → 0.09 と下がり、7.5M 以降は挑まなかった。壁は挑み始めることではなく、挑んでいる間に勝ち方を覚えることにある（[173_intrinsic_reward_novelty](0173_intrinsic_reward_novelty_10rfd.md) の §2.2・§2.3、[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の探索ブロック 04）。当初は「壁は稼ぎが固まる前に、挑む割合が跳ねる正のフィードバックに火が付くか」と書いたが、この 16 seed で覆った。
+- 挑むことは珍しくない。seed 3 と同じ既定の設定を 10M で 16 seed 回すと、0.5M 窓の命中率のピークが 10% 以上の Run が 7 本あったが、挑んでいる間に撃破 ÷ 命中が上がった Run は無く、定着した Run も無かった。s08 は挑み始めの撃破 ÷ 命中が 0.22 と seed 3 の 0.24 とほぼ同じだったが、0.14 → 0.09 と下がり、7.5M 以降は挑まなかった。壁は挑み始めることではなく、挑んでいる間に勝ち方を覚えることにある（[0173_intrinsic_reward_novelty](0173_intrinsic_reward_novelty_10rfd.md) の §2.2・§2.3、[2026-10-15_kfm-boss-route.md](../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md) の探索ブロック 04）。当初は「壁は稼ぎが固まる前に、挑む割合が跳ねる正のフィードバックに火が付くか」と書いたが、この 16 seed で覆った。
 - 行動のゆらぎでは足りなかった。2026-10-17 の UQE（低い ε）の Run では、4〜12M のボス命中が lane の 4 区分で 7.1% / 7.6% / 10.8% / 10.2% とほぼ一様で、lane ごとの τ の違いがあっても全 lane が 1 つの戦略として挑み、1 つの戦略として撤退した。
-- 方策の多様性には 3 つの段がある（① 行動のゆらぎ、② 目的を変えた方策の組、③ 別々のパラメータ）。seed 3 との違いは ③ で、本 PRD は ③ を 1 本の Run の中で安く作る。
-- Bootstrapped DQN（Osband ら 2016）は、Head ごとに別の Q を持ち、エピソードの間 1 つの Head で行動することで、時間的に一貫した探索（deep exploration）を作る。Atari では、遷移を Head ごとに間引く bootstrap の印を付けなくても（全 Head が全遷移を学んでも）、Head の初期値の違いだけで多様性が出たと報告している（本 PRD の既定はこれに従う。原文での照合はグリルの前に行う）。Osband ら 2018 は、Head ごとに固定の乱数の「事前関数」を足すと多様性が保たれることを示した。
+- 方策の多様性には 3 つの段がある（① 行動のゆらぎ、② 目的を変えた方策の組、③ 別々のパラメータ）。seed 3 との違いは ③ で、本 RFD は ③ を 1 本の Run の中で安く作る。
+- Bootstrapped DQN（Osband ら 2016）は、Head ごとに別の Q を持ち、エピソードの間 1 つの Head で行動することで、時間的に一貫した探索（deep exploration）を作る。Atari では、遷移を Head ごとに間引く bootstrap の印を付けなくても（全 Head が全遷移を学んでも）、Head の初期値の違いだけで多様性が出たと報告している（本 RFD の既定はこれに従う。原文での照合はグリルの前に行う）。Osband ら 2018 は、Head ごとに固定の乱数の「事前関数」を足すと多様性が保たれることを示した。
 
 ## 3. 現状（2026-10-18 に確認したこと）
 
 - 実時間優先の Atari のネットワークは、Body の `main_feature`（IMPALA ×2 ＋ LayerNorm）と、価値と優位の 2 本の流れ（`value_stream` / `adv_stream`、各 `AtariHeadFC512 > ReLU`）と、射影（`head_projection`）からなる（[Atari.txt](../../apps/runner/config/Atari.txt) の `run.@va_base`）。Head は 1 組だけ。
 - Actor は 1 回の forward で全 lane の Q（IQN では τ ごとの分位点の平均）を出し、その argmax と ε で行動を決める。
-- NoisyNet（PRD 084）は、ノイズを lane ごとに、episode の始まりで引き直して保持する仕組み（CONTEXT の「保持方式」の `episode`、「共有範囲」の `sample`）を持つ。Head の選択も「lane ごとに episode の間保持する値」で、同じ形をしている。
+- NoisyNet（RFD0084）は、ノイズを lane ごとに、episode の始まりで引き直して保持する仕組み（CONTEXT の「保持方式」の `episode`、「共有範囲」の `sample`）を持つ。Head の選択も「lane ごとに episode の間保持する値」で、同じ形をしている。
 - Learner の損失・target・PER の優先度は 1 つの Q を前提にしている。target network は hard 更新（実時間優先では 125 回ごと）。
 - replay は遷移ごとに Head の印を持たない。
 
@@ -74,7 +74,7 @@
 
 | 項目 | 裁定 | 理由と再開条件 |
 | --- | --- | --- |
-| Head ごとに目的（報酬の重み、割引率）を変える | 対象外 | 173_intrinsic_reward_novelty の段階 3 |
+| Head ごとに目的（報酬の重み、割引率）を変える | 対象外 | 0173_intrinsic_reward_novelty の段階 3 |
 | 成績の良い Head を他の Head へコピーする（Head の単位の PBT） | 先送り | 点数で選ぶと、覚えている途中のボス行きを捨てる（seed 3 の eval2 は 10-20M に稼ぎの seed 1 より低かった）。選ぶ基準が決まってから起こす |
 | Head の不確かさ（意見の割れ）を行動の選び方に使う（UCB など） | 先送り | まず Head を 1 つ選んで通す形で多様性が出るかを見る |
 | Head ごとに別の PER の優先度を持つ | 不採用 | replay の優先度は遷移ごとに 1 つ。§7 の 4 のとおり Head の値をまとめる |
@@ -93,7 +93,7 @@
 | 6 | 評価の行動 | 全 Head の Q の平均（既定）。多数決にするか、学習中に最も点の高い Head を使うか |
 | 7 | 計算の費用 | 流れの全結合（特徴 → 512）が K 倍になる。K = 8 で learn の速さがどれだけ落ちるかを測り、目安を決める |
 | 8 | 指標の tag | 群番号 58（`58_agent_qheads/...`）。例 `58_agent_qheads/01_argmax_disagree`。40 文字以内 |
-| 9 | 用語 | 本 PRD の Head は「価値と優位の流れ＋射影」の 1 組、Body はそれより前の共有部分（`main_feature` と τ の埋め込みの合成）を指す。NN 設定の `head_projection`（射影だけ）と範囲が違うので、CONTEXT に Head / Body と「Head の選択」を足すときに書き分ける |
+| 9 | 用語 | 本 RFD の Head は「価値と優位の流れ＋射影」の 1 組、Body はそれより前の共有部分（`main_feature` と τ の埋め込みの合成）を指す。NN 設定の `head_projection`（射影だけ）と範囲が違うので、CONTEXT に Head / Body と「Head の選択」を足すときに書き分ける |
 | 10 | ADR | 「Head は lane ごとに episode の間保持し、評価は全 Head の平均で行う」を ADR にするか |
 
 ## 8. 成功の測り方と受入の目安
@@ -114,7 +114,7 @@
 
 ## 9. 依存と順序
 
-依存は無い。段階 2 は段階 1 の結果を見てから。KFM での評価は、多数 seed の短い Run（[175_seed_population_early_stop](0175_seed_population_early_stop_10rfd.md) の段階 1、または 13 bat の 10M × 16 seed）の基準が揃ってから組む。
+依存は無い。段階 2 は段階 1 の結果を見てから。KFM での評価は、多数 seed の短い Run（[0175_seed_population_early_stop](0175_seed_population_early_stop_10rfd.md) の段階 1、または 13 bat の 10M × 16 seed）の基準が揃ってから組む。
 
 ## 10. 参照
 

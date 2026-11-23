@@ -1,4 +1,4 @@
-# PRD110 主 pane の Centre 切替の検証
+# RFD0110 主 pane の Centre 切替の検証
 
 等分と共通Panelのresize再描画の正本は [24impl](../../../../../docs/memo/done/0110_runner_main_pane_dynamic_centre_24impl.md)。過去の改訂記録は [23impl](../../../../../docs/memo/done/0110_runner_main_pane_dynamic_centre_23impl.md)・[22impl](../../../../../docs/memo/done/0110_runner_main_pane_dynamic_centre_22impl.md)・[21impl](../../../../../docs/memo/done/0110_runner_main_pane_dynamic_centre_21impl.md)、初版は [20impl](../../../../../docs/memo/done/0110_runner_main_pane_dynamic_centre_20impl.md)。コマンド、結果、未実施と理由、レビュー結果は実装メモに記録する。
 
@@ -10,7 +10,7 @@ AGENTS.md の Windows/MSVC 手順で VsDevCmd.bat を経由し、Debug 全体と
 
 ## GUI と設定の検証
 
-`run_validation.py gui --output 出力先` は `[rfd0110_main_pane]` の case 別 tag を列挙し、1 process 1 case で実行する。`--tag prd110_default` のように case を指定できる。既存の `eval_steps_menu`・`prd105_ui_keys`・`prd109_ui` も別 process で実行する。RunnerApp の再初期化を避けるため `[rfd0110_main_pane]` 全体を一度に実行しない。
+`run_validation.py gui --output 出力先` は `[rfd0110_main_pane]` の case 別 tag を列挙し、1 process 1 case で実行する。`--tag rfd0110_default` のように case を指定できる。既存の `eval_steps_menu`・`rfd0105_ui_keys`・`rfd0109_ui` も別 process で実行する。RunnerApp の再初期化を避けるため `[rfd0110_main_pane]` 全体を一度に実行しない。
 
 - CartPole / CPU、Train 自動開始なし、Eval FPS 0、エラーダイアログなしの実 RunnerApp を使う。
 - pane 状態は `wxAuiManager::GetPane`、menu / toolbar の enable・check、実 dock 幅で読む。✕ とpinは公開の `wxEVT_AUI_PANE_BUTTON` を送り、実際のcloseとVeto、pinの拒否とwxのfloat処理を通す。pinの有無は `HasPinButton()` で読む。実画面のpinをマウスで押す確認は手動受入で行う。
@@ -28,7 +28,7 @@ AGENTS.md の Windows/MSVC 手順で VsDevCmd.bat を経由し、Debug 全体と
 
 `run_validation.py fatal --output 出力先` は製品 Runner に `app.main_view=center` を渡し、非0終了と `Invalid app.main_view: value=center (expected: train, eval, both)` を確認する。Config の検証は Run directory の作成前なので、この診断は非modalの process 出力から読む。
 
-`run_validation.py config --output 出力先 --common-baseline 変更前common.txt` は移行時の検証資材として全キー・文字列値を比較する。既存の任意入力採取器 `[rfd0103-resolve]` で公開の ConfigManager の解決結果を出力し、比較はPython側だけで行う。入力パス・SHA256、変更前後のJSON、JUnit、追加・削除・変更の一覧を出力先へ保存し、`app.main_view=eval` の追加以外は失敗にする。全値を固定する恒久テストは置かず、`[shipped_config]` ではPRDが宣言した共通既定だけを固定する。GUI tagが一件も一致しない場合も検証失敗にする。
+`run_validation.py config --output 出力先 --common-baseline 変更前common.txt` は移行時の検証資材として全キー・文字列値を比較する。既存の任意入力採取器 `[rfd0103-resolve]` で公開の ConfigManager の解決結果を出力し、比較はPython側だけで行う。入力パス・SHA256、変更前後のJSON、JUnit、追加・削除・変更の一覧を出力先へ保存し、`app.main_view=eval` の追加以外は失敗にする。全値を固定する恒久テストは置かず、`[shipped_config]` ではRFDが宣言した共通既定だけを固定する。GUI tagが一件も一致しない場合も検証失敗にする。
 
 ## 自動検証結果（2026-10-31）
 
