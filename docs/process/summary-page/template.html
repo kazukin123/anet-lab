@@ -42,14 +42,14 @@
     padding-right: max(16px, env(safe-area-inset-right, 0px));
     background: var(--page);
     color: var(--text);
-    font: 1rem/1.75 "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+    font: 0.9375rem/1.6 "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
   }
 
   .conversation-summary {
     box-sizing: border-box;
     max-inline-size: 52rem;
     margin: 0 auto;
-    padding-block: clamp(1rem, 4vw, 2rem) 5rem;
+    padding-block: clamp(0.75rem, 3vw, 1.5rem) 4.5rem;
     overflow-wrap: anywhere;
   }
 
@@ -60,22 +60,26 @@
 
   .conversation-summary h1,
   .conversation-summary h2 {
-    margin-block: 0 0.65rem;
-    line-height: 1.4;
+    margin-block: 0 0.5rem;
+    line-height: 1.35;
   }
 
   .conversation-summary h1 {
-    font-size: clamp(1.65rem, 5vw, 2.4rem);
+    font-size: clamp(1.4rem, 4vw, 1.8rem);
   }
 
   .conversation-summary h2 {
-    font-size: 1.3rem;
+    font-size: 1.12rem;
+  }
+
+  .conversation-summary p {
+    margin-block: 0.4rem;
   }
 
   .conversation-summary .summary-note {
-    margin-block: 0.4rem;
+    margin-block: 0.3rem;
     color: var(--muted);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
   }
 
   .conversation-summary a {
@@ -86,8 +90,8 @@
   .conversation-summary nav ul {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem 1rem;
-    margin-block: 0.85rem 0;
+    gap: 0.1rem 0.9rem;
+    margin-block: 0.6rem 0;
     padding: 0;
     list-style: none;
   }
@@ -95,18 +99,18 @@
   .conversation-summary nav a,
   .conversation-summary summary {
     display: inline-block;
-    padding-block: 0.45rem;
+    padding-block: 0.3rem;
   }
 
   .conversation-summary section {
-    margin-block-start: 1.5rem;
+    margin-block-start: 1.25rem;
     scroll-margin-block-start: 1rem;
   }
 
   .conversation-summary .position {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
-    gap: 0.65rem;
+    gap: 0.5rem;
     margin: 0;
   }
 
@@ -114,14 +118,14 @@
   .conversation-summary .position > div,
   .conversation-summary details {
     min-width: 0;
-    padding: 0.7rem 1rem;
+    padding: 0.55rem 0.85rem;
     border: 1px solid var(--line);
-    border-radius: 0.75rem;
+    border-radius: 0.65rem;
     background: var(--surface);
   }
 
   .conversation-summary .position dt {
-    margin-block-end: 0.35rem;
+    margin-block-end: 0.2rem;
     color: var(--accent);
     font-weight: 700;
   }
@@ -136,7 +140,7 @@
   }
 
   .conversation-summary details + details {
-    margin-block-start: 0.6rem;
+    margin-block-start: 0.5rem;
   }
 
   .conversation-summary summary {
@@ -158,7 +162,7 @@
     border-radius: 999px;
     background: var(--surface);
     box-shadow: 0 0.2rem 0.7rem var(--shadow);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 700;
   }
 </style>
