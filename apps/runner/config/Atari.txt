@@ -175,7 +175,7 @@ app.run_name = run_{t}_atari_${E1.game}
 
 # --- 定番(DQN 系譜の頻出。検収・比較向き) ---
 #E1.game = pong
-#E1.game = breakout
+E1.game = breakout
 #E1.game = space_invaders
 #E1.game = seaquest
 #E1.game = beam_rider
@@ -196,7 +196,7 @@ app.run_name = run_{t}_atari_${E1.game}
 #E1.game = double_dunk
 #E1.game = name_this_game
 #E1.game = phoenix
-E1.game = qbert
+#E1.game = qbert
 
 # --- その他(アルファベット順。combat / surround / warlords 等は対戦前提) ---
 #E1.game = adventure

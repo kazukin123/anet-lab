@@ -216,6 +216,10 @@ if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASY
 echo === 71. breakout 5m seed 2: same as 70 plus random taus to pick the target action (= 64 with TF32 left on) ===
 call :find_done bo_dopall_tf32_s2
 if not defined DONE_DIR call :run_exe "%RBW%" %BO2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %DQIQN% %NOGS% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% %INITVS7744% %TGTRND% app.batchrun.exp_exit_step=5000000 "app.run_name=run_{t}_bo_dopall_tf32_s2"
+
+echo === 72. montezuma 22.5m seed 2: same as mz_rbw_rndtg_s2 (rainbow_like with PER and taus 8, the RND of Taiga et al., 4 env) but the network of Dopamine as in 69 (padding of 55, taus mixed right after the flatten with the 64 to 7744 projection and ReLU, then Linear 512 and ReLU before the output), the init of 62 on every layer, and TF32 off ===
+call :find_done mz_rbwtg_shape_s2
+if not defined DONE_DIR call :run_exe "%RBWTG%" %MZR2% %FP32% %EPSH% "%EPSHP%" %ASYNC1% %PAD221% "%DQ7744%" %NATFLAT% %POSTFC% %INITVS7744% %NOTF32% app.batchrun.exp_exit_step=22500000 "app.run_name=run_{t}_mz_rbwtg_shape_s2"
 if "%FAILED_RUNS%"=="0" goto :all_succeeded
 echo === ALL DONE: %SUCCEEDED_RUNS% SUCCEEDED, %FAILED_RUNS% FAILED ===
 goto :beep_forever

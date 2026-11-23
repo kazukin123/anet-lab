@@ -15,6 +15,8 @@ metrics.scalar.@baseline.[10_train/11_eps_count] ?= $runner episode_count @train
 #metrics.scalar.@baseline.[10_train/12_epsilon] ?= $actor epsilon @train
 metrics.scalar.@baseline.[20_eps/10_train_reward]     ?= $runner $episode_step max.episode_return @train
 metrics.scalar.@baseline.[20_eps/11_train_reward_ema] ?= $runner $episode_step max.episode_return @train $ema ema_alpha:0.001 # clip:1000
+metrics.scalar.@baseline.[20_eps/14_train_reward_exp]     ?= $runner $exp_step mean.episode_return @train
+metrics.scalar.@baseline.[20_eps/15_train_reward_exp_ema] ?= $runner $exp_step mean.episode_return @train $ema ema_alpha:0.001
 
 metrics.scalar.@baseline.[21_eval/01_target_reward] ?= mean.episode_return $runner @session_end $eval.[eval_target]
 metrics.scalar.@baseline.[21_eval/02_policy_reward] ?= mean.episode_return $runner @session_end $eval.[eval]

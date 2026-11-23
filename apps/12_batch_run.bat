@@ -554,6 +554,36 @@ call :wait_disk
 echo === 50. montezuma_revenge 30m seed 1: same as 44 but both 48 and 49 (the Burda et al. form) ===
 call :find_done mz_n10_burdarl_s1
 if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %BURDA% %ROLL1K% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_burdarl_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 51. montezuma_revenge 30m seed 2: same as 48 (the intrinsic reward of Burda et al.) ===
+call :find_done mz_n10_burda_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %BURDA% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_burda_s2"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 52. montezuma_revenge 30m seed 2: same as 46 (the RND predictor learns from rollouts, each observation 4 times) ===
+call :find_done mz_n10_reuse4_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %REUSE4% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_reuse4_s2"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 53. montezuma_revenge 30m seed 2: same as 47 (the RND predictor learning rate 3e-4) ===
+call :find_done mz_n10_lr3e4_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %LR3E4% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_lr3e4_s2"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 54. montezuma_revenge 30m seed 2: same as 49 (the RND predictor learns as Burda et al.) ===
+call :find_done mz_n10_rl1024_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %ROLL1K% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_rl1024_s2"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 55. montezuma_revenge 30m seed 2: same as 50 (both 48 and 49) ===
+call :find_done mz_n10_burdarl_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %BURDA% %ROLL1K% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_burdarl_s2"
 goto :summary
 
 :ram_short
