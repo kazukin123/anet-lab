@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:952271b6c82731b25b0faacebe740e8c82039ed8 date:2026-11-23 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:d57e2165ce56a47958eed22009670795303ee26b date:2026-11-23 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -39,9 +39,9 @@ At the Network Body entrance, `NetworkBoundaryPreprocessor`:
 
 ### 2.2 Frame-Stack Input Axis Contract
 
-With `DefaultDQNAgent`, `stucker.use_stacker=true`, and `stucker.stack_count=S>1`, each stacked key's Network input spec becomes `[S, *original_shape]`, adding a leading stack axis to EnvSpec's `original_shape`. Both construction-time dummy inputs and real Actor/Learner inputs add a batch axis, yielding `[B, S, *original_shape]`. Keys outside `stucker.stack_keys` receive no stack axis. GraphViz input-spec displays follow this contract too.
+The producer of each observation declares its value scale and stack-axis attribute. DefaultDQN's Perception passes `[S, *frame_shape]` and `has_stack_axis=true` to the Network for each key selected by FrameStack. Dummy inputs, Actor inputs, Replay samples, and visualization use `[B, S, *frame_shape]` for these keys, including when `S=1`. Other keys keep their Frame shape. See [Forwarder and Perception (Japanese)](135_forwarder_and_perception.jp.md#2-観測の-spec).
 
-Network configurations explicitly select modules for their intended use rather than implicitly restoring a stack axis.
+Network configurations explicitly select how each branch handles the stack axis. Construction warns once and names the branch, module, key, and shape if the branch's first module does not declare support for the stack axis it receives. `Flatten`, `StackMerge`, `Permute`, `Reshape`, and both DropMerge embedders declare support. `StackMerge` requires five dimensions.
 
 | Input and use | Module structure | Network shape |
 |---|---|---|
@@ -51,7 +51,7 @@ Network configurations explicitly select modules for their intended use rather t
 
 `Reshape` is available for general shape transformations but is not required to restore the stack-axis contract.
 
-Discrete Grids retain `[S,1,H,W]` in the raw Network spec, but `NetworkBoundaryPreprocessor` merges stack and class into channels during one-hot conversion. Branch inputs therefore remain `[B,S*C,H,W]` and connect to Conv2d without `StackMerge`. Continuous Grids do not pass through this one-hot boundary and retain `[B,S,C,H,W]` at branch inputs.
+For discrete Grids, `NetworkBoundaryPreprocessor` uses `has_stack_axis` to determine whether to merge stack and class into channels during one-hot conversion. Stacked discrete Grids reach automatic-format branches as `[B,S*C,H,W]`. Continuous Grids and Grids with automatic formatting disabled retain `[B,S,C,H,W]` at branch inputs.
 
 ### 2.3 Body and Head
 
@@ -339,7 +339,9 @@ u/v are named buffers initialized using the dedicated RNG, followed by 15 power 
 
 ### 7.6 Forward Capture and Partial Forward
 
-`Network::Forward`, `NetworkForwardExecutor::Forward`, and `Network::ForwardUpTo` accept an optional `NetworkForwardCapture`. Callers request exact keys or prefixes ending in `/` and use `Wants`, `WantsAny`, `Add`, `Get`, `GetAll`, `Unfulfilled`, and `Reset`. Each key holds one Tensor; writing an unrequested key or calling `Add` a second time for the same key fails fast. `Get` returns the exact-key value, or an undefined Tensor if unwritten. `GetAll` returns matching prefix keys and Tensors in write order. Prefix `X/` does not match `X` itself.
+`Network` implements `Forwarder` from `anet/forwarder.hpp`. Calling its common `Forward` method with a `TensorDict` and an optional `ForwardCapture` produces the same output and capture as calling `Network::Forward` directly. The caller supplies the input spec at Network construction.
+
+`Network::Forward`, `NetworkForwardExecutor::Forward`, and `Network::ForwardUpTo` accept an optional `ForwardCapture`. Callers request exact keys or prefixes ending in `/` and use `Wants`, `WantsAny`, `Add`, `Get`, `GetAll`, `Unfulfilled`, and `Reset`. Each key holds one Tensor. Writing an unrequested key or calling `Add` a second time for the same key fails fast. `Get` returns the exact-key value or an undefined Tensor if unwritten. `GetAll` returns matching prefix keys and Tensors in write order. Prefix `X/` matches only descendants.
 
 There are three writers. After each branch executes, Body detaches and writes the output if its branch name was requested. Modules check requests for base keys through `NetworkForwardContext` and write diagnostics. `NetworkStruct` supplies `<branch>/<block instance name>`, appended after a module's base key, so even repetitions such as `(*2)` do not collide. Instance names use the same `<definition name>_<sequence number>` form as checkpoints, rather than nn_trace drawing indices. Direct module calls have no location suffix. Branch names containing `/` are rejected at construction.
 

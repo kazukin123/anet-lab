@@ -42,6 +42,8 @@ $env:ANET_RFD0072_ROOT = (& ./.venv/Scripts/python.exe -c "import sys; sys.path.
 
 ## golden の更新方針
 
+RFD0161 では固定コミットを保ち、解決側の固定入力へ `perception_migration.py` を適用した。17 構成の解決結果から Perception に移したキーと値を採り、各 golden のそれ以外の値と `resolution/` の既存の記録期待値との一致を確かめた。
+
 goldenは契約を意図的に変えるときだけ更新する。変更前の最後のcommitで通常テスト実行体をビルドし、manifestのcommitもその値へ更新する。既存goldenは人間が削除した後、`prepare.py capture`で元の固定入力から明示採取する。スクリプト・テストの両方で既存goldenへの上書きを拒否し、自動再生成は行わない。goldenはUTF-8 / LF。manifestや移行処理を変えた場合、古い生成物は退避してからprepareする。
 
 ## 関連

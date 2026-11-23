@@ -11,12 +11,13 @@ import zipfile
 
 from migrate import migrate_text
 from profiled_migration import migrate
+from perception_migration import migrate_perception
 from expected import verify_expectations
 
 
 REPO = Path(__file__).resolve().parents[5]
 _inputs = b"".join(Path(__file__).with_name(name).read_bytes()
-                   for name in ("manifest.json", "migrate.py", "profiled_migration.py"))
+                   for name in ("manifest.json", "prepare.py", "migrate.py", "profiled_migration.py", "perception_migration.py"))
 _inputs += (REPO / "CHANGELOG.md").read_bytes()
 ROOT = REPO / ".scratch/rfd0072-differential" / ("profiled-" + hashlib.sha256(_inputs).hexdigest()[:12])
 MANIFEST = Path(__file__).with_name("manifest.json")
@@ -44,7 +45,7 @@ def prepare(manifest):
                 write_frozen(ROOT / "frozen" / entry.filename, entries.read(entry))
                 content = entries.read(entry).decode("utf-8")
                 migrated, _ = migrate_text(Path(entry.filename).name, content)
-                migrated = migrate(migrated)
+                migrated = migrate_perception(migrate(migrated))
                 write_frozen(ROOT / "migrated" / entry.filename, migrated.encode("utf-8"))
     write_frozen(ROOT / "manifest.json", MANIFEST.read_bytes())
     for tree, inputs in (("frozen", "inputs-original"), ("migrated", "inputs")):

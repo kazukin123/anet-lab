@@ -194,14 +194,14 @@ void NetworkModel::ValidateSpectralNormSoftUpdateConfig() const
 
 anet::TensorDict NetworkModel::ForwardOnlineWithTrain(
     const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward,
-    const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
+    const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture) const
 {
     anet::TrainingModeGuard guard(*online_net_, true);
     return forward.Forward(obs, info, capture);
 }
 
 anet::TensorDict NetworkModel::ForwardOnlineUpTo(
-    const anet::TensorDict& obs, const std::string& branch_key, anet::nn::NetworkForwardCapture* capture) const
+    const anet::TensorDict& obs, const std::string& branch_key, anet::ForwardCapture* capture) const
 {
     torch::NoGradGuard no_grad;
     anet::TrainingModeGuard guard(*online_net_, false);

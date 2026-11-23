@@ -134,15 +134,14 @@ namespace anet::rl {
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
 
         //RunnerStatus Initialize(const ConfigData& config_data);
-        StepCounts DoStep(int64_t action);
-        StepCounts DoStep(int64_t action, const StepCounts& event_counts, const MakeActionOptions& options = {});
         StepCounts DoStep(const StepCounts& event_counts);
+        StepCounts DoStep(const StepCounts& event_counts, const MakeActionOptions& options);
         StepCounts DoStep(const MakeActionOptions& options = {}) override;
         void RunSession(const StepCounts& event_counts, std::stop_token stop = {});
 
     private:
         std::shared_ptr<const BatchStepResult> DoStepInternal(
-            int64_t action, const StepCounts& event_counts, bool notify_episode_end, const MakeActionOptions& options);
+            const StepCounts& event_counts, bool notify_episode_end, const MakeActionOptions& options);
         const ActionSpec action_spec_;
         std::vector<bool> last_forced_;
         std::shared_ptr<EvalSessionEnv> session_env_;

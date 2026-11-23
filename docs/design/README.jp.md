@@ -61,6 +61,7 @@ ANET は、libtorch を基盤とする C++20 の強化学習実験フレーム�
 | 110 | [Agent と学習](110_agents_and_learning.jp.md) | Agent、Actor、Learner の共通契約と所有権 | Agent・フレームワーク開発者 |
 | 120 | [環境](120_environments.jp.md) | Env、BatchEnv、Reset、Step、Env 実装 | Env・フレームワーク開発者 |
 | 130 | [ニューラルネットワーク](130_neural_networks.jp.md) | NetworkModel、モジュール、forward、optimizer | NN・Agent 開発者 |
+| 135 | [Forwarder と Perception](135_forwarder_and_perception.jp.md) | 観測の spec、変換の共通の口 | Agent・フレームワーク開発者 |
 | 140 | [可観測性](140_observability.jp.md) | Event、Observer、メトリクス、可視化、profiling | フレームワーク・分析機能開発者 |
 | 150 | [ReplayBuffer](150_replay_buffer.jp.md) | Experience、N-step、PER、転送、prefetch | Agent・性能改善担当者 |
 | 160 | [アプリケーションとツール](160_applications_and_tools.jp.md) | Runner GUI、Metrics Viewer、補助ツール | アプリケーション開発者 |

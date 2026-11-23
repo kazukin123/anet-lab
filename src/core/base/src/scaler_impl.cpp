@@ -233,6 +233,17 @@ void RunningMeanStd::updateFromBatchStats(const torch::Tensor& batch_mean, const
 // ObservationNormalizer
 // =============================================================
 
+static void ValidateNormalizationShape(const torch::Tensor& obs, torch::IntArrayRef frame_shape, bool allow_stack_axis)
+{
+    const auto axes_before_frame = obs.dim() - static_cast<int64_t>(frame_shape.size());
+    const bool valid_rank = axes_before_frame == 1 || (allow_stack_axis && axes_before_frame == 2);
+    if (!valid_rank || obs.sizes().slice(axes_before_frame) != frame_shape) {
+        ANET_SYSTEM_ERROR("Invalid observation normalization shape=" << obs.sizes() << "; expected "
+            << (allow_stack_axis ? "batch and optional stack axes" : "one batch axis")
+            << " followed by Frame shape=" << frame_shape << ".");
+    }
+}
+
 ConstantSingleTensorNormalizer::ConstantSingleTensorNormalizer(bool pass_through,
     const std::vector<int64_t>& shape, const std::optional<float>& clip_range,
     const std::vector<float>& fixed_mean, const std::vector<float>& fixed_std)
@@ -265,12 +276,6 @@ ConstantSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs, bool
     
     if (pass_through_) return { obs, 0.0f };
 
-    // 形状チェック
-    if (obs.ndimension() != static_cast<int64_t>(shape_.size() + 1)) {
-        LOG::error() << "ConstantObsNorm: Dimension mismatch.";
-        ANET_ASSERT_MSG(false, "ConstantObsNorm: Dimension mismatch.");
-    }
-
     auto device = obs.device();
 
     // Device転送 (必要な時だけ)
@@ -296,6 +301,7 @@ ConstantSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs, bool
 
 torch::Tensor ConstantSingleTensorNormalizer::Normalize(const torch::Tensor& obs) const
 {
+    if (!pass_through_) ValidateNormalizationShape(obs, shape_, true);
     // 読むだけの呼び出しでは、返さない割合の計数と同期を行わない。
     auto result = normalizeInternal(obs, false);
     return result.first;
@@ -303,6 +309,7 @@ torch::Tensor ConstantSingleTensorNormalizer::Normalize(const torch::Tensor& obs
 
 torch::Tensor ConstantSingleTensorNormalizer::NormalizeAndUpdateStats(const torch::Tensor& obs)
 {
+    if (!pass_through_) ValidateNormalizationShape(obs, shape_, false);
     auto result = normalizeInternal(obs, true);
     this->last_clip_ratio_ = result.second;
     return result.first;
@@ -358,37 +365,16 @@ void RunningStdSingleTensorNormalizer::Reset()
     last_outlier_ratio_ = 0.0f;
 }
 
-void RunningStdSingleTensorNormalizer::ValidateInput(const torch::Tensor& obs) const
+void RunningStdSingleTensorNormalizer::ValidateInput(const torch::Tensor& obs, bool allow_stack_axis) const
 {
-    // 型チェック
     ANET_ASSERT_DTYPE(obs, torch::kFloat32);
-
-    // 次元数チェック: [Batch, state_dim...]
-    if (obs.ndimension() != static_cast<int64_t>(shape_.size() + 1)) {
-        LOG::error() << "ObservationNormalizer: Dimension mismatch. Expected "
-            << (shape_.size() + 1) << " dims but got " << obs.ndimension();
-        ANET_ASSERT_MSG(false, "Dimension mismatch in ObservationNormalizer");
-        throw new std::runtime_error("Dimension mismatch in ObservationNormalizer");
-    }
-
-    // 各次元のサイズチェック (dim=0はBatchなのでスキップ)
-    for (size_t i = 0; i < shape_.size(); ++i) {
-        if (obs.size(i + 1) != shape_[i]) {
-            LOG::error() << "ObservationNormalizer: Shape mismatch at dim " << (i + 1)
-                << ". Expected " << shape_[i] << " but got " << obs.size(i + 1);
-            ANET_ASSERT_MSG(false, "Shape mismatch in ObservationNormalizer");
-            throw new std::runtime_error("Shape mismatch in ObservationNormalizer");
-        }
-    }
-
+    ValidateNormalizationShape(obs, shape_, allow_stack_axis);
 }
 
 std::pair<torch::Tensor, float>
 RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs, bool measure_clip_ratio) const
 {
     ANET_PROFILE_FUNC();
-    ValidateInput(obs);
-    // 正規化と統計更新は同じ入力契約を使う。
     auto device = obs.device();
 
     // 統計量取得 (Double CPU Tensor -> Float Device Tensor)
@@ -465,6 +451,8 @@ RunningStdSingleTensorNormalizer::normalizeInternal(const torch::Tensor& obs, bo
 
 torch::Tensor RunningStdSingleTensorNormalizer::Normalize(const torch::Tensor& obs) const
 {
+    // 履歴には同じ Frame の平均と標準偏差を当てる。統計更新側は 1 Frame だけを受ける。
+    ValidateInput(obs, true);
     // clip の値は維持し、診断へ使わない割合の計数だけを省く。
     auto result = normalizeInternal(obs, false);
     return result.first;

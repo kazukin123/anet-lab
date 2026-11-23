@@ -40,7 +40,11 @@ DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、Replay
 
 `run.train.actor`は既定`train`、`run.eval.[tag].actor`は既定タグ名で、`<Agent>.actor.[key]`を参照する。EvalPanelは参照する評価タグの指定を使う。Actor用seedは`actor/<Runner名>`から派生し、各Actorが独立した乱数・方策状態を持つ。RunModeはEnvの用途選択だけに残る。
 
+強制行動はその回の `MakeActionOptions::forced_actions` で渡す。`ForcedActions::ByLane(lane, action)` は 1 lane を指定し、`ByMask(mask, actions)` は lane 数と同じ長さの bool と int64 のテンソルで指定する。印が真の lane にだけ行動が適用される。Eval Runner は Reset の前に指定を検査し、遷移の `forced` を lane ごとに記録する。Actor が返した行動を Env が実行する。
+
 ActorはModuleでもあり、`Runner::GetActor()`とmetricsの`$actor`からepsilon・温度などを参照できる。方策スケジュールは`MakeAction`の学習側countsで進む。EvalRunnerは`Sync(source_counts)`で学習側countsを保持し、評価イベント自体のcountsは別に数える。
+
+DefaultDQN は Env の単フレーム spec を Perception と ReplayBuffer の構築に使う。Agent が保存する Frame、Actor が選択に使う観測、Learner が使う Replay sample、可視化の観測は、それぞれの経路で同じ Perception の定義を参照する。[Forwarder と Perception](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)を参照。
 
 ### 2.3 StateとResource
 
@@ -157,7 +161,7 @@ Actor内部のObservation加工、Network forward、Policy、snapshot同期は�
 
 DefaultDQNのskip網は `skip.network_mode=action_out|action_in` で構成を選ぶ。action_inはaction入力のbindを必須とし、action_outはそのbindを禁止する。有効時だけskip網を構築し、無効時は設定値だけを検証する。IQNの既定入力はprimaryの融合済み特徴で、skip側のtaus bindは必須にしない。Jはenvが既定を持ち、実装既定は未指定（0）。明示1は許し、明示0以下は無効時も拒否する。
 
-DefaultDQNのskip有効時は、Actorがlane別に継続行動・選択した長さ・残り回数を所有する。`episode_start`で継続を解除し、infoの`decision`で新しい判断を示す。RunnerのstepやEnvのframe skipは変えず、primaryのforwardも毎step行う。primary／skipのcloneと同期は同じAgentのロック内で行う。強制行動`WithAction`は実行行動とQヒントを差し替えるが、Actorの継続状態を更新しない。
+DefaultDQNのskip有効時は、Actorがlane別に継続行動・選択した長さ・残り回数を所有する。`episode_start`で継続を解除し、infoの`decision`で新しい判断を示す。RunnerのstepやEnvのframe skipは変えず、primaryのforwardも毎step行う。primary／skipのcloneと同期は同じAgentのロック内で行う。強制行動は `MakeActionOptions::forced_actions` で lane ごとに渡す。Actor は方策の選択を終えてから強制を反映し、その行動を Runner が実行する。TempoRL では強制した step を長さ 1 の判断として記録し、その lane は次の step で判断し直す。
 
 DefaultDQNのActorごとの `skip.max_length_mode` はfull・single・variableを選ぶ。full/variableは継続状態をActorが所有し、singleは毎step判断して方策の提案をそのまま使う。variableの整数ProfiledValueはMakeActionの学習側exp_stepで進める（評価側は直近Syncのcounts）。skip NetworkのforwardとJ本のauxはどのモードも維持する。幅と補助学習用の窓の組み合わせはAgentがカタログ全体に対して検証し、Runnerの用途を推測しない。具体的な契約は[DQN系列](200_dqn_agents.jp.md)のskip方策、確認手順は[RFD0104検証資材](../../src/core/base/testdata/rfd0104/README.md)を参照する。
 

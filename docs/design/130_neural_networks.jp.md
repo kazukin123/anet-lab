@@ -38,7 +38,9 @@ Agentは、そのNetworkへの入力として使うspecを選ぶ。ImageClsAgent
 
 ### 2.2 frame stack入力の軸contract
 
-`DefaultDQNAgent`で`stucker.use_stacker=true`かつ`stucker.stack_count=S>1`の場合、stack対象キーのNetwork入力specは、EnvSpecの`original_shape`に先頭のstack軸を加えた`[S, *original_shape]`になる。Network構築時のdummy inputとActor／Learnerの実入力は、いずれもbatch軸を加えた`[B, S, *original_shape]`を使う。`stucker.stack_keys`対象外のキーにはstack軸を追加しない。GraphVizのinput spec表示もこのcontractを反映する。
+spec の尺度と stack 軸の属性は、観測を作る側が宣言する。 [Forwarder と Perception](135_forwarder_and_perception.jp.md#2-観測の-spec)
+
+`DefaultDQNAgent` は Perception の spec を Network の入力に使う。stack 対象キーには枚数が1のときも先頭に stack 軸があり、`stack_axis` は真になる。構築時の dummy input、Actor、Learner は batch 軸を加えた `[B, S, *original_shape]` を使う。
 
 Network構成では、stack軸を暗黙に復元せず、目的に応じて次のmoduleを明示する。
 
@@ -50,7 +52,9 @@ Network構成では、stack軸を暗黙に復元せず、目的に応じて次�
 
 `Reshape`は任意shape変換の汎用moduleとして利用できるが、stack軸contractを復元するための必須処理ではない。
 
-離散GridはNetworkへのraw specでは`[S,1,H,W]`を保持する一方、`NetworkBoundaryPreprocessor`がone-hot化するときにstackとclassをchannelへ統合する。したがってbranch入口は従来どおり`[B,S*C,H,W]`となり、`StackMerge`を追加せずConv2dへ接続する。連続Gridはこのone-hot境界を通らないため、branch入口でも`[B,S,C,H,W]`を保持する。
+`StackMerge` は `[B, S, C, H, W]` を受け付ける。離散 Grid を整形する `NetworkBoundaryPreprocessor` は spec の `stack_axis` を参照し、one-hot 化したクラスと stack を channel へまとめる。この経路の branch は `[B, S*C, H, W]` を受け取る。連続 Grid や整形を無効にした Grid は stack 軸を保つ。
+
+stack 軸を持つ入力が branch に届く場合、先頭 module が軸を扱う宣言を持たなければ、構築時に branch・module・キー・形を WARN に出す。`Flatten`・`StackMerge`・`Permute`・`Reshape` と、DropMerge の2つの Embedder は stack 軸を扱う。
 
 ### 2.3 BodyとHead
 
@@ -338,7 +342,9 @@ u/vはnamed bufferで、専用RNGによる初期化後に15回power iterationす
 
 ### 7.6 forward captureと部分forward
 
-`Network::Forward`、`NetworkForwardExecutor::Forward`、`Network::ForwardUpTo`はoptionalな`NetworkForwardCapture`を受け取る。呼出側が完全一致の鍵、または末尾`/`の接頭辞を要求し、`Wants`・`WantsAny`・`Add`・`Get`・`GetAll`・`Unfulfilled`・`Reset`で扱う。鍵1つにTensor1つを保持し、未要求鍵や同じ鍵への2回目の`Add`はfail-fastする。`Get`は完全一致の値（未記入はundefined Tensor）、`GetAll`は接頭辞に一致した鍵とTensorを記入順に返す。接頭辞`X/`は`X`自体に一致しない。
+`Network` は `anet/forwarder.hpp` の `Forwarder` を実装する。共通の `Forward` に `TensorDict` と任意の `ForwardCapture` を渡すと、直接 `Network::Forward` を呼んだときと同じ出力と capture が得られる。入力の spec は Network の構築時に渡す。
+
+`Network::Forward`、`NetworkForwardExecutor::Forward`、`Network::ForwardUpTo` は任意の `ForwardCapture` を受け取る。呼び出し側が完全一致の鍵、または末尾 `/` の接頭辞を要求し、`Wants`・`WantsAny`・`Add`・`Get`・`GetAll`・`Unfulfilled`・`Reset` で扱う。鍵1つに Tensor 1つを保持し、要求していない鍵や同じ鍵への2回目の `Add` は fail-fast する。`Get` は完全一致の値（未記入は undefined Tensor）、`GetAll` は接頭辞に一致した鍵と Tensor を記入順に返す。接頭辞 `X/` は `X` 自体に一致しない。
 
 書き手は三つある。Bodyは各branch実行後に要求されたbranch名の出力をdetachして書く。moduleは`NetworkForwardContext`経由で素鍵の要求を確認し、診断値を書く。NetworkStructが与えた`<branch>/<block インスタンス名>`をmoduleの素鍵の後ろへ付けるため、`(*2)`の繰返しでも鍵は衝突しない。インスタンス名はcheckpointと同じ`<定義名>_<連番>`であり、nn_traceの描画番号は使わない。moduleの直接呼出しでは位置が付かない。branch名の`/`は構築時に禁止する。NetworkStruct は要求された `nn_trace/<branch>/00_Input` と `nn_trace/<branch>/<2 桁の描画番号>_<block>` を forward 順に書く。入力の rank は問わず、番号は描画可能な出力だけを数える。`WantsAny(prefix)` は、その配下へ一致しうる完全一致・接頭辞要求の有無を、鍵を組み立てる前に確認する。
 

@@ -170,8 +170,8 @@ static anet::ConfigData IntrinsicAgentData(bool enabled)
     data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "test");
     data.Set("DefaultDQNAgent.quantile_mode", "none");
     data.Set("DefaultDQNAgent.head.use_dueling", false);
-    data.Set("DefaultDQNAgent.stucker.use_stacker", false);
-    data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+
+
     data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
     data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
     data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
@@ -185,6 +185,15 @@ static anet::ConfigData IntrinsicAgentData(bool enabled)
     return data;
 }
 
+static anet::nn::NetworkConfig MakeIntrinsicNetworkConfig()
+{
+    anet::nn::NetworkConfig net;
+    net.block_configs["Flatten"].type = "Flatten";
+    net.branches["main"] = {.name = "main", .bind_terms = {{kObservation}}, .structure_str = "Flatten"};
+    net.output_keys["features"] = "main";
+    return net;
+}
+
 static std::shared_ptr<anet::rl::dqn::DefaultDQNAgent> MakeIntrinsicAgent(const anet::ConfigData& data, int num_envs = 2,
     torch::Device device = torch::kCPU)
 {
@@ -193,10 +202,9 @@ static std::shared_ptr<anet::rl::dqn::DefaultDQNAgent> MakeIntrinsicAgent(const 
     spec.action_spec.is_discrete = true;
     spec.action_spec.value_labels = {"a0"};
     spec.reward_range = {-1000.0f, 1000.0f};
-    anet::nn::NetworkConfig net;
-    net.output_keys["features"] = kObservation;
+    auto net = MakeIntrinsicNetworkConfig();
     if (data.Get("DefaultDQNAgent.skip.enabled", "false") == "true")
-        net.output_keys[kSkipContext] = kObservation;
+        net.output_keys[kSkipContext] = "main";
     return std::make_shared<anet::rl::dqn::DefaultDQNAgent>(
         anet::rl::dqn::DefaultDQNAgentConfig(data), net,
         anet::rl::BatchEnvSpec{.num_envs = num_envs, .num_threads = 1}, spec, device, 123);
@@ -1401,8 +1409,7 @@ TEST_CASE("Decomposed Agent selects fixed-zero and learner beta per Actor", "[rf
     spec.action_spec.is_discrete = true;
     spec.action_spec.value_labels = {"a0", "a1"};
     spec.reward_range = {-1000.0f, 1000.0f};
-    anet::nn::NetworkConfig net;
-    net.output_keys["features"] = kObservation;
+    const auto net = MakeIntrinsicNetworkConfig();
     auto agent = std::make_shared<anet::rl::dqn::DefaultDQNAgent>(anet::rl::dqn::DefaultDQNAgentConfig(data),
         net, anet::rl::BatchEnvSpec{2, 1}, spec, torch::kCPU, 123);
     const auto angles = torch::arange(64, torch::kFloat32) * (6.283185307f / 64);
@@ -1661,8 +1668,7 @@ TEST_CASE("Intrinsic diagnostics wait only for an un-cloned requested estimator"
     spec.action_spec.is_discrete = true;
     spec.action_spec.value_labels = {kTraceActionLabel};
     spec.reward_range = {-1000.0f, 1000.0f};
-    anet::nn::NetworkConfig network;
-    network.output_keys[anet::nn::kKey_DefaultOutput] = kObservation;
+    const auto network = MakeIntrinsicNetworkConfig();
     auto agent = std::make_shared<LockableAgent>(anet::rl::dqn::DefaultDQNAgentConfig(data), network,
         anet::rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, spec, torch::kCPU, 123);
     auto actor = MakeIntrinsicTraceActor(agent);

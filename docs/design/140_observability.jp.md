@@ -302,7 +302,7 @@ EMA状態は`interval`と無関係に毎event更新する。`interval`を変え�
 
 IQN診断ではdevice同期をmetric keyごとに発生させない。Policy診断は複数scalarをdetached packed Tensorへまとめ、`DQNActionInfo`が最初のkey参照時だけCPUへmaterializeする。Learnerの既存IQN診断はPER有効時にpriority readbackへ同梱し、PER無効時も固定長の診断packだけを既存の非同期readback経路で回収する。`metrics.scalar.@iqn_search_p0`は`metrics.scalar.@full`全体を有効化せず、PER健全性とthroughputのP0選抜だけを合成するgroupである。
 
-QR / IQNの分位tail診断も同じ同期境界を使う。Policy側5 scalarはper-action上下幅、detached full quantile alias、globalなdisagreement / crossingを共有する。最初の参照時だけ最終actionをgatherし、positive crossing深度のlane別nearest-rank p90をdevice上で選んで、全5値を1本のCPU cacheへまとめる。action生成時とcache再参照時にはpercentile sortを行わず、`WithAction()`後はcacheだけを破棄する。Learner側のsample単位upper-tail幅はPER有効時だけ既存priority readbackへ同梱し、CPU上でclip後raw priorityとのSpearman相関へ集約する。PER無効時は追加packも追加waitも作らず`NaN`を返す。tail入力はfloat32へdetachし、loss、priority、action、sampling、RNGへ接続しない。
+QR / IQNの分位tail診断も同じ同期境界を使う。Policy側5 scalarはper-action上下幅、detached full quantile alias、globalなdisagreement / crossingを共有する。最初の参照時だけ最終actionをgatherし、positive crossing深度のlane別nearest-rank p90をdevice上で選んで、全5値を1本のCPU cacheへまとめる。行動生成時と cache の再参照時には percentile sort を行わない。Learner側のsample単位upper-tail幅はPER有効時だけ既存priority readbackへ同梱し、CPU上でclip後raw priorityとのSpearman相関へ集約する。PER無効時は追加packも追加waitも作らず`NaN`を返す。tail入力はfloat32へdetachし、loss、priority、action、sampling、RNGへ接続しない。
 
 現行parserは`interval`、`ema_alpha`、`clip`を`stoi`/`stof`で変換する。`ema_alpha`は変換後に`EmaFilter`がfiniteかつ`0 < ema_alpha <= 1`を検証する。`interval`はObserver構築時に1以上を検証し、0以下はfail-fastする。`clip`は範囲やfinite性を検証しないため、負の`clip`は指定しない。数値文字列の変換失敗は構築中の例外になる。
 
@@ -369,6 +369,7 @@ DQNの具体的な提供元と鍵の認識はDQN実装内に閉じる。DQNのst
 | `videos/<tag>.mkv` | `VideoLogger` | 最初のframeの幅と高さでloggerを作り、Run終了時にclose。以降、幅か高さが違う画像と無効な画像（0x0）は動画から除き、tagごとにRunで1回WARNする。ffmpegの終了通知を受けた側がwxProcessをdeleteする（所有者が先に手放せば通知時に自己削除） |
 | `images/<tag>/*.png` | `MetricsLogger` | `use_png_dump=true`時にframeごとに生成 |
 | `dot/**/*.dot` | `MetricsLogger` | GraphViz eventごとに生成 |
+| `dot/perception.structure.dot`、`dot/perception.detail.dot` | `DefaultDQNAgent`、`MetricsLogger` | Agent の構築時に Perception の順序と各部品の入出力 spec を記録。詳細図には部品ごとの seed も記録 |
 | `<run_name>.log` | `FileLogger` | periodic timer、warning以上、明示flush |
 | `stdout.log` / `stderr.log` | `StandardStreamLogger` | process標準streamをcaptureし、明示flush/停止 |
 

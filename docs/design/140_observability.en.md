@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:b0b72ae63a09787734c180766018e8f4fe2f6476 date:2026-11-23 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:6776542446efbee846382c06abbea3466495a9e3 date:2026-11-23 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -303,7 +303,7 @@ Read the four action-selection metrics `extrinsic_q_argmax_disagreement`, `extri
 
 IQN diagnostics do not synchronize devices per metric key. Policy diagnostics pack multiple scalars into a detached Tensor; `DQNActionInfo` materializes them on CPU only at the first key access. Existing Learner IQN diagnostics share priority readback when PER is enabled. With PER disabled, a fixed-length diagnostic pack still uses the existing asynchronous readback path. `metrics.scalar.@iqn_search_p0` composes only P0 selections for PER health and throughput without enabling all of `metrics.scalar.@full`.
 
-QR/IQN quantile-tail diagnostics use the same synchronization boundary. Five Policy scalars share per-action upper/lower widths, a detached full-quantile alias, and global disagreement/crossing values. On first access only, they gather the final action, select lane-wise nearest-rank p90 of positive crossing depth on device, and cache all five values together on CPU. Action creation and repeated cache access do not sort percentiles; `WithAction()` invalidates only the cache. Learner per-sample upper-tail width joins existing priority readback only with PER enabled, then aggregates into Spearman correlation with clipped raw priority on CPU. With PER disabled, it adds neither a pack nor a wait and returns `NaN`. Tail inputs are detached to float32 and do not feed loss, priority, action, sampling, or RNG.
+QR/IQN quantile-tail diagnostics use the same synchronization boundary. Five Policy scalars share per-action upper/lower widths, a detached full-quantile alias, and global disagreement/crossing values. On first access only, they gather the action returned by Actor, select lane-wise nearest-rank p90 of positive crossing depth on device, and cache all five values together on CPU. Forced actions are already reflected in that final action. Learner per-sample upper-tail width joins existing priority readback only with PER enabled, then aggregates into Spearman correlation with clipped raw priority on CPU. With PER disabled, it adds neither a pack nor a wait and returns `NaN`. Tail inputs are detached to float32 and do not feed loss, priority, action, sampling, or RNG.
 
 The current parser converts `interval`, `ema_alpha`, and `clip` with `stoi`/`stof`. After conversion, `EmaFilter` validates finite `0 < ema_alpha <= 1`. Observer construction validates `interval >= 1`, failing fast for zero or negative values. `clip` has no range/finiteness validation, so do not specify a negative value. Invalid numeric strings throw during construction.
 
@@ -370,6 +370,7 @@ The builder reports row additions separately from delayed column resolution. Ima
 | `videos/<tag>.mkv` | `VideoLogger` | The first frame sets the logger’s width and height. The logger closes at Run end. It omits subsequent frames with different dimensions and invalid images (0×0), and emits one WARN per tag per Run. The receiver of ffmpeg termination notification deletes wxProcess; if its owner releases it first, it deletes itself upon notification |
 | `images/<tag>/*.png` | `MetricsLogger` | Created per frame when `use_png_dump=true` |
 | `dot/**/*.dot` | `MetricsLogger` | Created per GraphViz event |
+| `dot/perception.structure.dot`, `dot/perception.detail.dot` | `DefaultDQNAgent`, `MetricsLogger` | Records Perception order and tensor specs at Agent construction. The detailed diagram also records each block's seed |
 | `<run_name>.log` | `FileLogger` | Periodic timer, warnings and above, explicit flush |
 | `stdout.log` / `stderr.log` | `StandardStreamLogger` | Captured process standard streams; explicit flush/stop |
 

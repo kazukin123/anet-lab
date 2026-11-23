@@ -1,5 +1,6 @@
 #include "anet/test/catch.hpp"
 
+#include "anet/forwarder.hpp"
 #include "anet/replay_buffer.hpp"
 #include "anet/transfer.hpp"
 #include "anet/test/util.hpp"
@@ -1056,6 +1057,81 @@ TEST_CASE("Replay windows retain episode boundaries through ring wrap and transf
     }
 }
 
+TEST_CASE("Perception round trips actor observations through replay and decision windows", "[replay_buffer][perception]")
+{
+    const int stack_count = GENERATE(1, 4);
+    const auto env = MakeEnvSpec(true);
+    anet::ConfigData data;
+    data.Set("perception.structure", "stack");
+    data.Set("perception.block.[stack].type", "FrameStack");
+    data.Set("perception.block.[stack].count", std::to_string(stack_count));
+    data.Set("perception.block.[stack].keys.mode", "listed");
+    data.Set("perception.block.[stack].keys.listed.names", kVectorKey);
+    anet::ForwarderChain perception(data, "perception", env.state_spec.obs_spec, 161);
+    auto replay_config = MakeConfig(32, 4, 0.5f, perception.GetStackCount(), rl::ReplaySamplerType::UNIFORM);
+    replay_config.stack_keys = perception.GetStackKeys();
+    replay_config.window_rule = rl::CreateDecisionWindowRule(3);
+    CHECK(replay_config.stack_count == stack_count);
+    CHECK(replay_config.stack_keys == std::vector<std::string>{kVectorKey});
+    const auto replay = MakeBuffer(replay_config, 1, true);
+    const auto actor = perception.CreateExecutor(1, torch::kCPU, 161);
+    const auto store = perception.GetForwarder(anet::ForwardRequest::FrameWithStatsUpdate);
+    const auto recover = perception.GetForwarder(anet::ForwardRequest::PerceptionFromStack);
+    std::vector<torch::Tensor> actor_vectors;
+    torch::Tensor truncated_vector;
+    constexpr int kTruncation = 2;
+    constexpr int kTerminal = 6;
+    const std::array gammas{replay_config.gamma};
+    for (int step = 0; step < 16; ++step) {
+        const bool episode_start = step == 0 || step == kTruncation + 1 || step == kTerminal + 1;
+        const bool truncated = step == kTruncation;
+        anet::TensorDict info;
+        info.Set(rl::BatchActionInfo::kKeyDecision, BoolTensor({episode_start}));
+        auto experience = MakeBatch({float(step)}, {truncated ? -1.0f : float(step + 1)}, {1.0f},
+            {step == kTerminal}, {truncated}, {episode_start}, true, info);
+        actor_vectors.push_back(actor->Forward(experience.state.obs, experience.state.episode_start)
+            .At(kVectorKey).squeeze(0).clone());
+        if (truncated) {
+            truncated_vector = actor->Forward(experience.next_state.obs, BoolTensor({false}))
+                .At(kVectorKey).squeeze(0).clone();
+        }
+        experience.state.obs = store->Forward(experience.state.obs);
+        experience.next_state.obs = store->Forward(experience.next_state.obs);
+        replay.rb->Push(experience, gammas);
+    }
+
+    anet::RandomGenerator random(161);
+    rl::ExperienceSamples samples;
+    REQUIRE(replay.rb->SampleUniqueUniform(samples, replay.rb->Size(), random, gammas));
+    const auto current = recover->Forward(samples.obs);
+    const auto next = recover->Forward(samples.next_state.next_obs);
+    const auto window = recover->Forward(samples.window.next_obs);
+    bool saw_first = false;
+    bool saw_truncation = false;
+    bool saw_short_terminal = false;
+    bool saw_truncated_window = false;
+    for (int64_t row = 0; row < current.At(kVectorKey).size(0); ++row) {
+        const int start = current.At(kMaskKey)[row][0].item<int>();
+        const int n = samples.n_steps[row].item<int>();
+        const int length = samples.window.lengths[row].item<int>();
+        CAPTURE(stack_count, row, start, n, length);
+        saw_first |= start == 0;
+        CHECK(torch::equal(current.At(kVectorKey)[row], actor_vectors.at(start)));
+        const bool truncated = samples.next_state.truncated[row].item<bool>();
+        const bool window_truncated = samples.window.truncated[row].item<bool>();
+        saw_truncation |= truncated;
+        saw_short_terminal |= n < replay_config.n_step && samples.next_state.terminals[row].item<bool>();
+        saw_truncated_window |= window_truncated;
+        CHECK(torch::equal(next.At(kVectorKey)[row], truncated ? truncated_vector : actor_vectors.at(start + n)));
+        CHECK(torch::equal(window.At(kVectorKey)[row],
+            window_truncated ? truncated_vector : actor_vectors.at(start + length)));
+    }
+    CHECK(saw_first);
+    CHECK(saw_truncation);
+    CHECK(saw_short_terminal);
+    CHECK(saw_truncated_window);
+}
+
 TEST_CASE("Replay decision windows preserve margins and sample lengths uniformly", "[replay_buffer][rfd0098]")
 {
     auto config = MakeConfig(32, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
@@ -1100,7 +1176,8 @@ TEST_CASE("Replay rejects action changes inside a decision window", "[replay_buf
         auto batch = MakeBatch({float(step)}, {float(step + 1)}, {1.0f}, {false}, {false}, {step == 0}, false,
             anet::TensorDict{{"decision", torch::tensor({step == 0}, torch::kBool)}});
         const auto action = continuous ? torch::full({1, 1}, float(step % 2)) : torch::tensor({step % 2}, torch::kInt64);
-        batch.action = batch.action->WithAction(action);
+        batch.action = std::make_shared<rl::BatchActionInfo>(
+            action, batch.action->GetInfo(), batch.action->GetAuxData(), batch.action->GetReplayInitialPriorityHint());
         buffer->Push(batch, std::array{config.gamma});
     }
     rl::ExperienceSamples sample;
@@ -1123,7 +1200,9 @@ TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring w
         auto batch = MakeBatch({float(t)}, {truncated ? -float(t + 1) : float(t + 1)},
             {float(t + 1)}, {done}, {truncated}, {episode_start}, false,
             anet::TensorDict{{"decision", torch::ones({1}, torch::kBool)}});
-        batch.action = batch.action->WithAction(torch::tensor({(t / 6) % 2}, torch::kLong));
+        batch.action = std::make_shared<rl::BatchActionInfo>(
+            torch::tensor({(t / 6) % 2}, torch::kLong), batch.action->GetInfo(), batch.action->GetAuxData(),
+            batch.action->GetReplayInitialPriorityHint());
         buffer.rb->Push(batch, std::array{config.gamma});
         episode_start = done || truncated;
     }

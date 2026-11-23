@@ -873,7 +873,7 @@ TEST_CASE("ImageClsLearner bypasses mixup for small batches and prob zero", "[im
     }
 }
 
-TEST_CASE("ImageClsAgent builds logits head from action spec", "[image_cls][head]")
+TEST_CASE("ImageClsAgent builds logits head from action spec", "[image_cls][head][forced_action]")
 {
     EnsureImageClsNnInitialized();
     ScopedNoopMetricsLogger metrics_logger;
@@ -888,11 +888,21 @@ TEST_CASE("ImageClsAgent builds logits head from action spec", "[image_cls][head
         torch::Device(torch::kCPU),
         123);
 
-    auto probs = ForwardImageClsAgentProbs(
-        agent,
-        torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 }).div(16.0f));
+    const auto actor = agent.CreateActor(anet::rl::ActorRequest{.batch_env_spec = {2, 1},
+        .env_spec = env_spec, .device = torch::kCPU, .seed = 123, .actor_key = "eval"});
+    const auto grid = torch::arange(8, torch::kFloat32).view({2, 1, 2, 2}).div(16.0f);
+    const auto state = MakeImageClsBatchState(grid);
+    const auto baseline = actor->MakeAction({}, state);
+    const auto& probs = baseline->GetInfo().At("probs");
     CHECK(probs.sizes() == torch::IntArrayRef({ 2, env_spec.action_spec.GetNumActions() }));
     CHECK(probs.dtype() == torch::kFloat32);
+
+    const auto value = (baseline->GetAction()[0].item<int64_t>() + 1) % env_spec.action_spec.GetNumActions();
+    const auto forced = actor->MakeAction({}, state, {.forced_actions = anet::rl::ForcedActions::ByLane(0, value)});
+    const auto expected = baseline->GetAction().clone();
+    expected[0].fill_(value);
+    CHECK(torch::equal(forced->GetAction(), expected));
+    CHECK(torch::equal(forced->GetInfo().At("probs"), probs));
 }
 
 TEST_CASE("ImageClsAgentFactory reads its class-owned net tree", "[image_cls][config][tracer]")

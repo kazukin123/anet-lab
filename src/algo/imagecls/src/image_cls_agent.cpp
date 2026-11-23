@@ -54,7 +54,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
     // Forward
     ANET_PROFILE_SCOPE_NEXT(obs_to_device);
     auto obs = state.obs.To(device_);
-    std::optional<anet::nn::NetworkForwardCapture> capture;
+    std::optional<anet::ForwardCapture> capture;
     if (options.nn_trace) capture.emplace(std::vector<std::string>{std::string(anet::nn::kNnTracePrefix)});
     ANET_PROFILE_SCOPE_NEXT(forward);
     anet::TensorDict outputs;
@@ -90,6 +90,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> ImageClsActor::MakeAction(
 
     // BatchActionInfo(action, info, aux) の形式で返却
     ANET_PROFILE_SCOPE_NEXT(build_action_info);
+    if (options.forced_actions) action = options.forced_actions->Apply(action, logits.size(1));
     auto action_info = std::make_shared<anet::rl::BatchActionInfo>(action, info);
     action_info->GetAuxData() = std::move(trace_aux);
     return action_info;
@@ -340,7 +341,7 @@ anet::rl::BatchUpdateResultList ImageClsLearner::UpdateFromBatch(
     torch::Tensor plasticity_weight_norms;
     MixResult mix;
     double current_learning_rate = learning_rate_->Value();
-    anet::nn::NetworkForwardCapture plasticity_capture({ config_.final_feature_branch_key });
+    anet::ForwardCapture plasticity_capture({ config_.final_feature_branch_key });
     const auto plasticity_request = MakePlasticityRequest(step.learn_step);
     const bool measure_plasticity = plasticity_request.Any();
     const bool measure_plasticity_weight_norm = plasticity_weight_norm_enabled_

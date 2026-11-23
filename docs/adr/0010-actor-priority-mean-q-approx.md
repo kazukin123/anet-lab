@@ -1,5 +1,7 @@
 # Actor初期優先度は平均Q空間の近似とし、Learner target-network評価/UQE targetの再現を見送る
 
+> 2026-11-23 注記（[ADR 0083](0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)）。Actor が強制行動を含む最終行動を決めてから、既存の推論結果で Q ヒントを計算する。追加 forward を行わない初期優先度の近似は引き継ぐ。
+
 > **後発決定**: Actorヒントのtransport表現と有効性マスクに関する決定はADR 0012で置き換えた。本ADRの平均Q近似、追加forward禁止、`WithAction`、UQE再現見送りの判断は引き続き有効である。
 > **後発決定（2026-09-04）**: Actorヒントの列数と`WithAction`の再計算対象は [ADR 0036](0036-actor-q-hint-three-columns-munchausen.md) で3列（Munchausen項を追加）へ改訂した。追加forward禁止とUQE再現見送りは不変である。
 > **後発決定（2026-11-19）**: Actor Q ヒントは [ADR 0075](0075-actor-q-hint-five-columns-carry-per-head-values.md) で常時 5 列となり、価値の分解の内的 Head の Q_sa と V_s を運ぶ。IQN+UQE のヒントの Q 系値は、行動選択と同じ forward の risk-biased action score を使う（[ADR 0019](0019-iqn-uqe-score-without-extra-forward.md)）。ADR 0036 はこれを本 ADR の近似の範囲として扱う。追加 forward を行わない方針は引き続き有効である。

@@ -221,15 +221,73 @@ TEST_CASE("DefaultDQNAgent preserves the native stack axis for temporal Conv1d",
     REQUIRE(trace.Contains("main_feature/00_Input"));
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
 
-    // auxにはstack済み観測を保持し、pass-through正規化でも両キーを公開する。
-    const auto expected_obs = torch::arange(16, torch::kFloat32).reshape({ 2, 1, 8 }).expand({ 2, 4, 8 });
-    const auto& aux = action_info->GetAuxData();
-    REQUIRE(aux.contains("raw_obs"));
-    REQUIRE(aux.contains("norm_obs"));
-    CHECK(ShapeOf(aux.at("raw_obs")) == std::vector<int64_t>{ 2, 4, 8 });
-    CHECK(ShapeOf(aux.at("norm_obs")) == std::vector<int64_t>{ 2, 4, 8 });
-    CHECK(torch::equal(aux.at("raw_obs"), expected_obs));
-    CHECK(torch::equal(aux.at("norm_obs"), expected_obs));
+    const auto expected = torch::arange(8, torch::kFloat32).reshape({ 1, 1, 8 }).expand({ 1, 4, 8 });
+    CHECK(torch::equal(trace.At("main_feature/00_Input"), expected));
+}
+
+TEST_CASE("DefaultDQNAgent uses a configured one-frame Perception in the Actor", "[dqn][perception]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+    auto config = MakeNativeStackConfigData();
+    config.Set("DefaultDQNAgent.perception.structure", "stack");
+    config.Set("DefaultDQNAgent.perception.block.[stack].type", "FrameStack");
+    config.Set("DefaultDQNAgent.perception.block.[stack].count", 1);
+    config.Set("net.branch.[main_feature].bind", kVectorKey);
+    config.Set("net.branch.[main_feature].structure", "Flatten > Linear");
+
+    const anet::TensorSpec spec{ .shape = { 8 } };
+    const auto env_spec = MakeNativeStackEnvSpec({ { kVectorKey, spec } });
+    const auto action = ActWithNativeStack(config, env_spec,
+        anet::TensorDict{ { kVectorKey, torch::arange(16, torch::kFloat32).reshape({ 2, 8 }) } });
+    REQUIRE(action);
+    const auto trace = rl::ExtractNnTrace(action->GetAuxData());
+    REQUIRE(trace.Contains("main_feature/00_Input"));
+    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 1, 8 });
+}
+
+TEST_CASE("DefaultDQNAgent reports Perception normalization statistics after frame intake", "[dqn][perception]")
+{
+    ScopedNoopMetricsLogger metrics_logger;
+    PrepareNativeStackNetworkTest();
+    const std::string behavior = GENERATE("running", "omitted", "scaled");
+    auto data = MakeNativeStackConfigData();
+    data.Set("DefaultDQNAgent.learner.update_warmup_steps", 1000);
+    data.Set("net.branch.[main_feature].bind", kVectorKey);
+    data.Set("net.branch.[main_feature].structure", "Flatten > Linear");
+    if (behavior != "omitted") {
+        data.Set("DefaultDQNAgent.perception.structure", "stack > norm");
+        data.Set("DefaultDQNAgent.perception.block.[norm].type", "Normalize");
+        data.Set("DefaultDQNAgent.perception.block.[norm].mode", "running");
+    }
+    const anet::TensorSpec spec{
+        .shape = {8},
+        .scale = behavior == "scaled" ? anet::ValueScale::Scaled : anet::ValueScale::Unscaled,
+    };
+    const auto env = MakeNativeStackEnvSpec({{kVectorKey, spec}});
+    const auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)), anet::nn::NetworkConfig(data),
+        rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env, torch::kCPU, 161);
+    const auto reference = rl::ObservationNormalizerFactory(rl::ObservationNormalizerConfig{})
+        .CreateObservationNormalizer(env.state_spec);
+    const auto learner = agent->CreateLearner();
+    for (rl::step_t step = 0; step < 3; ++step) {
+        auto experience = MakeDeterminismExperience(step, 2);
+        experience.state.obs.Set(kVectorKey, torch::full({2, 8}, static_cast<float>(step)));
+        experience.next_state.obs.Set(kVectorKey, torch::full({2, 8}, static_cast<float>(step + 1)));
+        reference->UpdateStats(experience.state.obs);
+        reference->UpdateStats(experience.next_state.obs);
+        learner->UpdateFromBatch({.exp_step = step * 2}, experience);
+    }
+    const auto count_key = rl::ObservationNormalizer::kKeyCount;
+    const auto count = agent->GetScalar(count_key);
+    if (behavior == "running") {
+        REQUIRE(count);
+        CHECK(std::isfinite(*count));
+        CHECK(count == reference->GetScalar(count_key));
+    } else {
+        CHECK_FALSE(count);
+    }
 }
 
 TEST_CASE("DefaultDQNAgent flattens native vector stacks for MLP branches", "[dqn][native_stack]")
@@ -341,8 +399,9 @@ TEST_CASE("DefaultDQNAgent leaves stack_keys exclusions unstacked", "[dqn][nativ
 
     // stack_keysに含めたvectorだけへstack軸を追加し、auxのspecと実入力は元rankを保つ。
     auto config_data = MakeNativeStackConfigData();
+    config_data.Set("DefaultDQNAgent.perception.block.[stack].keys.mode", "listed");
     config_data.Set(
-        "DefaultDQNAgent.stucker.stack_keys",
+        "DefaultDQNAgent.perception.block.[stack].keys.listed.names",
         std::vector<std::string>{ kVectorKey });
     config_data.Set("net.branch.[main_feature].bind", kVectorKey);
     config_data.Set("net.branch.[main_feature].structure", "Flatten > Linear");
@@ -628,7 +687,8 @@ TEST_CASE("Episode end auxiliary windows ignore changing actions and decision fl
         experience.state.episode_start = torch::full({2}, step == 0, torch::kBool);
         experience.next_state.done = torch::zeros({2}, torch::kBool);
         experience.next_state.truncated = torch::zeros({2}, torch::kBool);
-        experience.action = experience.action->WithAction(torch::full({2}, step % 2, torch::kLong));
+        experience.action = std::make_shared<rl::BatchActionInfo>(torch::full({2}, step % 2, torch::kLong),
+            experience.action->GetInfo(), experience.action->GetAuxData(), experience.action->GetReplayInitialPriorityHint());
         experience.action->GetInfo().Set("decision", torch::ones({2}, torch::kBool));
         results = learner->UpdateFromBatch({.exp_step = step}, experience);
     }
@@ -918,8 +978,8 @@ TEST_CASE("Skip learning supports distribution, target and feature-gradient comb
                 anet::ConfigData data;
                 data.Set("DefaultDQNAgent.quantile_mode", mode);
                 data.Set("DefaultDQNAgent.head.use_dueling", false);
-                data.Set("DefaultDQNAgent.stucker.use_stacker", false);
-                data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+
+
                 data.Set("DefaultDQNAgent.skip.enabled", true);
                 data.Set("DefaultDQNAgent.skip.max_length", 3);
                 data.Set("DefaultDQNAgent.skip.network_mode", conditional ? "action_in" : "action_out");
@@ -951,8 +1011,9 @@ TEST_CASE("Skip learning supports distribution, target and feature-gradient comb
                 data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.end", 0.0f);
                 data.Set("net.block.[SkipTestLinear].type", "Linear");
                 data.Set("net.block.[SkipTestLinear].linear.out_features", 4);
+                data.Set("net.block.[Flatten].type", "Flatten");
                 data.Set("DefaultDQNAgent.net.branch.[main].bind", "vector");
-                data.Set("DefaultDQNAgent.net.branch.[main].structure", "SkipTestLinear");
+                data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten > SkipTestLinear");
                 data.Set("DefaultDQNAgent.net.body.output.[context]", "main");
                 data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
                 const std::string prefix = "DefaultDQNAgent.skip.net.";
@@ -1034,8 +1095,9 @@ TEST_CASE("Split gradient noise measures only Q loss while skip gradients change
     anet::ConfigData network;
     network.Set("net.block.[SharedLinear].type", "Linear");
     network.Set("net.block.[SharedLinear].linear.out_features", 2);
+    network.Set("net.block.[Flatten].type", "Flatten");
     network.Set("net.branch.[shared].bind", "vector");
-    network.Set("net.branch.[shared].structure", "SharedLinear");
+    network.Set("net.branch.[shared].structure", "Flatten > SharedLinear");
     network.Set("net.body.output.[features]", "shared");
     const auto make_agent = [&](float weight) {
         torch::manual_seed(103);
@@ -1376,13 +1438,15 @@ TEST_CASE("Skip network mode and action binding must agree at Agent construction
             auto data = WithDefaultForwardConfig();
             data.Set("DefaultDQNAgent.quantile_mode", "none");
             data.Set("DefaultDQNAgent.head.use_dueling", false);
-            data.Set("DefaultDQNAgent.stucker.use_stacker", false);
-            data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+
+
             data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
             data.Set("DefaultDQNAgent.skip.enabled", enabled);
             data.Set("DefaultDQNAgent.skip.max_length", 3);
             data.Set("DefaultDQNAgent.skip.network_mode", mode);
+            data.Set("DefaultDQNAgent.net.block.[Flatten].type", "Flatten");
             data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
+            data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten");
             data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
             data.Set("DefaultDQNAgent.skip.net.body.output.[features]", "main");
             const auto bind_key = "DefaultDQNAgent.skip.net.branch.[main].bind";
@@ -2049,8 +2113,8 @@ TEST_CASE("Agent diagnostic resubscription preserves the probe random sequence",
     data.Set("DefaultDQNAgent.head.use_dueling", false);
     data.Set("DefaultDQNAgent.head.init.mode", "constant");
     data.Set("DefaultDQNAgent.head.init.constant_val", 0.1f);
-    data.Set("DefaultDQNAgent.stucker.use_stacker", false);
-    data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+
+
     data.Set("DefaultDQNAgent.learner.replay_capacity", 64);
     data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
     data.Set("DefaultDQNAgent.learner.update_warmup_steps", 8);
@@ -2134,12 +2198,7 @@ TEST_CASE("RainbowAgent omits DefaultDQN snapshot diagnostics", "[dqn][actor][sn
         actor->MakeAction(rl::StepCounts{}, state));
 
     REQUIRE(action_info != nullptr);
-    // normalizerのないRainbowでもdevice転送後のraw_obsを公開する。
-    const auto& aux = action_info->GetAuxData();
-    REQUIRE(aux.contains("raw_obs"));
-    CHECK_FALSE(aux.contains("norm_obs"));
-    CHECK(ShapeOf(aux.at("raw_obs")) == std::vector<int64_t>{ 1, 2 });
-    CHECK(torch::equal(aux.at("raw_obs"), state.obs.At(kVectorKey)));
+    CHECK(ShapeOf(action_info->GetAction()) == std::vector<int64_t>{1});
     CHECK_FALSE(action_info->GetScalar("train_actor_snapshot_interval").has_value());
     CHECK_FALSE(action_info->GetScalar("train_actor_snapshot_age").has_value());
     CHECK_THROWS(agent->CreateActor(rl::ActorRequest{.batch_env_spec = batch_env_spec, .env_spec = env_spec, .device = torch::Device(torch::kCUDA, 0), .seed = 123, .actor_key = "train"}));
@@ -3040,7 +3099,7 @@ TEST_CASE("DefaultDQN Actor owns Noisy draws and advances its action clock", "[d
 {
     ScopedNoopMetricsLogger metrics_logger;
     auto data = WithDefaultForwardConfig(MakeNativeStackConfigData());
-    data.Set("DefaultDQNAgent.stucker.use_stacker", false);
+
     data.Set("net.branch.[main_feature].bind", kVectorKey);
     data.Set("net.branch.[main_feature].structure", "Linear");
     const bool projection_only = GENERATE(false, true);
@@ -3276,10 +3335,9 @@ TEST_CASE("DQN step diagnostics rebuild forced action hints without PER and comp
     auto diagnostics = agent->CreateStepDiagnosticsProvider({.num_lanes = 1, .keys = {}, .actor = nullptr});
     REQUIRE(diagnostics);
     const auto make = [&](bool first, float reward, const torch::Tensor& q) {
-        auto action = MakeDiagnosticActionInfo(torch::tensor({0}, torch::kInt64),
+        auto action = MakeDiagnosticActionInfo(torch::tensor({1}, torch::kInt64),
             anet::TensorDict{}, rl::AuxData{{"q_values", q}}, config.learner,
             rl::ReplayInitialPriorityHint(torch::full({1, dqn::kActorQHintColumnCount}, 100.0f)));
-        action = action->WithAction(torch::tensor({1}, torch::kInt64));
         return rl::BatchExperience{MakeDeterminismState(0, 1, {false}, {false}, {first}),
             action, torch::tensor({reward}), MakeDeterminismState(1, 1, {false}, {false}, {false})};
     };
@@ -3374,7 +3432,7 @@ TEST_CASE("DQN step diagnostics match replay completion for n-step episode bound
     for (int step = 0; step < 8; ++step) {
         const auto q = torch::tensor({{0.2f * step, 0.3f + 0.1f * step}});
         const auto action = torch::tensor({step % 2}, torch::kInt64);
-        const auto payload = dqn::MakeActorQHint(q, action, hint_config).payload;
+        const auto payload = dqn::MakeActorQHint(q, action, hint_config);
         rl::ReplayInitialPriorityHintRow hint;
         for (int k = 0; k < dqn::kActorQHintColumnCount; ++k) hint.push_back(payload[0][k].item<float>());
         hints.push_back(hint);
@@ -3465,11 +3523,13 @@ TEST_CASE("DefaultDQN baseline uses Head booleans and leaves omitted skip length
     data.Set("DefaultDQNAgent.head.init.mode", "constant");
     data.Set("DefaultDQNAgent.head.init.constant_val", 0.25);
     data.Set("DefaultDQNAgent.skip.head.init.constant_val", 0.0);
-    data.Set("DefaultDQNAgent.stucker.use_stacker", false);
-    data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+
+
     data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
     data.Set("DefaultDQNAgent.actor.[eval].network", "online");
+    data.Set("DefaultDQNAgent.net.block.[Flatten].type", "Flatten");
     data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
+    data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten");
     data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
     data.Set("DefaultDQNAgent.skip.net.branch.[main].bind", "features");
     data.Set("DefaultDQNAgent.skip.net.body.output.[features]", "main");
@@ -3500,16 +3560,17 @@ TEST_CASE("Skip IQN consumes fused primary features with optional action input",
     data.Set("DefaultDQNAgent.skip.enabled", true);
     data.Set("DefaultDQNAgent.skip.max_length", 3);
     data.Set("DefaultDQNAgent.skip.network_mode", action_in ? "action_in" : "action_out");
-    data.Set("DefaultDQNAgent.stucker.use_stacker", false);
-    data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+
+
     data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
     data.Set("DefaultDQNAgent.actor.[eval].network", "online");
     data.Set("net.block.[R2Linear].type", "Linear");
     data.Set("net.block.[R2Linear].linear.out_features", 4);
     data.Set("net.block.[R2Cos].type", "CosineEmbedding");
     data.Set("net.block.[R2Cos].cos.num_basis", 4);
+    data.Set("net.block.[Flatten].type", "Flatten");
     data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
-    data.Set("DefaultDQNAgent.net.branch.[main].structure", "R2Linear");
+    data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten > R2Linear");
     data.Set("DefaultDQNAgent.net.branch.[tau].bind", "taus");
     data.Set("DefaultDQNAgent.net.branch.[tau].structure", "R2Cos > R2Linear");
     data.Set("DefaultDQNAgent.net.branch.[fused].bind", "main * tau");
@@ -3562,7 +3623,8 @@ TEST_CASE("RFD0101 Actor values survive transfer and action replacement", "[rfd0
     rl::StepCounts counts;
     counts.exp_step = 8;
     const auto current = actor->MakeAction(counts, state);
-    for (const auto& result : {current, current->To(torch::kCPU), current->WithAction(torch::zeros({1}, torch::kInt64))}) {
+    const auto forced = actor->MakeAction(counts, state, {.forced_actions = rl::ForcedActions::ByLane(0, 0)});
+    for (const auto& result : {current, current->To(torch::kCPU), forced}) {
         for (const auto& [key, expected] : std::vector<std::pair<std::string, float>>{
             {"gamma", 0.9f}, {"munchausen_alpha", 0.4f}, {"munchausen_entropy_tau", 0.7f}}) {
             REQUIRE(result->GetScalar(key).has_value());

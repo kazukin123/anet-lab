@@ -112,15 +112,15 @@ static float CalculateSpearmanCorrelation(const torch::Tensor& lhs_cpu, const to
         covariance / std::sqrt(lhs_square_sum * rhs_square_sum), -1.0, 1.0));
 }
 
-Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
-    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
     : RandomHolder(target_seed), config_(config), learning_rate_(config.learning_rate), weight_decay_(config.weight_decay), per_beta_(config.per_beta), soft_update_tau_(model.GetSoftUpdateTauConfig()), gamma_(config.gamma), intrinsic_gamma_(config.intrinsic.gamma),
       munchausen_alpha_(config.munchausen.alpha), munchausen_entropy_tau_(config.munchausen.entropy_tau),
       munchausen_values_(config.munchausen.Resolve(munchausen_alpha_.Value(), munchausen_entropy_tau_.Value())),
-      has_optimizer_schedule_(config.learning_rate.type != kConstantScheduleType || config.weight_decay.type != kConstantScheduleType), stucker_config_(stucker_config), model_(model), vars_(vars), obs_norm_(std::move(obs_norm))
+      has_optimizer_schedule_(config.learning_rate.type != kConstantScheduleType || config.weight_decay.type != kConstantScheduleType), frame_stack_(frame_stack), model_(model), vars_(vars), sample_perception_(std::move(sample_perception))
     , num_envs_(batch_env_spec.num_envs)
     , n_actions_(env_spec.action_spec.GetNumActions())//, state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
@@ -414,8 +414,8 @@ void Learner::PrepareDiagnosticResources()
         for (const auto& parameter : split.feature) grad_noise_.parameters.push_back({ .parameter = parameter, .feature = true });
         for (const auto& parameter : split.readout) grad_noise_.parameters.push_back({ .parameter = parameter, .feature = false });
     }
-    plasticity_.online_capture = anet::nn::NetworkForwardCapture({ config_.final_feature_branch_key });
-    plasticity_.target_capture = anet::nn::NetworkForwardCapture({ config_.final_feature_branch_key });
+    plasticity_.online_capture = anet::ForwardCapture({ config_.final_feature_branch_key });
+    plasticity_.target_capture = anet::ForwardCapture({ config_.final_feature_branch_key });
 }
 
 ReplayFitRequirements anet::rl::dqn::ResolveReplayFitRequirements(
@@ -500,7 +500,7 @@ std::pair<float, float> Learner::EvaluateReplayFit(const ExperienceSamples& inpu
     const float nan = std::numeric_limits<float>::quiet_NaN();
     ANET_PROFILE_SCOPE(transfer);
     const auto batch = input.To(device_);
-    const auto normalized = NormalizeSampleObservations(batch);
+    const auto normalized = MakeSamplePerception(batch);
     const int64_t size = batch.actions.size(0);
     auto current_input = normalized.obs;
     torch::Tensor taus;
@@ -573,7 +573,7 @@ void Learner::CaptureNoisyDiagnostics()
     if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.noisy_probe.probe.batch_size, noisy_probe_random_, ComponentGammas())) return;
     const auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.noisy_probe.probe.batch_size);
-    auto input = NormalizeSampleObservations(samples).obs;
+    auto input = MakeSamplePerception(samples).obs;
     if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         const auto midpoint = (torch::arange(config_.noisy_probe.iqn.num_taus,
             torch::TensorOptions().dtype(torch::kFloat32).device(device_)) + 0.5f) / config_.noisy_probe.iqn.num_taus;
@@ -613,11 +613,11 @@ torch::Tensor Learner::CaptureAttentionEntropy()
     if (!sampled) return {};
     const auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.attention_entropy.probe.batch_size);
-    const auto normalized = NormalizeSampleObservations(samples);
+    const auto normalized = MakeSamplePerception(samples);
     const auto dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast amp(device_, config_.use_amp, dtype);
     const auto prefix = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey) + "/";
-    anet::nn::NetworkForwardCapture capture({ prefix });
+    anet::ForwardCapture capture({ prefix });
     model_.ForwardOnlineUpTo(normalized.obs, config_.final_feature_branch_key, &capture);
 
     // サイズは同期せず調べ、全moduleの層を実行順に連結して一度だけCPUへ転送する。
@@ -650,7 +650,7 @@ void Learner::CapturePlasticityProbe()
         cpu_samples, config_.plasticity.probe.batch_size, plasticity_probe_random_, ComponentGammas())) return;
     auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.plasticity.probe.batch_size);
-    const auto norm_samples = NormalizeSampleObservations(samples);
+    const auto norm_samples = MakeSamplePerception(samples);
     const torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast amp_guard(device_, config_.use_amp, amp_dtype);
     const auto state = model_.ForwardOnlineUpTo(norm_samples.obs, config_.final_feature_branch_key);
@@ -684,7 +684,7 @@ void Learner::CapturePolicyChurnProbe()
         cpu_samples, config_.policy_churn.probe.batch_size, policy_churn_probe_random_, ComponentGammas())) return;
     auto samples = cpu_samples.To(device_);
     ValidateDeviceSamples(samples, config_.policy_churn.probe.batch_size);
-    policy_churn_.probe_obs = NormalizeSampleObservations(samples).obs;
+    policy_churn_.probe_obs = MakeSamplePerception(samples).obs;
 
     if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device_);
@@ -939,18 +939,11 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     } else {
         rep_config.sampler_type = ReplaySamplerType::UNIFORM;
     }
-    if (stucker_config_.has_value()) {
-        //rep_config.use_stacker = stucker_config_->use_stacker;
-        rep_config.stack_count = stucker_config_->use_stacker ? stucker_config_->stack_count : 1;
-        rep_config.stack_keys = stucker_config_->stack_keys;
-    } else {
-        rep_config.stack_count = 1;
+    if (frame_stack_) {
+        rep_config.stack_count = frame_stack_->count;
+        rep_config.stack_keys = frame_stack_->keys;
     }
-    
-    //const ReplayBufferConfig& config, const EnvSpec& env_spec, int64_t num_envs, torch::Device storage_device, bool pin_memory, std::optional<uint64_t> seed)
 
-    //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, false, seed);
-    //this->replay_buffer_ = anet::rl::CreateReplayBuffer(rep_config, env_spec, batch_env_spec.num_envs, device_, true, seed);
     // PER無効時のmodeはPER有効化に備えた設定値でしかない(sampler=UNIFORMでReplayBufferへ渡さない)。
     // estimatorもActorヒントも作らず完全に不活性にする。
     std::unique_ptr<InitialPriorityEstimator> estimator;
@@ -964,14 +957,14 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     }
 }
 
-NormalizedSampleObservations Learner::NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const
+SamplePerception Learner::MakeSamplePerception(const anet::rl::ExperienceSamples& samples) const
 {
     auto obs = samples.obs;
     auto next_obs = samples.next_state.next_obs;
-    if (obs_norm_) {
-        // 統計更新は Agent 側の収集フェーズで行うためここでは適用のみ
-        obs = obs_norm_->Normalize(obs);
-        next_obs = obs_norm_->Normalize(next_obs);
+    if (sample_perception_) {
+        // ReplayBuffer が取り出した束を、Noise や行動の問い合わせと同じ Perception にそろえる。
+        obs = sample_perception_->Forward(obs);
+        next_obs = sample_perception_->Forward(next_obs);
     }
     return { obs, next_obs };
 }
@@ -2086,13 +2079,13 @@ MunchausenForwardResult Learner::ForwardMunchausenValues(
     return MunchausenForwardResult{ .current_values = current_values, .next_values = next_values };
 }
 
-QuantileLearnerBase::QuantileLearnerBase(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+QuantileLearnerBase::QuantileLearnerBase(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
-    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
-        std::move(target_policy), forward_resources, stucker_config, target_seed, std::move(noisy_probe_config))
+    : Learner(config, model, vars, std::move(sample_perception), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+        std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
 }
 
@@ -2316,13 +2309,13 @@ IqnLossResult QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
     };
 }
 
-TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
-    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : Learner(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, device, replay_seed, agent_seed,
-        std::move(target_policy), forward_resources, stucker_config, target_seed, std::move(noisy_probe_config))
+    : Learner(config, model, vars, std::move(sample_perception), batch_env_spec, env_spec, device, replay_seed, agent_seed,
+        std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -2334,13 +2327,13 @@ anet::nn::NetworkForwardCallInfo Learner::MakeCurrentForwardInfo() const
     return anet::nn::NetworkForwardCallInfo({.clock = vars_.learn_step});
 }
 
-anet::nn::NetworkForwardCapture* Learner::OnlineBranchCapture()
+anet::ForwardCapture* Learner::OnlineBranchCapture()
 {
     // 今回の更新で要求されたときだけ、Learner所有の受け皿を同期forwardへ渡す。
     return plasticity_.online_request.Any() ? &plasticity_.online_capture : nullptr;
 }
 
-anet::nn::NetworkForwardCapture* Learner::TargetBranchCapture()
+anet::ForwardCapture* Learner::TargetBranchCapture()
 {
     // targetの測定要求はonlineとは独立し、診断用forwardでは利用しない。
     return plasticity_.target_request.Any() ? &plasticity_.target_capture : nullptr;
@@ -2379,7 +2372,7 @@ LearningTargets Learner::MakeLearningTargets(const ExperienceSamples& samples, c
     const auto batch = samples.actions.size(0);
     if (!samples.window.lengths.defined()) ANET_SYSTEM_ERROR("Skip learner requires replay window lengths.");
     // 通常の n-step と、同じサンプル起点から抽選した k-step 窓の R・k・終端を並べ、同じ target 規則を適用する。
-    auto window_obs = obs_norm_ ? obs_norm_->Normalize(samples.window.next_obs) : samples.window.next_obs;
+    auto window_obs = sample_perception_ ? sample_perception_->Forward(samples.window.next_obs) : samples.window.next_obs;
     auto combined = samples;
     combined.actions = torch::cat({samples.actions, samples.actions});
     combined.target_returns = torch::cat({samples.target_returns, samples.window.returns});
@@ -2679,7 +2672,7 @@ Learner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     //ANET_LOG_DEBUG("obs=" << samples.obs.ToString());
 
     ANET_PROFILE_SCOPE(normalize);
-    auto norm_samples = NormalizeSampleObservations(samples);
+    auto norm_samples = MakeSamplePerception(samples);
     const auto& obs = norm_samples.obs;
     const auto& next_obs = norm_samples.next_obs;
     ANET_ASSERT_NAN(obs);
@@ -2834,13 +2827,13 @@ torch::Tensor Learner::MakeUpdateDiagnostics(const ExperienceSamples&,
     return {};
 }
 
-QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
-    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
-        std::move(target_policy), forward_resources, stucker_config, target_seed, std::move(noisy_probe_config))
+    : QuantileLearnerBase(config, model, vars, std::move(sample_perception), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+        std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();
@@ -2859,13 +2852,13 @@ ElementError QRLearner::ComputeElementError(const torch::Tensor& current,
     return QuantileLearnerBase::ComputeElementError(current, target, tau_i_, request, current_mean);
 }
 
-IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
-    std::optional<StuckerConfig> stucker_config, std::optional<anet::seed_t> target_seed,
+    std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : QuantileLearnerBase(config, model, vars, std::move(obs_norm), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
-        std::move(target_policy), forward_resources, stucker_config, target_seed, std::move(noisy_probe_config))
+    : QuantileLearnerBase(config, model, vars, std::move(sample_perception), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+        std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
     SetupOptimizer();

@@ -112,7 +112,7 @@ torch::Tensor VectorObs(const anet::rl::SingleState& state)
 
 } // namespace
 
-TEST_CASE("LunarLanderEnv keeps default observation contract", "[lunarlander][obs_include_action]")
+TEST_CASE("LunarLanderEnv keeps default observation contract", "[lunarlander][obs_include_action][forwarder]")
 {
     anet::rl::env::LunarLanderEnvConfig default_config;
     CHECK(default_config.ToJson().at("obs_include_action").get<bool>() == false);
@@ -120,6 +120,7 @@ TEST_CASE("LunarLanderEnv keeps default observation contract", "[lunarlander][ob
 
     auto env = MakeEnv(/*obs_include_action=*/false);
     const auto spec = env->GetSpec().state_spec.obs_spec.at(kVectorKey);
+    CHECK(spec.scale == anet::ValueScale::Unscaled);
     const std::vector<int64_t> expected_shape{ 8 };
     CHECK(spec.shape == expected_shape);
 

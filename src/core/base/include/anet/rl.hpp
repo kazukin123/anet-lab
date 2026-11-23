@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <optional>
+#include <variant>
 #include <span>
 #include <mutex>
 #include <cstdint>
@@ -26,7 +27,7 @@
 #include "anet/serialize.hpp"
 #include "anet/graphviz.hpp"
 
-namespace anet::nn { class NetworkForwardCapture; }
+namespace anet { class ForwardCapture; }
 
 namespace anet::rl {
 
@@ -353,12 +354,39 @@ namespace anet::rl {
 
     using AuxData = std::unordered_map<std::string, torch::Tensor>; ///< 任意の追加情報（UI描画用の非可観測情報を含む）
 
-    /// その回の行動選択で求める追加出力。要求は呼び出しの間だけ有効。
-    struct MakeActionOptions {
-        bool nn_trace = false;
+    /// 呼び出し側が指定する lane ごとの離散行動。
+    class ForcedActions {
+    public:
+        static ForcedActions ByLane(int64_t lane, int64_t action);
+        static ForcedActions ByMask(torch::Tensor mask, torch::Tensor actions);
+
+        void Validate(const ActionSpec& spec, int64_t lane_count) const;
+        torch::Tensor Apply(const torch::Tensor& policy_actions, int64_t action_count) const;
+        /// Validate または Apply が同じ lane 数で成功した指定の印を返す。
+        torch::Tensor MakeMask(int64_t lane_count, torch::Device device) const;
+    private:
+        struct Lane {
+            int64_t index;
+            int64_t action;
+        };
+        struct Mask {
+            torch::Tensor lanes;
+            torch::Tensor actions;
+        };
+    private:
+        explicit ForcedActions(std::variant<Lane, Mask> selection) : selection_(std::move(selection)) {}
+        void ValidateDiscrete(int64_t lane_count, int64_t action_count) const;
+    private:
+        std::variant<Lane, Mask> selection_;
     };
 
-    void AppendNnTraceAux(AuxData& aux, anet::nn::NetworkForwardCapture& capture);
+    /// その回の行動選択に渡す要求。要求は呼び出しの間だけ有効。
+    struct MakeActionOptions {
+        bool nn_trace = false;
+        std::optional<ForcedActions> forced_actions;
+    };
+
+    void AppendNnTraceAux(AuxData& aux, anet::ForwardCapture& capture);
     anet::TensorDict ExtractNnTrace(const AuxData& aux);
 
 
@@ -551,11 +579,6 @@ namespace anet::rl {
         {
             return std::make_shared<BatchActionInfo>(
                 GetAction(device), info_.To(device), aux_, replay_initial_priority_hint_);
-        }
-        virtual std::shared_ptr<BatchActionInfo> WithAction(torch::Tensor action) const
-        {
-            return std::make_shared<BatchActionInfo>(
-                std::move(action), info_, aux_, replay_initial_priority_hint_);
         }
         const AuxData& GetAuxData() const { return aux_; }
         AuxData& GetAuxData() { return aux_; }
@@ -752,6 +775,7 @@ namespace anet::rl {
     class Actor : public ModuleBase {
     public:
         /// @brief BatchStateから行動を生成する。
+        /// @note 強制行動がある lane の指定を反映できない Actor はエラーを返す。
         /// @note 同一Actor instanceのMakeActionまたはSyncと並行呼び出ししてはならない。
         virtual std::shared_ptr<BatchActionInfo> MakeAction(const StepCounts& step, const anet::rl::BatchState& state, const MakeActionOptions& options = {}) const = 0;
 

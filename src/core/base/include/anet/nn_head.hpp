@@ -105,13 +105,13 @@ namespace anet::nn {
         static NetworkForwardContext GetDefault();
     public:
         NetworkForwardContext(NetworkForwardState* state, const NetworkForwardCallInfo& info,
-            NetworkForwardCapture* capture = nullptr)
+            ForwardCapture* capture = nullptr)
             : state_(state), info_(info), capture_(capture) {}
 
         bool HasCapture() const { return capture_ != nullptr; }
-        NetworkForwardCapture* GetCapture() const { return capture_; }
+        ForwardCapture* GetCapture() const { return capture_; }
         std::string_view GetCaptureBranch() const { return capture_branch_; }
-        NetworkForwardContext WithCapture(NetworkForwardCapture* capture) const;
+        NetworkForwardContext WithCapture(ForwardCapture* capture) const;
         NetworkForwardContext WithCaptureBranch(std::string_view branch) const;
         NetworkForwardContext WithCaptureBlock(std::string_view block) const;
         bool WantsCapture(std::string_view key) const;
@@ -124,7 +124,7 @@ namespace anet::nn {
     private:
         NetworkForwardState* const state_;
         const NetworkForwardCallInfo& info_;
-        NetworkForwardCapture* capture_ = nullptr; ///< 呼び出し側所有。同期Forward中だけ借用する。
+        ForwardCapture* capture_ = nullptr; ///< 呼び出し側所有。同期Forward中だけ借用する。
         std::string_view capture_branch_;
         std::string_view capture_block_;
         std::string MakeCaptureKey(std::string_view key) const;
@@ -186,6 +186,7 @@ namespace anet::nn {
             return nullptr;
         }
         virtual bool IsConv2dVisualizable() const { return false; }
+        virtual bool HandlesStackAxis() const { return false; }
         virtual anet::ConfigData GetCurrentConfigData() const { return {}; }
         virtual void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const {}
         virtual std::vector<SpectralNormEntry> GetSpectralNormEntries() const { return {}; }

@@ -853,6 +853,7 @@ private:
 /// e.g. dims=[0, 2, 1] -> (Batch, Time, Feat) -> (Batch, Feat, Time)
 class PermuteModule : public NetworkModule {
 public:
+    bool HandlesStackAxis() const override { return true; }
     explicit PermuteModule(std::vector<int64_t> dims) : dims_(std::move(dims))
     {
     }
@@ -881,6 +882,7 @@ private:
 /// e.g. dims=[4, 8] -> (Batch, 32) -> (Batch, 4, 8)
 class ReshapeModule : public NetworkModule {
 public:
+    bool HandlesStackAxis() const override { return true; }
     explicit ReshapeModule(std::vector<int64_t> dims) : dims_(std::move(dims))
     {
     }
@@ -912,6 +914,7 @@ private:
 /// Flatten Module
 class FlattenModule : public NetworkModule {
 public:
+    bool HandlesStackAxis() const override { return true; }
     torch::Tensor forward(torch::Tensor x)
     {
         ANET_PROFILE_FUNC();
@@ -975,15 +978,14 @@ class StackMergeModule : public NetworkModule {
 public:
     StackMergeModule() {}
 
+    bool HandlesStackAxis() const override { return true; }
+
     torch::Tensor forward(torch::Tensor x)
     {
-        // 入力が5次元 [B, S, C, H, W] なら [B, S*C, H, W] に変換
-        if (x.dim() == 5) {
-            return x.view({ x.size(0), x.size(1) * x.size(2), x.size(3), x.size(4) }).contiguous();
+        if (x.dim() != 5) {
+            ANET_SYSTEM_ERROR("StackMerge got shape=" << x.sizes() << "; expected [B, S, C, H, W].");
         }
-
-        // 4次元ならそのまま通す
-        return x.contiguous();
+        return x.reshape({ x.size(0), x.size(1) * x.size(2), x.size(3), x.size(4) }).contiguous();
     }
 
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
@@ -2184,6 +2186,7 @@ struct HybridSpatialEmbedderConfig {
 
 class HybridSpatialEmbedderModule : public NetworkModule {
 public:
+    bool HandlesStackAxis() const override { return true; }
     HybridSpatialEmbedderModule(const HybridSpatialEmbedderConfig& config)
         : config_(config)
     {
@@ -2311,6 +2314,7 @@ struct SpatialEmbedderConfig {
 
 class SpatialEmbedderModule : public NetworkModule {
 public:
+    bool HandlesStackAxis() const override { return true; }
     SpatialEmbedderModule(const SpatialEmbedderConfig& config)
         : config_(config)
     {

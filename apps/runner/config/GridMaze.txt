@@ -104,8 +104,8 @@ A2.learner.use_rb_prefetch = true
 # デバッグ用
 # ==============================================================================
 
-#A2.stucker.stack_count = 4
-A2.stucker.stack_count = 1
+#A2.perception.block.[stack].count = 4
+A2.perception.block.[stack].count = 1
 
 A2.learner.use_per = true
 
@@ -150,8 +150,7 @@ GridMazeEnv.seed = 6545537233705677626  # 実験用seed
 
 DefaultDQNAgent.skip.max_length ?= 7
 
-#A1.stucker.use_stacker = true
-A1.stucker.stack_count = 1
+A1.perception.block.[stack].count = 1
 
 A1.use_optimistic_target = true         # Q値にactor.[train].policy（UQE）を反映させるならtrue
 

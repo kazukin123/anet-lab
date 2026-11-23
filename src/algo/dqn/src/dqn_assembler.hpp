@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <utility>
 #include "anet/random.hpp"
-#include "anet/stacker.hpp"
+#include "anet/forwarder.hpp"
 #include "anet/schedule.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/nn.hpp"
@@ -47,9 +47,9 @@ namespace anet::rl::dqn {
             const BatchEnvSpec& batch, const EnvSpec& env, const torch::Device& device,
             anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
-            std::shared_ptr<ObservationNormalizer> normalizer = nullptr,
+            std::shared_ptr<anet::Forwarder> sample_perception = nullptr,
             const LearnerForwardResources& forwards = {},
-            std::optional<StuckerConfig> stacker = std::nullopt,
+            std::optional<ReplayFrameStack> frame_stack = std::nullopt,
             std::optional<anet::seed_t> learner_seed = std::nullopt,
             std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe = nullptr,
             const std::string& log_suffix = "");
@@ -58,8 +58,7 @@ namespace anet::rl::dqn {
             const ActorRequest& request, NetworkModel& model,
             const std::shared_ptr<std::shared_mutex>& mutex, std::shared_ptr<ActionPolicy> policy,
             const anet::nn::NetworkForwardConfig& forward = anet::nn::NetworkForwardConfig::GetDefault(),
-            std::shared_ptr<ObservationNormalizer> normalizer = nullptr,
-            std::unique_ptr<FrameStacker> stacker = nullptr,
+            std::unique_ptr<anet::ForwardExecutor> perception = nullptr,
             bool emit_snapshot_metrics = false, ActorQHintConfig hint = {},
             std::optional<anet::ProfiledValueConfig<step_t>> sync_interval = std::nullopt,
             std::optional<SkipActorResources> skip = std::nullopt);

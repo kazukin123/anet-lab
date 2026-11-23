@@ -300,12 +300,6 @@ public:
     {
     }
 
-    std::shared_ptr<rl::BatchActionInfo> WithAction(torch::Tensor action) const override
-    {
-        return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
-    }
-
-
     std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
         if (key == "action_info_score") return score_;
@@ -318,8 +312,9 @@ private:
 
 class TestActor final : public rl::Actor {
 public:
-    explicit TestActor(int64_t num_envs, bool use_action_info_scalar = false, float action_info_score = 0.0f)
+    explicit TestActor(int64_t num_envs, int64_t num_actions, bool use_action_info_scalar = false, float action_info_score = 0.0f)
         : num_envs_(num_envs)
+        , num_actions_(num_actions)
         , use_action_info_scalar_(use_action_info_scalar)
         , action_info_score_(action_info_score)
     {
@@ -328,6 +323,7 @@ public:
     std::shared_ptr<rl::BatchActionInfo> MakeAction(const rl::StepCounts&, const rl::BatchState&, const anet::rl::MakeActionOptions& options = {}) const override
     {
         auto action = torch::zeros({ num_envs_ }, torch::kInt64);
+        if (options.forced_actions) action = options.forced_actions->Apply(action, num_actions_);
         if (use_action_info_scalar_) {
             return std::make_shared<TestActionInfo>(action, anet::TensorDict{}, rl::AuxData{}, action_info_score_);
         }
@@ -338,6 +334,7 @@ public:
 
 private:
     int64_t num_envs_ = 1;
+    int64_t num_actions_;
     bool use_action_info_scalar_ = false;
     float action_info_score_ = 0.0f;
 };
@@ -362,7 +359,8 @@ public:
     std::shared_ptr<rl::Actor> CreateActor(const rl::ActorRequest& request) const override
     {
         const auto& batch_env_spec = request.batch_env_spec;
-        return std::make_shared<TestActor>(batch_env_spec.num_envs, use_action_info_scalar_, action_info_score_);
+        return std::make_shared<TestActor>(batch_env_spec.num_envs,
+            request.env_spec.action_spec.GetNumActions(), use_action_info_scalar_, action_info_score_);
     }
 
     std::shared_ptr<rl::Learner> CreateLearner() override
@@ -552,7 +550,7 @@ TEST_CASE("EvalRunner forced action keeps derived action-info scalars", "[metric
 
     rl::StepCounts event_counts;
     // 行動の上書きと派生型のscalarが、環境と通知まで保持されることを確かめる。
-    runner->DoStep(1, event_counts);
+    runner->DoStep(event_counts, {.forced_actions = rl::ForcedActions::ByLane(0, 1)});
 
     REQUIRE(env->GetLastAction().defined());
     REQUIRE(torch::equal(env->GetLastAction(), torch::tensor({ 1 }, torch::TensorOptions().dtype(torch::kInt64))));

@@ -193,10 +193,9 @@ namespace anet::rl::dqn {
             ConfigFullKeyTable full_keys;
         };
 
-        struct StuckerConfig {
-            bool use_stacker = false;
-            int stack_count = 4;
-			std::vector<std::string> stack_keys; // obs内のどのキーをスタックするか。空なら全てスタック
+        struct ReplayFrameStack {
+            int count = 1;
+            std::vector<std::string> keys; ///< 空の一覧は全キーを重ねる。
         };
 
         struct MunchausenValues {

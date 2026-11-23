@@ -202,11 +202,6 @@ public:
     {
     }
 
-    std::shared_ptr<rl::BatchActionInfo> WithAction(torch::Tensor action) const override
-    {
-        return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
-    }
-
 
     std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {

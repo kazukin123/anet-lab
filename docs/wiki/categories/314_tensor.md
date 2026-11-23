@@ -6,6 +6,7 @@
 
 - device転送とframe stackを担い、sampleのTensorとCPUに残すmetadata、非同期転送の寿命を扱う。（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.2・§2.3）。
 - `LaneTimeTensorStore`は、lane一式のtensorを時間順に保持し、laneと時間を指定して読む。RNDのrolloutの補助学習に使う（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§3）。
+- `Forwarder` は TensorDict を受け渡す共通の口で、Network も実装する。DefaultDQN の Perception は同じ並びから行動選択・保存・Sample・可視化の変換を作り、各部品を通した spec を Network へ渡す（出典: [Forwarder と Perception](../../design/135_forwarder_and_perception.jp.md)、§2〜§4）。
 
 ## 成立の経緯
 
@@ -29,6 +30,7 @@
 - 2026-11-19: テンソル処理のファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
 - 2026-11-21: `ParseDevice`がキーの名前を必須で受け取り、文法の誤りの文面にそのキーと指定値を書くようにし、報酬スケーラ・観測の正規化・画像の記録のエラーとWARNが示す設定キーを完全キーにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D8・§6.3）。
 - 2026-11-22: RNDのpredictorの補助学習のrolloutをためるため、lane×時間のtensorをキーごとにためてlaneと時間の番号で読む汎用の置き場（`LaneTimeTensorStore`、機能グループ`tensor_store`）を足す仕様を決めた。フレーム積層の履歴とReplayの観測の置き場は載せ替えない（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.1 D2・D56・§8.4）。
+- 2026-11-23: Perception の FrameStack・Normalize・DropKeys を Forwarder の並びにまとめ、Frame の尺度と stack 軸を spec で表す。対象キーは 1 枚でも stack 軸を持つ（出典: [Forwarder と Perception](../../design/135_forwarder_and_perception.jp.md)、§2〜§4）。
 
 ## 選ばなかった形
 
@@ -47,7 +49,7 @@
 一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
 
 - H2DとLearner streamを安全につなぐeventのrecord/waitを維持し、性能改善のために消さない（出典: [RFD0020](../../memo/done/0020_device_transfer_common_part_10rfd.md)、Context / Problem Statement）。
-- 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [RFD0083](../../memo/done/0083_action_context_retire_10rfd.md)、Context・確定した設計判断2〜4・11）。
+- 観測加工の変更では、Actor と Sample の Perception を episode 境界でも一致させる。GridMaze・LunarLander・DropMerge・Atari の同 seed の学習 Run で scalar と trace を照合する（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、D34・D35・§9）。
 - 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md)、§4.1 D3・§8 1）。
 - 小さなリファクタリングとテストの追加の前後で、RFD0098の検証資材の短いRun（4環境、seed 1、決定的モード）を流し、時間と資源のtagを除く全scalarの点を一致させる（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D8・§6 A7）。
 - ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
@@ -64,6 +66,7 @@
 
 点検が作り直す。手で直さない。
 
+- [forwarder.hpp](../../../src/core/base/include/anet/forwarder.hpp)
 - [image.hpp](../../../src/core/base/include/anet/image.hpp)
 - [scaler.hpp](../../../src/core/base/include/anet/scaler.hpp)
 - [stacker.hpp](../../../src/core/base/include/anet/stacker.hpp)
@@ -71,6 +74,7 @@
 - [tensor_store.hpp](../../../src/core/base/include/anet/tensor_store.hpp)
 - [tensor_util.hpp](../../../src/core/base/include/anet/tensor_util.hpp)
 - [transfer.hpp](../../../src/core/base/include/anet/transfer.hpp)
+- [forwarder.cpp](../../../src/core/base/src/forwarder.cpp) / [forwarder_test.cpp](../../../src/core/base/src/forwarder_test.cpp)
 - [image.cpp](../../../src/core/base/src/image.cpp) / [image_test.cpp](../../../src/core/base/src/image_test.cpp)
 - [scaler_test.cpp](../../../src/core/base/src/scaler_test.cpp)
 - [scaler_impl.cpp](../../../src/core/base/src/scaler_impl.cpp) / [scaler_impl.hpp](../../../src/core/base/src/scaler_impl.hpp)
@@ -95,6 +99,7 @@
 - [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md) — RFD0122: 小さなリファクタリングとテストの空白をまとめて片づける
 - [RFD0127](../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md) — Evaluation Trace で RND の内的報酬を見る（統計を変えない採点と step 診断の鍵）RFD
 - [RFD0130](../../memo/0130_rnd_estimate_statistics_perf_10rfd.md) — RFD0130: RND の採点の統計の区間を軽くし、2 つの統計方式を型で分ける RFD
+- [RFD0161](../../memo/0161_observation_pipeline_10rfd.md) — 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 暫定 RFD
 - [RFD0182](../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）RFD
 - [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) — RFD0191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） RFD
 - [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
@@ -107,7 +112,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261103-aa5758](../../management/issues/issue-20261103-aa5758.md) | 調査中 | 2.0（引継ぎ） | — | コード | RFD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [RFD0161](../../memo/0161_observation_pipeline_10rfd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
 | [issue-20261103-9df5c5](../../management/issues/issue-20261103-9df5c5.md) | 未着手 | 2.7 | — | コード | RFD | 318_rl_core, 110_runner_app, 314_tensor | 学習基盤 | 不具合 | [RFD0146](../../memo/0146_notifier_scoped_detach_10rfd.md) | 残件有り | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す |
 | [issue-20261111-5f695d](../../management/issues/issue-20261111-5f695d.md) | 未着手 | 2.7 | — | コード | 監査 | 314_tensor | 基盤 | リファクタリング | — | 残件有り | 報酬の scaler と観測の normalizer で、clip と変換の同じ数行が 4〜6 か所にあり、clip が無効のときの扱いが既に食い違っている |
 | [issue-20261113-b96b2c](../../management/issues/issue-20261113-b96b2c.md) | 未着手 | 2.3 | — | コード | RFD | 324_dqn, 314_tensor | 学習基盤 | 機能改善 | — | 残件有り | 観測の正規化の統計が checkpoint に保存されず、統計を使う構成では checkpoint 引き継ぎのたびに 0 から始まる |
@@ -120,5 +124,5 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261122-4c0af5](../../management/issues/issue-20261122-4c0af5.md) | 未着手 | 0.8 | — | コード | RFD | 318_rl_core, 314_tensor, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | 観測をためる仕組み（フレーム積層の履歴、Replay の観測の置き場、補助学習の rollout の置き場）が別々に実装されていて、共通の置き場の部品へ載せ替えていない |
 | [issue-20261122-ba42c9](../../management/issues/issue-20261122-ba42c9.md) | 未着手 | 0.6 | — | コード | RFD | 321_agent_core, 314_tensor | 学習基盤 | 機能改善 | — | 残件有り | RND の観測の加工（byte を float に直す、自前の統計で正規化する）が、Q の側の Forwarder の並びと別に書かれている |
 
-着手できる 12 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 11 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

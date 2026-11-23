@@ -190,9 +190,11 @@ DefaultDQNAgent.@baseline : nn_viz.layout ?= LR  # TB LR
 DefaultDQNAgent.@baseline : nn_viz.cluster_branches ?= true
 DefaultDQNAgent.@baseline : nn_viz.float_precision ?= 3
 
-DefaultDQNAgent.@baseline.stucker.use_stacker ?= true
-DefaultDQNAgent.@baseline.stucker.stack_count ?= 4
-DefaultDQNAgent.@baseline.stucker.stack_keys ?=
+# 観測を重ね、尺度の正規化を適用する順序。
+DefaultDQNAgent.@baseline : perception.structure ?= stack > norm
+DefaultDQNAgent.@baseline : perception.block.[stack].type ?= FrameStack
+DefaultDQNAgent.@baseline : perception.block.[stack].count ?= 4
+DefaultDQNAgent.@baseline : perception.block.[stack].keys.mode ?= all
 
 # --- NN 実行設定 (値の意味は利用する計算部品が所有する) ---
 DefaultDQNAgent.@baseline : nn_forward.[act_sample].noisy.mode ?= sample
@@ -316,19 +318,21 @@ DefaultDQNAgent.@baseline : reward_scaler.epsilon ?= 1e-8
 DefaultDQNAgent.@baseline : reward_scaler.use_auto_post_scale ?= true   # gammaを使って自動設定するか
 DefaultDQNAgent.@baseline : reward_scaler.reference_q_std ?= 30.0       # 自動設定時のQ値分散目標スケール (推奨: 3.0～50.0)
 DefaultDQNAgent.@baseline : reward_scaler.manual_post_scale ?= 1.0      # use_auto_post_scale=true では使われない
-DefaultDQNAgent.@baseline.obs_norm.pass_through ?= true               # ★LunarLanderにおいては効果を確認出来ていない(逆に悪化)のでtrue
-#DefaultDQNAgent.@baseline.obs_norm.constant_mean ?= 0 0 0 0 0 0 0 0
-#DefaultDQNAgent.@baseline.obs_norm.constant_std ?= 1.273 1.275 1.39 2.0 1.814 4.365 1.013 1.016
-DefaultDQNAgent.@baseline.obs_norm.use_clipping ?= false
-DefaultDQNAgent.@baseline.obs_norm.clip_range ?= 10.0
-DefaultDQNAgent.@baseline.obs_norm.use_dynamic_scaling ?= true        #
-DefaultDQNAgent.@baseline.obs_norm.use_centering ?= false             # ★LunarLanderにおいては零点が意味を持つのでfalseのほうが良い
-DefaultDQNAgent.@baseline.obs_norm.epsilon ?= 1                       # 1 0.1 小さいとContractが異常値扱いで弾かれるので1.0推奨
-DefaultDQNAgent.@baseline.obs_norm.use_robust_update ?= true
-DefaultDQNAgent.@baseline.obs_norm.robust_warmup_count ?= 200
-DefaultDQNAgent.@baseline.obs_norm.robust_std_threshold ?= 5.0
-DefaultDQNAgent.@baseline.obs_norm.post_process_type ?= 1             # 0=none 1=SymLog 2=Tanh 3=Softsign
-DefaultDQNAgent.@baseline.obs_norm.post_process_threshold ?= 10.0
+DefaultDQNAgent.@baseline : perception.block.[norm].type ?= Normalize
+DefaultDQNAgent.@baseline : perception.block.[norm].mode ?= none
+#DefaultDQNAgent.@baseline : perception.block.[norm].constant.mean ?= 0 0 0 0 0 0 0 0
+#DefaultDQNAgent.@baseline : perception.block.[norm].constant.std ?= 1.273 1.275 1.39 2.0 1.814 4.365 1.013 1.016
+DefaultDQNAgent.@baseline : perception.block.[norm].constant.use_clipping ?= false
+DefaultDQNAgent.@baseline : perception.block.[norm].constant.clip_range ?= 10.0
+DefaultDQNAgent.@baseline : perception.block.[norm].running.use_clipping ?= false
+DefaultDQNAgent.@baseline : perception.block.[norm].running.clip_range ?= 10.0
+DefaultDQNAgent.@baseline : perception.block.[norm].running.use_centering ?= false  # LunarLander の零点を保つ
+DefaultDQNAgent.@baseline : perception.block.[norm].running.epsilon ?= 1
+DefaultDQNAgent.@baseline : perception.block.[norm].running.use_robust_update ?= true
+DefaultDQNAgent.@baseline : perception.block.[norm].running.robust_warmup_count ?= 200
+DefaultDQNAgent.@baseline : perception.block.[norm].running.robust_std_threshold ?= 5.0
+DefaultDQNAgent.@baseline : perception.block.[norm].running.post_process_type ?= 1  # 0=none 1=SymLog 2=Tanh 3=Softsign
+DefaultDQNAgent.@baseline : perception.block.[norm].running.post_process_threshold ?= 10.0
 DefaultDQNAgent.@baseline : head.use_dueling ?= true       #
 DefaultDQNAgent.@baseline : quantile_mode ?= qr            # none / qr / iqn
 DefaultDQNAgent.@baseline : qr.num_quantiles ?= 51         # QR-DQNの分位数 N

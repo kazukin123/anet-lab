@@ -30,6 +30,34 @@ std::vector<std::string> anet::Split(
     return result;
 }
 
+std::vector<std::string> anet::SplitPipelineString(const std::string& text)
+{
+    std::string normalized = text;
+    std::replace(normalized.begin(), normalized.end(), '>', ' ');
+
+    std::vector<std::string> tokens;
+    std::string token;
+    int paren_depth = 0;
+    for (char c : normalized) {
+        if (c == '(') {
+            ++paren_depth;
+        } else if (c == ')' && paren_depth > 0) {
+            --paren_depth;
+        }
+
+        if (std::isspace(static_cast<unsigned char>(c)) && paren_depth == 0) {
+            if (!token.empty()) {
+                tokens.push_back(token);
+                token.clear();
+            }
+        } else {
+            token += c;
+        }
+    }
+    if (!token.empty()) tokens.push_back(std::move(token));
+    return tokens;
+}
+
 std::string anet::ExtractBetween(const std::string& src, const char* prefix, const char* suffix)
 {
     if (!prefix || !suffix) return "";

@@ -90,6 +90,9 @@ namespace anet {
         Sequence    // 時間的な順序を持つ系列 (通常はTransformer/RNNで受ける)
     };
 
+    /// 観測の正規化で尺度をそろえる必要があるかを表す。
+    enum class ValueScale { Scaled, Unscaled };
+
     /// Tensorの仕様情報
     struct TensorSpec {
         /// 空間トポロジー
@@ -112,6 +115,12 @@ namespace anet {
 
         /// 最大値 (サイズ1なら全体適用(Broadcast)、要素数と同じなら要素別)
         std::vector<double> max_values;
+
+        /// 値の尺度が決まっているときは Scaled とする。
+        ValueScale scale = ValueScale::Scaled;
+
+        /// バッチ軸を除く形の先頭に stack 軸を持つ。
+        bool has_stack_axis = false;
 
         // --- ユーティリティメソッド ---
 

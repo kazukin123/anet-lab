@@ -124,7 +124,7 @@ std::shared_ptr<anet::rl::Actor> RainbowAgent::CreateActor(const ActorRequest& r
     auto policy = DqnComponentAssembler::CreateActionPolicy(cfg.policy, quantile_mode,
         cfg.policy.spatial.enabled, request.batch_env_spec.num_envs, request.device);
     return DqnComponentAssembler::CreateActor(cfg, config_.learner, request, *model_, mutex_, policy,
-        anet::nn::NetworkForwardConfig::GetDefault(), nullptr, nullptr, false,
+        anet::nn::NetworkForwardConfig::GetDefault(), nullptr, false,
         ActorQHintConfig{.munchausen = config_.learner.munchausen, .gamma = config_.learner.gamma});
 }
 

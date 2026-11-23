@@ -972,7 +972,7 @@ void QValuePanel::OnGridActionClick(wxGridEvent& event)
     if (action_handler_) {
         action_handler_(action);
     } else {
-        runner_->DoStep(action);
+        runner_->DoStep(anet::rl::MakeActionOptions{.forced_actions = anet::rl::ForcedActions::ByLane(0, action)});
     }
     grid_->ClearSelection();
 }

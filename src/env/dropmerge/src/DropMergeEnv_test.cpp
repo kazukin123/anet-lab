@@ -454,7 +454,7 @@ TEST_CASE("DropMergeEnv draws the selected DROP column marker", "[dropmerge][pre
     CHECK(GridObs(reset_again->state).eq(marker_class).sum().item<int64_t>() == 0);
 }
 
-TEST_CASE("DropMergeEnv previous action observations preserve the default state contract", "[dropmerge][prev_action][compat]")
+TEST_CASE("DropMergeEnv previous action observations preserve the default state contract", "[dropmerge][prev_action][compat][forwarder]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::rl::env::drop_merge::DropMergeEnvConfig default_config;
@@ -474,6 +474,8 @@ TEST_CASE("DropMergeEnv previous action observations preserve the default state 
 
     const auto default_spec = default_env->GetSpec();
     const auto enabled_spec = enabled_env->GetSpec();
+    CHECK(default_spec.state_spec.obs_spec.at(kVectorKey).scale == anet::ValueScale::Scaled);
+    CHECK(default_spec.state_spec.obs_spec.at(kGridKey).scale == anet::ValueScale::Scaled);
     CHECK(default_spec.state_spec.obs_spec.at(kVectorKey).shape == std::vector<int64_t>{ 4 });
     CHECK(enabled_spec.state_spec.obs_spec.at(kVectorKey).shape == std::vector<int64_t>{ 7 });
     CHECK(default_spec.state_spec.obs_spec.at(kGridKey).shape ==

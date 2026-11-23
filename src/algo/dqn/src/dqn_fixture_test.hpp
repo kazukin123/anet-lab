@@ -315,7 +315,7 @@ struct ActionPolicyAccess : public dqn::ActionPolicy {
     }
 
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict&, bool, const dqn::DqnForwardExecutor&,
-        std::shared_ptr<anet::RandomGenerator>, const anet::nn::NetworkForwardCallInfo&, anet::nn::NetworkForwardCapture*,
+        std::shared_ptr<anet::RandomGenerator>, const anet::nn::NetworkForwardCallInfo&, anet::ForwardCapture*,
         const dqn::DiagnosticActionEvaluation*, const torch::Tensor&) const override
     {
         return std::make_shared<dqn::DQNActionInfo>();
@@ -737,7 +737,9 @@ rl::EnvSpec MakeLearnerEnvSpec()
 anet::nn::NetworkConfig MakeAgentForwardNetworkConfig()
 {
     anet::nn::NetworkConfig config;
-    config.output_keys[anet::nn::kKey_DefaultOutput] = kVectorKey;
+    config.block_configs["Flatten"].type = "Flatten";
+    config.branches["main"] = {.name = "main", .bind_terms = {{kVectorKey}}, .structure_str = "Flatten"};
+    config.output_keys[anet::nn::kKey_DefaultOutput] = "main";
     return config;
 }
 
@@ -761,8 +763,8 @@ anet::ConfigData MakeIqnTracerConfigData()
     anet::ConfigData config_data;
     config_data.Set("DefaultDQNAgent.quantile_mode", "iqn");
     config_data.Set("DefaultDQNAgent.head.use_dueling", false);
-    config_data.Set("DefaultDQNAgent.stucker.use_stacker", false);
-    config_data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+
+
     config_data.Set("DefaultDQNAgent.actor.[train].policy.epsilon", 0.0f);
     config_data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.start", 0.0f);
     config_data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.end", 0.0f);
@@ -776,7 +778,9 @@ anet::ConfigData MakeIqnTracerConfigData()
     config_data.Set("net.block.[CosEmb].cos.num_basis", 4);
     config_data.Set("net.block.[TauProj].type", "Linear");
     config_data.Set("net.block.[TauProj].linear.out_features", 4);
+    config_data.Set("net.block.[Flatten].type", "Flatten");
     config_data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
+    config_data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten");
     config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].bind", anet::rl::dqn::kKey_Taus);
     config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].structure", "CosEmb > TauProj");
     config_data.Set("DefaultDQNAgent.net.branch.[fusion].bind", "main * tau_embedding");
@@ -795,9 +799,10 @@ anet::ConfigData MakeNativeStackConfigData()
     anet::ConfigData config_data;
     config_data.Set("DefaultDQNAgent.quantile_mode", "none");
     config_data.Set("DefaultDQNAgent.head.use_dueling", false);
-    config_data.Set("DefaultDQNAgent.stucker.use_stacker", true);
-    config_data.Set("DefaultDQNAgent.stucker.stack_count", 4);
-    config_data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+    config_data.Set("DefaultDQNAgent.perception.structure", "stack");
+    config_data.Set("DefaultDQNAgent.perception.block.[stack].type", "FrameStack");
+    config_data.Set("DefaultDQNAgent.perception.block.[stack].count", 4);
+
     config_data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
     config_data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
     config_data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
@@ -853,8 +858,8 @@ dqn::DefaultDQNAgentConfig MakeDeviceForwardDefaultDqnConfig()
     dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(data));
     config.quantile_mode = "none";
     config.head.use_dueling = false;
-    config.stucker.use_stacker = false;
-    config.obs_norm.pass_through = true;
+
+
     config.learner.replay_capacity = 16;
     config.learner.replay_batch_size = 2;
     config.learner.use_fused_optimizer = false;
@@ -1691,7 +1696,7 @@ anet::ConfigData MakeRfd0104ConfigData()
     auto data = MakeDeviceForwardDefaultDqnConfig().GetScopedConfigData();
     data.Set("DefaultDQNAgent.quantile_mode", "none");
     data.Set("DefaultDQNAgent.head.use_dueling", false);
-    data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+
     data.Set("DefaultDQNAgent.skip.enabled", true);
     data.Set("DefaultDQNAgent.skip.max_length", 3);
     data.Set("DefaultDQNAgent.skip.net.branch.[skip_feature].bind", "features");
@@ -1737,7 +1742,7 @@ public:
         : ActionPolicy(dqn::ActionPolicyConfig{}), features_(std::move(features)) {}
     std::shared_ptr<dqn::DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool,
         const dqn::DqnForwardExecutor&, std::shared_ptr<anet::RandomGenerator>,
-        const anet::nn::NetworkForwardCallInfo&, anet::nn::NetworkForwardCapture*,
+        const anet::nn::NetworkForwardCallInfo&, anet::ForwardCapture*,
         const dqn::DiagnosticActionEvaluation*, const torch::Tensor&) const override
     {
         auto result = std::make_shared<dqn::DQNActionInfo>(torch::zeros({obs.Size(0)}, torch::kLong));
@@ -1899,7 +1904,6 @@ rl::ScalarMetricSubscription AttentionSubscription(int64_t layer, int interval =
 std::shared_ptr<rl::BatchActionInfo> MakeDiagnosticActionInfo(torch::Tensor action, anet::TensorDict info,
     rl::AuxData aux, const dqn::LearnerConfig& config, std::optional<rl::ReplayInitialPriorityHint> hint = std::nullopt)
 {
-    if (hint) aux["munchausen_terms"] = torch::zeros_like(aux.at("q_values"));
     auto result = std::make_shared<dqn::DQNActionInfo>(std::move(action), std::move(info), std::move(aux), std::move(hint));
     result->effective_gamma = anet::ProfiledValue<float>(config.gamma).Evaluate(0);
     result->munchausen_alpha = anet::ProfiledValue<float>(config.munchausen.alpha).Evaluate(0);

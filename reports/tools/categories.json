@@ -31,7 +31,7 @@
     {"key": "322_env_individual", "label": "322 ENV個別実装", "topic": 18, "match": ["^src/env/[^/]+/src/(?!.*View)", "^src/env/[^/]+/include/anet/env/[^/]+\\.hpp$"]},
     {"key": "319_gui", "label": "319 GUI 共通基盤", "topic": 15, "test_target": false, "match": ["View\\.(cpp|hpp)$", "/gui\\.(cpp|hpp)$"]},
     {"key": "315_nn", "label": "315 ニューラルネットワーク", "topic": 11, "match": ["/(nn|nn_impl|nn_modules|nn_head|nn_heads|nn_util)\\.(cpp|hpp)$"]},
-    {"key": "314_tensor", "label": "314 テンソル処理", "topic": 10, "match": ["/(tensor_util|tensor_check|tensor_store|transfer|stacker|scaler|scaler_impl|image)\\.(cpp|hpp)$"]},
+    {"key": "314_tensor", "label": "314 テンソル処理", "topic": 10, "match": ["/(tensor_util|tensor_check|tensor_store|transfer|stacker|scaler|scaler_impl|forwarder|image)\\.(cpp|hpp)$"]},
     {"key": "316_config", "label": "316 設定管理", "topic": 12, "match": ["/(config|config_impl|config_baseline|config_inventory)\\.(cpp|hpp)$"]},
     {"key": "317_metrics", "label": "317 可視化/メトリクス", "topic": 13, "match": ["/(metrics|metrics_impl|metrics_logger|metrics_logger_impl|heat_map|graphviz|probe)\\.(cpp|hpp)$"]},
     {"key": "318_rl_core", "label": "318 強化学習 共通基盤", "topic": 14, "match": ["/(rl|trainer|replay_buffer|replay_buffer_impl|replay_experience|muzero_rb|serialize|observers|episode_end)\\.(cpp|hpp)$"]},

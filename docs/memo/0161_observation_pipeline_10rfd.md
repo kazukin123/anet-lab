@@ -11,6 +11,8 @@
 > 改訂: 2026-10-23。098のReplay窓との接続条件を補足。強制したstep自体を判断として記録する。
 > 改訂: 2026-10-26。PRD098から参照する既存ドラフトとして同梱対象を明示した。入力側の利用者に関する未同梱の検討メモは名称で区別し、その設計や本ドラフトの未決は確定事項として採用していない。§3のNG4・NG5・NG9へ今回扱わない理由を補った。
 > 改訂: 2026-11-21。グリルを行って（2026-11-20〜21）暫定の印を外し、本文を全面的に書き直した。旧ドラフトの §4 の提案と §9 の Q1〜Q11 は、確定事項（§6 の D1〜D45）・未決表（§12）・クラス一覧（§7.1）へ振り分けた（振り分けは §14）。起草のあとに別モデル（Opus）の検討を受け（2026-11-21〜22）、事実の訂正と、決定から導ける補いを入れた（D8・D13・D18・D27・D32・D39、P122〜P130）。検討の問いへの答えで、共通の口を `Forward` だけにして spec の変換を拡張の口へ分け（D20・D22）、並びへの依頼を「何を渡して、何が欲しいか」で名付け、統計の更新を伴う Frame の依頼を足した（D26・D40）。並びと枚数を書かない設定はエラーにせず、1 枚の `FrameStack` だけの並びとして組む（D27・D30）。等価性の Run に DropMerge と Atari を足し（D35）、並びの図（dot）を足し（D41）、aux の `raw_obs`・`norm_obs` を消す（D42）。主な変更は次のとおり。観測加工の仕組みを、設定で書く「Forwarder の並び」にした。設定キー `stucker.*`・`obs_norm.*` を `perception.block.*` へ移す（旧 NG7 を外した）。stack の対象のキーは 1 枚でも stack 軸を持つ（旧 §4.4 の「1 枚は軸なし」を改めた）。素通しでない正規化は stack 軸へ広げて当てる（旧 §4.5 の構築時のエラーを外した）。`TensorSpec` に属性を 2 つ足し、Network も Forwarder の口を実装する。強制行動は `MakeActionOptions` の欄にする（旧 §4.6 の 3 つ目の引数を改めた）。レビュー（2026-11-22）の指摘で、次を直した。開発者が選んだものは、正規化の設定キーを `mode` とモードの名前空間に分けること（D43）と、新しいクラスを機能グループ `forwarder` の 1 つに置くこと（D45）である。そのほか、stack の対象のキーを `keys.mode` で選ぶ形にし（D44）、spec を通す口を `ForwardSpec` に改名し、`Scaled` の定義（D17）、Forwarder が持てる値（D20）、Actor から運ぶもの（D2、§7.4）、`ByMask` の検査（D10）、並びの読み方と検査の表（§7.6）、等価性の比べ方と受入 5・16・21・23・29・32（§9）、クラス一覧の置き場（§7.1）を書き直し、受入 34 と、前提 P131〜P139 を足した。再レビュー（同日）の指摘で、stack の対象のキーのスコープの名前を `keys` にし（開発者の選択。D44）、並びの入力に stack 軸を持つキーがある場合と、正規化の対象のキーが無い場合の扱い（D27・D40）、定数の要素数の照合（§7.6 の 8）、等価性の確かめの出力の取り方と Run を伸ばす上限（§9）を足した。3 回目のレビューの指摘で、並びの入力の spec にキーが無い構成の扱い（§7.6 の 6）、定数の一覧の空と要素数の扱い（§7.5、§7.6 の 8）、受入 34 の比べ方の手順と、前提 P140 を足した。レビューが OK になったあと、先送りしたものを課題に記録して、§15 の行を課題の ID に置き換えた。この行より前の引用行にある節番号は、旧ドラフトのものを指す。
+> 改訂: 2026-11-23。実装中の確認を受け、学習 Run の等価性の比較条件を改めた。LunarLander・DropMerge・Atari では、比較する両方の Run に決定的なバックエンドを指定する（G2、P141、D35、§9）。Atari は Q*bert の学習 Run で比べるとした（D35、§9、U4）。
+> 改訂: 2026-11-23。開発者の指示により、GridMaze を含めた全環境で、比較する両方の Run に決定的なバックエンドを明示する（D35、§9）。
 > 基準コード: 2026-11-21 の main（`94182c99`）。実装の入口で、§1 と §4 の行番号をシンボル名で引き直す。
 > 関連: [ADR 0083](../adr/0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)、[ADR 0084](../adr/0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product.md)、[ADR 0085](../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、[ADR 0086](../adr/0086-perception-stack-target-keys-always-carry-stack-axis.md)、[ADR 0072](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)、[ADR 0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)、[ADR 0055](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)、[130 §2.2](../design/130_neural_networks.jp.md)、[150 §2.3](../design/150_replay_buffer.jp.md)、[200](../design/200_dqn_agents.jp.md)、[CONTEXT.md](../../CONTEXT.md)。
 
@@ -71,7 +73,7 @@ a と b は本 RFD が直す。c と d は直さない（§2 の NG2）。
 **ゴール**
 
 - **G1**: 観測の加工の定義（どのキーを重ねるか、形がどう変わるか、何で正規化するか）を 1 つの仕組みが持ち、spec・行動選択・Sample・可視化がそこから導かれる。
-- **G2**: 出荷設定（新しい設定キーへ移したもの）で、学習の挙動が変わらない（同 seed の Run の metrics が一致する。比べ方は §9）。
+- **G2**: 出荷設定（新しい設定キーへ移したもの）を使い、学習の挙動が変わらないことを確かめる（同 seed の Run の metrics が一致する。比較時のバックエンドの指定は §9）。
 - **G3**: 行動選択・可視化・Sample・Network の入力 spec の形が、枚数 1 を含む全設定で一致する。
 - **G4**: 成り立たない設定（観測に無いキー名、並びの誤り、知らない部品の種類）は構築時に止まる。
 - **G5**: 強制行動が `MakeAction` の入力になり、「Actor の出力 = 実行された行動」が不変条件になる。
@@ -121,7 +123,7 @@ a と b は本 RFD が直す。c と d は直さない（§2 の NG2）。
 
 ## 4. 前提
 
-種類は、事実・用語・既存部品の働き・過去の判断・守る線。P1〜P14 はゴールの合意のときに示した共通の前提、P15 以降は問いに添えた前提、P112 以降は起草で足した前提、P122 以降は別モデルの検討（2026-11-21）で足した前提、P131 以降はレビューの指摘への直し（2026-11-22）で足した前提である。P66 は欠番。
+種類は、事実・用語・既存部品の働き・過去の判断・守る線。P1〜P14 はゴールの合意のときに示した共通の前提、P15 以降は問いに添えた前提、P112 以降は起草で足した前提、P122 以降は別モデルの検討（2026-11-21）で足した前提、P131〜P140 はレビューの指摘への直し（2026-11-22）で、P141 は実装中の確認（2026-11-23）で足した前提である。P66 は欠番。
 
 | # | 種類 | 内容 | 出典 | 確かめ |
 |---|---|---|---|---|
@@ -264,6 +266,7 @@ a と b は本 RFD が直す。c と d は直さない（§2 の NG2）。
 | P138 | 事実 | 公開のプロジェクトは、基底と部品のファイルを分けている。PyTorch の `torch/nn/modules/` は `module.py`・`container.py` と個々の module、TorchRL の `torchrl/envs/transforms/` は `_base.py` と種類ごとのファイル、Gymnasium の `gymnasium/wrappers/` は種類ごとのファイルである | GitHub のファイルの一覧（3 つとも 2026-11-22 に確認。見たのはファイル名で、中身の分担は見ていない） | 対象外 |
 | P139 | 既存部品の働き | 今の観測の正規化は、float の dtype で、離散でないキーにだけ部品を作る。部品が 1 つも無いと、メトリクスの鍵は値を返さない。素通しの部品は `count` などに NaN を返し、全部が NaN のとき、集計は 0 を返す。ReplayBuffer は、重ねるキーの一覧が空のとき、全キーを重ねる | [scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp) 311〜319・687〜710・756〜763 行、[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) 706〜711 行（2026-11-22 の main の行番号） | 対象外 |
 | P140 | 既存部品の働き | 観測の spec の検査（`StateSpec::AssertSanity`）は、キーが 1 つも無い spec を拒否しない。設定に書いた空の一覧は、空の一覧として読まれる（基準の設定が `stucker.stack_keys ?=` と書き、Agent は、それを空の一覧として扱っている）。定数の正規化の部品は、空の一覧を、平均 0・標準偏差 1 として組み、空でない一覧は、キーの形に並べ直す（要素数が合わないと、構築で失敗する）。統計つきの部品は、入力の次元の数が「batch ＋ 1 Frame 分の形」と違うと止まる | [rl.cpp](../../src/core/base/src/rl.cpp) 74〜95 行、[agent.txt](../../apps/runner/config/agent.txt) 195 行、[scaler_impl.cpp](../../src/core/base/src/scaler_impl.cpp) 236〜254・361〜372 行（2026-11-22 の main の行番号） | 対象外 |
+| P141 | 事実 | LunarLander の出荷時のバックエンドでは、同じ実行体を同じ seed で繰り返しても学習リターンが一致しなかった。決定的なバックエンドを変更前後に指定した比較では、§9 の比較対象のメトリクスがすべて一致した | 段階 A の [実装記録](0161_observation_pipeline_20impl.md#経過)（2026-11-23） | 済み |
 
 ## 5. issue の対応表
 
@@ -343,7 +346,7 @@ a と b は本 RFD が直す。c と d は直さない（§2 の NG2）。
 
 | # | 決定 | 理由 | 依存 |
 |---|---|---|---|
-| D35 | 等価性は、段階 A・C・B のそれぞれの前後で、LunarLander と GridMaze の同 seed の短い Run の metrics が一致することで確かめる。段階 C と B では、DropMerge と Atari の短い Run も 1 本ずつ足す。checkpoint の raw checksum は合否に使わない | 重ねる → 転送 → 正規化の並びと、乱数の消費順を変えない線。LunarLander は 4 枚、GridMaze は 1 枚で、形が変わる側を含む。DropMerge と Atari は、離散の Grid、Embedder、`StackMerge`、byte の画像の経路を通る。段階 A は強制行動で、題材によらない | P11、P98 |
+| D35 | 等価性は、段階 A・C・B のそれぞれの前後で、LunarLander と GridMaze の同 seed の短い Run の metrics が一致することで確かめる。段階 C と B では、DropMerge の学習 Run と、Atari の Q*bert の学習 Run も 1 本ずつ足す。全環境の比較で前後とも決定的なバックエンドを指定する（§9）。Atari は学習 Run で確かめる（U4）。checkpoint の raw checksum は合否に使わない | 重ねる → 転送 → 正規化の並びと、乱数の消費順を変えない線。LunarLander は 4 枚、GridMaze は 1 枚で、形が変わる側を含む。DropMerge と Atari は、離散の Grid、Embedder、`StackMerge`、byte の画像の経路を通る。段階 A は強制行動で、題材によらない。LunarLander の出荷時のバックエンドでは、同じ実行体を同じ seed で繰り返しても学習リターンが変わった。開発者の指示により、比較時の条件を全環境でそろえる | P11、P98、P141 |
 | D36 | テストのタグは `[forced_action]`・`[forwarder]`・`[perception]` とする | 今ある `[forced_action]` に合わせる | — |
 | D37 | ADR を 4 本起こす（ADR 0083〜0086）。設計文書を 1 本新設し（Forwarder と Perception の仕組み）、130 の §2.2 と 200 は書き直す | 決定の単位ごとに 1 本。新しい仕組みには設計文書を新設する | — |
 | D38 | ほかの RFD との順序は §7.11 のとおりにする。RFD0192・RFD0190 は実装済みで、本 RFD はその上に書く。RFD0191 が先に入り、本 RFD は RND の観測加工に触れない | RFD0192 と RFD0190 は実装が済んでいる。開発者が、次に進めるのは RFD0191 だと述べた。同じ箇所に触れる未実装の RFD ごとに、どちらが先でも成り立つ扱いを決めておく | P80、P117、P120 |
@@ -812,7 +815,9 @@ S11: "raw_obs"
 S12: "norm_obs"
 ```
 
-**等価性の比べ方**（受入 10・17・30）: 段階の直前の HEAD の exe と、段階のあとの exe で、同じ設定・同じ seed の Run を 1 本ずつ流す。対象は、出荷の設定ファイルを、`run.$` の行もほかの行も書き換えずに流した Run である。LunarLander（[LunarLander.txt](../../apps/runner/config/LunarLander.txt)。4 枚）と GridMaze（[GridMaze.txt](../../apps/runner/config/GridMaze.txt)。1 枚）の 2 本を流し、段階 C と B（受入 17・30）では、DropMerge（[DropMerge.txt](../../apps/runner/config/DropMerge.txt)）と Atari（[Atari.txt](../../apps/runner/config/Atari.txt)）も 1 本ずつ足す。どの Run プロファイルとゲームで動くかは、設定ファイルが決める（2026-11-22 の時点で、LunarLander は `run.@munch > run.@skip`、Atari は 164 行の並びで、GridMaze と DropMerge は有効な `run.$` の行が無く、ファイルの本体の値で動く。P133）。段階 B のあとの Run は、新しい設定キーへ移した同じファイルを使う。実装計画に、Run ごとに解決された `run.$` と Atari のゲームを、Run の設定の写しから書く。Atari の Run の時間が重いときは、未決表 U4 による。長さは、learn の step が 1,000 に達するまでとする（そのための exp の step 数は実装計画に書く）。
+**等価性の比べ方**（受入 10・17・30）: 段階の直前の HEAD の exe と、段階のあとの exe で、同じ設定・同じ seed の Run を 1 本ずつ流す。対象は、出荷の設定ファイルを、`run.$` の行もほかの行も書き換えずに流した Run である。LunarLander（[LunarLander.txt](../../apps/runner/config/LunarLander.txt)。4 枚）と GridMaze（[GridMaze.txt](../../apps/runner/config/GridMaze.txt)。1 枚）の 2 本を流し、段階 C と B（受入 17・30）では、DropMerge（[DropMerge.txt](../../apps/runner/config/DropMerge.txt)）と Atari（[Atari.txt](../../apps/runner/config/Atari.txt)）も 1 本ずつ足す。どの Run プロファイルで動くかは、設定ファイルが決める（2026-11-22 の時点で、LunarLander は `run.@munch > run.@skip`、Atari は 164 行の並びで、GridMaze と DropMerge は有効な `run.$` の行が無く、ファイルの本体の値で動く。P133）。段階 B のあとの Run は、新しい設定キーへ移した同じファイルを使う。実装計画に、Run ごとに解決された `run.$` と Atari のゲームを、Run の設定の写しから書く。長さは、learn の step が 1,000 に達するまでとする（そのための exp の step 数は実装計画に書く）。
+
+全環境で、変更前後の両方の起動時に `backend.$=backend.@deterministic` を指定する。Atari では前後の起動時に `E1.game=qbert` も指定し、実効設定の `AtariEnv.game` が `qbert` であることを確かめる。出荷ファイルと Run プロファイルを使い、比較のための指定は起動時に渡す。実装計画に、Run ごとに `backend.deterministic_algorithms` と `backend.cudnn_deterministic` の実効値を書く。
 
 合否は、道具（`src/core/base/testdata/rfd0097/compare_metrics.py`）の出力で決める。次の 2 つをどちらも満たせば一致、どちらかを満たさなければ不一致とする。
 
@@ -845,7 +850,7 @@ S1 は括弧までを含める（`replay_buffer_test.cpp` の `PushTimeWithActio
 | U1 | Frame にキーを足す部品で、行動選択側と Sample 側の Perception が往復で一致するか（P36） | RFD0142 が、受入 22 と同じテストに自分の部品を載せる | 一致すれば、そのまま。一致しなければ、部品の依頼ごとの作り方だけを直し、4 つの口（§7.4）は変えない |
 | U2 | 段階 B で、GridMaze の checksum が一致するか（Network の入力 spec の形が `[2]` から `[1,2]` に変わる） | 受入 30 | 一致すれば、そのまま。一致しなければ、原因を調べて、実装を止めて開発者に示す（形の変更に伴う初期化や乱数の順の変化なら、受入の扱いを開発者が決める） |
 | U3 | 出荷設定に、stack 軸つきのまま、宣言の無い module へ通す Network の定義が、DropMerge の Embedder のほかにあるか（Embedder の 2 種は、軸を自分で扱うので宣言に入れた。D32、P126） | 実装の入口で、出荷設定を組んで WARN を数える（§7.9） | 無ければ、そのまま。あれば、その module が軸を自分で扱っているなら宣言を足し、扱っていないなら、定義の先頭に module を足すかを開発者に聞く |
-| U4 | Atari の等価性の Run（learn の step が 1,000 に達するまで）に、どれだけ時間がかかるか | 実装の入口で、段階 C の前の基準の Run を 1 本流して、実時間を測る | 測った時間を開発者に示して、Run のままにするかの判断を受ける。Run をやめる場合は、Atari の出荷設定の構成で Agent を組み、固定の入力の forward の出力を、段階の前後で比べるテストに替える |
+| U4 | Atari の等価性の Run（learn の step が 1,000 に達するまで）に、どれだけ時間がかかるか | 実装の入口で Q*bert の基準 Run を流した。1,000 学習 step で 163.94 秒だった（[実装記録](0161_observation_pipeline_20impl.md#経過)） | 開発者は Q*bert の学習 Run を維持すると決めた。起動時の指定は §9 による |
 
 ## 13. グリルの材料
 

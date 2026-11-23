@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <utility>
 #include "anet/random.hpp"
-#include "anet/stacker.hpp"
+#include "anet/forwarder.hpp"
 #include "anet/schedule.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/nn.hpp"
@@ -67,13 +67,15 @@ namespace anet::rl::dqn {
         float munchausen_entropy_tau = std::numeric_limits<float>::quiet_NaN();
 
         std::shared_ptr<anet::rl::BatchActionInfo> To(torch::Device device) const override;
-        std::shared_ptr<anet::rl::BatchActionInfo> WithAction(torch::Tensor action) const override;
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         void SetTrainActorSnapshotMetrics(TrainActorSnapshotMetrics metrics)
         {
             train_actor_snapshot_metrics_ = metrics;
         }
     private:
+        friend class Actor;
+        void ApplyForcedActions(const anet::rl::ForcedActions& forced_actions);
+
         std::optional<TrainActorSnapshotMetrics> train_actor_snapshot_metrics_;
         mutable torch::Tensor iqn_policy_diagnostics_cpu_;
         mutable torch::Tensor quantile_tail_diagnostics_cpu_;
@@ -110,7 +112,7 @@ namespace anet::rl::dqn {
 
         virtual std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
-            anet::nn::NetworkForwardCapture* capture = nullptr,
+            anet::ForwardCapture* capture = nullptr,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const = 0;
         virtual void UpdateSchedule(const StepCounts& counts) { }
         virtual std::optional<RiskScoreSpec> GetRiskScoreSpec() const { return std::nullopt; }
@@ -127,10 +129,10 @@ namespace anet::rl::dqn {
         const ActionPolicyConfig& GetConfig() const { return config_; }
         virtual ~ActionPolicy() = default;
     protected:
-        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const;
+        anet::TensorDict ForwardForAction(const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture) const;
         anet::TensorDict ForwardForActionWithTaus(
             const anet::TensorDict& obs, const torch::Tensor& taus,
-            const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+            const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
             const torch::Tensor& additional_taus = {}) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
         torch::Tensor MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, const torch::Tensor& epsilon_tensor, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const;
@@ -164,7 +166,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
-            anet::nn::NetworkForwardCapture* capture,
+            anet::ForwardCapture* capture,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const override;
         void UpdateSchedule(const StepCounts& counts) override;
     };
@@ -178,7 +180,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
-            anet::nn::NetworkForwardCapture* capture,
+            anet::ForwardCapture* capture,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const override;
         void UpdateSchedule(const StepCounts& counts) override;
         torch::Tensor MakeActionScores(const torch::Tensor& q, const torch::Tensor& distribution,
@@ -195,7 +197,7 @@ namespace anet::rl::dqn {
         }
     protected:
         std::shared_ptr<DQNActionInfo> MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs, bool greedy_only,
-            const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+            const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
             bool iqn_use_full_range = false, const DiagnosticActionEvaluation* evaluation = nullptr,
             const torch::Tensor& additional_taus = {}) const;
         void UpdateTau(step_t step);
@@ -214,7 +216,7 @@ namespace anet::rl::dqn {
 
         std::shared_ptr<DQNActionInfo> SelectAction(const anet::TensorDict& obs, bool greedy_only,
             const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info,
-            anet::nn::NetworkForwardCapture* capture,
+            anet::ForwardCapture* capture,
             const DiagnosticActionEvaluation* evaluation = nullptr, const torch::Tensor& additional_taus = {}) const override;
         void UpdateSchedule(const StepCounts& counts) override;
     };
@@ -241,12 +243,7 @@ namespace anet::rl::dqn {
         bool extrinsic_bootstrap = false;
     };
 
-    struct ActorQHintData {
-        torch::Tensor payload;
-        torch::Tensor munchausen_terms;
-    };
-
-    ActorQHintData MakeActorQHint(const torch::Tensor& q_values,
+    torch::Tensor MakeActorQHint(const torch::Tensor& q_values,
         const torch::Tensor& action, const ActorQHintValues& config);
 
     struct SkipActorResources {
@@ -266,8 +263,7 @@ namespace anet::rl::dqn {
     class Actor : public anet::rl::Actor, public anet::RandomHolder {
     public:
         Actor(std::shared_ptr<ActionPolicy> policy,
-            std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm,
-            std::unique_ptr<FrameStacker> stacker,
+            std::unique_ptr<anet::ForwardExecutor> perception,
             torch::Device device,
             std::optional<seed_t> seed,
             std::shared_ptr<std::shared_mutex> mutex,
@@ -289,11 +285,11 @@ namespace anet::rl::dqn {
         void UpdateSnapshot(const StepCounts& step) const;
         std::shared_ptr<DQNActionInfo> ApplySkip(std::shared_ptr<DQNActionInfo> proposal,
             const anet::TensorDict& obs, const torch::Tensor& episode_start,
-            const anet::nn::NetworkForwardCallInfo& info, int64_t dedicated_tau_count) const;
+            const anet::nn::NetworkForwardCallInfo& info, int64_t dedicated_tau_count,
+            const std::optional<anet::rl::ForcedActions>& forced_actions) const;
     private:
         std::shared_ptr<ActionPolicy> policy_;
-        std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_;
-        std::unique_ptr<FrameStacker> stacker_;
+        std::unique_ptr<anet::ForwardExecutor> perception_;
         torch::Device device_;
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;

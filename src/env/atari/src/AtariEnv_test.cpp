@@ -548,7 +548,7 @@ TEST_CASE("Atari display_screen warns once across ALE instances using a dummy di
         {"AtariEnv.display_screen=true", "unsupported with worker threads"}));
 }
 
-TEST_CASE("AtariEnv exposes Pong spec and reset observation through the public Env seam", "[atari][rom]")
+TEST_CASE("AtariEnv exposes Pong spec and reset observation through the public Env seam", "[atari][rom][forwarder]")
 {
     const auto rom = FindRom("pong");
     if (!rom.has_value()) {
@@ -571,6 +571,7 @@ TEST_CASE("AtariEnv exposes Pong spec and reset observation through the public E
     const auto& grid_spec = spec.state_spec.obs_spec.at(anet::rl::ObsKeys::kGrid);
     CHECK(grid_spec.shape == std::vector<int64_t>{ 1, 84, 84 });
     CHECK(grid_spec.dtype == torch::kUInt8);
+    CHECK(grid_spec.scale == anet::ValueScale::Scaled);
 
     const auto reset = env->Reset();
     CHECK(reset->state.episode_start);

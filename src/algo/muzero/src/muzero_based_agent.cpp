@@ -755,11 +755,6 @@ public:
         return cloned;
     }
 
-    std::shared_ptr<BatchActionInfo> WithAction(torch::Tensor action) const override
-    {
-        return std::make_shared<MuZeroActionInfo>(std::move(action), info_, aux_, mcts_trees_);
-    }
-
     std::unique_ptr<anet::graphviz::GraphViz> CreateGraph(const std::string& key, int64_t index) const override
     {
         if (key != "mcts_tree" || mcts_trees_.empty()) return nullptr;
@@ -909,6 +904,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> MuZeroActor::MakeAction(const anet::r
         out_target_policies[b] = torch::tensor(target_policy, torch::dtype(torch::kFloat32));
         out_root_values[b] = root->value;
     }
+
+    if (options.forced_actions) out_actions = options.forced_actions->Apply(out_actions, num_actions_);
 
     // 学習に必要な MCTSの結果(ターゲット) を info ディクショナリに格納
     // これらは ReplayBuffer に保存され、Learner で Loss の計算に使われる

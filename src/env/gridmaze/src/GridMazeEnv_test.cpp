@@ -22,7 +22,7 @@
 #include "anet/trainer.hpp"
 #include "anet/test/util.hpp"
 
-TEST_CASE("GridMaze Step statistics survive automatic reset and later transitions", "[gridmaze][rfd0097_gridmaze]")
+TEST_CASE("GridMaze Step statistics survive automatic reset and later transitions", "[gridmaze][rfd0097_gridmaze][forwarder]")
 {
     const int outcome = GENERATE(0, 1, 2);
     const bool goal = outcome == 1;
@@ -41,6 +41,12 @@ TEST_CASE("GridMaze Step statistics survive automatic reset and later transition
     anet::rl::VectorizedDiscreteBatchEnv env(data,
         std::make_shared<anet::rl::env::GridMazeEnvFactory>(), "gridmaze-notification-reset", 1,
         torch::Device(torch::kCPU), 1);
+    const auto spec = env.GetSpec();
+    REQUIRE_FALSE(spec.state_spec.obs_spec.empty());
+    for (const auto& [key, observation] : spec.state_spec.obs_spec) {
+        CAPTURE(key);
+        CHECK(observation.scale == anet::ValueScale::Scaled);
+    }
     const auto reset = env.Reset();
     if (hole) {
         // 右は穴、下段は通路で、終端のテストにも解ける迷路を使う。

@@ -19,7 +19,87 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
-void anet::rl::AppendNnTraceAux(AuxData& aux, anet::nn::NetworkForwardCapture& capture)
+ForcedActions ForcedActions::ByLane(int64_t lane, int64_t action)
+{
+    return ForcedActions(Lane{.index = lane, .action = action});
+}
+
+ForcedActions ForcedActions::ByMask(torch::Tensor mask, torch::Tensor actions)
+{
+    return ForcedActions(Mask{.lanes = std::move(mask), .actions = std::move(actions)});
+}
+
+static torch::Tensor SelectForcedActions(const torch::Tensor& mask, const torch::Tensor& actions,
+    int64_t lane_count, int64_t action_count)
+{
+    const torch::IntArrayRef expected_shape(&lane_count, 1);
+    if (!mask.defined() || mask.scalar_type() != torch::kBool || mask.sizes() != expected_shape
+        || !actions.defined() || actions.scalar_type() != torch::kInt64 || actions.sizes() != expected_shape) {
+        const auto mask_description = mask.defined() ? anet::ToDefString(mask) : "undefined";
+        const auto actions_description = actions.defined() ? anet::ToDefString(actions) : "undefined";
+        ANET_SYSTEM_ERROR("Invalid forced action mask or values. mask=" << mask_description
+            << " actions=" << actions_description << " expected bool mask and int64 actions of shape "
+            << expected_shape << " action_count=" << action_count << ".");
+    }
+    const auto lanes = mask.to(actions.device());
+    const auto selected = actions.masked_select(lanes);
+    const auto invalid = selected.lt(0).logical_or(selected.ge(action_count)).nonzero();
+    if (invalid.numel() != 0) {
+        const auto index = invalid[0].item<int64_t>();
+        ANET_SYSTEM_ERROR("Invalid forced action. lane=" << lanes.nonzero()[index].item<int64_t>()
+            << " action=" << selected[index].item<int64_t>() << " expected action=[0, " << action_count - 1
+            << "] action_count=" << action_count << ".");
+    }
+    return selected;
+}
+
+void ForcedActions::Validate(const ActionSpec& spec, int64_t lane_count) const
+{
+    if (!spec.is_discrete) {
+        ANET_SYSTEM_ERROR("ForcedActions requires a discrete action space. lane_count=" << lane_count);
+    }
+    ValidateDiscrete(lane_count, spec.GetNumActions());
+}
+
+torch::Tensor ForcedActions::Apply(const torch::Tensor& policy_actions, int64_t action_count) const
+{
+    ANET_PROFILE_FUNC();
+    const auto lane_count = policy_actions.size(0);
+    if (const auto* mask = std::get_if<Mask>(&selection_)) {
+        const auto selected = SelectForcedActions(mask->lanes, mask->actions, lane_count, action_count);
+        return policy_actions.masked_scatter(MakeMask(lane_count, policy_actions.device()), selected.to(policy_actions.device()));
+    }
+    ValidateDiscrete(lane_count, action_count);
+    const auto& lane = std::get<Lane>(selection_);
+    auto actions = policy_actions.clone();
+    actions[lane.index].fill_(lane.action);
+    return actions;
+}
+
+torch::Tensor ForcedActions::MakeMask(int64_t lane_count, torch::Device device) const
+{
+    if (const auto* mask = std::get_if<Mask>(&selection_)) return mask->lanes.to(device);
+    const auto& lane = std::get<Lane>(selection_);
+    auto mask = torch::zeros({lane_count}, torch::TensorOptions().device(device).dtype(torch::kBool));
+    mask[lane.index].fill_(true);
+    return mask;
+}
+
+void ForcedActions::ValidateDiscrete(int64_t lane_count, int64_t action_count) const
+{
+    if (const auto* mask = std::get_if<Mask>(&selection_)) {
+        SelectForcedActions(mask->lanes, mask->actions, lane_count, action_count);
+        return;
+    }
+    const auto& lane = std::get<Lane>(selection_);
+    if (lane.index < 0 || lane.index >= lane_count || lane.action < 0 || lane.action >= action_count) {
+        ANET_SYSTEM_ERROR("Invalid forced action. lane=" << lane.index << " action=" << lane.action
+            << " expected lane=[0, " << lane_count - 1 << "] action=[0, " << action_count - 1
+            << "] action_count=" << action_count << ".");
+    }
+}
+
+void anet::rl::AppendNnTraceAux(AuxData& aux, anet::ForwardCapture& capture)
 {
     ANET_PROFILE_FUNC();
     // lane 0 だけを独立した FP32 の記憶域へ移し、batch 全体の保持を終える。
@@ -76,6 +156,12 @@ void StateSpec::AssertSanity() const
     for (const auto& kv : obs_spec) {
         const auto& key = kv.first;
         const auto& spec = kv.second;
+
+        if (spec.scale == ValueScale::Unscaled && (spec.IsDiscrete() || c10::isIntegralType(spec.dtype, /*includeBool=*/false))) {
+            ANET_SYSTEM_ERROR("Invalid TensorSpec scale. key='" << key << "' scale=Unscaled dtype="
+                << spec.dtype << " num_classes=" << spec.num_classes
+                << "; expected a non-integral dtype with no discrete classes.");
+        }
 
         if (spec.IsDiscrete()) {
             // 離散空間: float系は不可

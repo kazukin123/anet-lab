@@ -451,7 +451,7 @@ TEST_CASE("CUDA autocast preserves Body overrides and FP32 Head and spectral cal
     auto forward = network->CreateForwardExecutor(config, anet::nn::NetworkForwardClock::kContinuingRows, 703);
     const anet::nn::NetworkForwardCallInfo info({.clock = 0});
     const anet::TensorDict input{{"obs", torch::ones({2, 2}, torch::TensorOptions().device(device))}};
-    anet::nn::NetworkForwardCapture capture({ "feature" });
+    anet::ForwardCapture capture({ "feature" });
     {
         anet::Autocast autocast(device, true, torch::kBFloat16);
         const auto output = forward->Forward(input, info, &capture);

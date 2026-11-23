@@ -15,6 +15,7 @@
 #include <torch/torch.h>
 #include "anet/config.hpp"
 #include "anet/common.hpp"
+#include "anet/forwarder.hpp"
 #include "anet/graphviz.hpp"
 #include "anet/random.hpp"
 
@@ -162,25 +163,6 @@ namespace anet::nn {
         const Params params_; ///< 生成時に確定した呼び出し情報。Tensorのストレージは共有する。
     };
 
-    /// 鍵で要求したbranch出力とmodule診断を、同期Forwardから持ち帰る器。
-    class NetworkForwardCapture {
-    public:
-        using Entry = std::pair<std::string, torch::Tensor>;
-        NetworkForwardCapture() = default;
-        explicit NetworkForwardCapture(std::vector<std::string> requests);
-        bool Wants(std::string_view key) const;
-        /// prefix 以下に一致しうる要求があるか。鍵を組み立てる前の判定に使う。
-        bool WantsAny(std::string_view prefix) const;
-        void Add(std::string_view key, torch::Tensor value);
-        torch::Tensor Get(std::string_view key) const;
-        std::vector<Entry> GetAll(std::string_view prefix) const;
-        std::vector<std::string> Unfulfilled() const;
-        void Reset();
-    private:
-        std::vector<std::string> requests_;
-        std::vector<Entry> entries_;
-    };
-
     inline constexpr std::string_view kNnTracePrefix = "nn_trace/";
 
     inline constexpr std::string_view kTransformerEncoderAttentionEntropyCaptureKey =
@@ -200,7 +182,7 @@ namespace anet::nn {
     // ===========================================================================
 
     /// BodyとHeadを所有し、Forward・重み同期・診断の入口となるNetwork。
-    class Network : public torch::nn::Module, public anet::TensorDictFunctionProvider {
+    class Network : public torch::nn::Module, public anet::TensorDictFunctionProvider, public anet::Forwarder {
     public: // コンストラクタ
         Network(
             const NetworkConfig& config,
@@ -213,10 +195,10 @@ namespace anet::nn {
         /// 入力を既定動作で計算する。capture指定時は要求されたbranch出力・module診断も取得する。
         anet::TensorDict Forward(
             const anet::TensorDict& input,
-            NetworkForwardCapture* capture = nullptr);
+            ForwardCapture* capture = nullptr) override;
         /// branch_keyまでを既定動作で計算し、Headを実行しない。
         anet::TensorDict ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key,
-            NetworkForwardCapture* capture = nullptr);
+            ForwardCapture* capture = nullptr);
         /// sourceとrequestedの再利用条件を、それらを使う具象部品に検証させる。
         void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const;
     public:
@@ -272,7 +254,7 @@ namespace anet::nn {
 
         /// 同期呼び出し中だけinfoを参照し、固定した処理を実行する。
         anet::TensorDict Forward(
-            const anet::TensorDict& input, const NetworkForwardCallInfo& info, NetworkForwardCapture* capture = nullptr);
+            const anet::TensorDict& input, const NetworkForwardCallInfo& info, ForwardCapture* capture = nullptr);
     private:
         friend class Network;
         struct Impl;

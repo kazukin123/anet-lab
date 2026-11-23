@@ -18,6 +18,8 @@ static std::string SpaceTypeToString(SpaceType type)
 
 anet::json TensorSpec::ToJson() const
 {
+    static constexpr char kScaleField[] = "scale";
+    static constexpr char kStackAxisField[] = "stack_axis";
     anet::json j;
     j["type"] = SpaceTypeToString(type);
     j["shape"] = shape;
@@ -26,6 +28,8 @@ anet::json TensorSpec::ToJson() const
     j["labels"] = labels;
     j["min_values"] = min_values;
     j["max_values"] = max_values;
+    j[kScaleField] = scale == ValueScale::Scaled ? "Scaled" : "Unscaled";
+    j[kStackAxisField] = has_stack_axis;
     return j;
 }
 

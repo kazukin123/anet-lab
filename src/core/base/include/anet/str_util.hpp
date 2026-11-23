@@ -37,6 +37,9 @@ namespace anet {
 
     std::vector<std::string> Split(const std::string& s, const std::vector<std::string>& delimiters,bool trim);
 
+    /// `>` と空白で並びを読み、丸括弧で囲んだ部分は一つの名前に保つ。
+    std::vector<std::string> SplitPipelineString(const std::string& text);
+
     inline bool StartsWith(const std::string& str, const std::string& prefix)
     {
         return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;

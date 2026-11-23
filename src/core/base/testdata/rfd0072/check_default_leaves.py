@@ -24,7 +24,7 @@ def assignments(line):
 
 
 def main():
-    command = ["rg", "--json", "=", "apps", "core", "-g", "*.txt", "-g", "*.bat",
+    command = ["rg", "--json", "=", "apps", "src", "-g", "*.txt", "-g", "*.bat",
                "-g", "*.py", "-g", "*.ps1", "-g", "*.cpp", "-g", "*.hpp",
                "-g", "!**/bin/**", "-g", "!**/lib/**", "-g", "!**/runs*/**",
                "-g", "!**/workspaces/**", "-g", "!**/testdata/**"]

@@ -89,7 +89,7 @@ torch::Tensor anet::rl::dqn::PackActorQHint(
         .to(torch::kFloat32).contiguous();
 }
 
-ActorQHintData anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
+torch::Tensor anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
     const torch::Tensor& action, const ActorQHintValues& config)
 {
     ANET_PROFILE_FUNC();
@@ -126,8 +126,8 @@ ActorQHintData anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
             external_value = gather(external_real, external_scores.argmax(1));
             internal_value = gather(internal_real, combined_real.argmax(1));
         }
-        return {.payload = PackActorQHint(gather(config.extrinsic_q, action), transformed(external_value),
-            gather(terms, action), gather(config.intrinsic_q, action), transformed(internal_value)), .munchausen_terms = terms};
+        return PackActorQHint(gather(config.extrinsic_q, action), transformed(external_value),
+            gather(terms, action), gather(config.intrinsic_q, action), transformed(internal_value));
     }
     auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
     auto state_value = std::get<0>(q_values.max(1));
@@ -141,10 +141,9 @@ ActorQHintData anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
         state_value = config.use_tbo ? TransformH(soft_value, config.tbo_epsilon) : soft_value;
         terms = munchausen.alpha * scaled_log.clamp(munchausen.clip_value_min, 0.0f);
     }
-    // OFFも第3列ゼロの同じschemaを運び、WithAction用の全行動bonusを保持する。
+    // Munchausen が無効のときも第 3 列を 0 として運ぶ。
     const auto bonus = terms.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
-    return { .payload = PackActorQHint(q_sa, state_value, bonus, torch::zeros_like(q_sa), torch::zeros_like(q_sa)),
-        .munchausen_terms = terms };
+    return PackActorQHint(q_sa, state_value, bonus, torch::zeros_like(q_sa), torch::zeros_like(q_sa));
 }
 
 ActorQHintBatch anet::rl::dqn::DecodeActorQHint(const torch::Tensor& payload)
@@ -180,49 +179,17 @@ std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::To(torch::Device devic
     return result;
 }
 
-std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tensor action) const
+void DQNActionInfo::ApplyForcedActions(const anet::rl::ForcedActions& forced_actions)
 {
-    ANET_PROFILE_FUNC();
-    auto hint = replay_initial_priority_hint_;
-    if (hint.has_value()) {
-        // 行動Qとbonusを同じ実行行動へ揃え、行動に依存しないstate valueは維持する。
-        const auto it = aux_.find("q_values");
-        if (it == aux_.end() || !it->second.defined()) {
-            ANET_SYSTEM_ERROR(
-                "DQNActionInfo::WithAction requires aux[q_values] when an Actor Q hint is present.");
-        }
-        const auto external = aux_.find(kExtrinsicQValues);
-        const auto& q_values = external == aux_.end() ? it->second : external->second;
-        const auto term_it = aux_.find("munchausen_terms");
-        if (term_it == aux_.end() || !term_it->second.defined()) {
-            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires aux[munchausen_terms] when an Actor Q hint is present.");
-        }
-        const auto& terms = term_it->second;
-        if (terms.sizes() != q_values.sizes() || terms.device() != q_values.device()) {
-            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires matching q_values/munchausen_terms shape and device. q_values="
-                << q_values.sizes() << " on " << q_values.device() << " terms=" << terms.sizes() << " on " << terms.device());
-        }
-        // ヒントの計算だけで Q と同じ device の行動を使い、返す行動は呼び出し側の device に置く。
-        const auto action_index = action.to(q_values.device(), torch::kInt64).unsqueeze(1);
-        auto q_sa = q_values.gather(1, action_index).squeeze(1).to(torch::kFloat32);
-        const auto decoded = DecodeActorQHint(hint->GetPayload());
-        const auto bonus = terms.gather(1, action_index).squeeze(1);
-        auto intrinsic_q_sa = decoded.intrinsic_q_sa;
-        if (const auto intrinsic = aux_.find(kIntrinsicQValues); intrinsic != aux_.end()) {
-            intrinsic_q_sa = intrinsic->second.gather(1, action_index).squeeze(1);
-        }
-        auto packed = PackActorQHint(q_sa, decoded.actor_state_value, bonus, intrinsic_q_sa, decoded.intrinsic_state_value);
-        hint = ReplayInitialPriorityHint(std::move(packed));
+    auto actions = forced_actions.Apply(GetAction(), aux_.at(kActionQValuesAuxKey).size(1));
+    const auto device = actions.device();
+    if (device.is_cpu()) {
+        action_cpu_ = std::move(actions);
+        gpu_.reset();
+    } else {
+        action_cpu_ = torch::Tensor();
+        gpu_.emplace(device, std::move(actions));
     }
-    auto result = std::make_shared<DQNActionInfo>(std::move(action), info_, aux_, std::move(hint));
-    result->train_actor_snapshot_metrics_ = train_actor_snapshot_metrics_;
-    result->effective_gamma = effective_gamma;
-    result->effective_intrinsic_gamma = effective_intrinsic_gamma;
-    result->risk_num_taus = risk_num_taus;
-    result->selection_taus = selection_taus;
-    result->munchausen_alpha = munchausen_alpha;
-    result->munchausen_entropy_tau = munchausen_entropy_tau;
-    return result;
 }
 
 static void AttachQuantileTailPolicyDiagnostics(
@@ -703,14 +670,14 @@ anet::rl::dqn::ActionPolicy::ActionPolicy(
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
-    const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
+    const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture) const
 {
     return forward.Forward(obs, info, capture);
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForActionWithTaus(
     const anet::TensorDict& obs, const torch::Tensor& taus,
-    const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     const torch::Tensor& additional_taus) const
 {
     // 追加方策のqueryも同じforwardへ含め、両Networkが全く同じtausを参照できるようにする。
@@ -940,7 +907,7 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::UpdateSchedule(const StepCounts& 
 }
 
 std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     ANET_PROFILE_FUNC();
@@ -1109,7 +1076,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEValues(const torch::Tensor& tau_
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
-    bool greedy_only, const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    bool greedy_only, const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     bool iqn_use_full_range, const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     ANET_PROFILE_FUNC();
@@ -1301,7 +1268,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     if (IsSpatialExplorationEnabled()) {
@@ -1326,7 +1293,7 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::UpdateSchedule(const StepCount
 }
 
 std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     if (evaluation) ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; ThompsonSampling is unsupported.");
@@ -1420,8 +1387,7 @@ torch::Tensor UQEActionPolicy::SelectFromValues(const torch::Tensor& q, const to
 }
 
 Actor::Actor(std::shared_ptr<ActionPolicy> policy,
-    std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm,
-    std::unique_ptr<FrameStacker> stacker,
+    std::unique_ptr<anet::ForwardExecutor> perception,
     torch::Device device,
     std::optional<seed_t> seed,
     std::shared_ptr<std::shared_mutex> mutex,
@@ -1432,8 +1398,8 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     std::optional<anet::ProfiledValueConfig<step_t>> snapshot_sync_interval,
     bool emit_snapshot_metrics,
     ActorQHintConfig actor_q_hint_config, std::optional<SkipActorResources> skip)
-    : RandomHolder(seed), policy_(std::move(policy)), obs_norm_(std::move(obs_norm))
-    , stacker_(std::move(stacker)), device_(device), mutex_(std::move(mutex))
+    : RandomHolder(seed), policy_(std::move(policy)), perception_(std::move(perception))
+    , device_(device), mutex_(std::move(mutex))
     , network_(std::move(network)), src_network_(std::move(src_network))
     , emit_actor_q_hint_(emit_actor_q_hint)
     , actor_q_hint_config_(actor_q_hint_config)
@@ -1533,29 +1499,18 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     // action forwardより前にTrain Actor network snapshotを必要な場合だけ同期する。
     UpdateSnapshot(step);
 
-    // frame stackとdevice転送（stacker無しならdevice転送のみ）を正規化前に行う。
-    auto obs = stacker_ ? stacker_->Stack(state.obs, state.episode_start) : state.obs.To(device_);
-    ANET_LOG_DEBUG("obs=" << obs.ToDefString());
-    //ANET_LOG_DEBUG("obs=" << obs.ToString());
-
-    // Observation正規化
-    auto norm_obs = obs;
-    if (obs_norm_ != nullptr) {
-        norm_obs = obs_norm_->Normalize(obs);
-    }
-    //norm_obs = norm_obs.to(torch::kCPU);
-    ANET_LOG_DEBUG("norm_obs=" << norm_obs.ToDefString());
-    //ANET_LOG_DEBUG("norm_obs=" << norm_obs.ToString());
+    // Actor の実行器は device 転送と lane ごとの履歴を受け持つ。
+    const auto perception = perception_ ? perception_->Forward(state.obs, state.episode_start) : state.obs.To(device_);
 
     // 行動選択の時計を進め、同じ選択内の全forwardへ不透明な実行情報を渡す。
     const anet::nn::NetworkForwardCallInfo forward_info({
         .clock = ++forward_clock_, .episode_start = state.episode_start});
 
     // 行動選択
-    std::optional<anet::nn::NetworkForwardCapture> capture;
+    std::optional<anet::ForwardCapture> capture;
     if (options.nn_trace) capture.emplace(std::vector<std::string>{std::string(anet::nn::kNnTracePrefix)});
     const auto additional_taus = skip_ && !skip_->shared_policy
-        ? skip_->policy->MakeValueQueryTaus(norm_obs.Size(0), device_, *skip_random_) : torch::Tensor();
+        ? skip_->policy->MakeValueQueryTaus(perception.Size(0), device_, *skip_random_) : torch::Tensor();
     const auto dedicated_tau_count = additional_taus.defined() ? additional_taus.size(1) : 0;
     // skip 中も両網を全 lane で forward する（高速化は非ゴール）。Runner へ返す行動だけを継続値にする。
     std::shared_ptr<DQNActionInfo> act_info;
@@ -1565,24 +1520,27 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
         actor_q_hint_config_.use_tbo, actor_q_hint_config_.tbo_epsilon);
     if (network_ != src_network_) {
         // Clone済み: 自分専用のネットワークなので排他不要
-        act_info = policy_->SelectAction(norm_obs, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
+        act_info = policy_->SelectAction(perception, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
         // 行動 forward の直後に取り出し、skip 側の forward へ持ち越さない。
         if (capture) {
             anet::rl::AppendNnTraceAux(act_info->GetAuxData(), *capture);
             capture.reset();
         }
-        if (skip_) act_info = ApplySkip(std::move(act_info), norm_obs, state.episode_start, forward_info, dedicated_tau_count);
+        if (skip_) act_info = ApplySkip(std::move(act_info), perception, state.episode_start, forward_info, dedicated_tau_count,
+            options.forced_actions);
     } else {
         // Clone無し（直列モード）: Learnerの更新と競合しないようSharedLock
         std::shared_lock<std::shared_mutex> lock(*mutex_);
-        act_info = policy_->SelectAction(norm_obs, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
+        act_info = policy_->SelectAction(perception, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
         // 行動 forward の直後に取り出し、skip 側の forward へ持ち越さない。
         if (capture) {
             anet::rl::AppendNnTraceAux(act_info->GetAuxData(), *capture);
             capture.reset();
         }
-        if (skip_) act_info = ApplySkip(std::move(act_info), norm_obs, state.episode_start, forward_info, dedicated_tau_count);
+        if (skip_) act_info = ApplySkip(std::move(act_info), perception, state.episode_start, forward_info, dedicated_tau_count,
+            options.forced_actions);
     }
+    if (!skip_ && options.forced_actions) act_info->ApplyForcedActions(*options.forced_actions);
     if (actor_q_hint_config_.decomposed) {
         // IQNの追加full queryを、行動のrisk領域と初期優先度の近似へ混ぜない。
         const auto component = [&](const std::string& q_key, const std::string& dist_key) {
@@ -1633,17 +1591,12 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
             .extrinsic_scores = actor_q_hint_config_.decomposed ? act_info->GetAuxData().at(kExtrinsicActionScores) : torch::Tensor(),
             .combined_scores = actor_q_hint_config_.decomposed ? act_info->GetAuxData().at(kCombinedActionScores) : torch::Tensor(),
             .extrinsic_bootstrap = actor_q_hint_config_.extrinsic_bootstrap});
-        act_info->GetAuxData()["munchausen_terms"] = hint.munchausen_terms;
-        act_info->SetReplayInitialPriorityHint(ReplayInitialPriorityHint(std::move(hint.payload)));
+        act_info->SetReplayInitialPriorityHint(ReplayInitialPriorityHint(std::move(hint)));
     }
 
     // AuxData の詰め込み
     // 現在actionがepisode開始直後かを、device転送せず診断用auxへ保持する。
     act_info->GetAuxData()["episode_start"] = state.episode_start;
-    act_info->GetAuxData()["raw_obs"] = anet::rl::ToUnifiedObservation(obs);
-    if (obs_norm_ != nullptr) {
-        act_info->GetAuxData()["norm_obs"] = anet::rl::ToUnifiedObservation(norm_obs);
-    }
 
     // DefaultDQNでは無効時もNaN、周期snapshot有効時は同期後の現在値を公開する。
     if (emit_snapshot_metrics_) {
@@ -1660,7 +1613,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
 
 std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> proposal,
     const anet::TensorDict& obs, const torch::Tensor& episode_start,
-    const anet::nn::NetworkForwardCallInfo& info, int64_t dedicated_tau_count) const
+    const anet::nn::NetworkForwardCallInfo& info, int64_t dedicated_tau_count,
+    const std::optional<anet::rl::ForcedActions>& forced_actions) const
 {
     ANET_PROFILE_FUNC();
 
@@ -1680,10 +1634,10 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
     }
 
     // episode 開始時と残り 0 の lane だけ、新しい行動と j を判断する。
-    const auto decision = single ? torch::ones_like(proposed_actions, torch::kBool)
+    auto decision = single ? torch::ones_like(proposed_actions, torch::kBool)
         : episode_start.to(proposed_actions.device()).logical_or(skip_remaining_.eq(0));
     // 継続中の lane は今回の提案を捨て、前に選んだ行動で上書きする。
-    const auto actions = single ? proposed_actions : torch::where(decision, proposed_actions, skip_actions_);
+    auto actions = single ? proposed_actions : torch::where(decision, proposed_actions, skip_actions_);
 
     // SKIPネットワークでforward
     const auto input = MakeSkipInput(obs, proposal->forward_output, actions, true);
@@ -1708,8 +1662,15 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
     const auto selection_q = skip_max_length_ ? q.narrow(1, 0, skip_max_length_->Value()) : q;
     const auto selection_distribution = skip_max_length_ && distribution.defined()
         ? distribution.narrow(1, 0, skip_max_length_->Value()) : distribution;
-    const auto lengths = single ? torch::ones_like(proposed_actions)
+    auto lengths = single ? torch::ones_like(proposed_actions)
         : skip_->policy->SelectFromValues(selection_q, selection_distribution, skip_random_) + 1;
+    if (forced_actions) {
+        // 方策の抽選後に反映し、強制した step を長さ 1 の新しい判断として扱う。
+        actions = forced_actions->Apply(actions, proposal->GetAuxData().at(kActionQValuesAuxKey).size(1));
+        const auto forced_lanes = forced_actions->MakeMask(actions.size(0), actions.device());
+        decision = decision.logical_or(forced_lanes);
+        lengths = torch::where(forced_lanes, torch::ones_like(lengths), lengths);
+    }
     // 判断 lane だけ j を更新し、今回の 1 step を引いてから返す情報を組み立てる。
     if (!single) {
         skip_lengths_ = torch::where(decision, lengths, skip_lengths_);

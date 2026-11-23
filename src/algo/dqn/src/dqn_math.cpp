@@ -510,7 +510,7 @@ void DecomposedValueCombiner::Combine(anet::TensorDict& output, float beta, bool
 }
 
 anet::TensorDict DqnForwardExecutor::Forward(const anet::TensorDict& input,
-    const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
+    const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture) const
 {
     auto output = forward_.Forward(input, info, capture);
     if (beta_) DecomposedValueCombiner::Combine(output, *beta_, use_tbo_, epsilon_);

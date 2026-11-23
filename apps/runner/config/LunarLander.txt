@@ -356,9 +356,8 @@ A1.actor.[eval].policy.spatial.uqe.tau.first = 0.25
 A1.actor.[eval].policy.spatial.uqe.tau.last = 0.25
 A1.actor.[eval].policy.uqe.use_tail_mean = false
 
-A1.stucker.use_stacker = true
-A1.stucker.stack_count = 4
-#A1.stucker.stack_count = 8
+A1.perception.block.[stack].count = 4
+#A1.perception.block.[stack].count = 8
 
 A1.learner.use_tbo = true
 

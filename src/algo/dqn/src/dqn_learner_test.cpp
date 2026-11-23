@@ -1367,14 +1367,16 @@ TEST_CASE("DefaultDQN selects six Head shapes and three Learner kinds", "[rfd012
     const bool dueling = GENERATE(false, true);
     auto data = mode == "iqn" ? MakeIqnTracerConfigData() : anet::ConfigData{};
     if (mode != "iqn") {
+        data.Set("DefaultDQNAgent.net.block.[Flatten].type", "Flatten");
         data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
+        data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten");
         data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
     }
     data.Set("DefaultDQNAgent.quantile_mode", mode);
     data.Set("DefaultDQNAgent.head.use_dueling", dueling);
     data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
     data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
-    data.Set("DefaultDQNAgent.stucker.use_stacker", false);
+
     anet::test::LogCaptureGuard logs;
     dqn::DefaultDQNAgentFactory factory;
     const auto agent = factory.CreateAgent(MakeIqnTracerEnvSpec(), rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1},
@@ -4065,7 +4067,7 @@ TEST_CASE("Attention probe uses the union of subscription intervals and returns 
             torch::NoGradGuard no_grad;
             anet::TrainingModeGuard guard(*online, false);
             const auto prefix = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey) + "/";
-            anet::nn::NetworkForwardCapture capture({ prefix });
+            anet::ForwardCapture capture({ prefix });
             online->ForwardUpTo(anet::TensorDict{ { kVectorKey, torch::ones({ 2, 2 }) } }, "feature", &capture);
             const auto entries = capture.GetAll(prefix);
             expected = torch::cat({ entries[0].second, entries[1].second });
@@ -4211,6 +4213,19 @@ TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers
     normalization_config.use_robust_update = false;
     auto normalizer = rl::ObservationNormalizerFactory(normalization_config).CreateObservationNormalizer(env_spec.state_spec);
     normalizer->NormalizeAndUpdateStats(anet::TensorDict{ { kVectorKey, torch::ones({ 2, 2 }, torch::TensorOptions().device(device)) } });
+    class ReferenceNormalizerForwarder final : public anet::Forwarder {
+    public:
+        explicit ReferenceNormalizerForwarder(std::shared_ptr<rl::ObservationNormalizer> normalizer)
+            : normalizer_(std::move(normalizer)) {}
+    public:
+        anet::TensorDict Forward(const anet::TensorDict& input, anet::ForwardCapture*) override
+        {
+            return normalizer_->Normalize(input);
+        }
+    private:
+        const std::shared_ptr<rl::ObservationNormalizer> normalizer_;
+    };
+    const auto sample_perception = std::make_shared<ReferenceNormalizerForwarder>(normalizer);
     const auto count_before = normalizer->GetScalar(rl::ObservationNormalizer::kKeyCount);
     REQUIRE(count_before.has_value());
     dqn::RuntimeVars first_vars, second_vars;
@@ -4219,11 +4234,11 @@ TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers
         policy_config.quantile_mode = mode;
         policy_config.tau_rule.num_taus = 4;
         auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
-        if (mode == "none") return std::make_unique<dqn::TDLearner>(config, model, vars, normalizer,
+        if (mode == "none") return std::make_unique<dqn::TDLearner>(config, model, vars, sample_perception,
             rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env_spec, device, 442, kTestAgentSeed, policy, SelectLearnerForwardResources(data), std::nullopt, 443);
-        if (mode == "qr") return std::make_unique<dqn::QRLearner>(config, model, vars, normalizer,
+        if (mode == "qr") return std::make_unique<dqn::QRLearner>(config, model, vars, sample_perception,
             rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env_spec, device, 442, kTestAgentSeed, policy, SelectLearnerForwardResources(data), std::nullopt, 443);
-        return std::make_unique<dqn::IQNLearner>(config, model, vars, normalizer,
+        return std::make_unique<dqn::IQNLearner>(config, model, vars, sample_perception,
             rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env_spec, device, 442, kTestAgentSeed, policy, SelectLearnerForwardResources(data), std::nullopt, 443);
     };
     auto measured = make_learner(first, first_vars);
@@ -4476,10 +4491,13 @@ TEST_CASE("Observation post process modes are rejected at construction", "[rfd01
     const bool pass_through = GENERATE(false, true);
     CAPTURE(mode, pass_through);
     anet::ConfigData data;
-    const std::string key = "DefaultDQNAgent.obs_norm.post_process_type";
+    const std::string key = "perception.block.[norm].running.post_process_type";
+    data.Set("perception.structure", "norm");
+    data.Set("perception.block.[norm].type", "Normalize");
     data.Set(key, mode);
-    data.Set("DefaultDQNAgent.obs_norm.pass_through", pass_through);
-    CHECK_THROWS_WITH(dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)),
+    data.Set("perception.block.[norm].mode", pass_through ? "none" : "running");
+    const auto specs = MakeLearnerEnvSpec().state_spec.obs_spec;
+    CHECK_THROWS_WITH(anet::ForwarderChain(data, "perception", specs, 42),
         Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("0..3"));
     rl::ObservationNormalizerConfig config;
     config.post_process_type = mode;

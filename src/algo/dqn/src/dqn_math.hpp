@@ -250,7 +250,7 @@ namespace anet::rl::dqn {
             std::optional<float> beta = std::nullopt, bool use_tbo = false, float epsilon = 0.01f)
             : forward_(forward), beta_(beta), use_tbo_(use_tbo), epsilon_(epsilon) {}
         anet::TensorDict Forward(const anet::TensorDict& input, const anet::nn::NetworkForwardCallInfo& info,
-            anet::nn::NetworkForwardCapture* capture = nullptr) const;
+            anet::ForwardCapture* capture = nullptr) const;
     private:
         anet::nn::NetworkForwardExecutor& forward_; ///< 同期呼び出しの間、ActorまたはLearner所有の実行器を借りる。
         std::optional<float> beta_;

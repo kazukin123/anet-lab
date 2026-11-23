@@ -395,6 +395,7 @@ static std::set<std::string> NetworkCatalogPrefixes(const anet::ConfigData& data
             auto prefix = key.substr(0, pos);
             const auto branch = prefix.find(".branch.[");
             if (branch != std::string::npos) prefix.resize(branch);
+            if (prefix == "perception" || prefix.ends_with(".perception")) continue;
             prefixes.insert(std::move(prefix));
         }
     }

@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <utility>
 #include "anet/random.hpp"
-#include "anet/stacker.hpp"
+#include "anet/forwarder.hpp"
 #include "anet/schedule.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/nn.hpp"
@@ -279,7 +279,7 @@ namespace anet::rl::dqn {
         void TransRealQToCpu() const;
     };
 
-    struct NormalizedSampleObservations {
+    struct SamplePerception {
         anet::TensorDict obs;
         anet::TensorDict next_obs;
     };
@@ -366,7 +366,7 @@ namespace anet::rl::dqn {
         bool diagnostic = false;
         anet::nn::NetworkForwardCallInfo info{{}};
         const TargetForwards* forwards = nullptr; ///< 選択された用途ペア。同期target計算中だけ参照する。
-        anet::nn::NetworkForwardCapture* target_capture = nullptr; ///< 通常更新のtarget取得要求。診断ではnullptr。
+        anet::ForwardCapture* target_capture = nullptr; ///< 通常更新のtarget取得要求。診断ではnullptr。
         std::function<torch::Tensor(int64_t)> current_taus;
         std::function<torch::Tensor(int64_t)> target_taus;
     };
@@ -409,12 +409,12 @@ namespace anet::rl::dqn {
 
     class Learner : public anet::rl::Learner, public anet::Module, public anet::Serializable, public anet::RandomHolder {
     public:
-        Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+        Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
             torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
-            std::optional<StuckerConfig> stucker_config = std::nullopt,
+            std::optional<ReplayFrameStack> frame_stack = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
@@ -442,8 +442,8 @@ namespace anet::rl::dqn {
             const CurrentForwardResult& current, const torch::Tensor& target, const ElementError& error) const;
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
         void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
-        anet::nn::NetworkForwardCapture* OnlineBranchCapture();
-        anet::nn::NetworkForwardCapture* TargetBranchCapture();
+        anet::ForwardCapture* OnlineBranchCapture();
+        anet::ForwardCapture* TargetBranchCapture();
         TargetEvaluation MakeTargetEvaluation(bool diagnostic);
         LearningTargets MakeLearningTargets(const ExperienceSamples& samples, const anet::TensorDict& obs,
             const anet::TensorDict& next_obs, const torch::Tensor& current_all, const TargetEvaluation& evaluation);
@@ -465,7 +465,7 @@ namespace anet::rl::dqn {
         virtual ElementError ComputeElementError(const torch::Tensor& current,
             const torch::Tensor& target, const torch::Tensor& taus, const ElementErrorRequest& request,
             const torch::Tensor& current_mean = {}) const;
-        NormalizedSampleObservations NormalizeSampleObservations(const anet::rl::ExperienceSamples& samples) const;
+        SamplePerception MakeSamplePerception(const anet::rl::ExperienceSamples& samples) const;
         OptimizerStepResult Optimize(const torch::Tensor& primary_loss, const torch::Tensor& weighted_element_loss,
             const torch::Tensor& skip_loss = {}, const torch::Tensor& intrinsic_loss = {});
     protected:
@@ -538,11 +538,11 @@ namespace anet::rl::dqn {
         std::shared_ptr<anet::nn::NetworkForwardExecutor> skip_current_forward_;
         TargetForwards target_forwards_;
         TargetForwards diagnostic_forwards_;
-        std::optional<StuckerConfig> stucker_config_;
+        std::optional<ReplayFrameStack> frame_stack_;
         std::shared_ptr<ActionPolicy> target_policy_;
         NetworkModel& model_;
         RuntimeVars& vars_;
-        std::shared_ptr<ObservationNormalizer> obs_norm_;
+        std::shared_ptr<anet::Forwarder> sample_perception_;
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
         std::unique_ptr<torch::optim::Optimizer> intrinsic_optimizer_;
@@ -614,8 +614,8 @@ namespace anet::rl::dqn {
             ChannelDemand probe;
             bool weight_norm_enabled = false;
             int weight_norm_interval = 1;
-            anet::nn::NetworkForwardCapture online_capture;
-            anet::nn::NetworkForwardCapture target_capture;
+            anet::ForwardCapture online_capture;
+            anet::ForwardCapture target_capture;
             std::optional<int64_t> target_capture_batch_size; ///< joint targetの後半だけを結果へ載せる。
             int64_t target_capture_offset = 0;
             anet::nn::PlasticityMetricRequest online_request;
@@ -667,11 +667,11 @@ namespace anet::rl::dqn {
     class QuantileLearnerBase : public anet::rl::dqn::Learner {
     public:
         explicit QuantileLearnerBase(
-        	const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+            const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
-            std::optional<StuckerConfig> stucker_config = std::nullopt,
+            std::optional<ReplayFrameStack> frame_stack = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
@@ -708,11 +708,11 @@ namespace anet::rl::dqn {
 
     class TDLearner final : public anet::rl::dqn::Learner {
     public:
-        explicit TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+        explicit TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
-            std::optional<StuckerConfig> stucker_config = std::nullopt,
+            std::optional<ReplayFrameStack> frame_stack = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
@@ -720,11 +720,11 @@ namespace anet::rl::dqn {
 
     class QRLearner final : public anet::rl::dqn::QuantileLearnerBase {
     public:
-        explicit QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+        explicit QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
-            std::optional<StuckerConfig> stucker_config = std::nullopt,
+            std::optional<ReplayFrameStack> frame_stack = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 
@@ -737,11 +737,11 @@ namespace anet::rl::dqn {
 
     class IQNLearner final : public anet::rl::dqn::QuantileLearnerBase {
     public:
-        explicit IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<ObservationNormalizer> obs_norm,
+        explicit IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
-            std::optional<StuckerConfig> stucker_config = std::nullopt,
+            std::optional<ReplayFrameStack> frame_stack = std::nullopt,
             std::optional<anet::seed_t> target_seed = std::nullopt,
             std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config = nullptr);
 

@@ -1,4 +1,4 @@
-<!-- translated-from: 110_agents_and_learning.jp.md blob:f2a68ec330a423be5ea29ef1de96e674ba9d0601 date:2026-11-23 progress:done -->
+<!-- translated-from: 110_agents_and_learning.jp.md blob:7c5fcd1148d6782c046371e5344fe616fe016ab1 date:2026-11-23 progress:done -->
 # Agents and Learning
 
 > Primary perspective: function (shared Agent, Actor, and Learner contracts, with processing stages in chronological order)
@@ -41,8 +41,11 @@ Future designs and unimplemented proposals are not normative specifications.
 
 `run.train.actor` defaults to `train`; `run.eval.[tag].actor` defaults to the tag name. Both reference `<Agent>.actor.[key]`. EvalPanel uses the selection from its referenced evaluation tag. Actor seeds derive from `actor/<Runner name>`, giving each Actor independent random and policy state. RunMode remains only for selecting the Env's usage.
 
+Pass forced actions for the current call in `MakeActionOptions::forced_actions`. `ForcedActions::ByLane(lane, action)` selects one lane. `ByMask(mask, actions)` accepts bool and int64 tensors with one element per lane and applies actions where the mask is true. Eval Runner validates the request before Reset and records `forced` for each lane. The Env executes the action returned by Actor.
+
 Actor is also a Module: epsilon, temperature, and similar values are available through `Runner::GetActor()` and metrics `$actor`. Policy schedules advance using the training-side counts passed to `MakeAction`. EvalRunner retains training-side counts via `Sync(source_counts)` while counting evaluation-event steps separately.
 
+DefaultDQN uses the Env's single-frame spec to construct both Perception and ReplayBuffer. Stored Frames, action selection, Replay samples, and visualization all use the same Perception definition. See [Forwarder and Perception (Japanese)](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工).
 ### 2.3 State and Resources
 
 Agent-related ownership follows these principles:
@@ -158,7 +161,7 @@ Observation preparation, Network forward, Policy, and snapshot synchronization i
 
 DefaultDQN selects the skip network configuration with `skip.network_mode=action_out|action_in`. action_in requires an action-input bind; action_out prohibits it. The skip network is constructed only when enabled; when disabled, only the configuration values are validated. The default IQN input is the primary network's fused features, and a taus bind on the skip side is not required. The Env supplies the default J; the implementation default is unspecified (0). An explicit 1 is allowed, while explicit values of 0 or less are rejected even when skip is disabled.
 
-With DefaultDQN skip enabled, Actor owns each lane's ongoing action, selected length, and remaining count. `episode_start` clears continuation, and `decision` in info marks a new decision. Runner steps and Env frame skip remain unchanged, and the primary forward still runs every step. Primary and skip cloning and synchronization occur under the same Agent lock. The forced-action operation `WithAction` replaces the executed action and Q hint without updating Actor's continuation state.
+With DefaultDQN skip enabled, Actor owns each lane's ongoing action, selected length, and remaining count. `episode_start` clears continuation, and `decision` in info marks a new decision. Runner steps and Env frame skip keep their usual meaning, and the primary forward runs every step. Primary and skip cloning and synchronization occur under the same Agent lock. Actor applies lane-specific forced actions from `MakeActionOptions::forced_actions` after policy selection. TempoRL records the forced step as a decision of length one and makes a new decision for that lane on the next step.
 
 DefaultDQN Actors choose full, single or variable through `skip.max_length_mode`. Full/variable own continuation state; single decides every step and uses the primary proposal directly. Variable advances its integer ProfiledValue with the training exp_step supplied to MakeAction (evaluation uses the latest synchronized counts). Every mode retains skip forward and J-wide auxiliary values. The Agent validates the entire Actor catalog against the auxiliary target-window choice without inferring Runner roles. See [DQN skip policy](200_dqn_agents.en.md) and [RFD0104 validation](../../src/core/base/testdata/rfd0104/README.md).
 

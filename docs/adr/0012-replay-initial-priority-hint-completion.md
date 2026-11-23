@@ -1,5 +1,7 @@
 # Replay初期優先度ヒントを単一packed carrierとし、completionを専用coordinatorへ分離する
 
+> 2026-11-23 注記（[ADR 0083](0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)）。強制行動を `MakeAction` の入力とし、Actor が最終行動を決めてからヒントを作る。単一 carrier と、completer・推定器の責務分離は引き継ぐ。
+
 > **後発決定（2026-09-04）**: DQN payloadの列数`K = 2`は [ADR 0036](0036-actor-q-hint-three-columns-munchausen.md) で`K = 3`（Munchausen項を追加）へ改訂した。単一carrier、completer、推定器の責務分離は不変である。
 > **後発決定（2026-11-19）**: DQN payload の列数 K は [ADR 0075](0075-actor-q-hint-five-columns-carry-per-head-values.md) で 5 となった。価値の分解が無効な場合、後ろの 2 列は 0 とする。単一 carrier と、completer・推定器の責務分離は引き続き有効である。
 

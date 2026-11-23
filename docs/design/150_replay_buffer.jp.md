@@ -73,6 +73,8 @@ frame stackingには2つの利用箇所がある。
 
 ring上書きで失われた履歴はepisode境界ではないためpaddingせず、`ValidIndexManager`が該当transitionをsampleable rangeから除外する。true terminalの`next_obs`値は学習contract上の保証対象外だが、同じ履歴開始規則から決定的に復元される。
 
+DefaultDQN は Perception の FrameStack から Replay の枚数と対象キーを取得する。ReplayBuffer の `stack_count == 1` の返り値は単フレームの形 `[B, *frame_shape]` であり、対象各キーを `[B, 1, *frame_shape]` にする処理は Sample の後に Perception が行う。複数枚のときは ReplayBuffer の stack 軸をそのまま使う。この区別は `obs`、N-step の `next_obs`、window の次観測、可視化用出力で共通である。[Forwarder と Perception](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)を参照。
+
 ### 2.4 PER
 
 Prioritized Experience Replayでは、priorityに応じてindexをsampleし、確率からImportance Sampling weightを計算する。

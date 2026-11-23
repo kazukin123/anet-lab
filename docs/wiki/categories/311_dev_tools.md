@@ -233,6 +233,7 @@
 - [RFD0116](../../memo/0116_rnd_lifelong_novelty_10rfd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 RFD
 - [RFD0120](../../memo/0120_issue_work_type_and_rfd_link_10rfd.md) — RFD0120: 課題の種類を仕事の種類にし、RFD との結び付けを課題の rfd 欄（Obsidian のリンク）に替える
 - [RFD0131](../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md) — RFD0131: 9xx の番号の RFD 57 本を、起票の日の順に 900 未満の連番へ振り直す RFD
+- [RFD0161](../../memo/0161_observation_pipeline_10rfd.md) — 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 暫定 RFD
 - [RFD0182](../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）RFD
 - [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) — RFD0191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） RFD
 - [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
