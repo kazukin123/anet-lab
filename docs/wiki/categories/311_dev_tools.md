@@ -235,12 +235,10 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261121-529662](../../management/issues/issue-20261121-529662.md) | 対応中 | 1.5 | — | ハーネス | RFD | 311_dev_tools | 開発 | リファクタリング | [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) | 残件有り | 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前へ改め、今使っている場所をすべて移す |
 | [issue-20261104-52ffba](../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた RFD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | RFD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [RFD0081](../../memo/0081_evalpanel_episode_trace_10rfd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0187](../../memo/0187_issue_list_views_10rfd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261122-4adabb](../../management/issues/issue-20261122-4adabb.md) | 未着手 | 4.0 | — | コード | 実装 | 311_dev_tools, 316_config | 開発 | 不具合 | — | 未確認 | RFD0072 の既定葉検査が移転前の core を探索して停止する |
-| [issue-20261123-2338c0](../../management/issues/issue-20261123-2338c0.md) | 未着手 | 3.3 | — | ハーネス | 実装 | 311_dev_tools | 開発 | 不整合 | — | 未確認 | RFD0195 の受入 A2・A3・A5・A13 が、実装の前からのリンク切れと、名前を残すファイルへのリンク・過去の Run 名を許さず、範囲どおりに実装しても満たせない |
 | [issue-20261123-c455b5](../../management/issues/issue-20261123-c455b5.md) | 未着手 | 3.3 | — | コード | 実装 | 311_dev_tools, 110_runner_app | 開発 | 不具合 | — | 未確認 | 既定のスイートの batchrun_fatal_error_handling_test が、前の Run の重みを読む段を持つキューを既定にした bat で、重みが無い段を失敗に数えて落ちる |
 | [issue-20261111-3986b7](../../management/issues/issue-20261111-3986b7.md) | 未着手 | 3.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | テストを回す範囲・回数と、テストの控え・ログの置き場の決まりが無く、実装の時間と .scratch が膨らむ |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
@@ -261,5 +259,5 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | — | コード | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 未確認 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | コード | RFD | 311_dev_tools | 開発 | 機能改善 | [RFD0185](../../memo/0185_release_packaging_cmake_10rfd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
 
-着手できる 25 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 23 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

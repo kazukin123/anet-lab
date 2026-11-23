@@ -10,7 +10,6 @@
 | [issue-20261117-eedd0c](issue-20261117-eedd0c.md) | 調査中 | 2.6 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 未確認 | Evaluation Trace の単一行選択テストが合成ドラッグ後に失敗する |
 | [issue-20261122-c1744a](issue-20261122-c1744a.md) | 対応中 | 2.6 | — | コード | RFD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) | 残件有り | RND と補助学習の設定キーが段階とモードの関係を表しておらず、warm-up の 1 つの件数が 2 つの待ちを束ねていて、設計文書 212 から設定と動きを引きにくい |
 | [issue-20261103-aa5758](issue-20261103-aa5758.md) | 調査中 | 2.0（引継ぎ） | — | コード | RFD | 321_agent_core, 318_rl_core, 324_dqn, 314_tensor, 325_muzero | 学習基盤 | リファクタリング | [RFD0161](../../memo/0161_observation_pipeline_10rfd.md) | 残件有り | 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 |
-| [issue-20261121-529662](issue-20261121-529662.md) | 対応中 | 1.5 | — | ハーネス | RFD | 311_dev_tools | 開発 | リファクタリング | [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) | 残件有り | 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前へ改め、今使っている場所をすべて移す |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた RFD の「実装済み」の時機ほか） |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | RFD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [RFD0081](../../memo/0081_evalpanel_episode_trace_10rfd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0187](../../memo/0187_issue_list_views_10rfd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
@@ -23,7 +22,6 @@
 | [issue-20261111-7cc67b](issue-20261111-7cc67b.md) | 未着手 | 3.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | EvalRunner の 1 step が、多重定義 4 つ・-1 の特別な値・bool の引数で、パネルからの 1 step と評価 session の 1 step を切り替えている |
 | [issue-20261111-a5370c](issue-20261111-a5370c.md) | 未着手 | 3.3 | — | コード | 監査 | 315_nn | 基盤 | リファクタリング | — | 未確認 | NetworkBody の走査（branch→struct→block→module）が 6 か所に写され、null の検査の有無が場所ごとに違う |
 | [issue-20261111-c5c9a7](issue-20261111-c5c9a7.md) | 未着手 | 3.3 | — | コード | 監査 | 315_nn | 基盤 | リファクタリング | — | 未確認 | spectral norm の式（行列化・実効の分母・無効の判定・単位化）が 3〜5 か所ずつ写され、無効の数を返す口も 2 つある |
-| [issue-20261123-2338c0](issue-20261123-2338c0.md) | 未着手 | 3.3 | — | ハーネス | 実装 | 311_dev_tools | 開発 | 不整合 | — | 未確認 | RFD0195 の受入 A2・A3・A5・A13 が、実装の前からのリンク切れと、名前を残すファイルへのリンク・過去の Run 名を許さず、範囲どおりに実装しても満たせない |
 | [issue-20261123-c455b5](issue-20261123-c455b5.md) | 未着手 | 3.3 | — | コード | 実装 | 311_dev_tools, 110_runner_app | 開発 | 不具合 | — | 未確認 | 既定のスイートの batchrun_fatal_error_handling_test が、前の Run の重みを読む段を持つキューを既定にした bat で、重みが無い段を失敗に数えて落ちる |
 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 未着手 | 3.0 | — | コード | RFD | 322_env_individual | Env | 機能追加 | [RFD0085](../../memo/0085_dropmerge_eval_score_axes_10rfd.md) | 残件有り | DropMerge の評価スコア（本家互換スコアほか複数の軸） |
 | [issue-20261103-c8fb06](issue-20261103-c8fb06.md) | 未着手 | 3.0 | — | コード | RFD | 312_util, 110_runner_app | 基盤 | 機能改善 | [RFD0071](../../memo/0071_uncaught_fatal_visibility_10rfd.md) | 残件有り | RFD0071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
@@ -158,7 +156,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-aa5758](issue-20261103-aa5758.md), [issue-20261103-b68e49](issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 142 / 待ち 11 / 保留 0 / 次版 0 / 解決 0
+着手できる 140 / 待ち 11 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 
