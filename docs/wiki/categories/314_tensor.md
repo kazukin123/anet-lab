@@ -49,7 +49,7 @@
 一般の条件は[リファクタリング観点](../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../reports/stats/trend.md)の「テスト充足」を見る。
 
 - H2DとLearner streamを安全につなぐeventのrecord/waitを維持し、性能改善のために消さない（出典: [RFD0020](../../memo/done/0020_device_transfer_common_part_10rfd.md)、Context / Problem Statement）。
-- 観測加工の変更では、Actor と Sample の Perception を episode 境界でも一致させる。GridMaze・LunarLander・DropMerge・Atari の同 seed の学習 Run で scalar と trace を照合する（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、D34・D35・§9）。
+- 観測加工の変更では、Actor と Sample の Perception を episode 境界でも一致させる。GridMaze・LunarLander・DropMerge・Atari の全4環境で、変更前後とも同じ seed と `backend.$=backend.@deterministic` を指定する。両側の `backend.deterministic_algorithms` と `backend.cudnn_deterministic` がともに `true` であることを確認し、学習 Run の scalar と trace を照合する（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、D34・D35・§9）。
 - 読み口と配線の整理でmetrics出力・定義レコード・WARN・fail-fastの文言と時機を変えない。同seed・決定的モードの短Runでchecksum・defs・WARNを比較する（出典: [RFD0094](../../memo/done/0094_evalpanel_step_history_10rfd.md)、§4.1 D3・§8 1）。
 - 小さなリファクタリングとテストの追加の前後で、RFD0098の検証資材の短いRun（4環境、seed 1、決定的モード）を流し、時間と資源のtagを除く全scalarの点を一致させる（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D8・§6 A7）。
 - ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。

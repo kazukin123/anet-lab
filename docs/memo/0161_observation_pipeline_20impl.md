@@ -28,6 +28,8 @@
 | `DefaultDQNAgent.obs_norm.use_centering`、`DefaultDQNAgent.obs_norm.epsilon`、`DefaultDQNAgent.obs_norm.use_robust_update`、`DefaultDQNAgent.obs_norm.robust_warmup_count`、`DefaultDQNAgent.obs_norm.robust_std_threshold`、`DefaultDQNAgent.obs_norm.post_process_type`、`DefaultDQNAgent.obs_norm.post_process_threshold` | `DefaultDQNAgent.perception.block.[norm].running` の各同名フィールド |
 | aux の `raw_obs`、`norm_obs` | 削除。Network 入力は `nn_trace` または Perception の出力で確かめる |
 
+旧スタック設定の名前を使う検証は 2 箇所ある。`src/core/base/testdata/rfd0072/perception_migration.py` は過去の固定入力を移行し、`src/core/base/src/forwarder_test.cpp` は旧キーが未読になることを受入 29 で確かめる。受入 18 の検索では両行を表示して照合する。
+
 利用側のプロファイルや `A1`・`A2` が設定を上書きする箇所も、同じ相対キーへ移す。メトリクスの `obs_norm.*` と RND 自身の観測正規化のキーは引き続き使う。
 
 ## テスト
@@ -115,7 +117,13 @@ git diff --check
 | 計 | | | | | | 213,204 |
 
 - 2026-11-23。再レビュー後、Debug のテスト実行体 10 本を引数なしで確認し、失敗 0 件。Core は 681 件通過・1 件スキップ・34,055 断定通過、DQN は 381 件・161,401 断定通過、ほか 8 本はすべて通過した。観測加工の関連 37 件・1,314 断定、RFD0072 の固定 17 構成・157 断定、Runner の DefaultDQN 出荷 13 構成・76 断定も通過した。ログは `.scratch/rfd0161-reviewed-core-gui-20261123-181039`、`.scratch/rfd0161-review-fixed-dqn-all.log`、`.scratch/rfd0161-review-fixed-debug-env-20261123-180613` にある。
-- 2026-11-23。最終ソースで Debug 全体と Release Runner のビルドが成功した（`.scratch/rfd0161-debug-relink-20261123-181636.log`、`.scratch/rfd0161-release-relink-20261123-181516.log`）。宣言順の整理を含む Release Runner の SHA-256 は `7B31CB6A586513FD2DD3DF72F2EC574BB8AC1A4AA51883C43611C51106535F1E`。旧契約の検索 S1〜S12 は、新規ファイルを含めすべて 0 件。
+- 2026-11-23。最終ソースで Debug 全体と Release Runner のビルドが成功した（`.scratch/rfd0161-debug-relink-20261123-181636.log`、`.scratch/rfd0161-release-relink-20261123-181516.log`）。宣言順の整理を含む Release Runner の SHA-256 は `7B31CB6A586513FD2DD3DF72F2EC574BB8AC1A4AA51883C43611C51106535F1E`。当時の固定文字列検索 S1〜S12 は 0 件だったが、S5 は文字列を分けて書いたため、固定入力の移行と受入 29 が使う旧名を検出できていなかった。今回の再検査では、両方を S5 の結果に含める（§「廃止・移行した名前」）。
+
+- 2026-11-23。追加レビューで、S5 が見逃していた検証用途 2 行を訂正した。検索では未読キーのテストと RFD0072 の移行資材に各 1 行、製品コード・出荷設定に 0 行。固定した 17 構成の比較は 157 断定が通過した。C++ の定数と宣言順、観測加工と強制行動のコメントの修正後、Debug 全体と Release Runner のビルドが通過した。
+
+- 2026-11-23。JSON の shape・dtype・scale・stack_axis の欄名は、出力と図、テストで同じ契約を使うため、既存の `TensorSpec` に置いた。テストのキーと設定の列挙値は宣言した定数を参照する。S1〜S12 は受入 18 の検証 2 行を含めて期待どおりだった（`.scratch/rfd0161/retired-identifiers-cc-final.txt`）。
+- 2026-11-23。最終ソースで Debug 全体、GUI テスト、Release Runner をビルドした。Debug テスト実行体 10 本を引数なしで実行し、計 1,228 件・204,156 断定通過、失敗 0 件。CUDA が使えない場合の Core のテスト 1 件がスキップされた。ImageCls 環境テストは出力をファイルに直接送るとダイアログ待ちになったため、PowerShell で出力を受けて取り直し、20 件・197 断定が通過した。関連タグは Core 17 件・279 断定、DQN 4 件・74 断定、ImageCls Agent 1 件・4 断定、MuZero 1 件・16 断定が通過。固定 17 構成（157 断定）と出荷 DefaultDQN 13 構成（76 断定）も通過した（`.scratch/rfd0161/verification-cc-final/`）。
+- 2026-11-23。最終 Release Runner（SHA-256 `6C9EE014CF0AF28C5C6BAACFCEC4627C7FC7EB9B365C3C999CEC9DEE035383B0`）と段階 B の受入済み Run（`.scratch/rfd0161-stage-b-reviewed-20261123-180614/`）を比較した。両側に `backend.$=backend.@deterministic` を指定し、各環境で seed 1、`deterministic_algorithms=true`、`cudnn_deterministic=true` を確認。GridMaze 29,337 点、LunarLander 13,823 点、Atari Q*bert 70,654 点、DropMerge 99,390 点の全 213,204 点が完全一致した。実効設定は出力先だけが異なり、4 環境で観測加工の概要図と詳細図もバイト一致した（`.scratch/rfd0161/identity-cc-final/`）。
 
 ## 完了報告
 

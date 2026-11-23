@@ -56,6 +56,11 @@ TEST_CASE("Pane open state survives temporary maximize hiding", "[gui][rfd0094][
     CHECK_FALSE(anet::rl::gui::IsPaneOpen(wxAuiPaneInfo(), true));
 }
 
+constexpr char kLeftActionLabel[] = "left";
+constexpr char kRightActionLabel[] = "right";
+constexpr char kForcedActionsKey[] = "forced";
+constexpr char kEvalActorKey[] = "eval";
+
 constexpr char kRfd0170TraceInput[] = "nn_trace/main/00_Input";
 
 namespace {
@@ -1928,11 +1933,11 @@ TEST_CASE("EvalRunner executes and reports a forced action for only the selected
 {
     const bool by_mask = GENERATE(false, true);
     auto env = std::make_shared<TestBatchEnv>("forced-lane", 2, torch::Device(torch::kCPU));
-    env->spec.action_spec.value_labels = {"left", "right"};
+    env->spec.action_spec.value_labels = {kLeftActionLabel, kRightActionLabel};
     auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
     auto notifier = std::make_shared<rl::Notifier>();
     const rl::ActorRequest request{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
-        .device = torch::kCPU, .seed = 123, .actor_key = "eval"};
+        .device = torch::kCPU, .seed = 123, .actor_key = kEvalActorKey};
     auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request);
 
     rl::MakeActionOptions options;
@@ -1943,8 +1948,8 @@ TEST_CASE("EvalRunner executes and reports a forced action for only the selected
 
     REQUIRE(env->last_actions.sizes() == torch::IntArrayRef{2});
     CHECK(torch::equal(env->last_actions, torch::tensor({1, 0}, torch::kInt64)));
-    CHECK(runner->GetScalar("forced", 0) == 1.0f);
-    CHECK(runner->GetScalar("forced", 1) == 0.0f);
+    CHECK(runner->GetScalar(kForcedActionsKey, 0) == 1.0f);
+    CHECK(runner->GetScalar(kForcedActionsKey, 1) == 0.0f);
 }
 
 TEST_CASE("Forced Eval step publishes its flag through the transition notification", "[trainer][rfd0105][forced_trace]")
@@ -1982,14 +1987,14 @@ TEST_CASE("Forced Eval step publishes its flag through the transition notificati
 TEST_CASE("EvalRunner rejects invalid forced actions before resetting the Env", "[trainer][forced_action]")
 {
     auto env = std::make_shared<TestBatchEnv>("invalid-force", 2, torch::kCPU);
-    env->spec.action_spec.value_labels = {"left", "right"};
+    env->spec.action_spec.value_labels = {kLeftActionLabel, kRightActionLabel};
     SECTION("continuous action space") {
         env->spec.action_spec.is_discrete = false;
         env->spec.action_spec.dims.resize(1);
         auto agent = std::make_shared<TestAgent>(torch::kCPU);
         auto runner = std::make_shared<rl::EvalRunner>(env, agent, std::make_shared<rl::Notifier>(),
             rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
-                .device = torch::kCPU, .seed = 123, .actor_key = "eval"});
+                .device = torch::kCPU, .seed = 123, .actor_key = kEvalActorKey});
         CHECK_THROWS_WITH(runner->DoStep(rl::MakeActionOptions{.forced_actions = rl::ForcedActions::ByLane(0, 1)}),
             Catch::Matchers::ContainsSubstring("requires a discrete action space"));
         CHECK(env->reset_count == 0);
@@ -1998,7 +2003,7 @@ TEST_CASE("EvalRunner rejects invalid forced actions before resetting the Env", 
         auto agent = std::make_shared<TestAgent>(torch::kCPU);
         auto runner = std::make_shared<rl::EvalRunner>(env, agent, std::make_shared<rl::Notifier>(),
             rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
-                .device = torch::kCPU, .seed = 123, .actor_key = "eval"});
+                .device = torch::kCPU, .seed = 123, .actor_key = kEvalActorKey});
         const auto reject = [&](rl::ForcedActions actions, const char* message) {
             CHECK_THROWS_WITH(runner->DoStep(rl::MakeActionOptions{.forced_actions = std::move(actions)}),
                 Catch::Matchers::ContainsSubstring(message));

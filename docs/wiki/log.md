@@ -1303,3 +1303,4 @@
 2026-11-23 fix docs/memo/0170_nn_trace_capture_unification_10rfd.md blob:15ddeca6accd78480f380596f5bf402a49c03ddc → docs/wiki/categories/325_muzero.md（reports/tools/categories.json で muzero_based_agent を 321 から 325 へ移し、config_inventory を 316 に足したのに合わせて maps を回した。325 の RFD の一覧に RFD0084・RFD0170 が増えたので、MuZero の Actor への変更（§4 D12・§6.4）を経緯に足した。RFD0084 は MuZero への変更の記述が無いので足さない。321 の RFD の一覧から減った RFD は無い）
 2026-11-23 fix docs/design/130_neural_networks.jp.md blob:6833cfe9567bc09d16582d7f0e67e1417fbb015c → docs/wiki/categories/315_nn.md
 2026-11-23 fix docs/design/135_forwarder_and_perception.jp.md blob:a4e1d34cf9e3ce158d9b7a119eab2b663d9b70cd → docs/wiki/categories/314_tensor.md（Forwarder と観測加工の経路を追記し、変更時の条件を RFD0161 の往復テストと等価性比較に更新）
+2026-11-23 fix docs/memo/0161_observation_pipeline_10rfd.md blob:58c3521dc91fe9db94dbecc556c7f705aa8c8547 → docs/wiki/categories/314_tensor.md（4環境すべてで前後の決定論設定と実効値を確認する手順を明記）

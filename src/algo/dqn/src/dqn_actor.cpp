@@ -61,7 +61,7 @@ torch::Tensor anet::rl::dqn::PackActorQHint(
     const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value, const torch::Tensor& munchausen_term,
     const torch::Tensor& intrinsic_q_sa, const torch::Tensor& intrinsic_state_value)
 {
-    // ActorとWithActionが同じ列順でpackできるよう、DQN payloadの構築を一元化する。
+    // Replay が各列を読み出せるよう、行動の Q 値、状態価値、Munchausen 項、内発報酬の Q 値と状態価値の順で格納する。
     if (!actor_q_sa.defined() || !actor_state_value.defined() || !munchausen_term.defined()) {
         ANET_SYSTEM_ERROR("PackActorQHint requires defined tensors.");
     }

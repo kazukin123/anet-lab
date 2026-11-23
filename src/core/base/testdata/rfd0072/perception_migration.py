@@ -5,7 +5,7 @@ import re
 from profiled_migration import key_format
 
 
-_STACK = "stu" "cker"
+_STACK = "stucker"
 _NORMALIZE = "DefaultDQNAgent.@baseline.obs_norm."
 _RUNNING_FIELDS = {
     "use_centering",

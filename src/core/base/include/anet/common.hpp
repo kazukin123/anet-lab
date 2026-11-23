@@ -95,6 +95,11 @@ namespace anet {
 
     /// Tensorの仕様情報
     struct TensorSpec {
+        static constexpr char kShapeField[] = "shape";
+        static constexpr char kDtypeField[] = "dtype";
+        static constexpr char kScaleField[] = "scale";
+        static constexpr char kStackAxisField[] = "stack_axis";
+
         /// 空間トポロジー
         SpaceType type = SpaceType::Vector;
 

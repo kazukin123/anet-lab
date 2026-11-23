@@ -1,5 +1,7 @@
 # forward の持ち帰りは鍵要求型の capture 1 つに統一し、module の診断も同じ器で運ぶ
 
+> 2026-11-23 訂正: 次の注記が述べる capture の改名・移設の決定元は [RFD0161 §6.3 D21](../memo/0161_observation_pipeline_10rfd.md#63-単位-c基盤)。ADR 0084 は共通の Forwarder と処理の並びを定めた。
+
 > 2026-11-23 後発決定: [ADR 0084](0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product.md) で、共通の `Forwarder` と同じヘッダへ `ForwardCapture` として移すことを決めた。Network の鍵の要求と出口での検査は引き続き本 ADR に従う。
 
 > **後発決定（2026-11-12）**: Considered Options の「`TraceCallback` に乗せる」で先送りした、nn_trace の capture への統合を、[PRD938](../memo/0170_nn_trace_capture_unification_10rfd.md) で決めた。`TraceCallback` を消し、nn_trace は `NetworkStruct` が `nn_trace/…` の鍵で capture に書く。要求を Actor へ渡す形は [ADR 0072](0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md) による。本 ADR の、公開の forward が capture を引数で受ける形、鍵で要求する決まり、module の鍵の形はそのまま残る。

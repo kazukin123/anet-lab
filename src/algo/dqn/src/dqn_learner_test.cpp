@@ -2,6 +2,8 @@
 #include "anet/test/nn.hpp"
 #include "dqn_fixture_test.hpp"
 
+constexpr char kNoneMode[] = "none";
+
 TEST_CASE("Quantile huber loss matches known QR-DQN inputs", "[dqn][quantile]")
 {
     auto current_dist = torch::tensor({ { 1.0f, 3.0f } });
@@ -1367,9 +1369,9 @@ TEST_CASE("DefaultDQN selects six Head shapes and three Learner kinds", "[rfd012
     const bool dueling = GENERATE(false, true);
     auto data = mode == "iqn" ? MakeIqnTracerConfigData() : anet::ConfigData{};
     if (mode != "iqn") {
-        data.Set("DefaultDQNAgent.net.block.[Flatten].type", "Flatten");
+        data.Set("DefaultDQNAgent.net.block.[Flatten].type", kFixtureFlatten);
         data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
-        data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten");
+        data.Set("DefaultDQNAgent.net.branch.[main].structure", kFixtureFlatten);
         data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
     }
     data.Set("DefaultDQNAgent.quantile_mode", mode);
@@ -4234,7 +4236,7 @@ TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers
         policy_config.quantile_mode = mode;
         policy_config.tau_rule.num_taus = 4;
         auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
-        if (mode == "none") return std::make_unique<dqn::TDLearner>(config, model, vars, sample_perception,
+        if (mode == kNoneMode) return std::make_unique<dqn::TDLearner>(config, model, vars, sample_perception,
             rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env_spec, device, 442, kTestAgentSeed, policy, SelectLearnerForwardResources(data), std::nullopt, 443);
         if (mode == "qr") return std::make_unique<dqn::QRLearner>(config, model, vars, sample_perception,
             rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, env_spec, device, 442, kTestAgentSeed, policy, SelectLearnerForwardResources(data), std::nullopt, 443);
@@ -4495,7 +4497,7 @@ TEST_CASE("Observation post process modes are rejected at construction", "[rfd01
     data.Set("perception.structure", "norm");
     data.Set("perception.block.[norm].type", "Normalize");
     data.Set(key, mode);
-    data.Set("perception.block.[norm].mode", pass_through ? "none" : "running");
+    data.Set("perception.block.[norm].mode", pass_through ? kNoneMode : "running");
     const auto specs = MakeLearnerEnvSpec().state_spec.obs_spec;
     CHECK_THROWS_WITH(anet::ForwarderChain(data, "perception", specs, 42),
         Catch::Matchers::ContainsSubstring(key) && Catch::Matchers::ContainsSubstring("0..3"));

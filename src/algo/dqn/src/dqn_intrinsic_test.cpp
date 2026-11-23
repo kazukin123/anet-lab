@@ -23,6 +23,9 @@
 #include "anet/test/util.hpp"
 
 
+constexpr char kFlattenBlock[] = "Flatten";
+constexpr char kMainBranch[] = "main";
+
 constexpr char kTraceActionLabel[] = "a0";
 constexpr char kTraceActorKey[] = "trace";
 constexpr char kTraceForwardKey[] = "test";
@@ -188,9 +191,9 @@ static anet::ConfigData IntrinsicAgentData(bool enabled)
 static anet::nn::NetworkConfig MakeIntrinsicNetworkConfig()
 {
     anet::nn::NetworkConfig net;
-    net.block_configs["Flatten"].type = "Flatten";
-    net.branches["main"] = {.name = "main", .bind_terms = {{kObservation}}, .structure_str = "Flatten"};
-    net.output_keys["features"] = "main";
+    net.block_configs[kFlattenBlock].type = kFlattenBlock;
+    net.branches[kMainBranch] = {.name = kMainBranch, .bind_terms = {{kObservation}}, .structure_str = kFlattenBlock};
+    net.output_keys["features"] = kMainBranch;
     return net;
 }
 
@@ -204,7 +207,7 @@ static std::shared_ptr<anet::rl::dqn::DefaultDQNAgent> MakeIntrinsicAgent(const 
     spec.reward_range = {-1000.0f, 1000.0f};
     auto net = MakeIntrinsicNetworkConfig();
     if (data.Get("DefaultDQNAgent.skip.enabled", "false") == "true")
-        net.output_keys[kSkipContext] = "main";
+        net.output_keys[kSkipContext] = kMainBranch;
     return std::make_shared<anet::rl::dqn::DefaultDQNAgent>(
         anet::rl::dqn::DefaultDQNAgentConfig(data), net,
         anet::rl::BatchEnvSpec{.num_envs = num_envs, .num_threads = 1}, spec, device, 123);

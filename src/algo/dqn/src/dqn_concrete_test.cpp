@@ -7,6 +7,11 @@
 #include "dqn_fixture_test.hpp"
 
 constexpr char kDefaultDqnClassId[] = "DefaultDQNAgent";
+constexpr char kMainFeatureInput[] = "main_feature/00_Input";
+constexpr char kOmitted[] = "omitted";
+constexpr char kScaled[] = "scaled";
+constexpr char kRunning[] = "running";
+
 constexpr char kRainbowClassId[] = "RainbowAgent";
 
 TEST_CASE("DQN initialization keeps its first Agent factory registrations", "[init][idempotent]")
@@ -222,7 +227,7 @@ TEST_CASE("DefaultDQNAgent preserves the native stack axis for temporal Conv1d",
     CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 4, 8 });
 
     const auto expected = torch::arange(8, torch::kFloat32).reshape({ 1, 1, 8 }).expand({ 1, 4, 8 });
-    CHECK(torch::equal(trace.At("main_feature/00_Input"), expected));
+    CHECK(torch::equal(trace.At(kMainFeatureInput), expected));
 }
 
 TEST_CASE("DefaultDQNAgent uses a configured one-frame Perception in the Actor", "[dqn][perception]")
@@ -242,27 +247,27 @@ TEST_CASE("DefaultDQNAgent uses a configured one-frame Perception in the Actor",
         anet::TensorDict{ { kVectorKey, torch::arange(16, torch::kFloat32).reshape({ 2, 8 }) } });
     REQUIRE(action);
     const auto trace = rl::ExtractNnTrace(action->GetAuxData());
-    REQUIRE(trace.Contains("main_feature/00_Input"));
-    CHECK(ShapeOf(trace.At("main_feature/00_Input")) == std::vector<int64_t>{ 1, 1, 8 });
+    REQUIRE(trace.Contains(kMainFeatureInput));
+    CHECK(ShapeOf(trace.At(kMainFeatureInput)) == std::vector<int64_t>{ 1, 1, 8 });
 }
 
 TEST_CASE("DefaultDQNAgent reports Perception normalization statistics after frame intake", "[dqn][perception]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     PrepareNativeStackNetworkTest();
-    const std::string behavior = GENERATE("running", "omitted", "scaled");
+    const std::string behavior = GENERATE(kRunning, kOmitted, kScaled);
     auto data = MakeNativeStackConfigData();
     data.Set("DefaultDQNAgent.learner.update_warmup_steps", 1000);
     data.Set("net.branch.[main_feature].bind", kVectorKey);
     data.Set("net.branch.[main_feature].structure", "Flatten > Linear");
-    if (behavior != "omitted") {
+    if (behavior != kOmitted) {
         data.Set("DefaultDQNAgent.perception.structure", "stack > norm");
         data.Set("DefaultDQNAgent.perception.block.[norm].type", "Normalize");
-        data.Set("DefaultDQNAgent.perception.block.[norm].mode", "running");
+        data.Set("DefaultDQNAgent.perception.block.[norm].mode", kRunning);
     }
     const anet::TensorSpec spec{
         .shape = {8},
-        .scale = behavior == "scaled" ? anet::ValueScale::Scaled : anet::ValueScale::Unscaled,
+        .scale = behavior == kScaled ? anet::ValueScale::Scaled : anet::ValueScale::Unscaled,
     };
     const auto env = MakeNativeStackEnvSpec({{kVectorKey, spec}});
     const auto agent = std::make_shared<dqn::DefaultDQNAgent>(
@@ -281,7 +286,7 @@ TEST_CASE("DefaultDQNAgent reports Perception normalization statistics after fra
     }
     const auto count_key = rl::ObservationNormalizer::kKeyCount;
     const auto count = agent->GetScalar(count_key);
-    if (behavior == "running") {
+    if (behavior == kRunning) {
         REQUIRE(count);
         CHECK(std::isfinite(*count));
         CHECK(count == reference->GetScalar(count_key));
@@ -1011,7 +1016,7 @@ TEST_CASE("Skip learning supports distribution, target and feature-gradient comb
                 data.Set("DefaultDQNAgent.actor.[train].policy.epsilon.end", 0.0f);
                 data.Set("net.block.[SkipTestLinear].type", "Linear");
                 data.Set("net.block.[SkipTestLinear].linear.out_features", 4);
-                data.Set("net.block.[Flatten].type", "Flatten");
+                data.Set("net.block.[Flatten].type", kFixtureFlatten);
                 data.Set("DefaultDQNAgent.net.branch.[main].bind", "vector");
                 data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten > SkipTestLinear");
                 data.Set("DefaultDQNAgent.net.body.output.[context]", "main");
@@ -1095,7 +1100,7 @@ TEST_CASE("Split gradient noise measures only Q loss while skip gradients change
     anet::ConfigData network;
     network.Set("net.block.[SharedLinear].type", "Linear");
     network.Set("net.block.[SharedLinear].linear.out_features", 2);
-    network.Set("net.block.[Flatten].type", "Flatten");
+    network.Set("net.block.[Flatten].type", kFixtureFlatten);
     network.Set("net.branch.[shared].bind", "vector");
     network.Set("net.branch.[shared].structure", "Flatten > SharedLinear");
     network.Set("net.body.output.[features]", "shared");
@@ -1444,9 +1449,9 @@ TEST_CASE("Skip network mode and action binding must agree at Agent construction
             data.Set("DefaultDQNAgent.skip.enabled", enabled);
             data.Set("DefaultDQNAgent.skip.max_length", 3);
             data.Set("DefaultDQNAgent.skip.network_mode", mode);
-            data.Set("DefaultDQNAgent.net.block.[Flatten].type", "Flatten");
+            data.Set("DefaultDQNAgent.net.block.[Flatten].type", kFixtureFlatten);
             data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
-            data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten");
+            data.Set("DefaultDQNAgent.net.branch.[main].structure", kFixtureFlatten);
             data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
             data.Set("DefaultDQNAgent.skip.net.body.output.[features]", "main");
             const auto bind_key = "DefaultDQNAgent.skip.net.branch.[main].bind";
@@ -3527,9 +3532,9 @@ TEST_CASE("DefaultDQN baseline uses Head booleans and leaves omitted skip length
 
     data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
     data.Set("DefaultDQNAgent.actor.[eval].network", "online");
-    data.Set("DefaultDQNAgent.net.block.[Flatten].type", "Flatten");
+    data.Set("DefaultDQNAgent.net.block.[Flatten].type", kFixtureFlatten);
     data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
-    data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten");
+    data.Set("DefaultDQNAgent.net.branch.[main].structure", kFixtureFlatten);
     data.Set("DefaultDQNAgent.net.body.output.[features]", "main");
     data.Set("DefaultDQNAgent.skip.net.branch.[main].bind", "features");
     data.Set("DefaultDQNAgent.skip.net.body.output.[features]", "main");
@@ -3568,7 +3573,7 @@ TEST_CASE("Skip IQN consumes fused primary features with optional action input",
     data.Set("net.block.[R2Linear].linear.out_features", 4);
     data.Set("net.block.[R2Cos].type", "CosineEmbedding");
     data.Set("net.block.[R2Cos].cos.num_basis", 4);
-    data.Set("net.block.[Flatten].type", "Flatten");
+    data.Set("net.block.[Flatten].type", kFixtureFlatten);
     data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
     data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten > R2Linear");
     data.Set("DefaultDQNAgent.net.branch.[tau].bind", "taus");

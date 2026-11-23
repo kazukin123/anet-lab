@@ -74,11 +74,19 @@ void ForwardCapture::Reset()
     entries_.clear();
 }
 
+constexpr char kFrameStackType[] = "FrameStack";
+constexpr char kDropKeysType[] = "DropKeys";
+constexpr char kNormalizeType[] = "Normalize";
+constexpr char kNoneMode[] = "none";
+constexpr char kConstantMode[] = "constant";
+constexpr char kRunningMode[] = "running";
+constexpr char kAllKeys[] = "all";
+constexpr char kListedKeys[] = "listed";
+
 namespace {
 
     struct ForwarderChainConfig final : Config {
         std::string structure;
-
         ForwarderChainConfig(const ConfigData& config_data, const std::string& prefix) : Config(config_data, prefix)
         {
             ANET_READ_CONFIG(config_data, structure);
@@ -88,12 +96,11 @@ namespace {
     struct FrameStackBlockConfig final : Config {
         int count = 1;
         struct {
-            std::string mode = "all";
+            std::string mode = kAllKeys;
             struct {
                 std::vector<std::string> names;
             } listed;
         } keys;
-
         explicit FrameStackBlockConfig(const ConfigData& config_data) : Config(config_data, "")
         {
             ANET_READ_CONFIG(config_data, count);
@@ -188,7 +195,6 @@ namespace {
 
     struct DropKeysBlockConfig final : Config {
         std::vector<std::string> keys;
-
         explicit DropKeysBlockConfig(const ConfigData& config_data) : Config(config_data, "")
         {
             ANET_READ_CONFIG(config_data, keys);
@@ -196,7 +202,7 @@ namespace {
     };
 
     struct NormalizeBlockConfig final : Config {
-        std::string mode = "running";
+        std::string mode = kRunningMode;
         struct {
             std::vector<float> mean;
             std::vector<float> std;
@@ -403,15 +409,6 @@ struct ForwarderChain::Definition {
     std::array<std::shared_ptr<Forwarder>, 3> requests;
 };
 
-static constexpr char kFrameStackType[] = "FrameStack";
-static constexpr char kDropKeysType[] = "DropKeys";
-static constexpr char kNormalizeType[] = "Normalize";
-static constexpr char kNoneMode[] = "none";
-static constexpr char kConstantMode[] = "constant";
-static constexpr char kRunningMode[] = "running";
-static constexpr char kAllKeys[] = "all";
-static constexpr char kListedKeys[] = "listed";
-
 static void CheckFrameSpecs(const TensorSpecMap& specs)
 {
     if (specs.empty()) ANET_SYSTEM_ERROR("ForwarderChain expected at least one input key, got 0.");
@@ -563,6 +560,7 @@ static std::shared_ptr<NormalizeForwarder> MakeNormalize(
 static std::vector<NamedBlockConfig> ReadNamedBlocks(const ConfigData& config_data,
     const std::string& block_prefix, const std::vector<std::string>& names)
 {
+    // structure に列挙された名前だけを解決し、選ばれた各ブロックの型を検査する。
     const auto blocks = config_data.MakeSubConfigData(block_prefix);
     std::vector<std::string> selected_keys;
     std::vector<NamedBlockConfig> result;
@@ -581,6 +579,7 @@ static std::vector<NamedBlockConfig> ReadNamedBlocks(const ConfigData& config_da
         }
         selected_keys.push_back(std::move(selected_key));
     }
+    // 未使用の定義を区別できるよう、実体化した項目を設定カタログに記録する。
     config_data.MarkInventory(block_prefix, selected_keys);
     return result;
 }
@@ -604,10 +603,12 @@ ForwarderChain::ForwarderChain(const ConfigData& config_data, const std::string&
     const TensorSpecMap& input_specs, seed_t seed)
     : definition_(std::make_unique<Definition>())
 {
+    // 設定の名前を宣言順に解決する。
     const ForwarderChainConfig config(config_data, config_prefix);
     const auto names = SplitPipelineString(config.structure);
     const auto block_prefix = config_prefix.empty() ? "block" : config_prefix + ".block";
     auto blocks = ReadNamedBlocks(config_data, block_prefix, names);
+    // 入力が Frame であることと、各ブロックの位置・個数を確認する。
     const auto first_stack = std::ranges::find(blocks, kFrameStackType, &NamedBlockConfig::type);
     if (first_stack != blocks.end() && first_stack != blocks.begin()) {
         ANET_SYSTEM_ERROR("Invalid forwarder structure '" << config.structure << "': block '"
@@ -621,10 +622,12 @@ ForwarderChain::ForwarderChain(const ConfigData& config_data, const std::string&
     }
     CheckFrameSpecs(input_specs);
     definition_->input_specs = input_specs;
+    // 先頭の stack を省略した構成にも既定の 1 枚の軸を付ける。
     if (first_stack == blocks.end()) {
         blocks.emplace(blocks.begin(), kFrameStackType, ConfigData{}, kFrameStackType);
     }
 
+    // 各段の出力 spec を次段の入力にして、設定と観測の形を構築時に照合する。
     const SeedMaker seed_maker(seed);
     auto specs = input_specs;
     for (const auto& block : blocks) {
@@ -644,6 +647,7 @@ ForwarderChain::ForwarderChain(const ConfigData& config_data, const std::string&
         specs = entry.forwarder->ForwardSpec(specs);
         definition_->blocks.push_back(std::move(entry));
     }
+    // 同じブロックから入力と用途に応じた処理列を組む。
     for (const auto request : { ForwardRequest::FrameWithStatsUpdate, ForwardRequest::PerceptionFromStack,
         ForwardRequest::PerceptionFromFrame }) {
         definition_->requests[static_cast<size_t>(request)] = MakePipeline(definition_->blocks, request);
@@ -672,6 +676,7 @@ std::shared_ptr<Forwarder> ForwarderChain::GetForwarder(ForwardRequest request) 
 
 std::unique_ptr<ForwardExecutor> ForwarderChain::CreateExecutor(int lane_count, torch::Device device, seed_t seed) const
 {
+    // 各段に実行状態を割り当て、状態を持たない段は Forwarder を共有する。
     const SeedMaker seed_maker(seed);
     std::vector<std::unique_ptr<ForwardExecutor>> executors;
     for (const auto& block : definition_->blocks) {
@@ -682,6 +687,7 @@ std::unique_ptr<ForwardExecutor> ForwarderChain::CreateExecutor(int lane_count, 
             executors.push_back(std::make_unique<StatelessExecutor>(block.forwarder));
         }
     }
+    // 単独の段は直接返し、複数の段は宣言順に実行する。
     if (executors.size() == 1) return std::move(executors.front());
     return std::make_unique<PipelineExecutor>(std::move(executors));
 }
@@ -710,19 +716,24 @@ std::unique_ptr<graphviz::GraphViz> ForwarderChain::MakeGraphViz(bool detail) co
 {
     auto graph = std::make_unique<graphviz::Tree>("perception", graphviz::LayoutDirection::LeftToRight);
     auto specs = definition_->input_specs;
+    // 概要図ではキーの一覧を出し、詳細図では各キーの型と軸も表示する。
     const auto add_specs = [](graphviz::LabelData& label, const TensorSpecMap& tensor_specs, bool include_details) {
         const auto keys = SortedSpecKeys(tensor_specs);
         label.AddAttr("keys", json(keys).dump());
         if (include_details) {
             for (const auto& key : keys) {
                 const auto full_spec = tensor_specs.at(key).ToJson();
-                const json summary = {{"shape", full_spec.at("shape")}, {"dtype", full_spec.at("dtype")},
-                    {"scale", full_spec.at("scale")}, {"stack_axis", full_spec.at("stack_axis")}};
+                json summary;
+                for (const auto* field : { TensorSpec::kShapeField, TensorSpec::kDtypeField,
+                    TensorSpec::kScaleField, TensorSpec::kStackAxisField }) {
+                    summary[field] = full_spec.at(field);
+                }
                 label.AddAttr(key, summary.dump());
             }
         }
     };
 
+    // 入力から各ブロックへ spec を伝播させ、実行順に辺を結ぶ。
     std::string previous = "frame";
     add_specs(graph->AddNode(previous).label.SetTitle("Frame"), specs, detail);
     for (size_t index = 0; index < definition_->blocks.size(); ++index) {
@@ -738,7 +749,9 @@ std::unique_ptr<graphviz::GraphViz> ForwarderChain::MakeGraphViz(bool detail) co
         graph->AddEdge(previous, id);
         previous = id;
     }
-    add_specs(graph->AddNode("output").label.SetTitle("Perception"), specs, detail);
-    graph->AddEdge(previous, "output");
+    // 最終段の spec を出力ノードに記録する。
+    constexpr char kOutputNode[] = "output";
+    add_specs(graph->AddNode(kOutputNode).label.SetTitle("Perception"), specs, detail);
+    graph->AddEdge(previous, kOutputNode);
     return graph;
 }

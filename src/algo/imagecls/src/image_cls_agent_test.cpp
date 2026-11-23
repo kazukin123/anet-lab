@@ -56,6 +56,8 @@ static void SaveRfd0170Trace(const anet::rl::AuxData& aux, const char* name)
     output << snapshot.dump(2) << '\n';
 }
 
+constexpr char kProbabilitiesKey[] = "probs";
+
 namespace {
 
 class VisualTraceTestModule final : public anet::nn::NetworkModule {
@@ -893,7 +895,7 @@ TEST_CASE("ImageClsAgent builds logits head from action spec", "[image_cls][head
     const auto grid = torch::arange(8, torch::kFloat32).view({2, 1, 2, 2}).div(16.0f);
     const auto state = MakeImageClsBatchState(grid);
     const auto baseline = actor->MakeAction({}, state);
-    const auto& probs = baseline->GetInfo().At("probs");
+    const auto& probs = baseline->GetInfo().At(kProbabilitiesKey);
     CHECK(probs.sizes() == torch::IntArrayRef({ 2, env_spec.action_spec.GetNumActions() }));
     CHECK(probs.dtype() == torch::kFloat32);
 
@@ -902,7 +904,7 @@ TEST_CASE("ImageClsAgent builds logits head from action spec", "[image_cls][head
     const auto expected = baseline->GetAction().clone();
     expected[0].fill_(value);
     CHECK(torch::equal(forced->GetAction(), expected));
-    CHECK(torch::equal(forced->GetInfo().At("probs"), probs));
+    CHECK(torch::equal(forced->GetInfo().At(kProbabilitiesKey), probs));
 }
 
 TEST_CASE("ImageClsAgentFactory reads its class-owned net tree", "[image_cls][config][tracer]")

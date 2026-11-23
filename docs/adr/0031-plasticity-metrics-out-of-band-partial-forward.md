@@ -1,5 +1,7 @@
 # 可塑性メトリクスは実 forward の branch capture と学習経路外の部分 forward の 2 チャネルで測る
 
+> 2026-11-23 訂正: 次の注記が述べる capture の改名・移設の決定元は [RFD0161 §6.3 D21](../memo/0161_observation_pipeline_10rfd.md#63-単位-c基盤)。ADR 0084 は共通の Forwarder と処理の並びを定めた。
+
 > 2026-11-23 後発決定: [ADR 0084](0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product.md) で、鍵要求型の `NetworkForwardCapture` を共通の `ForwardCapture` に移した。
 
 > 2026-10-16 後発決定: [ADR0055](0055-forward-capture-request-keyed-carries-module-diagnostics.md)で、`NetworkBranchCapture` を鍵要求型の `NetworkForwardCapture` に一般化し、module の診断（attention エントロピー）も同じ器で運ぶ。設定キー `learner.plasticity.feature_key` は `learner.final_feature_branch_key` に改名した（PRD 093）。「capture を渡さない呼び出しは不変」「probe は RNG 不消費の eval 部分 forward」「購読ヒントが測定を駆動する」の判断は維持する。084 以降の probe 系は Agent 最新値でなく更新結果（`$update_result`）に載せる形へ移ったが、可塑性 probe の行は据え置く。以下は当時の判断記録として保持する。

@@ -853,7 +853,6 @@ private:
 /// e.g. dims=[0, 2, 1] -> (Batch, Time, Feat) -> (Batch, Feat, Time)
 class PermuteModule : public NetworkModule {
 public:
-    bool HandlesStackAxis() const override { return true; }
     explicit PermuteModule(std::vector<int64_t> dims) : dims_(std::move(dims))
     {
     }
@@ -863,6 +862,8 @@ public:
         ANET_PROFILE_FUNC();
         return x.permute(dims_);
     }
+
+    bool HandlesStackAxis() const override { return true; }
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
     {
         return forward(input);
@@ -882,7 +883,6 @@ private:
 /// e.g. dims=[4, 8] -> (Batch, 32) -> (Batch, 4, 8)
 class ReshapeModule : public NetworkModule {
 public:
-    bool HandlesStackAxis() const override { return true; }
     explicit ReshapeModule(std::vector<int64_t> dims) : dims_(std::move(dims))
     {
     }
@@ -896,6 +896,8 @@ public:
         shape.insert(shape.end(), dims_.begin(), dims_.end());
         return x.reshape(shape);
     }
+
+    bool HandlesStackAxis() const override { return true; }
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
     {
         return forward(input);
@@ -2186,7 +2188,6 @@ struct HybridSpatialEmbedderConfig {
 
 class HybridSpatialEmbedderModule : public NetworkModule {
 public:
-    bool HandlesStackAxis() const override { return true; }
     HybridSpatialEmbedderModule(const HybridSpatialEmbedderConfig& config)
         : config_(config)
     {
@@ -2196,6 +2197,7 @@ public:
         ANET_CHECK(config_.num_classes > 0);
     }
 
+    bool HandlesStackAxis() const override { return true; }
     bool IsConv2dVisualizable() const override { return true; }
 
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
@@ -2314,7 +2316,6 @@ struct SpatialEmbedderConfig {
 
 class SpatialEmbedderModule : public NetworkModule {
 public:
-    bool HandlesStackAxis() const override { return true; }
     SpatialEmbedderModule(const SpatialEmbedderConfig& config)
         : config_(config)
     {
@@ -2322,6 +2323,7 @@ public:
         ANET_CHECK(config_.grid_height > 0);
     }
 
+    bool HandlesStackAxis() const override { return true; }
     bool IsConv2dVisualizable() const override { return true; }
 
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override

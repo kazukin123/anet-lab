@@ -6,6 +6,8 @@
 #include "anet/algo/muzero.hpp"
 #include "muzero_proto_agent.hpp"
 
+constexpr char kTargetPolicyKey[] = "target_policy";
+
 TEST_CASE("MuZero initialization keeps its first Agent factory registrations", "[init][idempotent]")
 {
     anet::rl::algo::InitMuZero();
@@ -131,5 +133,5 @@ TEST_CASE("MuZero Actor catalog owns temperature and exploration noise", "[rfd00
     const auto expected = quiet_result->GetAction().clone();
     expected[0].fill_(value);
     CHECK(torch::equal(forced->GetAction(), expected));
-    CHECK(torch::equal(forced->GetInfo().At("target_policy"), quiet_result->GetInfo().At("target_policy")));
+    CHECK(torch::equal(forced->GetInfo().At(kTargetPolicyKey), quiet_result->GetInfo().At(kTargetPolicyKey)));
 }

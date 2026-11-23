@@ -395,10 +395,10 @@ TEST_CASE("TensorSpec serializes scale and stack axis", "[forwarder]")
 {
     const anet::TensorSpec spec{ .shape = { 3 } };
     const auto json = spec.ToJson();
-    REQUIRE(json.contains("scale"));
-    CHECK(json.at("scale") == "Scaled");
-    REQUIRE(json.contains("stack_axis"));
-    CHECK(json.at("stack_axis") == false);
+    REQUIRE(json.contains(anet::TensorSpec::kScaleField));
+    CHECK(json.at(anet::TensorSpec::kScaleField) == "Scaled");
+    REQUIRE(json.contains(anet::TensorSpec::kStackAxisField));
+    CHECK(json.at(anet::TensorSpec::kStackAxisField) == false);
 
     const anet::TensorSpec stacked_spec{
         .shape = { 4, 3 },
@@ -406,8 +406,8 @@ TEST_CASE("TensorSpec serializes scale and stack axis", "[forwarder]")
         .has_stack_axis = true,
     };
     const auto stacked_json = stacked_spec.ToJson();
-    CHECK(stacked_json.at("scale") == "Unscaled");
-    CHECK(stacked_json.at("stack_axis") == true);
+    CHECK(stacked_json.at(anet::TensorSpec::kScaleField) == "Unscaled");
+    CHECK(stacked_json.at(anet::TensorSpec::kStackAxisField) == true);
 }
 
 TEST_CASE("StateSpec rejects integral or discrete unscaled observations", "[forwarder]")

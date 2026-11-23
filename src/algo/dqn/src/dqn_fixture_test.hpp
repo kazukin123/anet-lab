@@ -47,6 +47,9 @@
 #include "dqn_learner.hpp"
 #include "dqn_assembler.hpp"
 
+constexpr char kFixtureFlatten[] = "Flatten";
+constexpr char kFixtureMainBranch[] = "main";
+
 namespace {
 
 static void SaveRfd0170Trace(const anet::rl::AuxData& aux, const char* name)
@@ -737,9 +740,9 @@ rl::EnvSpec MakeLearnerEnvSpec()
 anet::nn::NetworkConfig MakeAgentForwardNetworkConfig()
 {
     anet::nn::NetworkConfig config;
-    config.block_configs["Flatten"].type = "Flatten";
-    config.branches["main"] = {.name = "main", .bind_terms = {{kVectorKey}}, .structure_str = "Flatten"};
-    config.output_keys[anet::nn::kKey_DefaultOutput] = "main";
+    config.block_configs[kFixtureFlatten].type = kFixtureFlatten;
+    config.branches[kFixtureMainBranch] = {.name = kFixtureMainBranch, .bind_terms = {{kVectorKey}}, .structure_str = kFixtureFlatten};
+    config.output_keys[anet::nn::kKey_DefaultOutput] = kFixtureMainBranch;
     return config;
 }
 
@@ -778,9 +781,9 @@ anet::ConfigData MakeIqnTracerConfigData()
     config_data.Set("net.block.[CosEmb].cos.num_basis", 4);
     config_data.Set("net.block.[TauProj].type", "Linear");
     config_data.Set("net.block.[TauProj].linear.out_features", 4);
-    config_data.Set("net.block.[Flatten].type", "Flatten");
+    config_data.Set("net.block.[Flatten].type", kFixtureFlatten);
     config_data.Set("DefaultDQNAgent.net.branch.[main].bind", kVectorKey);
-    config_data.Set("DefaultDQNAgent.net.branch.[main].structure", "Flatten");
+    config_data.Set("DefaultDQNAgent.net.branch.[main].structure", kFixtureFlatten);
     config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].bind", anet::rl::dqn::kKey_Taus);
     config_data.Set("DefaultDQNAgent.net.branch.[tau_embedding].structure", "CosEmb > TauProj");
     config_data.Set("DefaultDQNAgent.net.branch.[fusion].bind", "main * tau_embedding");

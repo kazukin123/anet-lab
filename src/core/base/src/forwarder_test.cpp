@@ -4,10 +4,17 @@
 #include "anet/graphviz.hpp"
 #include "anet/scaler.hpp"
 
-namespace {
+constexpr char kStackBlock[] = "stack";
+constexpr char kNormBlock[] = "norm";
 constexpr char kVector[] = "vector";
 constexpr char kAux[] = "aux";
-}
+constexpr char kFrameStackType[] = "FrameStack";
+constexpr char kNormalizeType[] = "Normalize";
+constexpr char kDropKeysType[] = "DropKeys";
+constexpr char kListedKeys[] = "listed";
+constexpr char kConstantMode[] = "constant";
+constexpr char kNoneMode[] = "none";
+constexpr char kRunningMode[] = "running";
 
 TEST_CASE("Perception from a frame matches the stacked spec", "[perception]")
 {
@@ -15,13 +22,13 @@ TEST_CASE("Perception from a frame matches the stacked spec", "[perception]")
     int stack_count = 1;
     SECTION("Implicit stack") {}
     SECTION("Explicit stack with default count") {
-        config.Set("perception.structure", "stack");
-        config.Set("perception.block.[stack].type", "FrameStack");
+        config.Set("perception.structure", kStackBlock);
+        config.Set("perception.block.[stack].type", kFrameStackType);
     }
     SECTION("Four frames") {
         stack_count = 4;
-        config.Set("perception.structure", "stack");
-        config.Set("perception.block.[stack].type", "FrameStack");
+        config.Set("perception.structure", kStackBlock);
+        config.Set("perception.block.[stack].type", kFrameStackType);
         config.Set("perception.block.[stack].count", stack_count);
     }
 
@@ -49,10 +56,10 @@ TEST_CASE("FrameStack aligns actor history and replay frames without changing st
     constexpr char kUnstacked[] = "unstacked";
     const int count = GENERATE(1, 4);
     anet::ConfigData config;
-    config.Set("perception.structure", "stack");
-    config.Set("perception.block.[stack].type", "FrameStack");
+    config.Set("perception.structure", kStackBlock);
+    config.Set("perception.block.[stack].type", kFrameStackType);
     config.Set("perception.block.[stack].count", count);
-    config.Set("perception.block.[stack].keys.mode", "listed");
+    config.Set("perception.block.[stack].keys.mode", kListedKeys);
     config.Set("perception.block.[stack].keys.listed.names", kVector);
     const anet::TensorSpec spec{ .shape = { 1 } };
     const anet::TensorSpecMap frame_specs{ { kVector, spec }, { kUnstacked, spec } };
@@ -90,9 +97,9 @@ TEST_CASE("DropKeys hides keys from Perception and preserves them in the stored 
     const int stack_count = GENERATE(1, 4);
     anet::ConfigData config;
     config.Set("perception.structure", "stack > drop >");
-    config.Set("perception.block.[stack].type", "FrameStack");
+    config.Set("perception.block.[stack].type", kFrameStackType);
     config.Set("perception.block.[stack].count", stack_count);
-    config.Set("perception.block.[drop].type", "DropKeys");
+    config.Set("perception.block.[drop].type", kDropKeysType);
     config.Set("perception.block.[drop].keys", kAux);
     const anet::TensorSpec spec{ .shape = { 1 } };
     const anet::TensorSpecMap frame_specs{ { kVector, spec }, { kAux, spec } };
@@ -122,33 +129,33 @@ TEST_CASE("DropKeys hides keys from Perception and preserves them in the stored 
 TEST_CASE("Normalize applies one Frame's statistics across the stack", "[perception]")
 {
     constexpr char kScaled[] = "scaled";
-    const std::string mode = GENERATE("none", "constant", "running");
+    const std::string mode = GENERATE(kNoneMode, kConstantMode, kRunningMode);
     const anet::TensorSpec unscaled{ .shape = { 8 }, .scale = anet::ValueScale::Unscaled };
     const anet::TensorSpec scaled{ .shape = { 8 } };
     const anet::TensorSpecMap specs{ { kVector, unscaled }, { kScaled, scaled } };
     anet::ConfigData config;
     config.Set("perception.structure", "stack > norm >");
-    config.Set("perception.block.[stack].type", "FrameStack");
+    config.Set("perception.block.[stack].type", kFrameStackType);
     config.Set("perception.block.[stack].count", 4);
-    config.Set("perception.block.[norm].type", "Normalize");
+    config.Set("perception.block.[norm].type", kNormalizeType);
     config.Set("perception.block.[norm].mode", mode);
     config.Set("perception.block.[norm].constant.mean", "1 1 1 1 1 1 1 1");
     config.Set("perception.block.[norm].constant.std", "2 2 2 2 2 2 2 2");
     config.Set("perception.block.[norm].running.use_centering", true);
     const anet::ForwarderChain chain(config, "perception", specs, 42);
     const auto output_specs = chain.ForwardSpec(specs);
-    CHECK(output_specs.at(kVector).scale == (mode == "none" ? anet::ValueScale::Unscaled : anet::ValueScale::Scaled));
+    CHECK(output_specs.at(kVector).scale == (mode == kNoneMode ? anet::ValueScale::Unscaled : anet::ValueScale::Scaled));
     CHECK(output_specs.at(kVector).has_stack_axis);
 
     const auto update = chain.GetForwarder(anet::ForwardRequest::FrameWithStatsUpdate);
     const auto sample = chain.GetForwarder(anet::ForwardRequest::PerceptionFromStack);
     const auto view = chain.GetForwarder(anet::ForwardRequest::PerceptionFromFrame);
     const anet::rl::ObservationNormalizerConfig reference_config{
-        .pass_through = mode == "none",
+        .pass_through = mode == kNoneMode,
         .constant_mean = std::vector<float>(8, 1.0f),
         .constant_std = std::vector<float>(8, 2.0f),
-        .use_dynamic_scaling = mode == "running",
-        .use_centering = mode == "running",
+        .use_dynamic_scaling = mode == kRunningMode,
+        .use_centering = mode == kRunningMode,
     };
     const anet::rl::StateSpec reference_spec{ .obs_spec = {{ kVector, unscaled }} };
     auto reference = anet::rl::ObservationNormalizerFactory(reference_config).CreateObservationNormalizer(reference_spec);
@@ -184,14 +191,14 @@ TEST_CASE("Normalize applies one Frame's statistics across the stack", "[percept
 
 TEST_CASE("Frame intake preserves the normalizer clip ratio without changing the frame", "[perception]")
 {
-    const std::string mode = GENERATE("constant", "running");
+    const std::string mode = GENERATE(kConstantMode, kRunningMode);
     constexpr float kClipRange = 0.5f;
     const anet::rl::StateSpec state_spec{
         .obs_spec = {{kVector, {.shape = {2}, .scale = anet::ValueScale::Unscaled}}},
     };
     anet::ConfigData config;
-    config.Set("perception.structure", "norm");
-    config.Set("perception.block.[norm].type", "Normalize");
+    config.Set("perception.structure", kNormBlock);
+    config.Set("perception.block.[norm].type", kNormalizeType);
     config.Set("perception.block.[norm].mode", mode);
     config.Set("perception.block.[norm].constant.clip_range", kClipRange);
     config.Set("perception.block.[norm].running.clip_range", kClipRange);
@@ -199,7 +206,7 @@ TEST_CASE("Frame intake preserves the normalizer clip ratio without changing the
     const auto intake = chain.GetForwarder(anet::ForwardRequest::FrameWithStatsUpdate);
     const anet::rl::ObservationNormalizerConfig reference_config{
         .clip_range = kClipRange,
-        .use_dynamic_scaling = mode == "running",
+        .use_dynamic_scaling = mode == kRunningMode,
     };
     const auto reference = anet::rl::ObservationNormalizerFactory(reference_config).CreateObservationNormalizer(state_spec);
 
@@ -228,8 +235,8 @@ TEST_CASE("Perception rejects invalid block declarations during construction", "
 {
     anet::ConfigData config;
     config.Set("perception.structure", "stack > norm");
-    config.Set("perception.block.[stack].type", "FrameStack");
-    config.Set("perception.block.[norm].type", "Normalize");
+    config.Set("perception.block.[stack].type", kFrameStackType);
+    config.Set("perception.block.[norm].type", kNormalizeType);
     anet::TensorSpecMap specs{ { kVector, { .shape = { 8 }, .scale = anet::ValueScale::Unscaled } },
         { kAux, { .shape = { 2 } } } };
     std::string expected;
@@ -254,7 +261,7 @@ TEST_CASE("Perception rejects invalid block declarations during construction", "
         expected = "perception.block.[stack].count";
     }
     SECTION("Unknown selected key") {
-        config.Set("perception.block.[stack].keys.mode", "listed");
+        config.Set("perception.block.[stack].keys.mode", kListedKeys);
         config.Set("perception.block.[stack].keys.listed.names", "missing");
         expected = "perception.block.[stack].keys.listed.names";
     }
@@ -267,17 +274,17 @@ TEST_CASE("Perception rejects invalid block declarations during construction", "
         expected = "at least one input key";
     }
     SECTION("DropKeys leaves no output") {
-        config.Set("perception.block.[norm].type", "DropKeys");
+        config.Set("perception.block.[norm].type", kDropKeysType);
         config.Set("perception.block.[norm].keys", "vector aux");
         expected = "at least one output key";
     }
     SECTION("Invalid inactive setting") {
-        config.Set("perception.block.[norm].mode", "none");
+        config.Set("perception.block.[norm].mode", kNoneMode);
         config.Set("perception.block.[norm].running.epsilon", 0.0f);
         expected = "perception.block.[norm].running.epsilon";
     }
     SECTION("Constant width does not match") {
-        config.Set("perception.block.[norm].mode", "constant");
+        config.Set("perception.block.[norm].mode", kConstantMode);
         config.Set("perception.block.[norm].constant.mean", "1 2");
         expected = "perception.block.[norm].constant.mean";
     }
@@ -290,7 +297,7 @@ TEST_CASE("Perception rejects invalid block declarations during construction", "
 
 TEST_CASE("Perception leaves former settings unread and ignores unused block definitions", "[perception]")
 {
-    constexpr char kFormerStackCount[] = "stu" "cker.stack_count";
+    constexpr char kFormerStackCount[] = "stucker.stack_count";
     anet::ConfigData config;
     config.Set(kFormerStackCount, 4);
     config.Set("perception.block.[unused].unexpected", "anything");
@@ -302,9 +309,9 @@ TEST_CASE("Perception leaves former settings unread and ignores unused block def
     CHECK(unread.front().first == kFormerStackCount);
     CHECK_FALSE(chain.GetScalar(anet::rl::ObservationNormalizer::kKeyCount).has_value());
 
-    config.Set("perception.structure", "norm");
-    config.Set("perception.block.[norm].type", "Normalize");
-    config.Set("perception.block.[norm].mode", "constant");
+    config.Set("perception.structure", kNormBlock);
+    config.Set("perception.block.[norm].type", kNormalizeType);
+    config.Set("perception.block.[norm].mode", kConstantMode);
     config.Set("perception.block.[norm].constant.mean", "1 2");
     const anet::ForwarderChain scaled_only(config, "perception", specs, 42);
     CHECK_FALSE(scaled_only.GetScalar(anet::rl::ObservationNormalizer::kKeyCount).has_value());
@@ -319,22 +326,22 @@ TEST_CASE("Perception diagrams describe ordered blocks, tensor shapes and named 
         { kAux, { .shape = { 1 } } } };
     anet::ConfigData config;
     config.Set("perception.structure", "stack > norm > drop");
-    config.Set("perception.block.[stack].type", "FrameStack");
+    config.Set("perception.block.[stack].type", kFrameStackType);
     config.Set("perception.block.[stack].count", 4);
-    config.Set("perception.block.[norm].type", "Normalize");
-    config.Set("perception.block.[norm].mode", "none");
-    config.Set("perception.block.[drop].type", "DropKeys");
+    config.Set("perception.block.[norm].type", kNormalizeType);
+    config.Set("perception.block.[norm].mode", kNoneMode);
+    config.Set("perception.block.[drop].type", kDropKeysType);
     config.Set("perception.block.[drop].keys", kAux);
     const anet::ForwarderChain chain(config, "perception", specs, 42);
     const auto structure = chain.MakeGraphViz(false)->ToDotString();
-    for (const auto* fragment : { "stack", "FrameStack", "norm", "Normalize", kVector, kAux, "block_0\" -> \"block_1" }) {
+    for (const auto* fragment : { kStackBlock, kFrameStackType, kNormBlock, kNormalizeType, kVector, kAux, "block_0\" -> \"block_1" }) {
         CHECK(structure.find(fragment) != std::string::npos);
     }
     const auto detail = chain.MakeGraphViz(true)->ToDotString();
-    for (const auto* fragment : {"count", "keys.mode", "Unscaled", "Scaled", "stack_axis", "Float", "[4,8]", "none"}) {
+    for (const auto* fragment : {"count", "keys.mode", "Unscaled", "Scaled", "stack_axis", "Float", "[4,8]", kNoneMode}) {
         CHECK(detail.find(fragment) != std::string::npos);
     }
-    const auto seed = std::to_string(anet::SeedMaker(42).MakeNamedSeed("norm"));
+    const auto seed = std::to_string(anet::SeedMaker(42).MakeNamedSeed(kNormBlock));
     CHECK(detail.find(seed) != std::string::npos);
 
     config.Set("perception.structure", "stack > drop > norm");

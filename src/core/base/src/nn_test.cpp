@@ -28,6 +28,11 @@
 #include <type_traits>
 #include <vector>
 
+constexpr char kObservationKey[] = "obs";
+constexpr char kFeaturesOutput[] = "features";
+constexpr char kStackMergeType[] = "StackMerge";
+constexpr char kLinearType[] = "Linear";
+
 constexpr char kRfd0170TraceFeature[] = "feature";
 
 namespace {
@@ -5306,13 +5311,13 @@ TEST_CASE("Forward capture enforces requested unique keys and preserves write or
 TEST_CASE("StackMerge requires batch, stack, channel, height and width", "[nn][perception]")
 {
     EnsureNNInitialized();
-    const auto module = anet::nn::NetworkModuleRepository::Instance().GetFactory("StackMerge")
+    const auto module = anet::nn::NetworkModuleRepository::Instance().GetFactory(kStackMergeType)
         ->CreateModule(anet::ConfigData{}, anet::nn::ModuleContext{});
     const auto context = anet::nn::NetworkForwardContext::GetDefault();
     const auto input = torch::arange(48, torch::kFloat32).reshape({ 2, 2, 3, 2, 2 });
     CHECK(torch::equal(module->Forward(input, context), input.reshape({ 2, 6, 2, 2 })));
     CHECK_THROWS_WITH(module->Forward(input.reshape({ 2, 6, 2, 2 }), context),
-        Catch::Matchers::ContainsSubstring("StackMerge"));
+        Catch::Matchers::ContainsSubstring(kStackMergeType));
 }
 
 TEST_CASE("Discrete grid boundary uses the declared stack axis", "[nn][perception]")
@@ -5339,21 +5344,21 @@ TEST_CASE("Stacked branch diagnoses an undeclared first module and still constru
     EnsureNNInitialized();
     const bool handles_stack = GENERATE(false, true);
     anet::ConfigData data;
-    data.Set("net.block.[Linear].type", "Linear");
+    data.Set("net.block.[Linear].type", kLinearType);
     data.Set("net.block.[Linear].linear.out_features", 2);
     data.Set("net.block.[Flatten].type", "Flatten");
-    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.branch.[feature].bind", kObservationKey);
     data.Set("net.branch.[feature].structure", handles_stack ? "Flatten > Linear" : "Linear > Flatten");
-    data.Set("net.body.output.[features]", "feature");
+    data.Set("net.body.output.[features]", kRfd0170TraceFeature);
     const anet::TensorSpec spec{ .shape = { 1, 2 }, .has_stack_axis = true };
     anet::test::LogCaptureGuard logs;
     const auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
-        anet::TensorSpecMap{ { "obs", spec } }, nullptr, 0, torch::kCPU);
+        anet::TensorSpecMap{ { kObservationKey, spec } }, nullptr, 0, torch::kCPU);
     REQUIRE(network);
     logs.Flush();
     const auto warnings = std::ranges::count_if(logs.Records(), [](const auto& record) {
         return record.level == wxLOG_Warning && record.message.find("stack axis") != std::string::npos
-            && record.message.find("feature") != std::string::npos && record.message.find("Linear") != std::string::npos;
+            && record.message.find(kRfd0170TraceFeature) != std::string::npos && record.message.find(kLinearType) != std::string::npos;
     });
     CHECK(warnings == (handles_stack ? 0 : 1));
 }
@@ -5362,24 +5367,24 @@ TEST_CASE("Network preserves output and capture through the Forwarder interface"
 {
     EnsureNNInitialized();
     anet::ConfigData data;
-    data.Set("net.branch.[feature].bind", "obs");
+    data.Set("net.branch.[feature].bind", kObservationKey);
     data.Set("net.branch.[feature].structure", "");
-    data.Set("net.body.output.[features]", "feature");
+    data.Set("net.body.output.[features]", kRfd0170TraceFeature);
     const anet::TensorSpec spec{ .type = anet::SpaceType::Vector, .shape = { 2 }, .dtype = torch::kFloat32 };
     auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
-        anet::TensorSpecMap{ { "obs", spec } }, nullptr, 0, torch::kCPU);
-    const anet::TensorDict input{ { "obs", torch::ones({ 2, 2 }) } };
+        anet::TensorSpecMap{ { kObservationKey, spec } }, nullptr, 0, torch::kCPU);
+    const anet::TensorDict input{ { kObservationKey, torch::ones({ 2, 2 }) } };
     const auto forward = [&input](anet::Forwarder& forwarder, anet::ForwardCapture* capture = nullptr) {
         return forwarder.Forward(input, capture);
     };
 
     const auto expected = network->Forward(input);
-    CHECK(torch::equal(forward(*network).At("features"), expected.At("features")));
-    anet::ForwardCapture expected_capture({ "feature" });
-    anet::ForwardCapture actual_capture({ "feature" });
+    CHECK(torch::equal(forward(*network).At(kFeaturesOutput), expected.At(kFeaturesOutput)));
+    anet::ForwardCapture expected_capture({ kRfd0170TraceFeature });
+    anet::ForwardCapture actual_capture({ kRfd0170TraceFeature });
     network->Forward(input, &expected_capture);
-    CHECK(torch::equal(forward(*network, &actual_capture).At("features"), expected.At("features")));
-    CHECK(torch::equal(actual_capture.Get("feature"), expected_capture.Get("feature")));
+    CHECK(torch::equal(forward(*network, &actual_capture).At(kFeaturesOutput), expected.At(kFeaturesOutput)));
+    CHECK(torch::equal(actual_capture.Get(kRfd0170TraceFeature), expected_capture.Get(kRfd0170TraceFeature)));
 }
 
 TEST_CASE("Network partial and prepared forwards reset capture and reject unmet requests", "[nn][capture][rfd0093]")
@@ -5393,7 +5398,7 @@ TEST_CASE("Network partial and prepared forwards reset capture and reject unmet 
     auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
         anet::TensorSpecMap{ { "obs", spec } }, nullptr, 0, torch::kCPU);
     anet::TensorDict input{ { "obs", torch::ones({ 2, 2 }, torch::TensorOptions().requires_grad(true)) } };
-    anet::ForwardCapture capture({ "feature" });
+    anet::ForwardCapture capture({ kRfd0170TraceFeature });
     network->ForwardUpTo(input, "feature", &capture);
     CHECK_FALSE(capture.Get("feature").requires_grad());
     input.Set("obs", torch::zeros({ 2, 2 }));
@@ -5514,7 +5519,7 @@ TEST_CASE("Repeated Transformer captures have stable positions and execution-ord
     network->eval();
     anet::TensorDict input{ { "obs", torch::randn({ 2, 3, 4 }).requires_grad_(true) } };
     const auto prefix = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey) + "/";
-    anet::ForwardCapture capture({ prefix, "feature" });
+    anet::ForwardCapture capture({ prefix, kRfd0170TraceFeature });
     const auto ordinary = network->Forward(input);
     const auto partial = network->ForwardUpTo(input, "feature", &capture);
     const auto entries = capture.GetAll(prefix);

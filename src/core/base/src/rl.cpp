@@ -32,6 +32,7 @@ ForcedActions ForcedActions::ByMask(torch::Tensor mask, torch::Tensor actions)
 static torch::Tensor SelectForcedActions(const torch::Tensor& mask, const torch::Tensor& actions,
     int64_t lane_count, int64_t action_count)
 {
+    // マスクと行動が lane ごとに 1 要素ずつ対応することを確認する。
     const torch::IntArrayRef expected_shape(&lane_count, 1);
     if (!mask.defined() || mask.scalar_type() != torch::kBool || mask.sizes() != expected_shape
         || !actions.defined() || actions.scalar_type() != torch::kInt64 || actions.sizes() != expected_shape) {
@@ -41,6 +42,7 @@ static torch::Tensor SelectForcedActions(const torch::Tensor& mask, const torch:
             << " actions=" << actions_description << " expected bool mask and int64 actions of shape "
             << expected_shape << " action_count=" << action_count << ".");
     }
+    // 強制対象だけを取り出して行動の範囲を検査し、エラーには元の lane を示す。
     const auto lanes = mask.to(actions.device());
     const auto selected = actions.masked_select(lanes);
     const auto invalid = selected.lt(0).logical_or(selected.ge(action_count)).nonzero();
@@ -65,10 +67,12 @@ torch::Tensor ForcedActions::Apply(const torch::Tensor& policy_actions, int64_t 
 {
     ANET_PROFILE_FUNC();
     const auto lane_count = policy_actions.size(0);
+    // マスク指定では選択した lane の行動だけをまとめて置き換える。
     if (const auto* mask = std::get_if<Mask>(&selection_)) {
         const auto selected = SelectForcedActions(mask->lanes, mask->actions, lane_count, action_count);
         return policy_actions.masked_scatter(MakeMask(lane_count, policy_actions.device()), selected.to(policy_actions.device()));
     }
+    // 単一 lane の指定では方策の出力を複製し、その lane だけを書き換える。
     ValidateDiscrete(lane_count, action_count);
     const auto& lane = std::get<Lane>(selection_);
     auto actions = policy_actions.clone();
