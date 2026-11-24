@@ -118,7 +118,7 @@ TDDは各挙動につき1テストずつRED→GREENを完了する。
 - 報告と文書: 未解決PRDはページと番号の組の数・候補数をlintの手順8で報告する。wiki規約へ改訂PRDと同文を足し、PRD095のblob 7f45ddfafdb60c11fe8ef462e855b8691f0f6acfを材料とするfixをREADME宛に追記した。正本PRDは不変、log.mdの元の内容はprefix一致で保持した。
 - 巡回: 今回の受入17のような巡回とは別の計測監査ではnext_lensを進めないものとしてarchitectureへ戻した。110_runner_appのlast_seen.refactor=2026-10-22を含むその他の欄は不変。監査skill全般の既存巡回ルールを変更したものではない。
 - Debug: 最初の初期化コマンドにパス誤記があり失敗したため、AGENTS.md指定のCommunity/Common7/Tools/VsDevCmd.batへ直した。`cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug'` で終了0。初回失敗と成功のログは.scratch/prd095/stage2-fix/debug-build-initial-path-error.log / debug-build.log。
-- 自己点検: 実装品質確認観点の全62項目を適用範囲で確認。PRDとの一致、過剰な契約の不在、Pythonのコメントと失敗時の扱い、テストと報告、skill同期を確認した。C++・設定・所有権など今回変更が無い観点は対象外。追加の機械検査は115/115成功（selfcheck.py / selfcheck.json）。全skill実体コピー一致、LF/BOM、出典リンク・目録・公開できない値、改訂句の一致、禁止領域と別作業の変更の不変、log追記のみ、diff --check、再読・hash・更新時刻を確認した。コードに未実施の検証・未決はない。受入16と段階3は従前どおり範囲外。
+- 自己点検: 実装レビュー観点の全62項目を適用範囲で確認。PRDとの一致、過剰な契約の不在、Pythonのコメントと失敗時の扱い、テストと報告、skill同期を確認した。C++・設定・所有権など今回変更が無い観点は対象外。追加の機械検査は115/115成功（selfcheck.py / selfcheck.json）。全skill実体コピー一致、LF/BOM、出典リンク・目録・公開できない値、改訂句の一致、禁止領域と別作業の変更の不変、log追記のみ、diff --check、再読・hash・更新時刻を確認した。コードに未実施の検証・未決はない。受入16と段階3は従前どおり範囲外。
 
 - 独立an-review結果: 計画追記・実装ともOK。修正要求・範囲外の検出・開発者確認事項なし。原文は.scratch/prd095/review-2026-10-22-stage2-fix-impl.md。13テスト・Debugは実行記録をレビューし、レビュー側の重複実行はしていない。
 - 今回の5指摘をすべて修正し、未決・未実施の検証なし。最終保存後にselfcheck.pyを再実行し、15ファイルの再読・hash・mtime_nsと開始snapshotからの差分をsaved-files.json / diffへ保存する。前回からの受入16・段階3の対象外は維持し、stage・commit・pushは実施しない。

@@ -17,7 +17,7 @@
       "sources": [{ "path": "CLAUDE.md", "line": 4 }, { "path": "AGENTS.md", "line": 61, "label": "作業ごとに読むもの" }]
     },
     {
-      "id": "domain_rules", "type": "security", "label": "規約", "sublabel": "品質確認観点・プロセス契約",
+      "id": "domain_rules", "type": "security", "label": "規約", "sublabel": "レビュー観点・プロセス契約",
       "pos": [300, 300], "size": [180, 72],
       "sources": [{ "path": "docs/quality/impl.md" }, { "path": "docs/quality/rfd.md" }, { "path": "docs/process/registry.md" }]
     },
@@ -104,7 +104,7 @@
       "dot": "cyan",
       "title": "主経路",
       "items": [
-        "入口の「作業ごとに読むもの」から品質確認観点の節へ進み、領域の設計文書を読む。",
+        "入口の「作業ごとに読むもの」からレビュー観点の節へ進み、領域の設計文書を読む。",
         "検証は設計文書のテスト章から src/core/base/testdata の README へたどる。"
       ]
     },

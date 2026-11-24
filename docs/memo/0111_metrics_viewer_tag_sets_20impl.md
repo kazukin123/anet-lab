@@ -23,7 +23,7 @@ PRD111（`111_metrics_viewer_tag_sets_10prd.md`）のタグ選択全体の保存
 
 - Maven の対象テスト→全体 `mvn test`→`mvn package`。リポジトリ規約の Debug ビルドを VsDevCmd.bat 経由で実行。
 - jar の初期値、ステージとzipの作業用ファイル不在を確認。workflow_dispatch は変更がリモートrefに必要。未実施なら理由と残る受入を記録する。
-- 実装品質確認観点の全項目を適用範囲に従って自己点検。独立 an-review に impl-plan と impl を依頼し、直せる指摘を解消して再レビューする。
+- 実装レビュー観点の全項目を適用範囲に従って自己点検。独立 an-review に impl-plan と impl を依頼し、直せる指摘を解消して再レビューする。
 
 ## 前提
 

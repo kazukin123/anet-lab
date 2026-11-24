@@ -33,7 +33,7 @@ PRD158 の D1〜D10、§5、A1〜A8 を実装する。`run.eval_schedule.[tag]` 
 - `[interval_gate]`、新しい `[prd158]`、`[eval_schedule]`、`[eval_session]`、`[eval_runner]`、設定検査、既定のテストスイート、hidden の `[runner_close_drain]` を実行する。
 - bat の CP932・CRLF と、§5.3 の各変数の値を検査する。新しい検証資材の構文と関連する解決値の監査を確認する。
 - Runner 起動前に Run 実行ユーザーガイドの指定の節を読む。LunarLander の既定を 300000 exp step まで実行し、予算完走、scheduled の値、初回セッションの下限、Greedy とほかのタグの発火時点の不一致を確認する（A6）。
-- PRD A8 の 3 検索、util.hpp の差分が空であること、品質確認観点の全項目、BOM・LF・bat の CP932 を確認する。ログは `.scratch/prd918/` に保存し、応答へは要約を出す。
+- PRD A8 の 3 検索、util.hpp の差分が空であること、レビュー観点の全項目、BOM・LF・bat の CP932 を確認する。ログは `.scratch/prd918/` に保存し、応答へは要約を出す。
 - 自己点検のあと、計画と実装を独立した `anet-review-agent` にまとめて依頼する。指摘を仕分け、直せるものを直し、同じエージェントへ再依頼する。結果の原文と本書の経過を保存する。
 
 ## 実行した検証コマンドと結果
@@ -200,7 +200,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 $env:OMP_NUM_THREADS = '1'; $env:MKL_NUM_THREADS = '1'; $env:ANET_PRD918_OUTPUT = Join-Path (Get-Location) '.scratch/prd918/cc-fix-config'; & core\anet-core\bin\Debug\anet-core-test.exe '[prd918],[prd918-config],[eval_schedule],[interval_gate],[eval_session],[eval_runner]' > .scratch\prd918\cc-fix-tests.log 2>&1
 ```
 
-ファイル検査・差分検査はともに終了コード 0（cc-fix-file-check.log、cc-fix-diff-check.log）。42 ファイルの BOM・改行・リンク・Python 構文・翻訳元情報に問題なし。差分の文字列候補は設定キーの例外で、変更した PRD103/918 の環境名の比較と skip プロファイルの直書きを別途読み直して解消を確認した。追加差分について実装品質確認観点の全項目を自己点検した。
+ファイル検査・差分検査はともに終了コード 0（cc-fix-file-check.log、cc-fix-diff-check.log）。42 ファイルの BOM・改行・リンク・Python 構文・翻訳元情報に問題なし。差分の文字列候補は設定キーの例外で、変更した PRD103/918 の環境名の比較と skip プロファイルの直書きを別途読み直して解消を確認した。追加差分について実装レビュー観点の全項目を自己点検した。
 
 ```bash
 $env:PYTHONUTF8 = '1'; .\.venv\Scripts\python.exe .scratch\prd918\check_files.py > .scratch\prd918\cc-fix-file-check.log 2>&1; .\.venv\Scripts\python.exe .scratch\prd918\check_diff.py > .scratch\prd918\cc-fix-diff-check.log 2>&1

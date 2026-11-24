@@ -100,7 +100,7 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 - [130](../design/130_neural_networks.jp.md) 287 行: どの bind にも使われない入力は key ごとに WARN。
 - [140](../design/140_observability.jp.md) 234 行: 不明な event・step 軸・target は WARN のあと既定値を使う。
 - [020](../design/020_user_guide_run.jp.md) 379 行: include 先が無くても続ける。
-- [実装 品質確認観点](../quality/impl.md) 項番 24・25・27: 意図された休止をエラーにしない、代替は auto だけで 1 回 WARN、WARN は対象ごとに 1 回。
+- [実装 レビュー観点](../quality/impl.md) 項番 24・25・27: 意図された休止をエラーにしない、代替は auto だけで 1 回 WARN、WARN は対象ごとに 1 回。
 - ADR: [0027](../adr/0027-eval-definition-schedule-separation.md) は本文で「旧位置キーの検出は NoCare」と決め、Consequences で dormant タグ参照の WARN の文言を定める。[0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) は「scalar は現行どおり dormant タグでは WARN して捨てる」とする。[0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md) は checkpoint の optimizer の options を今の設定で置き換える判断で、その中で「checkpoint と違った項目は WARN で示す」と決めている（3 行）。
 - 地図の「選ばなかった形」（[316](../wiki/categories/316_config.md)、[324](../wiki/categories/324_dqn.md)）:
   - 個別の葉と継承値の競合の WARN — 不採用（RFD0072）。本 RFD は競合を見ないので開き直さない。
@@ -119,14 +119,14 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 - PER の抽選の代替の WARN（replay_buffer_impl.cpp の `PER Rejection Sampling failed to fill batch. Falling back to uniform.`）は、§2.1 の 616 本に 1 件も無い。試行の上限は batch の大きさの 10 倍で、回数の抑えは無い。
 - `GetScalar()` の契約は既にある。未知の鍵は値なし、既知の鍵で今は値が成立しないときは `NaN` を返し、Observer は値なしを未知の鍵として扱う（[140](../design/140_observability.jp.md) 238・316 行）。PER の鍵は、PER を無効にしても、既知の鍵として `NaN` を返す（[replay_buffer_impl.cpp](../../src/core/base/src/replay_buffer_impl.cpp) の `DefaultReplayBuffer::GetScalar`。コメントは「PER を切っただけで metrics 定義を書き換えずに済むよう、既知キーは PER 無効でも NaN を返す」とする。2026-08-27 から）。140 の 238 行も、0 や既定値へ読み替えない状態の例に「PER無効」を挙げる。[150](../design/150_replay_buffer.jp.md) §7.5 の 314 行（en は 315 行）は「uniform sampler では PER の鍵を値なしで表す」と書いていて、実装と食い違う。RND は、無効のとき鍵が無く値なしで（[212](../design/212_rnd_lifelong_novelty.jp.md) 442 行、[200](../design/200_dqn_agents.jp.md) §9.1 の 633 行。intrinsic_test.cpp 390 行が断定している）、140 の決まりから外れている。
 - `run.train.runner_type` は、`pipeline`（大文字小文字を無視）と一致するかだけを見て、ほかの文字列をすべて serial として扱う（[trainer.cpp](../../src/core/base/src/trainer.cpp) の `RunnerFactory::CreateMainRunner`。読み取りは 816 行）。WARN は出さない。出荷設定の値は `serial` が 2 か所、`pipeline` が 1 か所だけ。
-- テストは自動では流れない。CI（`.github/workflows/windows-ci.yml`）は pull request と手動の起動だけで動き、`anet-core-test` を流す段を持たない。`[shipped_config]` のテストは既定のテストスイートに入っていて、設定を変えたときに流す決まりがある（[実装 品質確認観点](../quality/impl.md) 156 行）。同じ観点は「Run の構築時に止まる検査を前倒しするだけのテストは作らない」とする（417 行、項番 73）。
+- テストは自動では流れない。CI（`.github/workflows/windows-ci.yml`）は pull request と手動の起動だけで動き、`anet-core-test` を流す段を持たない。`[shipped_config]` のテストは既定のテストスイートに入っていて、設定を変えたときに流す決まりがある（[実装 レビュー観点](../quality/impl.md) 156 行）。同じ観点は「Run の構築時に止まる検査を前倒しするだけのテストは作らない」とする（417 行、項番 73）。
 - 選ばれなかった mode の設定キーは実効設定に残る。bat から流した Run（`app.$=app.batchrun>P1`）の `config/config_data.txt` には `app.online.*` と `app.batchrun.*` の両方があり、解決の記録（`json/config_resolution.json`）の選択に現れるのは `app.batchrun` だけだった（AtariRnd-01 の `run_20261110-120903_mz_tg_nmdd_b01_s1`）。Env の設定は `app.$ = app.online > P1` と書き、bat の引数がそれを置き換える（[GridMaze.txt](../../apps/runner/config/GridMaze.txt) 6 行、`apps/12_batch_run.bat` 66 行）。
 - RunnerApp は RunManager を裏のスレッドで作り、そのあと main のスレッドの `CompleteRunInitialization` で、view の factory、画像の metrics の登録（`ImageProviderManager::CreateAndRegister` が `metrics.image.[<tag>]` を読む）、RunnerFrame の初期化（panel が `app.eval_trace_panel.*` などを読む）を行う（[RunnerApp.cpp](../../src/apps/runner/src/RunnerApp.cpp) 431〜435・509〜529 行、[image.cpp](../../src/core/base/src/image.cpp) 693〜754 行）。RunnerFrame は mode によらず作られる（RunnerApp.cpp 400 行）。
 - block の設定は、全体の `net.block.[<名前>].*` を Agent の下の同じ block の設定キーで設定キーごとに上書きしてから作る（nn_impl.cpp 806〜822 行）。上書きされた全体の側の設定キーは、factory に渡る前に捨てられる。出荷設定に、Agent の下で block の設定キーを上書きした行は 0 件。
 - `app.save_agent_on_close` の既定は true で（RunnerApp.cpp 66 行）、`GridMaze_muzero.txt` は上書きしていない。MuZero の試作の Agent は保存で常に 0 を返すので（muzero_proto_agent.hpp 184 行）、その既定の Run は閉じるたびに 0 byte の WARN を出す。Atari の `run.@evalonly`（[Atari.txt](../../apps/runner/config/Atari.txt) 541〜557 行）は `auto_load_file` を持たない。
 - 設定の値は `${完全なキー}` で別の設定キーを 1 段だけ参照できる（[100](../design/100_runtime_and_configuration.jp.md) §2.1 の手順 7）。
 - カタログの読み口には、定義した全部の項目を読むものと、参照された項目だけを読むものがある。Actor 設定は、全部の項目を構築時に型付きの設定へ変える（[default_dqn_agent.hpp](../../src/algo/dqn/src/default_dqn_agent.hpp) 193〜195 行）。scalar・trace・画像の metrics の定義と、評価の定義・schedule も、定義した全部を読む（observers.cpp の `ObserverFactory`、image.cpp 697〜754 行）。参照された項目だけを読むのは、構造に現れた block、branch が使う config_profile、参照された NN 実行設定（default_dqn_agent.hpp 650 行）である。
-- 「葉」は、[CONTEXT.md](../../CONTEXT.md) の「既定葉」「個別葉」「葉キー」（RFD0072）に始まる。現用の範囲（[実装 品質確認観点](../quality/impl.md) の項番 71 が定める範囲と、規約・品質確認観点・プロセス・skill）の、Git が追跡しているファイルの 52 ファイル 151 行に出る（2026-11-11 の `git grep`。うち 2 行は「言葉」）。「既定葉」が 60 か所、「個別葉」が 20 か所、「葉キー」が 1 か所で、ほかに「葉値」「確定葉」、数え方の「6葉」などがある。用語集では、`=` で書く側の正式な語は「個別指定」で、「個別葉」はその括弧書きの別名である。
+- 「葉」は、[CONTEXT.md](../../CONTEXT.md) の「既定葉」「個別葉」「葉キー」（RFD0072）に始まる。現用の範囲（[実装 レビュー観点](../quality/impl.md) の項番 71 が定める範囲と、規約・レビュー観点・プロセス・skill）の、Git が追跡しているファイルの 52 ファイル 151 行に出る（2026-11-11 の `git grep`。うち 2 行は「言葉」）。「既定葉」が 60 か所、「個別葉」が 20 か所、「葉キー」が 1 か所で、ほかに「葉値」「確定葉」、数え方の「6葉」などがある。用語集では、`=` で書く側の正式な語は「個別指定」で、「個別葉」はその括弧書きの別名である。
 - 課題と RFD の結び付けは課題の `rfd` 欄で表す（RFD0120、[ADR 0069](../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md)）。
 
 ## 3. ゴール・非ゴール・成功の測り方
@@ -220,7 +220,7 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 - 「普通の Run」は、意図どおりに組んだ構成の Run を指す。受入では §7 の A2 の Run（出荷設定の各 Env の既定の `run.$`、番号付き bat の Run の組み合わせ、Atari の `run.@evalonly`）で確かめる。
 - A2 の Run で WARN が 0 件であることを、本 RFD の受入にする。
-- あとの実装が WARN・INFO を足す・変えるときの確かめを、[実装 品質確認観点](../quality/impl.md) の「失敗の扱い」に 1 項目足す。足した・変えた WARN と INFO が D1 のどの行に当たるかを示し、WARN は、意図どおりに組んだ構成の Run（関係する Env の既定の Run 1 本）で出ないことを確かめる。
+- あとの実装が WARN・INFO を足す・変えるときの確かめを、[実装 レビュー観点](../quality/impl.md) の「失敗の扱い」に 1 項目足す。足した・変えた WARN と INFO が D1 のどの行に当たるかを示し、WARN は、意図どおりに組んだ構成の Run（関係する Env の既定の Run 1 本）で出ないことを確かめる。
 
 理由: 普通の Run で 1 件でも出れば、印が常に付き、D1 の線引きが効かない（G2）。項目を実装の観点に置くのは、WARN の多くが RFD ではなく実装の中で足されるため。依存: D1。
 
@@ -338,7 +338,7 @@ RND の補助学習が動く Run（learner が有効）で、`DefaultDQNAgent.in
 - 出荷設定の検査のテスト（タグ `[shipped_config]`）を足し、Run で実体化しない項目を持つカタログ（§5.3 の表。block、config_profile、NN 実行設定）について、出荷設定の 7 本の Env の設定を既定の `run.$` で解決した結果にある項目を、使われるかどうかによらず全部、読み口に読ませて、読まれない設定キーが無いことを確かめる（§7 の A9）。選ばれなかった Run プロファイルの中だけで足される設定キーは対象に入らず、その Run プロファイルを使う Run で項目が実体化したときに、構築時に見つかる。
 - コミットの準備などに、このテストを流す手順は足さない。
 
-理由: 使う Run の構築時には必ず止まるので、誤った設定で Run が回る経路は無い。遅れて失うのは起動のやり直し 1 回である。Run のたびに全項目を検査する形は採らない（§8）。block の module は設定だけで作れ、最初の入力が来るまで重みを確保しないので（§2.6）、使わない block も作って捨てれば検査できる。しかし、Run の構築の経路に 3 つの扱いが増える。検査のために作る module が Run の乱数を消費しないようにすること、補間の印（config_profile）が入った設定キーに仮の値を入れること、使わない block の未知の `type` の扱いである。誤りを含む書きかけの block が印を付け続けるか、関係のない Run を止めることにもなる。害の経路が無い誤りを早く見つけるために、同じ seed の再現性を崩す種を足さない。テストは自動では流れない（§2.6）ので、人が手で直した設定の未使用の定義の誤りは、次にテストが流れるか、その定義を使うまで残る。害の経路が無いので、この窓を狭める手順は足さない。このテストは、どの Run も作らない項目を見るためのもので、[実装 品質確認観点](../quality/impl.md) の「Run の構築時に止まる検査を前倒しするだけのテストは作らない」（417 行）には当たらない。依存: D3。
+理由: 使う Run の構築時には必ず止まるので、誤った設定で Run が回る経路は無い。遅れて失うのは起動のやり直し 1 回である。Run のたびに全項目を検査する形は採らない（§8）。block の module は設定だけで作れ、最初の入力が来るまで重みを確保しないので（§2.6）、使わない block も作って捨てれば検査できる。しかし、Run の構築の経路に 3 つの扱いが増える。検査のために作る module が Run の乱数を消費しないようにすること、補間の印（config_profile）が入った設定キーに仮の値を入れること、使わない block の未知の `type` の扱いである。誤りを含む書きかけの block が印を付け続けるか、関係のない Run を止めることにもなる。害の経路が無い誤りを早く見つけるために、同じ seed の再現性を崩す種を足さない。テストは自動では流れない（§2.6）ので、人が手で直した設定の未使用の定義の誤りは、次にテストが流れるか、その定義を使うまで残る。害の経路が無いので、この窓を狭める手順は足さない。このテストは、どの Run も作らない項目を見るためのもので、[実装 レビュー観点](../quality/impl.md) の「Run の構築時に止まる検査を前倒しするだけのテストは作らない」（417 行）には当たらない。依存: D3。
 
 ### D14. 設定の用語から「葉」をなくす
 
@@ -351,14 +351,14 @@ RND の補助学習が動く Run（learner が有効）で、`DefaultDQNAgent.in
 | 確定葉 | `=` で書いた設定キー |
 | 数え方の「N 葉」 | N 件 |
 
-- 直すのは現用の範囲である。[実装 品質確認観点](../quality/impl.md) の項番 71 が定める範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki の実装の地図）に、規約・品質確認観点・プロセス・skill（`AGENTS.md`、`docs/quality/`、`docs/process/`、`.claude/skills/`、`.agents/skills/`）を足したもの。
+- 直すのは現用の範囲である。[実装 レビュー観点](../quality/impl.md) の項番 71 が定める範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki の実装の地図）に、規約・レビュー観点・プロセス・skill（`AGENTS.md`、`docs/quality/`、`docs/process/`、`.claude/skills/`、`.agents/skills/`）を足したもの。
 - 過去の記録（`docs/memo/` のほかの RFD と実装計画、`docs/experiments/`、`docs/adr/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し）は直さない。課題の題と本文も直さない（wiki の地図の「課題」の区画は、課題の題から道具が作る）。
 - `core/anet-core/testdata/` は、README・スクリプト・検証の記録を直す。Git が無視するファイル（Run の設定の写しなど）は直さない。
 - 英語の名前（`check_default_leaves.py`、コードの識別子、英語のログ）は変えない。
 - [AGENTS.md](../../AGENTS.md) の応答言語ルールの「避ける語」の表に、「既定葉」「個別葉」「葉キー」を検索する行として足す。単独の「葉」は「言葉」と紛れるので、検索しない行として足す。
 - 設定のキーと値、振る舞いは変えない。
 
-理由: 「葉」は英語の leaf の直訳で、日本語では階層の末端の意味を持たず、読んで意味が取れない（G6）。「設定キー」は規約と用語集が既に使っている語で、新しい語を増やさない。「既定キー」は「設定キー」に寄せた短い語である。本 RFD に入れるのは、本 RFD の実装が同じ文書（AGENTS.md、品質確認観点、CONTEXT.md、020、100、212）を直すので、まとめて済むためである。依存: なし。
+理由: 「葉」は英語の leaf の直訳で、日本語では階層の末端の意味を持たず、読んで意味が取れない（G6）。「設定キー」は規約と用語集が既に使っている語で、新しい語を増やさない。「既定キー」は「設定キー」に寄せた短い語である。本 RFD に入れるのは、本 RFD の実装が同じ文書（AGENTS.md、レビュー観点、CONTEXT.md、020、100、212）を直すので、まとめて済むためである。依存: なし。
 
 ## 5. 実装契約
 
@@ -373,7 +373,7 @@ RND の補助学習が動く Run（learner が有効）で、`DefaultDQNAgent.in
   - WARN と INFO の両方で使える。複数のスレッドから呼べる。
   - §5.5 で「1 回」とした行と、本 RFD が足す通知は、この部品を使う。§2.2 に挙げた個別のフラグと集合も、この部品に置き換える。
 - 休止の宣言の INFO は、持ち主の prefix と、休止の理由になった設定のキーと値を含める。
-- 足す・変える通知の文面は英語で書く（[実装 品質確認観点](../quality/impl.md) の「ログ」）。
+- 足す・変える通知の文面は英語で書く（[実装 レビュー観点](../quality/impl.md) の「ログ」）。
 - ログのレベルの名前、Run のログの `[W]`・`[I]` の書式、Logs pane の数え方は変えない。
 
 ### 5.2 読んだ設定キーの記録
@@ -498,7 +498,7 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 |---|---|
 | [AGENTS.md](../../AGENTS.md) 85・93 行 | D6 の文へ改める |
 | AGENTS.md 160〜161 行、188〜200 行 | D1 の線引きへ改める。190 行の「意図しない状態」（契約違反の内部状態、壊れた入力データを含む）を D1 の 2 の条件へ改め、D1 の 3 の (e)〜(i) を WARN の行として足す。191 行（意図された休止）は INFO へ。192 行（自動選択の不履行）は D1 の 3 の (d) として残す。160〜161 行は D1 の 3 の (c) の言い方へ。200 行の「WARN は対象ごと 1 回」に、Run ごとに数えることを足す。208 行（互換期間を設けた非推奨設定の WARN）は D1 の 3 の (j) に当たり、変えない |
-| [実装 品質確認観点](../quality/impl.md) 項番 24・25・27 | D1 の言い方へ揃える（24 は INFO、27 は Run ごとに数える）。「失敗の扱い」に D2 の項目を 1 つ足す |
+| [実装 レビュー観点](../quality/impl.md) 項番 24・25・27 | D1 の言い方へ揃える（24 は INFO、27 は Run ごとに数える）。「失敗の扱い」に D2 の項目を 1 つ足す |
 | [CONTEXT.md](../../CONTEXT.md) | 「dormant」の「タグごと 1 回の WARN で skip」を INFO へ。「読まれない設定キー」「在庫」を足す |
 | [100](../design/100_runtime_and_configuration.jp.md) §2.1・§5.1（169 行）・§6.1（208 行）・§7.3・§8、325 行の表 | 読んだ設定キーの記録、在庫、一覧の時機、dormant の INFO、include の失敗、テストの案内。`run.train.runner_type` の未知の値は止まる |
 | [130](../design/130_neural_networks.jp.md) §7.1（287 行）と block の章 | block の閉じたスキーマ（使わない block は検査しないこと、`type` だけの上書きは止まること）、WARN を Run ごとに 1 回 |
@@ -522,7 +522,7 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 | [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp) | 出荷設定の検査のテスト（D13、A9）を足す |
 | [check_default_leaves.py](../../src/core/base/testdata/rfd0072/check_default_leaves.py) | 変えない（演算子の検査で、本 RFD の検出とは別） |
 | `core/anet-core/testdata/rfd0117/README.md`（新規） | A2 の Run の組み合わせ、止める条件、WARN を数える手順 |
-| 設定の用語の「葉」を使う、現用の文書・コード・設定（D14。2026-11-11 の検索で 52 ファイル 151 行） | D14 の表のとおり言い換える。多いのは、[020](../design/020_user_guide_run.jp.md)（jp 35 行、en 5 行）、[100](../design/100_runtime_and_configuration.jp.md)（8 行）、wiki の [316](../wiki/categories/316_config.md)（6 行。ほかに課題の区画の 1 行があり、これは除く）、[CONTEXT.md](../../CONTEXT.md)（6 行）、[実装 品質確認観点](../quality/impl.md)（5 行）、[212](../design/212_rnd_lifelong_novelty.jp.md)（5 行）、config_impl.cpp（4 行）、`core/anet-core/testdata/` の README とスクリプト、`apps/runner/config/` のコメント。設定のキーと値は変えない |
+| 設定の用語の「葉」を使う、現用の文書・コード・設定（D14。2026-11-11 の検索で 52 ファイル 151 行） | D14 の表のとおり言い換える。多いのは、[020](../design/020_user_guide_run.jp.md)（jp 35 行、en 5 行）、[100](../design/100_runtime_and_configuration.jp.md)（8 行）、wiki の [316](../wiki/categories/316_config.md)（6 行。ほかに課題の区画の 1 行があり、これは除く）、[CONTEXT.md](../../CONTEXT.md)（6 行）、[実装 レビュー観点](../quality/impl.md)（5 行）、[212](../design/212_rnd_lifelong_novelty.jp.md)（5 行）、config_impl.cpp（4 行）、`core/anet-core/testdata/` の README とスクリプト、`apps/runner/config/` のコメント。設定のキーと値は変えない |
 | [AGENTS.md](../../AGENTS.md) の応答言語ルールの「避ける語」の表 | 「既定葉」「個別葉」「葉キー」の行と、単独の「葉」の行を足す（D14） |
 | wiki の [316](../wiki/categories/316_config.md)・[315](../wiki/categories/315_nn.md)・[317](../wiki/categories/317_metrics.md) | 実装の完了後に点検で拾う |
 
@@ -530,7 +530,7 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 
 2026-11-10 の改訂で、追跡しているファイルを次の 3 つの検索で引き直した。
 
-- 規約・用語集・設計文書（jp）・品質確認観点・プロセス・skill（`AGENTS.md`、`CONTEXT.md`、`docs/design/*.jp.md`、`docs/quality`、`docs/process`、`.agents/skills`、`.claude/skills`）を、大文字小文字を区別せずに `NoCare|1 ?回だけ ?WARN|一度だけ(の)? ?WARN|WARN 1 回|1 回の WARN|1回WARN|WARNして|WARN後|エラーにならず続行|一度WARN|一度 WARN|一度警告|1 回警告` で検索: 11 ファイル 28 件。
+- 規約・用語集・設計文書（jp）・レビュー観点・プロセス・skill（`AGENTS.md`、`CONTEXT.md`、`docs/design/*.jp.md`、`docs/quality`、`docs/process`、`.agents/skills`、`.claude/skills`）を、大文字小文字を区別せずに `NoCare|1 ?回だけ ?WARN|一度だけ(の)? ?WARN|WARN 1 回|1 回の WARN|1回WARN|WARNして|WARN後|エラーにならず続行|一度WARN|一度 WARN|一度警告|1 回警告` で検索: 11 ファイル 28 件。
 - `learn_batch_size` を `docs/design/*.md`、`docs/quality`、`AGENTS.md`、`CONTEXT.md`、`.agents/skills` で検索: 4 ファイル 15 件（200 の jp・en、212 の jp・en）。
 - `runner_type` を `docs/design/*.md`、`docs/quality`、`AGENTS.md`、`CONTEXT.md` で検索: 2 ファイル 2 件（100 の jp・en の 325 行）。
 - `葉` を、D14 の現用の範囲（`AGENTS.md`、`CONTEXT.md`、`docs/quality`、`docs/process`、`.claude/skills`、`.agents/skills`、`docs/design`、`docs/wiki/apps`、`docs/wiki/categories`、`core`、`apps`、`viewers`、`reports/tools`）で、`git grep`（Git が追跡しているファイル）で検索: 52 ファイル 151 行（うち「言葉」2 行）。Git が無視するファイル（`core/anet-core/testdata/rfd0103/baseline-config/` などの、Run の設定の写し）は入らない。`既定葉` 60 か所、`個別葉` 20 か所、`葉キー` 1 か所。
@@ -672,7 +672,7 @@ D7 の各入力（重ねる設定のファイルが開けない、include 先が
 
 ### A9. 出荷設定の検査のテスト
 
-タグ `[shipped_config]` のテストが、A2 と同じ 7 本の Env の設定ファイルのそれぞれを既定の `run.$` で解決し、Run で実体化しない項目を持つカタログ（§5.3 の表。`net.block`、`net.config_profile`、`net.branch.[<b>].config_profile`、`<Agent>.nn_forward`）に定義された項目を、その Run で使われるかどうかによらず全部、読み口に読ませて、読まれない設定キーが 0 件であることを確かめる。項目の本数・名前・値は等値比較しない（[実装 品質確認観点](../quality/impl.md) の項番 73）。読み口を単体で呼べないカタログは、その項目を参照する設定を組んで構築を通す形で確かめる（どちらの形かを実装計画に書く）。block は、定義を 1 つずつ factory で作る形で確かめられる（module は設定だけで作れる。§2.6）。補間の印（config_profile）が入った設定キーには、仮の数値を入れて作る。検査の仕組みそのものは、block の直下に `out_channels` を書いた fixture で落ちることを確かめる。
+タグ `[shipped_config]` のテストが、A2 と同じ 7 本の Env の設定ファイルのそれぞれを既定の `run.$` で解決し、Run で実体化しない項目を持つカタログ（§5.3 の表。`net.block`、`net.config_profile`、`net.branch.[<b>].config_profile`、`<Agent>.nn_forward`）に定義された項目を、その Run で使われるかどうかによらず全部、読み口に読ませて、読まれない設定キーが 0 件であることを確かめる。項目の本数・名前・値は等値比較しない（[実装 レビュー観点](../quality/impl.md) の項番 73）。読み口を単体で呼べないカタログは、その項目を参照する設定を組んで構築を通す形で確かめる（どちらの形かを実装計画に書く）。block は、定義を 1 つずつ factory で作る形で確かめられる（module は設定だけで作れる。§2.6）。補間の印（config_profile）が入った設定キーには、仮の数値を入れて作る。検査の仕組みそのものは、block の直下に `out_channels` を書いた fixture で落ちることを確かめる。
 
 ### A10. checkpoint の読み込みの通知
 
@@ -686,7 +686,7 @@ D14 の現用の範囲を `git grep`（Git が追跡しているファイル）�
 - `既定葉`、`個別葉`、`葉キー`、`葉値`、`確定葉` のそれぞれを固定文字列で検索して、残りが 0 件。
 - 除くもの: AGENTS.md の「避ける語」の表の行と、CONTEXT.md の `_Avoid_` の行（避ける語として挙げるため）。wiki の地図の「課題」の区画（課題の題をそのまま写すため）。
 - 単独の「葉」は、同じ範囲を `葉` で検索し、残りが上の除くものと「言葉」だけ。
-- 設定のキーと値が変わっていないことは、[実装 品質確認観点](../quality/impl.md) の設定変更時の確かめ（`check_default_leaves.py` と、全キー・文字列値の比較）で確かめる。
+- 設定のキーと値が変わっていないことは、[実装 レビュー観点](../quality/impl.md) の設定変更時の確かめ（`check_default_leaves.py` と、全キー・文字列値の比較）で確かめる。
 
 ## 8. 作らないもの・先送り
 
@@ -743,7 +743,7 @@ Run を流して確かめる事項と、範囲外として課題に起票した�
 | 15 | A2 の Run の組み合わせと step 数 | §7 の A2 |
 | 16 | ERROR を出して続けている、設定以外の箇所 | §3.2（範囲外。[issue-20261107-16ffd8](../management/issues/issue-20261107-16ffd8.md)） |
 | 17 | `feature_gradient=stop` の説明を INFO にするか | §6 の 12（INFO） |
-| 18 | あとの実装が WARN を足すときの確かめ | D2（実装品質確認観点に 1 項目） |
+| 18 | あとの実装が WARN を足すときの確かめ | D2（実装レビュー観点に 1 項目） |
 | 19 | 意図した休止が原因のメトリクスの値の欠け | D12（鍵を保って NaN） |
 
 ## 10. 依存と順序
@@ -758,7 +758,7 @@ Run を流して確かめる事項と、範囲外として課題に起票した�
 ## 11. 参照
 
 - 課題: §5.10 の 6 件
-- 規約: [AGENTS.md](../../AGENTS.md) のクリーンブレーク方針・汎用機構と利用側の責任境界・Fail-Fast 原則・設定値の扱い、[実装 品質確認観点](../quality/impl.md) の「失敗の扱い」「ログ」「設定ファイル」「テスト」
+- 規約: [AGENTS.md](../../AGENTS.md) のクリーンブレーク方針・汎用機構と利用側の責任境界・Fail-Fast 原則・設定値の扱い、[実装 レビュー観点](../quality/impl.md) の「失敗の扱い」「ログ」「設定ファイル」「テスト」
 - 設計文書: [100](../design/100_runtime_and_configuration.jp.md)、[130](../design/130_neural_networks.jp.md)、[140](../design/140_observability.jp.md)、[160](../design/160_applications_and_tools.jp.md) §3.5、[200](../design/200_dqn_agents.jp.md)、[212](../design/212_rnd_lifelong_novelty.jp.md)、[020](../design/020_user_guide_run.jp.md)
 - ADR: [0027](../adr/0027-eval-definition-schedule-separation.md)、[0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)、[0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md)
 - 地図: [316 設定管理](../wiki/categories/316_config.md)、[315 NN](../wiki/categories/315_nn.md)、[317 可視化・メトリクス](../wiki/categories/317_metrics.md)、[318 RL 共通基盤](../wiki/categories/318_rl_core.md)、[324 DQN](../wiki/categories/324_dqn.md)

@@ -37,7 +37,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 - 各RED/GREENと最終の全GUI caseは新規`.scratch/prd110/height-*/`へ保存する。新旧の既定suite失敗集合を比較し、shipped_configとeval_steps_menu/prd105_ui_keys/prd109_uiも別processで確認する。再リンク中の実行体は実行せず、baselineは隔離コピーを使う。
 - 改名の旧名、現用文書の「等幅」と受入9の旧18表現、LF/BOM/空白、追加productionの禁止パターン、保護ファイルとindexの不変を点検する。実行した検証と未実施・理由をここへ記録する。
-- 全品質確認観点の自己点検後、新しい24implと今回の共同変更を独立an-reviewへ提出する。指摘は直して同じレビュアーへ出し直し、原文と結果を保存する。追加の有料cc-reviewは明示依頼がないため実行しない。
+- 全レビュー観点の自己点検後、新しい24implと今回の共同変更を独立an-reviewへ提出する。指摘は直して同じレビュアーへ出し直し、原文と結果を保存する。追加の有料cc-reviewは明示依頼がないため実行しない。
 
 ## 前提
 
@@ -88,7 +88,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 .\.venv\Scripts\python.exe -X utf8 -B .scratch/prd110/height_after.py compare
 ```
 
-- 全品質確認観点の自己点検を`.scratch/prd110/height-selfcheck.md`へ記録。LF11ファイル、既存BOM8ファイル保持、保護9ファイル不変、禁止旧18表現0、現用3文書の「等幅」0、現用の旧関数名0、追加productionのdynamic_cast/TODO/ヘッダusing namespace0、index空を確認した。初回結果は`height-checks-initial.json`、レビュー前の最終結果は`height-checks-review.json`へ保存する。
+- 全レビュー観点の自己点検を`.scratch/prd110/height-selfcheck.md`へ記録。LF11ファイル、既存BOM8ファイル保持、保護9ファイル不変、禁止旧18表現0、現用3文書の「等幅」0、現用の旧関数名0、追加productionのdynamic_cast/TODO/ヘッダusing namespace0、index空を確認した。初回結果は`height-checks-initial.json`、レビュー前の最終結果は`height-checks-review.json`へ保存する。
 - 自動検証終了時点では、人による受入8のAtari5/qbert/online、nativeマウスでのpin・drop・サッシ、動的HeatMap/Conv2dは未実施だった。公開AUIで作った配置やserializer入力を実操作の検証の代用とはせず、人の確認を残した。その後の受入結果は末尾の「人による実機受入」に記録する。
 - 自己点検後の未決と、新たな範囲外の課題候補はなし。次に今回の共同変更を新しい独立an-reviewへ提出する。
 

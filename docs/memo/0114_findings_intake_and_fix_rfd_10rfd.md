@@ -4,7 +4,7 @@
 > 2026-11-02 再グリル（anet-create-prd）。暫定の印を外し、台帳（`reports/registry/findings.jsonl`）を受け皿にする形で入口・出口・移し替えを決め、別モデル（Fable）の検討の論点を反映した（その版の題は「直す課題の受け皿を台帳にし、F 番号を fix PRD で片付ける」）。
 > 2026-11-02 夜、同じ再グリルの中でユーザーが方針を変えた。台帳は回っておらず（大量の情報を 1 ファイルで持ち、人が読みにくい）、課題の置き場を issue（1 課題 1 ファイル）に替え、その仕組みを anet の skill と文書として持つ。あわせて、PRD は指示文書なので優先度と作業順を持てないという困りごとから、仕事は issue・指示は PRD で持つことにした。§1〜§11 を書き直し、§4 の D 番号を振り直した（前の版の D 番号は引き継がない）。同日、別モデル（Fable）の 2 回目の検討を反映し、共有コアとハーネスの名前（D3）と、`area` を並びにすることを決めた。2026-11-03、レビューの指摘（1・2 往復目）を受けて、次を改めた。9xx の振り直しを、`999` の 46 本だけを使われたことの無い番号（本文で使われた 900 なども避ける）へ振る形にした（D13。900 からの連番は使われた番号を再び使うため）。プロセス契約とレビューエージェントの定義は変えない（D4）。「判定」は AI が自分の判断で書くときのモードとし、開発者の指示に当たる操作は通常のモードで書く（D8・§5.1）。issue の ID を渡すことを結び付けの指示とみなし、止まる条件とその当て方を決めた（D11）。題材が 1 件のときも、`type: 索引` の PRD の issue を作って題材を子にする（D10）。束ねの `<area>` の絞り方（D12）。実装済みの拾い方を、コミットのスコープから PRD の issue の AI の判定へ替えた（D22）。不正な値の扱い（D24。新規）。実装の前提（§10。課題の仕組みのファイルの初めの版は実装の前に置き、実装する側は作らない）。置いたあとは anet の skill と文書として持ち、プロセス契約の節と anet の値を直接書く（D2・D4・D5。レジストリの読み替えで当てる形はとらない）。前の版で決めた形のうち、工程末の区分「この場で直す」、PRD の工程で直してよい範囲、F 番号の対応表と観点の項番 38、束ねる提案の既定 5 件と機能カテゴリごとの束ね方は、issue の形に移して残した。台帳へ移す 999 PRD の一覧（前の版の §5.8）と、`anet-record-finding`・`anet-create-fix-prd`・`validate` の F 番号の重複検査は取り下げた。同日、D3 を名前の決めだけにし、名前に関わる作業（§5.1 の表と M10、§8 の 2 行）を除いた。§7 の 16 は名前の確かめにし、§10 の前提にレビューエージェントの定義の名前を足した（D3・D4・D23・§5.1・§10）。同日、置いた初めの版で数え直し、プロセス契約を指す所を 8 か所から 7 か所（課題の記録は 5 か所から 4 か所）に直し、その位置を §2 の 14 に書いた。
 > 起点: 2026-11-01〜11-02 の会話。ユーザーの問題提起は「anet-create-prd や implement-prd-with-docs の最後に起票対象を聞かれると、小さな修正も PRD として起票される。しかし、小さな修正では PRD を起票しない運用である」。再グリルの途中で、課題の置き場を台帳から issue に替える方針が出た（「記録先が findings から issue になるだけで、大枠の考え方は変えなくて良い」）。
-> 関連: [プロセスレジストリ](../process/registry.md)、[プロセス契約](../process/protocol.md) §5〜§7、[ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、[ADR 0068](../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md)、[anet-create-prd](../../.agents/skills/anet-create-rfd/SKILL.md)、[implement-prd-with-docs の手順](../../.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md)、[anet-audit](../../.agents/skills/anet-audit/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[台帳の CLI](https://github.com/kazukin123/anet-lab/blob/1cbe76d65c3087f7d6b06645cf7243ddb2e2179b/reports/tools/registry.py)、[skills README](../../.agents/skills/README.md)、[memo README](README.md)、[PRD 品質確認観点](../quality/rfd.md)、[wiki の規約](../wiki/README.md)、[PRD095](done/0095_llm_wiki_10rfd.md)（台帳の派生区画）、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)。
+> 関連: [プロセスレジストリ](../process/registry.md)、[プロセス契約](../process/protocol.md) §5〜§7、[ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、[ADR 0068](../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md)、[anet-create-prd](../../.agents/skills/anet-create-rfd/SKILL.md)、[implement-prd-with-docs の手順](../../.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md)、[anet-audit](../../.agents/skills/anet-audit/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[台帳の CLI](https://github.com/kazukin123/anet-lab/blob/1cbe76d65c3087f7d6b06645cf7243ddb2e2179b/reports/tools/registry.py)、[skills README](../../.agents/skills/README.md)、[memo README](README.md)、[PRD レビュー観点](../quality/rfd.md)、[wiki の規約](../wiki/README.md)、[PRD095](done/0095_llm_wiki_10rfd.md)（台帳の派生区画）、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)。
 
 > 2026-11-03 実装前の合意: 引数なしの課題一覧とINDEXは本版（次版・解決を除く）を既定とし、閉じた課題は状態指定で確認する。試走A・B・Dは実データの一時コピーで行い、Aは起票から独立レビューまで通す。実装開始時の再集計は台帳44件（open 41・wontfix 2・fixed 1）、999のPRD47本、9xx全体57本、直下のPRD64本。振り直しの末尾は959となる。§2は当時の観測、実装・受入の件数はこの再集計を使う。
 
@@ -58,7 +58,7 @@
 8. **範囲外の送り先。** [anet-create-rfd](../../.agents/skills/anet-create-rfd/SKILL.md) の論点の仕分けは、⑥ 範囲外を「999 の暫定 RFD か未決表へ送る」とする（83 行目）。[implement-prd-with-docs の手順](../../.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md)は、作業前にプロセス契約とレジストリを読み（187 行目）、工程末の起票候補を「プロセス契約 7 節に従って提示する」とだけ書く（203 行目）。
 9. **この場で直す扱い。** 範囲外の小さな不備を「RFD なしでこの場で直す」は、RFD0095 のグリル（2026-10-18）でユーザーが選んだ扱いだが、手順としてはどの skill にも書かれていない。
 10. **skill の置き場。** [skills README](../../.agents/skills/README.md) は、`.agents/skills`（Codex）と `.claude/skills`（Claude Code）に同じ中身を実体コピーで置くと決めている（3 行目）。`anet-review` は入口の skill の名前として使っている。
-11. **観点。** [RFD 品質確認観点](../quality/rfd.md)は、作業の種類でだけ要る細則を節の規約に置く（14 行目）。項番は 37 まで使っている。項番 3（正式採番の一意性）は「9 で始まる番号は対象外」とする（31 行目）。
+11. **観点。** [RFD レビュー観点](../quality/rfd.md)は、作業の種類でだけ要る細則を節の規約に置く（14 行目）。項番は 37 まで使っている。項番 3（正式採番の一意性）は「9 で始まる番号は対象外」とする（31 行目）。
 
 ### 2.2 課題の仕組み（実装の前に置く初めの版）
 
@@ -67,7 +67,7 @@
 14. **プロセス契約の参照。** 初めの版は、プロセス契約の節を 7 か所で指すが、ファイル名と節の番号は anet の `protocol.md` と合わない。指す中身は 3 種類で、anet の `protocol.md` では、課題の記録（起票の候補と判定。4 か所）が 7 節「課題の記録」、解決を開発者が判断すること（1 か所）が 6 節「工程の完了と停止」、停止条件（2 か所）が 5 節「停止条件」に当たる（2026-11-03 に置いた版で数えた。課題の記録は課題を書く skill の 146・150・160 行目と課題記録の置き場の決まりの 5 行目、解決は状態を変える skill の 82 行目、停止条件は課題を書く skill の 157 行目と発番の手順の 27 行目）。
 15. **文面。** 初めの版は、anet の値と工程を含まない（名前のほかに `anet` と `RFD` を含まず、anet のパスや工程の名前を指さない）。`area` などの値の決め方は「プロジェクトが決める」形で書かれている。skill どうしは、D3 の名前で互いを指す。
 16. **実行の前提。** 発番には Node.js が要る。anet の作業環境には Node.js v24 がある。
-17. **名前の検査。** [実装 品質確認観点](../quality/impl.md)の検査 4 は、プロセス契約とレビューエージェントの定義を `anet` と `RFD` で検索して 0 件を求める（45 行目）。
+17. **名前の検査。** [実装 レビュー観点](../quality/impl.md)の検査 4 は、プロセス契約とレビューエージェントの定義を `anet` と `RFD` で検索して 0 件を求める（45 行目）。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -133,7 +133,7 @@
 | D17 | anet-audit は、起動（housekeeping の了承を含む）をはっきりした記録の指示とみなし、新しい指摘を `anet-create-issue` で直接書く。同じ課題かは `anet-create-issue` の「分け方」で決め、同じなら既存の issue に追記する。既存の issue の確かめ直しは、AI の判定の欄だけを `anet-update-issue` の判定で変える（残っている／直った見込み／判断できない）。`type` が `索引` の issue は確かめ直さない。`phase` は「監査」、`type` は観点から当てる（§6 の 7）。1 回の新規の上限（既定 8 件）は今のまま | ユーザーの判断（D8）。プロセス契約の「開発者が指示したときは候補の提示を省いて書いてよい」（§2 の 2）に当たる。housekeeping の中でも質問せずに回れる |
 | D18 | anet-improve は、記録先を issue にする。RFD 送りの問題は未着手、採らなかった問題は次版で書く | G3 による。次版は「本版では対応しないと決めた」状態である |
 | D19 | implement-prd-with-docs は、完了を報告する前に、`anet-update-issue` の判定で、実装した RFD の issue（`type: 索引`）の AI の判定を「実装済み」に、題材の issue（その子）を「直った見込み」にする。`status` は変えない。工程末の起票候補の区分と「この場で直す」は、レジストリの読み替えに従う | D8・D9 による。RFD が実装されたことは機械で決まる事実なので、AI の判定の欄に置く |
-| D20 | issue を題材にしたか範囲に取り込んだ RFD は、issue の対応表を置く。表の列は、issue の ID・題・`area`・今のコードで確かめた根拠の位置・直す確定事項（D 番号）・確かめる受入（項番）とする。直し方が未決の件は、確定事項の欄に未決表の番号を書く。[RFD 品質確認観点](../quality/rfd.md)に節「issue の対応表」と項番 38 を足し、機械検査に項番 39（確定事項・受入・実装契約に現れる issue の ID が、すべて対応表の行にある）を足す | 再グリルで決めた対応表（件ごとの節は置かない）を issue の ID に移す。件をまたぐ直しを写さずに書け、issue ごとに直ったかを表から追える。レビューは RFD だけを読むので、適用と漏れの判定は、本文に現れる issue の ID で機械的に決める（別モデルの検討の指摘） |
+| D20 | issue を題材にしたか範囲に取り込んだ RFD は、issue の対応表を置く。表の列は、issue の ID・題・`area`・今のコードで確かめた根拠の位置・直す確定事項（D 番号）・確かめる受入（項番）とする。直し方が未決の件は、確定事項の欄に未決表の番号を書く。[RFD レビュー観点](../quality/rfd.md)に節「issue の対応表」と項番 38 を足し、機械検査に項番 39（確定事項・受入・実装契約に現れる issue の ID が、すべて対応表の行にある）を足す | 再グリルで決めた対応表（件ごとの節は置かない）を issue の ID に移す。件をまたぐ直しを写さずに書け、issue ごとに直ったかを表から追える。レビューは RFD だけを読むので、適用と漏れの判定は、本文に現れる issue の ID で機械的に決める（別モデルの検討の指摘） |
 | D21 | 台帳の派生一覧の後継として、最小の一覧を作る道具を anet に置く。issue を読み、`docs/management/issues/INDEX.md`（`anet-list-issues` と同じ並び）と、wiki の地図の各ページの「課題」の区画（`area` の並びにそのページの key を含む、次版・解決でない issue）を作り直す。依存のツリー・スプレッドシート・見やすい HTML などの作り込みは、別の RFD で決める | ユーザーの判断。台帳をやめても、開けば見られる一覧と地図からの見え方を保つ。見せ方は見て直すことを繰り返す関心で、試作でしか決めにくい（§8） |
 | D22 | wiki の取り込みと点検は、`done/` への移動に代えて、RFD の issue の AI の判定が「実装済み」（D19）であることで、その RFD を実装済みとして拾う。`status` は見ない（中止した RFD の issue も、理由を添えて解決にすることがあるため。§5.10）。過去の `done/` の RFD は今のまま拾える。定点統計は、台帳の件数を issue の件数（状態・`type` ごと）に、RFD の状態の集計を issue の状態からの集計に替える。過去のフォルダの分は今のまま数える | D14 で新しい RFD はフォルダを移さないので、フォルダの移動は完了を表さなくなる。コミットのスコープで拾う案は、RFD の工程の「この場で直す」（D7）のコミットも拾ってしまうので採らない（レビューの指摘）。実装済みは implement-prd-with-docs が書く事実なので、それを読む |
 | D23 | ADR 0068（作業の状態と順序は issue が持ち、RFD は指示文書としてフォルダを動かさない）を起こす。D3 の名前は ADR を起こさず、ADR 0049 の先頭の注記で示す | ADR 0068 は、戻しにくく（索引の issue と `999` の振り直し、フォルダの意味の変更）、文脈が無いと意外で（RFD にフォルダの状態が無い）、実際の比較をして選んだ（§8）。D3 は名前の決めで、比べて選んだ形ではないので、ADR の条件に当たらない |
@@ -182,7 +182,7 @@ Codex 向けに、各 skill に `agents/openai.yaml` を添える（anet の ski
 名前（D3）:
 
 - D3 の名前は、本書の実装の前からある（§10 の前提）。本書では名前を変えない。
-- [実装 品質確認観点](../quality/impl.md)の検査 4 のパターンから、共有コアの名前（`anet-` で始まる skill・エージェント・アダプタの名前と、レビューエージェントの定義が読む作業用のパス。D3）を除く。課題の仕組みのファイルは共有コアでないので、検索対象に入れない（D2）。
+- [実装 レビュー観点](../quality/impl.md)の検査 4 のパターンから、共有コアの名前（`anet-` で始まる skill・エージェント・アダプタの名前と、レビューエージェントの定義が読む作業用のパス。D3）を除く。課題の仕組みのファイルは共有コアでないので、検索対象に入れない（D2）。
 - [ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md) の先頭には、本書の D3 の名前（`anet-` で始まる名前）は共有コアに置いてよく、プロジェクトに依存しない文面に保つ判断は名前を除いて変わらない旨の注記を、本書の起草で足した。
 
 ### 5.2 レジストリの変更（D1・D3・D6・D7）
@@ -256,14 +256,14 @@ Codex 向けに、各 skill に `agents/openai.yaml` を添える（anet の ski
 - 過去の記録（`done/`・`frozen/`・`dropped/` の RFD と実装記録、ADR、実験記録、レポート）は、ファイル名を指すリンクだけを直す。RFD を `done/` へ移したときと同じ扱いで、memo README の「リンクの注意」による。リンクでないコードの表記のパス（ADR 0048・0055 の本文など）は直さず、当時の名前のまま残す（コミット済みの ADR の本文を書き換えない）。番号だけで RFD を指す表記（「PRD 930」など）は直さない。`docs/wiki/log.md` は追記だけの記録なので直さない。
 - 直下の振り直した RFD の本文の冒頭に、`> 2026-11-xx 番号を <元の番号> から <新しい番号> へ振り直した（RFD0114）` の 1 行を足す。過去の保管場所の RFD には足さない。
 
-### 5.10 memo README と RFD 品質確認観点（D13・D14・D20）
+### 5.10 memo README と RFD レビュー観点（D13・D14・D20）
 
 - [memo README](README.md)
   - 冒頭と状態の表: 状態は issue で表し、新しい RFD は直下に置き続ける。`done/`・`frozen/`・`dropped/` は過去の保管場所として残し、新しく移さない。
   - §採番: 起票した時点で、900 未満の最大の番号の次を取る。9xx の番号は過去の分（今の 10 本と、振り直した 47 本）で、新しい番号には使わない。一度使った番号は、ファイルが無くなっても再び使わない。
   - §運用: 完了・凍結・中止は issue の状態と対応内容で表す（凍結は保留に再開条件を、中止は解決か次版に理由を書く）。
   - §工程と担当: 「グリルして起票」の行に、題材が issue の ID のときも `anet-create-rfd` を使うこと、すべての RFD に issue を伴わせることを書く。
-- [RFD 品質確認観点](../quality/rfd.md)
+- [RFD レビュー観点](../quality/rfd.md)
   - 項番 3 の期待値から「`9` で始まる番号は対象外」を外し、すべての番号を一意にする。
   - 読解観点に節「issue の対応表」を足す。規約は D20 の表の列と未決の書き方。適用は「確定事項・受入・実装契約に issue の ID（`issue-` に 8 桁の日付、`-`、6 桁の 16 進が続く形）が現れる RFD」とし、背景や関連の行だけに現れる RFD には当てない。
   - 機械検査の検索による検査に、項番 39「issue の ID の対応」を足す。レビュー対象の確定事項・受入・実装契約に現れる issue の ID が、すべて issue の対応表の行にあること。項番 38「issue の対応表」: 対応表があり、題材にしたか取り込んだ issue がすべて行にある。各行の確定事項と受入の項番（未決なら未決表の番号）が本文に実在する。根拠の位置のファイルが今の作業ツリーにある。
@@ -322,7 +322,7 @@ Codex 向けに、各 skill に `agents/openai.yaml` を添える（anet の ski
 3. `area` の anet での値: 機能カテゴリの key の並び。当たらなければ `[]`。先頭を主なカテゴリとする（理由: 今ある分類をそのまま使い、2 つのカテゴリにまたがる課題を取りこぼさない。再グリルで並びに決めた）。
 4. `type` の値: 不具合（今の契約どおりに動かない）・ずれ（文書・規約と実物の食い違い）・改善（振る舞いを変えない作りの直し）・案（新しい振る舞い）・調査（測る・調べる）・索引（対応する文書の仕事の単位。親として子の課題を束ねる）（理由: 監査の観点も、工程末の候補も、どれかに当たる）。
 5. `phase` の anet での値: RFD・実装・監査・ハーネス保守・その他（理由: anet の工程の名前）。
-6. `kind` の anet での値: 成果物＝フレームワーク・アプリ・設定・設計文書。ハーネス＝`AGENTS.md`・skill・品質確認観点・プロセス・エージェント定義（理由: 初めの版の 2 値の定義に、anet の置き場を当てる）。
+6. `kind` の anet での値: 成果物＝フレームワーク・アプリ・設定・設計文書。ハーネス＝`AGENTS.md`・skill・レビュー観点・プロセス・エージェント定義（理由: 初めの版の 2 値の定義に、anet の置き場を当てる）。
 7. 台帳 44 件の当てはめ（理由: 意味が最も近いものに当てる）。
    - 状態: `open`→未着手、`fixed`→解決（`resolved` は履歴の最後の日付）、`wontfix`→次版。
    - 観点から `type`: defect→不具合、drift→ずれ、refactor・architecture・test-gap・process→改善、backlog→調査。`kind` は、process はハーネス、それ以外は成果物。
@@ -339,11 +339,11 @@ Codex 向けに、各 skill に `agents/openai.yaml` を添える（anet の ski
 ## 7. 検証と受入
 
 1. `diff -rq .agents/skills .claude/skills` が差を出さない。
-2. 課題の仕組みのファイル（§5.1 の表）が両方の置き場にあり、§5.1 の直しと足しが入っている。プロセス契約の節を指す所はすべて `docs/process/protocol.md` の実在する節を指し、`protocol.` に数字が続くファイル名で検索して 0 件である。実装 品質確認観点の検査 4（§5.1 で改めたもの）が 0 件で終わる。プロセス契約とレビューエージェントの定義は、実装を始めた時点から変わっていない。
+2. 課題の仕組みのファイル（§5.1 の表）が両方の置き場にあり、§5.1 の直しと足しが入っている。プロセス契約の節を指す所はすべて `docs/process/protocol.md` の実在する節を指し、`protocol.` に数字が続くファイル名で検索して 0 件である。実装 レビュー観点の検査 4（§5.1 で改めたもの）が 0 件で終わる。プロセス契約とレビューエージェントの定義は、実装を始めた時点から変わっていない。
 3. `node docs/process/scripts/newid.js issue 3` が、`issue-YYYYMMDD-xxxxxx` の形の ID を 3 つ出す。
 4. `docs/process/registry.md` の `issue-record` の行の出力先に `docs/management/issues/` があり、読み替え表に §5.2 の行がある。
 5. 台帳の退役: §5.7 の消すファイルが無い。`AGENTS.md`・`.agents/skills`・`.claude/skills`・`docs/process`・`docs/quality`・`docs/wiki/README.md`・`reports/tools` を `findings.jsonl` と `registry.py` で検索して、0 件である。台帳から移した issue（背景に「台帳 F-」と書いたもの）が 44 件あり、F 番号の重複も欠けも無い。
-6. 振り直し: `docs/memo/` 以下に `999` の RFD が無く、9xx の RFD が 57 本で番号が重ならない。振り直した 47 本の番号に、実装の時点で §2 の 6 の集め方で取り直した使われた番号が無い。今の 910〜941 の 10 本の名前が変わっていない。RFD 品質確認観点の項番 3（改めたもの）と項番 4、memo README の「リンクの注意」のリンク切れ検査で`docs`全体を検査し、今回の改名・退役・移行によるリンク切れの増分が0件である。開始時からの23か所は別issueで扱い、今回の合否へ含めない。
+6. 振り直し: `docs/memo/` 以下に `999` の RFD が無く、9xx の RFD が 57 本で番号が重ならない。振り直した 47 本の番号に、実装の時点で §2 の 6 の集め方で取り直した使われた番号が無い。今の 910〜941 の 10 本の名前が変わっていない。RFD レビュー観点の項番 3（改めたもの）と項番 4、memo README の「リンクの注意」のリンク切れ検査で`docs`全体を検査し、今回の改名・退役・移行によるリンク切れの増分が0件である。開始時からの23か所は別issueで扱い、今回の合否へ含めない。
 7. RFD の issue: `docs/memo/` 直下の RFD のすべてについて、`docs` でその RFD を指す issue がちょうど 1 件ある。索引の issue（§5.8 で作ったもの）は `type: 索引` である。
 8. 引数なしの `anet-list-issues` と INDEX が本版を既定とし、次版・解決を除いた issue を依存と WSJF の順に並べ、`area`・`type` で絞れる。`anet-list-issues 束ね` が、`area` ごとの組を最大 3 組、各組 5 件以下で示し、組に、`docs` に RFD を持つ issue、`parent` を持つ issue、`type: 索引` の issue が入らない（`docs` が RFD 以外の文書だけを指す issue は入りうる）。`束ね max=0` では、提案を出さずに止まり、`max` の条件を示す。棚卸しが、AI の判定が「直った見込み」か「実装済み」で `status` が解決でない issue を、状態の見直しの候補に挙げる。
 9. 試走 A（出口）: 同じ `area` の issue 2 件以上を `anet-create-rfd` に渡して RFD を起こす。次を満たす。
@@ -363,7 +363,7 @@ Codex 向けに、各 skill に `agents/openai.yaml` を添える（anet の ski
 13. 試走 D（監査）: `anet-audit` を 1 つの範囲で回す。新しい指摘が issue（`phase: 監査`）として書かれる。範囲の既存の issue のうち変わったものは、`git diff` で `ai_judge`・`ai_judged` の行と追記だけが変わり、`status` と監理の項目は変わっていない。`type: 索引` の issue は変わっていない。
 14. 試走 E（実装済み）: 試走 A の RFD か、本書の実装のあとに implement-prd-with-docs で実装した最初の RFD で、完了の報告の前に、RFD の issue の AI の判定が「実装済み」、題材の issue の AI の判定が「直った見込み」になっている。本書の実装を終えるまでに当たる実装が無ければ、未実施として実装記録に残す。
 15. 一覧と wiki: `wiki_support.py` の道具が `docs/management/issues/INDEX.md` を作り、wiki の地図の各ページに「課題」の区画があって、`area` の合う issue が並ぶ。`anet-lint-wiki` の点検が、RFD の issue の AI の判定が「実装済み」の新しい RFD を実装済みとして拾い、そうでない RFD（`status` が解決でも）は拾わない。issue の `type` に 6 つの値に無い値を書いた一時のファイルで、道具がエラーで止まり、どの出力も書かない。
-16. 名前: レビューエージェントの定義が `.claude/agents/anet-review-agent.md` と `.codex/agents/anet-review-agent.toml` で、ほかの名前のレビューエージェントの定義が無い。プロセス契約が名指す skill・エージェント・アダプタの名前が、すべて `anet-` で始まる。実装 品質確認観点の検査 4（§5.1 で改めたもの）が 0 件で終わる。
+16. 名前: レビューエージェントの定義が `.claude/agents/anet-review-agent.md` と `.codex/agents/anet-review-agent.toml` で、ほかの名前のレビューエージェントの定義が無い。プロセス契約が名指す skill・エージェント・アダプタの名前が、すべて `anet-` で始まる。実装 レビュー観点の検査 4（§5.1 で改めたもの）が 0 件で終わる。
 17. `docs/memo/README.md`、`AGENTS.md`、`docs/agents/issue-tracker.md` に、`999` を新しい下書きの番号とする記述と、新しい RFD を `done/` などへ移す記述が残っていない（過去の保管場所としての記述は残ってよい）。
 
 ## 8. 作らないもの・先送り
@@ -401,7 +401,7 @@ Codex 向けに、各 skill に `agents/openai.yaml` を添える（anet の ski
   3. anet の skill（§5.3〜§5.6）と、skills README・AGENTS.md・issue-tracker・refactor.md。
   4. 台帳の 44 件の移し替えと退役（§5.7）。
   5. `999` の振り直し（§5.9）と、索引の issue（§5.8）。
-  6. memo README・RFD 品質確認観点（§5.10）。
+  6. memo README・RFD レビュー観点（§5.10）。
   7. 最小の一覧・wiki・定点統計（§5.11）。
   8. 試走 A・B・D・E と、§7 の残りの確かめ。
   9. 動線マップの作り直し。
@@ -414,5 +414,5 @@ Codex 向けに、各 skill に `agents/openai.yaml` を添える（anet の ski
 - [ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)、[ADR 0068](../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md)
 - [anet-create-rfd](../../.agents/skills/anet-create-rfd/SKILL.md)、[implement-prd-with-docs の手順](../../.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md)、[anet-audit](../../.agents/skills/anet-audit/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)、[skills README](../../.agents/skills/README.md)
 - [台帳の CLI](https://github.com/kazukin123/anet-lab/blob/1cbe76d65c3087f7d6b06645cf7243ddb2e2179b/reports/tools/registry.py)、[台帳の一覧](https://github.com/kazukin123/anet-lab/blob/1cbe76d65c3087f7d6b06645cf7243ddb2e2179b/reports/registry/findings.md)
-- [memo README](README.md)、[RFD 品質確認観点](../quality/rfd.md)、[wiki の規約](../wiki/README.md)、[issue-tracker](../agents/issue-tracker.md)
+- [memo README](README.md)、[RFD レビュー観点](../quality/rfd.md)、[wiki の規約](../wiki/README.md)、[issue-tracker](../agents/issue-tracker.md)
 - [RFD0095](done/0095_llm_wiki_10rfd.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)

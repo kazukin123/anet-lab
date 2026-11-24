@@ -239,7 +239,7 @@ Metrics Viewer:
 - 設計文書の英語版(`*.en.md`)を追加。
 - アーキテクチャ Atlas(5 図と索引)と生成 skill `anet-archify-atlas` を追加。
 - AI ハーネス動線マップと生成 skill `anet-harness-map` を追加(RFD0080)。
-- レビューエージェントと品質確認観点(`docs/quality/`)を追加し、AGENTS.md の細則を観点へ移して「作業ごとに読むもの」の表から読む形にした。レビューを頼む skill `anet-review` を追加(RFD0087, ADR0049, ADR0061)。
+- レビューエージェントとレビュー観点(`docs/quality/`)を追加し、AGENTS.md の細則を観点へ移して「作業ごとに読むもの」の表から読む形にした。レビューを頼む skill `anet-review` を追加(RFD0087, ADR0049, ADR0061)。
 - 知見と実装のトピック別まとめを置く LLM-Wiki(`docs/wiki/`)と、取り込み・点検の skill `anet-ingest-wiki` / `anet-lint-wiki` を追加(RFD0095, ADR0056)。
 - 課題の記録を 1 課題 1 ファイル(`docs/management/issues/`)へ移し、課題の作成・一覧・更新の skill を追加。課題の種類を仕事の種類にし、RFD とは課題の `rfd` 欄で結ぶ(RFD0114, RFD0120, ADR0068, ADR0069, ADR0081)。
 - 開発支援 skill 群(anet-stats / audit / housekeeping / survey-queue / translate-docs、prepare-commit)を追加。

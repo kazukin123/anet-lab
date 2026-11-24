@@ -58,7 +58,7 @@
 - core 側: `core/anet-core/bin/Debug/anet-core-test.exe "[atari]~[.],[prd117]~[.]" --reporter compact --rng-seed 123` が exit 0、49 tests / 1410 assertions。`.scratch/prd126/core-regression.log`。
 - 追加の隠し表示検証: `ATARI_ROM_DIR` と `SDL_VIDEODRIVER=dummy` を指定し、`AtariEnv-test.exe "[prd117_display]" --reporter compact --rng-seed 123` が exit 0、1 test / 7 assertions（`.scratch/prd126/display-final.log`）。最初は環境変数、次に SDL2.dll の読み込みで失敗した。ALE の読み込みは PATH を使わないため、既存の `C:/dev/ale-sandbox/build/Debug/SDL2.dll` をテストの `bin/Debug` に未存在の場合だけ配置して確認した。永続的な環境変数と本体コードは変えていない。
 - 受入 5・6・8・9 の検索: env 本体の Run 階層名 0、語の名前は表の 8 行のみ、縮小方式の診断 1、旧縮小器の方式診断 0、`my_config_json_` 0、ゲーム名の正規表現の文字列 1。受入 1〜4・7・9 は上記のテスト、受入 10 は 220 §4.9 と既存 CONTEXT の 3 語で確認した。
-- 自己点検: 実装品質確認観点の全項目を適用範囲ごとに通した。差分の空白エラー、追加行の直訳語、ヘッダの using namespace、本体の dynamic_cast・TODO は 0。対象ファイルは LF、既存 9 ファイルの BOM を保持。重複文字列の検査で見つかった新規テストのゲーム名は定数化し、設定キーは規約の除外に当たる。Atari.txt・固定参照の本体・既存の期待値は変更していない。
+- 自己点検: 実装レビュー観点の全項目を適用範囲ごとに通した。差分の空白エラー、追加行の直訳語、ヘッダの using namespace、本体の dynamic_cast・TODO は 0。対象ファイルは LF、既存 9 ファイルの BOM を保持。重複文字列の検査で見つかった新規テストのゲーム名は定数化し、設定キーは規約の除外に当たる。Atari.txt・固定参照の本体・既存の期待値は変更していない。
 - 未実施の検証: PRD099 の隠し性能測定と大規模な固定参照比較は実行しない。PRD126 は性能の受入を置かず、画素の受入は通常の preprocess / prd099 を使うため。実装の受入に必要な検証の未実施はなし。
 - 課題 949e8a で Run 全体の和集合を出せない事象は残るが、D7 により作らないと決まっている。実装範囲は完了しても、課題の AI 判定は事象が残る規則に従い「残件有り」とする。9ff3b7 は「残件無し」とする。状態はどちらも対応中のままにする。
 - テスト実行体は `AtariEnv-test` であることを CMake と既存検証手順で確認し、計画の反復対象を訂正した。最初の `anet-core-test [prd126]` は該当テストがなく exit 2 で、検証の成功には数えていない。
@@ -73,7 +73,7 @@
 - テスト用の共用ゲーム名は RAM 以外の設定検査でも使うため、`kRamMetricTestGame` → `kAtariTestGame` へ改名する。新しいテスト名は `Atari resize configuration inherits common values and keeps explicit overrides` とする。
 - 追加修正: 出荷設定ファイルの読み取りと CLI の解析を除き、ゲーム名・共通の縮小方式・評価側の縮小方式を明示した `ConfigData` に置き換えた。共通値の継承、評価個別の上書き、実効設定を確認する 5 つの検査を残した。共通値の記録は入力そのものの読み返しから `AtariEnvConfig` が記録した実効設定の検査へ変えた。不要になった `wx/cmdline.h` を除いた。本体・出荷設定の変更はない。
 - 追加修正の検証: MSVC 初期化後の `cmake --build --preset x64-Debug --target AtariEnv-test` が exit 0。`AtariEnv-test.exe "[prd126],[resize-profile]" --reporter compact --rng-seed 123` が exit 0、7 tests / 151 assertions（`.scratch/prd126/build-synthetic-resize.log`・`synthetic-resize-tests.log`）。本体は前段から変更していないため、今回変えたテストと共用定数を使う関連テストを再実行した。
-- 追加修正の自己点検: 実装品質確認観点の全項目を適用範囲ごとに通し、追加した整理がユーザーの選択範囲内であることを確認。テストファイルから `ConfigManager`・`Atari.txt`・`shipped_config` の参照が無くなった。現用の core・apps・設計文書・CONTEXT で旧テスト名と旧定数名の参照は 0。LF・BOM を保持し、diff --check 成功。未実施の必要な検証・設計判断待ちはない。
+- 追加修正の自己点検: 実装レビュー観点の全項目を適用範囲ごとに通し、追加した整理がユーザーの選択範囲内であることを確認。テストファイルから `ConfigManager`・`Atari.txt`・`shipped_config` の参照が無くなった。現用の core・apps・設計文書・CONTEXT で旧テスト名と旧定数名の参照は 0。LF・BOM を保持し、diff --check 成功。未実施の必要な検証・設計判断待ちはない。
 
 ## 決まらなかったこと
 

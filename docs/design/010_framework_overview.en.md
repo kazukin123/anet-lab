@@ -361,7 +361,7 @@ See the [Run Execution Guide](020_user_guide_run.en.md) for screen layout and op
 
 Profiling assigns stable measurement names to major boundaries such as Actor inference, Env Step, Learner updates, ReplayBuffer, device transfers, and visualization. Tracy reveals CPU threads and processing times, and NVTX-enabled environments show their correspondence with GPU processing, enabling comparisons between Serial/Pipeline modes and configurations over the same ranges.
 
-See the Instrumentation rules in [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%88%E6%B8%AC) for rules on adding or changing instrumentation.
+See the Instrumentation rules in [Implementation Review Viewpoints](../quality/impl.md#%E8%A8%88%E6%B8%AC) for rules on adding or changing instrumentation.
 
 ### 6.11 Tests
 

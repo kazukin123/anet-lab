@@ -1,4 +1,4 @@
-# RFD 品質確認観点
+# RFD レビュー観点
 
 RFD を書く前の参照、レビュー、起草した側の自己点検で走査する観点。
 
@@ -159,7 +159,7 @@ RFD の確定事項と実装契約に、内部の型・入れ物の型・引数�
 | 21 | ADR を起こす条件 | 起こした ADR が、所在の 3 条件をすべて満たす | [anet-create-rfd](../../.agents/skills/anet-create-rfd/SKILL.md)（Offer ADRs sparingly）、[ADR-FORMAT.md](../../.agents/skills/anet-create-rfd/ADR-FORMAT.md) |
 | 22 | ADR の形 | 起こした ADR が、題と 1〜3 文で、判断と理由を述べている。RFD の内容を写していない | [anet-create-rfd](../../.agents/skills/anet-create-rfd/SKILL.md)（Offer ADRs sparingly の Keep it short） |
 | 23 | 既存 ADR の保持 | コミット済みの ADR の本文を書き換えていない。判断を変えるときは、古い ADR の先頭に注記を足し、新しい ADR を起こしている。未コミットの ADR の書き直しは対象外である。参照先の文書の改名・移動に合わせて、同じ文書を指したまま Markdown のリンクの丸括弧の中のパスを直すことと、先頭への注記の追加は、書き換えに当たらない（[docs/memo/README.md](../memo/README.md) §リンクの注意）。リンクを別の文書へ付け替えることは当たる。コミット済みかどうかは、項番 28 の出力で見る | [anet-create-rfd](../../.agents/skills/anet-create-rfd/SKILL.md)（Offer ADRs sparingly の Never rewrite an existing ADR） |
-| 24 | 新しい名前 | RFD が付ける新しい名前（設定キー、メトリクス名、TensorDict キー、公開クラス名）が、[CONTEXT.md](../../CONTEXT.md) の語と合っている。`_Avoid_` に挙がった語を使っていない。クラス一覧の名前に、役割を表す接尾辞がある。名前が、実装 品質確認観点の「名前」の規約の基準に沿っている | [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件、[実装 品質確認観点](impl.md#c-コード)「C++ コード」の規約、[実装 品質確認観点](impl.md#名前)「名前」の規約 |
+| 24 | 新しい名前 | RFD が付ける新しい名前（設定キー、メトリクス名、TensorDict キー、公開クラス名）が、[CONTEXT.md](../../CONTEXT.md) の語と合っている。`_Avoid_` に挙がった語を使っていない。クラス一覧の名前に、役割を表す接尾辞がある。名前が、実装 レビュー観点の「名前」の規約の基準に沿っている | [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件、[実装 レビュー観点](impl.md#c-コード)「C++ コード」の規約、[実装 レビュー観点](impl.md#名前)「名前」の規約 |
 | 25 | 用語の欠落 | 用語集に無い概念に名前を付ける場合、既存の語で言い換えられないことと、決めた用語が書かれている | [AGENTS.md](../../AGENTS.md) §用語(CONTEXT.md)を引く条件 |
 | 26 | 用語集の項目 | `CONTEXT.md` に足した項目が、実装の詳細を含まず、定義が 1〜2 文である | [anet-create-rfd](../../.agents/skills/anet-create-rfd/SKILL.md)（Update CONTEXT.md inline）、[CONTEXT-FORMAT.md](../../.agents/skills/anet-create-rfd/CONTEXT-FORMAT.md)（Rules） |
 

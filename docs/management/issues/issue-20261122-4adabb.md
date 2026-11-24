@@ -43,7 +43,7 @@ PRD191 の設定移行を検証中に、既定葉の `?=` と `=` の使い分�
 .\.venv\Scripts\python.exe -B src/core/base/testdata/prd072/check_default_leaves.py
 ```
 
-- 2026-11-23 RFD0195: 実装の検証（[実装 品質確認観点](../../quality/impl.md)の項番 52。出荷設定のコメントの行だけを変えたことの確かめ）で回したところ、実装の前の状態でも実装のあとでも、同じく `rg` が `core` を開けずに止まり、回せなかった。RFD0195 で検証資材のフォルダを改名したので、検査の今のパスは `src/core/base/testdata/rfd0072/check_default_leaves.py` である。[実装記録](../../memo/0195_document_term_rfd_and_4digit_numbers_20impl.md)
+- 2026-11-23 RFD0195: 実装の検証（[実装 レビュー観点](../../quality/impl.md)の項番 52。出荷設定のコメントの行だけを変えたことの確かめ）で回したところ、実装の前の状態でも実装のあとでも、同じく `rg` が `core` を開けずに止まり、回せなかった。RFD0195 で検証資材のフォルダを改名したので、検査の今のパスは `src/core/base/testdata/rfd0072/check_default_leaves.py` である。[実装記録](../../memo/0195_document_term_rfd_and_4digit_numbers_20impl.md)
 
 ## 影響
 

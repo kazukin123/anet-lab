@@ -54,9 +54,9 @@ shadow は消すべき事故、実体コピーは意図した構造で同期だ�
 | 規約・索引 | [docs/ownership_guideline.md](../../docs/ownership_guideline.md) | Agent 実装の所有権を変えるとき | 人間・Claude・Codex | docs/design/010_framework_overview.jp.md:416、docs/design/110_agents_and_learning.jp.md:55、docs/design/200_dqn_agents.jp.md:856 ほか 20 ファイル | docs/design/README.jp.md:84「関連文書」 |
 | 規約・索引 | [docs/memo/README.md](../../docs/memo/README.md) | RFD の採番・工程と担当・リンク規約を引くとき | 人間・Claude・Codex | .agents/skills/anet-create-rfd/SKILL.md:212、.claude/skills/anet-create-rfd/SKILL.md:212、docs/process/registry.md:62 ほか 23 ファイル | .agents/skills/anet-create-rfd/SKILL.md:212 |
 | 規約・索引 | [docs/experiments/README.md](../../docs/experiments/README.md) | 実験記録を書く・読むとき | 人間・Claude・Codex | docs/memo/done/0095_llm_wiki_10rfd.md:15、docs/memo/done/0095_llm_wiki_22impl.md:13、docs/wiki/log.md:202 ほか 1 ファイル | AGENTS.md:628（節の対象） |
-| 品質確認観点 | [docs/quality/impl.md](../../docs/quality/impl.md) | AGENTS.md「作業ごとに読むもの」の行に当たるとき | 人間・Claude・Codex | AGENTS.md:65、.agents/skills/anet-create-rfd/SKILL.md:146、.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md:78 ほか 99 ファイル | AGENTS.md:65 |
-| 品質確認観点 | [docs/quality/rfd.md](../../docs/quality/rfd.md) | RFD を書く・直すとき | 人間・Claude・Codex | AGENTS.md:68、.agents/skills/anet-create-rfd/SKILL.md:8、.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md:192 ほか 21 ファイル | AGENTS.md:68 |
-| 品質確認観点 | [docs/quality/refactor.md](../../docs/quality/refactor.md) | リファクタリングの監査のとき | 人間・Claude・Codex | .agents/skills/anet-audit/SKILL.md:18、.claude/skills/anet-audit/SKILL.md:18、docs/process/registry.md:23 ほか 64 ファイル | docs/process/registry.md:23 |
+| レビュー観点 | [docs/quality/impl.md](../../docs/quality/impl.md) | AGENTS.md「作業ごとに読むもの」の行に当たるとき | 人間・Claude・Codex | AGENTS.md:65、.agents/skills/anet-create-rfd/SKILL.md:146、.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md:78 ほか 99 ファイル | AGENTS.md:65 |
+| レビュー観点 | [docs/quality/rfd.md](../../docs/quality/rfd.md) | RFD を書く・直すとき | 人間・Claude・Codex | AGENTS.md:68、.agents/skills/anet-create-rfd/SKILL.md:8、.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md:192 ほか 21 ファイル | AGENTS.md:68 |
+| レビュー観点 | [docs/quality/refactor.md](../../docs/quality/refactor.md) | リファクタリングの監査のとき | 人間・Claude・Codex | .agents/skills/anet-audit/SKILL.md:18、.claude/skills/anet-audit/SKILL.md:18、docs/process/registry.md:23 ほか 64 ファイル | docs/process/registry.md:23 |
 | プロセス契約 | [docs/process/numbering.md](../../docs/process/numbering.md) | 課題などの ID を採番するとき | 人間・Claude・Codex | .agents/skills/anet-create-issue/SKILL.md:21、.claude/skills/anet-create-issue/SKILL.md:21、docs/management/issues/README.md:11 ほか 3 ファイル | .agents/skills/anet-create-issue/SKILL.md:21 |
 | プロセス契約 | [docs/process/protocol.md](../../docs/process/protocol.md) | レビューを依頼する・課題の候補を挙げるとき | 人間・Claude・Codex | .agents/skills/anet-create-issue/SKILL.md:237、.agents/skills/anet-create-rfd/SKILL.md:8、.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md:198 ほか 30 ファイル | .agents/skills/anet-review/SKILL.md:9 |
 | プロセス契約 | [docs/process/registry.md](../../docs/process/registry.md) | 成果物ごとの観点を引くとき・プロセス契約とレビューエージェントの定義を直すとき | 人間・Claude・Codex | AGENTS.md:70、.agents/skills/anet-create-issue/SKILL.md:15、.agents/skills/anet-create-rfd/SKILL.md:8 ほか 33 ファイル | AGENTS.md:70 |
@@ -149,7 +149,7 @@ shadow は消すべき事故、実体コピーは意図した構造で同期だ�
 | レビューする | `anet-review` → `anet-review-agent`、docs/process/protocol.md、docs/process/registry.md、rfd.md / impl.md | 対象が無いとき | docs/memo/README.md:40・48〜54 |
 | 人間のレビュー・コミットの準備 | `anet-prepare-commit`、AGENTS.md「Git 操作・コミットメッセージルール」 | サブエージェントのとき、工程の途中 | docs/memo/README.md:41、AGENTS.md:483〜590 |
 | 設計文書・ユーザーガイドを書く | impl.md の「検証と報告」 | - | AGENTS.md:69 |
-| AGENTS.md・品質確認観点・プロセス契約・エージェント定義を直す | impl.md の「検証と報告」、直す観点の「位置づけ」、registry.md の「読み替え表」の前文 | - | AGENTS.md:70 |
+| AGENTS.md・レビュー観点・プロセス契約・エージェント定義を直す | impl.md の「検証と報告」、直す観点の「位置づけ」、registry.md の「読み替え表」の前文 | - | AGENTS.md:70 |
 | skill を書く・直す | impl.md の「skill」、`.agents/skills/README.md` | - | AGENTS.md:71 |
 | 手戻りからハーネスを直す | `anet-improve` | 明示起動か、`anet-create-rfd`・`anet-impl-rfd` の完了報告の候補で選ばれたとき以外 | .agents/skills/README.md:30 |
 | 会話のまとめページを作る・更新する | `anet-summary-page`、docs/process/summary-page/README.md と場面ごとの指針（grill.md・exp.md・general.md） | 場面の一覧の始める時機に当たらず、頼まれてもいないとき | AGENTS.md:417・418、docs/process/summary-page/README.md「場面の一覧」 |
@@ -286,7 +286,7 @@ user-level にしかない skill: `~/.claude/skills` に 37 件、`~/.agents/ski
 ### 死んだ動線
 
 - 0 件（表 1 で参照元が空の行は無い）。
-- 参照元が RFD・課題・wiki・ADR・実験記録・レポートだけで、エージェントが読む契約（AGENTS.md・skill・設計文書・品質確認観点・プロセス契約）から名指しされないもの: docs/experiments/README.md、.github/workflows/gemini_ai_review.yml、.github/workflows/release.yml。`docs/experiments/README.md` は AGENTS.md「実験記録と実効 config の保存ルール」が置き場を定めるのに、README 自体へのリンクが無い。
+- 参照元が RFD・課題・wiki・ADR・実験記録・レポートだけで、エージェントが読む契約（AGENTS.md・skill・設計文書・レビュー観点・プロセス契約）から名指しされないもの: docs/experiments/README.md、.github/workflows/gemini_ai_review.yml、.github/workflows/release.yml。`docs/experiments/README.md` は AGENTS.md「実験記録と実効 config の保存ルール」が置き場を定めるのに、README 自体へのリンクが無い。
 
 ### 機械化点
 

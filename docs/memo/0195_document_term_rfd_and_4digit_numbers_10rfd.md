@@ -19,7 +19,7 @@
 1. **名前が中身と食い違う。** 本来の PRD（Product Requirements Document）は、PM が製品について「何を・なぜ」を書く文書で、ユーザーストーリー・対象の利用者・優先度を中心に持ち、作り方は書かない。anet の文書は、1 回の変更ごとに番号を取り、問題・ゴール・前提・確定事項とその理由・外から見える契約（公開 API の名前・設定キー・メトリクス名・失敗の扱い）・受入を書く（P8、§5.6）。優先度と作業の順は課題が持つ（P7）。呼び名の由来の `to-prd` の雛形も、後半はすでに実装とテストの決定である（P9）。
 2. **読み手が一般の PRD の像を持ち込みうる。** 初めて読む人や、新しく入る AI エージェントが「PRD」から製品の要求書の形（ユーザーストーリー、PM の文書）を推し、anet の文書の読み方・書き方を取り違えうる。
 3. **用語集に注記しても、名前は残る。** 「PRD」は追跡しているファイル 963 本に 14,238 か所あり（P1）、skill 名・ファイル名・課題の欄・コミット件名・テストのタグのような、人が目にし機械が読む名前にも入っている（P2）。注記だけでは、名前を目にする場所ごとに取り違えの入口が残る。
-4. **番号の形が 3 桁を前提にしている。** ファイル名の検査（[PRD 品質確認観点](../quality/rfd.md) の項番 2）、課題の `prd` 欄の検査、道具が件名から番号を読む形が、どれも 3 桁を前提にしていて、番号が 1000 に届くと止まる（[issue-20261116-fe09dc](../management/issues/issue-20261116-fe09dc.md)）。
+4. **番号の形が 3 桁を前提にしている。** ファイル名の検査（[PRD レビュー観点](../quality/rfd.md) の項番 2）、課題の `prd` 欄の検査、道具が件名から番号を読む形が、どれも 3 桁を前提にしていて、番号が 1000 に届くと止まる（[issue-20261116-fe09dc](../management/issues/issue-20261116-fe09dc.md)）。
 
 ### 1.2 ゴール
 
@@ -60,10 +60,10 @@ P1〜P9 は 2026-11-21 に、P1〜P21 は 2026-11-22 に、共通の前提とし
 | P2 | 事実（検索） | 名前として使っている場所は、skill 2 本（`.agents` と `.claude` に同じ内容のコピー）、品質観点のファイルと成果物キー `prd`、課題の `prd` 欄と `phase` の値 `PRD`、コミット件名の `PRD番号`、テストのタグ・テスト名・検証資材のフォルダ、識別子と環境変数、道具 2 本である | §5.2 | 済み |
 | P3 | 守る線（規約） | クリーンブレーク：旧い契約の別名・互換の読み込み・検出のコードを残さない | [AGENTS.md](../../AGENTS.md) 79〜90 行 | 済み |
 | P4 | 守る線（規約） | 過去の Run のフォルダ、ADR、実験記録、履歴資料は当時のまま保ち、読み替えるための互換コードを足さない | [AGENTS.md](../../AGENTS.md) 90 行 | 済み |
-| P5 | 守る線（規約） | 改名した文書へのリンクは、過去の記録の中のものも、丸括弧の中のパスだけを直す。リンクの文字と本文は当時のまま残す | [memo README](README.md) 56 行、[PRD 品質確認観点](../quality/rfd.md) の項番 17 | 済み |
+| P5 | 守る線（規約） | 改名した文書へのリンクは、過去の記録の中のものも、丸括弧の中のパスだけを直す。リンクの文字と本文は当時のまま残す | [memo README](README.md) 56 行、[PRD レビュー観点](../quality/rfd.md) の項番 17 | 済み |
 | P6 | 過去の判断 | 9xx の振り直しでは、旧い番号を各文書の題の直下の行に持たせ、道具はその行の日付以前（その日を含む）のコミットに限って旧い番号を読む。日付で分けたのは、旧い 9xx の番号が新しい文書の番号と紛れうるためである | [ADR 0077](../adr/0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable.md) | 済み |
 | P7 | 過去の判断 | PRD は指示文書で、作業の状態と順序は課題が持つ。課題は `prd` 欄で文書を 1 本だけ指し（N:1）、文書の実装済みは課題の判定と状態から導く | [ADR 0068](../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md)、[ADR 0069](../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md) | 済み |
-| P8 | 事実（文書） | 文書は 1 回の変更ごとに番号を取り、問題・ゴール・前提・確定事項とその理由・実装契約（公開 API の名前、設定キー、メトリクス名、失敗の扱い、クラス一覧、移行対象）・受入を書く。内部の型などの実装の語は書かず、実装の細部は実装計画へ送る。実装は設計文書・ADR・用語集も追随させる | [PRD193](0193_variance_scaling_weight_init_10rfd.md) の見出し、[PRD 品質確認観点](../quality/rfd.md) 101 行、[registry](../process/registry.md) 12〜13 行 | 済み |
+| P8 | 事実（文書） | 文書は 1 回の変更ごとに番号を取り、問題・ゴール・前提・確定事項とその理由・実装契約（公開 API の名前、設定キー、メトリクス名、失敗の扱い、クラス一覧、移行対象）・受入を書く。内部の型などの実装の語は書かず、実装の細部は実装計画へ送る。実装は設計文書・ADR・用語集も追随させる | [PRD193](0193_variance_scaling_weight_init_10rfd.md) の見出し、[PRD レビュー観点](../quality/rfd.md) 101 行、[registry](../process/registry.md) 12〜13 行 | 済み |
 | P9 | 用語 | 呼び名は Matt Pocock 氏の `to-prd` に由来する。その雛形は、前半が製品の要求書の形（Problem Statement・Solution・User Stories）、後半が実装とテストの決定（Implementation Decisions・Testing Decisions）である。anet のグリルの規律も同氏の `grill-with-docs` から派生した | 開発者の発言（2026-11-21、§3.2）、ユーザー単位の skill `to-prd`（リポジトリの外。2026-11-21 に本文を確認）、[skill の一覧](../../.claude/skills/README.md) 23 行 | 済み |
 | P10 | 事実（検索） | 起票の暫定の既定だった `spec` は、単語として 1,044 か所、語の一部として 12,160 か所・1,118 本に当たる（環境・Actor・tensor の spec、`spectral`、`inspect_run` など）。テストのタグ `[spec]` もある。用語集は「Spec は出来上がったものの仕様を指す」として、Actor を作る要求を `ActorSpec` と呼ばない | §5.3、[CONTEXT.md](../../CONTEXT.md) 468 行 | 済み |
 | P11 | 用語 | 「設計文書」は、docs/design の 1xx・2xx（今の仕様）を指す語として使っている | [registry](../process/registry.md) 74 行 | 済み |
@@ -150,7 +150,7 @@ anet の PRD づくりの skill は、グリルの規律を Matt Pocock 氏の `
 | 場所 | 今の名前 | 件数・位置 |
 |---|---|---|
 | skill | `anet-create-prd`・`anet-impl-prd`（`anet-impl-prd/PRD-IMPLEMENTATION.md` を含む）。`.agents/skills` と `.claude/skills` に同じ内容のコピーで置き、今は 2 部に差が無い（`diff -rq` が何も出さない） | [skill の一覧](../../.claude/skills/README.md) 3 行。`anet-create-prd` は 511 か所、`anet-impl-prd` は 110 か所で名指される |
-| 品質観点と成果物キー | `docs/quality/prd.md`、成果物キー `prd`、出力先の形 `docs/memo/{NNN}_{slug}_10prd.md` | [registry](../process/registry.md) 11 行。ファイル名の検査は [PRD 品質確認観点](../quality/rfd.md) 31 行（項番 2）、採番の一意性は 32 行（項番 3） |
+| 品質観点と成果物キー | `docs/quality/prd.md`、成果物キー `prd`、出力先の形 `docs/memo/{NNN}_{slug}_10prd.md` | [registry](../process/registry.md) 11 行。ファイル名の検査は [PRD レビュー観点](../quality/rfd.md) 31 行（項番 2）、採番の一意性は 32 行（項番 3） |
 | ファイル名の形と採番 | `NNN_<slug>_10prd.md`。題（slug）に `prd` を含む文書が 5 本（114・120・131・179・195）、実装計画が 3 本（114・120・131） | [memo README](README.md) 3 行・12〜20 行 |
 | 課題の欄 | 全 239 件が前付けに `prd` 欄を持つ（値のあるもの 140 件）。`phase` の値 `PRD`（97 件）、`docs` の値の文書のパス。題か scope に「PRD」を含むもの 78 件（開いている 60、解決・次版 18）。本文に 215 件・1,835 か所 | [wiki_support.py](../../reports/tools/wiki_support.py) 395〜404 行 |
 | コミット件名 | 参照の並びの `PRD番号`。件名に `PRDnnn` を持つコミットは 1,382 件のうち 270 件 | [AGENTS.md](../../AGENTS.md) 493 行・498 行 |
@@ -257,8 +257,8 @@ anet の PRD づくりの skill は、グリルの規律を Matt Pocock 氏の `
 
 | 側面 | 中身 | 根拠 |
 |---|---|---|
-| A 差分の仕様 | 1 回の変更の要求（問題・ゴール・非ゴール）から設計の契約（公開 API の名前・設定キー・メトリクス名・失敗の扱い、クラスの名前・責務・置き場、アルゴリズムと式の選択）まで。内部の型や関数の分け方は書かず、実装計画へ送る。実装したあとの今の仕様は設計文書と src が持つ。範囲は、コード・テスト・設定・設計文書・ADR・用語集の追随・今あるものの移行に及ぶ | [PRD 品質確認観点](../quality/rfd.md) 101 行、[registry](../process/registry.md) 13 行、P11 |
-| B AI が自律で作業する指示書 | 本文だけで読め、移行対象の一覧・外から確かめられる受入・ほかの文書との順序・クラス一覧から外れてよい条件を持つ。会話を知らない別の枠がそのまま実装し確かめる | [memo README](README.md) 44 行、[PRD 品質確認観点](../quality/rfd.md) の項番 14、ADR 0068 |
+| A 差分の仕様 | 1 回の変更の要求（問題・ゴール・非ゴール）から設計の契約（公開 API の名前・設定キー・メトリクス名・失敗の扱い、クラスの名前・責務・置き場、アルゴリズムと式の選択）まで。内部の型や関数の分け方は書かず、実装計画へ送る。実装したあとの今の仕様は設計文書と src が持つ。範囲は、コード・テスト・設定・設計文書・ADR・用語集の追随・今あるものの移行に及ぶ | [PRD レビュー観点](../quality/rfd.md) 101 行、[registry](../process/registry.md) 13 行、P11 |
+| B AI が自律で作業する指示書 | 本文だけで読め、移行対象の一覧・外から確かめられる受入・ほかの文書との順序・クラス一覧から外れてよい条件を持つ。会話を知らない別の枠がそのまま実装し確かめる | [memo README](README.md) 44 行、[PRD レビュー観点](../quality/rfd.md) の項番 14、ADR 0068 |
 | C 判断の記録 | 決定ごとの理由と依存、前提の表、退けた案と本当の制約か、グリルの材料を残す。wiki は PRD を出典に 1,132 回引く（ADR は 160 回） | `git grep` で wiki の「出典: [PRD…」と「出典: [ADR…」を数えた（2026-11-22） |
 | D 変更の識別子 | 番号がコミット件名（270 件）・テストのタグ・検証資材のフォルダ（39 個）・環境変数・課題の欄・wiki の一覧をつなぐ | §5.2 |
 | E 時期で役割が変わる | 暫定の下書き（2026-11-22 に直下 90 本のうち 54 本）→ グリルで決めた指示 → 実装中に実装へ合わせて改める（直下で 7 本に記録）→ 実装したあとは過去の記録 | 2026-11-22 に直下の文書の冒頭 3 行と本文を検索した |
@@ -286,10 +286,10 @@ anet の PRD づくりの skill は、グリルの規律を Matt Pocock 氏の `
 | D9 | 旧い名前の別名・互換の読み込み・見張りを残さない。skill・品質観点・成果物キー・課題の欄名・`phase` の値・ファイル名の形・テストのタグは新しい名前 1 つだけにする。件名の旧い記号を新しく書いたら知らせる検査は足さない。[AGENTS.md](../../AGENTS.md) の避ける語の表に「PRD」を足さない | P3。避ける語の表は品質観点の項番 40 の検索に使われ、足すと旧い名前の番人になり、経緯の行や過去の引用まで拾う。読み替えは用語集の `_Avoid_` が受け持つ（D14）。git の履歴の旧い記号を読むことは D17 で別に決める |
 | D10 | 文書・実装計画・検証記録のファイル名を、`NNNN_<slug>_10rfd.md`・`NNNN_<slug>_12rfd.md`・`NNNN_<slug>_2Ximpl.md`・`NNNN_<slug>_30validation.md` の形に改める。直下も保管場所も、すべて改名する。`docs/memo` の下の、3 桁の番号と `_` で始まるほかのファイル（名前の終わりが違う計画と資料。`done/010_…_21impl_ph1.md` などの 13 本、`done/059_…_30mat_guide.md`、`done/000_v2.txt`）も、0 埋めの 4 桁の番号へ改名する（README を除く全部）。題（slug）の途中の `prd` も直す。114・120・131 は `prd` を `rfd` に、179 の `prd097` は `rfd0097` にし、195 は題を `document_term_rfd_and_4digit_numbers` に改める。実装計画はそれぞれの文書と同じ題にそろえる。工程の段を表す数字（`_10`・`_12`・`_2X`・`_30`）は変えない | 道具は保管場所の文書も同じ形で集めるので（[stats.py](../../reports/tools/stats.py) 486 行、[wiki_support.py](../../reports/tools/wiki_support.py) 205 行・288 行）、一部だけ改めると 2 つの形を読むことになる（P3）。リンクのパスの直しは書き換えに当たらない（P5）。組のファイルは同じ番号と題を持つ（[memo README](README.md) 3 行）。題の途中の旧い名前も今のファイル名に残さない（G1）。195 の題は旧い名前を含まない形にする |
 | D11 | 課題の前付けを、解決・次版も含めた全課題で改める。`prd` 欄を `rfd` 欄にし、値の Obsidian のリンクを新しいファイル名にする。`phase` の値 `PRD` を `RFD` にする。`docs` の値の文書のパスを新しいファイル名にする | 旧い欄が残ると、検査はそれを黙って空とみなし（P17）、指す課題の無い直下の文書が出て統計が止まる（[stats.py](../../reports/tools/stats.py) 505〜506 行）。P3 |
-| D12 | 今使っている名前を改める。skill は `anet-create-rfd`・`anet-impl-rfd`（`RFD-IMPLEMENTATION.md`）にし、ディレクトリ名・本文・Codex 向けの表示名（`agents/openai.yaml`）を `.agents` と `.claude` の両方で同じに直す。品質観点は `docs/quality/rfd.md`（「RFD 品質確認観点」）、成果物キーは `rfd`。コミット件名の参照の記号は `RFDnnnn` にし、[AGENTS.md](../../AGENTS.md) の件名の形を `RFD番号` に改める。テストのタグ（`[rfdNNNN…]`）・テスト名・検証資材のフォルダ（`testdata/rfdNNNN/`）とファイル名（`rfd0101_muzero_test.cpp`・`config_resolver_rfd0072.json`。検証資材の中の過去の記録のファイル名は D19 で残す）・識別子・環境変数・道具の出力の鍵（`unresolved_rfds`・`rfd_count`・`rfd_state`）・wiki の節の見出し（`## RFD の一覧`）・bat のキュー名とラベル（`mz_prd191` を `mz_rfd0191` に）・コードのコメントの番号つきの呼び方を改める。大文字小文字は今の使い分けを写す（関数名・定数名は `Rfd`、環境変数は `RFD`、ファイル名・フォルダ・タグ・欄・キュー名は `rfd`） | G1。P3。今の `Prd`・`PRD`・`prd` の使い分け（P12）をそのまま写す。src のタグ・検証資材のフォルダ・識別子・環境変数を当時の変更の識別子として残す案は、src の 277 本、検証資材の 39 個のフォルダ、環境変数の食い違い（P35）、改名の見分けの 11 組（P25）を消せて大きく単純になるが、今使っている名前に旧い名前が残り G1 に反し、開発者の「半端にしたくない」（§3.2）にも反するので退けた |
+| D12 | 今使っている名前を改める。skill は `anet-create-rfd`・`anet-impl-rfd`（`RFD-IMPLEMENTATION.md`）にし、ディレクトリ名・本文・Codex 向けの表示名（`agents/openai.yaml`）を `.agents` と `.claude` の両方で同じに直す。品質観点は `docs/quality/rfd.md`（「RFD レビュー観点」）、成果物キーは `rfd`。コミット件名の参照の記号は `RFDnnnn` にし、[AGENTS.md](../../AGENTS.md) の件名の形を `RFD番号` に改める。テストのタグ（`[rfdNNNN…]`）・テスト名・検証資材のフォルダ（`testdata/rfdNNNN/`）とファイル名（`rfd0101_muzero_test.cpp`・`config_resolver_rfd0072.json`。検証資材の中の過去の記録のファイル名は D19 で残す）・識別子・環境変数・道具の出力の鍵（`unresolved_rfds`・`rfd_count`・`rfd_state`）・wiki の節の見出し（`## RFD の一覧`）・bat のキュー名とラベル（`mz_prd191` を `mz_rfd0191` に）・コードのコメントの番号つきの呼び方を改める。大文字小文字は今の使い分けを写す（関数名・定数名は `Rfd`、環境変数は `RFD`、ファイル名・フォルダ・タグ・欄・キュー名は `rfd`） | G1。P3。今の `Prd`・`PRD`・`prd` の使い分け（P12）をそのまま写す。src のタグ・検証資材のフォルダ・識別子・環境変数を当時の変更の識別子として残す案は、src の 277 本、検証資材の 39 個のフォルダ、環境変数の食い違い（P35）、改名の見分けの 11 組（P25）を消せて大きく単純になるが、今使っている名前に旧い名前が残り G1 に反し、開発者の「半端にしたくない」（§3.2）にも反するので退けた |
 | D13 | 番号つきの呼び方は、どこでも 0 埋めの 4 桁で、記号と数字のあいだに空白を入れない（`RFD0195`、`[rfd0110_main_pane]`、`ANET_RFD0093_OUTPUT`、`MakeRfd0072ConfigData`）。本文の `PRD 072`（空白あり）も `RFD0072` にする | D2。書き方を 1 つにすると、検索と道具の読み方が 1 つで済む（P3） |
 | D14 | [CONTEXT.md](../../CONTEXT.md) に RFD の項目を実装で足す。言い回しは「**RFD**（Request for Discussion）: 1 回の変更について、開発者と AI がグリルで決めたことを、要求から設計の契約まで、AI がそのまま実装し確かめられる形で書き、理由と退けた案も残す文書。番号は 0 埋めの 4 桁で、コミット・課題・テストをつなぐ。」とし、`_Avoid_` に「PRD（本来は製品の要求書を指す。RFD0195 より前の記録とコミット件名には残る）」と書く。旧い名前と新しい名前の対応（skill 名、ファイル名の形、課題の欄と `phase` の値、件名の記号、テストのタグの形、番号の桁）は、[CHANGELOG](../../CHANGELOG.md) の未リリースの節に 1 行で書く | G2（過去の記録の「PRD」が何を指すかを引ける）。定義は側面 A〜D（P32）を 1〜2 文に収め、名前に出ない指示の側面（B）を補う。`_Avoid_` は同じ概念の別の語の欄で、改名した識別子の対応は CHANGELOG に書く（P33）。実装で足すのは、実装までは文書も道具も「PRD」のままで、先に足すと用語集だけが食い違うため |
-| D15 | 呼び名を改めた判断の [ADR 0093](../adr/0093-document-term-rfd-and-four-digit-numbers.md) を起草で起こした。既存の ADR（ファイル名に `prd` を含む 0068・0069・0077 を含む）は、本文も題もファイル名も変えず、注記も足さず、改名した文書を指すリンクの丸括弧の中のパスだけを直す | ADR の 3 条件を満たす（戻しにくい：千を超えるファイルに及ぶ。文脈なしに驚く：なぜ PRD でないか。本当の比較：§5.3 の候補）。既存の ADR の判断は、名前のほかは変わらない。P4・P5、[PRD 品質確認観点](../quality/rfd.md) の項番 23 |
+| D15 | 呼び名を改めた判断の [ADR 0093](../adr/0093-document-term-rfd-and-four-digit-numbers.md) を起草で起こした。既存の ADR（ファイル名に `prd` を含む 0068・0069・0077 を含む）は、本文も題もファイル名も変えず、注記も足さず、改名した文書を指すリンクの丸括弧の中のパスだけを直す | ADR の 3 条件を満たす（戻しにくい：千を超えるファイルに及ぶ。文脈なしに驚く：なぜ PRD でないか。本当の比較：§5.3 の候補）。既存の ADR の判断は、名前のほかは変わらない。P4・P5、[PRD レビュー観点](../quality/rfd.md) の項番 23 |
 | D16 | [issue-20261116-fe09dc](../management/issues/issue-20261116-fe09dc.md) を範囲へ取り込み、その `prd` 欄に本 PRD を書く | D2。その課題の対応方針は、番号が 990 に届いたときに 4 桁の形を決めることで、D2 がその答えになる |
 | D17 | 件名から番号を読む道具は、旧い `PRD` に続く 3 桁と、新しい `RFD` に続く 4 桁の両方を読み、番号を値で比べて同じ文書に当てる（`PRD195` と `RFD0195` は同じ）。旧い記号と新しい記号を、切り替えの日で読み分けない。過去の形の scope と今の形の末尾の参照の並びは、今と同じく両方から読む。振り直しの行は、冒頭の引用行として残る今の形（3 桁と `（PRD131）`）に加え、これから書く新しい形（4 桁と `（RFDnnnn）`）も読み、行の日付以前（その日を含む）のコミットの旧い番号だけを振り直しの行で当て、当てる先をその行を持つ今の文書とする今の規則（ADR 0077）は変えない。旧い番号・新しい番号のつなぎと照合は値で行う。採番の確かめ（[memo README](README.md) の「採番」）も、件名と過去のファイル名の両方の形を見る。読み方の詳細は §9.1 | G2。git の履歴は書き換えられない（P4）。旧い記号 `PRD` を読む処理は今ある処理で、新しく足すのは、読んだ番号を値で 4 桁のファイル名に当てる処理と、新しい記号・新しい形を読む処理である。値で当てるので、3 桁の番号は読み替えずにそのまま同じ文書に当たる。P6 で日付で分けたのは番号が紛れたためで、今回は値を変えないので紛れない（D8）。旧い記号を見張らない（D9）。旧い記号と旧い形の振り直しの行を読む処理は、git の履歴と当時のまま残す記録を読むためのもので、期間を限らず、消す条件は無い（履歴と記録は書き換えない）。これは P4 と[品質観点](../quality/rfd.md)の項番 16・17 に対して明示した例外で、読む対象・期間・消す条件をここに書く。新しい形の振り直しの行を読むのは、切り替えのあとに振り直しが起きたとき、新しい記録を旧い記号と 3 桁で書かずに済ませるため（G1・G3） |
 | D18 | 課題の本文は、どの課題も変えない。リンクの丸括弧の中のパスだけを直す | P15。本文は各工程が末尾へ足していく記録である |
@@ -322,7 +322,7 @@ anet の PRD づくりの skill は、グリルの規律を Matt Pocock 氏の `
 | 実装計画のファイル名 | `195_<slug>_20impl.md` | `0195_<slug>_20impl.md` |
 | 文書をつくる skill | `anet-create-prd` | `anet-create-rfd` |
 | 実装する skill | `anet-impl-prd`（`PRD-IMPLEMENTATION.md`） | `anet-impl-rfd`（`RFD-IMPLEMENTATION.md`） |
-| 品質観点 | `docs/quality/prd.md`（PRD 品質確認観点） | `docs/quality/rfd.md`（RFD 品質確認観点） |
+| 品質観点 | `docs/quality/prd.md`（PRD レビュー観点） | `docs/quality/rfd.md`（RFD レビュー観点） |
 | 成果物キー | `prd` | `rfd` |
 | 課題の欄 | `prd: "[[195_<slug>_10prd]]"`、`phase: PRD` | `rfd: "[[0195_<slug>_10rfd]]"`、`phase: RFD` |
 | コミット件名の参照 | `… PRD195 a1b2c3 #11` | `… RFD0195 a1b2c3 #11` |
@@ -389,7 +389,7 @@ anet の PRD づくりの skill は、グリルの規律を Matt Pocock 氏の `
 
 | 種類 | 対象 |
 |---|---|
-| ハーネスの文書 | [AGENTS.md](../../AGENTS.md)（件名の形 `PRD番号`、skill 名、置き場の説明、「PRD」の語）、[CONTEXT.md](../../CONTEXT.md)（項目の本文の `PRD nnn` と、D14 の項目）、[README.md](../../README.md)、[memo README](README.md)（ファイル名の形・採番の 4 桁・採番の確かめで件名と過去のファイル名の両方の形を見ること（D17）・振り直しの行の 2 つの形の説明（経緯の行。D22）・リンクの注意）、[registry](../process/registry.md)（成果物キー `rfd`、出力先 `docs/memo/{NNNN}_{slug}_10rfd.md`、担当 `anet-create-rfd`・`anet-impl-rfd`、読み替え表）・[numbering](../process/numbering.md)・`docs/process/summary-page/` の `README.md`・`grill.md`・`template.html`（プロジェクトに依存しない [protocol](../process/protocol.md) は「PRD」を書かない）、[品質観点](../quality/rfd.md)（ファイル名と本文、項番 2・3 の形）、[実装 品質確認観点](../quality/impl.md)、[リファクタリング観点](../quality/refactor.md)、[課題の README](../management/issues/README.md) |
+| ハーネスの文書 | [AGENTS.md](../../AGENTS.md)（件名の形 `PRD番号`、skill 名、置き場の説明、「PRD」の語）、[CONTEXT.md](../../CONTEXT.md)（項目の本文の `PRD nnn` と、D14 の項目）、[README.md](../../README.md)、[memo README](README.md)（ファイル名の形・採番の 4 桁・採番の確かめで件名と過去のファイル名の両方の形を見ること（D17）・振り直しの行の 2 つの形の説明（経緯の行。D22）・リンクの注意）、[registry](../process/registry.md)（成果物キー `rfd`、出力先 `docs/memo/{NNNN}_{slug}_10rfd.md`、担当 `anet-create-rfd`・`anet-impl-rfd`、読み替え表）・[numbering](../process/numbering.md)・`docs/process/summary-page/` の `README.md`・`grill.md`・`template.html`（プロジェクトに依存しない [protocol](../process/protocol.md) は「PRD」を書かない）、[品質観点](../quality/rfd.md)（ファイル名と本文、項番 2・3 の形）、[実装 レビュー観点](../quality/impl.md)、[リファクタリング観点](../quality/refactor.md)、[課題の README](../management/issues/README.md) |
 | skill | `.agents/skills` と `.claude/skills` の `anet-create-prd`・`anet-impl-prd`（ディレクトリ名、`SKILL.md`、`PRD-IMPLEMENTATION.md`、`OTHER-MODEL.md`、`agents/openai.yaml`）と、ほかの skill の本文の参照（`anet-review`・`anet-prepare-commit`・`anet-improve`・`anet-create-issue`・`anet-update-issue`・`anet-list-issues`・`anet-audit`・`anet-lint-wiki`・`anet-ingest-wiki`・`anet-housekeeping`・`anet-summary-page` など）と、D5 の保存先の指示。skill の一覧の README（両方）。`.codex` の参照 |
 | 道具とそのテスト | [wiki_support.py](../../reports/tools/wiki_support.py)（ファイル名の形と 4 桁、件名の読み方（§9.1）、振り直しの行の当て方、課題の欄と `phase` の値、「RFD の一覧」の見出し、鍵 `unresolved_rfds`）、[stats.py](../../reports/tools/stats.py)（ファイル名の形と 4 桁、課題の `rfd` 欄、関数 `rfd_state`、鍵 `rfd_count`、出力の文言、保管場所の文書の移した日の取り方（D25））。道具のテスト（[wiki_test.py](../../src/core/base/testdata/rfd0095/wiki_test.py)・[issues_test.py](../../src/core/base/testdata/rfd0114/issues_test.py)）は、ファイル名の形・欄名・見出し・件名の読み方を断定しているので、新しい規則に合わせて直し、旧い記号 `PRDnnn` の件名も読めることの断定を足す |
 | コードとテスト | src のテストのタグ・テスト名・コメント・識別子・環境変数・D5 の出力先、検証資材のフォルダ 39 個とその中身、ファイル名 2 本（§5.2） |
@@ -527,13 +527,13 @@ git ls-files docs/memo | grep -v -E '/README\.md$' | grep -v -E '/[0-9]{4}_[^/]+
 
 | issue | 題 | area | 現在のコードで確かめた根拠の位置 | 確定事項 | 受入 |
 |---|---|---|---|---|---|
-| [issue-20261121-529662](../management/issues/issue-20261121-529662.md) | 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前へ改め、今使っている場所をすべて移す | 311_dev_tools | [registry](../process/registry.md) 11 行、[AGENTS.md](../../AGENTS.md) 493 行・498 行、[wiki_support.py](../../reports/tools/wiki_support.py) 184〜198 行・401 行、[stats.py](../../reports/tools/stats.py) 486〜509 行、[PRD 品質確認観点](../quality/rfd.md) 31 行 | D1・D3〜D7・D9〜D12・D14・D15・D17〜D26 | A1〜A11・A13 |
-| [issue-20261116-fe09dc](../management/issues/issue-20261116-fe09dc.md) | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める | 311_dev_tools | [PRD 品質確認観点](../quality/rfd.md) 31〜32 行（項番 2・3）、[wiki_support.py](../../reports/tools/wiki_support.py) 189〜192 行・401 行、[memo README](README.md) 12〜20 行 | D2・D8・D10・D13・D16・D17 | A6・A7・A12 |
+| [issue-20261121-529662](../management/issues/issue-20261121-529662.md) | 文書の呼び名「PRD」が製品の要求書と中身で食い違うので、中身に合う名前へ改め、今使っている場所をすべて移す | 311_dev_tools | [registry](../process/registry.md) 11 行、[AGENTS.md](../../AGENTS.md) 493 行・498 行、[wiki_support.py](../../reports/tools/wiki_support.py) 184〜198 行・401 行、[stats.py](../../reports/tools/stats.py) 486〜509 行、[PRD レビュー観点](../quality/rfd.md) 31 行 | D1・D3〜D7・D9〜D12・D14・D15・D17〜D26 | A1〜A11・A13 |
+| [issue-20261116-fe09dc](../management/issues/issue-20261116-fe09dc.md) | PRD の番号が 1000 に届いたときの 4 桁の形（ファイル名の検査と道具の番号の読み方）を決める | 311_dev_tools | [PRD レビュー観点](../quality/rfd.md) 31〜32 行（項番 2・3）、[wiki_support.py](../../reports/tools/wiki_support.py) 189〜192 行・401 行、[memo README](README.md) 12〜20 行 | D2・D8・D10・D13・D16・D17 | A6・A7・A12 |
 
 ## 12. 参照
 
 - [AGENTS.md](../../AGENTS.md) のクリーンブレーク方針、Git 操作・コミットメッセージルール
-- [memo README](README.md)、[registry](../process/registry.md)、[PRD 品質確認観点](../quality/rfd.md)
+- [memo README](README.md)、[registry](../process/registry.md)、[PRD レビュー観点](../quality/rfd.md)
 - [ADR 0068](../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md)、[ADR 0069](../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md)、[ADR 0077](../adr/0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable.md)、[ADR 0093](../adr/0093-document-term-rfd-and-four-digit-numbers.md)
 - [PRD131](0131_rfd_9xx_renumber_by_creation_date_10rfd.md)（9xx の振り直しと、改名のコミットの決まり）
 - [311 開発ツール](../wiki/categories/311_dev_tools.md)（wiki のトピック別まとめ）

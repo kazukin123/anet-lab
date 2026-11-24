@@ -33,7 +33,7 @@ VsDevCmd.bat経由でDebug/Releaseビルド、関連テスト、全体CTestを�
 - 百分位はユーザー選択の中央順位100*(小さい値の件数+同値件数/2)/件数。自身を含めて有限値の直近pct_window個から確定時に算出し、行の表示値として固定する。全件同値50%。max_rows=1000、pct_window=10000。
 - eval_panelのtarget network既定を維持。traceチャネル保存/metrics DSLのagent_step追加は081へ残す。Notifier全体は直さない。
 - ユーザーは探索Run中のビルド/テスト/追加Runを許可し、基本的に質問せず進めるよう明示した。探索終了待ちはしない。こちらの追加Runは同時1本。探索の実行体/設定を保護し必要なら出力を分離する。通常の修正・再試行は自律的に行う。並列負荷を記録し、性能が判定不能なら未検証として報告し、半日規模の反復/プロファイル調査へ広げない。
-- 無関係なdirty変更と過去artifactを保持する。commit/pushしない。実装後は品質確認観点で自己点検し、独立an-reviewで計画/実装をレビューして修正・再レビューする。結果/未実施/残る未決を本書へ積み、工程を終了する。
+- 無関係なdirty変更と過去artifactを保持する。commit/pushしない。実装後はレビュー観点で自己点検し、独立an-reviewで計画/実装をレビューして修正・再レビューする。結果/未実施/残る未決を本書へ積み、工程を終了する。
 
 ## 経過
 
@@ -105,7 +105,7 @@ $env:PRD094_BINARY_DIR='C:/dev/anet-lab/.scratch/prd094/bin/Release'; $env:PRD09
 
 ## 自己点検
 
-品質確認観点docs/quality/impl.mdの全項目を走査した。列の現在契約、借用eventの同期寿命、snapshotの不変共有、診断窓の所有、既定target維持、forward/RNG追加なしを照合。公開ヘッダはPRDのBuilder/診断/Followerと共通読取りを追加し、依存方向はAgentが部品を生成、生成器が部品を所有する。新規step_trace/metric_tokens/EvalTracePanelはそれぞれ独立した生成/字句/UIの機能グループである。
+レビュー観点docs/quality/impl.mdの全項目を走査した。列の現在契約、借用eventの同期寿命、snapshotの不変共有、診断窓の所有、既定target維持、forward/RNG追加なしを照合。公開ヘッダはPRDのBuilder/診断/Followerと共通読取りを追加し、依存方向はAgentが部品を生成、生成器が部品を所有する。新規step_trace/metric_tokens/EvalTracePanelはそれぞれ独立した生成/字句/UIの機能グループである。
 
 C++ヘッダのusing namespace、production dynamic_cast、追加TODOの不正書式を検索し、いずれも0件。変更範囲は無関係なdirty変更を除外して点検した。改行はLF、batは変更対象外。旧scalar提供元のdynamic_cast撤去に伴い、テストのTestActionInfoもGetScalarSourceへ移行する。設定は共通既定を?=、Atari選択を=で追加し、解決後の既存全キーと文字列値を出力先以外で比較する。
 

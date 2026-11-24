@@ -49,7 +49,7 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 **`$`はベース、部分指定と個別指定はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないepsilon.endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
 
-運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は[実装 レビュー観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
 
 既定値は同じ位置に`?=`で書き、意図した個別指定は`=`で書く。既定値用プロファイルをチェーン先頭へ追加しない。Runプロファイル内・CLI・選択宣言`.$`には`?=`を書けない。設定を追加したら`check_default_leaves.py`で、共通ベース・デフォルト設定に残った`=`と環境別の個別指定に紛れた`?=`を確認する。用途を変える場合は検査器の分類理由も更新する。
 
@@ -390,7 +390,7 @@ sequenceDiagram
 - [RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
 - [config_test.cpp](../../src/core/base/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
-- [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): 出荷設定の検査`[shipped_config]`（共通層の既定、全Actor参照の解決、Atariのプロトコルプリセットと群ごとのRAM指標の揃い）。本番設定を読むテストが固定してよいものの線引きは[実装 品質確認観点](../quality/impl.md#テスト)「テスト」の規約
+- [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): 出荷設定の検査`[shipped_config]`（共通層の既定、全Actor参照の解決、Atariのプロトコルプリセットと群ごとのRAM指標の揃い）。本番設定を読むテストが固定してよいものの線引きは[実装 レビュー観点](../quality/impl.md#テスト)「テスト」の規約
 - [metrics_logger_test.cpp](../../src/core/base/src/metrics_logger_test.cpp): config textとJSON resolution metadataのfile / Metrics master出力境界
 - [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp): Train clone方針のAgent委譲、Pipelineの暗黙同期禁止、Eval ActorとAgentのdevice整合性
 - [episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制行動

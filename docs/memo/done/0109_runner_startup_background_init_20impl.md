@@ -76,7 +76,7 @@ apps/runner/bin/Debug/AnetRLRunner-gui-test.exe
 
 ## 自己点検
 
-- 実装品質確認観点の全項目を適用範囲に従って点検。契約・公開口・英語ログ・結果の同期と一度だけの受領、3か所の待機、テスト対象面・TDD順序、文書追随を確認した。
+- 実装レビュー観点の全項目を適用範囲に従って点検。契約・公開口・英語ログ・結果の同期と一度だけの受領、3か所の待機、テスト対象面・TDD順序、文書追随を確認した。
 - 設定キー置換、汎用層変更、skill、ADR、用語集、ホットパスの変更は無い。対応する観点は対象外。テスト用Agentには既知のscalar keyが無いためGetScalarはnullopt。検証の設定採取は等値期待値を固定する出荷設定テストではない。
 - ユーザー判断待ちの設計未決はなし。既定スイート・学習比較・レビュー対応後の再検証に加え、修正後の再レビューとユーザーによる実機確認も完了した（末尾の「再レビューと実機確認の完了」）。
 
@@ -124,7 +124,7 @@ apps/runner/bin/Debug/AnetRLRunner-gui-test.exe
 - cc-review原文: `.scratch/prd109/review-20261031-1931.md`（Codex: 計画・実装ともOK）、`.scratch/prd109/review-20261031-1931-claude.md`（Claude: 計画OK、実装の文書1件を差し戻し）。
 - Claudeの指摘: 020 §4.1の初期化順序の一覧で第4項だけが利用者の操作になっており、背景でのRunManager構築の段が抜けていた。
 - ユーザーの「指摘を修正。再レビューはまだ。」に従い、本文へログ確認・移動/resizeの操作案内を置き、初期化順序の6項目をNOTEへ移した。第4項に表示後の背景構築を戻し、第5項は構築後のメインスレッドでのパネル接続とした。Logsは表示時点で使えるため第5項から外し、160 §5.1への参照を追加した。
-- 自己点検: 実装品質確認観点の全項目を適用範囲に従って点検し、020 §4.1・§6.4のNOTEと160 §5.1の順序、本文と仕組みの分離を確認した。文書のみの修正で、ビルド・テストは対象外。NOTEの6項目・リンク先の見出し・LF・BOM・git diff --checkの確認は成功した。
+- 自己点検: 実装レビュー観点の全項目を適用範囲に従って点検し、020 §4.1・§6.4のNOTEと160 §5.1の順序、本文と仕組みの分離を確認した。文書のみの修正で、ビルド・テストは対象外。NOTEの6項目・リンク先の見出し・LF・BOM・git diff --checkの確認は成功した。
 - 再レビューは未実施（ユーザー指示）。上記のOKは修正前の判定であり、今回の文書変更の再レビュー結果ではない。人の実機受入6も引き続き未実施。
 
 ## 追加指摘への対応（2026-10-31）
@@ -137,7 +137,7 @@ apps/runner/bin/Debug/AnetRLRunner-gui-test.exe
 - ビルド: 本書「検証」のVsDevCmd経由コマンドでDebug全体とAnetRLRunner-gui-testを再ビルドし、終了値0。既存のD9025（`/Zi`から`/Z7`への上書き）警告のみ。
 - GREEN: `.venv/Scripts/python.exe core/anet-core/testdata/prd109/run_validation.py fatal --output .scratch/prd109/fatal-routing-fixed-20261031-1947` は成功。Runnerの終了コード1、Runログに `Unknown run.eval_schedule tag 'nosuch'` あり、stderr.logは0バイトで診断なし。修正後exeのSHA256は `dba23eec44da6cdf542828f1ba910e149fa8eddb5f1bc6dc5945e3eba07a2438`。各実行のarguments・hash・終了値・所要時間とRun出力を新規ディレクトリへ保存した。
 - GUI: `.venv/Scripts/python.exe core/anet-core/testdata/prd109/run_validation.py gui --output .scratch/prd109/gui-routing-fixed-20261031-1947` は新規10件と既存2件の全12プロセスで終了値0。`[prd109_close_failure]` を含め、JUnit12件もfailures/errorsが0だった。
-- 自己点検: 実装品質確認観点の全項目を適用範囲に従って確認した。今回の修正に公開API・設定・学習経路・所有権・計測の追加は無い。ErrorDialog.cppはHEADとのバイト一致、LF・BOM保持、Python構文、git diff --checkを確認した。020のSHA256は修正前後で `dee840abed8aeb104ca8f2d52843d9345b1d2938969ac45f259c0d42f7a67171` のまま。文書の再読・hash・mtimeと差分も確認した。
+- 自己点検: 実装レビュー観点の全項目を適用範囲に従って確認した。今回の修正に公開API・設定・学習経路・所有権・計測の追加は無い。ErrorDialog.cppはHEADとのバイト一致、LF・BOM保持、Python構文、git diff --checkを確認した。020のSHA256は修正前後で `dee840abed8aeb104ca8f2d52843d9345b1d2938969ac45f259c0d42f7a67171` のまま。文書の再読・hash・mtimeと差分も確認した。
 - 未実施: 既定スイートと4環境scalar比較は今回の変更がエラー出力先の復帰だけなので再実行せず、上記の前回結果を保持する。再レビューはユーザー指示で未実施、人の実機受入6も未実施であり、受入完了とはしない。コミット・pushは行っていない。
 
 ## 再レビューと実機確認の完了（2026-10-31）

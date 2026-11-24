@@ -138,7 +138,7 @@ Claude Code の auto memory（以下 memory）を、git・フォルダ・正本�
 | D8 | 毎回読む範囲は差分にする。索引の全行と、前回から変わった topic file と、状態の語か repo のパスを含む topic file（`scan` の検索で絞る）を読む。引数 `full` を付けたときと、前回の記録が無いときは全部を読む | topic file は 212 本・約 674KB あり、毎回全部を読むと 1 回の費用が大きい（§2 の 2）。古くなる原因の状態とパスは検索で拾える |
 | D9 | 機械的な部分は補助スクリプト `reports/tools/memory_support.py` が受け持つ（§5.2）。本文の照合と縮め方の判断は skill を実行する側が行う | 決まった検査を毎回同じに数え、読む量を減らす。`wiki_support.py` と同じ分け方である（[wiki の規約](../wiki/README.md)の「機械処理の補助」） |
 | D10 | anet-housekeeping に候補 `memory-tidy` を足す（§5.3） | 定期的に回すため（G4）。索引が上限を超えると、超えた分は会話の始めに読まれない（§2 の 1）ので、早めに回す。D7 と D8 に依存する |
-| D11 | 名前は、skill が `anet-tidy-memory`、housekeeping の候補が `memory-tidy`、補助スクリプトが `memory_support.py` とする | 既存の形に揃える（[実装 品質確認観点](../quality/impl.md#名前)「名前」の 3）。skill は動詞＋目的語（`anet-lint-wiki`・`anet-ingest-wiki`）、候補は目的語＋動作（`wiki-lint`）、補助は `wiki_support.py` に揃える |
+| D11 | 名前は、skill が `anet-tidy-memory`、housekeeping の候補が `memory-tidy`、補助スクリプトが `memory_support.py` とする | 既存の形に揃える（[実装 レビュー観点](../quality/impl.md#名前)「名前」の 3）。skill は動詞＋目的語（`anet-lint-wiki`・`anet-ingest-wiki`）、候補は目的語＋動作（`wiki-lint`）、補助は `wiki_support.py` に揃える |
 | D12 | Codex の memory（段階 2）は本書では作らず、§8 に先送りとして残す | ユーザーの指示（まず Claude Code）。Codex の memory は Codex アプリが更新し、RFD0095 D38 で読むだけと決めている（§2 の 8） |
 | D13 | ADR は起こさない | skill と補助スクリプトは後から変えやすく、戻しにくさの条件を満たさない |
 

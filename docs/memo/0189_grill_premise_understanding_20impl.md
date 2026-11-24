@@ -5,11 +5,11 @@
 
 ## 概要
 
-PRD189 の手順を、`anet-create-prd` の skill（2 つの写し）、別モデルの検討の依頼文の雛形（2 つの写し）、レジストリの読み替え表、PRD 品質確認観点、memo README に入れる。コードは変えない。
+PRD189 の手順を、`anet-create-prd` の skill（2 つの写し）、別モデルの検討の依頼文の雛形（2 つの写し）、レジストリの読み替え表、PRD レビュー観点、memo README に入れる。コードは変えない。
 
 - 共通の前提は goal anchor の応答に並べ、ゴールの合意と同じ返事で、説明が要る前提の番号を受ける（D2・D3・D14・D22）。
 - 欠けた前提は、欠けた前提ごとに 1 問ずつ、先にそろえるかを選ぶ。時間がかかるときはグリルを止める（D4・D15・D20・D23〜D25・D28・D29・S8）。
-- PRD に前提の表を置き（D5・S1〜S5・S12）、品質確認観点に項番 43 を足す（D8・D13・D26）。
+- PRD に前提の表を置き（D5・S1〜S5・S12）、レビュー観点に項番 43 を足す（D8・D13・D26）。
 - 暫定の起票では表だけを書き、完了報告に欠けた前提を 1 行示す（D6・D12・D19・D31）。
 - 推奨の理由に、よりどころの前提を番号で書く（D30）。
 
@@ -54,7 +54,7 @@ PRD §7.6 のとおり。33 行目の「グリルして起票」の行に一文�
 
 ## テスト
 
-- Public interface / surface: 文書と skill の本文（`anet-create-prd` の手順、レジストリの読み替え表、PRD 品質確認観点の項番 43、memo README の工程の表）。
+- Public interface / surface: 文書と skill の本文（`anet-create-prd` の手順、レジストリの読み替え表、PRD レビュー観点の項番 43、memo README の工程の表）。
 - 優先 behavior: PRD §8 の受入 1〜9 で見る文字列と置き場。
 - TDD 順序: コードを変えないので TDD の対象外とする（PRD-IMPLEMENTATION.md の「docs/config-only の変更は TDD 必須対象外」）。振る舞いは、PRD §8 の「実装のあとの最初のグリルで見ること」で運用の中で見る（D32）。
 
@@ -82,15 +82,15 @@ git diff 2f641f3c -- docs/process/protocol.md .agents/skills/anet-impl-prd .clau
 - 観点の項番は、今の最大（ほかの作業の 42）の次の 43 にする。項番 43 の適用の日付は 2026-11-19 にする。
 - skill の行番号は、編集の時点の作業ツリーで探す。PRD の行番号はグリルの時点のもので、節の名前で照らす。
 - 足す文の言い回しは、PRD §6 と §7 の中身を写し、skill の書き方（平易な日本語、理由を添える）に合わせる。PRD に無い決まりは足さない。
-- skills README は変えない。`anet-create-prd` の用途・起動・出力先は変わらないため（実装品質確認観点の項番 53）。
+- skills README は変えない。`anet-create-prd` の用途・起動・出力先は変わらないため（実装レビュー観点の項番 53）。
 - `CONTEXT.md` と ADR は変えない（PRD §5）。
 
 ## 経過
 
 - 2026-11-19 未決事項監査ゲート: ブロッカー 1 件（ほかの作業の未コミットの変更がある 3 ファイルに重ねるか）。開発者の答えは「重ねて進める」。
 - 2026-11-19 計画を保存し、課題 6db0f2 を対応中にした。
-- 2026-11-19 書く前に読んだ節: 実装品質確認観点の「検証と報告」「skill」、skills README、PRD 品質確認観点の「位置づけ」、レジストリの「読み替え表」の前文。
-- 2026-11-19 主な変更のとおり 7 ファイルを直した。skill と依頼文の雛形は `.agents` 側を直してから `.claude` 側へ写した（写す前に、2 つの差が今回の 8 か所だけであることを確かめた）。ほかの作業の未コミットの変更（品質確認観点の「契約の変更」の節と項番 42、skill の「選択肢の示し方」の事例の段落・段5 の 2 項目と報告の形・段6 の出し直しの段落）には触れていない。
+- 2026-11-19 書く前に読んだ節: 実装レビュー観点の「検証と報告」「skill」、skills README、PRD レビュー観点の「位置づけ」、レジストリの「読み替え表」の前文。
+- 2026-11-19 主な変更のとおり 7 ファイルを直した。skill と依頼文の雛形は `.agents` 側を直してから `.claude` 側へ写した（写す前に、2 つの差が今回の 8 か所だけであることを確かめた）。ほかの作業の未コミットの変更（レビュー観点の「契約の変更」の節と項番 42、skill の「選択肢の示し方」の事例の段落・段5 の 2 項目と報告の形・段6 の出し直しの段落）には触れていない。
 
 ## 検証の結果
 
@@ -138,7 +138,7 @@ git diff 2f641f3c -- docs/process/protocol.md .agents/skills/anet-impl-prd .clau
 
 ## 完了報告
 
-- 実施内容: PRD189 の手順を、`anet-create-prd` の skill（2 つの写し）、別モデルの検討の依頼文の雛形（2 つの写し）、レジストリの読み替え表、PRD 品質確認観点（項番 43）、memo README に入れた。実装のレビューで分かった、止めた PRD の扱い（まとめた 1 問と起票の候補を出さない）を、PRD に D33 として導いて足した。
+- 実施内容: PRD189 の手順を、`anet-create-prd` の skill（2 つの写し）、別モデルの検討の依頼文の雛形（2 つの写し）、レジストリの読み替え表、PRD レビュー観点（項番 43）、memo README に入れた。実装のレビューで分かった、止めた PRD の扱い（まとめた 1 問と起票の候補を出さない）を、PRD に D33 として導いて足した。
 - 変更ファイル: `.agents/skills/anet-create-prd/SKILL.md`、`.claude/skills/anet-create-prd/SKILL.md`、`.agents/skills/anet-create-prd/OTHER-MODEL.md`、`.claude/skills/anet-create-prd/OTHER-MODEL.md`、`docs/process/registry.md`、`docs/quality/prd.md`、`docs/memo/README.md`、`docs/memo/189_grill_premise_understanding_10prd.md`、本書、`docs/management/issues/issue-20261116-6db0f2.md`、道具が作り直した `docs/management/issues/INDEX.md` と `docs/wiki/categories/311_dev_tools.md` の課題 6db0f2 の行。
 - レビュー結果: 実装計画と実装は 3 往復目で OK。PRD の改訂は 2 往復目で OK。根拠が無いとして見送った指摘は無い。
 - 決まらなかったこと: PRD の未決表 U1（止めた PRD が実装の入口に来たときの扱い）は、工程末の候補で開発者が見送りを選んだ。

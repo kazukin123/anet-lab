@@ -11,7 +11,7 @@ Debug 版の anet-core-test で、MKLDNN を切るのは一部のテストの中
 
 その結果、次のことが起きている。
 
-- 設定を変えたあとに回す決まりの `[shipped_config]`（[実装 品質確認観点](../quality/impl.md) の 156・417 行）が、RND の出荷設定のテストで毎回止まり、そのあとに回るテストが走らない。
+- 設定を変えたあとに回す決まりの `[shipped_config]`（[実装 レビュー観点](../quality/impl.md) の 156・417 行）が、RND の出荷設定のテストで毎回止まり、そのあとに回るテストが走らない。
 - 既定のテストの集合も、確率で止まる（§2.1 の 4）。
 - 避け方が、手順ごとに違う形で文書に散らばっている（§2.1 の 7）。
 
@@ -43,7 +43,7 @@ Debug 版の anet-core-test で、MKLDNN を切るのは一部のテストの中
 
 - 暗黙のグローバル状態を増やさない（[AGENTS.md](../../AGENTS.md) の 48 行）。MKLDNN の切り替えは libtorch のプロセス全体の状態で、今はテストの中から、回った順に書き換わる。本 RFD は、書き換える場所を実行体の開始時の 1 か所にする（D1）。
 - クリーンブレーク（[AGENTS.md](../../AGENTS.md) §クリーンブレーク方針）。要らなくなった切り替えと避ける手順を残さない。
-- 過去の RFD・実装記録は書き換えない（[RFD 品質確認観点](../quality/rfd.md) の項番 17）。
+- 過去の RFD・実装記録は書き換えない（[RFD レビュー観点](../quality/rfd.md) の項番 17）。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -190,6 +190,6 @@ Debug ビルドを通し、既定のテストの集合を回す。直したあ�
 
 ## 10. 参照
 
-- 規約: [AGENTS.md](../../AGENTS.md) の §基本方針と §クリーンブレーク方針、[実装 品質確認観点](../quality/impl.md) の「テスト」、[RFD 品質確認観点](../quality/rfd.md)。
+- 規約: [AGENTS.md](../../AGENTS.md) の §基本方針と §クリーンブレーク方針、[実装 レビュー観点](../quality/impl.md) の「テスト」、[RFD レビュー観点](../quality/rfd.md)。
 - 地図: [311 開発ツール・テスト基盤](../wiki/categories/311_dev_tools.md)、[315 ニューラルネットワーク](../wiki/categories/315_nn.md)、[321 Agent 共通基盤](../wiki/categories/321_agent_core.md)。
 - 課題の記録: [anet-update-issue](../../.agents/skills/anet-update-issue/SKILL.md)。

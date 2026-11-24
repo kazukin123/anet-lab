@@ -396,7 +396,7 @@ Run は決定的モードではないので、同じ経路の Run どうしで�
 
 ## 4. 規約と過去の判断
 
-- 毎回の学習の更新に通る経路に、device 間の同期の転送を足さない。足すときは、頻度×1 回あたりの時間の見積もりを書く。計測済みの処理を分けたら、分けたあとの区間にも計測を置く（[実装 品質確認観点](../quality/impl.md) の「計測」）。
+- 毎回の学習の更新に通る経路に、device 間の同期の転送を足さない。足すときは、頻度×1 回あたりの時間の見積もりを書く。計測済みの処理を分けたら、分けたあとの区間にも計測を置く（[実装 レビュー観点](../quality/impl.md) の「計測」）。
 - RND の統計の取り方を変えるときは、`warmup_mode = collect_errors` の組、`variance_feedback`、RND 無効の 3 構成で、同 seed・決定的モードの短い Run の metrics checksum を、着手前に保存した実行体と一致させる（[RFD0123](0123_rnd_intrinsic_reward_scale_10rfd.md) の §4 D5・§7.2 の 1）。本 RFD のステージ 1 は、値の前提（§5.1）により、whiten の構成ではこの一致を求めず、値の近さで確かめる。RND 無効と variance_feedback の構成では、一致を求める（§7 の 4）。ステージ 2 は、すべての構成で一致を求める（§7 の 11）。
 - RND の累積と `variance_feedback` の checkpoint は、書式の識別子と中身を変えず、着手前に保存した実行体の checkpoint を同じ設定で読める（[RFD0123](0123_rnd_intrinsic_reward_scale_10rfd.md) の §4 D11）。
 - 読むだけの採点を挟んでも、学習へ渡る報酬の列と診断値が変わらない（[RFD0127](0127_eval_trace_intrinsic_reward_columns_10rfd.md) の §7 の 10）。読むだけの採点の倍率は、直後に同じ観測 1 件を採点へ渡したときの倍率と一致する（同 §5.1）。
