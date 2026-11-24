@@ -190,6 +190,33 @@
     border-color: var(--accent);
   }
 
+  /* 図は mermaid の文を pre.summary-diagram に書く。末尾のスクリプトが描いた SVG を、すぐ後ろの .summary-diagram-view に入れ、文の pre を隠す。 */
+  .conversation-summary [hidden] {
+    display: none !important;
+  }
+
+  .conversation-summary .summary-diagram,
+  .conversation-summary .summary-diagram-view {
+    margin-block: 0.5rem;
+    overflow-x: auto;
+  }
+
+  .conversation-summary .summary-diagram {
+    padding: 0.55rem 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+    background: var(--page);
+    font-size: 0.8rem;
+    line-height: 1.5;
+  }
+
+  /* 図は枠の幅まで縮めるが、スクリプトが付ける下限（元の幅と 560px の小さいほう）より狭くはせず、それより狭い画面では横に送る。 */
+  .conversation-summary .summary-diagram-view svg {
+    display: block;
+    height: auto;
+    margin-inline: auto;
+  }
+
   .conversation-summary .summary-footer {
     margin-block-start: 1.5rem;
     padding-block-start: 0.5rem;
@@ -314,6 +341,68 @@
         heading.before(head);
         head.append(heading, makeButtons(section, '開く', '閉じる', heading.textContent));
       }
+    })();
+
+    // 図（pre.summary-diagram に書いた mermaid の文）を、ページ自身で SVG に描く。
+    // Claude のページに組み込みの mermaid の描画（pre.mermaid）は、出し直しのあとに走り直さず、図が文のまま残る。
+    // このスクリプトは出し直しのあとも走るので、自分で描く。ライブラリを読み込めないところでは、文のまま見える。
+    (() => {
+      const blocks = [...document.querySelectorAll('.conversation-summary pre.summary-diagram')];
+      // 図が無いページでは、ライブラリを読み込まない。
+      if (!blocks.length) return;
+      const sources = blocks.map(pre => pre.textContent);
+      const token = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      let renderSerial = 0;
+
+      // 今の明暗の色のトークンで描き直す。描けなかった図は、前に描いた図を消し、文の pre を出す。
+      const draw = async () => {
+        window.mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: 'base',
+          fontFamily: getComputedStyle(document.body).fontFamily,
+          themeVariables: {
+            background: token('--page'), primaryColor: token('--surface'), primaryTextColor: token('--text'),
+            primaryBorderColor: token('--line'), lineColor: token('--muted'), textColor: token('--text'),
+            secondaryColor: token('--page'), tertiaryColor: token('--surface'), edgeLabelBackground: token('--page'),
+            fontSize: '14px',
+          },
+        });
+        for (const [index, pre] of blocks.entries()) {
+          try {
+            const { svg } = await window.mermaid.render('summary-diagram-' + ++renderSerial, sources[index]);
+            let view = pre.nextElementSibling;
+            if (!view || !view.classList.contains('summary-diagram-view')) {
+              view = document.createElement('div');
+              view.className = 'summary-diagram-view';
+              pre.after(view);
+            }
+            view.innerHTML = svg;
+            // mermaid は図を枠の幅まで縮める。字が読めなくならないよう、縮める下限を元の幅と 560px の小さいほうにする。
+            const drawn = view.querySelector('svg');
+            const naturalWidth = drawn && drawn.viewBox.baseVal ? drawn.viewBox.baseVal.width : 0;
+            if (naturalWidth) drawn.style.minWidth = Math.min(naturalWidth, 560) + 'px';
+            pre.hidden = true;
+          } catch (error) {
+            const view = pre.nextElementSibling;
+            if (view && view.classList.contains('summary-diagram-view')) view.remove();
+            pre.hidden = false;
+          }
+        }
+      };
+
+      // 描き直しは順に 1 つずつ行う。明暗が変わったとき（端末の設定と、ページの明暗の指定）にも描き直す。
+      // 1 回の描き直しが例外で終わっても、次の描き直しは走るよう、列を止めない。
+      let queue = Promise.resolve();
+      const redraw = () => { queue = queue.then(draw).catch(() => {}); };
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js';
+      script.onload = () => {
+        redraw();
+        matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw);
+        new MutationObserver(redraw).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+      };
+      document.body.append(script);
     })();
   </script>
 </article>
