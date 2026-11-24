@@ -84,6 +84,7 @@
 - 2026-11-21: RNDのHeadの初期化の設定も、NNの初期化の設定の1つの読み取りの口で読むようにした（出典: [RFD0193](../../memo/0193_variance_scaling_weight_init_10rfd.md)、§5.2・§6.1 D5）。
 - 2026-11-21: RNDの設定キーを、段階（統計・誤差・predictor）ごとのスコープとモード別の名前空間に組み替え、warm-upを段階ごとの待ちに分け、clipを誤差のモードごとの真偽のキーで持つ仕様を、グリルで決めた。誤差で割らない式（`rnd.error_norm.mode = none`）、一生の新しさの推定器の口の2つの操作（内的報酬を呼び出し側が0にするかを返す、Networkの構造図を返す）、lane×時間のtensorをためる汎用の置き場の部品も足す（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.1 D2〜D5・D7〜D9・§8.4）。
 - 2026-11-21: RNDの設定は、段階ごとのスコープとモード別の名前空間で持ち、被るキーは割り切る（出典: [ADR 0088](../../adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md)、本文）。
+- 2026-11-24: DQN の Actor は、実行器の代わりに行動選択用の Forwarder を持ち、行の開始の印を入力の鍵（`episode_start`）で渡す仕様を決めた。Learner は、ReplayBuffer を作ったあとに、ReplayBuffer が答えた束の spec を渡して、Sample 用の Forwarder を作る（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§6.5、§5.1 D1、§5.2 D14）。
 
 ## 選ばなかった形
 
@@ -300,6 +301,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-cdac7c](../../management/issues/issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | コード | RFD | 321_agent_core | アルゴリズム | 機能改善 | [RFD0148](../../memo/0148_target_update_step_axis_10rfd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |
 | [issue-20261111-4351bc](../../management/issues/issue-20261111-4351bc.md) | 未着手 | 2.2 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | DQN の Actor が const の MakeAction の中で 11 個の mutable メンバを書き換えて状態を進め、一時的な出力を結果の public メンバで運んでいる |
+| [issue-20261124-6b50cb](../../management/issues/issue-20261124-6b50cb.md) | 未着手 | 2.2 | — | コード | RFD | 314_tensor, 318_rl_core, 321_agent_core, 324_dqn | 基盤 | リファクタリング | [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md) | 未確認 | forwarder.hpp の公開の口で、実行の口と作る側の型が込み入り、RL の概念が汎用の層に入り、spec と重ね方がデータと逆の向きに渡る |
 | [issue-20261103-72f807](../../management/issues/issue-20261103-72f807.md) | 未着手 | 2.0 | — | コード | 監査 | 321_agent_core | アルゴリズム | 不具合 | — | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | RFD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [RFD0169](../../memo/0169_outside_core_extension_layout_10rfd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | — | コード | RFD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [RFD0142](../../memo/0142_agent_prev_action_obs_10rfd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
@@ -340,7 +342,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261108-227b05](../../management/issues/issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | コード | RFD | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 51 / 待ち 4 / 保留 0 / 次版 0 / 解決 0
+着手できる 52 / 待ち 4 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
 <!-- issues:end -->

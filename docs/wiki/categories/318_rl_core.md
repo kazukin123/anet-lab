@@ -84,6 +84,7 @@
 - 2026-11-20: Notifierの`Attach`・`Detach`・`Notify`などを別々のスレッドから同時に呼んでもObserverの列が壊れないようにし、`Detach`は進行中の通知を待たず、Observerをロックの外で呼ぶようにした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D1〜D5；[ADR 0082](../../adr/0082-notifier-detach-does-not-wait-for-in-flight-notifications.md)）。
 - 2026-11-20: 呼んでよいスレッドと時点を、Notifierと、キャッシュを持つ`BatchStepResult`・`ReplayInitialPriorityHint`・`BatchActionInfo`の宣言のコメントに書いた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D7）。
 - 2026-11-21: Observer・ReplayBuffer・RunManagerのエラー・WARN・INFOが示す設定キーを完全キーにし、評価の`scheduled`の行の各欄も完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D25）。
+- 2026-11-24: ReplayBuffer が、Sample で返す obs の spec を答える口（`GetSampleObsSpecs`）を足す仕様を決めた。Sample 用の Forwarder は、この spec を受けて作る（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.2 D14）。
 
 ## 選ばなかった形
 
@@ -275,6 +276,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261123-79bf13](../../management/issues/issue-20261123-79bf13.md) | 未着手 | 2.3 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | 観測のキー「base か base.subkey」の解き方が rl.cpp・Replay・probe.cpp・image.cpp の 4 か所にあり、subkey が空のときの扱いと dtype が既に食い違う |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261123-c3b5ef](../../management/issues/issue-20261123-c3b5ef.md) | 未着手 | 2.2 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | Actor 近似の初期優先度で「n 先の hint を待って Estimate に渡す」手順が、Replay の内部と DQN の step 診断の 2 か所に写され、割引の計算はテストにも 3 つ目がある |
+| [issue-20261124-6b50cb](../../management/issues/issue-20261124-6b50cb.md) | 未着手 | 2.2 | — | コード | RFD | 314_tensor, 318_rl_core, 321_agent_core, 324_dqn | 基盤 | リファクタリング | [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md) | 未確認 | forwarder.hpp の公開の口で、実行の口と作る側の型が込み入り、RL の概念が汎用の層に入り、spec と重ね方がデータと逆の向きに渡る |
 | [issue-20261103-78c643](../../management/issues/issue-20261103-78c643.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | RFD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [RFD0169](../../memo/0169_outside_core_extension_layout_10rfd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | — | コード | RFD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [RFD0142](../../memo/0142_agent_prev_action_obs_10rfd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
@@ -318,7 +320,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-6661d2](../../management/issues/issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](../../management/issues/issue-20261103-f39d10.md), [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) | コード | RFD | 318_rl_core, 324_dqn, 110_runner_app | 学習基盤 | 機能追加 | [RFD0136](../../memo/0136_best_checkpoint_10rfd.md) | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
 | [issue-20261103-578986](../../management/issues/issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 
-着手できる 64 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
+着手できる 65 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
 - 関連する課題: [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) — 999: train/eval mode 整理後の排他精査 RFD（草案）

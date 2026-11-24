@@ -1,5 +1,7 @@
 # 観測の加工は、共通の口 Forwarder の並びとし、並びへの依頼は「何を渡して何が欲しいか」で名付ける
 
+> 2026-11-24 注記（[ADR 0094](0094-forwarders-are-built-per-request-and-builders-are-not-forwarders.md)）。履歴を使う依頼は、行動選択用の実行器ではなく、依頼で作った Forwarder が受ける。並びは Forwarder を兼ねず、依頼に合った Forwarder を作る側になり、依頼の種類は、RL の側が定義する名前になった。共通の口 `Forwarder` を Network にも実装させることと、依頼を「何を渡して何が欲しいか」で名付けることは、そのまま残る。
+
 観測の加工（重ねる・正規化）の定義が、行動選択・経験の受入れ・Sample・可視化の 4 つの経路と spec の生成に分かれて書かれていて、観測キーを 1 つ足すたびに全部をそろえることになっていた（[PRD161](../memo/0161_observation_pipeline_10rfd.md)）。**「TensorDict を受けて返す変換」だけを持つ口 Forwarder を基盤に置いて Network にも実装させ、観測の加工は、通したあとの spec も答える部品を設定で並べたものとし、並びへの依頼（統計を更新しつつ Frame を作る、重ねた束から Perception を作る、1 枚の Frame から Perception を作る）を選ぶと、その依頼用の Forwarder が返る**ことを決定する。lane の履歴を使う依頼だけは行動選択用の実行器が受け、Network と実行器（[ADR 0051](0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)）と同じ二段にして、用途ごとの状態を定義から切り離す。
 
 ## Considered Options

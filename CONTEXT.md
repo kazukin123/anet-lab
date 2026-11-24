@@ -632,15 +632,23 @@ Agent が、Observation と自分の持つ関連情報（直前の行動など�
 _Avoid_: percept（生の入力の側を指す語）, agent state, state input, 特徴（Network の Body の出力）
 
 **Forwarder**:
-`TensorDict` を受けて `TensorDict` を返す変換で、lane ごとの履歴のような、用途ごとの状態は持たない（重みや統計のような、どの用途にも共通の値は持つ）。Network と、観測を加工する部品（重ねる、正規化する、キーを落とす）がこれに当たる。
+`TensorDict` を受けて `TensorDict` を返す変換。Network と、Forwarder の並びが依頼に合わせて作ったものがこれに当たり、後者は、その使い道の状態（行ごとの履歴など）を持てる。
 _Avoid_: Transform（NN の Transformer と紛れる）, パイプライン（`PipelineTrainRunner` と紛れる）, preprocessor（Network の入口の整形と紛れる）, wrapper（Env 側の語）
 
-**Forwarder の並び**（ForwarderChain）:
-設定に書いた順に Forwarder をつないだもの。Perception を作る並びは、その使い道の 1 つ。
+**Forwarder の並び**（ForwarderBuilder）:
+設定に書いた順に Forwarder の部品を並べた定義で、依頼に合った Forwarder を作る（自分は Forwarder ではない）。Perception を作る並びは、その使い道の 1 つ。
 _Avoid_: 観測パイプライン, stage chain, レイヤ（NN の層と紛れる）
 
-**Forward の依頼**（ForwardRequest）:
-Forwarder の並びに頼む変換の種類。何を渡して何が欲しいかで区別し、統計を更新しつつ Frame を作る、重ねた束から Perception を作る、1 枚の Frame から Perception を作る、の 3 つがある。
+**Forwarder の部品**（ForwarderModule）:
+Forwarder の並びの 1 つぶんの定義で、依頼に合った Forwarder を作る。重ねる、正規化する、キーを落とす、spec の宣言を変える、の 4 種類が標準である。
+_Avoid_: ステージ, フィルタ
+
+**Forwarder の依頼**（ForwarderRequest）:
+Forwarder の並びに、Forwarder を作ってもらうときに渡すもの。Forward の種類と、付帯の情報を持つ。
+_Avoid_: Forward の依頼（Forward そのものへの依頼と読める）
+
+**Forward の種類**（ForwardKind）:
+依頼で作る Forwarder が行う変換の種類の名前。何を渡して何が欲しいかで名付け、統計を更新しつつ Frame を作る、重ねた束から Perception を作る、1 枚の Frame から Perception を作る、1 枚の Frame と行ごとの履歴から Perception を作る、の 4 つがある。
 _Avoid_: 場面, Scene（呼ぶ側の状況の名前）, モード, フェーズ, 経路
 
 **stack 軸**:

@@ -90,6 +90,7 @@
 | [issue-20261103-cdac7c](issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | コード | RFD | 321_agent_core | アルゴリズム | 機能改善 | [RFD0148](../../memo/0148_target_update_step_axis_10rfd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |
 | [issue-20261111-4351bc](issue-20261111-4351bc.md) | 未着手 | 2.2 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | DQN の Actor が const の MakeAction の中で 11 個の mutable メンバを書き換えて状態を進め、一時的な出力を結果の public メンバで運んでいる |
 | [issue-20261123-c3b5ef](issue-20261123-c3b5ef.md) | 未着手 | 2.2 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | Actor 近似の初期優先度で「n 先の hint を待って Estimate に渡す」手順が、Replay の内部と DQN の step 診断の 2 か所に写され、割引の計算はテストにも 3 つ目がある |
+| [issue-20261124-6b50cb](issue-20261124-6b50cb.md) | 未着手 | 2.2 | — | コード | RFD | 314_tensor, 318_rl_core, 321_agent_core, 324_dqn | 基盤 | リファクタリング | [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md) | 未確認 | forwarder.hpp の公開の口で、実行の口と作る側の型が込み入り、RL の概念が汎用の層に入り、spec と重ね方がデータと逆の向きに渡る |
 | [issue-20261103-72f807](issue-20261103-72f807.md) | 未着手 | 2.0 | — | コード | 監査 | 321_agent_core | アルゴリズム | 不具合 | — | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | [issue-20261103-78c643](issue-20261103-78c643.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
 | [issue-20261103-785e68](issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | RFD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [RFD0169](../../memo/0169_outside_core_extension_layout_10rfd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
@@ -183,6 +184,7 @@
 | [issue-20261103-6c40b8](issue-20261103-6c40b8.md) | 未着手 | 0.5 | — | コード | RFD | 315_nn | アルゴリズム | 機能追加 | [RFD0166](../../memo/0166_noisynet_effective_weight_spectral_norm_10rfd.md) | 残件有り | NoisyNet のノイズ込み重みに対する Spectral Normalization |
 | [issue-20261103-f993bc](issue-20261103-f993bc.md) | 未着手 | 0.5 | — | コード | RFD | 321_agent_core, 324_dqn, 325_muzero, 315_nn | 学習基盤 | リファクタリング | [RFD0164](../../memo/0164_nn_forward_amp_consolidation_10rfd.md) | 残件有り | NN 実行設定への AMP の集約（全 Agent 対象） |
 | [issue-20261115-d3e094](issue-20261115-d3e094.md) | 未着手 | 0.5 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDの改良版のSND（targetも自己教師で学ぶ蒸留）を、RNDの評価が落ち着いたあとに試すかを検討する |
+| [issue-20261124-f9f964](issue-20261124-f9f964.md) | 未着手 | 0.5 | — | コード | RFD | 315_nn | 基盤 | リファクタリング | — | 未確認 | nn.hpp（RL に依らない層）の NN 呼び出し情報に、行の開始の印 episode_start の名前が残り、Forwarder の口と渡し方がそろわない |
 | [issue-20261103-ca1a85](issue-20261103-ca1a85.md) | 未着手 | 1.6 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
 | [issue-20261103-124da5](issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | コード | RFD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0167](../../memo/0167_smdp_transition_duration_10rfd.md) | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す） |
 | [issue-20261103-736e39](issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-9bd71e](issue-20261103-9bd71e.md), [issue-20261103-75b8da](issue-20261103-75b8da.md), [issue-20261107-949e8a](issue-20261107-949e8a.md) | コード | RFD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [RFD0173](../../memo/0173_intrinsic_reward_novelty_10rfd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
@@ -193,7 +195,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 179 / 待ち 9 / 保留 0 / 次版 0 / 解決 0
+着手できる 181 / 待ち 9 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 
@@ -224,3 +226,4 @@ docs/memo 直下の RFD のうち、どの課題の rfd からも指されない
 | ID | 起票日 | 課題 |
 |---|---|---|
 | [issue-20261115-b02db6](issue-20261115-b02db6.md) | 2026-11-15 | RND の Head の出力次元 intrinsic.rnd.output_dim が rnd の直下にあり、Head の初期値 intrinsic.rnd.head.init.* と置き場が分かれている |
+| [issue-20261124-6b50cb](issue-20261124-6b50cb.md) | 2026-11-24 | forwarder.hpp の公開の口で、実行の口と作る側の型が込み入り、RL の概念が汎用の層に入り、spec と重ね方がデータと逆の向きに渡る |
