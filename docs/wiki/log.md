@@ -1304,3 +1304,4 @@
 2026-11-23 fix docs/design/130_neural_networks.jp.md blob:6833cfe9567bc09d16582d7f0e67e1417fbb015c → docs/wiki/categories/315_nn.md
 2026-11-23 fix docs/design/135_forwarder_and_perception.jp.md blob:a4e1d34cf9e3ce158d9b7a119eab2b663d9b70cd → docs/wiki/categories/314_tensor.md（Forwarder と観測加工の経路を追記し、変更時の条件を RFD0161 の往復テストと等価性比較に更新）
 2026-11-23 fix docs/memo/0161_observation_pipeline_10rfd.md blob:58c3521dc91fe9db94dbecc556c7f705aa8c8547 → docs/wiki/categories/314_tensor.md（4環境すべてで前後の決定論設定と実効値を確認する手順を明記）
+2026-11-24 writeback docs/memo/0199_agents_md_split_by_situation_10rfd.md blob:3244a72de47a73b7dc112b9845f1f03ccbf2770d → なし

@@ -134,6 +134,7 @@
 | [issue-20261112-4efa57](issue-20261112-4efa57.md) | 未着手 | 1.4 | — | コード | RFD | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | replay fitの診断（EvaluateReplayFit）が学習の更新の前半を別に書き、分布の表し方での分岐を持っている |
 | [issue-20261115-c89660](issue-20261115-c89660.md) | 未着手 | 1.4 | — | コード | その他 | 110_runner_app, 321_agent_core, 318_rl_core | UI | 機能追加 | — | 残件有り | Runner の Conv2dPanel と metrics.image の conv2d に、RND の target と predictor の畳み込みの出力が出ない |
 | [issue-20261123-eac719](issue-20261123-eac719.md) | 未着手 | 1.4 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | 画像の Observer 4 種は observers（318）にあり、それを作って Notifier へ付けるのは image（317）の ImageProviderFactory で、observers と image が互いを読んでいる |
+| [issue-20261124-707776](issue-20261124-707776.md) | 未着手 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | リファクタリング | [RFD0199](../../memo/0199_agents_md_split_by_situation_10rfd.md) | 未確認 | AGENTS.md の全文を毎回読み、ビルド・Run・コミットメッセージなど状況ごとの決まりまで読み込む |
 | [issue-20261103-71c4f4](issue-20261103-71c4f4.md) | 未着手 | 1.3 | — | コード | RFD | 315_nn, 317_metrics, 321_agent_core | 学習基盤 | 機能追加 | [RFD0135](../../memo/0135_nn_block_metrics_10rfd.md) | 残件有り | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
 | [issue-20261103-b4e5c9](issue-20261103-b4e5c9.md) | 未着手 | 1.3（引継ぎ） | — | コード | RFD | 316_config, 110_runner_app | 基盤 | リファクタリング | [RFD0155](../../memo/0155_config_root_ownership_alignment_10rfd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | 未着手 | 1.3 | — | コード | RFD | 110_runner_app, 318_rl_core, 322_env_individual | UI | 機能追加 | [RFD0159](../../memo/0159_input_mapping_joystick_10rfd.md) | 残件有り | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel） |
@@ -192,7 +193,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 178 / 待ち 9 / 保留 0 / 次版 0 / 解決 0
+着手できる 179 / 待ち 9 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 

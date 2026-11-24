@@ -264,6 +264,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261115-3e5b77](../../management/issues/issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 文書 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 残件有り | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | コード | RFD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [RFD0096](../../memo/0096_metrics_step_axis_interval_10rfd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
 | [issue-20261110-9d4e5a](../../management/issues/issue-20261110-9d4e5a.md) | 未着手 | 1.4 | — | コード | その他 | 311_dev_tools | 開発 | 機能追加 | — | 残件有り | C++ の単純な書き方の問題を機械で検出する仕組み（lint・静的解析）が無い |
+| [issue-20261124-707776](../../management/issues/issue-20261124-707776.md) | 未着手 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | リファクタリング | [RFD0199](../../memo/0199_agents_md_split_by_situation_10rfd.md) | 未確認 | AGENTS.md の全文を毎回読み、ビルド・Run・コミットメッセージなど状況ごとの決まりまで読み込む |
 | [issue-20261103-71bb9a](../../management/issues/issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | コード | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0157](../../memo/0157_test_line_coverage_10rfd.md) | 残件有り | 行カバレッジ計測（OpenCppCoverage） |
 | [issue-20261103-7227bf](../../management/issues/issue-20261103-7227bf.md) | 未着手 | 1.2 | — | コード | RFD | 311_dev_tools, 317_metrics | 開発 | 機能追加 | [RFD0153](../../memo/0153_q_statistics_config_screening_10rfd.md) | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング |
 | [issue-20261103-dbe666](../../management/issues/issue-20261103-dbe666.md) | 未着手 | 1.2 | — | コード | RFD | 322_env_individual, 318_rl_core, 311_dev_tools | Env | 調査 | [RFD0163](../../memo/0163_dropmerge_neet_diagnostics_10rfd.md) | 残件有り | DropMerge の NEET 診断（trace で足りるか確かめてから指標化） |
@@ -272,5 +273,5 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261105-f4b870](../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | — | コード | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 残件有り | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261103-b13ed2](../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | コード | RFD | 311_dev_tools | 開発 | 機能改善 | [RFD0185](../../memo/0185_release_packaging_cmake_10rfd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
 
-着手できる 26 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 27 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->
