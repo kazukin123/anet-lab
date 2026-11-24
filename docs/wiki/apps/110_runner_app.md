@@ -264,6 +264,7 @@
 - [RFD0193](../../memo/0193_variance_scaling_weight_init_10rfd.md) — RFD0193: 重みの初期化に、分散を倍率÷fan_in にする一様分布の方式を足し、初期化の設定の読み取りを 1 つの口にまとめる（Dopamine の IQN・Rainbow と同じ初期値） RFD
 - [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
 - [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
+- [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md) — forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
 
 ## 課題
 

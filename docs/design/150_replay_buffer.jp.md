@@ -67,13 +67,13 @@ prefetchは抽選時のsnapshotを保持し、consumerの`Sample`が返す時点
 
 frame stackingには2つの利用箇所がある。
 
-- Actor側の`DictFrameStacker`は、行動選択用にlaneごとの直近Observationをstackし、`episode_start`を受けたlaneを初期frameで埋め直す。
+- DefaultDQN の行動選択用 Forwarder は、`DictFrameStacker` で lane ごとの直近の Frame を重ね、`episode_start` を受けた lane の履歴を今の Frame で埋め直す。
 - ReplayBufferはPush時の`BatchState::episode_start`を実slotの履歴開始としてObservationと同時に保存する。truncation用dummy slotは履歴開始にしない。
 - sample extractorは`obs`では時刻`t`、`next_obs`では`t + actual_n_steps`を最新slotとして、stack幅内を新しいslotから古いslotへ走査する。最初に見つかった保存済み履歴開始より前を、その開始frameのcopyでpaddingする。履歴開始がなければstack幅全体を使い、`stack_count == 1`では走査しない。terminalやN-step metadataの確定状態はstack境界に使わない。
 
 ring上書きで失われた履歴はepisode境界ではないためpaddingせず、`ValidIndexManager`が該当transitionをsampleable rangeから除外する。true terminalの`next_obs`値は学習contract上の保証対象外だが、同じ履歴開始規則から決定的に復元される。
 
-DefaultDQN は Perception の FrameStack から Replay の枚数と対象キーを取得する。ReplayBuffer の `stack_count == 1` の返り値は単フレームの形 `[B, *frame_shape]` であり、対象各キーを `[B, 1, *frame_shape]` にする処理は Sample の後に Perception が行う。複数枚のときは ReplayBuffer の stack 軸をそのまま使う。この区別は `obs`、N-step の `next_obs`、window の次観測、可視化用出力で共通である。[Forwarder と Perception](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)を参照。
+DefaultDQN は Agent 直下の `frame_stack.*` から枚数とキーを決め、ReplayBuffer と各 Forwarder の依頼に渡す。ReplayBuffer は `GetSampleObsSpecs` で `obs` と `next_obs` の spec を答える。1枚では軸なしの `[B, *frame_shape]` を返し、対象キーの長さ1の軸は Sample の後に揃える。複数枚では ReplayBuffer の stack 軸を使う。TempoRL の窓の次観測も同じ形を使う。[Forwarder と Perception](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)を参照。
 
 ### 2.4 PER
 

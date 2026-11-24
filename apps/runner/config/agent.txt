@@ -193,8 +193,8 @@ DefaultDQNAgent.@baseline : nn_viz.float_precision ?= 3
 # 観測を重ね、尺度の正規化を適用する順序。
 DefaultDQNAgent.@baseline : perception.structure ?= stack > norm
 DefaultDQNAgent.@baseline : perception.block.[stack].type ?= FrameStack
-DefaultDQNAgent.@baseline : perception.block.[stack].count ?= 4
-DefaultDQNAgent.@baseline : perception.block.[stack].keys.mode ?= all
+DefaultDQNAgent.@baseline : frame_stack.count ?= 4
+DefaultDQNAgent.@baseline : frame_stack.keys.mode ?= all
 
 # --- NN 実行設定 (値の意味は利用する計算部品が所有する) ---
 DefaultDQNAgent.@baseline : nn_forward.[act_sample].noisy.mode ?= sample

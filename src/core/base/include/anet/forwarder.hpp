@@ -33,64 +33,96 @@ namespace anet {
         std::vector<Entry> entries_;
     };
 
-    /// 呼び出す側ごとの状態を持たず、TensorDict を変換する。
+    /// TensorDict を受け取り、変換した TensorDict を返す。
     class Forwarder {
     public:
         virtual ~Forwarder() = default;
         virtual TensorDict Forward(const TensorDict& input, ForwardCapture* capture = nullptr) = 0;
     };
 
-    /// データに加えて、その変換を通したあとの spec を返す。
+    /// 依頼で決まった入力と出力の spec を持つ変換。
     class SpecForwarder : public Forwarder {
     public:
-        virtual TensorSpecMap ForwardSpec(const TensorSpecMap& input_specs) const = 0;
+        virtual const TensorSpecMap& GetInputSpecs() const = 0;
+        virtual const TensorSpecMap& GetOutputSpecs() const = 0;
+        /// Network と異なり、図に対応しない実装は空を返す。
+        virtual std::unique_ptr<graphviz::GraphViz> MakeGraphViz(bool detail) const;
+        virtual std::vector<std::pair<std::string, std::string>> GetGraphVizDetails() const { return {}; }
     };
 
-    enum class ForwardRequest {
-        FrameWithStatsUpdate,
-        PerceptionFromStack,
-        PerceptionFromFrame,
+    using ForwardKind = std::string;
+
+    class ForwarderRequest {
+    public:
+        explicit ForwarderRequest(ForwardKind forward_kind, ConfigData options = {});
+    public:
+        const ForwardKind& GetForwardKind() const { return forward_kind_; }
+        const ConfigData& GetOptions() const { return options_; }
+    private:
+        ForwardKind forward_kind_;
+        ConfigData options_;
     };
 
-    /// 呼び出す側ごとの履歴を使って TensorDict を変換する。
-    class ForwardExecutor {
+    class ForwarderBuilder final : public ModuleBase {
     public:
-        virtual ~ForwardExecutor() = default;
-        virtual TensorDict Forward(const TensorDict& input, const torch::Tensor& episode_start,
-            ForwardCapture* capture = nullptr) = 0;
-    };
-
-    /// 依頼によって処理が異なる部品が、依頼に合った変換と実行器を作る。
-    class ForwarderProvider {
+        ForwarderBuilder(const ConfigData& config_data, const std::string& config_prefix, seed_t seed);
+        ~ForwarderBuilder() override;
     public:
-        virtual ~ForwarderProvider() = default;
-        /// 空のポインタは、この依頼で何も処理しないことを表す。
-        virtual std::shared_ptr<Forwarder> MakeForwarder(ForwardRequest request) const = 0;
-        virtual std::unique_ptr<ForwardExecutor> CreateExecutor(int lane_count, torch::Device device, seed_t seed) const = 0;
-    };
-
-    /// 観測の spec と設定から、変換を行う部品の並びを組み立てる。
-    class ForwarderChain final : public SpecForwarder {
-    public:
-        ForwarderChain(const ConfigData& config_data, const std::string& config_prefix,
-            const TensorSpecMap& input_specs, seed_t seed);
-        ~ForwarderChain() override;
-    public:
-        TensorDict Forward(const TensorDict& input, ForwardCapture* capture = nullptr) override;
-        TensorSpecMap ForwardSpec(const TensorSpecMap& input_specs) const override;
-    public:
-        std::shared_ptr<Forwarder> GetForwarder(ForwardRequest request) const;
-        std::unique_ptr<ForwardExecutor> CreateExecutor(int lane_count, torch::Device device, seed_t seed) const;
-        int GetStackCount() const;
-        /// 入力 spec と構成から選んだ、空でないキーの一覧。
-        const std::vector<std::string>& GetStackKeys() const;
-        std::optional<float> GetScalar(const std::string& key) const;
-        std::optional<torch::Tensor> GetTensor(const std::string& key) const;
-        std::unique_ptr<graphviz::GraphViz> MakeGraphViz(bool detail) const;
+        std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
+        std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
+        std::shared_ptr<SpecForwarder> BuildForwarder(const ForwarderRequest& request,
+            const TensorSpecMap& input_specs) const;
     private:
         struct Definition;
     private:
         std::unique_ptr<Definition> definition_;
     };
+
+    // Forwarder の部品を定義・登録する側の API。
+
+    class ForwarderModule : public ModuleBase {
+    public:
+        /// 設定値を検査したあと、並びで使える種類との組み合わせを検査する。
+        virtual void ValidateForwardKinds(const std::optional<std::vector<ForwardKind>>&) const {}
+        virtual std::shared_ptr<SpecForwarder> CreateForwarder(const ForwarderRequest& request,
+            const TensorSpecMap& input_specs) const = 0;
+    };
+
+    std::shared_ptr<SpecForwarder> MakePassThroughForwarder(const TensorSpecMap& specs);
+
+    struct ForwarderModuleContext {
+        seed_t seed = 0;
+        std::optional<std::vector<ForwardKind>> forward_kinds;
+    };
+
+    class ForwarderModuleFactory {
+    public:
+        virtual ~ForwarderModuleFactory() = default;
+    public:
+        /// 種類を問わない工場は std::nullopt を返す。
+        virtual std::optional<std::vector<ForwardKind>> GetForwardKinds() const = 0;
+        /// 受け付ける設定キーを文字列として読む。値の型と値域は CreateModule で検査する。
+        virtual void ReadConfigKeys(const ConfigData&) const {}
+        virtual std::shared_ptr<ForwarderModule> CreateModule(const ConfigData& config_data,
+            const ForwarderModuleContext& context) const = 0;
+    };
+
+    void RegisterForwarderModuleFactory(const std::string& type_name,
+        std::shared_ptr<ForwarderModuleFactory> factory);
+
+}
+
+namespace anet::rl {
+
+    inline constexpr char kForwardKindFrameWithStatsUpdate[] = "FrameWithStatsUpdate";
+    inline constexpr char kForwardKindPerceptionFromStack[] = "PerceptionFromStack";
+    inline constexpr char kForwardKindPerceptionFromFrame[] = "PerceptionFromFrame";
+    inline constexpr char kForwardKindPerceptionFromSequence[] = "PerceptionFromSequence";
+
+    ForwarderRequest MakeFrameWithStatsUpdateRequest();
+    ForwarderRequest MakePerceptionFromStackRequest(int stack_count, std::vector<std::string> stack_keys);
+    ForwarderRequest MakePerceptionFromFrameRequest(int stack_count, std::vector<std::string> stack_keys);
+    ForwarderRequest MakePerceptionFromSequenceRequest(int row_count, seed_t seed, std::string start_key,
+        int stack_count, std::vector<std::string> stack_keys);
 
 }

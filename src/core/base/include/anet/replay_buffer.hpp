@@ -126,6 +126,7 @@ namespace anet::rl {
 
         void Push(const BatchExperience& batch_exp, std::span<const float> gammas) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, std::span<const float> gammas) const override;
+        const TensorSpecMap& GetSampleObsSpecs() const override;
         bool SampleUniqueUniform(
             ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, std::span<const float> gammas) const override;
         SamplingHistoryProbeResult ProbeSamplingHistory(

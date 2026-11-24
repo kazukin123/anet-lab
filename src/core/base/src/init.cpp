@@ -161,6 +161,7 @@ void anet::rl::InitRL(const BackendConfig& backend_config, const ConfigData& con
 
 	// NN初期化（モジュール登録等）
 	anet::nn::InitNN();
+	detail::InitForwarderModules();
 
 
 }

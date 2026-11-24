@@ -369,7 +369,7 @@ DQNの具体的な提供元と鍵の認識はDQN実装内に閉じる。DQNのst
 | `videos/<tag>.mkv` | `VideoLogger` | 最初のframeの幅と高さでloggerを作り、Run終了時にclose。以降、幅か高さが違う画像と無効な画像（0x0）は動画から除き、tagごとにRunで1回WARNする。ffmpegの終了通知を受けた側がwxProcessをdeleteする（所有者が先に手放せば通知時に自己削除） |
 | `images/<tag>/*.png` | `MetricsLogger` | `use_png_dump=true`時にframeごとに生成 |
 | `dot/**/*.dot` | `MetricsLogger` | GraphViz eventごとに生成 |
-| `dot/perception.structure.dot`、`dot/perception.detail.dot` | `DefaultDQNAgent`、`MetricsLogger` | Agent の構築時に Perception の順序と各部品の入出力 spec を記録。詳細図には部品ごとの seed も記録 |
+| `dot/perception.structure.dot`、`dot/perception.detail.dot` | `DefaultDQNAgent`、`MetricsLogger` | 構築時に可視化用 Forwarder の図を記録。詳細図には各部品の出力 spec、seed、使用した設定値を含む |
 | `<run_name>.log` | `FileLogger` | periodic timer、warning以上、明示flush |
 | `stdout.log` / `stderr.log` | `StandardStreamLogger` | process標準streamをcaptureし、明示flush/停止 |
 

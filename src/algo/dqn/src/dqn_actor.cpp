@@ -1387,7 +1387,7 @@ torch::Tensor UQEActionPolicy::SelectFromValues(const torch::Tensor& q, const to
 }
 
 Actor::Actor(std::shared_ptr<ActionPolicy> policy,
-    std::unique_ptr<anet::ForwardExecutor> perception,
+    std::shared_ptr<anet::Forwarder> perception,
     torch::Device device,
     std::optional<seed_t> seed,
     std::shared_ptr<std::shared_mutex> mutex,
@@ -1500,7 +1500,11 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     UpdateSnapshot(step);
 
     // Actor の実行器は device 転送と lane ごとの履歴を受け持つ。
-    const auto perception = perception_ ? perception_->Forward(state.obs, state.episode_start) : state.obs.To(device_);
+    auto perception = state.obs.To(device_, /*non_blocking=*/static_cast<bool>(perception_));
+    if (perception_) {
+        perception.Set(kPerceptionStartKey, state.episode_start);
+        perception = perception_->Forward(perception);
+    }
 
     // 行動選択の時計を進め、同じ選択内の全forwardへ不透明な実行情報を渡す。
     const anet::nn::NetworkForwardCallInfo forward_info({

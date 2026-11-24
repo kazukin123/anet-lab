@@ -280,9 +280,9 @@ A2.learner.grad_clip_tau = 5
 
 #E1.game_over_grace_step = 60 # 5
 
-#A2.perception.block.[stack].count = 4
+#A2.frame_stack.count = 4
 
-#A2.perception.block.[stack].count = 1    #4
+#A2.frame_stack.count = 1    #4
 
 #A2.learner.use_grad_clip = false
 
@@ -324,7 +324,7 @@ A2.learner.grad_clip_tau = 5
 
 #A2.learner.replay_ratio = 4.0
 
-#A2.perception.block.[stack].count = 1
+#A2.frame_stack.count = 1
 
 #E1.action_mode = direct      # move move_fast direct direct_noop
 #E1.action_mode = direct_noop # move move_fast direct direct_noop
@@ -382,8 +382,8 @@ A2.learner.grad_clip_tau = 5
 
 #E1.use_dropper_x_grid = false  # true
 
-#A2.perception.block.[stack].count = 1    #4
-#A2.perception.block.[stack].count = 12    #4
+#A2.frame_stack.count = 1    #4
+#A2.frame_stack.count = 12    #4
 
 #A2.learner.replay_capacity = 500,000
 
@@ -723,7 +723,7 @@ A1.learner.iqn.current_taus.num_taus = 32
 A1.learner.iqn.target_taus.sample_mode = random
 A1.learner.iqn.target_taus.num_taus = 32
 
-A1.perception.block.[stack].count = 4
+A1.frame_stack.count = 4
 
 A1.use_optimistic_target = true         # Q値にactor.[train].policy（UQE）を反映させるならtrue
 

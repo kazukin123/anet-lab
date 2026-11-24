@@ -2,6 +2,7 @@
 
 > 2026-11-24 起票。グリルを行った（2026-11-23〜24。hpp の草案を直しながら、会話の中で決めた。草案は §10.3）。起草のあと、別モデルの検討（2026-11-24）を受けて直した（§10.2）。
 > 2026-11-24 改訂: 起票のあとに出た材料を §10.4 に足した（RFD0142 を本 RFD の口に照らした机上の確かめと、直近の系列を並びの外のバッファに置く案）。確定事項と実装契約は変えていない。開発者は、今の形のまま先に実装すると述べた。
+> 2026-11-25 改訂: 設定の誤りを表の順で報告するため、外部の部品にも適用する設定キーの読み方と、並びで使える Forward の種類の検査を §6.3 に明記した。受入で複数の誤りがある場合の順を確かめ、移行対象へ実行バッチの設定を加えた。
 > 起点: [0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md) の実装のあとの、開発者のレビュー（2026-11-23）。forwarder.hpp について、依頼の型の名前が中身と合っていないこと、型の関係が込み入っていること、RL に依らない層に RL の概念が入っていることが挙がった（§10.1）。
 > 基準コード: 2026-11-24 の main（`0411d5eb`）。実装の入口で、§1 と §4 の行番号をシンボル名で引き直す。
 > 関連: [ADR 0094](../adr/0094-forwarders-are-built-per-request-and-builders-are-not-forwarders.md)、[ADR 0095](../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、[ADR 0096](../adr/0096-stack-axis-and-chain-validity-are-ensured-by-the-caller-not-the-forwarder-mechanism.md)。一部を改める ADR は [ADR 0084](../adr/0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product.md) と [ADR 0086](../adr/0086-perception-stack-target-keys-always-carry-stack-axis.md)（§5.5 の D29）。
@@ -152,7 +153,7 @@ forwarder.hpp は、全部が `anet` 名前空間（RL に依らない層）に�
 | D8 | `ForwarderBuilder` は、並びの決まりを持たない。設定に書いた並びを、そのまま組む。「`FrameStack` は先頭に 1 つ」「`Normalize` は 1 つまで」「`FrameStack` が無ければ足す」を外す | 設定で自由に並べられる仕組みに、並べ方の決まりは要らない。設定に書いたとおりに動くのが、正しい動きである。成り立たない並びは、部品の検査か、呼び出し元の比較（D21）で止まる | P4 |
 | D9 | spec を部品に通すのは、依頼が来たとき（`BuildForwarder`）だけにする。構築では、設定から部品を作り、spec に依らない設定の誤りだけを検査する | spec が依頼ごとになる（D10）ので、構築の時点では、部品に届く spec が決まらない | D10 |
 | D10 | spec は、構築ではなく、依頼ごとに `BuildForwarder` へ渡す。渡すのは、作った Forwarder の `Forward` に実際に入れるものの spec である。部品は、届いた spec に合わせて作り、扱えない spec はエラーにする。行動選択の依頼では、開始の印の鍵の spec も含める | 実際に入れるものの形と合った spec を渡すのが、筋である。依頼ごとに、渡すものが違う | P3、§1.4 |
-| D11 | 「stack の対象のキーは、1 枚でも必ず stack 軸を持つ」は、Forwarder の仕組みではなく、使う側（DefaultDQN）の前提として確保する。呼び出し元は、作った Forwarder の出力の spec を見て、重ねる対象のキーのうち、出力に残っていて stack 軸の無いものに、長さ 1 の軸を足す。対象でないキーには足さない。`FrameStack` の部品が軸を付ける動きは、変えない（今と同じく、自分の位置で軸を付ける。§6.4。枚数とキーを受け取る先は、D15 で変わる）。このため、呼び出し元が足すことになるのは、並びに `FrameStack` の部品が無いときである。観測を Actor の device へ移すのも、呼び出し元が行う | stack 軸を必ず持つことは、RL の側の決まりで、Forwarder の仕組みが縛ることではない。確保する手段を `FrameStack` の部品に限る必要も無い。対象でないキーに足すと、Network の入力の形が変わる。`FrameStack` の部品が自分の位置で軸を付ければ、その後ろの部品は、どの依頼でも同じ形を受ける（部品の動きを変えられない制約ではなく、この理由で選んだ） | P5、P7、P11、D8 |
+| D11 | 「stack の対象のキーは、1 枚でも必ず stack 軸を持つ」は、Forwarder の仕組みではなく、使う側（DefaultDQN）の前提として確保する。呼び出し元は、作った Forwarder の出力の spec を見て、重ねる対象のキーのうち、出力に残っていて stack 軸の無いものに、長さ 1 の軸を足す。対象でないキーには足さない。`FrameStack` の部品が軸を付ける動きは、変えない（今と同じく、自分の位置で軸を付ける。§6.4。枚数とキーを受け取る先は、D15 で変わる）。このため、呼び出し元が足すことになるのは、並びに `FrameStack` の部品が無いときである。観測を Actor の device へ移すのも、呼び出し元が行う | stack 軸を必ず持つことは、RL の側の決まりで、Forwarder の仕組みが縛ることではない。確保する手段を `FrameStack` の部品に限る必要も無い。対象でないキーに足すと、Network の入力の形が変わる。`FrameStack` の部品が自分の位置で軸を付ければ、その後ろの部品は、3 つの Perception の依頼で、重ねる対象のキーを stack 軸つきで受ける（部品の動きを変えられない制約ではなく、この理由で選んだ） | P5、P7、P11、D8 |
 | D12 | 並びに、開始の印を読む部品（`FrameStack`）が無いときは、出力に残った開始の印を、呼び出し元（DefaultDQN）が取り除く。Agent が、作った Forwarder にかぶせる処理として持つ（§6.5） | 枚数 1 で `FrameStack` を書かない並びを動かすため。D11 と同じ考え方で、使う側の前提は使う側が満たす | D1、D8、D11 |
 
 ### 5.2 spec の流れと重ね方
@@ -263,9 +264,9 @@ forwarder.hpp は、全部が `anet` 名前空間（RL に依らない層）に�
 | `SpecForwarder` | 変更 | 入力の spec と出力の spec を答える。図を作る口と、図のノードに書く値を答える口を持つ。`ForwardSpec` を消す | `forwarder` |
 | `ForwarderRequest` | 新規 | Forwarder を作ってもらうときの依頼。Forward の種類の名前と、付帯の情報を持つ | `forwarder` |
 | `ForwarderBuilder` | 新規（今の `ForwarderChain` に当たる） | 設定に書いた部品の並びを組み、依頼に合った Forwarder を作る。メトリクスの読み口を部品へ回す | `forwarder` |
-| `ForwarderModule` | 新規 | 並びの部品。変換の定義を持ち、依頼に合った Forwarder を作る | `forwarder` |
+| `ForwarderModule` | 新規 | 並びの部品。変換の定義を持ち、必要に応じて並びで使える Forward の種類との組み合わせを検査する。依頼に合った Forwarder を作る | `forwarder` |
 | `ForwarderModuleContext` | 新規 | 部品を作るときに渡す情報（seed と、この並びで使える Forward の種類） | `forwarder` |
-| `ForwarderModuleFactory` | 新規 | 設定の `type` から部品を作る。扱う Forward の種類を申告する | `forwarder` |
+| `ForwarderModuleFactory` | 新規 | 設定の `type` から部品を作る。扱う Forward の種類と受け付ける設定キーを申告する | `forwarder` |
 | `ForwardExecutor` | 削除 | — | `forwarder` |
 | `ForwarderProvider` | 削除 | — | `forwarder` |
 | `ForwarderChain` | 削除 | `ForwarderBuilder` に替わる | `forwarder` |
@@ -294,7 +295,7 @@ forwarder.hpp は、全部が `anet` 名前空間（RL に依らない層）に�
 | `SpecForwarder::GetGraphVizDetails()` | 詳しい図のノードに書く、実際に使った値（設定の値や、依頼から受け取った値）。既定は空で、部品が作る Forwarder が上書きする |
 | `ForwardKind` | Forward の種類の名前。意味は、依頼を受ける部品が決める |
 | `ForwarderRequest(forward_kind, options)` | 依頼。`GetForwardKind()` と `GetOptions()` で読む。付帯の情報（`options`）は設定データで運び、キーの名前と意味は、依頼を作る関数と、読む部品のあいだの約束である |
-| `ForwarderBuilder(config_data, config_prefix, seed)` | 設定の `structure` の順に、部品を作る。spec は受け取らない |
+| `ForwarderBuilder(config_data, config_prefix, seed)` | 設定の `structure` の順に部品を作る。spec は受け取らない。選ばれた全 block について、設定を §6.7 の行順に検査する |
 | `ForwarderBuilder::BuildForwarder(request, input_specs)` | 依頼に合った Forwarder を作る。空は返さない。依頼と spec を部品へ順に渡し、返ったものを並べて 1 つにする。先頭の部品には `input_specs`、次の部品には、前の部品が返したものの出力の spec が届く |
 | `ForwarderBuilder::GetScalar`・`GetTensor` | 部品へ順に問い合わせて、最初に答えた値を返す（D30） |
 
@@ -302,11 +303,13 @@ forwarder.hpp は、全部が `anet` 名前空間（RL に依らない層）に�
 
 | 名前 | 意味 |
 |---|---|
+| `ForwarderModule::ValidateForwardKinds(forward_kinds)` | 並びで使える Forward の種類と部品の設定の組み合わせを検査する。全 block の工場が部品を作り終えたあとに呼ぶ。組み合わせの検査が要らない部品は、何もしない既定のまま使う |
 | `ForwarderModule::CreateForwarder(request, input_specs)` | 依頼に合った Forwarder を作る。空は返さない。`input_specs` は、この部品に実際に届くものの spec である。作ったものの `GetInputSpecs()` は、`input_specs` と同じにする。設定と spec の食い違いと、扱えない spec は、ここで検査して止める。その依頼では何もしないときは、素通しの Forwarder を返す |
 | `MakePassThroughForwarder(specs)` | 入力をそのまま返す Forwarder を作る。入力と出力の spec は、渡した spec と同じである |
 | `ForwarderModuleContext` | `seed`（block の名前から作った seed）と、`forward_kinds`（この並びで使える Forward の種類。並びの部品の全部が扱うもの。どの部品も種類を問わなければ、値なし） |
 | `ForwarderModuleFactory::GetForwardKinds()` | この種類の部品が扱う Forward の種類の一覧。種類を問わない部品は、値なしを返す。`ForwarderBuilder` は、部品を作る前に、並びの工場の全部からこれを集める |
-| `ForwarderModuleFactory::CreateModule(config_data, context)` | 設定から部品を作る。spec に依らない設定の誤りは、ここで検査して止める |
+| `ForwarderModuleFactory::ReadConfigKeys(config_data)` | 受け付ける設定キーを文字列として読む。設定を持つ工場は、この口で受け付けるキーをすべて読む。設定を持たない工場は、何もしない既定のまま使う。Builder は未読キーを検査し、全 block が通ったあとに部品を作る |
+| `ForwarderModuleFactory::CreateModule(config_data, context)` | 設定から部品を作る。部品の設定値の型・値域など、並びや spec に依らない誤りは、ここで検査して止める |
 | `RegisterForwarderModuleFactory(type_name, factory)` | 部品の種類を、設定の `type` の名前で登録する |
 
 部品が守ること:
@@ -336,7 +339,7 @@ forwarder.hpp は、全部が `anet` 名前空間（RL に依らない層）に�
 | `DropKeys` | 素通し（Frame にはキーを残す） | 書いたキーを落とす | 同左 | 同左 |
 | `SetSpec` | 当てる種類なら、書いたキーの spec の宣言を変える。データには触らない | 同左 | 同左 | 同左 |
 
-- `FrameStack` の動きのうち、今と違うのは、枚数とキーを、設定ではなく依頼から受けること（D15）と、渡された名前のうち自分の位置に届かなかったキーを、エラーにせずに重ねないこと（D17。今は、`FrameStack` を先頭にしか置けないので、届かないのは、並びの入力の spec に無い名前だけで、部品がエラーにしている。その名前は、新しくは Agent が構築で止める）である。どの依頼でも、`FrameStack` の後ろの部品は、stack 軸つきの形を受ける。
+- `FrameStack` の動きのうち、今と違うのは、枚数とキーを、設定ではなく依頼から受けること（D15）と、渡された名前のうち自分の位置に届かなかったキーを、エラーにせずに重ねないこと（D17。今は、`FrameStack` を先頭にしか置けないので、届かないのは、並びの入力の spec に無い名前だけで、部品がエラーにしている。その名前は、新しくは Agent が構築で止める）である。3 つの Perception の依頼では、`FrameStack` の後ろの部品は、重ねる対象のキーを stack 軸つきで受ける。`FrameWithStatsUpdate` では 1 枚の Frame をそのまま受ける。
 - `DropKeys` の動きは、今と同じである（NG1）。`Normalize` は、当て方と式は今と同じで、統計を取るキーの決まり方だけが変わる（D28）。
 - `FrameStack` を 2 つ書いた並びは、2 つ目が、既に stack 軸を持つキーを重ねようとして、部品の検査でエラーになる（§6.7 の 9）。並びの決まりではなく、部品の検査である。
 
@@ -431,7 +434,7 @@ DefaultDQNAgent.@baseline : perception.block.[stack].type ?= FrameStack
 | 3 | `ForwarderBuilder` の構築 | `structure` が名指す block の設定が無い。block の `type` が、登録に無い |
 | 4 | `ForwarderBuilder` の構築 | 並びに選ばれた block の設定に、読まれないキーがある（今と同じ） |
 | 5 | `ForwarderBuilder` の構築 | 部品の設定が、型か値域に反する（`Normalize` と `DropKeys` は、今の検査のうち spec に依らないもの。`SetSpec` は、`keys` が空、`scale`・各 `mode` が値域の外、全部の属性が `keep`、`forward_kinds.mode` が `listed` で一覧が空、`min_values.mode`・`max_values.mode`・`labels.mode` が `set` で、その一覧が空、数の一覧が数として読めない） |
-| 6 | `ForwarderBuilder` の構築 | `SetSpec` の `forward_kinds.listed.names` に、この並びで使えない Forward の種類の名前がある（`forward_kinds.mode` が `listed` のときだけ当てる。どの部品も種類を問わない並びでは、検査しない） |
+| 6 | `ForwarderBuilder` の構築 | 並びで使える Forward の種類と、部品の設定の組み合わせが、部品の `ValidateForwardKinds` の検査に通らない。標準の部品では `SetSpec` が、`forward_kinds.mode` が `listed` のときに `forward_kinds.listed.names` に使えない名前がある場合を検査する。どの部品も種類を問わない並びでは、`SetSpec` はこの検査をしない |
 | 7 | `BuildForwarder` | `input_specs` が空である（今と同じ） |
 | 8 | `BuildForwarder` | 並びの部品のどれかが、依頼の Forward の種類を扱わない |
 | 9 | `BuildForwarder` | 部品が、届いた spec か、依頼に載った値を扱えない。`FrameStack`: `PerceptionFromFrame` か `PerceptionFromSequence` で、重ねるキーが既に stack 軸を持つ。`PerceptionFromStack` で、枚数が 2 以上なのに、重ねるキーに stack 軸が無い。`PerceptionFromSequence` で、開始の印の鍵が届いた spec に無い。依頼に載った枚数が 1 未満。`PerceptionFromSequence` で、依頼に載った行の数が 1 未満。`DropKeys`: `keys` に、届いた spec に無いキーがある。全部のキーを落とす。`Normalize`: 定数の数が、キーの 1 枚ぶんの要素数と合わない。統計つきで、Perception を作る依頼に届いた `Unscaled` の float のキーが、統計の入れ物に無いか、1 枚ぶんの形が違う（D28）。統計つきで、経験の受入れ用の依頼を 2 度目に受けたときに、届いた `Unscaled` の float のキーの集合か、1 枚ぶんの形が、入れ物と違う（D28）。`SetSpec`: `keys` に、届いた spec に無いキーがある。変えた属性が、§6.6 の検査に通らない |
@@ -469,6 +472,7 @@ DefaultDQNAgent.@baseline : perception.block.[stack].type ?= FrameStack
 | テスト | `ReplayBuffer` を継承する、テスト用の差し替え 3 つ（`dqn_fixture_test.hpp` の `RecordingReplayBuffer`、`replay_buffer_test.cpp` の `BlockingReplayBuffer`、`trainer_test.cpp` の `HintRecordingReplayBuffer`） | `GetSampleObsSpecs` を実装する |
 | テスト | `forwarder_test.cpp`、`replay_buffer_test.cpp`、`dqn_learner_test.cpp`、`dqn_concrete_test.cpp`、`dqn_fixture_test.hpp` | 新しい口と、新しい設定キーに書き換える。並びの決まりを確かめているテストは、§7 の受入に合わせて書き直す |
 | 設定 | 出荷設定の 4 ファイル（`agent.txt`・`GridMaze.txt`・`LunarLander.txt`・`DropMerge.txt`。S9 が 4 ファイル、S10 が 1 ファイル） | §6.6 の対応のとおりに移す。コメントにした行も移す |
+| 実行バッチ | `apps/11_batch_run.bat` の `STK` | Montezuma の起動で渡す重ね方を、§6.6 の対応のとおりに移す |
 | 検証資材 | [rfd0072/baseline/](../../src/core/base/testdata/rfd0072/baseline) の 17 ファイル | 旧いキーの項目を、新しいキーの項目に入れ替える。丸ごとは採り直さない。変えてよい範囲と手段は、§7 の「基準の直し方」 |
 | 検証資材 | [固定入力の移行](../../src/core/base/testdata/rfd0072/perception_migration.py) | 固定した過去の入力を移す先を、新しいキー（`frame_stack.*`）にする |
 | 検証資材 | [README.md](../../src/core/base/testdata/rfd0072/README.md) の「golden の更新方針」 | 本 RFD で移したキーと、直し方（RFD0161 と同じ）を 1 文足す |
@@ -518,7 +522,7 @@ DefaultDQNAgent.@baseline : perception.block.[stack].type ?= FrameStack
 | 1 | 検索 S1〜S10 が、`src`・`apps`・`data` で 0 行（今は、S1 が 7 ファイル 34 行、S2 が 2 ファイル 5 行、S3 が 4 ファイル 5 行、S4 と S5 が 5 ファイル 6 行ずつ、S6 が 5 ファイル 34 行、S7 が 4 ファイル 14 行、S8 が 2 ファイル 5 行、S9 が 26 ファイル 71 行、S10 が 22 ファイル 45 行） |
 | 2 | 検索 S11 と S12 が、`src/core/base/include/anet/forwarder.hpp` と `src/core/base/src/forwarder.cpp` の 2 ファイルで 0 行（今は、S11 が 4 行と 9 行、S12 が 1 行と 5 行） |
 | 3 | `[forwarder]` のテスト: テストが定義した Forward の種類の名前と、テストが登録した部品だけを使う並びで、`ForwarderBuilder` から Forwarder を作って通せる。作った Forwarder の `GetInputSpecs` は、渡した spec と同じである |
-| 4 | `[forwarder]` のテスト: 同じ `type` の名前の 2 度目の登録、登録に無い `type` の設定、並びの部品が扱わない Forward の種類の依頼、空の `input_specs` が、それぞれエラーになる。`[perception]` のテスト: 並びに選ばれた block に、その部品が読まないキーを書いた設定は、`ForwarderBuilder` の構築がエラーになり、文面にそのキーの完全キーが入っている（今あるテストを、新しい口に書き換えたもの。キーの名前は、今のテストと同じく、どの部品も読まない名前にする） |
+| 4 | `[forwarder]` のテスト: 同じ `type` の名前の 2 度目の登録、登録に無い `type` の設定、並びの部品が扱わない Forward の種類の依頼、空の `input_specs` が、それぞれエラーになる。`[perception]` のテスト: 並びに選ばれた block に、その部品が読まないキーを書いた設定は、`ForwarderBuilder` の構築がエラーになり、文面にそのキーの完全キーが入っている（今あるテストを、新しい口に書き換えたもの。キーの名前は、今のテストと同じく、どの部品も読まない名前にする）。同じ block の未読キーと値の不正では、未読キーが先に報告される。標準の工場とテストが登録した工場で確かめる。別々の block では、先行 block の値の不正より後続 block の未読キーが先、先行 block の種類の組み合わせの不正より後続 block の値の不正が先に報告される |
 | 5 | `[perception]` のテスト: 4 つの Forward の種類のそれぞれで、作った Forwarder の `GetOutputSpecs` の各キーの shape と dtype が、`GetInputSpecs` どおりの形の仮の入力（行の数は 2）を通した出力の、行の軸を除いた形と dtype に一致する（4 枚と 1 枚、`DropKeys` を含む並び）。枚数 1 の `stack > norm` で、`Normalize` に届く spec が、3 つの Perception の種類のどれでも stack 軸つきである |
 | 6 | `[perception]` の往復のテスト: 行動選択用の Forwarder が作った Perception と、同じ経験を ReplayBuffer に入れて Sample 用の Forwarder で作り直した Perception が一致する。条件は、4 枚と 1 枚、episode の先頭、打ち切りの終端、n より手前で episode が終わる next_obs、skip の窓の終点（RFD0161 の受入 22 と同じ条件） |
 | 7 | `[perception]` のテスト: 並び `norm > stack` と `stack > norm` のどちらも組める。`Unscaled` と宣言した float のキーに、統計つきの正規化を使う設定で、どちらの並びでも、統計を更新し終えたあと（以後、経験の受入れ用の Forwarder を通さない）に作った、行動選択用と Sample 用の Perception が一致する |
@@ -643,7 +647,9 @@ S21: RegisterForwarderModuleFactory
   - 前に決めた形への反対として、開発者に聞いたもの: `SetSpec` の絞る口を外す案（D19）。残す（U1）・外す（U2）・残して、Perception の種類のあいだで違う当て方を止める（U3）を示し、AI は U2 を推した。開発者は U1 を選んだ。U2 と U3 を退けた理由（§5.6）は、比べた表から AI が書いた。
   - 採らなかったもの: 依頼の付帯の情報に、型つきの読み口を公開の口として足す案（付帯の情報のキーの名前は、依頼を作る関数と標準の部品の中に閉じ、実装計画で決める）。stack 軸を足す処理などの手助けを、`anet::rl` の公開の関数にする案（使う側は DefaultDQN だけなので、公開の口を最小に保ち、DefaultDQN の中に置く。§6.5）。
 
-### 10.3 hpp の草案（2026-11-24。第 19 版の宣言）
+### 10.3 hpp の草案
+
+2026-11-24 の第 19 版をもとに、2026-11-25 に設定の検査を行う公開の口を追記した。
 
 名前と意味の正本は §6.2・§6.3 である。引数の型と、口の細かい形は、実装する側が決めてよい。
 
@@ -692,6 +698,7 @@ namespace anet {
 
     class ForwarderModule : public ModuleBase {
     public:
+        virtual void ValidateForwardKinds(const std::optional<std::vector<ForwardKind>>&) const {}
         virtual std::shared_ptr<SpecForwarder> CreateForwarder(const ForwarderRequest& request,
             const TensorSpecMap& input_specs) const = 0;
     };
@@ -707,6 +714,7 @@ namespace anet {
     public:
         virtual ~ForwarderModuleFactory() = default;
         virtual std::optional<std::vector<ForwardKind>> GetForwardKinds() const = 0;
+        virtual void ReadConfigKeys(const ConfigData&) const {}
         virtual std::shared_ptr<ForwarderModule> CreateModule(const ConfigData& config_data,
             const ForwarderModuleContext& context) const = 0;
     };

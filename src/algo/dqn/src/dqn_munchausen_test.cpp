@@ -486,7 +486,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         const auto next = as_distribution(mode == "target" ? target->at(0).values.narrow(0, 2, 2) : target->at(0).values);
         torch::Tensor hard_actions;
         if (kind == "qr" && risk_mode == 1 && scenario == 2) {
-            SoftHardSelector selector(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
+            SoftHardSelector selector(config, model, vars, BatchEnvSpec{ 2, 2 }, spec,
                 device, 67010, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67011);
             hard_actions = selector.SelectTargetActions(SoftSamples(device).next_state.next_obs, selector.MakeTargetEvaluation(false));
         }
@@ -1055,7 +1055,7 @@ TEST_CASE("RFD0125 Bellman target preserves returns, discounts, and terminal bon
     policy_config.quantile_mode = kind;
     const auto policy = std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
     const auto spec = SoftEnvSpec();
-    BellmanTargetReader learner(config, model, vars, nullptr,
+    BellmanTargetReader learner(config, model, vars,
         BatchEnvSpec{ .num_envs = kBatchSize, .num_threads = 2 }, spec,
         torch::kCPU, 12501, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 12502);
     auto samples = SoftSamples(torch::kCPU);

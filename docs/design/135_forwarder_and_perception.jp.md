@@ -1,52 +1,61 @@
 # Forwarder と Perception
 
-> 主たる観点は、観測を変換する共通の口と、Agent が利用するデータの経路です。
-
 ## 1. Forwarder の契約
 
-`anet/forwarder.hpp` の `Forwarder::Forward` は `TensorDict` を受けて `TensorDict` を返します。呼び出す側ごとの状態は実行器が持ちます。Network の重みのように、呼び出す側どうしで共有する値は Forwarder が持てます。
+`anet/forwarder.hpp` の `Forwarder::Forward` は `TensorDict` を受け取り、変換した `TensorDict` を返します。Network もこの口を実装します。Network の途中の値は、任意の `ForwardCapture` で取得できます。 [ニューラルネットワークの forward capture](130_neural_networks.jp.md#76-forward-captureと部分forward)
 
-`SpecForwarder` は `ForwardSpec` を提供します。入力の `TensorSpecMap` から、変換後のキー・形・dtype・属性を求めます。`Network` は `Forwarder` として呼び出せます。`ForwardCapture` に渡した鍵の要求は、Network を直接呼び出した場合と同じ契約で扱われます。 [ニューラルネットワークの forward capture](130_neural_networks.jp.md#76-forward-captureと部分forward)
+`ForwarderBuilder` は設定に書いた部品を組みます。呼び出し側は `BuildForwarder` に `ForwarderRequest` と、実際に渡すデータの spec を渡します。`ForwarderRequest` は変換の種類を表す `ForwardKind` と、部品が読む付帯情報を持ちます。
+
+作られた `SpecForwarder` の `GetInputSpecs` と `GetOutputSpecs` は、その依頼の入出力の spec を返します。行ごとの履歴が必要な変換では、作られた Forwarder が履歴を持ちます。
 
 ## 2. 観測の spec
 
-`TensorSpec` は batch 軸を除いた形に、値の尺度と stack 軸の有無を添えます。spec の JSON では `scale` と `stack_axis` に出力します。
+`TensorSpec` の shape は batch 軸を除いた形です。値の尺度と stack 軸は、JSON の `scale` と `stack_axis` に記録します。
 
 | 属性 | 意味 |
 |---|---|
-| `scale = Scaled` | 値を作る側か正規化が尺度を決めています。既定値です。byte 画像や離散値を表す番号もこれに当たります。 |
-| `scale = Unscaled` | 観測の正規化で尺度をそろえる対象です。整数 dtype または離散のキーでこの宣言をすると、spec の検査で止まります。LunarLander と CartPole の連続値の `vector` がこの属性を宣言します。 |
-| `has_stack_axis = true` | batch 軸を除いた形の先頭が stack 軸です。軸の各位置が 1 枚の Frame に対応します。 |
+| `scale = Scaled` | 値を作る側か正規化が尺度を決めています。byte 画像や離散値を表す番号も含みます。 |
+| `scale = Unscaled` | 正規化で尺度をそろえる連続値です。整数 dtype と離散のキーでは使えません。 |
+| `has_stack_axis = true` | batch 軸を除いた形の先頭が stack 軸です。軸の各位置が1枚の Frame に対応します。 |
 
 ## 3. DefaultDQN の観測加工
 
-Agent は Frame の spec を1つ作り、ReplayBuffer と `ForwarderChain` に渡します。現在の Frame は Env の Observation と同じキーと形を持ちます。並びが返す Perception の spec を Network の入力に使い、IQN の taus も同じ入力 spec に足します。
+DefaultDQN は、Env の観測と同じ spec を Frame の spec にします。経験の受入れ用を最初に作り、出力のキー・形・dtype が Frame と一致することを確認します。ReplayBuffer にも Frame の spec を渡します。
 
-| 経路 | 渡す値 | 並びの動作 |
+| 依頼 | 入力 | 変換 |
 |---|---|---|
-| 行動選択 | Observation と lane ごとの `episode_start` | Actor の実行器が device へ転送して履歴に積み、選んだ lane を初期 Frame で埋めます。その後の部品も同じ device で動きます。 |
-| 経験の保存 | `obs` と `next_obs` | `FrameWithStatsUpdate` をそれぞれに1回ずつ通します。`Normalize` は経験の受入れ時に観測統計やクリップ率を更新し、同じ Tensor を ReplayBuffer に渡します。 |
-| Sample | ReplayBuffer が再構成した Frame の束 | `PerceptionFromStack` が観測、次の観測、TempoRL の窓の終点を変換します。ReplayBuffer が1枚を軸なしで返した場合、この経路で長さ1の軸を足します。 |
-| 可視化 | 合成した1枚の Frame | `PerceptionFromFrame` が同じ Frame を指定枚数ぶん並べます。Agent がこの変換と Network を `TensorDictFunction` でつなぎます。 |
+| `FrameWithStatsUpdate` | `obs` と `next_obs` を1枚ずつ | 統計を更新して、元の値を ReplayBuffer に渡します。 |
+| `PerceptionFromSequence` | Actor の device に移した観測と、CPU 上の真偽値 `episode_start` | lane ごとの履歴を重ねます。開始の印が真の lane は今の Frame で履歴を埋め直し、出力から開始の印を除きます。 |
+| `PerceptionFromStack` | ReplayBuffer が重ねた束。`GetSampleObsSpecs` が束の spec を返します。 | Learner が観測、次の観測、TempoRL の窓の終点を変換します。 |
+| `PerceptionFromFrame` | 可視化のために用意した1枚の Frame | `FrameStack` は同じ Frame を指定枚数ぶん並べます。 |
 
-## 4. 部品の並べ方
+重ねる設定は Agent 直下の `frame_stack.count`、`frame_stack.keys.mode`、`frame_stack.keys.listed.names` です。コードの既定は1枚、出荷の基準プロファイルは4枚です。`all` は Frame の全キー、`listed` は一覧にある Frame のキーを選びます。Agent は同じ枚数とキーを ReplayBuffer と各依頼へ渡します。
 
-`perception.structure` に `stack > norm` のように名前を並べ、`perception.block.[名前].type` で部品を指定します。`FrameStack` を書かない場合は、全キーを対象とする1枚の `FrameStack` が先頭に入ります。
+DefaultDQN は、選んだキーで stack 軸がない出力に長さ1の軸を足し、開始の印が残っていれば除きます。Network の入力には可視化用の出力 spec を使います。行動選択用と Sample 用の出力 spec も、この入力と構築時に照合します。IQN の taus は Network の入力 spec に加えます。
+
+## 4. 標準の部品と設定
+
+`perception.structure` に `stack > norm` のように名前を並べ、`perception.block.[名前].type` で部品を選びます。Builder は宣言順に組みます。各部品が自分に届いた spec を検査し、出力 spec を次の部品に渡します。
 
 | 種類 | 設定と動作 |
 |---|---|
-| `FrameStack` | 先頭に1つ置きます。`count` は1以上で、1枚でも stack 軸を付けます。`keys.mode` が `all` なら全キー、`listed` なら `keys.listed.names` のキーを重ねます。 |
-| `Normalize` | 1つまで置けます。`mode` は `none`・`constant`・`running` のいずれかです。`Unscaled` の対象に1 Frame 分の統計を当てます。`constant` と `running` は変換したキーの尺度を `Scaled` にします。 |
-| `DropKeys` | `keys` に列挙したキーを Perception とその spec から除きます。保存する Frame にはキーが残ります。 |
+| `FrameStack` | block の設定は `type` です。枚数とキーは依頼から受け取り、自分に届いた対象キーを重ねます。Sample のキーに既に stack 軸があれば、そのまま通します。 |
+| `Normalize` | `mode` は `none`・`constant`・`running` です。正規化したキーの尺度を `Scaled` に変えます。 |
+| `DropKeys` | Perception のデータと spec から `keys` を除きます。経験の受入れではキーを通します。 |
+| `SetSpec` | `keys` に指定したキーの `scale`、`min_values`、`max_values`、`labels` を変えます。値はそのまま通します。`forward_kinds.mode=listed` で指定した種類に絞れます。 |
 
-構築時に並びと各部品の設定を検査します。未選択モードの値も、型と値域は検査します。`constant.mean`・`constant.std` に値を並べた場合は、定数モードで正規化する各キーの1 Frame 分の要素数と照合します。空の一覧は平均0または標準偏差1を使います。
+`running` の統計は、経験の受入れ用の Forwarder を作るとき、部品に届く `Unscaled` の float キーを使って用意します。あとで落とすキーの統計も取ります。統計が不要なキーは、前に置いた `SetSpec` で `Scaled` にできます。別の種類で正規化を要求したキーの統計がないか、1枚ぶんの形が違う場合は構築で止まります。
 
-`running` は経験の受入れで観測統計と `obs_norm.clip_ratio` を更新し、`constant` はクリップ率を更新します。Perception を作る呼び出しは既存の統計を読み、診断の値を更新しません。
+`running` は観測統計と `obs_norm.clip_ratio` を経験の受入れで更新します。`constant` はクリップ率を更新します。Perception を作る処理は統計を読みます。`constant.mean` と `constant.std` に値を並べると、1枚ぶんの要素数との一致を検査します。
 
-Run フォルダの `dot/` に `perception.structure` と `perception.detail` の図を記録します。詳しい図では部品ごとの出力の形、stack の枚数、部品名から導いた seed を確認できます。
+`SetSpec` は指定した属性だけを検査します。範囲値を設定するときは、全要素に共通の値を1個、または1枚の全要素ぶんを指定します。ラベルは Vector では全要素ぶん、Grid と Sequence では1枚の先頭次元ぶんを指定します。種類を絞った結果、各経路で正規化するキーが変わることがあります。
 
-## テストと拡張時の確認事項
+## 5. 図と拡張
 
-`[forwarder]` で属性の JSON 出力、尺度の検査、環境が公開する属性、共通の Forwarder を通した Network の出力と capture を確認します。
+DefaultDQN は、可視化用の Forwarder が生成する `perception.structure.dot` と `perception.detail.dot` を Run の `dot/` に記録します。図は依頼の種類を題にし、入力、設定順の部品、出力を結びます。詳細図では出力 spec と部品の seed・設定値を確認できます。
 
-`[perception]` で1枚と4枚の形、履歴と Sample の対応、統計の更新と読み取り、キーの除去、設定の検査、図を確認します。部品を足すときは変換後の spec と、各依頼で返す値を同じ形にそろえます。呼び出す側ごとの状態が必要な場合は実行器に置きます。
+部品を追加するには、`ForwarderModuleFactory` に対応する Forward の種類を宣言し、`ForwarderModule` が依頼と入力 spec に合った `SpecForwarder` を返すようにします。`RegisterForwarderModuleFactory` で設定の `type` の名前を登録します。その依頼で変更が不要な部品は `MakePassThroughForwarder` を使えます。
+
+Builder は、選ばれた全 block で工場の `ReadConfigKeys` を呼び、未読キーを検査します。設定を持つ部品はこの口で受け付けるキーの値を文字列として読みます。工場の `CreateModule` は設定値の型と値域を検査して部品を作ります。並び全体で使える Forward の種類との組み合わせを検査する部品は `ValidateForwardKinds` を実装します。この口は、全 block の `CreateModule` が成功したあとに呼ばれます。
+
+`[forwarder]` では登録と公開口、`[perception]` では4種類の入出力 spec、履歴と Sample の往復、統計、設定と図を確認します。

@@ -335,13 +335,13 @@ std::shared_ptr<Learner> DqnComponentAssembler::CreateLearner(
     NetworkModel& model, RuntimeVars& vars,
     const BatchEnvSpec& batch, const EnvSpec& env, const torch::Device& device,
     anet::seed_t replay_seed, anet::seed_t agent_seed, std::shared_ptr<ActionPolicy> target_policy,
-    std::shared_ptr<anet::Forwarder> sample_perception, const LearnerForwardResources& forwards,
+    const LearnerPerceptionSetup* perception_setup, const LearnerForwardResources& forwards,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> learner_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe, const std::string& log_suffix)
 {
     // 型ごとの分岐からも同じ引数列を通し、構築時の入力を1か所にまとめる。
     const auto create = [&]<typename ConcreteLearner>() -> std::shared_ptr<Learner> {
-        return std::make_shared<ConcreteLearner>(config, model, vars, sample_perception, batch, env, device,
+        return std::make_shared<ConcreteLearner>(config, model, vars, perception_setup, batch, env, device,
             replay_seed, agent_seed, target_policy, forwards, frame_stack, learner_seed, noisy_probe);
     };
     std::shared_ptr<Learner> learner;
@@ -364,7 +364,7 @@ std::shared_ptr<Actor> DqnComponentAssembler::CreateActor(
     const ActorRequest& request, NetworkModel& model,
     const std::shared_ptr<std::shared_mutex>& mutex, std::shared_ptr<ActionPolicy> policy,
     const anet::nn::NetworkForwardConfig& forward,
-    std::unique_ptr<anet::ForwardExecutor> perception,
+    std::shared_ptr<anet::Forwarder> perception,
     bool emit_snapshot_metrics, ActorQHintConfig hint,
     std::optional<anet::ProfiledValueConfig<step_t>> sync_interval,
     std::optional<SkipActorResources> skip)

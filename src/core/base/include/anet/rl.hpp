@@ -999,6 +999,8 @@ namespace anet::rl {
     public:
         virtual void Push(const BatchExperience& batch_exp, std::span<const float> gammas) = 0;
         virtual void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, std::span<const float> gammas) const = 0;
+        /// Sample が返す obs と next_obs の、バッチ軸を除いた spec。
+        virtual const TensorSpecMap& GetSampleObsSpecs() const = 0;
         virtual bool SampleUniqueUniform(
             ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, std::span<const float> gammas) const = 0;
         virtual SamplingHistoryProbeResult ProbeSamplingHistory(

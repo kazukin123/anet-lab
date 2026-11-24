@@ -242,9 +242,9 @@ DefaultDQNのIQNでは、各Policyが`tau_rule`（`num_taus`と`random|fixed|str
 
 IQN+UQEは任意の`full_distribution_query`を持つ。既定はdisabledで、enabled時はrisk tausとfull `[0,1]` tausを連結して1回だけforwardする。`q_values`/`uqe_values`/`q_quantiles`はrisk側、`full_q_values`/`full_q_quantiles`はfull側であり、Headが連結全体から返す平均`q`は使わない。point UQEのrisk側は同値なα 1本に縮約する。非IQN modeではenabled設定を休眠状態のまま保持して無視するため、quantile modeの切替時に同時変更する必要はない。IQNでenabledにしたままUQE以外のPolicyを選ぶ構成は設定エラーになる。
 
-DefaultDQNのActorは、Actor専用のPerception実行器で観測を加工してから、Policy呼出しと補助情報の付与へ進む。RainbowのActorでは観測をdevice転送してからPolicyを呼ぶ。PolicyはLearnerへ依存せず、NetworkとRNGでActionを決定する。
+DefaultDQNのActorは、観測をdeviceへ移し、CPU上の`episode_start`を加えて行動選択用Forwarderに渡す。得たPerceptionをPolicy呼出しと補助情報の付与に使う。RainbowのActorでは観測をdevice転送してからPolicyを呼ぶ。PolicyはLearnerへ依存せず、NetworkとRNGでActionを決定する。
 
-DefaultDQNはPerceptionの出力specをNetworkに渡す。FrameStack対象の観測は `count=1` を含めて `[S, *frame_shape]` になり、dummy forward、Actor、Replay sample、可視化で同じstack軸を使う。保存時はEnvと同じ単フレームspecを使う。[観測加工の経路と設定](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)、[NNモジュールでの軸の扱い](130_neural_networks.jp.md#22-frame-stack入力の軸contract)を参照。
+DefaultDQNは可視化用のPerceptionの出力specをNetworkに渡し、行動選択用とSample用の出力specを構築時に照合する。重ねる対象の観測は `frame_stack.count=1` を含めて `[S, *frame_shape]` になり、dummy forward、Actor、Replay sample、可視化で同じstack軸を使う。保存時はEnvと同じ単フレームspecを使う。[観測加工の経路と設定](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)、[NNモジュールでの軸の扱い](130_neural_networks.jp.md#22-frame-stack入力の軸contract)を参照。
 
 ProfiledValueのrootの定数は `epsilon = 0.05` のようにbare値で指定し、`type` の既定は `constant` となる。実効typeがconstant以外の場合、bare値は `value` 欄に保持されるが、評価と型付きdumpには使われない。bare値だけで定数へ切り替えることはできないため、定数に戻す場合は `epsilon.type = constant` と意図するbare値を併記する。phase内の定数は `phase.[name].value` で指定する。
 
@@ -383,12 +383,15 @@ sequenceDiagram
     participant R as Runner
     participant G as DQN Agent
     participant A as DQN Actor
-    participant S as Perception実行器
+    participant S as 行動選択用Forwarder
     participant P as ActionPolicy
     participant N as Actor Network
 
     R->>G: CreateActor(actor_request)
     G->>G: カタログ項目のpolicyからPolicyを作り、source Networkを選ぶ
+    opt DefaultDQN
+        G->>G: 行数と開始の印を含むspecでForwarderを作成
+    end
     opt modelを複製
         G->>N: sourceからcloneを作成
     end
@@ -396,7 +399,8 @@ sequenceDiagram
     R->>A: MakeAction(step_counts, batch_state)
     A->>A: DefaultDQN Train snapshotを判定
     alt DefaultDQN
-        A->>S: Forward(obs, episode_start)
+        A->>A: 観測をdevice転送し、CPUのepisode_startを鍵として追加
+        A->>S: Forward(input)
         S-->>A: Network入力
     else Rainbow
         A->>A: 観測をdevice転送

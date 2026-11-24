@@ -1,5 +1,6 @@
 #include "anet/test/catch.hpp"
 
+#include "anet/init.hpp"
 #include "anet/test/util.hpp"
 
 #ifdef _WIN32
@@ -41,6 +42,7 @@ int main(int argc, char* argv[])
     // テストの中で切ると、そのテストが先に回ったかで止まるかが変わる（RFD0124）。
     // ビルド構成を問わず切る。Release 版 libtorch と GPU の本番では起きないため、本番の初期化には入れない（RFD0028、RFD0124 D4）。
     at::globalContext().setUserEnabledMkldnn(false);
+    anet::rl::detail::InitForwarderModules();
 
     Catch::Session session;
     session.configData().showDurations = Catch::ShowDurations::Always;

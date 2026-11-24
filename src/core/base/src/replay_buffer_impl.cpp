@@ -695,6 +695,11 @@ namespace {
     }
 
     // TensorDict 版のリングバッファスライス
+    bool IsReplayStackKey(const std::vector<std::string>& stack_keys, const std::string& key)
+    {
+        return stack_keys.empty() || std::ranges::find(stack_keys, key) != stack_keys.end();
+    }
+
     anet::TensorDict RingSliceDict(
         const anet::TensorDict& dict, int64_t env_idx,
         int64_t valid_start, int64_t valid_len, int64_t pad_len,
@@ -705,13 +710,7 @@ namespace {
 
         for (const auto& kv : dict) {
             // stack_keys が指定されている場合、対象外のKeyは「最新の1フレームのみ」にする
-            bool is_stacked = true;
-            if (!stack_keys.empty()) {
-                auto it = std::find(stack_keys.begin(), stack_keys.end(), kv.first);
-                is_stacked = (it != stack_keys.end());
-            }
-
-            if (!is_stacked) {
+            if (!IsReplayStackKey(stack_keys, kv.first)) {
                 // Stack対象外: パディングは関係なく、常に一番未来の1フレームだけを取得
                 int64_t latest_idx = valid_start + valid_len - 1;
                 res.Set(kv.first, RingSlice(kv.second, env_idx, latest_idx, 1, capacity, true));
@@ -1450,6 +1449,7 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     std::unique_ptr<InitialPriorityCompleter> initial_priority_completer,
     torch::Device device, bool pin_memory)
     : config_(config)
+    , sample_obs_specs_(env_spec.state_spec.obs_spec)
     , num_envs_(num_envs)
     , queue_controller_(std::move(queue_controller))
     , builder_(std::move(builder))
@@ -1461,6 +1461,13 @@ DefaultReplayBuffer::DefaultReplayBuffer(
     if (config_.reward_component_count < 1 || (config_.reward_component_count > 1 && config_.window_rule))
         ANET_SYSTEM_ERROR("Invalid Replay reward_component_count=" << config_.reward_component_count
             << " window_rule=" << static_cast<bool>(config_.window_rule) << "; expected count >= 1 and no window rule for multiple components.");
+    if (config_.stack_count > 1) {
+        for (auto& [key, spec] : sample_obs_specs_) {
+            if (!IsReplayStackKey(config_.stack_keys, key)) continue;
+            spec.shape.insert(spec.shape.begin(), config_.stack_count);
+            spec.has_stack_axis = true;
+        }
+    }
     capacity_per_env_ = config_.capacity / num_envs_;
     sample_n_step_ = std::max(config_.n_step, config_.window_rule ? config_.window_rule->GetLimit() : 1);
     actual_capacity_ = capacity_per_env_ * num_envs_;
@@ -2463,6 +2470,11 @@ SamplingHistoryProbeResult PrefetchingReplayBuffer::ProbeSamplingHistory(
     state_->WaitForPrefetchLocked();
     state_->WaitForQueuedPushesLocked();
     return inner_->ProbeSamplingHistory(request, random, gammas);
+}
+
+const anet::TensorSpecMap& PrefetchingReplayBuffer::GetSampleObsSpecs() const
+{
+    return inner_->GetSampleObsSpecs();
 }
 
 int64_t PrefetchingReplayBuffer::Size() const

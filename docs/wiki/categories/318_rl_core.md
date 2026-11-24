@@ -5,6 +5,7 @@
 ## 概要・責務
 
 - ReplayBufferのExperience、N-step、PER、stack履歴、転送とprefetchの共通契約を引く。RunnerとObserverの実行・通知の所在もまとめる。（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§1・§2）。
+- ReplayBuffer は `GetSampleObsSpecs` で Sample の観測 spec を答える。複数枚の対象キーには stack 軸があり、1 枚の Sample は Frame の形を返す（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、観測の stack 履歴）。
 - TrainerとRunnerが学習・評価を実行し、Notifierがeventを配送する。値の収集と保存はObserverとMetricsLoggerへ分ける（出典: [可観測性](../../design/140_observability.jp.md)、§2）。
 - Actor初期priorityのhint行は共通層では列の意味を解釈せずに運び、schema検証と推定は注入されたInitialPriorityEstimatorが担う。DQNの5列schemaの正本はDQN系Agent設計である（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.4 PER）。
 - ReplayBufferは可変長windowの抽出・転送・prefetchを担い、時間で変わるγでは保存したstep報酬のsnapshotから収益を確定する。窓の規則と利用するγは呼び出し側から渡す（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2・§6.1.1）。
@@ -85,6 +86,7 @@
 - 2026-11-20: 呼んでよいスレッドと時点を、Notifierと、キャッシュを持つ`BatchStepResult`・`ReplayInitialPriorityHint`・`BatchActionInfo`の宣言のコメントに書いた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D7）。
 - 2026-11-21: Observer・ReplayBuffer・RunManagerのエラー・WARN・INFOが示す設定キーを完全キーにし、評価の`scheduled`の行の各欄も完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D25）。
 - 2026-11-24: ReplayBuffer が、Sample で返す obs の spec を答える口（`GetSampleObsSpecs`）を足す仕様を決めた。Sample 用の Forwarder は、この spec を受けて作る（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.2 D14）。
+- 2026-11-24: 通常の ReplayBuffer が Sample の観測 spec を答え、プリフェッチの ReplayBuffer は内側の答えを返す形を実装した（出典: [RFD0200 実装メモ](../../memo/0200_forwarder_public_interface_rework_20impl.md)、主な変更・経過）。
 
 ## 選ばなかった形
 
@@ -241,6 +243,7 @@
 - [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md) — RFD0192: 監査で見つかった不具合 5 件をまとめて直す（Notifier の同時実行、動画の画像の大きさ、強制行動の device、重複登録、QValuePanel の平滑化）
 - [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
 - [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
+- [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md) — forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
 
 ## 課題
 
@@ -276,7 +279,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261123-79bf13](../../management/issues/issue-20261123-79bf13.md) | 未着手 | 2.3 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | 観測のキー「base か base.subkey」の解き方が rl.cpp・Replay・probe.cpp・image.cpp の 4 か所にあり、subkey が空のときの扱いと dtype が既に食い違う |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261123-c3b5ef](../../management/issues/issue-20261123-c3b5ef.md) | 未着手 | 2.2 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | Actor 近似の初期優先度で「n 先の hint を待って Estimate に渡す」手順が、Replay の内部と DQN の step 診断の 2 か所に写され、割引の計算はテストにも 3 つ目がある |
-| [issue-20261124-6b50cb](../../management/issues/issue-20261124-6b50cb.md) | 未着手 | 2.2 | — | コード | RFD | 314_tensor, 318_rl_core, 321_agent_core, 324_dqn | 基盤 | リファクタリング | [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md) | 未確認 | forwarder.hpp の公開の口で、実行の口と作る側の型が込み入り、RL の概念が汎用の層に入り、spec と重ね方がデータと逆の向きに渡る |
 | [issue-20261103-78c643](../../management/issues/issue-20261103-78c643.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | RFD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [RFD0169](../../memo/0169_outside_core_extension_layout_10rfd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | — | コード | RFD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [RFD0142](../../memo/0142_agent_prev_action_obs_10rfd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |

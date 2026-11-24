@@ -61,6 +61,48 @@ constexpr const char* kSkipStructureTag = "skip.net.structure";
 constexpr const char* kSkipDetailTag = "skip.net.detail";
 constexpr const char* kSkipNetworkSeed = "skip_network";
 
+static ReplayFrameStack ResolveReplayFrameStack(const DefaultDQNAgentConfig& config, const anet::TensorSpecMap& frame_specs)
+{
+    const auto& stack = config.frame_stack;
+    if (stack.count < 1) {
+        ANET_SYSTEM_ERROR("Invalid " << config.GetFullKey("frame_stack.count") << "=" << stack.count << "; expected >= 1.");
+    }
+    ReplayFrameStack resolved{ .count = stack.count };
+    if (stack.keys.mode == FrameStackConfig::kAllKeys) {
+        for (const auto& [key, spec] : frame_specs) resolved.keys.push_back(key);
+        std::ranges::sort(resolved.keys);
+    } else if (stack.keys.mode == FrameStackConfig::kListedKeys) {
+        const auto field = config.GetFullKey("frame_stack.keys.listed.names");
+        if (stack.keys.listed.names.empty()) {
+            ANET_SYSTEM_ERROR("Invalid " << field << "=[]; expected at least one Frame key.");
+        }
+        for (const auto& key : stack.keys.listed.names) {
+            if (!frame_specs.contains(key)) {
+                ANET_SYSTEM_ERROR("Invalid " << field << " key='" << key << "'; expected a key in the Frame spec.");
+            }
+        }
+        resolved.keys = stack.keys.listed.names;
+    } else {
+        ANET_SYSTEM_ERROR("Invalid " << config.GetFullKey("frame_stack.keys.mode") << "='" << stack.keys.mode
+            << "'; expected " << FrameStackConfig::kAllKeys << " or " << FrameStackConfig::kListedKeys << ".");
+    }
+    if (frame_specs.contains(kPerceptionStartKey)) {
+        ANET_SYSTEM_ERROR("Frame key='" << kPerceptionStartKey << "' conflicts with the reserved start key for "
+            << anet::rl::kForwardKindPerceptionFromSequence << ".");
+    }
+    return resolved;
+}
+
+static std::shared_ptr<anet::SpecForwarder> BuildActorPerception(const anet::ForwarderBuilder& builder,
+    const anet::TensorSpecMap& frame_specs, const ReplayFrameStack& stack, int row_count, anet::seed_t seed)
+{
+    auto input_specs = frame_specs;
+    input_specs.emplace(kPerceptionStartKey, anet::TensorSpec{ .dtype = torch::kBool });
+    const auto request = anet::rl::MakePerceptionFromSequenceRequest(row_count, seed, kPerceptionStartKey,
+        stack.count, stack.keys);
+    return CompletePerception(builder.BuildForwarder(request, input_specs), stack.keys, kPerceptionStartKey);
+}
+
 namespace {
     // 読み出し順はエポックごとに作る。分散時は、ためる側と学ぶ側の領域を交代で使う。
     class IntrinsicLearnRolloutBatcher {
@@ -524,12 +566,22 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(anet::ProfiledValue<float>(gamma).Evaluate(0), batch_env_spec.num_envs,
         GetInitialProfiledValueKey(gamma));
 
-    // ReplayBuffer と観測の並びへ、同じ Frame の spec を渡す。
+    // Frame の spec と重ね方を、ReplayBuffer と Forwarder の依頼へ渡す。
     const auto frame_env_spec = env_spec;
-    perception_ = std::make_unique<anet::ForwarderChain>(
+    const auto& frame_specs = frame_env_spec.state_spec.obs_spec;
+    replay_frame_stack_ = ResolveReplayFrameStack(config_, frame_specs);
+    perception_ = std::make_unique<anet::ForwarderBuilder>(
         config_.perception_config, config_.GetConfigPrefix() + ".perception",
-        frame_env_spec.state_spec.obs_spec, seed_maker.MakeNamedSeed(kPerceptionSeed));
-    frame_intake_ = perception_->GetForwarder(anet::ForwardRequest::FrameWithStatsUpdate);
+        seed_maker.MakeNamedSeed(kPerceptionSeed));
+    frame_intake_ = perception_->BuildForwarder(MakeFrameWithStatsUpdateRequest(), frame_specs);
+    RequirePerceptionSpecs(frame_specs, frame_intake_->GetOutputSpecs(), kForwardKindFrameWithStatsUpdate);
+    const auto raw_visualization = perception_->BuildForwarder(
+        MakePerceptionFromFrameRequest(replay_frame_stack_.count, replay_frame_stack_.keys), frame_specs);
+    visualization_perception_ = CompletePerception(raw_visualization, replay_frame_stack_.keys);
+    const auto probe_actor = BuildActorPerception(*perception_, frame_specs, replay_frame_stack_, 1,
+        seed_maker.MakeNamedSeed(kPerceptionSeed));
+    RequirePerceptionSpecs(visualization_perception_->GetOutputSpecs(), probe_actor->GetOutputSpecs(),
+        kForwardKindPerceptionFromSequence);
 
 
     // ------------------------------------------------------------
@@ -543,7 +595,7 @@ DefaultDQNAgent::DefaultDQNAgent(
         forward_configs_.emplace(key, std::make_shared<const anet::nn::NetworkForwardConfig>(
             config_.MakeForwardConfigKey(key), data));
     }
-    auto network_obs_spec = perception_->ForwardSpec(frame_env_spec.state_spec.obs_spec);
+    auto network_obs_spec = visualization_perception_->GetOutputSpecs();
     // IQN の taus は Perception に含めず、Network の入力 spec に足す。
     if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         anet::TensorSpec tau_spec;
@@ -572,8 +624,6 @@ DefaultDQNAgent::DefaultDQNAgent(
         is_distributional, network_seed, skip_definition ? &*skip_definition : nullptr
     );
 
-    RecordNetworkStructure();
-
     // target用のランダム探索は全有効端点で禁止する。
     if (config_.target_policy.policy_type == "EpsilonGreedy") {
         auto epsilon = config_.target_policy.epsilon;
@@ -585,6 +635,7 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->target_policy_ = DqnComponentAssembler::CreateActionPolicy(config_.target_policy, config_.quantile_mode, false, num_envs_, device_);
 
     InitializeLearner(batch_env_spec, frame_env_spec, replay_seed, learner_seed);
+    RecordNetworkStructure(*raw_visualization);
 
     // load
     if (!config_.auto_load_file.empty()) {
@@ -605,10 +656,15 @@ std::shared_ptr<anet::nn::NetworkHeadFactory> DefaultDQNAgent::SelectHeadFactory
         head.input_mode == DefaultDQNAgentConfig::kHeadInputDedicated, head.use_dueling, config_.GetFullKey("intrinsic.value.head.input_mode"));
 }
 
-void DefaultDQNAgent::RecordNetworkStructure() const
+void DefaultDQNAgent::RecordNetworkStructure(const anet::SpecForwarder& visualization) const
 {
-    anet::MetricsLogger::Instance()->Log(kPerceptionStructureTag, *perception_->MakeGraphViz(false));
-    anet::MetricsLogger::Instance()->Log(kPerceptionDetailTag, *perception_->MakeGraphViz(true));
+    auto structure = visualization.MakeGraphViz(false);
+    auto detail = visualization.MakeGraphViz(true);
+    if (!structure || !detail) {
+        ANET_SYSTEM_ERROR(kForwardKindPerceptionFromFrame << ": expected both perception diagrams.");
+    }
+    anet::MetricsLogger::Instance()->Log(kPerceptionStructureTag, *structure);
+    anet::MetricsLogger::Instance()->Log(kPerceptionDetailTag, *detail);
     // Network グラフ可視化
     {
         const auto& net = *model_->GetOnlineNetwork();
@@ -647,12 +703,13 @@ void DefaultDQNAgent::InitializeLearner(const BatchEnvSpec& batch_env_spec, cons
             MakeNetworkForwardConfigKey("noisy_probe"), data);
     }
 
+    const LearnerPerceptionSetup perception_setup{ *perception_, visualization_perception_->GetOutputSpecs() };
     learner_ = DqnComponentAssembler::CreateLearner(config_.quantile_mode, config_.qr.num_quantiles, config_.learner,
         *model_, *vars_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_,
-        perception_->GetForwarder(anet::ForwardRequest::PerceptionFromStack), LearnerForwardResources{
+        &perception_setup, LearnerForwardResources{
             .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
             .target = *forward_configs_.at(config_.learner.target.nn_forward_key)},
-        ReplayFrameStack{ .count = perception_->GetStackCount(), .keys = perception_->GetStackKeys() },
+        replay_frame_stack_,
         learner_seed, noisy_probe_config, munchausen_info.str());
 }
 
@@ -786,7 +843,7 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
 
     auto self = shared_from_this();
     auto network_fn = *fn;
-    auto perception = perception_->GetForwarder(anet::ForwardRequest::PerceptionFromFrame);
+    auto perception = visualization_perception_;
 
     return [self, network_fn, perception](const anet::TensorDict& obs) {
         // 学習中の Network と統計の更新から読み出しを保護する。
@@ -873,7 +930,8 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         .extrinsic_bootstrap = config_.learner.intrinsic.extrinsic_bootstrap_mode == LearnerConfig::kBootstrapExtrinsic,
         .intrinsic_gamma = config_.learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate ? config_.learner.intrinsic.gamma : config_.learner.gamma};
     const anet::SeedMaker seed_maker(request.seed);
-    auto perception = perception_->CreateExecutor(request.batch_env_spec.num_envs, request.device,
+    auto perception = BuildActorPerception(*perception_, env_spec_.state_spec.obs_spec, replay_frame_stack_,
+        request.batch_env_spec.num_envs,
         seed_maker.MakeNamedSeed(kPerceptionSeed));
     return DqnComponentAssembler::CreateActor(cfg, config_.learner, request, *model_, mutex_, policy,
         *forward_configs_.at(cfg.nn_forward_key), std::move(perception),

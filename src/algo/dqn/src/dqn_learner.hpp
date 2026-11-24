@@ -407,9 +407,19 @@ namespace anet::rl::dqn {
         const anet::nn::NetworkForwardConfig target = anet::nn::NetworkForwardConfig::GetDefault();
     };
 
+    struct LearnerPerceptionSetup {
+        const anet::ForwarderBuilder& builder;
+        const anet::TensorSpecMap& expected_specs;
+    };
+
+    std::shared_ptr<anet::SpecForwarder> CompletePerception(std::shared_ptr<anet::SpecForwarder> forwarder,
+        const std::vector<std::string>& stack_keys, const std::string& start_key = {});
+    void RequirePerceptionSpecs(const anet::TensorSpecMap& expected, const anet::TensorSpecMap& actual,
+        const anet::ForwardKind& kind);
+
     class Learner : public anet::rl::Learner, public anet::Module, public anet::Serializable, public anet::RandomHolder {
     public:
-        Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+        Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars,
             const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec,
             torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
@@ -441,7 +451,8 @@ namespace anet::rl::dqn {
         virtual torch::Tensor MakeUpdateDiagnostics(const ExperienceSamples& samples,
             const CurrentForwardResult& current, const torch::Tensor& target, const ElementError& error) const;
         void SetupOptimizer();                  ///< 共通初期化処理（Optimizer生成など）
-        void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed);
+        void SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, anet::seed_t seed,
+            const LearnerPerceptionSetup* perception_setup = nullptr);
         anet::ForwardCapture* OnlineBranchCapture();
         anet::ForwardCapture* TargetBranchCapture();
         TargetEvaluation MakeTargetEvaluation(bool diagnostic);
@@ -542,7 +553,7 @@ namespace anet::rl::dqn {
         std::shared_ptr<ActionPolicy> target_policy_;
         NetworkModel& model_;
         RuntimeVars& vars_;
-        std::shared_ptr<anet::Forwarder> sample_perception_;
+        std::shared_ptr<anet::SpecForwarder> sample_perception_;
         std::shared_ptr<anet::rl::ReplayBuffer> replay_buffer_;
         std::unique_ptr<torch::optim::Optimizer> optimizer_;
         std::unique_ptr<torch::optim::Optimizer> intrinsic_optimizer_;
@@ -667,7 +678,7 @@ namespace anet::rl::dqn {
     class QuantileLearnerBase : public anet::rl::dqn::Learner {
     public:
         explicit QuantileLearnerBase(
-            const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+            const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
@@ -708,7 +719,7 @@ namespace anet::rl::dqn {
 
     class TDLearner final : public anet::rl::dqn::Learner {
     public:
-        explicit TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+        explicit TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, const LearnerPerceptionSetup* perception_setup,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
@@ -720,7 +731,7 @@ namespace anet::rl::dqn {
 
     class QRLearner final : public anet::rl::dqn::QuantileLearnerBase {
     public:
-        explicit QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+        explicit QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, const LearnerPerceptionSetup* perception_setup,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,
@@ -737,7 +748,7 @@ namespace anet::rl::dqn {
 
     class IQNLearner final : public anet::rl::dqn::QuantileLearnerBase {
     public:
-        explicit IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+        explicit IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, const LearnerPerceptionSetup* perception_setup,
             const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
             const LearnerForwardResources& forward_resources,

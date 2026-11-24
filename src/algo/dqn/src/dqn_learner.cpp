@@ -26,6 +26,78 @@
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
 
+namespace {
+
+    class CompletedPerception final : public anet::SpecForwarder {
+    public:
+        CompletedPerception(std::shared_ptr<anet::SpecForwarder> forwarder, anet::TensorSpecMap output_specs,
+            std::vector<std::string> axis_keys, std::string start_key)
+            : forwarder_(std::move(forwarder)), output_specs_(std::move(output_specs)),
+              axis_keys_(std::move(axis_keys)), start_key_(std::move(start_key)) {}
+    public:
+        const anet::TensorSpecMap& GetInputSpecs() const override { return forwarder_->GetInputSpecs(); }
+        const anet::TensorSpecMap& GetOutputSpecs() const override { return output_specs_; }
+        anet::TensorDict Forward(const anet::TensorDict& input, anet::ForwardCapture* capture) override
+        {
+            const auto observation = forwarder_->Forward(input, capture);
+            anet::TensorDict result;
+            for (const auto& [key, value] : observation) {
+                if (!start_key_.empty() && key == start_key_) continue;
+                if (std::ranges::find(axis_keys_, key) != axis_keys_.end()) {
+                    result.Set(key, value.unsqueeze(1));
+                } else {
+                    result.Set(key, value);
+                }
+            }
+            return result;
+        }
+    private:
+        std::shared_ptr<anet::SpecForwarder> forwarder_;
+        anet::TensorSpecMap output_specs_;
+        std::vector<std::string> axis_keys_;
+        std::string start_key_;
+    };
+
+}
+
+std::shared_ptr<anet::SpecForwarder> anet::rl::dqn::CompletePerception(std::shared_ptr<anet::SpecForwarder> forwarder,
+    const std::vector<std::string>& stack_keys, const std::string& start_key)
+{
+    auto specs = forwarder->GetOutputSpecs();
+    const bool remove_start = !start_key.empty() && specs.erase(start_key) != 0;
+    std::vector<std::string> axis_keys;
+    for (auto& [key, spec] : specs) {
+        if (spec.has_stack_axis || std::ranges::find(stack_keys, key) == stack_keys.end()) continue;
+        spec.shape.insert(spec.shape.begin(), 1);
+        spec.has_stack_axis = true;
+        axis_keys.push_back(key);
+    }
+    if (axis_keys.empty() && !remove_start) return forwarder;
+    return std::make_shared<CompletedPerception>(
+        std::move(forwarder), std::move(specs), std::move(axis_keys), remove_start ? start_key : std::string{});
+}
+
+void anet::rl::dqn::RequirePerceptionSpecs(const anet::TensorSpecMap& expected, const anet::TensorSpecMap& actual,
+    const anet::ForwardKind& kind)
+{
+    if (expected.size() != actual.size()) {
+        ANET_SYSTEM_ERROR(kind << " output has " << actual.size() << " keys; expected " << expected.size() << ".");
+    }
+    const bool frame_intake = kind == kForwardKindFrameWithStatsUpdate;
+    for (const auto& [key, spec] : expected) {
+        const auto found = actual.find(key);
+        if (found == actual.end()) {
+            ANET_SYSTEM_ERROR(kind << " output is missing expected key='" << key << "'.");
+        }
+        const auto& actual_spec = found->second;
+        if (actual_spec.shape != spec.shape || actual_spec.dtype != spec.dtype
+            || (!frame_intake && actual_spec.ToJson() != spec.ToJson())) {
+            ANET_SYSTEM_ERROR(kind << " output spec key='" << key << "': got "
+                << actual_spec.ToJson().dump() << "; expected " << spec.ToJson().dump() << ".");
+        }
+    }
+}
+
 constexpr const char* kIntrinsicOptimizerKeyPrefix = "intrinsic_optimizer.";
 
 static constexpr std::string_view kPlasticityTargetPrefix = "plasticity_target_";
@@ -112,7 +184,7 @@ static float CalculateSpearmanCorrelation(const torch::Tensor& lhs_cpu, const to
         covariance / std::sqrt(lhs_square_sum * rhs_square_sum), -1.0, 1.0));
 }
 
-Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
@@ -120,7 +192,7 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     : RandomHolder(target_seed), config_(config), learning_rate_(config.learning_rate), weight_decay_(config.weight_decay), per_beta_(config.per_beta), soft_update_tau_(model.GetSoftUpdateTauConfig()), gamma_(config.gamma), intrinsic_gamma_(config.intrinsic.gamma),
       munchausen_alpha_(config.munchausen.alpha), munchausen_entropy_tau_(config.munchausen.entropy_tau),
       munchausen_values_(config.munchausen.Resolve(munchausen_alpha_.Value(), munchausen_entropy_tau_.Value())),
-      has_optimizer_schedule_(config.learning_rate.type != kConstantScheduleType || config.weight_decay.type != kConstantScheduleType), frame_stack_(frame_stack), model_(model), vars_(vars), sample_perception_(std::move(sample_perception))
+      has_optimizer_schedule_(config.learning_rate.type != kConstantScheduleType || config.weight_decay.type != kConstantScheduleType), frame_stack_(frame_stack), model_(model), vars_(vars)
     , num_envs_(batch_env_spec.num_envs)
     , n_actions_(env_spec.action_spec.GetNumActions())//, state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
@@ -895,7 +967,8 @@ void Learner::SetupOptimizer()
     }
 }
 
-void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed)
+void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, seed_t seed,
+    const LearnerPerceptionSetup* perception_setup)
 {
     // 学習しないRunではcapacity分の確保が丸ごと無駄になるため構築しない。
     // 学習経路の無条件derefはUpdateFromBatchの早期returnで到達不能で、
@@ -954,6 +1027,14 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
         rep_config, env_spec, batch_env_spec.num_envs, torch::kCPU, false, seed, std::move(estimator));
     if (config_.use_rb_prefetch) {
         this->replay_buffer_ = std::make_shared<anet::rl::PrefetchingReplayBuffer>(this->replay_buffer_, device_);
+    }
+    if (perception_setup) {
+        const auto& stack = frame_stack_.value();
+        const auto request = MakePerceptionFromStackRequest(stack.count, stack.keys);
+        sample_perception_ = CompletePerception(
+            perception_setup->builder.BuildForwarder(request, replay_buffer_->GetSampleObsSpecs()), stack.keys);
+        RequirePerceptionSpecs(perception_setup->expected_specs,
+            sample_perception_->GetOutputSpecs(), kForwardKindPerceptionFromStack);
     }
 }
 
@@ -2079,12 +2160,12 @@ MunchausenForwardResult Learner::ForwardMunchausenValues(
     return MunchausenForwardResult{ .current_values = current_values, .next_values = next_values };
 }
 
-QuantileLearnerBase::QuantileLearnerBase(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+QuantileLearnerBase::QuantileLearnerBase(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : Learner(config, model, vars, std::move(sample_perception), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+    : Learner(config, model, vars, batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
         std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
 }
@@ -2309,15 +2390,15 @@ IqnLossResult QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
     };
 }
 
-TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, const LearnerPerceptionSetup* perception_setup,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : Learner(config, model, vars, std::move(sample_perception), batch_env_spec, env_spec, device, replay_seed, agent_seed,
+    : Learner(config, model, vars, batch_env_spec, env_spec, device, replay_seed, agent_seed,
         std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
-    SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
+    SetupReplayBuffer(batch_env_spec, env_spec, replay_seed, perception_setup);
     SetupOptimizer();
 }
 
@@ -2827,15 +2908,15 @@ torch::Tensor Learner::MakeUpdateDiagnostics(const ExperienceSamples&,
     return {};
 }
 
-QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, const LearnerPerceptionSetup* perception_setup,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : QuantileLearnerBase(config, model, vars, std::move(sample_perception), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+    : QuantileLearnerBase(config, model, vars, batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
         std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
-    SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
+    SetupReplayBuffer(batch_env_spec, env_spec, replay_seed, perception_setup);
     SetupOptimizer();
 
     // tau_iの事前計算
@@ -2852,15 +2933,15 @@ ElementError QRLearner::ComputeElementError(const torch::Tensor& current,
     return QuantileLearnerBase::ComputeElementError(current, target, tau_i_, request, current_mean);
 }
 
-IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, std::shared_ptr<anet::Forwarder> sample_perception,
+IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, const LearnerPerceptionSetup* perception_setup,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : QuantileLearnerBase(config, model, vars, std::move(sample_perception), batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+    : QuantileLearnerBase(config, model, vars, batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
         std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
-    SetupReplayBuffer(batch_env_spec, env_spec, replay_seed);
+    SetupReplayBuffer(batch_env_spec, env_spec, replay_seed, perception_setup);
     SetupOptimizer();
 }
 

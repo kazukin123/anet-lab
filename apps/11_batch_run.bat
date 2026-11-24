@@ -399,6 +399,7 @@ SET "PL3R4=metrics.scalar.[34_agent_plasticity/43_probe_feature_norm]=$agent pla
 SET "PL4R4=metrics.scalar.[34_agent_plasticity/44_probe_srank]=$agent plasticity_probe_srank @learn $learn_step interval:2500"
 SET "PL5R4=metrics.scalar.[34_agent_plasticity/45_probe_srank_ratio]=$agent plasticity_probe_srank_ratio @learn $learn_step interval:2500"
 SET "TGQ8B=DefaultDQNAgent.learner.replay_ratio=8 DefaultDQNAgent.learner.replay_batch_size=512 DefaultDQNAgent.model.hard_update_interval=125 DefaultDQNAgent.learner.per_alpha=0.5 DefaultDQNAgent.learner.per_beta.start=0.5 DefaultDQNAgent.learner.per_beta.end=0.5"
+SET "STK=DefaultDQNAgent.frame_stack.count=4 DefaultDQNAgent.frame_stack.keys.mode=all"
 if /I "%QUEUE%"=="mz_rr4" goto :mz_rr4_stages
 if /I "%QUEUE%"=="mz_b512" goto :mz_b512_stages
 

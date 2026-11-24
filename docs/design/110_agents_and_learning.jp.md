@@ -44,7 +44,7 @@ DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、Replay
 
 ActorはModuleでもあり、`Runner::GetActor()`とmetricsの`$actor`からepsilon・温度などを参照できる。方策スケジュールは`MakeAction`の学習側countsで進む。EvalRunnerは`Sync(source_counts)`で学習側countsを保持し、評価イベント自体のcountsは別に数える。
 
-DefaultDQN は Env の単フレーム spec を Perception と ReplayBuffer の構築に使う。Agent が保存する Frame、Actor が選択に使う観測、Learner が使う Replay sample、可視化の観測は、それぞれの経路で同じ Perception の定義を参照する。[Forwarder と Perception](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)を参照。
+DefaultDQN は Env と同じ単フレーム spec で経験を受け入れ、ReplayBuffer を構築する。行動選択、経験の受入れ、Sample、可視化で同じ Builder を使い、それぞれの入力 spec を渡して Forwarder を作る。Sample の入力 spec は ReplayBuffer が返す。[Forwarder と Perception](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)を参照。
 
 ### 2.3 StateとResource
 

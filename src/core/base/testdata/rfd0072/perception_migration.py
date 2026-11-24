@@ -1,4 +1,4 @@
-"""固定された RFD0072 の入力だけを RFD0161 の設定に移す。"""
+"""固定された RFD0072 の入力を現在の観測加工の設定へ移す。"""
 
 import re
 
@@ -32,7 +32,7 @@ def migrate_perception(text):
         declarations = None
         if separator:
             if field == "stack_count":
-                declarations = [(f"{owner}.perception.block.[stack].count", value)]
+                declarations = [(f"{owner}.frame_stack.count", value)]
             elif field == "use_stacker" and value == "true":
                 declarations = []
                 if owner == "DefaultDQNAgent.@baseline":
@@ -41,7 +41,7 @@ def migrate_perception(text):
                         (f"{owner}.perception.block.[stack].type", "FrameStack"),
                     ])
             elif field == "stack_keys" and not value:
-                declarations = [(f"{owner}.perception.block.[stack].keys.mode", "all")]
+                declarations = [(f"{owner}.frame_stack.keys.mode", "all")]
         elif key.startswith(_NORMALIZE):
             field = key[len(_NORMALIZE):]
             root = "DefaultDQNAgent.@baseline.perception.block.[norm]"

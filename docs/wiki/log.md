@@ -1308,3 +1308,5 @@
 2026-11-24 writeback docs/memo/0200_forwarder_public_interface_rework_10rfd.md blob:ea9a9da22826055c15e5138396a5794f5d6993f4 → docs/wiki/categories/314_tensor.md、docs/wiki/categories/318_rl_core.md、docs/wiki/categories/321_agent_core.md、docs/wiki/categories/324_dqn.md
 2026-11-24 writeback docs/memo/0200_forwarder_public_interface_rework_10rfd.md blob:0a1ca8b305c581f589f22a1364c766416fe33a09 → なし（起票のあとに出た材料を §10.4 に足した。確定事項と実装契約は変えていない）
 2026-11-24 writeback docs/memo/0142_agent_prev_action_obs_10rfd.md blob:79ffc2db8a72bfa111eb34fb1259a4cc4377683c → なし（再グリルの材料を足した。本文の仕様は変えていない）
+2026-11-25 writeback docs/memo/0200_forwarder_public_interface_rework_10rfd.md blob:aaa002528394e0efc0acd09c149f7d8df63ddb90 → docs/wiki/categories/314_tensor.md（外部部品にも適用する設定エラーの順序を反映）
+2026-11-25 writeback docs/memo/0200_forwarder_public_interface_rework_20impl.md blob:cd76f50c3b55dba47f78eea1a2eee65690b86872 → docs/wiki/categories/314_tensor.md、docs/wiki/categories/318_rl_core.md、docs/wiki/categories/321_agent_core.md、docs/wiki/categories/324_dqn.md

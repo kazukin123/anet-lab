@@ -198,6 +198,20 @@ namespace anet::rl::dqn {
             std::vector<std::string> keys; ///< 空の一覧は全キーを重ねる。
         };
 
+        struct FrameStackConfig {
+            static constexpr char kAllKeys[] = "all";
+            static constexpr char kListedKeys[] = "listed";
+            int count = 1;
+            struct {
+                std::string mode = kAllKeys;
+                struct {
+                    std::vector<std::string> names;
+                } listed;
+            } keys;
+        };
+
+        inline constexpr char kPerceptionStartKey[] = "episode_start";
+
         struct MunchausenValues {
             static constexpr char kLogPolicyTarget[] = "target";
             static constexpr char kLogPolicyOnline[] = "online";

@@ -47,7 +47,7 @@ namespace anet::rl::dqn {
             const BatchEnvSpec& batch, const EnvSpec& env, const torch::Device& device,
             anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
-            std::shared_ptr<anet::Forwarder> sample_perception = nullptr,
+            const LearnerPerceptionSetup* perception_setup = nullptr,
             const LearnerForwardResources& forwards = {},
             std::optional<ReplayFrameStack> frame_stack = std::nullopt,
             std::optional<anet::seed_t> learner_seed = std::nullopt,
@@ -58,7 +58,7 @@ namespace anet::rl::dqn {
             const ActorRequest& request, NetworkModel& model,
             const std::shared_ptr<std::shared_mutex>& mutex, std::shared_ptr<ActionPolicy> policy,
             const anet::nn::NetworkForwardConfig& forward = anet::nn::NetworkForwardConfig::GetDefault(),
-            std::unique_ptr<anet::ForwardExecutor> perception = nullptr,
+            std::shared_ptr<anet::Forwarder> perception = nullptr,
             bool emit_snapshot_metrics = false, ActorQHintConfig hint = {},
             std::optional<anet::ProfiledValueConfig<step_t>> sync_interval = std::nullopt,
             std::optional<SkipActorResources> skip = std::nullopt);

@@ -40,7 +40,7 @@ Agentは、そのNetworkへの入力として使うspecを選ぶ。ImageClsAgent
 
 spec の尺度と stack 軸の属性は、観測を作る側が宣言する。 [Forwarder と Perception](135_forwarder_and_perception.jp.md#2-観測の-spec)
 
-`DefaultDQNAgent` は Perception の spec を Network の入力に使う。stack 対象キーには枚数が1のときも先頭に stack 軸があり、`stack_axis` は真になる。構築時の dummy input、Actor、Learner は batch 軸を加えた `[B, S, *original_shape]` を使う。
+`DefaultDQNAgent` は可視化用の Forwarder の出力 spec を Network の入力に使い、行動選択用と Sample 用をその spec と構築時に照合する。stack 対象キーには枚数が1のときも先頭に stack 軸があり、`stack_axis` は真になる。構築時の dummy input、Actor、Learner は batch 軸を加えた `[B, S, *original_shape]` を使う。
 
 Network構成では、stack軸を暗黙に復元せず、目的に応じて次のmoduleを明示する。
 

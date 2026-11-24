@@ -585,6 +585,10 @@ public:
         return result;
     }
 
+    const anet::TensorSpecMap& GetSampleObsSpecs() const override { return sample_obs_specs; }
+
+    anet::TensorSpecMap sample_obs_specs;
+
     int64_t Size() const override
     {
         return size_value;
@@ -1061,22 +1065,28 @@ TEST_CASE("Perception round trips actor observations through replay and decision
 {
     const int stack_count = GENERATE(1, 4);
     const auto env = MakeEnvSpec(true);
+    const std::vector<std::string> stack_keys{ kVectorKey };
+    const std::string start_key = "test_start";
     anet::ConfigData data;
     data.Set("perception.structure", "stack");
     data.Set("perception.block.[stack].type", "FrameStack");
-    data.Set("perception.block.[stack].count", std::to_string(stack_count));
-    data.Set("perception.block.[stack].keys.mode", "listed");
-    data.Set("perception.block.[stack].keys.listed.names", kVectorKey);
-    anet::ForwarderChain perception(data, "perception", env.state_spec.obs_spec, 161);
-    auto replay_config = MakeConfig(32, 4, 0.5f, perception.GetStackCount(), rl::ReplaySamplerType::UNIFORM);
-    replay_config.stack_keys = perception.GetStackKeys();
+    const anet::ForwarderBuilder builder(data, "perception", 161);
+    auto replay_config = MakeConfig(32, 4, 0.5f, stack_count, rl::ReplaySamplerType::UNIFORM);
+    replay_config.stack_keys = stack_keys;
     replay_config.window_rule = rl::CreateDecisionWindowRule(3);
     CHECK(replay_config.stack_count == stack_count);
     CHECK(replay_config.stack_keys == std::vector<std::string>{kVectorKey});
     const auto replay = MakeBuffer(replay_config, 1, true);
-    const auto actor = perception.CreateExecutor(1, torch::kCPU, 161);
-    const auto store = perception.GetForwarder(anet::ForwardRequest::FrameWithStatsUpdate);
-    const auto recover = perception.GetForwarder(anet::ForwardRequest::PerceptionFromStack);
+    const auto& frame_specs = env.state_spec.obs_spec;
+    auto sequence_specs = frame_specs;
+    sequence_specs.emplace(start_key, anet::TensorSpec{ .dtype = torch::kBool });
+    const auto actor = builder.BuildForwarder(rl::MakePerceptionFromSequenceRequest(1, 161, start_key, stack_count, stack_keys), sequence_specs);
+    const auto store = builder.BuildForwarder(rl::MakeFrameWithStatsUpdateRequest(), frame_specs);
+    const auto recover = builder.BuildForwarder(rl::MakePerceptionFromStackRequest(stack_count, stack_keys), replay.rb->GetSampleObsSpecs());
+    const auto act = [&](anet::TensorDict frame, const torch::Tensor& starts) {
+        frame.Set(start_key, starts);
+        return actor->Forward(frame).At(kVectorKey).squeeze(0).clone();
+    };
     std::vector<torch::Tensor> actor_vectors;
     torch::Tensor truncated_vector;
     constexpr int kTruncation = 2;
@@ -1089,11 +1099,9 @@ TEST_CASE("Perception round trips actor observations through replay and decision
         info.Set(rl::BatchActionInfo::kKeyDecision, BoolTensor({episode_start}));
         auto experience = MakeBatch({float(step)}, {truncated ? -1.0f : float(step + 1)}, {1.0f},
             {step == kTerminal}, {truncated}, {episode_start}, true, info);
-        actor_vectors.push_back(actor->Forward(experience.state.obs, experience.state.episode_start)
-            .At(kVectorKey).squeeze(0).clone());
+        actor_vectors.push_back(act(experience.state.obs, experience.state.episode_start));
         if (truncated) {
-            truncated_vector = actor->Forward(experience.next_state.obs, BoolTensor({false}))
-                .At(kVectorKey).squeeze(0).clone();
+            truncated_vector = act(experience.next_state.obs, BoolTensor({false}));
         }
         experience.state.obs = store->Forward(experience.state.obs);
         experience.next_state.obs = store->Forward(experience.next_state.obs);
@@ -4131,6 +4139,29 @@ TEST_CASE("ReplayBuffer frame stacking does not cross done boundaries per env", 
     RequireSampleMeta(env1, IndexOf(buffer, 1, 2), RewardValue(1, 2), false, 1);
     RequireFlatApprox(env1.obs.At(kVectorKey)[0], { StateValue(1, 0), StateValue(1, 1), StateValue(1, 2) });
     RequireFlatApprox(env1.next_state.next_obs.At(kVectorKey)[0], { StateValue(1, 1), StateValue(1, 2), StateValue(1, 3) });
+}
+
+TEST_CASE("ReplayBuffer reports the specs of sampled observations", "[replay_buffer][perception]")
+{
+    const int count = GENERATE(1, 4);
+    auto config = MakeConfig(20, 1, 0.99f, count);
+    config.stack_keys = { kVectorKey };
+    auto buffer = MakeBuffer(config, 1, true);
+    for (int64_t step = 0; step <= count; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0), {}, true);
+    }
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, count - 1));
+    const auto& specs = buffer.rb->GetSampleObsSpecs();
+    REQUIRE(specs.size() == samples.obs.size());
+    CHECK(specs.at(kVectorKey).has_stack_axis == (count > 1));
+    CHECK_FALSE(specs.at(kMaskKey).has_stack_axis);
+    if (count > 1) CHECK(specs.at(kVectorKey).shape.front() == count);
+    for (const auto& [key, tensor] : samples.obs) {
+        CAPTURE(key);
+        CHECK(specs.at(key).shape == tensor.sizes().slice(1).vec());
+        CHECK(specs.at(key).dtype == tensor.scalar_type());
+    }
 }
 
 TEST_CASE("ReplayBuffer stack_keys leaves non-stacked observations at latest frame", "[replay_buffer][frame_stack][stack_keys]")

@@ -407,6 +407,7 @@ namespace anet::rl {
 
         void Push(const BatchExperience& batch_exp, std::span<const float> gammas) override;
         void Sample(ExperienceSamples& out_samples, int64_t minibatch_size, float beta, std::span<const float> gammas) const override;
+        const TensorSpecMap& GetSampleObsSpecs() const override { return sample_obs_specs_; }
         bool SampleUniqueUniform(ExperienceSamples& out_samples, int64_t batch_size, anet::RandomGenerator& random, std::span<const float> gammas) const override;
         SamplingHistoryProbeResult ProbeSamplingHistory(
             const SamplingHistoryProbeRequest& request, anet::RandomGenerator* random, std::span<const float> gammas) const override;
@@ -448,6 +449,7 @@ namespace anet::rl {
         };
     private:
         ReplayBufferConfig config_;
+        TensorSpecMap sample_obs_specs_;
         int64_t num_envs_;
         int64_t capacity_per_env_;
 

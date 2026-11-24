@@ -30,7 +30,7 @@ BatchEnvBuilder (env.class_id = AtariEnv)
             └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → selected resize → uint8 [1,S,S]
 ```
 
-- Env は1枚ずつ返す。DefaultDQN の `FrameStack` が Actor の履歴を重ね、ReplayBuffer は同じ枚数とキーで Sample を再構成する。 [Forwarder と Perception](135_forwarder_and_perception.jp.md)
+- Env は1枚ずつ返す。DefaultDQN の `frame_stack.*` で枚数と対象キーを指定する。行動選択用 Forwarder の `FrameStack` は Actor の履歴を重ね、ReplayBuffer は同じ枚数とキーで Sample を再構成する。 [Forwarder と Perception](135_forwarder_and_perception.jp.md)
 - RB には単フレーム uint8 が保存され、stack はサンプル時に展開される（ADR 0026）。
 - 責務分担: **AtariEnv = 1 ALE の駆動と標準前処理**。並列・stack・Step内の終端lane自動リセット・seed 配布はフレームワーク既存機構。
 

@@ -40,6 +40,7 @@ namespace anet::rl::dqn {
         std::map<std::string, anet::ConfigData> nn_forward;
         NetworkModelConfig model;
         ConfigData perception_config;
+        FrameStackConfig frame_stack;
         std::map<std::string, DQNActorConfig> actor;
         ActionPolicyConfig target_policy;
         LearnerConfig learner;
@@ -109,6 +110,9 @@ namespace anet::rl::dqn {
             ReadLearner(config_data);
             ReadRewardScaler(config_data);
             perception_config = MakeReadScope(config_data, "perception");
+            ANET_READ_CONFIG(config_data, frame_stack.count);
+            ANET_READ_CONFIG(config_data, frame_stack.keys.mode);
+            ANET_READ_CONFIG(config_data, frame_stack.keys.listed.names);
             ReadHeadSelection(config_data);
             ReadSkip(config_data);
             ReadValueDecomposition(config_data, actor_read_scopes);
@@ -854,7 +858,7 @@ namespace anet::rl::dqn {
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
         std::shared_ptr<anet::nn::NetworkHeadFactory> SelectHeadFactory() const;
-        void RecordNetworkStructure() const;
+        void RecordNetworkStructure(const anet::SpecForwarder& visualization) const;
         void InitializeLearner(const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec,
             anet::seed_t replay_seed, anet::seed_t learner_seed);
         void LoadNetwork(const std::string& filename);
@@ -868,8 +872,10 @@ namespace anet::rl::dqn {
         std::map<std::string, std::shared_ptr<const anet::nn::NetworkForwardConfig>> forward_configs_; ///< Agent 所有の実行設定 Resource
         std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
-        std::unique_ptr<anet::ForwarderChain> perception_;
-        std::shared_ptr<anet::Forwarder> frame_intake_;
+        std::unique_ptr<anet::ForwarderBuilder> perception_;
+        ReplayFrameStack replay_frame_stack_;
+        std::shared_ptr<anet::SpecForwarder> frame_intake_;
+        std::shared_ptr<anet::SpecForwarder> visualization_perception_;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_ = nullptr;
         std::unique_ptr<IntrinsicRewardCoordinator, IntrinsicRewardCoordinatorDeleter> intrinsic_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー

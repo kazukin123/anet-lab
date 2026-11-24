@@ -263,7 +263,7 @@ namespace anet::rl::dqn {
     class Actor : public anet::rl::Actor, public anet::RandomHolder {
     public:
         Actor(std::shared_ptr<ActionPolicy> policy,
-            std::unique_ptr<anet::ForwardExecutor> perception,
+            std::shared_ptr<anet::Forwarder> perception,
             torch::Device device,
             std::optional<seed_t> seed,
             std::shared_ptr<std::shared_mutex> mutex,
@@ -289,7 +289,7 @@ namespace anet::rl::dqn {
             const std::optional<anet::rl::ForcedActions>& forced_actions) const;
     private:
         std::shared_ptr<ActionPolicy> policy_;
-        std::unique_ptr<anet::ForwardExecutor> perception_;
+        std::shared_ptr<anet::Forwarder> perception_;
         torch::Device device_;
         std::shared_ptr<std::shared_mutex> mutex_;
         std::shared_ptr<anet::nn::Network> network_;

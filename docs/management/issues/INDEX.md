@@ -90,7 +90,6 @@
 | [issue-20261103-cdac7c](issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | コード | RFD | 321_agent_core | アルゴリズム | 機能改善 | [RFD0148](../../memo/0148_target_update_step_axis_10rfd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |
 | [issue-20261111-4351bc](issue-20261111-4351bc.md) | 未着手 | 2.2 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | DQN の Actor が const の MakeAction の中で 11 個の mutable メンバを書き換えて状態を進め、一時的な出力を結果の public メンバで運んでいる |
 | [issue-20261123-c3b5ef](issue-20261123-c3b5ef.md) | 未着手 | 2.2 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | Actor 近似の初期優先度で「n 先の hint を待って Estimate に渡す」手順が、Replay の内部と DQN の step 診断の 2 か所に写され、割引の計算はテストにも 3 つ目がある |
-| [issue-20261124-6b50cb](issue-20261124-6b50cb.md) | 未着手 | 2.2 | — | コード | RFD | 314_tensor, 318_rl_core, 321_agent_core, 324_dqn | 基盤 | リファクタリング | [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md) | 未確認 | forwarder.hpp の公開の口で、実行の口と作る側の型が込み入り、RL の概念が汎用の層に入り、spec と重ね方がデータと逆の向きに渡る |
 | [issue-20261103-72f807](issue-20261103-72f807.md) | 未着手 | 2.0 | — | コード | 監査 | 321_agent_core | アルゴリズム | 不具合 | — | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | [issue-20261103-78c643](issue-20261103-78c643.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
 | [issue-20261103-785e68](issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | RFD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [RFD0169](../../memo/0169_outside_core_extension_layout_10rfd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
@@ -226,4 +225,3 @@ docs/memo 直下の RFD のうち、どの課題の rfd からも指されない
 | ID | 起票日 | 課題 |
 |---|---|---|
 | [issue-20261115-b02db6](issue-20261115-b02db6.md) | 2026-11-15 | RND の Head の出力次元 intrinsic.rnd.output_dim が rnd の直下にあり、Head の初期値 intrinsic.rnd.head.init.* と置き場が分かれている |
-| [issue-20261124-6b50cb](issue-20261124-6b50cb.md) | 2026-11-24 | forwarder.hpp の公開の口で、実行の口と作る側の型が込み入り、RL の概念が汎用の層に入り、spec と重ね方がデータと逆の向きに渡る |

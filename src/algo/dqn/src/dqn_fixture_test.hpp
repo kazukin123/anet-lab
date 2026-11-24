@@ -485,7 +485,6 @@ public:
             config,
             model,
             vars,
-            nullptr,
             batch_env_spec,
             env_spec,
             torch::Device(torch::kCPU),
@@ -657,6 +656,10 @@ public:
         return true;
     }
 
+    const anet::TensorSpecMap& GetSampleObsSpecs() const override { return sample_obs_specs; }
+
+    anet::TensorSpecMap sample_obs_specs;
+
     int64_t Size() const override
     {
         ++size_count;
@@ -804,7 +807,7 @@ anet::ConfigData MakeNativeStackConfigData()
     config_data.Set("DefaultDQNAgent.head.use_dueling", false);
     config_data.Set("DefaultDQNAgent.perception.structure", "stack");
     config_data.Set("DefaultDQNAgent.perception.block.[stack].type", "FrameStack");
-    config_data.Set("DefaultDQNAgent.perception.block.[stack].count", 4);
+    config_data.Set("DefaultDQNAgent.frame_stack.count", 4);
 
     config_data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
     config_data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
@@ -1149,7 +1152,6 @@ public:
             config,
             model,
             vars,
-            nullptr,
             batch_env_spec,
             env_spec,
             torch::Device(torch::kCPU),

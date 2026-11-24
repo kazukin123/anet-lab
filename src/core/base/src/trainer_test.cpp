@@ -303,7 +303,10 @@ public:
     void Sample(rl::ExperienceSamples&, int64_t, float, std::span<const float> gammas) const override {}
     bool SampleUniqueUniform(
         rl::ExperienceSamples&, int64_t, anet::RandomGenerator&, std::span<const float>) const override { return false; }
+    const anet::TensorSpecMap& GetSampleObsSpecs() const override { return sample_obs_specs; }
     int64_t Size() const override { return 0; }
+
+    anet::TensorSpecMap sample_obs_specs;
     rl::ReplayPriorityUpdateResult UpdatePriorities(
         const std::vector<int64_t>&, const std::vector<float>&) override
     {

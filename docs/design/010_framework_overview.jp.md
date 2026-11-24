@@ -163,6 +163,7 @@ flowchart TB
 | Agent | `AgentFactory`、`Agent`、`Actor` | `anet/agent.hpp`、`anet/rl.hpp` | `RegisterAgentFactory` | 書ける | DefaultDQN |
 | NN Head | `NetworkHead`、`NetworkHeadFactory` | `anet/nn_head.hpp` の実行器、初期化、汎用 Head | `NetworkBuilder::BuildNetwork` の Head factory | 書ける | Dueling Head |
 | NN module | `NetworkModule` | `anet/nn_head.hpp` に見える基底型 | 内部の module 登録口 | 登録口が非公開のため書けない | Linear module |
+| Forwarder の部品 | `ForwarderModule`、`ForwarderModuleFactory` | `anet/forwarder.hpp` の `SpecForwarder`、`MakePassThroughForwarder` | `RegisterForwarderModuleFactory` | 書ける | FrameStack、SetSpec |
 | Observer | `Observer` | `anet/rl.hpp`、`anet/observers.hpp` | `Notifier::Attach` | コードで付けるなら書ける | ScalarObserver |
 | ReplayBuffer | `ReplayBuffer` | `anet/replay_buffer.hpp`、`anet/replay_experience.hpp` | 共通 ReplayBuffer の実装内部 | 差し替えはできない | N-step の ReplayBuffer |
 
