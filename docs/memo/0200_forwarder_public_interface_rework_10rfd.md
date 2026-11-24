@@ -1,6 +1,7 @@
 # forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
 
 > 2026-11-24 起票。グリルを行った（2026-11-23〜24。hpp の草案を直しながら、会話の中で決めた。草案は §10.3）。起草のあと、別モデルの検討（2026-11-24）を受けて直した（§10.2）。
+> 2026-11-24 改訂: 起票のあとに出た材料を §10.4 に足した（RFD0142 を本 RFD の口に照らした机上の確かめと、直近の系列を並びの外のバッファに置く案）。確定事項と実装契約は変えていない。開発者は、今の形のまま先に実装すると述べた。
 > 起点: [0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md) の実装のあとの、開発者のレビュー（2026-11-23）。forwarder.hpp について、依頼の型の名前が中身と合っていないこと、型の関係が込み入っていること、RL に依らない層に RL の概念が入っていることが挙がった（§10.1）。
 > 基準コード: 2026-11-24 の main（`0411d5eb`）。実装の入口で、§1 と §4 の行番号をシンボル名で引き直す。
 > 関連: [ADR 0094](../adr/0094-forwarders-are-built-per-request-and-builders-are-not-forwarders.md)、[ADR 0095](../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、[ADR 0096](../adr/0096-stack-axis-and-chain-validity-are-ensured-by-the-caller-not-the-forwarder-mechanism.md)。一部を改める ADR は [ADR 0084](../adr/0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product.md) と [ADR 0086](../adr/0086-perception-stack-target-keys-always-carry-stack-axis.md)（§5.5 の D29）。
@@ -737,6 +738,37 @@ ReplayBuffer に足す口（`rl.hpp` の `ReplayBuffer`）:
     /// Sample が返す obs（next_obs も同じ形）の spec。
     virtual const TensorSpecMap& GetSampleObsSpecs() const = 0;
 ```
+
+### 10.4 起票のあとに出た材料（2026-11-24）
+
+起票とレビューのあとの会話で出た材料である。決定ではない。本 RFD の確定事項（§5）と実装契約（§6）は変えておらず、開発者は、今の形のまま先に実装すると述べた。次に本 RFD か [0142_agent_prev_action_obs_10rfd.md](0142_agent_prev_action_obs_10rfd.md) を再グリルするときの材料にする。
+
+**開発者の発言**
+
+- 「イメージは、とりあえずActionも入力に入れておいて、ActionConcatForwarder（仮）をかましたらそれがPerceptionに混ぜられるイメージ。本流として入れるDictと必要に応じて横道から混ぜるネタにするDictの区別が必要？」
+- 「Stackingもprev_actionも、共通して、直近の系列情報(状態・行動・報酬・終端情報）を貯めて置く必要があると思うけど、入力じゃなくてそのバッファを横からいつでも部品が見れるようにしたらいいんじゃないかなあ」
+- 「記録だけ。明日のリセット前にPPO試作まで終わらせたいから、今のRFD0200で一旦実装します」
+
+**AI の整理 1: RFD0142 を本 RFD の口に照らした結果**（机上の確かめで、試作はしていない）
+
+口を変えずに載る。仕事は、次の 2 つに分かれる。
+
+- 行動を入力の Dict に入れる仕事は、並びの手前（Actor と Agent）が行う。行動選択のとき、直前の行動は観測に無く、Sample で作り直すには Frame に入っている必要があるためである。入口は、行動選択・経験の受入れ・可視化の 3 つになる。経験の受入れのときに、部品がキーを作り出す形は、D14 の確かめ（受入れ用の出力の spec が Frame の spec と同じ）で止まる。
+- 入った行動を Perception に混ぜる仕事は、並びの部品（登録した部品。経験の受入れでは素通しにする）でも、NN の `bind` でもできる。どちらにするかは、RFD0142 の再グリルで決める。
+
+入力の Dict は 1 つでよい。区別するのは、キーごとの 3 点（Frame に保存するか、重ねるか、正規化するか）で、それぞれ、依頼に渡す spec、`frame_stack.keys`、spec の宣言で決まる。
+
+RFD0161 の D2 は「Agent が足す情報は、Actor の実行器が作る」と書く。本 RFD は実行器を無くすので、「並びの手前で、Actor と Agent が Frame に足す」と読み替える。
+
+**AI の整理 2: 直近の系列を、並びの外のバッファに置く案**（開発者の 2 つ目の発言による）
+
+- 形: 行動選択では、Actor が、lane ごとの直近の系列（観測・行動・報酬・開始の印）を持つ。Sample では、ReplayBuffer が、標本ごとに同じ形の束を返す。部品は、どちらでも同じ束を受ける、状態を持たない変換になる（重ねるは観測の列をそのまま使い、直前の行動は行動の列の最後を取る）。
+- 今の持ち主: 行動選択の側の履歴は、`FrameStack` の部品が Actor ごとに作る実行器の中の `DictFrameStacker` が持ち、重ねるキーの観測だけを貯める（[forwarder.cpp](../../src/core/base/src/forwarder.cpp) 117〜127 行、[stacker.hpp](../../src/core/base/include/anet/stacker.hpp) 28〜39 行）。Sample の側は、ReplayBuffer が保存した slot から重ね直す。
+- 得るもの: 直前の行動や報酬を、Frame に保存しなくて済む（ReplayBuffer には行動と報酬の列が既にある）。行動選択と Sample が同じ依頼になり、両者の一致が作りで決まる。[0173_intrinsic_reward_novelty_10rfd.md](0173_intrinsic_reward_novelty_10rfd.md) の入力（直前の行動・外的報酬・内的報酬）と、同 RFD の未決の「履歴の持ち主」に合う。
+- 払うもの: ReplayBuffer の Sample の契約が変わる（行動と報酬の列を、obs・n-step 先の next_obs・skip の学習の窓の終点に返す。NG4 の線を越える）。エピソードの先頭の埋め方を、Actor の側と ReplayBuffer の側でそろえる必要がある。
+- 本 RFD の決定のうち、変わる見込みのもの: D1 のうち開始の印を入力の鍵にすること、D11・D12（軸を足す、印を除く）、D13（`FrameStack` を並びの部品のままにする。§5.6 で退けた「重ねるのを、並びの外へ出す」を、行動と報酬まで広げた形に当たる）、D21 の比較、§6.4 の Forward の種類（`PerceptionFromSequence` が要らなくなる見込み）。
+- 読む道: 部品がバッファを横から読む形と、バッファの持ち主が束を切り出して、入力の Dict として渡す形がある。AI は後者を推した（Sample の側は標本ごとに見る場所が違い、部品が読むものは、依頼に渡す spec に現れている必要があるため）。開発者の答えは得ていない。
+- 確かめていないこと: 性能（Sample で足す列の取り出し）と、ReplayBuffer の変更の大きさ。
 
 ## 11. 関連
 
