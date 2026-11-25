@@ -35,7 +35,7 @@
 #   Dropout
 #
 # 【Activation】
-#   ReLU, GELU, SiLU, Mish, LeakyReLU
+#   ReLU, GELU, SiLU, Mish, LeakyReLU, Tanh
 #
 # 【Normalization & Pooling】
 #   GroupNorm, LayerNorm, LayerNorm2d, BatchNorm2d, GAP1D, GAP2D, MaxPool2d
@@ -101,6 +101,8 @@ net.block.[Mish].type ?= Mish           # YOLOv4 等で採用
 
 net.block.[LeakyReLU].type ?= LeakyReLU        # LeakyReLU： Dying ReLU問題でlossが減らない現象を軽減。GELUやSiLUほど有効ではないが軽い。
 net.block.[LeakyReLU].negative_slope ?= 0.01   # negative_slope: 負の領域の傾き (Default: 0.01)
+
+net.block.[Tanh].type ?= Tanh           # 出力が -1〜1。方策ベース（PPO）の小さな MLP で標準的に使う
 
 
 # --- MLP Components ---

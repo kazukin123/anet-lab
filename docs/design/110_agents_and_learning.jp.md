@@ -90,6 +90,7 @@ Runner が系統の公開初期化関数を呼んで登録し、`AgentRepository
 | 共通contract | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
 | Agent基盤・repository・factory | [agent.hpp](../../src/core/base/include/anet/agent.hpp)、[agent.cpp](../../src/core/base/src/agent.cpp) |
 | DQN系 | [DQN系Agent](200_dqn_agents.jp.md) |
+| 方策ベースの共通部品（行動の分布、advantageの推定） | [distribution.hpp](../../src/core/base/include/anet/distribution.hpp)、[advantage.hpp](../../src/core/base/include/anet/advantage.hpp)。[方策ベースの学習の共通部品](115_on_policy_learning.jp.md) |
 | ImageCls | [image_cls_agent.hpp](../../src/algo/imagecls/src/image_cls_agent.hpp)、[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp) |
 | MuZero試作 | [muzero_proto_agent.hpp](../../src/algo/muzero/src/muzero_proto_agent.hpp)、[muzero_proto_agent.cpp](../../src/algo/muzero/src/muzero_proto_agent.cpp) |
 | 初期登録 | [init.cpp](../../src/core/base/src/init.cpp) |
@@ -247,6 +248,7 @@ Agentを追加・変更する場合は、少なくとも次を確認する。
 - [可観測性](140_observability.jp.md)
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
+- [方策ベースの学習の共通部品](115_on_policy_learning.jp.md)
 - [DQN系Agent](200_dqn_agents.jp.md)
 - [Agent実装の所有権ガイドライン](../ownership_guideline.md)
 - [用語集](../../CONTEXT.md)

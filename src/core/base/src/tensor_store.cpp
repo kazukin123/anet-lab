@@ -94,3 +94,13 @@ TensorDict LaneTimeTensorStore::Gather(std::span<const LaneTimeIndex> indices) c
     }
     return result;
 }
+
+TensorDict LaneTimeTensorStore::GetAll() const
+{
+    if (time_count_ == 0)
+        ANET_SYSTEM_ERROR("Tensor store is empty; expected at least one appended time.");
+    // 保存領域のうち、たまっている時刻の範囲だけを見せる。先頭からの連続した範囲なので、複製は要らない。
+    TensorDict result;
+    for (const auto& [key, value] : storage_) result.Set(key, value.narrow(0, 0, time_count_));
+    return result;
+}

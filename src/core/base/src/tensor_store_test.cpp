@@ -31,3 +31,32 @@ TEST_CASE("Lane-time tensor store preserves stored observations by lane and time
     store.Append({{kInput, input}, {kLabel, label}});
     CHECK(store.GetTimeCount() == 1);
 }
+
+TEST_CASE("Lane-time tensor store returns the stored range without copying", "[rfd0202][tensor_store]")
+{
+    const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
+    if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
+    constexpr char kInput[] = "input";
+    constexpr char kLabel[] = "label";
+    anet::LaneTimeTensorStore store(3);
+    // 空の器は、読める範囲を持たない。
+    CHECK_THROWS(store.GetAll());
+
+    // 容量 3 のうち 2 時刻だけためる。返る形は [ためた時刻の数, lane, ...] になる。
+    const auto first = torch::arange(6, torch::kFloat32).reshape({2, 3}).to(device);
+    store.Append({{kInput, first}, {kLabel, torch::tensor({1, 2}, torch::kInt64).to(device)}});
+    store.Append({{kInput, first + 10}, {kLabel, torch::tensor({3, 4}, torch::kInt64).to(device)}});
+    const auto all = store.GetAll();
+    REQUIRE(all.At(kInput).sizes() == torch::IntArrayRef({2, 2, 3}));
+    REQUIRE(all.At(kLabel).sizes() == torch::IntArrayRef({2, 2}));
+    CHECK(all.At(kInput).device() == first.device());
+    CHECK(torch::equal(all.At(kInput).select(0, 0), first));
+    CHECK(torch::equal(all.At(kInput).select(0, 1), first + 10));
+    CHECK(torch::equal(all.At(kLabel).cpu(), torch::tensor({{1, 2}, {3, 4}}, torch::kInt64)));
+
+    // 保存領域を共有するので、次の Append の中身は、取り直した範囲に現れる。
+    store.Append({{kInput, first + 20}, {kLabel, torch::tensor({5, 6}, torch::kInt64).to(device)}});
+    CHECK(store.GetAll().At(kInput).sizes() == torch::IntArrayRef({3, 2, 3}));
+    store.Clear();
+    CHECK_THROWS(store.GetAll());
+}
