@@ -53,6 +53,7 @@ target_link_libraries(AnetRLRunner PRIVATE
     anet-algo-dqn
     anet-algo-muzero
     anet-algo-imagecls
+    anet-algo-ppo
     anet-env-lunarlander
     anet-env-cartpole
     anet-env-dropmerge

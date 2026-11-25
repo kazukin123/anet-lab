@@ -39,6 +39,7 @@
     {"key": "321_agent_core", "label": "321 Agent 共通基盤", "topic": 17, "match": ["/(agent|dqn_(actor|assembler|learner|math|network_model|heads|config|munchausen)|intrinsic|intrinsic_rnd|distribution)\\.(cpp|hpp)$", "^src/algo/dqn/src/dqn_test\\.cpp$"]},
     {"key": "324_dqn", "label": "324 AGENT個別実装 DQN系列", "topic": 20, "match": ["^src/algo/(dqn|imagecls)/", "/(default_dqn_agent|rainbow_agent|image_cls_agent)\\.(cpp|hpp)$"]},
     {"key": "325_muzero", "label": "325 AGENT個別実装 MuZero系列", "topic": 21, "match": ["^src/algo/muzero/", "/(muzero_proto_agent)\\.(cpp|hpp)$"]},
+    {"key": "326_ppo", "label": "326 AGENT個別実装 PPO系列", "topic": 19, "match": ["^src/algo/ppo/"]},
     {"key": "313_profiling", "label": "313 プロファイリング", "topic": 9, "match": ["/profile\\.(cpp|hpp)$"]},
     {"key": "312_util", "label": "312 ユーティリティ", "topic": 8, "match": ["/(util|str_util|json_util|app_util|app_util_impl|exception|log|thread|random|schedule|init|common|diag)\\.(cpp|hpp)$"]},
     {"key": "110_runner_app", "label": "110 RunnerApp", "topic": 4, "test_target": false, "match": ["^src/apps/runner/src/"]},

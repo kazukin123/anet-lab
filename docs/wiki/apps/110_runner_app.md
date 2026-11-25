@@ -195,6 +195,7 @@
 
 - [Atari.txt](../../../apps/runner/config/Atari.txt)
 - [CartPole.txt](../../../apps/runner/config/CartPole.txt)
+- [CartPole_ppo.txt](../../../apps/runner/config/CartPole_ppo.txt)
 - [DropMerge.txt](../../../apps/runner/config/DropMerge.txt)
 - [DropMerge_optuna.txt](../../../apps/runner/config/DropMerge_optuna.txt)
 - [GridMaze.txt](../../../apps/runner/config/GridMaze.txt)
@@ -265,6 +266,7 @@
 - [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
 - [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 - [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md) — forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
+- [RFD0202](../../memo/0202_ppo_family_and_on_policy_core_parts_10rfd.md) — RFD0202: PPO 系（方策ベースの Agent の系統）と、方策ベースの学習に要る core の共通部品
 
 ## 課題
 

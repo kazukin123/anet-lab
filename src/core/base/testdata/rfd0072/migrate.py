@@ -3,7 +3,7 @@
 import re
 
 
-ENV_FILES = {"Atari.txt", "DropMerge.txt", "LunarLander.txt", "CartPole.txt",
+ENV_FILES = {"Atari.txt", "DropMerge.txt", "LunarLander.txt", "CartPole.txt", "CartPole_ppo.txt",
              "GridMaze.txt", "GridMaze_muzero.txt", "ImageCls.txt"}
 BASE_FILES = {"nn.txt", "nn_cnx.txt", "metrics_scalar.txt", "metrics_image.txt"}
 CONFIG_FILES = ENV_FILES | BASE_FILES | {"common.txt", "agent.txt", "DropMerge_optuna.txt"}

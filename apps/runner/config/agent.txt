@@ -521,3 +521,65 @@ MuZeroAgent.baseline.actor.[eval_panel].clone_model ?= false
 # 勾配ノイズスケールの共通デフォルト。値域・整除は購読時に検証する。
 DefaultDQNAgent.@baseline : learner.grad_noise.num_micro_batches ?= 8
 DefaultDQNAgent.@baseline : learner.grad_noise.ema_alpha ?= 0.05
+
+
+# ==============================================================================
+# PPOAgent
+# ==============================================================================
+# 方策ベース（on-policy）の離散 PPO。既定値は、参照実装（CleanRL の ppo.py）に合わせる。
+# 設定キーの意味と式は docs/design/230_ppo_agents.jp.md。
+# Network（net.branch・net.body.output.[policy_feature]・[value_feature]）は env の設定が書く。
+
+PPOAgent.$ = @baseline
+
+# --- rollout（ためてから学ぶ単位）と、その使い方
+PPOAgent.@baseline : rollout.length ?= 128                      # rollout の長さ（intake の数）。1 回の更新に使う遷移は、長さ × lane 数
+PPOAgent.@baseline : learner.epochs ?= 4                        # 1 つの rollout を一巡する回数
+PPOAgent.@baseline : learner.minibatch_count ?= 4               # 1 epoch のミニバッチの数。長さ × lane 数を割り切ること
+
+# --- advantage（GAE）
+PPOAgent.@baseline : learner.gamma ?= 0.99                      # 割引率
+PPOAgent.@baseline : learner.gae_lambda ?= 0.95                 # 0 で 1 step の TD、1 で割引の和
+PPOAgent.@baseline : learner.advantage_norm_mode ?= minibatch   # none | minibatch（ミニバッチごとに平均 0・標準偏差 1 にそろえる）
+PPOAgent.@baseline : learner.truncation_mode ?= bootstrap       # bootstrap（打ち切りの先を、次の観測の value で見積もる）| terminal（終端と同じ）
+
+# --- optimizer
+PPOAgent.@baseline : learner.learning_rate ?= 2.5e-4            # 時間の値（定数か schedule。step は exp step）
+PPOAgent.@baseline : learner.adam_eps ?= 1e-5
+PPOAgent.@baseline : learner.weight_decay ?= 0
+PPOAgent.@baseline : learner.use_fused_optimizer ?= true
+PPOAgent.@baseline : learner.use_grad_clip ?= true
+PPOAgent.@baseline : learner.grad_clip_max_norm ?= 0.5          # 勾配の全体のノルムの上限
+
+# --- 損失
+PPOAgent.@baseline : learner.ratio_clip_range ?= 0.2            # 時間の値。新旧の方策の確率の比を clip する幅
+PPOAgent.@baseline : learner.use_value_clip ?= true
+PPOAgent.@baseline : learner.value_clip_range ?= 0.2            # 収集時の value からの変化を clip する幅
+PPOAgent.@baseline : learner.entropy_coef ?= 0.01               # 時間の値。大きいほど探索が残る
+PPOAgent.@baseline : learner.value_coef ?= 0.5
+PPOAgent.@baseline : learner.kl_stop.mode ?= none               # none | epoch（epoch の終わりの approx KL が閾値を超えたら、残りの epoch をやめる）
+PPOAgent.@baseline : learner.kl_stop.epoch.threshold ?= 0.015
+
+# --- Head（最後の Linear 1 層）の初期化
+PPOAgent.@baseline : head.policy.init.mode ?= orthogonal
+PPOAgent.@baseline : head.policy.init.manual_gain ?= 0.01       # 小さくして、学習の初めの行動の確率をほぼ一様にする
+PPOAgent.@baseline : head.value.init.mode ?= orthogonal
+PPOAgent.@baseline : head.value.init.manual_gain ?= 1.0
+
+PPOAgent.@baseline : nn_viz.show_param_shapes ?= true
+PPOAgent.@baseline : nn_viz.show_param_count ?= true
+PPOAgent.@baseline : nn_viz.show_tensor_specs ?= true
+PPOAgent.@baseline : nn_viz.show_head_info ?= true
+PPOAgent.@baseline : nn_viz.layout ?= LR  # TB LR
+PPOAgent.@baseline : nn_viz.cluster_branches ?= true
+PPOAgent.@baseline : nn_viz.float_precision ?= 3
+
+# --- Actor カタログ。学習の Actor は Learner と Network を共有して抽選し、評価の Actor は写しを持つ。
+PPOAgent.@baseline : actor.[train].action_mode ?= sample        # sample（方策から抽選）| greedy（確率が最大の行動）
+PPOAgent.@baseline : actor.[train].clone_model ?= false         # 学習の Actor は false のまま使う（写しは、評価の Runner だけが写し直す）
+PPOAgent.@baseline : actor.[eval].action_mode ?= greedy
+PPOAgent.@baseline : actor.[eval].clone_model ?= true
+PPOAgent.@baseline : actor.[eval_sample].action_mode ?= sample
+PPOAgent.@baseline : actor.[eval_sample].clone_model ?= true
+# EvalPanel の表示は、Greedy の評価と同じ Actor の設定を使う。
+PPOAgent.@baseline : actor.[eval_panel].$ = PPOAgent.actor.[eval]

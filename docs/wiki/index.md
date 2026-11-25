@@ -48,6 +48,7 @@
 
 ## 機能カテゴリ
 
+- [326 Agent個別実装 PPO系列](categories/326_ppo.md) — 方策を直接学ぶAgentの系統で、PPOAgentが離散行動のPPOを実装し、rolloutを1回の更新で使い切る。（別名: 326_ppo, PPO, PPOAgent, on-policy）。
 - [325 Agent個別実装 MuZero系列](categories/325_muzero.md) — MuZeroAgentは登録済みAgentの試作実装である。（別名: 325_muzero）。
 - [324 Agent個別実装 DQN系列](categories/324_dqn.md) — DefaultDQNAgentとRainbowAgentが共通DQN componentを合成する具象実装を扱う。分類上同じ範囲にあるImageClsAgentも一覧に載せる。（別名: 324_dqn）。
 - [322 Env個別実装](categories/322_env_individual.md) — 共通Env contract上のCartPole、GridMaze、LunarLander、DropMerge、ImageCls、Atariなどの具象環境の所在をまとめる。（別名: 322_env_individual, GridMaze, seed_mode, DropMerge, NOOP, noop_penalty）。

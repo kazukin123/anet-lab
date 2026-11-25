@@ -286,6 +286,29 @@ net.body.@MLP3 : structure ?= Flatten > MLP_FC1 > ReLU > MLP_FC2 > ReLU > MLP_FC
 
 
 # ------------------------------------------------------------------------------
+# PPO の MLP
+# ------------------------------------------------------------------------------
+# 参照実装（CleanRL の ppo.py）と同じく、直交初期化（gain √2）の Linear と Tanh を重ねる。
+# 使い方の例: PPOAgent.net.branch.[policy_body].structure = Flatten > PPO_FC1 > Tanh > PPO_FC2 > Tanh
+
+net.block.[PPO_FC1].type ?= Linear
+net.block.[PPO_FC1].noisy.enabled ?= false
+net.block.[PPO_FC1].noisy.sigma0 ?= 0.5
+net.block.[PPO_FC1].force_fp32 ?= false
+net.block.[PPO_FC1].linear.out_features ?= 64
+net.block.[PPO_FC1].init.mode ?= orthogonal
+net.block.[PPO_FC1].init.manual_gain ?= 1.4142135623730951
+
+net.block.[PPO_FC2].type ?= Linear
+net.block.[PPO_FC2].noisy.enabled ?= false
+net.block.[PPO_FC2].noisy.sigma0 ?= 0.5
+net.block.[PPO_FC2].force_fp32 ?= false
+net.block.[PPO_FC2].linear.out_features ?= 64
+net.block.[PPO_FC2].init.mode ?= orthogonal
+net.block.[PPO_FC2].init.manual_gain ?= 1.4142135623730951
+
+
+# ------------------------------------------------------------------------------
 # Conv1D
 # ------------------------------------------------------------------------------
 

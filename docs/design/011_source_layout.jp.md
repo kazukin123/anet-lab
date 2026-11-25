@@ -5,7 +5,7 @@
 | 置き場 | 責務と依存 |
 |---|---|
 | `src/core/base/` | Agent、Env、NN、ReplayBuffer、Observer の契約と共通実装。直接の依存は外部ライブラリ |
-| `src/algo/{dqn,muzero,imagecls}/` | Agent の系統別実装。基盤の公開ヘッダを使い、各系統の初期化関数を公開する |
+| `src/algo/{dqn,ppo,muzero,imagecls}/` | Agent の系統別実装。基盤の公開ヘッダを使い、各系統の初期化関数を公開する |
 | `src/env/` | 環境ごとの実装と初期化関数。基盤の公開ヘッダを使う |
 | `src/apps/runner/` | Runner のビルド入力。Runner は基盤、Agent の各系統、Env の公開初期化関数を呼ぶ |
 | `src/apps/metrics-viewer/` | Metrics Viewer のソースと Maven のビルド入力 |

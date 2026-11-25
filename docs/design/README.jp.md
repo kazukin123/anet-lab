@@ -78,6 +78,7 @@ ANET は、libtorch を基盤とする C++20 の強化学習実験フレーム�
 | 212 | [RND による新しさの評価と内的報酬](212_rnd_lifelong_novelty.jp.md) | 基本概念、アルゴリズムの背景、採点と報酬合成、実装・設定・指標の対応 | 探索手法を学ぶ利用者・Agent 開発者 |
 | 214 | [外的と内的の価値の分解](214_value_decomposition.jp.md) | 報酬成分、Head、結合とTBO、学習、診断、保存 | DQN 系 Agent・探索手法の開発者 |
 | 220 | [Atari Env（ALE 統合）](220_atari_env.jp.md) | AtariEnv、ALE 設定キー契約、前処理、プリセット、AtariView | Env 開発者・Atari 実験利用者 |
+| 230 | [PPO 系 Agent](230_ppo_agents.jp.md) | PPOAgent、Network の共有と分離、rollout と更新、設定、メトリクス | PPO 系 Agent 開発者・方策ベースの手法を学ぶ利用者 |
 
 ## 4. 関連文書
 

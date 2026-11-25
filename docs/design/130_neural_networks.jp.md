@@ -59,7 +59,7 @@ stack 軸を持つ入力が branch に届く場合、先頭 module が軸を扱�
 ### 2.3 BodyとHead
 
 - Network Bodyは設定で定義されたbranch DAGを実行し、特徴量TensorDictを生成する。
-- Network HeadはAgent固有の出力へ変換する。DQNのQ値、分位数、ImageClsのclass logitsなどが該当する。
+- Network HeadはAgent固有の出力へ変換する。DQNのQ値、分位数、ImageClsのclass logits、PPOの方策のlogitsとvalueなどが該当する。
 - 1つのNetworkから複数の出力を取るときは、`CompositeHeadFactory`で複数のHeadを並べる。中のHeadごとに、受け取るBodyの出力のキーを決める（[Headの合成](115_on_policy_learning.jp.md#4-headの合成)）。
 - `Network`はBodyとHeadをまとめ、単一の`Forward(TensorDict)`を公開する。
 
@@ -407,6 +407,7 @@ Networkを変更する場合は次を確認する。
 - [可観測性](140_observability.jp.md)
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [DQN系Agent](200_dqn_agents.jp.md)
+- [PPO系Agent](230_ppo_agents.jp.md)
 - [設定例: nn.txt](../../apps/runner/config/nn.txt)
 - [TensorDict統一ADR](../adr/0002-tensordict-function-unify.md)
 - [SDPA ADR](../adr/0004-sdpa-attention-via-aten.md)
