@@ -31,7 +31,7 @@ DefaultDQN は、Env の観測と同じ spec を Frame の spec にします。�
 
 重ねる設定は Agent 直下の `frame_stack.count`、`frame_stack.keys.mode`、`frame_stack.keys.listed.names` です。コードの既定は1枚、出荷の基準プロファイルは4枚です。`all` は Frame の全キー、`listed` は一覧にある Frame のキーを選びます。Agent は同じ枚数とキーを ReplayBuffer と各依頼へ渡します。
 
-DefaultDQN は、選んだキーで stack 軸がない出力に長さ1の軸を足し、開始の印が残っていれば除きます。Network の入力には可視化用の出力 spec を使います。行動選択用と Sample 用の出力 spec も、この入力と構築時に照合します。IQN の taus は Network の入力 spec に加えます。
+DefaultDQN は、部品列の最終出力で、選んだキーに stack 軸がなければ長さ1の軸を足し、開始の印が残っていれば除きます。`FrameStack` を組み立てるとき、開始の印の spec は、各行で stack 軸のないスカラーの `bool`（空の shape）であることを確認します。行動選択の前には、Actor が実際の出力に開始の印が残っていないことを確認します。Network の入力には可視化用の出力 spec を使います。行動選択用と Sample 用の出力 spec も、この入力と構築時に照合します。IQN の taus は Network の入力 spec に加えます。
 
 ## 4. 標準の部品と設定
 

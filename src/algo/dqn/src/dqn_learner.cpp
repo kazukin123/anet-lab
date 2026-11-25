@@ -40,6 +40,7 @@ namespace {
         anet::TensorDict Forward(const anet::TensorDict& input, anet::ForwardCapture* capture) override
         {
             const auto observation = forwarder_->Forward(input, capture);
+            // 後段へ渡す観測から開始の印を除き、不足する 1 枚分の軸を補う。
             anet::TensorDict result;
             for (const auto& [key, value] : observation) {
                 if (!start_key_.empty() && key == start_key_) continue;
@@ -63,6 +64,7 @@ namespace {
 std::shared_ptr<anet::SpecForwarder> anet::rl::dqn::CompletePerception(std::shared_ptr<anet::SpecForwarder> forwarder,
     const std::vector<std::string>& stack_keys, const std::string& start_key)
 {
+    // 部品列の最終 spec で、開始の印と軸の補完が必要なキーを確定する。
     auto specs = forwarder->GetOutputSpecs();
     const bool remove_start = !start_key.empty() && specs.erase(start_key) != 0;
     std::vector<std::string> axis_keys;
@@ -72,6 +74,7 @@ std::shared_ptr<anet::SpecForwarder> anet::rl::dqn::CompletePerception(std::shar
         spec.has_stack_axis = true;
         axis_keys.push_back(key);
     }
+    // 補完が不要なら組み立てた Forwarder をそのまま返す。
     if (axis_keys.empty() && !remove_start) return forwarder;
     return std::make_shared<CompletedPerception>(
         std::move(forwarder), std::move(specs), std::move(axis_keys), remove_start ? start_key : std::string{});
@@ -80,9 +83,11 @@ std::shared_ptr<anet::SpecForwarder> anet::rl::dqn::CompletePerception(std::shar
 void anet::rl::dqn::RequirePerceptionSpecs(const anet::TensorSpecMap& expected, const anet::TensorSpecMap& actual,
     const anet::ForwardKind& kind)
 {
+    // 件数とキーを揃えたうえで、用途ごとに必要な spec を照合する。
     if (expected.size() != actual.size()) {
         ANET_SYSTEM_ERROR(kind << " output has " << actual.size() << " keys; expected " << expected.size() << ".");
     }
+    // 取り込み時は Replay に格納する形と dtype だけが一致すればよい。
     const bool frame_intake = kind == kForwardKindFrameWithStatsUpdate;
     for (const auto& [key, spec] : expected) {
         const auto found = actual.find(key);

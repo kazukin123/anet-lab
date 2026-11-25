@@ -201,6 +201,7 @@ namespace anet::rl::dqn {
         struct FrameStackConfig {
             static constexpr char kAllKeys[] = "all";
             static constexpr char kListedKeys[] = "listed";
+
             int count = 1;
             struct {
                 std::string mode = kAllKeys;

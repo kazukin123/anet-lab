@@ -9,6 +9,13 @@ constexpr char kNormBlock[] = "norm";
 constexpr char kVector[] = "vector";
 constexpr char kAux[] = "aux";
 constexpr char kFrameStackType[] = "FrameStack";
+constexpr char kSetSpecType[] = "SetSpec";
+constexpr char kListedKeys[] = "listed";
+constexpr char kAllKeys[] = "all";
+constexpr char kKeepMode[] = "keep";
+constexpr char kSetMode[] = "set";
+constexpr char kScaledValue[] = "Scaled";
+constexpr char kUnscaledValue[] = "Unscaled";
 constexpr char kNormalizeType[] = "Normalize";
 constexpr char kDropKeysType[] = "DropKeys";
 constexpr char kConstantMode[] = "constant";
@@ -126,10 +133,10 @@ TEST_CASE("Builder reports earlier configuration errors before later ones across
     anet::ConfigData config;
     config.Set("perception.structure", "norm > set > drop");
     config.Set("perception.block.[norm].type", kNormalizeType);
-    config.Set("perception.block.[set].type", "SetSpec");
+    config.Set("perception.block.[set].type", kSetSpecType);
     config.Set("perception.block.[set].keys", kVector);
-    config.Set("perception.block.[set].scale", "Scaled");
-    config.Set("perception.block.[set].forward_kinds.mode", "listed");
+    config.Set("perception.block.[set].scale", kScaledValue);
+    config.Set("perception.block.[set].forward_kinds.mode", kListedKeys);
     config.Set("perception.block.[set].forward_kinds.listed.names", kIdentityKind);
     config.Set("perception.block.[drop].type", kDropKeysType);
 
@@ -229,10 +236,10 @@ TEST_CASE("SetSpec changes only the requested declaration for the selected kind"
 {
     anet::ConfigData config;
     config.Set("perception.structure", "set");
-    config.Set("perception.block.[set].type", "SetSpec");
+    config.Set("perception.block.[set].type", kSetSpecType);
     config.Set("perception.block.[set].keys", kVector);
-    config.Set("perception.block.[set].scale", "Unscaled");
-    config.Set("perception.block.[set].forward_kinds.mode", "listed");
+    config.Set("perception.block.[set].scale", kUnscaledValue);
+    config.Set("perception.block.[set].forward_kinds.mode", kListedKeys);
     config.Set("perception.block.[set].forward_kinds.listed.names", anet::rl::kForwardKindPerceptionFromFrame);
     const anet::ForwarderBuilder builder(config, "perception", 42);
     const anet::TensorSpecMap specs{ { kVector, { .shape = { 2 } } } };
@@ -252,13 +259,13 @@ TEST_CASE("SetSpec validates changed attributes against one frame", "[perception
     anet::ConfigData config;
     config.Set("perception.structure", "stack > set");
     config.Set("perception.block.[stack].type", kFrameStackType);
-    config.Set("perception.block.[set].type", "SetSpec");
+    config.Set("perception.block.[set].type", kSetSpecType);
     config.Set("perception.block.[set].keys", kVector);
-    config.Set("perception.block.[set].labels.mode", "set");
+    config.Set("perception.block.[set].labels.mode", kSetMode);
     config.Set("perception.block.[set].labels.set.names", "left right");
-    config.Set("perception.block.[set].min_values.mode", "set");
+    config.Set("perception.block.[set].min_values.mode", kSetMode);
     config.Set("perception.block.[set].min_values.set.values", "-1.012345678901 -2");
-    config.Set("perception.block.[set].max_values.mode", "set");
+    config.Set("perception.block.[set].max_values.mode", kSetMode);
     config.Set("perception.block.[set].max_values.set.values", "3");
     anet::TensorSpecMap specs{ { kVector, { .shape = { 2 } } } };
     const auto request = anet::rl::MakePerceptionFromFrameRequest(4, { kVector });
@@ -287,7 +294,7 @@ TEST_CASE("SetSpec validates changed attributes against one frame", "[perception
     }
     SECTION("Rejects Unscaled for integral and discrete observations") {
         const bool discrete = GENERATE(false, true);
-        config.Set("perception.block.[set].scale", "Unscaled");
+        config.Set("perception.block.[set].scale", kUnscaledValue);
         auto& spec = specs.at(kVector);
         spec.dtype = discrete ? torch::kBool : torch::kInt32;
         spec.num_classes = discrete ? 2 : 0;
@@ -296,13 +303,13 @@ TEST_CASE("SetSpec validates changed attributes against one frame", "[perception
             Catch::Matchers::ContainsSubstring("perception.block.[set].scale"));
     }
     SECTION("Rejects an unsupported kind in a listed selection") {
-        config.Set("perception.block.[set].forward_kinds.mode", "listed");
+        config.Set("perception.block.[set].forward_kinds.mode", kListedKeys);
         config.Set("perception.block.[set].forward_kinds.listed.names", "UnsupportedKind");
         CHECK_THROWS_WITH(anet::ForwarderBuilder(config, "perception", 42),
             Catch::Matchers::ContainsSubstring("perception.block.[set].forward_kinds.listed.names"));
     }
     SECTION("Reads a numeric list even in keep mode") {
-        config.Set("perception.block.[set].min_values.mode", "keep");
+        config.Set("perception.block.[set].min_values.mode", kKeepMode);
         config.Set("perception.block.[set].min_values.set.values", "1 wrong");
         CHECK_THROWS_WITH(anet::ForwarderBuilder(config, "perception", 42),
             Catch::Matchers::ContainsSubstring("perception.block.[set].min_values.set.values"));
@@ -318,13 +325,13 @@ TEST_CASE("SetSpec validates changed attributes against one frame", "[perception
         CHECK_THROWS_WITH(anet::ForwarderBuilder(config, "perception", 42), Catch::Matchers::ContainsSubstring(key));
     }
     SECTION("Rejects empty kind selections and declarations with no changes") {
-        config.Set("perception.block.[set].forward_kinds.mode", "listed");
+        config.Set("perception.block.[set].forward_kinds.mode", kListedKeys);
         CHECK_THROWS_WITH(anet::ForwarderBuilder(config, "perception", 42),
             Catch::Matchers::ContainsSubstring("perception.block.[set].forward_kinds.listed.names"));
-        config.Set("perception.block.[set].forward_kinds.mode", "all");
-        config.Set("perception.block.[set].labels.mode", "keep");
-        config.Set("perception.block.[set].min_values.mode", "keep");
-        config.Set("perception.block.[set].max_values.mode", "keep");
+        config.Set("perception.block.[set].forward_kinds.mode", kAllKeys);
+        config.Set("perception.block.[set].labels.mode", kKeepMode);
+        config.Set("perception.block.[set].min_values.mode", kKeepMode);
+        config.Set("perception.block.[set].max_values.mode", kKeepMode);
         CHECK_THROWS_WITH(anet::ForwarderBuilder(config, "perception", 42),
             Catch::Matchers::ContainsSubstring("at least one attribute to change"));
     }
@@ -339,9 +346,9 @@ TEST_CASE("Intake Normalize tracks a dropped key unless SetSpec marks it scaled"
     config.Set("perception.block.[drop].keys", kAux);
     config.Set("perception.block.[norm].type", kNormalizeType);
     if (set_scaled) {
-        config.Set("perception.block.[set].type", "SetSpec");
+        config.Set("perception.block.[set].type", kSetSpecType);
         config.Set("perception.block.[set].keys", kAux);
-        config.Set("perception.block.[set].scale", "Scaled");
+        config.Set("perception.block.[set].scale", kScaledValue);
     }
     const anet::ForwarderBuilder builder(config, "perception", 42);
     const anet::TensorSpecMap specs{ { kVector, { .shape = { 1 } } },
@@ -366,9 +373,9 @@ TEST_CASE("SetSpec can select a previously scaled float key for normalization", 
     anet::ConfigData config;
     config.Set("perception.structure", "stack > set > norm");
     config.Set("perception.block.[stack].type", kFrameStackType);
-    config.Set("perception.block.[set].type", "SetSpec");
+    config.Set("perception.block.[set].type", kSetSpecType);
     config.Set("perception.block.[set].keys", kVector);
-    config.Set("perception.block.[set].scale", "Unscaled");
+    config.Set("perception.block.[set].scale", kUnscaledValue);
     config.Set("perception.block.[norm].type", kNormalizeType);
     config.Set("perception.block.[norm].mode", kConstantMode);
     config.Set("perception.block.[norm].constant.mean", "2 2");
@@ -703,6 +710,25 @@ TEST_CASE("Perception rejects invalid block declarations during construction", "
     }
 }
 
+TEST_CASE("FrameStack rejects an invalid sequence start spec during construction", "[perception]")
+{
+    anet::ConfigData config;
+    config.Set("perception.structure", kStackBlock);
+    config.Set("perception.block.[stack].type", kFrameStackType);
+    const anet::ForwarderBuilder builder(config, "perception", 42);
+    const auto request = anet::rl::MakePerceptionFromSequenceRequest(2, 42, kTestStartKey, 1, { kVector });
+    auto specs = MakeSequenceSpecs({ { kVector, { .shape = { 3 } } } });
+
+    SECTION("The start spec must declare bool") {
+        specs.at(kTestStartKey).dtype = torch::kFloat32;
+    }
+    SECTION("One row of the start spec must be scalar") {
+        specs.at(kTestStartKey).shape = { 1 };
+    }
+    CHECK_THROWS_WITH(builder.BuildForwarder(request, specs),
+        Catch::Matchers::ContainsSubstring(kTestStartKey) && Catch::Matchers::ContainsSubstring("scalar bool"));
+}
+
 TEST_CASE("Perception leaves former settings unread and ignores unused block definitions", "[perception]")
 {
     constexpr char kFormerStackCount[] = "stucker.stack_count";
@@ -750,7 +776,7 @@ TEST_CASE("Perception diagrams describe ordered blocks, tensor shapes and named 
     CHECK(structure.find("\"input\" -> \"block_0\"") != std::string::npos);
     CHECK(structure.find("\"block_1\" -> \"output\"") != std::string::npos);
     const auto detail = view->MakeGraphViz(true)->ToDotString();
-    for (const auto* fragment : {"Unscaled", "Scaled", "stack_axis", "Float", kNoneMode}) {
+    for (const auto* fragment : {kUnscaledValue, kScaledValue, "stack_axis", "Float", kNoneMode}) {
         CHECK(detail.find(fragment) != std::string::npos);
     }
     const auto node_attributes = [&](const std::string& node) {

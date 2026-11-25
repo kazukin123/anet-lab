@@ -3,6 +3,7 @@
 > 2026-11-24 起票。グリルを行った（2026-11-23〜24。hpp の草案を直しながら、会話の中で決めた。草案は §10.3）。起草のあと、別モデルの検討（2026-11-24）を受けて直した（§10.2）。
 > 2026-11-24 改訂: 起票のあとに出た材料を §10.4 に足した（RFD0142 を本 RFD の口に照らした机上の確かめと、直近の系列を並びの外のバッファに置く案）。確定事項と実装契約は変えていない。開発者は、今の形のまま先に実装すると述べた。
 > 2026-11-25 改訂: 設定の誤りを表の順で報告するため、外部の部品にも適用する設定キーの読み方と、並びで使える Forward の種類の検査を §6.3 に明記した。受入で複数の誤りがある場合の順を確かめ、移行対象へ実行バッチの設定を加えた。
+> 2026-11-25 改訂: `FrameStack` の出力に軸を付ける条件と、DefaultDQN が最終出力に軸を補う条件を明確にした。開始の印の spec（§6.7）と Actor の出力検査（§6.5）を明記し、通常の Actor 経路での受入を §7 に加えた。既存の Montezuma 起動は出荷設定の既定を使うと §6.9 に記した。
 > 起点: [0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md) の実装のあとの、開発者のレビュー（2026-11-23）。forwarder.hpp について、依頼の型の名前が中身と合っていないこと、型の関係が込み入っていること、RL に依らない層に RL の概念が入っていることが挙がった（§10.1）。
 > 基準コード: 2026-11-24 の main（`0411d5eb`）。実装の入口で、§1 と §4 の行番号をシンボル名で引き直す。
 > 関連: [ADR 0094](../adr/0094-forwarders-are-built-per-request-and-builders-are-not-forwarders.md)、[ADR 0095](../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、[ADR 0096](../adr/0096-stack-axis-and-chain-validity-are-ensured-by-the-caller-not-the-forwarder-mechanism.md)。一部を改める ADR は [ADR 0084](../adr/0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product.md) と [ADR 0086](../adr/0086-perception-stack-target-keys-always-carry-stack-axis.md)（§5.5 の D29）。
@@ -153,7 +154,7 @@ forwarder.hpp は、全部が `anet` 名前空間（RL に依らない層）に�
 | D8 | `ForwarderBuilder` は、並びの決まりを持たない。設定に書いた並びを、そのまま組む。「`FrameStack` は先頭に 1 つ」「`Normalize` は 1 つまで」「`FrameStack` が無ければ足す」を外す | 設定で自由に並べられる仕組みに、並べ方の決まりは要らない。設定に書いたとおりに動くのが、正しい動きである。成り立たない並びは、部品の検査か、呼び出し元の比較（D21）で止まる | P4 |
 | D9 | spec を部品に通すのは、依頼が来たとき（`BuildForwarder`）だけにする。構築では、設定から部品を作り、spec に依らない設定の誤りだけを検査する | spec が依頼ごとになる（D10）ので、構築の時点では、部品に届く spec が決まらない | D10 |
 | D10 | spec は、構築ではなく、依頼ごとに `BuildForwarder` へ渡す。渡すのは、作った Forwarder の `Forward` に実際に入れるものの spec である。部品は、届いた spec に合わせて作り、扱えない spec はエラーにする。行動選択の依頼では、開始の印の鍵の spec も含める | 実際に入れるものの形と合った spec を渡すのが、筋である。依頼ごとに、渡すものが違う | P3、§1.4 |
-| D11 | 「stack の対象のキーは、1 枚でも必ず stack 軸を持つ」は、Forwarder の仕組みではなく、使う側（DefaultDQN）の前提として確保する。呼び出し元は、作った Forwarder の出力の spec を見て、重ねる対象のキーのうち、出力に残っていて stack 軸の無いものに、長さ 1 の軸を足す。対象でないキーには足さない。`FrameStack` の部品が軸を付ける動きは、変えない（今と同じく、自分の位置で軸を付ける。§6.4。枚数とキーを受け取る先は、D15 で変わる）。このため、呼び出し元が足すことになるのは、並びに `FrameStack` の部品が無いときである。観測を Actor の device へ移すのも、呼び出し元が行う | stack 軸を必ず持つことは、RL の側の決まりで、Forwarder の仕組みが縛ることではない。確保する手段を `FrameStack` の部品に限る必要も無い。対象でないキーに足すと、Network の入力の形が変わる。`FrameStack` の部品が自分の位置で軸を付ければ、その後ろの部品は、3 つの Perception の依頼で、重ねる対象のキーを stack 軸つきで受ける（部品の動きを変えられない制約ではなく、この理由で選んだ） | P5、P7、P11、D8 |
+| D11 | 「stack の対象のキーは、1 枚でも必ず stack 軸を持つ」は、Forwarder の仕組みではなく、使う側（DefaultDQN）の前提として確保する。呼び出し元は、並び全体の最終出力の spec を見て、重ねる対象のキーのうち、出力に残っていて stack 軸の無いものに、長さ 1 の軸を足す。対象でないキーには足さない。`FrameStack` の部品が軸を付ける動きは、変えない（今と同じく、自分の位置で軸を付ける。§6.4。枚数とキーを受け取る先は、D15 で変わる）。観測を Actor の device へ移すのも、呼び出し元が行う | stack 軸を必ず持つことは、RL の側の決まりで、Forwarder の仕組みが縛ることではない。確保する手段を `FrameStack` の部品に限る必要も無い。対象でないキーに足すと、Network の入力の形が変わる。`FrameStack` の部品が自分の位置で軸を付ければ、3 つの Perception の依頼で、そこに届いた対象キーはその出力で stack 軸を持つ（部品の動きを変えられない制約ではなく、この理由で選んだ） | P5、P7、P11、D8 |
 | D12 | 並びに、開始の印を読む部品（`FrameStack`）が無いときは、出力に残った開始の印を、呼び出し元（DefaultDQN）が取り除く。Agent が、作った Forwarder にかぶせる処理として持つ（§6.5） | 枚数 1 で `FrameStack` を書かない並びを動かすため。D11 と同じ考え方で、使う側の前提は使う側が満たす | D1、D8、D11 |
 
 ### 5.2 spec の流れと重ね方
@@ -339,7 +340,7 @@ forwarder.hpp は、全部が `anet` 名前空間（RL に依らない層）に�
 | `DropKeys` | 素通し（Frame にはキーを残す） | 書いたキーを落とす | 同左 | 同左 |
 | `SetSpec` | 当てる種類なら、書いたキーの spec の宣言を変える。データには触らない | 同左 | 同左 | 同左 |
 
-- `FrameStack` の動きのうち、今と違うのは、枚数とキーを、設定ではなく依頼から受けること（D15）と、渡された名前のうち自分の位置に届かなかったキーを、エラーにせずに重ねないこと（D17。今は、`FrameStack` を先頭にしか置けないので、届かないのは、並びの入力の spec に無い名前だけで、部品がエラーにしている。その名前は、新しくは Agent が構築で止める）である。3 つの Perception の依頼では、`FrameStack` の後ろの部品は、重ねる対象のキーを stack 軸つきで受ける。`FrameWithStatsUpdate` では 1 枚の Frame をそのまま受ける。
+- `FrameStack` の動きのうち、今と違うのは、枚数とキーを、設定ではなく依頼から受けること（D15）と、渡された名前のうち自分の位置に届かなかったキーを、エラーにせずに重ねないこと（D17。今は、`FrameStack` を先頭にしか置けないので、届かないのは、並びの入力の spec に無い名前だけで、部品がエラーにしている。その名前は、新しくは Agent が構築で止める）である。3 つの Perception の依頼では、`FrameStack` の出力では、そこに届いた対象キーが stack 軸を持つ。`FrameWithStatsUpdate` では 1 枚の Frame をそのまま受ける。
 - `DropKeys` の動きは、今と同じである（NG1）。`Normalize` は、当て方と式は今と同じで、統計を取るキーの決まり方だけが変わる（D28）。
 - `FrameStack` を 2 つ書いた並びは、2 つ目が、既に stack 軸を持つキーを重ねようとして、部品の検査でエラーになる（§6.7 の 9）。並びの決まりではなく、部品の検査である。
 
@@ -362,7 +363,7 @@ Frame ──F──► FrameWithStatsUpdate ──（値もキーも変えない
 | `DefaultDQNAgent` | 構築 | 重ねる設定（`frame_stack.*`）を読み、重ねるキーの名前を決める（D17）。`ForwarderBuilder` を作る。経験の受入れ用（`FrameWithStatsUpdate`）の Forwarder を、F を渡して、最初に作る（統計の入れ物は、このとき用意される。D28）。その出力の spec が、F とキー・形・dtype で同じことを確かめる（D14）。可視化用（`PerceptionFromFrame`）の Forwarder を、F を渡して作る。可視化用の出力の spec（D11 の軸を足したあと）を、Network の入力に使う。行動選択用（`PerceptionFromSequence`）の Forwarder を、行の数 1 の依頼で作って、出力の spec を比べる（D21）。Learner に、`ForwarderBuilder` と重ね方と F を渡す。`ForwarderBuilder` が作った可視化用の Forwarder（軸を足す処理をかぶせる前のもの）の図を記録する。図が空なら、エラーにする |
 | `dqn::Learner` | 構築（ReplayBuffer を作ったあと） | S を渡して、Sample 用（`PerceptionFromStack`）の Forwarder を作る。出力の spec（軸を足したあと）を、Network の入力の Perception の spec と比べる（D21）。`ForwarderBuilder` を渡されなかったとき（Rainbow）は、今と同じく、Sample の観測をそのまま使い、比べない |
 | `DefaultDQNAgent` | Actor を作るとき | F に開始の印の鍵の spec を足したものを渡して、行動選択用（`PerceptionFromSequence`）の Forwarder を作る。出力に開始の印の鍵が残っていれば、取り除く（D12） |
-| `dqn::Actor` | 行動選択 | 観測を自分の device へ移し、開始の印（CPU に置いたまま）を鍵として足して、`Forward` を呼ぶ |
+| `dqn::Actor` | 行動選択 | 観測を自分の device へ移し、開始の印（CPU に置いたまま）を鍵として足して、`Forward` を呼ぶ。返された観測に開始の印があれば、行動選択の前にエラーにする |
 | `DefaultDQNAgent` | 経験の受入れ | obs と next_obs を、経験の受入れ用の Forwarder に 1 回ずつ通す（今と同じ） |
 | `dqn::Learner` | Sample | obs・next_obs・skip の学習の窓の終点の観測に、Sample 用の Forwarder を当てる（今と同じ） |
 
@@ -437,7 +438,7 @@ DefaultDQNAgent.@baseline : perception.block.[stack].type ?= FrameStack
 | 6 | `ForwarderBuilder` の構築 | 並びで使える Forward の種類と、部品の設定の組み合わせが、部品の `ValidateForwardKinds` の検査に通らない。標準の部品では `SetSpec` が、`forward_kinds.mode` が `listed` のときに `forward_kinds.listed.names` に使えない名前がある場合を検査する。どの部品も種類を問わない並びでは、`SetSpec` はこの検査をしない |
 | 7 | `BuildForwarder` | `input_specs` が空である（今と同じ） |
 | 8 | `BuildForwarder` | 並びの部品のどれかが、依頼の Forward の種類を扱わない |
-| 9 | `BuildForwarder` | 部品が、届いた spec か、依頼に載った値を扱えない。`FrameStack`: `PerceptionFromFrame` か `PerceptionFromSequence` で、重ねるキーが既に stack 軸を持つ。`PerceptionFromStack` で、枚数が 2 以上なのに、重ねるキーに stack 軸が無い。`PerceptionFromSequence` で、開始の印の鍵が届いた spec に無い。依頼に載った枚数が 1 未満。`PerceptionFromSequence` で、依頼に載った行の数が 1 未満。`DropKeys`: `keys` に、届いた spec に無いキーがある。全部のキーを落とす。`Normalize`: 定数の数が、キーの 1 枚ぶんの要素数と合わない。統計つきで、Perception を作る依頼に届いた `Unscaled` の float のキーが、統計の入れ物に無いか、1 枚ぶんの形が違う（D28）。統計つきで、経験の受入れ用の依頼を 2 度目に受けたときに、届いた `Unscaled` の float のキーの集合か、1 枚ぶんの形が、入れ物と違う（D28）。`SetSpec`: `keys` に、届いた spec に無いキーがある。変えた属性が、§6.6 の検査に通らない |
+| 9 | `BuildForwarder` | 部品が、届いた spec か、依頼に載った値を扱えない。`FrameStack`: `PerceptionFromFrame` か `PerceptionFromSequence` で、重ねるキーが既に stack 軸を持つ。`PerceptionFromStack` で、枚数が 2 以上なのに、重ねるキーに stack 軸が無い。`PerceptionFromSequence` で、開始の印の鍵が届いた spec に無いか、その鍵の spec が各行について、shape が空で stack 軸を持たないスカラーの `bool` を表さない。依頼に載った枚数が 1 未満。`PerceptionFromSequence` で、依頼に載った行の数が 1 未満。`DropKeys`: `keys` に、届いた spec に無いキーがある。全部のキーを落とす。`Normalize`: 定数の数が、キーの 1 枚ぶんの要素数と合わない。統計つきで、Perception を作る依頼に届いた `Unscaled` の float のキーが、統計の入れ物に無いか、1 枚ぶんの形が違う（D28）。統計つきで、経験の受入れ用の依頼を 2 度目に受けたときに、届いた `Unscaled` の float のキーの集合か、1 枚ぶんの形が、入れ物と違う（D28）。`SetSpec`: `keys` に、届いた spec に無いキーがある。変えた属性が、§6.6 の検査に通らない |
 | 10 | Agent の構築（経験の受入れ用を作ったあと） | 経験の受入れ用の Forwarder の出力の spec が、F とキー・形・dtype のどれかで違う（D14） |
 | 11 | Agent の構築（Learner の構築を含む） | 行動選択用か Sample 用の Forwarder の出力の spec（D11 の軸を足し、D12 の印を除いたあと）が、Network の入力の Perception の spec と違う（D21） |
 | 12 | Agent の構築（図の記録） | `ForwarderBuilder` が作った可視化用の Forwarder の図が、空である |
@@ -462,6 +463,8 @@ DefaultDQNAgent.@baseline : perception.block.[stack].type ?= FrameStack
 
 追跡しているファイルの移動・改名・削除は無い（置き場を変える扱いには当たらない）。検索は 2026-11-24 の `git grep -F`（大文字小文字を区別する固定文字列）による。検索の文字列（S1〜S21）は §7 にある。
 
+既存の `apps/11_batch_run.bat` の Montezuma 起動では、出荷設定の既定（`frame_stack.count=4`、`frame_stack.keys.mode=all`）を使う。
+
 **直すもの**
 
 | 種類 | 対象 | 直し方 |
@@ -472,7 +475,6 @@ DefaultDQNAgent.@baseline : perception.block.[stack].type ?= FrameStack
 | テスト | `ReplayBuffer` を継承する、テスト用の差し替え 3 つ（`dqn_fixture_test.hpp` の `RecordingReplayBuffer`、`replay_buffer_test.cpp` の `BlockingReplayBuffer`、`trainer_test.cpp` の `HintRecordingReplayBuffer`） | `GetSampleObsSpecs` を実装する |
 | テスト | `forwarder_test.cpp`、`replay_buffer_test.cpp`、`dqn_learner_test.cpp`、`dqn_concrete_test.cpp`、`dqn_fixture_test.hpp` | 新しい口と、新しい設定キーに書き換える。並びの決まりを確かめているテストは、§7 の受入に合わせて書き直す |
 | 設定 | 出荷設定の 4 ファイル（`agent.txt`・`GridMaze.txt`・`LunarLander.txt`・`DropMerge.txt`。S9 が 4 ファイル、S10 が 1 ファイル） | §6.6 の対応のとおりに移す。コメントにした行も移す |
-| 実行バッチ | `apps/11_batch_run.bat` の `STK` | Montezuma の起動で渡す重ね方を、§6.6 の対応のとおりに移す |
 | 検証資材 | [rfd0072/baseline/](../../src/core/base/testdata/rfd0072/baseline) の 17 ファイル | 旧いキーの項目を、新しいキーの項目に入れ替える。丸ごとは採り直さない。変えてよい範囲と手段は、§7 の「基準の直し方」 |
 | 検証資材 | [固定入力の移行](../../src/core/base/testdata/rfd0072/perception_migration.py) | 固定した過去の入力を移す先を、新しいキー（`frame_stack.*`）にする |
 | 検証資材 | [README.md](../../src/core/base/testdata/rfd0072/README.md) の「golden の更新方針」 | 本 RFD で移したキーと、直し方（RFD0161 と同じ）を 1 文足す |
@@ -526,7 +528,7 @@ DefaultDQNAgent.@baseline : perception.block.[stack].type ?= FrameStack
 | 5 | `[perception]` のテスト: 4 つの Forward の種類のそれぞれで、作った Forwarder の `GetOutputSpecs` の各キーの shape と dtype が、`GetInputSpecs` どおりの形の仮の入力（行の数は 2）を通した出力の、行の軸を除いた形と dtype に一致する（4 枚と 1 枚、`DropKeys` を含む並び）。枚数 1 の `stack > norm` で、`Normalize` に届く spec が、3 つの Perception の種類のどれでも stack 軸つきである |
 | 6 | `[perception]` の往復のテスト: 行動選択用の Forwarder が作った Perception と、同じ経験を ReplayBuffer に入れて Sample 用の Forwarder で作り直した Perception が一致する。条件は、4 枚と 1 枚、episode の先頭、打ち切りの終端、n より手前で episode が終わる next_obs、skip の窓の終点（RFD0161 の受入 22 と同じ条件） |
 | 7 | `[perception]` のテスト: 並び `norm > stack` と `stack > norm` のどちらも組める。`Unscaled` と宣言した float のキーに、統計つきの正規化を使う設定で、どちらの並びでも、統計を更新し終えたあと（以後、経験の受入れ用の Forwarder を通さない）に作った、行動選択用と Sample 用の Perception が一致する |
-| 8 | `[perception]` のテスト: `FrameStack` を書かない並び（`norm` だけ）で、枚数 1 では、行動選択・Sample・可視化の Perception の重ねる対象のキーが `[B, 1, *shape]` になり、行動選択の出力に開始の印の鍵が無い。枚数 4 では、Agent の構築がエラーになる |
+| 8 | `[perception]` のテスト: `FrameStack` を書かない並び（`norm` だけ）で、枚数 1 では、行動選択・Sample・可視化の Perception の重ねる対象のキーが `[B, 1, *shape]` になり、通常の `Actor::MakeAction` が開始の印を受け取って行動を返す。開始の印を出力 spec から除いたと宣言した外部部品が実際には開始の印を返す場合、`Actor::MakeAction` が行動選択の前にエラーを返す。枚数 4 では、Agent の構築がエラーになる |
 | 9 | `[perception]` のテスト: `frame_stack.keys.mode` が `listed` の設定で、一覧に書いたキーだけが stack 軸を持つ。`all` では、全キーが持つ。一覧に Frame に無い名前を書いた設定、`listed` で一覧が空の設定、`frame_stack.count` が 0 の設定、`frame_stack.count` が `2.5` の設定、Frame に開始の印の鍵と同じ名前（`episode_start`）のキーがある構成は、それぞれ Agent の構築がエラーになる |
 | 10 | `[replay_buffer]` のテスト: `GetSampleObsSpecs` が、枚数 4 では、重ねるキーに stack 軸つきの spec（先頭の軸の長さが 4）を答え、枚数 1 では、軸の無い spec を答える。どちらも、Sample が返す obs の、先頭の軸を除いた形と一致する |
 | 11 | `[perception]` のテスト: `SetSpec` で `scale` を `Unscaled` に変えた float のキーが、あとの `Normalize` の対象になる。`forward_kinds.mode` が `listed` のとき、一覧に無い種類の依頼では、spec が変わらない。範囲の宣言と `labels` の無い float のキーに、`scale` だけを変える `SetSpec` を当てても、エラーにならない。§6.7 の 5・6・9 の `SetSpec` の条件のそれぞれで、エラーになる。`FrameStack` の後ろに置いた `SetSpec` は、stack 軸つきの spec を受けても、1 枚ぶんの形で検査して通る |

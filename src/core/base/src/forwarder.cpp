@@ -84,6 +84,10 @@ constexpr char kConstantMode[] = "constant";
 constexpr char kRunningMode[] = "running";
 constexpr char kAllKeys[] = "all";
 constexpr char kListedKeys[] = "listed";
+constexpr char kKeepMode[] = "keep";
+constexpr char kSetMode[] = "set";
+constexpr char kScaledValue[] = "Scaled";
+constexpr char kUnscaledValue[] = "Unscaled";
 
 namespace {
 
@@ -301,6 +305,7 @@ namespace {
         }
         std::unique_ptr<graphviz::GraphViz> MakeGraphViz(bool detail) const override
         {
+            // 組み立て順が見えるよう、入力・各部品・出力を直列につなぐ。
             auto graph = std::make_unique<graphviz::Tree>(kind_, graphviz::LayoutDirection::LeftToRight);
             std::string previous = "input";
             AddSpecs(graph->AddNode(previous).label.SetTitle(previous), input_specs_, detail);
@@ -388,6 +393,7 @@ void anet::RegisterForwarderModuleFactory(const std::string& type_name,
 ForwarderBuilder::ForwarderBuilder(const ConfigData& config_data, const std::string& config_prefix, seed_t seed)
     : definition_(std::make_unique<Definition>())
 {
+    // 並びに現れる名前と登録済みの型を対応付ける。
     const ForwarderBuilderConfig config(config_data, config_prefix);
     const auto names = SplitPipelineString(config.structure);
     const auto block_prefix = config_prefix.empty() ? "block" : config_prefix + ".block";
@@ -403,6 +409,7 @@ ForwarderBuilder::ForwarderBuilder(const ConfigData& config_data, const std::str
         }
         block_factories.push_back(factory->second);
     }
+    // 各部品の対応用途から、並び全体で使える用途を絞る。
     for (const auto& factory : block_factories) {
         const auto kinds = factory->GetForwardKinds();
         if (!kinds) continue;
@@ -415,11 +422,13 @@ ForwarderBuilder::ForwarderBuilder(const ConfigData& config_data, const std::str
             common_kinds = kinds;
         }
     }
+    // 設定値を検証する前に、どの部品でも読まれなかったキーを拒否する。
     for (std::size_t index = 0; index < blocks.size(); ++index) {
         const auto& block = blocks[index];
         block_factories[index]->ReadConfigKeys(block.config);
         block.config.RequireAllKeysRead("type=" + block.type);
     }
+    // 部品名ごとの seed で部品を生成し、設定された用途を照合する。
     const SeedMaker seed_maker(seed);
     for (std::size_t index = 0; index < blocks.size(); ++index) {
         const auto& block = blocks[index];
@@ -443,6 +452,7 @@ ForwarderBuilder::~ForwarderBuilder() = default;
 std::shared_ptr<SpecForwarder> ForwarderBuilder::BuildForwarder(const ForwarderRequest& request,
     const TensorSpecMap& input_specs) const
 {
+    // 依頼の用途と最初の入力 spec を確認する。
     if (input_specs.empty()) {
         ANET_SYSTEM_ERROR("ForwarderBuilder expected at least one input key, got 0.");
     }
@@ -452,6 +462,7 @@ std::shared_ptr<SpecForwarder> ForwarderBuilder::BuildForwarder(const ForwarderR
         ANET_SYSTEM_ERROR("ForwarderBuilder does not support ForwardKind='" << forward_kind
             << "'; supported kinds=" << json(*supported).dump() << ".");
     }
+    // 直前の出力 spec を次の部品の入力として渡す。
     std::vector<BuiltForwarderBlock> blocks;
     const TensorSpecMap* specs = &input_specs;
     for (const auto& block : definition_->blocks) {
@@ -568,11 +579,13 @@ namespace {
         TensorDict Forward(const TensorDict& input, ForwardCapture*) override
         {
             ANET_PROFILE_FUNC();
+            // 履歴を更新する前に、各環境の開始の印を検証する。
             const auto starts = input.Get(start_key_);
             if (!starts || !starts->defined() || !starts->device().is_cpu() || starts->scalar_type() != torch::kBool
                 || starts->dim() != 1 || starts->size(0) != row_count_) {
                 ANET_SYSTEM_ERROR("FrameStack key='" << start_key_ << "'; expected CPU bool with shape [" << row_count_ << "].");
             }
+            // 実際の入力 device が分かる初回に、device ごとの履歴を用意する。
             if (groups_.empty()) {
                 for (const auto& key : keys_) {
                     const auto device = input.At(key).device();
@@ -587,6 +600,7 @@ namespace {
                     group.stacker.emplace(count_, row_count_, group.device, group.keys);
                 }
             }
+            // 開始の印を除き、対象キーの値だけを重ねた結果へ差し替える。
             TensorDict output;
             for (const auto& [key, value] : input) {
                 if (key != start_key_) output.Set(key, value);
@@ -625,6 +639,7 @@ namespace {
             if (count < 1) {
                 ANET_SYSTEM_ERROR("FrameStack " << kStackCountOption << "=" << count << "; expected >= 1.");
             }
+            // Replay から既に重なったキーは保ち、それ以外に必要な軸を付ける。
             const bool from_stack = kind == rl::kForwardKindPerceptionFromStack;
             auto output_specs = input_specs;
             std::vector<std::string> keys_to_stack;
@@ -643,11 +658,19 @@ namespace {
                 keys_to_stack.push_back(key);
             }
             GraphVizDetails details{ { "count", std::to_string(count) }, { "keys", json(keys_to_stack).dump() } };
+            // 履歴を持つ用途の開始の印は、入力で検証し、出力 spec から外す。
             if (kind == rl::kForwardKindPerceptionFromSequence) {
                 auto start_key = options.Get(kStartKeyOption);
-                if (!output_specs.erase(start_key)) {
+                const auto start = output_specs.find(start_key);
+                if (start == output_specs.end()) {
                     ANET_SYSTEM_ERROR("FrameStack key='" << start_key << "'; expected a start key in the input specs.");
                 }
+                const auto& start_spec = start->second;
+                if (start_spec.dtype != torch::kBool || !start_spec.shape.empty() || start_spec.has_stack_axis) {
+                    ANET_SYSTEM_ERROR("FrameStack key='" << start_key << "' spec=" << start_spec.ToJson().dump()
+                        << "; expected scalar bool without a stack axis.");
+                }
+                output_specs.erase(start);
                 const auto row_count = options.Get<int>(kRowCountOption);
                 if (row_count < 1) {
                     ANET_SYSTEM_ERROR("FrameStack " << kRowCountOption << "=" << row_count << "; expected >= 1.");
@@ -696,6 +719,7 @@ namespace {
             const bool running = config_.mode == kRunningMode;
             const bool passthrough = config_.mode == kNoneMode;
             const auto frames = MakeNormalizationFrameSpecs(input_specs);
+            // 取り込みで作った running の統計を、ほかの用途からも参照する。
             std::shared_ptr<rl::ObservationNormalizer> normalizer;
             {
                 const std::lock_guard lock(mutex_);
@@ -720,6 +744,7 @@ namespace {
                 return std::make_shared<TransformForwarder>(input_specs, input_specs, details_);
             }
 
+            // 取り込みが保存する値は保ち、それ以外は正規化した値の spec を作る。
             auto output_specs = input_specs;
             std::vector<std::string> keys;
             std::vector<std::string> stacked_intake_keys;
@@ -811,15 +836,16 @@ namespace {
 
     template<typename T>
     struct SetSpecAttribute {
-        std::string mode = "keep";
+        std::string mode = kKeepMode;
         T set;
     };
 
     struct SetSpecBlockConfig final : ForwarderBlockConfig {
         struct Range { std::vector<double> values; };
         struct Labels { std::vector<std::string> names; };
+
         std::vector<std::string> keys;
-        std::string scale = "keep";
+        std::string scale = kKeepMode;
         SetSpecAttribute<Range> min_values;
         SetSpecAttribute<Range> max_values;
         SetSpecAttribute<Labels> labels;
@@ -879,6 +905,7 @@ namespace {
         std::shared_ptr<SpecForwarder> CreateForwarder(const ForwarderRequest& request,
             const TensorSpecMap& input_specs) const override
         {
+            // 適用対象の用途だけ、その時点の入力 spec を更新する。
             if (config_.forward_kinds.mode == kListedKeys
                 && std::ranges::find(config_.forward_kinds.listed.names, request.GetForwardKind()) == config_.forward_kinds.listed.names.end()) {
                 return std::make_shared<TransformForwarder>(input_specs, input_specs, details_);
@@ -891,26 +918,27 @@ namespace {
                         << "; available keys=" << json(SortedSpecKeys(input_specs)).dump() << ".");
                 }
                 auto& spec = found->second;
-                const auto frame_spec = FrameSpec(spec);
-                if (config_.scale == "Unscaled") {
+                // 範囲とラベルは、重ねる軸を含めず 1 枚分に合わせる。
+                const auto frame_spec = MakeFrameSpec(spec);
+                if (config_.scale == kUnscaledValue) {
                     if (spec.IsDiscrete() || c10::isIntegralType(spec.dtype, /*includeBool=*/false)) {
-                        ANET_SYSTEM_ERROR("Invalid " << config_.GetFullKey("scale") << "=Unscaled for key='" << key
+                        ANET_SYSTEM_ERROR("Invalid " << config_.GetFullKey("scale") << "=" << kUnscaledValue << " for key='" << key
                             << "' dtype=" << spec.dtype << " num_classes=" << spec.num_classes
                             << "; expected a non-integral dtype with no discrete classes.");
                     }
                     spec.scale = ValueScale::Unscaled;
-                } else if (config_.scale == "Scaled") {
+                } else if (config_.scale == kScaledValue) {
                     spec.scale = ValueScale::Scaled;
                 }
-                if (config_.min_values.mode == "set") {
+                if (config_.min_values.mode == kSetMode) {
                     CheckRangeCount(key, "min_values.set.values", config_.min_values.set.values, frame_spec.CalcFlattenDim());
                     spec.min_values = config_.min_values.set.values;
                 }
-                if (config_.max_values.mode == "set") {
+                if (config_.max_values.mode == kSetMode) {
                     CheckRangeCount(key, "max_values.set.values", config_.max_values.set.values, frame_spec.CalcFlattenDim());
                     spec.max_values = config_.max_values.set.values;
                 }
-                if (config_.labels.mode == "set") {
+                if (config_.labels.mode == kSetMode) {
                     auto labeled = frame_spec;
                     labeled.labels = config_.labels.set.names;
                     if (!labeled.HasValidLabels()) {
@@ -924,7 +952,7 @@ namespace {
             return std::make_shared<TransformForwarder>(input_specs, std::move(output_specs), details_);
         }
     private:
-        static TensorSpec FrameSpec(TensorSpec spec)
+        static TensorSpec MakeFrameSpec(TensorSpec spec)
         {
             if (spec.has_stack_axis && !spec.shape.empty()) spec.shape.erase(spec.shape.begin());
             return spec;
@@ -953,14 +981,14 @@ namespace {
             if (config.keys.empty()) {
                 ANET_SYSTEM_ERROR("Invalid " << data.GetFullKey("keys") << "=[]; expected at least one key.");
             }
-            if (config.scale != "keep" && config.scale != "Scaled" && config.scale != "Unscaled") {
-                ANET_SYSTEM_ERROR("Invalid " << data.GetFullKey("scale") << "='" << config.scale << "'; expected keep, Scaled or Unscaled.");
+            if (config.scale != kKeepMode && config.scale != kScaledValue && config.scale != kUnscaledValue) {
+                ANET_SYSTEM_ERROR("Invalid " << data.GetFullKey("scale") << "='" << config.scale << "'; expected " << kKeepMode << ", " << kScaledValue << " or " << kUnscaledValue << ".");
             }
             CheckAttribute(data, "min_values", "set.values", config.min_values.mode, config.min_values.set.values.empty());
             CheckAttribute(data, "max_values", "set.values", config.max_values.mode, config.max_values.set.values.empty());
             CheckAttribute(data, "labels", "set.names", config.labels.mode, config.labels.set.names.empty());
-            if (config.scale == "keep" && config.min_values.mode == "keep"
-                && config.max_values.mode == "keep" && config.labels.mode == "keep") {
+            if (config.scale == kKeepMode && config.min_values.mode == kKeepMode
+                && config.max_values.mode == kKeepMode && config.labels.mode == kKeepMode) {
                 ANET_SYSTEM_ERROR("Invalid " << data.GetFullKey("type") << "=" << kSetSpecType
                     << "; expected at least one attribute to change.");
             }
@@ -978,11 +1006,11 @@ namespace {
         static void CheckAttribute(const ConfigData& data, const std::string& field, const std::string& value_field,
             const std::string& mode, bool empty)
         {
-            if (mode != "keep" && mode != "set") {
+            if (mode != kKeepMode && mode != kSetMode) {
                 ANET_SYSTEM_ERROR("Invalid " << data.GetFullKey(field + ".mode") << "='" << mode
-                    << "'; expected keep or set.");
+                    << "'; expected " << kKeepMode << " or " << kSetMode << ".");
             }
-            if (mode == "set" && empty) {
+            if (mode == kSetMode && empty) {
                 ANET_SYSTEM_ERROR("Invalid " << data.GetFullKey(field + "." + value_field)
                     << "=[]; expected at least one value.");
             }
@@ -1013,6 +1041,8 @@ namespace {
             }
             return std::make_shared<TransformForwarder>(input_specs, std::move(output_specs), details_,
                 [keys = config_.keys](const TensorDict& input) {
+                    // ラムダに移したあとも、以前の計測名で検索できるようにする。
+                    ANET_PROFILE_SCOPE_FULL(drop_observation_keys, "DropKeysForwarder::Forward");
                     TensorDict output;
                     for (const auto& [key, value] : input) {
                         if (std::ranges::find(keys, key) == keys.end()) output.Set(key, value);
@@ -1066,9 +1096,7 @@ ForwarderRequest rl::MakePerceptionFromSequenceRequest(int row_count, seed_t see
     return ForwarderRequest(kForwardKindPerceptionFromSequence, std::move(options));
 }
 
-namespace anet::rl::detail {
-
-void InitForwarderModules()
+void anet::rl::detail::InitForwarderModules()
 {
     static const auto failure = CaptureRegistrationFailure([] {
         RegisterForwarderModuleFactory(kFrameStackType, std::make_shared<FrameStackFactory>());
@@ -1077,6 +1105,4 @@ void InitForwarderModules()
         RegisterForwarderModuleFactory(kSetSpecType, std::make_shared<SetSpecFactory>());
     });
     if (failure) std::rethrow_exception(failure);
-}
-
 }

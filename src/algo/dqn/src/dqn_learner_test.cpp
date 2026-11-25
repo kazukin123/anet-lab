@@ -4222,7 +4222,7 @@ TEST_CASE("Attention probe preserves TD QR IQN learning RNG and spectral buffers
     const auto count_before = builder.GetScalar(rl::ObservationNormalizer::kKeyCount);
     auto perception_specs = env_spec.state_spec.obs_spec;
     perception_specs.at(kVectorKey).scale = anet::ValueScale::Scaled;
-    const dqn::LearnerPerceptionSetup sample_perception{ builder, perception_specs };
+    const dqn::LearnerPerceptionSetup sample_perception{ .builder = builder, .expected_specs = perception_specs };
     const dqn::ReplayFrameStack frame_stack{};
     REQUIRE(count_before.has_value());
     dqn::RuntimeVars first_vars, second_vars;

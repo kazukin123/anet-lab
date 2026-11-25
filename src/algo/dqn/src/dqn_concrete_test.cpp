@@ -324,13 +324,15 @@ TEST_CASE("DefaultDQN supplies a one-frame axis for a Normalize-only perception 
             batch, env, torch::kCPU, 123);
     };
 
-    SECTION("Actor, visualization and Sample pass one-frame inputs through StackMerge") {
+    SECTION("Actor passes one frame without its start key; visualization and Sample use the same shape") {
         // StackMerge の実行は [B, S, C, H, W] を要求する。
         const auto agent = make_agent();
         const auto actor = agent->CreateActor({ .batch_env_spec = batch, .env_spec = env, .device = torch::kCPU,
             .seed = 123, .actor_key = "train" });
         const auto flags = torch::zeros({ 2 }, torch::kBool);
-        const auto action = actor->MakeAction({}, rl::BatchState(frame, flags, flags, flags), { .nn_trace = true });
+        const auto starts = torch::ones({ 2 }, torch::kBool);
+        std::shared_ptr<rl::BatchActionInfo> action;
+        REQUIRE_NOTHROW(action = actor->MakeAction({}, rl::BatchState(frame, flags, flags, starts), { .nn_trace = true }));
         REQUIRE(action);
         CHECK(ShapeOf(rl::ExtractNnTrace(action->GetAuxData()).At(kMainFeatureInput))
             == std::vector<int64_t>{ 1, 1, 1, 4, 4 });
@@ -349,21 +351,6 @@ TEST_CASE("DefaultDQN supplies a one-frame axis for a Normalize-only perception 
             updates.insert(updates.end(), current.begin(), current.end());
         }
         CHECK_FALSE(updates.empty());
-    }
-    SECTION("Actor completion removes the start key before returning Perception") {
-        const dqn::DefaultDQNAgentConfig config(WithDefaultForwardConfig(data));
-        const anet::ForwarderBuilder builder(config.perception_config, "", 123);
-        auto input_specs = env.state_spec.obs_spec;
-        input_specs.emplace(dqn::kPerceptionStartKey, anet::TensorSpec{ .dtype = torch::kBool });
-        const auto request = rl::MakePerceptionFromSequenceRequest(2, 123, dqn::kPerceptionStartKey, 1, { obs_key });
-        const auto completed = dqn::CompletePerception(builder.BuildForwarder(request, input_specs), { obs_key },
-            dqn::kPerceptionStartKey);
-        auto input = frame;
-        input.Set(dqn::kPerceptionStartKey, torch::ones({ 2 }, torch::kBool));
-        const auto output = completed->Forward(input);
-        CHECK_FALSE(output.Contains(dqn::kPerceptionStartKey));
-        CHECK_FALSE(completed->GetOutputSpecs().contains(dqn::kPerceptionStartKey));
-        CHECK(torch::equal(output.At(obs_key), frame.At(obs_key).unsqueeze(1)));
     }
     SECTION("Four frames require a FrameStack module") {
         data.Set("DefaultDQNAgent.frame_stack.count", 4);
@@ -403,7 +390,7 @@ TEST_CASE("DefaultDQN validates Agent-wide frame stacking before building percep
     }
 }
 
-TEST_CASE("DefaultDQN rejects mismatched intake and Sample specs from registered modules", "[dqn][perception]")
+TEST_CASE("DefaultDQN validates observations from registered modules", "[dqn][perception]")
 {
     constexpr char kType[] = "DqnTestDropObservationByKind";
     const std::string aux_key = "test_aux";
@@ -419,6 +406,8 @@ TEST_CASE("DefaultDQN rejects mismatched intake and Sample specs from registered
         const anet::TensorSpecMap& GetOutputSpecs() const override { return outputs_; }
         anet::TensorDict Forward(const anet::TensorDict& input, anet::ForwardCapture*) override
         {
+            // 開始の印だけは、出力 spec から除いたと宣言した部品が実際には返すケースを作る。
+            if (key_ == dqn::kPerceptionStartKey) return input;
             anet::TensorDict output;
             for (const auto& [key, value] : input) if (key != key_) output.Set(key, value);
             return output;
@@ -476,6 +465,27 @@ TEST_CASE("DefaultDQN rejects mismatched intake and Sample specs from registered
             rl::BatchEnvSpec{ .num_envs = 2, .num_threads = 1 }, env, torch::kCPU, 161)),
             Catch::Matchers::ContainsSubstring(kind) && Catch::Matchers::ContainsSubstring("output has 1 keys"));
     }
+
+    // 公開の登録口と通常の Actor を通し、宣言に反して開始の印を返す部品を拒む。
+    data.Set("DefaultDQNAgent.perception.structure", "test_drop");
+    data.Set("DefaultDQNAgent.perception.block.[test_drop].kind", rl::kForwardKindPerceptionFromSequence);
+    data.Set("DefaultDQNAgent.perception.block.[test_drop].key", dqn::kPerceptionStartKey);
+    data.Set("DefaultDQNAgent.frame_stack.count", 1);
+    const rl::BatchEnvSpec batch{ .num_envs = 2, .num_threads = 1 };
+    const auto agent = std::make_shared<dqn::DefaultDQNAgent>(
+        dqn::DefaultDQNAgentConfig(WithDefaultForwardConfig(data)), anet::nn::NetworkConfig(data),
+        batch, env, torch::kCPU, 161);
+    const auto actor = agent->CreateActor({ .batch_env_spec = batch, .env_spec = env, .device = torch::kCPU,
+        .seed = 161, .actor_key = "train" });
+    const anet::TensorDict frame{
+        { kVectorKey, torch::zeros({ 2, 8 }) },
+        { aux_key, torch::zeros({ 2, 2 }) },
+    };
+    const auto flags = torch::zeros({ 2 }, torch::kBool);
+    const auto starts = torch::ones({ 2 }, torch::kBool);
+    CHECK_THROWS_WITH(actor->MakeAction({}, rl::BatchState(frame, flags, flags, starts), {}),
+        Catch::Matchers::ContainsSubstring("Actor Perception output contains the start key")
+        && Catch::Matchers::ContainsSubstring(dqn::kPerceptionStartKey));
 }
 
 TEST_CASE("DefaultDQNAgent flattens native vector stacks for MLP branches", "[dqn][native_stack]")

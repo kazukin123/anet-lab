@@ -668,6 +668,11 @@ void ReplayExperienceStorage::DumpToLog() const
 // Sampler (具象クラス)
 // ===========================================================================
 
+static bool IsReplayStackKey(const std::vector<std::string>& stack_keys, const std::string& key)
+{
+    return stack_keys.empty() || std::ranges::find(stack_keys, key) != stack_keys.end();
+}
+
 namespace {
     // --- 内部ヘルパー関数 ---
     // リングバッファの物理境界を考慮して、安全にスライス(時間軸)を切り出す関数
@@ -695,11 +700,6 @@ namespace {
     }
 
     // TensorDict 版のリングバッファスライス
-    bool IsReplayStackKey(const std::vector<std::string>& stack_keys, const std::string& key)
-    {
-        return stack_keys.empty() || std::ranges::find(stack_keys, key) != stack_keys.end();
-    }
-
     anet::TensorDict RingSliceDict(
         const anet::TensorDict& dict, int64_t env_idx,
         int64_t valid_start, int64_t valid_len, int64_t pad_len,

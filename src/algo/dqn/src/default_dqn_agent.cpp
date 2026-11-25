@@ -67,6 +67,7 @@ static ReplayFrameStack ResolveReplayFrameStack(const DefaultDQNAgentConfig& con
     if (stack.count < 1) {
         ANET_SYSTEM_ERROR("Invalid " << config.GetFullKey("frame_stack.count") << "=" << stack.count << "; expected >= 1.");
     }
+    // 入力の Frame spec に対して、重ねる対象を確定する。
     ReplayFrameStack resolved{ .count = stack.count };
     if (stack.keys.mode == FrameStackConfig::kAllKeys) {
         for (const auto& [key, spec] : frame_specs) resolved.keys.push_back(key);
@@ -86,6 +87,7 @@ static ReplayFrameStack ResolveReplayFrameStack(const DefaultDQNAgentConfig& con
         ANET_SYSTEM_ERROR("Invalid " << config.GetFullKey("frame_stack.keys.mode") << "='" << stack.keys.mode
             << "'; expected " << FrameStackConfig::kAllKeys << " or " << FrameStackConfig::kListedKeys << ".");
     }
+    // Actor が入力に足す開始の印と、本来の観測キーの衝突を拒む。
     if (frame_specs.contains(kPerceptionStartKey)) {
         ANET_SYSTEM_ERROR("Frame key='" << kPerceptionStartKey << "' conflicts with the reserved start key for "
             << anet::rl::kForwardKindPerceptionFromSequence << ".");
@@ -573,11 +575,13 @@ DefaultDQNAgent::DefaultDQNAgent(
     perception_ = std::make_unique<anet::ForwarderBuilder>(
         config_.perception_config, config_.GetConfigPrefix() + ".perception",
         seed_maker.MakeNamedSeed(kPerceptionSeed));
+    // 取り込みの形と dtype を確認し、可視化の出力 spec を NN の基準にする。
     frame_intake_ = perception_->BuildForwarder(MakeFrameWithStatsUpdateRequest(), frame_specs);
     RequirePerceptionSpecs(frame_specs, frame_intake_->GetOutputSpecs(), kForwardKindFrameWithStatsUpdate);
     const auto raw_visualization = perception_->BuildForwarder(
         MakePerceptionFromFrameRequest(replay_frame_stack_.count, replay_frame_stack_.keys), frame_specs);
     visualization_perception_ = CompletePerception(raw_visualization, replay_frame_stack_.keys);
+    // Actor が同じ spec を返すか、履歴を動かす前に照合する。
     const auto probe_actor = BuildActorPerception(*perception_, frame_specs, replay_frame_stack_, 1,
         seed_maker.MakeNamedSeed(kPerceptionSeed));
     RequirePerceptionSpecs(visualization_perception_->GetOutputSpecs(), probe_actor->GetOutputSpecs(),
@@ -703,7 +707,11 @@ void DefaultDQNAgent::InitializeLearner(const BatchEnvSpec& batch_env_spec, cons
             MakeNetworkForwardConfigKey("noisy_probe"), data);
     }
 
-    const LearnerPerceptionSetup perception_setup{ *perception_, visualization_perception_->GetOutputSpecs() };
+    // Learner は Replay の Sample spec で組み立て、可視化と同じ出力か照合する。
+    const LearnerPerceptionSetup perception_setup{
+        .builder = *perception_,
+        .expected_specs = visualization_perception_->GetOutputSpecs(),
+    };
     learner_ = DqnComponentAssembler::CreateLearner(config_.quantile_mode, config_.qr.num_quantiles, config_.learner,
         *model_, *vars_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_,
         &perception_setup, LearnerForwardResources{

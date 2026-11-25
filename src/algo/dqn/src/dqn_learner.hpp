@@ -408,8 +408,8 @@ namespace anet::rl::dqn {
     };
 
     struct LearnerPerceptionSetup {
-        const anet::ForwarderBuilder& builder;
-        const anet::TensorSpecMap& expected_specs;
+        const anet::ForwarderBuilder& builder; // 呼び出し元が所有し、Learner 構築中だけ借りる。
+        const anet::TensorSpecMap& expected_specs; // 呼び出し元の可視化 Forwarder 等が持つ比較基準。
     };
 
     std::shared_ptr<anet::SpecForwarder> CompletePerception(std::shared_ptr<anet::SpecForwarder> forwarder,

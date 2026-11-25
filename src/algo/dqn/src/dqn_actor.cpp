@@ -1499,11 +1499,15 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     // action forwardより前にTrain Actor network snapshotを必要な場合だけ同期する。
     UpdateSnapshot(step);
 
-    // Actor の実行器は device 転送と lane ごとの履歴を受け持つ。
+    // Actor は観測を device へ移し、CPU 上の開始の印を履歴の処理に渡す。
     auto perception = state.obs.To(device_, /*non_blocking=*/static_cast<bool>(perception_));
     if (perception_) {
         perception.Set(kPerceptionStartKey, state.episode_start);
         perception = perception_->Forward(perception);
+        if (perception.Contains(kPerceptionStartKey)) {
+            ANET_SYSTEM_ERROR("Actor Perception output contains the start key '" << kPerceptionStartKey
+                << "'; expected the Forwarder to remove it before action selection.");
+        }
     }
 
     // 行動選択の時計を進め、同じ選択内の全forwardへ不透明な実行情報を渡す。
