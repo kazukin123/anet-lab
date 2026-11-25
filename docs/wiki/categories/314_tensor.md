@@ -37,6 +37,7 @@
 - 2026-11-24: 重ねる枚数とキーの設定は Agent 全体に置き、Sample の束の spec は ReplayBuffer が答える（出典: [ADR 0095](../../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、本文）。
 - 2026-11-24: stack 軸の確保と、並びが成り立つことの確かめは、Forwarder の仕組みではなく使う側が受け持つ（出典: [ADR 0096](../../adr/0096-stack-axis-and-chain-validity-are-ensured-by-the-caller-not-the-forwarder-mechanism.md)、本文）。
 - 2026-11-25: Forwarder の並びは、全 block の未読キーを確かめ、次に値の型と値域、最後に並びで使える Forward の種類との組み合わせを確かめる。外部の工場と部品にもこの順を適用する（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§6.3・§6.7）。
+- 2026-11-25: `LaneTimeTensorStore`に、たまっている範囲の全体を、時刻×laneの形のまま複製せずに読む口（`GetAll`）を足した（出典: [RFD0202](../../memo/0202_ppo_family_and_on_policy_core_parts_10rfd.md)、§7.7）。
 
 ## 選ばなかった形
 

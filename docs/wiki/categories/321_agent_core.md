@@ -8,6 +8,7 @@
 - DefaultDQN の Actor は観測と CPU 上の開始の印を行動選択用の Forwarder に渡す。Learner は ReplayBuffer が返す spec で Sample 用を作る（出典: [Forwarder と Perception](../../design/135_forwarder_and_perception.jp.md)、§3）。
 - Agentは基盤の外で書ける拡張点で、`anet/agent.hpp`・`anet/rl.hpp`で`AgentFactory`・`Agent`・`Actor`を実装し、`RegisterAgentFactory`で登録する（出典: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3）。
 - `Actor::MakeAction`は呼び出しごとの選択を`MakeActionOptions`で受け（nn_traceの要求は既定で偽）、要求をActorやNotifierへ登録しない。Agentは、Runnerが系統の公開初期化関数を呼んで登録し、同じ関数を何度呼んでも登録は1回で、同じclass IDを直接登録すると例外になって先の登録が残る。DQNのprobe専用の乱数は、内側のLearnerがAgentの基のseedと用途ごとの名前から作って持つ（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4）。
+- `CategoricalDistribution`は、行ごとのlogitsから作る離散行動の分布で、抽選、log確率、entropyを、logitsと同じdeviceで計算する（出典: [方策ベースの学習の共通部品](../../design/115_on_policy_learning.jp.md)、§2.1）。
 
 ## 成立の経緯
 
@@ -87,6 +88,7 @@
 - 2026-11-21: RNDの設定は、段階ごとのスコープとモード別の名前空間で持ち、被るキーは割り切る（出典: [ADR 0088](../../adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md)、本文）。
 - 2026-11-24: DQN の Actor は、実行器の代わりに行動選択用の Forwarder を持ち、行の開始の印を入力の鍵（`episode_start`）で渡す仕様を決めた。Learner は、ReplayBuffer を作ったあとに、ReplayBuffer が答えた束の spec を渡して、Sample 用の Forwarder を作る（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§6.5、§5.1 D1、§5.2 D14）。
 - 2026-11-24: DefaultDQN の Actor と Learner を、用途ごとの Forwarder を作る経路へ移した（出典: [RFD0200 実装メモ](../../memo/0200_forwarder_public_interface_rework_20impl.md)、主な変更）。
+- 2026-11-25: 離散行動の分布`CategoricalDistribution`（抽選、確率が最大の行動、log確率、entropy）を足した（出典: [RFD0202](../../memo/0202_ppo_family_and_on_policy_core_parts_10rfd.md)、§7.1）。
 
 ## 選ばなかった形
 
@@ -226,10 +228,12 @@
 - [dqn_munchausen_test.cpp](../../../src/algo/dqn/src/dqn_munchausen_test.cpp)
 - [dqn_network_model.cpp](../../../src/algo/dqn/src/dqn_network_model.cpp) / [dqn_network_model.hpp](../../../src/algo/dqn/src/dqn_network_model.hpp) / [dqn_network_model_test.cpp](../../../src/algo/dqn/src/dqn_network_model_test.cpp)
 - [agent.hpp](../../../src/core/base/include/anet/agent.hpp)
+- [distribution.hpp](../../../src/core/base/include/anet/distribution.hpp)
 - [intrinsic.hpp](../../../src/core/base/include/anet/intrinsic.hpp)
 - [agent.hpp](../../../src/core/base/include/anet/test/agent.hpp)
 - [intrinsic.hpp](../../../src/core/base/include/anet/test/intrinsic.hpp)
 - [agent.cpp](../../../src/core/base/src/agent.cpp)
+- [distribution.cpp](../../../src/core/base/src/distribution.cpp) / [distribution_test.cpp](../../../src/core/base/src/distribution_test.cpp)
 - [intrinsic.cpp](../../../src/core/base/src/intrinsic.cpp) / [intrinsic_test.cpp](../../../src/core/base/src/intrinsic_test.cpp)
 - [intrinsic_rnd.cpp](../../../src/core/base/src/intrinsic_rnd.cpp) / [intrinsic_rnd.hpp](../../../src/core/base/src/intrinsic_rnd.hpp)
 - [agent.cpp](../../../src/core/base/src_testing/agent.cpp)

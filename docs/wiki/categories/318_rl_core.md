@@ -14,6 +14,7 @@
 - ReplayBufferは、Agentが複数の報酬成分を使うときだけ報酬を成分ごとに受け取り、成分ごとの割引率の列で収益を作る。成分の数は構築時に固定し、成分の意味は利用側のAgentが持つ。1成分のshapeと計算順は変えない（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.1・§2.2）。
 - Runnerのstepは、呼ぶ側が渡す`MakeActionOptions`をそのstepのActorの行動選択へそのまま渡す。nn_traceは要求したstepだけ作り、Runner・Actor・Observer・Notifierに要求の登録を持たない（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2.2；[可観測性](../../design/140_observability.jp.md)、§5.4）。
 - eval scheduleの発火の列は、`EpisodeEvalObserver`がoffsetに届くまで問い合わせを止め、先頭の`warmup_count`回の発火を走らせない形で調整し、共通の`IntervalGate`は変えない（出典: [可観測性](../../design/140_observability.jp.md)、§6.x step座標系）。
+- `ComputeGae`は、時刻×laneの報酬とvalueから、advantageとvalueの目標を作る。次の観測のvalueをどこから取るかは、使う側が決める（出典: [方策ベースの学習の共通部品](../../design/115_on_policy_learning.jp.md)、§3.1・§3.2）。
 
 ## 成立の経緯
 
@@ -87,6 +88,7 @@
 - 2026-11-21: Observer・ReplayBuffer・RunManagerのエラー・WARN・INFOが示す設定キーを完全キーにし、評価の`scheduled`の行の各欄も完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D25）。
 - 2026-11-24: ReplayBuffer が、Sample で返す obs の spec を答える口（`GetSampleObsSpecs`）を足す仕様を決めた。Sample 用の Forwarder は、この spec を受けて作る（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.2 D14）。
 - 2026-11-24: 通常の ReplayBuffer が Sample の観測 spec を答え、プリフェッチの ReplayBuffer は内側の答えを返す形を実装した（出典: [RFD0200 実装メモ](../../memo/0200_forwarder_public_interface_rework_20impl.md)、主な変更・経過）。
+- 2026-11-25: 時刻×laneの報酬・value・次の観測のvalue・終端とepisodeの終わりの印から、advantageとvalueの目標を作る`ComputeGae`を足した（出典: [RFD0202](../../memo/0202_ppo_family_and_on_policy_core_parts_10rfd.md)、§7.2）。
 
 ## 選ばなかった形
 
@@ -186,12 +188,14 @@
 点検が作り直す。手で直さない。
 
 - [muzero_rb.cpp](../../../src/algo/muzero/src/muzero_rb.cpp) / [muzero_rb.hpp](../../../src/algo/muzero/src/muzero_rb.hpp)
+- [advantage.hpp](../../../src/core/base/include/anet/advantage.hpp)
 - [observers.hpp](../../../src/core/base/include/anet/observers.hpp)
 - [replay_buffer.hpp](../../../src/core/base/include/anet/replay_buffer.hpp)
 - [replay_experience.hpp](../../../src/core/base/include/anet/replay_experience.hpp)
 - [rl.hpp](../../../src/core/base/include/anet/rl.hpp)
 - [serialize.hpp](../../../src/core/base/include/anet/serialize.hpp)
 - [trainer.hpp](../../../src/core/base/include/anet/trainer.hpp)
+- [advantage.cpp](../../../src/core/base/src/advantage.cpp) / [advantage_test.cpp](../../../src/core/base/src/advantage_test.cpp)
 - [episode_end_test.cpp](../../../src/core/base/src/episode_end_test.cpp)
 - [observers.cpp](../../../src/core/base/src/observers.cpp) / [observers_test.cpp](../../../src/core/base/src/observers_test.cpp)
 - [replay_buffer_test.cpp](../../../src/core/base/src/replay_buffer_test.cpp)
