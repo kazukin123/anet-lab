@@ -1,4 +1,4 @@
-<!-- translated-from: 220_atari_env.jp.md blob:8164e4afe4229447696d07e93c5c16ec5c054e30 date:2026-11-23 progress:done -->
+<!-- translated-from: 220_atari_env.jp.md blob:d5722d2d3d448ec82ed29771206f6365a0033d2b date:2026-11-25 progress:done -->
 # Atari Env (ALE Integration)
 
 > Primary perspective: concrete implementation specification (AtariEnv, including external ALE contracts, configuration keys, and View)
@@ -31,7 +31,7 @@ BatchEnvBuilder (env.class_id = AtariEnv)
             └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → selected resize → uint8 [1,S,S]
 ```
 
-- Does not produce frame stacks. The existing Actor-side stacker and ReplayBuffer-side stack_count jointly handle stacking.
+- Env returns one frame at a time. DefaultDQN's `frame_stack.*` specifies the number of frames and the target keys. `FrameStack` in the action-selection Forwarder stacks the Actor's history, and ReplayBuffer reconstructs samples with the same number of frames and keys. [Forwarder and Perception](135_forwarder_and_perception.en.md)
 - RB stores individual uint8 frames; stacks are expanded during sampling (ADR 0026).
 - Responsibility: **AtariEnv drives one ALE instance and performs standard preprocessing**. Existing framework mechanisms handle parallelism, stacking, automatic reset of terminal lanes inside Step, and seed distribution.
 

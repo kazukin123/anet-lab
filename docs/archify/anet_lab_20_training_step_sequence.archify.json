@@ -6,7 +6,7 @@
     "quality_profile": "showcase",
     "viewBox": [
       1080,
-      690
+      692
     ],
     "column_fit": "spread"
   },
@@ -21,13 +21,19 @@
       "id": "runner",
       "type": "backend",
       "label": "TrainRunner",
-      "sublabel": "Serial"
+      "sublabel": "Serial の DoStep"
     },
     {
       "id": "actor",
       "type": "backend",
       "label": "dqn::Actor",
       "sublabel": "Train Actor"
+    },
+    {
+      "id": "forwarder",
+      "type": "backend",
+      "label": "Forwarder",
+      "sublabel": "観測の加工"
     },
     {
       "id": "network",
@@ -62,23 +68,23 @@
   ],
   "segments": [
     {
-      "from": 166,
-      "to": 290,
-      "label": "行動の選択"
+      "from": 154,
+      "to": 278,
+      "label": "行動選択"
     },
     {
-      "from": 296,
-      "to": 386,
+      "from": 282,
+      "to": 362,
       "label": "Env の Step"
     },
     {
-      "from": 392,
-      "to": 546,
+      "from": 366,
+      "to": 550,
       "label": "学習の更新"
     },
     {
-      "from": 552,
-      "to": 612,
+      "from": 554,
+      "to": 606,
       "label": "通知と記録"
     }
   ],
@@ -86,95 +92,113 @@
     {
       "from": "thread",
       "to": "runner",
-      "y": 180,
-      "label": "DoUpdateFrame(1) → DoStep",
+      "y": 166,
+      "label": "DoUpdateFrame",
       "variant": "emphasis"
     },
     {
       "from": "runner",
       "to": "actor",
-      "y": 212,
+      "y": 190,
       "label": "MakeAction(counts, state)",
       "variant": "emphasis"
     },
     {
       "from": "actor",
+      "to": "forwarder",
+      "y": 214,
+      "label": "Frame＋開始の印"
+    },
+    {
+      "from": "actor",
       "to": "network",
-      "y": 244,
+      "y": 242,
       "label": "forward（device 上）"
     },
     {
       "from": "actor",
       "to": "runner",
-      "y": 276,
+      "y": 266,
       "label": "BatchActionInfo",
       "variant": "return"
     },
     {
       "from": "runner",
       "to": "env",
-      "y": 308,
+      "y": 294,
       "label": "Step(action_info)",
       "variant": "emphasis"
     },
     {
       "from": "env",
       "to": "runner",
-      "y": 340,
+      "y": 322,
       "label": "BatchStepResult",
       "variant": "return"
     },
     {
       "from": "runner",
       "to": "notifier",
-      "y": 372,
+      "y": 350,
       "label": "EpisodeEndEvent（終端時）",
       "variant": "dashed"
     },
     {
       "from": "runner",
       "to": "learner",
-      "y": 404,
+      "y": 378,
       "label": "UpdateFromBatch(counts, exp)",
       "variant": "emphasis"
     },
     {
       "from": "learner",
+      "to": "forwarder",
+      "y": 406,
+      "label": "取り込み（統計の更新）"
+    },
+    {
+      "from": "learner",
       "to": "replay",
-      "y": 436,
-      "label": "Push・Sample（CanUpdate 時）"
+      "y": 430,
+      "label": "Push・Sample"
     },
     {
       "from": "replay",
       "to": "learner",
-      "y": 468,
+      "y": 458,
       "label": "ExperienceSamples",
       "variant": "return"
     },
     {
       "from": "learner",
+      "to": "forwarder",
+      "y": 482,
+      "label": "重ねた束 → Perception"
+    },
+    {
+      "from": "learner",
       "to": "network",
-      "y": 500,
+      "y": 510,
       "label": "loss・backward・optimizer"
     },
     {
       "from": "learner",
       "to": "runner",
-      "y": 532,
+      "y": 538,
       "label": "BatchUpdateResultList",
       "variant": "return"
     },
     {
       "from": "runner",
       "to": "notifier",
-      "y": 564,
+      "y": 566,
       "label": "LearnEvent → OnLearn",
       "variant": "emphasis"
     },
     {
       "from": "runner",
       "to": "notifier",
-      "y": 596,
+      "y": 594,
       "label": "TrainEvent → OnTrain",
       "variant": "emphasis"
     }
@@ -182,20 +206,20 @@
   "activations": [
     {
       "participant": "runner",
-      "from": 174,
-      "to": 602,
+      "from": 160,
+      "to": 600,
       "type": "backend"
     },
     {
       "participant": "actor",
-      "from": 206,
-      "to": 282,
+      "from": 184,
+      "to": 272,
       "type": "backend"
     },
     {
       "participant": "learner",
-      "from": 398,
-      "to": 538,
+      "from": 372,
+      "to": 544,
       "type": "backend"
     }
   ],
@@ -205,7 +229,7 @@
       "title": "代表経路",
       "items": [
         "SerialTrainRunner と DefaultDQNAgent の経路。Pipeline は学習を LearnThread へ 1 step 遅らせる",
-        "Learner は報酬 scale・内的報酬・観測統計を更新して dqn::Learner へ渡す"
+        "Forwarder は用途ごとに別の実体。報酬は scale と内的報酬を加えて渡す"
       ]
     },
     {
@@ -213,8 +237,8 @@
       "title": "条件つきの呼び出し",
       "items": [
         "EpisodeEndEvent は終端時、LearnEvent は結果が 1 件以上の時だけ",
-        "Sample は CanUpdate が真で update credit が残る間だけ繰り返す",
-        "decomposed は外的・内的の報酬を 2 列で"
+        "Sample は CanUpdate が真で update credit が残る間だけ",
+        "強制行動は MakeAction の入力で渡す"
       ]
     },
     {

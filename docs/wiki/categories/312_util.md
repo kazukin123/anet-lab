@@ -35,6 +35,9 @@
 - 2026-11-19: ユーティリティのファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
 - 2026-11-20: `InitRL`は呼ぶたびにbackendの設定を当て直す関数のまま残し、中で呼ぶNNの初期化関数の登録だけを、何度呼んでも1回にした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D11・§6.5）。
 - 2026-11-21: device指定の文法の誤りのfatalを1回にするため、ParseDeviceがキーの名前を必須で受け取ってInitRLが例外を捕まえない形にし、明示のcudaが使えないときのエラーにキーごとの指定値を並べた（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D8・D9・§6.3）。
+- 2026-11-22: TensorSpec に、値の尺度と stack 軸の 2 つの属性を持たせる（出典: [ADR 0085](../../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、本文）。
+- 2026-11-23: `TensorSpec`に、値の尺度（`scale`）と、stack軸を持つか（`has_stack_axis`）の属性を足し、specのJSONに`scale`と`stack_axis`の欄を出すようにした（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D17・D19）。
+- 2026-11-25: `InitRL`が、NNの標準のmoduleと同じ所で、Forwarderの標準の部品を登録するようにした（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.1 D6）。
 
 ## 選ばなかった形
 
@@ -51,6 +54,9 @@
 - 文脈を足して投げ直す箇所のfatalの二重出力を、ログを重ねない投げ直しの口を作って直す形 — 先送り: 別の関心（fatalの出し方）で、設定キーの名指しとは分けられる。再開条件: RFD0071を再グリルするとき（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5.1）。
 - 初期化関数を1回しか呼べない形にして、テストを直す形 — 不採用: `InitRL`が中でNNの初期化関数を呼ぶので`InitRL`を2回呼ぶだけで止まり、NNの初期化関数を外へ出す変更と、直接の呼び出し46か所の書き換えが要る（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5.1）。
 - `InitRL`も何度呼んでも1回だけにする形 — 不採用: 設定を変えて呼び直すテストが、2回目から設定を当てられなくなる（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§6.5）。
+- `TensorSpec`の値の種類を4つ（生の量・尺度つきの量・番号・符号）に分ける形 — 不採用（却下）: その区別を使う箇所が無い（出典: [ADR 0085](../../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、Considered Options）。
+- `TensorSpec`に加工ごとのフラグ（正規化しない、重ね済み）を持つ形 — 不採用（却下）: specが加工の名前を知り、加工が増えるたびに欄が増える（出典: [ADR 0085](../../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、Considered Options）。
+- 正規化から外すキーを、設定のキーの一覧だけで決める形 — 不採用（却下）: 実装が足すキーを設定に書き忘れると対象になる（出典: [ADR 0085](../../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、Considered Options）。
 
 ## 変えるときの条件
 

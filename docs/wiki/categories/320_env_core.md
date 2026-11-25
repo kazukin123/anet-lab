@@ -30,6 +30,8 @@
 - 2026-11-12: Runで作らなかった登録済みのEnvのクラスの設定キーを、読まれない設定キーの一覧に出さない在庫として記録する口（`MarkUnusedConfigInventory`）を足し、選んだEnvのfactoryに構築時の設定の検証をさせるようにした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D4・D5）。
 - 2026-11-19: Envの共通基盤のファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
 - 2026-11-21: `env.device`の文法の誤りと、知らないEnvのclass IDのエラーが、設定キーを完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D8）。
+- 2026-11-22: TensorSpecに値の尺度とstack軸の2つの属性を持たせ、キーを作る側（Envなど）が宣言する（出典: [ADR 0085](../../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、本文）。
+- 2026-11-23: 観測のspecの検査に、整数のdtypeか離散のキーが`Unscaled`（値の尺度が決まっていない）ならエラーにする検査を足した。Envは、観測のキーの性質として尺度を宣言する（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D17・D18・§7.3）。
 
 ## 選ばなかった形
 
@@ -53,7 +55,7 @@
 
 ## 関係
 
-- 設計: [環境](../../design/120_environments.jp.md)、§1.1・§2・§3。
+- 設計: [環境](../../design/120_environments.jp.md)、§1.1・§2・§3。観測のspecの尺度とstack軸は[Forwarder と Perception](../../design/135_forwarder_and_perception.jp.md)、§2。
 - 拡張点: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3。
 - 置き場とテストの参照範囲: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「テスト」。
 - ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。

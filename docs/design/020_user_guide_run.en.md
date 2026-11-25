@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:f2d68e061b9048e6029ec7ad56a934f99a48dfcb date:2026-11-23 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:c4ce6ffddd9a60557b04e2d00b7c1e0460cfd12e date:2026-11-25 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)

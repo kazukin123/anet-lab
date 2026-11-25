@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:69ae36e95d73dd713ab09665a4327ed8011e2e08 date:2026-11-23 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:bf257f72821ba97096f394f85e90b00161e663df date:2026-11-25 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)

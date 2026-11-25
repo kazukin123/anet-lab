@@ -6,6 +6,7 @@
 
 - Agent、Actor、Learnerの生成・行動・更新と、Agentが所有するResource、更新部品が所有するStateの境界を扱う。（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§3）。
 - DefaultDQN の Actor は観測と CPU 上の開始の印を行動選択用の Forwarder に渡す。Learner は ReplayBuffer が返す spec で Sample 用を作る（出典: [Forwarder と Perception](../../design/135_forwarder_and_perception.jp.md)、§3）。
+- 強制行動は`MakeActionOptions::forced_actions`でlaneごとに渡す。Actorは方策の選択を終えてから強制を反映し、返した行動をRunnerが実行する。TempoRLでは強制したstepを長さ1の判断として記録し、そのlaneは次のstepで判断し直す（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.2・§6.1）。
 - Agentは基盤の外で書ける拡張点で、`anet/agent.hpp`・`anet/rl.hpp`で`AgentFactory`・`Agent`・`Actor`を実装し、`RegisterAgentFactory`で登録する（出典: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3）。
 - `Actor::MakeAction`は呼び出しごとの選択を`MakeActionOptions`で受け（nn_traceの要求は既定で偽）、要求をActorやNotifierへ登録しない。Agentは、Runnerが系統の公開初期化関数を呼んで登録し、同じ関数を何度呼んでも登録は1回で、同じclass IDを直接登録すると例外になって先の登録が残る。DQNのprobe専用の乱数は、内側のLearnerがAgentの基のseedと用途ごとの名前から作って持つ（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4）。
 
@@ -85,13 +86,14 @@
 - 2026-11-21: RNDのHeadの初期化の設定も、NNの初期化の設定の1つの読み取りの口で読むようにした（出典: [RFD0193](../../memo/0193_variance_scaling_weight_init_10rfd.md)、§5.2・§6.1 D5）。
 - 2026-11-21: RNDの設定キーを、段階（統計・誤差・predictor）ごとのスコープとモード別の名前空間に組み替え、warm-upを段階ごとの待ちに分け、clipを誤差のモードごとの真偽のキーで持つ仕様を、グリルで決めた。誤差で割らない式（`rnd.error_norm.mode = none`）、一生の新しさの推定器の口の2つの操作（内的報酬を呼び出し側が0にするかを返す、Networkの構造図を返す）、lane×時間のtensorをためる汎用の置き場の部品も足す（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.1 D2〜D5・D7〜D9・§8.4）。
 - 2026-11-21: RNDの設定は、段階ごとのスコープとモード別の名前空間で持ち、被るキーは割り切る（出典: [ADR 0088](../../adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md)、本文）。
-- 2026-11-24: DQN の Actor は、実行器の代わりに行動選択用の Forwarder を持ち、行の開始の印を入力の鍵（`episode_start`）で渡す仕様を決めた。Learner は、ReplayBuffer を作ったあとに、ReplayBuffer が答えた束の spec を渡して、Sample 用の Forwarder を作る（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§6.5、§5.1 D1、§5.2 D14）。
-- 2026-11-24: DefaultDQN の Actor と Learner を、用途ごとの Forwarder を作る経路へ移した（出典: [RFD0200 実装メモ](../../memo/0200_forwarder_public_interface_rework_20impl.md)、主な変更）。
+- 2026-11-22: 強制行動は`MakeAction`の入力とし、Actorの出力を実行された行動にする（出典: [ADR 0083](../../adr/0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)、本文）。
+- 2026-11-23: DQNのActorが、行動選択のPerceptionをForwarderの並びから作り、方策の選択・skipの適用のあとに強制行動を反映してからヒントを計算する形にした。TempoRLのskipが有効なActorは、強制したlaneの継続状態を捨て、そのstepを長さ1の判断として記録する。LearnerはSampleの観測（obs・next_obs・skipの窓の終点）のすべてに同じ並びのForwarderを当てる（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D11〜D13・§6.4 D31・§7.2）。
+- 2026-11-25: DQNのActorが、実行器の代わりに行動選択用のForwarderを持ち、episodeの開始の印を入力の鍵（`episode_start`）で渡すようにした。Learnerは、ReplayBufferを作ったあとに、ReplayBufferが答えた束のspecを渡してSample用のForwarderを作る（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.1 D1・§5.2 D14・§6.5）。
 
 ## 選ばなかった形
 
 - ImageClsのTrain Actorにも遅延snapshotを適用する形 — 不採用: episodeを持たず、shared networkの即時反映を維持する（出典: [RFD0036](../../memo/done/0036_train_actor_periodic_snapshot_10rfd.md)、対象範囲）。
-- ObservationPipelineクラスと専用ファイル・テストの追加 — 範囲外: 固定3段の観測加工はActor本体で満たせ、段の要件が揃う前のクラス化は作り直しになる。再開条件: 段の要件が揃う後続RFDで導入する。（出典: [RFD0083](../../memo/done/0083_action_context_retire_10rfd.md)、複雑さ監査）。
+- ObservationPipelineクラスと専用ファイル・テストの追加 — 範囲外: 固定3段の観測加工はActor本体で満たせ、段の要件が揃う前のクラス化は作り直しになる。再開条件: 段の要件が揃う後続RFDで導入する。（出典: [RFD0083](../../memo/done/0083_action_context_retire_10rfd.md)、複雑さ監査）。→ RFD0161 で、クラス1つではなく、Forwarderの並びとして採用（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.4 D25・§6.6）。
 - 独立した公開NoisyLinearブロック型 — 不採用: 既存LinearとHead最終射影へ対応する形を採る（出典: [RFD0084](../../memo/done/0084_noisynet_10rfd.md)、§4.1）。
 - AMPの実行設定への集約とノイズ込み重みのSN — 範囲外: 精度は用途ごとに異なり、ノイズ込みSNの推定・保持・比較契約も別の暫定RFDで裁定する（出典: [RFD0084](../../memo/done/0084_noisynet_10rfd.md)、§8.1・§8.2・§14.2）。
 - Noisyの有無フラグ・機能登録・実行条件の汎用比較と独立実行基盤 — 不採用: 固有の解釈と検証を具象の計算部品へ閉じる（出典: [RFD0084](../../memo/done/0084_noisynet_10rfd.md)、§4.2・§14.2）。
@@ -109,7 +111,7 @@
 - 構築時dummy forwardで層数を数える追加API — 不採用: 黙ったNaNは最初の測定のfail-fastで防げ、APIを1つ増やす必要がない（出典: [RFD0093](../../memo/done/0093_attention_entropy_diagnostics_10rfd.md)、§5）。
 - Actor設定キーでeval_panelだけにhintを生成させる形 — 不採用: 設定が増え、autoの語が今の条件を表すものになり、n-step窓の所有がAgent外へ出る（出典: [ADR 0058](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、本文）。
 - NetworkModel が特徴空間・行動価値・スキップ価値の 3 つの Network を持つ形 — 不採用: 切れ目は DAG の branch で表せ、checkpoint の形と Network 1 つ前提の経路へ波及する。補助 Network は primary の公開出力を入力に取り、その target は bootstrap に使わず target 側の Actor の行動にだけ使う（出典: [RFD0098 TempoRL](../../memo/0098_temporl_skip_policy_10rfd.md)、§4 D3、[ADR 0062](../../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)）。
-- 強制行動を Actor へ通知する事後 hook — 先送り: 決定点への入力（0161_observation_pipeline の単位 A）で合わせる。再開条件: 単位 A が入ったら、強制された lane のスキップ状態を捨てる（出典: [RFD0098 TempoRL](../../memo/0098_temporl_skip_policy_10rfd.md)、§4 D10・§9）。
+- 強制行動を Actor へ通知する事後 hook — 先送り: 決定点への入力（0161_observation_pipeline の単位 A）で合わせる。再開条件: 単位 A が入ったら、強制された lane のスキップ状態を捨てる（出典: [RFD0098 TempoRL](../../memo/0098_temporl_skip_policy_10rfd.md)、§4 D10・§9）。→ RFD0161 で、決定点への入力の形を採用し、強制した lane のスキップの継続状態を捨てるようにした（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D7・D13）。
 - Thompson sampling の τ の区間を `thompson.tau_low/high` で設定する形 — 不採用: 非 spatial の Thompson は τ を U[0,1]（IQN は全範囲）から引き、区間は存在しない。spatial は `spatial.uqe.tau.*` のラダーを使う（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§2.1・§4.2 D9）。
 - log ラダーの 0 の端を fail-fast にして 0 に届くラダーを新しい並べ方 `exponential` で書く形、下限をキー（`spatial.log_floor`）にする形、1e-4 への clamp を残す形 — 不採用: 下限 1e-4 で log に並べた列を書いた両端へ線形に伸縮する規則 1 つにし（両端が 1e-4 以上なら恒等）、モードやキーを増やさず、0 と書いて 1e-4 で動く形を残さず、端が 0 へ下がる途中も値を連続にする（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§4.2 D8）。
 - MuZero の温度 `temp_start/end/decay_steps` の ProfiledValue 化 — 範囲外: 試作 Agent。再開条件: 本線に戻すときに同じ器で足す（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§3 非ゴール・§7）。
@@ -170,6 +172,10 @@
 - Envのテストと系統のテストが互いのライブラリを使ってよいとする形 — 不採用: 置き場が主題しだいで割れ、相手が壊れると使う側のテスト実行体が作れない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.3）。
 - 初期化関数は1回しか呼べない形にして、テストを直す形 — 不採用: `InitRL`が中で`InitNN`を呼ぶので`InitRL`を2回呼ぶだけで止まり、`InitNN`を公開する変更とテスト46か所の書き換えが要る（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5.1）。
 - 同じ型のfactoryなら、重複登録を黙って通す形 — 不採用: 型の照会が要り、同じ型で中身の違う登録を見分けられない（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5.1）。
+- 強制行動を反映したあとのヒントを、Actorの外で作り直す形 — 不採用（却下）: 行動から作る値が増えるたびに、差し替えの側も増える（出典: [ADR 0083](../../adr/0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)、Considered Options）。
+- RNDの観測の加工をForwarderの並びに載せる形、RNDの正規化の判定を値の尺度の属性に合わせる形 — 範囲外: RNDはbyteの画像をfloatに直して自前の統計で正規化していて、合わせるとAtariの動きが変わる。再開条件: RFD0191の実装が済み、RNDの入力にQの側の並びと同じ部品を当てる構成が要るようになったとき（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§2 のNG3・§6.4 D33・§15）。
+- 行動選択用のForwarderの出力のspecを、Actorを作るたびに比べる形 — 不採用: Runの途中で初めて止まりうる。Agentの構築のうちに比べる（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.6、§5.4 D21）。
+- 部品が、使われる所ごとの関数と状態を自分で持つ形 — 不採用（却下）: Actorごとに部品を複製することになり、履歴の持ち主が定義と混ざる（出典: [ADR 0084](../../adr/0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product.md)、Considered Options）。
 
 ## 変えるときの条件
 
@@ -177,7 +183,7 @@
 
 - 明示的なActor::Syncは呼出時の強制同期として維持する。shared既定ではaction forward回数と保存形式を保つ（出典: [RFD0036](../../memo/done/0036_train_actor_periodic_snapshot_10rfd.md)、目的）。
 - Actorを追加しても既存Actorの行動列を変えず、同一checkpoint・seedの各スロットの結果を確認する（出典: [RFD0061](../../memo/done/0061_eval_slot_policy_override_10rfd.md)、7.4・8）。
-- 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [RFD0083](../../memo/done/0083_action_context_retire_10rfd.md)、Context・確定した設計判断2〜4・11）。
+- 観測のstack→device転送→正規化の並び、乱数の派生・消費順、aux集合を変えない。同seed・config・exp予算のDefaultDQN/LunarLander/stack4でmetrics checksumを比べ、checkpointのraw checksumはゲートにしない（出典: [RFD0083](../../memo/done/0083_action_context_retire_10rfd.md)、Context・確定した設計判断2〜4・11）。auxのうち、観測の2つ（重ねたあとと正規化のあと）と全行動のMunchausenの項はRFD0161で消え、観測の加工はForwarderの並びへ移った。今の確かめ方は、4環境・同seed・決定的なバックエンドのscalarとtraceの一致である（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D12・§6.4 D42・§9）。
 - 既存のHead/SN FP32保護と用途別AMP精度を維持する。Noisy無効の既存チェーンは決定論backendでmetrics checksumを比較し、sample時の乱数列の割当変更を無効側へ持ち込まない。比較の相手は実装前に保存した基準の実行体・依存DLL・出力とする（RFD0060は基準を取り損ねた）（出典: [RFD0084](../../memo/done/0084_noisynet_10rfd.md)、§8.2・§12・§13）。
 - 診断ON/OFFで同seed・決定的モードの学習系列を比較し、学習の.grad・optimizer state・RNGを変えない。費用は反復A/Bで実測しprofiler合計でend-to-end増加率を代用しない（出典: [RFD0092](../../memo/done/0092_gradient_noise_scale_10rfd.md)、§7.1・§7.2）。
 - captureへ移す既存branch出力の値とdetachを保ち、captureなしforwardは不変とする。同seed・決定論設定の診断ON/OFFで学習由来metrics checksumとRNG・buffer等への非干渉を確認する（出典: [RFD0093](../../memo/done/0093_attention_entropy_diagnostics_10rfd.md)、§6 1・5）。
@@ -203,10 +209,13 @@
 - RNDの設定キーを移すとき、式や補助学習の形を足すときは、RND無効・whitenの累積・whitenの直近重み・`variance_feedback`・`collect_errors` に当たる形の5構成で、同seed・決定的モードのmetricsの全scalar点を着手前の実行体と一致させる。誤差を標準化する式の待ちの間の動きと、`variance_feedback` の中身は変えない（出典: [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§8.2・§9.2 の 1）。
 - Agentのライブラリは基盤の公開ヘッダだけを読み、基盤は具象Agentを知らない。テストは上位や兄弟のライブラリに依存せず、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う。ターゲットの依存とincludeは、検索と道具の検査で確かめる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§5.4・§6 のS3-1〜S3-5）。
 - ソースを移す・分けるときは、着手前に保存した実行体と、RFD0128の前後比較の組（seed 1本、決定的なbackend、4 envを含む）で比べて、全scalar・設定の記録・WARNとERRORの行の一致を確かめ、旧パスの互換層（symlink・転送ヘッダ）を置かない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D22・D24・§6 のC3）。
+- 強制行動を反映しても、方策の処理（forward、探索の乱数、診断の集計）は全laneで行い、強制していないlaneの結果と乱数を強制の有無で変えない。ヒントの期待値は、消したWithActionのテストの期待値を移して確かめる（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D11・§9 の受入3・4・§10）。
+- 重ねる → 転送 → 正規化の並びと、乱数の消費順を変えない。4環境（LunarLander・GridMaze・DropMerge・Atari qbert）の同seed・決定的なバックエンドのRunで、scalarとtraceの全レコードの一致を確かめる（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.5 D35・§9；[RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.5 D25・§7）。
+- episodeの開始の印は、CPUに置いた真偽の値のままForwarderへ渡し、deviceへ移さない（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.1 D1）。
 
 ## 関係
 
-- 設計: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4・§3。
+- 設計: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4・§3。強制行動は同§2.2・§6.1、観測の加工は[Forwarder と Perception](../../design/135_forwarder_and_perception.jp.md)、§3。
 - 一生の新しさの推定器（RND）: [RNDによる新しさの評価と内的報酬](../../design/212_rnd_lifelong_novelty.jp.md)。
 - 拡張点: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3。
 - ユーザーガイド: [Run実行ガイド](../../design/020_user_guide_run.jp.md)。
@@ -290,27 +299,45 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261122-c1744a](../../management/issues/issue-20261122-c1744a.md) | 対応中 | 2.6 | — | コード | RFD | 321_agent_core, 324_dqn | 学習基盤 | 機能改善 | [RFD0191](../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) | 残件有り | RND と補助学習の設定キーが段階とモードの関係を表しておらず、warm-up の 1 つの件数が 2 つの待ちを束ねていて、設計文書 212 から設定と動きを引きにくい |
 | [issue-20261123-75512f](../../management/issues/issue-20261123-75512f.md) | 未着手 | 7.0 | — | 文書 | 監査 | 324_dqn, 321_agent_core | 学習基盤 | 不整合 | — | 残件有り | CONTEXT.md の Train Actor network snapshot と評価セッションが、network snapshot を clone_model の条件なしで書き、sync_interval だけで定期 snapshot が起きると読める |
-| [issue-20261123-eb0a0c](../../management/issues/issue-20261123-eb0a0c.md) | 未着手 | 5.5 | — | コード | 監査 | 324_dqn, 321_agent_core | 学習基盤 | 不具合 | — | 未確認 | DQN 系の設定が learner.grad_clip_tau・learner.td_clip_value・learner.update_interval の値域を検証せず、0 以下で勾配が 0 か逆向きになり、TD の clip が黙って外れ、更新の間隔が黙って 1 になる |
-| [issue-20261123-6b991d](../../management/issues/issue-20261123-6b991d.md) | 未着手 | 4.0 | — | 文書 | 監査 | 311_dev_tools, 321_agent_core | 開発 | 調査 | — | 未確認 | 状態が中身と合わない課題が 3 件ある（対応中なのに実装計画も最近の作業も無い 23d185・52ffba、RFD が着手しないと書くのに未着手の 6f6c73） |
+| [issue-20261125-ea9fef](../../management/issues/issue-20261125-ea9fef.md) | 未着手 | 6.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | 不具合 | — | 未確認 | メトリクスの鍵の行動の番号が不正なとき、ParseActionScalarIndex が自分の投げたエラーを捕まえて、同じ fatal を 2 回出す |
+| [issue-20261123-eb0a0c](../../management/issues/issue-20261123-eb0a0c.md) | 未着手 | 5.5 | — | コード | 監査 | 324_dqn, 321_agent_core | 学習基盤 | 不具合 | — | 残件有り | DQN 系の設定が learner.grad_clip_tau・learner.td_clip_value・learner.update_interval の値域を検証せず、0 以下で勾配が 0 か逆向きになり、TD の clip が黙って外れ、更新の間隔が黙って 1 になる |
+| [issue-20261125-de8cfd](../../management/issues/issue-20261125-de8cfd.md) | 未着手 | 5.5 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | Actor Q ヒントの入力（ActorQHintValues）の組み立てが Actor と step 診断の 2 か所にあり、共有しているのは最後の計算だけである |
+| [issue-20261125-5ebf2f](../../management/issues/issue-20261125-5ebf2f.md) | 未着手 | 5.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 価値の分解（RFD0121）の診断 2 群（学習の 9 指標、行動選択の 4 指標）と step 診断の scalar(3) が、並びと名前が食い違えばビルドが止まる形（RFD0128）に載っていない |
+| [issue-20261125-770358](../../management/issues/issue-20261125-770358.md) | 未着手 | 5.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | 不具合 | — | 未確認 | IQN の点の UQE（use_tail_mean=false）で full query が無いと、iqn_policy_margin_mc_ratio が同じ τ の複製から標準偏差 0 で作られ、LunarLander の既定では約 20 万の意味のない値が記録される |
+| [issue-20261125-8eff2e](../../management/issues/issue-20261125-8eff2e.md) | 未着手 | 5.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | DQN の Learner が、forward のあとに「価値の分解なら合わせた Q を作る」処理を 6 か所に条件つきで書き、同じ目的の DqnForwardExecutor と 2 つの道になっている |
+| [issue-20261125-fa1be2](../../management/issues/issue-20261125-fa1be2.md) | 未着手 | 5.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | ActorQHintConfig が、ヒントではなく行動の選択（価値の分解・β・TBO）と診断の割引率を決めていて、名前と役割が合わない |
+| [issue-20261123-6b991d](../../management/issues/issue-20261123-6b991d.md) | 未着手 | 4.0 | — | 文書 | 監査 | 311_dev_tools, 321_agent_core | 開発 | 調査 | — | 残件有り | 状態が中身と合わない課題が 3 件ある（対応中なのに実装計画も最近の作業も無い 23d185・52ffba、RFD が着手しないと書くのに未着手の 6f6c73） |
+| [issue-20261125-fe014b](../../management/issues/issue-20261125-fe014b.md) | 未着手 | 4.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | 不具合 | — | 未確認 | 価値の分解の行動選択の診断（extrinsic_q_gap など）が、IQN の UQE では平均の Q ではなく risk の τ（全分布の問い合わせがあれば risk と全範囲を混ぜた τ）の平均で作られる |
 | [issue-20261123-d367c3](../../management/issues/issue-20261123-d367c3.md) | 未着手 | 3.5 | — | 文書 | 監査 | 324_dqn, 321_agent_core | 学習基盤 | 不整合 | — | 残件有り | CONTEXT.md の Agent checkpoint・checkpoint 引き継ぎの説明が今の保存の中身（RND・報酬スケーラ・補助学習の抽選の乱数）と合わず、設計 212 が避ける語「再開」を使い、020 が旧い上書き層の R.auto_load_file を案内している |
-| [issue-20261123-d74c3f](../../management/issues/issue-20261123-d74c3f.md) | 未着手 | 3.5 | — | コード | 監査 | 324_dqn, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 価値の分解の内的の成分に使う割引率の選び方（shared なら learner.gamma、separate なら learner.intrinsic.gamma）が DQN 系の 5 か所に写され、decomposed を条件に含めるかが食い違う |
+| [issue-20261123-d74c3f](../../management/issues/issue-20261123-d74c3f.md) | 未着手 | 3.5 | — | コード | 監査 | 324_dqn, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | 価値の分解の内的の成分に使う割引率の選び方（shared なら learner.gamma、separate なら learner.intrinsic.gamma）が DQN 系の 5 か所に写され、decomposed を条件に含めるかが食い違う |
+| [issue-20261125-3cb74a](../../management/issues/issue-20261125-3cb74a.md) | 未着手 | 3.5 | — | コード | 監査 | 321_agent_core | 学習基盤 | 不具合 | — | 未確認 | 価値の分解の split（feature_gradient=split）で勾配ノイズの指標を購読すると、内的の Head の state が外的の optimizer に無いため Adam 版が常に未成立になり、ERROR も WARN も無く tag が欠ける |
+| [issue-20261125-6a8e46](../../management/issues/issue-20261125-6a8e46.md) | 未着手 | 3.5 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | DQN 系の Agent の scalar の振り分け（DqnComponentAssembler::GetScalar）が、Learner の持つキーの群の一覧を写して持っている |
+| [issue-20261125-84c03f](../../management/issues/issue-20261125-84c03f.md) | 未着手 | 3.5 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | DQN の RuntimeVars は書き手も読み手もほぼ Learner だけなのに、Agent が持って参照で渡す State になっている |
+| [issue-20261125-9e8834](../../management/issues/issue-20261125-9e8834.md) | 未着手 | 3.5 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 選んだ行動の値を取り出す式が、DQN の Learner 8・NetworkModel 2・Actor 3 か所に写され、分布を持つかの判定が設定の文字列・tensor の軸数・出力の鍵の 3 通りある |
+| [issue-20261125-9f1801](../../management/issues/issue-20261125-9f1801.md) | 未着手 | 3.5 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | Learner の probe の 4 群（Noisy・attention・可塑性・policy churn）が「一様に引く → 転送 → 検査 → Perception」を写し、どれも使わない次の観測まで変換している |
+| [issue-20261125-c702d2](../../management/issues/issue-20261125-c702d2.md) | 未着手 | 3.5 | — | コード | 監査 | 321_agent_core | 学習基盤 | 不具合 | — | 未確認 | UQE を使わない方策（Greedy と、spatial でない EpsilonGreedy）の uqe_tau が NaN でなく 0 を返し、DropMerge の 04_uqe_tau_target に存在しない τ=0 が記録され続ける |
 | [issue-20261115-e5a0eb](../../management/issues/issue-20261115-e5a0eb.md) | 未着手 | 3.4 | — | コード | RFD | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 性能改善 | — | 残件有り | 可塑性メトリクスの計算が、500 learn step ごとにメインスレッドで約 2 秒走り、その間は学習が止まる |
+| [issue-20261125-16374e](../../management/issues/issue-20261125-16374e.md) | 未着手 | 3.3 | — | コード | 監査 | 321_agent_core, 318_rl_core | 学習基盤 | 不具合 | — | 未確認 | checkpoint の読み込みが parameter の device と形を今の Network と突き合わせず、CUDA で保存したものを agent.device=cpu で読むと Network が CUDA に載ったままになる（最初の forward で落ちる見込み） |
 | [issue-20261111-585e60](../../management/issues/issue-20261111-585e60.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 残件有り | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
+| [issue-20261125-0e98cb](../../management/issues/issue-20261125-0e98cb.md) | 未着手 | 3.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | UQE の τ の問い合わせと score の作り方が、行動選択の MakeUQEActionInfo と、skip・価値の分解のための関数に 2 回ずつ書かれ、探索の適用も 4 か所にある |
+| [issue-20261125-7c9e47](../../management/issues/issue-20261125-7c9e47.md) | 未着手 | 3.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | RndNoveltyEstimator の外側に統計と誤差の方式の分岐が 4 か所戻り、倍率を 1 にする条件が、更新する採点と読むだけの採点の 2 つに別々に書かれている |
+| [issue-20261125-d1dfc6](../../management/issues/issue-20261125-d1dfc6.md) | 未着手 | 2.8 | — | コード | 監査 | 321_agent_core, 324_dqn | 学習基盤 | リファクタリング | — | 未確認 | DQN の観測の加工（Perception）の組み立ての決まりが Agent・Learner・Actor の 3 ファイルに分かれ、依頼ごとに「作る → 補う → 照合する」を別々に書いている |
 | [issue-20261111-17fea4](../../management/issues/issue-20261111-17fea4.md) | 未着手 | 2.7 | — | コード | 監査 | 324_dqn, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | 方策の種類（policy_type）と分布の表し方（quantile_mode）を文字列のまま持ち回り、数字の別名の受け付け方が関数ごとに違う |
 | [issue-20261111-52ed74](../../management/issues/issue-20261111-52ed74.md) | 未着手 | 2.7 | — | コード | 監査 | 315_nn, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | 可塑性指標の一覧と重みノルムのキーの並びを、nn・DQN・ImageCls の 5〜6 か所で手で合わせている |
 | [issue-20261111-e80c7b](../../management/issues/issue-20261111-e80c7b.md) | 未着手 | 2.7 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | DQNActionInfo::GetScalar が 6 種の指標群を 1 つの関数（276 行）で処理し、「指定した行動を除いた最大値」の計算を 2 回写している |
-| [issue-20261123-6bb71d](../../management/issues/issue-20261123-6bb71d.md) | 未着手 | 2.5 | — | コード | 監査 | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 不整合 | — | 未確認 | コードの名前・エラー文・メトリクスの tag に CONTEXT.md の避ける語（feature key・mean Q・action churn）が残り、エラー文は実在しない設定キー名 feature_key を示す |
+| [issue-20261123-6bb71d](../../management/issues/issue-20261123-6bb71d.md) | 未着手 | 2.5 | — | コード | 監査 | 315_nn, 321_agent_core, 317_metrics | 学習基盤 | 不整合 | — | 残件有り | コードの名前・エラー文・メトリクスの tag に CONTEXT.md の避ける語（feature key・mean Q・action churn）が残り、エラー文は実在しない設定キー名 feature_key を示す |
 | [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) | 未着手 | 2.2 | — | コード | RFD | 324_dqn, 321_agent_core, 325_muzero, 315_nn | 学習基盤 | 調査 | [RFD0134](../../memo/0134_network_lock_audit_10rfd.md) | 残件有り | 999: train/eval mode 整理後の排他精査 RFD（草案） |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261103-cdac7c](../../management/issues/issue-20261103-cdac7c.md) | 未着手 | 2.2 | — | コード | RFD | 321_agent_core | アルゴリズム | 機能改善 | [RFD0148](../../memo/0148_target_update_step_axis_10rfd.md) | 残件有り | target network 更新の step 軸正規化（`soft_update_tau` / `hard_update_interval`） |
 | [issue-20261111-4351bc](../../management/issues/issue-20261111-4351bc.md) | 未着手 | 2.2 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | DQN の Actor が const の MakeAction の中で 11 個の mutable メンバを書き換えて状態を進め、一時的な出力を結果の public メンバで運んでいる |
+| [issue-20261125-5cef87](../../management/issues/issue-20261125-5cef87.md) | 未着手 | 2.2 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 価値の分解の目標値（MakeDecomposedTargets）が、RFD0125 で 1 か所にした Munchausen の評価と hard target の行動選択を写し、分布ごとの違いを quantile_mode の分岐で書いている |
 | [issue-20261103-72f807](../../management/issues/issue-20261103-72f807.md) | 未着手 | 2.0 | — | コード | 監査 | 321_agent_core | アルゴリズム | 不具合 | — | 残件有り | use_td_clipが損失の前にTDをclampするため、clipを超えたサンプルの勾配が0になる |
 | [issue-20261103-785e68](../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | RFD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [RFD0169](../../memo/0169_outside_core_extension_layout_10rfd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261103-9bd71e](../../management/issues/issue-20261103-9bd71e.md) | 未着手 | 2.0 | — | コード | RFD | 321_agent_core, 318_rl_core, 324_dqn, 317_metrics | 学習基盤 | 機能追加 | [RFD0142](../../memo/0142_agent_prev_action_obs_10rfd.md) | 残件有り | 直前行動観測の共通部品（`prev_action` フレーム段） |
 | [issue-20261103-a39330](../../management/issues/issue-20261103-a39330.md) | 未着手 | 2.0 | — | コード | RFD | 321_agent_core, 324_dqn | アルゴリズム | 機能追加 | [RFD0147](../../memo/0147_iqn_first_priority_quantile_pair_10rfd.md) | 残件有り | RFD0147: IQN初回Learner priorityのquantile-pair方式 |
 | [issue-20261111-54c7e1](../../management/issues/issue-20261111-54c7e1.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 319_gui, 110_runner_app | 基盤 | リファクタリング | — | 残件有り | 呼ばれない関数・型・マクロと読まれないメンバ・届かない分岐が、core と Runner に合わせて 1,100 行以上残っている |
 | [issue-20261119-9afcf4](../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | — | コード | RFD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 残件有り | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
-| [issue-20261123-8cf911](../../management/issues/issue-20261123-8cf911.md) | 未着手 | 1.7 | — | コード | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | Agent の拡張点 AgentFactory::CreateAgent が Notifier を受け取るが、本番の Agent 4 つはどれも使わず、使うのはテストの代役 1 つ（Observer の登録順を前にするため）だけ |
+| [issue-20261123-8cf911](../../management/issues/issue-20261123-8cf911.md) | 未着手 | 1.7 | — | コード | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | Agent の拡張点 AgentFactory::CreateAgent が Notifier を受け取るが、本番の Agent 4 つはどれも使わず、使うのはテストの代役 1 つ（Observer の登録順を前にするため）だけ |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | RFD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [RFD0108](../../memo/0108_metrics_tag_numbering_10rfd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 未着手 | 1.5 | — | コード | RFD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [RFD0168](../../memo/0168_nstep_target_correction_10rfd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
 | [issue-20261103-e29c92](../../management/issues/issue-20261103-e29c92.md) | 未着手 | 1.4 | — | コード | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 残件有り | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
@@ -344,7 +371,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261108-227b05](../../management/issues/issue-20261108-227b05.md) | 未着手 | 0.8 | [issue-20261103-736e39](../../management/issues/issue-20261103-736e39.md) | コード | RFD | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDのpredictorを周期的に初期化してbonusを続かせる案は、GridMazeとLunarLanderの試行で利得が無く、実装を戻した |
 | [issue-20261103-5a783c](../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 51 / 待ち 4 / 保留 0 / 次版 0 / 解決 0
+着手できる 69 / 待ち 4 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
 <!-- issues:end -->

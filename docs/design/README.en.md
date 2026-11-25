@@ -1,4 +1,4 @@
-<!-- translated-from: README.jp.md blob:4a9cc45ddde010dea3afa71367b6c5029fa94dd5 date:2026-11-19 progress:done -->
+<!-- translated-from: README.jp.md blob:7589bd30a5c56610948b677dea596cd81b57468c date:2026-11-25 progress:done -->
 # ANET Documentation
 
 > Primary perspective: overall structure (guide to documents organized by function and workflow)
@@ -62,6 +62,7 @@ The design guides are divided by functional category. Within each document, the 
 | 110 | [Agents and Learning](110_agents_and_learning.en.md) | Shared contracts and ownership for Agent, Actor, and Learner | Agent and framework developers |
 | 120 | [Environments](120_environments.en.md) | Env, BatchEnv, Reset, Step, Env implementations | Env and framework developers |
 | 130 | [Neural Networks](130_neural_networks.en.md) | NetworkModel, modules, forward, optimizer | NN and Agent developers |
+| 135 | [Forwarder and Perception](135_forwarder_and_perception.en.md) | Observation specs, shared transformation interface | Agent and framework developers |
 | 140 | [Observability](140_observability.en.md) | Event, Observer, metrics, visualization, profiling | Framework and analysis feature developers |
 | 150 | [ReplayBuffer](150_replay_buffer.en.md) | Experience, N-step, PER, transfer, prefetch | Agent and performance developers |
 | 160 | [Applications and Tools](160_applications_and_tools.en.md) | Runner GUI, Metrics Viewer, supporting tools | Application developers |

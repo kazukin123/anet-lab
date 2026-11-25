@@ -9,6 +9,7 @@
 - DropMergeは行動モードで選択命令を判定し、NOOPへの罰をEnvのStepあたり1回加算する。Directの列0や実行されないDROPには加算せず、NOOPが移動へ変換される場合は加算する（出典: [環境](../../design/120_environments.jp.md)、§7.6）。
 - 環境ごとの実装と初期化関数は`src/env/`に置き、基盤の公開ヘッダを使う（出典: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」）。
 - Envの公開初期化関数は、何度呼ばれてもEnvのfactoryとViewのcreatorを1回だけ登録し、途中で失敗したら以後の呼び出しも失敗する（出典: [環境](../../design/120_environments.jp.md)、§3）。
+- AtariEnvは観測を1枚ずつ返す。重ねる枚数と対象のキーはDefaultDQNの`frame_stack.*`が持ち、行動選択用のForwarderの`FrameStack`がActorの履歴を重ね、ReplayBufferが同じ枚数とキーでSampleを組み直す（出典: [Atari環境](../../design/220_atari_env.jp.md)、§2）。
 
 ## 成立の経緯
 
@@ -19,7 +20,7 @@
 - 2026-07-25: DropMergeのNoDropTimeoutをtruncationではなく敗着(done+罰)とする（出典: [ADR 0014](../../adr/0014-dropmerge-nodroptimeout-loss-not-truncation.md)、本文）。
 - 2026-08-13: RFD0051: ALE (Atari) Env 統合 — C++ 直結・Single seam・自前前処理（出典: [RFD0051](../../memo/done/0051_atari_ale_env_10rfd.md)、題・目的）。
 - 2026-08-14: ALE は外部ビルド木を ALE_ROOT で参照し、Atari env はオプショナルビルドにする（GPL 隔離）（出典: [ADR 0025](../../adr/0025-ale-external-build-reference-and-license.md)、本文）。
-- 2026-08-14: AtariEnv は SingleDiscreteEnv として登録し、前処理は env 内自前・frame stack は既存 stucker/RB に委ねる（出典: [ADR 0026](../../adr/0026-atari-env-single-seam-own-preprocessing.md)、本文）。
+- 2026-08-14: AtariEnv は SingleDiscreteEnv として登録し、前処理は env 内自前・frame stack は既存 stucker/RB に委ねる（後に ADR 0086 で、DefaultDQN の重ねは Perception の FrameStack の定義を使う形になった。出典: [ADR 0026](../../adr/0026-atari-env-single-seam-own-preprocessing.md)、本文）。
 - 2026-08-21: Codex 引継ぎ: DropMergeEnv の NoLegalDrop 終端追加（出典: [RFD0005](../../memo/done/0005_no_legal_drop_10rfd.md)、題・目的）。
 - 2026-08-21: DropMergeEnv 直前行動観測(prev-action trio + DROP 列マーカー・暫定)（出典: [RFD0040](../../memo/done/0040_dropmerge_prev_action_obs_10rfd.md)、題・目的）。
 - 2026-08-21: Envインスタンスname RFD（出典: [RFD0037](../../memo/done/0037_env_instance_name_10rfd.md)、題・目的）。
@@ -38,9 +39,11 @@
 - 2026-10-24: GridMazeの迷路seedを指定値またはエピソード・プロセス単位で選ぶよう整理した（出典: [GridMaze seed_mode RFD](../../memo/done/0102_gridmaze_seed_mode_10rfd.md)、§1・§4）。
 - 2026-11-04: DropMergeのNOOPへの罰を既存の行動モードの判定へそろえ、Directの列0のDROPへ罰が付く不具合を修正した（出典: [RFD0115](../../memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md)、§1.2、[環境](../../design/120_environments.jp.md)、§7.6）。
 - 2026-11-12: 各Envの設定の検証を、構築時に設定の型で行うようにし、AtariEnvの`display_screen`とworker threadの併用のWARNをRunで1回にした（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D5・§5.5）。
+- 2026-11-12: AtariのRAMメトリクスに、1ゲームで観測した値の種類数（`distinct_seen`）と、マスクの中のビットが立った数・落ちた数（`bit_rise_count`・`bit_fall_count`）を数える畳み方を足した。RAM定義の読み取りを1か所にまとめて畳み方の名前と種別を1つの表にし、評価の上書きを拒否する専用の検査を消し、縮小方式は設定を読むときに1回だけ検証するようにした（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、題・§1・§4 D1〜D5・D9・D10・D16）。
 - 2026-11-19: Envのフォルダをsrc/env/<名前>（英小文字、末尾の数字なし）にし、ターゲットをanet-env-<名前>にそろえた。EnvのテストがRunを組むときは、基盤のテスト用の口の代役のAgentを使う（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4・D14）。
 - 2026-11-20: 各Envの初期化関数を、何度呼んでも登録を1回だけ行う形にした。Envのテストは、Envのfactoryを直接登録せずに初期化関数を呼ぶ（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D11・§6.5・§6.7）。
 - 2026-11-21: 各Envのエラー・WARN・INFOが示す設定キーを完全キーにし、ImageClsのデータセットの項目を`ImageDataset.[<名前>]`の完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D6・D21）。
+- 2026-11-23: 各Envの観測のspecに値の尺度を宣言し、LunarLander・CartPoleのfloatのvectorを`Unscaled`、GridMaze・DropMerge・Atariを`Scaled`とした（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D18）。
 
 ## 選ばなかった形
 
@@ -67,6 +70,14 @@
 - Envの公開ヘッダの名前を、フォルダ名と同じ英小文字にそろえる形 — 不採用: ソース配置のゴールに効かず、参照を書き換えるだけになる。大文字小文字だけを変える改名は、WindowsとGitで事故になりやすい（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.3）。
 - Envのテストと系統のテストが、互いのライブラリを使ってよいとする形 — 不採用: 置き場が「どちらが主題か」で割れ、相手が壊れると使う側のテスト実行体が作れない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.3）。
 - 初期化関数を1回しか呼べない形にして、テストを直す形 — 不採用: `InitRL`が中でNNの初期化関数を呼ぶので2回呼ぶだけで止まり、直接の呼び出し46か所の書き換えが要る（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5.1）。
+- RAMメトリクスで、Run全体で見た値の和集合を作る形（envの個体の一生の種類数、metrics側の累積、ログと後処理） — 不採用: 作らない判断で、1ゲームごとの値のmeanとmaxで後から集計できる。lane別の値は和集合より小さく出る、汎用のmetricsの記法に時間方向の新しい演算が入る、人が読むログを道具が読む、という難点もある（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§1 のN4・§4 D7・§4.1 A〜C）。
+- ビットを数える語を、マスクの中が全部0からどれかが1になった回数や、マスクを掛けた値が指定の値に入った回数にする形 — 不採用: すでに同じ種類を持っているときの取得を数えない（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§4.1 D・E）。
+- ビットの語を足さず、番地の側にマスクを付けて既存の語を使う形 — 不採用: 複数ビットのマスクでは値の大小しか見ず、鍵4本分を1つの定義で数えられない（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§4.1 I）。
+- 立つ側の語だけを足す形 — 不採用: 敵を倒した回数と扉の回数を、得点から推し量るままになる（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§4.1 G）。
+- マスクを16進だけで書く形 — 不採用: 文書と設定の例のビットの値（鍵2、剣32）をそのまま写せなくなる。10進と16進の両方を開発者が選んだ（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§4.1 K）。
+- 評価の上書きを拒否する専用の検査を残す形（判定だけ縮める、各envの設定が自分の上書きだけを探す） — 不採用: 同じ誤りを、タグごとの読まれない設定キーの検査と2つの仕組みで止めることになる（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§4 D10・§4.1 F・J）。
+- レベルをまたいだときに部屋を区別する語（番地2つの組を数える語） — 先送り: 実験の結果が要る。再開条件: 2レベル目に入るRunが出たとき（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§4 D14）。
+- RAMメトリクスの番号の枠を広げ、5番以降のscalarのtagを作る形 — 範囲外: tagの番号を全体で振り直すRFD0108の関心（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§1 のN1）。
 
 ## 変えるときの条件
 
@@ -83,6 +94,8 @@
 - GridMazeのseed_mode追加では、全Env共有と破棄・再作成後の保持、並行8個体、episodeの50 Reset、独立プロセスでのINFO1回、採用seedからの復元を確認する。旧固定条件とのscalar比較はseedだけを指定する（出典: [GridMaze seed_mode RFD](../../memo/done/0102_gridmaze_seed_mode_10rfd.md)、§7）。
 - NOOPへの罰を直すときは4行動モードで同seed・同行動列を比較し、Step報酬と累積報酬の差、NOOPの変換、実行されないDROP、報酬以外の状態の一致を確認する（出典: [RFD0115](../../memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md)、§5 A4〜A7）。
 - ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
+- RAMメトリクスの既存の5語の意味、NaNの規則、集計の単位（実ゲーム1回）を変えない。過去のRunのtraceは書き換えないので、同じ名前のまま意味が変わると比べられない（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§1 のN2）。
+- RAM定義と縮小方式の読み取りを整理するときは、既存の5語の結果、設定ファイルから届くERRORの文言と時機、観測の画素、実効設定とログに記録する`resize_mode`の値を変えない（出典: [RFD0126](../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md)、§4 D11・§7.2 の受入7〜9）。
 
 ## 関係
 

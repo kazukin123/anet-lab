@@ -6,6 +6,7 @@
 
 - CLIはGUIによる標準開発を補い、AIエージェントのビルド・検証とCI相当の再現、問題の診断に使う（出典: [開発環境構築ガイド](../../design/040_development_environment.jp.md)、§1.1・§2.4）。
 - Optuna harnessの共通runtimeは探索、実行、集計、成果物を扱い、RunnerProcessManagerが子processの起動・timeout・中断・終了を管理する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.3・§3.3・§7.3）。
+- apps/toolsのOptuna harnessはRunner子processとRun artifactの境界を扱い、workspace共通基盤と補助launcherを接続する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§2.3・§3.3・§6）。
 - wikiの取り込み・点検は正本のまとめと機械的な一覧を保ち、issueの道具はINDEXとトピック別まとめの課題区画を更新する（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
 - wiki_support.pyのscanは、材料・blob・リンクと実装済みのRFDの取り込み漏れを読み取りだけで返す。RFDの実装済みは、そのRFDを指す課題の判定と状態から導く。mapsはINDEXと、トピック別まとめのファイル・RFDの一覧・課題の区画を作り直し、RFDの一覧はファイルに触れたコミットの件名から作る（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
 - stage_issue_memos.pyは、課題の管理外のメモ（priority・memo・tags）の変更だけを欄の単位でindexへ載せ、Obsidianでの手入れを、同じファイルにあるAIの作業の変更と分けてコミットできるようにする（出典: [アプリケーションとツール](../../design/160_applications_and_tools.jp.md)、§7.4）。
@@ -50,6 +51,7 @@
 - 2026-11-23: 会話の枠ごとに 1 枚のまとめページ（冒頭・いまの位置・記号の一覧に、場面ごとの節を足したもの）を、場面に入ったときか前の応答の記号を引き始めたときに作って、中身が変わった応答で更新し、Claude Code は非公開ページ、Codex は ChatGPT Sites で同じ URL のままスマホから見返せるようにした。手順は skill、始める条件は AGENTS.md、場面ごとの指針とひな形は docs/process/summary-page/ に置いた（出典: [RFD0197](../../memo/0197_conversation_options_summary_page_10rfd.md)、§1.2・§6 D1・D2・D5〜D9・D11・D25・D26）。
 - 2026-11-23: 文書の呼び名をPRDからRFD（Request for Discussion）に改め、番号を0埋めの4桁にし、ファイル名・skill名・課題の欄・コミット件名・テストのタグ・道具など今使っている場所を移した。直下の文書は実装が済んだものも本文まで新しい名前に直し、改名・リンクのパスの直し・動作に効く行の直しを1回目、改名したファイルの残りの本文の語の置き換えを2回目のコミットに分け、道具は件名の旧いPRDnnnと新しいRFDnnnnの両方を日付で分けずに値で読み、定点統計は保管場所の文書の移した日を改名をたどって取るようにした（出典: [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、題・§1.2・§6 D1〜D4・D8・D17・D25）。
 - 2026-11-23: 変更ごとの文書の呼び名をPRDからRFDに改め、番号を0埋めの4桁にする（RFD0195。出典: [ADR 0093](../../adr/0093-document-term-rfd-and-four-digit-numbers.md)）。
+- 2026-11-23: 観測の加工の部品の新しい機能グループ`forwarder`を、定点統計とトピック別まとめの分類（categories.json）の314へ足した（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D45・§7.8）。
 
 ## 選ばなかった形
 
@@ -250,7 +252,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-955e50](../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | RFD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [RFD0081](../../memo/0081_evalpanel_episode_trace_10rfd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](../../management/issues/issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0187](../../memo/0187_issue_list_views_10rfd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261122-4adabb](../../management/issues/issue-20261122-4adabb.md) | 未着手 | 4.0 | — | コード | 実装 | 311_dev_tools, 316_config | 開発 | 不具合 | — | 残件有り | RFD0072 の既定葉検査が移転前の core を探索して停止する |
-| [issue-20261123-6b991d](../../management/issues/issue-20261123-6b991d.md) | 未着手 | 4.0 | — | 文書 | 監査 | 311_dev_tools, 321_agent_core | 開発 | 調査 | — | 未確認 | 状態が中身と合わない課題が 3 件ある（対応中なのに実装計画も最近の作業も無い 23d185・52ffba、RFD が着手しないと書くのに未着手の 6f6c73） |
+| [issue-20261123-6b991d](../../management/issues/issue-20261123-6b991d.md) | 未着手 | 4.0 | — | 文書 | 監査 | 311_dev_tools, 321_agent_core | 開発 | 調査 | — | 残件有り | 状態が中身と合わない課題が 3 件ある（対応中なのに実装計画も最近の作業も無い 23d185・52ffba、RFD が着手しないと書くのに未着手の 6f6c73） |
 | [issue-20261123-c455b5](../../management/issues/issue-20261123-c455b5.md) | 未着手 | 3.3 | — | コード | 実装 | 311_dev_tools, 110_runner_app | 開発 | 不具合 | — | 残件有り | 既定のスイートの batchrun_fatal_error_handling_test が、前の Run の重みを読む段を持つキューを既定にした bat で、重みが無い段を失敗に数えて落ちる |
 | [issue-20261111-3986b7](../../management/issues/issue-20261111-3986b7.md) | 未着手 | 3.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | テストを回す範囲・回数と、テストの控え・ログの置き場の決まりが無く、実装の時間と .scratch が膨らむ |
 | [issue-20261123-0fcb2a](../../management/issues/issue-20261123-0fcb2a.md) | 未着手 | 3.0 | — | 文書 | 監査 | 110_runner_app, 311_dev_tools | UI | 不整合 | — | 未確認 | 設計160が本文で扱う Runner の画面・Evaluation Trace・workspace・終了時の排水・Notifier の Detach・課題と wiki の保守の ADR 10 本を、どの設計文書もリンクせず、160 には ADR へのリンクが 1 本も無い |

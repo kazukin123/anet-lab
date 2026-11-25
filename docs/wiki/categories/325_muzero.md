@@ -21,12 +21,15 @@
 - 2026-11-20: `InitMuZero`も、何度呼んでも登録を1回だけ行うようにした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D11・§6.5）。
 - 2026-11-21: MuZeroの試作Agentの設定の誤りの文面（隠れ状態の次元、温度の予定のstart・end）が、設定キーを完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§8.3）。
 - 2026-11-23: 文書の呼び名をRFDへ改めるのに合わせて、MuZeroのテストのファイル名の番号の形も改めた（出典: [RFD0195](../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§5.2・§9.6）。
+- 2026-11-23: MuZeroのActorも、強制行動を`MakeActionOptions`の欄で受け、行動の差し替えだけを行い、探索木と行動の情報は探索の結果のままにした（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D12・D14）。
 
 ## 選ばなかった形
 
 - MuZero固有の温度を今回ProfiledValueへ移す形 — 範囲外: 試作Agentの探索設定で本線のDQNと器が違い、今は本線へ戻す予定が無い。再開条件: MuZeroを本線へ戻すとき（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§3の非ゴール）。
 - MuZeroのReplayのテストで見つかった食い違い（打ち切りの式など）を、テストを足すRFD0122の中で直す形 — 範囲外: 振る舞いを変えると、今の振る舞いをテストで固めるゴールに反し、直し方の判断が要る。見つかったら起票の候補にする（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§3.2・§4 D15）。
 - Agent全体を1本のライブラリにする形 — 不採用: MuZeroやImageClsがDQNの部品を読むことを、機械が止めない（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.3）。
+- MuZeroをTrainで強制する形 — 範囲外: 人の操作をTrainへ届ける別のRFD（RFD0160）で決める（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D14・§15）。
+- MuZeroの観測の加工をForwarderの並びに載せる形 — 範囲外: deviceへ移すだけで、載せても消える重複が無い（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§2 のNG7）。
 
 ## 変えるときの条件
 

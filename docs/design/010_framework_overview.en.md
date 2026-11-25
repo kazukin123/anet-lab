@@ -1,4 +1,4 @@
-<!-- translated-from: 010_framework_overview.jp.md blob:918a356cd53a902ee77d7e4b61473445f0ea7677 date:2026-11-19 progress:done -->
+<!-- translated-from: 010_framework_overview.jp.md blob:c78ccba1fe58aac5e8b2d1da812e552dfbb94192 date:2026-11-25 progress:done -->
 # ANET Framework Overview
 
 > Primary perspective: overall structure (organized mainly by function, with major workflows included)
@@ -164,6 +164,7 @@ flowchart TB
 | Agent | `AgentFactory`, `Agent`, `Actor` | `anet/agent.hpp`, `anet/rl.hpp` | `RegisterAgentFactory` | Yes | DefaultDQN |
 | NN Head | `NetworkHead`, `NetworkHeadFactory` | Executor, initialization, and generic Heads in `anet/nn_head.hpp` | Head factory of `NetworkBuilder::BuildNetwork` | Yes | Dueling Head |
 | NN module | `NetworkModule` | Base type visible in `anet/nn_head.hpp` | Internal module registration point | No, because the registration point is not public | Linear module |
+| Forwarder module | `ForwarderModule`, `ForwarderModuleFactory` | `SpecForwarder` and `MakePassThroughForwarder` in `anet/forwarder.hpp` | `RegisterForwarderModuleFactory` | Yes | FrameStack, SetSpec |
 | Observer | `Observer` | `anet/rl.hpp`, `anet/observers.hpp` | `Notifier::Attach` | Yes, when attached in code | ScalarObserver |
 | ReplayBuffer | `ReplayBuffer` | `anet/replay_buffer.hpp`, `anet/replay_experience.hpp` | Inside the shared ReplayBuffer implementation | Cannot be replaced | N-step ReplayBuffer |
 

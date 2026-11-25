@@ -5,7 +5,7 @@
 ## 概要・責務
 
 - ReplayBufferのExperience、N-step、PER、stack履歴、転送とprefetchの共通契約を引く。RunnerとObserverの実行・通知の所在もまとめる。（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§1・§2）。
-- ReplayBuffer は `GetSampleObsSpecs` で Sample の観測 spec を答える。複数枚の対象キーには stack 軸があり、1 枚の Sample は Frame の形を返す（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、観測の stack 履歴）。
+- ReplayBuffer は `GetSampleObsSpecs` で Sample の観測 spec を答える。複数枚の対象キーには stack 軸があり、1 枚の Sample は Frame の形を返す（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.2・§2.3）。
 - TrainerとRunnerが学習・評価を実行し、Notifierがeventを配送する。値の収集と保存はObserverとMetricsLoggerへ分ける（出典: [可観測性](../../design/140_observability.jp.md)、§2）。
 - Actor初期priorityのhint行は共通層では列の意味を解釈せずに運び、schema検証と推定は注入されたInitialPriorityEstimatorが担う。DQNの5列schemaの正本はDQN系Agent設計である（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.4 PER）。
 - ReplayBufferは可変長windowの抽出・転送・prefetchを担い、時間で変わるγでは保存したstep報酬のsnapshotから収益を確定する。窓の規則と利用するγは呼び出し側から渡す（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2・§6.1.1）。
@@ -13,6 +13,7 @@
 - Notifierは、eventを`Notify()`を呼んだスレッドで登録順に配信し、登録・解除・通知・終了・一覧の操作を並行して呼べる。呼び出し開始時の一覧を保持してObserverをロックの外で呼び、`Detach()`と`Clear()`は進行中の通知を待たない。Observerが触る相手の寿命は登録する側が管理する（出典: [可観測性](../../design/140_observability.jp.md)、§2・§5.1）。
 - ReplayBufferは、Agentが複数の報酬成分を使うときだけ報酬を成分ごとに受け取り、成分ごとの割引率の列で収益を作る。成分の数は構築時に固定し、成分の意味は利用側のAgentが持つ。1成分のshapeと計算順は変えない（出典: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§2.1・§2.2）。
 - Runnerのstepは、呼ぶ側が渡す`MakeActionOptions`をそのstepのActorの行動選択へそのまま渡す。nn_traceは要求したstepだけ作り、Runner・Actor・Observer・Notifierに要求の登録を持たない（出典: [実行基盤と設定](../../design/100_runtime_and_configuration.jp.md)、§2.2；[可観測性](../../design/140_observability.jp.md)、§5.4）。
+- 強制行動は、その回の`MakeActionOptions::forced_actions`（`ForcedActions::ByLane`・`ForcedActions::ByMask`）で渡す。EvalRunnerはResetの前に指定を検査し、遷移の`forced`をlaneごとに記録し、Actorが返した行動をEnvが実行する（出典: [Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.2）。
 - eval scheduleの発火の列は、`EpisodeEvalObserver`がoffsetに届くまで問い合わせを止め、先頭の`warmup_count`回の発火を走らせない形で調整し、共通の`IntervalGate`は変えない（出典: [可観測性](../../design/140_observability.jp.md)、§6.x step座標系）。
 
 ## 成立の経緯
@@ -85,8 +86,10 @@
 - 2026-11-20: Notifierの`Attach`・`Detach`・`Notify`などを別々のスレッドから同時に呼んでもObserverの列が壊れないようにし、`Detach`は進行中の通知を待たず、Observerをロックの外で呼ぶようにした（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D1〜D5；[ADR 0082](../../adr/0082-notifier-detach-does-not-wait-for-in-flight-notifications.md)）。
 - 2026-11-20: 呼んでよいスレッドと時点を、Notifierと、キャッシュを持つ`BatchStepResult`・`ReplayInitialPriorityHint`・`BatchActionInfo`の宣言のコメントに書いた（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D7）。
 - 2026-11-21: Observer・ReplayBuffer・RunManagerのエラー・WARN・INFOが示す設定キーを完全キーにし、評価の`scheduled`の行の各欄も完全キーで示すようにした（出典: [RFD0194](../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D25）。
-- 2026-11-24: ReplayBuffer が、Sample で返す obs の spec を答える口（`GetSampleObsSpecs`）を足す仕様を決めた。Sample 用の Forwarder は、この spec を受けて作る（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.2 D14）。
-- 2026-11-24: 通常の ReplayBuffer が Sample の観測 spec を答え、プリフェッチの ReplayBuffer は内側の答えを返す形を実装した（出典: [RFD0200 実装メモ](../../memo/0200_forwarder_public_interface_rework_20impl.md)、主な変更・経過）。
+- 2026-11-22: 強制行動は`MakeAction`の入力とし、Actorの出力を実行された行動にする（出典: [ADR 0083](../../adr/0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)、本文）。
+- 2026-11-23: 強制行動を`MakeActionOptions`の欄（`ForcedActions`）でActorへ渡す形にし、行動の引数を持つ`EvalRunner::DoStep`と、あとから差し替えるWithActionを消し、Runnerの「強制したか」の記録をlaneの印から作るようにした。Runnerに強制行動を渡す口は1つになり、負数が「強制なし」を表す決まりは無くなった（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D7〜D10・D12・D15・D16）。
+- 2026-11-24: 重ねる枚数とキーの設定はAgent全体に置き、Sampleの束のspecはReplayBufferが答える（出典: [ADR 0095](../../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、本文）。
+- 2026-11-25: ReplayBufferが、Sampleで返すobsとnext_obsのspecを答える口（`GetSampleObsSpecs`）を、通常とプリフェッチの両方に足した。Sample用のForwarderはこのspecを受けて作る（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.2 D14・§6.9）。
 
 ## 選ばなかった形
 
@@ -113,7 +116,7 @@
 - 保存済みの収益は Push 時の γ、bootstrap は学習時の γ の 2 時点を契約にする形 — 不採用: 変化中に学習の target の中へ既知のずれを作る。Replay が step 報酬を保存しているので作り直す方が安い（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§4.4 D20・§7、[ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
 - γ の schedule で常に抽選時に収益を作り直す形 — 不採用: 定数でも計算が増え、足す順を揃えないと既存 Run との checksum が変わる。定数は保存値の経路に留める（出典: [ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
 - γ を今回 constant だけに限る形 — 不採用: 器としては γ だけ空く。schedule のときだけ作り直す形で両立できた（出典: [RFD0101](../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§7、[ADR 0065](../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
-- 強制したかを行動の情報（`WithAction`の結果）で答える形 — 不採用: 基底・DQN系・MuZero系の行動の情報とテストの型を変え、「`WithAction`の結果＝強制」という意味を公開の型に付ける。強制するのはRunnerで、Runnerが答えれば1か所で済む（出典: [RFD0105](../../memo/done/0105_eval_trace_arrow_key_forced_action_10rfd.md)、D3）。
+- 強制したかを行動の情報（WithActionの結果。当時の名前で、今のコードに無い）で答える形 — 不採用: 基底・DQN系・MuZero系の行動の情報とテストの型を変え、「WithActionの結果＝強制」という意味を公開の型に付ける。強制するのはRunnerで、Runnerが答えれば1か所で済む（出典: [RFD0105](../../memo/done/0105_eval_trace_arrow_key_forced_action_10rfd.md)、D3）。
 - metrics_scalar.txtにscalar記法の要素ごとの語の一覧を写す形 — 不採用: 語を足すたびに`ParseMetricTokens`・140 §6・設定ファイルの3か所を直すことになり、知らない語はkeyとして黙って扱われるので、古い写しどおりに書くと値が記録されない。ObserverFactoryのコメントは参照の1行だけにする（出典: [RFD0119](../../memo/0119_small_doc_comment_config_fixes_10rfd.md)、§4 D9・§7）。
 - `interval = 0` で止めた評価 tag と、schedule の記述が無い tag で、参照の skip の通知のレベルを分ける形 — 不採用: ADR 0027 が 1 つにまとめた dormant をまた 2 つに分け、休止の出どころを運ぶ分岐が増える（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、D8・§8）。
 - PER の抽選が埋まらないとき Run を止める形 — 不採用: 過去の Run のログ 616 本で 1 度も起きておらず、起きる条件が分からないまま止めると正当な極初期の状況で Run を落とす恐れがある。代替の是非は課題に起票した（出典: [RFD0117](../../memo/0117_warn_policy_and_unread_config_10rfd.md)、D9・§8・§9 の 20）。
@@ -122,7 +125,7 @@
 - 購読ヒントと同じ経路でnn_traceの要否を渡す形 — 不採用: 学習の前に1回だけ渡す仕組みで、Runの途中で開閉するpaneに追従できない（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§2.5・§4.1）。
 - MakeActionの3つ目の引数を真偽の値にする形、既定値を付けない形、引数2つの版をvirtualでない関数として残す形 — 不採用: 入力が増えるたびに基底の引数が変わる、テストの呼び出し約65か所に空の値を足すことになる、派生クラスで基底の2引数の版が名前ごと隠れる（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D2・D3・§4.1）。
 - 公開のMakeActionをvirtualでない1本にして既定値をそこだけに書き、実装は別名のvirtualをoverrideする形 — 不採用: 既定値は空の構造体で食い違う余地がほとんど無く、Runnerのstepも同じ作りにそろえるとEvalRunnerで基底のDoStepが名前ごと隠れる（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4.1）。
-- EvalRunnerの手動の行動の引数をMakeActionOptionsにまとめる形 — 範囲外: RFD0161の範囲（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§3.2・§9）。
+- EvalRunnerの手動の行動の引数をMakeActionOptionsにまとめる形 — 範囲外: RFD0161の範囲（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§3.2・§9）。→ RFD0161 で採用（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D8）。
 - Learnerの購読ヒントを、開始前の宣言と呼び出しごとの要求に分けて見直す形 — 範囲外: 別の関心（出典: [RFD0170](../../memo/0170_nn_trace_capture_unification_10rfd.md)、§8の1）。
 - Replayはstepの報酬だけを成分で持ち、収益はLearnerが抽選のあとに作る形 — 不採用（却下）: 成分が1つのときは今と同じ値を保つために定数の割引率でPush時に保存する経路を残す必要があり、成分があるときだけ別の経路にすると、収益を作る経路が2通りになる（出典: [ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、Considered Options、[RFD0121](../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§5 D8）。
 - 内的報酬という名前の2本目の報酬をReplayに足す形 — 不採用（却下）: 汎用のReplayに、特定のアルゴリズムの名前と意味が入る（出典: [ADR 0073](../../adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md)、Considered Options）。
@@ -145,6 +148,12 @@
 - priority storeとcompleterを1つの組にして、片方だけの状態を作れなくする形 — 不採用: `DefaultReplayBuffer`のコンストラクタとファクトリの形が変わり、題材はテストの空白だった（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§7・§4 D2）。
 - MuZeroのReplayのtruncatedで補う値を直す形 — 範囲外: 学習ターゲットが変わる。課題に記録した（出典: [RFD0122](../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§7・§4 D4・D15）。
 - ObserverとReplayBufferの差し替え口の公開 — 範囲外（先送り）: 別の関心。再開条件: 基盤の外で差し替えると決めたとき（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D25・§7）。
+- 強制行動を、Actorの出力のあとで差し替える形（WithAction）のまま、作り直す値を足していく形 — 不採用（却下）: 行動から作る値が増えるたびに、差し替えの側も増える（出典: [ADR 0083](../../adr/0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)、Considered Options）。
+- 強制行動をlane数ぶんの印と行動だけで表す形 — 不採用（却下）: 指定のほとんどは1 laneで、呼ぶ側がlane数を調べて組み立てることになる（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D9・§6.6；[ADR 0083](../../adr/0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)、Considered Options）。
+- 強制行動を`MakeAction`の3つ目の引数にする形 — 不採用: `MakeAction`の追加の入力は、呼び出しごとに構造体で渡すと決まっている（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D7）。
+- 人の操作を強制行動としてTrainのRunnerへ届ける配線 — 範囲外: 口はTrain側にも開いており、届ける配線は別の関心（RFD0160）（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§2 のNG8・§6.2 D15）。
+- ReplayBufferが受ける1枚のspecを、経験の受入れ用のForwarderの出力のspecにする形 — 不採用: 宣言を変える部品が、Sampleの流れにだけ2度効く（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.6、§5.2 D14）。
+- Sampleの束のspecを、並びが依頼の種類や専用の口で答える形 — 不採用（却下）: 束を作るのはReplayBufferなのに、Forwarderの側が主になる（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.6；[ADR 0095](../../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、Considered Options）。
 
 ## 変えるときの条件
 
@@ -171,10 +180,12 @@
 - Notifierの排他を足しても、Observerを呼ぶ順（登録順）と、Observerが動くスレッド（`Notify`を呼んだスレッド）、例外の伝わり方を変えない。RunnerFrameの終了時の順序（排水のあとに`Detach`）も変えない（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D4・D6・§6.2）。
 - 既定の設定のRunの結果を変えないことは、RFD0103の検証資材と同じ6構成・短縮条件で、実装の前後の実行体の、性能・資源以外の全scalarの一致で確かめる（出典: [RFD0192](../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§7のA13）。
 - ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
+- 強制なしの`MakeAction`は、行動・aux・ヒント・乱数の消費のどれも変えない。強制していないlaneの行動・Q・ヒントも、強制の有無で変えない（出典: [RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§7.2・§6.2 D11）。
+- ReplayBufferの重ね直しの方式と、1枚のときにstack軸を付けずに返す動きを変えない。Rainbowが同じReplayBufferを1枚で使う（出典: [RFD0200](../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§2 のNG4；[RFD0161](../../memo/0161_observation_pipeline_10rfd.md)、§2 のNG5）。
 
 ## 関係
 
-- 設計: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§1・§2。
+- 設計: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§1・§2。強制行動は[Agentと学習](../../design/110_agents_and_learning.jp.md)、§2.2。Sampleの束と観測の加工は[Forwarder と Perception](../../design/135_forwarder_and_perception.jp.md)、§3。
 - 拡張点: [ANETフレームワーク全体概要](../../design/010_framework_overview.jp.md)、§4.3。
 - 可変長windowとγ・検証手順: [ReplayBuffer](../../design/150_replay_buffer.jp.md)、§6.1.1・§8。通知の並行と寿命は[可観測性](../../design/140_observability.jp.md)、§5.1・§5.2。Evaluation Traceの採点と同期、nn_traceの要求は同、§5.3・§5.4。
 - 置き場とテストの参照範囲: [ソース配置とライブラリの境界](../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「テスト」。
@@ -257,17 +268,22 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261123-003c85](../../management/issues/issue-20261123-003c85.md) | 未着手 | 4.0 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | 不具合 | — | 残件有り | Replay は n_step が 0 以下でも構築でき、0 では 1 件も抽選できる状態にならないので、学習も評価も黙って始まらない |
 | [issue-20261123-7671ff](../../management/issues/issue-20261123-7671ff.md) | 未着手 | 4.0 | — | コード | 監査 | 318_rl_core, 320_env_core | 学習基盤 | 不具合 | — | 未確認 | BatchActionInfo::GetAction(device) が index の無い "cuda" をキャッシュの鍵として覚えるので、同じ実体へ同じ device で 2 回目に呼ぶと不一致で止まる |
 | [issue-20261123-ff9a9a](../../management/issues/issue-20261123-ff9a9a.md) | 未着手 | 4.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 未確認 | Replay の prefetch で、遅らせて投入した Push が例外になると、使い終わった future が列に残り、次の同期と終了時のデストラクタで落ちうる |
-| [issue-20261123-3ebab4](../../management/issues/issue-20261123-3ebab4.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | Env の設定のファイル名の衝突検査（RunManager）が、MetricsLogger の private な置換規則と書き出し先の作り方を写して予測している |
-| [issue-20261123-446e6f](../../management/issues/issue-20261123-446e6f.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | 不具合 | — | 未確認 | メトリクスの宣言の数値の属性（interval・ema_alpha・clip ほか）を std::stoi・stof で読むので、後ろの文字が黙って捨てられ、数でない値は設定キーの無い例外になる |
+| [issue-20261123-3ebab4](../../management/issues/issue-20261123-3ebab4.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 残件有り | Env の設定のファイル名の衝突検査（RunManager）が、MetricsLogger の private な置換規則と書き出し先の作り方を写して予測している |
+| [issue-20261123-446e6f](../../management/issues/issue-20261123-446e6f.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | 不具合 | — | 残件有り | メトリクスの宣言の数値の属性（interval・ema_alpha・clip ほか）を std::stoi・stof で読むので、後ろの文字が黙って捨てられ、数でない値は設定キーの無い例外になる |
 | [issue-20261123-4df9cc](../../management/issues/issue-20261123-4df9cc.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 110_runner_app | 学習基盤 | リファクタリング | — | 未確認 | core の RunManager が、アプリの EvalPanel があとで作る Runner の名前 "EvalPanel" を文字列で予約し、同じ名前を 2 つの層に書いている |
-| [issue-20261123-ad7829](../../management/issues/issue-20261123-ad7829.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | Runner の counts と scalar の鍵に、一度も進まない sim_step と、reward・reward_ema と同じ値を返す別名 train_reward・train_reward_ema が残る |
+| [issue-20261123-ad7829](../../management/issues/issue-20261123-ad7829.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 残件有り | Runner の counts と scalar の鍵に、一度も進まない sim_step と、reward・reward_ema と同じ値を返す別名 train_reward・train_reward_ema が残る |
+| [issue-20261125-29c3b2](../../management/issues/issue-20261125-29c3b2.md) | 未着手 | 3.5 | — | コード | 監査 | 317_metrics, 318_rl_core | 学習基盤 | 不整合 | — | 未確認 | metrics.graph の宣言の文法が設計140 に無く、実装は未知の @ や $ の語を黙って捨て、interval を両方 0 以下にすると黙って 1000 step ごとになる |
 | [issue-20261103-1beaf9](../../management/issues/issue-20261103-1beaf9.md) | 未着手 | 3.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
 | [issue-20261111-7cc67b](../../management/issues/issue-20261111-7cc67b.md) | 未着手 | 3.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | EvalRunner の 1 step が、多重定義 4 つ・-1 の特別な値・bool の引数で、パネルからの 1 step と評価 session の 1 step を切り替えている |
+| [issue-20261125-16374e](../../management/issues/issue-20261125-16374e.md) | 未着手 | 3.3 | — | コード | 監査 | 321_agent_core, 318_rl_core | 学習基盤 | 不具合 | — | 未確認 | checkpoint の読み込みが parameter の device と形を今の Network と突き合わせず、CUDA で保存したものを agent.device=cpu で読むと Network が CUDA に載ったままになる（最初の forward で落ちる見込み） |
 | [issue-20261111-4a6b6f](../../management/issues/issue-20261111-4a6b6f.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | RunManager のコンストラクタが 277 行あり、評価の設定の解釈・名前の予約・構築・ログ・配線が 1 つの関数に並んでいる |
 | [issue-20261111-585e60](../../management/issues/issue-20261111-585e60.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core, 321_agent_core, 315_nn, 110_runner_app | 基盤 | リファクタリング | — | 残件有り | 名前やコメントが実際の動きと合わない関数・クラス・設定項目がある（BatchState の IsDone、DefaultAgentFactory、NetworkGraphVizConfig の 2 項目、Runner の 4 関数） |
 | [issue-20261111-ea3483](../../management/issues/issue-20261111-ea3483.md) | 未着手 | 3.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | scalar メトリクスの Observer が、イベントの中身を 6〜9 個の引数にばらして 3 段持ち回り、同じ 8 引数のコンストラクタを 4 回書いている |
-| [issue-20261123-6ffe02](../../management/issues/issue-20261123-6ffe02.md) | 未着手 | 3.0 | — | 文書 | 監査 | 318_rl_core, 317_metrics | 学習基盤 | 調査 | — | 未確認 | scalar メトリクスの Observer の 8 引数のコンストラクタと Parsed の struct を、cfe994 と ea3483 の 2 件が別々の直し方で扱っている |
-| [issue-20261123-fb50b6](../../management/issues/issue-20261123-fb50b6.md) | 未着手 | 3.0 | — | 文書 | 監査 | 318_rl_core, 317_metrics | 学習基盤 | 不整合 | — | 未確認 | CONTEXT.md が定義の中で使う step の軸（exp step・train step など）・agent step・lane を、用語として持っていない |
+| [issue-20261123-6ffe02](../../management/issues/issue-20261123-6ffe02.md) | 未着手 | 3.0 | — | 文書 | 監査 | 318_rl_core, 317_metrics | 学習基盤 | 調査 | — | 残件有り | scalar メトリクスの Observer の 8 引数のコンストラクタと Parsed の struct を、cfe994 と ea3483 の 2 件が別々の直し方で扱っている |
+| [issue-20261123-fb50b6](../../management/issues/issue-20261123-fb50b6.md) | 未着手 | 3.0 | — | 文書 | 監査 | 318_rl_core, 317_metrics | 学習基盤 | 不整合 | — | 残件有り | CONTEXT.md が定義の中で使う step の軸（exp step・train step など）・agent step・lane を、用語として持っていない |
+| [issue-20261125-ae4c45](../../management/issues/issue-20261125-ae4c45.md) | 未着手 | 3.0 | — | 文書 | 監査 | 317_metrics, 318_rl_core | 学習基盤 | 不整合 | — | 未確認 | 設計140 の章立てと図が今の形に合わない（節番号が「6.x」のまま 2 つ、env_step の節が関連文書の下、図に SessionEnd と trace が無く画像の Observer の種類と作り手が違い、コードマップに metrics・image が無い） |
+| [issue-20261125-bdbcac](../../management/issues/issue-20261125-bdbcac.md) | 未着手 | 3.0 | — | 文書 | 監査 | 317_metrics, 318_rl_core | 学習基盤 | 不整合 | — | 未確認 | 設計140 が本文で書く仕組みの ADR 8 本（評価セッションの集約・エピソード長・trace の行の時刻・forward の capture・遷移の結果・eval schedule・WARN の表・nn_trace の渡し方）を、どの設計文書もリンクしない |
+| [issue-20261125-eb6135](../../management/issues/issue-20261125-eb6135.md) | 未着手 | 3.0 | — | 文書 | 監査 | 317_metrics, 318_rl_core | 学習基盤 | 不整合 | — | 未確認 | scalar の宣言の正本である設計140 §6 に、target を省いたときの探索順（出荷設定の 57 件が使う）・属性の既定・ema_alpha だけで EMA になること・$action_info などの event の制限が無く、§7 に動画の設定キーが無い |
 | [issue-20261103-9df5c5](../../management/issues/issue-20261103-9df5c5.md) | 未着手 | 2.7 | — | コード | RFD | 318_rl_core, 110_runner_app, 314_tensor | 学習基盤 | 不具合 | [RFD0146](../../memo/0146_notifier_scoped_detach_10rfd.md) | 残件有り | Notifier::AttachScoped の Detach 契約修復 — wrapper ハンドルを返す |
 | [issue-20261107-16ffd8](../../management/issues/issue-20261107-16ffd8.md) | 未着手 | 2.7 | — | コード | RFD | 318_rl_core, 322_env_individual, 110_runner_app | 学習基盤 | 不整合 | — | 残件有り | ERROR のログを出したあとも Run を止めずに続ける箇所（Env・Agent の作成失敗、DropMerge の果物の範囲外）が Fail-Fast 原則と合わない |
 | [issue-20261111-645ecc](../../management/issues/issue-20261111-645ecc.md) | 未着手 | 2.7 | — | コード | 監査 | 317_metrics, 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | メトリクス宣言の語（event・step・target）と enum の対応が 5 か所以上に分かれ、解決済みの定義も同じ値を文字列と enum の 2 形で持っている |
@@ -276,7 +292,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261123-2709db](../../management/issues/issue-20261123-2709db.md) | 未着手 | 2.5 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 未確認 | StateSpec::ValidateObservation は bool を返すが、失敗の経路はどれも例外を投げ、false を返すことがない |
 | [issue-20261103-34d35d](../../management/issues/issue-20261103-34d35d.md) | 未着手 | 2.3 | — | コード | RFD | 318_rl_core | 学習基盤 | 不具合 | [RFD0177](../../memo/0177_episode_end_read_semantics_10rfd.md) | 残件有り | `@episode_end` で読む値を、どの target でもそのエピソードの値にそろえる |
 | [issue-20261111-2c251b](../../management/issues/issue-20261111-2c251b.md) | 未着手 | 2.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | Replay の窓の規則 3 クラスが同じ骨格の写しで、PER のスカラーのキーも一覧・条件式・分岐の 3〜4 か所に並んでいる |
-| [issue-20261123-79bf13](../../management/issues/issue-20261123-79bf13.md) | 未着手 | 2.3 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | 観測のキー「base か base.subkey」の解き方が rl.cpp・Replay・probe.cpp・image.cpp の 4 か所にあり、subkey が空のときの扱いと dtype が既に食い違う |
+| [issue-20261123-79bf13](../../management/issues/issue-20261123-79bf13.md) | 未着手 | 2.3 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 残件有り | 観測のキー「base か base.subkey」の解き方が rl.cpp・Replay・probe.cpp・image.cpp の 4 か所にあり、subkey が空のときの扱いと dtype が既に食い違う |
 | [issue-20261103-5addea](../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261123-c3b5ef](../../management/issues/issue-20261123-c3b5ef.md) | 未着手 | 2.2 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | Actor 近似の初期優先度で「n 先の hint を待って Estimate に渡す」手順が、Replay の内部と DQN の step 診断の 2 か所に写され、割引の計算はテストにも 3 つ目がある |
 | [issue-20261103-78c643](../../management/issues/issue-20261103-78c643.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | ObserverFactoryのコンストラクタが331行で、graphの節だけが共通の字句解析を使わずに独自に読む |
@@ -287,9 +303,9 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261112-983afe](../../management/issues/issue-20261112-983afe.md) | 未着手 | 2.0 | — | コード | その他 | 324_dqn, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | — | 残件有り | KFMの学習がボスへ行き着くかが偶然に頼る（1階の廊下の位置が観測に無く、Qも内的報酬も左へ進む向きを持てない） |
 | [issue-20261123-22d9bf](../../management/issues/issue-20261123-22d9bf.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 110_runner_app, 322_env_individual | 学習基盤 | リファクタリング | — | 未確認 | TrainEvent の action_info が experience.action と同じ実体を重ねて持ち、読む側（Observer・パネル・View）が 2 通りに分かれている |
 | [issue-20261123-68723d](../../management/issues/issue-20261123-68723d.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | 共通の Replay が Actor の info をすべて slot ごとに保存し、抽選のたびに切り出して学習 device へ送るが、本番で読む箇所が無い（入るのは step の旗にも保存する TempoRL の decision だけ） |
-| [issue-20261123-cbe34a](../../management/issues/issue-20261123-cbe34a.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 317_metrics, 110_runner_app | 学習基盤 | 不整合 | — | 未確認 | 共通の Runner が 1 フレームごとに MetricsLogger を flush し（学習スレッドでは毎 step）、設計 140 とアプリが書く「境界でだけ flush」と食い違う |
+| [issue-20261123-cbe34a](../../management/issues/issue-20261123-cbe34a.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 317_metrics, 110_runner_app | 学習基盤 | 不整合 | — | 残件有り | 共通の Runner が 1 フレームごとに MetricsLogger を flush し（学習スレッドでは毎 step）、設計 140 とアプリが書く「境界でだけ flush」と食い違う |
 | [issue-20261124-11428b](../../management/issues/issue-20261124-11428b.md) | 未着手 | 1.8 | — | コード | RFD | 324_dqn, 318_rl_core | アルゴリズム | 機能追加 | [RFD0201](../../memo/0201_top_episode_memory_sil_lower_bound_10rfd.md) | 未確認 | まれに出た上位のエピソードを Replay と別に持ち続け、外的の Q を実際の収益で下から引き上げる仕組み（上位エピソードの記憶と SIL の下限損失）を DQN 系に足す |
-| [issue-20261123-8cf911](../../management/issues/issue-20261123-8cf911.md) | 未着手 | 1.7 | — | コード | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | Agent の拡張点 AgentFactory::CreateAgent が Notifier を受け取るが、本番の Agent 4 つはどれも使わず、使うのはテストの代役 1 つ（Observer の登録順を前にするため）だけ |
+| [issue-20261123-8cf911](../../management/issues/issue-20261123-8cf911.md) | 未着手 | 1.7 | — | コード | 監査 | 318_rl_core, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | Agent の拡張点 AgentFactory::CreateAgent が Notifier を受け取るが、本番の Agent 4 つはどれも使わず、使うのはテストの代役 1 つ（Observer の登録順を前にするため）だけ |
 | [issue-20261103-0ef7b8](../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | RFD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [RFD0108](../../memo/0108_metrics_tag_numbering_10rfd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261113-d38960](../../management/issues/issue-20261113-d38960.md) | 未着手 | 1.6 | — | コード | 実装 | 110_runner_app, 324_dqn, 318_rl_core | UI | 性能改善 | — | 残件有り | EvalPanel のモデル同期が UI スレッドで学習ロックを待ち、画面の更新や操作応答を止め得る |
 | [issue-20261103-75b8da](../../management/issues/issue-20261103-75b8da.md) | 未着手 | 1.5 | — | コード | RFD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [RFD0168](../../memo/0168_nstep_target_correction_10rfd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
@@ -298,7 +314,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-52bda0](../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | コード | RFD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [RFD0096](../../memo/0096_metrics_step_axis_interval_10rfd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
 | [issue-20261103-aa8701](../../management/issues/issue-20261103-aa8701.md) | 未着手 | 1.4 | — | コード | RFD | 318_rl_core, 321_agent_core, 324_dqn, 320_env_core | 学習基盤 | 機能追加 | [RFD0143](../../memo/0143_serialize_10rfd.md) | 残件有り | Run Serialization（Run 全体 Save / Load） |
 | [issue-20261115-c89660](../../management/issues/issue-20261115-c89660.md) | 未着手 | 1.4 | — | コード | その他 | 110_runner_app, 321_agent_core, 318_rl_core | UI | 機能追加 | — | 残件有り | Runner の Conv2dPanel と metrics.image の conv2d に、RND の target と predictor の畳み込みの出力が出ない |
-| [issue-20261123-eac719](../../management/issues/issue-20261123-eac719.md) | 未着手 | 1.4 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 未確認 | 画像の Observer 4 種は observers（318）にあり、それを作って Notifier へ付けるのは image（317）の ImageProviderFactory で、observers と image が互いを読んでいる |
+| [issue-20261123-eac719](../../management/issues/issue-20261123-eac719.md) | 未着手 | 1.4 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 残件有り | 画像の Observer 4 種は observers（318）にあり、それを作って Notifier へ付けるのは image（317）の ImageProviderFactory で、observers と image が互いを読んでいる |
 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | 未着手 | 1.3 | — | コード | RFD | 110_runner_app, 318_rl_core, 322_env_individual | UI | 機能追加 | [RFD0159](../../memo/0159_input_mapping_joystick_10rfd.md) | 残件有り | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel） |
 | [issue-20261103-f39d10](../../management/issues/issue-20261103-f39d10.md) | 未着手 | 1.3 | — | コード | RFD | 318_rl_core, 324_dqn | 学習基盤 | 不具合 | [RFD0141](../../memo/0141_background_eval_snapshot_ordering_10rfd.md) | 残件有り | Background eval の network snapshot 順序保証 |
 | [issue-20261103-07629c](../../management/issues/issue-20261103-07629c.md) | 未着手 | 1.2 | — | コード | RFD | 110_runner_app, 318_rl_core, 319_gui | UI | 不具合 | [RFD0176](../../memo/0176_qvaluepanel_manual_action_state_alignment_10rfd.md) | 残件有り | QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ |
@@ -323,7 +339,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-6661d2](../../management/issues/issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](../../management/issues/issue-20261103-f39d10.md), [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) | コード | RFD | 318_rl_core, 324_dqn, 110_runner_app | 学習基盤 | 機能追加 | [RFD0136](../../memo/0136_best_checkpoint_10rfd.md) | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
 | [issue-20261103-578986](../../management/issues/issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](../../management/issues/issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 
-着手できる 65 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
+着手できる 70 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-3e1cf6](../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
 - 関連する課題: [issue-20261103-2d66d2](../../management/issues/issue-20261103-2d66d2.md) — 999: train/eval mode 整理後の排他精査 RFD（草案）
