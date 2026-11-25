@@ -94,8 +94,6 @@ OpenAIのChatGPT / CodexとAnthropicのClaude Codeを使い分けながら、
 | [AGENTS.md](AGENTS.md) | AIエージェント向けの作業規約 |
 | [.agents/skills/](.agents/skills/README.md) | プロジェクト固有と汎用のSKILLの一覧（Codex / Claude Code共通） |
 | [docs/agents/](docs/agents/README.md) | AIエージェントがどの文書をいつ読むかを表した動線マップ（ブラウザで表示できる図を含む） |
-| [docs/process/](docs/process/protocol.md) | 工程とレビューの進め方 |
-| [docs/quality/](docs/quality/) | レビュー観点 |
 
 ## ライセンス
 
