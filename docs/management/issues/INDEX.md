@@ -135,6 +135,7 @@
 | [issue-20261123-68723d](issue-20261123-68723d.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | 共通の Replay が Actor の info をすべて slot ごとに保存し、抽選のたびに切り出して学習 device へ送るが、本番で読む箇所が無い（入るのは step の旗にも保存する TempoRL の decision だけ） |
 | [issue-20261123-c7c3ae](issue-20261123-c7c3ae.md) | 未着手 | 2.0 | — | 文書 | 実装 | — | 開発 | 不整合 | — | 残件有り | RFD0195 で名前だけを置き換えた既存の 118 行に、AGENTS.md の避ける語（既定葉・腕・旗・地図など）が残る |
 | [issue-20261123-cbe34a](issue-20261123-cbe34a.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 317_metrics, 110_runner_app | 学習基盤 | 不整合 | — | 残件有り | 共通の Runner が 1 フレームごとに MetricsLogger を flush し（学習スレッドでは毎 step）、設計 140 とアプリが書く「境界でだけ flush」と食い違う |
+| [issue-20261127-01b29b](issue-20261127-01b29b.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 不具合 | — | 未確認 | 課題の rfd 欄の名前だけのリンクが、RFD とそのサマリのページの 2 つに当たる |
 | [issue-20261103-58696c](issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0112](../../memo/0112_claude_memory_tidy_10rfd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
 | [issue-20261123-98baff](issue-20261123-98baff.md) | 未着手 | 1.8 | — | 文書 | 実装 | 311_dev_tools | 開発 | 不整合 | — | 残件有り | docs のリンク切れが実装の前から 258 件あり、memo README のリンク切れ検査が空にならないので、新しく切れたリンクを見分けられない |
 | [issue-20261124-11428b](issue-20261124-11428b.md) | 未着手 | 1.8 | — | コード | RFD | 324_dqn, 318_rl_core | アルゴリズム | 機能追加 | [RFD0201](../../memo/0201_top_episode_memory_sil_lower_bound_10rfd.md) | 未確認 | まれに出た上位のエピソードを Replay と別に持ち続け、外的の Q を実際の収益で下から引き上げる仕組み（上位エピソードの記憶と SIL の下限損失）を DQN 系に足す |
@@ -212,8 +213,8 @@
 | [issue-20261103-f993bc](issue-20261103-f993bc.md) | 未着手 | 0.5 | — | コード | RFD | 321_agent_core, 324_dqn, 325_muzero, 315_nn | 学習基盤 | リファクタリング | [RFD0164](../../memo/0164_nn_forward_amp_consolidation_10rfd.md) | 残件有り | NN 実行設定への AMP の集約（全 Agent 対象） |
 | [issue-20261115-d3e094](issue-20261115-d3e094.md) | 未着手 | 0.5 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 調査 | — | 残件有り | RNDの改良版のSND（targetも自己教師で学ぶ蒸留）を、RNDの評価が落ち着いたあとに試すかを検討する |
 | [issue-20261124-f9f964](issue-20261124-f9f964.md) | 未着手 | 0.5 | — | コード | RFD | 315_nn | 基盤 | リファクタリング | — | 未確認 | nn.hpp（RL に依らない層）の NN 呼び出し情報に、行の開始の印 episode_start の名前が残り、Forwarder の口と渡し方がそろわない |
+| [issue-20261126-4c7b4e](issue-20261126-4c7b4e.md) | 調査中 | 1.6 | [issue-20261125-822a3e](issue-20261125-822a3e.md) | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0203](../../memo/0203_wiki_page_yaml_header_10rfd.md) | 未確認 | サマリのページに YAML ヘッダが無く、Obsidian で題名や材料の日付を列にした一覧を作れない |
 | [issue-20261103-ca1a85](issue-20261103-ca1a85.md) | 未着手 | 1.6 | [issue-20261103-1beaf9](issue-20261103-1beaf9.md) | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | SerialとPipelineのDoStepが初期化・経験の組み立て・通知・カウンタ更新を別々に持ち、既に食い違っている |
-| [issue-20261126-4c7b4e](issue-20261126-4c7b4e.md) | 未着手 | 1.6 | [issue-20261125-822a3e](issue-20261125-822a3e.md) | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | サマリのページに YAML ヘッダが無く、Obsidian で題名や材料の日付を列にした一覧を作れない |
 | [issue-20261103-124da5](issue-20261103-124da5.md) | 未着手 | 1.5 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | コード | RFD | 321_agent_core, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0167](../../memo/0167_smdp_transition_duration_10rfd.md) | 残件有り | SMDP 対応（遷移ごとの経過時間を割引に通す） |
 | [issue-20261103-736e39](issue-20261103-736e39.md) | 未着手 | 1.4 | [issue-20261103-9bd71e](issue-20261103-9bd71e.md), [issue-20261103-75b8da](issue-20261103-75b8da.md), [issue-20261107-949e8a](issue-20261107-949e8a.md) | コード | RFD | 324_dqn, 321_agent_core, 318_rl_core, 322_env_individual, 110_runner_app | アルゴリズム | 機能追加 | [RFD0173](../../memo/0173_intrinsic_reward_novelty_10rfd.md) | 残件有り | 内的報酬（NGU・E3B のエピソード内の新しさと RND）と方策の組 |
 | [issue-20261103-6661d2](issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](issue-20261103-f39d10.md), [issue-20261103-2d66d2](issue-20261103-2d66d2.md) | コード | RFD | 318_rl_core, 324_dqn, 110_runner_app | 学習基盤 | 機能追加 | [RFD0136](../../memo/0136_best_checkpoint_10rfd.md) | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
@@ -223,7 +224,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 208 / 待ち 10 / 保留 0 / 次版 0 / 解決 0
+着手できる 209 / 待ち 10 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 
