@@ -168,6 +168,7 @@
 | [issue-20261103-f39d10](issue-20261103-f39d10.md) | 未着手 | 1.3 | — | コード | RFD | 318_rl_core, 324_dqn | 学習基盤 | 不具合 | [RFD0141](../../memo/0141_background_eval_snapshot_ordering_10rfd.md) | 残件有り | Background eval の network snapshot 順序保証 |
 | [issue-20261119-265a2e](issue-20261119-265a2e.md) | 未着手 | 1.3 | — | コード | RFD | 315_nn | 基盤 | 不整合 | — | 残件有り | 公開の Network のコンストラクタが内部の型 NetworkBody を引数に取り、基盤の外からは呼べない |
 | [issue-20261123-b1205d](issue-20261123-b1205d.md) | 未着手 | 1.3 | — | コード | 実装 | 110_runner_app, 322_env_individual | 開発 | リファクタリング | — | 残件有り | Runner と Atari のテストが同じ文字列を重ねて書いている（環境変数の名前 RFD0094_UI_DARK を 3 か所、検証資材のパス rfd0099/frames_210x160.u8 を 2 か所） |
+| [issue-20261126-56483f](issue-20261126-56483f.md) | 未着手 | 1.3 | — | ハーネス | その他 | 311_dev_tools | 開発 | 機能追加 | [RFD0204](../../memo/0204_branch_merge_conflict_assist_10rfd.md) | 未確認 | ブランチをまたぐマージの衝突（番号の重なり・wiki の追記・生成物）を、両側の内容と文脈を読んで解く AI の支援が無い |
 | [issue-20261103-07629c](issue-20261103-07629c.md) | 未着手 | 1.2 | — | コード | RFD | 110_runner_app, 318_rl_core, 319_gui | UI | 不具合 | [RFD0176](../../memo/0176_qvaluepanel_manual_action_state_alignment_10rfd.md) | 残件有り | QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ |
 | [issue-20261103-71bb9a](issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | コード | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0157](../../memo/0157_test_line_coverage_10rfd.md) | 残件有り | 行カバレッジ計測（OpenCppCoverage） |
 | [issue-20261103-7227bf](issue-20261103-7227bf.md) | 未着手 | 1.2 | — | コード | RFD | 311_dev_tools, 317_metrics | 開発 | 機能追加 | [RFD0153](../../memo/0153_q_statistics_config_screening_10rfd.md) | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング |
@@ -222,7 +223,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 207 / 待ち 10 / 保留 0 / 次版 0 / 解決 0
+着手できる 208 / 待ち 10 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 
