@@ -271,7 +271,7 @@
 | [.github/workflows/release.yml](../../.github/workflows/release.yml) | Workspace のコピーのあとで、ステージの `apps/runner/workspaces/metrics_viewer_tag_sets.json` を消し、無いことを確かめる（残っていれば失敗） |
 | [RunListPlaywrightTest.java](../../src/apps/metrics-viewer/src/test/java/io/github/kazukin123/anetlab/metricsviewer/view/RunListPlaywrightTest.java) の `sidePanelControlRowsFitOnOneLineWithoutShrinkingButtons`（:719-739） | サイドパネルの操作行の一覧の期待に、Tags の新しい行 `tag-section/controls:false:false` を `tag-section/header` のあとへ足す（新しい行もこの溢れ・押し潰れの検査に入れる。§6.4、E17） |
 | [CONTEXT.md](../../CONTEXT.md) | 「タグセット」を追加済み（起草の前に足した） |
-| [wiki の Metrics Viewer のページ](../wiki/apps/120_metrics_viewer.md) | 起草で書き戻し済み |
+| [wiki の Metrics Viewer のページ](../wiki/concepts/apps/120_metrics_viewer.md) | 起草で書き戻し済み |
 
 ## 9. クラス一覧
 

@@ -42,7 +42,7 @@ Montezuma's Revenge の n-step 10 の構成では、学習側にまれに出る�
 
 ### 2.3 Replay の保持
 
-- この群の Replay の容量は 2,097,152 で、128 lane なので lane 1 本あたりの窓は 16,384 である。容量を 2 倍（lane 1 本あたり 32,768）にした Run は 1 本だけで、Greedy の平均は下がった（出典: [実験記録](../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ33。lane 窓の語は [Replay ratio と lane 窓](../wiki/mechanisms/replay_ratio_lane_window.md)）。
+- この群の Replay の容量は 2,097,152 で、128 lane なので lane 1 本あたりの窓は 16,384 である。容量を 2 倍（lane 1 本あたり 32,768）にした Run は 1 本だけで、Greedy の平均は下がった（出典: [実験記録](../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ33。lane 窓の語は [Replay ratio と lane 窓](../wiki/concepts/methods/replay_ratio_lane_window.md)）。
 - 44・45 の学習側のゲームは、24〜30M にゲームオーバーで終わった割合が 98%・100% で、1 ゲームの長さの平均は 2,229・1,077 step だった（出典: 同、現時点のまとめ40）。平均の長さは lane 窓の 1/7 以下で、その長さのゲームは、終わった時点では遷移が全部 Replay に残っている。
 
 ### 2.4 触る既存部品
@@ -91,7 +91,7 @@ Montezuma's Revenge の n-step 10 の構成では、学習側にまれに出る�
 | P9 | 守る線 | 途中の状態からの開始と、ゲーム固有の報酬の足し方は「ゲーム仕様を別にするのはやり過ぎ」で採らない | [RFD0173](0173_intrinsic_reward_novelty_10rfd.md)、§2.4 | 対象外 |
 | P10 | 事実 | SIL を Q 学習へ広げた手法（下限 Q 学習・Optimality Tightening）の Atari・難探索での実績 | 欠け（再グリルの前に調べる） | 対象外 |
 | P11 | 事実 | sticky actions のもとで、運よく得た収益を下限に使ったときの偏りと、その対策の事例 | 欠け（再グリルの前に調べる） | 対象外 |
-| P12 | 事実 | 報酬の切り詰めの代わりに h 変換や Pop-Art を使っても、全体の集計ではほぼ同等かやや劣った | [報酬尺度と割引率](../wiki/mechanisms/reward_scale_discount.md) | 対象外 |
+| P12 | 事実 | 報酬の切り詰めの代わりに h 変換や Pop-Art を使っても、全体の集計ではほぼ同等かやや劣った | [報酬尺度と割引率](../wiki/concepts/methods/reward_scale_discount.md) | 対象外 |
 | P13 | 事実 | 44・45 の学習側のゲームは 24〜30M に 98〜100% がゲームオーバーで終わり、長さの平均は 1,077〜2,229 step | §2.3 | 対象外 |
 
 ## 5. 候補の比較（材料）
@@ -304,4 +304,4 @@ seed の数は、単体テストでは 1（固定）である。学習の結果�
 - [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)
 - [PER の優先度の弱点と代替のサーベイ](../../reports/per_priority_weaknesses_survey_2026-11-18.md)
 - [内的報酬の手法の全体像のサーベイ](../../reports/intrinsic_reward_landscape_survey_2026-11-18.md)
-- [Montezuma's Revenge（wiki）](../wiki/subjects/montezuma_revenge.md)
+- [Montezuma's Revenge（wiki）](../wiki/concepts/subjects/montezuma_revenge.md)

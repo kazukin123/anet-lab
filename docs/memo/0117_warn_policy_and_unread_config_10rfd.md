@@ -102,12 +102,12 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 - [020](../design/020_user_guide_run.jp.md) 379 行: include 先が無くても続ける。
 - [実装 レビュー観点](../quality/impl.md) 項番 24・25・27: 意図された休止をエラーにしない、代替は auto だけで 1 回 WARN、WARN は対象ごとに 1 回。
 - ADR: [0027](../adr/0027-eval-definition-schedule-separation.md) は本文で「旧位置キーの検出は NoCare」と決め、Consequences で dormant タグ参照の WARN の文言を定める。[0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) は「scalar は現行どおり dormant タグでは WARN して捨てる」とする。[0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md) は checkpoint の optimizer の options を今の設定で置き換える判断で、その中で「checkpoint と違った項目は WARN で示す」と決めている（3 行）。
-- 地図の「選ばなかった形」（[316](../wiki/categories/316_config.md)、[324](../wiki/categories/324_dqn.md)）:
+- 地図の「選ばなかった形」（[316](../wiki/concepts/framework/316_config.md)、[324](../wiki/concepts/framework/324_dqn.md)）:
   - 個別の葉と継承値の競合の WARN — 不採用（RFD0072）。本 RFD は競合を見ないので開き直さない。
   - 旧キー（`use_qr`・`num_quantiles`）の tripwire — 不採用（RFD0001 の D14）。本 RFD は旧キー専用の検出を作らない（D6）。
   - DQN 側で Noisy の有無を見て効かない倍率に WARN を出す形 — 不採用（RFD0107、ADR 0048）。本 RFD の一覧は「読まれたか」だけを見るので、読まれて効かない設定キーには出さず、開き直さない。
   - 眠る bare の実行時・静的検査 — 先送り（RFD0101 §7）。再開条件は「眠った値に気づかずに Run を回した事故が実際に起きたとき」。今回の RND の件は「読まれない設定キー」で、眠る bare（読まれて効かない値）とは別だが、近い事故である。扱いは §8（範囲外のまま）。
-- [317](../wiki/categories/317_metrics.md)・[318](../wiki/categories/318_rl_core.md) の「変えるときの条件」の「WARN・fail-fast の文言と時機を変えない」（RFD0094）は、読み口と配線の整理のときの条件である。本 RFD は WARN のレベルと時機を意図して変えるので、変える箇所を §5.5 に列挙する。
+- [317](../wiki/concepts/framework/317_metrics.md)・[318](../wiki/concepts/framework/318_rl_core.md) の「変えるときの条件」の「WARN・fail-fast の文言と時機を変えない」（RFD0094）は、読み口と配線の整理のときの条件である。本 RFD は WARN のレベルと時機を意図して変えるので、変える箇所を §5.5 に列挙する。
 
 ### 2.6 再グリルで確かめた事実（2026-11-10）
 
@@ -259,7 +259,7 @@ INFO で休止や選択の結果を知らせている箇所も既にある（tra
 
 既定キー `?=` で残った設定キーも、`=` や CLI の設定キーと同じに一覧の対象に含める（在庫にしない）。
 
-理由: 1・2 は RFD0059 が「機械識別できる非実効行」とした種類で、解決とカタログの読み口が既に知っている。1 を選ばれた宣言だけに限らないのは、選ばれなかった側の設定キーも実効設定に残るためである（§2.6）。どの宣言にも現れない prefix に設定キーを書いたまま選び忘れた場合は、一覧に出る。名前の形（文字＋番号）では判定しない（RFD0072 が上書き層の予約名による判定を不採用にしたのに合わせる。[316](../wiki/categories/316_config.md) の選ばなかった形）。2 の除外は、今も branch が使わない config_profile に WARN を出している（nn_impl.cpp 1838 行）のに合わせる。3 は Agent・Env の登録が知っている。4 はモードで使わない設定キーの持ち主だけが知っている。`?=` を含めるのは、綴り違いの `mergin_x` が `?=` で書かれており（§2.4）、外すと共通の設定の綴り違いと旧キーが黙って残るため。また、`?=` の情報は解決のあと捨てているので（§2.4）、含めないほうが配線が増える。普通の Run での誤検出は D2 の受入で 0 件にする（持ち主が読む、休止を宣言する、設定を直す）。依存: D3、D5。
+理由: 1・2 は RFD0059 が「機械識別できる非実効行」とした種類で、解決とカタログの読み口が既に知っている。1 を選ばれた宣言だけに限らないのは、選ばれなかった側の設定キーも実効設定に残るためである（§2.6）。どの宣言にも現れない prefix に設定キーを書いたまま選び忘れた場合は、一覧に出る。名前の形（文字＋番号）では判定しない（RFD0072 が上書き層の予約名による判定を不採用にしたのに合わせる。[316](../wiki/concepts/framework/316_config.md) の選ばなかった形）。2 の除外は、今も branch が使わない config_profile に WARN を出している（nn_impl.cpp 1838 行）のに合わせる。3 は Agent・Env の登録が知っている。4 はモードで使わない設定キーの持ち主だけが知っている。`?=` を含めるのは、綴り違いの `mergin_x` が `?=` で書かれており（§2.4）、外すと共通の設定の綴り違いと旧キーが黙って残るため。また、`?=` の情報は解決のあと捨てているので（§2.4）、含めないほうが配線が増える。普通の Run での誤検出は D2 の受入で 0 件にする（持ち主が読む、休止を宣言する、設定を直す）。依存: D3、D5。
 
 ### D5. 持ち主は自分の設定キーを構築時に読むか、休止を宣言する
 
@@ -522,9 +522,9 @@ WARN を出していなかった `run.train.runner_type` の未知の値（train
 | [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp) | 出荷設定の検査のテスト（D13、A9）を足す |
 | [check_default_leaves.py](../../src/core/base/testdata/rfd0072/check_default_leaves.py) | 変えない（演算子の検査で、本 RFD の検出とは別） |
 | `core/anet-core/testdata/rfd0117/README.md`（新規） | A2 の Run の組み合わせ、止める条件、WARN を数える手順 |
-| 設定の用語の「葉」を使う、現用の文書・コード・設定（D14。2026-11-11 の検索で 52 ファイル 151 行） | D14 の表のとおり言い換える。多いのは、[020](../design/020_user_guide_run.jp.md)（jp 35 行、en 5 行）、[100](../design/100_runtime_and_configuration.jp.md)（8 行）、wiki の [316](../wiki/categories/316_config.md)（6 行。ほかに課題の区画の 1 行があり、これは除く）、[CONTEXT.md](../../CONTEXT.md)（6 行）、[実装 レビュー観点](../quality/impl.md)（5 行）、[212](../design/212_rnd_lifelong_novelty.jp.md)（5 行）、config_impl.cpp（4 行）、`core/anet-core/testdata/` の README とスクリプト、`apps/runner/config/` のコメント。設定のキーと値は変えない |
+| 設定の用語の「葉」を使う、現用の文書・コード・設定（D14。2026-11-11 の検索で 52 ファイル 151 行） | D14 の表のとおり言い換える。多いのは、[020](../design/020_user_guide_run.jp.md)（jp 35 行、en 5 行）、[100](../design/100_runtime_and_configuration.jp.md)（8 行）、wiki の [316](../wiki/concepts/framework/316_config.md)（6 行。ほかに課題の区画の 1 行があり、これは除く）、[CONTEXT.md](../../CONTEXT.md)（6 行）、[実装 レビュー観点](../quality/impl.md)（5 行）、[212](../design/212_rnd_lifelong_novelty.jp.md)（5 行）、config_impl.cpp（4 行）、`core/anet-core/testdata/` の README とスクリプト、`apps/runner/config/` のコメント。設定のキーと値は変えない |
 | [AGENTS.md](../../AGENTS.md) の応答言語ルールの「避ける語」の表 | 「既定葉」「個別葉」「葉キー」の行と、単独の「葉」の行を足す（D14） |
-| wiki の [316](../wiki/categories/316_config.md)・[315](../wiki/categories/315_nn.md)・[317](../wiki/categories/317_metrics.md) | 実装の完了後に点検で拾う |
+| wiki の [316](../wiki/concepts/framework/316_config.md)・[315](../wiki/concepts/framework/315_nn.md)・[317](../wiki/concepts/framework/317_metrics.md) | 実装の完了後に点検で拾う |
 
 検索語（実装計画で再検索する）: `log::warn()`・`LOG::warn()`・`.warn()`・`log.warn`・`wxLOG_Warning`・`NoCare`・`WARN`・`警告`・`Failed to open include`・`Unknown event`・`definition-only`・`learn_batch_size`・`runner_type`・`value not found`。
 
@@ -761,4 +761,4 @@ Run を流して確かめる事項と、範囲外として課題に起票した�
 - 規約: [AGENTS.md](../../AGENTS.md) のクリーンブレーク方針・汎用機構と利用側の責任境界・Fail-Fast 原則・設定値の扱い、[実装 レビュー観点](../quality/impl.md) の「失敗の扱い」「ログ」「設定ファイル」「テスト」
 - 設計文書: [100](../design/100_runtime_and_configuration.jp.md)、[130](../design/130_neural_networks.jp.md)、[140](../design/140_observability.jp.md)、[160](../design/160_applications_and_tools.jp.md) §3.5、[200](../design/200_dqn_agents.jp.md)、[212](../design/212_rnd_lifelong_novelty.jp.md)、[020](../design/020_user_guide_run.jp.md)
 - ADR: [0027](../adr/0027-eval-definition-schedule-separation.md)、[0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)、[0071](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md)
-- 地図: [316 設定管理](../wiki/categories/316_config.md)、[315 NN](../wiki/categories/315_nn.md)、[317 可視化・メトリクス](../wiki/categories/317_metrics.md)、[318 RL 共通基盤](../wiki/categories/318_rl_core.md)、[324 DQN](../wiki/categories/324_dqn.md)
+- 地図: [316 設定管理](../wiki/concepts/framework/316_config.md)、[315 NN](../wiki/concepts/framework/315_nn.md)、[317 可視化・メトリクス](../wiki/concepts/framework/317_metrics.md)、[318 RL 共通基盤](../wiki/concepts/framework/318_rl_core.md)、[324 DQN](../wiki/concepts/framework/324_dqn.md)

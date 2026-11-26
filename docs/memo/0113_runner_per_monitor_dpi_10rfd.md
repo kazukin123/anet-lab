@@ -278,5 +278,5 @@ Conv2d・HeatMap の Panel に渡す初期の大きさは DIP に直すが、開
 
 - [0186_runner_theme_switch](0186_runner_theme_switch_10rfd.md)、[RFD0110](done/0110_runner_main_pane_dynamic_centre_10rfd.md)
 - [160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.5・§7.1・§8
-- [RunnerApp（wiki）](../wiki/apps/110_runner_app.md)
+- [RunnerApp（wiki）](../wiki/concepts/apps/110_runner_app.md)
 - [Improving the high-DPI experience in GDI based Desktop Apps](https://blogs.windows.com/windowsdeveloper/2017/05/19/improving-high-dpi-experience-gdi-based-desktop-apps/)、[High DPI Desktop Application Development on Windows](https://learn.microsoft.com/ja-jp/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows)、[wxWidgets の High DPI overview](https://docs.wxpython.org/high_dpi_overview.html)

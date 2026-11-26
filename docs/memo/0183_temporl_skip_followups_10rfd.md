@@ -10,7 +10,7 @@
 > 改訂: 2026-10-26（2 回目）。5×5 の既定 seed の件を「崩壊」から「ゴールに届かない」に直した（§1・§2.3・D11・§7。評価は一度も届かず、学習側もほぼ届いていなかった）。§7 の段 0 の「前半を読む」理由が、この前提に依っていたことを書き添えた。
 > 改訂: 2026-10-27。TempoRL 第二弾（[PRD103](done/0103_temporl_reference_alignment_10rfd.md)。著者の公開コードとの差の是正）との重なりを §9 の 10 に記した。本書は TempoRL の第三弾の扱いになる。
 > 改訂: 2026-10-31。qbert の TempoRL の調査を区切り（合算の変種 8 本が Greedy の評価で無効に届かなかった。[実験記録](../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)）、内的報酬（NGU）の準備を先にするので、作ると決めている割り込み (I) にも着手しない。再開条件: Freeway・BeamRider など別のゲームで、合算が無効を Greedy の評価で上回り、固定中に状況が変わって損をする場面が Evaluation Trace で見えたとき。
-> 関連: [PRD103](done/0103_temporl_reference_alignment_10rfd.md)（TempoRL 第二弾）、[172_bootstrapped_multihead_q](0172_bootstrapped_multihead_q_10rfd.md)（primary の複数の Head。本書のメンバーは skip Head の中だけ）、[161_observation_pipeline](0161_observation_pipeline_10rfd.md)（強制行動を MakeAction の入力にする。PRD098 §9 の 1）、[162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md)（判断に揃える n-step）、[行動の時間尺度（wiki）](../wiki/mechanisms/temporal_abstraction.md)。
+> 関連: [PRD103](done/0103_temporl_reference_alignment_10rfd.md)（TempoRL 第二弾）、[172_bootstrapped_multihead_q](0172_bootstrapped_multihead_q_10rfd.md)（primary の複数の Head。本書のメンバーは skip Head の中だけ）、[161_observation_pipeline](0161_observation_pipeline_10rfd.md)（強制行動を MakeAction の入力にする。PRD098 §9 の 1）、[162_decision_aligned_nstep](0162_decision_aligned_nstep_10rfd.md)（判断に揃える n-step）、[行動の時間尺度（wiki）](../wiki/concepts/methods/temporal_abstraction.md)。
 
 ## 1. 目的と問題
 
@@ -306,4 +306,4 @@ Run は GridMaze-01 にある。
 - [RFD0098 TempoRL 対応](0098_temporl_skip_policy_10rfd.md)、[RFD0098 実装メモ](0098_temporl_skip_policy_20impl.md)、[RFD0098 の検証資材](../../src/core/base/testdata/rfd0098/README.md)
 - [TempoRL 論文解説](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md)
 - [Atari の baseline（lane 数）](../experiments/default-dqn/atari/2026-08-17_baseline.md)、[Atari の lane 窓](../experiments/default-dqn/atari/2026-09-15_replay-lane-window.md)
-- [行動の時間尺度（wiki）](../wiki/mechanisms/temporal_abstraction.md)
+- [行動の時間尺度（wiki）](../wiki/concepts/methods/temporal_abstraction.md)

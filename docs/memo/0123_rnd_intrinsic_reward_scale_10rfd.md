@@ -17,7 +17,7 @@ DefaultDQNAgent の RND（RFD0116、既定の `statistics_mode = whiten`・`mult
 
 1. 内的報酬が、序盤を除いた誤差の統計で作った場合の 1/3〜1/17（Montezuma）、1/7〜1/19（KFM の 10M 時点）に抑えられている。
 2. 抑え方は Run が進むと薄まり、実効の β（実際に効いている内的報酬の大きさ）が Run の中で 3〜5 倍に上がる。設定に書いていないスケジュールになっている。
-3. 平均を引いて 0 で切るので、内的報酬が付く状態は約 1 割で、残りは 0 になる。学習とともに誤差が下がると、今の誤差が累積の平均を下回り続ける（LunarLander・GridMaze で内的報酬が消えた現象と同じ形。[wiki の内的報酬のページ](../wiki/mechanisms/intrinsic_novelty.md)）。
+3. 平均を引いて 0 で切るので、内的報酬が付く状態は約 1 割で、残りは 0 になる。学習とともに誤差が下がると、今の誤差が累積の平均を下回り続ける（LunarLander・GridMaze で内的報酬が消えた現象と同じ形。[wiki の内的報酬のページ](../wiki/concepts/methods/intrinsic_novelty.md)）。
 
 ### ゴール
 
@@ -426,7 +426,7 @@ RND の書式の識別子は、誤差の統計の中身の形で決まる。
 - 設計文書 [212](../design/212_rnd_lifelong_novelty.jp.md): §1.2 の warm-up の語の説明、§3.2（誤差の統計は累積、の記述に取り方の選択を足す）、§3.3（倍率の式に平均を引かない形を足し、done の lane の式の場合分けに `use_done_mask` を足す）、§3.4（処理の順の表と、その前文の mask の説明、`Learn` が warm-up 中に false を返す説明。237・246・254 行）、§3.5（warm-up の中身）、§3.6 の図（291 行の done の mask と、補助学習を warm-up 後に限る条件）、§4.2（設定の表。371 行の `intrinsic.observation` の説明、380 行の `warmup_steps` の説明、足す 5 つの設定キー）、§4.3（391 行。`run.@rnd` が選ぶものの列挙に、Atari の warm-up 200,000 を足す）、§4.4（`error_mean`・`error_std` の意味と NaN、413 行の `bonus_mean` の mask の説明、`learn_count` と warm-up の関係）、§4.5（448 行。直近重みの書式の識別子 `-4` と、識別子の取り違えの ERROR）。英訳 [212 en](../design/212_rnd_lifelong_novelty.en.md) の同じ章。括弧の行番号は 2026-11-11 時点の位置を示す例で、挙げた節の中の、当たる記述をすべて直す。
 - 設計文書 [200](../design/200_dqn_agents.jp.md): §6.2 の RND の段落（400 行付近。done の lane の扱いを含む）、§7.2 の設定グループの「内的報酬」の行（560 行）と、その下の RND の既定と `run.@rnd` が選ぶものの段落（562 行。足す既定と、Atari の warm-up 200,000）、§8.2 の checkpoint の段落（600 行。直近重みの書式の識別子を足す）、§9.1 の群 56 の段落（633 行）。英訳 [200 en](../design/200_dqn_agents.en.md) の同じ箇所（402・562・564・602・635 行）。
 - 設計文書のうち、Atari の `run.@rnd` の warm-up 200,000 を書く箇所（212 の §4.3、200 の 562 行と、それぞれの英訳）は、`Atari.txt` に行を入れるとき（§7.2 の 8）に同じ変更で直す。ほかの箇所は、実装と同じ変更で直す。
-- wiki: [内的報酬のページ](../wiki/mechanisms/intrinsic_novelty.md)、[KFM のページ](../wiki/subjects/kung_fu_master.md)（出典のリンクの文字列）、トピック別まとめの [321 Agent 共通基盤](../wiki/categories/321_agent_core.md)・[324 DQN 系列](../wiki/categories/324_dqn.md)（再グリルの書き戻しで直す）。
+- wiki: [内的報酬のページ](../wiki/concepts/methods/intrinsic_novelty.md)、[KFM のページ](../wiki/concepts/subjects/kung_fu_master.md)（出典のリンクの文字列）、トピック別まとめの [321 Agent 共通基盤](../wiki/concepts/framework/321_agent_core.md)・[324 DQN 系列](../wiki/concepts/framework/324_dqn.md)（再グリルの書き戻しで直す）。
 - RFD0116: §8 の 1・3・5 が本 RFD を名指す箇所を、再グリル後の番号に直し、§8 の 6（終端遷移の内的報酬）に本 RFD へ移した旨を書く（再グリルで直す）。
 - 今の書式 `-3` の checkpoint は、`cumulative` か `variance_feedback` の設定で、新しい実行体でもそのまま読める（D11）。過去の Run の checkpoint は書き換えない。
 

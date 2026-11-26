@@ -22,7 +22,7 @@
 | [設計160 en](../design/160_applications_and_tools.en.md) §2.2（49行） | `factor-16 LOD` | 食い違う |
 | 同 §7.2（394行） | `LOD consists only of completed sets of 16 children` | 食い違う |
 | [ADR 0015](../adr/0015-metrics-cache-disposable-derivative.md)（3行） | 「factor16 序数バケット LOD」。先頭に ADR 0052 への注記が無い | 判断は ADR 0052 で改められたが、ADR 0015 から ADR 0052 へたどれない |
-| [wiki の表示粒度のページ](../wiki/mechanisms/metrics_resolution.md)「分かっていないこと」（15・16行） | この食い違いを問いとして持つ。その下に余分な「なし」が 1 行ある | 文書を直すと問いが解ける |
+| [wiki の表示粒度のページ](../wiki/concepts/measurement/metrics_resolution.md)「分かっていないこと」（15・16行） | この食い違いを問いとして持つ。その下に余分な「なし」が 1 行ある | 文書を直すと問いが解ける |
 
 実装（2026-11-09 に読み直した）:
 
@@ -33,7 +33,7 @@
 関係する決定と、すでに合っている文書:
 
 - [ADR 0052](../adr/0052-metrics-display-uses-common-step-bins-and-factor4-storage.md) が、保存 LOD を factor16 から factor4 に改めた。ADR 0052 は「ADR 0015のfactor16のみを更新する」と書く。
-- [設計210 jp](../design/210_metrics_viewer.jp.md) の 170・184・262・726 行と、wiki の [Metrics Viewer の地図](../wiki/apps/120_metrics_viewer.md)「概要・責務」は、すでに 4 で書いている。設計210 jp 163 行の「連続する16点」は序数で数えた幅の例（4² = 16）で、食い違いではない。
+- [設計210 jp](../design/210_metrics_viewer.jp.md) の 170・184・262・726 行と、wiki の [Metrics Viewer の地図](../wiki/concepts/apps/120_metrics_viewer.md)「概要・責務」は、すでに 4 で書いている。設計210 jp 163 行の「連続する16点」は序数で数えた幅の例（4² = 16）で、食い違いではない。
 
 経緯:
 

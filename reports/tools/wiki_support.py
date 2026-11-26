@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import re
+from urllib.parse import unquote
 
 import yaml
 
@@ -47,9 +48,34 @@ def material_paths(root):
                    for p in root.glob(pattern) if p.is_file() and p.relative_to(root).as_posix() != 'reports/INDEX.md'})
 
 
+SUMMARY_DIR = Path('docs/wiki/summary')
+CONCEPTS_DIR = Path('docs/wiki/concepts')
+KNOWLEDGE_FOLDERS = ('subjects', 'methods', 'measurement', 'phenomena')
+MAP_FOLDERS = ('apps', 'framework')
+KNOWLEDGE_HEADINGS = ('今の結論', '分かっていること', '横断的知見', '見立て', '分かっていないこと', '撤回・更新', '関連')
+
+
+def get_summary_path(material):
+    # 実験記録は階層を保ち、保管場所が変わる RFD はファイル名で引く。
+    path = Path(material)
+    if path.parts[:2] == ('docs', 'experiments'):
+        return SUMMARY_DIR / 'experiments' / path.relative_to('docs/experiments')
+    group = {'reports': 'reports', 'memo': 'rfd', 'design': 'design', 'adr': 'adr'}
+    kind = path.parts[1] if path.parts[0] == 'docs' else 'reports'
+    return SUMMARY_DIR / group[kind] / path.name
+
+
+def read_summary_blob(path):
+    # 本文に引用された別の blob を拾わないよう、「元の材料」の節だけを見る。
+    content = path.read_text(encoding='utf-8-sig')
+    section = re.search(r'(?ms)^## 元の材料[ \t]*\n(.*?)(?=^## |\Z)', content)
+    matches = re.findall(r'\bblob:([0-9a-f]{40})\b', section[1]) if section else []
+    return matches[0] if len(matches) == 1 else None
+
+
 def page_paths(root):
-    return sorted(p for folder in ('subjects', 'mechanisms', 'apps', 'categories')
-                  for p in (Path(root)/'docs/wiki'/folder).glob('*.md'))
+    return sorted(p for folder in KNOWLEDGE_FOLDERS + MAP_FOLDERS
+                  for p in (Path(root) / CONCEPTS_DIR / folder).glob('*.md'))
 
 
 def changed_paths(root, revision, prefixes):
@@ -72,32 +98,71 @@ def log_state(root):
     return start[1], lint[-1] if lint else start[1], records
 
 
+def iter_local_links(text):
+    # フェンスとインラインのコード例を除き、空白のある山括弧パスも読む。
+    fence = None
+    for number, line in enumerate(text.splitlines(), 1):
+        marker = re.match(r'^\s{0,3}(\x60{3,}|~{3,})(.*)$', line)
+        if fence:
+            if marker and marker[1].startswith(fence) and not marker[2].strip():
+                fence = None
+            continue
+        if marker:
+            fence = marker[1]
+            continue
+        visible = re.sub(r'(\x60+).*?\1', '', line)
+        for match in re.finditer(r"""\]\(\s*(?:<([^>\n]+)>|((?:[^()\s]|\([^()\n]*\))+))(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?\s*\)""", visible):
+            target = match[1] or match[2]
+            if target.startswith(('#', '//')) or re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', target):
+                continue
+            yield number, line, target, unquote(target.partition('#')[0])
+
+
+def find_incoming_link_warnings(root):
+    # 対象は Git 管理下または ignore 外の文書。wiki 自身の出典は broken_links が扱う。
+    wiki = root / 'docs/wiki'
+    names = git(root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z',
+                '--', 'docs', 'reports', '.agents', '.claude', 'AGENTS.md', 'README.md')
+    candidates = {}
+    for page in wiki.rglob('*.md'):
+        candidates.setdefault(page.name, []).append(page.relative_to(root).as_posix())
+    warnings = []
+    for name in sorted(set(names.split('\0'))):
+        if not name.endswith('.md') or name.startswith('docs/wiki/'):
+            continue
+        source = root / name
+        if not source.is_file():
+            continue
+        body = source.read_text(encoding='utf-8-sig')
+        for number, _, target, path in iter_local_links(body):
+            if 'wiki' not in Path(path).parts:
+                continue
+            dest = (source.parent / path).resolve()
+            if dest.is_relative_to(wiki) and not dest.exists():
+                warnings.append(dict(page=name, line=number, target=target, rule='外からのリンク切れ',
+                                     candidates=sorted(candidates.get(dest.name, []))))
+    return warnings
+
+
 def broken_links(root):
     # コード例の記法と外部URLは除き、正本へのMarkdownリンクを検査する。
-    from urllib.parse import unquote
     root = Path(root).resolve()
     sources = material_paths(root)
     result = []
     for page in page_paths(root):
-        text = re.sub(r'```[^\n]*\n[\s\S]*?```', '', page.read_text(encoding='utf-8-sig'))
-        text = re.sub(r'`[^`\n]+`', '', text)
+        text = page.read_text(encoding='utf-8-sig')
         # 機械一覧は再生成で修復する。出典リンクの前提条件には数えない。
         text = re.sub(r'(?ms)^## (?:ファイル|RFD の一覧|課題)\r?\n.*?(?=^## |\Z)', '', text)
-        for line in text.splitlines():
-            for match in re.finditer(r'\]\(([^)]+)\)', line):
-                target = match[1]
-                if re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', target) or target.startswith('#'):
-                    continue
-                path = unquote(target.split('#', 1)[0])
-                if (page.parent/path).exists():
-                    continue
-                name = Path(path).name
-                candidates = [p for p in sources if Path(p).name == name]
-                if not candidates:
-                    slug = re.sub(r'^\d+_', '', name)
-                    candidates = [p for p in sources if re.sub(r'^\d+_', '', Path(p).name) == slug]
-                result.append(dict(page=page.relative_to(root).as_posix(), target=target,
-                                   candidates=candidates, annotated='（出典のリンク切れ）' in line))
+        for _, line, target, path in iter_local_links(text):
+            if (page.parent/path).exists():
+                continue
+            name = Path(path).name
+            candidates = [p for p in sources if Path(p).name == name]
+            if not candidates:
+                slug = re.sub(r'^\d+_', '', name)
+                candidates = [p for p in sources if re.sub(r'^\d+_', '', Path(p).name) == slug]
+            result.append(dict(page=page.relative_to(root).as_posix(), target=target,
+                               candidates=candidates, annotated='（出典のリンク切れ）' in line))
     return result
 
 
@@ -113,28 +178,97 @@ def scan(root):
     known_blobs = set(records.values())
     pending = []
     moved = []
-    for path in material_paths(root):
+    materials = material_paths(root)
+    expected = {root / get_summary_path(path) for path in materials}
+    warnings = [dict(page=p.relative_to(root).as_posix(), rule='材料の無いサマリ')
+                for p in sorted((root / SUMMARY_DIR).rglob('*.md')) if p not in expected]
+    warnings.extend(find_incoming_link_warnings(root))
+    for path in materials:
         blob = git(root, 'hash-object', '--', path).strip()
         judged = implemented.get(path)
         if judged and (path,blob) not in acknowledged:
             pending.append(dict(path=path,blob=blob,state='実装済み',implemented=judged))
+            continue
+        if path in records and records[path] != blob:
+            pending.append(dict(path=path, blob=blob, state='更新あり'))
+            continue
+        summary = root / get_summary_path(path)
+        if not summary.is_file():
+            pending.append(dict(path=path, blob=blob, state='サマリ無し'))
+            continue
+        if read_summary_blob(summary) != blob:
+            pending.append(dict(path=path, blob=blob, state='サマリ要更新'))
             continue
         if records.get(path) == blob:
             continue
         if blob in known_blobs and not path.startswith('docs/memo/done/'):
             moved.append(dict(path=path, blob=blob))
             continue
-        pending.append(dict(path=path, blob=blob, state='更新あり' if path in records else '未取り込み'))
+        pending.append(dict(path=path, blob=blob, state='未取り込み'))
     pending.sort(key=lambda row: (row['state'] != '更新あり', row['path']))
     changed_pages = changed_paths(root, checkpoint, ['docs/wiki'])
     pages = [p.relative_to(root).as_posix() for p in page_paths(root)]
     index = (root/'docs/wiki/index.md').read_text(encoding='utf-8-sig')
     unindexed = [p for p in pages if p.removeprefix('docs/wiki/') not in index]
     links = broken_links(root)
+    warnings.extend(check_page_format(root, index))
     return dict(start=start, checkpoint=checkpoint, pending=pending, moved=moved,
                 changed_pages=sorted(set(pages) & changed_pages), broken_links=links,
-                unindexed=unindexed,
+                unindexed=unindexed, warnings=warnings,
                 eligible=bool(pending or any(not r['annotated'] for r in links)))
+
+
+def check_page_format(root, index):
+    # 記法の問題は位置を返すだけで、点検の起動条件を変えない。
+    warnings = []
+    def warn(path, line, rule):
+        warnings.append(dict(page=path.relative_to(root).as_posix(), line=line, rule=rule))
+
+    for page in page_paths(root):
+        body = page.read_text(encoding='utf-8-sig')
+        headings = re.findall(r'^## (.+)$', body, re.M)
+        if page.parent.name in MAP_FOLDERS:
+            if ('変えるときの条件' not in headings or headings.count('外の事例') != 1
+                    or headings.index('外の事例') != headings.index('変えるときの条件') + 1):
+                warn(page, 1, 'トピック別まとめの外の事例')
+            continue
+        if headings != list(KNOWLEDGE_HEADINGS):
+            warn(page, 1, '知見の節')
+        section = None
+        subheadings = []
+        conclusion_lines = 0
+        early_item = False
+        for number, line in enumerate(body.splitlines(), 1):
+            if line.startswith('## '):
+                section = line[3:]
+                continue
+            if section == '今の結論' and line.strip():
+                conclusion_lines += 1
+                if conclusion_lines == 6 or len(line) > 200:
+                    warn(page, number, '今の結論の長さ')
+            elif section == '分かっていること':
+                if line.startswith('### '):
+                    subheadings.append(line[4:])
+                elif line.startswith('- ') and not subheadings:
+                    early_item = True
+            elif section == '横断的知見' and line.startswith('- '):
+                citations = re.split(r'出典[:：]', line, maxsplit=1)
+                paths = {(page.parent / path).resolve() for _, _, _, path in iter_local_links(citations[-1])}
+                if len(citations) < 2 or len(paths) < 2:
+                    warn(page, number, '横断的知見の出典')
+            elif section == '見立て' and line.startswith('- '):
+                if not re.search(r'状態[:：]\s*未検証(?=$|[\s、。・,）)｜|])', line):
+                    warn(page, number, '見立ての状態')
+        if subheadings != ['anet の知見', '外の事例'] or early_item:
+            warn(page, 1, '知見の小見出し')
+    for number, line in enumerate(index.splitlines(), 1):
+        description = line.partition(' — ')[2]
+        if len(re.split(r'[（(]別名[:：]', description)[0].strip()) > 200:
+            warn(root / 'docs/wiki/index.md', number, '目録の説明の長さ')
+    for page in sorted((root / SUMMARY_DIR).rglob('*.md')):
+        if len(page.read_text(encoding='utf-8-sig')) > 8000:
+            warn(page, 1, 'サマリの長さ')
+    return warnings
 
 
 def replace_section(text, title, body):
@@ -635,8 +769,8 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
                   +decision_sections(root,index,records)+'\n')
     updates = [] if index.is_file() and index.read_bytes() == index_text.encode('utf-8') else [(index,index_text)]
     unresolved_rfds = []
-    for folder in ['apps', 'categories']:
-        for page in sorted((root/'docs/wiki'/folder).glob('*.md')):
+    for folder in MAP_FOLDERS:
+        for page in sorted((root / CONCEPTS_DIR / folder).glob('*.md')):
             files = map_files(root, page.stem, folder, rules)
             text = page.read_bytes().decode('utf-8')
             result = replace_section(text, 'ファイル', file_rows(root, page, files, rules,
@@ -656,7 +790,7 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
                 unresolved_rfds=unresolved_rfds)
 
 def main():
-    # skill内部の読み取り補助。利用者向けの起動入口は2つのskillに保つ。
+    # scan は点検結果を返し、maps は一覧を再生成する。
     import argparse
     import sys
     sys.stdout.reconfigure(encoding='utf-8')

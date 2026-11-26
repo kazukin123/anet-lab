@@ -63,7 +63,7 @@
 | P9 | 既存部品の働き | AGENTS.md は、Claude Code（CLAUDE.md が読むよう指す）でも Codex でも、どの会話でも読まれる。skill は、呼ばれたときか、説明文に合うと AI が判断したときだけ読まれる | [CLAUDE.md](../../CLAUDE.md)、[skills README](../../.agents/skills/README.md) | 済み |
 | P10 | 守る線 | 決定の正本は RFD・実験記録・課題で、`.scratch/` は Git が追跡しない作業用の置き場である | [memo README](README.md) の冒頭、[.gitignore](../../.gitignore) の 76 行 | 済み |
 | P11 | 守る線 | ユーザーへ見せる文言は、工程の仕組みを知らない前提で平易に書き、内部の用語を使わない | [プロセス契約](../process/protocol.md) 3.3 節 | 済み |
-| P12 | 過去の判断 | 課題の一覧を見やすい HTML にする作り込みは、見せ方は別の関心で、試作で見比べないと決めにくいとして先送りした。題材が課題の一覧で、会話のまとめとは別なので、この RFD を縛らない | [311 開発ツールのトピック別まとめ](../wiki/categories/311_dev_tools.md) の「選ばなかった形」（82 行） | 済み |
+| P12 | 過去の判断 | 課題の一覧を見やすい HTML にする作り込みは、見せ方は別の関心で、試作で見比べないと決めにくいとして先送りした。題材が課題の一覧で、会話のまとめとは別なので、この RFD を縛らない | [311 開発ツールのトピック別まとめ](../wiki/concepts/framework/311_dev_tools.md) の「選ばなかった形」（82 行） | 済み |
 | P13 | 既存部品の働き | P4 のページはユーザーのアカウントに残り、会話を閉じても消えない。別の会話の AI も、URL を渡されるか一覧から探して、今の中身を読み直したうえで、同じ URL に出し直せる。読み直さずに出し直すと道具が止め、今の版を渡す。別の会話から続けた例は、まだ無い | Claude Code の道具の入力の定義（2026-11-22 に確認） | 済み |
 | P14 | 過去の判断 | 作業の種類でだけ要る細則はレビュー観点に置き、AGENTS.md は「作業ごとに読むもの」の表で案内する。AGENTS.md は毎回全文を読む前提の文書で、どの会話にも効かせたい原則は、観点を読まない会話で見落とされるので AGENTS.md に残した | [ADR 0061](../adr/0061-detail-rules-live-in-quality-viewpoints-and-agents-md-leads-to-them-by-reading-table.md) | 済み |
 | P15 | 既存部品の働き | P4 のページは非公開で始まるので、AI は頼まれなくても自分の作業を出してよい。出したページの小さな直しは、直した所だけを書き換えて同じ応答で出し直し、読み直さない | Claude Code の道具の入力の定義（2026-11-22 に確認） | 済み |
@@ -74,7 +74,7 @@
 | P20 | 事実 | ユーザーは、スマホからこの PC の Codex のスレッドを見られる | 開発者の発言（2026-11-22、§12） | 対象外 |
 | P21 | 事実 | Codex から ChatGPT Sites の非公開ページを出し、2 回目の版も同じ URL のまま更新でき、スマホで見られた。HTML 1 枚のほかに、文書の外枠、ホスティングの設定、Sites 専用の Git へ送る手順が要った。制限付きの実行環境ではネットワークの許可が要った | §5.3 | 対象外 |
 | P22 | 既存部品の働き | 文書を作る道具（Claude Docs）は、その道具自身の説明に「ユーザーが頼んだときだけ作る」と書いてある | 道具の説明（2026-11-22 に確認） | 対象外 |
-| P23 | 守る線 | リポジトリは公開している | [311 開発ツールのトピック別まとめ](../wiki/categories/311_dev_tools.md) の「選ばなかった形」（65 行。出典は RFD0112 §3.2） | 対象外 |
+| P23 | 守る線 | リポジトリは公開している | [311 開発ツールのトピック別まとめ](../wiki/concepts/framework/311_dev_tools.md) の「選ばなかった形」（65 行。出典は RFD0112 §3.2） | 対象外 |
 | P24 | 既存部品の働き | P4 のページの題は名前だけにし、名前の後ろにコロンなどで説明を付けない | Claude Code の道具の決まり（2026-11-22 に確認） | 対象外 |
 | P25 | 過去の判断 | このリポジトリの課題は「1 課題 1 ファイル」にして、ぶつかりを避けている。一覧（`INDEX.md`）は道具が各ファイルから作り直す | [プロセス契約](../process/protocol.md) 7 節（487 行） | 対象外 |
 | P26 | 事実 | AGENTS.md は 75,638 バイトあり、どの会話でも全文を読む。場面で skill へ案内する前例がある（「コミットの準備を提案する」は、決まりを AGENTS.md に置き、手順は `anet-prepare-commit` が持つ） | [AGENTS.md](../../AGENTS.md) の 565 行（大きさは 2026-11-22 に確認） | 対象外 |
@@ -304,7 +304,7 @@ Claude Code の会話一覧の直近 200 件（片付けたものを含む）の
 
 - 9.1・9.2 のファイル。今のリポジトリに、会話のまとめページを定める記述は無いので（§5.1）、直す写しは無い。
 - 「AI エージェントの概念説明ルール」を名指す箇所を `git grep -n "概念説明ルール"` で引くと、AGENTS.md の節の見出し、動線マップ（`docs/agents/README.md` の 182 行）、題材の課題、この RFD だった（2026-11-22）。動線マップは、AGENTS.md の行数と節の一覧を写した生成物で、実装する側ではなく、人が `anet-harness-map` を起動して作り直す（`anet-housekeeping` が `AGENTS.md` と `.agents/skills` の変化から候補に挙げる）。実装では直さない。
-- wiki の [311 開発ツールのトピック別まとめ](../wiki/categories/311_dev_tools.md) は、この RFD の起草で書き戻す（実装では直さない）。
+- wiki の [311 開発ツールのトピック別まとめ](../wiki/concepts/framework/311_dev_tools.md) は、この RFD の起草で書き戻す（実装では直さない）。
 
 ### 9.6 ほかの RFD との実装の順序
 
@@ -393,6 +393,6 @@ claude\.ai/(code/)?artifact|chatgpt\.site
 ## 14. 関連
 
 - [AGENTS.md](../../AGENTS.md) の「AI エージェントの概念説明ルール」（P3）
-- [311 開発ツールのトピック別まとめ](../wiki/categories/311_dev_tools.md)
+- [311 開発ツールのトピック別まとめ](../wiki/concepts/framework/311_dev_tools.md)
 - [handoff の SKILL.md](../../.agents/skills/handoff/SKILL.md)
 - [ADR 0061](../adr/0061-detail-rules-live-in-quality-viewpoints-and-agents-md-leads-to-them-by-reading-table.md)、[ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md)

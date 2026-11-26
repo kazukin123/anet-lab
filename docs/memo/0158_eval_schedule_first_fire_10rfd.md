@@ -96,7 +96,7 @@ Atari-5 の 5 ゲームを同じ設定（10M / RR4 / `run.@eval2ch`）で回し�
 | 評価のエピソード上限（`max_episode_frames`）を下げる案 | 上限を下げると学習後のエピソードも打ち切られ、測定値に偏りが入る。本当の制約（測定の比較条件） |
 | メトリクス側の interval にも同じキーを足す案 | メトリクスの学習直後の点は安く、解析の邪魔になった例が無い。解く問題が無く、クリーンブレークの制約とは関係しない |
 | 背景の評価が終わっていないとき、次の発火を待たずに見送る案 | 発火の列の時点ではなく、待ち方の関心である。別の関心 |
-| 評価のセッションを足し引きすると、同じ seed でも学習の軌跡が変わる件（[wiki「評価と比較の条件」](../wiki/mechanisms/evaluation.md)） | 乱数の系列の共有の関心である。本 RFD は、この性質があることを §9 の影響に書くだけにする |
+| 評価のセッションを足し引きすると、同じ seed でも学習の軌跡が変わる件（[wiki「評価と比較の条件」](../wiki/concepts/measurement/evaluation.md)） | 乱数の系列の共有の関心である。本 RFD は、この性質があることを §9 の影響に書くだけにする |
 | 評価が 1 回も走らないまま Run が終わったときに WARN か INFO で知らせる案 | 最初の発火より短い配線・確認の Run で毎回出て、毎回出る WARN が本物を埋もれさせる課題（[issue-20261107-a9a0e3](../management/issues/issue-20261107-a9a0e3.md)）と同じ形になる。評価専用 Run の書き忘れは結果が出ないことで気づける。本当の制約ではなく、再グリルでのユーザーの選択 |
 | 「既定では今の挙動を変えない」（起票時の旧ゴール） | クリーンブレークで移せるので本当の制約ではない。再グリルでユーザーが撤回した（D2） |
 
@@ -216,7 +216,7 @@ D9 の確かめは、apps/ では `git grep -n -E "run\.eval_schedule\.\[[a-z_0-
 | 設計文書 | [140_observability.jp.md](../design/140_observability.jp.md) の 228 行の近く（`IntervalGate` は今のまま初回に発火し、eval schedule は offset と warmup_count で列を決める）と 330 行（scheduled の行の中身）、[100_runtime_and_configuration.jp.md](../design/100_runtime_and_configuration.jp.md) の 329 行（`run.eval_schedule.[tag].*` のキーの表）、[010_framework_overview.jp.md](../design/010_framework_overview.jp.md) の 296 行（「学習更新数が interval に達したとき」起動する）、[020_user_guide_run.jp.md](../design/020_user_guide_run.jp.md) の 83〜85 行の例と 509 行の近く（キーの説明）、[200_dqn_agents.jp.md](../design/200_dqn_agents.jp.md) の 448 行（評価専用 Run は `warmup_count = 0` を書く） | 新しいキーと既定、評価専用 Run の書き方、`warmup_count` が Learner の warmup と別であること（§5.2）。英語版（`.en.md`）は、日本語版との対応を確かめた範囲に合わせて直す（[実装 レビュー観点](../quality/impl.md) の「検証と報告」の規約） | D1〜D7 |
 | 用語集 | [CONTEXT.md](../../CONTEXT.md) の 381 行（eval schedule の定義の「interval / use_background」） | 足さない。用語の定義で、キーの一覧ではないため | — |
 | ADR | ADR 0028 の先頭の注記、ADR 0070 の新設 | 本 RFD の工程で書く | D10 |
-| wiki | [評価と比較の条件](../wiki/mechanisms/evaluation.md) の「初回に必ず 1 回発火する」、[計測の負荷と比較条件](../wiki/mechanisms/diagnostic_cost.md) の 13〜14 行 | 本 RFD の工程では §2.4 の事実を書き戻し、出典の節の名前を直す（決定はまだ挙動ではないので書かない）。実装のあとに「今の結論」と「分かっていること」の「初回に必ず 1 回発火する」を新しい挙動に直す | — |
+| wiki | [評価と比較の条件](../wiki/concepts/measurement/evaluation.md) の「初回に必ず 1 回発火する」、[計測の負荷と比較条件](../wiki/concepts/measurement/diagnostic_cost.md) の 13〜14 行 | 本 RFD の工程では §2.4 の事実を書き戻し、出典の節の名前を直す（決定はまだ挙動ではないので書かない）。実装のあとに「今の結論」と「分かっていること」の「初回に必ず 1 回発火する」を新しい挙動に直す | — |
 
 旧い挙動を探す検索語は、`learn_step 0`・`learn step 0`・`learn_step=0`・`初回`・`互いに素`・`同位相`・`ShouldFire`・`scheduled (`・`1009`・`53`・`503`・`11`・`12` である。`1009` などの数は、`run.eval_schedule` を含む行に限って引く。
 

@@ -214,4 +214,4 @@ run.@stepdiag : metrics.step_trace.[53_evalg/step].columns.[320] = $agent_step s
 - [RFD0069 trace チャネル](done/0069_metrics_trace_channel_10rfd.md)、[RFD0094 Evaluation Trace](done/0094_evalpanel_step_history_10rfd.md)、[RFD0081 EvalPanel のゲームを trace へ出す](0081_evalpanel_episode_trace_10rfd.md)、[RFD0106](done/0106_temporl_skip_forward_noise_key_10rfd.md)
 - [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)
 - [140 可観測性（設計文書）](../design/140_observability.jp.md)
-- [317 可視化・メトリクス（wiki）](../wiki/categories/317_metrics.md)、[110 RunnerApp（wiki）](../wiki/apps/110_runner_app.md)
+- [317 可視化・メトリクス（wiki）](../wiki/concepts/framework/317_metrics.md)、[110 RunnerApp（wiki）](../wiki/concepts/apps/110_runner_app.md)

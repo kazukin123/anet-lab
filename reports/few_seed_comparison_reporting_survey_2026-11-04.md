@@ -135,7 +135,7 @@ Patterson は少数の seed が分布の形を見逃す例を出している。P
 | BeamRider スキップなし | 40.6M の Greedy(full / single)、設定の差は seed と Run 名だけ | s1: 23,936 / 24,361。s2: 85,889 / 89,108 | 作業メモ(PRD103、2026-11-04 朝の更新)。正本となる実験記録なし |
 | BeamRider スキップなし | Greedy の 35.55〜45.65M の 3 回平均(full / single) | s1: 22,914 / 23,626。s2: 85,872 / 84,636 | 作業メモ(PRD103、2026-11-04 夕方の更新)。正本となる実験記録なし |
 | qbert スキップなし | Greedy の 35.55〜45.65M の 3 回平均 | s1: 40,999。s2: 30,415 | [qbert 50M の実験記録](../docs/experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md) まとめ 1 |
-| qbert 低 ε ラダー | 64 env・容量 1M、45〜50M の第 8 面突破率 | 45.3%・32.5%・0.7%・0.1%(4 seed) | [wiki qbert](../docs/wiki/subjects/qbert.md) |
+| qbert 低 ε ラダー | 64 env・容量 1M、45〜50M の第 8 面突破率 | 45.3%・32.5%・0.7%・0.1%(4 seed) | [wiki qbert](../docs/wiki/concepts/subjects/qbert.md) |
 
 依頼文の「qbert で 24k と 87k」は、記録の上では BeamRider の値である。qbert のスキップなしは 2 seed で 41k と 30k である。24k と 87k は 40.6M の 1 時点の値で、判定の窓の 3 回平均でも s1 は約 23k、s2 は約 85k で同じ割れ方である。
 
@@ -380,7 +380,7 @@ seed そのものをハイパーパラメータとして選んではならない
 1. **この設定では少なくともこの幅が起きる。** 24k も 87k も同じ設定から出る。幅は下限で、次の 1 本は上下合わせて 2/3 の確率でこの外に出る。
 2. **その 2 本の方策の差。** 方策は学習済みの物なので、評価の本数を増やせば強く言える。seed 間と seed 内を分けて見るという Clary の区別にあたる [Clary (2019/04), §3]。BeamRider では同じ重みの別 session の差は 1〜5k だった(作業メモ)ので、判定の窓での s1 と s2 の 6 万点の差は、この 2 本の方策の差としては確かである。ただし同じ Run でも隣の評価(5M 後)で 20〜40k 動く(作業メモ)ので、1 時点だけで読まない。
 3. **ある水準に届きうること。** 手元の BeamRider s2 が同じフレーム数の CSV の値を超えたことから、「CSV の値は誤り」という読みは支持されなくなった(作業メモ)。到達できる水準の存在は 1 本でも言える。
-4. **多数の群と 2 本の順位。** 本数の合計が多ければ順位の確率は小さくなる。qbert では、Greedy の 3 回平均で TempoRL の 8 本すべてがスキップなしの 2 本の下にあった(`53_evalg`。7 本は full、補助学習のみは single。[qbert 50M の実験記録](../docs/experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md) まとめ 1)。10 本に差が無いなら、2 本が上位 2 つを占める確率は 1/45(2.2%)である。言えるのは「この評価の条件では、TempoRL の群全体はスキップなしと同じ分布に見えない」までで、評価の条件を変えると読みも変わる。ε=0.01 の 40〜50M は同じ帯で(23,641〜26,879 対 25,827・24,720、同じ記録のまとめ 4)、終了 checkpoint を single で評価し直すと合算 46,495、スキップなし 34,142 で逆転する(seed 1、各 200 ゲーム、[wiki qbert](../docs/wiki/subjects/qbert.md))。変種ごとの順位は言えない。ビルドの差が混ざる点(§9)と、結果を見てから立てた読みである点の留保もつく。
+4. **多数の群と 2 本の順位。** 本数の合計が多ければ順位の確率は小さくなる。qbert では、Greedy の 3 回平均で TempoRL の 8 本すべてがスキップなしの 2 本の下にあった(`53_evalg`。7 本は full、補助学習のみは single。[qbert 50M の実験記録](../docs/experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md) まとめ 1)。10 本に差が無いなら、2 本が上位 2 つを占める確率は 1/45(2.2%)である。言えるのは「この評価の条件では、TempoRL の群全体はスキップなしと同じ分布に見えない」までで、評価の条件を変えると読みも変わる。ε=0.01 の 40〜50M は同じ帯で(23,641〜26,879 対 25,827・24,720、同じ記録のまとめ 4)、終了 checkpoint を single で評価し直すと合算 46,495、スキップなし 34,142 で逆転する(seed 1、各 200 ゲーム、[wiki qbert](../docs/wiki/concepts/subjects/qbert.md))。変種ごとの順位は言えない。ビルドの差が混ざる点(§9)と、結果を見てから立てた読みである点の留保もつく。
 5. **方向の手がかり。** 2 対 2 で決めた向きに重ならないことは差なしでも 1/6 で起きる(結果を見てから向きを言うなら 1/3)ので、判定ではなく、追加の seed を積むかを決める材料になる。
 6. **仕組みの観察。** Jordan は、ベンチマークの順位づけとは別に、仕組みを調べる制御された実験を勧め、1 回しか回せなくても学習中の性質は調べられるとする [Jordan (2024/06), §4・§4.4]。手元の RAM の指標(ボス撃破、面の進行)やクリップ率の観察はこの種類にあたる。
 
@@ -495,7 +495,7 @@ BTR との比較は、max の K の違いだけで Atari-5 回帰に 3〜10% の
 - [qbert 50M の実験記録](../docs/experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)
 - [サンプル効率優先の実験記録](../docs/experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md)
 - [実時間優先の実験記録](../docs/experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)
-- [wiki qbert](../docs/wiki/subjects/qbert.md)
+- [wiki qbert](../docs/wiki/concepts/subjects/qbert.md)
 - [PRD103](../docs/memo/done/0103_temporl_reference_alignment_10rfd.md)
 - [atari5.py](../apps/tools/atari5.py)
 - [btr_hyperparams_survey](btr_hyperparams_survey_2026-08-26.md)、[btr_code_reading](btr_code_reading_2026-08-31.md)

@@ -33,7 +33,7 @@ Atari（ALE 直結）の DefaultDQNAgent 系 Run に関する探索索引です�
 
 ## 知見のまとめ
 
-- [wikiの知見](../../../wiki/subjects/atari.md)から題材・機構と正本をたどる。
+- [wikiの知見](../../../wiki/concepts/subjects/atari.md)から題材・機構と正本をたどる。
 
 ## 独自の分析
 

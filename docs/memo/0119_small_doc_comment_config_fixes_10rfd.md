@@ -56,7 +56,7 @@ RFD0069 の実装記録の 2 か所と、done/009・done/010 の RFD の 16 か�
 
 - 設定ファイルの代入演算子: 環境別のファイルで `?=` にするのはデフォルト設定の行だけで、それ以外は原則 `=` である。既存の実効値を保つために `?=` が要る葉だけ、理由を添えてデフォルト設定へまとめる（[実装 レビュー観点](../quality/impl.md) の「設定ファイル」の 154 行）。
 - 同じキーの重なり: 同じ演算子どうしは後に書いたほうが勝ち、`=` と `?=` が混在したら順序によらず `=` が勝つ（[020](../design/020_user_guide_run.jp.md) の 104 行）。
-- 過去の記録: 過去の RFD（done/・frozen/・dropped/）・実装記録・ADR の本文は書き換えない（[AGENTS.md](../../AGENTS.md) のクリーンブレーク方針）。RFD0114 の 999 の振り直しでは、番号の振り直しで動いたファイル名を指すパスの表記だけを直した（[wiki 311](../wiki/categories/311_dev_tools.md) の「変えるときの条件」、出典は RFD0114 §5.9・§5.12）。
+- 過去の記録: 過去の RFD（done/・frozen/・dropped/）・実装記録・ADR の本文は書き換えない（[AGENTS.md](../../AGENTS.md) のクリーンブレーク方針）。RFD0114 の 999 の振り直しでは、番号の振り直しで動いたファイル名を指すパスの表記だけを直した（[wiki 311](../wiki/concepts/framework/311_dev_tools.md) の「変えるときの条件」、出典は RFD0114 §5.9・§5.12）。
 - 旧い記述の検索: 現用の範囲の検索には、設計文書の `.en.md` を含める（[実装 レビュー観点](../quality/impl.md) の項番 20）。
 - Train panel の fps が 0 でも学習は続く（[160](../design/160_applications_and_tools.jp.md) §7.1）。
 - 課題の状態: 状態（`解決` など）を変えるのは開発者で、AI は対応内容と AI の判定（`ai_judge`）を書く。題材の課題の判定は `残件無し` を使う（[anet-create-issue](../../.agents/skills/anet-create-issue/SKILL.md) の「各項目の書き方」、[anet-update-issue](../../.agents/skills/anet-update-issue/SKILL.md)）。

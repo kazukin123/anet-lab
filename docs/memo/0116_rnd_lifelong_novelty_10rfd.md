@@ -456,7 +456,7 @@ smoke はどれも seed 1 本・100k exp step の 1 Run で、合否は各箇条
 - 設計文書: [200_dqn_agents.jp.md](../design/200_dqn_agents.jp.md) の §6.2（前処理に内的報酬の採点を足す）、§7.2（設定グループに「内的報酬」）、§8.2（`intrinsic` 節と識別子）、§9.1（群 56）。2026-11-07 未明の改訂では §6.2 の RND の段落（採点のグラフの再利用・独立 RNG の lane 抽選・採点回数の warm-up は旧い記述）と §7.2 の葉を日英とも現在形に直す。2026-11-07 昼の改訂では §6.2（採点する観測・倍率と統計のモード・別々に組む 2 つの Network）、§7.2（葉）、§8.2（書式 3 と統計のモード）、§9.1（診断 4 つと `bonus_share` の式）を日英とも直す。
 - 設計文書の新設: [212_rnd_lifelong_novelty.jp.md](../design/212_rnd_lifelong_novelty.jp.md)（RND の概念・計算・設定・指標の現在形。2026-11-06 にユーザーが実装中に要望し、起票時の本節に書き漏れていた項目として追記した。英訳は別途。2026-11-07 未明の改訂では §3.4〜§3.6・§3.8・§4.2・§4.4・§4.5・§5.1・§5.2 を追随させる。2026-11-07 昼の改訂では §3.1〜§3.3（別々に組む 2 つの Network、統計と倍率のモード、採点する観測）、§3.5（warm-up 0）、§4.2（葉の表）、§4.3（Atari の構造と層カタログの名、`run.@rnd_taiga`）、§4.4（診断 4 つ、`bonus_share`）、§4.5（書式 3）、§5.1〜§5.3（費用・検証の記録・まだ言えないこと）を追随させる。英語版は anet-translate-docs で別途）。
 - 実装記録と索引: `docs/memo/0116_rnd_lifelong_novelty_23impl.md`（新規。§2.1 の「本家との残る差」の表を写す）、索引 issue [issue-20261106-16b7af](../management/issues/issue-20261106-16b7af.md) の対応内容に 1 行。
-- wiki: [intrinsic_novelty](../wiki/mechanisms/intrinsic_novelty.md) に本 RFD を出典として足す（起票時に実施。2026-11-07 昼の改訂で Taiga らの式と、写しの比較で分かった尺度の条件を足した）。
+- wiki: [intrinsic_novelty](../wiki/concepts/methods/intrinsic_novelty.md) に本 RFD を出典として足す（起票時に実施。2026-11-07 昼の改訂で Taiga らの式と、写しの比較で分かった尺度の条件を足した）。
 
 ## 10. 173 との関係と、後で消すもの
 

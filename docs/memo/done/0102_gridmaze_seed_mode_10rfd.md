@@ -23,7 +23,7 @@
 - [GridMaze.txt](../../../apps/runner/config/GridMaze.txt)にはユーザーの有効な実験用seed指定がある。これは保持し、新契約では固定として働く。[GridMaze_muzero.txt](../../../apps/runner/config/GridMaze_muzero.txt)のseed既定行は外す。共通のseed既定値が残ると「未指定」がなくなり、process既定が働かないため。
 - [DropMerge](../../../src/env/dropmerge/src/DropMergeEnv.cpp)のseed_modeはそのEnv固有の契約であり、変更しない。
 
-参照した地図は[322 Env個別実装](../../wiki/categories/322_env_individual.md)、[320 Env共通基盤](../../wiki/categories/320_env_core.md)、[312 ユーティリティ](../../wiki/categories/312_util.md)。PRD100由来の盤面golden・採用seed復元・固定条件の短Run比較を継続する。
+参照した地図は[322 Env個別実装](../../wiki/concepts/framework/322_env_individual.md)、[320 Env共通基盤](../../wiki/concepts/framework/320_env_core.md)、[312 ユーティリティ](../../wiki/concepts/framework/312_util.md)。PRD100由来の盤面golden・採用seed復元・固定条件の短Run比較を継続する。
 
 ## 3. 機構の寄与と成功の測り方
 

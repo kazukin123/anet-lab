@@ -110,7 +110,7 @@ forwarder.hpp は、全部が `anet` 名前空間（RL に依らない層）に�
 | P9 | 既存部品の働き | 図は `ForwarderChain::MakeGraphViz` が作り、名前は `perception`・`Frame`・`Perception` に固定である | [forwarder.cpp](../../src/core/base/src/forwarder.cpp) 715〜754 行 | 済み |
 | P10 | 事実 | RFD0161 は実装済みで、その課題 2 件は解決である。実装のあとのレビュー対応のコミット（`b1d3e576`）は、forwarder.cpp とテストを直したが、forwarder.hpp は変えていない | [0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md)、`git show --stat b1d3e576`（2026-11-24 に確認） | 済み |
 | P11 | 過去の判断 | ADR 0084 は「履歴を使う依頼は、行動選択用の実行器が受ける」と決め、ADR 0086 は「重ねる部品を設定に書かなくても、1 枚の重ねが入る」と決めた。ADR 0086 と用語集は、「stack の対象のキーは、1 枚でも必ず stack 軸を持つ」を、Perception の決まりとして書いている | [ADR 0084](../adr/0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product.md)、[ADR 0086](../adr/0086-perception-stack-target-keys-always-carry-stack-axis.md) | 済み |
-| P12 | 守る線 | 観測加工を変えるときは、4 環境で、変更の前後とも同じ seed と決定的なバックエンドを指定し、学習 Run の scalar と trace を照合する | [314_tensor.md](../wiki/categories/314_tensor.md) の「変えるときの条件」、[0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md) の D34・D35・§9 | 済み |
+| P12 | 守る線 | 観測加工を変えるときは、4 環境で、変更の前後とも同じ seed と決定的なバックエンドを指定し、学習 Run の scalar と trace を照合する | [314_tensor.md](../wiki/concepts/framework/314_tensor.md) の「変えるときの条件」、[0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md) の D34・D35・§9 | 済み |
 | P13 | 事実 | 関係する未解決の課題が 3 件ある（統計の読み書きの競合、統計の checkpoint、RND の観測加工） | §2 の NG2・NG3 | 済み |
 | P14 | 既存部品の働き | 今ある依頼の型は、「作るもの＋Request」で名付けている（`ActorRequest` を `Agent::CreateActor` が受ける）。動詞を付けた Request の型は、C++ のコードに無い（`src` を `(struct|class) (Create|Build|Make|Get)\w+Request` で検索して、Java の 1 件だけ） | [rl.hpp](../../src/core/base/include/anet/rl.hpp) 760・843 行 | 対象外 |
 | P15 | 既存部品の働き | `MakeGraphViz` という名前の口は 2 つ（`ForwarderChain`・`nn::Network`）で、どちらも必ず図を返す。テスト以外の呼び出し 12 か所は、空を確かめずに使う。未対応なら空を返す約束があるのは、別の口 `graphviz::GraphVizProvider::CreateGraph` で、呼ぶ側（`GraphVizObserver`）が確かめる | [nn.hpp](../../src/core/base/include/anet/nn.hpp) 233 行、[graphviz.hpp](../../src/core/base/include/anet/graphviz.hpp) 184 行、[observers.cpp](../../src/core/base/src/observers.cpp) 1225〜1226 行 | 対象外 |
@@ -784,7 +784,7 @@ RFD0161 の D2 は「Agent が足す情報は、Actor の実行器が作る」�
 
 - [0161_observation_pipeline_10rfd.md](0161_observation_pipeline_10rfd.md)（観測加工の定義の一元化。本 RFD が、その公開の口を作り直す）
 - [135_forwarder_and_perception.jp.md](../design/135_forwarder_and_perception.jp.md)（今の口の設計文書。本 RFD の実装で書き直す）
-- [314_tensor.md](../wiki/categories/314_tensor.md)（トピック別まとめ）
+- [314_tensor.md](../wiki/concepts/framework/314_tensor.md)（トピック別まとめ）
 - [issue-20261124-6b50cb](../management/issues/issue-20261124-6b50cb.md)（本 RFD の課題）
 - [issue-20261124-f9f964](../management/issues/issue-20261124-f9f964.md)（範囲に入れなかった、nn.hpp の側の行の開始の印）
 - [issue-20261123-e43866](../management/issues/issue-20261123-e43866.md)（可視化で 1 枚の観測を重ねる経路のテスト。本 RFD が、この経路の入力の作り方を変える）

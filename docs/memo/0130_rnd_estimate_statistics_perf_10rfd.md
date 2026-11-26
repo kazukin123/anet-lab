@@ -121,7 +121,7 @@ variance_feedback では、観測の統計も誤差の統計も、lane の順に
 ### 2.4 採点を呼ぶ側（RFD0128・RFD0121 のあと）
 
 - 採点を呼ぶのは `DefaultDQNAgent::IntrinsicRewardCoordinator::ScoreBonus`（[default_dqn_agent.cpp:110](../../src/algo/dqn/src/default_dqn_agent.cpp) から）である。α からボーナスを作り、内的報酬用の報酬スケーラを通し（117 行）、価値の分解のために、β を掛ける前の成分も返す（119 行）。
-- 同じ関数が、ボーナスの診断値を 6 回の `.item<float>()` で読み出す（122〜127 行）。ボーナスが CUDA にあれば、1 回ごとに同期の転送になる。RFD0128 は、これを 1 回の転送にまとめる案を範囲の外に置き、RND の時間の内訳と合わせて測るときに決め直すとした（[RFD0128](0128_dqn_agent_refactor_bundle_10rfd.md) の §1.3、[324 DQN のトピック別まとめ](../wiki/categories/324_dqn.md) の「選ばなかった形」）。
+- 同じ関数が、ボーナスの診断値を 6 回の `.item<float>()` で読み出す（122〜127 行）。ボーナスが CUDA にあれば、1 回ごとに同期の転送になる。RFD0128 は、これを 1 回の転送にまとめる案を範囲の外に置き、RND の時間の内訳と合わせて測るときに決め直すとした（[RFD0128](0128_dqn_agent_refactor_bundle_10rfd.md) の §1.3、[324 DQN のトピック別まとめ](../wiki/concepts/framework/324_dqn.md) の「選ばなかった形」）。
 - §2.1 の数値は、RFD0121 より前の実行体のものである。価値の分解を入れたあとの基準は取り直す（§5.2 の Q6）。
 
 ### 2.5 2 つの統計方式の同居と、前半の重複

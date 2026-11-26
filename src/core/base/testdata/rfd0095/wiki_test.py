@@ -43,6 +43,7 @@ class WikiSupportTest(unittest.TestCase):
         root = self.fixture()
         path = 'docs/adr/0001-default-dqn-tbo-scope.md'
         blob = self.material(root, path, (REPO/path).read_text(encoding='utf-8'))
+        self.material(root, 'docs/wiki/summary/adr/' + Path(path).name, '## 元の材料\n\nblob:' + blob)
         data = self.run_helper(root)
         self.assertIn(path, [row['path'] for row in data['pending']])
         with (root/'docs/wiki/log.md').open('a', encoding='utf-8') as log:
@@ -100,6 +101,9 @@ class WikiSupportTest(unittest.TestCase):
         b=self.material(root,'reports/moved_probe.md','# moved')
         c=self.material(root,'docs/memo/done/0998_probe_10rfd.md','# done')
         d=self.material(root,'reports/already_probe.md','# already')
+        for summary, blob in [('experiments/changed_probe.md', a), ('reports/moved_probe.md', b),
+                              ('rfd/0998_probe_10rfd.md', c), ('reports/already_probe.md', d)]:
+            self.material(root, 'docs/wiki/summary/' + summary, '## 元の材料\n\nblob:' + blob)
         with (root/'docs/wiki/log.md').open('a',encoding='utf-8') as log:
             log.write('2026-10-22 ingest docs/experiments/changed_probe.md blob:'+'0'*40+' → なし\n')
             log.write('2026-10-22 fix docs/experiments/changed_probe.md blob:'+a+' → なし\n')
@@ -119,7 +123,7 @@ class WikiSupportTest(unittest.TestCase):
         shutil.copytree(REPO/'docs/memo',root/'docs/memo',dirs_exist_ok=True)
         for name in ['Rfd0095Probe.hpp','Rfd0095Probe.cpp','Rfd0095Probe_test.cpp']:
             self.material(root,'src/apps/runner/src/'+name,'// probe')
-        page=root/'docs/wiki/apps/110_runner_app.md'
+        page=root/'docs/wiki/concepts/apps/110_runner_app.md'
         page.parent.mkdir(parents=True)
         page.write_text('# app\n\n## 概要・責務\nKEEP PROSE\n\n## ファイル\nold\n\n'
                         '## RFD の一覧\nold\n\n## 課題\n<!-- issues:begin -->\nold\n<!-- issues:end -->\nKEEP OUTSIDE\n',encoding='utf-8')
@@ -138,12 +142,13 @@ class WikiSupportTest(unittest.TestCase):
     def test_only_unannotated_source_links_make_housekeeping_eligible(self):
         root=self.fixture()
         blob=self.material(root,'docs/memo/done/0097_probe_link_10rfd.md','# source')
+        self.material(root, 'docs/wiki/summary/rfd/0097_probe_link_10rfd.md', '## 元の材料\n\nblob:' + blob)
         with (root/'docs/wiki/log.md').open('a',encoding='utf-8') as log:
             log.write('2026-10-22 ingest docs/memo/done/0097_probe_link_10rfd.md blob:'+blob+' → なし\n')
-        page=root/'docs/wiki/apps/110_runner_app.md'
+        page=root/'docs/wiki/concepts/apps/110_runner_app.md'
         page.parent.mkdir(parents=True)
-        page.write_text('# app\n\n## 概要・責務\n- claim [RFD](../../memo/0999_probe_link_10rfd.md)\n\n'
-                        '## ファイル\n- [gone](../../../src/apps/runner/src/Gone.cpp)\n',encoding='utf-8')
+        page.write_text('# app\n\n## 概要・責務\n- claim [RFD](../../../memo/0999_probe_link_10rfd.md)\n\n'
+                        '## ファイル\n- [gone](../../../../src/apps/runner/src/Gone.cpp)\n',encoding='utf-8')
         data=self.run_helper(root)
         self.assertEqual(len(data['broken_links']),1)
         self.assertEqual(data['broken_links'][0]['candidates'],['docs/memo/done/0097_probe_link_10rfd.md'])
@@ -168,7 +173,7 @@ class WikiSupportTest(unittest.TestCase):
                     source=root/f'docs/memo/0{number}_probe{n}_10rfd.md'
                     source.parent.mkdir(parents=True,exist_ok=True)
                     source.write_text('# probe\n',encoding='utf-8')
-                pages=['docs/wiki/apps/110_runner_app.md','docs/wiki/categories/311_dev_tools.md']
+                pages=['docs/wiki/concepts/apps/110_runner_app.md','docs/wiki/concepts/framework/311_dev_tools.md']
                 for q in pages:
                     page=root/q;page.parent.mkdir(parents=True,exist_ok=True)
                     page.write_text('# map\n\n## ファイル\nold\n\n## RFD の一覧\nold\n\n'
@@ -205,7 +210,7 @@ class WikiSupportTest(unittest.TestCase):
             source=root/'docs/memo/0997_pending_probe_10rfd.md'
             source.parent.mkdir(parents=True)
             source.write_text('# pending probe\n',encoding='utf-8')
-            pages=['docs/wiki/apps/110_runner_app.md','docs/wiki/categories/311_dev_tools.md']
+            pages=['docs/wiki/concepts/apps/110_runner_app.md','docs/wiki/concepts/framework/311_dev_tools.md']
             for q in pages:
                 page=root/q;page.parent.mkdir(parents=True,exist_ok=True)
                 page.write_text('# map\n\n## ファイル\nold\n\n## RFD の一覧\nold\n\n'
@@ -220,7 +225,7 @@ class WikiSupportTest(unittest.TestCase):
                 helper.regenerate_maps(root,'feat(RunnerApp): probe。 RFD0997 #3',['src\\apps\\runner\\src\\Rfd0095Probe.cpp'])
             app=(root/pages[0]).read_text(encoding='utf-8')
             tools=(root/pages[1]).read_text(encoding='utf-8')
-            self.assertIn('- [RFD0997](../../memo/0997_pending_probe_10rfd.md) — pending probe',app)
+            self.assertIn('- [RFD0997](../../../memo/0997_pending_probe_10rfd.md) — pending probe',app)
             self.assertNotIn('RFD0997',tools)
             # 予定を渡さなければ、履歴に無い番号は出ない。
             with patch.object(helper,'git',side_effect=history):
@@ -239,7 +244,7 @@ class WikiSupportTest(unittest.TestCase):
         shutil.copyfile(REPO/'reports/tools/categories.json',root/'reports/tools/categories.json')
         for path,text in rfds.items():
             self.material(root,path,text)
-        page='docs/wiki/apps/110_runner_app.md'
+        page='docs/wiki/concepts/apps/110_runner_app.md'
         (root/page).parent.mkdir(parents=True,exist_ok=True)
         (root/page).write_text('# map\n\n## ファイル\nold\n\n## RFD の一覧\nold\n\n'
                                '## 課題\n<!-- issues:begin -->\nold\n<!-- issues:end -->\n',encoding='utf-8')
@@ -270,7 +275,7 @@ class WikiSupportTest(unittest.TestCase):
         self.assertEqual(result['unresolved_rfds'],[])
         text=(root/page).read_text(encoding='utf-8')
         self.assertIn('## RFD の一覧\n\n点検が作り直す。手で直さない。\n\n'
-                      '- [RFD0997](../../memo/0997_rfd_probe_10rfd.md) — rfd probe\n',text)
+                      '- [RFD0997](../../../memo/0997_rfd_probe_10rfd.md) — rfd probe\n',text)
 
     def test_maps_read_old_prd_and_new_rfd_numbers_by_value(self):
         # RFD0195 より前の件名の PRDnnn（3 桁）も読み、値で同じ 4 桁の文書に当てる。scope と末尾の並びの両方から読み、
@@ -285,9 +290,9 @@ class WikiSupportTest(unittest.TestCase):
                                                '2026-11-20\tfeat(RunnerApp): a。 PRD997 #3\n')
         self.assertEqual(result['unresolved_rfds'],[])
         text=(root/page).read_text(encoding='utf-8')
-        self.assertIn('- [RFD0195](../../memo/0195_tail_probe_10rfd.md) — tail\n'
-                      '- [RFD0918](../../memo/0918_scope_probe_10rfd.md) — scope\n'
-                      '- [RFD0997](../../memo/0997_old_probe_10rfd.md) — old symbol\n',text)
+        self.assertIn('- [RFD0195](../../../memo/0195_tail_probe_10rfd.md) — tail\n'
+                      '- [RFD0918](../../../memo/0918_scope_probe_10rfd.md) — scope\n'
+                      '- [RFD0997](../../../memo/0997_old_probe_10rfd.md) — old symbol\n',text)
         self.assertNotIn('0196',text)
 
     def test_maps_read_old_and_new_renumber_lines_by_value(self):
@@ -309,9 +314,9 @@ class WikiSupportTest(unittest.TestCase):
                                                '2026-10-01\tfeat(RunnerApp): first。 PRD999 #3\n')
         self.assertEqual(result['unresolved_rfds'],[])
         text=(root/page).read_text(encoding='utf-8')
-        self.assertIn('- [RFD0132](../../memo/0132_chain_probe_10rfd.md) — chain\n'
-                      '- [RFD0158](../../memo/0158_old_form_probe_10rfd.md) — old form\n'
-                      '- [RFD0160](../../memo/0160_new_form_probe_10rfd.md) — new form\n',text)
+        self.assertIn('- [RFD0132](../../../memo/0132_chain_probe_10rfd.md) — chain\n'
+                      '- [RFD0158](../../../memo/0158_old_form_probe_10rfd.md) — old form\n'
+                      '- [RFD0160](../../../memo/0160_new_form_probe_10rfd.md) — new form\n',text)
         self.assertNotIn('0901_reused',text)
         # 旧い番号と新しい番号の桁を混ぜた行は、どちらの形にも合わないので止まる。
         helper,root,page=self.renumber_root({
@@ -338,8 +343,8 @@ class WikiSupportTest(unittest.TestCase):
             result=helper.regenerate_maps(root)
         self.assertEqual(result['unresolved_rfds'],[])
         text=(root/page).read_text(encoding='utf-8')
-        self.assertIn('- [RFD0046](../../memo/0046_old_probe_10rfd.md) — old probe',text)
-        self.assertIn('- [RFD0182](../../memo/0182_move_probe_10rfd.md) — move probe',text)
+        self.assertIn('- [RFD0046](../../../memo/0046_old_probe_10rfd.md) — old probe',text)
+        self.assertIn('- [RFD0182](../../../memo/0182_move_probe_10rfd.md) — move probe',text)
         self.assertNotIn('RFD0045',text)
 
     def test_maps_resolve_old_number_through_renumber_line(self):
@@ -350,7 +355,7 @@ class WikiSupportTest(unittest.TestCase):
         result=self.renumber_maps(helper,root,'2026-11-10\tfeat(RunnerApp): probe。 RFD0997 #3\n')
         self.assertEqual(result['unresolved_rfds'],[])
         text=(root/page).read_text(encoding='utf-8')
-        self.assertIn('- [RFD0158](../../memo/0158_eval_probe_10rfd.md) — RFD0158: eval probe',text)
+        self.assertIn('- [RFD0158](../../../memo/0158_eval_probe_10rfd.md) — RFD0158: eval probe',text)
         self.assertNotIn('RFD0997',text)
 
     def test_maps_merge_old_and_new_numbers_of_one_rfd(self):
@@ -362,7 +367,7 @@ class WikiSupportTest(unittest.TestCase):
                                                '2026-11-10\tfeat(RunnerApp): a。 RFD0997 #3\n')
         self.assertEqual(result['unresolved_rfds'],[])
         text=(root/page).read_text(encoding='utf-8')
-        self.assertEqual(text.count('](../../memo/0158_eval_probe_10rfd.md)'),1)
+        self.assertEqual(text.count('](../../../memo/0158_eval_probe_10rfd.md)'),1)
 
     def test_maps_send_later_commits_of_reused_number_to_the_new_file(self):
         # 9xx を再び使ったあとは、振り直しの日より後のコミットの番号を、新しいファイルの RFD に当てる。
@@ -374,8 +379,8 @@ class WikiSupportTest(unittest.TestCase):
                                                '2026-11-17\tfeat(RunnerApp): old。 RFD0997 #3\n')
         self.assertEqual(result['unresolved_rfds'],[])
         text=(root/page).read_text(encoding='utf-8')
-        self.assertIn('- [RFD0158](../../memo/0158_eval_probe_10rfd.md) — old eval',text)
-        self.assertIn('- [RFD0997](../../memo/0997_new_probe_10rfd.md) — new probe',text)
+        self.assertIn('- [RFD0158](../../../memo/0158_eval_probe_10rfd.md) — old eval',text)
+        self.assertIn('- [RFD0997](../../../memo/0997_new_probe_10rfd.md) — new probe',text)
 
     def test_maps_report_old_number_declared_by_two_rfds_as_unresolved(self):
         # 同じ旧い番号の振り直しの行を 2 本以上の RFD が持つと（RFD0114 の 999 など）、一意に決められない。

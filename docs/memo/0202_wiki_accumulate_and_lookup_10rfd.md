@@ -750,4 +750,4 @@ AGENTS.md README.md docs/quality docs/process docs/wiki/README.md docs/wiki/inde
 - [RFD0112](0112_claude_memory_tidy_10rfd.md)、[RFD0199](0199_agents_md_split_by_situation_10rfd.md)、[RFD0198](0198_reread_after_compaction_10rfd.md)、[RFD0201](0201_top_episode_memory_sil_lower_bound_10rfd.md)（§5.3 の見立ての 1 つが関わる）
 - [wiki の規約](../wiki/README.md)、[サーベイの索引](../../reports/INDEX.md)
 - [issue-20261114-fbcbca](../management/issues/issue-20261114-fbcbca.md)（ADR へのたどり方）
-- [311 開発ツール](../wiki/categories/311_dev_tools.md)
+- [311 開発ツール](../wiki/concepts/framework/311_dev_tools.md)
