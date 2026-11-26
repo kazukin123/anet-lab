@@ -1846,3 +1846,4 @@
 2026-11-26 fix docs/adr/0004-sdpa-attention-via-aten.md blob:b1995c7e29f7f1447bae1890127ae5fe996a8ca1 → docs/wiki/concepts/framework/315_nn.md（checkpoint 互換性と初期化の要件を RFD0012 と同じ項目に集約）
 2026-11-26 writeback docs/memo/0204_branch_merge_conflict_assist_10rfd.md blob:f3d5fe0c31bff09f5baf2ab9210ab29443396155 → docs/wiki/summary/rfd/0204_branch_merge_conflict_assist_10rfd.md（暫定の起票。概念のページは実装の前なので書き足さない）
 2026-11-27 writeback docs/memo/0203_wiki_page_yaml_header_10rfd.md blob:3205dfb5ad843f7eb4ed71751f5ccf4adb654944 → docs/wiki/summary/rfd/0203_wiki_page_yaml_header_10rfd.md
+2026-11-27 writeback docs/memo/0202_wiki_accumulate_and_lookup_10rfd.md blob:c9e393ca999452ed70fb8574c36d2f46b71d8a0a → docs/wiki/summary/rfd/0202_wiki_accumulate_and_lookup_10rfd.md, docs/wiki/concepts/framework/311_dev_tools.md（再グリルの改訂。サマリを書き直し、§13 と §7 から、選ばなかった形 6 件と先送り 1 件を足した）
