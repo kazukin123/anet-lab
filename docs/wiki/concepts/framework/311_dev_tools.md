@@ -349,6 +349,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261123-0fcb2a](../../../management/issues/issue-20261123-0fcb2a.md) | 未着手 | 3.0 | — | 文書 | 監査 | 110_runner_app, 311_dev_tools | UI | 不整合 | [RFD0205](../../../memo/0205_design_doc_and_glossary_alignment_10rfd.md) | 未確認 | 設計160が本文で扱う Runner の画面・Evaluation Trace・workspace・終了時の排水・Notifier の Detach・課題と wiki の保守の ADR 10 本を、どの設計文書もリンクせず、160 には ADR へのリンクが 1 本も無い |
 | [issue-20261103-5addea](../../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
 | [issue-20261127-01b29b](../../../management/issues/issue-20261127-01b29b.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 不具合 | — | 未確認 | 課題の rfd 欄の名前だけのリンクが、RFD とそのサマリのページの 2 つに当たる |
+| [issue-20261127-692b3e](../../../management/issues/issue-20261127-692b3e.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | RFD・ADR の採番が、ほかのワークツリーと main に無いブランチの番号を見ないので、並行の作業で同じ番号が重なる |
 | [issue-20261127-f42cd7](../../../management/issues/issue-20261127-f42cd7.md) | 未着手 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | wiki の材料の正本に当たらない有用な知見（ハーネスの工夫、道具の振る舞いの実測、作業中に調べた一般の事例など）が残らない |
 | [issue-20261103-58696c](../../../management/issues/issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0112](../../../memo/0112_claude_memory_tidy_10rfd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
 | [issue-20261123-98baff](../../../management/issues/issue-20261123-98baff.md) | 未着手 | 1.8 | — | 文書 | 実装 | 311_dev_tools | 開発 | 不整合 | — | 残件有り | docs のリンク切れが実装の前から 258 件あり、memo README のリンク切れ検査が空にならないので、新しく切れたリンクを見分けられない |
@@ -368,5 +369,5 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-b13ed2](../../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | コード | RFD | 311_dev_tools | 開発 | 機能改善 | [RFD0185](../../../memo/0185_release_packaging_cmake_10rfd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
 | [issue-20261126-4c7b4e](../../../management/issues/issue-20261126-4c7b4e.md) | 対応中 | 1.6 | [issue-20261125-822a3e](../../../management/issues/issue-20261125-822a3e.md) | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0203](../../../memo/0203_wiki_page_yaml_header_10rfd.md) | 残件有り | サマリのページに YAML ヘッダが無く、Obsidian で題名や材料の日付を列にした一覧を作れない |
 
-着手できる 32 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 33 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

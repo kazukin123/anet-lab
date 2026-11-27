@@ -11,6 +11,7 @@
 | [issue-20261125-a19ab8](issue-20261125-a19ab8.md) | 対応中 | 2.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | AI の応答が今の決まりと成果物に沿う案に寄り、根本策や既存から外れる別案を、本筋と分けて示す場所が無い |
 | [issue-20261125-822a3e](issue-20261125-822a3e.md) | 対応中 | 1.6（引継ぎ） | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0202](../../memo/0202_wiki_accumulate_and_lookup_10rfd.md) | 残件有り | wiki に知見が積み上がりにくく、引きにくい（質疑の答えを残す経路、題材をまたぐ知見、サーベイと公開実装の事例、「今の結論」と目録の長さ） |
 | [issue-20261104-52ffba](issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた RFD の「実装済み」の時機ほか） |
+| [issue-20261126-56483f](issue-20261126-56483f.md) | 調査中 | 1.3 | — | ハーネス | その他 | 311_dev_tools | 開発 | 機能追加 | [RFD0204](../../memo/0204_branch_merge_conflict_assist_10rfd.md) | 未確認 | ブランチをまたぐマージの衝突（番号の重なり・wiki の追記・生成物）を、両側の内容と文脈を読んで解く AI の支援が無い |
 | [issue-20261103-955e50](issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | RFD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [RFD0081](../../memo/0081_evalpanel_episode_trace_10rfd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0187](../../memo/0187_issue_list_views_10rfd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261123-75512f](issue-20261123-75512f.md) | 未着手 | 7.0 | — | 文書 | 監査 | 324_dqn, 321_agent_core | 学習基盤 | 不整合 | [RFD0205](../../memo/0205_design_doc_and_glossary_alignment_10rfd.md) | 残件有り | CONTEXT.md の Train Actor network snapshot と評価セッションが、network snapshot を clone_model の条件なしで書き、sync_interval だけで定期 snapshot が起きると読める |
@@ -136,6 +137,7 @@
 | [issue-20261123-c7c3ae](issue-20261123-c7c3ae.md) | 未着手 | 2.0 | — | 文書 | 実装 | — | 開発 | 不整合 | — | 残件有り | RFD0195 で名前だけを置き換えた既存の 118 行に、AGENTS.md の避ける語（既定葉・腕・旗・地図など）が残る |
 | [issue-20261123-cbe34a](issue-20261123-cbe34a.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 317_metrics, 110_runner_app | 学習基盤 | 不整合 | — | 残件有り | 共通の Runner が 1 フレームごとに MetricsLogger を flush し（学習スレッドでは毎 step）、設計 140 とアプリが書く「境界でだけ flush」と食い違う |
 | [issue-20261127-01b29b](issue-20261127-01b29b.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 不具合 | — | 未確認 | 課題の rfd 欄の名前だけのリンクが、RFD とそのサマリのページの 2 つに当たる |
+| [issue-20261127-692b3e](issue-20261127-692b3e.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | RFD・ADR の採番が、ほかのワークツリーと main に無いブランチの番号を見ないので、並行の作業で同じ番号が重なる |
 | [issue-20261103-58696c](issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0112](../../memo/0112_claude_memory_tidy_10rfd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
 | [issue-20261123-98baff](issue-20261123-98baff.md) | 未着手 | 1.8 | — | 文書 | 実装 | 311_dev_tools | 開発 | 不整合 | — | 残件有り | docs のリンク切れが実装の前から 258 件あり、memo README のリンク切れ検査が空にならないので、新しく切れたリンクを見分けられない |
 | [issue-20261124-11428b](issue-20261124-11428b.md) | 未着手 | 1.8 | — | コード | RFD | 324_dqn, 318_rl_core | アルゴリズム | 機能追加 | [RFD0201](../../memo/0201_top_episode_memory_sil_lower_bound_10rfd.md) | 未確認 | まれに出た上位のエピソードを Replay と別に持ち続け、外的の Q を実際の収益で下から引き上げる仕組み（上位エピソードの記憶と SIL の下限損失）を DQN 系に足す |
@@ -169,7 +171,6 @@
 | [issue-20261103-f39d10](issue-20261103-f39d10.md) | 未着手 | 1.3 | — | コード | RFD | 318_rl_core, 324_dqn | 学習基盤 | 不具合 | [RFD0141](../../memo/0141_background_eval_snapshot_ordering_10rfd.md) | 残件有り | Background eval の network snapshot 順序保証 |
 | [issue-20261119-265a2e](issue-20261119-265a2e.md) | 未着手 | 1.3 | — | コード | RFD | 315_nn | 基盤 | 不整合 | — | 残件有り | 公開の Network のコンストラクタが内部の型 NetworkBody を引数に取り、基盤の外からは呼べない |
 | [issue-20261123-b1205d](issue-20261123-b1205d.md) | 未着手 | 1.3 | — | コード | 実装 | 110_runner_app, 322_env_individual | 開発 | リファクタリング | — | 残件有り | Runner と Atari のテストが同じ文字列を重ねて書いている（環境変数の名前 RFD0094_UI_DARK を 3 か所、検証資材のパス rfd0099/frames_210x160.u8 を 2 か所） |
-| [issue-20261126-56483f](issue-20261126-56483f.md) | 未着手 | 1.3 | — | ハーネス | その他 | 311_dev_tools | 開発 | 機能追加 | [RFD0204](../../memo/0204_branch_merge_conflict_assist_10rfd.md) | 未確認 | ブランチをまたぐマージの衝突（番号の重なり・wiki の追記・生成物）を、両側の内容と文脈を読んで解く AI の支援が無い |
 | [issue-20261103-07629c](issue-20261103-07629c.md) | 未着手 | 1.2 | — | コード | RFD | 110_runner_app, 318_rl_core, 319_gui | UI | 不具合 | [RFD0176](../../memo/0176_qvaluepanel_manual_action_state_alignment_10rfd.md) | 残件有り | QValuePanel の Q の表示と、手動で選んだ行動が当たる状態のずれ |
 | [issue-20261103-71bb9a](issue-20261103-71bb9a.md) | 未着手 | 1.2 | — | コード | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0157](../../memo/0157_test_line_coverage_10rfd.md) | 残件有り | 行カバレッジ計測（OpenCppCoverage） |
 | [issue-20261103-7227bf](issue-20261103-7227bf.md) | 未着手 | 1.2 | — | コード | RFD | 311_dev_tools, 317_metrics | 開発 | 機能追加 | [RFD0153](../../memo/0153_q_statistics_config_screening_10rfd.md) | 残件有り | Q 値統計による多環境ハイパラ健全性スクリーニング |
@@ -224,7 +225,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 209 / 待ち 10 / 保留 0 / 次版 0 / 解決 0
+着手できる 210 / 待ち 10 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 

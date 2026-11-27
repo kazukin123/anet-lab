@@ -1940,3 +1940,4 @@
 2026-11-27 writeback docs/memo/0205_design_doc_and_glossary_alignment_10rfd.md blob:32341be981a18fc9bf850a2b9697c73731a1724a → docs/wiki/summary/rfd/0205_design_doc_and_glossary_alignment_10rfd.md（暫定の起票。概念のページは実装の前なので書き足さない）
 2026-11-27 writeback docs/memo/0206_core_and_app_small_fixes_10rfd.md blob:49f5b81ddad4c16bb1895ba45a50a9d567054445 → docs/wiki/summary/rfd/0206_core_and_app_small_fixes_10rfd.md（暫定の起票。概念のページは実装の前なので書き足さない）
 2026-11-27 writeback docs/memo/0207_dqn_small_fixes_and_refactors_10rfd.md blob:baf2cb46a7fefcc12375b4f46c9152b3c5c9e02a → docs/wiki/summary/rfd/0207_dqn_small_fixes_and_refactors_10rfd.md（暫定の起票。概念のページは実装の前なので書き足さない）
+2026-11-27 writeback docs/memo/0204_branch_merge_conflict_assist_10rfd.md blob:ad3d3daf23774efacc0b3c8e20209d25e1f584b1 → docs/wiki/summary/rfd/0204_branch_merge_conflict_assist_10rfd.md（グリルと別モデルの検討を終えて暫定の印を外した。概念のページは実装の前なので書き足さない）
