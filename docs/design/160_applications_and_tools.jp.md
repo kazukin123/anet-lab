@@ -80,6 +80,11 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | Train View | [TrainPanel.hpp](../../src/apps/runner/src/TrainPanel.hpp)、[TrainPanel.cpp](../../src/apps/runner/src/TrainPanel.cpp) |
 | Eval View、model同期 | [EvalPanel.hpp](../../src/apps/runner/src/EvalPanel.hpp)、[EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) |
 | Q値・ログ・補助pane | [QValuePanel.cpp](../../src/apps/runner/src/QValuePanel.cpp)、[LogPanel.cpp](../../src/apps/runner/src/LogPanel.cpp) |
+| EvalTracePanel | [EvalTracePanel.hpp](../../src/apps/runner/src/EvalTracePanel.hpp)、[EvalTracePanel.cpp](../../src/apps/runner/src/EvalTracePanel.cpp) |
+| HeatMapPanel | [HeatMapPanel.hpp](../../src/apps/runner/src/HeatMapPanel.hpp)、[HeatMapPanel.cpp](../../src/apps/runner/src/HeatMapPanel.cpp) |
+| Conv2dPanel | [Conv2dPanel.hpp](../../src/apps/runner/src/Conv2dPanel.hpp)、[Conv2dPanel.cpp](../../src/apps/runner/src/Conv2dPanel.cpp) |
+| ErrorDialog | [ErrorDialog.hpp](../../src/apps/runner/src/ErrorDialog.hpp)、[ErrorDialog.cpp](../../src/apps/runner/src/ErrorDialog.cpp) |
+| Trace 再生と列の表示（`gui::TracePlayer` など） | [gui.hpp](../../src/core/base/include/anet/gui.hpp)、[gui.cpp](../../src/core/base/src/gui.cpp) |
 | runtime接続 | [trainer.hpp](../../src/core/base/include/anet/trainer.hpp)、[trainer.cpp](../../src/core/base/src/trainer.cpp) |
 | default config | [apps/runner/config](../../apps/runner/config) |
 
@@ -216,14 +221,14 @@ flowchart LR
   subgraph OP["Optuna harness / Dashboard"]
     OH[OptunaHarnessRuntime]
     PM[RunnerProcessManager]
-    DB[(optuna.db)]
+    ODB[(optuna.db)]
     AS[(artifact store)]
     OD[Optuna Dashboard]
 
     OH --> PM
-    OH --> DB
+    OH --> ODB
     OH --> AS
-    DB --> OD
+    ODB --> OD
     AS --> OD
   end
 
@@ -275,7 +280,7 @@ GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain 
 
 RunnerFrameのRun制御 / Step表示 / Run操作 / Panel表示toolbarはwxAUI paneとして上端に配置し、Reset LayoutでRow 0へ回収する。layerは補助列（20）より外側の30とし、Q-Valuesや補助列の上まで全幅に並べる。wxは窓の縁へドラッグしたtoolbarをlayer 10へ置くため、そのときはReset Layoutで30へ戻す。gripperは`AddPane()`が有効化する`wxAuiToolBar`内蔵の標準描画だけを使う。Reset Layoutで`ToolbarPane()`を再適用した後はpane側を`Gripper(false)`に戻し、内蔵gripperと重複させない。buttonの背景・hover・checked色はwxWidgets標準art/system colourへ委ねる。Train toggle直後とexp/train間は標準separatorで区切り、step数は選択・コピー可能なread-only text controlへ分ける。操作状態は200ms周期の`wxUpdateUIEvent`で実状態から再構成するため、shortcut、自動pause、menu、paneのcloseを別経路として扱っても表示が収束する。status snapshot更新はRunnerFrame自身のupdate eventへBindし、Train toggle toolのenable/check更新から分離する。Step、SPS、経過時間はTrainer threadのTrain observer callback内で1つのsnapshotにまとめ、強制更新間隔0のrequest-driven `UIDataStore`を介してmain threadへ渡す。main threadから`TrainRunner`の可変count、EMA、開始時刻を直接読まない。observerのdetachではNotifierが保持する`RunnerScopedTrainObserver` wrapper自体を保持・指定する。
 
-補助launcherは第1引数、`GetAppDataDir()/last_workspace.txt`、`_default`の順でworkspaceを解決し、選択済み`runs/`だけをDOT/MP4/TensorBoard/MLflowへ渡す。既存workspace rootと`runs/`だけを解決条件とし、`config/_main.txt`は要求しない。launcherはworkspaceや`runs/`を生成しない。MLflow DBはADR 0022の限定例外として`<workspace>/runs/mlflow.db`に置く。
+補助launcherは第1引数、`GetAppDataDir()/last_workspace.txt`、`_default`の順でworkspaceを解決し、選択済み`runs/`だけをDOT/MP4/TensorBoard/MLflowへ渡す。既存workspace rootと`runs/`だけを解決条件とし、`config/_main.txt`は要求しない。launcherはworkspaceや`runs/`を生成しない。MLflow DBは[ADR 0022](../adr/0022-mlflow-database-lives-with-workspace-runs.md)の限定例外として`<workspace>/runs/mlflow.db`に置く。
 
 RunManagerの構築中はメインのイベントループで描画とログの書き出しを続ける。構築だけを`RunInitThread`へ移し、DefaultViewFactory、Trainer observer、ImageProviderManager、FrameのInitialize、Notifier一覧、学習スレッドの生成・開始はメインスレッドに残す。`IsRunInitialized()`はこの後半まで正常に完了した場合だけtrueとなる。起動の開始と完了をINFOに記録し、完了の`elapsed_sec`は構築開始直前からの実時間を小数点以下2桁で表す。status barのfield 0は構築開始時に`Initializing run...`とし、後半の完了時に`app.train_auto_start`に応じて`Training started`または`Run initialized`、構築後にRUNNINGでなければ`Run initialization failed`へ置き換える。この更新は完了通知を受けた経路だけで行い、強制Closeや`OnExit`での受領ではframeへ触れない。構築の取消や同期起動へ戻す切替は設けない。
 
@@ -379,7 +384,7 @@ sequenceDiagram
 - 初期化中（構築スレッド開始から結果受領まで）の拒否可能なCloseは一度だけ記憶して拒否し、構築後に初期化の後半と学習開始を省いて閉じる。RUNNINGなら学習前のAgentを保存できる。RUNNINGでなければ`Failed to initialize RunManager.`を出し、終了要求がなければウィンドウを残す。HeatMapは初期化までUpdate UIとhandlerで抑止する。
 - 初期化中の`Close(true)`は構築を待ってから既存のclose手順へ進む。構築失敗はその場で既存reporterへ渡し、保存せず閉じ、終了コード1とする。OS終了の問い合わせはRunnerAppの`OnQueryEndSession`でFrameの通常Closeと区別して受け、初期化中は同じ待機経路へ通して拒否しない。初期化後はwxの既定処理に委ねる。
 - OS終了確定の通知はwxの既定処理を保ち、Closeの道を足さない。wxWidgets 3.3.3では`CallOnExit()`がFrameと子パネルをCloseなしで削除してから`OnExit()`を呼び、その戻り値で`exit()`する。`OnExit()`は残る構築スレッドを待ってから出力を片付ける。未処理の構築失敗は表示・保存を省いて戻り値1へ反映する。LogPanelが先に削除された場合、ログチェーンのUI参照を切り離してファイル側だけへ排出する。通常完了通知、拒否できないClose、OnExit以外では構築を待たない。
-- Train panelのFPSは描画頻度だけを制御し、0またはTrain Viewの非表示中は描画timerを停止しても学習は継続する。表示状態と選択FPSは初期化前も保持し、再表示時は現在選択されているFPSで再開する。observerは表示切替で外さない。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。menuの選択肢はTrainが0 (Off)・0.1・0.5・1・5・10・15・30・60、Evalが0.1・0.5・1・5・10・15・30・60・120で、timer周期は1000/FPS msとする。実行時のFPS選択はconfig dumpへ書き戻さない。
+- Train panelのFPSは描画頻度だけを制御し、0またはTrain Viewの非表示中は描画timerを停止しても学習は継続する。表示状態と選択FPSは初期化前も保持し、再表示時は現在選択されているFPSで再開する。observerは表示切替で外さない。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。menuの選択肢はTrainが`Config`（設定の値）・0 (Off)・0.1・0.5・1・5・10・15・30・60、Evalが`Config`・0.1・0.5・1・5・10・15・30・60・120で、timer周期は1000/FPS msとする。実行時のFPS選択はconfig dumpへ書き戻さない。
 - 起動時とReset Layoutの主paneは`app.main_view`（`train`・`eval`・`both`、既定`train`）で決まる。昇格した主paneの元のdock位置をFrameが1組保持し、隠れていた占有者がCentre情報を保ってdockedで再表示されると復元する。Resetで位置の記憶を消す。主paneを隠す・floatできるのは相方が開いてdockedのときだけで、両方dockedなら両方をfloatできる。CentreのpaneはwxAUIがcaptionドラッグを始めないためcaptionのpinボタンで、側面のpaneはドラッグでもpinでも外せる。主paneのpinはFloatable・✕と同じ値で描き、UPDATE_UIの宣言が追いつく前のpin押下も基底の判定で止める。pin後の昇格も既存200ms UPDATE_UIで行う。Logs・Q-Values・Evaluation Trace・HeatMap・Conv2dもpinを持ち、toolbar paneは対象外。側面へdockしたpaneはそこに留まり、最後の主paneはpinも✕も無く動かせない。最大化中の開閉判定には一時非表示を除いた開閉状態を使う。menu・toolbarとEvalのStep・再開でpaneを開閉するときと、Reset Layoutでは、wxがdock付きの追加やdockへのdropで行うのと同じく先に最大化を解き、最大化したpaneの横に別のpaneを並べない。最大化paneの✕とpinはwxのrestore経路に任せる。floatしたpaneをdockへ落とすとwxはrestoreのイベントを出さずに最大化を解くので、既存200ms UPDATE_UIで解けたことを拾ってポリシーを当て直す。幅のLoadLayout往復は最大化中に行わない。
 - 両主paneが表示中でdockedで、一方がCentre、相方だけがLeft/Rightのdockにあるときは、その列以外の表示中の縦dockをclient幅から差し引いた主領域の幅を等分する。方向・layer・rowでdockを特定し、layer・rowの値自体は横の等分を制限しない。相方だけがTop/Bottomのdockにあり、表示中のLeft/Rightのdockのlayerがすべてその帯より大きいときは、Centreのpane.rectの高さとその帯の実dock_sizeの和を等分する。同じdockにLogsや補助paneが同居する列・帯と、左右の列と同じか内側のlayerを含むCentreより広い帯は対象外。横の最小幅200+200と補助列→Q-Values列の縮小順を保ち、縦の高さが200+200に足りないときは最小高でclampしてLogs・toolbarや左右の列を縮めない。既存の遷移とresizeに加え、200msのUPDATE_UIで主paneの置き場（方向・layer・row・位置・float・表示）が変わったときだけ当てる。起動・Resetの比較値は現在の置き場で、dock_sizeは比較しない。サッシで変えた幅・高さは次の遷移か置き場の変化まで保つ。表示中でdockedのCentreの主paneだけcaptionの末尾に半角スペースと`[Centre]`を付け、既存のTrace注記も保持する。float・側面・非表示の主paneと、ほかのpaneにはこの印を付けない。
 - Centreの印だけの変化はTrace注記と同じくcaptionの再描画と浮動frameのタイトル更新に留め、通常のTrace行移動ではAUI全体を組み直さない。許可済みの浮動paneのcloseでは、wxがframe参照を消す前にwindowを旧sizerから外し、遅延破棄前の再表示でも二重登録を防ぐ。メニューhideとVetoにはこの解放を行わない。
@@ -456,3 +461,17 @@ sequenceDiagram
 - [DQN系Agent](200_dqn_agents.jp.md)
 - [Metrics Viewer](210_metrics_viewer.jp.md)
 - [DropMerge Optuna利用ガイド](optuna.md)
+
+### ADR
+
+- [ADR 0016 RunnerFrame の dock サイズの保存と復元](../adr/0016-runnerframe-aui-layout-roundtrip.md) — §7.1
+- [ADR 0021 workspace フォルダによる Run の分類](../adr/0021-run-classification-by-workspace-folder.md) — §5.1
+- [ADR 0022 workspace ごとの MLflow DB](../adr/0022-mlflow-database-lives-with-workspace-runs.md) — §5.1
+- [ADR 0045 Run 終了時の背景評価の完走とキャンセル](../adr/0045-eval-session-drain-on-exit-wait-or-discard.md) — §7.1
+- [ADR 0056 wiki の要約と実験記録の正本](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md) — §7.4
+- [ADR 0057 Evaluation Trace の列と読み取り時点](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) — §3.4
+- [ADR 0066 主 pane による Centre の占有](../adr/0066-main-panes-occupy-centre-dynamically-and-no-flow-empties-centre.md) — §7.1
+- [ADR 0068 課題が持つ作業の状態と順序](../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md) — §7.4
+- [ADR 0069 課題と RFD の対応と実装済みの判定](../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md) — §7.4
+- [ADR 0081 課題の kind による成果物の区分](../adr/0081-issue-kind-splits-product-into-code-and-document.md) — §7.4
+- [ADR 0082 進行中の通知と Notifier の Detach](../adr/0082-notifier-detach-does-not-wait-for-in-flight-notifications.md) — §5.1・§8

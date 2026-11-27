@@ -12,7 +12,7 @@ anet-lab は libtorch を基盤とした強化学習実験プロジェクトで�
 _Avoid_: Q Agent, value agent
 
 **Train Actor network snapshot**:
-`DefaultDQNAgent`のTrain Actorがaction forwardに使用する、Learner online networkから複製されたparameterとbufferの時点コピー。snapshot間で固定されるのはnetworkだけで、ActionPolicy、ObservationNormalizer、RNGは含まない。定期同期の周期は Actor 設定 `actor.[train].sync_interval` が持ち、宣言されたときだけ定期 snapshot を行う。
+`clone_model` が真の `DefaultDQNAgent` の Train Actor が行動選択に使う、Learner の online network の parameter と buffer の時点コピーで、ActionPolicy・ObservationNormalizer・乱数状態は含まない。`actor.[train].sync_interval` を宣言すると定期的に取り直す。
 _Avoid_: policy snapshot, frozen policy, 方策固定
 
 **価値ストリーム**:
@@ -40,7 +40,7 @@ _Avoid_: エピソード（Env の区切りと紛れる）, 軌跡
 _Avoid_: target Q, TD target
 
 **target return**:
-実報酬の N-step 割引和。ReplayBuffer に保持される値で、bootstrap 価値は含まない（学習時に次状態のブートストラップ価値が加算されて Bellmanターゲットになる）。
+実報酬の N-step 割引和で、bootstrap 価値は含まない。γ が定数の成分では ReplayBuffer へ投入時に保存した値を使い、γ が schedule の成分では抽選時に保存済みの 1 step ごとの報酬から求める。
 _Avoid_: n-step reward, stored return
 
 **報酬の成分**:
@@ -437,12 +437,31 @@ _Avoid_: lane group（lane分割一般と混同）, eval batch, worker group
 一つのepisode groupが開始から完了までに得たrewardの総和。`PER_LANE`では当該laneの総和、`SHARED`では全lane・全stepの総和になる。評価session内の複数returnにはmean / max / min / stdを適用できる。
 _Avoid_: TotalReward, eps_total_reward, episode reward（step rewardとの区別が曖昧）
 
+**train step**:
+TrainRunner の反復回数。
+
+**exp step**:
+Env から得た遷移の数。
+
+**update step**:
+Learner に Experience を渡した更新処理の回数。
+
+**learn step**:
+Learner が実行した学習更新の回数。
+
+**agent step**:
+行動選択で得た行動を受け、1 lane の Env が 1 回進む単位で、Atari では設定に応じて複数のエミュレータフレームを含む。N lane すべてが遷移する BatchEnv では、各 lane が 1 agent step 進むと exp step は N 進む。
+_Avoid_: `$agent_step`（Evaluation Trace の列で値を読む target）
+
+**lane**:
+BatchEnv 内で一つの Env に相当する単位。
+
 **エピソード長**（episode length）:
 一つのepisode groupが開始から完了までに要したEnvの`Step()`回数。`PER_LANE`では当該laneのstep数、`SHARED`ではbatch全体の`Step()`回数でlane数は掛けない——episode returnが全lane・全stepの総和なのとは意図的に非対称で、長さは量ではなく時間だから`num_envs`を変えても値の意味が変わらないようにする。全envで`$runner`から`mean./max./min./std.episode_steps`として取れる。単位はagent stepで、frameskip前のエミュレータフレームの数ではない。
 _Avoid_: episode_len（GridMazeの旧env固有キー）, game_len（Atari固有。episodic_life下ではepisode境界が別）, game_frames（エミュレータフレームの数）, エピソードステップ数
 
 **評価セッション**（evaluation session）:
-eval scheduleの1回の発火で行う評価の単位。一つのnetwork snapshotを使い、全episode groupを新しいepisodeの開始状態に揃えてから、採用episode N本（`eval_episodes`）を完走させ、その集約を`@session_end` 1点として記録する。採用episodeの完了はそれぞれ`@episode_end`としても発火し、個体単位のtraceはそちらに乗る。lane数（`eval_batch_size`）は並列度であって本数ではない。
+eval schedule の 1 回の発火で、全 episode group を開始状態に揃えて採用 episode N 本（`eval_episodes`）を完走させる評価の単位で、`clone_model` が真なら一つの network snapshot を使い、偽なら学習中の network を共有する。`eval_batch_size` は並列度を表し、`@session_end` は N 本の集約を記録する通知、`@episode_end` は各採用 episode の完了と個体値の trace を記録する通知である。
 _Avoid_: 評価エピソード（1本と誤読させる）, eval 1回（何本かが伝わらない）, eval batch
 
 **採用エピソード**（adopted episode）:
@@ -516,11 +535,11 @@ _Avoid_: プロジェクト, プロファイル（`@` 側の語。ワークス�
 _Avoid_: workspace設定ファイル（あいまい）, プロファイルconfig
 
 **Agent checkpoint**:
-Agent が `Save` で書く archive（Run 終了時の `agent_close.anet` など）。DefaultDQN では header、保存時の Config 文字列、online/target Network、optimizer を含み、Run 全体（Replay、step、RNG）は含まない。
+Agent が `Save` で書く archive（Run 終了時の `agent_close.anet` など）で、DefaultDQN では header、保存時の Config 文字列、online/target Network、optimizer と、構成に応じて RND 本体、補助学習の credit・抽選の乱数状態・累計成功回数、内的・外的報酬スケーラを含む。Replay、Run の step、Actor と Replay の乱数状態は含まない。
 _Avoid_: snapshot（Train Actor network snapshot と紛れる）, セーブデータ, モデルファイル
 
 **checkpoint 引き継ぎ**:
-新しい Run の Agent 構築中に Agent checkpoint の Network と optimizer を読み込む操作（`auto_load_file`）。旧 Run の再開ではなく、Replay・step・RNG は新しい Run のもの。
+新しい Run の Agent 構築中に `auto_load_file` で Agent checkpoint を読み込み、Network・optimizer と、構成に応じて RND 本体・補助学習・報酬スケーラの状態を引き継ぐ操作。Replay、Run の step、Actor と Replay の乱数状態は新しい Run のものを使う。
 _Avoid_: 再開, 継続（Run 全体を同じ進行位置から続ける操作と紛れる）
 
 ### Metrics基盤
@@ -583,7 +602,7 @@ _Avoid_: metrics設定（設定ファイル側と混同）, スキーマ（レ�
 
 **trace**（トレース）:
 統計（scalar）とは別に、1件の個体（laneのエピソード完了など）を1レコードとして識別子付きで記帳するメトリクスチャネル。固定属性と個別値の集合を持ち、集約しない。系列はチャネルとtagの組で識別するため、同じtagのscalarとは別系列である。NNの途中の出力を可視化へ流すnn_traceとは別概念。
-_Avoid_: activationトレース（nn_trace側の呼び名）, record（config dump等のjson行と区別できない）, journal（144のEpisode Journalはforensic側の別概念）, ログ
+_Avoid_: activationトレース（nn_trace側の呼び名）, record（config dump等のjson行と区別できない）, journal（RFD0144 の Episode Journalはforensic側の別概念）, ログ
 
 **速報値／確定値**:
 Step の結果から読む env の値の、読むイベントで決まる意味。`@train` で読むとその step の途中の値（速報値）、`@episode_end` で読むとそのエピソードの終わりの値（確定値）になる。

@@ -53,6 +53,7 @@
     "完全キー": "full key",
     "範囲統計": "range statistics",
     "報酬スケーラ": "reward scaler",
+    "checkpoint 引き継ぎ": "checkpoint restoration",
     "Forwarder の並び": "Forwarder sequence",
     "Forwarder の部品": "Forwarder module",
     "Forwarder の依頼": "Forwarder request",

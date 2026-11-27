@@ -1,7 +1,7 @@
 ---
 id: issue-20261125-bdbcac
 title: 設計140 が本文で書く仕組みの ADR 8 本（評価セッションの集約・エピソード長・trace の行の時刻・forward の capture・遷移の結果・eval schedule・WARN の表・nn_trace の渡し方）を、どの設計文書もリンクしない
-status: 未着手
+status: 解決
 raised: 2026-11-25
 phase: 監査
 scope: docs/design/140_observability.jp.md（と英訳）の ADR への参照
@@ -11,8 +11,8 @@ area:
   - 318_rl_core
 type: 不整合
 domain: 学習基盤
-ai_judge: 未確認
-ai_judged:
+ai_judge: 残件無し
+ai_judged: 2026-11-27
 docs:
   - docs/design/140_observability.jp.md
 rfd: "[[0205_design_doc_and_glossary_alignment_10rfd]]"
@@ -24,8 +24,8 @@ urgency: 3
 risk: 1
 size: 2
 wsjf: 3
-resolved:
-resolution:
+resolved: 2026-11-28
+resolution: 対応済み
 memo:
 tags: []
 ---
@@ -65,3 +65,11 @@ AGENTS.md は、ADR を読むときは設計文書の該当章からの参照を
 - 0fcb2a（160）と同じ形で、同時に直せる。
 
 ## 対応内容
+
+- 2026-11-27 設計 140 の ADR 節に 11 本と対応節を記載し、ADR 0047 の行時刻の実装状況を添えた。 [RFD0205 実装メモ](../../memo/0205_design_doc_and_glossary_alignment_20impl.md)
+
+## 備考
+
+- 2026-11-27 状態を `未着手` から `対応中` へ変更。工程の出来事による（RFD0205 の実装計画を保存した）。
+
+- 2026-11-28 状態を `対応中` から `解決` へ変更。コミットの準備で開発者が解決の候補を選んだ。設計 140 に ADR 11 本と対応節を記載したため、AI の判定は「残件無し」。

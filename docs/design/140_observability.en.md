@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:debb42a1c062b3cab8b197a52e10aeeaadcc52e4 date:2026-11-25 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:762279219a36f85434850e4a1e5597cab339edbe date:2026-11-27 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -33,7 +33,7 @@ This document covers current `Notifier`, Observers, `ObserverFactory`, `MetricsL
 | `ObserverFactory` | Constructs Observers from ConfigData such as `metrics.scalar.*`, `metrics.trace.*`, and `metrics.graph.*` |
 | `MetricsLog*Observer` | Retrieves scalars from event-specified sources and applies step selection, interval, EMA, and clipping |
 | `EpisodeEvalObserver` | Drives configured Eval sessions synchronously or in the background on Learn events, rethrowing worker exceptions to callers |
-| Image/Graph Observer | Generates HeatMap, TimeHistogram, Conv2d, and GraphViz output from Probes or NN outputs. Conv2d reads nn_trace created only for requested steps |
+| Image/Graph Observer | Generates HeatMap, TimeHistogram, Conv2d, and GraphViz output from Probes or NN outputs. Conv2d reads nn_trace created only for requested steps. `ImageProviderFactory` creates image Observers and `ImageProviderManager` registers them. |
 | `MetricsLogger` | Singleton owning Run name/directory and saving scalars, JSON, images, videos, and DOT in shared formats |
 | `IBackend` / `JsonlBackend` | Metric-record persistence boundary; the current backend appends to `metrics.jsonl` |
 | `anet::log::Logger` | Lightweight logger creating `WxLogStream` with a prefix fixed at construction |
@@ -49,6 +49,10 @@ This document covers current `Notifier`, Observers, `ObserverFactory`, `MetricsL
 |---|---|
 | Events, Observer interfaces, Notifier | [rl.hpp](../../src/core/base/include/anet/rl.hpp), [rl.cpp](../../src/core/base/src/rl.cpp) |
 | Concrete Observers, Config parser | [observers.hpp](../../src/core/base/include/anet/observers.hpp), [observers.cpp](../../src/core/base/src/observers.cpp) |
+| Metric value lookup and StepTrace | [metrics.hpp](../../src/core/base/include/anet/metrics.hpp), [metrics.cpp](../../src/core/base/src/metrics.cpp) |
+| Image providers | [image.hpp](../../src/core/base/include/anet/image.hpp), [image.cpp](../../src/core/base/src/image.cpp) |
+| Heat maps and histograms | [heat_map.hpp](../../src/core/base/include/anet/heat_map.hpp), [heat_map.cpp](../../src/core/base/src/heat_map.cpp) |
+| Trace playback (`gui::TracePlayer`) | [gui.hpp](../../src/core/base/include/anet/gui.hpp), [gui.cpp](../../src/core/base/src/gui.cpp) |
 | MetricsLogger contracts | [metrics_logger.hpp](../../src/core/base/include/anet/metrics_logger.hpp) |
 | JSONL, image, video, DOT output | [metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp) |
 | Text logging | [log.hpp](../../src/core/base/include/anet/log.hpp) |
@@ -73,12 +77,21 @@ class Notifier {
 class TrainObserver
 class LearnObserver
 class EpisodeEndObserver
+class SessionEndObserver
 class ObserverFactory
 class MetricsLogObserverBase
 class MetricsLogTrainObserver
 class MetricsLogLearnObserver
 class MetricsLogEpisodeEndObserver
-class ImageObserver
+class MetricsLogSessionEndObserver
+class MetricsLogTraceObserver
+class ImageProviderFactory
+class ImageProviderManager
+class HeatMapVectorObserver
+class MultiPairHeatMapObserver
+class Conv2dVisualizationObserver
+class TimeHistogramObserver
+class SweepedHeatMapObserver
 class GraphVizObserver
 class MetricsLogger {
   +LogScalar(tag, step, value)
@@ -93,19 +106,35 @@ Runner --> Notifier : eventを通知
 Notifier o-- TrainObserver
 Notifier o-- LearnObserver
 Notifier o-- EpisodeEndObserver
+Notifier o-- SessionEndObserver
 ObserverFactory ..> TrainObserver : Configから生成
 ObserverFactory ..> LearnObserver : Configから生成
 ObserverFactory ..> EpisodeEndObserver : Configから生成
+ObserverFactory ..> SessionEndObserver : Configから生成
 MetricsLogObserverBase <|-- MetricsLogTrainObserver
 MetricsLogObserverBase <|-- MetricsLogLearnObserver
 MetricsLogObserverBase <|-- MetricsLogEpisodeEndObserver
+MetricsLogObserverBase <|-- MetricsLogSessionEndObserver
 TrainObserver <|.. MetricsLogTrainObserver
 LearnObserver <|.. MetricsLogLearnObserver
 EpisodeEndObserver <|.. MetricsLogEpisodeEndObserver
-TrainObserver <|.. ImageObserver
+SessionEndObserver <|.. MetricsLogSessionEndObserver
+EpisodeEndObserver <|.. MetricsLogTraceObserver
+ImageProviderManager *-- ImageProviderFactory
+ImageProviderManager --> Notifier
+ImageProviderFactory ..> HeatMapVectorObserver
+ImageProviderFactory ..> MultiPairHeatMapObserver
+ImageProviderFactory ..> Conv2dVisualizationObserver
+ImageProviderFactory ..> TimeHistogramObserver
+ImageProviderFactory ..> SweepedHeatMapObserver
+TrainObserver <|.. HeatMapVectorObserver
+TrainObserver <|.. MultiPairHeatMapObserver
+TrainObserver <|.. Conv2dVisualizationObserver
+LearnObserver <|.. TimeHistogramObserver
+LearnObserver <|.. SweepedHeatMapObserver
 TrainObserver <|.. GraphVizObserver
 MetricsLogObserverBase --> MetricsLogger
-ImageObserver --> MetricsLogger
+MetricsLogTraceObserver --> MetricsLogger
 GraphVizObserver --> MetricsLogger
 MetricsLogger *-- IBackend
 IBackend <|.. JsonlBackend
@@ -117,30 +146,38 @@ Observers do not own Runner's domain state; they obtain snapshots through events
 
 ## 5. Processing Flows
 
-### 5.1 Recording Scalar Metrics
+### 5.1 Recording Scalars and Traces
 
 ```mermaid
 sequenceDiagram
     participant R as Train/Eval Runner
     participant N as Notifier
-    participant O as MetricsLog Observer
+    participant O as MetricsLog Observer (scalar / trace)
     participant S as Agent/Runner/Env/Experience/Result
     participant M as MetricsLogger
     participant J as JsonlBackend
     participant F as metrics.jsonl
 
-    R->>N: Notify(Train/Learn/EpisodeEnd event)
+    R->>N: Notify(Train/Learn/EpisodeEnd/SessionEnd event)
     loop 登録順の対応Observer
-        N->>O: OnTrain / OnLearn / OnEpisodeEnd
-        O->>O: runner scopeとstep軸を確認
-        O->>S: GetScalarまたはevent fieldを取得
-        S-->>O: optional scalar
-        opt 値があり記録対象
-            O->>O: EMAを更新
-            O->>O: interval・finite値を確認し、clipを適用
-            O->>M: LogScalar(tag, step, value)
+        N->>O: OnTrain / OnLearn / OnEpisodeEnd / OnSessionEnd
+        alt EpisodeEndを受けるMetricsLogTraceObserver
+            O->>S: 指定laneの個体値を取得
+            S-->>O: trace data
+            O->>M: LogTrace(tag, step, lane, data)
             M->>J: WriteJsonl(record)
-            J->>F: 1 JSON recordを追記
+            J->>F: trace行を追記
+        else scalar Observer（SessionEndを含む）
+            O->>O: runner scopeとstep軸を確認
+            O->>S: GetScalarまたはevent fieldを取得
+            S-->>O: optional scalar
+            opt 値があり記録対象
+                O->>O: EMAを更新
+                O->>O: interval・finite値を確認し、clipを適用
+                O->>M: LogScalar(tag, step, value)
+                M->>J: WriteJsonl(record)
+                J->>F: scalar行を追記
+            end
         end
     end
 ```
@@ -262,7 +299,7 @@ metrics.scalar.[tag] = key [$step_axis] [@event] [$target] [$runner_scope] [$ema
 
 Without an explicit step axis, `@train` uses `train_step`; `@learn`, `@episode_end`, and `@session_end` use `exp_step`. Scalar JSON records contain only `type`, `tag`, `step`, and `value`, not the axis name. Do not reuse a tag for a different step axis when changing configuration.
 
-### 6.x Step Coordinate Systems
+### 6.1 Step Coordinate Systems
 
 `StepCounts` belongs to individual Runners; axis names do not identify globally unique coordinates. **A step is identified by the pair of its owning Runner and its axis.** This document calls that pair a [step coordinate system](../../CONTEXT.md).
 
@@ -309,7 +346,7 @@ The current parser converts `interval`, `ema_alpha`, and `clip` with `stoi`/`sto
 
 Scalar, trace, and graph catalogs read one value in the form `metrics.<channel>.[tag] = declaration`; fields cannot appear below `[tag]`. Indices inside tags, such as `.[01]`, are retained. Images have fields such as `metrics.image.[tag].type` and `conv2d.*`; each item's reader rejects unsupported fields at construction. Known fields are read with their types regardless of image type, and shared `metrics.image.*` defaults are read even with zero image items. Item validation is independent of other readers' read state, while actual reads update the original fully qualified keys.
 
-### 6.x Trace Channel
+### 6.2 Trace Channel
 
 ```text
 metrics.trace.[51_eval1/episode] = $eval.[eval1] @episode_end $env_step game_score game_len game_frames hns57
@@ -323,7 +360,7 @@ Bare tokens specify one or more keys. Retrieval and the definition's `keys` arra
 {"type":"trace","tag":"51_eval1/episode","step":456,"lane":3,"data":{"game_score":422,"game_len":1242,"game_frames":4968,"hns57":31.2}}
 ```
 
-Series are identified by `(type, tag)`, allowing scalar and trace to share a tag. `lane` is the event's `env_index` (lane for PER_LANE, -1 for SHARED). `step` uses the same integer coordinates as scalars; multiple episodes may share a step and lane. Records have `timestamp` but no top-level `value`, and `data` key order is unspecified. Unknown-key `nullopt` fails fast with tag/key/lane/target; NaN and ±Inf retain the key with a `null` value.
+Series are identified by `(type, tag)`, allowing scalar and trace to share a tag. `lane` is the event's `env_index` (lane for PER_LANE, -1 for SHARED). `step` uses the same integer coordinates as scalars; multiple episodes may share a step and lane. The fixed row attributes are `tag`, `step`, and `lane`. Rows omit timestamps and a top-level `value`. The order of keys in `data` is unspecified. Unknown-key `nullopt` fails fast with tag/key/lane/target; NaN and ±Inf retain the key with a `null` value.
 
 `EvalSessionEnv::LastAdoptedGroups()` returns only adopted groups completed in the immediately preceding Step. EvalRunner notifies immediately after that Step and before the next. SHARED group 0 becomes -1 at notification. Finalized values are read for the specified lane from event.step_result, so individual-value sequences are not accumulated in the decorator. Return aggregation and SessionEnd happen only once at session end. Train uses the same trace Observer.
 
@@ -333,7 +370,7 @@ The `inspect_run` master/cache paths prefer new `metrics.scalar.defs`, reading o
 
 Metrics Viewer stores traces in existing `json_lines`, separately from scalars. `inspect_run.py trace-csv` reads and exports rows directly to CSV ([030 Section 6.9](030_user_guide_analysis.en.md#69-extracting-individual-trace-rows-as-csv)). Quantile/threshold aggregation, Metrics Viewer visualization, additional events, `episode_id`, and `model_version` are outside this feature's scope. See [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md) for rationale.
 
-### 6.1 Evaluation Trace Columns and Value Reading
+### 6.3 Evaluation Trace Columns and Value Reading
 
 `MetricValueContext`, `MetricValueReader`, `StepTraceColumnSpec`, `StepTrace`, and `StepTraceBuilder` belong to the shared metrics functional group (include/anet/metrics.hpp and src/metrics.cpp). `MetricValueReader` retrieves values using a target, key, lane, and borrowed notification. Shared DSL token classification is declared internally in src/metrics_impl.hpp and implemented in metrics.cpp. Metrics does not include observers or gui. Scalar lookup/aggregation/EMA and trace unknown-key diagnostics remain in their respective Observers. `RunManager::MetricsWiring` connects subscriptions, while `StepTraceBuilder` generates a `StepTrace` per lane from a mirror EvalRunner's `TrainEvent`. Columns are chosen independently of metrics definitions through `app.eval_trace_panel.columns.[number]`. Numbers are at least 1, may have gaps, and appear in ascending order. `StepTrace.step` uses the same step_t coordinate as counts.exp_step.
 
@@ -358,6 +395,28 @@ Agent creates an `AgentStepDiagnosticsProvider` through `CreateStepDiagnosticsPr
 The concrete DQN provider and key recognition stay inside DQN. DQN step diagnostics use Q-hint generation shared with Actor, n-step assembly shared with replay, and the existing initial-priority estimator. Q calculations for the existing three keys are independent of PER and add no Q forward or RNG consumption. The reward scaler applies its current transform without updating statistics or clipping rates. RunningStdRewardScaler publishes the std computed by Scale and the std at Reset or Load through an atomic; diagnostics read only this value without accessing mutable Tensor statistics. Dynamic extrinsic and intrinsic reward scalers save their statistics in checkpoints. Windows containing truncation leave priority unavailable. Nonterminal values fill their original row once bootstrap Q is available; terminal steps resolve shorter windows. Intrinsic initial-priority estimates at non_episodic terminals also omit bootstrap.
 
 The builder reports row additions separately from delayed column resolution. Images are not retained for rows beyond the GUI's retention limit. Verify public paths for column parsing, timing, diagnostics, playback, and numerical equivalence with the [RFD0094 validation resources](../../src/core/base/testdata/rfd0094/README.md).
+
+### 6.4 Transition-Value Target `env_step`
+
+`$env_step` reads `TrainEvent.step_result` or `EpisodeEndEvent.step_result`. Scalar train reads all lanes; episode_end reads only done or truncated lanes in ascending order, excluding NaN through the existing mean/std/min/max aggregation. Even when the same Step emits several EpisodeEnd notifications, scalar reading and EMA update occur only once. SHARED reads the lane=-1 batch value once. Trace reads only each notification's env_index and records one row per completed group.
+
+`$env_step` is limited to train/episode_end. Declarations for learn/session_end, which have no result, are rejected at construction. Unknown or nonscalar keys fail fast on first read with tag/key/lane; known unavailable keys yield NaN. Built-in reward/done/truncated and derived or parameterized keys supplied by concrete results use the same target. `$env` reads current Env state, or at session_end the aggregates accumulated by EvalSessionEnv from adopted results.
+
+When moving completion-statistic definitions from train to episode_end, preserve tags, EMA, and explicitly selected step axes. Definition records use target `env_step`. inspect_run also recognizes configuration-derived definitions, and Java Metrics Viewer stores definition JSON without restricting target values. Atari lives is configured as provisional values from all lanes at train, while game statistics are final values at episode_end.
+
+### 6.5 TempoRL Scalars and Trace
+
+Read a variable Actor's limit through `$actor skip_max_length @learn $exp_step` and opt into `50_agent_skip/07_max_length` using the group's configuration keys. The default metric chain does not include it. Full/single/disabled skip return NaN for the recognized key. Single has decision rate and mean length 1, while trace skip_q.[j] still accepts 1..J. Existing 13_sample_k_mean, 14_kmax_mean and 11_loss describe auxiliary windows. See [RFD0104 validation](../../src/core/base/testdata/rfd0104/README.md).
+
+DefaultDQN skip metrics use the `50_agent_skip` group. Selecting `metrics.scalar.@skip` in metrics_scalar.txt records Actor decision_rate, mean length over decision lanes, per-length proportions, and the Q difference between the selected length and j=1, together with Learner loss, mean absolute TD, mean k, mean k_max, and gradient norm before clipping. `skip_length_rate.[j]` uses 1-based indices; an index greater than the declared J fails fast.
+
+Scalar tags may also contain indices. For example, configuration key `metrics.scalar.[50_agent_skip/03_skip_length_rate.[01]]` produces tag `50_agent_skip/03_skip_length_rate.[01]`, retaining the inner closing bracket. Tag indices have two digits, while source-key indices remain `[1]`.
+
+Actor `skip_length_mean`, `skip_length_rate.[j]`, and `skip_q_gap` aggregate only decision lanes and return NaN on steps without decisions. Recognized keys also return NaN when skip is disabled. Payloads are aggregated on device and transferred together to the CPU on first access. Learner results likewise own seven metrics and transfer them on first access. Additional `17_skip_primary_grad_norm` and `18_skip_primary_clip_ratio` represent the pre-clipping norm of the skip gradient entering the primary network in split mode and a flag indicating threshold exceedance; both are NaN outside split. `19_skip_primary_clip_ratio_ema` is an EMA of the flag in 18 using the default coefficient and is not emitted outside split.
+
+Read evaluation `skip_session_decision_rate`, `skip_session_length_mean`, and `skip_session_length_rate.[j]` through `$eval.[greedy] $actor @session_end`. Actor retains decision counts, selected lengths, and lane-step counts between Sync calls, returning the decision rate, mean length, and per-length proportions. Tags are `21_greedy_decision_rate`, `22_greedy_length_mean`, and `23_greedy_length_rate.[01]` onward, recorded with `runner=train` in training-side coordinates. These are approximate decision-count metrics for sessions with multiple lanes and early termination. GridMaze/LunarLander/DropMerge greedy reward uses `21_eval/09_greedy_reward`; its EMA, episode steps, and maximum steps use `10`–`12`. Atari also uses session name `greedy`, retaining the existing `53_evalg` group and evaluation conditions. See [RFD0103 validation assets](../../src/core/base/testdata/rfd0103/README.md) for numerical examples, shortened Runs, and metric-definition checks.
+
+Evaluation Trace reads a specified lane through `$action_info skip_decision` and `$action_info skip_length`. Length remains the initially selected j during continuation. Each Env's `run.@skip` declares these two columns. Additional `skip_q.[j]` reads the specified lane's Q value for length j: j must be 1..J, out-of-range values are errors, and disabled skip returns NaN. Q columns are not added by default; specify them in the Env or CLI, for example `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1`. The first skip-diagnostic read transfers Q values into the same cache, avoiding per-column synchronization. See [RFD0098 validation assets](../../src/core/base/testdata/rfd0098/README.md) for performance, equivalence across four Envs, and learning verification.
 
 ## 7. Output and Lifetimes
 
@@ -426,20 +485,6 @@ The fixed-pixel and ownership regression tests are in `heat_map_test.cpp`. Succe
 
 - See the [RFD0170 validation assets](../../src/core/base/testdata/rfd0170/README.md) for nn_trace acceptance checks.
 
-### TempoRL Scalars and Trace
-
-Read a variable Actor's limit through `$actor skip_max_length @learn $exp_step` and opt into `50_agent_skip/07_max_length` using the group's configuration keys. The default metric chain does not include it. Full/single/disabled skip return NaN for the recognized key. Single has decision rate and mean length 1, while trace skip_q.[j] still accepts 1..J. Existing 13_sample_k_mean, 14_kmax_mean and 11_loss describe auxiliary windows. See [RFD0104 validation](../../src/core/base/testdata/rfd0104/README.md).
-
-DefaultDQN skip metrics use the `50_agent_skip` group. Selecting `metrics.scalar.@skip` in metrics_scalar.txt records Actor decision_rate, mean length over decision lanes, per-length proportions, and the Q difference between the selected length and j=1, together with Learner loss, mean absolute TD, mean k, mean k_max, and gradient norm before clipping. `skip_length_rate.[j]` uses 1-based indices; an index greater than the declared J fails fast.
-
-Scalar tags may also contain indices. For example, configuration key `metrics.scalar.[50_agent_skip/03_skip_length_rate.[01]]` produces tag `50_agent_skip/03_skip_length_rate.[01]`, retaining the inner closing bracket. Tag indices have two digits, while source-key indices remain `[1]`.
-
-Actor `skip_length_mean`, `skip_length_rate.[j]`, and `skip_q_gap` aggregate only decision lanes and return NaN on steps without decisions. Recognized keys also return NaN when skip is disabled. Payloads are aggregated on device and transferred together to the CPU on first access. Learner results likewise own seven metrics and transfer them on first access. Additional `17_skip_primary_grad_norm` and `18_skip_primary_clip_ratio` represent the pre-clipping norm of the skip gradient entering the primary network in split mode and a flag indicating threshold exceedance; both are NaN outside split. `19_skip_primary_clip_ratio_ema` is an EMA of the flag in 18 using the default coefficient and is not emitted outside split.
-
-Read evaluation `skip_session_decision_rate`, `skip_session_length_mean`, and `skip_session_length_rate.[j]` through `$eval.[greedy] $actor @session_end`. Actor retains decision counts, selected lengths, and lane-step counts between Sync calls, returning the decision rate, mean length, and per-length proportions. Tags are `21_greedy_decision_rate`, `22_greedy_length_mean`, and `23_greedy_length_rate.[01]` onward, recorded with `runner=train` in training-side coordinates. These are approximate decision-count metrics for sessions with multiple lanes and early termination. GridMaze/LunarLander/DropMerge greedy reward uses `21_eval/09_greedy_reward`; its EMA, episode steps, and maximum steps use `10`–`12`. Atari also uses session name `greedy`, retaining the existing `53_evalg` group and evaluation conditions. See [RFD0103 validation assets](../../src/core/base/testdata/rfd0103/README.md) for numerical examples, shortened Runs, and metric-definition checks.
-
-Evaluation Trace reads a specified lane through `$action_info skip_decision` and `$action_info skip_length`. Length remains the initially selected j during continuation. Each Env's `run.@skip` declares these two columns. Additional `skip_q.[j]` reads the specified lane's Q value for length j: j must be 1..J, out-of-range values are errors, and disabled skip returns NaN. Q columns are not added by default; specify them in the Env or CLI, for example `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1`. The first skip-diagnostic read transfers Q values into the same cache, avoiding per-column synchronization. See [RFD0098 validation assets](../../src/core/base/testdata/rfd0098/README.md) for performance, equivalence across four Envs, and learning verification.
-
 - [RFD0094 validation resources](../../src/core/base/testdata/rfd0094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 
 When changing Observers or output formats, check the following:
@@ -467,10 +512,17 @@ See [RFD0158 validation assets](../../src/core/base/testdata/rfd0158/README.md) 
 - [DQN Agents](200_dqn_agents.en.md)
 - [DropMerge Optuna Guide](optuna.md)
 
-### Transition-Value Target `env_step`
 
-`$env_step` reads `TrainEvent.step_result` or `EpisodeEndEvent.step_result`. Scalar train reads all lanes; episode_end reads only done or truncated lanes in ascending order, excluding NaN through the existing mean/std/min/max aggregation. Even when the same Step emits several EpisodeEnd notifications, scalar reading and EMA update occur only once. SHARED reads the lane=-1 batch value once. Trace reads only each notification's env_index and records one row per completed group.
+### ADR
 
-`$env_step` is limited to train/episode_end. Declarations for learn/session_end, which have no result, are rejected at construction. Unknown or nonscalar keys fail fast on first read with tag/key/lane; known unavailable keys yield NaN. Built-in reward/done/truncated and derived or parameterized keys supplied by concrete results use the same target. `$env` reads current Env state, or at session_end the aggregates accumulated by EvalSessionEnv from adopted results.
-
-When moving completion-statistic definitions from train to episode_end, preserve tags, EMA, and explicitly selected step axes. Definition records use target `env_step`. inspect_run also recognizes configuration-derived definitions, and Java Metrics Viewer stores definition JSON without restricting target values. Atari lives is configured as provisional values from all lanes at train, while game statistics are final values at episode_end.
+- [ADR 0028 Bucket-crossing intervals](../adr/0028-interval-fires-on-bucket-crossing.md) — §6.1
+- [ADR 0029 Analysis metadata emitted by Runner](../adr/0029-analysis-metadata-emitted-by-runner.md) — §6.1
+- [ADR 0034 Evaluation session aggregation](../adr/0034-eval-session-aggregation-in-batchenv-decorator.md) — §6.2
+- [ADR 0037 Trace channel and SessionEndEvent](../adr/0037-metrics-trace-channel-and-session-end-event.md) — §6.2
+- [ADR 0043 Episode length in SHARED scope](../adr/0043-episode-steps-shared-scope-is-step-count.md) — §5.1
+- [ADR 0047 Mirror Eval trace subscriptions and row timestamps](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) — §6.2 (trace row timestamps are pending implementation)
+- [ADR 0055 Keyed forward captures](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) — §5.4
+- [ADR 0060 Step results and events for transition values](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) — §6.4
+- [ADR 0070 Evaluation schedule warm-up and offset](../adr/0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md) — §6.1
+- [ADR 0071 WARN and unread configuration keys](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) — §6
+- [ADR 0072 Per-call action-selection inputs](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md) — §5.4

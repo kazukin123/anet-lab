@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:72fb790a109c01adba71f27f2da05e2699744c61 date:2026-11-25 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:119bb14b92b25756e00b9e57f26007600583df7c date:2026-11-27 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -276,6 +276,10 @@ Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `mun
 `MunchausenConfig` declares time-varying values; `MunchausenValues` holds evaluated values. Actor also evaluates γ, α, and entropy_tau at its own `exp_step`, retaining them in `DQNActionInfo`; `To` carries them forward. Forced actions are applied on the same device as the policy output. Step diagnostics obtain these values through existing `GetScalar` calls to compute current hints, returns, and bootstrap discounts. Scheduled γ also retains reward sequences pending completion and matches the γ at bootstrapping.
 
 `$agent` exposes `learning_rate`, `weight_decay`, `soft_update_tau`, `gamma`, `munchausen_alpha`, and `munchausen_entropy_tau`. Checkpoint optimizer-option comparison/override, RewardScaler initialization, and initial-horizon logging use step-0 values. ProfiledValue bounds validate endpoints. Soft updates with spectral normalization allow a constant 1, while all scheduled endpoints must remain in [0,0.1].
+
+The internal `dqn::Learner` sets `needs_return_recompute` for each component when it constructs the shared ReplayBuffer, based on whether that component's discount is constant or scheduled. At sampling time, it reconstructs returns from the stored per-step rewards for scheduled components. Constant components use the returns stored at Push.
+
+For QR and IQN, the priority written back to PER is the absolute difference between the mean current and target quantiles plus `per_eps`. It does not average the absolute errors of individual quantile pairs.
 
 ## 3. Component Definitions
 
@@ -641,7 +645,7 @@ Decomposition or a dynamic extrinsic/intrinsic reward scaler uses version 3 (`De
 
 The version-1/version-2 descriptions below use `intrinsic.enabled=false` as their baseline. Enabled mode also saves and restores the additional section described next.
 
-Intrinsic-enabled DefaultDQN appends `;intrinsic` to the Agent identifier. After the RND identifier and statistics mode, it saves the fixed target, predictor, AdamW state, observation and error statistics, target-output statistics, and scored-observation count. It then saves auxiliary-learning credit, selection RNG state, and success count. Rollout contents and the in-progress learning position are empty on resume. A checkpoint saved with cumulative statistics can be read with the formula that does not divide. See [RND saving and resuming](212_rnd_lifelong_novelty.en.md#97-saving-and-resuming) for the detailed format.
+Intrinsic-enabled DefaultDQN appends `;intrinsic` to the Agent identifier. After the RND identifier and statistics mode, it saves the fixed target, predictor, AdamW state, observation and error statistics, target-output statistics, and scored-observation count. It then saves auxiliary-learning credit, selection RNG state, and success count. The new Run starts with an empty rollout and does not restore the position within auxiliary learning. A checkpoint saved with cumulative statistics can be read with the formula that does not divide. See [RND saving and checkpoint restoration](212_rnd_lifelong_novelty.en.md#97-saving-and-checkpoint-restoration) for the detailed format.
 
 The `split` optimizer adds `primary_skip` to the ordinary four roles, saving the additional optimizer's moments and step. Loading a four-role checkpoint into split initializes the added state and warns once; loading five roles into stop/merge is rejected. After restoration, the additional optimizer also receives current lr, eps, and betas, retaining zero weight decay. Stop/merge save formats are unchanged.
 
@@ -660,7 +664,7 @@ The current DefaultDQN checkpoint does not save or restore:
 - Run StepCounts and metric series
 - Actor-private snapshots, synchronization interval runtime, last sync step, or Actor RNGs
 
-Checkpoint loading therefore transfers the Networks and Optimizer into a new Run rather than fully resuming the old Run. The Config string is read from the archive and logged, but does not replace the current Agent Config. Optimizer moments and step are transferred from the checkpoint, while all options (lr, weight_decay, eps, betas, and amsgrad) for each parameter group are replaced with values built from the current configuration. Each differing option is reported once per Run at INFO with its group, corresponding configuration key, saved value, and configured value; betas and amsgrad have no configuration key, so that field is omitted. Each group also logs the applied lr, weight_decay, and eps at INFO level. Identical settings produce no difference notification. The same rule applies with learner.enabled=false. Network composition and the Optimizer payload must be compatible.
+Checkpoint loading transfers the Networks and Optimizer into a new Run, along with RND, auxiliary-learning state, and the intrinsic and extrinsic reward scalers when configured. The Config string is read from the archive and logged, but does not replace the current Agent Config. Optimizer moments and step are transferred from the checkpoint, while all options (lr, weight_decay, eps, betas, and amsgrad) for each parameter group are replaced with values built from the current configuration. Each differing option is reported once per Run at INFO with its group, corresponding configuration key, saved value, and configured value; betas and amsgrad have no configuration key, so that field is omitted. Each group also logs the applied lr, weight_decay, and eps at INFO level. Identical settings produce no difference notification. The same rule applies with learner.enabled=false. Network composition and the Optimizer payload must be compatible.
 
 `RainbowAgent` currently does not override `Save()` / `Load()` and uses the base Agent's no-op. Do not assume it has the same checkpoint support as DefaultDQN.
 

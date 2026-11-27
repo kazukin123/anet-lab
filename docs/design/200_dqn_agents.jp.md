@@ -170,7 +170,7 @@ flowchart LR
     X["スケール済み外的報酬"] --> R
 ```
 
-UQEが行動選択のscoreを変えるのに対し、RNDは学習する報酬を変える。数式、採点・補助学習の順序、設定、指標、保存再開は[212 RNDによる新しさの評価と内的報酬](212_rnd_lifelong_novelty.jp.md)を参照する。
+UQEが行動選択のscoreを変えるのに対し、RNDは学習する報酬を変える。数式、採点・補助学習の順序、設定、指標、保存と引き継ぎは[212 RNDによる新しさの評価と内的報酬](212_rnd_lifelong_novelty.jp.md)を参照する。
 
 #### 2.1.10 TBO：Q値とtargetの圧縮
 
@@ -641,7 +641,7 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 
 以下の第1版・第2版の説明は `intrinsic.enabled=false` を基準とする。有効時は次の追加節も保存・復元する。
 
-内的報酬が有効な DefaultDQN は、Agent の識別子に `;intrinsic` を付ける。RND の識別子と統計のモードに続けて固定 target、predictor、AdamW の状態、観測と誤差の統計、target 出力の統計、採点観測数を保存する。その後に補助学習の credit、抽選の乱数の状態、成功回数を保存する。rollout の中身と学習途中の位置は再開時に空になる。累積で保存した checkpoint は割らない式で読める。詳しい書式は [RND の保存と再開](212_rnd_lifelong_novelty.jp.md#97-保存と再開) を参照する。
+内的報酬が有効な DefaultDQN は、Agent の識別子に `;intrinsic` を付ける。RND の識別子と統計のモードに続けて固定 target、predictor、AdamW の状態、観測と誤差の統計、target 出力の統計、採点観測数を保存する。その後に補助学習の credit、抽選の乱数の状態、成功回数を保存する。引き継ぎ直後は rollout が空で、学習途中の位置は引き継がない。累積で保存した checkpoint は割らない式で読める。詳しい書式は [RND の保存と引き継ぎ](212_rnd_lifelong_novelty.jp.md#97-保存と引き継ぎ) を参照する。
 
 `split`のoptimizerは通常の4役割に`primary_skip`を加え、追加optimizerのmoment・stepを保存する。4役割のcheckpointからsplitへは追加状態を初期化して一度WARNし、5役割からstop／mergeへの読込は拒否する。復元後は追加optimizerにも現在のlr・eps・betasを適用し、weight decayは0に保つ。stop／mergeの保存形式は変更しない。
 
@@ -660,7 +660,7 @@ skip 無効の checkpoint は従来の header と2 Network・optimizer の形式
 - RunのStepCountsとmetric系列
 - Actor-private snapshot、同期周期runtime、last sync step、Actor RNG
 
-したがってcheckpoint読込は旧Runの完全再開ではなく、新しいRunへNetworkとOptimizerを引き継ぐ操作である。Config文字列はarchiveから読み取ってlogへ出すが、現在のAgent Configを置換しない。Optimizer の moment と step は checkpoint から引き継ぎ、各 param group の options（lr、weight_decay、eps、betas、amsgrad）は現在の設定から生成した値で置き換える。checkpoint と異なる項目は group・対応する設定キー・保存値・設定値をRunに1回INFOへ出し、適用後の lr・weight_decay・eps は group ごとに INFO へ出す。設定キーのない betas・amsgrad はキー表記を省く。同一設定なら差分の通知は出ない。learner.enabled=false でも同じ規則を適用する。Network構成とOptimizer payloadが互換である必要がある。
+checkpoint の読み込みでは、新しい Run に Network と Optimizer を引き継ぎ、構成に応じて RND 本体、補助学習の状態、内的・外的報酬スケーラも引き継ぐ。Config文字列はarchiveから読み取ってlogへ出すが、現在のAgent Configを置換しない。Optimizer の moment と step は checkpoint から引き継ぎ、各 param group の options（lr、weight_decay、eps、betas、amsgrad）は現在の設定から生成した値で置き換える。checkpoint と異なる項目は group・対応する設定キー・保存値・設定値をRunに1回INFOへ出し、適用後の lr・weight_decay・eps は group ごとに INFO へ出す。設定キーのない betas・amsgrad はキー表記を省く。同一設定なら差分の通知は出ない。learner.enabled=false でも同じ規則を適用する。Network構成とOptimizer payloadが互換である必要がある。
 
 `RainbowAgent`は現行コードで独自の`Save()` / `Load()`をoverrideせず、基底Agentのno-opを使う。DefaultDQNと同じcheckpoint対応があると仮定しない。
 
@@ -822,7 +822,7 @@ captureへ`TransformerEncoder/attention_entropy/`を要求し、実行順の各m
 
 TD・QR・IQN の更新の進行、Munchausen の評価、Bellmanターゲットの組み立てを変えるときは、[RFD0125 検証資材](../../src/core/base/testdata/rfd0125/README.md)の基準保存、31 組と BF16 の前後比較、target の式の数値検査、Release の性能比較を確認する。
 
-内的報酬の倍率・補助学習・保存再開・無効時の同一性・設定群・smoke は [RFD0116 検証資材](../../src/core/base/testdata/rfd0116/README.md)を参照する。性能測定は他の Run と競合しない条件で別途行う。
+内的報酬の倍率・補助学習・保存と引き継ぎ・無効時の同一性・設定群・smoke は [RFD0116 検証資材](../../src/core/base/testdata/rfd0116/README.md)を参照する。性能測定は他の Run と競合しない条件で別途行う。
 
 Actorのskip側のNN実行設定、既定7構成の完全一致、4 env×既定/skipの全キー比較とqbertの評価による切り分けは[RFD0106検証資材](../../src/core/base/testdata/rfd0106/README.md)を参照する。
 
