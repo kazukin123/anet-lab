@@ -27,6 +27,7 @@
 | anet-list-issues | 本版の課題を依存と WSJF で並べ、棚卸しと束ねる提案を示す。記録は変えない | `$anet-list-issues`、`$anet-list-issues 束ね max=5` | 報告 |
 | anet-update-issue | 指示された状態・監理項目、AI の判定、工程の出来事に合わせた解決以外の状態を更新し、一覧を作り直して書式を検証する | `$anet-update-issue` | `docs/management/issues/`、INDEX、wiki の課題区画 |
 | anet-impl-rfd | RFD と現行実装を照合し、実装計画を保存して実装・検証する。自己点検、レビューと差し戻し対応を行い、未決を示して停止する | `/anet-impl-rfd 0013_sample_prefetch_10rfd.md` | `docs/memo/*_2ximpl.md`、`docs/management/issues/`、計画に従うコード・テスト・設定・文書 |
+| anet-merge-branch | main を取り込むときの衝突を一覧にし、開発者が承認したあとにブランチのワークツリーで解く | `$anet-merge-branch feature/20261125-ppo`、`/anet-merge-branch feature/20261125-ppo` | 衝突一覧と検証結果、ブランチの作業ツリーと Git index、題材の課題の対応内容 |
 | anet-review | 成果物(RFD、実装計画、RFD の無い変更を含む実装)をレビューエージェント `anet-review-agent` に出し、応答を平易に言い直して示す。指摘があれば修正・再レビューの選択肢を出し、選ばれたときだけ対応する。引数が無ければ、その会話で変更したファイルが対象。明示起動のみ | `/anet-review`、`$anet-review 0087_review_agent_quality_viewpoints_10rfd.md` | 報告(応答の原文は毎回 `.scratch/` に保存する。実装のレビューでは差分も `.scratch/` に書き出す)。選ばれたときは対象の修正と再レビュー |
 | anet-improve | この会話の手戻りからハーネスの改善策を選んで反映し、RFD 送りと採らなかった問題を issue へ記録する | `$anet-improve` | ハーネスの変更先、`.scratch/anet-improve/`、`docs/management/issues/`、派生一覧 |
 

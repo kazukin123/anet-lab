@@ -678,13 +678,39 @@ RENUMBER_PREFIX = re.compile(r'^> \d{4}-\d{2}-\d{2} 番号を')
 RENUMBER_LINES = (re.compile(r'^> (\d{4}-\d{2}-\d{2}) 番号を (\d{4}) から (\d{4}) へ振り直した（RFD\d{4}）。$'),
                   re.compile(r'^> (\d{4}-\d{2}-\d{2}) 番号を (\d{3}) から (\d{3}) へ振り直した（PRD\d{3}）。$'))
 RENUMBER_FORMAT = ('"> YYYY-MM-DD 番号を NNNN から NNNN へ振り直した（RFDNNNN）。" '
-                   'or the form before RFD0195 "> YYYY-MM-DD 番号を NNN から NNN へ振り直した（PRDNNN）。"')
+                   'or the form before RFD0195 "> YYYY-MM-DD 番号を NNN から NNN へ振り直した（PRDNNN）。"; '
+                   'optional suffix: " 旧い番号のコミット: <prefix>・<prefix>。"')
+RENUMBER_COMMITS = re.compile(r'[0-9a-f]{4,40}(?:・[0-9a-f]{4,40})*。')
 
 
-def renumber_declarations(root):
-    # RFD の題のあと最初の見出しまでにある振り直しの行を読み、(旧い番号, 振り直した日, RFD のパス) を返す（RFD0131 D7・§5.3）。
+def named_renumber_commits(suffix, history, old, day, location):
+    # 先に行の形を検査し、次に名指しごとに履歴の当て先と日付・件名を確かめる。
+    if not RENUMBER_COMMITS.fullmatch(suffix):
+        raise ValueError(f'{location}: expected one or more commit prefixes of 4–40 lowercase hex digits '
+                         f'separated by ・ and followed by 。; got {suffix!r}')
+    prefixes = suffix.removesuffix('。').split('・')
+    if len(prefixes) != len(set(prefixes)):
+        raise ValueError(f'{location}: duplicate commit prefix in {suffix!r}')
+    for prefix in prefixes:
+        matches = [(commit, date, subject) for commit, date, subject, _ in history if commit.startswith(prefix)]
+        if not matches:
+            raise ValueError(f'{location}: commit prefix {prefix!r} is not in the history read by maps')
+        if len(matches) > 1:
+            raise ValueError(f'{location}: commit prefix {prefix!r} matches multiple commits')
+        commit, date, subject = matches[0]
+        if date > day:
+            raise ValueError(f'{location}: commit {prefix} author date {date} is after the renumber date {day}')
+        if old not in subject_rfd_numbers(subject):
+            raise ValueError(f'{location}: commit {prefix} does not mention RFD{old} in its subject')
+        yield commit
+
+
+def renumber_declarations(root, history):
+    # RFD の題のあと最初の見出しまでにある振り直しの行を読む（RFD0131 D7・§5.3、RFD0204）。
     root = Path(root)
     result = []
+    named = {}
+    owners = {}
     for path in sorted((root/'docs/memo').rglob('*_10rfd.md')):
         name = path.relative_to(root).as_posix()
         # 1 行目は題。本文やコードの枠に書いた日付の例を読まないよう、最初の見出しで止める。
@@ -694,37 +720,56 @@ def renumber_declarations(root):
                 break
             if not RENUMBER_PREFIX.match(line):
                 continue
-            match = next((m for m in (p.match(line) for p in RENUMBER_LINES) if m), None)
+            base, marker, suffix = line.partition(' 旧い番号のコミット: ')
+            match = next((m for m in (p.match(base) for p in RENUMBER_LINES) if m), None)
             if not match:
                 raise ValueError(f'{name}:{number}: renumber line={line!r}; expected {RENUMBER_FORMAT}')
             # 番号は形によらず値で比べるので、0 埋めの 4 桁にそろえて持つ。
-            lines.append((match[1], f'{int(match[2]):04d}', f'{int(match[3]):04d}', number))
+            lines.append((match[1], f'{int(match[2]):04d}', f'{int(match[3]):04d}', number,
+                          suffix if marker else None))
         # 1 つの RFD の振り直しは、日付の順に旧い番号から新しい番号へつながり、最後がファイルの番号になる。
         seen = set()
-        for day, _, _, number in lines:
+        for day, _, _, number, _ in lines:
             if day in seen:
                 raise ValueError(f'{name}:{number}: renumber date={day}; expected one renumber line per date')
             seen.add(day)
         chain = sorted(lines)
-        for (_, _, new, _), (_, old, _, number) in zip(chain, chain[1:]):
+        for (_, _, new, _, _), (_, old, _, number, _) in zip(chain, chain[1:]):
             if old != new:
                 raise ValueError(f'{name}:{number}: renumber from {old}; expected from {new} (the previous renumber line)')
         if chain and chain[-1][2] != path.name[:4]:
             raise ValueError(f'{name}:{chain[-1][3]}: renumber to {chain[-1][2]}; expected the file number {path.name[:4]}')
-        result.extend((old, day, path) for day, old, _, _ in lines)
-    return result
+        # 日付で当てる従来の行と、コミットを名指す行を分けて持つ。
+        for day, old, _, number, suffix in lines:
+            if suffix is None:
+                result.append((old, day, path))
+                continue
+            location = f'{name}:{number}'
+            for commit in named_renumber_commits(suffix, history, old, day, location):
+                owner = owners.setdefault(commit, name)
+                if owner != name:
+                    raise ValueError(f'{location}: commit {commit} is already named by {owner}')
+                named[commit, old] = path
+    return result, named
 
 
 def commit_history(root):
-    # 全コミットの日付・件名と、触ったファイルを今のパスで返す。改名をたどるので、ファイルを移したあとも、
+    # 全コミットのハッシュ・日付・件名と、触ったファイルを今のパスで返す。改名をたどるので、ファイルを移したあとも、
     # 移す前のコミットが今のパスに当たる（RFD0182 でソースを src/ へ移したあとも、RFD の一覧に移す前の RFD を残す）。
+    # ワークツリー自身の MERGE_HEAD を読み、コミット前にもマージの両親の履歴をたどる。
+    merge_head = Path(root) / git(root, 'rev-parse', '--git-path', 'MERGE_HEAD').rstrip('\r\n')
+    try:
+        merge_parents = merge_head.read_text(encoding='ascii').splitlines()
+    except FileNotFoundError:
+        merge_parents = []
     # Git は新しい順に出すので、改名を見るたびに、それより古いコミットの旧いパスを今のパスへ写す。
-    log = git(root, 'log', '-M', '--name-status', '-z', '--date=short', '--format=%x01%ad%x09%s')
+    log = git(root, 'log', '-M', '--no-diff-merges', '--name-status', '-z', '--date=short',
+              '--format=%x01%H%x09%ad%x09%s', 'HEAD', *merge_parents, '--')
     current = {}
     history = []
     for chunk in log.split('\x01')[1:]:
         header, _, body = chunk.partition('\0')
-        date, _, subject = header.partition('\t')
+        commit, date, subject = header.split('\t', 2)
         tokens = body.split('\0')
         touched = set()
         i = 0
@@ -743,32 +788,36 @@ def commit_history(root):
                 i += 2
             else:
                 break
-        history.append((date, subject, touched))
+        history.append((commit, date, subject, touched))
     return history
 
 
 def rfd_rows(root, page, files, pending=None, declarations=None, history=None):
-    # 件名の番号はコミットの日付と組で持つ（振り直しの行の日付と比べるため）。
+    # 件名の番号を日付とハッシュと組にして、同日の同じ番号でも名指しの有無を区別する。
     import datetime
     import os
     if history is None:
         history = commit_history(root)
     page_files = set(files)
     mentions = set()
-    for date, subject, touched in history:
+    for commit, date, subject, touched in history:
         if touched & page_files:
-            mentions.update((number, date) for number in subject_rfd_numbers(subject))
+            mentions.update((number, date, commit) for number in subject_rfd_numbers(subject))
     # これから作るコミットも、触るファイルがページに当たれば履歴と同じに数える。日付は道具を回した日とする。
-    if pending and pending['files'] & set(files):
+    if pending and pending['files'] & page_files:
         today = datetime.date.today().isoformat()
-        mentions.update((number, today) for number in subject_rfd_numbers(pending['subject']))
+        mentions.update((number, today, '') for number in subject_rfd_numbers(pending['subject']))
     if declarations is None:
-        declarations = renumber_declarations(root)
-    # 番号と日付の組を RFD に当てる。振り直しの行が先で、無ければファイル名の番号で探す（RFD0131 §5.3）。
+        declarations = renumber_declarations(root, history)
+    dated, named = declarations
+    # 名指し、従来の振り直しの行、ファイル名の番号の順に RFD を探す。
     sources = set()
     unresolved_counts = {}
-    for number, date in sorted(mentions):
-        declared = sorted({path for old, day, path in declarations if old == number and day >= date})
+    for number, date, commit in sorted(mentions):
+        if (commit, number) in named:
+            sources.add(named[commit, number])
+            continue
+        declared = sorted({path for old, day, path in dated if old == number and day >= date})
         matches = declared or sorted((Path(root)/'docs/memo').rglob(number+'_*_10rfd.md'))
         if len(matches) == 1:
             sources.add(matches[0])
@@ -1096,10 +1145,9 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
                if pending_subject else None)
     rules = CategoryRules(root)
     records = issue_order(issue_records(root))
-    # RFD の振り直しの行は全ページで同じなので、書く前に 1 回だけ読んで検査する（崩れていれば何も書かずに止まる）。
-    declarations = renumber_declarations(root)
-    # 履歴も全ページで同じなので、1 回だけ読む。
+    # 履歴と RFD の振り直しの行は全ページで共通。先に読んで照合し、誤りがあれば書く前に止まる。
     history = commit_history(root)
+    declarations = renumber_declarations(root, history)
     index = root/'docs/management/issues/INDEX.md'
     current = [r for r in records if r['status'] not in ('次版','解決')]
     index_text = ('# 課題の一覧\n\n道具が作り直す。手で直さない。既定は本版（次版・解決を除く）。\n\n'+issue_table(root,index,current)+'\n\n'

@@ -53,6 +53,7 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 | 設計文書・ユーザーガイドを書く・直す | [実装 レビュー観点](docs/quality/impl.md)の「検証と報告」 |
 | `AGENTS.md`・レビュー観点・プロセス契約とレジストリ・エージェント定義(`.claude/agents/`・`.codex/agents/`)を書く・直す、直し方の案を出す | [実装 レビュー観点](docs/quality/impl.md)の「検証と報告」と、直すレビュー観点のファイルの「位置づけ」。プロセス契約とレビューエージェントの定義を直す案では、[レジストリ](docs/process/registry.md)の「読み替え表」の前文 |
 | skill を書く・直す | [実装 レビュー観点](docs/quality/impl.md)の「skill」と、[skills README](.agents/skills/README.md) |
+| ブランチを取り込む・マージの衝突を解く | [anet-merge-branch](.agents/skills/anet-merge-branch/SKILL.md) の「区画ごとに解く」の表 |
 | Runner を起動する（smoke・Run を流す、bat を書く・直す） | [Run実行ユーザーガイド](docs/design/020_user_guide_run.jp.md)の「最初に確認する設定」「確認方法とよくあるエラー」「標準起動」 |
 
 - 先に読むものは、書く前か起動する前に読み、読んだ節の名前を応答に 1 行で示す。直し方の案を出すときは、案を示す応答の前に読み、その応答に 1 行を置く。
@@ -231,7 +232,7 @@ LLM がコードを書く際に起こしやすい失敗を減らすための行�
 
 Git staging（`git add`）、commit、push は人間が実施する。
 AI エージェントは `git add`、`git commit`、`git push` を実行せず、必要に応じて対象ファイル、commit message 案、検証結果を提示して人間の操作を支援する。
-例外は、`anet-prepare-commit` の中でユーザーが「ステージする」を選んだときの `git add` と部分 stage（`git apply --cached` と、課題の管理外のメモを載せる `reports/tools/stage_issue_memos.py --stage`）だけである。commit と push に例外は無い。
+例外は、`anet-prepare-commit` の中でユーザーが「ステージする」を選んだときの `git add` と部分 stage（`git apply --cached` と、課題の管理外のメモを載せる `reports/tools/stage_issue_memos.py --stage`）、および `anet-merge-branch` の中で開発者が計画を承認したあとに行う `git merge --no-commit --no-ff`、開発者が中止を選んだときの `git merge --abort`、解いたファイルの `git add` である。commit と push に例外は無い。
 
 commit message は Conventional Commits 形式を適用し、Topic Issue 番号を併記する。次の書き方は AI エージェントが出す案の決まりで、人間が手で書く commit message を縛らない。
 

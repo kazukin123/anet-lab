@@ -20,9 +20,12 @@ class WikiSupportTest(unittest.TestCase):
         # 全Git呼出しに専用indexを継承させ、HEADのtreeで初期化する。
         temp=tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        env=patch.dict(os.environ,{'GIT_INDEX_FILE':str(Path(temp.name)/'index')})
-        env.start()
-        self.addCleanup(env.stop)
+        prior_index = os.environ.get('GIT_INDEX_FILE')
+        os.environ['GIT_INDEX_FILE'] = str(Path(temp.name)/'index')
+        if prior_index is None:
+            self.addCleanup(os.environ.pop, 'GIT_INDEX_FILE', None)
+        else:
+            self.addCleanup(os.environ.__setitem__, 'GIT_INDEX_FILE', prior_index)
         subprocess.run(['git','read-tree','HEAD'],cwd=REPO,check=True,capture_output=True)
 
     def test_scan_reports_untracked_material_without_writing(self):
@@ -183,6 +186,8 @@ class WikiSupportTest(unittest.TestCase):
                 # 履歴は外部境界のGitだけ差し替える。本文生成と全ページ更新を通す。
                 # 件名は RFD0195 より前の scope の形（PRDnnn）で書き、旧い記号の番号も解決できない番号として報告することを見る。
                 def history(_root,*args):
+                    if args[0]=='rev-parse':
+                        return '.git/MERGE_HEAD\n'
                     return (self.log_output([('2026-11-01',f'feat(PRD{number}): probe')],
                                             ['src/apps/runner/src/Rfd0095Probe.cpp','apps/tools/rfd0095_probe.py'])
                             if args[0]=='log' else
@@ -219,6 +224,8 @@ class WikiSupportTest(unittest.TestCase):
             self.material(root,'apps/tools/rfd0095_probe.py','# probe')
             # 履歴は空。予定のコミットだけが RFD 番号を持つ。
             def history(_root,*args):
+                if args[0]=='rev-parse':
+                    return '.git/MERGE_HEAD\n'
                 return ('' if args[0]=='log' else
                         'src/apps/runner/src/Rfd0095Probe.cpp\0apps/tools/rfd0095_probe.py\0')
             with patch.object(helper,'git',side_effect=history):
@@ -252,16 +259,20 @@ class WikiSupportTest(unittest.TestCase):
         return helper,root,page
 
     @staticmethod
-    def log_output(commits, files):
+    def log_output(commits, files, hashes=()):
         # git log -M --name-status -z の出力の形を作る。どのコミットも files を変えたことにする。
-        return ''.join('\x01'+date+'\t'+subject+'\0\n'+''.join('M\0'+f+'\0' for f in files)
-                       for date, subject in commits)
+        if not hashes:
+            hashes = [f'{index:040x}' for index in range(len(commits))]
+        return ''.join('\x01'+commit+'\t'+date+'\t'+subject+'\0\n'+''.join('M\0'+f+'\0' for f in files)
+                       for commit, (date, subject) in zip(hashes, commits, strict=True))
 
-    def renumber_maps(self, helper, root, history, pending=None):
+    def renumber_maps(self, helper, root, history, pending=None, hashes=()):
         # 履歴は外部境界の Git だけを差し替え、日付と件名の組の行を、プローブのファイルを変えたコミットとして返す。
         commits=[tuple(line.split('\t',1)) for line in history.splitlines() if line]
-        log=self.log_output(commits,['src/apps/runner/src/Rfd0131Probe.cpp'])
+        log=self.log_output(commits,['src/apps/runner/src/Rfd0131Probe.cpp'],hashes)
         def git(_root,*args):
+            if args[0]=='rev-parse':
+                return '.git/MERGE_HEAD\n'
             return (log if args[0]=='log' else 'src/apps/runner/src/Rfd0131Probe.cpp\0')
         with patch.object(helper,'git',side_effect=git):
             if pending:
@@ -333,11 +344,13 @@ class WikiSupportTest(unittest.TestCase):
             'docs/memo/0046_old_probe_10rfd.md':'# old probe\n',
             'docs/memo/0182_move_probe_10rfd.md':'# move probe\n',
             'docs/memo/0045_other_probe_10rfd.md':'# other probe\n'})
-        log=('\x012026-11-19\trefactor(build): move。 RFD0182 #6\0\n'
+        log=('\x01'+'a'*40+'\t2026-11-19\trefactor(build): move。 RFD0182 #6\0\n'
              'R100\0core/runner/Rfd0131Probe.cpp\0src/apps/runner/src/Rfd0131Probe.cpp\0'
-             '\x012026-10-01\tfeat(RunnerApp): old。 RFD0046 #3\0\nM\0core/runner/Rfd0131Probe.cpp\0'
-             '\x012026-09-01\tfeat(RunnerApp): other。 RFD0045 #3\0\nM\0core/other/Other.cpp\0')
+             '\x01'+'b'*40+'\t2026-10-01\tfeat(RunnerApp): old。 RFD0046 #3\0\nM\0core/runner/Rfd0131Probe.cpp\0'
+             '\x01'+'c'*40+'\t2026-09-01\tfeat(RunnerApp): other。 RFD0045 #3\0\nM\0core/other/Other.cpp\0')
         def git(_root,*args):
+            if args[0]=='rev-parse':
+                return '.git/MERGE_HEAD\n'
             return log if args[0]=='log' else 'src/apps/runner/src/Rfd0131Probe.cpp\0'
         with patch.object(helper,'git',side_effect=git):
             result=helper.regenerate_maps(root)
@@ -357,6 +370,110 @@ class WikiSupportTest(unittest.TestCase):
         text=(root/page).read_text(encoding='utf-8')
         self.assertIn('- [RFD0158](../../../memo/0158_eval_probe_10rfd.md) — RFD0158: eval probe',text)
         self.assertNotIn('RFD0997',text)
+
+    def test_maps_route_commits_that_used_the_same_rfd_number(self):
+        # 同じ日付・旧番号のコミットを別々のページに載せ、それぞれの当て先を確かめる。
+        helper,root,page=self.renumber_root({
+            'docs/memo/0202_main_probe_10rfd.md':'# main RFD\n',
+            'docs/memo/0208_branch_probe_10rfd.md':
+                '# branch RFD\n\n> 2026-11-27 番号を 0202 から 0208 へ振り直した（RFD0204）。'
+                ' 旧い番号のコミット: eeeeeeee。\n'})
+        tools_page='docs/wiki/concepts/framework/311_dev_tools.md'
+        main_file='apps/tools/rfd0204_probe.py'
+        branch_file='src/apps/runner/src/Rfd0131Probe.cpp'
+        self.material(root,tools_page,(root/page).read_text(encoding='utf-8'))
+        self.material(root,main_file,'# main')
+        log=(self.log_output([('2026-11-27','feat(RunnerApp): main。 RFD0202 #3')],[main_file],['a'*40])
+             + self.log_output([('2026-11-27','feat(RunnerApp): branch。 RFD0202 #3')],[branch_file],['e'*40]))
+        git_outputs={'rev-parse':'.git/MERGE_HEAD\n','log':log,'ls-files':main_file+'\0'+branch_file+'\0'}
+        with patch.object(helper,'git',side_effect=lambda _root,*args:git_outputs[args[0]]):
+            result=helper.regenerate_maps(root)
+        self.assertEqual(result['unresolved_rfds'],[])
+        branch_text=(root/page).read_text(encoding='utf-8')
+        main_text=(root/tools_page).read_text(encoding='utf-8')
+        self.assertIn('- [RFD0208](../../../memo/0208_branch_probe_10rfd.md) — branch RFD',branch_text)
+        self.assertNotIn('[RFD0202]',branch_text)
+        self.assertIn('- [RFD0202](../../../memo/0202_main_probe_10rfd.md) — main RFD',main_text)
+        self.assertNotIn('[RFD0208]',main_text)
+
+    def test_maps_stop_before_writing_on_invalid_named_commits(self):
+        # 日付・件名・ハッシュを揃え、名指しの各誤りだけを変えて停止を確かめる。
+        branch='docs/memo/0208_branch_probe_10rfd.md'
+        second='docs/memo/0209_second_probe_10rfd.md'
+        line='> 2026-11-27 番号を 0202 から 0208 へ振り直した（RFD0204）。 旧い番号のコミット: '
+        history=('2026-11-27\tfeat(RunnerApp): branch。 RFD0202 #3\n'
+                 '2026-11-27\tfeat(RunnerApp): other。 RFD0203 #3\n'
+                 '2026-11-28\tfeat(RunnerApp): later。 RFD0202 #3\n')
+        hashes=('abcda'+'0'*35,'abcdb'+'0'*35,'c'*40)
+        cases=(
+            ('。', {}, branch, 'expected one or more commit prefixes'),
+            ('ABCDa000。', {}, branch, 'expected one or more commit prefixes'),
+            ('abcda000・abcda000。', {}, branch, 'duplicate commit prefix'),
+            ('abcd。', {}, branch, 'matches multiple commits'),
+            ('dddddddd。', {}, branch, 'not in the history read by maps'),
+            ('cccccccc。', {}, branch, 'after the renumber date'),
+            ('abcdb000。', {}, branch, 'does not mention RFD0202'),
+            ('abcda000。', {second:'# another RFD\n\n'+line.replace('0208','0209')+'abcda0000。\n'},
+             second, 'already named by '+branch),
+        )
+        for suffix, extra, error_path, expected in cases:
+            with self.subTest(suffix=suffix,expected=expected):
+                helper,root,page=self.renumber_root({branch:'# branch\n\n'+line+suffix+'\n', **extra})
+                with self.assertRaises(ValueError) as caught:
+                    self.renumber_maps(helper,root,history,hashes=hashes)
+                self.assertIn(error_path+':3:',str(caught.exception))
+                self.assertIn(expected,str(caught.exception))
+                self.assertIn('old',(root/page).read_text(encoding='utf-8'))
+                self.assertFalse((root/'docs/management/issues/INDEX.md').exists())
+
+    def test_maps_read_both_merge_parents_before_the_merge_commit(self):
+        # 一時リポジトリで履歴を分け、同じページに別々の RFD を足す両側の履歴を作る。
+        _,root,page=self.renumber_root({
+            'docs/memo/0204_main_probe_10rfd.md':'# main RFD\n',
+            'docs/memo/0208_branch_probe_10rfd.md':'# branch RFD\n',
+        })
+        env = os.environ.copy()
+        env.pop('GIT_INDEX_FILE', None)
+        env.update(GIT_AUTHOR_NAME='Test', GIT_AUTHOR_EMAIL='test@example.test',
+                   GIT_COMMITTER_NAME='Test', GIT_COMMITTER_EMAIL='test@example.test')
+
+        def git_fixture(*args):
+            subprocess.run(['git', '-c', 'core.hooksPath='+str(root/'no-hooks'),
+                            '-c', 'commit.gpgsign=false', *args],
+                           cwd=root, env=env, check=True, capture_output=True)
+
+        def maps_fixture():
+            result = subprocess.run([sys.executable, '-B', str(HELPER), 'maps'],
+                                    cwd=root, env=env, check=True, capture_output=True, encoding='utf-8')
+            return json.loads(result.stdout)
+
+        git_fixture('init', '-b', 'feature')
+        git_fixture('add', '--', '.')
+        git_fixture('commit', '-m', 'Initial fixture')
+        git_fixture('branch', 'main')
+        self.material(root,'src/apps/runner/src/BranchProbe.cpp','// branch')
+        git_fixture('add', '--', 'src/apps/runner/src/BranchProbe.cpp')
+        git_fixture('commit', '-m', 'feat(RunnerApp): branch. RFD0208 #3')
+        git_fixture('switch', 'main')
+        self.material(root,'src/apps/runner/src/MainProbe.cpp','// main')
+        git_fixture('add', '--', 'src/apps/runner/src/MainProbe.cpp')
+        git_fixture('commit', '-m', 'feat(RunnerApp): main. RFD0204 #3')
+        git_fixture('switch', 'feature')
+
+        # マージ中の一覧が、通常時の片側の一覧とも、コミット後の一覧とも比べられるようにする。
+        maps_fixture()
+        branch_only=(root/page).read_bytes()
+        self.assertIn(b'[RFD0208]',branch_only)
+        self.assertNotIn(b'[RFD0204]',branch_only)
+        git_fixture('merge','--no-commit','--no-ff','main')
+        maps_fixture()
+        before=(root/page).read_bytes()
+        self.assertIn(b'[RFD0204]',before)
+        self.assertIn(b'[RFD0208]',before)
+        git_fixture('commit','-m','Merge main into feature')
+        result=maps_fixture()
+        self.assertEqual(result['updated'],[])
+        self.assertEqual((root/page).read_bytes(),before)
 
     def test_maps_merge_old_and_new_numbers_of_one_rfd(self):
         # 今の番号と旧い番号で同じ RFD に当たったら、1 行にまとめる。

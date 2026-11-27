@@ -326,6 +326,7 @@ updated: 2026-11-27
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 - [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md) — RFD0202: wiki に知見を積み上げ、引けるようにする（資料ごとのサマリ、問いで分けた概念のページ、横断的知見と見立て、会話からの書き込み）RFD
 - [RFD0203](../../../memo/0203_wiki_page_yaml_header_10rfd.md) — RFD0203: wiki のページに YAML ヘッダを付け、Obsidian で一覧にする RFD
+- [RFD0204](../../../memo/0204_branch_merge_conflict_assist_10rfd.md) — RFD0204: ブランチを main へ取り込むときの衝突を、両側の内容と文脈を読んで解く支援の RFD
 
 ## 課題
 
@@ -339,7 +340,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261125-822a3e](../../../management/issues/issue-20261125-822a3e.md) | 対応中 | 1.6（引継ぎ） | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md) | 残件有り | wiki に知見が積み上がりにくく、引きにくい（質疑の答えを残す経路、題材をまたぐ知見、サーベイと公開実装の事例、「今の結論」と目録の長さ） |
 | [issue-20261123-2cda10](../../../management/issues/issue-20261123-2cda10.md) | 調査中 | 1.5 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | レビューの出し方（2 モデルのクロスレビューを使うか、Claude 側を API とサブスクのどちらで動かすか、どのモデルを使うか）を切り替える設定が無く、そのたびに個人の CLAUDE.md・AGENTS.md・スキル・スクリプトの文面を書き換えている |
 | [issue-20261104-52ffba](../../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた RFD の「実装済み」の時機ほか） |
-| [issue-20261126-56483f](../../../management/issues/issue-20261126-56483f.md) | 調査中 | 1.3 | — | ハーネス | その他 | 311_dev_tools | 開発 | 機能追加 | [RFD0204](../../../memo/0204_branch_merge_conflict_assist_10rfd.md) | 未確認 | ブランチをまたぐマージの衝突（番号の重なり・wiki の追記・生成物）を、両側の内容と文脈を読んで解く AI の支援が無い |
+| [issue-20261126-56483f](../../../management/issues/issue-20261126-56483f.md) | 対応中 | 1.3 | — | ハーネス | その他 | 311_dev_tools | 開発 | 機能追加 | [RFD0204](../../../memo/0204_branch_merge_conflict_assist_10rfd.md) | 残件有り | ブランチをまたぐマージの衝突（番号の重なり・wiki の追記・生成物）を、両側の内容と文脈を読んで解く AI の支援が無い |
 | [issue-20261103-955e50](../../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | RFD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [RFD0081](../../../memo/0081_evalpanel_episode_trace_10rfd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261103-23d185](../../../management/issues/issue-20261103-23d185.md) | 対応中 | 0.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0187](../../../memo/0187_issue_list_views_10rfd.md) | 残件有り | issue の一覧の見せ方（依存のツリー、スプレッドシート、見やすい表） |
 | [issue-20261122-4adabb](../../../management/issues/issue-20261122-4adabb.md) | 未着手 | 4.0 | — | コード | 実装 | 311_dev_tools, 316_config | 開発 | 不具合 | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 残件有り | RFD0072 の既定葉検査が移転前の core を探索して停止する |
