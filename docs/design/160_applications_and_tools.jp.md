@@ -411,6 +411,7 @@ sequenceDiagram
 - wikiは外の正本を束ね、書く部分の意味はエージェントが判断する。材料・取り込み・記録は[wikiの規約](../wiki/README.md)に従う。 資料ごとのサマリには要約時の blob を記録し、概念のページは元の資料を直接引く。
 - 課題の正本はdocs/management/issues/の単票。解決・次版の状態と監理の項目は人が決め、それ以外の状態はグリルの開始や実装計画の保存などの工程の出来事に合わせてAIが書く。AIの判定は別の欄で持ち、判定が済みを示す課題の解決はコミットの準備で持ちかける。課題は種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）と分類（domain）を持ち、rfd欄でその課題を直すRFDを1本だけ指す（課題とRFDはN:1）。parent・depends・rfdはObsidianのリンクで書く。新しいRFDは直下に保持し、rfdでそれを指す課題を1件以上伴う。
 - reports/tools/wiki_support.pyのscanは読み取りだけで材料・blob・リンクと実装済みのRFDの取り込み漏れを返す。サマリがない場合や「元の材料」の blob が現在と合わない場合も pending に含める。原本が消えたサマリ、書式の不備、外から wiki へ入るリンク切れは warnings に挙げ、警告だけでは点検を開始しない。RFDの実装済みは、そのRFDを指す課題の判定と状態から導き（解決の課題は済みとして数え、次版・対応しない・不要になったの課題が残るRFDは実装済みにしない）、取り込み済みかはパスとblobで突き合わせる。mapsはINDEX（表のあとの解決待ち・再開候補・課題の無いRFD・対応内容のある未着手の課題を含む）、トピック別まとめのファイル・RFD一覧と課題の目印の間を作り直す。全入力と目印の検証が済むまで出力せず、区画外とwikiログは保つ。RFD一覧はファイルに触れたコミットの件名から作るので、コミットの準備は予定のコミットの件名と対象ファイル（`--pending-subject`・`--pending-files`）を渡し、そのコミットの行を同じコミットに入れる。
+- reports/tools/chat_utterances.pyは、会話の記録（Claude CodeとCodexの`*.jsonl`）から、開発者の発言の行だけを、語か期間（日本時間の日付で、両端の日を含む）で引く。読み取りだけで、発言ごとに日付・会話の識別子・次の発言までにAIが道具を使った回数を添え、最後に、どちらの形にも当たらず飛ばしたファイルと壊れた行の数を出す。道具の結果、環境が差し込んだ行、通知、サブエージェントの会話は返さない。質問欄への返答と、人の操作でない起動の会話（Codex の`source`が`exec`の会話、Claude Code の`entrypoint`が`sdk-`で始まる行）も返さない。見立てを作る・育てるときの手がかりと、会話からwikiを引く手順が呼ばれた割合の確かめに使う。残さないと断りのある会話を外す判定と、Plan Modeの会話かどうかの判定は、読む側が行う。
 - reports/tools/stage_issue_memos.pyは、課題の管理外のメモ（priority・memo・tags）の変更だけを、indexの中身を土台に欄の単位でindexへ載せる。作業ツリーとほかの欄・本文は変えないので、Obsidianでの手入れを、同じファイルにあるAIの作業の変更と分けてコミットできる。読めない課題が1件でもあれば何も載せない。テストはreports/tools/stage_issue_memos_test.py。
 - .agents/hooks/commit_cue.pyは、Claude Code（.claude/settings.json）とCodex（.codex/hooks.json）のUserPromptSubmitのhookで、前の発言のあとに入ったコミットをAIへ知らせる。commitは人がAIの知らないところで行うので、AIの覚えている「未コミット」を古いまま言わせないためである。セッションごとに前に見たHEADを.git/anet-commit-cue/に覚え、新しいコミットがあったときだけ、件名を新しい順に3件まで出す。初めての発言、変化なし、resetで戻ったとき、失敗したときは何も出さない。Codexは、人が`/hooks`で信頼してから動く。テストは.agents/hooks/commit_cue_test.py。
 - .agents/hooks/search_guard.pyは、Claude Code（.claude/settings.json）とCodex（.codex/hooks.json）のPreToolUseのhookで、ディスク全体（`/`・`C:\`・ホームなど）を起点にした再帰の検索を、実行の前に止める。ツールの打ち切りや停止のあとも検索のプロセスが残り、端末全体が重くなったためである。コマンドをパイプや`;`で区切り、引用符の中は区切らずに、grep -r・rg・find・Get-ChildItem -Recurseなどの起点の引数を見る。読めないときや失敗したときは通す。Codexは、人が`/hooks`で信頼してから動く。テストは.agents/hooks/search_guard_test.py。
@@ -430,7 +431,7 @@ sequenceDiagram
 - [RFD0105検証資材](../../src/core/base/testdata/rfd0105/README.md): Traceモードの転送矢印、forcedの通知時点、並べ替えと再生順、ダンプの書式と実画面での表示時間、4環境の数値等価性。
 
 - [RFD0095検証資材](../../src/core/base/testdata/rfd0095/README.md): トピック別まとめ・blob・リンクの読み取りと、取り込み・点検・housekeepingの試走を確認する。
-- [RFD0202 検証資材](../../src/core/base/testdata/rfd0202/README.md) でサマリの鮮度、内外のリンク、概念の配置と点検条件を確かめる。
+- [RFD0202 検証資材](../../src/core/base/testdata/rfd0202/README.md) でサマリの鮮度、内外のリンク、概念の配置と点検条件を確かめる。会話の記録を引く道具は、2 つの環境の記録の見本で、返る発言、期間の端の日、飛ばした数、引数のエラーを確かめる。
 
 - [RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
 

@@ -2,7 +2,7 @@
 
 ## 元の材料
 
-[DQN系Agent](../../../design/200_dqn_agents.jp.md) blob:72fb790a109c01adba71f27f2da05e2699744c61
+[DQN系Agent](../../../design/200_dqn_agents.jp.md) blob:154228c534d96b340bdf4f2cddd95f1ad8ca52d2
 
 ## 要点
 
@@ -20,6 +20,7 @@
 - Double DQN、N-step、PER、勾配clip、AMPなどはLearner設定で組み合わせる。すべての組合せを「Rainbow」という名称だけから暗黙に仮定せず、Runの解決済み設定を確認する。
 - DefaultDQNのActorは、観測をdeviceへ移し、CPU上の`episode_start`を加えて行動選択用Forwarderに渡す。得たPerceptionをPolicy呼出しと補助情報の付与に使う。RainbowのActorでは観測をdevice転送してからPolicyを呼ぶ。PolicyはLearnerへ依存せず、NetworkとRNGでActionを決定する。
 - PERが有効で初期優先度の方式が`actor_approx`の場合、カタログ項目の名前や用途にかかわらず、Agentが作るすべてのActorは既存forwardからDQN固有の`float32[B,5]` hintを作る。列は選んだ行動の score、状態価値（通常は最大 score、Munchausen 時は soft value）、実空間の Munchausen bonus、内的 Q_sa、内的 V_s の順。combined では末尾2列が0で、分解時は先頭3列に外的 Head の値を使う。
+- 内側の Learner は、成分ごとの割引率の設定が定数か schedule かで `needs_return_recompute` を決め、schedule の成分だけ抽選時に収益を作り直す。QR・IQN の PER に書き戻す優先度は、current と target の分位点の平均の差の絶対値に `per_eps` を足した値から作る（§2.5）。
 
 ### 3. コンポーネント定義
 

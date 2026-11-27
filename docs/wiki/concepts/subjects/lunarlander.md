@@ -42,6 +42,8 @@ TempoRL の学習中の繰り返しと評価時のスキップは分けて比べ
 - 合算条件の再実行を含めると通常のばらつきが広く、kmax 条件の優位とは判定できなかった。 → 詳しくは[評価と比較の条件](../measurement/evaluation.md)。（出典: [TempoRL 第二弾の段 2（分割・k_max の重み・スキップ長の ε-greedy）、LunarLander 探索履歴](../../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)、現時点のまとめ。Run: `run_20261028-131118_t103_ll_mrg_s1`・`run_20261028-135410_t103_ll_kmx_s1`）。
 - predictor の周期リセットで bonus は持続したが、終盤評価の改善は確認できなかった。 → 詳しくは[内的報酬による探索の比較](../methods/intrinsic_novelty.md)。（出典: [RNDの害の確認とpredictorの周期リセット](../../../experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md)、現時点のまとめ。Run: `run_20261108-061056_ll_rnd_s1`・`run_20261108-125542_ll_rnd_rs50k_s1`）。
 - 小型 MLP の DQN 更新では AdamW のカーネル起動負荷が測定された。 → 詳しくは [計測の負荷と比較条件](../measurement/diagnostic_cost.md)（出典: [RFD0011](../../../memo/done/0011_fused_adamw_10rfd.md)、Context（背景・目的））。
+- 0.5M まで基準と同じ設定の群は、full の点が s1・s3 で 501,248 exp step の直前まで基準と全点一致し、s2 は 14,848 exp step から違った。single の点は s1 が 130,048 exp step から違い、理由は確かめていない（出典: [2026-11-05_temporl-train-repeat-timing.md](../../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、解釈の限界と残る問い）。
+- `ll_tw_base_s3`（2026-11-05。TempoRLのTrainの繰り返しの時期と長さの比較）の実効設定では、LunarLander の `update_warmup_steps` は 8,192 で、最初の学習は 8,448 exp step だった（出典: [2026-11-05_temporl-train-repeat-timing.md](../../../experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md)、条件と判定方法・Runと実効config；[run_20261105-061647_ll_tw_base_s3.txt](../../../experiments/default-dqn/lunarlander/config/run_20261105-061647_ll_tw_base_s3.txt)、`DefaultDQNAgent.learner.update_warmup_steps = 8,192`）。
 
 ### 外の事例
 
@@ -74,3 +76,7 @@ TempoRL の学習中の繰り返しと評価時のスキップは分けて比べ
 - [evaluation](../measurement/evaluation.md)。
 - [内的報酬による探索の比較](../methods/intrinsic_novelty.md)。
 - [campaignにない独自の分析](../../../experiments/default-dqn/lunarlander/README.md#独自の分析)。
+- [temporal_abstraction](../methods/temporal_abstraction.md#見立て)（TempoRL の得と最大スキップ長の見立て）。
+- [noisynet](../methods/noisynet.md#見立て)（ε ラダーの置き換えとノイズの残り方の見立て）。
+- [temporal_abstraction](../methods/temporal_abstraction.md#横断的知見)（TempoRL の得と損の出どころを題材で比べた横断的知見）。
+- [intrinsic_novelty](../methods/intrinsic_novelty.md#横断的知見)（内的報酬が消える・下がる局面の並べ）。

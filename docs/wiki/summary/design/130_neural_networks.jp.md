@@ -2,7 +2,7 @@
 
 ## 元の材料
 
-[ニューラルネットワーク](../../../design/130_neural_networks.jp.md) blob:57c61b8f0a630d76118920795939e3621897313f
+[ニューラルネットワーク](../../../design/130_neural_networks.jp.md) blob:67330909040c8603eb2215dc6864ca9fcdcf0d23
 
 ## 要点
 
@@ -27,6 +27,7 @@
 - `NetworkModuleRepository` — type名からNetworkModuleFactoryを解決するprocess registry。
 - `NetworkHeadFactory` — dummy featureからAgent固有Headを構築する。
 - `NetworkForwardExecutor` — 対象Networkの寿命と用途別の準備済み処理を保持する公開実行器。
+- 出力の大きさで指定する max pooling（`AdaptiveMaxPool2d`）は登録していない。Atari の `AtariPool6` は `MaxPool2d`（kernel 2・stride 2・padding 1）で代える（§4.1）。
 
 ### 5. 静的構造
 

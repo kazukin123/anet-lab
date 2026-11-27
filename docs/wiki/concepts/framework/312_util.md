@@ -19,7 +19,7 @@
 - 2026-08-21: Envログ name prefix 自動付与 RFD（出典: [RFD0038](../../../memo/done/0038_env_log_auto_prefix_10rfd.md)、題・目的）。
 - 2026-08-21: RFD0045: EmaFilter バイアス補正ウォームアップ（出典: [RFD0045](../../../memo/done/0045_ema_debias_warmup_10rfd.md)、題・目的）。
 - 2026-08-21: ProfiledValue による ImageCls learning_rate 制御（出典: [RFD0031](../../../memo/done/0031_imagecls_cosine_lr_10rfd.md)、題・目的）。
-- 2026-08-21: TBO診断に関わるlog基盤を更新した（出典: [RFD0008](../../../memo/done/0008_Transformed%20Bellman%20Operator_10rfd.md)、3. 報酬スケーラとの共存と warn）。
+- 2026-08-21: TBO診断に関わるlog基盤を更新した（出典: [RFD0008](<../../../memo/done/0008_Transformed Bellman Operator_10rfd.md>)、3. 報酬スケーラとの共存と warn）。
 - 2026-08-21: TensorDict可視化の共通定義を更新した（出典: [RFD0010](../../../memo/done/0010_image_metrics_v2_10rfd.md)、Phase 3-4 — network sweep 基盤 + SweepStateHeatMap observer / UI 復旧）。
 - 2026-08-21: `backend.deterministic_algorithms` 導入（学習の同 seed 再現性確保）仕様書（出典: [RFD0015](../../../memo/done/0015_deterministic_algorithms_10rfd.md)、題・目的）。
 - 2026-08-21: forward traceで使う共通の定義を更新した（出典: [RFD0006](../../../memo/done/0006_conv2d_visual_trace_10rfd.md)、5.1 【新規】`TraceSink` 型（当時の名前。今のコードに無い））。

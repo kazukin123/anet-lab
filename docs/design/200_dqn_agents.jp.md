@@ -276,6 +276,10 @@ PERが有効で初期優先度の方式が`actor_approx`の場合、カタログ
 
 `$agent`は `learning_rate`・`weight_decay`・`soft_update_tau`・`gamma`・`munchausen_alpha`・`munchausen_entropy_tau` を公開する。checkpointのoptimizer optionsの比較と上書き、RewardScalerの初期化、初期ホライズン表示はstep 0の値を使う。endpointはProfiledValueのboundsで検証する。spectral normを使うsoft updateでは定数の1を許すが、scheduleの全端点は[0,0.1]に限る。
 
+内側の`dqn::Learner`は、共通ReplayBufferを組むときに、成分ごとの割引率の設定が定数かscheduleかで`needs_return_recompute`を決める。scheduleの成分だけ、抽選時に保存したstep報酬から収益を作り直す。定数の成分は、Push時に保存した収益をそのまま使う。
+
+QR・IQNでPERに書き戻す優先度は、currentの分位点の平均とtargetの分位点の平均の差の絶対値に`per_eps`を足した値から作る。分位点の組ごとの誤差の絶対値の平均ではない。
+
 ## 3. コンポーネント定義
 
 | コンポーネント | 定義 |

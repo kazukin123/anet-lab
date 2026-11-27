@@ -19,6 +19,7 @@ n=2でhard C=125だけが低分散という主張は、n=4で撤回された。D
 - target更新はenv step・gradient step・soft係数の単位が混在し、target networkを使うだけで収束を保証しない反例も報告されている。（出典: [target_network_update_rate_survey_2026-09-03.md](../../../../reports/target_network_update_rate_survey_2026-09-03.md)、1. 単位の不一致という前提・7. 批判と留保）。
 - 調査した収束解析では hard 更新と soft 更新にそれぞれ別の十分条件を与えている。単一の換算で両者の性能まで等価にする定理は見つからなかった（出典: [Survey: target network 更新速度（hard C / soft τ）の設定根拠と調整方法](../../../../reports/target_network_update_rate_survey_2026-09-03.md)、3. 更新速度と収束・バイアスの理論）。
 - DDPG は soft target を使う理由を説明したが、調査の範囲では τ=0.001 に決めた比較実験や選定経緯を確認できなかった。（出典: [Survey: target network 更新速度（hard C / soft τ）の設定根拠と調整方法](../../../../reports/target_network_update_rate_survey_2026-09-03.md)、2. 主要アルゴリズムの設定値と選定根拠）。
+- target の更新速度の感度について、Fu らは、τ を 9 点掃引して 1 桁変えても、データ効率の劣化は 19%（batch size は 52%）に留まるとした（出典: [target_network_update_rate_survey_2026-09-03.md](../../../../reports/target_network_update_rate_survey_2026-09-03.md)、7. 批判と留保）。
 
 ## 横断的知見
 

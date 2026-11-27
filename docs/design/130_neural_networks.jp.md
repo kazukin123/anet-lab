@@ -151,6 +151,8 @@ net.branch.[merged].bind_concat_dim = -1
 | layer | `Linear`、`Conv1d`、`Conv2d`、`ResBlock`、`CNBlock`、`TransformerEncoder` |
 | token | `ClsAppend`、`ClsExtract` |
 
+出力の大きさで指定するmax pooling（PyTorchの`AdaptiveMaxPool2d`）は登録していない。Atariの`AtariPool6`は、`MaxPool2d`（kernel 2・stride 2・padding 1）で代える。
+
 この表はConfigのコメントではなく、現行の`InitNN()`登録内容を基準としている。
 
 `CosineEmbedding`は`cos.num_basis`（既定64）を使い、taus `(B,K)`を`cos(πiτ)`の基底 `(B,K,n)`へ変換する。後段の射影と活性化は既存の`Linear`、`ReLU`、`SiLU`などを設定で接続する。

@@ -6,6 +6,15 @@
 
 | 日付 | ファイル | テーマ | 関連 |
 |---|---|---|---|
+| 2026-11-27 | [rnd_dense_reward_reset_collapse_survey_2026-11-27.md](rnd_dense_reward_reset_collapse_survey_2026-11-27.md) | RNDの効き方と崩れ。外的報酬が密なゲームでのゲーム別の結果、predictorを初期化し直す事例、内的報酬の崩れと可塑性を結ぶ研究 | RFD0202（過去の質問の外の調べもの） |
+| 2026-11-27 | [rnd_predictor_data_munchausen_survey_2026-11-27.md](rnd_predictor_data_munchausen_survey_2026-11-27.md) | RNDの学び方と組み合わせ。NGU系の倍率の統計の取り方、predictorが学ぶデータとPERの補正、Munchausenと内的報酬の組 | RFD0202（過去の質問の外の調べもの） |
+| 2026-11-27 | [value_decomposition_head_nstep_survey_2026-11-27.md](value_decomposition_head_nstep_survey_2026-11-27.md) | 外的と内的の価値の分け方。Headだけ分ける形とNetworkごと分ける形、内的のn-stepの和とエピソードの境の扱い | RFD0202（過去の質問の外の調べもの） |
+| 2026-11-27 | [montezuma_published_scores_survey_2026-11-27.md](montezuma_published_scores_survey_2026-11-27.md) | Montezuma's Revengeの公開の成績と測り方。TaïgaらとRND原典の評価の条件、内的報酬を足さない学習器の点 | RFD0202（過去の質問の外の調べもの） |
+| 2026-11-27 | [qbert_published_scores_levels_survey_2026-11-27.md](qbert_published_scores_levels_survey_2026-11-27.md) | Q*bertの公表の点は何面まで進んだ点か。得点の仕組み、公表値の統計量、同じ面で点を重ねる振る舞いと不具合の報告 | RFD0202（過去の質問の外の調べもの） |
+| 2026-11-27 | [weight_init_normalization_adam_survey_2026-11-27.md](weight_init_normalization_adam_survey_2026-11-27.md) | 正規化付きの層とAdamでの重みの初期値の大きさの効き方。実効学習率、weight decay、公開実装の初期値 | RFD0202（過去の質問の外の調べもの） |
+| 2026-11-27 | [nstep_action_gap_survey_2026-11-27.md](nstep_action_gap_survey_2026-11-27.md) | n-stepとGreedyの行動間の差（action gap）。報酬の伝わる速さ、n-stepの偏りと分散、policy churn | RFD0202（過去の質問の外の調べもの） |
+| 2026-11-27 | [skip_auxiliary_task_noise_survey_2026-11-27.md](skip_auxiliary_task_noise_survey_2026-11-27.md) | 行動を続ける長さの学習を補助タスクやノイズと組む事例。多地平の補助タスク、εz-greedy、SNAP、TAAC | RFD0202（過去の質問の外の調べもの） |
+| 2026-11-27 | [novelty_bonus_long_horizon_reach_survey_2026-11-27.md](novelty_bonus_long_horizon_reach_survey_2026-11-27.md) | 新しさのボーナスで、長い移動の先やふだん通らない状態へ届くか。好奇心だけの到達、密な報酬での局所解、tandem、human starts | RFD0202（過去の質問の外の調べもの） |
 | 2026-11-24 | [sil_value_based_lower_bound_survey_2026-11-24.md](sil_value_based_lower_bound_survey_2026-11-24.md) | 自己模倣（SIL）を価値ベースへ広げた手法（Optimality Tightening・EMDQN・下限Q学習・SAIL・GEM・DB-ADP）の損失・記憶の持ち方・難探索の数値・分布型での扱いと、確率的な環境（sticky actions）での偏りと対策 | RFD0201 |
 | 2026-11-20 | [torchrl_survey_2026-11-20.md](torchrl_survey_2026-11-20.md) | TorchRLの設計と現状。TransformsとPRD161の観測パイプラインの比較（CatFramesのReplay側の重ね直し、spec変換、正規化の凍結、LastAction）、DQN系・RNDの対応と公開結果（比較元にはならず、Dopamine・CleanRL・RLeXploreの条件を併記）、実時間の性能、C++から使えるか、採用状況と批判 | docs/memo/161_observation_pipeline_10prd.md、docs/design/150_replay_buffer.jp.md、docs/design/212_rnd_lifelong_novelty.jp.md |
 | 2026-11-18 | [per_priority_weaknesses_survey_2026-11-18.md](per_priority_weaknesses_survey_2026-11-18.md) | PERの優先度の弱点と代替。確率的な報酬での張り付き、優先度の古さ、損失の形との等価性（LAP）、α・β、分布型での優先度、遡る系・収益ベース・gain×need の効果量 | docs/memo/171_replay_eviction_sample_count_10prd.md、docs/management/issues/issue-20261103-8c3c6d.md |

@@ -28,6 +28,7 @@ GNSと有効batchの対応はoptimizer・曲率・抽出方法・予算に依存
 
 - 共通点: DropMerge の成熟 checkpoint で batch と replay ratio を同時に上げた初期の大幅優位は、長期の再評価で小さくなった。170→230M の別分岐でも、学習側の平均点が上がった条件のうち B512/RR2 の評価専用 Run の差は小さかった。学習側の差と評価側の差を区別する必要がある。条件の違い: 初期比較は成熟 checkpoint 後の長期曲線、後続は170→230M 分岐の最終 checkpoint での評価である（出典: [2026-10-15_gradient-noise-batch](../../../experiments/default-dqn/dropmerge/2026-10-15_gradient-noise-batch.md)、現時点のまとめ・探索ブロック05、`run_20261018-190737_dmfb_42d_ev_b512rr2`。[2026-07-27_longrun-batch-replay](../../../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)、現時点のまとめ・判断更新、`run_20260805-115101_apx-ll_cy07`・`run_20260807-162046_apx-ll_cy08_b256`）。
 - 補完: 最適化の調査では、勾配ノイズ尺度が大きいだけでは batch を増やしたときの利得は予測できない。DropMerge の最終 checkpoint を target ネットの Eval1・Eval3 で各条件約1万局評価すると、B1024/RR1 は対照比 +0.9%、B512/RR2 と B1024/RR2 は +0.2〜0.3% だった。条件の違い: 調査には画像分類など複数のタスクを含み、後者は DropMerge の保存重みに対する評価である（出典: [gradient_noise_observation_and_control_survey](../../../../reports/gradient_noise_observation_and_control_survey_2026-10-15.md)、1. 調査の結論。[2026-10-15_gradient-noise-batch](../../../experiments/default-dqn/dropmerge/2026-10-15_gradient-noise-batch.md)、現時点のまとめ）。
+- 対立点: replay ratio を据え置いて batch を上げ、更新の回数を減らした比較で、DropMerge と Atari の結果が分かれた。DropMerge の停滞区間（170→230M）の分岐では、B1024/RR1 の最終の評価専用 Run が対照比 +0.9%（約 2.4σ）で、学習中の評価でも分岐後 20M までに対照より約 3% 高くなり、対照は 60M かけて同じ水準に着いた。Breakout の RR4 で batch を 512 にした Run は、25-50M の壁突破率が 8.84% で、B256 の 8.85% と同じだった。KFM の B1024（3 seed、30M）はボス行きが定着せず、eval2 の 7.5-10M は 11,850〜20,610 で、3 本とも既定（B256）の 10M の 16 本の平均 27,148（17,858〜39,742）を下回った。条件の違い: DropMerge は成熟した checkpoint からの分岐で、更新の回数は対照の 1/4。Atari の 2 つは学習の始めからの Run で、Breakout は seed 1 の 1 本、KFM は実時間優先で lr と target の更新間隔を据え置き、30M の learn step は 29,100（B256 の 10M は 38,200）だった。KFM の群は、稼ぎに固まるまでに見るボス戦の経験を増やす狙いの群で、DropMerge の結果を確かめる群ではない（出典: [DropMerge の勾配ノイズと batch](../../../experiments/default-dqn/dropmerge/2026-10-15_gradient-noise-batch.md)、現時点のまとめ 3・4・探索ブロック 13；[Breakout の高 replay_ratio の機序](../../../experiments/default-dqn/atari/2026-09-08_replay-ratio-mechanism.md)、現時点のまとめ 1・探索ブロック 04；[KFM のボス行きの定着](../../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、現時点のまとめ 8・探索ブロック 05・06）。
 
 ## 見立て
 
@@ -35,7 +36,7 @@ GNSと有効batchの対応はoptimizer・曲率・抽出方法・予算に依存
 
 ## 分かっていないこと
 
-なし
+- DropMerge の停滞区間の分岐で評価に残った B1024/RR1 の上乗せ（+0.9%）は、Atari の長い Run の途中から分岐して batch を上げても出るか。Atari で batch を上げた比較は、学習の始めからの Run（Breakout の RR4/B512、KFM の B1024）だけである（出典: [DropMerge の勾配ノイズと batch](../../../experiments/default-dqn/dropmerge/2026-10-15_gradient-noise-batch.md)、現時点のまとめ 4；[KFM のボス行きの定着](../../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 05；[Breakout の高 replay_ratio の機序](../../../experiments/default-dqn/atari/2026-09-08_replay-ratio-mechanism.md)、探索ブロック 04。開発者の発言（2026-11-08・11-19））。
 
 ## 撤回・更新
 

@@ -36,7 +36,12 @@ RAM の 0x80 でセクターの進行を追える。ボス撃破後のボーナ�
 
 ## 見立て
 
-なし
+- BeamRider では、ボスを倒す得が小さく、ボスを倒さずにセクターを先へ進めるほうが点が伸びるので、高い点の方策はボスの撃破よりセクターの進みで決まるのではないか。 状態: 未検証
+  - 支える事実: (1) 45.65M の Greedy で、スキップなし s2 はセクター 28.5・ボス 22.8 で 104,250、補助学習のみはセクター 35.0・ボス 0.0 で 106,219 だった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、現時点のまとめ 4）。 (2) スキップなし s2 のボス 0 回のゲームに当てた得点の曲線では、セクター 25 での傾きが 3,336 点で、ボス 1 回あたりの点の見積もりは、ボス 5〜14 回の帯で 1,364、25 回以上の帯で 1,640 だった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、探索ブロック05）。
+  - 合わない事実: (1) ボスを倒すと、残機の数だけボーナス（セクター 2 は 120 点、3 は 130 点）が 1 回ずつ入り、倒さない枝ではボーナスが入らない（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「beam_rider と freeway の RAM（2026-10-31）」）。 (2) ボス 1 回あたりの点の見積もりは、ボス 1〜4 回の帯では 2,293 だった（出典: [2026-11-04_temporl-freeway-beamrider.md](../../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)、探索ブロック05）。
+  - 条件の違い: スキップなし s2 と補助学習のみは、TempoRL の有無と seed が違う各 1 本である。ボス 1 回の点は曲線に当てた見積もりで、学習の報酬（クリップ後）の回数ではない。
+  - 確かめ方: BeamRider の学習側のゲームで、同じセクターまで進んだゲームを、ボスを倒した回数で分け、クリップ後の報酬の和を比べる（今ある Run の集計）。
+  - 出どころ: 開発者の発言（2026-11-03）
 
 ## 分かっていないこと
 
@@ -53,3 +58,5 @@ RAM の 0x80 でセクターの進行を追える。ボス撃破後のボーナ�
 - [RFD0082](../../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)。
 - [行動の時間尺度](../methods/temporal_abstraction.md)。
 - [BeamRider と Freeway での TempoRL の記録](../../../experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md)。
+- [evaluation](../measurement/evaluation.md#見立て)（同じ設定の 2 本の割れの見立て）。
+- [temporal_abstraction](../methods/temporal_abstraction.md#横断的知見)（補助学習のみと対照の差を題材と時期で並べた横断的知見）。

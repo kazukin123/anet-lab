@@ -48,6 +48,7 @@ LLM・VLMによる改善は入力・課題・学習予算に依存する。Atari
 - MinAtar で損失だけを探索する公開設定は、探索用が Breakout と Freeway、評価用が Asterix と SpaceInvaders だった。生成した損失を ALE の画像 Atari 全体へ移した実証にはならない。（出典: [LLMでRLの更新則を発見する研究](../../../../reports/llm_rl_algorithm_discovery_2026-11-07.md)、6. 公開DiscoGenの評価境界）。
 - ELLM の主条件では画像に状態説明を加えており、学習した文章化器の追加試験では人手・合成のラベルを使っても単語の重なりから誤報酬が残った。（出典: [LLMの小目標・行動の制約・失敗の振り返りをRLへ渡す](../../../../reports/llm_rl_goals_and_reflection_2026-11-07.md)、2. ELLM：有用そうな目標を探索の報酬にする）。
 - DERL は報酬を提案する小型モデルと、その報酬で学習する内側の方策を持つ。最終方策の学習予算を揃えても事前の報酬探索費用は残る。（出典: [小型モデルと計算費用から見たLLMとRL](../../../../reports/llm_rl_small_models_and_costs_2026-11-07.md)、5. DERL：小さな報酬提案器も学習させる）。
+- Motif の論文は、NetHack の得点を報酬にする課題で、RND を含む既存の内的報酬の手法にほとんど益が無いと書く。 → 詳しくは [内的報酬による探索の比較](intrinsic_novelty.md)（出典: [rnd_dense_reward_reset_collapse_survey_2026-11-27.md](../../../../reports/rnd_dense_reward_reset_collapse_survey_2026-11-27.md)、§2.5）。
 
 ## 横断的知見
 

@@ -46,14 +46,24 @@
 ### 外の事例
 
 - 文献上の留保: 公表値では、KFM で 20 万点を超えるのは R2D2・NGU・Agent57・MuZero など Actor が数百・フレームが数十億〜数百億の分散学習ばかりで、200M フレーム級の DQN 系はどれも 8 万点未満だった（Atari-5 の公開データ）（出典: [seed 集団の RFD](../../../memo/0175_seed_population_early_stop_10rfd.md)、§2）。
+- 調査が BTR の公開 CSV から計算した KungFuMaster の値は、max（評価 200 回）54,330、max（評価 10 回）54,311、最後の 10 回の平均 46,118 である（出典: [few_seed_comparison_reporting_survey_2026-11-04.md](../../../../reports/few_seed_comparison_reporting_survey_2026-11-04.md)、4.3）。
+- Bellemare ら（NIPS 2016）の Atari の探索の難しさの分類では、KFM は、局所的な探索で高い得点に届く易しいゲームのうち、ε-greedy が得点の抜け道（ゲームの目的を果たさずに得点を最大にする方策）を見つける側に入り、その区分の例として名指しされている。原典は分類を粗いものと断り、KFM で何が抜け道かは書いていない。Taïga ら（ICLR 2020）も同じ分類を付録に載せる（出典: [novelty_bonus_long_horizon_reach_survey_2026-11-27.md](../../../../reports/novelty_bonus_long_horizon_reach_survey_2026-11-27.md)、§4.1）。
+- 外的報酬を使わず内的報酬だけで学んだ Agent の KFM の点は、ランダムより上だが、ボスや面の進みは報告されていない → 詳しくは [内的報酬による探索の比較](../methods/intrinsic_novelty.md)（出典: [novelty_bonus_long_horizon_reach_survey_2026-11-27.md](../../../../reports/novelty_bonus_long_horizon_reach_survey_2026-11-27.md)、§4.4）。
+- KFM のボスへの到達・撃破・面の進みを、探索の手法どうしで比べた公開の研究は、2026-11-27 の調査では見つからなかった（探した範囲: Taïga らの付録の表、EIPO、Mega-Reward、Burda らの好奇心の調査、Bellemare らの分類と、Kung-Fu Master と探索の語での web 検索。KFM を含む比較はどれも点だけを報告する）（出典: [novelty_bonus_long_horizon_reach_survey_2026-11-27.md](../../../../reports/novelty_bonus_long_horizon_reach_survey_2026-11-27.md)、見つからなかったこと・§4）。
+- 公開の論文で KFM に RND を足した結果は、Rainbow と NGU の比較では対照を下回り、PPO では上回った。 → 詳しくは [内的報酬による探索の比較](../methods/intrinsic_novelty.md)（出典: [rnd_dense_reward_reset_collapse_survey_2026-11-27.md](../../../../reports/rnd_dense_reward_reset_collapse_survey_2026-11-27.md)、§2.1・§2.2・§2.3）。
 
 ## 横断的知見
 
-なし
+- 共通点: KFM で、実時間優先の構成から報酬・探索・NN を変えた 22 本はどれもボス行きに入らず（学習中のゲームで面を抜けたのは各 Run で通算 0〜12 本）、10M の新しい RND の 18 本で評価でボスを倒すまでになったのは β 0.03・warm-up 1,000,000 件の s05 だけだった（KFM 10M のほかの 33 本は、評価の `floor_clear` が 0 を超えた回が無い）。旧い RND の Run では、ボスに挑んでいた時期にも内的報酬の平均は前後と変わらなかった。既定の設定のボス行きの定着は、seed 3 を含めて約 20 本に 1 本だった。条件の違い: 22 本は群ごとに設定と長さが違い、RND の Run は 10M で RND なしの基準と実行体が違う。s05 は評価の 8.2M 以降の 4 回の値で、学習側は `boss_kill` の 1 ゲームの平均が 5〜6M の 0.10 から 9〜10M の 0.72 へ上がった（学習側の `floor_clear` は記録に無い）（出典: [2026-10-15_kfm-boss-route.md](../../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、現時点のまとめ 1；[2026-11-11_kfm-rnd-error-scale.md](../../../experiments/default-dqn/atari/2026-11-11_kfm-rnd-error-scale.md)、現時点のまとめ 2・8・9・10；[0123_rnd_intrinsic_reward_scale_10rfd.md](../../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、§2.1；[0173_intrinsic_reward_novelty_10rfd.md](../../../memo/0173_intrinsic_reward_novelty_10rfd.md)、§2.3）。
 
 ## 見立て
 
-なし
+- ボスを倒して面を進む型は、倒さずに雑魚で稼ぐ型より 1 ゲームの点で上回り、稼ぎの型は局所解ではないか。ボスを倒すと出口でタイマーが点に換算されて次の面へ進むが、稼ぎの型は 1 機ごとにタイマーを使い切って命を失う。その差はクリップ後の 1 step の報酬にはほとんど出ないので、学習は稼ぎの型に留まりやすいのではないか。 状態: 未検証
+  - 支える事実: (1) 実時間優先の 3 seed の eval2 の 40-50M は、ボス行きを学んだ seed 3 が 76,604、seed 1 が 61,757、seed 2 が 37,892 だった（出典: [2026-10-15_kfm-boss-route.md](../../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 01）。 (2) ボスを倒したあと面の出口まで歩くと、残りの体力とタイマーが点に換算され、換算が終わると次の面に移ってタイマーは 2000 に戻る。ライフを失っても面の最初に戻り、タイマーは 2000 に戻る（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「エミュレータで分かったこと（2026-09-23）」）。 (3) 2 seed の実測では、最高のゲームは 1 機あたり約 8,180 フレームのタイマーいっぱいまで粘っていた（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「今は測れないもの」）。
+  - 合わない事実: (1) クリップ後の 1 step あたりの報酬は、ボス行きの seed 3 が 0.042、1 面の稼ぎが 0.048 だった（出典: [0173_intrinsic_reward_novelty_10rfd.md](../../../memo/0173_intrinsic_reward_novelty_10rfd.md)、§2.3）。 (2) ε=0 断面の最良（50M まで）は、seed 3 が 61,327、seed 1 が 61,497 だった（出典: [2026-10-15_kfm-boss-route.md](../../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、探索ブロック 01）。
+  - 条件の違い: seed 3 と seed 1・2 は seed だけが違う各 1 本で、eval2 は 10M 窓の平均である。点は生の得点で、学習の報酬（クリップ後）とは別の量である。ε=0 断面は 10.1M ごとで、回数が少ない。
+  - 確かめ方: seed 3 と seed 1・2 の学習中のゲームで、1 ゲームの長さ、失った命の数、クリップ後の報酬の和を並べ、ボス行きのゲームが 1 ゲームの報酬の和でも上回るかを見る（今ある Run の集計）。
+  - 出どころ: 開発者の発言（2026-11-14）
 
 ## 分かっていないこと
 
@@ -61,6 +71,8 @@
 - 新しさや目的の違う方策は、ボスに挑む頻度と撃破までの練習を継続させられるか（出典: [内的報酬のRFD](../../../memo/0173_intrinsic_reward_novelty_10rfd.md)、§2.5・§2.6）？
 - 2 面を抜けたゲームで、ボスの命中・撃破が 1 面の分しか数えられないのはなぜか（2 面のボスの体力が 0xCC に無いのか、ボス戦なしで抜けたのか）。面の番号の 3 面より先と、5 面を抜けたあとの値も確かめていない（出典: [KFM 2026-10 の実験記録](../../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、pending；[RAMメトリクスRFD](../../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、既知の限界と後続「0x9F の確認範囲」）？
 - 挑んでいる間に撃破 ÷ 命中が上がるかどうかを何が決めるか。seed 3 と s08 は挑み始めの撃破 ÷ 命中がほぼ同じ（0.24 と 0.22）だったが、seed 3 だけが上がった（出典: [KFM 2026-10 の実験記録](../../../experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md)、pending）？
+- RFD0173 は、ボスへ向かう道を毎ゲームそのゲームで初めて見る状態とし、エピソード内の新しさのボーナスが付くと見込むが、画面の変わり方を確かめた記録は無い。ボスの位置まで左へ歩く間（約 3,000 フレーム、750 step）の画面はゲームの中で変わり、エピソード内の新しさはボスに行き着くことを偶然に頼らず起こせるか（出典: [0173_intrinsic_reward_novelty_10rfd.md](../../../memo/0173_intrinsic_reward_novelty_10rfd.md)、§2.1・§2.5。開発者の発言（2026-11-11））。
+- ボスの体力は RAM の 0xCC（満タン 39）で ENEMY バーと、自機の体力は 0xCB（満タン 39）で PLAYER バーと一致し、旧い RND の Run では、ボスに挑んでいた時期にも内的報酬の平均は前後と変わらなかった。RND の新しさがボスに当てて ENEMY バーが縮む画面に付くなら、攻撃を受けて PLAYER バーが縮む画面にも付き、攻撃を受ける向きに働くか（出典: [0173_intrinsic_reward_novelty_10rfd.md](../../../memo/0173_intrinsic_reward_novelty_10rfd.md)、§2.1；[0123_rnd_intrinsic_reward_scale_10rfd.md](../../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、§2.1。開発者の発言（2026-11-10））。
 
 ## 撤回・更新
 
@@ -78,3 +90,7 @@
 - [RunnerAppのトピック別まとめ](../apps/110_runner_app.md)。
 - [内的報酬による探索の比較](../methods/intrinsic_novelty.md)、[RND の内的報酬の尺度の RFD](../../../memo/0123_rnd_intrinsic_reward_scale_10rfd.md)、[KFM の RND の内的報酬の尺度の記録](../../../experiments/default-dqn/atari/2026-11-11_kfm-rnd-error-scale.md)。
 - [Evaluation Trace RFD](../../../memo/done/0094_evalpanel_step_history_10rfd.md)、[内的報酬のRFD](../../../memo/0173_intrinsic_reward_novelty_10rfd.md)、[LLM ActorのRFD](../../../memo/0174_llm_actor_10rfd.md)（提案は各RFDで扱う）。
+- [evaluation](../measurement/evaluation.md#見立て)（成績が 2 つの山に分かれる形の見立て）。
+- [gradient_noise_batch](../phenomena/gradient_noise_batch.md#横断的知見)（batch を上げた比較を DropMerge と Atari で並べた横断的知見）。
+- [intrinsic_novelty](../methods/intrinsic_novelty.md#横断的知見)（RND の効き方の Montezuma との対立点）。
+- [intrinsic_novelty](../methods/intrinsic_novelty.md#見立て)（RND の効き方の題材差の見立て）。

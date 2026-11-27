@@ -34,6 +34,7 @@ Breakout の可塑性 probe は interval 100 で throughput が約 2.1% 下が�
 - DropMerge の TransformerEncoder を調べた3本のトレースでは、非同期実行の CPU 区間に GPU の待ち時間が載った。CUDA 起動を同期した計測では自己注意が1.571msで、層全体2.428msの65%だった（出典: [RFD0012](../../../memo/done/0012_sdpa_attention_10rfd.md)、Context（背景・目的））。
 - ReplayBuffer の先読み導入前のプロファイルでは、PER の抽選と経験収集、同期 H2D 転送がそれぞれ約6.5ms/step を占め、その間 GPU は計算を待っていた（出典: [RFD0013](../../../memo/done/0013_sample_prefetch_10rfd.md)、Context（背景・目的））。
 - RFD0097 の再実装で実行体 v2 を比べたとき、DropMerge serial は5反復の中央値が2,889.554から2,689.727 exp/sへ下がった。変更前の最大値と最小値の比から1を引いた値が19.2386%で、判定基準2%を超えたため、6.9155%低下を確定した性能劣化とは扱えなかった。後続の native 値所有への変更後はこの速度を測っていない（出典: [RFD0179](../../../memo/0179_rfd0097_performance_remeasurement_10rfd.md)、「背景と問題」「22implでの関連変更」）。
+- Montezuma・64 lane・CUDA の Tracy の内訳では、Taiga らの設定の RND は 1 intake あたり 170.18ms で、RND の時間の 93.20% が Learn（optimizer step 35.90%・backward 28.73%）だった。既定の RND は 1 intake あたり 13.097ms で、Estimate が 82.68%、そのうち統計の区間が RND 全体の 62.66% だった。CPU 側の区間の時間である（出典: [2026-11-12_rnd_performance.md](../../../experiments/default-dqn/atari/2026-11-12_rnd_performance.md)、Tracy による内訳）。
 
 ### 外の事例
 
@@ -46,7 +47,12 @@ Breakout の可塑性 probe は interval 100 で throughput が約 2.1% 下が�
 
 ## 見立て
 
-なし
+- Montezuma の Taiga ら寄せの Run では、Greedy の評価（16 ゲーム）がほぼ全部 27,000 step の打ち切りまで続くので、Atari-5 の初期の Greedy と同じく、背景の評価が次の発火までに終わらず、学習を待たせているのではないか。 状態: 未検証
+  - 支える事実: (1) seed 2 の Run の 10.2〜29.2M の `53_evalg` 320 ゲームのうち、打ち切りでないのは 4 本だった（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ 10）。 (2) 割引率の分離と損失ごとの更新を足した Run では、15.2〜29.2M の `53_evalg` の 15 回のうち 11 回は、16 ゲームとも打ち切りだった（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、探索ブロック 20）。 (3) 3500 点以上の道へ移った Run を含む 5 本の、20.2〜29.2M の `53_evalg` の打ち切りは、160 ゲーム中 125〜159 本だった（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、探索ブロック 21）。 (4) 未学習の貪欲方策が全エピソードで 27,000 step の上限に張り付いた name_this_game と double_dunk では、次の発火時に学習が 692.6s・885.5s 止まった（出典: [RFD0158](../../../memo/0158_eval_schedule_first_fire_10rfd.md)、§1.2）。 (5) Atari-5 の 100M では、上限まで終わらないセッションが evalg の予算を押し上げ、seed 2 の double_dunk は 0.2M と 10.3M の 2 回が上限に張り付いて evalg の 82% を占めた（出典: [2026-09-21_realtime-profile-atari5.md](../../../experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)、探索ブロック 04）。
+  - 合わない事実: (1) 記録は、Run の速さの違い（`90_perf/12_exp_step_per_sec` が 867 と 1,012 など）を build とメイン機の再起動で説明していて、評価の負荷には触れていない（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、探索ブロック 21）。
+  - 条件の違い: Atari-5 の事例は learn step 0 の ε=0 の評価で、Montezuma は学習の途中の 16 ゲームの Greedy である。Montezuma は replay ratio 8 で、RND を使う。
+  - 確かめ方: Montezuma の Taiga ら寄せの Run のログで、`[greedy]` の発火の `waited for previous session` の行を数え、待ちの回数と秒数を出す（今ある Run の集計で済む。行の読み方は [140_observability.jp.md](../../../design/140_observability.jp.md) の 7.2）。
+  - 出どころ: AI
 
 ## 分かっていないこと
 

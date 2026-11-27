@@ -2,7 +2,7 @@
 
 ## 元の材料
 
-[RND による新しさの評価と内的報酬](../../../design/212_rnd_lifelong_novelty.jp.md) blob:9e4a1c9925db528beb06adf7dd2fc8ea829fdb67
+[RND による新しさの評価と内的報酬](../../../design/212_rnd_lifelong_novelty.jp.md) blob:c4bf7ed3fbc2821972e4e67ec923b05c5249a59a
 
 ## 要点
 
@@ -54,6 +54,7 @@
 - この追加報酬は、環境のゴールを変更するものではない。ただし、学習器が最適化する報酬は変わる。探索に熱中して外的な点数が下がることもあり得るため、ボーナスが出たことと、目的の課題が改善したことは別に確認する。
 - predictor の学習が十分でなかったり、別の観測を学んで予測が変わったりすると、再訪問でも誤差が大きいことがある。
 - 今回の「一生の新しさ」は、1つの estimator が続いている間の学習履歴を指す。エピソードが終わっても predictor や累積統計をリセットしない。同じ Agent の全 lane が1つの estimator を共有し、どこかの lane で学んだことが他の lane の新しさにも影響する。checkpoint から再開した場合は、その履歴を引き継ぐ。
+- `34_agent_plasticity` の可塑性の指標は DQN の online の Network を測り、RND の target と predictor は測らない（§9.4）。
 
 ## 主要な概念
 

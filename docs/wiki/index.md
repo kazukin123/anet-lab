@@ -42,6 +42,9 @@
 - [τ配置とIQN比較](concepts/methods/tau_sampling.md) — DropMerge の 2 seed では stratified と antithetic が有力だった。M を減らした速度上の利得と、M64 による終盤の十分な改善は確認できなかった。 （別名: IQN, QR, tau, stratified, antithetic, quantile, PER）
 - [Replay ratioとlane窓](concepts/methods/replay_ratio_lane_window.md) — Breakout の比較では、lane 窓 16,384 の 2 条件は ε=0 で 685.12 と 685.30、窓 8,192 は 615.73 だった。効いた仕組みは未測定である。 （別名: RR, replay ratio, PER, replay_ratio, lane window, capacity, cap4m, RR4, g99ne_rr4, n10）
 - [内的報酬による探索の比較](concepts/methods/intrinsic_novelty.md) — NGU 型ボーナスと E3B の比較は、環境・学習器・ほかのボーナスとの組み合わせに依存する。MiniHack の結果から Atari での順位は決められない。 （別名: MEME, DEEP, RLeXplore, Taïga, エピソード内の新しさ,  NGU, E3B, RND, whiten, 誤差の統計, warm-up, 直近重み, 終端の mask, intrinsic reward, 内的報酬, 新しさ, 一生の新しさ, Taiga, 周期リセット, predictor reset, 価値の分解, Agent57, 外的の Head, 内的の Head）
+- [重みの初期値](concepts/methods/weight_init.md) — 重みの初期値を torch の既定に戻した効きは構成で分かれた。qbert のサンプル効率優先（SN 付きの残差 conv、1 seed）と Breakout の Nature 型（seed 2 の 1 対）では上がり、qbert の実時間優先（残差に SN が無く、胴体の後ろに LayerNorm、1 seed）では従来の初期値の 2 本を下回った。（別名: 初期値, 初期化, init, he, xavier, orthogonal, 直交, PyTorch の既定, torch の既定, variance scaling, Kaiming, aln_init）
+- [Munchausen RL](concepts/methods/munchausen.md) — Munchausen は RND を使わない Breakout と DropMerge では系列で最大の単独の上乗せだったが、RND を足した Montezuma では、有効にした Run が Greedy の 2500 点にほとんど届かなかった。Montezuma の比較は組ごとに 1 本で、無効の群は Double DQN も有効にした 2 変数の比較である。（別名: Munchausen, M-DQN, M-IQN, munch, IQN+M, QR+M, log π, ma0.7）
+- [n-step の収益](concepts/methods/nstep_return.md) — Montezuma で n-step を 3 から 10 にした 2 本は、Greedy で剣で敵を倒すゲームが 16 本中 8 本以上になった最初の回が 12.2M・14.2M（n-step 3 の 2 本は 26.2M・18.2M）で、外的の Q の 1 位と 2 位の差は 4M 窓 8 つのうち 5 つで大きかった。2 組は実行体の build も違う。（別名: n-step, n_step, nstep, nstep3, n10, 多段の目標, 多段の更新, λ 収益, Retrace, Peng's Q(λ), MMC）
 
 ## 測り方
 

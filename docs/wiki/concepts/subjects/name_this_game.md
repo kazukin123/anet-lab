@@ -43,3 +43,4 @@
 - [atari](atari.md)。
 - [evaluation](../measurement/evaluation.md)。
 - [Breakout と結果が異なった Replay 容量比較](../methods/replay_ratio_lane_window.md#横断的知見)。
+- [diagnostic_cost](../measurement/diagnostic_cost.md#見立て)（Greedy の評価の打ち切りと学習の待ちの見立て）。

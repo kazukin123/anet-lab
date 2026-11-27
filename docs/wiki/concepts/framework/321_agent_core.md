@@ -9,6 +9,7 @@
 - 強制行動は`MakeActionOptions::forced_actions`でlaneごとに渡す。Actorは方策の選択を終えてから強制を反映し、返した行動をRunnerが実行する。TempoRLでは強制したstepを長さ1の判断として記録し、そのlaneは次のstepで判断し直す（出典: [Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.2・§6.1）。
 - Agentは基盤の外で書ける拡張点で、`anet/agent.hpp`・`anet/rl.hpp`で`AgentFactory`・`Agent`・`Actor`を実装し、`RegisterAgentFactory`で登録する（出典: [ANETフレームワーク全体概要](../../../design/010_framework_overview.jp.md)、§4.3）。
 - `Actor::MakeAction`は呼び出しごとの選択を`MakeActionOptions`で受け（nn_traceの要求は既定で偽）、要求をActorやNotifierへ登録しない。Agentは、Runnerが系統の公開初期化関数を呼んで登録し、同じ関数を何度呼んでも登録は1回で、同じclass IDを直接登録すると例外になって先の登録が残る。DQNのprobe専用の乱数は、内側のLearnerがAgentの基のseedと用途ごとの名前から作って持つ（出典: [Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4）。
+- DefaultDQN の TempoRL（`skip.enabled`）の Actor は、スキップを続けている lane も含めて primary を毎 step 全 lane で forward し、判断する lane だけが選んだ行動と長さ j を採り、残りの j−1 回は同じ行動を返す。skip の forward も続けている lane を含めて 1 回行い、`single` を含むどの `skip.max_length_mode` でも行う（出典: [DQN系Agent](../../../design/200_dqn_agents.jp.md)、§2.1.8・§6.5）。
 
 ## 成立の経緯
 
@@ -30,7 +31,7 @@
 - 2026-08-21: ImageCls BF16(AMP)対応 + 汎用 LinearHead による Head 化（出典: [RFD0033](../../../memo/done/0033_imagecls_bf16_head_10rfd.md)、題・目的）。
 - 2026-08-21: PrefetchingReplayBuffer リファクタ（Learner 埋め込み prefetch を decorator へ分離 + 再現性修正）仕様書（出典: [RFD0014](../../../memo/done/0014_async_loader_prefetch_10rfd.md)、題・目的）。
 - 2026-08-21: Sample+To プリフェッチ（ReplayBuffer サンプリング + H2D を GPU 学習と overlap）仕様書（出典: [RFD0013](../../../memo/done/0013_sample_prefetch_10rfd.md)、題・目的）。
-- 2026-08-21: Transformed Bellman Operator (TBO) 導入 仕様書（出典: [RFD0008](../../../memo/done/0008_Transformed%20Bellman%20Operator_10rfd.md)、題・目的）。
+- 2026-08-21: Transformed Bellman Operator (TBO) 導入 仕様書（出典: [RFD0008](<../../../memo/done/0008_Transformed Bellman Operator_10rfd.md>)、題・目的）。
 - 2026-08-21: V2: 可視化層（metrics_image / HeatMap / 状態スイープ）の TensorDict 復旧 実装指示書（出典: [RFD0010](../../../memo/done/0010_image_metrics_v2_10rfd.md)、題・目的）。
 - 2026-08-21: 【修正仕様】Ape-X型 空間探索（Vectorized Exploration）機能の追加（出典: [RFD0002](../../../memo/done/0002_vec_exp_10rfd.md)、題・目的）。
 - 2026-08-22: Stack 次元のネイティブ対応(Reshape ハックを廃する根本対応)（出典: [RFD0057](../../../memo/done/0057_native_stack_dim_handling_10rfd.md)、題・目的）。

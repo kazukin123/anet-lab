@@ -350,6 +350,8 @@ $$
 
 RND無効時とlearner停止による休止中も、既知キーは`NaN`を返す。未知キーだけを`nullopt`で表す。有効時の `learn_count` は0から始まり、学習しないintakeでも直近lossを保持する。初回採点前の採点値や未学習のlossはNaNになる。NaNは意図された未成立値であり、計算結果の異常な非有限誤差とは区別する。後者は採点時と補助学習時に検出して処理を止める。Nがbatch size以上でintake上限が制約しなければ、warm-up後の `learn_count / exp_step` の増分比は `learn.intake.ratio / learn.intake.batch_size` になる。
 
+`34_agent_plasticity` の可塑性の指標は、DQN の online の Network（`learner.final_feature_branch_key` の branch）を測る。RND の target と predictor は測らない。
+
 ### 9.5 計算する場所と費用
 
 名前付きseedは、RNDのtarget・predictorとCoordinatorのlane抽選で分ける。現在の通常の重み初期化はCPUの既定乱数生成器を使うため、構築中だけその状態を退避してseedを指定し、終了時に復元する。CPUで構築したモデルを必要なdeviceへ移す。

@@ -145,7 +145,8 @@ class WikiScanTest(unittest.TestCase):
         before = self.scan()
         log = self.root / "docs/wiki/log.md"
         with log.open("a", encoding="utf-8") as out:
-            out.write("2026-11-26 query 質問 → docs/wiki/index.md\n")
+            out.write("2026-11-26 query 質問 → docs/wiki/index.md（判定: 答えの種がある。根拠: なし）\n"
+                      "2026-11-26 query （要旨なし） → なし（判定: 無い。根拠: なし）\n")
         after = self.scan()
         for key in ("start", "checkpoint", "pending", "eligible"):
             self.assertEqual(before[key], after[key])

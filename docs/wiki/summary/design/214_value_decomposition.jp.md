@@ -2,7 +2,7 @@
 
 ## 元の材料
 
-[外的と内的の価値の分解](../../../design/214_value_decomposition.jp.md) blob:ebf8872bdfddb41f9896d6085f38f4d13f2f7d22
+[外的と内的の価値の分解](../../../design/214_value_decomposition.jp.md) blob:d5ff3626e00c8b1fcf086da7e0616ffb22ac50ef
 
 ## 要点
 
@@ -23,6 +23,7 @@
 
 - Munchausen項とエントロピー項は外的Headだけに置く。内的Headは次状態の内的Qの期待値だけを使う。
 - 通常の更新は成分ごとの n-step 収益と割引率を使い、内的 Head の次の行動を結合 Q から1つ選ぶ。外的 Head は設定に応じて結合 Q または外的 Q から選ぶ。Munchausen の更新はそれぞれの方策による期待値を使う。損失と PER 優先度には別々の重みを適用する。
+- `non_episodic` でも n-step の和は終端で閉じ、終端のあとのエピソードの報酬は `R_int` に入らない（§3.1）。
 
 ### 4. 設定
 

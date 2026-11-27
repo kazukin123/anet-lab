@@ -15,6 +15,7 @@
 - Runnerのstepは、呼ぶ側が渡す`MakeActionOptions`をそのstepのActorの行動選択へそのまま渡す。nn_traceは要求したstepだけ作り、Runner・Actor・Observer・Notifierに要求の登録を持たない（出典: [実行基盤と設定](../../../design/100_runtime_and_configuration.jp.md)、§2.2；[可観測性](../../../design/140_observability.jp.md)、§5.4）。
 - 強制行動は、その回の`MakeActionOptions::forced_actions`（`ForcedActions::ByLane`・`ForcedActions::ByMask`）で渡す。EvalRunnerはResetの前に指定を検査し、遷移の`forced`をlaneごとに記録し、Actorが返した行動をEnvが実行する（出典: [Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.2）。
 - eval scheduleの発火の列は、`EpisodeEvalObserver`がoffsetに届くまで問い合わせを止め、先頭の`warmup_count`回の発火を走らせない形で調整し、共通の`IntervalGate`は変えない（出典: [可観測性](../../../design/140_observability.jp.md)、§6.x step座標系）。
+- ReplayBuffer は Push のときに、呼び出し側が渡す今の γ で成分ごとの n-step 収益を作って保存し、初期優先度の完成待ちにも同じ Push の収益を使う。学習に返す収益は、γ が定数の成分では保存値のままで、schedule の成分だけを抽選時に作り直す（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2.2）。
 
 ## 成立の経緯
 
@@ -114,7 +115,7 @@
 - 評価セッションで group ごとに固定の quota を割り当てる形 — 不採用（却下）: 不偏だが、episode 長が不均一なほど最も遅い group の quota 合計に律速される（出典: [RFD0060](../../../memo/done/0060_eval_batch_episodes_10rfd.md)、11. 却下した旧解決候補）。
 - partial Reset・masked Step（採用権を持たない group を Step の対象から外す） — 先送り: P2 には導入しない。再開条件: P3 の実測で必要性が出たら、別の契約として設計する（出典: [RFD0060](../../../memo/done/0060_eval_batch_episodes_10rfd.md)、4.3 評価セッションと採用規則）。
 - 保存済みの収益は Push 時の γ、bootstrap は学習時の γ の 2 時点を契約にする形 — 不採用: 変化中に学習の target の中へ既知のずれを作る。Replay が step 報酬を保存しているので作り直す方が安い（出典: [RFD0101](../../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§4.4 D20・§7、[ADR 0065](../../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
-- γ の schedule で常に抽選時に収益を作り直す形 — 不採用: 定数でも計算が増え、足す順を揃えないと既存 Run との checksum が変わる。定数は保存値の経路に留める（出典: [ADR 0065](../../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
+- γ の schedule で常に抽選時に収益を作り直す形 — 不採用: 定数でも計算が増え、足す順を揃えないと既存 Run との checksum が変わる。定数は保存値の経路に留める（出典: [ADR 0065](../../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options；[RFD0101](../../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§4.4 D20）。
 - γ を今回 constant だけに限る形 — 不採用: 器としては γ だけ空く。schedule のときだけ作り直す形で両立できた（出典: [RFD0101](../../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§7、[ADR 0065](../../../adr/0065-scheduled-gamma-recomputes-return-at-sample.md)、Considered Options）。
 - 強制したかを行動の情報（WithActionの結果。当時の名前で、今のコードに無い）で答える形 — 不採用: 基底・DQN系・MuZero系の行動の情報とテストの型を変え、「WithActionの結果＝強制」という意味を公開の型に付ける。強制するのはRunnerで、Runnerが答えれば1か所で済む（出典: [RFD0105](../../../memo/done/0105_eval_trace_arrow_key_forced_action_10rfd.md)、D3）。
 - metrics_scalar.txtにscalar記法の要素ごとの語の一覧を写す形 — 不採用: 語を足すたびに`ParseMetricTokens`・140 §6・設定ファイルの3か所を直すことになり、知らない語はkeyとして黙って扱われるので、古い写しどおりに書くと値が記録されない。ObserverFactoryのコメントは参照の1行だけにする（出典: [RFD0119](../../../memo/0119_small_doc_comment_config_fixes_10rfd.md)、§4 D9・§7）。
@@ -161,6 +162,7 @@
 - 評価の開始だけを verbose にする形 — 不採用。既定の info ログでは評価が始まったか分からず、学習が評価を待つ間の診断ができない（出典: [RFD0075](../../../memo/done/0075_episode_steps_and_eval_session_log_10rfd.md)、比較履歴）。
 - RunManager が EpisodeEvalObserver だけを直接保持し、終了時に待つ形 — 不採用。背景処理を持つほかの Observer にも使える API を優先した（出典: [RFD0076](../../../memo/done/0076_eval_session_drain_on_exit_10rfd.md)、Complexity audit）。
 - 抽選範囲を余分に狭めて壊れた観測履歴を出さない形 — 不採用。エピソード由来の不足は補い、上書きで失った履歴は既存の sampleable 範囲で除外する条件を区別する必要がある（出典: [RFD0078](../../../memo/done/0078_replay_frame_history_integrity_10rfd.md)、1. 問題と目的（Problem Statement / Solution））。
+- n-step の和に、次のエピソードの報酬まで足す形 — 範囲外: Replay の窓がエピソードをまたぐ契約の変更になる別の関心。内的を終端で切らない形の bootstrap は、窓を変えずに作れる（出典: [0121_extrinsic_intrinsic_value_decomposition_10rfd.md](../../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§1.4）。
 
 ## 変えるときの条件
 
@@ -199,6 +201,10 @@
 ## 外の事例
 
 - TorchRL v0.15.0 の ReplayBuffer は sample で Transform の順変換、add/extend で逆変換を適用する。保存時と取得時の表現を変えられる（出典: [Survey: TorchRL の設計と現状 ― Transforms、実装の参考、実験結果の比較元](../../../../reports/torchrl_survey_2026-11-20.md)、3. Transforms「3.5 Replay に付けた Transform が働く時点」）。
+- Acme の n-step の adder は、報酬・環境の割引・追加の割引を同じ木の形にそろえて葉ごとに n-step の収益と割引の積を作り（成分ごとの割引率を表せる）、エピソードの終わりでは残りの短い遷移を書き出して、窓を次のエピソードへ延ばさない（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.2）。
+- Acme の系列の adder は、エピソードの終わりの扱いを 4 つ（WRITE、CONTINUE、ZERO_PAD、TRUNCATE）から選び、CONTINUE は最後の系列を次のエピソードの最初の step まで続けて書く。既定は ZERO_PAD で、Acme の R2D2 は TRUNCATE を指定する。CONTINUE を使う Acme の agent は確かめていない（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.3）。
+- deep_rl_zoo（個人の公開の再実装）の系列の切り出しは、エピソードの境をまたぐかを引数で選べ、既定はまたぐ。IMPALA の agent はまたぎ、R2D2・NGU・Agent57 の agent はまたがない。またがないとき、系列の長さに足りずに終わったエピソードは、同じエピソードの前の系列の末尾で埋め、前の系列が無ければ書き出さない（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.3）。
+- Dopamine の Replay は、n-step の和を窓の中の最初の終端で止め（その step までの報酬だけを割り引いて足す）、終端の印なしにエピソードが終わる窓を抽選の対象から外す（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.2）。
 
 ## 関係
 

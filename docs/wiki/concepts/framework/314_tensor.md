@@ -5,7 +5,7 @@
 ## 概要・責務
 
 - device転送とframe stackを担い、sampleのTensorとCPUに残すmetadata、非同期転送の寿命を扱う。（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2.2・§2.3）。
-- `LaneTimeTensorStore`は、lane一式のtensorを時間順に保持し、laneと時間を指定して読む。RNDのrolloutの補助学習に使う（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§3）。
+- `LaneTimeTensorStore`は、lane一式のtensorを時間順に保持し、laneと時間を指定して読む。RNDのrolloutの補助学習に使う（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§3；[RND による新しさの評価と内的報酬](../../../design/212_rnd_lifelong_novelty.jp.md)、§5）。
 - `Forwarder` は TensorDict を受け渡す共通の口で、Network も実装する。`ForwarderBuilder` は依頼と入力 spec を受けて、入出力 spec を持つ `SpecForwarder` を作る。部品の種類は公開の登録口で追加できる（出典: [Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§1・§5）。
 - Forwarder の部品は基盤の外で書ける拡張点で、`anet/forwarder.hpp` の `ForwarderModule`・`ForwarderModuleFactory` を実装し、`RegisterForwarderModuleFactory` で登録する。変更の要らない依頼の部品は `MakePassThroughForwarder` を使える（出典: [ANETフレームワーク全体概要](../../../design/010_framework_overview.jp.md)、§4.3；[Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§5）。
 - 標準の部品は `FrameStack`（重ねる）・`Normalize`（`none`・`constant`・`running`）・`DropKeys`（Perception からキーを除く）・`SetSpec`（spec の宣言を変え、値は通す）の 4 つである。並びは設定の宣言順に組み、各部品が自分に届いた spec を検査する。`running` の統計を更新するのは経験の受入れの依頼だけで、Perception を作る依頼は統計を読むだけである（出典: [Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§3・§4）。
@@ -109,6 +109,7 @@
 - 拡張点: [ANETフレームワーク全体概要](../../../design/010_framework_overview.jp.md)、§4.3。
 - ユーザーガイド: [Run実行ガイド](../../../design/020_user_guide_run.jp.md)。
 - 含まれるアプリケーション: なし。
+- 置き場とテストの参照範囲: [ソース配置とライブラリの境界](../../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「テスト」。
 
 ## ファイル
 

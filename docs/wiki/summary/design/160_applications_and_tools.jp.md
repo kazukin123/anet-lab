@@ -2,7 +2,7 @@
 
 ## 元の材料
 
-[アプリケーションとツール](../../../design/160_applications_and_tools.jp.md) blob:2eb5c06f0836414109df8d45d8373abcfb0e6028
+[アプリケーションとツール](../../../design/160_applications_and_tools.jp.md) blob:a1440fe301848b9ffbf1e9d76df819e3c3f6b77b
 
 ## 要点
 
@@ -51,6 +51,7 @@
 - source kind、size、mtime、先頭/commit直前hashが一致しない場合はSQLite cacheを破棄して新しいgenerationで再構築する。
 - 中断時はまず`Ctrl+C`を1回送り、harnessへrunner停止とtrial state更新を行わせる。
 - wikiは外の正本を束ね、書く部分の意味はエージェントが判断する。材料・取り込み・記録はwikiの規約に従う。 資料ごとのサマリには要約時の blob を記録し、概念のページは元の資料を直接引く。
+- `reports/tools/chat_utterances.py` は、Claude Code と Codex の会話の記録から、開発者の発言の行だけを、語か期間（日本時間の日付、両端を含む）で引く。読み取りだけで、日付・会話の識別子・次の発言までに AI が道具を使った回数を添え、最後に飛ばしたファイルと壊れた行の数を出す。道具の結果、環境が差し込んだ行、通知、サブエージェントの会話、質問欄への返答、人の操作でない起動の会話は返さない（§7.4）。検証資材は RFD0202 の `chat_utterances_test.py`（§8）。
 
 ### 8. テストと変更時の確認事項
 

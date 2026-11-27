@@ -12,6 +12,7 @@
 - stage_issue_memos.pyは、課題の管理外のメモ（priority・memo・tags）の変更だけを欄の単位でindexへ載せ、Obsidianでの手入れを、同じファイルにあるAIの作業の変更と分けてコミットできるようにする（出典: [アプリケーションとツール](../../../design/160_applications_and_tools.jp.md)、§7.4）。
 - reports/toolsの統計ツールと、各CI workflowの個別の概要・責務は、設計文書に記述なし。
 - `scan` はログの blob とサマリの「元の材料」にある blob を別々に照合する。サマリの欠落・古い blob は取り込み待ちとし、原本が消えたサマリと外から入るリンク切れは警告で示す（出典: [アプリケーションとツール](../../../design/160_applications_and_tools.jp.md)、§7.4）。
+- `reports/tools/chat_utterances.py` は、会話の記録（Claude Code と Codex の `*.jsonl`）から、開発者の発言の行だけを、語か期間で引く読み取りだけの道具である。道具の結果、環境が差し込んだ行、通知、サブエージェントの会話、質問欄への返答、人の操作でない起動の会話は返さない（出典: [アプリケーションとツール](../../../design/160_applications_and_tools.jp.md)、§7.4・§8）。
 
 ## 成立の経緯
 
