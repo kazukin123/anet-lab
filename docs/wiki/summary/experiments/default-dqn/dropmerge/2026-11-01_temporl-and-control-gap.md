@@ -1,3 +1,14 @@
+---
+title: DropMerge の TempoRL（scratch 第 1 弾）と、対照の新旧の差の探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/dropmerge/2026-11-01_temporl-and-control-gap.md|default-dqn/dropmerge/2026-11-01_temporl-and-control-gap]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # DropMerge の TempoRL（scratch 第 1 弾）と、対照の新旧の差の探索履歴
 
 ## 元の材料

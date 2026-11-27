@@ -1,3 +1,14 @@
+---
+title: 観測の加工は、共通の口 Forwarder の並びとし、並びへの依頼は「何を渡して何が欲しいか」で名付ける
+page_kind: サマリ
+material: "[[docs/adr/0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product.md|0084-forwarder-is-common-interface-and-chain-serves-requests-named-by-input-and-product]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # 観測の加工は、共通の口 Forwarder の並びとし、並びへの依頼は「何を渡して何が欲しいか」で名付ける
 
 ## 元の材料

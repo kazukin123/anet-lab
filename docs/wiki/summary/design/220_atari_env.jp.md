@@ -1,3 +1,15 @@
+---
+title: Atari Env（ALE 統合）
+page_kind: サマリ
+material: "[[docs/design/220_atari_env.jp.md|220_atari_env.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Atari Env（ALE 統合）
 
 ## 元の材料

@@ -1,3 +1,15 @@
+---
+title: Action Query 関連論文サーベイ
+page_kind: サマリ
+material: "[[reports/action_query_papers_2026-08-13.md|action_query_papers_2026-08-13]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/action_query_attention.md|Action queryとattentionの証拠]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+updated: 2026-11-26
+---
 # Action Query 関連論文サーベイ
 
 ## 元の材料

@@ -1,3 +1,15 @@
+---
+title: ImageCls batch-native env の seam：EnvRepository を single/batch variant 化＋Factory/Builder 再レイヤ
+page_kind: サマリ
+material: "[[docs/adr/0009-imagecls-batch-env-seam.md|0009-imagecls-batch-env-seam]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+updated: 2026-11-26
+---
 # ImageCls batch-native env の seam：EnvRepository を single/batch variant 化＋Factory/Builder 再レイヤ
 
 ## 元の材料

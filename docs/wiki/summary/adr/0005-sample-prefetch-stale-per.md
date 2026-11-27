@@ -1,3 +1,14 @@
+---
+title: ReplayBuffer サンプリング + H2D を 1ステップ stale で先読みし GPU 学習と overlap する（AsyncLoader 方式）
+page_kind: サマリ
+material: "[[docs/adr/0005-sample-prefetch-stale-per.md|0005-sample-prefetch-stale-per]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+updated: 2026-11-26
+---
 # ReplayBuffer サンプリング + H2D を 1ステップ stale で先読みし GPU 学習と overlap する（AsyncLoader 方式）
 
 ## 元の材料

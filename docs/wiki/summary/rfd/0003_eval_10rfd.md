@@ -1,3 +1,14 @@
+---
+title: EpisodeEvalObserver の Eval メトリクス強化 — 構造分析と修正方針
+page_kind: サマリ
+material: "[[docs/memo/done/0003_eval_10rfd.md|0003_eval_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # EpisodeEvalObserver の Eval メトリクス強化 — 構造分析と修正方針
 
 ## 元の材料

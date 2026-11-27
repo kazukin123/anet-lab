@@ -1,3 +1,18 @@
+---
+title: 報酬尺度と割引率
+page_kind: 手法
+aliases:
+  - reward clip
+  - TBO
+  - h(x)
+  - Pop-Art
+  - gamma
+  - discount
+  - 遷移ごとの割引
+  - transition-based discounting
+description: 調査ではDQN系・約200M framesで報酬clipだけを外した整ったA/Bは確認できなかった。DropMergeのγ0.999は100Mで基準とほぼ同点だったが、序盤と中盤の推移は異なった。遷移ごとの割引でエピソード型と継続型を統一する定式化の保証は固定方策の評価と線形近似までだった。
+updated: 2026-11-27
+---
 # 報酬尺度と割引率
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

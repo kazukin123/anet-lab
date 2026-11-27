@@ -1,3 +1,14 @@
+---
+title: 勾配ノイズの大きさ（gradient noise scale）の計測 PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0092_gradient_noise_scale_10rfd.md|0092_gradient_noise_scale_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/phenomena/gradient_noise_batch.md|勾配ノイズとbatch]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # 勾配ノイズの大きさ（gradient noise scale）の計測 PRD
 
 ## 元の材料

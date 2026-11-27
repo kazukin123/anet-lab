@@ -1,3 +1,12 @@
+---
+title: 9xx の RFD を起票順の連番へ移す
+page_kind: サマリ
+material: "[[docs/memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md|0131_rfd_9xx_renumber_by_creation_date_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 9xx の RFD を起票順の連番へ移す
 
 ## 元の材料

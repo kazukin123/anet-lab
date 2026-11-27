@@ -1,3 +1,20 @@
+---
+title: Replay ratioとlane窓
+page_kind: 手法
+aliases:
+  - RR
+  - replay ratio
+  - PER
+  - replay_ratio
+  - lane window
+  - capacity
+  - cap4m
+  - RR4
+  - g99ne_rr4
+  - n10
+description: Breakout の比較では、lane 窓 16,384 の 2 条件は ε=0 で 685.12 と 685.30、窓 8,192 は 615.73 だった。効いた仕組みは未測定である。
+updated: 2026-11-27
+---
 # Replay ratioとlane窓
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

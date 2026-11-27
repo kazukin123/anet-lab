@@ -1,3 +1,14 @@
+---
+title: 直前に実行した行動を観測へ加える
+page_kind: サマリ
+material: "[[docs/memo/0142_agent_prev_action_obs_10rfd.md|0142_agent_prev_action_obs_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # 直前に実行した行動を観測へ加える
 
 ## 元の材料

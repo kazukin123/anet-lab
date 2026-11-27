@@ -1,3 +1,14 @@
+---
+title: メトリクスから action_info の値を読む境界
+page_kind: サマリ
+material: "[[docs/memo/done/0178_metrics_action_info_dynamic_cast_10rfd.md|0178_metrics_action_info_dynamic_cast_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # メトリクスから action_info の値を読む境界
 
 ## 元の材料

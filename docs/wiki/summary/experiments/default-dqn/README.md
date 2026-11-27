@@ -1,3 +1,14 @@
+---
+title: DefaultDQNAgent ハイパーパラメータ探索
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/README.md|default-dqn/README]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+updated: 2026-11-26
+---
 # DefaultDQNAgent ハイパーパラメータ探索
 
 ## 元の材料

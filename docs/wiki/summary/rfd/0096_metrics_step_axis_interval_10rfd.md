@@ -1,3 +1,14 @@
+---
+title: メトリクスの横軸と間隔を数える単位を分ける RFD
+page_kind: サマリ
+material: "[[docs/memo/0096_metrics_step_axis_interval_10rfd.md|0096_metrics_step_axis_interval_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # メトリクスの横軸と間隔を数える単位を分ける RFD
 
 ## 元の材料

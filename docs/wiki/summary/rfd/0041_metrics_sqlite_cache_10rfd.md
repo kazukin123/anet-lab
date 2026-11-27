@@ -1,3 +1,14 @@
+---
+title: "MetricsViewer SQLite キャッシュ化(Phase 1: OOM 解消・LOD・viewport API)"
+page_kind: サマリ
+material: "[[docs/memo/done/0041_metrics_sqlite_cache_10rfd.md|0041_metrics_sqlite_cache_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # MetricsViewer SQLite キャッシュ化(Phase 1: OOM 解消・LOD・viewport API)
 
 ## 元の材料

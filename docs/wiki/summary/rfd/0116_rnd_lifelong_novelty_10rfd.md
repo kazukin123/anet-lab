@@ -1,3 +1,14 @@
+---
+title: RND による一生の新しさと内的報酬
+page_kind: サマリ
+material: "[[docs/memo/0116_rnd_lifelong_novelty_10rfd.md|0116_rnd_lifelong_novelty_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+updated: 2026-11-26
+---
 # RND による一生の新しさと内的報酬
 
 ## 元の材料

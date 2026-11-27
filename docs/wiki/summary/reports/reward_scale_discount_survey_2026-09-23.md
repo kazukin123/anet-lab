@@ -1,3 +1,15 @@
+---
+title: "Survey: 報酬のスケール処理と割引率(報酬クリップの代替、h(x)・Pop-Art、γ の設定とスケジュール)"
+page_kind: サマリ
+material: "[[reports/reward_scale_discount_survey_2026-09-23.md|reward_scale_discount_survey_2026-09-23]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Survey: 報酬のスケール処理と割引率(報酬クリップの代替、h(x)・Pop-Art、γ の設定とスケジュール)
 
 ## 元の材料

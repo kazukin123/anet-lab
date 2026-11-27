@@ -1,3 +1,14 @@
+---
+title: batchrun の致命エラー処理（ダイアログ抑止・終了コード・bat 検出）
+page_kind: サマリ
+material: "[[docs/memo/done/0068_batchrun_fatal_error_handling_10rfd.md|0068_batchrun_fatal_error_handling_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # batchrun の致命エラー処理（ダイアログ抑止・終了コード・bat 検出）
 
 ## 元の材料

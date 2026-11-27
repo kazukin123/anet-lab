@@ -1,3 +1,13 @@
+---
+title: GridMaze
+page_kind: 題材
+aliases:
+  - GridMaze
+  - 6×10
+  - 迷路
+description: 6×10 の迷路ではスキップ長を選ぶ方策によって判断頻度は変わったが、目標に届く速さと終盤の評価は同程度だった。
+updated: 2026-11-26
+---
 # GridMaze
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

@@ -1,3 +1,14 @@
+---
+title: Making Deep Q-learning Methods Robust to Time Discretization — 詳細解説
+page_kind: サマリ
+material: "[[reports/tallec2019_time_discretization_paper_2026-10-03.md|tallec2019_time_discretization_paper_2026-10-03]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Making Deep Q-learning Methods Robust to Time Discretization — 詳細解説
 
 ## 元の材料

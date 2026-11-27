@@ -1,3 +1,14 @@
+---
+title: 追加 forward なしの近似 Actor PER 初期優先度 PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0035_approx_actor_priority_per_10rfd.md|0035_approx_actor_priority_per_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+updated: 2026-11-26
+---
 # 追加 forward なしの近似 Actor PER 初期優先度 PRD
 
 ## 元の材料

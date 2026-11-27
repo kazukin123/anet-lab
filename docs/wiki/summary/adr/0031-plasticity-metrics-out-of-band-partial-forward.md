@@ -1,3 +1,15 @@
+---
+title: 可塑性メトリクスは実 forward の branch capture と学習経路外の部分 forward の2系統で測る
+page_kind: サマリ
+material: "[[docs/adr/0031-plasticity-metrics-out-of-band-partial-forward.md|0031-plasticity-metrics-out-of-band-partial-forward]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # 可塑性メトリクスは実 forward の branch capture と学習経路外の部分 forward の2系統で測る
 
 ## 元の材料

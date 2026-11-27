@@ -1,3 +1,13 @@
+---
+title: 時間で変わる割引率は、schedule のときだけ抽選時に保存済みの step 報酬から収益を作り直す
+page_kind: サマリ
+material: "[[docs/adr/0065-scheduled-gamma-recomputes-return-at-sample.md|0065-scheduled-gamma-recomputes-return-at-sample]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+updated: 2026-11-26
+---
 # 時間で変わる割引率は、schedule のときだけ抽選時に保存済みの step 報酬から収益を作り直す
 
 ## 元の材料

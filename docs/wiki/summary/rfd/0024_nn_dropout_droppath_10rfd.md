@@ -1,3 +1,14 @@
+---
+title: NN モジュール dropout / DropPath サポート
+page_kind: サマリ
+material: "[[docs/memo/done/0024_nn_dropout_droppath_10rfd.md|0024_nn_dropout_droppath_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # NN モジュール dropout / DropPath サポート
 
 ## 元の材料

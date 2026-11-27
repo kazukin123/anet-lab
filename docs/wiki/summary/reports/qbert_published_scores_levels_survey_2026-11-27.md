@@ -1,3 +1,15 @@
+---
+title: "Survey: Atari の Q*bert の公開の値は何面まで進んだ点か"
+page_kind: サマリ
+material: "[[reports/qbert_published_scores_levels_survey_2026-11-27.md|qbert_published_scores_levels_survey_2026-11-27]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+updated: 2026-11-27
+---
 # Survey: Atari の Q*bert の公開の値は何面まで進んだ点か
 
 ## 元の材料

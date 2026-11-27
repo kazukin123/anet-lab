@@ -1,3 +1,13 @@
+---
+title: eval schedule は既定で学習直後に評価せず、発火の時点を offset でずらす
+page_kind: サマリ
+material: "[[docs/adr/0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md|0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # eval schedule は既定で学習直後に評価せず、発火の時点を offset でずらす
 
 ## 元の材料

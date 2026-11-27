@@ -1,3 +1,13 @@
+---
+title: Qbert
+page_kind: 題材
+aliases:
+  - Qbert
+  - qbert
+  - Q*bert
+description: サンプル効率優先の1 seedでは初期値をPyTorch既定へ戻すと序盤の評価がBTRの帯に入り、50Mで第8面の突破が増えた。実時間優先では改善しなかった。第9面で長く点を重ねるゲームがあり、高得点を面の進行と分けて読む。TempoRLの評価時の固定・ノイズの差は学習への効果と区別する。
+updated: 2026-11-27
+---
 # Qbert
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

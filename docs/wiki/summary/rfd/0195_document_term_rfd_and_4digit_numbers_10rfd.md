@@ -1,3 +1,12 @@
+---
+title: 設計指示文書を RFD と呼び番号を4桁に統一する
+page_kind: サマリ
+material: "[[docs/memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md|0195_document_term_rfd_and_4digit_numbers_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 設計指示文書を RFD と呼び番号を4桁に統一する
 
 ## 元の材料

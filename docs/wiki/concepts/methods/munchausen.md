@@ -1,3 +1,18 @@
+---
+title: Munchausen RL
+page_kind: 手法
+aliases:
+  - Munchausen
+  - M-DQN
+  - M-IQN
+  - munch
+  - IQN+M
+  - QR+M
+  - log π
+  - ma0.7
+description: Munchausen は RND を使わない Breakout と DropMerge では系列で最大の単独の上乗せだったが、RND を足した Montezuma では、有効にした Run が Greedy の 2500 点にほとんど届かなかった。Montezuma の比較は組ごとに 1 本で、無効の群は Double DQN も有効にした 2 変数の比較である。
+updated: 2026-11-27
+---
 # Munchausen RL
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

@@ -1,3 +1,15 @@
+---
+title: Atari横断
+page_kind: 題材
+aliases:
+  - Atari
+  - ALE
+  - Atari-5
+  - Atari5
+  - BTR比
+description: 学習中最良のAtari-5回帰で、実時間優先のBTR比は50M・seed1で66.8%、100M・seed2で83.8%だった。サンプル効率優先50Mは458.3、BTR比82.5%に達した。BTR比は評価回数とseed数がそろわず、公開CSVを評価10回のmaxで取ると92%（90〜96%）になる。観測縮小のarea表記は数値一致を意味しない。
+updated: 2026-11-27
+---
 # Atari横断
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

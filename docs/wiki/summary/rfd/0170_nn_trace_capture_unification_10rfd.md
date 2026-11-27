@@ -1,3 +1,15 @@
+---
+title: NN の名前付き出力と要求時の nn_trace 生成
+page_kind: サマリ
+material: "[[docs/memo/0170_nn_trace_capture_unification_10rfd.md|0170_nn_trace_capture_unification_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # NN の名前付き出力と要求時の nn_trace 生成
 
 ## 元の材料

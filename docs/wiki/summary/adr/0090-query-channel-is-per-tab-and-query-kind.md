@@ -1,3 +1,12 @@
+---
+title: query channel の単位を、ブラウザタブと問い合わせの種類の組にする
+page_kind: サマリ
+material: "[[docs/adr/0090-query-channel-is-per-tab-and-query-kind.md|0090-query-channel-is-per-tab-and-query-kind]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # query channel の単位を、ブラウザタブと問い合わせの種類の組にする
 
 ## 元の材料

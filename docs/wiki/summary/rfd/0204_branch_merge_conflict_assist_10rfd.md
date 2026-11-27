@@ -1,3 +1,12 @@
+---
+title: ブランチを main へ取り込むときの衝突を解く支援の案
+page_kind: サマリ
+material: "[[docs/memo/0204_branch_merge_conflict_assist_10rfd.md|0204_branch_merge_conflict_assist_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # ブランチを main へ取り込むときの衝突を解く支援の案
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: リリース ZIP を CMake で組み立てる
+page_kind: サマリ
+material: "[[docs/memo/0185_release_packaging_cmake_10rfd.md|0185_release_packaging_cmake_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # リリース ZIP を CMake で組み立てる
 
 ## 元の材料

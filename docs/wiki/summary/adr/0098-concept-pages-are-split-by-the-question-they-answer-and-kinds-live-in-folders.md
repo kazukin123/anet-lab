@@ -1,3 +1,12 @@
+---
+title: wiki の概念のページを、答える問いで分け、種類をフォルダで持つ
+page_kind: サマリ
+material: "[[docs/adr/0098-concept-pages-are-split-by-the-question-they-answer-and-kinds-live-in-folders.md|0098-concept-pages-are-split-by-the-question-they-answer-and-kinds-live-in-folders]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # wiki の概念のページを、答える問いで分け、種類をフォルダで持つ
 
 ## 元の材料

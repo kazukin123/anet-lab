@@ -1,3 +1,14 @@
+---
+title: Policy churn は fixed probe で optimizer 前後を測り、target は sync 後の不一致を測る
+page_kind: サマリ
+material: "[[docs/adr/0033-policy-churn-fixed-probe-and-target-lag.md|0033-policy-churn-fixed-probe-and-target-lag]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # Policy churn は fixed probe で optimizer 前後を測り、target は sync 後の不一致を測る
 
 ## 元の材料

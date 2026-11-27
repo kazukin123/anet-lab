@@ -1,3 +1,14 @@
+---
+title: 計測の負荷と比較条件
+page_kind: 測り方
+aliases:
+  - 計測負荷
+  - overhead
+  - TimeHistogram
+  - Evaluation Trace
+description: TimeHistogram の調査では 22.37 秒中 16.26 秒を全生値の再構築が占め、出力間隔を広げても取得と再構築の量は減らなかった。
+updated: 2026-11-27
+---
 # 計測の負荷と比較条件
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [測り方](../../index.md#測り方)

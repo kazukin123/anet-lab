@@ -1,3 +1,14 @@
+---
+title: CNBlock（ConvNeXt v1）導入
+page_kind: サマリ
+material: "[[docs/memo/done/0028_cnblock_convnext_10rfd.md|0028_cnblock_convnext_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # CNBlock（ConvNeXt v1）導入
 
 ## 元の材料

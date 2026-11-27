@@ -1,3 +1,11 @@
+---
+title: 320 Env 共通基盤
+page_kind: フレームワーク
+aliases:
+  - 320_env_core
+description: SingleDiscreteEnvとBatchEnv、spec・state・Reset・Step、factoryとBuilderの共通契約を扱う。
+updated: 2026-11-26
+---
 # 320 Env 共通基盤
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)

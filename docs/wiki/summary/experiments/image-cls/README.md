@@ -1,3 +1,12 @@
+---
+title: ImageClsAgent 探索記録
+page_kind: サマリ
+material: "[[docs/experiments/image-cls/README.md|image-cls/README]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+updated: 2026-11-26
+---
 # ImageClsAgent 探索記録
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: NetworkModel は primary の Network に加えて補助 Network を持ち、補助は primary の公開出力を入力に取る。補助の target は bootstrap に使わず、target を元にする Actor の行動にだけ使う
+page_kind: サマリ
+material: "[[docs/adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md|0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+updated: 2026-11-26
+---
 # NetworkModel は primary の Network に加えて補助 Network を持ち、補助は primary の公開出力を入力に取る。補助の target は bootstrap に使わず、target を元にする Actor の行動にだけ使う
 
 ## 元の材料

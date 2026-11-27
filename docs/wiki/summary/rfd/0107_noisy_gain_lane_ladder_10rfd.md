@@ -1,3 +1,14 @@
+---
+title: Train Actor の lane 別 NoisyNet 倍率
+page_kind: サマリ
+material: "[[docs/memo/0107_noisy_gain_lane_ladder_10rfd.md|0107_noisy_gain_lane_ladder_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Train Actor の lane 別 NoisyNet 倍率
 
 ## 元の材料

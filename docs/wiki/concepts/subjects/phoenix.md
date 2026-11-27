@@ -1,3 +1,12 @@
+---
+title: Phoenix
+page_kind: 題材
+aliases:
+  - Phoenix
+  - phoenix
+description: サンプル効率優先45.7M・ε=0の最良399,895はBTR Table A2比94%だった。同断面の100本中44本が27,000 step上限で打ち切られた。
+updated: 2026-11-27
+---
 # Phoenix
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

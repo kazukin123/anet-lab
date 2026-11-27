@@ -1,3 +1,17 @@
+---
+title: τ配置とIQN比較
+page_kind: 手法
+aliases:
+  - IQN
+  - QR
+  - tau
+  - stratified
+  - antithetic
+  - quantile
+  - PER
+description: DropMerge の 2 seed では stratified と antithetic が有力だった。M を減らした速度上の利得と、M64 による終盤の十分な改善は確認できなかった。
+updated: 2026-11-27
+---
 # τ配置とIQN比較
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

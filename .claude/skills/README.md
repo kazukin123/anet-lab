@@ -36,6 +36,8 @@ anet- スキル共通の約束(対象は定常整備系。anet-housekeeping と�
 
 `wiki_support.py maps` は INDEX とトピック別まとめの課題区画、ファイルと RFD 一覧を作り直す。全入力と目印を検証してから書き、区画外と wiki ログを保つ。
 
+`wiki_support.py headers` はサマリと概念のページの YAML ヘッダを作り直す。wiki のページと作業の記録を書いたあとに実行する。
+
 ## 汎用(導入済み)
 
 | スキル | 用途 | 出所 |

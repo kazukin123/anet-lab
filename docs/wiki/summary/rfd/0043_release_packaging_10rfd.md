@@ -1,3 +1,14 @@
+---
+title: GitHub Actions リリースパッケージング(実行用 bin パッケージ)
+page_kind: サマリ
+material: "[[docs/memo/done/0043_release_packaging_10rfd.md|0043_release_packaging_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # GitHub Actions リリースパッケージング(実行用 bin パッケージ)
 
 ## 元の材料

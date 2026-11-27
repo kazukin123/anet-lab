@@ -1,3 +1,12 @@
+---
+title: モードで使う設定キーが変わるときは、関心ごとのスコープに mode を置き、設定キーはモードの名前空間に持つ
+page_kind: サマリ
+material: "[[docs/adr/0092-mode-dependent-config-keys-live-in-per-mode-namespaces-under-concern-scopes.md|0092-mode-dependent-config-keys-live-in-per-mode-namespaces-under-concern-scopes]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # モードで使う設定キーが変わるときは、関心ごとのスコープに mode を置き、設定キーはモードの名前空間に持つ
 
 ## 元の材料

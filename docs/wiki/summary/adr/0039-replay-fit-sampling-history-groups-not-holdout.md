@@ -1,3 +1,14 @@
+---
+title: replay 当てはまり診断は held-out 分割ではなく既存の抽選履歴フラグで群分けし、評価条件を学習条件から独立させる
+page_kind: サマリ
+material: "[[docs/adr/0039-replay-fit-sampling-history-groups-not-holdout.md|0039-replay-fit-sampling-history-groups-not-holdout]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # replay 当てはまり診断は held-out 分割ではなく既存の抽選履歴フラグで群分けし、評価条件を学習条件から独立させる
 
 ## 元の材料

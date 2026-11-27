@@ -1,3 +1,14 @@
+---
+title: interval 発火の bucket-crossing 化 と perf メトリクスの時間重み EMA 化
+page_kind: サマリ
+material: "[[docs/memo/done/0053_interval_gate_perf_ema_10rfd.md|0053_interval_gate_perf_ema_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # interval 発火の bucket-crossing 化 と perf メトリクスの時間重み EMA 化
 
 ## 元の材料

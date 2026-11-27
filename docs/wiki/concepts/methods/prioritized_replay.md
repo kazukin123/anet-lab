@@ -1,3 +1,14 @@
+---
+title: 優先度付き経験再生（PER）
+page_kind: 手法
+aliases:
+  - prioritized experience replay
+  - PER
+  - TD 誤差
+  - 初期優先度
+description: TD 誤差で遷移を選ぶと、予測できない誤差にも抽出が偏る。優先度の初期値・更新方法・重要度重みをそろえる必要がある。
+updated: 2026-11-27
+---
 # 優先度付き経験再生（PER）
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

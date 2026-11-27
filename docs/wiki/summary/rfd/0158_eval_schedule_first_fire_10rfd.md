@@ -1,3 +1,15 @@
+---
+title: 評価スケジュールの初回発火と位相
+page_kind: サマリ
+material: "[[docs/memo/0158_eval_schedule_first_fire_10rfd.md|0158_eval_schedule_first_fire_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+updated: 2026-11-26
+---
 # 評価スケジュールの初回発火と位相
 
 ## 元の材料

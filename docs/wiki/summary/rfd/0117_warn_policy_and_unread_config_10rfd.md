@@ -1,3 +1,14 @@
+---
+title: WARN の意味と読まれない設定の検出
+page_kind: サマリ
+material: "[[docs/memo/0117_warn_policy_and_unread_config_10rfd.md|0117_warn_policy_and_unread_config_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # WARN の意味と読まれない設定の検出
 
 ## 元の材料

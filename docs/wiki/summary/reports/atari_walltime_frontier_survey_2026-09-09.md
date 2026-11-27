@@ -1,3 +1,14 @@
+---
+title: "Survey: Atari の実時間効率フロンティア — 単一 GPU / デスクトップ 1 台という制約下で"
+page_kind: サマリ
+material: "[[reports/atari_walltime_frontier_survey_2026-09-09.md|atari_walltime_frontier_survey_2026-09-09]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # Survey: Atari の実時間効率フロンティア — 単一 GPU / デスクトップ 1 台という制約下で
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: Device 転送共通部品 `anet/transfer.hpp` と PrefetchingReplayBuffer 適用 PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0020_device_transfer_common_part_10rfd.md|0020_device_transfer_common_part_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+updated: 2026-11-26
+---
 # Device 転送共通部品 `anet/transfer.hpp` と PrefetchingReplayBuffer 適用 PRD
 
 ## 元の材料

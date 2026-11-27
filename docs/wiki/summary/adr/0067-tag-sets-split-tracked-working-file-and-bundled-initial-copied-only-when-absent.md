@@ -1,3 +1,12 @@
+---
+title: タグセットは追跡する作業用ファイルと jar 同梱の初期値に分け、初期値は作業用が無いときだけ写す
+page_kind: サマリ
+material: "[[docs/adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md|0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # タグセットは追跡する作業用ファイルと jar 同梱の初期値に分け、初期値は作業用が無いときだけ写す
 
 ## 元の材料

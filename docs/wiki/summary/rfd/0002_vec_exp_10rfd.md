@@ -1,3 +1,14 @@
+---
+title: Ape-X型 空間探索（Vectorized Exploration）機能の追加
+page_kind: サマリ
+material: "[[docs/memo/done/0002_vec_exp_10rfd.md|0002_vec_exp_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+updated: 2026-11-26
+---
 # Ape-X型 空間探索（Vectorized Exploration）機能の追加
 
 ## 元の材料

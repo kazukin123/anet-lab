@@ -1,3 +1,11 @@
+---
+title: 321 Agent 共通基盤
+page_kind: フレームワーク
+aliases:
+  - 321_agent_core
+description: Agent、Actor、Learnerの生成・行動・更新と、Agentが所有するResource、更新部品が所有するStateの境界を扱う。
+updated: 2026-11-27
+---
 # 321 Agent 共通基盤
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)

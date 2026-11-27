@@ -1,4 +1,5 @@
 """wikiとissueの機械処理。本文の意味判断はskillを実行するエージェントが行う。"""
+from io import StringIO
 from pathlib import Path
 import json
 import re
@@ -53,6 +54,11 @@ CONCEPTS_DIR = Path('docs/wiki/concepts')
 KNOWLEDGE_FOLDERS = ('subjects', 'methods', 'measurement', 'phenomena')
 MAP_FOLDERS = ('apps', 'framework')
 KNOWLEDGE_HEADINGS = ('今の結論', '分かっていること', '横断的知見', '見立て', '分かっていないこと', '撤回・更新', '関連')
+SUMMARY_KINDS = {'experiments': '実験記録', 'reports': '報告', 'rfd': 'RFD', 'design': '設計文書', 'adr': 'ADR'}
+CONCEPT_KINDS = {'subjects': '題材', 'methods': '手法', 'measurement': '測り方', 'phenomena': '現象',
+                 'apps': 'アプリケーション', 'framework': 'フレームワーク'}
+HEADER_KEYS = {'title', 'page_kind', 'material', 'material_kind', 'concepts', 'aliases', 'description', 'updated'}
+YAML_MERGE_TAG = 'tag:yaml.org,2002:merge'
 
 
 def get_summary_path(material):
@@ -67,7 +73,7 @@ def get_summary_path(material):
 
 def read_summary_blob(path):
     # 本文に引用された別の blob を拾わないよう、「元の材料」の節だけを見る。
-    content = path.read_text(encoding='utf-8-sig')
+    content = read_page_body(path)
     section = re.search(r'(?ms)^## 元の材料[ \t]*\n(.*?)(?=^## |\Z)', content)
     matches = re.findall(r'\bblob:([0-9a-f]{40})\b', section[1]) if section else []
     return matches[0] if len(matches) == 1 else None
@@ -98,7 +104,7 @@ def log_state(root):
     return start[1], lint[-1] if lint else start[1], records
 
 
-def iter_local_links(text):
+def iter_markdown_links(text):
     # フェンスとインラインのコード例を除き、空白のある山括弧パスも読む。
     fence = None
     for number, line in enumerate(text.splitlines(), 1):
@@ -110,12 +116,336 @@ def iter_local_links(text):
         if marker:
             fence = marker[1]
             continue
-        visible = re.sub(r'(\x60+).*?\1', '', line)
+        visible = re.sub(r'(\x60+).*?\1', lambda match: ' ' * len(match[0]), line)
         for match in re.finditer(r"""\]\(\s*(?:<([^>\n]+)>|((?:[^()\s]|\([^()\n]*\))+))(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?\s*\)""", visible):
-            target = match[1] or match[2]
-            if target.startswith(('#', '//')) or re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', target):
-                continue
+            yield number, line, match[1] or match[2], match.end()
+
+
+def iter_local_links(text):
+    for number, line, target, _ in iter_markdown_links(text):
+        if is_local_link(target):
             yield number, line, target, unquote(target.partition('#')[0])
+
+
+def is_local_link(target):
+    return not target.startswith(('#', '//')) and not re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', target)
+
+
+def index_properties(root, index):
+    # 目録の別名は末尾の括弧から取り、その前の説明を取り出す。
+    entries = {}
+    index_dir = root / 'docs/wiki'
+    for line in index.splitlines():
+        if not line.lstrip().startswith('- ['):
+            continue
+        for _, _, target, end in iter_markdown_links(line):
+            if not is_local_link(target):
+                break
+            page = (index_dir / unquote(target.partition('#')[0])).resolve()
+            if page.is_relative_to(root / CONCEPTS_DIR):
+                description = line[end:].partition(' — ')[2]
+                prefix, _, tail = description.rpartition('（別名: ')
+                aliases = re.match(r'((?:[^（）]|（[^（）]*）)*)）', tail)
+                if aliases:
+                    entry = (aliases[1].split(', ') if aliases[1] else [], prefix.strip())
+                else:
+                    entry = ([], description.strip())
+                entries.setdefault(page, []).append(entry)
+            break
+    return entries
+
+
+def yaml_scalar(value):
+    # 課題の書式に合わせ、YAML で文字列として同じ値を読めるなら引用符を省く。
+    if value is None or value == '':
+        return ''
+    if not any(char in value for char in ('"', '\\', ': ', ' #')):
+        try:
+            if yaml.safe_load(value) == value:
+                return value
+        except yaml.YAMLError:
+            pass
+    return json.dumps(value, ensure_ascii=False)
+
+
+def split_header(text):
+    # 本文は元の改行のまま返し、区切りだけを見てヘッダを分ける。
+    opening = re.match(r'^---[ \t]*(?:\r?\n|\Z)', text)
+    if not opening:
+        return '', text
+    closing = re.compile(r'^---[ \t]*(?:\r?\n|\Z)', re.M).search(text, opening.end())
+    if not closing:
+        raise ValueError('unclosed YAML header')
+    return text[opening.end():closing.start()], text[closing.end():]
+
+
+def read_page_body(page):
+    # 閉じていないヘッダは scan で別途警告し、既存の本文点検も続ける。
+    text = page.read_text(encoding='utf-8-sig')
+    try:
+        return split_header(text)[1]
+    except ValueError:
+        return text
+
+
+def yaml_node_end(events, event):
+    # 入れ子の値も、パーサーが示す終端まで飛ばす。
+    if isinstance(event, (yaml.MappingStartEvent, yaml.SequenceStartEvent)):
+        for child in events:
+            if isinstance(child, (yaml.MappingEndEvent, yaml.SequenceEndEvent)):
+                return child.end_mark
+            yaml_node_end(events, child)
+    return event.end_mark
+
+
+def block_key_lines(tokens):
+    # 明示キーは「?」とキーの値が別行になり得る。キー自体でなく区切りの位置から取る。
+    starts = (yaml.BlockMappingStartToken, yaml.BlockSequenceStartToken,
+              yaml.FlowMappingStartToken, yaml.FlowSequenceStartToken)
+    ends = (yaml.BlockEndToken, yaml.FlowMappingEndToken, yaml.FlowSequenceEndToken)
+    depth = 0
+    for token in tokens:
+        if isinstance(token, starts):
+            depth += 1
+        elif isinstance(token, ends):
+            depth -= 1
+        elif depth == 1 and isinstance(token, yaml.KeyToken):
+            yield token.start_mark.line
+
+
+def yaml_anchor_names(entries, token_type):
+    return {token.value for entry in entries for token in yaml.scan(entry) if isinstance(token, token_type)}
+
+
+def yaml_nodes_by_position(root):
+    # 参照は元のノードと同じ実体を持つ。循環参照でも一度だけ調べる。
+    nodes = {}
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        position = (type(node), node.start_mark.index)
+        if position in nodes:
+            continue
+        nodes[position] = node
+        if isinstance(node, yaml.SequenceNode):
+            pending.extend(node.value)
+        elif isinstance(node, yaml.MappingNode):
+            pending.extend(item for pair in node.value for item in pair)
+    return nodes
+
+
+def retained_anchor_entries(header, managed, custom, merges):
+    names = yaml_anchor_names(custom, yaml.AliasToken)
+    managed_names = yaml_anchor_names(managed, yaml.AnchorToken)
+    if names.isdisjoint(managed_names):
+        return custom
+
+    # 管理外の断片から参照される定義を、依存する値ごと YAML ノードから出し直す。
+    # 管理外の断片にある定義と名前が重ならないよう、依存する値には別の名前を与える。
+    original = yaml.compose(header, Loader=yaml.SafeLoader)
+    nodes = yaml_nodes_by_position(original)
+    moved_names = names & (managed_names | yaml_anchor_names(merges, yaml.AnchorToken))
+    node_types = {yaml.ScalarEvent: yaml.ScalarNode, yaml.SequenceStartEvent: yaml.SequenceNode,
+                  yaml.MappingStartEvent: yaml.MappingNode}
+    anchors = {event.anchor: nodes[node_types[type(event)], event.start_mark.index] for event in yaml.parse(header)
+               if type(event) in node_types and event.anchor in moved_names}
+    values = yaml.SequenceNode('tag:yaml.org,2002:seq', list(anchors.values()))
+    key = yaml.ScalarNode('tag:yaml.org,2002:str', 'title')
+    shadow = yaml.MappingNode('tag:yaml.org,2002:map', [(key, values)])
+
+    # 古い値は現在の title で上書きされるマージ値に置く。既存のマージも同じキーにまとめる。
+    sources = [shadow]
+    for merge_key, value in reversed(original.value):
+        if merge_key.tag == YAML_MERGE_TAG:
+            sources.extend(value.value if isinstance(value, yaml.SequenceNode) else [value])
+    merge_value = shadow if len(sources) == 1 else yaml.SequenceNode('tag:yaml.org,2002:seq', sources)
+
+    prefix = 'wiki_header_'
+    original_names = yaml_anchor_names([header], yaml.AnchorToken)
+    while any(name.startswith(prefix) for name in original_names):
+        prefix += '_'
+    stream = StringIO()
+    dumper = yaml.SafeDumper(stream, allow_unicode=True)
+    dumper.ANCHOR_TEMPLATE = prefix + '%03d'
+    dumper.open()
+    dumper.anchor_node(merge_value)
+    dumper.anchors.update({node: name for name, node in anchors.items()})
+    dumper.emit(yaml.DocumentStartEvent())
+    dumper.serialize_node(merge_value, None, None)
+    dumper.emit(yaml.DocumentEndEvent())
+    dumper.close()
+    merged = '<<:\n' + ''.join('  ' + line for line in stream.getvalue().splitlines(keepends=True))
+    return [merged, *(entry for entry in custom if entry not in merges)]
+
+
+def custom_header_entries(header):
+    # YAML の値を再出力すると引用符やコメントが変わるので、各キーの原文を抜き出す。
+    loaded = yaml.safe_load(header)
+    if loaded is None:
+        return []
+    if not isinstance(loaded, dict):
+        raise ValueError('YAML header must be a mapping')
+    events = iter(yaml.parse(header))
+    next(events)  # ストリームの開始
+    next(events)  # 文書の開始
+    mapping = next(events)
+    lines = header.splitlines(keepends=True)
+    key_lines = iter(block_key_lines(yaml.scan(header)))
+    custom = []
+    managed = []
+    merges = []
+    for key in events:
+        if isinstance(key, yaml.MappingEndEvent):
+            break
+        key_end = yaml_node_end(events, key)
+        value = next(events)
+        end = yaml_node_end(events, value)
+        entries = managed if isinstance(key, yaml.ScalarEvent) and key.value in HEADER_KEYS else custom
+        if mapping.flow_style:
+            # インラインマッピングのコンマを外し、ブロックの区切りに必要な空白を補う。
+            prefix = header[key.start_mark.index:value.start_mark.index]
+            if prefix.endswith(':') and value.start_mark.index < end.index:
+                prefix += ' '
+            if key_end.index == value.start_mark.index:
+                prefix += ':'
+            entry = prefix + header[value.start_mark.index:end.index] + '\n'
+        else:
+            first = next(key_lines)
+            last = end.line + (end.column > mapping.start_mark.column)
+            block = lines[first:max(first + 1, last)]
+            keep_trailing_lines = (isinstance(value, yaml.ScalarEvent) and value.style in ('|', '>')
+                                   and re.search(r'[|>](?:[1-9]?\+|\+[1-9]?)', lines[value.start_mark.line]))
+            while not keep_trailing_lines and len(block) > 1 and (not block[-1].strip() or block[-1].startswith('#')):
+                block.pop()
+            entry = ''.join(line[mapping.start_mark.column:] if line.strip() else line for line in block)
+        entries.append(entry)
+        if isinstance(key, yaml.ScalarEvent) and (key.tag == YAML_MERGE_TAG or
+                                                  (key.tag is None and key.style is None and key.value == '<<')):
+            merges.append(entry)
+    return retained_anchor_entries(header, managed, custom, merges)
+
+
+def render_header(properties, custom):
+    # キーとリストの順序は、正本を読み取った順序で固定する。
+    lines = ['---']
+    for key, value in properties.items():
+        if isinstance(value, list):
+            lines.append(f'{key}:' if value else f'{key}: []')
+            lines.extend(f'  - {yaml_scalar(item)}' for item in value)
+        else:
+            scalar = value if key == 'updated' else yaml_scalar(value)
+            lines.append(f'{key}: {scalar}' if scalar else f'{key}:')
+    return '\n'.join(lines + ['']) + ''.join(custom) + '---\n'
+
+
+def page_headers(root, materials, index, log):
+    # サマリの置き場は scan と共有する。概念リンクの表示名には本文の題名を使う。
+    summaries = {p: [] for p in sorted((root / SUMMARY_DIR).rglob('*.md'))}
+    for material in materials:
+        page = root / get_summary_path(material)
+        if page in summaries:
+            summaries[page].append(material)
+    concepts = set((root / CONCEPTS_DIR).rglob('*.md'))
+    entries = index_properties(root, index)
+    log_rows = [(line[:10], line.partition('→')[2]) for line in reversed(log.splitlines())
+                if re.match(r'^\d{4}-\d{2}-\d{2} ', line)]
+
+    # ページ単位で不備を集め、書き込みの可否と scan の警告に使う。
+    pages = {}
+    titles = {}
+    errors = {}
+    concept_links = {}
+    warnings = []
+    for page in [*summaries, *sorted(concepts)]:
+        if not page.is_file():
+            continue
+        text = page.read_bytes().decode('utf-8')
+        bom = '\ufeff' if text.startswith('\ufeff') else ''
+        try:
+            old_header, body = split_header(text.removeprefix(bom))
+            if page in summaries:
+                section = re.search(r'(?ms)^## 主要な概念[ \t]*\r?\n(.*?)(?=^## |\Z)', body)
+                links = []
+                for _, _, target, _ in iter_markdown_links(section[1] if section else ''):
+                    dest = ((page.parent / unquote(target.partition('#')[0])).resolve()
+                            if is_local_link(target) else None)
+                    if dest in concepts and dest.is_file():
+                        links.append(dest)
+                    else:
+                        warnings.append(dict(page=page.relative_to(root).as_posix(), target=target,
+                                             rule='主要な概念のリンク'))
+                concept_links[page] = links
+            title = re.search(r'(?m)^# ([^\r\n]+)', body)
+            if title and title[1].strip():
+                titles[page] = title[1].strip()
+            custom = custom_header_entries(old_header)
+            base, kinds = (SUMMARY_DIR, SUMMARY_KINDS) if page in summaries else (CONCEPTS_DIR, CONCEPT_KINDS)
+            folder = page.relative_to(root / base).parts[0]
+            if page not in titles:
+                raise ValueError('missing title')
+            if folder not in kinds:
+                raise ValueError('unrecognized page folder')
+            if len(summaries.get(page, [])) > 1:
+                raise ValueError('multiple materials map to this summary')
+            if len(entries.get(page, [])) > 1:
+                raise ValueError('multiple index entries point to this page')
+        except yaml.YAMLError as error:
+            errors[page] = f'invalid YAML header: {error}'
+        except ValueError as error:
+            errors[page] = str(error)
+        else:
+            pages[page] = (text, bom, body, custom, kinds[folder])
+
+    changes = {}
+    for page, (text, bom, body, custom, kind) in pages.items():
+        properties = {'title': titles[page]}
+        name = page.relative_to(root).as_posix()
+        if page in summaries:
+            materials_for_page = summaries[page]
+            material = materials_for_page[0] if materials_for_page else None
+            material_link = None
+            if material:
+                material_path = Path(material)
+                label = material_path.with_suffix('').name
+                if material.startswith('docs/experiments/'):
+                    label = material_path.relative_to('docs/experiments').with_suffix('').as_posix()
+                material_link = f'[[{material}|{label}]]'
+            links = [f'[[{dest.relative_to(root).as_posix()}|{titles[dest]}]]'
+                     for dest in concept_links[page] if dest in titles]
+            properties.update(page_kind='サマリ', material=material_link, material_kind=kind, concepts=links)
+        else:
+            aliases, description = entries.get(page, [([], '')])[0]
+            properties.update(page_kind=kind, aliases=aliases, description=description)
+        # 末尾から照合し、区切りと後ろの注記に依存せず更新日を決める。
+        properties['updated'] = next((date for date, targets in log_rows if name in targets), None)
+        header = render_header(properties, custom)
+        if custom:
+            # 管理キーに結び付いた YAML のアンカーなどを失う場合、壊れた出力を書かない。
+            try:
+                yaml.safe_load(header.removesuffix('---\n'))
+            except yaml.YAMLError as error:
+                errors[page] = f'invalid generated YAML header: {error}'
+                continue
+        after = bom + header + body
+        if text != after:
+            changes[page] = (after, bool(re.match(r'^---[ \t]*\r?\n', text.removeprefix(bom))))
+    return changes, errors, warnings
+
+
+def regenerate_headers(root):
+    # 全ページを作ってから書き込み、差分のないページは開かない。
+    root = root.resolve()
+    try:
+        index = (root / 'docs/wiki/index.md').read_text(encoding='utf-8-sig')
+        log = (root / 'docs/wiki/log.md').read_text(encoding='utf-8-sig')
+    except FileNotFoundError as error:
+        raise ValueError(f'{Path(error.filename).relative_to(root).as_posix()}: required file is missing') from error
+    changes, errors, _ = page_headers(root, material_paths(root), index, log)
+    if errors:
+        raise ValueError('\n'.join(f'{page.relative_to(root).as_posix()}: {reason}' for page, reason in errors.items()))
+    for page, (after, _) in changes.items():
+        page.write_bytes(after.encode('utf-8'))
+    return {'updated': [page.relative_to(root).as_posix() for page in changes]}
 
 
 def find_incoming_link_warnings(root):
@@ -150,7 +480,7 @@ def broken_links(root):
     sources = material_paths(root)
     result = []
     for page in page_paths(root):
-        text = page.read_text(encoding='utf-8-sig')
+        text = read_page_body(page)
         # 機械一覧は再生成で修復する。出典リンクの前提条件には数えない。
         text = re.sub(r'(?ms)^## (?:ファイル|RFD の一覧|課題)\r?\n.*?(?=^## |\Z)', '', text)
         for _, line, target, path in iter_local_links(text):
@@ -212,6 +542,13 @@ def scan(root):
     unindexed = [p for p in pages if p.removeprefix('docs/wiki/') not in index]
     links = broken_links(root)
     warnings.extend(check_page_format(root, index))
+    # ヘッダの書式に関する警告は、点検を回す条件には加えない。
+    header_changes, header_errors, concept_warnings = page_headers(root, materials, index, log)
+    for page, (_, has_header) in header_changes.items():
+        header_errors[page] = 'YAML header differs from generated content' if has_header else 'missing YAML header'
+    warnings.extend(dict(page=page.relative_to(root).as_posix(), rule='YAML ヘッダ', reason=reason)
+                    for page, reason in sorted(header_errors.items()))
+    warnings.extend(concept_warnings)
     return dict(start=start, checkpoint=checkpoint, pending=pending, moved=moved,
                 changed_pages=sorted(set(pages) & changed_pages), broken_links=links,
                 unindexed=unindexed, warnings=warnings,
@@ -225,7 +562,7 @@ def check_page_format(root, index):
         warnings.append(dict(page=path.relative_to(root).as_posix(), line=line, rule=rule))
 
     for page in page_paths(root):
-        body = page.read_text(encoding='utf-8-sig')
+        body = read_page_body(page)
         headings = re.findall(r'^## (.+)$', body, re.M)
         if page.parent.name in MAP_FOLDERS:
             if ('変えるときの条件' not in headings or headings.count('外の事例') != 1
@@ -266,7 +603,7 @@ def check_page_format(root, index):
         if len(re.split(r'[（(]別名[:：]', description)[0].strip()) > 200:
             warn(root / 'docs/wiki/index.md', number, '目録の説明の長さ')
     for page in sorted((root / SUMMARY_DIR).rglob('*.md')):
-        if len(page.read_text(encoding='utf-8-sig')) > 8000:
+        if len(read_page_body(page)) > 8000:
             warn(page, 1, 'サマリの長さ')
     return warnings
 
@@ -790,13 +1127,13 @@ def regenerate_maps(root, pending_subject=None, pending_files=()):
                 unresolved_rfds=unresolved_rfds)
 
 def main():
-    # scan は点検結果を返し、maps は一覧を再生成する。
+    # 点検、一覧の再生成、ヘッダの再生成は別の操作として扱う。
     import argparse
     import sys
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description='Internal mechanical support for wiki skills')
-    parser.add_argument('action', choices=['scan', 'maps'])
+    parser.add_argument('action', choices=['scan', 'maps', 'headers'])
     parser.add_argument('--pending-subject', help='maps: これから作るコミットの件名（コミットメッセージ案）')
     parser.add_argument('--pending-files', nargs='+', default=[], metavar='PATH',
                         help='maps: そのコミットの対象ファイル（repo 相対）')
@@ -805,9 +1142,14 @@ def main():
                                                          or not args.pending_files):
         parser.error('--pending-subject と --pending-files は maps で組にして渡す')
     try:
-        print(json.dumps(scan(Path.cwd()) if args.action == 'scan'
-                         else regenerate_maps(Path.cwd(), args.pending_subject, args.pending_files),
-                         ensure_ascii=False, indent=2))
+        root = Path.cwd()
+        if args.action == 'scan':
+            result = scan(root)
+        elif args.action == 'headers':
+            result = regenerate_headers(root)
+        else:
+            result = regenerate_maps(root, args.pending_subject, args.pending_files)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     except (ValueError, OSError) as error:
         parser.exit(1, str(error)+'\n')
 

@@ -1,3 +1,14 @@
+---
+title: 設定継承は最終値の差分合成とし、個別指定をベースより優先する
+page_kind: サマリ
+material: "[[docs/adr/0042-config-inheritance-as-differential-base.md|0042-config-inheritance-as-differential-base]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # 設定継承は最終値の差分合成とし、個別指定をベースより優先する
 
 ## 元の材料

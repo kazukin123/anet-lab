@@ -1,3 +1,15 @@
+---
+title: 学習前の Evaluation Trace に表示する RND の β
+page_kind: サマリ
+material: "[[docs/memo/0129_eval_trace_bonus_beta_before_learning_10rfd.md|0129_eval_trace_bonus_beta_before_learning_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # 学習前の Evaluation Trace に表示する RND の β
 
 ## 元の材料

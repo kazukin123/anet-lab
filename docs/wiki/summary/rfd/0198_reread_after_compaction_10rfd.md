@@ -1,3 +1,12 @@
+---
+title: 会話要約後の工程手順の読み直し
+page_kind: サマリ
+material: "[[docs/memo/0198_reread_after_compaction_10rfd.md|0198_reread_after_compaction_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 会話要約後の工程手順の読み直し
 
 ## 元の材料

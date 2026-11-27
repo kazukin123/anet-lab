@@ -1,3 +1,14 @@
+---
+title: MetricsLogger シングルトン・ライフサイクル堅牢化 — null-safe 静的ログ API と Reset 順序 PRD
+page_kind: サマリ
+material: "[[docs/memo/frozen/0026_metricslog_lifecycle_10rfd.md|0026_metricslog_lifecycle_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # MetricsLogger シングルトン・ライフサイクル堅牢化 — null-safe 静的ログ API と Reset 順序 PRD
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: stack 軸の確保と、並びが成り立つことの確かめは、Forwarder の仕組みではなく使う側が受け持つ
+page_kind: サマリ
+material: "[[docs/adr/0096-stack-axis-and-chain-validity-are-ensured-by-the-caller-not-the-forwarder-mechanism.md|0096-stack-axis-and-chain-validity-are-ensured-by-the-caller-not-the-forwarder-mechanism]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # stack 軸の確保と、並びが成り立つことの確かめは、Forwarder の仕組みではなく使う側が受け持つ
 
 ## 元の材料

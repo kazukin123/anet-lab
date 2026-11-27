@@ -1,3 +1,15 @@
+---
+title: "Atari Breakout: BTR NN構成の移植検証 — 2026-09-12"
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-09-12_btr-network-port.md|default-dqn/atari/2026-09-12_btr-network-port]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-26
+---
 # Atari Breakout: BTR NN構成の移植検証 — 2026-09-12
 
 ## 元の材料

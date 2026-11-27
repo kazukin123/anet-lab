@@ -1,3 +1,14 @@
+---
+title: "Survey: 分布強化学習における quantile fraction τ の選び方・配置方式の系譜(原典論文)"
+page_kind: サマリ
+material: "[[reports/_survey_tau_core_papers.md|_survey_tau_core_papers]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Survey: 分布強化学習における quantile fraction τ の選び方・配置方式の系譜(原典論文)
 
 ## 元の材料

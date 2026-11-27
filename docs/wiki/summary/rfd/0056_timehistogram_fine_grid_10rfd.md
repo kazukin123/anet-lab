@@ -1,3 +1,14 @@
+---
+title: TimeHistogram fine-bin保持・描画時集約 RFD
+page_kind: サマリ
+material: "[[docs/memo/0056_timehistogram_fine_grid_10rfd.md|0056_timehistogram_fine_grid_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+updated: 2026-11-26
+---
 # TimeHistogram fine-bin保持・描画時集約 RFD
 
 ## 元の材料

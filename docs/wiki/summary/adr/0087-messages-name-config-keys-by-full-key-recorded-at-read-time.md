@@ -1,3 +1,13 @@
+---
+title: 通知が示す設定キーは完全キーで書き、完全キーは読み口が読むときに記録して部品へ運ぶ
+page_kind: サマリ
+material: "[[docs/adr/0087-messages-name-config-keys-by-full-key-recorded-at-read-time.md|0087-messages-name-config-keys-by-full-key-recorded-at-read-time]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/312_util.md|312 ユーティリティ]]"
+updated: 2026-11-26
+---
 # 通知が示す設定キーは完全キーで書き、完全キーは読み口が読むときに記録して部品へ運ぶ
 
 ## 元の材料

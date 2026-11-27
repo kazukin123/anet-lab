@@ -1,3 +1,12 @@
+---
+title: 変更ごとの文書の呼び名を PRD から RFD に改め、番号を 0 埋めの 4 桁にする
+page_kind: サマリ
+material: "[[docs/adr/0093-document-term-rfd-and-four-digit-numbers.md|0093-document-term-rfd-and-four-digit-numbers]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 変更ごとの文書の呼び名を PRD から RFD に改め、番号を 0 埋めの 4 桁にする
 
 ## 元の材料

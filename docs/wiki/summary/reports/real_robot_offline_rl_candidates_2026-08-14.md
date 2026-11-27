@@ -1,3 +1,14 @@
+---
+title: 実ロボットでサンプル効率・オフライン学習を行う候補サーベイ
+page_kind: サマリ
+material: "[[reports/real_robot_offline_rl_candidates_2026-08-14.md|real_robot_offline_rl_candidates_2026-08-14]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/subjects/robot_tasks.md|実ロボット課題の選定]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # 実ロボットでサンプル効率・オフライン学習を行う候補サーベイ
 
 ## 元の材料

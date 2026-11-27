@@ -1,3 +1,14 @@
+---
+title: "Survey: 分布強化学習における τ(quantile fraction)のサンプリング/配置方式"
+page_kind: サマリ
+material: "[[reports/tau_sampling_modes_survey.md|tau_sampling_modes_survey]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Survey: 分布強化学習における τ(quantile fraction)のサンプリング/配置方式
 
 ## 元の材料

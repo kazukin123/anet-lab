@@ -1,3 +1,14 @@
+---
+title: FrameStack の設定と Sample の仕様を決める責務
+page_kind: サマリ
+material: "[[docs/adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md|0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+updated: 2026-11-26
+---
 # FrameStack の設定と Sample の仕様を決める責務
 
 ## 元の材料

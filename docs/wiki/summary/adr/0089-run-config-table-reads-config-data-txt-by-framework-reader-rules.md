@@ -1,3 +1,13 @@
+---
+title: Viewer の設定表は config_data.txt をフレームワークの読み込み側の規則で読む
+page_kind: サマリ
+material: "[[docs/adr/0089-run-config-table-reads-config-data-txt-by-framework-reader-rules.md|0089-run-config-table-reads-config-data-txt-by-framework-reader-rules]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # Viewer の設定表は config_data.txt をフレームワークの読み込み側の規則で読む
 
 ## 元の材料

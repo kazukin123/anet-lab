@@ -1,3 +1,14 @@
+---
+title: バックグラウンド評価が複製する Network の更新時点
+page_kind: サマリ
+material: "[[docs/memo/0141_background_eval_snapshot_ordering_10rfd.md|0141_background_eval_snapshot_ordering_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # バックグラウンド評価が複製する Network の更新時点
 
 ## 元の材料

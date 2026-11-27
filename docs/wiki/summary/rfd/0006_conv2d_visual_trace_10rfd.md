@@ -1,3 +1,14 @@
+---
+title: Conv2d 可視化「実Forwardトレース化」実装指示書
+page_kind: サマリ
+material: "[[docs/memo/done/0006_conv2d_visual_trace_10rfd.md|0006_conv2d_visual_trace_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # Conv2d 可視化「実Forwardトレース化」実装指示書
 
 ## 元の材料

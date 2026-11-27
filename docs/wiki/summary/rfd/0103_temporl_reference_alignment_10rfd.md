@@ -1,3 +1,16 @@
+---
+title: TempoRL の著者実装との比較と評価条件
+page_kind: サマリ
+material: "[[docs/memo/done/0103_temporl_reference_alignment_10rfd.md|0103_temporl_reference_alignment_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/subjects/gridmaze.md|GridMaze]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # TempoRL の著者実装との比較と評価条件
 
 ## 元の材料

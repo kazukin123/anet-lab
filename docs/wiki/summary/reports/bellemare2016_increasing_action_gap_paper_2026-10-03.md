@@ -1,3 +1,14 @@
+---
+title: "Increasing the Action Gap: New Operators for Reinforcement Learning — 詳細解説"
+page_kind: サマリ
+material: "[[reports/bellemare2016_increasing_action_gap_paper_2026-10-03.md|bellemare2016_increasing_action_gap_paper_2026-10-03]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Increasing the Action Gap: New Operators for Reinforcement Learning — 詳細解説
 
 ## 元の材料

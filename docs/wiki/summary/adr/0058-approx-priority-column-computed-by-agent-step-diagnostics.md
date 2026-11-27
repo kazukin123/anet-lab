@@ -1,3 +1,14 @@
+---
+title: step trace の近似優先度は Agent が出す step 部品が計算し、Actor の設定キーで eval_panel にだけヒントを作らせることはしない
+page_kind: サマリ
+material: "[[docs/adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md|0058-approx-priority-column-computed-by-agent-step-diagnostics]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+updated: 2026-11-26
+---
 # step trace の近似優先度は Agent が出す step 部品が計算し、Actor の設定キーで eval_panel にだけヒントを作らせることはしない
 
 ## 元の材料

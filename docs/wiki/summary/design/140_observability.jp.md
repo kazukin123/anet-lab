@@ -1,3 +1,16 @@
+---
+title: 可観測性
+page_kind: サマリ
+material: "[[docs/design/140_observability.jp.md|140_observability.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # 可観測性
 
 ## 元の材料

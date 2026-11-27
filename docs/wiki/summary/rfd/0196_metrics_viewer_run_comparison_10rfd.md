@@ -1,3 +1,15 @@
+---
+title: Metrics Viewer で Run の設定とグラフを比較する
+page_kind: サマリ
+material: "[[docs/memo/0196_metrics_viewer_run_comparison_10rfd.md|0196_metrics_viewer_run_comparison_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Metrics Viewer で Run の設定とグラフを比較する
 
 ## 元の材料

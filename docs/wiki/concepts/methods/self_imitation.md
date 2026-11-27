@@ -1,3 +1,14 @@
+---
+title: 自己模倣による価値学習
+page_kind: 手法
+aliases:
+  - SIL
+  - SAIL
+  - self-imitation learning
+  - 自己模倣
+description: 過去に得た高い収益を使う方法には、良い軌跡を再利用できる利点と、偶然の高収益を繰り返し学ぶ偏りがある。
+updated: 2026-11-27
+---
 # 自己模倣による価値学習
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

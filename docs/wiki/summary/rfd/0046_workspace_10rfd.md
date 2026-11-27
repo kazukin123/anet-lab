@@ -1,3 +1,14 @@
+---
+title: Workspace 機構(Run 分類の物理フォルダ化と Runner/Viewer/optuna 統合)
+page_kind: サマリ
+material: "[[docs/memo/done/0046_workspace_10rfd.md|0046_workspace_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # Workspace 機構(Run 分類の物理フォルダ化と Runner/Viewer/optuna 統合)
 
 ## 元の材料

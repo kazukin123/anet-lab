@@ -1,3 +1,14 @@
+---
+title: TempoRLを行動に反映しないSingleの比較（PRD104 ステージ1）
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1.md|default-dqn/lunarlander/2026-10-29_temporl-auxiliary-only-stage1]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/lunarlander.md|LunarLander]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # TempoRLを行動に反映しないSingleの比較（PRD104 ステージ1）
 
 ## 元の材料

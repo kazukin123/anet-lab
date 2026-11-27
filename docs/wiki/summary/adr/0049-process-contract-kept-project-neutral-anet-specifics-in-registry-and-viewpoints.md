@@ -1,3 +1,12 @@
+---
+title: プロセス契約とレビューエージェントの定義は、プロジェクトに依存しない文面に保ち、anet 固有のことはレジストリと観点に置く
+page_kind: サマリ
+material: "[[docs/adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md|0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # プロセス契約とレビューエージェントの定義は、プロジェクトに依存しない文面に保ち、anet 固有のことはレジストリと観点に置く
 
 ## 元の材料

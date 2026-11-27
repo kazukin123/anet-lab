@@ -1,3 +1,14 @@
+---
+title: net.config_profile によるブロック群パラメータ補間機構
+page_kind: サマリ
+material: "[[docs/memo/done/0029_config_profile_param_interp_10rfd.md|0029_config_profile_param_interp_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+updated: 2026-11-26
+---
 # net.config_profile によるブロック群パラメータ補間機構
 
 ## 元の材料

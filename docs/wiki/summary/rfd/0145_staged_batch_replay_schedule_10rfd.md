@@ -1,3 +1,14 @@
+---
+title: DQN のバッチサイズとリプレイ比率を途中で切り替える案
+page_kind: サマリ
+material: "[[docs/memo/0145_staged_batch_replay_schedule_10rfd.md|0145_staged_batch_replay_schedule_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # DQN のバッチサイズとリプレイ比率を途中で切り替える案
 
 ## 元の材料

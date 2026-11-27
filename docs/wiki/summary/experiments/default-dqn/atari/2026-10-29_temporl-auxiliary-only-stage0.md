@@ -1,3 +1,16 @@
+---
+title: qbert の行動固定を評価時だけ外す比較（PRD104 段0）
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0.md|default-dqn/atari/2026-10-29_temporl-auxiliary-only-stage0]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+updated: 2026-11-26
+---
 # qbert の行動固定を評価時だけ外す比較（PRD104 段0）
 
 ## 元の材料

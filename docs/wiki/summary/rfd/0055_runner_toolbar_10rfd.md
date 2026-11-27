@@ -1,3 +1,14 @@
+---
+title: Runner ツールバー(対象軸 4 バー構成)
+page_kind: サマリ
+material: "[[docs/memo/done/0055_runner_toolbar_10rfd.md|0055_runner_toolbar_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Runner ツールバー(対象軸 4 バー構成)
 
 ## 元の材料

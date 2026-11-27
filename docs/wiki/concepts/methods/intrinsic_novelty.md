@@ -1,3 +1,34 @@
+---
+title: 内的報酬による探索の比較
+page_kind: 手法
+aliases:
+  - MEME
+  - DEEP
+  - RLeXplore
+  - Taïga
+  - エピソード内の新しさ
+  - " NGU"
+  - E3B
+  - RND
+  - whiten
+  - 誤差の統計
+  - warm-up
+  - 直近重み
+  - 終端の mask
+  - intrinsic reward
+  - 内的報酬
+  - 新しさ
+  - 一生の新しさ
+  - Taiga
+  - 周期リセット
+  - predictor reset
+  - 価値の分解
+  - Agent57
+  - 外的の Head
+  - 内的の Head
+description: NGU 型ボーナスと E3B の比較は、環境・学習器・ほかのボーナスとの組み合わせに依存する。MiniHack の結果から Atari での順位は決められない。
+updated: 2026-11-27
+---
 # 内的報酬による探索の比較
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

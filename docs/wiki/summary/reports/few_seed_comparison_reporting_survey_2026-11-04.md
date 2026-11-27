@@ -1,3 +1,14 @@
+---
+title: "Survey: 少数 seed での比較と報告(ゲーム単位の seed ブレ、max 報告の偏り、IQM・信頼区間、必要な seed 数)"
+page_kind: サマリ
+material: "[[reports/few_seed_comparison_reporting_survey_2026-11-04.md|few_seed_comparison_reporting_survey_2026-11-04]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/subjects/beam_rider.md|BeamRider]]"
+updated: 2026-11-26
+---
 # Survey: 少数 seed での比較と報告(ゲーム単位の seed ブレ、max 報告の偏り、IQM・信頼区間、必要な seed 数)
 
 ## 元の材料

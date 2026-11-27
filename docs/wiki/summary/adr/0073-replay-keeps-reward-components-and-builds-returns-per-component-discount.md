@@ -1,3 +1,14 @@
+---
+title: Replay は報酬を成分ごとに記録し、成分ごとの割引率で収益を作る。成分の意味は持たない
+page_kind: サマリ
+material: "[[docs/adr/0073-replay-keeps-reward-components-and-builds-returns-per-component-discount.md|0073-replay-keeps-reward-components-and-builds-returns-per-component-discount]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Replay は報酬を成分ごとに記録し、成分ごとの割引率で収益を作る。成分の意味は持たない
 
 ## 元の材料

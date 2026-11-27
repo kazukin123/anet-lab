@@ -1,3 +1,14 @@
+---
+title: エピソード長は SHARED でも Step() 回数とし、episode return の総和とは非対称にする
+page_kind: サマリ
+material: "[[docs/adr/0043-episode-steps-shared-scope-is-step-count.md|0043-episode-steps-shared-scope-is-step-count]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+updated: 2026-11-26
+---
 # エピソード長は SHARED でも Step() 回数とし、episode return の総和とは非対称にする
 
 ## 元の材料

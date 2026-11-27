@@ -1,3 +1,16 @@
+---
+title: "Survey: 自己模倣（SIL）を価値ベースへ広げた手法と、確率的な環境での偏り"
+page_kind: サマリ
+material: "[[reports/sil_value_based_lower_bound_survey_2026-11-24.md|sil_value_based_lower_bound_survey_2026-11-24]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/self_imitation.md|自己模倣による価値学習]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Survey: 自己模倣（SIL）を価値ベースへ広げた手法と、確率的な環境での偏り
 
 ## 元の材料

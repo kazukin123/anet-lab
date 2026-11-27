@@ -1,3 +1,14 @@
+---
+title: 多数の seed を比較するための条件付き打ち切り案
+page_kind: サマリ
+material: "[[docs/memo/0175_seed_population_early_stop_10rfd.md|0175_seed_population_early_stop_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # 多数の seed を比較するための条件付き打ち切り案
 
 ## 元の材料

@@ -1,3 +1,13 @@
+---
+title: Metrics表示は共通Step区間、保存LODはfactor4とする
+page_kind: サマリ
+material: "[[docs/adr/0052-metrics-display-uses-common-step-bins-and-factor4-storage.md|0052-metrics-display-uses-common-step-bins-and-factor4-storage]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+updated: 2026-11-26
+---
 # Metrics表示は共通Step区間、保存LODはfactor4とする
 
 ## 元の材料

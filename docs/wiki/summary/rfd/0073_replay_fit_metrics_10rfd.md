@@ -1,3 +1,14 @@
+---
+title: replay 抽選履歴別の TD・損失メトリクス
+page_kind: サマリ
+material: "[[docs/memo/done/0073_replay_fit_metrics_10rfd.md|0073_replay_fit_metrics_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+updated: 2026-11-26
+---
 # replay 抽選履歴別の TD・損失メトリクス
 
 ## 元の材料

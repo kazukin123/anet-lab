@@ -1,3 +1,14 @@
+---
+title: MunchausenターゲットはDQN Learnerに局所化し、実空間で計算し、3つのlog-policy modeを持つ
+page_kind: サマリ
+material: "[[docs/adr/0035-munchausen-target-learner-local-real-space.md|0035-munchausen-target-learner-local-real-space]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+updated: 2026-11-26
+---
 # MunchausenターゲットはDQN Learnerに局所化し、実空間で計算し、3つのlog-policy modeを持つ
 
 ## 元の材料

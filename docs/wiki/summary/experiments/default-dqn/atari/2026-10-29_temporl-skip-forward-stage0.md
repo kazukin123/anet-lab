@@ -1,3 +1,15 @@
+---
+title: TempoRL の Q 側・skip 側のノイズと τ を分けた評価
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-10-29_temporl-skip-forward-stage0.md|default-dqn/atari/2026-10-29_temporl-skip-forward-stage0]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+updated: 2026-11-26
+---
 # TempoRL の Q 側・skip 側のノイズと τ を分けた評価
 
 ## 元の材料

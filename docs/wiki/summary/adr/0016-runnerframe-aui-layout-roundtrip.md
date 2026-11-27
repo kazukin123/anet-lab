@@ -1,3 +1,14 @@
+---
+title: RunnerFrame の dock サイズ制御は構造化シリアライザ往復と遷移時同期で行う
+page_kind: サマリ
+material: "[[docs/adr/0016-runnerframe-aui-layout-roundtrip.md|0016-runnerframe-aui-layout-roundtrip]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # RunnerFrame の dock サイズ制御は構造化シリアライザ往復と遷移時同期で行う
 
 ## 元の材料

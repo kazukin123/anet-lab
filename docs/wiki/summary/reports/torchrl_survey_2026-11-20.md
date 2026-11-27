@@ -1,3 +1,16 @@
+---
+title: "Survey: TorchRL の設計と現状 ― Transforms、実装の参考、実験結果の比較元"
+page_kind: サマリ
+material: "[[reports/torchrl_survey_2026-11-20.md|torchrl_survey_2026-11-20]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Survey: TorchRL の設計と現状 ― Transforms、実装の参考、実験結果の比較元
 
 ## 元の材料

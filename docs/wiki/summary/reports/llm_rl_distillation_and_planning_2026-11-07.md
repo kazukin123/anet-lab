@@ -1,3 +1,14 @@
+---
+title: LLMの助言を方策へ蒸留する方法と、世界モデルの先読みに使う方法
+page_kind: サマリ
+material: "[[reports/llm_rl_distillation_and_planning_2026-11-07.md|llm_rl_distillation_and_planning_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/methods/model_based_evidence.md|Model-based Atariの評価]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # LLMの助言を方策へ蒸留する方法と、世界モデルの先読みに使う方法
 
 ## 元の材料

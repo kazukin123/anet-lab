@@ -1,3 +1,14 @@
+---
+title: 終了時の背景評価セッションは完走を既定とし、設定または上限時間による協調キャンセルで抜けられるようにして、部分集計は設けない
+page_kind: サマリ
+material: "[[docs/adr/0045-eval-session-drain-on-exit-wait-or-discard.md|0045-eval-session-drain-on-exit-wait-or-discard]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # 終了時の背景評価セッションは完走を既定とし、設定または上限時間による協調キャンセルで抜けられるようにして、部分集計は設けない
 
 ## 元の材料

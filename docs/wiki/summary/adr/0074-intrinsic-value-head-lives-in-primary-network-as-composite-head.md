@@ -1,3 +1,14 @@
+---
+title: 価値の分解の内的の Head は、補助 Network ではなく、primary の Network の合成 Head に置く
+page_kind: サマリ
+material: "[[docs/adr/0074-intrinsic-value-head-lives-in-primary-network-as-composite-head.md|0074-intrinsic-value-head-lives-in-primary-network-as-composite-head]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+updated: 2026-11-26
+---
 # 価値の分解の内的の Head は、補助 Network ではなく、primary の Network の合成 Head に置く
 
 ## 元の材料

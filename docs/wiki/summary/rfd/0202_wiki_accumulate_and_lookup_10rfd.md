@@ -1,3 +1,12 @@
+---
+title: 資料別サマリと会話からの wiki の利用
+page_kind: サマリ
+material: "[[docs/memo/0202_wiki_accumulate_and_lookup_10rfd.md|0202_wiki_accumulate_and_lookup_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-27
+---
 # 資料別サマリと会話からの wiki の利用
 
 ## 元の材料

@@ -1,3 +1,16 @@
+---
+title: "Survey: 行動を続ける長さ（スキップ）の学習を、補助タスクやパラメータのノイズと組む事例"
+page_kind: サマリ
+material: "[[reports/skip_auxiliary_task_noise_survey_2026-11-27.md|skip_auxiliary_task_noise_survey_2026-11-27]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+updated: 2026-11-27
+---
 # Survey: 行動を続ける長さ（スキップ）の学習を、補助タスクやパラメータのノイズと組む事例
 
 ## 元の材料

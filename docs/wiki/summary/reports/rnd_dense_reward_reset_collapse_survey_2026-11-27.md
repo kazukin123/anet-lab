@@ -1,3 +1,18 @@
+---
+title: "Survey: RND の効き方と崩れ（密な報酬のゲームでの結果、predictor の初期化し直し、内的報酬の崩れと可塑性）"
+page_kind: サマリ
+material: "[[reports/rnd_dense_reward_reset_collapse_survey_2026-11-27.md|rnd_dense_reward_reset_collapse_survey_2026-11-27]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/methods/model_based_evidence.md|Model-based Atariの評価]]"
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/methods/pseudo_counts.md|訪問回数と擬似カウントによる探索]]"
+updated: 2026-11-27
+---
 # Survey: RND の効き方と崩れ（密な報酬のゲームでの結果、predictor の初期化し直し、内的報酬の崩れと可塑性）
 
 ## 元の材料

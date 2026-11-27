@@ -1,3 +1,12 @@
+---
+title: wiki に資料ごとのサマリのページと、確かめていない見立てを置く
+page_kind: サマリ
+material: "[[docs/adr/0097-wiki-keeps-per-source-summaries-and-unverified-conjectures.md|0097-wiki-keeps-per-source-summaries-and-unverified-conjectures]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # wiki に資料ごとのサマリのページと、確かめていない見立てを置く
 
 ## 元の材料

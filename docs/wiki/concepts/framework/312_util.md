@@ -1,3 +1,12 @@
+---
+title: 312 ユーティリティ
+page_kind: フレームワーク
+aliases:
+  - 312_util
+  - warn_once
+description: 設定からRunを組み立てる実行基盤のうち、初期化、seed、schedule、log、application共通処理の所在を引く。
+updated: 2026-11-27
+---
 # 312 ユーティリティ
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)

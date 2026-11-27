@@ -1,3 +1,16 @@
+---
+title: 探索を補助する LLM に何を渡すか
+page_kind: サマリ
+material: "[[reports/llm_rl_exploration_information_2026-11-07.md|llm_rl_exploration_information_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+updated: 2026-11-26
+---
 # 探索を補助する LLM に何を渡すか
 
 ## 元の材料

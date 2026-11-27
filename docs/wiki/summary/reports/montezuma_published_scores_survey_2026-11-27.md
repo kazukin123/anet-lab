@@ -1,3 +1,17 @@
+---
+title: "Survey: Montezuma's Revenge の公開の成績と、その測り方"
+page_kind: サマリ
+material: "[[reports/montezuma_published_scores_survey_2026-11-27.md|montezuma_published_scores_survey_2026-11-27]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/methods/self_imitation.md|自己模倣による価値学習]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+updated: 2026-11-27
+---
 # Survey: Montezuma's Revenge の公開の成績と、その測り方
 
 ## 元の材料

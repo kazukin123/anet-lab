@@ -1,3 +1,12 @@
+---
+title: レビューエージェントとレビュー観点の導入（プロセス契約の共有コア）
+page_kind: サマリ
+material: "[[docs/memo/done/0087_review_agent_quality_viewpoints_10rfd.md|0087_review_agent_quality_viewpoints_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # レビューエージェントとレビュー観点の導入（プロセス契約の共有コア）
 
 ## 元の材料

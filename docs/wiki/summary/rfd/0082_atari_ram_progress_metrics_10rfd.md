@@ -1,3 +1,14 @@
+---
+title: Atari のゲーム固有イベントを RAM メトリクスとして取る — 番号付き汎用キーへゲーム別に紐づける PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0082_atari_ram_progress_metrics_10rfd.md|0082_atari_ram_progress_metrics_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # Atari のゲーム固有イベントを RAM メトリクスとして取る — 番号付き汎用キーへゲーム別に紐づける PRD
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: RND の設定は、段階ごとのスコープとモード別の名前空間で持ち、被るキーは割り切る
+page_kind: サマリ
+material: "[[docs/adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md|0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # RND の設定は、段階ごとのスコープとモード別の名前空間で持ち、被るキーは割り切る
 
 ## 元の材料

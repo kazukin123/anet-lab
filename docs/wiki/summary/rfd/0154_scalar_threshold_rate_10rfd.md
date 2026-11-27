@@ -1,3 +1,15 @@
+---
+title: スカラーが閾値を超えた割合を測る仕組み
+page_kind: サマリ
+material: "[[docs/memo/0154_scalar_threshold_rate_10rfd.md|0154_scalar_threshold_rate_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+updated: 2026-11-26
+---
 # スカラーが閾値を超えた割合を測る仕組み
 
 ## 元の材料

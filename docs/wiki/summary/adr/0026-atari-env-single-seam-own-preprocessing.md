@@ -1,3 +1,15 @@
+---
+title: AtariEnv は SingleDiscreteEnv として登録し、前処理は env 内自前・frame stack は既存 stucker/RB に委ねる
+page_kind: サマリ
+material: "[[docs/adr/0026-atari-env-single-seam-own-preprocessing.md|0026-atari-env-single-seam-own-preprocessing]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+updated: 2026-11-26
+---
 # AtariEnv は SingleDiscreteEnv として登録し、前処理は env 内自前・frame stack は既存 stucker/RB に委ねる
 
 ## 元の材料

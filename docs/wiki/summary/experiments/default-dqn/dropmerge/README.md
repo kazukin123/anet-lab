@@ -1,3 +1,14 @@
+---
+title: DefaultDQNAgent / DropMerge 探索記録
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/dropmerge/README.md|default-dqn/dropmerge/README]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/phenomena/gradient_noise_batch.md|勾配ノイズとbatch]]"
+updated: 2026-11-26
+---
 # DefaultDQNAgent / DropMerge 探索記録
 
 ## 元の材料

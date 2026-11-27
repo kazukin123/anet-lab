@@ -1,3 +1,15 @@
+---
+title: 訪問回数と擬似カウントによる探索
+page_kind: 手法
+aliases:
+  - CTS
+  - PixelCNN
+  - pseudo-count
+  - SimHash
+  - φ-EB
+description: 密度が観測の前後でどう変わるか、またはどの特徴を同じ状態と数えるかで、未訪問状態へのボーナスが変わる。Montezuma では価値更新の方法にも結果が左右された。
+updated: 2026-11-27
+---
 # 訪問回数と擬似カウントによる探索
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

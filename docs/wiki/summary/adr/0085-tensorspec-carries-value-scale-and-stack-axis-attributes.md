@@ -1,3 +1,13 @@
+---
+title: TensorSpec に、値の尺度と stack 軸の 2 つの属性を持たせる
+page_kind: サマリ
+material: "[[docs/adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md|0085-tensorspec-carries-value-scale-and-stack-axis-attributes]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+updated: 2026-11-26
+---
 # TensorSpec に、値の尺度と stack 軸の 2 つの属性を持たせる
 
 ## 元の材料

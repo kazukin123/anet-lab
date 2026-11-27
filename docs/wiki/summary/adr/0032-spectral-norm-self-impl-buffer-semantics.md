@@ -1,3 +1,14 @@
+---
+title: Spectral Normalization は自前 power iteration + u/v named buffer で実装し、σ は毎 forward その場の W で再計算する
+page_kind: サマリ
+material: "[[docs/adr/0032-spectral-norm-self-impl-buffer-semantics.md|0032-spectral-norm-self-impl-buffer-semantics]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/methods/target_update.md|Target更新の比較]]"
+updated: 2026-11-26
+---
 # Spectral Normalization は自前 power iteration + u/v named buffer で実装し、σ は毎 forward その場の W で再計算する
 
 ## 元の材料

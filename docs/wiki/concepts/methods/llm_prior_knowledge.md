@@ -1,3 +1,29 @@
+---
+title: LLMの外部知識と探索
+page_kind: 手法
+aliases:
+  - LLM
+  - VLM
+  - Motif
+  - ELLM
+  - Read and Reward
+  - LLM-Explorer
+  - Robometer
+  - CriticHack
+  - LIMEN
+  - iLLM
+  - Intelligent Go-Explore
+  - DiscoGen
+  - LPO
+  - ONI
+  - RLang
+  - DECKARD
+  - SGRL
+  - LLM-TALE
+  - LAGEA
+description: Atari・ロボットで効いた条件と失敗。小型モデル、報酬整形の保証、更新則発見、言葉と環境の接続。LAGEAの単一GPU条件を確認。KungFuMasterのボス・Qbert第8面への直接の実証は未確認。
+updated: 2026-11-27
+---
 # LLMの外部知識と探索
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

@@ -1,3 +1,15 @@
+---
+title: BeamRider と Freeway での TempoRL（PRD103 の再開条件）
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-11-04_temporl-freeway-beamrider.md|default-dqn/atari/2026-11-04_temporl-freeway-beamrider]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/beam_rider.md|BeamRider]]"
+  - "[[docs/wiki/concepts/subjects/freeway.md|Freeway]]"
+updated: 2026-11-26
+---
 # BeamRider と Freeway での TempoRL（PRD103 の再開条件）
 
 ## 元の材料

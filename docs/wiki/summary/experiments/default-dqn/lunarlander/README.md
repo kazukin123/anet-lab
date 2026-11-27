@@ -1,3 +1,14 @@
+---
+title: DefaultDQNAgent / LunarLander 探索記録
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/lunarlander/README.md|default-dqn/lunarlander/README]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/lunarlander.md|LunarLander]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # DefaultDQNAgent / LunarLander 探索記録
 
 ## 元の材料

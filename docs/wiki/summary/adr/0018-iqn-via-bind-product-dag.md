@@ -1,3 +1,14 @@
+---
+title: IQN を bind `*` DAG 汎用化と最小 Head で表現する
+page_kind: サマリ
+material: "[[docs/adr/0018-iqn-via-bind-product-dag.md|0018-iqn-via-bind-product-dag]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+updated: 2026-11-26
+---
 # IQN を bind `*` DAG 汎用化と最小 Head で表現する
 
 ## 元の材料

@@ -1,3 +1,20 @@
+---
+title: 行動の時間尺度
+page_kind: 手法
+aliases:
+  - TempoRL
+  - FiGAR
+  - action repeat
+  - SMDP
+  - action gap
+  - temporl
+  - UTE
+  - Lazy-MDP
+  - lazy-MDP
+  - 遷移ごとの割引
+description: TempoRL は行動とその繰り返し長を学ぶ。LunarLander、qbert、DropMerge には、学習中の繰り返しと評価時のスキップを分けた比較がある。
+updated: 2026-11-27
+---
 # 行動の時間尺度
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

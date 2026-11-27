@@ -1,3 +1,13 @@
+---
+title: self-attention を ATen `scaled_dot_product_attention` 直接呼び出しに置き換える
+page_kind: サマリ
+material: "[[docs/adr/0004-sdpa-attention-via-aten.md|0004-sdpa-attention-via-aten]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+updated: 2026-11-26
+---
 # self-attention を ATen `scaled_dot_product_attention` 直接呼び出しに置き換える
 
 ## 元の材料

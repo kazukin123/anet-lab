@@ -1,3 +1,14 @@
+---
+title: "MetricsViewer 複数 Run の表示粒度: 再現調査と対応方針"
+page_kind: サマリ
+material: "[[reports/metrics_viewer_resolution_investigation_2026-10-10.md|metrics_viewer_resolution_investigation_2026-10-10]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # MetricsViewer 複数 Run の表示粒度: 再現調査と対応方針
 
 ## 元の材料

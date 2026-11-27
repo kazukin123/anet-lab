@@ -1,3 +1,14 @@
+---
+title: LunarLanderEnv obs_include_action（直前 action の観測化・（暫定）
+page_kind: サマリ
+material: "[[docs/memo/done/0032_lunarlander_obs_include_action_10rfd.md|0032_lunarlander_obs_include_action_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/lunarlander.md|LunarLander]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+updated: 2026-11-26
+---
 # LunarLanderEnv obs_include_action（直前 action の観測化・（暫定）
 
 ## 元の材料

@@ -1,3 +1,15 @@
+---
+title: 観測加工の定義と強制行動の Actor 入力
+page_kind: サマリ
+material: "[[docs/memo/0161_observation_pipeline_10rfd.md|0161_observation_pipeline_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # 観測加工の定義と強制行動の Actor 入力
 
 ## 元の材料

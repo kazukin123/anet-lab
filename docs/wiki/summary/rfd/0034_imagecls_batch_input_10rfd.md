@@ -1,3 +1,14 @@
+---
+title: ImageCls 専用 batch 入力コンポーネント / BatchEnv adapter
+page_kind: サマリ
+material: "[[docs/memo/done/0034_imagecls_batch_input_10rfd.md|0034_imagecls_batch_input_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+updated: 2026-11-26
+---
 # ImageCls 専用 batch 入力コンポーネント / BatchEnv adapter
 
 ## 元の材料

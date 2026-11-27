@@ -1,3 +1,14 @@
+---
+title: "Atari Breakout: UQE 探索方策の掃引 — 2026-09-07"
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-09-07_uqe-exploration.md|default-dqn/atari/2026-09-07_uqe-exploration]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+updated: 2026-11-26
+---
 # Atari Breakout: UQE 探索方策の掃引 — 2026-09-07
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: "Survey: モンテカルロ積分の分散低減サンプリング理論と quantile/τ サンプリングへの適用"
+page_kind: サマリ
+material: "[[reports/_survey_tau_mc_theory.md|_survey_tau_mc_theory]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Survey: モンテカルロ積分の分散低減サンプリング理論と quantile/τ サンプリングへの適用
 
 ## 元の材料

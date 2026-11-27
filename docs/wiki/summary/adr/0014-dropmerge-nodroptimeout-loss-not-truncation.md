@@ -1,3 +1,13 @@
+---
+title: DropMergeのNoDropTimeoutをtruncationではなく敗着(done+罰)とする
+page_kind: サマリ
+material: "[[docs/adr/0014-dropmerge-nodroptimeout-loss-not-truncation.md|0014-dropmerge-nodroptimeout-loss-not-truncation]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # DropMergeのNoDropTimeoutをtruncationではなく敗着(done+罰)とする
 
 ## 元の材料

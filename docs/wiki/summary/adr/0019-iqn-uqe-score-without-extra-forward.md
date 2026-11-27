@@ -1,3 +1,14 @@
+---
+title: IQN+UQE の Q 系値は同一 forward の risk-biased action score を使う
+page_kind: サマリ
+material: "[[docs/adr/0019-iqn-uqe-score-without-extra-forward.md|0019-iqn-uqe-score-without-extra-forward]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+updated: 2026-11-26
+---
 # IQN+UQE の Q 系値は同一 forward の risk-biased action score を使う
 
 ## 元の材料

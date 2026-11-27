@@ -1,3 +1,14 @@
+---
+title: QValuePanel の Q 値と手動行動の対象状態
+page_kind: サマリ
+material: "[[docs/memo/0176_qvaluepanel_manual_action_state_alignment_10rfd.md|0176_qvaluepanel_manual_action_state_alignment_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # QValuePanel の Q 値と手動行動の対象状態
 
 ## 元の材料

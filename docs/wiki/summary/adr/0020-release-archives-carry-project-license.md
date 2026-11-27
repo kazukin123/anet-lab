@@ -1,3 +1,13 @@
+---
+title: リリース zip 直下にプロジェクトのライセンス文書を置く
+page_kind: サマリ
+material: "[[docs/adr/0020-release-archives-carry-project-license.md|0020-release-archives-carry-project-license]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # リリース zip 直下にプロジェクトのライセンス文書を置く
 
 ## 元の材料

@@ -1,3 +1,16 @@
+---
+title: 318 強化学習 共通基盤
+page_kind: フレームワーク
+aliases:
+  - 318_rl_core
+  - Notifier
+  - eval_schedule
+  - 強制行動
+  - ForcedActions
+  - MakeActionOptions
+description: ReplayBufferのExperience、N-step、PER、stack履歴、転送とprefetchの共通契約を引く。RunnerとObserverの実行・通知の所在もまとめる。
+updated: 2026-11-27
+---
 # 318 強化学習 共通基盤
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)

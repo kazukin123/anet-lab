@@ -1,3 +1,14 @@
+---
+title: BeamRider
+page_kind: 題材
+aliases:
+  - BeamRider
+  - beam_rider
+  - Beamrider
+  - br
+description: サンプル効率優先の 50M では、スキップなしの 2 seed で Greedy の成績と到達セクターが大きく分かれた。
+updated: 2026-11-27
+---
 # BeamRider
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

@@ -1,3 +1,14 @@
+---
+title: ReplayBufferのsample可能範囲は、ring上書きで失われたstack履歴を必要とするtransitionを除外する
+page_kind: サマリ
+material: "[[docs/adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md|0024-replay-sampleable-range-excludes-overwritten-stack-history]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+updated: 2026-11-26
+---
 # ReplayBufferのsample可能範囲は、ring上書きで失われたstack履歴を必要とするtransitionを除外する
 
 ## 元の材料

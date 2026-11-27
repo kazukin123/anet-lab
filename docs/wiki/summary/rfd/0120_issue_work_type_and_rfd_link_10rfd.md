@@ -1,3 +1,12 @@
+---
+title: 課題の作業種別と RFD へのリンク
+page_kind: サマリ
+material: "[[docs/memo/0120_issue_work_type_and_rfd_link_10rfd.md|0120_issue_work_type_and_rfd_link_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 課題の作業種別と RFD へのリンク
 
 ## 元の材料

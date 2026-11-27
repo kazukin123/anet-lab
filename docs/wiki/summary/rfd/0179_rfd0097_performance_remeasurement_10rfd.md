@@ -1,3 +1,15 @@
+---
+title: 環境遷移変更後の性能再測定と DropMerge の追加費用
+page_kind: サマリ
+material: "[[docs/memo/0179_rfd0097_performance_remeasurement_10rfd.md|0179_rfd0097_performance_remeasurement_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+updated: 2026-11-26
+---
 # 環境遷移変更後の性能再測定と DropMerge の追加費用
 
 ## 元の材料

@@ -1,3 +1,13 @@
+---
+title: LunarLander
+page_kind: 題材
+aliases:
+  - LunarLander
+  - ll
+  - ホバリング
+description: 同条件の 3 seed では、ホバリングを抜ける時期に QR と IQN で明確な差はなかった。持続的に T180 に達したのは QR が 1 本、IQN が 3 本だった。
+updated: 2026-11-27
+---
 # LunarLander
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

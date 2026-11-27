@@ -1,3 +1,13 @@
+---
+title: NN Forward の設定解釈を事前準備へ移し、用途別実行オブジェクトが State と Network の寿命を持つ
+page_kind: サマリ
+material: "[[docs/adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md|0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+updated: 2026-11-26
+---
 # NN Forward の設定解釈を事前準備へ移し、用途別実行オブジェクトが State と Network の寿命を持つ
 
 ## 元の材料

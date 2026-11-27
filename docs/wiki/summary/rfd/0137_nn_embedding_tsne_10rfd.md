@@ -1,3 +1,14 @@
+---
+title: NN 内部表現を2次元へ投影する可視化案
+page_kind: サマリ
+material: "[[docs/memo/frozen/0137_nn_embedding_tsne_10rfd.md|0137_nn_embedding_tsne_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+updated: 2026-11-26
+---
 # NN 内部表現を2次元へ投影する可視化案
 
 ## 元の材料

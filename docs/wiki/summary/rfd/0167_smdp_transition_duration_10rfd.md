@@ -1,3 +1,15 @@
+---
+title: 遷移ごとの経過時間を使う SMDP 割引案
+page_kind: サマリ
+material: "[[docs/memo/0167_smdp_transition_duration_10rfd.md|0167_smdp_transition_duration_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # 遷移ごとの経過時間を使う SMDP 割引案
 
 ## 元の材料

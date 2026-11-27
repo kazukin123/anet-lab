@@ -1,3 +1,15 @@
+---
+title: RND 採点時の統計更新と計測
+page_kind: サマリ
+material: "[[docs/memo/0130_rnd_estimate_statistics_perf_10rfd.md|0130_rnd_estimate_statistics_perf_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # RND 採点時の統計更新と計測
 
 ## 元の材料

@@ -1,3 +1,17 @@
+---
+title: "Survey: 新しさのボーナスで、長い移動の先や、ふだん通らない状態へ届くか"
+page_kind: サマリ
+material: "[[reports/novelty_bonus_long_horizon_reach_survey_2026-11-27.md|novelty_bonus_long_horizon_reach_survey_2026-11-27]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/methods/pseudo_counts.md|訪問回数と擬似カウントによる探索]]"
+updated: 2026-11-27
+---
 # Survey: 新しさのボーナスで、長い移動の先や、ふだん通らない状態へ届くか
 
 ## 元の材料

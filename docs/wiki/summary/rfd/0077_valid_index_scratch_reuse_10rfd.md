@@ -1,3 +1,14 @@
+---
+title: sampleable index 列の確保を持続バッファへ移す
+page_kind: サマリ
+material: "[[docs/memo/done/0077_valid_index_scratch_reuse_10rfd.md|0077_valid_index_scratch_reuse_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # sampleable index 列の確保を持続バッファへ移す
 
 ## 元の材料

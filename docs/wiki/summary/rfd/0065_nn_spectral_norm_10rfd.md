@@ -1,3 +1,14 @@
+---
+title: NN Spectral Normalization（weight_norm.mode）PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0065_nn_spectral_norm_10rfd.md|0065_nn_spectral_norm_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+updated: 2026-11-26
+---
 # NN Spectral Normalization（weight_norm.mode）PRD
 
 ## 元の材料

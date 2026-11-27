@@ -1,3 +1,15 @@
+---
+title: Policy churn メトリクス（35_agent_churn）PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0066_policy_churn_metrics_10rfd.md|0066_policy_churn_metrics_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Policy churn メトリクス（35_agent_churn）PRD
 
 ## 元の材料

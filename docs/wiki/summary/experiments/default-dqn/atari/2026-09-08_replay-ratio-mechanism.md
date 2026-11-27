@@ -1,3 +1,15 @@
+---
+title: "Atari Breakout: 高 replay_ratio で成績が落ちる機序 — 2026-09-08"
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-09-08_replay-ratio-mechanism.md|default-dqn/atari/2026-09-08_replay-ratio-mechanism]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+updated: 2026-11-26
+---
 # Atari Breakout: 高 replay_ratio で成績が落ちる機序 — 2026-09-08
 
 ## 元の材料

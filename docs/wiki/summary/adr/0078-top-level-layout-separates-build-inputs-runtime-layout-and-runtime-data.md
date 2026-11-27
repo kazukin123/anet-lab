@@ -1,3 +1,14 @@
+---
+title: トップの階層は、ビルドの入力（src）・実行時の配置（apps）・実行時にできるもの（data）で分け、ビルドは apps へ直接出す
+page_kind: サマリ
+material: "[[docs/adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md|0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # トップの階層は、ビルドの入力（src）・実行時の配置（apps）・実行時にできるもの（data）で分け、ビルドは apps へ直接出す
 
 ## 元の材料

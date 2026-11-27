@@ -1,3 +1,13 @@
+---
+title: Name This Game
+page_kind: 題材
+aliases:
+  - NameThisGame
+  - name_this_game
+  - ntg
+description: サンプル効率優先50Mは実時間優先50M比+24%、BTR比102%だった。45.7M・ε=0の最良28,465は、実時間優先seed2・100Mの最良24,851を上回った。
+updated: 2026-11-26
+---
 # Name This Game
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

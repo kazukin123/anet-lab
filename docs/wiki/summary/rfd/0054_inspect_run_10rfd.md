@@ -1,3 +1,14 @@
+---
+title: AI向けRun解析CLI `inspect_run.py`
+page_kind: サマリ
+material: "[[docs/memo/done/0054_inspect_run_10rfd.md|0054_inspect_run_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+updated: 2026-11-26
+---
 # AI向けRun解析CLI `inspect_run.py`
 
 ## 元の材料

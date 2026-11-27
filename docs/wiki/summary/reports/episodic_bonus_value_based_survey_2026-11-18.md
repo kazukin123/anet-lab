@@ -1,3 +1,15 @@
+---
+title: "Survey: エピソード内の新しさのボーナスを価値ベース（DQN・Replay）に載せるときの論点"
+page_kind: サマリ
+material: "[[reports/episodic_bonus_value_based_survey_2026-11-18.md|episodic_bonus_value_based_survey_2026-11-18]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/methods/pseudo_counts.md|訪問回数と擬似カウントによる探索]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/methods/return_and_explore.md|訪問済み状態へ戻る探索]]"
+updated: 2026-11-26
+---
 # Survey: エピソード内の新しさのボーナスを価値ベース（DQN・Replay）に載せるときの論点
 
 ## 元の材料

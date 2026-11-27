@@ -1,3 +1,14 @@
+---
+title: 観測メトリクスを目標値に合わせるハイパラ調整案
+page_kind: サマリ
+material: "[[docs/memo/0152_metric_targeted_hyperparam_control_10rfd.md|0152_metric_targeted_hyperparam_control_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # 観測メトリクスを目標値に合わせるハイパラ調整案
 
 ## 元の材料

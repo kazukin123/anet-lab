@@ -1,3 +1,15 @@
+---
+title: 評価セッションの遷移を Run に記録する
+page_kind: サマリ
+material: "[[docs/memo/0184_eval_session_step_trace_10rfd.md|0184_eval_session_step_trace_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # 評価セッションの遷移を Run に記録する
 
 ## 元の材料

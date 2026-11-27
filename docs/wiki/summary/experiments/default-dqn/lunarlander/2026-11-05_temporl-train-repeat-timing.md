@@ -1,3 +1,14 @@
+---
+title: TempoRLのTrainの繰り返しの時期と長さの比較
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing.md|default-dqn/lunarlander/2026-11-05_temporl-train-repeat-timing]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/lunarlander.md|LunarLander]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # TempoRLのTrainの繰り返しの時期と長さの比較
 
 ## 元の材料

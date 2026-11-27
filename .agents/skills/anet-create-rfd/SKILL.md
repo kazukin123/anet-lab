@@ -319,6 +319,8 @@ RFD レビュー観点の全項目を、各項目の適用範囲に従って通�
 
 起票の候補を記録したあと（未決表と「未解決」の ID への置き換えを含む）、完了報告の直前に、サマリ（「元の材料」の blob を含む）と書き戻した概念のページをその時点の RFD 本文と照合し、食い違えば wiki を直す。候補が無ければ「なし」を示したあとに行う。その時点の RFD を `git hash-object` で計算し、`docs/wiki/log.md` に `writeback` の行を、是正があれば `fix` の行も足す（直したページが無ければ `→ なし`）。暫定でも行う。途中停止で記録が残らなかったものは、`anet-lint-wiki` が入ったら取り込み漏れとして拾う。Plan Mode の間は記録も編集しない。
 
+書き戻しを行ったときは、ページ・目録・作業の記録を書き終えてから、repo の .venv で `reports/tools/wiki_support.py headers` を実行する。
+
 <supporting-info>
 
 ## Domain awareness

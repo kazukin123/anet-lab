@@ -7,6 +7,8 @@ import sys
 import tempfile
 import unittest
 
+import yaml
+
 
 REPO = Path(__file__).resolve().parents[5]
 HELPER = REPO / "reports/tools/wiki_support.py"
@@ -39,6 +41,257 @@ class WikiScanTest(unittest.TestCase):
         result = subprocess.check_output([sys.executable, "-B", str(HELPER), "scan"],
                                          cwd=self.root, env=self.env, encoding="utf-8")
         return json.loads(result)
+
+    def test_headers_writes_summary_and_concept_properties(self):
+        # 材料・本文・目録・作業の記録から、二種類のページのヘッダを作る。
+        summary = "docs/wiki/summary/reports/probe.md"
+        concept = "docs/wiki/concepts/methods/probe.md"
+        summary_body = "# サマリの題名\n\n## 主要な概念\n\n- [本文での呼び名](../../concepts/methods/probe.md)\n"
+        concept_body = "# ページの題名\n"
+        self.write("reports/probe.md", "# 原本\n")
+        self.write(summary, summary_body)
+        self.write(concept, concept_body)
+        self.write("docs/wiki/index.md", "- [目録の題名 — 計測](concepts/methods/probe.md) — 説明 （別名: 別名 A, 別名 B）。\n")
+        self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
+                   f"2026-11-27 fix 試用 → {summary}, {concept}\n")
+
+        self.headers()
+
+        self.assertEqual((self.root / summary).read_text(encoding="utf-8"),
+                         "---\ntitle: サマリの題名\npage_kind: サマリ\n"
+                         'material: "[[reports/probe.md|probe]]"\nmaterial_kind: 報告\n'
+                         'concepts:\n  - "[[docs/wiki/concepts/methods/probe.md|ページの題名]]"\n'
+                         "updated: 2026-11-27\n---\n" + summary_body)
+        self.assertEqual((self.root / concept).read_text(encoding="utf-8"),
+                         "---\ntitle: ページの題名\npage_kind: 手法\n"
+                         "aliases:\n  - 別名 A\n  - 別名 B\ndescription: 説明\n"
+                         "updated: 2026-11-27\n---\n" + concept_body)
+
+    def headers(self, check=True):
+        return subprocess.run([sys.executable, "-B", str(HELPER), "headers"],
+                              cwd=self.root, env=self.env, encoding="utf-8",
+                              capture_output=True, check=check)
+
+    def test_headers_replaces_managed_values_and_preserves_custom_yaml_and_body(self):
+        page = "docs/wiki/concepts/methods/probe.md"
+        dest = self.root / page
+        body = b"# Actual title\r\n\r\nbody\r\n"
+        custom = "tags: [keep, 'with spaces']\ncustom: |-\n  first line\n\n  second line\n"
+        self.write(page, "---\ntitle: Wrong\n" + custom
+                   + "\n# Unattached comment\nupdated: 2000-01-01\n---\n")
+        dest.write_bytes(dest.read_bytes() + body)
+        expected = ("---\ntitle: Actual title\npage_kind: 手法\naliases: []\ndescription:\nupdated:\n"
+                    + custom + "---\n").encode("utf-8") + body
+
+        self.headers()
+        self.assertEqual(dest.read_bytes(), expected)
+        self.assertEqual(json.loads(self.headers().stdout)["updated"], [])
+        self.assertEqual(dest.read_bytes(), expected)
+
+    def test_headers_validates_every_page_before_writing(self):
+        good = "docs/wiki/concepts/methods/first.md"
+        bad = "docs/wiki/concepts/methods/probe.md"
+        misplaced = "docs/wiki/summary/unknown/probe.md"
+        summary = "docs/wiki/summary/rfd/0200_probe_10rfd.md"
+        index = "docs/wiki/index.md"
+        log = "docs/wiki/log.md"
+        duplicate_entry = "- [p — q](concepts/methods/probe.md) — description\n"
+        cases = (
+            ({bad: "---\ntitle: broken\n# probe\n"}, bad, "unclosed YAML header"),
+            ({bad: "---\ntitle: [broken\n---\n# probe\n"}, bad, "invalid YAML header"),
+            ({bad: "---\n- value\n---\n# probe\n"}, bad, "YAML header must be a mapping"),
+            ({bad: "## Body\n"}, bad, "missing title"),
+            ({misplaced: "# probe\n"}, misplaced, "unrecognized page folder"),
+            ({summary: "# probe\n", "docs/memo/0200_probe_10rfd.md": "first",
+              "docs/memo/done/0200_probe_10rfd.md": "second"}, summary, "multiple materials"),
+            ({bad: "# probe\n", index: duplicate_entry * 2}, bad, "multiple index entries"),
+            ({index: None}, index, "index.md"),
+            ({log: None}, log, "log.md"),
+        )
+        for inputs, page, reason in cases:
+            with self.subTest(reason=reason):
+                self.write(good, "# First\n")
+                self.write(index, "# Index\n")
+                self.write(log, f"2026-11-26 start rev:{self.start}\n")
+                for path, contents in inputs.items():
+                    if contents is None:
+                        (self.root / path).unlink()
+                    else:
+                        self.write(path, contents)
+                before = {p: p.read_bytes() for p in self.root.joinpath("docs").rglob("*.md")}
+                result = self.headers(check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(page, result.stderr.replace(chr(92), "/"))
+                self.assertIn(reason, result.stderr)
+                self.assertEqual({p: p.read_bytes() for p in self.root.joinpath("docs").rglob("*.md")}, before)
+                for path in inputs:
+                    (self.root / path).unlink(missing_ok=True)
+
+    def test_headers_retains_quoted_flow_keys_and_multiline_values(self):
+        page = "docs/wiki/concepts/methods/probe.md"
+        body = "# Probe\n"
+        headers = (
+            ('{"title":"old","custom":["one", "two"]}\n', '"custom": ["one", "two"]\n'),
+            ("title: old\ncustom: |+\n  line\n\n", "custom: |+\n  line\n\n"),
+        )
+        for original, custom in headers:
+            with self.subTest(original=original):
+                self.write(page, "---\n" + original + "---\n" + body)
+                self.headers()
+                text = (self.root / page).read_text(encoding="utf-8")
+                self.assertTrue(text.endswith("\n" + custom + "---\n" + body), text)
+                self.assertEqual(json.loads(self.headers().stdout)["updated"], [])
+
+    def test_headers_preserves_custom_explicit_keys_and_anchor_references(self):
+        page = "docs/wiki/concepts/methods/probe.md"
+        body = "# Current title\n"
+        custom = "memo: *label\n?\n  custom\n: value\n"
+        self.write(page, "---\ntitle: &label Old title\n" + custom + "---\n" + body)
+        self.headers()
+        text = (self.root / page).read_text(encoding="utf-8")
+        header, rest = text.split("\n---\n", 1)
+        self.assertIn("\n" + custom, text)
+        self.assertEqual(rest, body)
+        decoded = yaml.safe_load(header)
+        self.assertEqual(decoded["title"], "Current title")
+        self.assertEqual(decoded["memo"], "Old title")
+        self.assertEqual(decoded["custom"], "value")
+        self.assertEqual(json.loads(self.headers().stdout)["updated"], [])
+
+    def test_headers_preserves_anchor_dependencies_and_merges_without_duplicate_keys(self):
+        page = "docs/wiki/concepts/methods/probe.md"
+        body = "# Current title\n"
+        custom = "memo: &base Old title\n"
+        references = "extra: *label\n"
+        for merge in ("", "<<: {from_merge: 9}\n"):
+            with self.subTest(merge=merge):
+                self.write(page, "---\n" + custom + "title: &label [*base]\n" + merge
+                           + references + "---\n" + body)
+                self.headers()
+                text = (self.root / page).read_text(encoding="utf-8")
+                header, rest = text.split("\n---\n", 1)
+                self.assertIn("\n" + custom, text)
+                self.assertIn("\n" + references, text)
+                self.assertEqual(rest, body)
+                self.assertEqual(header.count("\n<<:"), 1)
+                decoded = yaml.safe_load(header)
+                self.assertEqual(decoded["title"], "Current title")
+                self.assertEqual(decoded["memo"], "Old title")
+                self.assertEqual(decoded["extra"], ["Old title"])
+                if merge:
+                    self.assertEqual(decoded["from_merge"], 9)
+                self.assertEqual(json.loads(self.headers().stdout)["updated"], [])
+
+    def test_scan_reports_header_mismatches_and_page_errors_without_enabling_lint(self):
+        # 直せるヘッダと、入力を直す必要があるページを同時に報告する。
+        folder = "docs/wiki/concepts/methods/"
+        good = folder + "good.md"
+        stale = folder + "stale.md"
+        self.write(good, "# Good\n")
+        self.write(stale, "# Stale\n")
+        self.headers()
+        path = self.root / stale
+        self.write(stale, path.read_text(encoding="utf-8").replace("title: Stale", "title: Wrong"))
+        missing = folder + "missing.md"
+        self.write(missing, "# Missing\n")
+        errors = {
+            folder + "unclosed.md": ("---\n# Page\n", "unclosed YAML header"),
+            folder + "invalid.md": ("---\ntitle: [broken\n---\n# Page\n", "invalid YAML header"),
+            folder + "not_a_mapping.md": ("---\n- item\n---\n# Page\n", "YAML header must be a mapping"),
+            folder + "no_title.md": ("## Only a section\n", "missing title"),
+            "docs/wiki/concepts/unknown/probe.md": ("# Page\n", "unrecognized page folder"),
+            folder + "duplicate_index.md": ("# Page\n", "multiple index entries"),
+        }
+        for filename, (body, _) in errors.items():
+            self.write(filename, body)
+        entry = "- [page](concepts/methods/duplicate_index.md) — description\n"
+        self.write("docs/wiki/index.md", entry * 2)
+        result = self.scan()
+        warnings = {w["page"]: w["reason"] for w in result["warnings"] if w["rule"] == "YAML ヘッダ"}
+        self.assertFalse(result["eligible"])
+        self.assertEqual(set(warnings), {stale, missing, *errors})
+        for filename, (_, reason) in errors.items():
+            self.assertIn(reason, warnings[filename])
+
+        summary = "docs/wiki/summary/rfd/0200_probe_10rfd.md"
+        self.write(summary, "# Page\n")
+        self.write("docs/memo/0200_probe_10rfd.md", "# First material\n")
+        self.write("docs/memo/done/0200_probe_10rfd.md", "# Second material\n")
+        result = self.scan()
+        warnings = {w["page"]: w["reason"] for w in result["warnings"] if w["rule"] == "YAML ヘッダ"}
+        self.assertIn("multiple materials", warnings[summary])
+        self.assertTrue(result["eligible"])
+
+    def test_headers_copies_latest_log_entry_and_allows_empty_yaml(self):
+        page = "docs/wiki/concepts/methods/probe.md"
+        body = '# Topic: "a" and \\b\n'
+        for header in ("", "# No properties\n\n", "~\n", "null\n"):
+            with self.subTest(header=header):
+                self.write(page, "---\n" + header + "---\n" + body)
+                self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
+                           f"2026-11-26 ingest reports/a.md → {page}（最初の記録）\n"
+                           f"2026-11-27 query rfd → docs/wiki/index.md、{page}（追記）\n"
+                           f"2026-11-28 fix {page} → なし\n")
+                warnings = [w for w in self.scan()["warnings"]
+                            if w["page"] == page and w["rule"] == "YAML ヘッダ"]
+                self.assertEqual([w["reason"] for w in warnings], ["YAML header differs from generated content"])
+                self.headers()
+                expected = ('---\ntitle: "Topic: \\"a\\" and \\\\b"\npage_kind: 手法\naliases: []\n'
+                            "description:\nupdated: 2026-11-27\n---\n" + body)
+                self.assertEqual((self.root / page).read_text(encoding="utf-8"), expected)
+
+        with (self.root / "docs/wiki/log.md").open("a", encoding="utf-8") as out:
+            out.write(f"2026-11-29 fix 説明 → {page}\n")
+        self.headers()
+        self.assertEqual((self.root / page).read_text(encoding="utf-8"), expected.replace("2026-11-27", "2026-11-29"))
+
+    def test_scan_ignores_yaml_when_checking_body_length_format_and_sources(self):
+        # 本文の警告や blob はヘッダを入れる前と同じ結果を返す。
+        material = "reports/probe.md"
+        summary = "docs/wiki/summary/reports/probe.md"
+        concept = "docs/wiki/concepts/methods/probe.md"
+        self.write(material, "# Original\n")
+        blob = self.git("hash-object", "--", material)
+        self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
+                   f"2026-11-26 ingest {material} blob:{blob} → {summary}\n")
+        body = f"# Summary\n\n## 元の材料\n\nblob:{blob}\n\n## 内容\n\n"
+        self.write(summary, body + "字" * (8000 - len(body)))
+        self.write(concept, "# Concept\n\n## 今の結論\n\n" + "字" * 201 + "\n"
+                   "\n## 関連\n\n- [リンク切れ](missing.md)\n")
+        before = self.scan()
+
+        self.headers()
+        page = self.root / concept
+        prefix, body = page.read_text(encoding="utf-8").split("\n---\n", 1)
+        self.write(concept, prefix + '\ncustom: "- [例](missing-in-yaml.md)"\n---\n' + body)
+        after = self.scan()
+        self.assertEqual(after["pending"], before["pending"])
+        self.assertEqual(after["pending"], [])
+        self.assertEqual(after["broken_links"], before["broken_links"])
+        self.assertEqual([w for w in after["warnings"] if w["rule"] != "YAML ヘッダ"],
+                         [w for w in before["warnings"] if w["rule"] != "YAML ヘッダ"])
+
+    def test_scan_reports_links_from_summary_that_do_not_point_to_concept_pages(self):
+        summary = "docs/wiki/summary/reports/probe.md"
+        concept = "docs/wiki/concepts/methods/concept.md"
+        missing = "../../concepts/methods/missing.md"
+        not_concept = "../../../wiki/index.md"
+        external = "https://example.org/not-a-concept"
+        self.write(concept, "# Concept\n")
+        self.write(summary, "# Summary\n\n## 主要な概念\n\n"
+                   "- [ok](../../concepts/methods/concept.md#section)\n"
+                   f"- [missing]({missing})\n- [index]({not_concept})\n"
+                   f"- [external]({external})\n"
+                   "\n## Other\n\n- [outside section](../../concepts/missing.md)\n")
+
+        self.headers()
+        header = (self.root / summary).read_text(encoding="utf-8").split("\n---\n", 1)[0]
+        self.assertIn('concepts:\n  - "[[docs/wiki/concepts/methods/concept.md|Concept]]"\nupdated:', header)
+        result = self.scan()
+        self.assertFalse(result["eligible"])
+        self.assertEqual([w["target"] for w in result["warnings"]
+                          if w["page"] == summary and w["rule"] == "主要な概念のリンク"],
+                         [missing, not_concept, external])
 
     def test_recorded_material_still_needs_its_summary(self):
         # 作業の記録だけそろった状態から、サマリができるまでを通す。

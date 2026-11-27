@@ -1,3 +1,14 @@
+---
+title: Metrics Viewer の LOD 集約数の説明
+page_kind: サマリ
+material: "[[docs/memo/0188_metrics_viewer_lod_documentation_consistency_10rfd.md|0188_metrics_viewer_lod_documentation_consistency_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # Metrics Viewer の LOD 集約数の説明
 
 ## 元の材料

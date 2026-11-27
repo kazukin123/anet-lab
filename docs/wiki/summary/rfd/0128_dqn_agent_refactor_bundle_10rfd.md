@@ -1,3 +1,15 @@
+---
+title: 価値分解に先立つ DQN 系 Agent の整理
+page_kind: サマリ
+material: "[[docs/memo/0128_dqn_agent_refactor_bundle_10rfd.md|0128_dqn_agent_refactor_bundle_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+updated: 2026-11-26
+---
 # 価値分解に先立つ DQN 系 Agent の整理
 
 ## 元の材料

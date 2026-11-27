@@ -1,3 +1,14 @@
+---
+title: DropMergeEnv の NoLegalDrop 終端追加
+page_kind: サマリ
+material: "[[docs/memo/done/0005_no_legal_drop_10rfd.md|0005_no_legal_drop_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # DropMergeEnv の NoLegalDrop 終端追加
 
 ## 元の材料

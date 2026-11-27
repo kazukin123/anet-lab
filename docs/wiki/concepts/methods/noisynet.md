@@ -1,3 +1,16 @@
+---
+title: NoisyNetの観測
+page_kind: 手法
+aliases:
+  - NoisyNet
+  - noisy
+  - nzrep
+  - nz_eps0
+  - nz_ladder
+  - μ-only
+description: LunarLander の 3 seed では NoisyNet の成績差は seed のぶれの範囲に収まり、終盤の行動変化率は 2〜4% だった。DropMerge では ε ラダーへの追加で NEET が残り、置き換えると抑えられた。
+updated: 2026-11-27
+---
 # NoisyNetの観測
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

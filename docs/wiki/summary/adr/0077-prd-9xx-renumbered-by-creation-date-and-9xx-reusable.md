@@ -1,3 +1,12 @@
+---
+title: PRD の 9xx の番号を、起票の日の順に 900 未満の連番へ振り直し、9xx を再び使える番号に戻す
+page_kind: サマリ
+material: "[[docs/adr/0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable.md|0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # PRD の 9xx の番号を、起票の日の順に 900 未満の連番へ振り直し、9xx を再び使える番号に戻す
 
 ## 元の材料

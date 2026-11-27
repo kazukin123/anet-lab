@@ -1,3 +1,14 @@
+---
+title: 実ロボット課題の選定
+page_kind: 題材
+aliases:
+  - robot
+  - Offline RL
+  - reset
+  - 実ロボット
+description: 実機候補の調査では、自動resetと成功検知が可能なアーム・治具・制御リグが挙がった。価格が安くても長時間の自律収集が成立するとは確定していない。
+updated: 2026-11-26
+---
 # 実ロボット課題の選定
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

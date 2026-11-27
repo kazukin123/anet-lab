@@ -1,3 +1,15 @@
+---
+title: Atari / 可塑性メトリクスの較正と保護機構の初回評価
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-08-28_plasticity.md|default-dqn/atari/2026-08-28_plasticity]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+updated: 2026-11-26
+---
 # Atari / 可塑性メトリクスの較正と保護機構の初回評価
 
 ## 元の材料

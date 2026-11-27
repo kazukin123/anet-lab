@@ -1,3 +1,14 @@
+---
+title: Forwarder は依頼ごとに作り、作る側（並びと部品）は Forwarder を兼ねない
+page_kind: サマリ
+material: "[[docs/adr/0094-forwarders-are-built-per-request-and-builders-are-not-forwarders.md|0094-forwarders-are-built-per-request-and-builders-are-not-forwarders]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-26
+---
 # Forwarder は依頼ごとに作り、作る側（並びと部品）は Forwarder を兼ねない
 
 ## 元の材料

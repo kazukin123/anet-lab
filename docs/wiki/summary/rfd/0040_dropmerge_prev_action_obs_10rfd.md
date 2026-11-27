@@ -1,3 +1,14 @@
+---
+title: DropMergeEnv 直前行動観測(prev-action trio + DROP 列マーカー・暫定)
+page_kind: サマリ
+material: "[[docs/memo/done/0040_dropmerge_prev_action_obs_10rfd.md|0040_dropmerge_prev_action_obs_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+updated: 2026-11-26
+---
 # DropMergeEnv 直前行動観測(prev-action trio + DROP 列マーカー・暫定)
 
 ## 元の材料

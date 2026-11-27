@@ -1,3 +1,14 @@
+---
+title: Mixup / CutMix 導入（ImageCls）
+page_kind: サマリ
+material: "[[docs/memo/done/0030_imagecls_mixup_cutmix_10rfd.md|0030_imagecls_mixup_cutmix_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+updated: 2026-11-26
+---
 # Mixup / CutMix 導入（ImageCls）
 
 ## 元の材料

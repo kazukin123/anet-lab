@@ -1,3 +1,14 @@
+---
+title: TempoRL のスキップ長の方策（UQE 対 ε-greedy）、GridMaze 6×10 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/gridmaze/2026-10-28_temporl-skip-policy-6x10.md|default-dqn/gridmaze/2026-10-28_temporl-skip-policy-6x10]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/gridmaze.md|GridMaze]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # TempoRL のスキップ長の方策（UQE 対 ε-greedy）、GridMaze 6×10 探索履歴
 
 ## 元の材料

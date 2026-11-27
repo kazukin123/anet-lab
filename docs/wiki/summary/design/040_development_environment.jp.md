@@ -1,3 +1,14 @@
+---
+title: ANET 開発環境構築ガイド
+page_kind: サマリ
+material: "[[docs/design/040_development_environment.jp.md|040_development_environment.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # ANET 開発環境構築ガイド
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: RNDの害の確認とpredictorの周期リセット
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset.md|default-dqn/lunarlander/2026-11-08_rnd-harm-check-and-predictor-reset]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/lunarlander.md|LunarLander]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # RNDの害の確認とpredictorの周期リセット
 
 ## 元の材料

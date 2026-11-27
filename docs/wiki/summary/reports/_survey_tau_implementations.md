@@ -1,3 +1,14 @@
+---
+title: "実装サーベイ: IQN / FQF / QR-DQN における τ(quantile fraction)生成"
+page_kind: サマリ
+material: "[[reports/_survey_tau_implementations.md|_survey_tau_implementations]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # 実装サーベイ: IQN / FQF / QR-DQN における τ(quantile fraction)生成
 
 ## 元の材料

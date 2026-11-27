@@ -1,3 +1,14 @@
+---
+title: Actor Qヒントを3列へ拡張し、近似Actor初期優先度をMunchausenターゲットと同型にする
+page_kind: サマリ
+material: "[[docs/adr/0036-actor-q-hint-three-columns-munchausen.md|0036-actor-q-hint-three-columns-munchausen]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+updated: 2026-11-26
+---
 # Actor Qヒントを3列へ拡張し、近似Actor初期優先度をMunchausenターゲットと同型にする
 
 ## 元の材料

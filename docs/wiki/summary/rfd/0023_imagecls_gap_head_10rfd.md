@@ -1,3 +1,14 @@
+---
+title: "ImageCls 過学習対策②: 最終段 Flatten → Global Average Pooling 2D（GAP2D）"
+page_kind: サマリ
+material: "[[docs/memo/done/0023_imagecls_gap_head_10rfd.md|0023_imagecls_gap_head_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+updated: 2026-11-26
+---
 # ImageCls 過学習対策②: 最終段 Flatten → Global Average Pooling 2D（GAP2D）
 
 ## 元の材料

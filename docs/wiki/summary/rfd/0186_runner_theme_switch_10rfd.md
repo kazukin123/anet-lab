@@ -1,3 +1,14 @@
+---
+title: 起動中の Runner でライト・ダークテーマを切り替える
+page_kind: サマリ
+material: "[[docs/memo/0186_runner_theme_switch_10rfd.md|0186_runner_theme_switch_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # 起動中の Runner でライト・ダークテーマを切り替える
 
 ## 元の材料

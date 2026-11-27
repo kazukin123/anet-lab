@@ -1,3 +1,17 @@
+---
+title: ANET フレームワーク全体概要
+page_kind: サマリ
+material: "[[docs/design/010_framework_overview.jp.md|010_framework_overview.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # ANET フレームワーク全体概要
 
 ## 元の材料

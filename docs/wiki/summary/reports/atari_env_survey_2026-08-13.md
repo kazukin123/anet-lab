@@ -1,3 +1,14 @@
+---
+title: "Survey: Atari RL 環境 — ALE を中心としたゲームバリエーション・ライブラリ・ベンチマーク動向"
+page_kind: サマリ
+material: "[[reports/atari_env_survey_2026-08-13.md|atari_env_survey_2026-08-13]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+updated: 2026-11-26
+---
 # Survey: Atari RL 環境 — ALE を中心としたゲームバリエーション・ライブラリ・ベンチマーク動向
 
 ## 元の材料

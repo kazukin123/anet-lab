@@ -1,3 +1,14 @@
+---
+title: Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む
+page_kind: サマリ
+material: "[[docs/adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md|0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # Evaluation Trace の列はメトリクスの定義と分けて番号付きで宣言し、遷移の時点に合う target だけを読む
 
 ## 元の材料

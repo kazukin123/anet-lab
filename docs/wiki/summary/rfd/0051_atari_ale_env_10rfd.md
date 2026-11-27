@@ -1,3 +1,14 @@
+---
+title: ALE (Atari) Env 統合 — C++ 直結・Single seam・自前前処理
+page_kind: サマリ
+material: "[[docs/memo/done/0051_atari_ale_env_10rfd.md|0051_atari_ale_env_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+updated: 2026-11-26
+---
 # ALE (Atari) Env 統合 — C++ 直結・Single seam・自前前処理
 
 ## 元の材料

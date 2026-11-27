@@ -1,3 +1,14 @@
+---
+title: kung_fu_master のボス行きの定着 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-10-15_kfm-boss-route.md|default-dqn/atari/2026-10-15_kfm-boss-route]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # kung_fu_master のボス行きの定着 探索履歴
 
 ## 元の材料

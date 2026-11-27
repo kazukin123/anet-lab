@@ -1,3 +1,14 @@
+---
+title: replay の slot に 1 step の reward と終わり方を持ち、サンプル時に差し替え可能な窓の規則で可変長の区間を組む
+page_kind: サマリ
+material: "[[docs/adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md|0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+updated: 2026-11-26
+---
 # replay の slot に 1 step の reward と終わり方を持ち、サンプル時に差し替え可能な窓の規則で可変長の区間を組む
 
 ## 元の材料

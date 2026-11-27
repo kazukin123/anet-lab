@@ -1,3 +1,14 @@
+---
+title: NN 設定ツリーは Agent config prefix 配下に置く
+page_kind: サマリ
+material: "[[docs/adr/0030-nn-config-tree-under-agent-prefix.md|0030-nn-config-tree-under-agent-prefix]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+updated: 2026-11-26
+---
 # NN 設定ツリーは Agent config prefix 配下に置く
 
 ## 元の材料

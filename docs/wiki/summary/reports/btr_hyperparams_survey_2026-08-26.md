@@ -1,3 +1,16 @@
+---
+title: "Survey: BTR (Beyond The Rainbow) — ハイパーパラメータと Atari 評価プロトコル"
+page_kind: サマリ
+material: "[[reports/btr_hyperparams_survey_2026-08-26.md|btr_hyperparams_survey_2026-08-26]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-26
+---
 # Survey: BTR (Beyond The Rainbow) — ハイパーパラメータと Atari 評価プロトコル
 
 ## 元の材料

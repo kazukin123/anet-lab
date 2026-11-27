@@ -1,3 +1,12 @@
+---
+title: 会話の判断と進捗を非公開ページで見返す
+page_kind: サマリ
+material: "[[docs/memo/0197_conversation_options_summary_page_10rfd.md|0197_conversation_options_summary_page_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 会話の判断と進捗を非公開ページで見返す
 
 ## 元の材料

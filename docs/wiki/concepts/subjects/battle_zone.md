@@ -1,3 +1,13 @@
+---
+title: Battle Zone
+page_kind: 題材
+aliases:
+  - BattleZone
+  - battle_zone
+  - bz
+description: 低εラダーのε=0最良は118,388、旧ラダーは115,533だった。64 env・容量1Mの2 seedは40–50M評価が94,621・86,616で、128 env・2Mの106,389を下回った。
+updated: 2026-11-26
+---
 # Battle Zone
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

@@ -1,3 +1,14 @@
+---
+title: Unifying Task Specification in Reinforcement Learning — 詳細解説
+page_kind: サマリ
+material: "[[reports/white2017_unifying_task_specification_paper_2026-11-04.md|white2017_unifying_task_specification_paper_2026-11-04]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # Unifying Task Specification in Reinforcement Learning — 詳細解説
 
 ## 元の材料

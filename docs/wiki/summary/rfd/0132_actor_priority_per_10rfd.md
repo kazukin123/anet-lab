@@ -1,3 +1,14 @@
+---
+title: Actor が見積もる PER 初期優先度の旧草案
+page_kind: サマリ
+material: "[[docs/memo/dropped/0132_actor_priority_per_10rfd.md|0132_actor_priority_per_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Actor が見積もる PER 初期優先度の旧草案
 
 ## 元の材料

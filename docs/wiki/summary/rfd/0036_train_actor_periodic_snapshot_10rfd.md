@@ -1,3 +1,14 @@
+---
+title: DefaultDQN Train Actor定期network snapshot PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0036_train_actor_periodic_snapshot_10rfd.md|0036_train_actor_periodic_snapshot_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/target_update.md|Target更新の比較]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+updated: 2026-11-26
+---
 # DefaultDQN Train Actor定期network snapshot PRD
 
 ## 元の材料

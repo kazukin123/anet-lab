@@ -1,3 +1,14 @@
+---
+title: Notifier の Detach は進行中の通知を待たず、Observer はロックの外で呼ぶ
+page_kind: サマリ
+material: "[[docs/adr/0082-notifier-detach-does-not-wait-for-in-flight-notifications.md|0082-notifier-detach-does-not-wait-for-in-flight-notifications]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # Notifier の Detach は進行中の通知を待たず、Observer はロックの外で呼ぶ
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: Transformed Bellman Operator (TBO) 導入 仕様書
+page_kind: サマリ
+material: "[[docs/memo/done/0008_Transformed Bellman Operator_10rfd.md|0008_Transformed Bellman Operator_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+updated: 2026-11-26
+---
 # Transformed Bellman Operator (TBO) 導入 仕様書
 
 ## 元の材料

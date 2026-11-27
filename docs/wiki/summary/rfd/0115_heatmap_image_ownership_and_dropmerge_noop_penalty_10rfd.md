@@ -1,3 +1,14 @@
+---
+title: 画像メモリの所有権と DropMerge の NOOP 判定
+page_kind: サマリ
+material: "[[docs/memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md|0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # 画像メモリの所有権と DropMerge の NOOP 判定
 
 ## 元の材料

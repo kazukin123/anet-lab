@@ -1,3 +1,17 @@
+---
+title: kung_fu_master（KFM）
+page_kind: 題材
+aliases:
+  - KFM
+  - kfm
+  - Kung-Fu Master
+  - KungFuMaster
+  - r123b003
+  - r123ce
+  - b003w1m
+description: 実時間優先の 3 seed のうち seed 3 だけがボス行きを学び、15M 以降は評価でほぼ毎回面をクリアした。既定の設定を 10M で 16 seed 試すと 7 本がボスに挑んだが、撃破÷命中は上がらなかった。
+updated: 2026-11-27
+---
 # kung_fu_master（KFM）
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

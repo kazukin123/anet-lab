@@ -1,3 +1,14 @@
+---
+title: anet-core-test の oneDNN 初期化条件
+page_kind: サマリ
+material: "[[docs/memo/0124_test_process_mkldnn_off_10rfd.md|0124_test_process_mkldnn_off_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+updated: 2026-11-26
+---
 # anet-core-test の oneDNN 初期化条件
 
 ## 元の材料

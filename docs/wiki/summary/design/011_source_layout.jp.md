@@ -1,3 +1,15 @@
+---
+title: ソース配置とライブラリの境界
+page_kind: サマリ
+material: "[[docs/design/011_source_layout.jp.md|011_source_layout.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # ソース配置とライブラリの境界
 
 ## 元の材料

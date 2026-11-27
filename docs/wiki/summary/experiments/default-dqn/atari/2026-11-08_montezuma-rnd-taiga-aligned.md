@@ -1,3 +1,16 @@
+---
+title: Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen）
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md|default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+updated: 2026-11-26
+---
 # Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen）
 
 ## 元の材料

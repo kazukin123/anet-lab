@@ -1,3 +1,14 @@
+---
+title: DropMerge で合法 DROP を選ばず待ち続ける挙動の診断
+page_kind: サマリ
+material: "[[docs/memo/0163_dropmerge_neet_diagnostics_10rfd.md|0163_dropmerge_neet_diagnostics_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # DropMerge で合法 DROP を選ばず待ち続ける挙動の診断
 
 ## 元の材料

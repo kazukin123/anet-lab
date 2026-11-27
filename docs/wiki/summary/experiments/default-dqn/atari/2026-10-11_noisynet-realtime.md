@@ -1,3 +1,17 @@
+---
+title: NoisyNet の実時間優先プロファイルへの投入（Atari） 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-10-11_noisynet-realtime.md|default-dqn/atari/2026-10-11_noisynet-realtime]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/subjects/battle_zone.md|Battle Zone]]"
+  - "[[docs/wiki/concepts/subjects/double_dunk.md|Double Dunk]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+updated: 2026-11-26
+---
 # NoisyNet の実時間優先プロファイルへの投入（Atari） 探索履歴
 
 ## 元の材料

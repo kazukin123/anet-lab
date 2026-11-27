@@ -1,3 +1,15 @@
+---
+title: EvalPanel の Joystick と操作マッピング案
+page_kind: サマリ
+material: "[[docs/memo/0159_input_mapping_joystick_10rfd.md|0159_input_mapping_joystick_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # EvalPanel の Joystick と操作マッピング案
 
 ## 元の材料

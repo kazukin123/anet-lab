@@ -1,3 +1,15 @@
+---
+title: LLMの小目標・行動の制約・失敗の振り返りをRLへ渡す
+page_kind: サマリ
+material: "[[reports/llm_rl_goals_and_reflection_2026-11-07.md|llm_rl_goals_and_reflection_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/robot_tasks.md|実ロボット課題の選定]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # LLMの小目標・行動の制約・失敗の振り返りをRLへ渡す
 
 ## 元の材料

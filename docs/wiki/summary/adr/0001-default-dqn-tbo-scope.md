@@ -1,3 +1,13 @@
+---
+title: DefaultDQN に TBO の公開範囲を限定する
+page_kind: サマリ
+material: "[[docs/adr/0001-default-dqn-tbo-scope.md|0001-default-dqn-tbo-scope]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/325_muzero.md|325 Agent個別実装 MuZero系列]]"
+updated: 2026-11-26
+---
 # DefaultDQN に TBO の公開範囲を限定する
 
 ## 元の材料

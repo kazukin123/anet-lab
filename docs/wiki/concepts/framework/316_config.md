@@ -1,3 +1,14 @@
+---
+title: 316 設定管理
+page_kind: フレームワーク
+aliases:
+  - 316_config
+  - 読まれない設定キー
+  - 在庫
+  - 完全キー
+description: ConfigDataに設定を集約し、ConfigResolverがinclude・selection・Run・CLI・継承とprofileを解決する。
+updated: 2026-11-26
+---
 # 316 設定管理
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)

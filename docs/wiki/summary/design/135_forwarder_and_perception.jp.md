@@ -1,3 +1,15 @@
+---
+title: Forwarder と Perception
+page_kind: サマリ
+material: "[[docs/design/135_forwarder_and_perception.jp.md|135_forwarder_and_perception.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Forwarder と Perception
 
 ## 元の材料

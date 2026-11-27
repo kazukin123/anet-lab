@@ -1,3 +1,14 @@
+---
+title: Atari / 可塑性の保護機構 screening（新バンドル・RR8 アッセイ）
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-08-30_protection-screening.md|default-dqn/atari/2026-08-30_protection-screening]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Atari / 可塑性の保護機構 screening（新バンドル・RR8 アッセイ）
 
 ## 元の材料

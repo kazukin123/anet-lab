@@ -1,3 +1,16 @@
+---
+title: DropMerge 勾配ノイズと batch / replay ratio の機序の探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/dropmerge/2026-10-15_gradient-noise-batch.md|default-dqn/dropmerge/2026-10-15_gradient-noise-batch]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/phenomena/gradient_noise_batch.md|勾配ノイズとbatch]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+updated: 2026-11-26
+---
 # DropMerge 勾配ノイズと batch / replay ratio の機序の探索履歴
 
 ## 元の材料

@@ -1,3 +1,15 @@
+---
+title: DQN 学習更新と Munchausen ターゲットの共通化
+page_kind: サマリ
+material: "[[docs/memo/0125_dqn_learner_update_skeleton_10rfd.md|0125_dqn_learner_update_skeleton_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # DQN 学習更新と Munchausen ターゲットの共通化
 
 ## 元の材料

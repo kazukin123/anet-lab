@@ -1,3 +1,12 @@
+---
+title: 実験・設計の知見とトピック別まとめを引く wiki
+page_kind: サマリ
+material: "[[docs/memo/done/0095_llm_wiki_10rfd.md|0095_llm_wiki_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 実験・設計の知見とトピック別まとめを引く wiki
 
 ## 元の材料

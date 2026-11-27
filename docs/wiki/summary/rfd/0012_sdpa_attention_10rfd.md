@@ -1,3 +1,14 @@
+---
+title: SDPA / FlashAttention 化（`CustomTransformerEncoderLayer` の self-attention 経路差し替え）仕様書
+page_kind: サマリ
+material: "[[docs/memo/done/0012_sdpa_attention_10rfd.md|0012_sdpa_attention_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # SDPA / FlashAttention 化（`CustomTransformerEncoderLayer` の self-attention 経路差し替え）仕様書
 
 ## 元の材料

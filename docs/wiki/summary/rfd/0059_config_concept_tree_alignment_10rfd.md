@@ -1,3 +1,14 @@
+---
+title: "設定体系再設計: 概念ツリー整合・素材宣言・ConfigResolver PRD"
+page_kind: サマリ
+material: "[[docs/memo/done/0059_config_concept_tree_alignment_10rfd.md|0059_config_concept_tree_alignment_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # 設定体系再設計: 概念ツリー整合・素材宣言・ConfigResolver PRD
 
 ## 元の材料

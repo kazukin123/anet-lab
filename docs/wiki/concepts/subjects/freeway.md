@@ -1,3 +1,13 @@
+---
+title: Freeway
+page_kind: 題材
+aliases:
+  - Freeway
+  - freeway
+  - fw
+description: RAM の 0xEA は効果音のタイマーで、91 に入った回数が車に当たった回数と一致した。面とボスが無く、RAM の番号は 4 だけを置いた。 サンプル効率優先10M（1 seed）ではスキップなしとTempoRLの合算が上限付近で並んだ。
+updated:
+---
 # Freeway
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

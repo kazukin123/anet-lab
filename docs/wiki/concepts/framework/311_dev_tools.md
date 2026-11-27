@@ -1,3 +1,35 @@
+---
+title: 開発プロセス・開発ツール・テスト基盤（311）
+page_kind: フレームワーク
+aliases:
+  - 311_dev_tools
+  - 開発プロセス
+  - テスト基盤
+  - MKLDNN
+  - oneDNN
+  - リリース
+  - release
+  - CPack
+  - 台帳
+  - issue
+  - 課題記録
+  - 索引のissue
+  - RFDの課題
+  - rfd欄
+  - RFD
+  - 文書の呼び名
+  - 4桁の番号
+  - Obsidian
+  - まとめページ
+  - summary page
+  - anet-summary-page
+  - 要約
+  - compaction
+  - hook
+  - compact_cue
+description: 開発・検証、分析ツール、探索harnessとCIの関係を引く
+updated: 2026-11-27
+---
 # 開発プロセス・開発ツール・テスト基盤（311）
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)
@@ -293,6 +325,7 @@
 - [RFD0191](../../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) — RFD0191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） RFD
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 - [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md) — RFD0202: wiki に知見を積み上げ、引けるようにする（資料ごとのサマリ、問いで分けた概念のページ、横断的知見と見立て、会話からの書き込み）RFD
+- [RFD0203](../../../memo/0203_wiki_page_yaml_header_10rfd.md) — RFD0203: wiki のページに YAML ヘッダを付け、Obsidian で一覧にする RFD
 
 ## 課題
 
@@ -333,7 +366,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-c16aab](../../../management/issues/issue-20261103-c16aab.md) | 未着手 | 1.0 | — | コード | RFD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [RFD0154](../../../memo/0154_scalar_threshold_rate_10rfd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
 | [issue-20261105-f4b870](../../../management/issues/issue-20261105-f4b870.md) | 未着手 | 1.0 | — | コード | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 残件有り | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261103-b13ed2](../../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | コード | RFD | 311_dev_tools | 開発 | 機能改善 | [RFD0185](../../../memo/0185_release_packaging_cmake_10rfd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
-| [issue-20261126-4c7b4e](../../../management/issues/issue-20261126-4c7b4e.md) | 調査中 | 1.6 | [issue-20261125-822a3e](../../../management/issues/issue-20261125-822a3e.md) | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0203](../../../memo/0203_wiki_page_yaml_header_10rfd.md) | 未確認 | サマリのページに YAML ヘッダが無く、Obsidian で題名や材料の日付を列にした一覧を作れない |
+| [issue-20261126-4c7b4e](../../../management/issues/issue-20261126-4c7b4e.md) | 対応中 | 1.6 | [issue-20261125-822a3e](../../../management/issues/issue-20261125-822a3e.md) | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0203](../../../memo/0203_wiki_page_yaml_header_10rfd.md) | 残件有り | サマリのページに YAML ヘッダが無く、Obsidian で題名や材料の日付を列にした一覧を作れない |
 
 着手できる 32 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

@@ -1,3 +1,15 @@
+---
+title: Agent は基盤の外の系統ごとのライブラリに置き、Head を書くための部品を基盤が公開する
+page_kind: サマリ
+material: "[[docs/adr/0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public.md|0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/325_muzero.md|325 Agent個別実装 MuZero系列]]"
+updated: 2026-11-26
+---
 # Agent は基盤の外の系統ごとのライブラリに置き、Head を書くための部品を基盤が公開する
 
 ## 元の材料

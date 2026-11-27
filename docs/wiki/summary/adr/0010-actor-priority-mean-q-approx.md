@@ -1,3 +1,14 @@
+---
+title: Actor初期優先度は平均Q空間の近似とし、Learner target-network評価/UQE targetの再現を見送る
+page_kind: サマリ
+material: "[[docs/adr/0010-actor-priority-mean-q-approx.md|0010-actor-priority-mean-q-approx]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+updated: 2026-11-26
+---
 # Actor初期優先度は平均Q空間の近似とし、Learner target-network評価/UQE targetの再現を見送る
 
 ## 元の材料

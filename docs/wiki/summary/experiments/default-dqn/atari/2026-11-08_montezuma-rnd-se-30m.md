@@ -1,3 +1,15 @@
+---
+title: Montezuma's Revenge の RND（サンプル効率優先・30M）
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-11-08_montezuma-rnd-se-30m.md|default-dqn/atari/2026-11-08_montezuma-rnd-se-30m]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+updated: 2026-11-26
+---
 # Montezuma's Revenge の RND（サンプル効率優先・30M）
 
 ## 元の材料

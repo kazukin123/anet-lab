@@ -1,3 +1,14 @@
+---
+title: Run 分類は物理 workspace フォルダで行い、workspace を自己完結の箱とする
+page_kind: サマリ
+material: "[[docs/adr/0021-run-classification-by-workspace-folder.md|0021-run-classification-by-workspace-folder]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # Run 分類は物理 workspace フォルダで行い、workspace を自己完結の箱とする
 
 ## 元の材料

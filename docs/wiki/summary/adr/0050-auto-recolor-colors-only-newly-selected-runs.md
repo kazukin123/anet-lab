@@ -1,3 +1,14 @@
+---
+title: Auto Recolor は選択中だった Run の色を変えず、新しく選んだ Run へ毎回最良の色を配る
+page_kind: サマリ
+material: "[[docs/adr/0050-auto-recolor-colors-only-newly-selected-runs.md|0050-auto-recolor-colors-only-newly-selected-runs]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+updated: 2026-11-26
+---
 # Auto Recolor は選択中だった Run の色を変えず、新しく選んだ Run へ毎回最良の色を配る
 
 ## 元の材料

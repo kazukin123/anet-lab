@@ -1,3 +1,14 @@
+---
+title: MetricsViewerの比較粒度を表示Step範囲でそろえる
+page_kind: サマリ
+material: "[[docs/memo/done/0089_metricsviewer_comparison_resolution_10rfd.md|0089_metricsviewer_comparison_resolution_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # MetricsViewerの比較粒度を表示Step範囲でそろえる
 
 ## 元の材料

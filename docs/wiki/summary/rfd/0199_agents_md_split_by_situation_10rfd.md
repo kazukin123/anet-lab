@@ -1,3 +1,12 @@
+---
+title: AGENTS.md を作業状況別に分ける案
+page_kind: サマリ
+material: "[[docs/memo/0199_agents_md_split_by_situation_10rfd.md|0199_agents_md_split_by_situation_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # AGENTS.md を作業状況別に分ける案
 
 ## 元の材料

@@ -1,3 +1,15 @@
+---
+title: ソース配置と Agent の系統別ライブラリ
+page_kind: サマリ
+material: "[[docs/memo/0182_source_layout_10rfd.md|0182_source_layout_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # ソース配置と Agent の系統別ライブラリ
 
 ## 元の材料

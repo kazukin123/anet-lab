@@ -1,3 +1,15 @@
+---
+title: 窓の途中の Munchausen 項と方策差を補う n-step 案
+page_kind: サマリ
+material: "[[docs/memo/0168_nstep_target_correction_10rfd.md|0168_nstep_target_correction_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+updated: 2026-11-26
+---
 # 窓の途中の Munchausen 項と方策差を補う n-step 案
 
 ## 元の材料

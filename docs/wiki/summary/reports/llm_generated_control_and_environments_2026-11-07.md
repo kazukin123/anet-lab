@@ -1,3 +1,16 @@
+---
+title: LLMが制御・世界モデル・探索・学習環境を作る研究
+page_kind: サマリ
+material: "[[reports/llm_generated_control_and_environments_2026-11-07.md|llm_generated_control_and_environments_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/methods/model_based_evidence.md|Model-based Atariの評価]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/subjects/robot_tasks.md|実ロボット課題の選定]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # LLMが制御・世界モデル・探索・学習環境を作る研究
 
 ## 元の材料

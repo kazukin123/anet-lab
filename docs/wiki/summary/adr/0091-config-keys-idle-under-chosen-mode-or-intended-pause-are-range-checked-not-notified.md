@@ -1,3 +1,12 @@
+---
+title: 選んだモードや意図した休止で値が結果を変えない設定キーは、知らせずに値域だけを検証する
+page_kind: サマリ
+material: "[[docs/adr/0091-config-keys-idle-under-chosen-mode-or-intended-pause-are-range-checked-not-notified.md|0091-config-keys-idle-under-chosen-mode-or-intended-pause-are-range-checked-not-notified]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # 選んだモードや意図した休止で値が結果を変えない設定キーは、知らせずに値域だけを検証する
 
 ## 元の材料

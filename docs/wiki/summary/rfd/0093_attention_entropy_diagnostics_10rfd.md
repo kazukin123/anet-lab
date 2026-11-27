@@ -1,3 +1,14 @@
+---
+title: TransformerEncoder の attention エントロピー診断 PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0093_attention_entropy_diagnostics_10rfd.md|0093_attention_entropy_diagnostics_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/methods/action_query_attention.md|Action queryとattentionの証拠]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # TransformerEncoder の attention エントロピー診断 PRD
 
 ## 元の材料

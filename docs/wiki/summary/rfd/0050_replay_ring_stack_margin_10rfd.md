@@ -1,3 +1,14 @@
+---
+title: ReplayBuffer ring折り返し時のframe stack sampleability
+page_kind: サマリ
+material: "[[docs/memo/done/0050_replay_ring_stack_margin_10rfd.md|0050_replay_ring_stack_margin_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+updated: 2026-11-26
+---
 # ReplayBuffer ring折り返し時のframe stack sampleability
 
 ## 元の材料

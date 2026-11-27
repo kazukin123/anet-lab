@@ -1,3 +1,14 @@
+---
+title: 選択中 Run の色分離（Metrics Viewer）
+page_kind: サマリ
+material: "[[docs/memo/done/0074_run_color_distinctness_10rfd.md|0074_run_color_distinctness_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+updated: 2026-11-26
+---
 # 選択中 Run の色分離（Metrics Viewer）
 
 ## 元の材料

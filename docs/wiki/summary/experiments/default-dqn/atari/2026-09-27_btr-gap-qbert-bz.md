@@ -1,3 +1,15 @@
+---
+title: BTR との差の切り分け（qbert / battle_zone） 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md|default-dqn/atari/2026-09-27_btr-gap-qbert-bz]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/subjects/battle_zone.md|Battle Zone]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+updated: 2026-11-26
+---
 # BTR との差の切り分け（qbert / battle_zone） 探索履歴
 
 ## 元の材料

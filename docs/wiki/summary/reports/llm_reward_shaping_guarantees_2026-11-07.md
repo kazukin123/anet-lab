@@ -1,3 +1,14 @@
+---
+title: LLMの採点を報酬へ加えるときの保証と目標切り替え
+page_kind: サマリ
+material: "[[reports/llm_reward_shaping_guarantees_2026-11-07.md|llm_reward_shaping_guarantees_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # LLMの採点を報酬へ加えるときの保証と目標切り替え
 
 ## 元の材料

@@ -1,3 +1,13 @@
+---
+title: Metricsキャッシュは破棄可能な従属導出物とする(マスタ=JSONL、PK=序数)
+page_kind: サマリ
+material: "[[docs/adr/0015-metrics-cache-disposable-derivative.md|0015-metrics-cache-disposable-derivative]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+updated: 2026-11-26
+---
 # Metricsキャッシュは破棄可能な従属導出物とする(マスタ=JSONL、PK=序数)
 
 ## 元の材料

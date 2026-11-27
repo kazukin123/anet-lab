@@ -1,3 +1,14 @@
+---
+title: ターゲット Network の更新を数える step 軸
+page_kind: サマリ
+material: "[[docs/memo/0148_target_update_step_axis_10rfd.md|0148_target_update_step_axis_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/target_update.md|Target更新の比較]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # ターゲット Network の更新を数える step 軸
 
 ## 元の材料

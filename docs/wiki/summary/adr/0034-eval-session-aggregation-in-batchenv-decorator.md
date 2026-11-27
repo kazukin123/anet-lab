@@ -1,3 +1,14 @@
+---
+title: 評価セッションの N 本集約は BatchEnv デコレータと開始時動的グラントで行う
+page_kind: サマリ
+material: "[[docs/adr/0034-eval-session-aggregation-in-batchenv-decorator.md|0034-eval-session-aggregation-in-batchenv-decorator]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # 評価セッションの N 本集約は BatchEnv デコレータと開始時動的グラントで行う
 
 ## 元の材料

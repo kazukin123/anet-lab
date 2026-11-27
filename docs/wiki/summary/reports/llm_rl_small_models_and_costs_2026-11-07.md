@@ -1,3 +1,14 @@
+---
+title: 小型モデルと計算費用から見たLLMとRL
+page_kind: サマリ
+material: "[[reports/llm_rl_small_models_and_costs_2026-11-07.md|llm_rl_small_models_and_costs_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/robot_tasks.md|実ロボット課題の選定]]"
+updated: 2026-11-26
+---
 # 小型モデルと計算費用から見たLLMとRL
 
 ## 元の材料

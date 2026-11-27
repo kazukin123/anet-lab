@@ -1,3 +1,17 @@
+---
+title: 訪問済み状態へ戻る探索
+page_kind: 手法
+aliases:
+  - Go-Explore
+  - detachment
+  - derailment
+  - archive
+  - DTSIL
+  - MEGA
+  - IGE
+description: 有望な状態を記憶し、そこへ戻ってから探索する。シミュレータの復元、行動列の再生、目標条件付き方策では、戻れる環境と必要な環境操作が異なる。
+updated: 2026-11-26
+---
 # 訪問済み状態へ戻る探索
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

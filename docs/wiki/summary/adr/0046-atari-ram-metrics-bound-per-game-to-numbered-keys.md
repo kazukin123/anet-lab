@@ -1,3 +1,14 @@
+---
+title: AtariEnv のゲーム固有 RAM メトリクスは番号付き汎用キーで参照し、意味はゲーム別の RAM 定義が持つ
+page_kind: サマリ
+material: "[[docs/adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md|0046-atari-ram-metrics-bound-per-game-to-numbered-keys]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # AtariEnv のゲーム固有 RAM メトリクスは番号付き汎用キーで参照し、意味はゲーム別の RAM 定義が持つ
 
 ## 元の材料

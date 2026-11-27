@@ -1,3 +1,15 @@
+---
+title: 外的報酬と内的報酬の価値分解
+page_kind: サマリ
+material: "[[docs/memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md|0121_extrinsic_intrinsic_value_decomposition_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-26
+---
 # 外的報酬と内的報酬の価値分解
 
 ## 元の材料

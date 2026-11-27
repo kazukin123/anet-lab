@@ -1,3 +1,14 @@
+---
+title: FusedAdamW（ATen `_fused_adamw_` 直接呼び出し）導入 仕様書
+page_kind: サマリ
+material: "[[docs/memo/done/0011_fused_adamw_10rfd.md|0011_fused_adamw_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # FusedAdamW（ATen `_fused_adamw_` 直接呼び出し）導入 仕様書
 
 ## 元の材料

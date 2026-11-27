@@ -1,3 +1,12 @@
+---
+title: "RFD0203: wiki のページに YAML ヘッダを付け、Obsidian で一覧にする RFD"
+page_kind: サマリ
+material: "[[docs/memo/0203_wiki_page_yaml_header_10rfd.md|0203_wiki_page_yaml_header_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-27
+---
 # RFD0203: wiki のページに YAML ヘッダを付け、Obsidian で一覧にする RFD
 
 ## 元の材料

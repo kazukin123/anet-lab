@@ -1,3 +1,14 @@
+---
+title: "V2: 可視化層（metrics_image / HeatMap / 状態スイープ）の TensorDict 復旧 実装指示書"
+page_kind: サマリ
+material: "[[docs/memo/done/0010_image_metrics_v2_10rfd.md|0010_image_metrics_v2_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+updated: 2026-11-26
+---
 # V2: 可視化層（metrics_image / HeatMap / 状態スイープ）の TensorDict 復旧 実装指示書
 
 ## 元の材料

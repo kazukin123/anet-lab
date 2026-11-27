@@ -1,3 +1,21 @@
+---
+title: n-step の収益
+page_kind: 手法
+aliases:
+  - n-step
+  - n_step
+  - nstep
+  - nstep3
+  - n10
+  - 多段の目標
+  - 多段の更新
+  - λ 収益
+  - Retrace
+  - Peng's Q(λ)
+  - MMC
+description: Montezuma で n-step を 3 から 10 にした 2 本は、Greedy で剣で敵を倒すゲームが 16 本中 8 本以上になった最初の回が 12.2M・14.2M（n-step 3 の 2 本は 26.2M・18.2M）で、外的の Q の 1 位と 2 位の差は 4M 窓 8 つのうち 5 つで大きかった。2 組は実行体の build も違う。
+updated: 2026-11-27
+---
 # n-step の収益
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

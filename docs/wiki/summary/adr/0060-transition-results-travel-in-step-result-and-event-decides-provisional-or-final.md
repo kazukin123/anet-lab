@@ -1,3 +1,14 @@
+---
+title: 遷移の結果は Step の結果で運び、速報値か確定値かは読むイベントで分ける
+page_kind: サマリ
+material: "[[docs/adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md|0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # 遷移の結果は Step の結果で運び、速報値か確定値かは読むイベントで分ける
 
 ## 元の材料

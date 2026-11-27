@@ -1,3 +1,14 @@
+---
+title: Spectral Normalization と残差分岐の α ゲート
+page_kind: サマリ
+material: "[[docs/memo/0150_residual_alpha_gate_10rfd.md|0150_residual_alpha_gate_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # Spectral Normalization と残差分岐の α ゲート
 
 ## 元の材料

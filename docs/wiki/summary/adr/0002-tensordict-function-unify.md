@@ -1,3 +1,14 @@
+---
+title: 観測 sweep / 可視化の NN 呼び出しを TensorDictFunction に一本化する
+page_kind: サマリ
+material: "[[docs/adr/0002-tensordict-function-unify.md|0002-tensordict-function-unify]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # 観測 sweep / 可視化の NN 呼び出しを TensorDictFunction に一本化する
 
 ## 元の材料

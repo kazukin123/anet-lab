@@ -1,3 +1,14 @@
+---
+title: NoisyNet (Noisy Networks for Exploration) PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0084_noisynet_10rfd.md|0084_noisynet_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # NoisyNet (Noisy Networks for Exploration) PRD
 
 ## 元の材料

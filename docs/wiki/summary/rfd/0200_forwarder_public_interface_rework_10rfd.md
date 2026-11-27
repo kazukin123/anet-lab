@@ -1,3 +1,15 @@
+---
+title: 依頼ごとに構築する Forwarder の公開 API
+page_kind: サマリ
+material: "[[docs/memo/0200_forwarder_public_interface_rework_10rfd.md|0200_forwarder_public_interface_rework_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # 依頼ごとに構築する Forwarder の公開 API
 
 ## 元の材料

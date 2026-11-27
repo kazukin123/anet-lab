@@ -1,3 +1,14 @@
+---
+title: MetricsViewer 構造リファクタリング(挙動不変) — 取り込み/照会経路の可読性改善
+page_kind: サマリ
+material: "[[docs/memo/done/0042_metricsviewer_refactor_10rfd.md|0042_metricsviewer_refactor_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # MetricsViewer 構造リファクタリング(挙動不変) — 取り込み/照会経路の可読性改善
 
 ## 元の材料

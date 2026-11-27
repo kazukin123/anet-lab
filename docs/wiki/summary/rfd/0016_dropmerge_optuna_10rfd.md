@@ -1,3 +1,14 @@
+---
+title: DropMerge Optuna 対応 仕様書
+page_kind: サマリ
+material: "[[docs/memo/done/0016_dropmerge_optuna_10rfd.md|0016_dropmerge_optuna_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-26
+---
 # DropMerge Optuna 対応 仕様書
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: 勾配ノイズとbatch
+page_kind: 現象
+aliases:
+  - GNS
+  - gradient noise scale
+  - Bnoise
+  - batch size
+description: GNSと有効batchの対応はoptimizer・曲率・抽出方法・予算に依存する。DropMergeでは臨界batchが学習とともに増えたが、batch増加の最終target評価の差は学習側の差より小さかった。
+updated: 2026-11-27
+---
 # 勾配ノイズとbatch
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [現象](../../index.md#現象)

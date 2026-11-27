@@ -1,3 +1,22 @@
+---
+title: 重みの初期値
+page_kind: 手法
+aliases:
+  - 初期値
+  - 初期化
+  - init
+  - he
+  - xavier
+  - orthogonal
+  - 直交
+  - PyTorch の既定
+  - torch の既定
+  - variance scaling
+  - Kaiming
+  - aln_init
+description: 重みの初期値を torch の既定に戻した効きは構成で分かれた。qbert のサンプル効率優先（SN 付きの残差 conv、1 seed）と Breakout の Nature 型（seed 2 の 1 対）では上がり、qbert の実時間優先（残差に SN が無く、胴体の後ろに LayerNorm、1 seed）では従来の初期値の 2 本を下回った。
+updated: 2026-11-27
+---
 # 重みの初期値
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

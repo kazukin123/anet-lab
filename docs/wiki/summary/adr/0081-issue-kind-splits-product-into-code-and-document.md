@@ -1,3 +1,12 @@
+---
+title: 課題の kind は成果物をコードと文書に分け、実装の課題か文書の課題かを kind で表す
+page_kind: サマリ
+material: "[[docs/adr/0081-issue-kind-splits-product-into-code-and-document.md|0081-issue-kind-splits-product-into-code-and-document]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 課題の kind は成果物をコードと文書に分け、実装の課題か文書の課題かを kind で表す
 
 ## 元の材料

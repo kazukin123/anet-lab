@@ -1,3 +1,15 @@
+---
+title: Learning Uncertainty-Aware Temporally-Extended Actions — 詳細解説
+page_kind: サマリ
+material: "[[reports/lee2024_uncertainty_aware_temporally_extended_actions_paper_2026-11-04.md|lee2024_uncertainty_aware_temporally_extended_actions_paper_2026-11-04]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+updated: 2026-11-26
+---
 # Learning Uncertainty-Aware Temporally-Extended Actions — 詳細解説
 
 ## 元の材料

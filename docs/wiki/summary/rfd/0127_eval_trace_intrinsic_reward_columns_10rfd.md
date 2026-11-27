@@ -1,3 +1,15 @@
+---
+title: Evaluation Trace で見る RND の内的報酬
+page_kind: サマリ
+material: "[[docs/memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md|0127_eval_trace_intrinsic_reward_columns_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Evaluation Trace で見る RND の内的報酬
 
 ## 元の材料

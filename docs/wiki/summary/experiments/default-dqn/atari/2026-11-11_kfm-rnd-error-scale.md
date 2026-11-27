@@ -1,3 +1,14 @@
+---
+title: kung_fu_master の RND の内的報酬の尺度（PRD123 の既定・誤差の統計の取り方・β）
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-11-11_kfm-rnd-error-scale.md|default-dqn/atari/2026-11-11_kfm-rnd-error-scale]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # kung_fu_master の RND の内的報酬の尺度（PRD123 の既定・誤差の統計の取り方・β）
 
 ## 元の材料

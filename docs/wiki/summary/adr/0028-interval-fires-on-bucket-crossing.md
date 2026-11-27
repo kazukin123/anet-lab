@@ -1,3 +1,14 @@
+---
+title: 飛び飛びのカウンタに対する interval を bucket-crossing で定義する
+page_kind: サマリ
+material: "[[docs/adr/0028-interval-fires-on-bucket-crossing.md|0028-interval-fires-on-bucket-crossing]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # 飛び飛びのカウンタに対する interval を bucket-crossing で定義する
 
 ## 元の材料

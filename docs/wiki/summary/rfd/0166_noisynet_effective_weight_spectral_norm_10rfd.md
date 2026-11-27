@@ -1,3 +1,14 @@
+---
+title: NoisyNet のノイズ込み重みを正規化する案
+page_kind: サマリ
+material: "[[docs/memo/0166_noisynet_effective_weight_spectral_norm_10rfd.md|0166_noisynet_effective_weight_spectral_norm_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # NoisyNet のノイズ込み重みを正規化する案
 
 ## 元の材料

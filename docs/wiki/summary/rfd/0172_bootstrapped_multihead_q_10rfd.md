@@ -1,3 +1,14 @@
+---
+title: 共有 Body と複数の Q Head による探索案
+page_kind: サマリ
+material: "[[docs/memo/0172_bootstrapped_multihead_q_10rfd.md|0172_bootstrapped_multihead_q_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+updated: 2026-11-26
+---
 # 共有 Body と複数の Q Head による探索案
 
 ## 元の材料

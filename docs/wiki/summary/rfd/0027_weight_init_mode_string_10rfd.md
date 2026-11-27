@@ -1,3 +1,14 @@
+---
+title: WeightInitConfig.mode の int→string 化
+page_kind: サマリ
+material: "[[docs/memo/done/0027_weight_init_mode_string_10rfd.md|0027_weight_init_mode_string_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # WeightInitConfig.mode の int→string 化
 
 ## 元の材料

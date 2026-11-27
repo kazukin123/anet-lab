@@ -1,3 +1,15 @@
+---
+title: "Survey: replay バッファの「1 アクターあたりの履歴窓」とエピソード長の比"
+page_kind: サマリ
+material: "[[reports/replay_lane_window_survey_2026-09-17.md|replay_lane_window_survey_2026-09-17]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+updated: 2026-11-26
+---
 # Survey: replay バッファの「1 アクターあたりの履歴窓」とエピソード長の比
 
 ## 元の材料

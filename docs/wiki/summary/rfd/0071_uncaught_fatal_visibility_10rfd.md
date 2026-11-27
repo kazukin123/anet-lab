@@ -1,3 +1,14 @@
+---
+title: "RFD0071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through）"
+page_kind: サマリ
+material: "[[docs/memo/0071_uncaught_fatal_visibility_10rfd.md|0071_uncaught_fatal_visibility_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/312_util.md|312 ユーティリティ]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # RFD0071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through）
 
 ## 元の材料

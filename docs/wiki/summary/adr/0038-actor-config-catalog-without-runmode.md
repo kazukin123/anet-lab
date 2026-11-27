@@ -1,3 +1,14 @@
+---
+title: Actor 設定は名前付きカタログ参照とし、Agent インタフェースから RunMode を外す
+page_kind: サマリ
+material: "[[docs/adr/0038-actor-config-catalog-without-runmode.md|0038-actor-config-catalog-without-runmode]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Actor 設定は名前付きカタログ参照とし、Agent インタフェースから RunMode を外す
 
 ## 元の材料

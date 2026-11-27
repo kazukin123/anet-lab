@@ -1,3 +1,12 @@
+---
+title: wiki と実験記録 README の役割
+page_kind: サマリ
+material: "[[docs/adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md|0056-wiki-is-derived-summary-and-readme-keeps-original-analysis]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # wiki と実験記録 README の役割
 
 ## 元の材料

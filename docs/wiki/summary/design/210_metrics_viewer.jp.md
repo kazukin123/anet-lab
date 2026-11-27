@@ -1,3 +1,15 @@
+---
+title: Metrics Viewer
+page_kind: サマリ
+material: "[[docs/design/210_metrics_viewer.jp.md|210_metrics_viewer.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # Metrics Viewer
 
 ## 元の材料

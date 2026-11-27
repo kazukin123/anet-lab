@@ -1,3 +1,15 @@
+---
+title: 可塑性指標と成績
+page_kind: 現象
+aliases:
+  - plasticity
+  - srank
+  - dormant
+  - dead ratio
+  - SN
+description: 同じ勾配 step 付近での摩耗は replay ratio が違っても似ていたが、その間に入る新規データ量と成績の推移は異なった。崩壊時に重みが膨らんだのは feature 側だった。
+updated: 2026-11-27
+---
 # 可塑性指標と成績
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [現象](../../index.md#現象)

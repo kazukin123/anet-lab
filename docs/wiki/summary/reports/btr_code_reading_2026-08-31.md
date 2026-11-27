@@ -1,3 +1,16 @@
+---
+title: "Code Reading: BTR 公開実装 — PER・ネットワーク結線・評価系と anet-lab 現行差分"
+page_kind: サマリ
+material: "[[reports/btr_code_reading_2026-08-31.md|btr_code_reading_2026-08-31]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Code Reading: BTR 公開実装 — PER・ネットワーク結線・評価系と anet-lab 現行差分
 
 ## 元の材料

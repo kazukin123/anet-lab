@@ -1,3 +1,14 @@
+---
+title: ProfiledValue による ImageCls learning_rate 制御
+page_kind: サマリ
+material: "[[docs/memo/done/0031_imagecls_cosine_lr_10rfd.md|0031_imagecls_cosine_lr_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # ProfiledValue による ImageCls learning_rate 制御
 
 ## 元の材料

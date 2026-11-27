@@ -1,3 +1,14 @@
+---
+title: NN Head の最終射影と出力変換の分担
+page_kind: サマリ
+material: "[[docs/memo/0165_nn_head_projection_separation_10rfd.md|0165_nn_head_projection_separation_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # NN Head の最終射影と出力変換の分担
 
 ## 元の材料

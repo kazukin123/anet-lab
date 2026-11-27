@@ -1,3 +1,15 @@
+---
+title: RND による新しさの評価と内的報酬
+page_kind: サマリ
+material: "[[docs/design/212_rnd_lifelong_novelty.jp.md|212_rnd_lifelong_novelty.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-27
+---
 # RND による新しさの評価と内的報酬
 
 ## 元の材料

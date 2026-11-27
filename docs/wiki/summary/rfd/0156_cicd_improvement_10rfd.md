@@ -1,3 +1,13 @@
+---
+title: CI のビルド・テストと定点ジョブの改善案
+page_kind: サマリ
+material: "[[docs/memo/0156_cicd_improvement_10rfd.md|0156_cicd_improvement_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+updated: 2026-11-26
+---
 # CI のビルド・テストと定点ジョブの改善案
 
 ## 元の材料

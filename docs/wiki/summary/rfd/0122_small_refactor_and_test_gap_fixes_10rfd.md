@@ -1,3 +1,15 @@
+---
+title: 小さなリファクタリングと学習契約の回帰試験
+page_kind: サマリ
+material: "[[docs/memo/0122_small_refactor_and_test_gap_fixes_10rfd.md|0122_small_refactor_and_test_gap_fixes_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/325_muzero.md|325 Agent個別実装 MuZero系列]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # 小さなリファクタリングと学習契約の回帰試験
 
 ## 元の材料

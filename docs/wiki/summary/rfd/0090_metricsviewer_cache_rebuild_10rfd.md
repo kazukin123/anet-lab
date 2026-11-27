@@ -1,3 +1,14 @@
+---
+title: MetricsViewerのキャッシュ再構築を高速化し全ワークスペースで事前実行する
+page_kind: サマリ
+material: "[[docs/memo/done/0090_metricsviewer_cache_rebuild_10rfd.md|0090_metricsviewer_cache_rebuild_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # MetricsViewerのキャッシュ再構築を高速化し全ワークスペースで事前実行する
 
 ## 元の材料

@@ -1,3 +1,48 @@
+---
+title: Montezuma's Revenge
+page_kind: 題材
+aliases:
+  - Montezuma
+  - montezuma_revenge
+  - MontezumaRevenge
+  - mz
+  - mz_tg
+  - Taiga
+  - b001
+  - b01
+  - rnd_b001
+  - b001_s2
+  - r123
+  - r123_s2
+  - c50m
+  - b0003
+  - vd
+  - r121
+  - g99ne_split
+  - g99ne
+  - g99ne_s2
+  - g99ne_split_s2
+  - g99ne_cap4m
+  - cap4m
+  - rbw_tg
+  - rbw_tg_s2
+  - mz_rbw_rndtg
+  - merge
+  - split
+  - 価値の分解
+  - reward_clip
+  - g99ne_rr4
+  - g99ne_rr4_s2
+  - n10
+  - n10_s2
+  - RR4
+  - n-step
+  - reuse4
+  - lr3e4
+  - RFD0191
+description: サンプル効率優先＋RND（β 0.1）の 30M、1 seed では、ε=0.01 の評価は 14.21M から鍵と扉で 400 点を繰り返した。Greedy の主評価は 20.4M まで全ゲーム 0 点。同じ重みの別評価では 20.4M に 16 ゲーム中 1 ゲームが 400 点だった。この Run には RND なしの対照がない。
+updated: 2026-11-27
+---
 # Montezuma's Revenge
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

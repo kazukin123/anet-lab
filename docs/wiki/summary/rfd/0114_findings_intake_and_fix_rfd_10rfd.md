@@ -1,3 +1,12 @@
+---
+title: 課題単票と RFD の役割分担
+page_kind: サマリ
+material: "[[docs/memo/0114_findings_intake_and_fix_rfd_10rfd.md|0114_findings_intake_and_fix_rfd_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 課題単票と RFD の役割分担
 
 ## 元の材料

@@ -1,3 +1,12 @@
+---
+title: ProfiledValue の定数は裸のスカラー 1 行で書き、root の `.value` 記法は置かない
+page_kind: サマリ
+material: "[[docs/adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md|0064-profiledvalue-bare-scalar-reads-as-value-field]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # ProfiledValue の定数は裸のスカラー 1 行で書き、root の `.value` 記法は置かない
 
 ## 元の材料

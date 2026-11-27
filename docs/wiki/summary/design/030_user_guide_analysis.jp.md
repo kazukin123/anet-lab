@@ -1,3 +1,15 @@
+---
+title: Run分析ユーザーガイド
+page_kind: サマリ
+material: "[[docs/design/030_user_guide_analysis.jp.md|030_user_guide_analysis.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # Run分析ユーザーガイド
 
 ## 元の材料

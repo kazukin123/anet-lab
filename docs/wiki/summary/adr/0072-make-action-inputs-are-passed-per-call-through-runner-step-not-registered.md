@@ -1,3 +1,14 @@
+---
+title: 行動選択に添える入力は Runner の step と MakeAction の引数で都度渡し、core に要求の登録を持たない
+page_kind: サマリ
+material: "[[docs/adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md|0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # 行動選択に添える入力は Runner の step と MakeAction の引数で都度渡し、core に要求の登録を持たない
 
 ## 元の材料

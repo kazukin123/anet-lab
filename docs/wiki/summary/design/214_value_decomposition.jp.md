@@ -1,3 +1,15 @@
+---
+title: 外的と内的の価値の分解
+page_kind: サマリ
+material: "[[docs/design/214_value_decomposition.jp.md|214_value_decomposition.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-27
+---
 # 外的と内的の価値の分解
 
 ## 元の材料

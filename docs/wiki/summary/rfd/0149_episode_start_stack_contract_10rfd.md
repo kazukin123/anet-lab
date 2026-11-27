@@ -1,3 +1,14 @@
+---
+title: episode_start と stack・n-step の境界についての旧草案
+page_kind: サマリ
+material: "[[docs/memo/dropped/0149_episode_start_stack_contract_10rfd.md|0149_episode_start_stack_contract_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # episode_start と stack・n-step の境界についての旧草案
 
 ## 元の材料

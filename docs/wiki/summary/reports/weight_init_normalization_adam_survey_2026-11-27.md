@@ -1,3 +1,15 @@
+---
+title: 正規化付きの層と Adam での、重みの初期値の大きさの効き方（短い調査）
+page_kind: サマリ
+material: "[[reports/weight_init_normalization_adam_survey_2026-11-27.md|weight_init_normalization_adam_survey_2026-11-27]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-27
+---
 # 正規化付きの層と Adam での、重みの初期値の大きさの効き方（短い調査）
 
 ## 元の材料

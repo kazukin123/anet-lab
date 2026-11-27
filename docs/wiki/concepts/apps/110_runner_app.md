@@ -1,3 +1,19 @@
+---
+title: RunnerApp（110）
+page_kind: アプリケーション
+aliases:
+  - AnetRLRunner
+  - AnetRLRunner.exe
+  - テーマ
+  - ダークモード
+  - dark mode
+  - DPI
+  - 高DPI
+  - gdiScaling
+  - PerMonitorV2
+description: RunnerFrame・TrainPanel・EvalPanel・QValuePanelを通してRunの起動、学習とGUI、専用評価の接続をまとめる
+updated: 2026-11-26
+---
 # RunnerApp（110）
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [アプリケーション](../../index.md#アプリケーション)

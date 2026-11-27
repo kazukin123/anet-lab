@@ -1,3 +1,14 @@
+---
+title: TempoRL 第二弾の段 2（分割・k_max の重み・スキップ長の ε-greedy）、LunarLander 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md|default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/lunarlander.md|LunarLander]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # TempoRL 第二弾の段 2（分割・k_max の重み・スキップ長の ε-greedy）、LunarLander 探索履歴
 
 ## 元の材料

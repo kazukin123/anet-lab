@@ -1,3 +1,13 @@
+---
+title: WARN は利用者が直すべき状態に限り、読まれない設定キーは NoCare にせず検出する
+page_kind: サマリ
+material: "[[docs/adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md|0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # WARN は利用者が直すべき状態に限り、読まれない設定キーは NoCare にせず検出する
 
 ## 元の材料

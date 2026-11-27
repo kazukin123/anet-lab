@@ -1,3 +1,14 @@
+---
+title: DropMerge の評価スコア（本家互換スコアほか複数の軸）暫定 RFD
+page_kind: サマリ
+material: "[[docs/memo/0085_dropmerge_eval_score_axes_10rfd.md|0085_dropmerge_eval_score_axes_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # DropMerge の評価スコア（本家互換スコアほか複数の軸）暫定 RFD
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: Atari / 設定修正後の新バンドル再ベースラインと RR の勾配軸決着
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-08-29_bundle-fix-rebaseline.md|default-dqn/atari/2026-08-29_bundle-fix-rebaseline]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+updated: 2026-11-26
+---
 # Atari / 設定修正後の新バンドル再ベースラインと RR の勾配軸決着
 
 ## 元の材料

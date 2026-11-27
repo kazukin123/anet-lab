@@ -1,3 +1,14 @@
+---
+title: DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化）暫定 RFD
+page_kind: サマリ
+material: "[[docs/memo/0086_dropmerge_macro_actions_10rfd.md|0086_dropmerge_macro_actions_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化）暫定 RFD
 
 ## 元の材料

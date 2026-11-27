@@ -1,3 +1,14 @@
+---
+title: DropMerge
+page_kind: 題材
+aliases:
+  - DropMerge
+  - dm
+  - Suika
+  - NEET
+description: IQNとQR51の順位はUQE評価とGreedy評価で逆転した。NoisyNetへの探索置換はNEETを抑えたが、batch増加の学習側の上乗せの大部分はノイズ感度の差だった。TempoRLのscratch（分離×合算、1本）はGreedyで無効の対照の下で、新ビルドの対照は旧ビルドより30M以降に低いが、決定的モードでは新旧のexeの学習系列が30Mまで一致した。
+updated: 2026-11-27
+---
 # DropMerge
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

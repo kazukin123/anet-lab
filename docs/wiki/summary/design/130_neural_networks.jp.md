@@ -1,3 +1,15 @@
+---
+title: ニューラルネットワーク
+page_kind: サマリ
+material: "[[docs/design/130_neural_networks.jp.md|130_neural_networks.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+updated: 2026-11-27
+---
 # ニューラルネットワーク
 
 ## 元の材料

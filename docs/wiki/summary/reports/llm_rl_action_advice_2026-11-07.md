@@ -1,3 +1,14 @@
+---
+title: LLMの行動助言をRLのどこへ接続するか
+page_kind: サマリ
+material: "[[reports/llm_rl_action_advice_2026-11-07.md|llm_rl_action_advice_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # LLMの行動助言をRLのどこへ接続するか
 
 ## 元の材料

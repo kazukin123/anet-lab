@@ -1,3 +1,11 @@
+---
+title: 313 プロファイリング
+page_kind: フレームワーク
+aliases:
+  - 313_profiling
+description: ProfileRangeとmacroで関数・処理phaseをCPU/GPU profilerへ安定名で記録する。
+updated:
+---
 # 313 プロファイリング
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)

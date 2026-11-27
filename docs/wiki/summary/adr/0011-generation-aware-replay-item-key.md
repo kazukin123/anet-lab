@@ -1,3 +1,14 @@
+---
+title: Replay優先度更新にはgeneration付きreplay item keyを使用する
+page_kind: サマリ
+material: "[[docs/adr/0011-generation-aware-replay-item-key.md|0011-generation-aware-replay-item-key]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Replay優先度更新にはgeneration付きreplay item keyを使用する
 
 ## 元の材料

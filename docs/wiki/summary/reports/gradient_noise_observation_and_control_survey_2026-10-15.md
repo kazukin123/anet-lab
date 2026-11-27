@@ -1,3 +1,14 @@
+---
+title: 勾配ノイズの観測と対処に関するサーベイ
+page_kind: サマリ
+material: "[[reports/gradient_noise_observation_and_control_survey_2026-10-15.md|gradient_noise_observation_and_control_survey_2026-10-15]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/phenomena/gradient_noise_batch.md|勾配ノイズとbatch]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+updated: 2026-11-26
+---
 # 勾配ノイズの観測と対処に関するサーベイ
 
 ## 元の材料

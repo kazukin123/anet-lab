@@ -1,3 +1,18 @@
+---
+title: 内的報酬による探索の手法と比較条件
+page_kind: サマリ
+material: "[[reports/intrinsic_reward_landscape_survey_2026-11-18.md|intrinsic_reward_landscape_survey_2026-11-18]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/methods/pseudo_counts.md|訪問回数と擬似カウントによる探索]]"
+  - "[[docs/wiki/concepts/methods/return_and_explore.md|訪問済み状態へ戻る探索]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+updated: 2026-11-26
+---
 # 内的報酬による探索の手法と比較条件
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: "Lazy-MDPs: Towards Interpretable Reinforcement Learning by Learning When to Act — 詳細解説"
+page_kind: サマリ
+material: "[[reports/jacq2022_lazy_mdps_learning_when_to_act_paper_2026-11-04.md|jacq2022_lazy_mdps_learning_when_to_act_paper_2026-11-04]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Lazy-MDPs: Towards Interpretable Reinforcement Learning by Learning When to Act — 詳細解説
 
 ## 元の材料

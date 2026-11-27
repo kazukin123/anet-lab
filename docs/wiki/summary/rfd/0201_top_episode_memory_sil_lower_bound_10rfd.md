@@ -1,3 +1,15 @@
+---
+title: 上位エピソードを保持し外的価値の下限を学ぶ案
+page_kind: サマリ
+material: "[[docs/memo/0201_top_episode_memory_sil_lower_bound_10rfd.md|0201_top_episode_memory_sil_lower_bound_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/self_imitation.md|自己模倣による価値学習]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # 上位エピソードを保持し外的価値の下限を学ぶ案
 
 ## 元の材料

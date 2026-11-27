@@ -1,3 +1,15 @@
+---
+title: Target更新の比較
+page_kind: 手法
+aliases:
+  - target network
+  - hard update
+  - soft update
+  - τ
+  - C
+description: n=2でhard C=125だけが低分散という主張は、n=4で撤回された。DropMergeのIQN＋Munchausenでは同時定数のhard C=200がsoftの2 seedを下回り、NOOPも増えた。
+updated: 2026-11-26
+---
 # Target更新の比較
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

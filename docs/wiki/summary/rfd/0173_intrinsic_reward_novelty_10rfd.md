@@ -1,3 +1,15 @@
+---
+title: エピソード内の新しさ・RND と複数の方策
+page_kind: サマリ
+material: "[[docs/memo/0173_intrinsic_reward_novelty_10rfd.md|0173_intrinsic_reward_novelty_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+updated: 2026-11-26
+---
 # エピソード内の新しさ・RND と複数の方策
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: GridMazeのRND性能測定
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/gridmaze/2026-11-07_rnd_performance.md|default-dqn/gridmaze/2026-11-07_rnd_performance]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/gridmaze.md|GridMaze]]"
+updated: 2026-11-26
+---
 # GridMazeのRND性能測定
 
 ## 元の材料

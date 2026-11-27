@@ -1,3 +1,15 @@
+---
+title: TempoRL の長いスキップの不確かさと割り込み候補
+page_kind: サマリ
+material: "[[docs/memo/0183_temporl_skip_followups_10rfd.md|0183_temporl_skip_followups_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/gridmaze.md|GridMaze]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # TempoRL の長いスキップの不確かさと割り込み候補
 
 ## 元の材料

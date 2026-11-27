@@ -1,3 +1,15 @@
+---
+title: anet-core 外の拡張点と公開ヘッダの配置
+page_kind: サマリ
+material: "[[docs/memo/0169_outside_core_extension_layout_10rfd.md|0169_outside_core_extension_layout_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # anet-core 外の拡張点と公開ヘッダの配置
 
 ## 元の材料

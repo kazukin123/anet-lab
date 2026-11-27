@@ -1,3 +1,15 @@
+---
+title: DQN 系 Agent の設計文書を現行実装に合わせる
+page_kind: サマリ
+material: "[[docs/memo/0190_dqn_design_doc_alignment_10rfd.md|0190_dqn_design_doc_alignment_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+updated: 2026-11-26
+---
 # DQN 系 Agent の設計文書を現行実装に合わせる
 
 ## 元の材料

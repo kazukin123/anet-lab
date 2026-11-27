@@ -1,3 +1,14 @@
+---
+title: 長期 Run における batch / replay 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md|default-dqn/dropmerge/2026-07-27_longrun-batch-replay]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/phenomena/gradient_noise_batch.md|勾配ノイズとbatch]]"
+updated: 2026-11-26
+---
 # 長期 Run における batch / replay 探索履歴
 
 ## 元の材料

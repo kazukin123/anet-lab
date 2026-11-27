@@ -1,3 +1,15 @@
+---
+title: "Atari Breakout: BTR ソース差分の腕別スクリーニング — 2026-09-01"
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-09-01_btr-feedback-arms.md|default-dqn/atari/2026-09-01_btr-feedback-arms]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/methods/target_update.md|Target更新の比較]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+updated: 2026-11-26
+---
 # Atari Breakout: BTR ソース差分の腕別スクリーニング — 2026-09-01
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: ImageCls BF16(AMP)対応 + 汎用 LinearHead による Head 化
+page_kind: サマリ
+material: "[[docs/memo/done/0033_imagecls_bf16_head_10rfd.md|0033_imagecls_bf16_head_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+updated: 2026-11-26
+---
 # ImageCls BF16(AMP)対応 + 汎用 LinearHead による Head 化
 
 ## 元の材料

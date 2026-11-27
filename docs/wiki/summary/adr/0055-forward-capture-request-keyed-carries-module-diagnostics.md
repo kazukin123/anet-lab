@@ -1,3 +1,14 @@
+---
+title: forward の持ち帰りは鍵要求型の capture 1 つに統一し、module の診断も同じ器で運ぶ
+page_kind: サマリ
+material: "[[docs/adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md|0055-forward-capture-request-keyed-carries-module-diagnostics]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # forward の持ち帰りは鍵要求型の capture 1 つに統一し、module の診断も同じ器で運ぶ
 
 ## 元の材料

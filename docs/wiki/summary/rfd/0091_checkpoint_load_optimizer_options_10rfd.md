@@ -1,3 +1,14 @@
+---
+title: checkpoint 引き継ぎで optimizer の設定（学習率ほか）を効かせる PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0091_checkpoint_load_optimizer_options_10rfd.md|0091_checkpoint_load_optimizer_options_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-26
+---
 # checkpoint 引き継ぎで optimizer の設定（学習率ほか）を効かせる PRD
 
 ## 元の材料

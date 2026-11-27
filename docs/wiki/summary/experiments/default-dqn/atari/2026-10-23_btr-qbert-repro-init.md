@@ -1,3 +1,15 @@
+---
+title: BTR 公開実装の qbert 再現と、序盤の学習の遅れ（初期値） 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-10-23_btr-qbert-repro-init.md|default-dqn/atari/2026-10-23_btr-qbert-repro-init]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-26
+---
 # BTR 公開実装の qbert 再現と、序盤の学習の遅れ（初期値） 探索履歴
 
 ## 元の材料

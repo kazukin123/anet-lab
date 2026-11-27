@@ -1,3 +1,14 @@
+---
+title: Atari-5 外ゲームでの実時間優先プロファイル 100M 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md|default-dqn/atari/2026-09-23_realtime-profile-100m]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+updated: 2026-11-26
+---
 # Atari-5 外ゲームでの実時間優先プロファイル 100M 探索履歴
 
 ## 元の材料

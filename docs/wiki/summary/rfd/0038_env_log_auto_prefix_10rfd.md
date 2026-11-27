@@ -1,3 +1,14 @@
+---
+title: Envログ name prefix 自動付与 PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0038_env_log_auto_prefix_10rfd.md|0038_env_log_auto_prefix_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/312_util.md|312 ユーティリティ]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # Envログ name prefix 自動付与 PRD
 
 ## 元の材料

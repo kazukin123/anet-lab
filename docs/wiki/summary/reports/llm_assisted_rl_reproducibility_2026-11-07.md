@@ -1,3 +1,14 @@
+---
+title: LLMでRLを補助する公開実装の再現条件
+page_kind: サマリ
+material: "[[reports/llm_assisted_rl_reproducibility_2026-11-07.md|llm_assisted_rl_reproducibility_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+updated: 2026-11-26
+---
 # LLMでRLを補助する公開実装の再現条件
 
 ## 元の材料

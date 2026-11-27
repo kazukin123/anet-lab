@@ -1,3 +1,12 @@
+---
+title: Breakout
+page_kind: 題材
+aliases:
+  - Breakout
+  - breakout
+description: LN512はRR4の天井を押し上げた一方、RR1では対照のブレ幅内だった。BTR型NNとSNの効果はreplay ratioと学習予算に依存し、SN無しの早期優位が後期に反転した。
+updated: 2026-11-26
+---
 # Breakout
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

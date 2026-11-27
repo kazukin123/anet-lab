@@ -1,3 +1,14 @@
+---
+title: 強制行動は `MakeAction` の入力とし、Actor の出力を実行された行動にする
+page_kind: サマリ
+material: "[[docs/adr/0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md|0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+updated: 2026-11-26
+---
 # 強制行動は `MakeAction` の入力とし、Actor の出力を実行された行動にする
 
 ## 元の材料

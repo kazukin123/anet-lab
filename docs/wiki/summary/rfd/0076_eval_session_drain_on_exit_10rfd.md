@@ -1,3 +1,14 @@
+---
+title: 終了時の評価セッション排水
+page_kind: サマリ
+material: "[[docs/memo/done/0076_eval_session_drain_on_exit_10rfd.md|0076_eval_session_drain_on_exit_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # 終了時の評価セッション排水
 
 ## 元の材料

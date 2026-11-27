@@ -1,3 +1,15 @@
+---
+title: 操作入力を Eval と Train の間で切り替える案
+page_kind: サマリ
+material: "[[docs/memo/0160_input_target_train_forced_action_10rfd.md|0160_input_target_train_forced_action_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # 操作入力を Eval と Train の間で切り替える案
 
 ## 元の材料

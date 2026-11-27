@@ -1,3 +1,14 @@
+---
+title: eval 定義とスケジュールの namespace 分離
+page_kind: サマリ
+material: "[[docs/memo/done/0052_eval_schedule_separation_10rfd.md|0052_eval_schedule_separation_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # eval 定義とスケジュールの namespace 分離
 
 ## 元の材料

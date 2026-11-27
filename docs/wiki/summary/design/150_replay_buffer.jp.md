@@ -1,3 +1,16 @@
+---
+title: ReplayBuffer
+page_kind: サマリ
+material: "[[docs/design/150_replay_buffer.jp.md|150_replay_buffer.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+updated: 2026-11-26
+---
 # ReplayBuffer
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: Envインスタンスname PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0037_env_instance_name_10rfd.md|0037_env_instance_name_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # Envインスタンスname PRD
 
 ## 元の材料

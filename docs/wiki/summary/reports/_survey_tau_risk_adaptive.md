@@ -1,3 +1,14 @@
+---
+title: 分布強化学習における τ(quantile fraction)の非一様分布・distortion・適応的選択 — 学術サーベイ
+page_kind: サマリ
+material: "[[reports/_survey_tau_risk_adaptive.md|_survey_tau_risk_adaptive]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # 分布強化学習における τ(quantile fraction)の非一様分布・distortion・適応的選択 — 学術サーベイ
 
 ## 元の材料

@@ -1,3 +1,15 @@
+---
+title: Metrics Viewerの表示粒度
+page_kind: 測り方
+aliases:
+  - MetricsViewer
+  - LOD
+  - common Step bins
+  - maxPoints
+  - overview
+description: 調査時には Run ごとの表示粒度が混在した。現行の Viewer は同じグラフの Run を共通の Step 区間で集約し、記録が無い区間を補間しない。
+updated: 2026-11-26
+---
 # Metrics Viewerの表示粒度
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [測り方](../../index.md#測り方)

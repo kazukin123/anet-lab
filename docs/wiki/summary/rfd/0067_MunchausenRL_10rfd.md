@@ -1,3 +1,14 @@
+---
+title: Munchausen RL（M-DQN / M-QR / M-IQN）PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0067_MunchausenRL_10rfd.md|0067_MunchausenRL_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+updated: 2026-11-26
+---
 # Munchausen RL（M-DQN / M-QR / M-IQN）PRD
 
 ## 元の材料

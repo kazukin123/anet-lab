@@ -1,3 +1,15 @@
+---
+title: Atari の RAM 指標で値の種類数とビット遷移を数える
+page_kind: サマリ
+material: "[[docs/memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md|0126_atari_ram_metric_distinct_and_bit_reducers_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # Atari の RAM 指標で値の種類数とビット遷移を数える
 
 ## 元の材料

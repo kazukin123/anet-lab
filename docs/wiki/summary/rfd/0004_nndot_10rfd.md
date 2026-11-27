@@ -1,3 +1,14 @@
+---
+title: anet::nn::Network GraphViz 仕様
+page_kind: サマリ
+material: "[[docs/memo/done/0004_nndot_10rfd.md|0004_nndot_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # anet::nn::Network GraphViz 仕様
 
 ## 元の材料

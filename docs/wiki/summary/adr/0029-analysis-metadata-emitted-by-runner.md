@@ -1,3 +1,14 @@
+---
+title: 解析用メタデータは Runner が出力し、解析側は設定から再導出しない
+page_kind: サマリ
+material: "[[docs/adr/0029-analysis-metadata-emitted-by-runner.md|0029-analysis-metadata-emitted-by-runner]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+updated: 2026-11-26
+---
 # 解析用メタデータは Runner が出力し、解析側は設定から再導出しない
 
 ## 元の材料

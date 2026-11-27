@@ -1,3 +1,15 @@
+---
+title: 共有 Network と Actor 専用コピーの排他監査
+page_kind: サマリ
+material: "[[docs/memo/0134_network_lock_audit_10rfd.md|0134_network_lock_audit_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/325_muzero.md|325 Agent個別実装 MuZero系列]]"
+updated: 2026-11-26
+---
 # 共有 Network と Actor 専用コピーの排他監査
 
 ## 元の材料

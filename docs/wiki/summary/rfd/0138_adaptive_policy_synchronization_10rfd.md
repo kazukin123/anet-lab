@@ -1,3 +1,14 @@
+---
+title: Train Actor の方策同期を適応させる案
+page_kind: サマリ
+material: "[[docs/memo/frozen/0138_adaptive_policy_synchronization_10rfd.md|0138_adaptive_policy_synchronization_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # Train Actor の方策同期を適応させる案
 
 ## 元の材料

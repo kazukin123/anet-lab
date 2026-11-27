@@ -1,3 +1,21 @@
+---
+title: 評価と比較の条件
+page_kind: 測り方
+aliases:
+  - eval
+  - Greedy
+  - ε
+  - target
+  - seed
+  - 評価
+  - lane
+  - seed数
+  - max報告
+  - IQM
+  - 信頼区間
+description: 1 ゲーム 2 seed で確認できるのは観測した方策どうしの差とその幅までである。BTR の公開 CSV では学習中の最良値が最後の 10 回の平均をゲームの中央値で 1.15 倍上回った。
+updated: 2026-11-27
+---
 # 評価と比較の条件
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [測り方](../../index.md#測り方)

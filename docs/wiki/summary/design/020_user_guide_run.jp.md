@@ -1,3 +1,15 @@
+---
+title: Run実行ユーザーガイド
+page_kind: サマリ
+material: "[[docs/design/020_user_guide_run.jp.md|020_user_guide_run.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+updated: 2026-11-26
+---
 # Run実行ユーザーガイド
 
 ## 元の材料

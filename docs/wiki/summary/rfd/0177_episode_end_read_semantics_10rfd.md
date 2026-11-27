@@ -1,3 +1,14 @@
+---
+title: エピソード終了時に読むメトリクスの対象
+page_kind: サマリ
+material: "[[docs/memo/0177_episode_end_read_semantics_10rfd.md|0177_episode_end_read_semantics_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # エピソード終了時に読むメトリクスの対象
 
 ## 元の材料

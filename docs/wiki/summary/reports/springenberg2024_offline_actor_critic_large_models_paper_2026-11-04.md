@@ -1,3 +1,15 @@
+---
+title: Offline Actor-Critic Reinforcement Learning Scales to Large Models — 詳細解説
+page_kind: サマリ
+material: "[[reports/springenberg2024_offline_actor_critic_large_models_paper_2026-11-04.md|springenberg2024_offline_actor_critic_large_models_paper_2026-11-04]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/action_query_attention.md|Action queryとattentionの証拠]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/subjects/robot_tasks.md|実ロボット課題の選定]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Offline Actor-Critic Reinforcement Learning Scales to Large Models — 詳細解説
 
 ## 元の材料

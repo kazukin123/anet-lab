@@ -1,3 +1,14 @@
+---
+title: 学習の同 seed 再現性のため `setDeterministicAlgorithms` をグローバル既定で有効化する
+page_kind: サマリ
+material: "[[docs/adr/0006-deterministic-algorithms.md|0006-deterministic-algorithms]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+updated: 2026-11-26
+---
 # 学習の同 seed 再現性のため `setDeterministicAlgorithms` をグローバル既定で有効化する
 
 ## 元の材料

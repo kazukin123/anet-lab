@@ -1,3 +1,11 @@
+---
+title: 325 Agent個別実装 MuZero系列
+page_kind: フレームワーク
+aliases:
+  - 325_muzero
+description: MuZeroAgentは登録済みAgentの試作実装である。
+updated: 2026-11-26
+---
 # 325 Agent個別実装 MuZero系列
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)

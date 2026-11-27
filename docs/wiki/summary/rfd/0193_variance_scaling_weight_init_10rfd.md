@@ -1,3 +1,15 @@
+---
+title: fan_in に基づく一様分布の重み初期化
+page_kind: サマリ
+material: "[[docs/memo/0193_variance_scaling_weight_init_10rfd.md|0193_variance_scaling_weight_init_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # fan_in に基づく一様分布の重み初期化
 
 ## 元の材料

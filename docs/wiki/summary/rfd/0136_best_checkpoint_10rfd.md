@@ -1,3 +1,15 @@
+---
+title: 評価の自己ベストを記録する checkpoint 案
+page_kind: サマリ
+material: "[[docs/memo/0136_best_checkpoint_10rfd.md|0136_best_checkpoint_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/313_profiling.md|313 プロファイリング]]"
+updated: 2026-11-26
+---
 # 評価の自己ベストを記録する checkpoint 案
 
 ## 元の材料

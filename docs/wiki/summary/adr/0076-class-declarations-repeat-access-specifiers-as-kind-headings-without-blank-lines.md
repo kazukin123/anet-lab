@@ -1,3 +1,12 @@
+---
+title: クラスの宣言は、種類の切れ目でアクセス指定を書き直して見出しにし、アクセス指定の前に空行を入れない
+page_kind: サマリ
+material: "[[docs/adr/0076-class-declarations-repeat-access-specifiers-as-kind-headings-without-blank-lines.md|0076-class-declarations-repeat-access-specifiers-as-kind-headings-without-blank-lines]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # クラスの宣言は、種類の切れ目でアクセス指定を書き直して見出しにし、アクセス指定の前に空行を入れない
 
 ## 元の材料

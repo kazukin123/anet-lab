@@ -1,3 +1,14 @@
+---
+title: Runner の主 pane の配置と Train View の表示
+page_kind: サマリ
+material: "[[docs/memo/done/0110_runner_main_pane_dynamic_centre_10rfd.md|0110_runner_main_pane_dynamic_centre_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # Runner の主 pane の配置と Train View の表示
 
 ## 元の材料

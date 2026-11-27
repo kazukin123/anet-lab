@@ -1,3 +1,14 @@
+---
+title: "ImageCls 過学習対策①: train 専用データ拡張（水平フリップ + RandomResizedCrop）"
+page_kind: サマリ
+material: "[[docs/memo/done/0022_imagecls_augmentation_10rfd.md|0022_imagecls_augmentation_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/imagecls.md|ImageCls]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-26
+---
 # ImageCls 過学習対策①: train 専用データ拡張（水平フリップ + RandomResizedCrop）
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: Atari の本流 Run プロファイルの整理
+page_kind: サマリ
+material: "[[docs/memo/0118_atari_run_profile_flatten_10rfd.md|0118_atari_run_profile_flatten_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # Atari の本流 Run プロファイルの整理
 
 ## 元の材料

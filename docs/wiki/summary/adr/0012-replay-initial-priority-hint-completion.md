@@ -1,3 +1,14 @@
+---
+title: Replay初期優先度ヒントを単一packed carrierとし、completionを専用coordinatorへ分離する
+page_kind: サマリ
+material: "[[docs/adr/0012-replay-initial-priority-hint-completion.md|0012-replay-initial-priority-hint-completion]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+updated: 2026-11-26
+---
 # Replay初期優先度ヒントを単一packed carrierとし、completionを専用coordinatorへ分離する
 
 ## 元の材料

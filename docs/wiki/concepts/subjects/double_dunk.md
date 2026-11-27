@@ -1,3 +1,12 @@
+---
+title: Double Dunk
+page_kind: 題材
+aliases:
+  - DoubleDunk
+  - double_dunk
+description: サンプル効率優先のε=0評価は20.4Mで22.1、45.7Mで23.2（BTR比101%）だった。実時間優先seed2は50.7Mで21.5、91.1Mで23.0に達した。
+updated: 2026-11-26
+---
 # Double Dunk
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

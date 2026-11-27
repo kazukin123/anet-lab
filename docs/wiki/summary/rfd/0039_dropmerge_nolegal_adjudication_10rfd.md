@@ -1,3 +1,14 @@
+---
+title: DropMerge NoLegal 裁定の blocked-persistence 化
+page_kind: サマリ
+material: "[[docs/memo/done/0039_dropmerge_nolegal_adjudication_10rfd.md|0039_dropmerge_nolegal_adjudication_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # DropMerge NoLegal 裁定の blocked-persistence 化
 
 ## 元の材料

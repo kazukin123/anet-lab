@@ -1,3 +1,14 @@
+---
+title: テストは自分のライブラリの内部まで読み、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う
+page_kind: サマリ
+material: "[[docs/adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md|0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+updated: 2026-11-26
+---
 # テストは自分のライブラリの内部まで読み、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: Run 色は比較ごとの役割とし、分離は選択中 Run の集合に対してだけ保証する
+page_kind: サマリ
+material: "[[docs/adr/0041-run-color-is-comparison-role-not-run-identity.md|0041-run-color-is-comparison-role-not-run-identity]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+updated: 2026-11-26
+---
 # Run 色は比較ごとの役割とし、分離は選択中 Run の集合に対してだけ保証する
 
 ## 元の材料

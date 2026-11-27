@@ -1,3 +1,14 @@
+---
+title: ReplayBuffer PER priority 転送境界整理 PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0021_replay_per_priority_transfer_10rfd.md|0021_replay_per_priority_transfer_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # ReplayBuffer PER priority 転送境界整理 PRD
 
 ## 元の材料

@@ -1,3 +1,15 @@
+---
+title: IQN の初回 Learner 優先度を分位点対から求める案
+page_kind: サマリ
+material: "[[docs/memo/0147_iqn_first_priority_quantile_pair_10rfd.md|0147_iqn_first_priority_quantile_pair_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+updated: 2026-11-26
+---
 # IQN の初回 Learner 優先度を分位点対から求める案
 
 ## 元の材料

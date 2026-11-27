@@ -1,3 +1,15 @@
+---
+title: TempoRL の補助学習と行動固定の切り分け
+page_kind: サマリ
+material: "[[docs/memo/done/0104_temporl_skip_auxiliary_only_10rfd.md|0104_temporl_skip_auxiliary_only_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/subjects/lunarlander.md|LunarLander]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # TempoRL の補助学習と行動固定の切り分け
 
 ## 元の材料

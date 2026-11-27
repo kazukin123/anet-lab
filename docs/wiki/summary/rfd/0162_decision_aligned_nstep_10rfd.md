@@ -1,3 +1,15 @@
+---
+title: 次の判断時点で打ち切る可変長 n-step 案
+page_kind: サマリ
+material: "[[docs/memo/0162_decision_aligned_nstep_10rfd.md|0162_decision_aligned_nstep_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # 次の判断時点で打ち切る可変長 n-step 案
 
 ## 元の材料

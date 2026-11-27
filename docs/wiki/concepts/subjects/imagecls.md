@@ -1,3 +1,16 @@
+---
+title: ImageCls
+page_kind: 題材
+aliases:
+  - ImageCls
+  - imagecls
+  - imgcls
+  - Food-101
+  - food101
+  - 画像分類
+description: Food-101のスクラッチ学習の到達点はResNet18ish_hr＋cosine＋Mixup/CutMixの86.0〜86.4%（seed 1の3本）で、同じ学習条件のConvNeXt Atto・Femto（stem stride 2）は83.1・83.7%だった。
+updated: 2026-11-26
+---
 # ImageCls
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [題材](../../index.md#題材)

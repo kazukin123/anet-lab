@@ -1,3 +1,13 @@
+---
+title: NN dropout 設定名と `Drop.p` 改名
+page_kind: サマリ
+material: "[[docs/adr/0007-nn-dropout-config-semantics.md|0007-nn-dropout-config-semantics]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # NN dropout 設定名と `Drop.p` 改名
 
 ## 元の材料

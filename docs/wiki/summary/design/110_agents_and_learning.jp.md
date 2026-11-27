@@ -1,3 +1,15 @@
+---
+title: Agentと学習
+page_kind: サマリ
+material: "[[docs/design/110_agents_and_learning.jp.md|110_agents_and_learning.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/325_muzero.md|325 Agent個別実装 MuZero系列]]"
+updated: 2026-11-26
+---
 # Agentと学習
 
 ## 元の材料

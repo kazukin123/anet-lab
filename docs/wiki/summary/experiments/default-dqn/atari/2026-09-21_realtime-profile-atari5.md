@@ -1,3 +1,18 @@
+---
+title: 実時間優先プロファイルの Atari-5 と評価予算
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md|default-dqn/atari/2026-09-21_realtime-profile-atari5]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/subjects/phoenix.md|Phoenix]]"
+  - "[[docs/wiki/concepts/subjects/name_this_game.md|Name This Game]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # 実時間優先プロファイルの Atari-5 と評価予算
 
 ## 元の材料

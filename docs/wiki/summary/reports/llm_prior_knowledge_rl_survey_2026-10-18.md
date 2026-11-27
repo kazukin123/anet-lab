@@ -1,3 +1,15 @@
+---
+title: "Survey: LLM の事前知識で RL の探索と報酬を補助する手法"
+page_kind: サマリ
+material: "[[reports/llm_prior_knowledge_rl_survey_2026-10-18.md|llm_prior_knowledge_rl_survey_2026-10-18]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+updated: 2026-11-26
+---
 # Survey: LLM の事前知識で RL の探索と報酬を補助する手法
 
 ## 元の材料

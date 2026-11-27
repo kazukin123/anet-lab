@@ -1,3 +1,14 @@
+---
+title: メトリクス群と指標の番号体系
+page_kind: サマリ
+material: "[[docs/memo/0108_metrics_tag_numbering_10rfd.md|0108_metrics_tag_numbering_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+updated: 2026-11-26
+---
 # メトリクス群と指標の番号体系
 
 ## 元の材料

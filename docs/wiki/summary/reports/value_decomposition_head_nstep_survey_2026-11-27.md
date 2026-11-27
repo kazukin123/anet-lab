@@ -1,3 +1,15 @@
+---
+title: "Survey: 外的と内的の価値を分ける位置と、内的の n-step の和をエピソードの境でどう扱うか"
+page_kind: サマリ
+material: "[[reports/value_decomposition_head_nstep_survey_2026-11-27.md|value_decomposition_head_nstep_survey_2026-11-27]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+updated: 2026-11-27
+---
 # Survey: 外的と内的の価値を分ける位置と、内的の n-step の和をエピソードの境でどう扱うか
 
 ## 元の材料

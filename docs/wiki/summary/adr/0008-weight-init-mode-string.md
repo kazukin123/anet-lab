@@ -1,3 +1,13 @@
+---
+title: WeightInitConfig.mode の文字列化
+page_kind: サマリ
+material: "[[docs/adr/0008-weight-init-mode-string.md|0008-weight-init-mode-string]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # WeightInitConfig.mode の文字列化
 
 ## 元の材料

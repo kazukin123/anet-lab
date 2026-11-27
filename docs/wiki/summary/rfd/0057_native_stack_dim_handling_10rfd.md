@@ -1,3 +1,14 @@
+---
+title: Stack 次元のネイティブ対応(Reshape ハックを廃する根本対応)
+page_kind: サマリ
+material: "[[docs/memo/done/0057_native_stack_dim_handling_10rfd.md|0057_native_stack_dim_handling_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # Stack 次元のネイティブ対応(Reshape ハックを廃する根本対応)
 
 ## 元の材料

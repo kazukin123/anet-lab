@@ -1,3 +1,14 @@
+---
+title: 希少なエピソードを後から調べるための記録案
+page_kind: サマリ
+material: "[[docs/memo/0144_episode_forensics_10rfd.md|0144_episode_forensics_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # 希少なエピソードを後から調べるための記録案
 
 ## 元の材料

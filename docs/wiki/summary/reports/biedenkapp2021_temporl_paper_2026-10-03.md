@@ -1,3 +1,15 @@
+---
+title: "TempoRL: Learning When to Act — 詳細解説"
+page_kind: サマリ
+material: "[[reports/biedenkapp2021_temporl_paper_2026-10-03.md|biedenkapp2021_temporl_paper_2026-10-03]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/gridmaze.md|GridMaze]]"
+  - "[[docs/wiki/concepts/subjects/lunarlander.md|LunarLander]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # TempoRL: Learning When to Act — 詳細解説
 
 ## 元の材料

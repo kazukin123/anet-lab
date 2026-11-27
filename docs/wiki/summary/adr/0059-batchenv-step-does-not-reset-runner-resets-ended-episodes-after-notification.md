@@ -1,3 +1,14 @@
+---
+title: BatchEnv の終端リセットを通知後に行う案と、ADR 0060 による撤回
+page_kind: サマリ
+material: "[[docs/adr/0059-batchenv-step-does-not-reset-runner-resets-ended-episodes-after-notification.md|0059-batchenv-step-does-not-reset-runner-resets-ended-episodes-after-notification]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # BatchEnv の終端リセットを通知後に行う案と、ADR 0060 による撤回
 
 ## 元の材料

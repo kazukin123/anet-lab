@@ -1,3 +1,16 @@
+---
+title: "Survey: RND の倍率の統計・predictor が学ぶデータ・Munchausen と内的報酬の組"
+page_kind: サマリ
+material: "[[reports/rnd_predictor_data_munchausen_survey_2026-11-27.md|rnd_predictor_data_munchausen_survey_2026-11-27]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-27
+---
 # Survey: RND の倍率の統計・predictor が学ぶデータ・Munchausen と内的報酬の組
 
 ## 元の材料

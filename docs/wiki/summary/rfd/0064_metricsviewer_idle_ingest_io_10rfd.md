@@ -1,3 +1,14 @@
+---
+title: Metrics Viewer 定常取り込み I/O 抑制 PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0064_metricsviewer_idle_ingest_io_10rfd.md|0064_metricsviewer_idle_ingest_io_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # Metrics Viewer 定常取り込み I/O 抑制 PRD
 
 ## 元の材料

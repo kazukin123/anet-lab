@@ -1,3 +1,16 @@
+---
+title: 317 可視化・メトリクス
+page_kind: フレームワーク
+aliases:
+  - 317_metrics
+  - HeatMap
+  - TimeHistogram
+  - Histgram
+  - SweepedHeatMap
+  - wxImage
+description: eventからscalar、trace、画像、動画、GraphVizとartifactへ変換し、値の取得と保存の境界をまとめる。
+updated: 2026-11-26
+---
 # 317 可視化・メトリクス
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)

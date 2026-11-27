@@ -1,3 +1,14 @@
+---
+title: Runner のモニター別 DPI とログの字下げ
+page_kind: サマリ
+material: "[[docs/memo/0113_runner_per_monitor_dpi_10rfd.md|0113_runner_per_monitor_dpi_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # Runner のモニター別 DPI とログの字下げ
 
 ## 元の材料

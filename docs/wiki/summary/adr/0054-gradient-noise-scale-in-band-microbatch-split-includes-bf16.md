@@ -1,3 +1,14 @@
+---
+title: 勾配ノイズスケールは更新自身の batch を小バッチに分けて学習経路の中で測り、BF16 も対象にする
+page_kind: サマリ
+material: "[[docs/adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md|0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/phenomena/gradient_noise_batch.md|勾配ノイズとbatch]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # 勾配ノイズスケールは更新自身の batch を小バッチに分けて学習経路の中で測り、BF16 も対象にする
 
 ## 元の材料

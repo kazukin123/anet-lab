@@ -1,3 +1,14 @@
+---
+title: Runner 起動時の RunManager 構築
+page_kind: サマリ
+material: "[[docs/memo/done/0109_runner_startup_background_init_10rfd.md|0109_runner_startup_background_init_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-26
+---
 # Runner 起動時の RunManager 構築
 
 ## 元の材料

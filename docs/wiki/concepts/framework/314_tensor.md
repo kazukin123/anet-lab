@@ -1,3 +1,18 @@
+---
+title: 314 テンソル処理
+page_kind: フレームワーク
+aliases:
+  - 314_tensor
+  - LaneTimeTensorStore
+  - tensor_store
+  - Forwarder
+  - ForwarderBuilder
+  - Perception
+  - FrameStack
+  - 観測の加工
+description: device転送とframe stack、観測の加工（Forwarderの並び）を担い、sampleのTensorとCPUに残すmetadata、非同期転送の寿命を扱う。
+updated: 2026-11-27
+---
 # 314 テンソル処理
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)

@@ -1,3 +1,16 @@
+---
+title: DropMerge への Atari 知見のフィードバック実験（FB シリーズ）の探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/dropmerge/2026-10-01_atari-feedback.md|default-dqn/dropmerge/2026-10-01_atari-feedback]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/methods/target_update.md|Target更新の比較]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # DropMerge への Atari 知見のフィードバック実験（FB シリーズ）の探索履歴
 
 ## 元の材料

@@ -1,3 +1,14 @@
+---
+title: 設定キーの root と値の所有者の対応
+page_kind: サマリ
+material: "[[docs/memo/0155_config_root_ownership_alignment_10rfd.md|0155_config_root_ownership_alignment_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # 設定キーの root と値の所有者の対応
 
 ## 元の材料

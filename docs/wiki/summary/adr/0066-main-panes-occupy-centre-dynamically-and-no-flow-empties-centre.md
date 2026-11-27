@@ -1,3 +1,13 @@
+---
+title: Runner の主 pane は Centre を動的に占有し、Centre を空にする操作を導線に持たない
+page_kind: サマリ
+material: "[[docs/adr/0066-main-panes-occupy-centre-dynamically-and-no-flow-empties-centre.md|0066-main-panes-occupy-centre-dynamically-and-no-flow-empties-centre]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+updated: 2026-11-26
+---
 # Runner の主 pane は Centre を動的に占有し、Centre を空にする操作を導線に持たない
 
 ## 元の材料

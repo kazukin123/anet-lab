@@ -1,3 +1,14 @@
+---
+title: ReplayBuffer の観測履歴・bootstrap stack 整合性修復 PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0078_replay_frame_history_integrity_10rfd.md|0078_replay_frame_history_integrity_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+updated: 2026-11-26
+---
 # ReplayBuffer の観測履歴・bootstrap stack 整合性修復 PRD
 
 ## 元の材料

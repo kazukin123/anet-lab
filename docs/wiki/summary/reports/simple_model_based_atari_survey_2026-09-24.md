@@ -1,3 +1,15 @@
+---
+title: "Survey: SimPLe(Model-Based Reinforcement Learning for Atari)の受容・批判・後続研究"
+page_kind: サマリ
+material: "[[reports/simple_model_based_atari_survey_2026-09-24.md|simple_model_based_atari_survey_2026-09-24]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/model_based_evidence.md|Model-based Atariの評価]]"
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+updated: 2026-11-26
+---
 # Survey: SimPLe(Model-Based Reinforcement Learning for Atari)の受容・批判・後続研究
 
 ## 元の材料

@@ -1,3 +1,15 @@
+---
+title: アプリケーションとツール
+page_kind: サマリ
+material: "[[docs/design/160_applications_and_tools.jp.md|160_applications_and_tools.jp]]"
+material_kind: 設計文書
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-27
+---
 # アプリケーションとツール
 
 ## 元の材料

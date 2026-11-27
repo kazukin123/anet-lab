@@ -1,3 +1,14 @@
+---
+title: NoisyNet の ε は module に持たせず、呼び出し側所有の NN 実行状態と NN 実行設定キーで駆動する
+page_kind: サマリ
+material: "[[docs/adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md|0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # NoisyNet の ε は module に持たせず、呼び出し側所有の NN 実行状態と NN 実行設定キーで駆動する
 
 ## 元の材料

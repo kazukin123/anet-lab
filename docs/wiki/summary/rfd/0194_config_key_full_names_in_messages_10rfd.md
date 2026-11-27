@@ -1,3 +1,14 @@
+---
+title: 設定エラーや通知に完全な設定キーを出す
+page_kind: サマリ
+material: "[[docs/memo/0194_config_key_full_names_in_messages_10rfd.md|0194_config_key_full_names_in_messages_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # 設定エラーや通知に完全な設定キーを出す
 
 ## 元の材料

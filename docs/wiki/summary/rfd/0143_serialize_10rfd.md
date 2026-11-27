@@ -1,3 +1,14 @@
+---
+title: Run 全体の保存と再開の契約案
+page_kind: サマリ
+material: "[[docs/memo/0143_serialize_10rfd.md|0143_serialize_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # Run 全体の保存と再開の契約案
 
 ## 元の材料

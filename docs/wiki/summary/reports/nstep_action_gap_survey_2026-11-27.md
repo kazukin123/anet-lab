@@ -1,3 +1,15 @@
+---
+title: "Survey: DQN 系の n-step と行動間の価値の差（action gap）・まれな報酬の伝わる速さ"
+page_kind: サマリ
+material: "[[reports/nstep_action_gap_survey_2026-11-27.md|nstep_action_gap_survey_2026-11-27]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/reward_scale_discount.md|報酬尺度と割引率]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/methods/pseudo_counts.md|訪問回数と擬似カウントによる探索]]"
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+updated: 2026-11-27
+---
 # Survey: DQN 系の n-step と行動間の価値の差（action gap）・まれな報酬の伝わる速さ
 
 ## 元の材料

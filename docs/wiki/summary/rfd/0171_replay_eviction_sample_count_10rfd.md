@@ -1,3 +1,14 @@
+---
+title: Replay から消えるまでの抽選回数を経験の種類別に測る案
+page_kind: サマリ
+material: "[[docs/memo/0171_replay_eviction_sample_count_10rfd.md|0171_replay_eviction_sample_count_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # Replay から消えるまでの抽選回数を経験の種類別に測る案
 
 ## 元の材料

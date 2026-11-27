@@ -1,3 +1,12 @@
+---
+title: "grill スキル拡張: goal anchor と簡素化パス PRD"
+page_kind: サマリ
+material: "[[docs/memo/done/0058_grill_simplification_pass_10rfd.md|0058_grill_simplification_pass_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # grill スキル拡張: goal anchor と簡素化パス PRD
 
 ## 元の材料

@@ -1,3 +1,15 @@
+---
+title: LLMの言葉をRLの出来事と行動へ結び付ける
+page_kind: サマリ
+material: "[[reports/llm_rl_language_grounding_2026-11-07.md|llm_rl_language_grounding_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/methods/model_based_evidence.md|Model-based Atariの評価]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # LLMの言葉をRLの出来事と行動へ結び付ける
 
 ## 元の材料

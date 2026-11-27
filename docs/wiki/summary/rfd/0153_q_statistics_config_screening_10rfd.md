@@ -1,3 +1,15 @@
+---
+title: Q 値統計による多環境の設定異常の検出案
+page_kind: サマリ
+material: "[[docs/memo/0153_q_statistics_config_screening_10rfd.md|0153_q_statistics_config_screening_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/target_update.md|Target更新の比較]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+updated: 2026-11-26
+---
 # Q 値統計による多環境の設定異常の検出案
 
 ## 元の材料

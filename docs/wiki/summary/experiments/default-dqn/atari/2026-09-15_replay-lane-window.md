@@ -1,3 +1,14 @@
+---
+title: "Atari Breakout: replay の lane 窓と eval コスト — 2026-09-15"
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-09-15_replay-lane-window.md|default-dqn/atari/2026-09-15_replay-lane-window]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+updated: 2026-11-26
+---
 # Atari Breakout: replay の lane 窓と eval コスト — 2026-09-15
 
 ## 元の材料

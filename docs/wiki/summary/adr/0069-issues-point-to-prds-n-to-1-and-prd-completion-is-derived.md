@@ -1,3 +1,12 @@
+---
+title: 課題が prd 欄で PRD を指し（N:1）、PRD の実装済みは課題から導く
+page_kind: サマリ
+material: "[[docs/adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md|0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 課題が prd 欄で PRD を指し（N:1）、PRD の実装済みは課題から導く
 
 ## 元の材料

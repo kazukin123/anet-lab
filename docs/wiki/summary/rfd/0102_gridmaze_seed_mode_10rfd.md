@@ -1,3 +1,15 @@
+---
+title: GridMaze の迷路 seed の指定と自動採番
+page_kind: サマリ
+material: "[[docs/memo/done/0102_gridmaze_seed_mode_10rfd.md|0102_gridmaze_seed_mode_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/gridmaze.md|GridMaze]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/312_util.md|312 ユーティリティ]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # GridMaze の迷路 seed の指定と自動採番
 
 ## 元の材料

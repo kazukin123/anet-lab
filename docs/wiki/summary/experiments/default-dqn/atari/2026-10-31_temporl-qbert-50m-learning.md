@@ -1,3 +1,15 @@
+---
+title: qbert で TempoRL を学習した 50M Run の比較
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md|default-dqn/atari/2026-10-31_temporl-qbert-50m-learning]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+updated: 2026-11-26
+---
 # qbert で TempoRL を学習した 50M Run の比較
 
 ## 元の材料

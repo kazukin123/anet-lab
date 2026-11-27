@@ -1,3 +1,13 @@
+---
+title: checkpoint 引き継ぎでは optimizer の options を現在の設定で置き換える
+page_kind: サマリ
+material: "[[docs/adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md|0053-checkpoint-load-applies-current-config-to-optimizer-options]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # checkpoint 引き継ぎでは optimizer の options を現在の設定で置き換える
 
 ## 元の材料

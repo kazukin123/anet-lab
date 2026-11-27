@@ -1,3 +1,14 @@
+---
+title: LLM の事前知識を使うゲーム Actor の候補
+page_kind: サマリ
+material: "[[docs/memo/0174_llm_actor_10rfd.md|0174_llm_actor_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # LLM の事前知識を使うゲーム Actor の候補
 
 ## 元の材料

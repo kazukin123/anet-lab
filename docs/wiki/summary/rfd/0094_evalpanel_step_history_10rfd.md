@@ -1,3 +1,14 @@
+---
+title: Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0094_evalpanel_step_history_10rfd.md|0094_evalpanel_step_history_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+updated: 2026-11-26
+---
 # Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 
 ## 元の材料

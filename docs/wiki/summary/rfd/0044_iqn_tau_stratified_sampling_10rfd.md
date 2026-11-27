@@ -1,3 +1,14 @@
+---
+title: IQN tau sampling modes(stratified / systematic / antithetic)
+page_kind: サマリ
+material: "[[docs/memo/done/0044_iqn_tau_stratified_sampling_10rfd.md|0044_iqn_tau_stratified_sampling_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+updated: 2026-11-26
+---
 # IQN tau sampling modes(stratified / systematic / antithetic)
 
 ## 元の材料

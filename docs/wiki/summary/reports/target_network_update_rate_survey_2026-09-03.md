@@ -1,3 +1,15 @@
+---
+title: "Survey: target network 更新速度（hard C / soft τ）の設定根拠と調整方法"
+page_kind: サマリ
+material: "[[reports/target_network_update_rate_survey_2026-09-03.md|target_network_update_rate_survey_2026-09-03]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/target_update.md|Target更新の比較]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-26
+---
 # Survey: target network 更新速度（hard C / soft τ）の設定根拠と調整方法
 
 ## 元の材料

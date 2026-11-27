@@ -1,3 +1,12 @@
+---
+title: 作業の種類でだけ要る規約の細則は品質確認観点を正本にし、AGENTS.md からは「作業ごとに読むもの」の表で導く
+page_kind: サマリ
+material: "[[docs/adr/0061-detail-rules-live-in-quality-viewpoints-and-agents-md-leads-to-them-by-reading-table.md|0061-detail-rules-live-in-quality-viewpoints-and-agents-md-leads-to-them-by-reading-table]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # 作業の種類でだけ要る規約の細則は品質確認観点を正本にし、AGENTS.md からは「作業ごとに読むもの」の表で導く
 
 ## 元の材料

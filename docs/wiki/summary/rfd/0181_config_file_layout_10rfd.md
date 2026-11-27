@@ -1,3 +1,14 @@
+---
+title: Agent と機能ごとの設定ファイルの配置案
+page_kind: サマリ
+material: "[[docs/memo/0181_config_file_layout_10rfd.md|0181_config_file_layout_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # Agent と機能ごとの設定ファイルの配置案
 
 ## 元の材料

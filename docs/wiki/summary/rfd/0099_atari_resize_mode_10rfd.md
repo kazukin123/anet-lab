@@ -1,3 +1,15 @@
+---
+title: Atari の観測の縮小方式を設定で切り替える PRD
+page_kind: サマリ
+material: "[[docs/memo/done/0099_atari_resize_mode_10rfd.md|0099_atari_resize_mode_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+updated: 2026-11-26
+---
 # Atari の観測の縮小方式を設定で切り替える PRD
 
 ## 元の材料

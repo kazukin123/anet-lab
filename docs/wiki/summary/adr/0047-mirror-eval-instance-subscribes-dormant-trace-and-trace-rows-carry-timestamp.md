@@ -1,3 +1,14 @@
+---
+title: 鏡写し eval インスタンスは dormant タグの trace を後から購読し、trace 行は時刻を持つ
+page_kind: サマリ
+material: "[[docs/adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md|0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # 鏡写し eval インスタンスは dormant タグの trace を後から購読し、trace 行は時刻を持つ
 
 ## 元の材料

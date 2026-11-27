@@ -1,3 +1,14 @@
+---
+title: configured eval の定義と定期駆動を別 namespace に分離し、生成は schedule エントリが駆動する
+page_kind: サマリ
+material: "[[docs/adr/0027-eval-definition-schedule-separation.md|0027-eval-definition-schedule-separation]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-26
+---
 # configured eval の定義と定期駆動を別 namespace に分離し、生成は schedule エントリが駆動する
 
 ## 元の材料

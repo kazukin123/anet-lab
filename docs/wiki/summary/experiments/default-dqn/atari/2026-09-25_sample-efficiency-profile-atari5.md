@@ -1,3 +1,18 @@
+---
+title: サンプル効率優先プロファイルの Atari-5 展開 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5.md|default-dqn/atari/2026-09-25_sample-efficiency-profile-atari5]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/subjects/battle_zone.md|Battle Zone]]"
+  - "[[docs/wiki/concepts/subjects/phoenix.md|Phoenix]]"
+  - "[[docs/wiki/concepts/subjects/name_this_game.md|Name This Game]]"
+  - "[[docs/wiki/concepts/subjects/double_dunk.md|Double Dunk]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-26
+---
 # サンプル効率優先プロファイルの Atari-5 展開 探索履歴
 
 ## 元の材料

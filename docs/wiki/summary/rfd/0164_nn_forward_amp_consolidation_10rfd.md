@@ -1,3 +1,15 @@
+---
+title: 全 Agent の AMP 指定を NN 実行設定に置く案
+page_kind: サマリ
+material: "[[docs/memo/0164_nn_forward_amp_consolidation_10rfd.md|0164_nn_forward_amp_consolidation_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # 全 Agent の AMP 指定を NN 実行設定に置く案
 
 ## 元の材料

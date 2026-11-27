@@ -1,3 +1,14 @@
+---
+title: 出力の大きさで指定する max pooling（AdaptiveMaxPool2d）暫定 RFD
+page_kind: サマリ
+material: "[[docs/memo/0088_nn_adaptive_max_pool_10rfd.md|0088_nn_adaptive_max_pool_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/methods/action_query_attention.md|Action queryとattentionの証拠]]"
+updated: 2026-11-26
+---
 # 出力の大きさで指定する max pooling（AdaptiveMaxPool2d）暫定 RFD
 
 ## 元の材料

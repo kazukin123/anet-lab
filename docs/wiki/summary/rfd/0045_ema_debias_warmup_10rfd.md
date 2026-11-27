@@ -1,3 +1,14 @@
+---
+title: EmaFilter バイアス補正ウォームアップ
+page_kind: サマリ
+material: "[[docs/memo/done/0045_ema_debias_warmup_10rfd.md|0045_ema_debias_warmup_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/312_util.md|312 ユーティリティ]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+updated: 2026-11-26
+---
 # EmaFilter バイアス補正ウォームアップ
 
 ## 元の材料

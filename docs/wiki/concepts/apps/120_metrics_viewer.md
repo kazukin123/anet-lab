@@ -1,3 +1,14 @@
+---
+title: Metrics Viewer
+page_kind: アプリケーション
+aliases:
+  - 120_metrics_viewer
+  - 設定表
+  - 範囲統計
+  - Run比較
+description: MetricsマスタをRunごとのSQLiteキャッシュへ取り込み、range queryとブラウザ描画を通して長いRunを比較する。
+updated: 2026-11-26
+---
 # Metrics Viewer
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [アプリケーション](../../index.md#アプリケーション)

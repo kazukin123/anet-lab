@@ -1,3 +1,14 @@
+---
+title: AttachScoped が返す Observer の解除ハンドル
+page_kind: サマリ
+material: "[[docs/memo/0146_notifier_scoped_detach_10rfd.md|0146_notifier_scoped_detach_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/framework/319_gui.md|319 GUI 共通基盤]]"
+updated: 2026-11-26
+---
 # AttachScoped が返す Observer の解除ハンドル
 
 ## 元の材料

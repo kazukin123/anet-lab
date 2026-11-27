@@ -1,3 +1,15 @@
+---
+title: Model-based Atariの評価
+page_kind: 手法
+aliases:
+  - SimPLe
+  - MuZero
+  - EfficientZero
+  - Atari100k
+  - world model
+description: SimPLeの低データ性能の優位は、後に調整されたmodel-freeの結果で相殺された。world model内の学習コストと評価手順への批判が残っている。
+updated: 2026-11-27
+---
 # Model-based Atariの評価
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

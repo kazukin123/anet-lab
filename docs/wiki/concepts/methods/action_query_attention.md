@@ -1,3 +1,18 @@
+---
+title: Action queryとattentionの証拠
+page_kind: 手法
+aliases:
+  - AQT
+  - ActionQuery
+  - Transformer
+  - TQL
+  - attention
+  - PAC
+  - Perceiver
+  - 行動クエリ
+description: Action Q-Transformerの性能上の優位は一部ゲームに限られた。TQLはattention entropyを制御した条件で大きな価値Transformerの改善を報告したが、anetで同じ改善は未確認である。PACの出力クエリの利点は連続制御の1比較だけで、DropMergeの今のHeadより良い根拠にならない。
+updated: 2026-11-26
+---
 # Action queryとattentionの証拠
 
 [anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [手法](../../index.md#手法)

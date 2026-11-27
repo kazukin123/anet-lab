@@ -1,3 +1,14 @@
+---
+title: C++ から SQLite にメトリクスを書き出す案
+page_kind: サマリ
+material: "[[docs/memo/frozen/0140_metrics_sqlite_backend_10rfd.md|0140_metrics_sqlite_backend_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/measurement/diagnostic_cost.md|計測の負荷と比較条件]]"
+updated: 2026-11-26
+---
 # C++ から SQLite にメトリクスを書き出す案
 
 ## 元の材料

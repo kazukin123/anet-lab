@@ -1,3 +1,15 @@
+---
+title: DefaultDQNAgent の Atari 探索記録
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/README.md|default-dqn/atari/README]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/subjects/atari.md|Atari横断]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+  - "[[docs/wiki/concepts/subjects/breakout.md|Breakout]]"
+updated: 2026-11-26
+---
 # DefaultDQNAgent の Atari 探索記録
 
 ## 元の材料

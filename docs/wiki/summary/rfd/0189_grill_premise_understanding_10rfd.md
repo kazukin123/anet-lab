@@ -1,3 +1,12 @@
+---
+title: RFD の判断に要る前提の共有
+page_kind: サマリ
+material: "[[docs/memo/0189_grill_premise_understanding_10rfd.md|0189_grill_premise_understanding_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # RFD の判断に要る前提の共有
 
 ## 元の材料

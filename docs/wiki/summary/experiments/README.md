@@ -1,3 +1,13 @@
+---
+title: ハイパーパラメータ探索記録
+page_kind: サマリ
+material: "[[docs/experiments/README.md|README]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # ハイパーパラメータ探索記録
 
 ## 元の材料

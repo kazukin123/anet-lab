@@ -1,3 +1,13 @@
+---
+title: Actor network方針の既定値解決をAgentへ戻す
+page_kind: サマリ
+material: "[[docs/adr/0013-actor-network-resource-policy.md|0013-actor-network-resource-policy]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/325_muzero.md|325 Agent個別実装 MuZero系列]]"
+updated: 2026-11-26
+---
 # Actor network方針の既定値解決をAgentへ戻す
 
 ## 元の材料

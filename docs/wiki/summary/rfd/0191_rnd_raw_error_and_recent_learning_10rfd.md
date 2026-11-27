@@ -1,3 +1,15 @@
+---
+title: RND の生の予測誤差と最近の観測による補助学習
+page_kind: サマリ
+material: "[[docs/memo/0191_rnd_raw_error_and_recent_learning_10rfd.md|0191_rnd_raw_error_and_recent_learning_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/intrinsic_novelty.md|内的報酬による探索の比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/subjects/montezuma_revenge.md|Montezuma's Revenge]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-26
+---
 # RND の生の予測誤差と最近の観測による補助学習
 
 ## 元の材料

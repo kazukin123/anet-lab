@@ -1,3 +1,14 @@
+---
+title: 探索・学習パラメータの時間変化
+page_kind: サマリ
+material: "[[docs/memo/done/0101_exploration_schedule_profiled_value_10rfd.md|0101_exploration_schedule_profiled_value_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
+updated: 2026-11-26
+---
 # 探索・学習パラメータの時間変化
 
 ## 元の材料

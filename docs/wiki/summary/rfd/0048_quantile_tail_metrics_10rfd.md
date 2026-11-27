@@ -1,3 +1,14 @@
+---
+title: 分位tail探索診断メトリクス
+page_kind: サマリ
+material: "[[docs/memo/done/0048_quantile_tail_metrics_10rfd.md|0048_quantile_tail_metrics_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-26
+---
 # 分位tail探索診断メトリクス
 
 ## 元の材料

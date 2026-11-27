@@ -1,3 +1,14 @@
+---
+title: リリース zip はリポジトリ配置のミラーサブセットとする
+page_kind: サマリ
+material: "[[docs/adr/0017-release-zip-mirrors-repo-layout.md|0017-release-zip-mirrors-repo-layout]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+  - "[[docs/wiki/concepts/apps/120_metrics_viewer.md|Metrics Viewer]]"
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-26
+---
 # リリース zip はリポジトリ配置のミラーサブセットとする
 
 ## 元の材料

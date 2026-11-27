@@ -1,3 +1,14 @@
+---
+title: device 指定の auto 対応とキー体系統一
+page_kind: サマリ
+material: "[[docs/memo/done/0070_device_spec_auto_10rfd.md|0070_device_spec_auto_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/apps/110_runner_app.md|RunnerApp（110）]]"
+updated: 2026-11-26
+---
 # device 指定の auto 対応とキー体系統一
 
 ## 元の材料

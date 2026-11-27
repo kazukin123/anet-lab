@@ -1,3 +1,14 @@
+---
+title: LLMを活用したRL：47論文の読み方と研究上の問い
+page_kind: サマリ
+material: "[[reports/llm_rl_reading_guide_2026-11-07.md|llm_rl_reading_guide_2026-11-07]]"
+material_kind: 報告
+concepts:
+  - "[[docs/wiki/concepts/methods/llm_prior_knowledge.md|LLMの外部知識と探索]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/methods/model_based_evidence.md|Model-based Atariの評価]]"
+updated: 2026-11-26
+---
 # LLMを活用したRL：47論文の読み方と研究上の問い
 
 ## 元の材料
