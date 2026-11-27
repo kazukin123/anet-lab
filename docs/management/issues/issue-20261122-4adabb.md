@@ -16,7 +16,7 @@ ai_judged: 2026-11-23
 docs:
   - docs/memo/done/0072_config_selection_final_value_10rfd.md
   - docs/memo/0191_rnd_raw_error_and_recent_learning_20impl.md
-rfd:
+rfd: "[[0206_core_and_app_small_fixes_10rfd]]"
 priority: 中
 depends: []
 parent:

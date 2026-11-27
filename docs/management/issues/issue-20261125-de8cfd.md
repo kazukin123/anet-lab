@@ -14,7 +14,7 @@ ai_judge: 未確認
 ai_judged:
 docs:
   - docs/adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md
-rfd:
+rfd: "[[0207_dqn_small_fixes_and_refactors_10rfd]]"
 priority: 中
 depends: []
 parent:

@@ -15,7 +15,7 @@ ai_judge: 未確認
 ai_judged:
 docs:
   - docs/design/140_observability.jp.md
-rfd:
+rfd: "[[0205_design_doc_and_glossary_alignment_10rfd]]"
 priority: 中
 depends: []
 parent:

@@ -113,7 +113,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261123-7671ff](../../../management/issues/issue-20261123-7671ff.md) | 未着手 | 4.0 | — | コード | 監査 | 318_rl_core, 320_env_core | 学習基盤 | 不具合 | — | 未確認 | BatchActionInfo::GetAction(device) が index の無い "cuda" をキャッシュの鍵として覚えるので、同じ実体へ同じ device で 2 回目に呼ぶと不一致で止まる |
+| [issue-20261123-7671ff](../../../management/issues/issue-20261123-7671ff.md) | 未着手 | 4.0 | — | コード | 監査 | 318_rl_core, 320_env_core | 学習基盤 | 不具合 | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 未確認 | BatchActionInfo::GetAction(device) が index の無い "cuda" をキャッシュの鍵として覚えるので、同じ実体へ同じ device で 2 回目に呼ぶと不一致で止まる |
 | [issue-20261111-006d9a](../../../management/issues/issue-20261111-006d9a.md) | 未着手 | 3.0 | — | コード | 監査 | 320_env_core | 学習基盤 | リファクタリング | — | 残件有り | env.cpp で lane 1 本分の Reset・Step の結果を書き込む処理が 4 か所に写され、GetAuxDataList も 3 つあり、数え方と範囲の外の扱いが食い違っている |
 | [issue-20261111-fe23e0](../../../management/issues/issue-20261111-fe23e0.md) | 未着手 | 2.7 | — | コード | 監査 | 318_rl_core, 320_env_core | 学習基盤 | リファクタリング | — | 残件有り | BatchEnvSpec に「group の数」「group と lane の対応」を返す関数が無く、使う側が三項演算を 19 か所に書き、終端の mask を CPU へ移す処理も関数ごとに書いている |
 | [issue-20261103-785e68](../../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | RFD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [RFD0169](../../../memo/0169_outside_core_extension_layout_10rfd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
