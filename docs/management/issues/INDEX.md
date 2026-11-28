@@ -215,7 +215,9 @@ AI の判定が「残件無し」で、解決でない課題。解決にする�
 
 docs/memo 直下の RFD のうち、どの課題の rfd からも指されないもの。その RFD の仕事の課題を作るか、題材の課題の rfd に書く。
 
-該当する RFD はありません。
+| RFD | 題 |
+|---|---|
+| [0209_ppo_family_and_on_policy_core_parts_10rfd](../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md) | RFD0209: PPO 系（方策ベースの Agent の系統）と、方策ベースの学習に要る core の共通部品 |
 
 ## 対応内容のある未着手の課題
 

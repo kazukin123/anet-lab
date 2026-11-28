@@ -45,7 +45,7 @@ def graph_violations(text):
             labels[node[1]] = node[2]
         elif edge:
             edges.append((edge[1], edge[2]))
-    families = ("anet-algo-dqn", "anet-algo-muzero", "anet-algo-imagecls")
+    families = ("anet-algo-dqn", "anet-algo-ppo", "anet-algo-muzero", "anet-algo-imagecls")
     required = {BASE, BASE + "-test", TESTING, RUNNER, RUNNER_TEST, *families, *(name + "-test" for name in families)}
     results = [f"Missing build target: {name}" for name in sorted(required - set(labels.values()))]
     for source, target in edges:

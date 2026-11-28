@@ -328,4 +328,27 @@ namespace anet::nn {
     };
 
 
+    // ===========================================================================
+    // CompositeHead
+    // ===========================================================================
+
+    /// 1 つの Head にまとめる、中の Head の指定。
+    struct CompositeHeadEntry {
+        std::string name;        ///< 中の Head の名前。parameter の名前は head.<name>.… になる。
+        std::string feature_key; ///< Body の出力のうち、この Head が受け取るキー。
+        std::shared_ptr<NetworkHeadFactory> factory; ///< 受け取った値を features として読む Head の factory。
+    };
+
+    /// 複数の Head を 1 つの Network に並べる。
+    /// 中の Head は、指定したキーの値を features として受け取り、出力は 1 つの TensorDict にまとまる。
+    /// 2 つの指定を同じ branch のキーに向ければ Body を共有し、別の branch のキーに向ければ Body が別になる。
+    class CompositeHeadFactory final : public NetworkHeadFactory {
+    public:
+        explicit CompositeHeadFactory(std::vector<CompositeHeadEntry> entries);
+        std::shared_ptr<NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
+    private:
+        std::vector<CompositeHeadEntry> entries_;
+    };
+
+
 } // namespace anet::nn

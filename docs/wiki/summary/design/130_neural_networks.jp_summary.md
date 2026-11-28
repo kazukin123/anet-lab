@@ -7,6 +7,7 @@ concepts:
   - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
   - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
   - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/326_ppo.md|326 Agent個別実装 PPO系列]]"
   - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
 updated: 2026-11-28
 ---
@@ -14,12 +15,12 @@ updated: 2026-11-28
 
 ## 元の材料
 
-[ニューラルネットワーク](../../../design/130_neural_networks.jp.md) blob:67330909040c8603eb2215dc6864ca9fcdcf0d23
+[ニューラルネットワーク](../../../design/130_neural_networks.jp.md) blob:d7b801752ba655c87203d84c89b5c3282aee4271
 
 ## 要点
 
 - Network は TensorDict の各キーを TensorSpec に照らし、設定で組み立てた Body と Head に渡す。
-- Body は分岐を含む計算グラフを実行して特徴を作り、Head が用途別の出力を返す。
+- Body は分岐を含む計算グラフを実行して特徴を作り、Head が用途別の出力を返す。1 つの Network から複数の出力（PPO の方策の logits と value など）を取るときは、複数の Head を `CompositeHeadFactory` で並べる。
 - フレームを重ねる軸と入力の形は構築時の契約に含まれ、Forward への入力がその仕様に合う必要がある。
 - clone とモデル同期では複製先の所有・更新のタイミングを扱う。dtype と device は呼び出す側の実行条件にも依存する。
 - 中間出力の取得や部分 Forward、Noisy Linear の実行状態は、通常の学習・評価から区別して指定する。
@@ -30,6 +31,7 @@ updated: 2026-11-28
 
 - Networkの入力と出力は、文字列キーからTensorへのmapである`TensorDict`で受け渡す。
 - stack 軸を持つ入力が branch に届く場合、先頭 module が軸を扱う宣言を持たなければ、構築時に branch・module・キー・形を WARN に出す。`Flatten`・`StackMerge`・`Permute`・`Reshape` と、DropMerge の2つの Embedder は stack 軸を扱う。
+- Network Head は Agent 固有の出力（DQN の Q 値・分位数、ImageCls の class logits、PPO の方策の logits と value など）へ変換する。複数の出力は `CompositeHeadFactory` で Head を並べ、中の Head ごとに受け取る Body の出力のキーを決める（115 の Head の合成）。
 - structureに現れないblockは実体化せず、Runではそのスキーマを検証しない。既存blockのtypeだけを別の種類へ書き換えると、元の種類の設定キーが残り、使ったときに未読キーとして止まる。別名のblockを定義し、structureの側で選び直す。
 
 ### 3. コンポーネント定義
@@ -38,7 +40,12 @@ updated: 2026-11-28
 - `NetworkBuilder` — Config、入力spec、HeadFactory、deviceから完成したNetworkを構築する入口。
 - `NetworkModuleRepository` — type名からNetworkModuleFactoryを解決するprocess registry。
 - `NetworkHeadFactory` — dummy featureからAgent固有Headを構築する。
+- `CompositeHeadFactory` — 名前・受け取るキー・factoryの組から、複数のHeadを1つのHeadにまとめる。
 - `NetworkForwardExecutor` — 対象Networkの寿命と用途別の準備済み処理を保持する公開実行器。
+
+### 4. コードマップ
+
+- `InitNN()` が登録する活性化の module は `ReLU`・`GELU`・`SiLU`・`Mish`・`LeakyReLU`・`Tanh` である（§4.1）。
 - 出力の大きさで指定する max pooling（`AdaptiveMaxPool2d`）は登録していない。Atari の `AtariPool6` は `MaxPool2d`（kernel 2・stride 2・padding 1）で代える（§4.1）。
 
 ### 5. 静的構造
@@ -73,4 +80,5 @@ updated: 2026-11-28
 - [315 ニューラルネットワーク](../../concepts/framework/315_nn.md)
 - [314 テンソル処理](../../concepts/framework/314_tensor.md)
 - [321 Agent 共通基盤](../../concepts/framework/321_agent_core.md)
+- [326 Agent個別実装 PPO系列](../../concepts/framework/326_ppo.md)
 - [NoisyNetの観測](../../concepts/methods/noisynet.md)

@@ -59,7 +59,8 @@ stack 軸を持つ入力が branch に届く場合、先頭 module が軸を扱�
 ### 2.3 BodyとHead
 
 - Network Bodyは設定で定義されたbranch DAGを実行し、特徴量TensorDictを生成する。
-- Network HeadはAgent固有の出力へ変換する。DQNのQ値、分位数、ImageClsのclass logitsなどが該当する。
+- Network HeadはAgent固有の出力へ変換する。DQNのQ値、分位数、ImageClsのclass logits、PPOの方策のlogitsとvalueなどが該当する。
+- 1つのNetworkから複数の出力を取るときは、`CompositeHeadFactory`で複数のHeadを並べる。中のHeadごとに、受け取るBodyの出力のキーを決める（[Headの合成](115_on_policy_learning.jp.md#4-headの合成)）。
 - `Network`はBodyとHeadをまとめ、単一の`Forward(TensorDict)`を公開する。
 
 `Network::Forward`と準備済み実行器は、Headの出力に`net.body.output`の公開特徴量を合わせて返す。Headの公開鍵を優先し、まだ無い鍵へBodyのTensorを浅く追加する。追加した特徴量はBodyのdtypeと勾配接続を維持し、Headに渡す際のFP32変換から独立している。既存の`q`・`q_dist`・logitsの精度は変えない。特徴量を別の学習経路へ渡す際のdetachは利用側が行う。
@@ -120,6 +121,7 @@ net.branch.[merged].bind_concat_dim = -1
 | `NetworkModuleRepository` | type名からNetworkModuleFactoryを解決するprocess registry |
 | `NetworkHeadFactory` | dummy featureからAgent固有Headを構築する |
 | `NetworkHead` | Body featureをAgent固有出力へ変換する |
+| `CompositeHeadFactory` | 名前・受け取るキー・factoryの組から、複数のHeadを1つのHeadにまとめる |
 | `Network` | BodyとHeadを所有し、forward、clone、hard/soft copy、GraphVizを公開する |
 | `NetworkForwardExecutor` | 対象Networkの寿命と用途別の準備済み処理を保持する公開実行器 |
 | `NetworkModuleExecutor`／`NetworkHeadExecutor` | 内部のModule／Head作者が満たす実行interface。CreateExecutorで生成し、不要なら本体を直接呼ぶ |
@@ -145,7 +147,7 @@ net.branch.[merged].bind_concat_dim = -1
 | 分類 | type例 |
 |---|---|
 | 形状・routing | `Flatten`、`Permute`、`Reshape`、`StackMerge`、`Dropout` |
-| 活性化 | `ReLU`、`GELU`、`SiLU`、`Mish`、`LeakyReLU` |
+| 活性化 | `ReLU`、`GELU`、`SiLU`、`Mish`、`LeakyReLU`、`Tanh` |
 | 正規化・pooling | `GroupNorm`、`LayerNorm`、`LayerNorm2d`、`BatchNorm2d`、`GAP1D`、`GAP2D`、`MaxPool2d` |
 | embedding | `CosineEmbedding`、`HybridSpatialEmbedder`、`SpatialEmbedder`、`SpatialPositionalEmbedding2D` |
 | layer | `Linear`、`Conv1d`、`Conv2d`、`ResBlock`、`CNBlock`、`TransformerEncoder` |
@@ -403,9 +405,11 @@ Networkを変更する場合は次を確認する。
 
 - [フレームワーク全体概要](010_framework_overview.jp.md)
 - [Agentと学習](110_agents_and_learning.jp.md)
+- [方策ベースの学習の共通部品](115_on_policy_learning.jp.md)
 - [可観測性](140_observability.jp.md)
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [DQN系Agent](200_dqn_agents.jp.md)
+- [PPO系Agent](230_ppo_agents.jp.md)
 - [設定例: nn.txt](../../apps/runner/config/nn.txt)
 - [TensorDict統一ADR](../adr/0002-tensordict-function-unify.md)
 - [SDPA ADR](../adr/0004-sdpa-attention-via-aten.md)

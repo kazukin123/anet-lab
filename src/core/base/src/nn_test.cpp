@@ -5758,3 +5758,166 @@ TEST_CASE("nn_trace capture respects exact and prefix requests", "[rfd0170][nn][
     CHECK(branch.GetAll(anet::nn::kNnTracePrefix).empty());
     CHECK(torch::equal(actual.At(kRfd0170TraceFeature), without_trace.At(kRfd0170TraceFeature)));
 }
+
+
+// ===========================================================================
+// CompositeHeadFactory と Tanh（RFD0209）
+// ===========================================================================
+
+// 合成の Head のテストで使う名前。Network の入力、branch、Body の出力のキー、Head の出力のキー。
+constexpr char kLeftInput[] = "left_input";
+constexpr char kRightInput[] = "right_input";
+constexpr char kSingleInput[] = "input";
+constexpr char kSingleBody[] = "body";
+constexpr char kLeftFeature[] = "left_feature";
+constexpr char kRightFeature[] = "right_feature";
+constexpr char kLogitsOutput[] = "logits";
+constexpr char kValueOutput[] = "value";
+constexpr char kSameOutput[] = "same";
+constexpr char kEntryName[] = "a";
+constexpr char kEntryFeature[] = "f";
+constexpr char kTanhType[] = "Tanh";
+constexpr int64_t kLeftInputSize = 4;
+constexpr int64_t kRightInputSize = 2;
+constexpr int64_t kLeftOutputSize = 3;
+
+static std::shared_ptr<anet::nn::CompositeHeadFactory> MakeTwoPartHeadFactory(
+    const std::string& first_output, const std::string& second_output)
+{
+    const anet::nn::WeightInitConfig init_config{ .mode = "xavier" };
+    return std::make_shared<anet::nn::CompositeHeadFactory>(std::vector<anet::nn::CompositeHeadEntry>{
+        { .name = "left", .feature_key = kLeftFeature,
+          .factory = std::make_shared<anet::nn::LinearHeadFactory>(kLeftOutputSize, first_output, init_config) },
+        { .name = "right", .feature_key = kRightFeature,
+          .factory = std::make_shared<anet::nn::LinearHeadFactory>(1, second_output, init_config) } });
+}
+
+TEST_CASE("CompositeHeadFactory merges the outputs of named heads fed by their own feature keys",
+    "[nn][head][composite_head][rfd0209]")
+{
+    EnsureNNInitialized();
+    const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
+    if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
+
+    // 2 つの入力を、そのまま 2 つの branch として Head へ渡す。Head ごとに、受け取るキーの値だけが届く。
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[left_body].bind", kLeftInput);
+    config_data.Set("net.branch.[left_body].structure", "");
+    config_data.Set("net.branch.[right_body].bind", kRightInput);
+    config_data.Set("net.branch.[right_body].structure", "");
+    config_data.Set("net.body.output.[left_feature]", "left_body");
+    config_data.Set("net.body.output.[right_feature]", "right_body");
+    anet::TensorSpecMap input_specs;
+    input_specs[kLeftInput] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector, .shape = { kLeftInputSize }, .dtype = torch::kFloat32 };
+    input_specs[kRightInput] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector, .shape = { kRightInputSize }, .dtype = torch::kFloat32 };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(config_data), input_specs,
+        MakeTwoPartHeadFactory(kLogitsOutput, kValueOutput), 0, device);
+
+    // 出力は 1 つにまとまり、形は中の Head ごとに決まる。Body の出力が CUDA にあっても、中の Head が同じ device で作られる。
+    constexpr int64_t kRows = 5;
+    anet::TensorDict input{ { kLeftInput, torch::rand({ kRows, kLeftInputSize }).to(device) },
+        { kRightInput, torch::rand({ kRows, kRightInputSize }).to(device) } };
+    const auto output = network->Forward(input);
+    REQUIRE(output.Contains(kLogitsOutput));
+    REQUIRE(output.Contains(kValueOutput));
+    CHECK(output.At(kLogitsOutput).sizes() == torch::IntArrayRef({ kRows, kLeftOutputSize }));
+    CHECK(output.At(kValueOutput).sizes() == torch::IntArrayRef({ kRows, 1 }));
+
+    // 片方の入力だけを変えると、その入力を受け取る Head の出力だけが変わる。
+    anet::TensorDict changed = input;
+    changed.Set(kRightInput, input.At(kRightInput) + 1.0f);
+    const auto changed_output = network->Forward(changed);
+    CHECK(torch::equal(output.At(kLogitsOutput), changed_output.At(kLogitsOutput)));
+    CHECK_FALSE(torch::equal(output.At(kValueOutput), changed_output.At(kValueOutput)));
+
+    // 中の Head は名前つきで登録され、parameter の名前で分けられる。
+    const auto parameters = network->named_parameters(true);
+    CHECK(HasKey(parameters, "head.left.linear.weight"));
+    CHECK(HasKey(parameters, "head.right.linear.weight"));
+
+    // 図の情報には、中の Head の出力が並ぶ。
+    auto head = MakeTwoPartHeadFactory(kLogitsOutput, kValueOutput)->CreateHead(anet::TensorDict{
+        { kLeftFeature, torch::ones({ 1, kLeftInputSize }) }, { kRightFeature, torch::ones({ 1, kRightInputSize }) } });
+    const auto graph_info = head->GetGraphVizInfo();
+    CHECK(graph_info.type == "CompositeHead");
+    REQUIRE(graph_info.outputs.size() == 2);
+    CHECK(graph_info.outputs[0].name == kLogitsOutput);
+    CHECK(graph_info.outputs[1].name == kValueOutput);
+}
+
+TEST_CASE("CompositeHeadFactory shares one body between heads when their feature keys name the same branch",
+    "[nn][head][composite_head][rfd0209]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", kLinearType);
+    config_data.Set("net.block.[Linear].linear.out_features", 6);
+    config_data.Set("net.branch.[body].bind", kSingleInput);
+    config_data.Set("net.branch.[body].structure", kLinearType);
+    config_data.Set("net.body.output.[left_feature]", kSingleBody);
+    config_data.Set("net.body.output.[right_feature]", kSingleBody);
+    anet::TensorSpecMap input_specs;
+    input_specs[kSingleInput] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector, .shape = { kLeftInputSize }, .dtype = torch::kFloat32 };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(config_data), input_specs,
+        MakeTwoPartHeadFactory(kLogitsOutput, kValueOutput), 0, torch::Device(torch::kCPU));
+
+    // 片方の Head の出力だけから勾配を作っても、共有の Body の parameter に勾配が届く。
+    const auto output = network->Forward(anet::TensorDict{ { kSingleInput, torch::rand({ 3, kLeftInputSize }) } });
+    output.At(kValueOutput).sum().backward();
+    int64_t body_parameters_with_grad = 0;
+    for (const auto& item : network->named_parameters(true)) {
+        if (item.key().starts_with("body.") && item.value().grad().defined()) ++body_parameters_with_grad;
+    }
+    CHECK(body_parameters_with_grad > 0);
+}
+
+TEST_CASE("CompositeHeadFactory rejects invalid entries, missing feature keys and duplicate outputs",
+    "[nn][head][composite_head][rfd0209]")
+{
+    EnsureNNInitialized();
+    const auto linear = std::make_shared<anet::nn::LinearHeadFactory>(2, "out", anet::nn::WeightInitConfig{});
+    using Entries = std::vector<anet::nn::CompositeHeadEntry>;
+
+    // 組の一覧だけで決まる条件は、factory を作るときに止まる。
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(Entries{}));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(
+        Entries{ { .name = "", .feature_key = kEntryFeature, .factory = linear } }));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(
+        Entries{ { .name = "a.b", .feature_key = kEntryFeature, .factory = linear } }));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(Entries{ { .name = kEntryName, .feature_key = "", .factory = linear } }));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(
+        Entries{ { .name = kEntryName, .feature_key = kEntryFeature, .factory = nullptr } }));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(Entries{
+        { .name = kEntryName, .feature_key = kEntryFeature, .factory = linear },
+        { .name = kEntryName, .feature_key = "g", .factory = linear } }));
+
+    // Body の出力に無いキーと、出力のキーの重複は、Head を作るときに止まる。
+    const anet::TensorDict features{ { kLeftFeature, torch::ones({ 1, kLeftInputSize }) },
+        { kRightFeature, torch::ones({ 1, kRightInputSize }) } };
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(
+        Entries{ { .name = kEntryName, .feature_key = "missing", .factory = linear } }).CreateHead(features));
+    CHECK_THROWS(MakeTwoPartHeadFactory(kSameOutput, kSameOutput)->CreateHead(features));
+    CHECK_NOTHROW(MakeTwoPartHeadFactory(kLogitsOutput, kValueOutput)->CreateHead(features));
+}
+
+TEST_CASE("Tanh module applies the hyperbolic tangent in a configured network", "[nn][tanh][rfd0209]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Tanh].type", kTanhType);
+    config_data.Set("net.branch.[body].bind", kSingleInput);
+    config_data.Set("net.branch.[body].structure", kTanhType);
+    config_data.Set("net.body.output.[features]", kSingleBody);
+    anet::TensorSpecMap input_specs;
+    input_specs[kSingleInput] = anet::TensorSpec{ .type = anet::SpaceType::Vector, .shape = { 3 }, .dtype = torch::kFloat32 };
+    // Head を付けない Network は、Body の出力をそのまま返す。
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(config_data), input_specs,
+        nullptr, 0, torch::Device(torch::kCPU));
+
+    const auto input = torch::tensor({ { -2.0f, 0.0f, 0.5f }, { 3.0f, -0.1f, 10.0f } });
+    const auto output = network->Forward(anet::TensorDict{ { kSingleInput, input } });
+    CHECK(torch::allclose(output.At(anet::nn::kKey_DefaultOutput), input.tanh()));
+}

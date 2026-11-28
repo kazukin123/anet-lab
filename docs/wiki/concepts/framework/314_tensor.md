@@ -20,7 +20,7 @@ updated: 2026-11-28
 ## 概要・責務
 
 - device転送とframe stackを担い、sampleのTensorとCPUに残すmetadata、非同期転送の寿命を扱う。（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2.2・§2.3）。
-- `LaneTimeTensorStore`は、lane一式のtensorを時間順に保持し、laneと時間を指定して読む。RNDのrolloutの補助学習に使う（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§3；[RND による新しさの評価と内的報酬](../../../design/212_rnd_lifelong_novelty.jp.md)、§5）。
+- `LaneTimeTensorStore`は、lane一式のtensorを`Append`で時間順に保持し、laneと時間を指定して読む。たまっている範囲の全体は`GetAll`で、キーごとに`[ためた時刻の数, lane数, …]`の形のまま、複製を作らずに器の記憶域を指して読め、空の器で呼ぶと止まる。RNDのrolloutの補助学習と、PPO系のrolloutに使う。ためた経験を1回の更新で使い切る学習は、器が埋まったら`GetAll`で全体を読み、更新のあとに`Clear`で空にする（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§3；[RND による新しさの評価と内的報酬](../../../design/212_rnd_lifelong_novelty.jp.md)、§5；[方策ベースの学習の共通部品](../../../design/115_on_policy_learning.jp.md)、§5）。
 - `Forwarder` は TensorDict を受け渡す共通の口で、Network も実装する。`ForwarderBuilder` は依頼と入力 spec を受けて、入出力 spec を持つ `SpecForwarder` を作る。部品の種類は公開の登録口で追加できる（出典: [Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§1・§5）。
 - Forwarder の部品は基盤の外で書ける拡張点で、`anet/forwarder.hpp` の `ForwarderModule`・`ForwarderModuleFactory` を実装し、`RegisterForwarderModuleFactory` で登録する。変更の要らない依頼の部品は `MakePassThroughForwarder` を使える（出典: [ANETフレームワーク全体概要](../../../design/010_framework_overview.jp.md)、§4.3；[Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§5）。
 - 標準の部品は `FrameStack`（重ねる）・`Normalize`（`none`・`constant`・`running`）・`DropKeys`（Perception からキーを除く）・`SetSpec`（spec の宣言を変え、値は通す）の 4 つである。並びは設定の宣言順に組み、各部品が自分に届いた spec を検査する。`running` の統計を更新するのは経験の受入れの依頼だけで、Perception を作る依頼は統計を読むだけである（出典: [Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§3・§4）。
@@ -60,6 +60,7 @@ updated: 2026-11-28
 - 2026-11-24: stack 軸の確保と、並びが成り立つことの確かめは、Forwarder の仕組みではなく使う側が受け持つ（出典: [ADR 0096](../../../adr/0096-stack-axis-and-chain-validity-are-ensured-by-the-caller-not-the-forwarder-mechanism.md)、本文）。
 - 2026-11-25: `forwarder.hpp` の公開の口を作り直し、実行するものを `Forwarder` の 1 つにして、並び（`ForwarderBuilder`）と部品は依頼ごとに Forwarder を作る側に限り、spec は依頼ごとに渡し、部品の種類は登録制にした。並びの決まりを外し、spec の宣言を変える部品 `SetSpec` を足し、図は作った Forwarder が答える形にした（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、題・§5.1 D1〜D10・§5.3 D19・§5.4 D22・D23）。
 - 2026-11-25: Forwarder の並びは、全 block の未読キーを確かめ、次に値の型と値域、最後に並びで使える Forward の種類との組み合わせを確かめる。外部の工場と部品にもこの順を適用する（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§6.3・§6.7）。
+- 2026-11-25: 方策ベースの学習の共通部品として、`LaneTimeTensorStore`に、たまっている範囲の全体を時刻×laneの形のまま複製せずに読む口（`GetAll`）を足した（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§6.1・§7.7）。
 
 ## 選ばなかった形
 
@@ -124,6 +125,7 @@ updated: 2026-11-28
 ## 関係
 
 - 設計: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2.2・§2.3・§3、[Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§1〜§5。
+- ためた経験の全体の読み出し（`GetAll`）: [方策ベースの学習の共通部品](../../../design/115_on_policy_learning.jp.md)、§5。部品の全体の決まりは[321 Agent 共通基盤](321_agent_core.md)。PPO系のrolloutの蓄積は[PPO系Agent](../../../design/230_ppo_agents.jp.md)、§6.1。
 - 拡張点: [ANETフレームワーク全体概要](../../../design/010_framework_overview.jp.md)、§4.3。
 - ユーザーガイド: [Run実行ガイド](../../../design/020_user_guide_run.jp.md)。
 - 含まれるアプリケーション: なし。
@@ -172,6 +174,7 @@ updated: 2026-11-28
 - [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 - [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md) — forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
+- [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md) — RFD0209: PPO 系（方策ベースの Agent の系統）と、方策ベースの学習に要る core の共通部品
 
 ## 課題
 

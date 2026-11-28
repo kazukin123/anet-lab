@@ -20,6 +20,7 @@ updated: 2026-11-28
 - ReplayBufferのExperience、N-step、PER、stack履歴、転送とprefetchの共通契約を引く。RunnerとObserverの実行・通知の所在もまとめる。（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§1・§2）。
 - ReplayBuffer は `GetSampleObsSpecs` で Sample の観測 spec を答える。複数枚の対象キーには stack 軸があり、1 枚の Sample は Frame の形を返す（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2.2・§2.3）。
 - TrainerとRunnerが学習・評価を実行し、Notifierがeventを配送する。値の収集と保存はObserverとMetricsLoggerへ分ける（出典: [可観測性](../../../design/140_observability.jp.md)、§2）。
+- 共通ReplayBufferを使うかは具象Agentが決め、全Learnerの必須componentとしない。DefaultDQNとRainbowは内側の`dqn::Learner`が使い、MuZeroは試作固有の`MuZeroReplayBuffer`を持ち、ImageClsはEnv/datasetからbatchを直接学び、PPOAgentは今の方策で集めた経験を`LaneTimeTensorStore`にためて1回の更新で使い切る（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2.5）。
 - Actor初期priorityのhint行は共通層では列の意味を解釈せずに運び、schema検証と推定は注入されたInitialPriorityEstimatorが担う。DQNの5列schemaの正本はDQN系Agent設計である（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2.4 PER）。
 - ReplayBufferは可変長windowの抽出・転送・prefetchを担い、時間で変わるγでは保存したstep報酬のsnapshotから収益を確定する。窓の規則と利用するγは呼び出し側から渡す（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2・§6.1.1）。
 - Observerはコードで付けるなら基盤の外で書ける拡張点で、`anet/rl.hpp`・`anet/observers.hpp`の型で実装し、`Notifier::Attach`で付ける。ReplayBufferは共通ReplayBufferの実装内部で組み、差し替えはできない（出典: [ANETフレームワーク全体概要](../../../design/010_framework_overview.jp.md)、§4.3）。
@@ -29,6 +30,8 @@ updated: 2026-11-28
 - 強制行動は、その回の`MakeActionOptions::forced_actions`（`ForcedActions::ByLane`・`ForcedActions::ByMask`）で渡す。EvalRunnerはResetの前に指定を検査し、遷移の`forced`をlaneごとに記録し、Actorが返した行動をEnvが実行する（出典: [Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.2）。
 - eval scheduleの発火の列は、`EpisodeEvalObserver`がoffsetに届くまで問い合わせを止め、先頭の`warmup_count`回の発火を走らせない形で調整し、共通の`IntervalGate`は変えない（出典: [可観測性](../../../design/140_observability.jp.md)、§6.x step座標系）。
 - ReplayBuffer は Push のときに、呼び出し側が渡す今の γ で成分ごとの n-step 収益を作って保存し、初期優先度の完成待ちにも同じ Push の収益を使う。学習に返す収益は、γ が定数の成分では保存値のままで、schedule の成分だけを抽選時に作り直す（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2.2）。
+- `ComputeGae`は、時刻×laneの報酬・value・次の観測のvalue・終端（`terminated`）とepisodeの終わり（`episode_end`）の印と、`[0, 1]`のγ・λから、GAEでadvantageとvalueの目標を作る。結果は入力と同じ形とdeviceで返し、勾配を作らない（出典: [方策ベースの学習の共通部品](../../../design/115_on_policy_learning.jp.md)、§1.2・§3.1）。
+- `ComputeGae`が終端とepisodeの終わりの印を分けて受けるのは、打ち切りで終わったepisodeでは次の観測のvalueで先を見積もり、advantageはあとの時刻（別のepisode）から引き継がないためである。次の観測のvalueをどこから取るか（次の時刻のvalue、Resetの前の観測、まとまりの最後の次の観測）は使う側が決めて`next_values`に入れ、`ComputeGae`はEnvの印の意味を知らない（出典: [方策ベースの学習の共通部品](../../../design/115_on_policy_learning.jp.md)、§3.2）。
 
 ## 成立の経緯
 
@@ -106,6 +109,7 @@ updated: 2026-11-28
 - 2026-11-23: テストのタグで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
 - 2026-11-24: 重ねる枚数とキーの設定はAgent全体に置き、Sampleの束のspecはReplayBufferが答える（出典: [ADR 0095](../../../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、本文）。
 - 2026-11-25: ReplayBufferが、Sampleで返すobsとnext_obsのspecを答える口（`GetSampleObsSpecs`）を、通常とプリフェッチの両方に足した。Sample用のForwarderはこのspecを受けて作る（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.2 D14・§6.9）。
+- 2026-11-25: 時刻×laneの報酬・value・次の観測のvalue・終端とepisodeの終わりの印とγ・λから、advantageとvalueの目標を作る`ComputeGae`（機能グループ`advantage`）を足した（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§6.1・§7.2）。
 - 2026-11-28 — ReplayBuffer の `n_step` の値域と、先読みの結果を処理する際の例外後の状態を修正した。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§1.2・§6）
 
 ## 選ばなかった形
@@ -183,6 +187,9 @@ updated: 2026-11-28
 - n-step の和に、次のエピソードの報酬まで足す形 — 範囲外: Replay の窓がエピソードをまたぐ契約の変更になる別の関心。内的を終端で切らない形の bootstrap は、窓を変えずに作れる（出典: [0121_extrinsic_intrinsic_value_decomposition_10rfd.md](../../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§1.4）。
 - テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
 - テストの参照と検証資材に旧い番号を残す形 — 不採用: 設計文書に記した番号と検証資材の番号の対応に例外が残る（出典: [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、§8）
+- Runnerにrolloutの境界や待ち合わせを知らせる口、評価をexp stepで駆動する口を足す形 — 不採用: 方策ベースのAgentも、`UpdateFromBatch`が0件以上の更新結果を返す今の契約と、`LearnEvent`で発火する今の評価の仕組みで書ける（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§3.2 NG2・§4 P1・P2・§12 U5・U8）。
+- advantageの推定を`replay_experience`の機能グループに入れる形 — 不採用: `replay_experience`はReplayのN-stepの組み立てで、Replayの窓を前提にする（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§7.8）。
+- V-trace・TD(λ)をadvantageの推定に今回足す形 — 範囲外（別の関心）: 今回は離散のPPOに要るGAEだけを足す（差し込み位置は同じ機能グループ`advantage`）。再開条件: 非同期の収集か、off-policyの補正が要るとき（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§11・§7.2）。
 
 ## 変えるときの条件
 
@@ -221,6 +228,7 @@ updated: 2026-11-28
 - action_info のメトリクスの読み取りを変えるときは、scalar を返す場合と返せない場合、未知キー、値の未成立、対象外イベントを公開の通知経路で比べ、step と NaN・nullopt・不正イベントの停止の意味を保つ（出典: [RFD0178](../../../memo/done/0178_metrics_action_info_dynamic_cast_10rfd.md)、「取り組むこと」「完了の目安と未決」）。
 - テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
 - RFD の採番を変更した場合は、テストタグ・検証資材を対応する新番号で引けることを確かめる（出典: [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、§4 D5・§6）
+- 方策ベースのAgentを足すときも、Runner・Observer・`rl.hpp`の今ある口は変えない（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§3.2 NG2・§8）。
 
 ## 外の事例
 
@@ -235,6 +243,7 @@ updated: 2026-11-28
 - 設計: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§1・§2。強制行動は[Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.2。Sampleの束と観測の加工は[Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§3。
 - 拡張点: [ANETフレームワーク全体概要](../../../design/010_framework_overview.jp.md)、§4.3。
 - 可変長windowとγ・検証手順: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§6.1.1・§8。通知の並行と寿命は[可観測性](../../../design/140_observability.jp.md)、§5.1・§5.2。Evaluation Traceの採点と同期、nn_traceの要求は同、§5.3・§5.4。
+- advantageの推定: [方策ベースの学習の共通部品](../../../design/115_on_policy_learning.jp.md)、§1.2・§3。部品の全体の決まりは[321 Agent 共通基盤](321_agent_core.md)。Agentごとの共通ReplayBufferの使い方は[ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§2.5。
 - 置き場とテストの参照範囲: [ソース配置とライブラリの境界](../../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「テスト」。
 - ユーザーガイド: [Run実行ガイド](../../../design/020_user_guide_run.jp.md)、§6.4（評価の発火列の`offset`・`warmup_count`）。
 - 含まれるアプリケーション: なし。
@@ -244,12 +253,14 @@ updated: 2026-11-28
 点検が作り直す。手で直さない。
 
 - [muzero_rb.cpp](../../../../src/algo/muzero/src/muzero_rb.cpp) / [muzero_rb.hpp](../../../../src/algo/muzero/src/muzero_rb.hpp)
+- [advantage.hpp](../../../../src/core/base/include/anet/advantage.hpp)
 - [observers.hpp](../../../../src/core/base/include/anet/observers.hpp)
 - [replay_buffer.hpp](../../../../src/core/base/include/anet/replay_buffer.hpp)
 - [replay_experience.hpp](../../../../src/core/base/include/anet/replay_experience.hpp)
 - [rl.hpp](../../../../src/core/base/include/anet/rl.hpp)
 - [serialize.hpp](../../../../src/core/base/include/anet/serialize.hpp)
 - [trainer.hpp](../../../../src/core/base/include/anet/trainer.hpp)
+- [advantage.cpp](../../../../src/core/base/src/advantage.cpp) / [advantage_test.cpp](../../../../src/core/base/src/advantage_test.cpp)
 - [episode_end_test.cpp](../../../../src/core/base/src/episode_end_test.cpp)
 - [observers.cpp](../../../../src/core/base/src/observers.cpp) / [observers_test.cpp](../../../../src/core/base/src/observers_test.cpp)
 - [replay_buffer_test.cpp](../../../../src/core/base/src/replay_buffer_test.cpp)
@@ -303,6 +314,7 @@ updated: 2026-11-28
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 - [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md) — forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
 - [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) — RFD0206: 基盤とアプリの小さい直し 12 件（設定の値域と数の読み取り、Replay の n-step と先読み、行動の device の控え、テストと検査の道具、名前の整理、bat の題）
+- [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md) — RFD0209: PPO 系（方策ベースの Agent の系統）と、方策ベースの学習に要る core の共通部品
 
 ## 課題
 

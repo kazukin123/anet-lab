@@ -15,7 +15,7 @@ updated: 2026-11-28
 
 ## 元の材料
 
-[実行基盤と設定](../../../design/100_runtime_and_configuration.jp.md) blob:6c1dc9f466692e79ca9709adf19884f7effbf537
+[実行基盤と設定](../../../design/100_runtime_and_configuration.jp.md) blob:b787a9446a19a30a41447d88c45e4d06710a8021
 
 ## 要点
 
@@ -30,6 +30,7 @@ updated: 2026-11-28
 ### 2. 基本概念と外部contract
 
 - `ConfigResolver`がCLIを解決入力へ反映し、`run.$`を通常selectionより先に展開する。Runの項は左から右へ後勝ちでrootへ供給し、同じキーのCLIをさらに優先する。Run内の`Env.$ = @base`は展開先rootを定義位置とする。
+- DefaultDQN・ImageCls・Rainbow・PPO の各 Agent Factory は `<class ID>.net` を最終 NN ツリーの読込 prefix として `NetworkConfig` へ渡す。branch・body・output は `PPOAgent.net.*` などの Agent の下から読み、ブロックのカタログ `net.block.[*]` と `net.config_profile` は共有の定義として Agent の定義へ merge する。
 - `linear`・`cosine` は `start`・`end`・`steps`、`cosine_restart` はさらに `cycle_mult`、`exponential` は `start`・`end`・`time_constant` を使う。rootの指数は `end` に漸近し続ける。
 - `ControlSignal`はframe内継続、frame打切り、Runner停止をpre/post callbackから返す。
 

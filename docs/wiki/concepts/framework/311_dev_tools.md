@@ -95,6 +95,7 @@ updated: 2026-11-28
 - 2026-11-23: 変更ごとの文書の呼び名をPRDからRFDに改め、番号を0埋めの4桁にする（RFD0195。出典: [ADR 0093](../../../adr/0093-document-term-rfd-and-four-digit-numbers.md)）。
 - 2026-11-23: 観測の加工の部品の新しい機能グループ`forwarder`を、定点統計とトピック別まとめの分類（categories.json）の314へ足した（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D45・§7.8）。
 - 2026-11-23: 会話が要約された直後に、SessionStart（起動の理由がcompact）のhookでClaude CodeとCodexの両方に読み直しの文を差し込み、続けている工程のskillを今いる段から最後まで、作業記録と、続行中のまとめページの進行状況・案と論点の一覧の節を読み直させ、新しい会話で続けるときも同じ読み方をまとめページのskillに書き、AGENTS.mdにも読み直しの決まりを1行置く案を、グリルで決めた（出典: [RFD0198](../../../memo/0198_reread_after_compaction_10rfd.md)、§1.2・§6 D1・D2・D4〜D7・D9）。
+- 2026-11-25: 定点統計とトピック別まとめの分類（categories.json）に、PPO系の機能カテゴリ`326_ppo`の行（対象は`src/algo/ppo/`、Topicは既存の19の323_AGENT個別実装）を立て、321の`match`に`distribution`、318の`match`に`advantage`を足した（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§7.8・§8 の分類の行・§12 U18）。
 - 2026-11-28 — 作業ノートとハーネスの知見を記録する規約を整備し、サマリに `_summary` を付けて課題の RFD リンクを一意にした。（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§1.2・§8）
 - 2026-11-28: `reports/` の下は、記録を作った流れ（survey スキル、paper-details スキル、作業ノート）でフォルダに分け、直下には索引だけを置く（出典: [ADR 0099](../../../adr/0099-reports-are-split-into-folders-by-the-flow-that-made-them.md)）。
 - 2026-11-28: wiki の知見のページに、分野で分ける種類「ハーネス」を足し、主語に AI のエージェント、ハーネスのファイル、`src/` と `apps/` が組み込むか起動するもののほかのソフトウェアが入る知見を置く（出典: [ADR 0100](../../../adr/0100-wiki-adds-a-harness-kind-split-by-domain.md)）。
@@ -437,22 +438,36 @@ updated: 2026-11-28
 - [RFD0061](../../../memo/done/0061_eval_slot_policy_override_10rfd.md) — PRD 061: Actor 設定カタログと eval スロットごとの方策 / network 指定
 - [RFD0069](../../../memo/done/0069_metrics_trace_channel_10rfd.md) — メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す
 - [RFD0076](../../../memo/done/0076_eval_session_drain_on_exit_10rfd.md) — PRD 076: 終了時の評価セッション排水
+- [RFD0078](../../../memo/done/0078_replay_frame_history_integrity_10rfd.md) — ReplayBuffer の観測履歴・bootstrap stack 整合性修復 PRD
+- [RFD0080](../../../memo/done/0080_harness_map_10rfd.md) — PRD 080: AI ハーネス動線マップ(harness_map)— 入口・条件読み・動線の可視化
+- [RFD0084](../../../memo/done/0084_noisynet_10rfd.md) — NoisyNet (Noisy Networks for Exploration) PRD
+- [RFD0087](../../../memo/done/0087_review_agent_quality_viewpoints_10rfd.md) — PRD 087: レビューエージェントとレビュー観点の導入（プロセス契約の共有コア）
+- [RFD0093](../../../memo/done/0093_attention_entropy_diagnostics_10rfd.md) — TransformerEncoder の attention エントロピー診断 PRD
 - [RFD0094](../../../memo/done/0094_evalpanel_step_history_10rfd.md) — Evaluation Trace — EvalPanel の遷移を step trace として表で見て、その時点を再生する PRD
 - [RFD0095](../../../memo/done/0095_llm_wiki_10rfd.md) — LLM-Wiki 型のまとめの層（PRD の上流で、知見を題材と機構ごとに、実装の地図をアプリケーションと機能カテゴリごとにまとめる）PRD
 - [RFD0097](../../../memo/done/0097_env_auto_reset_after_notification_10rfd.md) — 遷移の結果を Step の結果で運ぶ — 通知の中で読む遷移の結果を、終端の lane でもリセット前の値にする PRD
+- [RFD0098](../../../memo/0098_temporl_skip_policy_10rfd.md) — TempoRL 対応（スキップ: 選んだ行動を続ける長さの学習）RFD
 - [RFD0103](../../../memo/done/0103_temporl_reference_alignment_10rfd.md) — TempoRL 第二弾（著者の実装との差の洗い出しと是正）PRD
 - [RFD0114](../../../memo/0114_findings_intake_and_fix_rfd_10rfd.md) — 課題の記録を issue（1 課題 1 ファイル）に替え、仕事は issue・指示は RFD で持つ（台帳の退役、課題の仕組み、RFD の採番とフォルダの改め）RFD
 - [RFD0116](../../../memo/0116_rnd_lifelong_novelty_10rfd.md) — RND による一生の新しさだけの腕（内的報酬の第一の腕）暫定 RFD
+- [RFD0117](../../../memo/0117_warn_policy_and_unread_config_10rfd.md) — RFD0117: WARN の意味の線引きと、読まれない設定の検出 RFD
 - [RFD0120](../../../memo/0120_issue_work_type_and_rfd_link_10rfd.md) — RFD0120: 課題の種類を仕事の種類にし、RFD との結び付けを課題の rfd 欄（Obsidian のリンク）に替える
 - [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md) — RFD0131: 9xx の番号の RFD 57 本を、起票の日の順に 900 未満の連番へ振り直す RFD
 - [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md) — 観測パイプライン（観測加工の定義と spec の一元化）と強制行動の `MakeAction` 入力化 暫定 RFD
+- [RFD0170](../../../memo/0170_nn_trace_capture_unification_10rfd.md) — RFD0170: forward の名前付き出力を capture に一本化し、nn_trace を要求した step だけ作る RFD
 - [RFD0182](../../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）RFD
+- [RFD0189](../../../memo/0189_grill_premise_understanding_10rfd.md) — RFD0189: グリルの前に、判断に要る前提を開発者と共有して理解を確かめる（共通の前提・前提の表・欠けた前提）RFD
+- [RFD0190](../../../memo/0190_dqn_design_doc_alignment_10rfd.md) — 設計文書200（DQN系Agent）の記述をコード・設定・用語集・ADRへそろえる RFD
 - [RFD0191](../../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md) — RFD0191: RND の設定を段階ごとに組み替え、誤差で割らない内的報酬の式と、ためてからエポックで学ぶ predictor の補助学習を足す（Burda らの形へ寄せる） RFD
+- [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
+- [RFD0197](../../../memo/0197_conversation_options_summary_page_10rfd.md) — RFD0197: 会話のまとめページを作って随時更新し、間が空いてもスマホから見返せるようにする RFD
+- [RFD0199](../../../memo/0199_agents_md_split_by_situation_10rfd.md) — RFD0199: AGENTS.md を状況別のファイルに分け、毎回読む量を減らす RFD
 - [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md) — RFD0202: wiki に知見を積み上げ、引けるようにする（資料ごとのサマリ、問いで分けた概念のページ、横断的知見と見立て、会話からの書き込み）RFD
 - [RFD0203](../../../memo/0203_wiki_page_yaml_header_10rfd.md) — RFD0203: wiki のページに YAML ヘッダを付け、Obsidian で一覧にする RFD
 - [RFD0204](../../../memo/0204_branch_merge_conflict_assist_10rfd.md) — RFD0204: ブランチを main へ取り込むときの衝突を、両側の内容と文脈を読んで解く支援の RFD
 - [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md) — RFD0208: 作業の中で分かったことを残す（reports を作った流れで分けた置き場、wiki の種類「ハーネス」、サマリの名前）RFD
+- [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md) — RFD0209: PPO 系（方策ベースの Agent の系統）と、方策ベースの学習に要る core の共通部品
 
 ## 課題
 
@@ -462,9 +477,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261125-a19ab8](../../../management/issues/issue-20261125-a19ab8.md) | 対応中 | 2.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | AI の応答が今の決まりと成果物に沿う案に寄り、根本策や既存から外れる別案を、本筋と分けて示す場所が無い |
-| [issue-20261119-25e4d0](../../../management/issues/issue-20261119-25e4d0.md) | 調査中 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0198](../../../memo/0198_reread_after_compaction_10rfd.md) | 残件有り | 会話が要約されたあと、続ける工程の手順を読み直さずに進めてしまう（読み直しを促す仕掛けが無い） |
 | [issue-20261125-822a3e](../../../management/issues/issue-20261125-822a3e.md) | 対応中 | 1.6（引継ぎ） | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md) | 残件有り | wiki に知見が積み上がりにくく、引きにくい（質疑の答えを残す経路、題材をまたぐ知見、サーベイと公開実装の事例、「今の結論」と目録の長さ） |
-| [issue-20261123-2cda10](../../../management/issues/issue-20261123-2cda10.md) | 調査中 | 1.5 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | — | 判定不能 | レビューの出し方（2 モデルのクロスレビューを使うか、Claude 側を API とサブスクのどちらで動かすか、どのモデルを使うか）を切り替える設定が無く、そのたびに個人の CLAUDE.md・AGENTS.md・スキル・スクリプトの文面を書き換えている |
 | [issue-20261104-52ffba](../../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた RFD の「実装済み」の時機ほか） |
 | [issue-20261126-56483f](../../../management/issues/issue-20261126-56483f.md) | 対応中 | 1.3 | — | ハーネス | その他 | 311_dev_tools | 開発 | 機能追加 | [RFD0204](../../../memo/0204_branch_merge_conflict_assist_10rfd.md) | 残件有り | ブランチをまたぐマージの衝突（番号の重なり・wiki の追記・生成物）を、両側の内容と文脈を読んで解く AI の支援が無い |
 | [issue-20261103-955e50](../../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | RFD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [RFD0081](../../../memo/0081_evalpanel_episode_trace_10rfd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
@@ -475,6 +488,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261128-c7d223](../../../management/issues/issue-20261128-c7d223.md) | 未着手 | 3.3 | — | コード | 監査 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | BTR の結果を Run 形式へ変換するときの評価時点と出力形式を通しで確かめるテストが無い |
 | [issue-20261111-3986b7](../../../management/issues/issue-20261111-3986b7.md) | 未着手 | 3.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | テストを回す範囲・回数と、テストの控え・ログの置き場の決まりが無く、実装の時間と .scratch が膨らむ |
 | [issue-20261103-5addea](../../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
+| [issue-20261119-25e4d0](../../../management/issues/issue-20261119-25e4d0.md) | 未着手 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 会話が要約されたあと、続ける工程の手順を読み直さずに進めてしまう（読み直しを促す仕掛けが無い） |
 | [issue-20261127-692b3e](../../../management/issues/issue-20261127-692b3e.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | RFD・ADR の採番が、ほかのワークツリーと main に無いブランチの番号を見ないので、並行の作業で同じ番号が重なる |
 | [issue-20261103-58696c](../../../management/issues/issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0112](../../../memo/0112_claude_memory_tidy_10rfd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
 | [issue-20261123-98baff](../../../management/issues/issue-20261123-98baff.md) | 未着手 | 1.8 | — | 文書 | 実装 | 311_dev_tools | 開発 | 不整合 | — | 残件有り | docs のリンク切れが実装の前から 258 件あり、memo README のリンク切れ検査が空にならないので、新しく切れたリンクを見分けられない |
@@ -482,6 +496,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-0ef7b8](../../../management/issues/issue-20261103-0ef7b8.md) | 未着手 | 1.6 | — | コード | RFD | 317_metrics, 311_dev_tools, 316_config, 318_rl_core, 321_agent_core, 120_metrics_viewer, 110_runner_app | UI | 機能改善 | [RFD0108](../../../memo/0108_metrics_tag_numbering_10rfd.md) | 残件有り | メトリクスの tag の番号を全体で振り直す（群の番号と群の中の番号） |
 | [issue-20261103-61d771](../../../management/issues/issue-20261103-61d771.md) | 未着手 | 1.6 | — | コード | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0156](../../../memo/0156_cicd_improvement_10rfd.md) | 残件有り | CI/CD 改善（ビルド・テスト自動化、定点ジョブ、LLM 補助） |
 | [issue-20261115-3e5b77](../../../management/issues/issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 文書 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 残件有り | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
+| [issue-20261123-2cda10](../../../management/issues/issue-20261123-2cda10.md) | 未着手 | 1.5 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | — | 判定不能 | レビューの出し方（2 モデルのクロスレビューを使うか、Claude 側を API とサブスクのどちらで動かすか、どのモデルを使うか）を切り替える設定が無く、そのたびに個人の CLAUDE.md・AGENTS.md・スキル・スクリプトの文面を書き換えている |
 | [issue-20261103-52bda0](../../../management/issues/issue-20261103-52bda0.md) | 未着手 | 1.4 | — | コード | RFD | 318_rl_core, 321_agent_core, 120_metrics_viewer, 311_dev_tools | UI | 機能改善 | [RFD0096](../../../memo/0096_metrics_step_axis_interval_10rfd.md) | 残件有り | メトリクスの横軸と間隔を数える単位を分ける |
 | [issue-20261110-9d4e5a](../../../management/issues/issue-20261110-9d4e5a.md) | 未着手 | 1.4 | — | コード | その他 | 311_dev_tools | 開発 | 機能追加 | — | 残件有り | C++ の単純な書き方の問題を機械で検出する仕組み（lint・静的解析）が無い |
 | [issue-20261124-707776](../../../management/issues/issue-20261124-707776.md) | 未着手 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | リファクタリング | [RFD0199](../../../memo/0199_agents_md_split_by_situation_10rfd.md) | 残件有り | AGENTS.md の全文を毎回読み、ビルド・Run・コミットメッセージなど状況ごとの決まりまで読み込む |

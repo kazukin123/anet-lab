@@ -417,3 +417,62 @@ metrics.scalar.@value_decomposition : [77_agent_value/31_target_disagree] ?= ext
 metrics.scalar.@value_decomposition : [77_agent_value/32_target_regret] ?= extrinsic_q_session_regret_mean $eval.[eval_target] $actor @session_end
 metrics.scalar.@value_decomposition : [77_agent_value/33_target_ext_gap] ?= extrinsic_q_session_gap_mean $eval.[eval_target] $actor @session_end
 metrics.scalar.@value_decomposition : [77_agent_value/34_target_int_gap] ?= intrinsic_q_session_gap_mean $eval.[eval_target] $actor @session_end
+
+
+# ----- PPO 系（PPOAgent）
+# PPO の env の設定が metrics.scalar.$ で選ぶ（@baseline は DQN 系の鍵を含むので、PPO 系とは重ねない）。
+# 78_agent_ppo は更新、79_agent_policy は方策と収集。横軸は exp step で、1 つの rollout のミニバッチの値は平均の 1 点になる。
+# 群の中は十の位で分ける。78: 0x 損失 / 1x・20 更新の大きさ / 3x 価値 / 4x advantage / 5x 勾配 / 6x 時間の値。
+#                       79: 0x 方策 / 1x 行動ごとの確率・2x 行動ごとの頻度（tag は env の設定が書く）/ 3x 収集。
+# 鍵の意味は docs/design/230_ppo_agents.jp.md。評価は、Greedy（[eval]）と抽選（[eval_sample]）の 2 本を読む。
+metrics.scalar.@ppo : [10_train/11_eps_count] ?= $runner episode_count @train $runner interval:100
+metrics.scalar.@ppo : [20_eps/10_train_reward] ?= $runner $episode_step max.episode_return @train
+metrics.scalar.@ppo : [20_eps/11_train_reward_ema] ?= $runner $episode_step max.episode_return @train $ema ema_alpha:0.001
+metrics.scalar.@ppo : [20_eps/12_train_ep_steps] ?= $runner $episode_step max.episode_steps @train
+metrics.scalar.@ppo : [20_eps/14_train_reward_exp] ?= $runner $exp_step mean.episode_return @train
+metrics.scalar.@ppo : [20_eps/15_train_reward_exp_ema] ?= $runner $exp_step mean.episode_return @train $ema ema_alpha:0.001
+metrics.scalar.@ppo : [21_eval/11_return_greedy] ?= mean.episode_return $runner @session_end $eval.[eval]
+metrics.scalar.@ppo : [21_eval/12_return_sample] ?= mean.episode_return $runner @session_end $eval.[eval_sample]
+metrics.scalar.@ppo : [21_eval/21_ep_steps_greedy] ?= $runner mean.episode_steps @session_end $eval.[eval]
+metrics.scalar.@ppo : [21_eval/22_ep_steps_sample] ?= $runner mean.episode_steps @session_end $eval.[eval_sample]
+metrics.scalar.@ppo : [78_agent_ppo/01_loss_total] ?= loss_total @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/02_loss_policy] ?= loss_policy @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/03_loss_value] ?= loss_value @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/11_approx_kl] ?= approx_kl @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/12_kl_first_epoch] ?= kl_first_epoch @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/13_kl_last_epoch] ?= kl_last_epoch @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/14_epochs_run] ?= epochs_run @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/15_ratio_clip_fraction] ?= ratio_clip_fraction @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/16_value_clip_fraction] ?= value_clip_fraction @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/17_ratio_mean] ?= ratio_mean @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/18_ratio_std] ?= ratio_std @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/19_ratio_max] ?= ratio_max @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/20_first_ratio_deviation] ?= first_ratio_deviation @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/31_explained_variance] ?= explained_variance @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/32_value_mean] ?= value_mean @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/33_value_std] ?= value_std @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/34_value_target_mean] ?= value_target_mean @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/35_value_target_std] ?= value_target_std @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/36_value_error_std] ?= value_error_std @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/37_bootstrap_value_mean] ?= bootstrap_value_mean @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/41_advantage_mean] ?= advantage_mean @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/42_advantage_std] ?= advantage_std @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/43_advantage_norm_abs_max] ?= advantage_norm_abs_max @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/51_grad_norm] ?= grad_norm @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/52_grad_norm_shared] ?= grad_norm_shared @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/53_grad_norm_policy] ?= grad_norm_policy @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/54_grad_norm_value] ?= grad_norm_value @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/55_grad_clipped] ?= grad_clipped @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/61_learning_rate] ?= learning_rate @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/62_ratio_clip_range] ?= ratio_clip_range @learn $update_result $exp_step
+metrics.scalar.@ppo : [78_agent_ppo/63_entropy_coef] ?= entropy_coef @learn $update_result $exp_step
+metrics.scalar.@ppo : [79_agent_policy/01_entropy] ?= entropy @learn $update_result $exp_step
+metrics.scalar.@ppo : [79_agent_policy/02_entropy_ratio] ?= entropy_ratio @learn $update_result $exp_step
+metrics.scalar.@ppo : [79_agent_policy/03_max_prob_mean] ?= max_prob_mean @learn $update_result $exp_step
+metrics.scalar.@ppo : [79_agent_policy/31_terminated_ratio] ?= terminated_ratio @learn $update_result $exp_step
+metrics.scalar.@ppo : [79_agent_policy/32_truncated_ratio] ?= truncated_ratio @learn $update_result $exp_step
+metrics.scalar.@ppo : [79_agent_policy/33_episode_end_count] ?= episode_end_count @learn $update_result $exp_step
+metrics.scalar.@ppo : [79_agent_policy/34_policy_lag] ?= policy_lag @learn $update_result $exp_step
+metrics.scalar.@ppo : [90_perf/12_exp_step_per_sec] ?= exp_step_per_sec @train $runner interval:500 $exp_step
+metrics.scalar.@ppo : [90_perf/22_exp_step_per_sec_ema] ?= exp_step_per_sec @train $runner $ema ema_alpha:0.001 interval:500 $exp_step
+metrics.scalar.@ppo : [90_perf/90_elapse_hour] ?= elapse_hour @train $runner interval:500 $exp_step

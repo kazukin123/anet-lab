@@ -1,0 +1,15 @@
+file(GLOB_RECURSE ANET_ALGO_SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.hpp" "include/*.hpp")
+file(GLOB_RECURSE ANET_ALGO_TESTS CONFIGURE_DEPENDS "src/*_test.cpp")
+list(REMOVE_ITEM ANET_ALGO_SOURCES ${ANET_ALGO_TESTS})
+list(FILTER ANET_ALGO_SOURCES EXCLUDE REGEX "_test\\.hpp$")
+
+add_library(anet-algo-ppo STATIC ${ANET_ALGO_SOURCES})
+target_include_directories(anet-algo-ppo PUBLIC include PRIVATE src)
+target_link_libraries(anet-algo-ppo PUBLIC anet-core-base)
+
+add_executable(anet-algo-ppo-test ${ANET_ALGO_TESTS})
+target_include_directories(anet-algo-ppo-test PRIVATE src)
+target_link_libraries(anet-algo-ppo-test PRIVATE anet-algo-ppo anet-core-base anet-core-testing)
+anet_set_test_runtime(anet-algo-ppo-test)
+add_test(NAME anet-algo-ppo-test COMMAND anet-algo-ppo-test)
+set_tests_properties(anet-algo-ppo-test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

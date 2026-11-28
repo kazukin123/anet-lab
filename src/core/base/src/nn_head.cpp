@@ -180,4 +180,186 @@ std::shared_ptr<NetworkHead> LinearHeadFactory::CreateHead(const anet::TensorDic
     return std::make_shared<LinearHead>(input_dim, out_features_, output_key_, init_config_);
 }
 
+
+// ===========================================================================
+// CompositeHead
+// ===========================================================================
+
+constexpr char kCompositeHeadType[] = "CompositeHead";
+constexpr char kCompositeForwardFunction[] = "forward";
+
+namespace {
+    // 中の Head を名前つきで登録し、受け取るキーごとの値を渡して、出力を 1 つにまとめる。
+    class CompositeHead final : public NetworkHead {
+    public:
+        struct Part {
+            std::string name;
+            std::string feature_key;
+            std::shared_ptr<NetworkHead> head;
+        };
+    public:
+        explicit CompositeHead(std::vector<Part> parts) : parts_(std::move(parts))
+        {
+            // 名前つきで登録するので、parameter の名前は head.<名前>.… になり、名前で組を分けられる。
+            for (const auto& part : parts_) register_module(part.name, part.head);
+        }
+
+        anet::TensorDict Forward(const anet::TensorDict& features, const NetworkForwardContext& context) override
+        {
+            ANET_PROFILE_FUNC();
+            anet::TensorDict result;
+            for (const auto& part : parts_) {
+                Merge(result, part.head->Forward(MakePartFeatures(features, part), context));
+            }
+            return result;
+        }
+        std::unique_ptr<NetworkHeadExecutor> CreateExecutor(
+            const NetworkForwardConfig& config, NetworkForwardClock clock) override
+        {
+            // 中の Head のどれにも専用の実行器が要らなければ、本体を直接呼ぶ。
+            std::vector<std::unique_ptr<NetworkHeadExecutor>> executors;
+            bool has_prepared = false;
+            for (const auto& part : parts_) {
+                executors.push_back(part.head->CreateExecutor(config, clock));
+                has_prepared = has_prepared || executors.back() != nullptr;
+            }
+            if (!has_prepared) return nullptr;
+            return std::make_unique<Executor>(*this, std::move(executors));
+        }
+        void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const override
+        {
+            for (const auto& part : parts_) part.head->ValidateForwardReuse(source, requested);
+        }
+        std::vector<NetworkNoisyParameterEntry> GetNoisyParameterEntries() const override
+        {
+            std::vector<NetworkNoisyParameterEntry> result;
+            for (const auto& part : parts_) {
+                auto entries = part.head->GetNoisyParameterEntries();
+                result.insert(result.end(), entries.begin(), entries.end());
+            }
+            return result;
+        }
+        HeadGraphVizInfo GetGraphVizInfo() const override
+        {
+            HeadGraphVizInfo info;
+            info.type = kCompositeHeadType;
+            for (const auto& part : parts_) {
+                auto part_info = part.head->GetGraphVizInfo();
+                info.outputs.insert(info.outputs.end(), part_info.outputs.begin(), part_info.outputs.end());
+                info.details.push_back({ part.name, part.feature_key + " -> " + part_info.type });
+            }
+            return info;
+        }
+        std::optional<anet::TensorDictFunction> GetTensorDictFunction(const std::string& key) override
+        {
+            if (key != kCompositeForwardFunction) return std::nullopt;
+            return [this](const anet::TensorDict& features) {
+                torch::NoGradGuard no_grad;
+                return Forward(features, NetworkForwardContext::GetDefault());
+            };
+        }
+    private:
+        class Executor final : public NetworkHeadExecutor {
+        public:
+            Executor(CompositeHead& owner, std::vector<std::unique_ptr<NetworkHeadExecutor>> executors)
+                : owner_(owner), executors_(std::move(executors)) {}
+            anet::TensorDict Forward(const anet::TensorDict& features, const NetworkForwardContext& context) override
+            {
+                ANET_PROFILE_FUNC();
+                anet::TensorDict result;
+                for (size_t i = 0; i < owner_.parts_.size(); ++i) {
+                    const auto& part = owner_.parts_[i];
+                    // 専用の実行器を持つ Head はそれを、持たない Head は本体を呼ぶ。
+                    NetworkHeadExecutor& target = executors_[i] ? *executors_[i] : static_cast<NetworkHeadExecutor&>(*part.head);
+                    Merge(result, target.Forward(MakePartFeatures(features, part), context));
+                }
+                return result;
+            }
+        private:
+            CompositeHead& owner_; ///< 所有者の Network が、この実行器も所有する。
+            std::vector<std::unique_ptr<NetworkHeadExecutor>> executors_;
+        };
+    private:
+        static anet::TensorDict MakePartFeatures(const anet::TensorDict& features, const Part& part)
+        {
+            // 中の Head は、共通の入力名 features で 1 つの特徴量を受け取る。
+            anet::TensorDict result;
+            result.Set(kKey_DefaultOutput, anet::GetOrFail(features, part.feature_key,
+                "CompositeHead expects this key in the Body outputs."));
+            return result;
+        }
+        static void Merge(anet::TensorDict& result, const anet::TensorDict& outputs)
+        {
+            for (const auto& [key, value] : outputs) result.Set(key, value);
+        }
+    private:
+        std::vector<Part> parts_;
+    };
+}
+
+CompositeHeadFactory::CompositeHeadFactory(std::vector<CompositeHeadEntry> entries)
+    : entries_(std::move(entries))
+{
+    // 組の一覧だけで決まる条件を、Network を組む前に確かめる。
+    if (entries_.empty()) {
+        ANET_SYSTEM_ERROR("Invalid CompositeHeadFactory entries; expected at least one entry.");
+    }
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        const auto& entry = entries_[i];
+        // 名前は module の登録名になるので、区切りの「.」を含められない。
+        if (entry.name.empty() || entry.name.find('.') != std::string::npos || entry.feature_key.empty()
+            || !entry.factory) {
+            ANET_SYSTEM_ERROR("Invalid CompositeHeadFactory entry index=" << i << " name='" << entry.name
+                << "' feature_key='" << entry.feature_key
+                << "'; expected a name without '.', a feature key and a Head factory.");
+        }
+        for (size_t j = 0; j < i; ++j) {
+            if (entries_[j].name == entry.name) {
+                ANET_SYSTEM_ERROR("Duplicate CompositeHeadFactory entry name='" << entry.name
+                    << "'; expected unique names because they prefix the parameter names.");
+            }
+        }
+    }
+}
+
+std::shared_ptr<NetworkHead> CompositeHeadFactory::CreateHead(const anet::TensorDict& dummy_features) const
+{
+    ANET_PROFILE_FUNC();
+    torch::NoGradGuard no_grad;
+    std::vector<CompositeHead::Part> parts;
+    std::vector<std::pair<std::string, std::string>> output_owners; // 出力のキーと、それを出す Head の名前。
+    for (const auto& entry : entries_) {
+        // 受け取るキーが Body の出力にあることを確かめ、その特徴量の形で中の Head を作る。
+        const auto feature = dummy_features.Get(entry.feature_key);
+        if (!feature) {
+            std::string available;
+            for (const auto& [key, value] : dummy_features) available += (available.empty() ? "" : ", ") + key;
+            ANET_SYSTEM_ERROR("CompositeHead entry name='" << entry.name << "' feature_key='" << entry.feature_key
+                << "' is missing in the Body outputs [" << available
+                << "]; expected a Body output with this key.");
+        }
+        anet::TensorDict part_features;
+        part_features.Set(kKey_DefaultOutput, *feature);
+        auto head = entry.factory->CreateHead(part_features);
+        if (!head) {
+            ANET_SYSTEM_ERROR("CompositeHead entry name='" << entry.name << "' factory returned no Head.");
+        }
+        // 中の Head は CPU で作られる。仮の特徴量が CUDA にあっても仮の forward を通せるよう、特徴量の device へ移す
+        // （Network の全体は、このあと NetworkBuilder が同じ device へ移す）。
+        head->to(feature->device());
+        // 出力のキーが重なると、あとの Head の値で黙って上書きされるので、仮の forward で確かめて止める。
+        for (const auto& [key, value] : head->Forward(part_features, NetworkForwardContext::GetDefault())) {
+            for (const auto& [owned_key, owner] : output_owners) {
+                if (owned_key == key) {
+                    ANET_SYSTEM_ERROR("Duplicate CompositeHead output key='" << key << "' from entries '" << owner
+                        << "' and '" << entry.name << "'; expected distinct output keys.");
+                }
+            }
+            output_owners.emplace_back(key, entry.name);
+        }
+        parts.push_back(CompositeHead::Part{ .name = entry.name, .feature_key = entry.feature_key, .head = std::move(head) });
+    }
+    return std::make_shared<CompositeHead>(std::move(parts));
+}
+
 } // namespace anet::nn

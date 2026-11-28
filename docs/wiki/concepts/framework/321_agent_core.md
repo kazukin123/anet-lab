@@ -17,7 +17,10 @@ updated: 2026-11-28
 - 強制行動は`MakeActionOptions::forced_actions`でlaneごとに渡す。Actorは方策の選択を終えてから強制を反映し、返した行動をRunnerが実行する。TempoRLでは強制したstepを長さ1の判断として記録し、そのlaneは次のstepで判断し直す（出典: [Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.2・§6.1）。
 - Agentは基盤の外で書ける拡張点で、`anet/agent.hpp`・`anet/rl.hpp`で`AgentFactory`・`Agent`・`Actor`を実装し、`RegisterAgentFactory`で登録する（出典: [ANETフレームワーク全体概要](../../../design/010_framework_overview.jp.md)、§4.3）。
 - `Actor::MakeAction`は呼び出しごとの選択を`MakeActionOptions`で受け（nn_traceの要求は既定で偽）、要求をActorやNotifierへ登録しない。Agentは、Runnerが系統の公開初期化関数を呼んで登録し、同じ関数を何度呼んでも登録は1回で、同じclass IDを直接登録すると例外になって先の登録が残る。DQNのprobe専用の乱数は、内側のLearnerがAgentの基のseedと用途ごとの名前から作って持つ（出典: [Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4）。
+- 登録済みAgentは`DefaultDQNAgent`・`RainbowAgent`（Runでは使わない）・`PPOAgent`・`MuZeroAgent`（試作）・`ImageClsAgent`である。Learnerは0件以上の更新結果を返し、1回の呼出しで何回更新するかとReplayBufferを使うかは具象実装が決め、更新が無ければ空の一覧を返す。`LearnEvent`を作るのは結果を受け取ったRunnerである（出典: [Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.1・§2.4・§6.2・§8）。
 - DefaultDQN の TempoRL（`skip.enabled`）の Actor は、スキップを続けている lane も含めて primary を毎 step 全 lane で forward し、判断する lane だけが選んだ行動と長さ j を採り、残りの j−1 回は同じ行動を返す。skip の forward も続けている lane を含めて 1 回行い、`single` を含むどの `skip.max_length_mode` でも行う（出典: [DQN系Agent](../../../design/200_dqn_agents.jp.md)、§2.1.8・§6.5）。
+- 方策ベース（方策を直接学ぶ）のAgentが使うcoreの共通部品（行動の分布`CategoricalDistribution`、advantageの推定`ComputeGae`、Headの合成`CompositeHeadFactory`、ためた経験の全体の読み出し`LaneTimeTensorStore::GetAll`）は、特定のAgentの名前を持たず、`anet-core-base`の公開ヘッダから使う。部品は計算だけを受け持ち、入力と同じdeviceで計算して値をCPUへ読み戻さず、設定キーを読まない。損失の式、rolloutをいつ更新に使うか、optimizer、設定の読み取りと値域の検証は使う側のAgentが持つ（出典: [方策ベースの学習の共通部品](../../../design/115_on_policy_learning.jp.md)、§1.1・§1.2）。
+- `CategoricalDistribution`は、行（laneやミニバッチの1件）ごとのlogits`[行, 行動数]`から作る離散行動の分布で、抽選（logitsと同じdeviceの生成器を渡す）、確率が最大の行動、log確率、entropy、全行動の確率とlog確率を返す。logitsはfloat32にしてから`log_softmax`で正規化し、確率0の行動のentropyの項は0と数える。logitsが勾配を持てばlog確率とentropyも勾配を持ち、勾配を切るのは使う側である。logitsの未定義・型・rank・行動数2未満は構築で、行動の未定義・型・形は`ComputeLogProb`で止まる（出典: [方策ベースの学習の共通部品](../../../design/115_on_policy_learning.jp.md)、§2.1・§2.2）。
 
 ## 成立の経緯
 
@@ -101,6 +104,7 @@ updated: 2026-11-28
 - 2026-11-23: DQNのActorが、行動選択のPerceptionをForwarderの並びから作り、方策の選択・skipの適用のあとに強制行動を反映してからヒントを計算する形にした。TempoRLのskipが有効なActorは、強制したlaneの継続状態を捨て、そのstepを長さ1の判断として記録する。LearnerはSampleの観測（obs・next_obs・skipの窓の終点）のすべてに同じ並びのForwarderを当てる（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D11〜D13・§6.4 D31・§7.2）。
 - 2026-11-23: テストのタグで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
 - 2026-11-25: DQNのActorが、実行器の代わりに行動選択用のForwarderを持ち、episodeの開始の印を入力の鍵（`episode_start`）で渡すようにした。Learnerは、ReplayBufferを作ったあとに、ReplayBufferが答えた束のspecを渡してSample用のForwarderを作る（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.1 D1・§5.2 D14・§6.5）。
+- 2026-11-25: 行ごとのlogitsから作る離散行動の分布`CategoricalDistribution`（抽選、確率が最大の行動、log確率、entropy、全行動の確率とlog確率。機能グループ`distribution`）を足した（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§6.1・§7.1）。
 - 2026-11-28: DQN 系の共有部品で、Learner の設定検証と学習進行 State の責務をそろえ、未成立の UQE 診断を修正した（出典: [RFD0207](../../../memo/0207_dqn_small_fixes_and_refactors_10rfd.md)、§4・§5・§6）
 
 ## 選ばなかった形
@@ -195,6 +199,13 @@ updated: 2026-11-28
 - テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
 - 行動の値を取り出すすべての経路に NaN の検査を広げる形 — 不採用: NaN を含みうる診断まで Debug 実行で停止する（出典: [RFD0207](../../../memo/0207_dqn_small_fixes_and_refactors_10rfd.md)、§4 の選んだ行動の値の取り出し）
 - checkpoint 読み込み後に学習率など一部の値だけを個別に上書きする形 — 不採用: optimizer に設定を追加したとき、読み込み後に戻す値の一覧だけ追随が漏れる（出典: [RFD0091](../../../memo/done/0091_checkpoint_load_optimizer_options_10rfd.md)、§6）。
+- 行動の分布を`rl`か`nn_head`の機能グループに置く形 — 不採用: `rl`は契約のヘッダで計算の部品を置かず、`nn_head`のHeadは分布の入力を出すだけである（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§7.8）。
+- 行動の分布の共通の口（抽象の基底）を今回作る形 — 先送り: 実装が1つしか無い。再開条件: 連続行動を足すとき（entropyを持たない分布（tanhで縮めたGaussian）を含めて口を決める）（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§12 U14）。
+- 連続行動の分布（対角のGaussian、tanhで縮めたGaussianとlog確率の補正）を同時に足す形 — 範囲外（非ゴール）: 行動の受け渡し（Env基底・経験・Viewer）の横断の改修で、別の関心である。再開条件: 連続行動のRFD（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§3.2 NG3・§7.8・§11）。
+- DQN系のActorのNetworkの写しと同期（`CopySourceNetwork`・`UpdateSnapshot`・`Sync`。ImageClsにも同じ形）をcoreへ上げる形 — 先送り: 今回はDQN系を変えない（開発者の了承が無い）。再開条件: 写しを持つTrainのActorをPPO系で使うとき（rolloutごとの同期が要る）（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§10 C2・§3.2 NG1）。
+- DQN系のoptimizerの組み立てと学習率の書き戻し（`BuildOptimizerOptions`・`SetupOptimizer`。ImageClsにも同じ形）をcoreへ上げる形 — 先送り: 今回はDQN系を変えない。移すとgroupの分け方（Noisyのσ、価値の分解）を呼ぶ側が渡す形になる。再開条件: parameterのgroupを分けた学習率をPPO系で使うとき（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§10 C3）。
+- 購読ごとの診断の間引き（`DiagnosticDemandTable`ほか）をcoreへ上げる形 — 先送り: 今回はDQN系を変えない。再開条件: 鍵ごとの間隔で計算を間引く診断（可塑性など）をPPO系に足すとき（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§10 C4）。
+- Perceptionの仕上げとspecの照合（`CompletePerception`・`RequirePerceptionSpecs`）をcoreへ上げる形 — 先送り: 今回はDQN系を変えず、PPO系はForwarderの並びを結線しない。再開条件: PPO系にForwarderの並びを結線するとき（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§10 C6・§12 U11）。
 
 ## 変えるときの条件
 
@@ -238,6 +249,8 @@ updated: 2026-11-28
 - テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
 - 設定の読み取りと型を直接受ける Learner 構築の両方で不正値を拒否する。診断の変更では、行動・乱数・記録する既存キーを保つ（出典: [RFD0207](../../../memo/0207_dqn_small_fixes_and_refactors_10rfd.md)、§4・§7）
 - optimizer の復元を変えるときは、保存前と同じモーメントと step を引き継ぎ、学習率などの値は現在の設定になることを、NoisyNet の有無を含む往復テストで確かめる（出典: [RFD0091](../../../memo/done/0091_checkpoint_load_optimizer_options_10rfd.md)、§7）。
+- coreに方策ベースの共通部品を足すときも、DQN系（`src/algo/dqn`）のコードと動きは変えない。基準のコミットからの`src/algo/dqn`の差分が空で、`anet-algo-dqn-test.exe`が通ることで確かめる（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§3.2 NG1・§9 A14）。
+- DQN系の部品（rolloutの並べ替え、Actorの写しと同期、optimizerの組み立て、診断の間引き、2つのHead、Perceptionの仕上げ、設定の検証の補助、RNDの段取り）をcoreへ移すときは、`anet-algo-dqn-test.exe`と`anet-core-base-test.exe`、設定の基準と`[shipped_config]`、同じseedのRunの全点の照合（移す前のReleaseのRunnerと、GridMaze・LunarLander・Q*bert・DropMergeで比べ、LunarLander・DropMerge・Atariは`backend.$=backend.@deterministic`。rolloutの並べ替えとRNDの段取りはRNDを有効にした構成を足す）、ライブラリの依存の検査で無回帰を確かめる。rolloutの並べ替えを移して乱数の消費の順が変わると、同じseedの結果が変わる（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§10 の無回帰の確かめ方・C1）。
 
 ## 外の事例
 
@@ -245,8 +258,9 @@ updated: 2026-11-28
 
 ## 関係
 
-- 設計: [Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4・§3。強制行動は同§2.2・§6.1、観測の加工は[Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§3。
+- 設計: [Agentと学習](../../../design/110_agents_and_learning.jp.md)、§2.1・§2.3・§2.4・§3・§6.2。強制行動は同§2.2・§6.1、観測の加工は[Forwarder と Perception](../../../design/135_forwarder_and_perception.jp.md)、§3。
 - 一生の新しさの推定器（RND）: [RNDによる新しさの評価と内的報酬](../../../design/212_rnd_lifelong_novelty.jp.md)。
+- 方策ベースの共通部品: [方策ベースの学習の共通部品](../../../design/115_on_policy_learning.jp.md)、§1・§2。advantageの推定は[318 強化学習 共通基盤](318_rl_core.md)、Headの合成は[315 ニューラルネットワーク](315_nn.md)、器の全体の読み出しは[314 テンソル処理](314_tensor.md)。
 - 拡張点: [ANETフレームワーク全体概要](../../../design/010_framework_overview.jp.md)、§4.3。
 - ユーザーガイド: [Run実行ガイド](../../../design/020_user_guide_run.jp.md)。
 - 含まれるアプリケーション: なし。
@@ -265,10 +279,12 @@ updated: 2026-11-28
 - [dqn_munchausen_test.cpp](../../../../src/algo/dqn/src/dqn_munchausen_test.cpp)
 - [dqn_network_model.cpp](../../../../src/algo/dqn/src/dqn_network_model.cpp) / [dqn_network_model.hpp](../../../../src/algo/dqn/src/dqn_network_model.hpp) / [dqn_network_model_test.cpp](../../../../src/algo/dqn/src/dqn_network_model_test.cpp)
 - [agent.hpp](../../../../src/core/base/include/anet/agent.hpp)
+- [distribution.hpp](../../../../src/core/base/include/anet/distribution.hpp)
 - [intrinsic.hpp](../../../../src/core/base/include/anet/intrinsic.hpp)
 - [agent.hpp](../../../../src/core/base/include/anet/test/agent.hpp)
 - [intrinsic.hpp](../../../../src/core/base/include/anet/test/intrinsic.hpp)
 - [agent.cpp](../../../../src/core/base/src/agent.cpp)
+- [distribution.cpp](../../../../src/core/base/src/distribution.cpp) / [distribution_test.cpp](../../../../src/core/base/src/distribution_test.cpp)
 - [intrinsic.cpp](../../../../src/core/base/src/intrinsic.cpp) / [intrinsic_test.cpp](../../../../src/core/base/src/intrinsic_test.cpp)
 - [intrinsic_rnd.cpp](../../../../src/core/base/src/intrinsic_rnd.cpp) / [intrinsic_rnd.hpp](../../../../src/core/base/src/intrinsic_rnd.hpp)
 - [agent.cpp](../../../../src/core/base/src_testing/agent.cpp)
@@ -320,6 +336,7 @@ updated: 2026-11-28
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 - [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md) — forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
 - [RFD0207](../../../memo/0207_dqn_small_fixes_and_refactors_10rfd.md) — RFD0207: DQN 系の小さい直しとリファクタリングをまとめて行う（学習の設定の値域、診断値の NaN、fatal の重複、Learner の State と値の振り分け、写しの集約、特性テスト）
+- [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md) — RFD0209: PPO 系（方策ベースの Agent の系統）と、方策ベースの学習に要る core の共通部品
 
 ## 課題
 

@@ -26,7 +26,8 @@ updated: 2026-11-28
 - EvalTracePanelは行の並べ替え・再生・通知時点のデータのダンプを、LogPanelは警告の確認・表示・検索を受け持つ。終了時は背景評価の排水の後に状態表示用observerを外す（出典: [アプリケーションとツール](../../../design/160_applications_and_tools.jp.md)、§3.4・§3.5・§7.1；[可観測性](../../../design/140_observability.jp.md)、§5.2）。
 - Evaluation Traceのpaneを閉じた間はstep診断を休ませ、開いたときに採点用の写しが無ければEvalPanelを通してActorを同期する。表は左端の1列を固定し、ほかの列は見出しのドラッグで表示の並びを入れ替えられ、選べる行はTraceの1行だけにする（出典: [アプリケーションとツール](../../../design/160_applications_and_tools.jp.md)、§3.4）。
 - TrainPanelのView dataは、timerが断面を取得した後の最初のTrain eventと、前回から200ms経ったTrain eventだけで作り、Train Viewを隠している間とFPSが0の間も作り続ける（出典: [アプリケーションとツール](../../../design/160_applications_and_tools.jp.md)、§5.1）。
-- Runnerのソース（ビルドの入力）は`src/apps/runner/`に置き、Runnerは基盤、Agentの各系統、Envの公開の初期化関数を呼ぶ。実行体、設定、起動launcherは`apps/`に置き、Runnerの実行体とGUIのテストは`apps/runner/bin/<構成>/`に出る（出典: [ソース配置とライブラリの境界](../../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「出力の置き場」；[アプリケーションとツール](../../../design/160_applications_and_tools.jp.md)、§1.3）。
+- RunnerAppは`RunManager`を作るときに予約するEnv名として`EvalPanel`を渡し、`RunManager`は固定名`train`・設定された評価タグと合わせて、最初のBatchEnvの構築の前にまとめて検証する（出典: [実行基盤と設定](../../../design/100_runtime_and_configuration.jp.md)、§6.1）。
+- Runnerのソース（ビルドの入力）は`src/apps/runner/`に置き、Runnerは基盤、Agentの各系統（`src/algo/`のdqn・ppo・muzero・imagecls）、Envの公開の初期化関数を呼ぶ。実行体、設定、起動launcherは`apps/`に置き、Runnerの実行体とGUIのテストは`apps/runner/bin/<構成>/`に出る（出典: [ソース配置とライブラリの境界](../../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「出力の置き場」；[アプリケーションとツール](../../../design/160_applications_and_tools.jp.md)、§1.3）。
 
 ## 成立の経緯
 
@@ -65,6 +66,7 @@ updated: 2026-11-28
 - 2026-11-21: RunnerAppの設定の読み口から作った動画の記録で、codecのエラーが利用者の書く完全キー`app.metrics_logger.video_codec`を示すようにした（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§1.2のeeb2c3の行・§7のA3）。
 - 2026-11-23: 文書の呼び名をRFDに改めるのに合わせ、Runnerのテストのタグを`[prdNNN…]`から`[rfdNNNN…]`へ改めた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§5.2・§6 D1・D9）。
 - 2026-11-23: EvalPanelとQValuePanelの手動の行動を、`MakeActionOptions`の欄（`ForcedActions`）に入れてEvalRunnerへ渡す形にした。範囲外の入力は、これまでどおりステータスバーに出して何もしない（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§1.4・§6.2 D8・D16・§7.8）。
+- 2026-11-25: Runnerに`anet-algo-ppo`をリンクし、起動時にPPO系の初期化関数`InitPpo()`を呼んで`PPOAgent`を登録するようにした（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§8 のビルドと Runner の行）。
 
 - 2026-11-28 — QValuePanel の `hist_bins` を構築時に検証し、Runner が予約 Env 名を RunManager に渡すようにした。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§5.1・§5.3）
 
@@ -151,6 +153,7 @@ updated: 2026-11-28
 - Logs paneとPanels toolbarの表示を変える — 範囲外: 既にある未確認の警告の表示に意味を持たせるのがRFD0117で、表示を変える必要は見つかっていない。必要が出たら別のRFDで変える（出典: [RFD0117](../../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§3.2）。
 - 評価の定義側で interval を必須にする — 不採用: EvalPanel 専用タグは定期実行を必要とせず、画面で使わない周期を書かされる（出典: [ADR 0027](../../../adr/0027-eval-definition-schedule-separation.md)、Considered Options）。
 - 終了待ちの期限を評価スロットごとに設ける — 不採用: 複数スロットの合計待ち時間に上限が効かず、定期評価の設定と Run の終了方針も混ざる（出典: [ADR 0045](../../../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)、Considered Options）。
+- 方策の確率をRunnerのpanelで表示する形（PPO系のActorが行動の情報に確率を載せ、panelが読む） — 範囲外（非ゴール）: CartPoleの受入に要らず、毎stepのdeviceからCPUへの転送が増える。再開条件: GUIで方策を見たいとき（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§3.2 NG5・§11）。
 
 ## 変えるときの条件
 
@@ -195,6 +198,7 @@ updated: 2026-11-28
 
 - 設計: [アプリケーションとツール](../../../design/160_applications_and_tools.jp.md) §2.1・§3.1・§3.4・§3.5・§5.1・§7.1・§8。
 - ソースと出力の置き場: [ソース配置とライブラリの境界](../../../design/011_source_layout.jp.md)、「ライブラリとアプリ」「出力の置き場」。
+- Runの構築と予約するEnv名: [実行基盤と設定](../../../design/100_runtime_and_configuration.jp.md)、§6.1。
 - ユーザーガイド: [Run実行ガイド](../../../design/020_user_guide_run.jp.md) §2〜§6（起動、画面、操作、Evaluation Trace）。
 - 含む機能カテゴリ: なし。
 
@@ -222,6 +226,7 @@ updated: 2026-11-28
 
 - [Atari.txt](../../../../apps/runner/config/Atari.txt)
 - [CartPole.txt](../../../../apps/runner/config/CartPole.txt)
+- [CartPole_ppo.txt](../../../../apps/runner/config/CartPole_ppo.txt)
 - [DropMerge.txt](../../../../apps/runner/config/DropMerge.txt)
 - [DropMerge_optuna.txt](../../../../apps/runner/config/DropMerge_optuna.txt)
 - [GridMaze.txt](../../../../apps/runner/config/GridMaze.txt)
@@ -293,6 +298,7 @@ updated: 2026-11-28
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 - [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md) — forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
 - [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) — RFD0206: 基盤とアプリの小さい直し 12 件（設定の値域と数の読み取り、Replay の n-step と先読み、行動の device の控え、テストと検査の道具、名前の整理、bat の題）
+- [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md) — RFD0209: PPO 系（方策ベースの Agent の系統）と、方策ベースの学習に要る core の共通部品
 
 ## 課題
 

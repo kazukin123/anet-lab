@@ -31,8 +31,8 @@ _Avoid_: 価値ストリームの分離（Dueling の語と紛れる）, Q の�
 学習側の Agent が、全 lane ぶんの経験を 1 回受け取ること。Replay へ入れる前の受け取りで、lane の数だけ exp step が進む。
 _Avoid_: 取り込み（wiki の取り込みと紛れる）
 
-**rollout（補助学習）**:
-補助学習で、学ぶ前にためる、続いた intake のまとまり。長さは intake の数で数える。
+**rollout**:
+学ぶ前にためる、続いた intake のまとまり。長さは intake の数で数える。
 _Avoid_: エピソード（Env の区切りと紛れる）, 軌跡
 
 **Bellmanターゲット**:
@@ -90,6 +90,12 @@ _Avoid_: 観測キー扱い, tau テンソル（曖昧）
 **tau配置方式**:
 taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。UQE の τ の時間の値（`uqe.tau` の schedule）とは別概念。
 _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
+
+### 方策ベースの学習
+
+**PPO系エージェント**:
+方策を表す Network を、方策勾配で直接学ぶ Agent 群。rollout の経験だけで更新する PPOAgent と、同じ部品を分け合う派生手法を指す。
+_Avoid_: policy agent, actor-critic agent（Actor は行動選択の部品の名前で、紛れる）
 
 ### スキップ（TempoRL）
 
@@ -795,7 +801,7 @@ _Avoid_: ノイズスケール（NoisyNet の ε・ノイズ probe と紛れる�
 _Avoid_: テストユーティリティ, テストサポート
 
 **Agent の系統**:
-共通部品を分け合う Agent の実装の括り。DQN 系、MuZero 系など。
+共通部品を分け合う Agent の実装の括り。DQN 系、PPO 系、MuZero 系など。
 _Avoid_: ファミリー
 
 ### 開発の工程

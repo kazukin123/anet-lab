@@ -7,6 +7,7 @@ concepts:
   - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
   - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
   - "[[docs/wiki/concepts/framework/321_agent_core.md|321 Agent 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/326_ppo.md|326 Agent個別実装 PPO系列]]"
   - "[[docs/wiki/concepts/methods/prioritized_replay.md|優先度付き経験再生（PER）]]"
   - "[[docs/wiki/concepts/methods/replay_ratio_lane_window.md|Replay ratioとlane窓]]"
 updated: 2026-11-28
@@ -15,7 +16,7 @@ updated: 2026-11-28
 
 ## 元の材料
 
-[ReplayBuffer](../../../design/150_replay_buffer.jp.md) blob:a2fbc6126741c084b63107a392f4be418379a07f
+[ReplayBuffer](../../../design/150_replay_buffer.jp.md) blob:a46bd90e820356eed4ba576432f4ca7c57b2bcdc
 
 ## 要点
 
@@ -24,6 +25,7 @@ updated: 2026-11-28
 - 優先度付き抽選ではサンプルに重みと更新用の識別子を添え、学習後の優先度を元の項目に反映する。
 - 事前取得と CUDA 転送を使う場合も、Sample のテンソルと CPU に残す識別用の情報を区別する。
 - 診断用の抽選は一様・非復元や抽選履歴別の条件に対応する。通常の学習 sample と目的を区別して読む。
+- 共通 ReplayBuffer を使うかは具象 Agent が決める。PPOAgent は使わず、今の方策で集めた経験を `LaneTimeTensorStore` にため、1 回の更新で使い切る。
 
 ## 内容
 
@@ -32,12 +34,15 @@ updated: 2026-11-28
 - RunnerからのRewardは`[N]`である。Agentが複数の報酬成分を使う場合だけ、取り込みからReplayへ渡す報酬を`[N,C]`にする。成分の数Cは構築時の`ReplayBufferConfig.reward_component_count`（既定1）で固定する。1成分のshapeと計算順は変えない。成分の意味は利用側Agentが所有する。
 - Push・Sample・一様probe・履歴probeはcallerから成分ごとの現在のγの列を受け取り、builderとextractorはγを永続保持しない。Push時にはそのγで成分ごとのn-step収益を保存する。初期priorityの完成待ちentryには、同じPushで評価した成分ごとの収益とbootstrap割引率を保持する。
 
+- Agentごとの適用範囲: DefaultDQNとRainbowは内側の`dqn::Learner`が使う。MuZeroは試作固有の`MuZeroReplayBuffer`を持ち、ImageClsはEnv/datasetからbatchを直接学び、PPOAgentは経験を`LaneTimeTensorStore`にためて1回の更新で使い切る。ReplayBufferを全Learnerの必須componentとして扱わない。
+
 ### 3. コンポーネント定義
 
 - `ExperienceSamples` — ReplayBufferから抽出しLearnerへ渡すminibatch。
 - `ReplayExperienceStorage` — lane別ring storageへObservation、Action、infoと実slotの履歴開始を保持する。未書込slotとdummy slotの履歴開始はfalse。
 - `ExperienceQueueController` — laneごとの遷移からN-step targetを確定する。
 - `ExperienceSampleExtractor` — indexからstack、N-step、next stateをminibatchへ組み立てる。
+- `LaneTimeTensorStore` — lane一式のtensorを時間順に保持し、laneと時間を指定して読む。たまっている範囲の全体は`GetAll`で時刻×laneの形のまま、複製せずに読める。RNDのrollout補助学習とPPO系のrolloutに使う。
 
 ### 6. 処理フロー
 
@@ -68,5 +73,6 @@ updated: 2026-11-28
 - [318 強化学習 共通基盤](../../concepts/framework/318_rl_core.md)
 - [314 テンソル処理](../../concepts/framework/314_tensor.md)
 - [321 Agent 共通基盤](../../concepts/framework/321_agent_core.md)
+- [326 Agent個別実装 PPO系列](../../concepts/framework/326_ppo.md)
 - [優先度付き経験再生（PER）](../../concepts/methods/prioritized_replay.md)
 - [Replay ratioとlane窓](../../concepts/methods/replay_ratio_lane_window.md)

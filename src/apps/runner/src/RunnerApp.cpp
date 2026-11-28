@@ -28,6 +28,7 @@
 #include "anet/algo/dqn.hpp"
 #include "anet/algo/muzero.hpp"
 #include "anet/algo/imagecls.hpp"
+#include "anet/algo/ppo.hpp"
 #ifdef ANET_HAS_ATARI
 #include "anet/env/Atari.hpp"
 #endif
@@ -404,6 +405,7 @@ bool RunnerApp::OnInit()
     anet::rl::algo::InitDqn();
     anet::rl::algo::InitMuZero();
     anet::rl::algo::InitImageCls();
+    anet::rl::algo::InitPpo();
 #ifdef ANET_HAS_ATARI
     anet::rl::env::InitAtari();
 #endif

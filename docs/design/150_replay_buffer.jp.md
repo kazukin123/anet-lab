@@ -91,6 +91,7 @@ uniform samplerでもPERの既知scalarキーは公開し、PER無効時の値�
 | `RainbowAgent` | inner `dqn::Learner`が使用する |
 | `MuZeroAgent` | 使用しない。試作実装固有の`MuZeroReplayBuffer`を持つ |
 | `ImageClsAgent` | 使用しない。Env/datasetからbatchを直接学習する |
+| `PPOAgent` | 使用しない。今の方策で集めた経験を`LaneTimeTensorStore`にため、1回の更新で使い切る |
 
 共通interfaceを利用するかどうかは具象Agentが決める。`ReplayBuffer`を全Learnerの必須componentとして扱わない。
 
@@ -113,7 +114,7 @@ uniform samplerでもPERの既知scalarキーは公開し、PER無効時の値�
 | `DeviceTransfer` | CPU sampleを同期転送、またはpinned sourceからCUDA copy streamへ転送する |
 | `EventRecycler` | CUDAEventと転送元payloadのlifetimeを完了まで保持・再利用する |
 | `DictFrameStacker` | ReplayBufferとは独立に、Actor側でkey別の直近Observationをstackする |
-| `LaneTimeTensorStore` | lane 一式の tensor を時間順に保持し、lane と時間を指定して読む。[RND の rollout 補助学習](212_rnd_lifelong_novelty.jp.md#5-predictor-の補助学習)に使う。 |
+| `LaneTimeTensorStore` | lane 一式の tensor を時間順に保持し、lane と時間を指定して読む。たまっている範囲の全体は、`GetAll` で時刻 × lane の形のまま、複製せずに読める。[RND の rollout 補助学習](212_rnd_lifelong_novelty.jp.md#5-predictor-の補助学習)と、[PPO 系の rollout](230_ppo_agents.jp.md#61-蓄積)に使う。 |
 
 ## 4. コードマップ
 

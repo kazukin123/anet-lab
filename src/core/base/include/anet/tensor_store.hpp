@@ -22,6 +22,9 @@ namespace anet {
 
         void Append(const TensorDict& lanes);
         TensorDict Gather(std::span<const LaneTimeIndex> indices) const;
+        /// たまっている範囲の全体を [時刻, lane, ...] の形で返す。保存領域を共有し、複製しない。
+        /// 返した値は、次の Append や Clear のあとに中身が変わりうる。
+        TensorDict GetAll() const;
         void Clear() { time_count_ = 0; }
         int64_t GetTimeCount() const { return time_count_; }
     private:

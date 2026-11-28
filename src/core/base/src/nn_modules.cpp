@@ -1126,6 +1126,25 @@ private:
     torch::nn::SiLU impl_{ nullptr };
 };
 
+// --- Tanh Module ---
+// 出力を (-1, 1) に収める活性化。方策勾配の MLP（PPO の参照実装など）が隠れ層に使う。
+class TanhModule : public NetworkModule {
+public:
+    TanhModule()
+    {
+        impl_ = register_module("tanh", torch::nn::Tanh());
+    }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
+    torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
+    {
+        return impl_->forward(input);
+    }
+private:
+    torch::nn::Tanh impl_{ nullptr };
+};
+
 // --- Mish Module ---
 class MishModule : public NetworkModule {
 public:
@@ -3306,6 +3325,13 @@ public:
     }
 };
 
+class TanhModuleFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& ctx) const override {
+        return std::make_shared<TanhModule>();
+    }
+};
+
 class MishModuleFactory final : public NetworkModuleFactory {
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& ctx) const override {
@@ -3350,6 +3376,7 @@ void anet::nn::InitNN()
         repo.Register("GELU", std::make_shared<GELUModuleFactory>());
         repo.Register("SiLU", std::make_shared<SiLUModuleFactory>());
         repo.Register("Mish", std::make_shared<MishModuleFactory>());
+        repo.Register("Tanh", std::make_shared<TanhModuleFactory>());
         repo.Register("LeakyReLU", std::make_shared<LeakyReLUModuleFactory>());
 
         // 正規化・Pooling登録

@@ -1,0 +1,106 @@
+
+# ==============================================================================
+# 基本設定（CartPole を PPO 系の PPOAgent で回す）
+# ==============================================================================
+
+app.$ = app.online
+#app.$ = app.batchrun
+
+run.seed = 1
+
+# 学習の Runner は serial にする（行動選択と学習を交互に進め、rollout の経験がすべて今の方策で集まる）。
+# pipeline でも動く。その場合は、rollout の最初の 1 step だけ、1 つ前の方策で行動が選ばれる。
+run.train.runner_type = serial
+
+# lane 数。1 回の更新に使う遷移は rollout.length × lane 数（128 × 8 = 1,024）で、minibatch_count で割り切れること。
+run.train.num_envs = 8
+
+agent.class_id = PPOAgent
+PPOAgent.$ = @baseline > A1
+
+# 小さな MLP と少ない lane では、CPU のほうが速い見込み（未計測。GPU は 1 step ごとに行動選択の転送が入る）。
+#agent.device = cpu
+
+
+# ==============================================================================
+# NN 設定
+# ==============================================================================
+
+# 方策と価値で Network を完全に分ける（nn.txt の PPO_FC1・PPO_FC2 を使う。64 ユニット × 2 層、Tanh）。
+PPOAgent.net.branch.[policy_body].bind = vector
+PPOAgent.net.branch.[policy_body].structure = Flatten > PPO_FC1 > Tanh > PPO_FC2 > Tanh
+PPOAgent.net.branch.[value_body].bind = vector
+PPOAgent.net.branch.[value_body].structure = Flatten > PPO_FC1 > Tanh > PPO_FC2 > Tanh
+PPOAgent.net.body.output.[policy_feature] = policy_body
+PPOAgent.net.body.output.[value_feature] = value_body
+
+# 共有層ありにするときは、上の 6 行をコメントにして、下の 4 行を有効にする（2 つのキーを同じ branch に向ける）。
+#PPOAgent.net.branch.[shared_body].bind = vector
+#PPOAgent.net.branch.[shared_body].structure = Flatten > PPO_FC1 > Tanh > PPO_FC2 > Tanh
+#PPOAgent.net.body.output.[policy_feature] = shared_body
+#PPOAgent.net.body.output.[value_feature] = shared_body
+
+
+# ==============================================================================
+# 環境依存 Agent 設定
+# ==============================================================================
+
+# 学習率を、学習の長さ（exp step 500,000）に合わせて、線形に 0 へ下げる。
+A1.learner.learning_rate.type = linear
+A1.learner.learning_rate.start = 2.5e-4
+A1.learner.learning_rate.end = 0
+A1.learner.learning_rate.steps = 500,000
+
+
+# ==============================================================================
+# ステップ数 依存設定
+# ==============================================================================
+
+app.online.exp_pause_step  = 500,000
+app.batchrun.exp_exit_step = 500,000
+
+
+# ==============================================================================
+# Eval 設定
+# ==============================================================================
+
+# 評価の間隔は learn step（optimizer の step）で数える。1 つの rollout の更新で 16（4 epoch × 4 ミニバッチ）進むので、
+# 80 は rollout 5 個ごと（exp step 5,120 ごと）になる。
+run.eval_schedule.[eval].interval = 80
+
+# 抽選で行動を選ぶ評価（学習中の方策そのもの）。Actor は PPOAgent.actor.[eval_sample]。
+run.eval_schedule.[eval_sample].interval = 80
+run.eval_schedule.[eval_sample].use_background = true
+run.eval.[eval_sample].eval_batch_size = 1
+run.eval.[eval_sample].eval_episodes = 1
+
+# target の Network を持たないので、target の評価は休止にする。
+run.eval_schedule.[eval_target].interval = 0
+
+
+# ==============================================================================
+# scalar metrics
+# ==============================================================================
+
+metrics.scalar.$ = metrics.scalar.@ppo > M1
+
+# 行動ごとの確率と頻度（行動 0 は右、1 は左）。
+M1.[79_agent_policy/10_action_prob_0] = action_prob_0 @learn $update_result $exp_step
+M1.[79_agent_policy/11_action_prob_1] = action_prob_1 @learn $update_result $exp_step
+M1.[79_agent_policy/20_action_freq_0] = action_freq_0 @learn $update_result $exp_step
+M1.[79_agent_policy/21_action_freq_1] = action_freq_1 @learn $update_result $exp_step
+
+
+# ==============================================================================
+# CartPoleEnv
+# ==============================================================================
+
+# 学習の成立は、episode の step の数が上限に届くかで見る（報酬には位置と角度の罰が入る）。
+CartPoleEnv.limit_step ?= 500
+
+
+# ==============================================================================
+# app
+# ==============================================================================
+
+env.class_id = CartPoleEnv

@@ -15,7 +15,7 @@ aliases:
   - Kaiming
   - aln_init
 description: 重みの初期値を torch の既定に戻した効きは構成で分かれた。qbert のサンプル効率優先（SN 付きの残差 conv、1 seed）と Breakout の Nature 型（seed 2 の 1 対）では上がり、qbert の実時間優先（残差に SN が無く、胴体の後ろに LayerNorm、1 seed）では従来の初期値の 2 本を下回った。
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 # 重みの初期値
 
@@ -40,11 +40,13 @@ DropMerge の `dmfb_47b_scr_ctl`（2026-11-01）の実効設定には、torch �
 - Atari の DQN 系（DQN・Rainbow・IQN）や IMPALA の ResNet で、He・直交・PyTorch の既定・Xavier・Dopamine の variance scaling を並べて比べた報告は、2026-11-27 の調査では見つからなかった。探した範囲は、初期化の比較・ablation の語での web 検索、DER と DrQ(ε) の 12 の hyper-parameter の比較、IMPALA の CNN の Rainbow の改良の一覧、BTR の論文の Appendix H で、どれにも初期化は入っていない（出典: [weight_init_normalization_adam_survey_2026-11-27.md](../../../../reports/survey/weight_init_normalization_adam_survey_2026-11-27.md)、§4・§6）。
 - スケール不変な重みは、平衡より小さいノルムなら平衡より速く、大きいノルムなら遅く回るので、初期のノルムが平衡と比べてどうかで、学習の初めの過渡期に回りすぎるか回らなすぎるかが決まる（AdamW の解析）。学習率の warmup を入れても、過渡期に速く回りすぎる例があった（ResNet-20・CIFAR-10）（出典: [weight_init_normalization_adam_survey_2026-11-27.md](../../../../reports/survey/weight_init_normalization_adam_survey_2026-11-27.md)、§5.4）。
 - weight decay の無い Adam で、初期値の大きさの差がどれだけの更新回数で消えるかを定量した文献と、LayerNorm の付いた構成で初期値を小さくしても学習が速くならない理由を論じた文献は、2026-11-27 の調査では見つからなかった（探した範囲: 初期化の比較・初期値の大きさ・ablation の語での web 検索と、読んだ論文の本文）（出典: [weight_init_normalization_adam_survey_2026-11-27.md](../../../../reports/survey/weight_init_normalization_adam_survey_2026-11-27.md)、§3・§4）。
+- CleanRL の `ppo.py` は、直交初期化で、隠れ層を gain √2、方策の出力を 0.01、価値の出力を 1 にし、bias を 0 にする（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§2.7）。
 
 ## 横断的知見
 
 - 対立点: 重みの初期値を torch の既定（`init.mode = default`）に戻した効きは、構成で分かれた。qbert のサンプル効率優先（SN 付きの残差 conv、1 seed）では、評価の 5-7.5M が 5,544 から 11,450 に、ε=0 の評価（5.25M）が 3,994 から 7,865 に上がった。Breakout の Dopamine の IQN に寄せた Nature 型（conv 3 層と Linear 512。`run.@rainbow_like` の Q 側から PER を外した構成で、`run.@rainbow_like` を載せた Montezuma の `mz_rbw_rndtg_s1`（2026-11-17。Montezuma's Revenge の RND（Taiga ら寄せの構成、β と Munchausen））の実効設定では、この型の main_feature に SN も LayerNorm も無かった。全層を戻した seed 2 の 1 対）でも、学習側の it 15〜19 の平均が 59.6 から 89.6 に上がった。qbert の実時間優先（残差に SN が無く、胴体の後ろに LayerNorm、1 seed）では、評価の 7.5-10M が 4,448 で、従来の初期値の 2 本（7,306・5,068）を下回った。条件の違い: 戻した層、正規化の有無と種類、指標（qbert は評価、Breakout は学習側のゲームの点）が違い、どれも 1 seed か 1 対である（出典: [2026-10-23_btr-qbert-repro-init.md](../../../experiments/default-dqn/atari/2026-10-23_btr-qbert-repro-init.md)、探索ブロック 06・07；[0193_variance_scaling_weight_init_10rfd.md](../../../memo/0193_variance_scaling_weight_init_10rfd.md)、§5.3；[2026-11-08_montezuma-rnd-taiga-aligned.md](../../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、目的と比較条件；[run_20261117-043636_mz_rbw_rndtg_s1.txt](../../../experiments/default-dqn/atari/config/run_20261117-043636_mz_rbw_rndtg_s1.txt)、`DefaultDQNAgent.net.branch.[main_feature].structure = StackMerge > AtariConv32 > ReLU > AtariConv64 > ReLU > AtariConv64Final > ReLU > Flatten > AtariLinear512 > ReLU` と各 block の定義）。
 - 補完: qbert のサンプル効率優先の記録が初期値の効きの試算に置いた前提（SN 付きの層は出力が重みの大きさに依らず、Adam の 1 回の更新幅も依らないので、初期値が 2.45 倍大きいと 1 回の更新で重みが変わる割合が約 0.4 倍になる）は、スケール不変な重みの実効学習率を SGD で η/‖w‖₂²、Adam で η/‖w‖₂ とする外の解析と同じ形である。Gogianu らは、SN 付きの層を Adam で学ぶと、ε をスペクトル半径倍にした形の更新になると書く。条件の違い: 外の解析は BN 付きの CNN の CIFAR-10 と、DQN の 1 層だけの SN で、Adam の ε を無視した近似を含む。anet は SN 付きの残差 conv の IQN で、試算は seed 1 の比較の説明として置かれ、更新の割合は測っていない（出典: [2026-10-23_btr-qbert-repro-init.md](../../../experiments/default-dqn/atari/2026-10-23_btr-qbert-repro-init.md)、探索ブロック 06；[weight_init_normalization_adam_survey_2026-11-27.md](../../../../reports/survey/weight_init_normalization_adam_survey_2026-11-27.md)、§5.1・§5.5）。
+- 共通点: CleanRL の `ppo.py`（MLP 64-64）・`ppo_atari.py`（Atari の CNN）と SB3 の `ActorCriticPolicy`（`ortho_init=True` の既定）は、方策の出力を gain 0.01、価値の出力を gain 1 の直交初期化にし、bias を 0 にする点で同じで、隠れ層はどれも gain √2 の直交初期化である。条件の違い: CleanRL の `ppo_procgen.py` の IMPALA CNN は、conv と隠れの線形層を PyTorch の既定のままにし、方策と価値の出力だけを直交初期化にする（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§2.7；[weight_init_normalization_adam_survey_2026-11-27.md](../../../../reports/survey/weight_init_normalization_adam_survey_2026-11-27.md)、§7.4・§7.5）。
 
 ## 見立て
 
@@ -73,3 +75,4 @@ DropMerge の `dmfb_47b_scr_ctl`（2026-11-01）の実効設定には、torch �
 - [可塑性指標と成績](../phenomena/plasticity.md)（正規化と実効学習率の外の事例）。
 - [NoisyNetの観測](noisynet.md)（公開実装のノイズ付き線形層の初期値）。
 - [RFD0193](../../../memo/0193_variance_scaling_weight_init_10rfd.md)（重みの初期化に、分散を倍率÷fan_in にする一様分布の方式を足す）。
+- [PPO の実装の選択と既定値](ppo.md)（PPO の公開実装の既定値と初期化）。

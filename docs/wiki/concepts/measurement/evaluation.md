@@ -14,7 +14,7 @@ aliases:
   - IQM
   - 信頼区間
 description: 1 ゲーム 2 seed で確認できるのは観測した方策どうしの差とその幅までである。BTR の公開 CSV では学習中の最良値が最後の 10 回の平均をゲームの中央値で 1.15 倍上回った。
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 # 評価と比較の条件
 
@@ -84,6 +84,7 @@ updated: 2026-11-27
 - 128環境・replay ratio 4の背景評価が経験予算で中断した Run では、完走時400行のエピソード trace が最終回だけ70行で終わり、セッション末の平均スコアが記録されなかった（出典: [RFD0076](../../../memo/done/0076_eval_session_drain_on_exit_10rfd.md)、Context（背景・目的）「実害」。Run: `run_20260917-225635_rr4_btrsn12_envs128_cap2m_50m`）。
 - 1回に1エピソードで測った Breakout の連続7回の点は44・57・83・56・86・97・38と揺れた。この条件で評価の過去最高点を選ぶと、偶然高く出た回も選別に効く（出典: [RFD0136](../../../memo/0136_best_checkpoint_10rfd.md)、「判定に使えるスコアの質」）。
 - LunarLander の決定的モードでは、同じ設定の TempoRL 無効の 2 本が 10 万 exp step まで 21,987 点で全点一致し、`[greedy]` session を足しても一致は崩れなかった。決定的モードでない過去の TempoRL 無効の Run では、ビルドの違う s3 の 2 本が評価の 312 点すべて一致し、s1・s2 は 14,848 exp step の評価点から違った（出典: [2026-11-05_temporl-stop-single-bit-compare.md](../../../experiments/default-dqn/lunarlander/2026-11-05_temporl-stop-single-bit-compare.md)、現時点のまとめ 3・9・過去の Run との関係）。
+- anet の CartPole は、評価の RunMode では開始の状態が毎回同じ（全部 0）なので、Greedy の評価は同じ重みなら何本回しても同じ 1 本になる。上限の step（`CartPoleEnv.limit_step`、既定 200）、報酬（step ごとに 1 から姿勢と位置の罰を引き、倒れるか範囲を出ると −1、打ち切りの step は +1）、角度の上限（90 度）は、Gymnasium の CartPole-v1 と違う（出典: [RFD0209](../../../memo/0209_ppo_family_and_on_policy_core_parts_10rfd.md)、§2.6）。
 
 ### 外の事例
 

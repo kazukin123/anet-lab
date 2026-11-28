@@ -18,7 +18,7 @@
 ### 1.3 記載範囲
 
 現行のAgent共通interface、`AgentBase`、factory、repository、登録済みAgentを扱う。
-DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、ReplayBuffer内部は[ReplayBuffer](150_replay_buffer.jp.md)、Network内部は[ニューラルネットワーク](130_neural_networks.jp.md)を参照する。
+DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、PPO系の構成と学習方式は[PPO系Agent](230_ppo_agents.jp.md)、方策ベースのAgentが使う共通部品は[方策ベースの学習の共通部品](115_on_policy_learning.jp.md)、ReplayBuffer内部は[ReplayBuffer](150_replay_buffer.jp.md)、Network内部は[ニューラルネットワーク](130_neural_networks.jp.md)を参照する。
 将来設計や未実装案は規範仕様に含めない。
 
 ## 2. 基本概念と外部contract
@@ -64,6 +64,7 @@ Agent系の所有権は次の原則に従う。
 |---|---|---|
 | `DefaultDQNAgent` | 設定可能なDQN系Agent | [DQN系Agent](200_dqn_agents.jp.md) |
 | `RainbowAgent` | DQN 系の共通部品の責務分担を確かめる2つ目の Agent。Run では使わない | [DQN系Agent](200_dqn_agents.jp.md) |
+| `PPOAgent` | 方策を直接学ぶPPO系のAgent（離散行動）。rolloutをためて学ぶ | [PPO系Agent](230_ppo_agents.jp.md) |
 | `MuZeroAgent` | MuZeroの試作実装 | 現行コードを参照 |
 | `ImageClsAgent` | 共通Run/Agent contract上で画像分類を学習する実装 | 現行コードを参照 |
 
@@ -90,6 +91,8 @@ Runner が系統の公開初期化関数を呼んで登録し、`AgentRepository
 | 共通contract | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
 | Agent基盤・repository・factory | [agent.hpp](../../src/core/base/include/anet/agent.hpp)、[agent.cpp](../../src/core/base/src/agent.cpp) |
 | DQN系 | [DQN系Agent](200_dqn_agents.jp.md) |
+| PPO系 | [PPO系Agent](230_ppo_agents.jp.md) |
+| 方策ベースの共通部品（行動の分布、advantageの推定） | [distribution.hpp](../../src/core/base/include/anet/distribution.hpp)、[advantage.hpp](../../src/core/base/include/anet/advantage.hpp)。[方策ベースの学習の共通部品](115_on_policy_learning.jp.md) |
 | ImageCls | [image_cls_agent.hpp](../../src/algo/imagecls/src/image_cls_agent.hpp)、[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp) |
 | MuZero試作 | [muzero_proto_agent.hpp](../../src/algo/muzero/src/muzero_proto_agent.hpp)、[muzero_proto_agent.cpp](../../src/algo/muzero/src/muzero_proto_agent.cpp) |
 | 初期登録 | [init.cpp](../../src/core/base/src/init.cpp) |
@@ -185,7 +188,7 @@ sequenceDiagram
     end
 ```
 
-`LearnEvent`を生成するのはLearnerではなく、更新結果を受け取ったRunnerである。LearnerがReplayBufferを使うか、1回の呼出しで何回更新するかは具象実装が決める。
+`LearnEvent`を生成するのはLearnerではなく、更新結果を受け取ったRunnerである。LearnerがReplayBufferを使うか、1回の呼出しで何回更新するかは具象実装が決める。PPO系のLearnerは、経験をrolloutにためる間は空の結果を返し、rolloutが埋まった呼出しで、複数回の更新の結果をまとめて返す。
 
 ## 7. 設定・lifetime・エラー・性能特性
 
@@ -247,7 +250,9 @@ Agentを追加・変更する場合は、少なくとも次を確認する。
 - [可観測性](140_observability.jp.md)
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
+- [方策ベースの学習の共通部品](115_on_policy_learning.jp.md)
 - [DQN系Agent](200_dqn_agents.jp.md)
+- [PPO系Agent](230_ppo_agents.jp.md)
 - [Agent実装の所有権ガイドライン](../ownership_guideline.md)
 - [用語集](../../CONTEXT.md)
 - [ADR一覧](../adr/)

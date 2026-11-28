@@ -112,7 +112,7 @@ flowchart TB
     end
 
     subgraph implementations["具象実装"]
-        agent_impl["DefaultDQN / Rainbow<br/>MuZero 試作 / ImageCls"]
+        agent_impl["DefaultDQN / Rainbow / PPO<br/>MuZero 試作 / ImageCls"]
         env_impl["CartPole / LunarLander / DropMerge<br/>GridMaze / ImageCls"]
     end
 
@@ -145,7 +145,7 @@ flowchart TB
 |---|---|
 | `src/core/base/include/anet/` | フレームワークの公開ヘッダ |
 | `src/core/base/src/` | 共通基盤、Agent、NN、ReplayBuffer、Observer、テスト |
-| `src/algo/` | DQN、MuZero、ImageCls の Agent 実装と系統別テスト |
+| `src/algo/` | DQN、PPO、MuZero、ImageCls の Agent 実装と系統別テスト |
 | `src/env/` | CartPole、LunarLander、DropMerge、GridMaze、ImageCls の Env 実装 |
 | `apps/runner/` | `AnetRLRunner`、画面パネル、設定、起動・分析用スクリプト |
 | `apps/metrics-viewer/` | Java/Spring 製 Metrics Viewer |
@@ -195,6 +195,7 @@ flowchart TB
 |---|---|---|
 | Agent | `DefaultDQNAgent` | DQN 系の価値学習を行う標準実装 |
 | Agent | `RainbowAgent` | DQN 系の共通部品の責務分担を確かめる2つ目の Agent。Run では使わない |
+| Agent | `PPOAgent` | 方策を直接学ぶ PPO 系の実装（離散行動）。Replay を使わず、rollout をためて学ぶ |
 | Agent | `MuZeroAgent` | 決定論的 Env を対象とする MuZero 試作実装 |
 | Agent | `ImageClsAgent` | 画像分類を学習する教師あり学習実装 |
 | Env | `CartPoleEnv` | ベクトル Observation の倒立振子環境 |
@@ -239,7 +240,7 @@ Env の実装規約と batch 化は[環境](120_environments.jp.md)を参照し�
 
 Agent共通機能は、Train/Eval用ActorとLearnerの生成、具象Agentごとに対応範囲を定める保存・復元interface、seedの払い出し、およびscaler、scheduleなどの再利用部品を提供します。変化するStateは更新するモジュール、NetworkModel、optimizer、ReplayBufferなどのResourceはAgentがlifetimeを所有し、PolicyからLearnerへの依存を作りません。
 
-所有関係と共通contractは[Agent と学習](110_agents_and_learning.jp.md)、DQN固有の構成は[DQN系Agent](200_dqn_agents.jp.md)を参照してください。
+所有関係と共通contractは[Agent と学習](110_agents_and_learning.jp.md)、DQN固有の構成は[DQN系Agent](200_dqn_agents.jp.md)、PPO系の構成は[PPO系Agent](230_ppo_agents.jp.md)、方策ベースのAgentが使う共通部品は[方策ベースの学習の共通部品](115_on_policy_learning.jp.md)を参照してください。
 
 ### 6.5 ReplayBuffer
 
@@ -373,7 +374,7 @@ Event、Observer、成果物形式は[可観測性](140_observability.jp.md)を�
 
 Agent と Env の具象実装は、共通 interface に対する選択可能な実装です。設定の class ID を repository/factory が解決し、Agent は利用する Actor、Learner、NetworkModel を、Env は `EnvSpec` と Reset/Step の挙動を提供します。新しい実装は共通基盤の契約を維持したまま登録し、固有設定と可視化だけを追加します。
 
-Agent共通の拡張契約は[Agent と学習](110_agents_and_learning.jp.md)、DQN系の具象構成は[DQN系Agent](200_dqn_agents.jp.md)、Envの拡張箇所は[環境](120_environments.jp.md)を参照してください。
+Agent共通の拡張契約は[Agent と学習](110_agents_and_learning.jp.md)、DQN系の具象構成は[DQN系Agent](200_dqn_agents.jp.md)、PPO系の具象構成は[PPO系Agent](230_ppo_agents.jp.md)、Envの拡張箇所は[環境](120_environments.jp.md)を参照してください。
 
 ### 6.13 アプリケーションと分析
 

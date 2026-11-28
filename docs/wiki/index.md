@@ -45,6 +45,7 @@
 - [重みの初期値](concepts/methods/weight_init.md) — 重みの初期値を torch の既定に戻した効きは構成で分かれた。qbert のサンプル効率優先（SN 付きの残差 conv、1 seed）と Breakout の Nature 型（seed 2 の 1 対）では上がり、qbert の実時間優先（残差に SN が無く、胴体の後ろに LayerNorm、1 seed）では従来の初期値の 2 本を下回った。（別名: 初期値, 初期化, init, he, xavier, orthogonal, 直交, PyTorch の既定, torch の既定, variance scaling, Kaiming, aln_init）
 - [Munchausen RL](concepts/methods/munchausen.md) — Munchausen は RND を使わない Breakout と DropMerge では系列で最大の単独の上乗せだったが、RND を足した Montezuma では、有効にした Run が Greedy の 2500 点にほとんど届かなかった。Montezuma の比較は組ごとに 1 本で、無効の群は Double DQN も有効にした 2 変数の比較である。（別名: Munchausen, M-DQN, M-IQN, munch, IQN+M, QR+M, log π, ma0.7）
 - [n-step の収益](concepts/methods/nstep_return.md) — Montezuma で n-step を 3 から 10 にした 2 本は、Greedy で剣で敵を倒すゲームが 16 本中 8 本以上になった最初の回が 12.2M・14.2M（n-step 3 の 2 本は 26.2M・18.2M）で、外的の Q の 1 位と 2 位の差は 4M 窓 8 つのうち 5 つで大きかった。2 組は実行体の build も違う。（別名: n-step, n_step, nstep, nstep3, n10, 多段の目標, 多段の更新, λ 収益, Retrace, Peng's Q(λ), MMC）
+- [PPO の実装の選択と既定値](concepts/methods/ppo.md) — CleanRL と SB3 の PPO は GAE・比・approx KL・方策の損失の式が同じで、既定値、打ち切りの扱い、value の損失の clip と 0.5 倍、KL で止める位置と倍率が違う。（別名: PPO, Proximal Policy Optimization, CleanRL, SB3, Stable-Baselines3, GAE, approx_kl, target_kl, value clip）
 
 ## 測り方
 
@@ -68,6 +69,7 @@
 
 ## フレームワーク
 
+- [326 Agent個別実装 PPO系列](concepts/framework/326_ppo.md) — PPO系は方策を直接学ぶAgentの系統で、最初のPPOAgentが離散行動のPPOを実装し、今の方策で集めたrolloutを1回の更新で使い切る。（別名: 326_ppo, PPOAgent, PPO系）。
 - [325 Agent個別実装 MuZero系列](concepts/framework/325_muzero.md) — MuZeroAgentは登録済みAgentの試作実装である。（別名: 325_muzero）。
 - [324 Agent個別実装 DQN系列](concepts/framework/324_dqn.md) — DefaultDQNAgentとRainbowAgentが共通DQN componentを合成する具象実装を扱う。分類上同じ範囲にあるImageClsAgentも一覧に載せる。（別名: 324_dqn）。
 - [322 Env個別実装](concepts/framework/322_env_individual.md) — 共通Env contract上のCartPole、GridMaze、LunarLander、DropMerge、ImageCls、Atariなどの具象環境の所在をまとめる。（別名: 322_env_individual, GridMaze, seed_mode, DropMerge, NOOP, noop_penalty, RAMメトリクス, distinct_seen）。
