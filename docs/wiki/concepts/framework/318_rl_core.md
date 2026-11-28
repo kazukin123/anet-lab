@@ -374,6 +374,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261111-e90762](../../../management/issues/issue-20261111-e90762.md) | 未着手 | 1.2 | — | コード | RFD | 318_rl_core | 学習基盤 | 不整合 | — | 残件有り | PERの抽選が埋まらないときに残りを一様の抽選で埋める代替が、明示した要求を黙って代替しない規約と食い違う |
 | [issue-20261103-51220d](../../../management/issues/issue-20261103-51220d.md) | 未着手 | 1.1 | — | コード | RFD | 318_rl_core, 321_agent_core, 322_env_individual, 317_metrics | 学習基盤 | 機能追加 | [RFD0144](../../../memo/0144_episode_forensics_10rfd.md) | 残件有り | Episode Forensics（特殊挙動エピソード自動捕捉・事後調査） |
 | [issue-20261116-cc5942](../../../management/issues/issue-20261116-cc5942.md) | 未着手 | 1.1 | — | コード | その他 | 318_rl_core, 321_agent_core, 314_tensor, 324_dqn | 学習基盤 | 性能改善 | — | 残件有り | 同じデータを何度もdevice間で転送している箇所を洗い出して減らす（Replayのobsとnext_obsの重なるフレーム、RNDの採点とActorが別々に送る観測など） |
+| [issue-20261128-29cd97](../../../management/issues/issue-20261128-29cd97.md) | 未着手 | 1.1 | — | コード | RFD | 314_tensor, 318_rl_core, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 直近の系列（観測・行動・報酬・開始の印）を並びの外のバッファに置き、Forwarder の部品がいつでも見る形になっておらず、フレーム積層と直前の行動の観測が系列を別々に持つ |
 | [issue-20261111-d1d12b](../../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 残件有り | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261103-cfe994](../../../management/issues/issue-20261103-cfe994.md) | 未着手 | 0.9 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | イベント種別ごとにObserver interface・RunnerScopedラッパ・Notifierメソッド・MetricsLog派生を複製している |
 | [issue-20261103-c5c791](../../../management/issues/issue-20261103-c5c791.md) | 未着手 | 0.9 | — | コード | RFD | 322_env_individual, 318_rl_core | 学習基盤 | 調査 | [RFD0179](../../../memo/0179_rfd0097_performance_remeasurement_10rfd.md) | 残件有り | RFD0097: 判定不能4構成の性能再測定とDropMerge serial追加費用の調査 |
@@ -389,7 +390,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-6661d2](../../../management/issues/issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](../../../management/issues/issue-20261103-f39d10.md), [issue-20261103-2d66d2](../../../management/issues/issue-20261103-2d66d2.md) | コード | RFD | 318_rl_core, 324_dqn, 110_runner_app | 学習基盤 | 機能追加 | [RFD0136](../../../memo/0136_best_checkpoint_10rfd.md) | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
 | [issue-20261103-578986](../../../management/issues/issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](../../../management/issues/issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 
-着手できる 60 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
+着手できる 61 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-3e1cf6](../../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
 - 関連する課題: [issue-20261103-2d66d2](../../../management/issues/issue-20261103-2d66d2.md) — 999: train/eval mode 整理後の排他精査 RFD（草案）

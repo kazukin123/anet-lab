@@ -189,11 +189,12 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-785e68](../../../management/issues/issue-20261103-785e68.md) | 未着手 | 2.0 | — | コード | RFD | 315_nn, 318_rl_core, 321_agent_core, 324_dqn, 319_gui, 320_env_core, 314_tensor, 312_util, 110_runner_app, 322_env_individual, 325_muzero | 開発 | リファクタリング | [RFD0169](../../../memo/0169_outside_core_extension_layout_10rfd.md) | 残件無し | anet-core の外で実装する拡張点とコード配置の規約 |
 | [issue-20261122-258ef8](../../../management/issues/issue-20261122-258ef8.md) | 未着手 | 1.2 | — | コード | RFD | 321_agent_core, 324_dqn, 314_tensor | 学習基盤 | 不具合 | — | 残件有り | 統計つきの観測の正規化で、Actor が Agent の排他の外で統計を読み、学習と並んで走る評価の Actor で読み書きが競合する |
 | [issue-20261116-cc5942](../../../management/issues/issue-20261116-cc5942.md) | 未着手 | 1.1 | — | コード | その他 | 318_rl_core, 321_agent_core, 314_tensor, 324_dqn | 学習基盤 | 性能改善 | — | 残件有り | 同じデータを何度もdevice間で転送している箇所を洗い出して減らす（Replayのobsとnext_obsの重なるフレーム、RNDの採点とActorが別々に送る観測など） |
+| [issue-20261128-29cd97](../../../management/issues/issue-20261128-29cd97.md) | 未着手 | 1.1 | — | コード | RFD | 314_tensor, 318_rl_core, 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | 直近の系列（観測・行動・報酬・開始の印）を並びの外のバッファに置き、Forwarder の部品がいつでも見る形になっておらず、フレーム積層と直前の行動の観測が系列を別々に持つ |
 | [issue-20261111-d1d12b](../../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 残件有り | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261122-d9499f](../../../management/issues/issue-20261122-d9499f.md) | 未着手 | 1.0 | — | コード | RFD | 316_config, 324_dqn, 314_tensor, 315_nn | 基盤 | 機能改善 | — | 残件有り | 見直したあとの設定の形と通知の決まりに沿わない設定キーと通知が、RND の外に残る（全体は調べていない） |
 | [issue-20261103-f40ae8](../../../management/issues/issue-20261103-f40ae8.md) | 未着手 | 0.9 | — | コード | RFD | 317_metrics, 314_tensor, 318_rl_core | UI | 性能改善 | [RFD0056](../../../memo/0056_timehistogram_fine_grid_10rfd.md) | 残件有り | TimeHistogram fine-bin保持・描画時集約 |
 | [issue-20261122-4c0af5](../../../management/issues/issue-20261122-4c0af5.md) | 未着手 | 0.8 | — | コード | RFD | 318_rl_core, 314_tensor, 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | 観測をためる仕組み（フレーム積層の履歴、Replay の観測の置き場、補助学習の rollout の置き場）が別々に実装されていて、共通の置き場の部品へ載せ替えていない |
 | [issue-20261122-ba42c9](../../../management/issues/issue-20261122-ba42c9.md) | 未着手 | 0.6 | — | コード | RFD | 321_agent_core, 314_tensor | 学習基盤 | 機能改善 | — | 残件有り | RND の観測の加工（byte を float に直す、自前の統計で正規化する）が、Q の側の Forwarder の並びと別に書かれている |
 
-着手できる 11 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+着手できる 12 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->
