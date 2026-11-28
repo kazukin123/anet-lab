@@ -1,4 +1,4 @@
-<!-- translated-from: 140_observability.jp.md blob:762279219a36f85434850e4a1e5597cab339edbe date:2026-11-27 progress:done -->
+<!-- translated-from: 140_observability.jp.md blob:8253b800db44f69798dabec409dd25c6cc742494 date:2026-11-27 progress:done -->
 # Observability
 
 > Primary perspective: function (Events, Observers, metrics, logs, profiling, and artifacts)
@@ -342,7 +342,7 @@ IQN diagnostics do not synchronize devices per metric key. Policy diagnostics pa
 
 QR/IQN quantile-tail diagnostics use the same synchronization boundary. Five Policy scalars share per-action upper/lower widths, a detached full-quantile alias, and global disagreement/crossing values. On first access only, they gather the final action, select lane-wise nearest-rank p90 of positive crossing depth on device, and cache all five values together on CPU. Action creation and repeated cache access do not sort percentiles. Learner per-sample upper-tail width joins existing priority readback only with PER enabled, then aggregates into Spearman correlation with clipped raw priority on CPU. With PER disabled, it adds neither a pack nor a wait and returns `NaN`. Tail inputs are detached to float32 and do not feed loss, priority, action, sampling, or RNG.
 
-The current parser converts `interval`, `ema_alpha`, and `clip` with `stoi`/`stof`. After conversion, `EmaFilter` validates finite `0 < ema_alpha <= 1`. Observer construction validates `interval >= 1`, failing fast for zero or negative values. `clip` has no range/finiteness validation, so do not specify a negative value. Invalid numeric strings throw during construction.
+Scalar reads `interval`, `ema_alpha`, and `clip` as numeric attributes. Graph reads `interval`, `step_interval`, `episode_interval`, and `eps_interval`. The parser converts the entire value after the first colon. Empty values, trailing characters, and values outside the destination type's range fail during construction, with a diagnostic that includes the configuration key, declaration, attribute name, and value. A sign or floating-point exponent is accepted when the entire value converts. Scalar `interval` must be at least 1, and scalar `ema_alpha` must be finite and satisfy `0 < ema_alpha <= 1`. Specify a nonnegative value for `clip`.
 
 Scalar, trace, and graph catalogs read one value in the form `metrics.<channel>.[tag] = declaration`; fields cannot appear below `[tag]`. Indices inside tags, such as `.[01]`, are retained. Images have fields such as `metrics.image.[tag].type` and `conv2d.*`; each item's reader rejects unsupported fields at construction. Known fields are read with their types regardless of image type, and shared `metrics.image.*` defaults are read even with zero image items. Item validation is independent of other readers' read state, while actual reads update the original fully qualified keys.
 

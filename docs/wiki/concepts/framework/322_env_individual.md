@@ -183,6 +183,7 @@ updated: 2026-11-26
 - [RFD0192](../../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md) — RFD0192: 監査で見つかった不具合 5 件をまとめて直す（Notifier の同時実行、動画の画像の大きさ、強制行動の device、重複登録、QValuePanel の平滑化）
 - [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
+- [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) — RFD0206: 基盤とアプリの小さい直し 12 件（設定の値域と数の読み取り、Replay の n-step と先読み、行動の device の控え、テストと検査の道具、名前の整理、bat の題）
 
 ## 課題
 
@@ -192,7 +193,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261107-949e8a](../../../management/issues/issue-20261107-949e8a.md) | 対応中 | 5.0 | — | コード | その他 | 322_env_individual | Env | 機能追加 | [RFD0126](../../../memo/0126_atari_ram_metric_distinct_and_bit_reducers_10rfd.md) | 残件無し | AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない |
-| [issue-20261123-9a0e78](../../../management/issues/issue-20261123-9a0e78.md) | 未着手 | 4.0 | — | コード | 実装 | 322_env_individual | 開発 | 不具合 | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 残件有り | imagecls の Env のテスト「manifest construction failures sticky」が画像の口を初期化せず、乱数の並びで先に回ると wx のエラーのダイアログで止まる |
 | [issue-20261103-3e1cf6](../../../management/issues/issue-20261103-3e1cf6.md) | 未着手 | 3.0 | — | コード | RFD | 322_env_individual | Env | 機能追加 | [RFD0085](../../../memo/0085_dropmerge_eval_score_axes_10rfd.md) | 残件有り | DropMerge の評価スコア（本家互換スコアほか複数の軸） |
 | [issue-20261111-c68178](../../../management/issues/issue-20261111-c68178.md) | 未着手 | 3.0 | — | コード | 監査 | 322_env_individual | Env | リファクタリング | — | 残件有り | DropMerge のエピソード統計を 1 つ足すと、Env のメンバ・Reset・StepResult の初期化子とメンバ・GetScalar の 5 か所へ同じ形を足すことになる |
 | [issue-20261107-16ffd8](../../../management/issues/issue-20261107-16ffd8.md) | 未着手 | 2.7 | — | コード | RFD | 318_rl_core, 322_env_individual, 110_runner_app | 学習基盤 | 不整合 | — | 残件有り | ERROR のログを出したあとも Run を止めずに続ける箇所（Env・Agent の作成失敗、DropMerge の果物の範囲外）が Fail-Fast 原則と合わない |
@@ -222,7 +222,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-13bc20](../../../management/issues/issue-20261103-13bc20.md) | 未着手 | 0.8 | [issue-20261103-3e1cf6](../../../management/issues/issue-20261103-3e1cf6.md) | コード | RFD | 322_env_individual | Env | 機能追加 | [RFD0086](../../../memo/0086_dropmerge_macro_actions_10rfd.md) | 残件有り | DropMerge のマクロ行動（落ち着くまで待つ・繰り返し回数の離散化） |
 | [issue-20261103-5a783c](../../../management/issues/issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](../../../management/issues/issue-20261103-124da5.md), [issue-20261103-75b8da](../../../management/issues/issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 26 / 待ち 4 / 保留 0 / 次版 0 / 解決 0
+着手できる 25 / 待ち 4 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261103-9bd71e](../../../management/issues/issue-20261103-9bd71e.md) — 直前行動観測の共通部品（`prev_action` フレーム段）
 - 関連する課題: [issue-20261103-75b8da](../../../management/issues/issue-20261103-75b8da.md) — n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正）
 <!-- issues:end -->

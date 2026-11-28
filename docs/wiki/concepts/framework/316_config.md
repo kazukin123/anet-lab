@@ -140,7 +140,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 <!-- issues:begin -->
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| [issue-20261122-4adabb](../../../management/issues/issue-20261122-4adabb.md) | 未着手 | 4.0 | — | コード | 実装 | 311_dev_tools, 316_config | 開発 | 不具合 | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 残件有り | RFD0072 の既定葉検査が移転前の core を探索して停止する |
 | [issue-20261123-55c396](../../../management/issues/issue-20261123-55c396.md) | 未着手 | 3.0 | — | コード | 監査 | 324_dqn, 316_config | 基盤 | リファクタリング | — | 未確認 | DefaultDQNAgentConfig が「任意の ProfiledValue の設定キーが書かれているか」を 3 か所で別々の書き方で調べ、うち 2 か所は常に空の override 接頭辞のための分岐を持つ |
 | [issue-20261111-cdc102](../../../management/issues/issue-20261111-cdc102.md) | 未着手 | 2.7 | — | コード | 監査 | 316_config, 315_nn, 324_dqn | 基盤 | リファクタリング | — | 残件有り | WeightInitConfig などの設定の部品に読み取りの口が無く、使う側が 1 キーずつ読むので、同じ 6〜8 行が十数か所にあり、読み方も食い違っている |
 | [issue-20261108-06a3f0](../../../management/issues/issue-20261108-06a3f0.md) | 未着手 | 2.6 | — | コード | その他 | 316_config, 322_env_individual | 基盤 | リファクタリング | [RFD0118](../../../memo/0118_atari_run_profile_flatten_10rfd.md) | 残件有り | Atari.txt の本流（サンプル効率優先・実時間優先）が Run プロファイル 11〜14 個の連結と本体の A2 の行と bat の引数の重ね合わせで定義され、人が読んで構成を理解できない |
@@ -157,5 +156,5 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-145ee2](../../../management/issues/issue-20261103-145ee2.md) | 未着手 | 0.5 | — | コード | RFD | 321_agent_core, 318_rl_core, 316_config | 学習基盤 | 機能追加 | [RFD0152](../../../memo/0152_metric_targeted_hyperparam_control_10rfd.md) | 残件有り | メトリクス目標値によるハイパラ自律調整 |
 | [issue-20261115-b02db6](../../../management/issues/issue-20261115-b02db6.md) | 未着手 | 1.3 | [issue-20261103-b4e5c9](../../../management/issues/issue-20261103-b4e5c9.md) | コード | その他 | 316_config, 324_dqn, 315_nn | 基盤 | リファクタリング | — | 残件有り | RND の Head の出力次元 intrinsic.rnd.output_dim が rnd の直下にあり、Head の初期値 intrinsic.rnd.head.init.* と置き場が分かれている |
 
-着手できる 15 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 14 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

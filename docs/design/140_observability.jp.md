@@ -341,7 +341,7 @@ IQN診断ではdevice同期をmetric keyごとに発生させない。Policy診�
 
 QR / IQNの分位tail診断も同じ同期境界を使う。Policy側5 scalarはper-action上下幅、detached full quantile alias、globalなdisagreement / crossingを共有する。最初の参照時だけ最終actionをgatherし、positive crossing深度のlane別nearest-rank p90をdevice上で選んで、全5値を1本のCPU cacheへまとめる。行動生成時と cache の再参照時には percentile sort を行わない。Learner側のsample単位upper-tail幅はPER有効時だけ既存priority readbackへ同梱し、CPU上でclip後raw priorityとのSpearman相関へ集約する。PER無効時は追加packも追加waitも作らず`NaN`を返す。tail入力はfloat32へdetachし、loss、priority、action、sampling、RNGへ接続しない。
 
-現行parserは`interval`、`ema_alpha`、`clip`を`stoi`/`stof`で変換する。`ema_alpha`は変換後に`EmaFilter`がfiniteかつ`0 < ema_alpha <= 1`を検証する。`interval`はObserver構築時に1以上を検証し、0以下はfail-fastする。`clip`は範囲やfinite性を検証しないため、負の`clip`は指定しない。数値文字列の変換失敗は構築中の例外になる。
+scalar は `interval`・`ema_alpha`・`clip`、graph は `interval`・`step_interval`・`episode_interval`・`eps_interval` を数値属性として読む。最初のコロンの後ろ全体を変換し、空値、末尾の余分な文字、変換先の型の範囲外は、設定キー・宣言・属性名・属性の値を示して構築時に拒否する。符号や小数の指数表記も、値の全体を読み切れれば受け付ける。scalar の `interval` は 1 以上、`ema_alpha` は有限な `0 < ema_alpha <= 1` を検証する。`clip` には非負の値を指定する。
 
 scalar・trace・graphは`metrics.<channel>.[tag] = 宣言`の1値を読むカタログであり、`[tag]`の下にフィールドは置けない。tag内の`.[01]`などの添字は保持する。画像は`metrics.image.[tag].type`や`conv2d.*`などのフィールドを持ち、項目ごとの読み口が受け付けないフィールドは構築時に拒否する。画像の形式によらず既知フィールドを型付きで読み、共通の`metrics.image.*`の既定値は画像項目が0件でも読む。項目の検査はほかの読み口の既読状態から独立させ、実際の読み取り結果は元の完全なキーへ届ける。
 

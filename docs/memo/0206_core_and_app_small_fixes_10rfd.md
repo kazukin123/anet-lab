@@ -1,6 +1,7 @@
 # RFD0206: 基盤とアプリの小さい直し 12 件（設定の値域と数の読み取り、Replay の n-step と先読み、行動の device の控え、テストと検査の道具、名前の整理、bat の題）
 
 > 2026-11-27 起票（暫定）。質疑を省いた。確定した決定は持たず、AI が置いた既定と決めきれない点を §4 の未決表に置いた。§5〜§7 は §4 の暫定の既定を前提に書き、前提にした行の番号を名指す。
+> 2026-11-27 改訂。入口レビューを受け、数値属性の読み方と移行文書、短縮比較の入力、受入条件を確かめ直した。
 > 起点: 2026-11-27 の会話。開発者は、仕様の調整がほぼ要らない小さい課題を集め、寝ている間に実装させたいと述べた。課題の台帳から、対応の方針が 1 つに決まっている課題 34 件を選び、置き場ごとに 3 本（RFD0205 は文書、本 RFD は基盤とアプリ、RFD0207 は DQN 系）に分けることを開発者が選んだ（§9）。
 > 課題: [issue-20261123-003c85](../management/issues/issue-20261123-003c85.md)・[issue-20261123-0c9793](../management/issues/issue-20261123-0c9793.md)・[issue-20261120-1979f6](../management/issues/issue-20261120-1979f6.md)・[issue-20261123-446e6f](../management/issues/issue-20261123-446e6f.md)・[issue-20261123-7671ff](../management/issues/issue-20261123-7671ff.md)・[issue-20261123-ff9a9a](../management/issues/issue-20261123-ff9a9a.md)・[issue-20261123-9a0e78](../management/issues/issue-20261123-9a0e78.md)・[issue-20261122-4adabb](../management/issues/issue-20261122-4adabb.md)・[issue-20261123-27b23f](../management/issues/issue-20261123-27b23f.md)・[issue-20261123-2709db](../management/issues/issue-20261123-2709db.md)・[issue-20261123-4df9cc](../management/issues/issue-20261123-4df9cc.md)・[issue-20261123-26f763](../management/issues/issue-20261123-26f763.md)（いずれも題材）。
 
@@ -155,16 +156,16 @@
 | U2 | n_step の値域（003c85） | `CreateReplayBuffer` で n_step が 1 以上かを確かめ、外れたら完全キー（`config.full_keys` の `n_step`）・指定値・期待値（`>= 1`）を示して `ANET_SYSTEM_ERROR` で止める。文言は同じ関数の `per_initial_priority` の検査の形にそろえる | 課題の対応方針どおり。DQN は完全キーを既に写している（§3.1）。Replay の構築は Run の構築の中なので、構築時に止まる（P1）。公開 API と抽選の分布は変えず、止める検査を足すだけ（[318](../wiki/concepts/framework/318_rl_core.md) の「変えるときの条件」の RFD0078 の行） |
 | U3 | ImageCls の 4 キー（0c9793） | `Validate` に足す。`grad_clip_max_norm` は有限で 0 より大きい、`label_smoothing` は有限で 0 以上 1 以下、`weight_decay` は有限で 0 以上。外れたら完全キー・指定値・期待値を示して止める（今の `Validate` の文言 `Invalid config <key>=<value>. Expected ...` の形）。`learning_rate` は下限 0 を置き、ProfiledValue の構築時の検証に任せる | 課題の対応方針どおり。NaN を外す「有限」は、今の `ValidateNonNegative`・`ValidateUnitInterval` が NaN を通すため、比べる形だけでは足りないので足した。ImageCls の勾配の clip は切り替えを持たず常に当てるので、0 以下に意味を持たせない（P1） |
 | U4 | hist_bins（1979f6） | `QValuePanel::Config` で `hist_bins` が 1 以上かを確かめ、外れたら `smooth_radius` と同じ形（`QValuePanel.hist_bins=<値> must be an integer >= 1.`）で止める | 課題の方針は「未定」。1 では描画の加工が壊れない（§3.3）ので、下限は 1。同じ Config の隣の検査の形にそろえる（P1・P2） |
-| U5 | 数の属性の読み取り（446e6f） | scalar の `interval`・`ema_alpha`・`clip` と、graph の `interval`・`step_interval`・`episode_interval`・`eps_interval` を、値の全体を読み切る変換で読む。空、読み残しがある、型の範囲を超える、のどれかなら、`config_key`・`config_value`・属性の名前・属性の値・期待（`integer` か `number`）を示して `ANET_SYSTEM_ERROR` で止める（同じ節の `Unknown attribute key. config_key=...` の形）。値域の検査は今のまま（scalar の `interval` の 1 以上だけ） | 課題の対応方針どおり。正しい値の解釈は変わらない（§3.4 の出荷設定の値は、どちらの変換でも同じ値になる）。graph の値域は 29c3b2 の判断が残るので足さない（§1.3） |
+| U5 | 数の属性の読み取り（446e6f） | scalar の `interval`・`ema_alpha`・`clip` と、graph の `interval`・`step_interval`・`episode_interval`・`eps_interval` を、値の全体を読み切る変換で読む。空、読み残しがある、型の範囲を超える、のどれかなら、`config_key`・`config_value`・属性の名前・属性の値・期待（`integer` か `number`）を示して `ANET_SYSTEM_ERROR` で止める（同じ節の `Unknown attribute key. config_key=...` の形）。値域の検査は現行のまま（scalar の `interval >= 1` と有限な `0 < ema_alpha <= 1`）。対象の属性では最初のコロンの後ろ全体を値とする | 課題の対応方針どおり。正しい値の解釈は変わらない（§3.4 の出荷設定の値は、どちらの変換でも同じ値になる）。graph の値域は 29c3b2 の判断が残るので足さない（§1.3） |
 | U6 | 行動の device の控え（7671ff） | 控えの鍵に、index を補ったあとの device（`req_dev`）を記録する 1 か所の直し。控えに守りは足さない | 課題の対応方針どおり。P9 の判断に触れない。毎 step の経路だが、比べる値が変わるだけで処理の回数は変わらない |
 | U7 | 先読みの待ちの片づけ（ff9a9a） | 2 つの関数とも、先頭の待ちを列から取り出してから結果を受け取る順に変える。投入の順と、1 つ先までの先読みの契約は変えない。worker の Push を失敗させる特性テストを先に足す。同期の前にアプリを閉じ、デストラクタが worker の例外を最初に受け取る場合は、本 RFD では扱わない（起票の候補） | 課題の対応方針どおり。デストラクタの場面は、例外を呼び出し元へ返せず、ログに残して続けるか止めるかの判断が要る（P1 の worker の例外の箇条） |
 | U8 | テストの初期化（9a0e78） | 305 行のテストの先頭で、ほかのテストと同じく `EnsureWxImageSupport()` を呼ぶ。テスト用のデータを作る型の中で呼ぶ形はとらない。wx のエラーのダイアログを出さない形は、本 RFD では扱わない（起票の候補） | 課題の方針は「未定」で、案としてこの 2 つを比べるとある。同じファイルのほかの 20 件と同じ形にするのが一番小さい。型の中で呼ぶには、関数の定義の位置を前へ動かすことになる（§3.7） |
 | U9 | 既定の値の宣言の検査（4adabb） | コードは直さない（§3.8 のとおり直っている）。リポジトリの根で標準の手順を回し、`apps` と `src` が検査されることを確かめて、課題の対応内容に直したコミットと結果を書く。検査が報告する違反の件数は記録するだけで、本 RFD では直さない | 課題の対応方針の「探索先を今の配置に合わせる」は 125075dc で済んでいる。違反があれば、それは設定の中身の問題で、この課題の事象（検査が止まる）とは別 |
 | U10 | ImageCls の構築（27b23f） | `ImageClsAgentConfig` のコンストラクタを引数 1 つにし、上書きの接頭辞の下の Actor の一覧を読む分岐を消す。構築時の記録は、冒頭の INFO（`ImageClsAgent config=`）とメトリクスの設定の記録を 1 回ずつ残し、末尾の 2 行（メトリクスの記録と `ImageClsAgent initialized. config=` の INFO）を消す。ImageCls の Run では INFO の行とマスタの json の行が 1 つずつ減る | 課題の対応方針どおり。「`ImageClsAgent initialized.` を残すか」は、文言を引く箇所がほかに無い（§3.9）ので残さない。DefaultDQN と同じく冒頭で書く形にそろう |
-| U11 | 観測の検証の関数（2709db） | `StateSpec::ValidateObservation` を、戻り値を持たない `StateSpec::AssertObservation` に改める（引数は今と同じ。§5.3）。trainer.cpp の 2 か所は、`ANET_ENABLE_ASSERT` が真のビルドでだけ呼ぶ形にし、今の `ANET_ASSERT` と同じく Release では呼ばない。Env のテストの 23 件は「例外を投げない」を確かめる形に替える。旧い名前の別名は残さない | 課題の対応方針どおり。名前は隣の `AssertSanity` にそろえた。呼ぶ条件は P5 のとおり今と同じ。P10 |
-| U12 | 予約する名前（4df9cc） | `RunManager` のコンストラクタに、アプリが予約する Env name の並びを渡す引数を足す（既定は空。§5.3）。基盤の "EvalPanel" の文字を消す。予約の検査は今の `validate_planned_name` に、名前を持ち主として渡す（文言 `existing_owner='EvalPanel'` を保つ）。Runner は名前を 1 か所の定数に置き、予約（RunnerApp.cpp 445 行）と `CreateEvalRunner`（RunnerFrame.cpp 553 行）の両方がそれを使う。trainer_test の予約の TEST_CASE は、名前を渡して作る形に替える | 課題の対応方針どおり。既定を空にすると、予約を確かめないテストの 34 件を変えずに済む。空の並びは「予約が無い」という素直な意味で、特別な値ではない。文言と時機を変えない（P3） |
+| U11 | 観測の検証の関数（2709db） | `StateSpec::ValidateObservation` を、戻り値を持たない `StateSpec::AssertObservation` に改める（引数は今と同じ。§5.3 の公開 API）。trainer.cpp の 2 か所は、`ANET_ENABLE_ASSERT` が真のビルドでだけ呼ぶ形にし、今の `ANET_ASSERT` と同じく Release では呼ばない。Env のテストの 23 件は「例外を投げない」を確かめる形に替える。旧い名前の別名は残さない | 課題の対応方針どおり。名前は隣の `AssertSanity` にそろえた。呼ぶ条件は P5 のとおり今と同じ。P10 |
+| U12 | 予約する名前（4df9cc） | `RunManager` のコンストラクタに、アプリが予約する Env name の並びを渡す引数を足す（既定は空。§5.3 の公開 API）。基盤の "EvalPanel" の文字を消す。予約の検査は今の `validate_planned_name` に、名前を持ち主として渡す（文言 `existing_owner='EvalPanel'` を保つ）。Runner は名前を 1 か所の定数に置き、予約（RunnerApp.cpp 445 行）と `CreateEvalRunner`（RunnerFrame.cpp 553 行）の両方がそれを使う。trainer_test の予約の TEST_CASE は、名前を渡して作る形に替える | 課題の対応方針どおり。既定を空にすると、予約を確かめないテストの 34 件を変えずに済む。空の並びは「予約が無い」という素直な意味で、特別な値ではない。文言と時機を変えない（P3） |
 | U13 | bat の題（26f763） | 2 本に AGENTS.md の形を足す。apps/10_run.bat は 2 行目に `title %~nx0` を入れる。bootstrap.bat は先頭に `@echo off` と `title %~nx0` の 2 行を入れる（コマンドの表示は無くなる）。CP932 と CRLF を保つ | 課題の方針は「未定」（足すか、規約の対象から外すか）。規約は全部の `.bat` に求め、外す理由が課題に無い（P7）。規約の形は `@echo off` の次の行なので、bootstrap.bat には `@echo off` も要る |
-| U14 | 文書の追随 | 設計 150 の §7.1 の表の `n_step` の行（[jp](../design/150_replay_buffer.jp.md) 276 行、[en](../design/150_replay_buffer.en.md) 277 行）に「1 以上。0 以下は構築で止まる」を足す。設計 100 の 208・219 行（[jp](../design/100_runtime_and_configuration.jp.md)・[en](../design/100_runtime_and_configuration.en.md)）を、予約名 `EvalPanel` を基盤が持つ書き方から、アプリが渡す予約名（Runner は `EvalPanel`）を検証する書き方に直す | 変える契約を書いている現用の文書（§6.4 の検索）。英訳は、和文を直したあとに翻訳の skill（`anet-translate-docs`）でファイルを指定して追随させ、手で部分的に直さない（[RFD0205](0205_design_doc_and_glossary_alignment_10rfd.md) の U11 と同じ。英訳は元の和文の blob を持ち、手で直すと blob と中身がずれる） |
+| U14 | 文書の追随 | 設計 150 の §7.1 の表の `n_step` の行（[jp](../design/150_replay_buffer.jp.md) 276 行、[en](../design/150_replay_buffer.en.md) 277 行）に「1 以上。0 以下は構築で止まる」を足す。設計 100 の 208・219 行（[jp](../design/100_runtime_and_configuration.jp.md)・[en](../design/100_runtime_and_configuration.en.md)）を、予約名 `EvalPanel` を基盤が持つ書き方から、アプリが渡す予約名（Runner は `EvalPanel`）を検証する書き方に直す。設計 140 §6.1 の数値属性の段落に全体を読み切る契約を、設計 160 §2.1 の QValuePanel の行に `hist_bins` の下限と構築時の検証を記す（各和英） | 変える契約を書いている現用の文書（§6.4 の検索）。英訳は、和文を直したあとに翻訳の skill（`anet-translate-docs`）でファイルを指定して追随させ、手で部分的に直さない（[RFD0205](0205_design_doc_and_glossary_alignment_10rfd.md) の U11 と同じ。英訳は元の和文の blob を持ち、手で直すと blob と中身がずれる） |
 | U15 | 振る舞いが変わらないことの確かめ方 | A15 の 6 構成の比較を、本 RFD の全部の変更を入れた最後に 1 回行う。ImageCls の変更（U3・U10）は 6 構成に現れないので、ImageCls のテストで確かめる | 課題が名指す確かめ方（RFD0122 §4 D8 の 4 環境の比較、RFD0094 の checksum）と同じ目的で、最近の同じ種類の RFD（RFD0192 の A13）が使った形（P4）。課題ごとに Run を分けると、同じ比較を何度も回すことになる |
 | U16 | `use_n_step = false` のときの `learner.n_step` の値域 | 本 RFD では扱わない（起票の候補） | AGENTS.md は使われない側の設定キーも値域を検証するとする（P1）が、置き場は DQN 系の設定の検証で、本 RFD の置き場の外である。U2 の検査は、`use_n_step` が真のときに DQN から届く値を止める |
 
@@ -196,22 +197,14 @@
 | 小数の属性で、先頭から末尾までが 1 つの数として読め、`float` の範囲に入る | その値 |
 | 上のどれにも当たらない（読み残しがある、数で始まらない、範囲を超える） | 止める |
 
-止めるときの文言は U5 のとおり。読めた値に対する値域の検査（scalar の `interval` の 1 以上）は今の箇所で今のまま行う。
+止めるときの文言は U5 のとおり。正負の符号と、浮動小数点の指数表記など、従来の数値変換が全体を読み切って受理する表記はそのまま通す。最初のコロンより後が空、または余分なコロンが含まれる場合は、属性名と値を伝えて止める。読めた値に対する scalar の `interval >= 1` と有限な `0 < ema_alpha <= 1` は今の箇所で検証する。
 
-### 5.3 公開ヘッダの宣言の草案（暫定）
+### 5.3 公開 API
 
-```cpp
-// src/core/base/include/anet/rl.hpp（StateSpec の中。U11）
-/// 観測が spec に合うかを確かめる。合わなければ ANET_SYSTEM_ERROR で止める。
-void AssertObservation(const anet::TensorDict& obs, bool is_batched = true) const;
+- `StateSpec::AssertObservation` は観測とバッチ指定を受ける。観測が spec に合えば戻り、合わなければエラーで止める。Trainer からは assert が有効なビルドで呼ぶ。
+- `RunManager` は、アプリが後で `CreateEvalRunner` で作る Runner の Env name の並びを構築時に受ける。既定は空。固定の train 名、アプリが渡した名前、configured Eval tag を最初の BatchEnv 構築前に照合する。
 
-// src/core/base/include/anet/trainer.hpp（RunManager の中。U12）
-/// reserved_env_names: アプリがあとで CreateEvalRunner で作る Runner の Env name。
-/// train・configured Eval tag と同じく、最初の BatchEnv を作る前に重なりを確かめる。
-RunManager(const ConfigData& config_data, std::vector<std::string> reserved_env_names = {});
-```
-
-`AssertObservation` は、同じ型に並ぶ `AssertSanity`（spec 自身の整合を確かめる）と対になり、こちらは渡された観測を確かめる。`reserved_env_names` の `env_names` は [CONTEXT.md](../../CONTEXT.md) の「Env name」（320 行）の意味で使う。
+`AssertObservation` は spec 自体を検査する `AssertSanity` に対応する名前。予約の Env name は [CONTEXT.md](../../CONTEXT.md) の「Env name」の意味で使う。
 
 ## 6. 実装契約
 
@@ -231,7 +224,7 @@ RunManager(const ConfigData& config_data, std::vector<std::string> reserved_env_
 | 2709db | rl.hpp・rl.cpp・trainer.cpp、Env のテスト 3 ファイル | 名前と戻り値、呼ぶ条件、テストの形 | U11 |
 | 4df9cc | trainer.hpp・trainer.cpp、RunnerApp.cpp・RunnerFrame.cpp（と名前の定数を置く Runner のファイル）、trainer_test.cpp | 予約する名前を外から渡す | U12 |
 | 26f763 | apps/10_run.bat・bootstrap.bat | 題の行 | U13 |
-| （文書） | 設計 150・100 の jp・en | U14 の行 | U14 |
+| （文書） | 設計 100・140・150・160 の jp・en | U14 の行 | U14 |
 
 足すテストは、どれもタグ `[rfd0206]` を付ける（A1〜A12 で引く）。置き場は実装計画で決める。
 
@@ -273,6 +266,8 @@ RunManager(const ConfigData& config_data, std::vector<std::string> reserved_env_
 | `"EvalPanel"` | trainer.cpp 959 行（予約）、RunnerFrame.cpp 553 行（作る）、EvalPanel.cpp 147 行（Observer の名前）、テスト 13 件 | 予約と作る 2 か所を U12 のとおり。テストは、予約を確かめる trainer_test の TEST_CASE だけ名前を渡す形に替える。ほかのテストの "EvalPanel" は Runner の名前の文字としてそのまま残る |
 | `予約名`・`reserved name`・`EvalPanelのname`（設計文書） | 設計 100 の jp・en の 219 行と、図の 208 行 | U14 |
 | `n_step`（設計 150 の §7.1 の表） | jp 276 行・en 277 行 | U14 |
+| 数値属性の変換と検証（設計 140 §6.1） | 日英の `interval`・`ema_alpha`・`clip` の段落 | U5・U14 |
+| ヒストグラムの設定（設計 160 §2.1） | 日英の QValuePanel の行 | U4・U14 |
 | `hist_bins` | QValuePanel.cpp・QValuePanel.hpp・common.txt 67 行・QValuePanel_test.cpp 25 行（5 を渡す）・RFD0072 の検証資材の基準の json（設定の写し） | コードの Config だけを直す。テストの 5 と出荷設定の 510 は範囲に入るので変えない。基準の json は設定の写しで、値は変わらない |
 | `ImageClsAgent initialized` | image_cls_agent.cpp 638 行だけ（課題記録を除く） | U10 で消す |
 | `ImageClsAgentConfig(` | 本番 1・テスト 17（どれも引数 1 つ） | 呼び出しは変えない |
@@ -283,7 +278,7 @@ RunManager(const ConfigData& config_data, std::vector<std::string> reserved_env_
 
 ### 6.5 ほかの RFD との実装の順序
 
-- 3 本の順は U1 のとおり。本 RFD と RFD0207 は同じファイルを触らない見込みである（本 RFD は `src/algo/dqn` を変えない。003c85 の完全キーは dqn_learner.cpp が既に写している）。RFD0205 は文書だけで、本 RFD が直す設計 150・100 を触らない見込みである。重なったら、あとから入る側が前の変更の上で直す。
+- 3 本の順は U1 のとおり。本 RFD と RFD0207 は同じファイルを触らない見込みである（本 RFD は `src/algo/dqn` を変えない。003c85 の完全キーは dqn_learner.cpp が既に写している）。RFD0205 は文書だけで、本 RFD と設計 140・160 を共有する。本 RFD は RFD0205 の章立て・内容に続けて数値属性とヒストグラム設定を直す。
 - まだ実装していない RFD のうち、同じファイルを触るものを `docs/memo` の RFD の本文で引いた（検索語は `ObserverFactory`・`PrefetchingReplayBuffer`・`CreateReplayBuffer`・`QValuePanel`・`ValidateObservation`・`BatchActionInfo::GetAction`・`check_default_leaves`、実装済みかは各 RFD を指す課題の状態で見た）。ObserverFactory は RFD0081・RFD0169・RFD0184、先読みの Replay は RFD0171・RFD0201、QValuePanel は RFD0081・RFD0113・RFD0146・RFD0155・RFD0159・RFD0160・RFD0176・RFD0183、既定の値の宣言の検査は RFD0118・RFD0155・RFD0181 が触る。本 RFD の変更はどれも数行の局所の直しで、それらの RFD の契約に触れないので、どちらが先でもよい。あとから入る側は、本 RFD の直し（数の属性の読み取り、待ちの片づけの順、`hist_bins` の検証）を残したまま書き換える。段階を持つ RFD の途中で本 RFD が入っても、取り直す基準は無い。
 
 ### 6.6 置き場を変えるときの扱い
@@ -300,18 +295,18 @@ RunManager(const ConfigData& config_data, std::vector<std::string> reserved_env_
 | A2 | n_step（003c85） | 足したテスト（`anet-core-base-test.exe "[rfd0206]"`）で、完全キーを持たせた `ReplayBufferConfig` の n_step が 0 と -1 のとき `CreateReplayBuffer` が止まり、文言に完全キーと指定値と `>= 1` が入る。1 では作れる |
 | A3 | ImageCls の値域（0c9793） | 足したテスト（`anet-algo-imagecls-test.exe "[rfd0206]"`）で、§5.1 の ImageCls の 4 行の「止める」値ごとに、Agent の構築が終わる前に止まり、文言に `ImageClsAgent.` から始まる完全キーが入る。「受け付ける」端の値（label_smoothing 0 と 1、weight_decay 0、学習率の予定の始点 0）では止まらない |
 | A4 | hist_bins（1979f6） | 足したテスト（`AnetRLRunner-gui-test.exe "[rfd0206]"`）で、`QValuePanel.hist_bins` が 0 と -1 のとき QValuePanel の構築が止まり、文言に `QValuePanel.hist_bins` と指定値が入る。1 と 510 では作れる |
-| A5 | 数の属性（446e6f） | 足したテスト（`anet-core-base-test.exe "[rfd0206]"`）で、scalar の宣言の `interval:1O0`・`interval:2.5`・`ema_alpha:0.1x`・`clip:abc`・`interval:99999999999` と、graph の宣言の `interval:1O0`・`episode_interval:x` のそれぞれで `ObserverFactory` の構築が止まり、文言に宣言の設定キー（`metrics.scalar.[...]` か `metrics.graph.[...]`）と属性の値が入る。`interval:100`・`ema_alpha:0.01`・`clip:1` の宣言は作れる |
+| A5 | 数の属性（446e6f） | 足したテスト（`anet-core-base-test.exe "[rfd0206]"`）で、scalar の宣言の `interval:1O0`・`interval:2.5`・`ema_alpha:0.1x`・`clip:abc`・`interval:99999999999` ・`interval:`・`interval:1:2`・`interval::1` と、graph の宣言の `interval:1O0`・`episode_interval:x`・`interval:`・`episode_interval:1:2`・`interval::1` のそれぞれで `ObserverFactory` の構築が止まり、文言に宣言の設定キー（`metrics.scalar.[...]` か `metrics.graph.[...]`）と属性の値が入る。`interval:100`・`ema_alpha:0.01`・`clip:1` の宣言は作れる。符号・指数表記も `interval:+100`・`ema_alpha:1e-2` で確認する |
 | A6 | 行動の device（7671ff） | 足したテスト（`anet-core-base-test.exe "[rfd0206]"`）で、CPU の行動を持つ `BatchActionInfo` に index の無い cuda で 2 回 `GetAction` を呼び、2 回とも止まらず同じ値が返る。続けて `cuda:0` で呼んでも止まらない。CUDA が使えない機械では SKIP し、SKIP したことを実装記録に書く |
-| A7 | 先読みの待ち（ff9a9a） | 足した特性テスト（`anet-core-base-test.exe "[rfd0206]"`）で、worker の Push が例外になる先読みの Replay について、最初の同期が元の例外を投げ、2 回目の同期が例外を投げず、Replay を壊してもテストのプロセスが続く。直す前のコードでこのテストが落ちたことを実装記録に書く |
+| A7 | 先読みの待ち（ff9a9a） | 足した特性テスト（`anet-core-base-test.exe "[rfd0206]"`）で、worker の Push が例外になる先読みの Replay について、完了した Push を通常の Sample で片づける経路と、優先度更新などの操作で待つ経路を別々に通す。どちらも最初は元の例外を投げ、次の同期と Replay の破棄が成功する。直す前のコードでこのテストが落ちたことを実装記録に書く |
 | A8 | テストの初期化（9a0e78） | `anet-env-imagecls-test.exe` を、(1) 305 行のテストの名前だけ、(2) `--order decl`、(3) `--order rand --rng-seed 1094244747` の 3 通りで回し、3 通りとも終了値 0 で、それぞれ 10 分以内に終わる |
 | A9 | 既定の値の宣言の検査（4adabb） | リポジトリの根で `.\.venv\Scripts\python.exe -B src/core/base/testdata/rfd0072/check_default_leaves.py` を回し、`Assignments: ` で始まる行が出て、終了値が 0 か 1 である（`RuntimeError` で止まらない）。出力の `.scratch/rfd0072-default-leaf/default-leaf-audit.json` の `file` に、`apps/` で始まるものと `src/` で始まるものの両方がある。`check_default_leaves_test.py` が通る。出た違反の件数を課題の対応内容に書く |
-| A10 | ImageCls の構築（27b23f） | `src/algo/imagecls/src/image_cls_agent.hpp` で `ImageClsAgentConfig(` のコンストラクタの宣言の引数が 1 つで、`MakeOverrideConfigKey("actor")` が 0 件。`src/algo/imagecls/src/image_cls_agent.cpp` で `MetricsLogger::Instance()->Log(config` が 1 件、`ImageClsAgent initialized` が 0 件。ImageCls のテスト（`anet-algo-imagecls-test.exe`）が期待値を変えずに既知の失敗を除いて通る |
-| A11 | 観測の検証の関数（2709db） | 範囲 `src` で `ValidateObservation(` が 0 件（`ValidateObservationNormalizerConfig(`・`ValidateObservations(` はこの文字列を含まないので当たらない）。`AssertObservation(` が rl.hpp 1・rl.cpp 1・trainer.cpp 2・Env のテスト 23。`anet-env-atari-test.exe`・`anet-env-dropmerge-test.exe`・`anet-env-lunarlander-test.exe` が既知の失敗を除いて通る |
-| A12 | 予約する名前（4df9cc） | `src/core/base` で `"EvalPanel"` が `_test.cpp` の外に 0 件。trainer_test の予約の TEST_CASE が、名前を渡して作り、文言 `Duplicate Env name 'EvalPanel' within Run: existing_owner='EvalPanel'` を確かめて通る。`AnetRLRunner-gui-test.exe` の RunnerApp・RunnerFrame・EvalTracePanel のテストが既知の失敗を除いて通る |
+| A10 | ImageCls の構築（27b23f） | `src/algo/imagecls/src/image_cls_agent.hpp` で `ImageClsAgentConfig(` のコンストラクタの宣言の引数が 1 つで、`MakeOverrideConfigKey("actor")` が 0 件。`src/algo/imagecls/src/image_cls_agent.cpp` で `MetricsLogger::Instance()->Log(config` が 1 件、`ImageClsAgent initialized` が 0 件。ImageCls の Agent をテストの EnvSpec・設定で構築し、INFO の `ImageClsAgent config=` とメトリクスの設定レコードをそれぞれ 1 件確認する。ImageCls の既存テストが期待値を変えずに通る |
+| A11 | 観測の検証の関数（2709db） | 範囲 `src` で `ValidateObservation(` が 0 件（`ValidateObservationNormalizerConfig(`・`ValidateObservations(` はこの文字列を含まないので当たらない）。`AssertObservation(` が rl.hpp 1・rl.cpp 1・trainer.cpp 2・Env のテスト 23。trainer.cpp の 2 呼び出しが `ANET_ENABLE_ASSERT` の有効時だけコンパイルされ、Release の既定で無効であることをソースとビルド設定で確認する。`anet-env-atari-test.exe`・`anet-env-dropmerge-test.exe`・`anet-env-lunarlander-test.exe` が既知の失敗を除いて通る |
+| A12 | 予約する名前（4df9cc） | `src/core/base` で `"EvalPanel"` が `_test.cpp` の外に 0 件。trainer_test の予約の TEST_CASE が、名前を渡して作り、文言 `Duplicate Env name 'EvalPanel' within Run: existing_owner='EvalPanel'` を確かめて通る。同じ configured Eval tag を予約なしで渡した構成は構築できる。`AnetRLRunner-gui-test.exe` の RunnerApp・RunnerFrame・EvalTracePanel のテストが既知の失敗を除いて通る |
 | A13 | bat の題（26f763） | `git ls-files '*.bat'` の 21 本すべてで、1 行目が `@echo off`、2 行目が `title %~nx0`。`git ls-files --eol apps/10_run.bat bootstrap.bat` が `w/crlf` |
-| A14 | 文書（U14） | 設計 150 の jp・en の §7.1 の表の `n_step` の行に下限 1 がある。設計 100 の jp・en の 208・219 行に、基盤の固定の予約名としての `EvalPanel` の書き方が無く、アプリが渡す予約名の書き方がある。設計 150・100 の英訳の 1 行目の `translated-from` の blob が、直したあとの和文の `git hash-object` と一致し、`progress:done` である |
-| A15 | 正しい設定の Run の結果（G2・U15） | RFD0103 の検証資材（[run_validation.py](../../src/core/base/testdata/rfd0103/run_validation.py)）と同じ 6 構成・同じ短縮条件（P4）で、U1 で保存した実装の前の実行体と、本 RFD の全部を入れた実行体を走らせる。`90_perf/`・`91_resource/`・`92_resource/` を除く全 scalar の tag・step・値が、6 構成とも一致する。除くのは、走らせるたびに変わる実時間と資源の値だからである。値は、検証資材が正規化した記録の表記で比べる（NaN は同じ表記どうしで一致とする）。比較の入出力は `.scratch/rfd0206/` に置く |
-| A16 | 既存のテスト | `anet-core-base-test`・`anet-algo-dqn-test`・`anet-algo-imagecls-test`・`anet-algo-muzero-test`・`anet-env-*-test`（6 本）・`AnetRLRunner-test`・`AnetRLRunner-gui-test` が、既知の失敗のほかに失敗を出さない |
+| A14 | 文書（U14） | 設計 150 の jp・en の §7.1 の表の `n_step` の行に下限 1 がある。設計 100 の jp・en の 208・219 行に、基盤の固定の予約名としての `EvalPanel` の書き方が無く、アプリが渡す予約名の書き方がある。設計 140 §6.1 の数値属性、設計 160 §2.1 の `hist_bins` の説明を日英で確認する。設計 150・100・140・160 の英訳の 1 行目の `translated-from` の blob が、直したあとの和文の `git hash-object` と一致し、`progress:done` である |
+| A15 | 正しい設定の Run の結果（G2・U15） | RFD0103 の検証資材（[run_validation.py](../../src/core/base/testdata/rfd0103/run_validation.py)）の 6 構成・短縮条件（P4）と正規化方法を使う。今回の着手時に現行の設定を固定して解決し、同じ入力を U1 の保存済み Debug 実行体と変更後の Debug 実行体に渡す。各 Run の終了値が 0 で、各構成の比較点が 1 点以上あることを確認する。`90_perf/`・`91_resource/`・`92_resource/` を除く全 scalar の tag・step・値が、6 構成とも一致する。除くのは、走らせるたびに変わる実時間と資源の値だからである。値は、検証資材が正規化した記録の表記で比べる（NaN は同じ表記どうしで一致とする）。比較の入出力は `.scratch/rfd0206/` に置く |
+| A16 | 既存のテスト | `anet-core-base-test`・`anet-algo-dqn-test`・`anet-algo-imagecls-test`・`anet-algo-muzero-test`・`anet-env-*-test`（6 本）・`AnetRLRunner-gui-test` が、既知の失敗のほかに失敗を出さない |
 
 ## 8. issue の対応表
 

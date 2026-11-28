@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:28e027973a98fd58f1f75caab77631e69698e5a0 date:2026-11-25 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:a2fbc6126741c084b63107a392f4be418379a07f date:2026-11-27 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -274,7 +274,7 @@ Before any future starts, `Push` delegates synchronously to the inner buffer. Du
 |---|---|
 | Replay capacity | Requested total capacity across lanes, rounded down to a multiple of lane count |
 | `reward_component_count` / `needs_return_recompute` | Component count (default 1) and that many bool flags. Components whose flag is true have their returns rebuilt by `FinalizeReturns` with the γ at sampling/consumption time. A configuration whose length differs from the component count is an ERROR. If any flag is true, step-reward snapshots are retained |
-| `n_step` | Future horizon of target returns |
+| `n_step` | Future horizon of target returns. Must be at least 1. Values below 1 fail at ReplayBuffer construction |
 | Sampler type | Uniform or prioritized |
 | `per_alpha` | Strength of priority influence on sampling probability |
 | `per_initial_priority` | Initial priority of new transitions |

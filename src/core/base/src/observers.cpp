@@ -4,7 +4,9 @@
 #include <chrono>
 #include <format>
 #include <limits>
+#include <stdexcept>
 #include <string_view>
+#include <type_traits>
 #include <unordered_set>
 #include <wx/log.h>
 #include "anet/profile.hpp"
@@ -21,6 +23,34 @@
 using namespace anet::rl;
 namespace LOG = anet::log;
 
+constexpr std::string_view kMetricIntervalAttribute = "interval";
+
+static std::pair<std::string, std::string_view> SplitMetricAttribute(std::string_view token)
+{
+    const size_t separator = token.find(':');
+    if (separator == std::string_view::npos) return {};
+    return {anet::TrimCopy(std::string(token.substr(0, separator))), token.substr(separator + 1)};
+}
+
+template<typename T>
+static T ParseNumericMetricAttribute(const std::string& config_key, const std::string& config_value,
+    std::string_view attribute, std::string_view value)
+{
+    constexpr bool is_integer = std::is_same_v<T, int>;
+    const std::string input = anet::TrimCopy(std::string(value));
+    size_t consumed = 0;
+    try {
+        T result;
+        if constexpr (is_integer) result = std::stoi(input, &consumed);
+        else result = std::stof(input, &consumed);
+        if (consumed == input.size()) return result;
+    } catch (const std::logic_error&) {
+        // 空文字と変換先の範囲外を、読み残しと同じ診断で報告する。
+    }
+    ANET_SYSTEM_ERROR("Invalid numeric attribute. config_key=" << config_key
+        << " config_value=" << config_value << " attr_key=" << attribute
+        << " attr_val=" << value << " expected=" << (is_integer ? "integer" : "number"));
+}
 
 static float ResolveMin(bool override_flag, float override_v, std::optional<float> probe_v, float fallback)
 {
@@ -1398,6 +1428,20 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
 
             // 有効な指定の後勝ちと既定値を保ち、不正な制御指定は構築時に拒否する。
             for (const auto& token : tokens) {
+                const auto [attribute, value] = SplitMetricAttribute(token.raw);
+                if (attribute == kMetricIntervalAttribute) {
+                    interval = ParseNumericMetricAttribute<int>(config_key, config_value, attribute, value);
+                    continue;
+                }
+                if (attribute == "ema_alpha") {
+                    is_ema = true;
+                    ema_alpha = ParseNumericMetricAttribute<float>(config_key, config_value, attribute, value);
+                    continue;
+                }
+                if (attribute == "clip") {
+                    clip = ParseNumericMetricAttribute<float>(config_key, config_value, attribute, value);
+                    continue;
+                }
                 using metric_tokens::Kind;
                 switch (token.kind) {
                 case Kind::EVENT:
@@ -1432,9 +1476,6 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                 case Kind::EMA: is_ema = true; break;
                 case Kind::ATTRIBUTE:
                     if (token.attribute == "key") key_opt = token.value;
-                    else if (token.attribute == "interval") interval = std::stoi(token.value);
-                    else if (token.attribute == "ema_alpha") { is_ema = true; ema_alpha = std::stof(token.value); }
-                    else if (token.attribute == "clip") clip = std::stof(token.value);
                     else ANET_SYSTEM_ERROR("Unknown attribute key. config_key=" << config_key
                         << " config_value=" << config_value << " attr_key=" << token.attribute
                         << " expected=key, interval, ema_alpha or clip");
@@ -1644,7 +1685,16 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
             int step_interval = -1;    // デフォルト無効
             int episode_interval = -1; // デフォルト無効
 
-            for (auto v : values) {
+            for (const auto& v : values) {
+                const auto [attribute, value] = SplitMetricAttribute(v);
+                if (attribute == kMetricIntervalAttribute || attribute == "step_interval") {
+                    step_interval = ParseNumericMetricAttribute<int>(config_key, config_value, attribute, value);
+                    continue;
+                }
+                if (attribute == "episode_interval" || attribute == "eps_interval") {
+                    episode_interval = ParseNumericMetricAttribute<int>(config_key, config_value, attribute, value);
+                    continue;
+                }
                 if (v == "$action" || v == "$action_info") {
                     field_opt = EventField::ACTION_INFO;
                 } else {
@@ -1662,10 +1712,6 @@ ObserverFactory::ObserverFactory(const ConfigData& config_data)
                                     << " config_value=" << config_value << " attr_val=" << attr_val
                                     << " expected=action or action_info");
                             }
-                        } else if (attr_key == "interval" || attr_key == "step_interval") {
-                            step_interval = std::stoi(attr_val);
-                        } else if (attr_key == "episode_interval" || attr_key == "eps_interval") {
-                            episode_interval = std::stoi(attr_val);
                         } else {
                             ANET_SYSTEM_ERROR("Unknown attribute key for graph. config_key=" << config_key
                                 << " config_value=" << config_value << " attr_key=" << attr_key

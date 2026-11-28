@@ -254,14 +254,14 @@ TEST_CASE("LunarLanderEnv action observation works through batch env prefixes", 
     CHECK(spec.state_spec.obs_spec.at(kVectorKey).shape == expected_single_shape);
 
     const auto reset_result = env.Reset();
-    CHECK(spec.state_spec.ValidateObservation(reset_result->state.obs, /*is_batched=*/true));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(reset_result->state.obs, /*is_batched=*/true));
     CHECK(reset_result->state.obs.At(kVectorKey).sizes().vec() == expected_batch_shape);
     RequireFlatApprox(reset_result->state.obs.At(kVectorKey)[0].slice(/*dim=*/0, 8, 12), { 0.0f, 0.0f, 0.0f, 0.0f });
 
     auto action_info = std::make_shared<anet::rl::BatchActionInfo>(
         torch::tensor({ anet::rl::env::kActionRight }, torch::TensorOptions().dtype(torch::kInt64)));
     const auto step_result = env.Step(action_info);
-    CHECK(spec.state_spec.ValidateObservation(step_result->next_state.obs, /*is_batched=*/true));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(step_result->next_state.obs, /*is_batched=*/true));
     CHECK(step_result->next_state.obs.At(kVectorKey).sizes().vec() == expected_batch_shape);
     RequireFlatApprox(step_result->next_state.obs.At(kVectorKey)[0].slice(/*dim=*/0, 8, 12), { 0.0f, 0.0f, 0.0f, 1.0f });
     CHECK(step_result->next_state.truncated[0].item<bool>() == true);

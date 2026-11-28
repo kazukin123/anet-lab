@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:bf257f72821ba97096f394f85e90b00161e663df date:2026-11-25 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:6c1dc9f466692e79ca9709adf19884f7effbf537 date:2026-11-28 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -204,8 +204,8 @@ sequenceDiagram
     CM-->>App: ConfigData + resolution JSON
     App->>App: MetricsLogger初期化 / config text・resolution metadata保存
     App->>App: backend / repository初期化
-    App->>RM: RunManager(config)
-    RM->>RM: train / configured Eval tag / EvalPanelのnameとeval scheduleを一括検証
+    App->>RM: RunManager(config, reserved_env_names)
+    RM->>RM: Validate train, configured Eval tags, app-reserved Env names, and eval schedules together
     RM->>EB: Train BatchEnvを生成
     EB-->>RM: EnvSpec / BatchEnvSpec
     RM->>AF: Agentを生成
@@ -216,7 +216,7 @@ sequenceDiagram
     RM-->>App: 実行可能なRun
 ```
 
-Type conversion, EnvSpec, device, class ID, Env-name collisions, and Config inconsistencies detected during construction fail before RunnerThread starts. The fixed name `train`, every configured Eval tag, and reserved name `EvalPanel` are validated together before constructing the first BatchEnv. Type-conversion failure follows the contract in [Configuration Resolution](#21-configuration-resolution).
+Type conversion, EnvSpec, device, class ID, Env-name collisions, and Config inconsistencies detected during construction fail before RunnerThread starts. Before constructing the first BatchEnv, RunManager validates the fixed name `train`, every configured Eval tag, and any names reserved by the application. Runner supplies `EvalPanel` as a reserved name. Type-conversion failure follows the contract in [Configuration Resolution](#21-configuration-resolution).
 
 `run.eval.[tag]` defines configured Eval; a definition alone creates nothing. Eval Env, Actor, Observer, and background worker are created only when `interval>0` in `run.eval_schedule.[tag]` periodically drives the same-named definition. Defined tags without schedules or with `interval=0` are dormant: only tag-name/schema validation and reservation occur. Metrics referencing dormant tags report INFO once per tag per Run and skip; references to undeclared tags and schedules targeting undefined tags are errors. For active configured Eval, `RunManager` wraps Env in `EvalSessionEnv`, treating parallel lane count `eval_batch_size` independently from adopted episode count `eval_episodes`. ImageCls requires the standard pair `ImageClsEnv.train.*` and `ImageClsEnv.eval.*`; untagged Eval uses standard Eval configuration, while configured Eval uses a `run.eval.[tag].env.eval.*` overlay.
 

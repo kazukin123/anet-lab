@@ -291,6 +291,7 @@ updated: 2026-11-27
 - [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 - [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md) — forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
+- [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) — RFD0206: 基盤とアプリの小さい直し 12 件（設定の値域と数の読み取り、Replay の n-step と先読み、行動の device の控え、テストと検査の道具、名前の整理、bat の題）
 
 ## 課題
 
@@ -300,12 +301,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261103-955e50](../../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | RFD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [RFD0081](../../../memo/0081_evalpanel_episode_trace_10rfd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
-| [issue-20261123-003c85](../../../management/issues/issue-20261123-003c85.md) | 未着手 | 4.0 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | 不具合 | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 残件有り | Replay は n_step が 0 以下でも構築でき、0 では 1 件も抽選できる状態にならないので、学習も評価も黙って始まらない |
-| [issue-20261123-7671ff](../../../management/issues/issue-20261123-7671ff.md) | 未着手 | 4.0 | — | コード | 監査 | 318_rl_core, 320_env_core | 学習基盤 | 不具合 | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 未確認 | BatchActionInfo::GetAction(device) が index の無い "cuda" をキャッシュの鍵として覚えるので、同じ実体へ同じ device で 2 回目に呼ぶと不一致で止まる |
-| [issue-20261123-ff9a9a](../../../management/issues/issue-20261123-ff9a9a.md) | 未着手 | 4.0 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 未確認 | Replay の prefetch で、遅らせて投入した Push が例外になると、使い終わった future が列に残り、次の同期と終了時のデストラクタで落ちうる |
 | [issue-20261123-3ebab4](../../../management/issues/issue-20261123-3ebab4.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 残件有り | Env の設定のファイル名の衝突検査（RunManager）が、MetricsLogger の private な置換規則と書き出し先の作り方を写して予測している |
-| [issue-20261123-446e6f](../../../management/issues/issue-20261123-446e6f.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | 不具合 | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 残件有り | メトリクスの宣言の数値の属性（interval・ema_alpha・clip ほか）を std::stoi・stof で読むので、後ろの文字が黙って捨てられ、数でない値は設定キーの無い例外になる |
-| [issue-20261123-4df9cc](../../../management/issues/issue-20261123-4df9cc.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 110_runner_app | 学習基盤 | リファクタリング | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 未確認 | core の RunManager が、アプリの EvalPanel があとで作る Runner の名前 "EvalPanel" を文字列で予約し、同じ名前を 2 つの層に書いている |
 | [issue-20261123-ad7829](../../../management/issues/issue-20261123-ad7829.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 残件有り | Runner の counts と scalar の鍵に、一度も進まない sim_step と、reward・reward_ema と同じ値を返す別名 train_reward・train_reward_ema が残る |
 | [issue-20261125-29c3b2](../../../management/issues/issue-20261125-29c3b2.md) | 未着手 | 3.5 | — | コード | 監査 | 317_metrics, 318_rl_core | 学習基盤 | 不整合 | — | 未確認 | metrics.graph の宣言の文法が設計140 に無く、実装は未知の @ や $ の語を黙って捨て、interval を両方 0 以下にすると黙って 1000 step ごとになる |
 | [issue-20261103-1beaf9](../../../management/issues/issue-20261103-1beaf9.md) | 未着手 | 3.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | PipelineTrainRunnerのイベントで、経験と学習結果が1 stepずれた組になる |
@@ -321,7 +317,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261111-645ecc](../../../management/issues/issue-20261111-645ecc.md) | 未着手 | 2.7 | — | コード | 監査 | 317_metrics, 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | メトリクス宣言の語（event・step・target）と enum の対応が 5 か所以上に分かれ、解決済みの定義も同じ値を文字列と enum の 2 形で持っている |
 | [issue-20261111-fe23e0](../../../management/issues/issue-20261111-fe23e0.md) | 未着手 | 2.7 | — | コード | 監査 | 318_rl_core, 320_env_core | 学習基盤 | リファクタリング | — | 残件有り | BatchEnvSpec に「group の数」「group と lane の対応」を返す関数が無く、使う側が三項演算を 19 か所に書き、終端の mask を CPU へ移す処理も関数ごとに書いている |
 | [issue-20261103-b2a0b1](../../../management/issues/issue-20261103-b2a0b1.md) | 未着手 | 2.5 | — | コード | 監査 | 318_rl_core | 学習基盤 | 不具合 | — | 残件有り | ActionSpec::GetShapeが連続行動で次元数ぶんの1を並べた形を返す |
-| [issue-20261123-2709db](../../../management/issues/issue-20261123-2709db.md) | 未着手 | 2.5 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 未確認 | StateSpec::ValidateObservation は bool を返すが、失敗の経路はどれも例外を投げ、false を返すことがない |
 | [issue-20261103-34d35d](../../../management/issues/issue-20261103-34d35d.md) | 未着手 | 2.3 | — | コード | RFD | 318_rl_core | 学習基盤 | 不具合 | [RFD0177](../../../memo/0177_episode_end_read_semantics_10rfd.md) | 残件有り | `@episode_end` で読む値を、どの target でもそのエピソードの値にそろえる |
 | [issue-20261111-2c251b](../../../management/issues/issue-20261111-2c251b.md) | 未着手 | 2.3 | — | コード | 監査 | 318_rl_core | 学習基盤 | リファクタリング | — | 残件有り | Replay の窓の規則 3 クラスが同じ骨格の写しで、PER のスカラーのキーも一覧・条件式・分岐の 3〜4 か所に並んでいる |
 | [issue-20261123-79bf13](../../../management/issues/issue-20261123-79bf13.md) | 未着手 | 2.3 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 残件有り | 観測のキー「base か base.subkey」の解き方が rl.cpp・Replay・probe.cpp・image.cpp の 4 か所にあり、subkey が空のときの扱いと dtype が既に食い違う |
@@ -371,7 +366,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-6661d2](../../../management/issues/issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](../../../management/issues/issue-20261103-f39d10.md), [issue-20261103-2d66d2](../../../management/issues/issue-20261103-2d66d2.md) | コード | RFD | 318_rl_core, 324_dqn, 110_runner_app | 学習基盤 | 機能追加 | [RFD0136](../../../memo/0136_best_checkpoint_10rfd.md) | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
 | [issue-20261103-578986](../../../management/issues/issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](../../../management/issues/issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 
-着手できる 66 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
+着手できる 60 / 待ち 5 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-3e1cf6](../../../management/issues/issue-20261103-3e1cf6.md) — DropMerge の評価スコア（本家互換スコアほか複数の軸）
 - 関連する課題: [issue-20261103-2d66d2](../../../management/issues/issue-20261103-2d66d2.md) — 999: train/eval mode 整理後の排他精査 RFD（草案）

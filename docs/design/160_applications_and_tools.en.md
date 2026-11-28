@@ -1,4 +1,4 @@
-<!-- translated-from: 160_applications_and_tools.jp.md blob:267d69b982491dcbc0e1994881d400261bca57b6 date:2026-11-27 progress:done -->
+<!-- translated-from: 160_applications_and_tools.jp.md blob:7792af6316f42225183b97bc53aebc625ac8a12f date:2026-11-28 progress:done -->
 # Applications and Tools
 
 > Primary perspective: function (Runner GUI, Metrics Viewer, Optuna harness)
@@ -33,7 +33,7 @@ This document covers the runtime layout and how to launch. Runner and Metrics Vi
 | `anet::rl::gui::Panel` | Shared base for Env Views and other panels. Adds `wxFULL_REPAINT_ON_RESIZE` even to explicit constructor styles, so resizing redraws the entire surface while updates are stopped. Views need no individual flag; separate wxGLCanvas windows retain their own settings. It forwards `wxEVT_CHAR_HOOK` as `EVT_FORWARDED_KEY`, calls `Skip` to preserve default key processing, and uses `StopPropagation` to stop propagation to parent windows. Components above Panel receive keys through `EVT_FORWARDED_KEY`. |
 | `TrainPanel` | Updates Env-specific Views from Train events and renders snapshots on a GUI timer |
 | `EvalPanel` | Drives a dedicated `EvalRunner` by timer or forced actions and manages cloned-model synchronization |
-| `QValuePanel` | Visualizes Eval Actor action candidates and passes selected Actions to `EvalPanel`. Prefers `full_q_quantiles`, then falls back to `q_quantiles` and `q_values`. The histogram smoothing radius, `QValuePanel.smooth_radius`, must be an integer of at least 1 and defaults to 4 in code. Startup validates the radius even when smoothing is disabled |
+| `QValuePanel` | Visualizes Eval Actor action candidates and passes selected Actions to `EvalPanel`. Prefers `full_q_quantiles`, then falls back to `q_quantiles` and `q_values`. The histogram smoothing radius, `QValuePanel.smooth_radius`, must be an integer of at least 1 and defaults to 4 in code. Startup validates the radius even when smoothing is disabled. Construction also validates that the histogram bin count, `QValuePanel.hist_bins`, is an integer of at least 1 |
 | `LogPanel` | Provides on-screen wxLog display and level filtering. Includes colors for WARN or higher and VERBOSE, subdued timestamps, unviewed WARN/ERROR counts, and controls for Auto-scroll, Wrap, Indent, Copy all, Clear, and search |
 | `DefaultViewFactory` | Creates Train/Eval Views from Env class IDs |
 | `ImageProviderManager` | Creates/registers configured image Providers/Observers |
@@ -267,7 +267,7 @@ sequenceDiagram
     A->>F: GUI paneを生成・表示
     A->>I: 設定のコピーで構築を開始
     A-->>OS: OnInitからtrue（イベントループ開始）
-    I->>R: RunManager(ConfigData)
+    I->>R: RunManager(ConfigData, reserved_env_names)
     R-->>I: Agent、Train Runner、configured Eval
     I-->>A: 完了を通知
     A->>I: join、結果を一度だけ受領

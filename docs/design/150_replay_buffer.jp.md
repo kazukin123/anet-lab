@@ -273,7 +273,7 @@ futureを起動する前の`Push`はinnerへ同期委譲する。prefetch中の`
 |---|---|
 | replay capacity | 全laneを合わせた要求容量。実容量はlane数の倍数へ切り下げる |
 | `reward_component_count` / `needs_return_recompute` | 成分数（既定1）と、その数のboolフラグ。真の成分は`FinalizeReturns`で抽選・消費時のγから収益を作り直す。長さが成分数と違う構成はERROR。いずれかが真ならstep報酬snapshotを保持する |
-| `n_step` | target returnの将来長 |
+| `n_step` | target return の将来長。1 以上。0 以下は ReplayBuffer の構築時に拒否する |
 | sampler type | uniformまたはprioritized |
 | `per_alpha` | priorityをsample確率へ反映する強さ |
 | `per_initial_priority` | 新規transitionの初期priority |

@@ -288,6 +288,7 @@ updated: 2026-11-26
 - [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md) — RFD0194: エラー・WARN・INFO が示す設定キーを完全キーにする（device の二重の fatal、指標名、用語の不整合 6 件を含む）
 - [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md) — RFD0195: 文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にし、今使っている場所をすべて移す PRD
 - [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md) — forwarder.hpp の公開の口の作り直し（作る側と作られるものを分け、spec を依頼ごとに渡す） RFD
+- [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) — RFD0206: 基盤とアプリの小さい直し 12 件（設定の値域と数の読み取り、Replay の n-step と先読み、行動の device の控え、テストと検査の道具、名前の整理、bat の題）
 
 ## 課題
 
@@ -300,8 +301,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261117-eedd0c](../../../management/issues/issue-20261117-eedd0c.md) | 調査中 | 2.6 | — | コード | 実装 | 110_runner_app | UI | 不具合 | — | 残件無し | Evaluation Trace の単一行選択テストが合成ドラッグ後に失敗する |
 | [issue-20261103-955e50](../../../management/issues/issue-20261103-955e50.md) | 調査中 | 1.2 | — | コード | RFD | 318_rl_core, 317_metrics, 110_runner_app, 311_dev_tools, 120_metrics_viewer | UI | 機能追加 | [RFD0081](../../../memo/0081_evalpanel_episode_trace_10rfd.md) | 残件有り | EvalPanel のゲームを trace へ出す — dormant タグの trace を鏡写しインスタンスへ結び付け、trace 行の時刻で振り返る |
 | [issue-20261111-9e6e27](../../../management/issues/issue-20261111-9e6e27.md) | 未着手 | 3.6 | — | コード | RFD | 110_runner_app | UI | 機能改善 | — | 残件有り | 無人で走るRun（番号付きbat）でWARNに気づけない |
-| [issue-20261120-1979f6](../../../management/issues/issue-20261120-1979f6.md) | 未着手 | 3.5 | — | コード | 実装 | 110_runner_app | UI | 不具合 | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 残件有り | QValuePanel.hist_bins=0 が設定検証を通り、描画処理で空のヒストグラムを参照しうる |
-| [issue-20261123-4df9cc](../../../management/issues/issue-20261123-4df9cc.md) | 未着手 | 3.5 | — | コード | 監査 | 318_rl_core, 110_runner_app | 学習基盤 | リファクタリング | [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md) | 未確認 | core の RunManager が、アプリの EvalPanel があとで作る Runner の名前 "EvalPanel" を文字列で予約し、同じ名前を 2 つの層に書いている |
 | [issue-20261123-7bc755](../../../management/issues/issue-20261123-7bc755.md) | 未着手 | 3.5 | — | 文書 | 監査 | 110_runner_app, 319_gui | 開発 | 調査 | — | 未確認 | Logs の折り返し整列テストの失敗を 2 件の課題が扱い、調査中の 61ad60 は原因未特定のまま、RFD0113 の 15f115 が同じ失敗の原因と直す場所を特定している |
 | [issue-20261123-c455b5](../../../management/issues/issue-20261123-c455b5.md) | 未着手 | 3.3 | — | コード | 実装 | 311_dev_tools, 110_runner_app | 開発 | 不具合 | — | 残件有り | 既定のスイートの batchrun_fatal_error_handling_test が、前の Run の重みを読む段を持つキューを既定にした bat で、重みが無い段を失敗に数えて落ちる |
 | [issue-20261103-c8fb06](../../../management/issues/issue-20261103-c8fb06.md) | 未着手 | 3.0 | — | コード | RFD | 312_util, 110_runner_app | 基盤 | 機能改善 | [RFD0071](../../../memo/0071_uncaught_fatal_visibility_10rfd.md) | 残件有り | RFD0071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
@@ -337,7 +336,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-6661d2](../../../management/issues/issue-20261103-6661d2.md) | 未着手 | 1.3 | [issue-20261103-f39d10](../../../management/issues/issue-20261103-f39d10.md), [issue-20261103-2d66d2](../../../management/issues/issue-20261103-2d66d2.md) | コード | RFD | 318_rl_core, 324_dqn, 110_runner_app | 学習基盤 | 機能追加 | [RFD0136](../../../memo/0136_best_checkpoint_10rfd.md) | 残件有り | best checkpoint の自動保存（eval 自己ベスト更新時の重み保持） |
 | [issue-20261103-578986](../../../management/issues/issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](../../../management/issues/issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 
-着手できる 37 / 待ち 3 / 保留 0 / 次版 0 / 解決 0
+着手できる 35 / 待ち 3 / 保留 0 / 次版 0 / 解決 0
 - 関連する課題: [issue-20261107-949e8a](../../../management/issues/issue-20261107-949e8a.md) — AtariのRAMメトリクスに値の種類数とビットを数える畳み方が無く、Montezumaの訪れた部屋の数や持ち物を記録できない
 - 関連する課題: [issue-20261103-2d66d2](../../../management/issues/issue-20261103-2d66d2.md) — 999: train/eval mode 整理後の排他精査 RFD（草案）
 - 関連する課題: [issue-20261103-9bd71e](../../../management/issues/issue-20261103-9bd71e.md) — 直前行動観測の共通部品（`prev_action` フレーム段）

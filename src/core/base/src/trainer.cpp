@@ -536,7 +536,9 @@ StepCounts SerialTrainRunner::DoStep(const MakeActionOptions& options)
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
         ANET_ASSERT_DEVICE_CPU_MSG(state_.obs, "Initial state");
-        ANET_ASSERT(env_spec.state_spec.ValidateObservation(state_.obs));
+#if ANET_ENABLE_ASSERT
+        env_spec.state_spec.AssertObservation(state_.obs);
+#endif
 
         // 時間計測開始
         start_time_ = std::chrono::high_resolution_clock::now();
@@ -677,7 +679,9 @@ StepCounts PipelineTrainRunner::DoStep(const MakeActionOptions& options)
         env_initialized_ = true;
         //ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
         ANET_ASSERT_DEVICE_CPU_MSG(state_.obs, "Initial state");
-        ANET_ASSERT(env_spec.state_spec.ValidateObservation(state_.obs));
+#if ANET_ENABLE_ASSERT
+        env_spec.state_spec.AssertObservation(state_.obs);
+#endif
 
         // 時間計測開始
         start_time_ = std::chrono::high_resolution_clock::now();
@@ -921,7 +925,7 @@ private:
 private:
 };
 
-RunManager::RunManager(const ConfigData& source_config_data)
+RunManager::RunManager(const ConfigData& source_config_data, std::vector<std::string> reserved_env_names)
 {
     // 部品を複製しても通知は Run ごとに数え、次の Run では記録を持ち越さない。
     LOG::ResetNotifications();
@@ -956,7 +960,9 @@ RunManager::RunManager(const ConfigData& source_config_data)
         }
     };
     validate_planned_name("train", "main Train");
-    validate_planned_name("EvalPanel", "EvalPanel");
+    for (const auto& name : reserved_env_names) {
+        validate_planned_name(name, name);
+    }
     for (const auto& [tag, eval_config] : eval_configs) {
         (void)eval_config;
         validate_planned_name(tag, "configured Eval tag '" + tag + "'");
