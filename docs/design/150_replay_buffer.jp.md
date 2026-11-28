@@ -73,7 +73,7 @@ frame stackingには2つの利用箇所がある。
 
 ring上書きで失われた履歴はepisode境界ではないためpaddingせず、`ValidIndexManager`が該当transitionをsampleable rangeから除外する。true terminalの`next_obs`値は学習contract上の保証対象外だが、同じ履歴開始規則から決定的に復元される。
 
-DefaultDQN は Agent 直下の `frame_stack.*` から枚数とキーを決め、ReplayBuffer と各 Forwarder の依頼に渡す。ReplayBuffer は `GetSampleObsSpecs` で `obs` と `next_obs` の spec を答える。1枚では軸なしの `[B, *frame_shape]` を返し、対象キーの長さ1の軸は Sample の後に揃える。複数枚では ReplayBuffer の stack 軸を使う。TempoRL の窓の次観測も同じ形を使う。[Forwarder と Perception](135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)を参照。
+DefaultDQN は Agent 直下の `frame_stack.*` から枚数とキーを決め、ReplayBuffer と各 Forwarder の依頼に渡す。ReplayBuffer は `GetSampleObsSpecs` で `obs` と `next_obs` の spec を答える。1枚では軸なしの `[B, *frame_shape]` を返し、対象キーの長さ1の軸は Sample の後に揃える。複数枚では ReplayBuffer の stack 軸を使う。TempoRL の窓の次観測も同じ形を使う。[Forwarder と Perception](135_forwarder_and_perception.jp.md#64-sample)を参照。
 
 ### 2.4 PER
 
