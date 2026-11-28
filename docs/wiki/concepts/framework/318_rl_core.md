@@ -96,12 +96,14 @@ updated: 2026-11-28
 - 2026-11-15: Actorに、同期に従うもの（`ActorSyncFollower`）をつなぐ口（`AttachSyncFollower`）を足した。Actorは、sourceから写し直すとき、sourceを守るロックの中でそれを呼び、相手を所有しない。基底の既定は、つながずに偽を返す（出典: [RFD0127](../../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§3・§4 D4・§6.1）。
 - 2026-11-15: step診断の部品（`AgentStepDiagnosticsProvider`）に、休ませる口（`Suspend`）と使い始める口（`Resume`。Actorの同期が要るかを返す）を足した。基底の既定は、何もせず、偽を返す（出典: [RFD0127](../../../memo/0127_eval_trace_intrinsic_reward_columns_10rfd.md)、§4 D20・§5.4・§6.1）。
 - 2026-11-17: 行動選択に添える入力をMakeActionOptionsにし、Runnerのstep（DoStep・DoUpdateFrame）とActorのMakeActionの引数で都度渡すようにした。nn_traceは要求したstepだけ作り、coreに要求の登録を持たない（出典: [RFD0170](../../../memo/0170_nn_trace_capture_unification_10rfd.md)、§4 D2・D3・D4・D6；[ADR 0072](../../../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md)）。
+- 2026-11-17: エピソード終端と Trainer のテストの RFD 参照を起票日順で振り直した番号へそろえた（出典: [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、§4 D4・D5、§5.6）
 - 2026-11-19: Replay・Observer・Runnerの共通基盤のファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ、MuZeroのReplayを系統のライブラリ（`src/algo/muzero`）へ移し、テストがほかのライブラリを使うときは公開ヘッダとテスト用の口を通す形にした（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4・D12）。
 - 2026-11-20: Notifierの`Attach`・`Detach`・`Notify`などを別々のスレッドから同時に呼んでもObserverの列が壊れないようにし、`Detach`は進行中の通知を待たず、Observerをロックの外で呼ぶようにした（出典: [RFD0192](../../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D1〜D5；[ADR 0082](../../../adr/0082-notifier-detach-does-not-wait-for-in-flight-notifications.md)）。
 - 2026-11-20: 呼んでよいスレッドと時点を、Notifierと、キャッシュを持つ`BatchStepResult`・`ReplayInitialPriorityHint`・`BatchActionInfo`の宣言のコメントに書いた（出典: [RFD0192](../../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D7）。
 - 2026-11-21: Observer・ReplayBuffer・RunManagerのエラー・WARN・INFOが示す設定キーを完全キーにし、評価の`scheduled`の行の各欄も完全キーで示すようにした（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D25）。
 - 2026-11-22: 強制行動は`MakeAction`の入力とし、Actorの出力を実行された行動にする（出典: [ADR 0083](../../../adr/0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)、本文）。
 - 2026-11-23: 強制行動を`MakeActionOptions`の欄（`ForcedActions`）でActorへ渡す形にし、行動の引数を持つ`EvalRunner::DoStep`と、あとから差し替えるWithActionを消し、Runnerの「強制したか」の記録をlaneの印から作るようにした。Runnerに強制行動を渡す口は1つになり、負数が「強制なし」を表す決まりは無くなった（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D7〜D10・D12・D15・D16）。
+- 2026-11-23: テストのタグで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
 - 2026-11-24: 重ねる枚数とキーの設定はAgent全体に置き、Sampleの束のspecはReplayBufferが答える（出典: [ADR 0095](../../../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、本文）。
 - 2026-11-25: ReplayBufferが、Sampleで返すobsとnext_obsのspecを答える口（`GetSampleObsSpecs`）を、通常とプリフェッチの両方に足した。Sample用のForwarderはこのspecを受けて作る（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.2 D14・§6.9）。
 - 2026-11-28 — ReplayBuffer の `n_step` の値域と、先読みの結果を処理する際の例外後の状態を修正した。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§1.2・§6）
@@ -179,6 +181,8 @@ updated: 2026-11-28
 - RunManager が EpisodeEvalObserver だけを直接保持し、終了時に待つ形 — 不採用。背景処理を持つほかの Observer にも使える API を優先した（出典: [RFD0076](../../../memo/done/0076_eval_session_drain_on_exit_10rfd.md)、Complexity audit）。
 - 抽選範囲を余分に狭めて壊れた観測履歴を出さない形 — 不採用。エピソード由来の不足は補い、上書きで失った履歴は既存の sampleable 範囲で除外する条件を区別する必要がある（出典: [RFD0078](../../../memo/done/0078_replay_frame_history_integrity_10rfd.md)、1. 問題と目的（Problem Statement / Solution））。
 - n-step の和に、次のエピソードの報酬まで足す形 — 範囲外: Replay の窓がエピソードをまたぐ契約の変更になる別の関心。内的を終端で切らない形の bootstrap は、窓を変えずに作れる（出典: [0121_extrinsic_intrinsic_value_decomposition_10rfd.md](../../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§1.4）。
+- テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
+- テストの参照と検証資材に旧い番号を残す形 — 不採用: 設計文書に記した番号と検証資材の番号の対応に例外が残る（出典: [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、§8）
 
 ## 変えるときの条件
 
@@ -215,6 +219,8 @@ updated: 2026-11-28
 - 優先度の計算と転送を前倒ししても、ReplayBuffer の優先度を書き換える UpdatePriorities の呼び出しは Optimize の後に保つ（出典: [RFD0021](../../../memo/done/0021_replay_per_priority_transfer_10rfd.md)、Implementation Decisions）。
 - Mixup 無効時は既存の loss と accuracy に bit 一致し、バッチが2件未満の場合も通常の cross entropy と一致することを確認する（出典: [RFD0030](../../../memo/done/0030_imagecls_mixup_cutmix_10rfd.md)、受け入れ基準）。
 - action_info のメトリクスの読み取りを変えるときは、scalar を返す場合と返せない場合、未知キー、値の未成立、対象外イベントを公開の通知経路で比べ、step と NaN・nullopt・不正イベントの停止の意味を保つ（出典: [RFD0178](../../../memo/done/0178_metrics_action_info_dynamic_cast_10rfd.md)、「取り組むこと」「完了の目安と未決」）。
+- テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
+- RFD の採番を変更した場合は、テストタグ・検証資材を対応する新番号で引けることを確かめる（出典: [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、§4 D5・§6）
 
 ## 外の事例
 

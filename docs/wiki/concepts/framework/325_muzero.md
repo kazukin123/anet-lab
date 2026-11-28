@@ -4,7 +4,7 @@ page_kind: フレームワーク
 aliases:
   - 325_muzero
 description: MuZeroAgentは登録済みAgentの試作実装である。
-updated: 2026-11-26
+updated: 2026-11-28
 ---
 # 325 Agent個別実装 MuZero系列
 
@@ -21,6 +21,7 @@ updated: 2026-11-26
 - 2026-08-30: Network Head構築のweight norm設定を接続した（出典: [RFD0065](../../../memo/done/0065_nn_spectral_norm_10rfd.md)、題・目的）。
 - 2026-09-08: Actor 設定は名前付きカタログ参照とし、Agent インタフェースから RunMode を外す（出典: [ADR 0038](../../../adr/0038-actor-config-catalog-without-runmode.md)、本文）。
 - 2026-09-19: MuZero試作AgentのActor生成をカタログ参照へ移行した（出典: [RFD0061](../../../memo/done/0061_eval_slot_policy_override_10rfd.md)、題・目的）。
+- 2026-10-10: 共通 Network に NoisyNet の実行設定を導入した際、MuZero の推論を既定の forward 経路へそろえた（出典: [RFD0084](../../../memo/done/0084_noisynet_10rfd.md)、§4.2）
 - 2026-10-26: ProfiledValueの導入対象を本線の探索・学習へ絞り、試作MuZero固有の温度は対象外とした（出典: [RFD0101](../../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§3の非ゴール）。
 - 2026-11-11: MuZeroのReplayのエピソード終端での価値ターゲットの打ち切りとunroll窓のmaskに、短いエピソードを手で作る5場面のテストを足した（出典: [RFD0122](../../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§1.1・§4 D4）。
 - 2026-11-12: MuZeroのActorのカタログ項目を読み口の範囲で読み、読まれない設定キーがあれば構築時に止めるようにした（出典: [RFD0117](../../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D3）。
@@ -46,6 +47,7 @@ updated: 2026-11-26
 
 - MuZeroのReplayの価値ターゲットの打ち切りとunroll窓のmaskは、5場面のテストが今の値のまま断定している。truncatedで終わるときに補う値が、打ち切った次の状態ではなく最後のstep自身の`root_value`であることも、誤りの疑いをテストのコメントに書いたうえで断定している（出典: [RFD0122](../../../memo/0122_small_refactor_and_test_gap_fixes_10rfd.md)、§4 D4・D15）。
 - MuZeroのライブラリは基盤の公開ヘッダだけを読み、テストは兄弟のライブラリに依存しない。ターゲットの依存とincludeは、検索と道具の検査で確かめる（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§5.4・§6 のS3-1〜S3-5）。
+- MuZero のように名前付き NN 実行設定を持たない Agent では、既定の forward を使い、Noisy の計算を μ-only とする（出典: [RFD0084](../../../memo/done/0084_noisynet_10rfd.md)、§4.2）
 
 ## 外の事例
 

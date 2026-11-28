@@ -8,7 +8,7 @@ aliases:
   - dead ratio
   - SN
 description: 同じ勾配 step 付近での摩耗は replay ratio が違っても似ていたが、その間に入る新規データ量と成績の推移は異なった。崩壊時に重みが膨らんだのは feature 側だった。
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 # 可塑性指標と成績
 
@@ -37,7 +37,7 @@ Breakout では SiLU や LN512 で可塑性の指標が改善しても、RR8 の
 - qbert では勾配のクリップ閾値を上げた合算で眠ったユニットが最も少なく、Greedy の得点も全変種中で最も低かった → 詳しくは [行動の時間尺度](../methods/temporal_abstraction.md)（出典: [qbert の学習比較](../../../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md)、探索ブロック 01・03）。
 - 実時間優先 seed 2 の Atari-5 は 10〜20M から 90〜100M に action_churn が全ゲームで 38〜69% 減ったが、q_gap が縮んだのは battle_zone だけ。特徴の重みのノルムは全ゲームで 37〜88% 増えた。終盤の srank_ratio は 0.863〜0.921、dormant_ratio は 0.009〜0.117 だった（出典: [実時間優先の Atari-5 記録](../../../experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)、探索ブロック 04）。
 - Breakout の可塑性測定で srank の閾値を3通り、probe batch を512と4096に変えても、崩壊時の変化は −3〜6% だった。今回の損傷を拾う感度は低かった（出典: [Atari / 可塑性メトリクスの較正と保護機構の初回評価](../../../experiments/default-dqn/atari/2026-08-28_plasticity.md)、探索ブロック03。Run: `run_20260829-094914_ab_s2_probe_b4096_5m` ほか）。
-- RR8・5M の zero-init residual 試験は `res.init2.mode` が黙殺され、2本とも対照と同一構成だった。zero-init の効果は未検証（出典: [Atari / 可塑性の保護機構 screening（新バンドル・RR8 アッセイ）](../../../experiments/default-dqn/atari/2026-08-30_protection-screening.md)、探索ブロック04。Run: `run_20260830-065617_b_init_he`、`run_20260830-075903_b_init_he`）。
+- RR8・5M の zero-init residual 試験では、`init2.mode` を `res.init2.mode`（当時の誤記）と書いたため設定が無視され、2本とも対照と同一構成だった。この試験で zero-init の効果は判定できなかった（出典: [Atari / 可塑性の保護機構 screening（新バンドル・RR8 アッセイ）](../../../experiments/default-dqn/atari/2026-08-30_protection-screening.md)、探索ブロック04。Run: `run_20260830-065617_b_init_he`、`run_20260830-075903_b_init_he`）。
 - Breakout の RR4 で Linear512 直後に LayerNorm を入れると45–50M の評価平均は378.4、無保護対照は295.7だった。RR1 の25–50M 評価平均の差は対照のブレ幅に収まった（出典: [Atari Breakout: RR4 天井と LayerNorm](../../../experiments/default-dqn/atari/2026-08-31_rr4-ceiling-ln512.md)、探索ブロック01・02。Run: `run_20260831-050214_i_rr4_ln512_breakout`、`run_20260831-124349_j_rr1_ln512_breakout`）。
 - Breakout の τ 整合と LayerNorm を組み合わせた条件では、表現指標を保ちながら15M step 以降の壁突破率が LN512 単独より低下した（出典: [RFD0066](../../../memo/done/0066_policy_churn_metrics_10rfd.md)、Context / Problem Statement）。
 

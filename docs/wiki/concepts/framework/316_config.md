@@ -7,7 +7,7 @@ aliases:
   - 在庫
   - 完全キー
 description: ConfigDataに設定を集約し、ConfigResolverがinclude・selection・Run・CLI・継承とprofileを解決する。
-updated: 2026-11-26
+updated: 2026-11-28
 ---
 # 316 設定管理
 
@@ -45,10 +45,15 @@ updated: 2026-11-26
 - 2026-10-28: split・skipのsample_weightなどの設定値と既定値を整理した（出典: [RFD0103](../../../memo/done/0103_temporl_reference_alignment_10rfd.md)、§5.1・§5.8）。
 - 2026-10-29: Actorのfull・single・variableと補助学習用の窓の組み合わせを検証する設定へ広げた（出典: [RFD0104](../../../memo/done/0104_temporl_skip_auxiliary_only_10rfd.md)、§5.1・§5.2）。
 - 2026-10-30: Evaluation Traceの強制行動・列・ダンプに関わる設定を同期した（出典: [RFD0105](../../../memo/done/0105_eval_trace_arrow_key_forced_action_10rfd.md)、§5.7）。
+- 2026-11-10: 評価スケジュールの間隔・ずらす量・初回抑止の出荷設定を基準テストで確かめるようにした（出典: [RFD0158](../../../memo/0158_eval_schedule_first_fire_10rfd.md)、§5.3・§7）
 - 2026-11-11: WARN は利用者が直すべき状態に限り、読まれない設定キーは NoCare にせず検出する（出典: [ADR 0071](../../../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md)、本文）。
 - 2026-11-12: 実効設定の読み取りを元の完全なキーで記録し、実体化したカタログ項目の読まれない設定キーは構築時に止め、それ以外は在庫を除いてRunの構築の終わりに1件のWARNで一覧するようにした。旧キーのNoCareをやめ、設定の用語の「葉」を「設定キー」に改めた（出典: [RFD0117](../../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D3・D4・D6・D14・§5.2〜§5.4）。
+- 2026-11-15: 外的・内的価値の分解と組み合わせる出荷設定の検証を足した（出典: [RFD0121](../../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§9.2）
+- 2026-11-17: 設定の基準テストの RFD 参照を起票日順で振り直した番号へそろえた（出典: [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、§4 D4・D5、§5.6）
 - 2026-11-19: 設定管理のファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
 - 2026-11-21: エラー・WARN・INFOが示す設定キーを完全キーで書くため、ConfigDataの項目と読み口（anet::Config）が値を与えた完全キーを記録し、設定の型と一緒に部品へ運ぶようにし、上書きの接頭辞が空の読み口がroot直下の相対キーを読まないようにした（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D4・D18・§6.2；[ADR 0087](../../../adr/0087-messages-name-config-keys-by-full-key-recorded-at-read-time.md)、本文）。
+- 2026-11-23: テストのタグで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
+- 2026-11-23: 観測加工の出荷設定を移行し、設定の固定入力と未読キー検査を新しい配置にそろえた（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§7.5・§7.8）
 
 ## 選ばなかった形
 
@@ -76,6 +81,8 @@ updated: 2026-11-26
 - NN 配線と分位モードを別々に選んだまま整合性検証だけを追加する — 不採用: 利用者が離れた2か所の選択をそろえる必要が残る（出典: [ADR 0030](../../../adr/0030-nn-config-tree-under-agent-prefix.md)、Considered Options）。
 - Run プロファイルや CLI の個別値を最終上書きに限定し、選択先に伝播させない — 不採用: 選択で共有されている設定では、上書きした値が派生先に届かない（出典: [ADR 0040](../../../adr/0040-config-selection-final-value-and-run-profile-tier.md)、Considered Options）。
 - 評価スケジュールの旧位置にあるキーだけを検出して移行エラーを出す形 — 不採用。旧キー専用の検出処理を残す必要があり、取り残しはロールログで確認できる（出典: [RFD0052](../../../memo/done/0052_eval_schedule_separation_10rfd.md)、§7）。
+- テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
+- テストの参照と検証資材に旧い番号を残す形 — 不採用: 設計文書に記した番号と検証資材の番号の対応に例外が残る（出典: [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、§8）
 
 ## 変えるときの条件
 
@@ -95,6 +102,11 @@ updated: 2026-11-26
 - 完全キーの記録を足しても、完全キーで書かれた設定の解決の結果（config_data.txtとModuleごとのdump）と、読まれない設定キーの検出の結果を変えない。完全キーを引くことは、項目を読んだことにしない（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§6.4・§7 A7・A11）。
 - ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
 - 既定値の宣言を書き直した17入力について、解決後の全キーと文字列値を以前の golden と照合する。値の一致と選択経路の検査は分ける（出典: [RFD0072](../../../memo/done/0072_config_selection_final_value_10rfd.md)、§6）。
+- テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
+- RFD の採番を変更した場合は、テストタグ・検証資材を対応する新番号で引けることを確かめる（出典: [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、§4 D5・§6）
+- 価値分解の出荷設定を変えるときは、設定ファイルを解決して受入対象の組み合わせを確かめる（出典: [RFD0121](../../../memo/0121_extrinsic_intrinsic_value_decomposition_10rfd.md)、§9.2 の出荷設定の検証）
+- 評価スケジュールの既定を変えるときは、Atari の通常構成と評価専用、LunarLander・GridMaze・DropMerge のスキップ構成で解決結果を確かめる（出典: [RFD0158](../../../memo/0158_eval_schedule_first_fire_10rfd.md)、§7）
+- 観測加工の設定を移すときは、旧キーが製品コードと出荷設定に残っていないことと、未読キーの検証が旧キーを検出することを確かめる（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§7.8・§9）
 
 ## 外の事例
 

@@ -5,7 +5,7 @@ aliases:
   - 312_util
   - warn_once
 description: 設定からRunを組み立てる実行基盤のうち、初期化、seed、schedule、log、application共通処理の所在を引く。
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 # 312 ユーティリティ
 
@@ -46,6 +46,7 @@ updated: 2026-11-27
 - 2026-11-21: device指定の文法の誤りのfatalを1回にするため、ParseDeviceがキーの名前を必須で受け取ってInitRLが例外を捕まえない形にし、明示のcudaが使えないときのエラーにキーごとの指定値を並べた（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D8・D9・§6.3）。
 - 2026-11-22: TensorSpec に、値の尺度と stack 軸の 2 つの属性を持たせる（出典: [ADR 0085](../../../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、本文）。
 - 2026-11-23: `TensorSpec`に、値の尺度（`scale`）と、stack軸を持つか（`has_stack_axis`）の属性を足し、specのJSONに`scale`と`stack_axis`の欄を出すようにした（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D17・D19）。
+- 2026-11-23: テストのタグで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
 - 2026-11-25: `InitRL`が、NNの標準のmoduleと同じ所で、Forwarderの標準の部品を登録するようにした（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.1 D6）。
 
 ## 選ばなかった形
@@ -69,6 +70,7 @@ updated: 2026-11-27
 - `TensorSpec`に加工ごとのフラグ（正規化しない、重ね済み）を持つ形 — 不採用（却下）: specが加工の名前を知り、加工が増えるたびに欄が増える（出典: [ADR 0085](../../../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、Considered Options）。
 - 正規化から外すキーを、設定のキーの一覧だけで決める形 — 不採用（却下）: 実装が足すキーを設定に書き忘れると対象になる（出典: [ADR 0085](../../../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、Considered Options）。
 - 複数の区間を跨いだとき、遅れた分を同じイベントで繰り返し発火する — 不採用: 途中時点の状態は残っておらず、同じ値を複数回記録するだけになる（出典: [ADR 0028](../../../adr/0028-interval-fires-on-bucket-crossing.md)、Considered Options）。
+- テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
 
 ## 変えるときの条件
 
@@ -85,6 +87,7 @@ updated: 2026-11-27
 - 間隔をまたぐ判定へ移しても、従来の剰余判定が記録した step 0 の最初の点を保つ。評価間隔の変化が学習に波及していないことは同じ seed の学習曲線で確かめる（出典: [RFD0053](../../../memo/done/0053_interval_gate_perf_ema_10rfd.md)、§0・§4）。
 - ProfiledValue の指数スケジュールを変えるときは、最上位では指定した終値へ漸近し続け、phased の最終区間ではその区間の最終 step で計算した値を以後も保つという境界の違いを確かめる（出典: [RFD0101](../../../memo/done/0101_exploration_schedule_profiled_value_10rfd.md)、§4.1 D2・§6 の単体テスト）。
 - 基盤の初期化で Forwarder の部品を登録する箇所を動かすときは、同じ `type` の二重登録、登録されていない `type` の設定、依頼の種類を扱えない部品を含む構成が、それぞれ登録時または構築時のエラーになることを確かめる（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.1 D6・§5 D20）。
+- テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
 
 ## 外の事例
 

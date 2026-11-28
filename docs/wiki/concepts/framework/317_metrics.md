@@ -41,6 +41,7 @@ updated: 2026-11-28
 - 2026-11-19: 可視化・メトリクスのファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
 - 2026-11-20: VideoLoggerが、構築時と違う大きさの画像を動画に書かず、tagごとにRunで1回だけWARNを出して続けるようにした（出典: [RFD0192](../../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D8）。
 - 2026-11-21: video_codecのエラーが`app.metrics_logger.video_codec`の完全キーを示すよう、MetricsLoggerの設定の型が完全キーの記録を運ぶようにし、hiddenの設定検査と設計文書の指標名を出荷定義の名前に合わせた（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D1・D11）。
+- 2026-11-23: テストのタグで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
 - 2026-11-28 — Observer の記録フローと trace の座標を設計文書に追記した。（出典: [RFD0205](../../../memo/0205_design_doc_and_glossary_alignment_10rfd.md)、§1.2）
 - 2026-11-28 — 数値属性を読み切り、値が不正なメトリクス設定を構築時に拒否するようにした。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§5.2）
 
@@ -69,6 +70,7 @@ updated: 2026-11-28
 - 動画の最初の画像が無効なとき、最初の有効な画像が来るまでVideoLoggerを作らない形 — 範囲外: 題材の事象（作ったあとの読み）の外である（出典: [RFD0192](../../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§6.3・§9のU3）。
 - 40文字を超えているskipの指標のtagを、40文字に収まる名前へ変える形 — 不採用: 10月29日以後のRunの記録とtagが分かれ、同じグラフに重ならなくなる（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D11・§5.1）。
 - 個体の識別子を scalar の step の小数部分へ埋め込む — 不採用: 整数の step、範囲指定、LOD の集約と同じ軸で扱えなくなる（出典: [ADR 0037](../../../adr/0037-metrics-trace-channel-and-session-end-event.md)、Considered Options）。
+- テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
 
 ## 変えるときの条件
 
@@ -88,6 +90,7 @@ updated: 2026-11-28
 - 個体 trace の導入前後では、決定的な同 seed、foreground 評価の条件で、時間に依存しない scalar の件数、step、値を突き合わせる（出典: [ADR 0037](../../../adr/0037-metrics-trace-channel-and-session-end-event.md)、Consequences）。
 - 観測の一部を probe で選ぶときも既存のパーサを使い、キーを付けていない既存設定の読み方を保つ（出典: [RFD0010](../../../memo/done/0010_image_metrics_v2_10rfd.md)、§2）。
 - scalar と trace の定義処理を共通化しても、scalar の既存の上書き順、既定値、診断を維持する。trace の data オブジェクトのキー順には依存しない（出典: [RFD0069](../../../memo/done/0069_metrics_trace_channel_10rfd.md)、§6）。
+- テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
 
 ## 外の事例
 

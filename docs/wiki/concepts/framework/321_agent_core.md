@@ -4,7 +4,7 @@ page_kind: フレームワーク
 aliases:
   - 321_agent_core
 description: Agent、Actor、Learnerの生成・行動・更新と、Agentが所有するResource、更新部品が所有するStateの境界を扱う。
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 # 321 Agent 共通基盤
 
@@ -63,6 +63,8 @@ updated: 2026-11-27
 - 2026-10-03: NoisyNet の ε は module に持たせず、呼び出し側所有の NN 実行状態と NN 実行設定キーで駆動する（出典: [ADR 0048](../../../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)、本文）。
 - 2026-10-10: ActorとLearnerの用途別forwardをNN実行設定の参照へ接続した（出典: [RFD0084](../../../memo/done/0084_noisynet_10rfd.md)、§4.2・§6・§7）。
 - 2026-10-10: NN Forward の設定解釈を事前準備へ移し、用途別実行オブジェクトが State と Network の寿命を持つ（出典: [ADR 0051](../../../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)、本文）。
+- 2026-10-15: DefaultDQN の Learner が checkpoint を読み込む際に、optimizer の状態を引き継ぎ、設定値は現在の値を適用するようにした（出典: [RFD0091](../../../memo/done/0091_checkpoint_load_optimizer_options_10rfd.md)、§2・§4）。
+- 2026-10-15: checkpoint の optimizer を復元した後に、現在の設定から作った option を param group ごとに適用する判断を記録した（出典: [ADR 0053](../../../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)、決定）。
 - 2026-10-16: Learnerの更新内で勾配ノイズを測り購読とEMAをAgent側へ接続した（出典: [RFD0092](../../../memo/done/0092_gradient_noise_scale_10rfd.md)、§4・§6・§9.1）。
 - 2026-10-16: forward の持ち帰りは鍵要求型の capture 1 つに統一し、module の診断も同じ器で運ぶ（出典: [ADR 0055](../../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)、本文）。
 - 2026-10-16: 勾配ノイズスケールは更新自身の batch を小バッチに分けて学習経路の中で測り、BF16 も対象にする（出典: [ADR 0054](../../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md)、本文）。
@@ -97,7 +99,9 @@ updated: 2026-11-27
 - 2026-11-21: RNDの設定は、段階ごとのスコープとモード別の名前空間で持ち、被るキーは割り切る（出典: [ADR 0088](../../../adr/0088-rnd-config-is-scoped-by-stage-with-per-mode-namespaces.md)、本文）。
 - 2026-11-22: 強制行動は`MakeAction`の入力とし、Actorの出力を実行された行動にする（出典: [ADR 0083](../../../adr/0083-forced-actions-are-make-action-input-and-actor-output-is-executed-action.md)、本文）。
 - 2026-11-23: DQNのActorが、行動選択のPerceptionをForwarderの並びから作り、方策の選択・skipの適用のあとに強制行動を反映してからヒントを計算する形にした。TempoRLのskipが有効なActorは、強制したlaneの継続状態を捨て、そのstepを長さ1の判断として記録する。LearnerはSampleの観測（obs・next_obs・skipの窓の終点）のすべてに同じ並びのForwarderを当てる（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D11〜D13・§6.4 D31・§7.2）。
+- 2026-11-23: テストのタグで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
 - 2026-11-25: DQNのActorが、実行器の代わりに行動選択用のForwarderを持ち、episodeの開始の印を入力の鍵（`episode_start`）で渡すようにした。Learnerは、ReplayBufferを作ったあとに、ReplayBufferが答えた束のspecを渡してSample用のForwarderを作る（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.1 D1・§5.2 D14・§6.5）。
+- 2026-11-28: DQN 系の共有部品で、Learner の設定検証と学習進行 State の責務をそろえ、未成立の UQE 診断を修正した（出典: [RFD0207](../../../memo/0207_dqn_small_fixes_and_refactors_10rfd.md)、§4・§5・§6）
 
 ## 選ばなかった形
 
@@ -188,6 +192,9 @@ updated: 2026-11-27
 - Actor のヒント計算に Learner の設定全体を渡す — 不採用: 行動選択に不要な学習方針まで Actor の契約に入り、設定の責務が広がる（出典: [ADR 0036](../../../adr/0036-actor-q-hint-three-columns-munchausen.md)、Considered Options）。
 - 新規遷移の初期優先度だけを求めるためにネットワークを追加で forward する形 — 不採用。単一マシンでは Learner と同じ GPU 資源を消費し、既存の行動推論から Q 値を利用できる（出典: [RFD0035](../../../memo/done/0035_approx_actor_priority_per_10rfd.md)、問題）。
 - DQN 設計文書の監査で、τ 生成を表す古い名前に合わせて設定やアルゴリズムまで変える案は範囲外とした。文書とコードに残った名前を実際の生成関数にそろえれば、指摘された食い違いは解消する（出典: [RFD0190](../../../memo/0190_dqn_design_doc_alignment_10rfd.md)、§2「ゴールと非ゴール」・§4 の D19）。
+- テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
+- 行動の値を取り出すすべての経路に NaN の検査を広げる形 — 不採用: NaN を含みうる診断まで Debug 実行で停止する（出典: [RFD0207](../../../memo/0207_dqn_small_fixes_and_refactors_10rfd.md)、§4 の選んだ行動の値の取り出し）
+- checkpoint 読み込み後に学習率など一部の値だけを個別に上書きする形 — 不採用: optimizer に設定を追加したとき、読み込み後に戻す値の一覧だけ追随が漏れる（出典: [RFD0091](../../../memo/done/0091_checkpoint_load_optimizer_options_10rfd.md)、§6）。
 
 ## 変えるときの条件
 
@@ -228,6 +235,9 @@ updated: 2026-11-27
 - 空間探索で環境の並びを反転するときは、ε と τ を同じ向きに並べ、各 lane に割り当てるパラメータの組と分布を保つ（出典: [RFD0002](../../../memo/done/0002_vec_exp_10rfd.md)、§2.1）。
 - activation の trace を要求しない target 方策と学習経路は従来の推論を保つ。Conv2d のエピソード間隔による録画の開始・終了も確認する（出典: [RFD0006](../../../memo/done/0006_conv2d_visual_trace_10rfd.md)、§8）。
 - QR・IQN の上下の裾を診断しても、方策の行動、両方式の損失、raw priority、実際のリプレイ優先度と乱数列を変えない（出典: [RFD0048](../../../memo/done/0048_quantile_tail_metrics_10rfd.md)、Testing Decisions）。
+- テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
+- 設定の読み取りと型を直接受ける Learner 構築の両方で不正値を拒否する。診断の変更では、行動・乱数・記録する既存キーを保つ（出典: [RFD0207](../../../memo/0207_dqn_small_fixes_and_refactors_10rfd.md)、§4・§7）
+- optimizer の復元を変えるときは、保存前と同じモーメントと step を引き継ぎ、学習率などの値は現在の設定になることを、NoisyNet の有無を含む往復テストで確かめる（出典: [RFD0091](../../../memo/done/0091_checkpoint_load_optimizer_options_10rfd.md)、§7）。
 
 ## 外の事例
 

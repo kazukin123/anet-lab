@@ -56,13 +56,19 @@ updated: 2026-11-28
 - 2026-08-17: 解析用メタデータは Runner が出力し、解析側は設定から再導出しない（出典: [ADR 0029](../../../adr/0029-analysis-metadata-emitted-by-runner.md)）。
 - 2026-08-21: DropMerge探索を起動するOptuna harnessを追加した（出典: [RFD0016](../../../memo/done/0016_dropmerge_optuna_10rfd.md)、題・目的）。
 - 2026-08-21: 043: GitHub Actions リリースパッケージング(実行用 bin パッケージ)（出典: [RFD0043](../../../memo/done/0043_release_packaging_10rfd.md)、題・目的）。
+- 2026-08-23: グリルの開始時にゴールをそろえ、実例で裏付けられる範囲を絞り、最後に設計全体を簡素化の観点から見直す手順を足した（出典: [RFD0058](../../../memo/done/0058_grill_simplification_pass_10rfd.md)、§2〜§4）。
 - 2026-09-05: メトリクス trace チャネル: 統計（scalar）とは別に「1 件 = 1 レコード」を識別子付きで出す（出典: [RFD0069](../../../memo/done/0069_metrics_trace_channel_10rfd.md)、題・目的）。
 - 2026-09-05: 個体メトリクスは trace チャネルで出し、評価セッションは採用 episode ごとの EpisodeEndEvent と SessionEndEvent を分けて発火する（出典: [ADR 0037](../../../adr/0037-metrics-trace-channel-and-session-end-event.md)）。
 - 2026-09-19: Actor 設定カタログと eval スロットごとの方策 / network 指定（出典: [RFD0061](../../../memo/done/0061_eval_slot_policy_override_10rfd.md)、題・目的）。
+- 2026-09-20: ReplayBuffer の観測履歴を 384 条件で再現するアッセイと実行手順を整備した（出典: [RFD0078](../../../memo/done/0078_replay_frame_history_integrity_10rfd.md)、確定事項の検証と §7.2）
 - 2026-09-22: 終了時の評価セッション排水（出典: [RFD0076](../../../memo/done/0076_eval_session_drain_on_exit_10rfd.md)、題・目的）。
+- 2026-09-22: 現行 checkout の規約・スキル・参照経路から、ハーネスの動線マップを再生成するスキルを整備した（出典: [RFD0080](../../../memo/done/0080_harness_map_10rfd.md)、ゴール・確定事項）
+- 2026-10-03: NoisyNet で必須になった `nn_forward_key` を、旧 Run の設定で再実行する際に補う手順へ反映した（出典: [RFD0084](../../../memo/done/0084_noisynet_10rfd.md)、§11.1 の必須設定）
+- 2026-10-05: Codex と Claude Code のレビューエージェント、レビュー観点、共通の作業契約を整備した（出典: [RFD0087](../../../memo/done/0087_review_agent_quality_viewpoints_10rfd.md)、§5・§6）
 - 2026-10-10: 比較粒度と保存LODを改める変更に合わせ、inspect_runの現用キャッシュ判定をschema2へ追随させた（出典: [RFD0089](../../../memo/done/0089_metricsviewer_comparison_resolution_10rfd.md)、確定事項）。
 - 2026-10-18: categories.jsonの対応を直し、src/apps/runner/srcのファイルを319 GUI共通基盤から110 RunnerAppへ分類するようにした（出典: [RFD0095](../../../memo/done/0095_llm_wiki_10rfd.md)、§3「実装を分ける語」）。
 - 2026-10-20: 解析ツールが遷移結果のtarget env_stepを読むように移行した（出典: [RFD0097](../../../memo/done/0097_env_auto_reset_after_notification_10rfd.md)、§4.2の17・§9）。
+- 2026-10-20: forward の診断に合わせ、呼び出しごとの入力と長く保持する借用の扱いを開発規約へ反映した（出典: [RFD0093](../../../memo/done/0093_attention_entropy_diagnostics_10rfd.md)、§8 の取り出し口、[実装レビュー観点](../../../quality/impl.md#所有権)）
 - 2026-10-22: Evaluation Traceの読み口と表示の検証資材を整えた（出典: [RFD0094](../../../memo/done/0094_evalpanel_step_history_10rfd.md)、§8・§10）。
 - 2026-10-28: TempoRLの等価性・性能比較用に、実行体と設定の着手前snapshotを使う検証資材を整えた（出典: [RFD0103](../../../memo/done/0103_temporl_reference_alignment_10rfd.md)、§4 D14・§7）。
 - 2026-10-31: リリース物の組み立て（中身・検査・zip化）をrelease.ymlのPowerShellからCMakeのinstall・CPackとワークフローpresetへ移し、GitHubを使わずに手元でも同じコマンドで作れるようにする案を暫定で起票した（出典: [0185_release_packaging_cmake](../../../memo/0185_release_packaging_cmake_10rfd.md)、題・§3のゴール・§4 D1・D4）。
@@ -75,12 +81,14 @@ updated: 2026-11-28
 - 2026-11-10: 課題がrfd欄でRFDを1本だけ指し（N:1）、RFDの実装済みは指す課題の判定と状態から道具が導く（出典: [ADR 0069](../../../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md)）。
 - 2026-11-10: 課題のtypeを仕事の種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）にし、RFD専用の索引の課題をやめて各課題がrfd欄でRFDを1本だけ指し（N:1）、RFDの実装済みを課題の判定と状態から導き、parent・depends・rfdをObsidianのリンクで書き、domain・tags・resolutionを足した（出典: [RFD0120](../../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§1・§4 D1〜D8）。
 - 2026-11-11: Debug版libtorchのoneDNNのassertがテストの順序で出ないよう、基盤テストの実行体が開始時に1回MKLDNNを切り、テストの中の切り替えを消した（出典: [RFD0124](../../../memo/0124_test_process_mkldnn_off_10rfd.md)、題・§3.1・§4 D1）。
+- 2026-11-12: Run の失敗・WARN・INFO の線引きと、読まれない設定キーの扱いを作業規約・実装レビュー観点へ反映した（出典: [RFD0117](../../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D1・D2、§6 の規約と観点）
 - 2026-11-16: RFDの9xxの番号を、起票の日の順に900未満の連番へ振り直し、9xxを再び使える番号に戻す（出典: [ADR 0077](../../../adr/0077-prd-9xx-renumbered-by-creation-date-and-9xx-reusable.md)）。
 - 2026-11-17: 9xxの番号のRFD 57本を、起票の日の順に132〜188へ振り直し、この振り直しを番号の不再利用の例外として9xxを再び使える番号に戻し、旧い番号を各RFDの題の直下の振り直しの行で引くようにした（wikiのRFDの一覧の道具もその行を読む）（出典: [RFD0131](../../../memo/0131_rfd_9xx_renumber_by_creation_date_10rfd.md)、題・§1.2・§4 D1〜D3・D7・D8）。
 - 2026-11-18: トップの階層は、ビルドの入力・実行時の配置・実行時にできるもので分け、ビルドはappsへ直接出す（出典: [ADR 0078](../../../adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md)、本文）。
 - 2026-11-18: テストは自分のライブラリの内部まで読み、ほかのライブラリは公開ヘッダとテスト用の口だけを通して使う（出典: [ADR 0080](../../../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)、本文）。
 - 2026-11-19: 置き場の規則（ビルドの入力はsrc、実行時の配置はapps、実行時にできるものはdata、配らないビルドの出力はout）、テストの参照範囲、基盤のテスト用の口を定め、テスト実行体の出力先を1か所にし、道具をapps/toolsへ集めた（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§4.1 D2・D12・D13・D19・D20）。
 - 2026-11-19: RFDのグリルで、goal anchorの応答に共通の前提を並べ、ゴールの合意と同じ返事で説明が要る前提の番号を受けて理解を確かめ、欠けた前提は先にそろえるかをその都度選び、RFDに前提の表を置き、RFDレビュー観点に項番43を足した。前提をそろえるためにグリルを止めたRFDでは、自己点検のあとのまとめた1問と起票の候補の提示を行わない（出典: [RFD0189](../../../memo/0189_grill_premise_understanding_10rfd.md)、§1.2・§6.1 D2〜D8・§6.2 D13・D33）。
+- 2026-11-21: 実装レビュー観点に、診断が利用者の書いた完全キーを示すための確認を足した（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§6.2・§6.6・§7）
 - 2026-11-22: 置き場の部品の新しい機能グループ`tensor_store`を314 テンソル処理に入れることをグリルで決め、categories.jsonの314の行のmatchに`tensor_store`を足した（出典: [RFD0191](../../../memo/0191_rnd_raw_error_and_recent_learning_10rfd.md)、§6.1のD56・§8.4の機能グループの見込み）。
 - 2026-11-23: 会話の枠ごとに 1 枚のまとめページ（冒頭・いまの位置・記号の一覧に、場面ごとの節を足したもの）を、場面に入ったときか前の応答の記号を引き始めたときに作って、中身が変わった応答で更新し、Claude Code は非公開ページ、Codex は ChatGPT Sites で同じ URL のままスマホから見返せるようにした。手順は skill、始める条件は AGENTS.md、場面ごとの指針とひな形は docs/process/summary-page/ に置いた（出典: [RFD0197](../../../memo/0197_conversation_options_summary_page_10rfd.md)、§1.2・§6 D1・D2・D5〜D9・D11・D25・D26）。
 - 2026-11-23: 文書の呼び名をPRDからRFD（Request for Discussion）に改め、番号を0埋めの4桁にし、ファイル名・skill名・課題の欄・コミット件名・テストのタグ・道具など今使っている場所を移した。直下の文書は実装が済んだものも本文まで新しい名前に直し、改名・リンクのパスの直し・動作に効く行の直しを1回目、改名したファイルの残りの本文の語の置き換えを2回目のコミットに分け、道具は件名の旧いPRDnnnと新しいRFDnnnnの両方を日付で分けずに値で読み、定点統計は保管場所の文書の移した日を改名をたどって取るようにした（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、題・§1.2・§6 D1〜D4・D8・D17・D25）。
@@ -232,6 +240,11 @@ updated: 2026-11-28
 - 系統のテストから基盤ライブラリの src/ を直接参照する — 不採用: 同じリポジトリに内部ヘッダがあることに依存し、製品が守るライブラリ境界をテストが迂回する（出典: [ADR 0080](../../../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)、Considered Options）。
 - 旧名称 PRD を保ち、用語集だけに注意書きを加える — 不採用: ファイル名や skill 名、コミット件名、テストのタグを読む場面に名称の取り違えが残る（出典: [ADR 0093](../../../adr/0093-document-term-rfd-and-four-digit-numbers.md)、Considered Options）。
 - 課題一覧を試した際、`docs/` 全体を Obsidian の保管庫にする形を見送った。Doxygen の生成物だけで当時17,190ファイル、143 MBあり、課題を表示するのに不要な索引を作るため、試用の範囲を `docs/management` に絞った（出典: [RFD0187](../../../memo/0187_issue_list_views_10rfd.md)、§8.10「画面（Obsidian Bases の試用と Redmine との比較）」）。
+- 観測履歴アッセイの全条件を通常の ReplayBuffer テストに混ぜる形 — 不採用: 通常のタグ指定でも非表示テストが走り、日常の検証に全条件の費用がかかる（出典: [RFD0078](../../../memo/done/0078_replay_frame_history_integrity_10rfd.md)、確定事項の D5）
+- ハーネスの動線を一度だけ図にして手で追随させる形 — 不採用: 参照先やスキルが変わると、古い経路が図に残る（出典: [RFD0080](../../../memo/done/0080_harness_map_10rfd.md)、Context「一度きりの図では足りない」）
+- プロジェクト固有のファイル名や検査を共通の作業契約に埋め込む形 — 不採用: 他のリポジトリに同じ契約を持ち出すと固有の前提が混ざる（出典: [RFD0087](../../../memo/done/0087_review_agent_quality_viewpoints_10rfd.md)、§1.4・§5）
+- 診断用のキーの改名に合わせて設定の固定入力と期待値を再採取する形 — 不採用: 設定の解決契約は同じで、過去入力を保ったまま現用設定を別に比較できる（出典: [RFD0093](../../../memo/done/0093_attention_entropy_diagnostics_10rfd.md)、§9・§10）
+- 簡素化のチェックを自動化し、別ファイルに切り出す形 — 先送り: まずはスキル本文で手順を運用する。再開条件: 手順が肥大し、分離の必要が出たとき（出典: [RFD0058](../../../memo/done/0058_grill_simplification_pass_10rfd.md)、§6）。
 
 ## 変えるときの条件
 
@@ -269,6 +282,14 @@ updated: 2026-11-28
 - 報告を移すときは、移す前の中身の旧いパスを新しいパスに置き換え、移す前後の中身から Markdown のリンクの丸括弧の中身を取り除いて比べ、ほかが変わっていないことを確かめる（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§10 A2）。
 - メトリクス原本だけを渡したときにも、記録した系列の座標系を解析できることを保つ。定義のない過去の Run とは区別する（出典: [ADR 0029](../../../adr/0029-analysis-metadata-emitted-by-runner.md)、Consequences）。
 - 課題と RFD の対応を移すときは、その RFD で直す課題だけを `rfd` に結び、関係するだけの RFD は `docs` に残す。範囲外に改訂した仕事を `rfd` に残すと、次版や見送りになった課題が実装済みの判定を妨げる（出典: [RFD0120](../../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§4 D2・D11、§5.2）。
+- アッセイの変更では、通常のテストに全条件が混ざらず、条件別の失敗と未実行を判別できることを確かめる（出典: [RFD0078](../../../memo/done/0078_replay_frame_history_integrity_10rfd.md)、§7.2・§7.4）
+- 動線マップの公開版は機構を示し、個人環境の実体は個人版に置く。両方を同じ checkout から生成し、個人版に公開版のノードが揃うことを確かめる（出典: [RFD0080](../../../memo/done/0080_harness_map_10rfd.md)、確定事項・実装契約）
+- 旧 Run の保存設定で再実行する場合は、当時の設定に無い現行の必須の NN 実行設定を確認する（出典: [RFD0084](../../../memo/done/0084_noisynet_10rfd.md)、§11.1）
+- レビューの共通手順を変えるときは、両エージェントが同じ観点を引けることと、リポジトリ固有の参照先をレジストリから引けることを確かめる（出典: [RFD0087](../../../memo/done/0087_review_agent_quality_viewpoints_10rfd.md)、§5・§6.1）
+- 診断で共用する設定キーを移行するときは固定入力と期待値を保持し、現用設定の移行前後を別に比較する（出典: [RFD0093](../../../memo/done/0093_attention_entropy_diagnostics_10rfd.md)、§8・§10）
+- 複数のグリル用スキルで共有する手順を変更するときは、対象スキルと Codex・Claude Code の各コピーに同じ内容を反映し、実地での発動順と裁定の記録を確かめる（出典: [RFD0058](../../../memo/done/0058_grill_simplification_pass_10rfd.md)、§4・§5）。
+- 新しい WARN ではどの条件に当たるかを示し、関係する Env の正常な既定 Run で出ないことを確かめる。旧キーは汎用の未読キー検出で扱う（出典: [RFD0117](../../../memo/0117_warn_policy_and_unread_config_10rfd.md)、§4 D2・§7）
+- 設定の診断を追加するときは、値を読み取った置き場の完全キーを示す。読んでいない設定を完全キーで名指す経路を作らない（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§6.2・§7）
 
 ## 外の事例
 

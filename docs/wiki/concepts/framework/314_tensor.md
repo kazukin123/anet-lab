@@ -11,7 +11,7 @@ aliases:
   - FrameStack
   - 観測の加工
 description: device転送とframe stack、観測の加工（Forwarderの並び）を担い、sampleのTensorとCPUに残すmetadata、非同期転送の寿命を扱う。
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 # 314 テンソル処理
 
@@ -54,6 +54,7 @@ updated: 2026-11-27
 - 2026-11-22: モードで使う設定キーが変わるときは、関心ごとのスコープに mode を置き、設定キーはモードの名前空間に持つ（`Normalize` の設定の形。出典: [ADR 0092](../../../adr/0092-mode-dependent-config-keys-live-in-per-mode-namespaces-under-concern-scopes.md)、本文）。
 - 2026-11-22: 選んだモードや意図した休止で値が結果を変えない設定キーは、知らせずに値域だけを検証する（並びの部品の、選ばれていないモードの設定キーの扱い。出典: [ADR 0091](../../../adr/0091-config-keys-idle-under-chosen-mode-or-intended-pause-are-range-checked-not-notified.md)、本文）。
 - 2026-11-23: 観測の加工（重ねる、正規化、キーを落とす）の定義を、設定で書く Forwarder の並びの 1 つにまとめ、Network の入力 spec と、行動選択・経験の受入れ・Sample・可視化をそこから作るようにした。共通の口・並び・標準の部品を新しい機能グループ `forwarder` に置き、値の尺度と stack 軸を spec の属性にし、forward の持ち帰りの器を `ForwardCapture` に改名して同じヘッダへ移した（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、題・§1.1・§6.3 D17〜D21・D24・D45・§6.4 D25・D26）。
+- 2026-11-23: テストのタグで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
 - 2026-11-24: Forwarder は依頼ごとに作り、作る側（並びと部品）は Forwarder を兼ねない（出典: [ADR 0094](../../../adr/0094-forwarders-are-built-per-request-and-builders-are-not-forwarders.md)、本文）。
 - 2026-11-24: 重ねる枚数とキーの設定は Agent 全体に置き、Sample の束の spec は ReplayBuffer が答える（出典: [ADR 0095](../../../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、本文）。
 - 2026-11-24: stack 軸の確保と、並びが成り立つことの確かめは、Forwarder の仕組みではなく使う側が受け持つ（出典: [ADR 0096](../../../adr/0096-stack-axis-and-chain-validity-are-ensured-by-the-caller-not-the-forwarder-mechanism.md)、本文）。
@@ -96,6 +97,7 @@ updated: 2026-11-27
 - 依頼の種類を、RL に依らない層の列挙のままにする形 — 不採用（却下）: 種類を足すたびに汎用の層を変え、RL の概念がその層に残る（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.6；[ADR 0094](../../../adr/0094-forwarders-are-built-per-request-and-builders-are-not-forwarders.md)、Considered Options）。
 - stack 軸の確保を、`FrameStack` の部品か専用の部品で行う形 — 不採用（却下）: RL の側の決まりを Forwarder の仕組みに持たせることになる（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.6；[ADR 0096](../../../adr/0096-stack-axis-and-chain-validity-are-ensured-by-the-caller-not-the-forwarder-mechanism.md)、Considered Options）。
 - 単一 Tensor の可視化 API を辞書へのアダプターで残す — 不採用: 従来の呼び方では複数の観測キーを運べず、固定するキーと変化させるキーを同時に渡せない（出典: [ADR 0002](../../../adr/0002-tensordict-function-unify.md)、Considered Options）。
+- テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
 
 ## 変えるときの条件
 
@@ -113,6 +115,7 @@ updated: 2026-11-27
 - 部品の中身（正規化の式と統計の持ち方、重ねる履歴の持ち方、キーを落とす動き）、ReplayBuffer の重ね直しの方式、1 枚のとき ReplayBuffer が stack 軸を付けずに返す動きは変えない（Rainbow が同じ ReplayBuffer を 1 枚で使う）。変えるときは別の RFD にする（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§2 の NG1・NG4；[RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§2 の NG5）。
 - メトリクスの鍵 `obs_norm.*` の読み口を変えない（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.4 D25・D40；[RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.5 D30）。
 - 先読み中の Sample と予約済みの Push を完了させてから優先度の更新を渡す。先読みを変更したときも、同時に保持する future は最大1件とし、worker の例外を回収できる順序を保つ（出典: [ReplayBuffer](../../../design/150_replay_buffer.jp.md)、§6.2）。
+- テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
 
 ## 外の事例
 

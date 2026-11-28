@@ -4,7 +4,7 @@ page_kind: フレームワーク
 aliases:
   - 320_env_core
 description: SingleDiscreteEnvとBatchEnv、spec・state・Reset・Step、factoryとBuilderの共通契約を扱う。
-updated: 2026-11-26
+updated: 2026-11-28
 ---
 # 320 Env 共通基盤
 
@@ -40,6 +40,7 @@ updated: 2026-11-26
 - 2026-11-21: `env.device`の文法の誤りと、知らないEnvのclass IDのエラーが、設定キーを完全キーで示すようにした（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D8）。
 - 2026-11-22: TensorSpecに値の尺度とstack軸の2つの属性を持たせ、キーを作る側（Envなど）が宣言する（出典: [ADR 0085](../../../adr/0085-tensorspec-carries-value-scale-and-stack-axis-attributes.md)、本文）。
 - 2026-11-23: 観測のspecの検査に、整数のdtypeか離散のキーが`Unscaled`（値の尺度が決まっていない）ならエラーにする検査を足した。Envは、観測のキーの性質として尺度を宣言する（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D17・D18・§7.3）。
+- 2026-11-23: テストのタグで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
 
 ## 選ばなかった形
 
@@ -50,6 +51,7 @@ updated: 2026-11-26
 - dormant tag の非生成を native ImageCls だけに限る形 — 不採用: 限るには class_id の比較か batch-native かの Env 種別の分岐が要り、どちらもフレームワークへの染み出しになる（出典: [RFD0034](../../../memo/done/0034_imagecls_batch_input_10rfd.md)、12.7 D4解決）。
 - 終了が早かった順に先着 N エピソードを採用する — 不採用: 長いエピソードは採用される前に打ち切られ、短いエピソードに偏る（出典: [ADR 0034](../../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、Considered Options）。
 - SHARED の episode_steps を Step 回数と lane 数の積にする — 不採用: 長さが並列度に依存する遷移数となり、PER_LANE と同じ尺度で比較できない（出典: [ADR 0043](../../../adr/0043-episode-steps-shared-scope-is-step-count.md)、Considered Options）。
+- テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
 
 ## 変えるときの条件
 
@@ -65,6 +67,7 @@ updated: 2026-11-26
 - Env の RunMode は構築時に確定する。既存 Env の評価固有の初期状態は、Reset/Step の実行時引数をなくした後も維持する（出典: [ADR 0009](../../../adr/0009-imagecls-batch-env-seam.md)、Follow-up: PRD 037先行によるEnv name伝播）。
 - 同じ seed、固定方策、決定的 backend では、並列評価の完了順、採用権を渡す順、結果の順を再現できる（出典: [ADR 0034](../../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md)、Consequences）。
 - env.device を省略した既存 Run が CPU の Env を使うことと、その動作を維持する（出典: [RFD0070](../../../memo/done/0070_device_spec_auto_10rfd.md)、受入基準）。
+- テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
 
 ## 外の事例
 

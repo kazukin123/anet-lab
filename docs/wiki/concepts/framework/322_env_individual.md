@@ -11,7 +11,7 @@ aliases:
   - RAMメトリクス
   - distinct_seen
 description: 共通Env contract上のCartPole、GridMaze、LunarLander、DropMerge、ImageCls、Atariなどの具象環境の所在をまとめる。
-updated: 2026-11-26
+updated: 2026-11-28
 ---
 # 322 Env個別実装
 
@@ -59,6 +59,8 @@ updated: 2026-11-26
 - 2026-11-20: 各Envの初期化関数を、何度呼んでも登録を1回だけ行う形にした。Envのテストは、Envのfactoryを直接登録せずに初期化関数を呼ぶ（出典: [RFD0192](../../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D11・§6.5・§6.7）。
 - 2026-11-21: 各Envのエラー・WARN・INFOが示す設定キーを完全キーにし、ImageClsのデータセットの項目を`ImageDataset.[<名前>]`の完全キーで示すようにした（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D2・D6・D21）。
 - 2026-11-23: 各Envの観測のspecに値の尺度を宣言し、LunarLander・CartPoleのfloatのvectorを`Unscaled`、GridMaze・DropMerge・Atariを`Scaled`とした（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D18）。
+- 2026-11-23: テストのタグと GridMazeEnv のコメントで使う文書の呼び名を RFD に改め、番号を 0 埋めの 4 桁にそろえた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D12・§9.6）
+- 2026-11-28: ImageCls Env の単独テストで画像機能を初期化し、Env の観測検証を例外の有無で確かめる形へ移した（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§4・§5.3・§7）
 
 ## 選ばなかった形
 
@@ -96,6 +98,8 @@ updated: 2026-11-26
 - ALE をリポジトリに取り込んで常時サブプロジェクトとしてビルドする — 不採用: ALE のビルドに必要な vcpkg toolchain が本体全体に入り、外部コードの同梱範囲も曖昧になる（出典: [ADR 0025](../../../adr/0025-ale-external-build-reference-and-license.md)、Considered Options）。
 - ALE 内蔵の frame skip だけで前処理を済ませる — 不採用: 連続2フレームの最大値合成を省くことになり、スプライトの点滅対策を満たせない（出典: [ADR 0026](../../../adr/0026-atari-env-single-seam-own-preprocessing.md)、Considered Options）。
 - ImageDataSource に拡張用フラグと乱数器を持たせる形 — 不採用。環境側にも乱数器があり、学習画像の拡張に使う乱数源が二つになる（出典: [RFD0022](../../../memo/done/0022_imagecls_augmentation_10rfd.md)、確定した設計判断）。
+- テストのタグや検証資材だけ旧い呼び名を残す形 — 不採用: 現行のテストと参照手順に旧名が残り、同じ変更の参照が分かれる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D9・D12）
+- テスト画像を用意する型で wxWidgets の画像機能を初期化する形 — 不採用: 同じファイルの他のテストと手順が異なり、型と関数の配置も変える必要がある（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§4 の ImageCls Env テストの初期化）
 
 ## 変えるときの条件
 
@@ -118,6 +122,8 @@ updated: 2026-11-26
 - 合法な DROP が残っている盤面で NOOP を続けた場合は、従来どおり NoDropTimeout で終わり、詰み候補には数えない（出典: [RFD0039](../../../memo/done/0039_dropmerge_nolegal_adjudication_10rfd.md)、受入条件）。
 - Atari の前処理やバッチ化を変えるときは、sticky action 0.25 でも同じ seed・行動列で観測・報酬・終端列が bit 一致することを確認する（出典: [RFD0051](../../../memo/done/0051_atari_ale_env_10rfd.md)、§8）。
 - ImageCls の共有エピソードでは、評価本数は window 数を表す。従来の global accuracy を保ち、epoch_count とともに完了時に読み出せることを確かめる（出典: [RFD0060](../../../memo/done/0060_eval_batch_episodes_10rfd.md)、§6）。
+- テストのタグを改名する場合は、タグを指定する手順も追随させ、既定のテストを途中の変更でも実行できることを確かめる（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§6 D4・§9.6）
+- 画像を読む ImageCls Env テストを変えるときは、そのテスト単独、宣言順、乱順で実行し、初期化を別のテストに依存させていないことを確かめる（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§7）
 
 ## 外の事例
 
