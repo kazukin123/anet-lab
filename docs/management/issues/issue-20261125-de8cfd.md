@@ -1,7 +1,7 @@
 ---
 id: issue-20261125-de8cfd
 title: Actor Q ヒントの入力（ActorQHintValues）の組み立てが Actor と step 診断の 2 か所にあり、共有しているのは最後の計算だけである
-status: 未着手
+status: 解決
 raised: 2026-11-25
 phase: 監査
 scope: src/algo/dqn/src/dqn_actor.cpp の Actor::MakeAction と dqn_assembler.cpp の DqnAgentStepDiagnosticsProvider::Observe
@@ -10,8 +10,8 @@ area:
   - 321_agent_core
 type: リファクタリング
 domain: 学習基盤
-ai_judge: 未確認
-ai_judged:
+ai_judge: 残件無し
+ai_judged: 2026-11-28
 docs:
   - docs/adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md
 rfd: "[[0207_dqn_small_fixes_and_refactors_10rfd]]"
@@ -23,8 +23,8 @@ urgency: 5
 risk: 3
 size: 2
 wsjf: 5.5
-resolved:
-resolution:
+resolved: 2026-11-28
+resolution: 対応済み
 memo:
 tags: []
 ---
@@ -59,3 +59,10 @@ ADR 0058 と RFD0094 は、step trace の近似優先度を、Actor と共有す
 - [issue-20261123-c3b5ef](issue-20261123-c3b5ef.md)（n 先の hint を待って Estimate に渡す手順の写し）は、同じ `Observe` の別の部分の写しなので、同時に直すかを決める。
 
 ## 対応内容
+
+- 2026-11-28 Actor と step 診断の Q ヒントの入力を共通化した。分解時の合成 Q、各 Head、初期優先度の対応を確かめるテストを追加した。 [RFD0207 実装メモ](../../memo/0207_dqn_small_fixes_and_refactors_20impl.md)
+
+
+- 2026-11-28 実 ReplayBuffer の公開読み出しで得た最初の格納位置の初期優先度と、step 診断の値を同じ lane ごとに照合した。重点テストが通過し、短縮の actor_approx 構成は 38,112 点が一致した。 [検証結果](../../memo/0207_dqn_small_fixes_and_refactors_20impl.md#検証結果)
+$1
+- 2026-11-28 状態を `対応中` から `解決` へ変更。コミットの準備で解決の候補を選んだ。AI 判定は「残件無し」。Actor Q ヒントの入力を共通化し、Replay 初期優先度と step 診断を同じ lane で照合した。

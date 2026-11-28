@@ -56,6 +56,7 @@ namespace anet::rl::dqn {
         static constexpr const char* kSkipQPrefix = "skip_q.";
         static constexpr const char* kSkipQIndexPrefix = "skip_q.[";
         static constexpr const char* kIntrinsicGamma = "intrinsic_gamma";
+        static constexpr const char* kActionQValuesAuxKey = "q_values";
 
         using anet::rl::BatchActionInfo::BatchActionInfo;
         anet::TensorDict forward_output; ///< Actor が skip 入力を組むまで保持する一時出力。
@@ -105,6 +106,8 @@ namespace anet::rl::dqn {
     };
 
     class ActionPolicy : virtual public anet::ModuleBase {
+    public:
+        static constexpr const char* kUqeTauMetricKey = "uqe_tau";
     public:
         ActionPolicy(const ActionPolicyConfig& config,
         	bool enable_spatial_exploration = false, int64_t num_envs = 0,
@@ -228,7 +231,7 @@ namespace anet::rl::dqn {
         anet::ProfiledValueConfig<float> gamma{ .value = 0.99f, .min_value = 0.0f, .max_value = 1.0f };
         bool decomposed = false;
         anet::ProfiledValueConfig<float> beta{.value = 0.1f, .min_value = 0.0f};
-        bool extrinsic_bootstrap = false;
+        std::string extrinsic_bootstrap_mode = LearnerConfig::kBootstrapCombined;
         anet::ProfiledValueConfig<float> intrinsic_gamma{.value = 0.99f, .min_value = 0.0f, .max_value = 1.0f};
     };
 
@@ -242,6 +245,9 @@ namespace anet::rl::dqn {
         torch::Tensor combined_scores;
         bool extrinsic_bootstrap = false;
     };
+
+    ActorQHintValues ResolveActorQHintValues(const AuxData& aux, const ActorQHintConfig& config,
+        float munchausen_alpha, float munchausen_entropy_tau);
 
     torch::Tensor MakeActorQHint(const torch::Tensor& q_values,
         const torch::Tensor& action, const ActorQHintValues& config);

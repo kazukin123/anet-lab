@@ -1,11 +1,50 @@
 #include "anet/test/catch.hpp"
 #include "anet/test/nn.hpp"
+#include "dqn_assembler.hpp"
 #include "dqn_fixture_test.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <torch/cuda.h>
+
+constexpr char kIqnPolicyMarginMcRatio[] = "iqn_policy_margin_mc_ratio";
+
+TEST_CASE("DQN action scalar rejects a malformed index with one fatal log", "[dqn][rfd0207][action_index]")
+{
+    const std::string suffix = GENERATE("1x", "x");
+    const auto key = "action_full_q_margin.[" + suffix + "]";
+    const auto message = "DQNActionInfo: invalid action index in scalar key: " + key;
+    const dqn::DQNActionInfo action_info(torch::tensor({0}, torch::kInt64));
+    anet::test::LogCaptureGuard logs;
+
+    CHECK_THROWS_WITH(action_info.GetScalar(key), Catch::Matchers::ContainsSubstring(message));
+    logs.Flush();
+    // LOG::fatal は wx の捕捉先には Message として届く。
+    const auto& records = logs.Records();
+    CHECK(std::count_if(records.begin(), records.end(), [&](const auto& record) {
+        return record.level == wxLOG_Message && record.message.starts_with("Exception:")
+            && record.message.find(message) != std::string::npos;
+    }) == 1);
+}
+
+TEST_CASE("DQN policies without UQE report an undefined tau", "[dqn][rfd0207][unused_uqe_tau]")
+{
+    const auto [policy_type, spatial] = GENERATE(Catch::Generators::table<std::string, bool>({
+        {dqn::kActionPolicyTypeStr_Greedy, false},
+        {dqn::kActionPolicyTypeStr_EpsilonGreedy, false},
+        {dqn::kActionPolicyTypeStr_EpsilonGreedy, true},
+    }));
+    dqn::ActionPolicyConfig config;
+    config.policy_type = policy_type;
+    config.spatial.enabled = spatial;
+    const auto policy = dqn::DqnComponentAssembler::CreateActionPolicy(
+        config, dqn::ActionPolicyConfig::kQuantileModeNone, spatial, 32, torch::kCPU);
+    policy->UpdateSchedule({});
+    const auto tau = policy->GetScalar(dqn::ActionPolicy::kUqeTauMetricKey);
+    REQUIRE(tau);
+    CHECK(std::isnan(*tau));
+}
 
 TEST_CASE("Skip Actor retains an action and resets its duration on a new decision", "[dqn][rfd0098][forced_action]")
 {
@@ -967,6 +1006,9 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
         CHECK(torch::allclose(
             action_info->GetAuxData().at("q_values"),
             action_info->GetAuxData().at("uqe_values")));
+        const auto margin = action_info->GetScalar(kIqnPolicyMarginMcRatio);
+        REQUIRE(margin);
+        CHECK(std::isnan(*margin));
     }
 
     SECTION("non spatial Thompson sampling scores the full interval")
@@ -975,9 +1017,13 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
         config.quantile_mode = "iqn";
         config.tau_rule.num_taus = 2;
         config.tau_rule.sample_mode = "fixed";
+        config.uqe.use_tail_mean = false;
         auto expected = torch::tensor({ 0.25f, 0.75f }).repeat({ 2, 1 });
 
-        run_policy(std::make_shared<dqn::ThompsonSamplingActionPolicy>(config), expected);
+        const auto info = run_policy(std::make_shared<dqn::ThompsonSamplingActionPolicy>(config), expected);
+        const auto margin = info->GetScalar(kIqnPolicyMarginMcRatio);
+        REQUIRE(margin);
+        CHECK(std::isfinite(*margin));
     }
 
     SECTION("spatial UQE and Thompson sampling use per-env lower bounds")
@@ -1442,7 +1488,7 @@ TEST_CASE("Decomposed Actor hints reuse policy selection and exclude full querie
     dqn::ActorQHintConfig hint;
     hint.decomposed = true;
     hint.beta.value = 0.5f;
-    hint.extrinsic_bootstrap = true;
+    hint.extrinsic_bootstrap_mode = dqn::LearnerConfig::kBootstrapExtrinsic;
     dqn::Actor actor(policy, nullptr, torch::kCPU, 121, std::make_shared<std::shared_mutex>(), network, network,
         anet::nn::NetworkForwardConfig::GetDefault(), true, std::nullopt, false, hint);
     const auto flags = torch::zeros({1}, torch::kBool);
@@ -1510,8 +1556,7 @@ TEST_CASE("Extrinsic bootstrap preserves UQE risk selection in learning and diag
     policy_config.uqe.tau.value = tail ? 0.5f : 0;
     policy_config.uqe.use_tail_mean = tail;
     auto policy = std::make_shared<dqn::UQEActionPolicy>(policy_config);
-    dqn::RuntimeVars vars;
-    dqn::QRLearner learner(config, model, vars, nullptr, {2, 1}, env, torch::kCPU, 121, kTestAgentSeed, policy, {});
+    dqn::QRLearner learner(config, model, nullptr, {2, 1}, env, torch::kCPU, 121, kTestAgentSeed, policy, {});
     auto experience = MakeDeterminismExperience(0, 2);
     experience.reward = torch::zeros({2, 2});
     experience.next_state.done.zero_();
@@ -1909,8 +1954,6 @@ TEST_CASE("DQN policy churn observes target after hard synchronization", "[dqn][
         }));
         model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
     }
-    dqn::RuntimeVars vars;
-    vars.learn_step = 1;
     dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.replay_batch_size = 1;
     config.update_warmup_steps = 0;
@@ -1919,14 +1962,18 @@ TEST_CASE("DQN policy churn observes target after hard synchronization", "[dqn][
     config.use_per = false;
     auto env_spec = MakeLearnerEnvSpec();
     env_spec.action_spec.value_labels = { "a0", "a1" };
-    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
-    learner.UseSgd(1.0f);
+    TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     learner.EnablePolicyChurnOptimizerUpdate();
     auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
     replay_buffer->SetSizeValues({ 1 });
     replay_buffer->unique_sample_enabled = true;
     replay_buffer->vector_value = 1.0f;
     learner.UseReplayBuffer(replay_buffer);
+    // 診断を購読する前に、重みを変えずに通常の更新経路を 1 回通す。
+    learner.UseSgd(0.0f);
+    REQUIRE(learner.UpdateFromBatch({}, {}).size() == 1);
+    REQUIRE(learner.GetLearnStep() == 1);
+    learner.UseSgd(1.0f);
     learner.ConfigureScalarMetricSubscriptions({
         rl::ScalarMetricSubscription{
             .source_key = "policy_churn_target_policy_disagreement",
@@ -1965,7 +2012,7 @@ TEST_CASE("DQN policy churn observes target after hard synchronization", "[dqn][
 
 TEST_CASE("DQN policy churn keeps unavailable known keys distinct from unknown keys", "[dqn][policy_churn][gate]")
 {
-    const auto make_learner = [](TestNetworkModel& model, dqn::RuntimeVars& vars) {
+    const auto make_learner = [](TestNetworkModel& model) {
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.replay_batch_size = 1;
         config.update_warmup_steps = 0;
@@ -1975,13 +2022,12 @@ TEST_CASE("DQN policy churn keeps unavailable known keys distinct from unknown k
         auto env_spec = MakeLearnerEnvSpec();
         env_spec.action_spec.value_labels = { "a0", "a1" };
         return std::make_unique<TestLearner>(
-            config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+            config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     };
 
     SECTION("age-only on soft target performs no probe sampling") {
         TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
-        dqn::RuntimeVars vars;
-        auto learner = make_learner(model, vars);
+        auto learner = make_learner(model);
         learner->UseSgd(0.0f);
         learner->EnablePolicyChurnOptimizerUpdate();
         auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
@@ -2003,8 +2049,7 @@ TEST_CASE("DQN policy churn keeps unavailable known keys distinct from unknown k
 
     SECTION("incomplete probe publishes NaN and unknown key remains nullopt") {
         TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
-        dqn::RuntimeVars vars;
-        auto learner = make_learner(model, vars);
+        auto learner = make_learner(model);
         learner->UseSgd(0.0f);
         learner->EnablePolicyChurnOptimizerUpdate();
         auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
@@ -2039,7 +2084,6 @@ TEST_CASE("DQN policy churn uses post-soft-update target values", "[dqn][policy_
         }));
         model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
     }
-    dqn::RuntimeVars vars;
     dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.replay_batch_size = 1;
     config.update_warmup_steps = 0;
@@ -2048,7 +2092,7 @@ TEST_CASE("DQN policy churn uses post-soft-update target values", "[dqn][policy_
     config.use_per = false;
     auto env_spec = MakeLearnerEnvSpec();
     env_spec.action_spec.value_labels = { "a0", "a1" };
-    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+    TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     learner.UseSgd(1.0f);
     learner.EnablePolicyChurnOptimizerUpdate();
     auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
@@ -2104,11 +2148,10 @@ TEST_CASE("DQN policy churn warns once for a single hard-target phase", "[dqn][p
             /*distributional=*/false,
             /*n_actions=*/2,
             dqn::NetworkModelConfig{ .hard_update_interval = 503 });
-        dqn::RuntimeVars vars;
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
         auto env_spec = MakeLearnerEnvSpec();
         env_spec.action_spec.value_labels = { "a0", "a1" };
-        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+        TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
         anet::test::LogCaptureGuard logs;
         learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
         learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
@@ -2133,11 +2176,10 @@ TEST_CASE("DQN policy churn warns once for a single hard-target phase", "[dqn][p
             /*distributional=*/false,
             /*n_actions=*/2,
             dqn::NetworkModelConfig{ .hard_update_interval = 500 });
-        dqn::RuntimeVars vars;
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
         auto env_spec = MakeLearnerEnvSpec();
         env_spec.action_spec.value_labels = { "a0", "a1" };
-        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+        TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
         anet::test::LogCaptureGuard logs;
         learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
         logs.Flush();
@@ -2160,7 +2202,6 @@ TEST_CASE("DQN policy churn disables outer BF16 autocast for probe forwards", "[
         }));
         model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
     }
-    dqn::RuntimeVars vars;
     dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.use_amp = true;
     config.use_amp_bf16 = true;
@@ -2172,7 +2213,7 @@ TEST_CASE("DQN policy churn disables outer BF16 autocast for probe forwards", "[
     config.use_per = false;
     auto env_spec = MakeLearnerEnvSpec();
     env_spec.action_spec.value_labels = { "a0", "a1" };
-    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+    TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     learner.UseSgd(0.001f);
     learner.EnablePolicyChurnOptimizerUpdate();
     auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
@@ -2207,7 +2248,6 @@ TEST_CASE("DQN policy churn follows subscription cadence and stays inactive with
 {
     const auto run_case = [](std::optional<int> interval) {
         TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
-        dqn::RuntimeVars vars;
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.replay_batch_size = 1;
         config.update_warmup_steps = 0;
@@ -2216,7 +2256,7 @@ TEST_CASE("DQN policy churn follows subscription cadence and stays inactive with
         config.use_per = false;
         auto env_spec = MakeLearnerEnvSpec();
         env_spec.action_spec.value_labels = { "a0", "a1" };
-        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+        TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
         learner.UseSgd(0.0f);
         learner.EnablePolicyChurnOptimizerUpdate();
         auto replay_buffer = std::make_shared<RecordingReplayBuffer>();

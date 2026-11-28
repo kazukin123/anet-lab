@@ -549,14 +549,10 @@ DefaultDQNAgent::DefaultDQNAgent(
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
     auto learner_seed = seed_maker.MakeNamedSeed("learner");
     auto network_seed = seed_maker.MakeNamedSeed("network");
-    // RuntimeVars生成
-    this->vars_ = std::make_unique<RuntimeVars>();
-
     const bool is_distributional = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
 
     // 無効時も既知の診断キーを保つ。可変の State は Coordinator に集める。
-    const auto& intrinsic_gamma = config_.learner.intrinsic.decomposed && config_.learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate
-        ? config_.learner.intrinsic.gamma : config_.learner.gamma;
+    const auto& intrinsic_gamma = config_.learner.GetIntrinsicGammaConfig();
     const float initial_intrinsic_gamma = anet::ProfiledValue<float>(intrinsic_gamma).Evaluate(0);
     intrinsic_.reset(new IntrinsicRewardCoordinator(config_.intrinsic, config_.learner.enabled,
         batch_env_spec, env_spec, device_, seed_maker, config_.GetConfigPrefix() + ".intrinsic.rnd",
@@ -713,7 +709,7 @@ void DefaultDQNAgent::InitializeLearner(const BatchEnvSpec& batch_env_spec, cons
         .expected_specs = visualization_perception_->GetOutputSpecs(),
     };
     learner_ = DqnComponentAssembler::CreateLearner(config_.quantile_mode, config_.qr.num_quantiles, config_.learner,
-        *model_, *vars_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_,
+        *model_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_,
         &perception_setup, LearnerForwardResources{
             .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
             .target = *forward_configs_.at(config_.learner.target.nn_forward_key)},
@@ -868,7 +864,7 @@ std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t 
 {
     if (key.starts_with(kIntrinsicPrefix)) return intrinsic_->GetScalar(key);
     if (const auto value = DqnComponentAssembler::GetScalar(
-        key, index, *learner_, *vars_, *target_policy_, *mutex_)) return value;
+        key, index, *learner_, *target_policy_, *mutex_)) return value;
     if (key.find(RewardScaler::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return reward_scaler_->GetScalar(key);
@@ -935,8 +931,8 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         .decomposed = config_.learner.intrinsic.decomposed,
         .beta = config_.learner.intrinsic.decomposed && cfg.intrinsic.action_beta_mode == DQNActorConfig::kActionBetaFixed
             ? anet::ProfiledValueConfig<float>{.value = cfg.intrinsic.action_beta.value(), .min_value = 0.0f} : config_.intrinsic.beta,
-        .extrinsic_bootstrap = config_.learner.intrinsic.extrinsic_bootstrap_mode == LearnerConfig::kBootstrapExtrinsic,
-        .intrinsic_gamma = config_.learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate ? config_.learner.intrinsic.gamma : config_.learner.gamma};
+        .extrinsic_bootstrap_mode = config_.learner.intrinsic.extrinsic_bootstrap_mode,
+        .intrinsic_gamma = config_.learner.GetIntrinsicGammaConfig()};
     const anet::SeedMaker seed_maker(request.seed);
     auto perception = BuildActorPerception(*perception_, env_spec_.state_spec.obs_spec, replay_frame_stack_,
         request.batch_env_spec.num_envs,

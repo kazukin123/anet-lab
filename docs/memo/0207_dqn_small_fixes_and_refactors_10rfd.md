@@ -1,6 +1,7 @@
 # RFD0207: DQN 系の小さい直しとリファクタリングをまとめて行う（学習の設定の値域、診断値の NaN、fatal の重複、Learner の State と値の振り分け、写しの集約、特性テスト）
 
 > 2026-11-27 起票（暫定）。質疑を省いた。確定した決定は持たず、AI が置いた既定と決めきれない点を §4 の未決表に置いた。§5〜§7 は §4 の暫定の既定を前提に書き、前提にした行の番号を名指す。
+> 2026-11-28 改訂（暫定）。入口レビューを受け、設定値域、診断の成立条件、テスト移行、短縮比較と性能測定の条件を具体化した。
 > 起点: 2026-11-27 の会話。開発者は、仕様の調整がほぼ要らない小さい課題を集めて、夜のうちに別の枠で実装まで進めたいと述べた。触るファイルが重ならないように、置き場ごとに 3 本（RFD0205 文書、RFD0206 基盤とアプリ、本書 DQN 系）に分けることを選んだ（§9）。
 > 課題: 12 件（§8 の対応表）。どれも `src/algo/dqn` の中の直しである。
 
@@ -18,10 +19,11 @@ DQN 系（`src/algo/dqn`）に、方針まで課題に書かれた小さい直�
 ### 1.2 ゴール
 
 - 題材の課題 12 件がすべて片付く（各課題の事象が今のコードから無くなる）。
-- 正しい設定の Run では、学習と行動選択の値、設定の記録、ログ・WARN・ERROR の文言と順と回数、乱数の消費の順を変えない。わざと変えるのは次の 3 つだけにする。
+- 標準の Forwarder を使う正しい設定では、学習と行動選択の値、設定の記録、ログ・WARN・ERROR の文言と順と回数、乱数の消費の順を維持する。わざと変えるものは次の 4 つ。
   - 範囲外の学習の設定が、構築で止まる（U1・U2）。
   - UQE を使わない方策の `uqe_tau` の点が、記録されなくなる（U3）。
   - 点の UQE で全範囲の問い合わせが無い構成の `iqn_policy_margin_mc_ratio` の点が、記録されなくなる（U4）。
+  - 行動の番号が不正な指標キーを拒否するとき、fatal の同じ文を 1 回出す（U5）。
 - 写しを 1 か所に寄せ、次に群・入力・指標を足すときの直し漏れを無くす。
 
 ### 1.3 非ゴール（退けた案と、本当の制約か）
@@ -100,7 +102,7 @@ DQN 系（`src/algo/dqn`）に、方針まで課題に書かれた小さい直�
 ### 3.5 `RuntimeVars` と値の振り分け（84c03f・6a8e46）
 
 - `RuntimeVars`（[dqn_math.hpp](../../src/algo/dqn/src/dqn_math.hpp) 225〜229 行）の欄は `uqe_tau`（読み書き 0）、`learn_step`、`per_beta` の 3 つ。`learn_step` の読み書きは dqn_learner.cpp だけ（518・632・682・750・846・1811・1815〜1817・1832・1864・1870・2413・2442 行）。`per_beta` は Learner が書き（1016・1672 行）、Learner（1791 行）と振り分け（[dqn_assembler.cpp](../../src/algo/dqn/src/dqn_assembler.cpp) 411 行）が読む。
-- 検索語 `RuntimeVars`: テストを除く `src/` で 28 行・11 ファイル、テストで 83 行・5 ファイル（`dqn_actor_test.cpp`・`dqn_concrete_test.cpp`・`dqn_learner_test.cpp`・`dqn_math_test.cpp`・`dqn_munchausen_test.cpp`）。テストが `learn_step`・`per_beta` の値を読む行は 10 行（`dqn_actor_test.cpp` 1913 行、`dqn_learner_test.cpp` の 186・250・2745・3325・3488・3489・3896・4277・4378 行）。
+- 検索語 `RuntimeVars`: テストを除く `src/` で 28 行・11 ファイル、テストで 83 行・5 ファイル（`dqn_actor_test.cpp`・`dqn_concrete_test.cpp`・`dqn_learner_test.cpp`・`dqn_math_test.cpp`・`dqn_munchausen_test.cpp`）。`dqn_learner_test.cpp` の `learn_step` の読み出しは 8 行（186・250・2745・3325・3488・3489・3896・4277 行）、`per_beta` の読み出しは 1 行（4378 行）。`dqn_actor_test.cpp` の 1913 行は `learn_step` への代入。
 - 文書: 設計 200 の jp・en に 7 行ずつ（jp は 292・333・358・359・631・633・658 行）、[RFD0143](0143_serialize_10rfd.md) に 2 行（18・68 行）。ADR 0048 と過去の実装記録にもあるが、過去の記録なので直さない。
 - 振り分け: `DqnComponentAssembler::GetScalar`（dqn_assembler.cpp 391〜419 行）は、`target_policy.` の接頭辞（ロックなし）、schedule の 6 つ、分解の 9 つ、`per_beta`、接頭辞 `plasticity_probe_`・`noisy_`・`replay` を自分で判定してから、共有ロックを取って `learner.GetScalar` を呼ぶ。`Learner::GetScalar`（dqn_learner.cpp 276〜319 行）は同じ群をもう一度判定し、知らないキーには `nullopt` を返す。`GetTensor`・`GetTensorVector`（dqn_assembler.cpp 421〜435 行）も `replay` の接頭辞を判定するが、`Learner::GetTensor`・`GetTensorVector`（dqn_learner.cpp 851〜865 行）も同じ判定をして、知らないキーには `nullopt` を返す。
 
@@ -145,16 +147,16 @@ DQN 系（`src/algo/dqn`）に、方針まで課題に書かれた小さい直�
 
 | 番号 | 論点 | 暫定の既定 | 理由と依存 |
 |---|---|---|---|
-| U1 | eb0a0c の 3 つの値域と置き場 | `learner.grad_clip_tau` と `learner.td_clip_value` は「有限で 0 より大きい」、`learner.update_interval` は「1 以上」。検証は `LearnerConfig` の共通の検証として 1 か所に置き、DefaultDQN と Rainbow の設定の読み取りから呼ぶ。`use_grad_clip`・`use_td_clip` が偽のとき、`replay_ratio` が正のときも検証する。エラー文は `ValidateRange` と同じ形にし、キーは完全キーで書く。dqn_learner.cpp 2528 行の `td_clip_value > 0.0f` の条件は消す（検証のあとは常に真で、残すと 0 で clip を切れるように読めるため） | P1（使われない側も検証する、sentinel を作らない）、P2（完全キー、Rainbow が読まないキーを名指さない。Rainbow が読まないキーは型の既定の値なので、範囲に入り、文に出ない） |
-| U2 | eb0a0c の 2026-11-25 の追記の 4 つ | 課題の事象に含まれるので範囲に入れる。`learner.quantile_huber_kappa` は「有限で 0 より大きい」を `quantile_mode` によらず検証し、今の IQN だけの検査（default_dqn_agent.hpp 805 行）を置き換える。`learner.per_alpha` は「有限で 0 以上」（0 の WARN は今のまま）。`learner.replay_ratio` は「有限で 0 でない」（正は RR のモード、負は間隔のモードのまま）。`learner.replay_batch_size` は「1 以上」。置き場とエラー文は U1 と同じ | P1。課題が片付くには事象の全部を直す（ゴール）。P14 の RFD0001 の線は IQN の RFD の範囲で、QR で κ≤0 を使う意図ではない。`replay_ratio` の負で間隔を選ぶ形は今のまま残し、改めるのは範囲外（§1.3、U14） |
+| U1 | eb0a0c の 3 つの値域と置き場 | `learner.grad_clip_tau` と `learner.td_clip_value` は「有限で 0 より大きい」、`learner.update_interval` は「1 以上」。検証は `LearnerConfig` の 1 関数に置く。DefaultDQN と Rainbow は完全キーを設定したあと、設定の読み取りから呼ぶ。設定型を直接受け取る構築も、共通 Learner の構築で同じ検証を通す。`use_grad_clip`・`use_td_clip` が偽のとき、`replay_ratio` が正のときも検証する。エラー文は `ValidateRange` と同じ形にし、キーは完全キーで書く。dqn_learner.cpp 2528 行の `td_clip_value > 0.0f` の条件は消す（検証のあとは常に真で、残すと 0 で clip を切れるように読めるため） | P1（使われない側も検証する、sentinel を作らない）、P2（完全キー、Rainbow が読まないキーを名指さない。Rainbow が読まないキーは型の既定の値なので、範囲に入り、文に出ない） |
+| U2 | eb0a0c の 2026-11-25 の追記の 4 つ | 課題の事象に含まれるので範囲に入れる。`learner.quantile_huber_kappa` は「有限で 0 より大きい」を `quantile_mode` によらず検証し、今の IQN だけの検査（default_dqn_agent.hpp 805 行）を置き換える。`learner.per_alpha` は「有限で 0 以上」（0 は受理し、`use_per` が真かつ `per_initial_priority_mode=actor_approx` の既存 WARN は維持）。`learner.replay_ratio` は「有限で 0 でない」（正は RR のモード、負は間隔のモードのまま）。`learner.replay_batch_size` は「1 以上」。置き場とエラー文は U1 と同じ | P1。課題が片付くには事象の全部を直す（ゴール）。P14 の RFD0001 の線は IQN の RFD の範囲で、QR で κ≤0 を使う意図ではない。`replay_ratio` の負で間隔を選ぶ形は今のまま残し、改めるのは範囲外（§1.3、U14） |
 | U3 | c702d2 の値 | `uqe_tau` は、`uses_uqe_` が真で Thompson でないときだけ `current_uqe_tau_` を返し、それ以外は NaN を返す（`uqe_tau_lane_min`・`_max` と同じ条件）。Greedy・spatial なしの EpsilonGreedy・spatial ありの EpsilonGreedy の 3 つで NaN になるテストを足す | P5（方策に使わない指標は NaN）、P7（NaN は記録されない）。学習と乱数に触れない |
-| U4 | 770358 の未成立の条件 | 比を計算する条件を「IQN で、risk の問い合わせが点でない（`use_tail_mean` が真か、全範囲の問い合わせの枝）、かつ本数が 2 以上」にする。点の問い合わせでは本数によらず NaN。設計 200 §9.1（jp・en）の NaN の条件に「点の問い合わせ」を足す。ユーザーガイド 030 の `iqn_policy_margin_mc_ratio` の説明（jp 187 行・en 176 行）に「点の UQE では出ない」を 1 句足す。点で K=3・全範囲の問い合わせ無しの節（dqn_actor_test.cpp 943〜966 行）に、比が NaN であることの確認を足す | P6、P7。forward・乱数・行動選択に触れない。030 は利用者が値を読む手引きなので、値が出ない構成を書かないと読み違える |
+| U4 | 770358 の未成立の条件 | 比を計算する条件を「IQN で、risk の問い合わせが点でない（`use_tail_mean` が真か、非 spatial Thompson の行動選択用の全範囲の枝）、かつ本数が 2 以上」にする。行動を決める問い合わせが点の場合、可視化用の別の全範囲の問い合わせの有無にかかわらず NaN。設計 200 §9.1（jp・en）の NaN の条件に「点の問い合わせ」を足す。ユーザーガイド 030 の `iqn_policy_margin_mc_ratio` の説明（jp 187 行・en 176 行）に「点の UQE では出ない」を 1 句足す。点で K=3・全範囲の問い合わせ無しの節（dqn_actor_test.cpp 943〜966 行）に、比が NaN であることの確認を足す | P6、P7。forward・乱数・行動選択に触れない。030 は利用者が値を読む手引きなので、値が出ない構成を書かないと読み違える |
 | U5 | ea9fef の直し | `try` の中では数の読み取りだけを行い、読み残しの検査と `ANET_SYSTEM_ERROR` を `try` の外へ出す。文言は変えない。不正な番号（`[1x]` と `[x]`）で、例外が 1 回だけ出て、fatal のログが 1 行だけ出ることのテストを足す | P2（文言を変えない） |
-| U6 | 84c03f の State の置き場 | `learn_step` と `per_beta` を `dqn::Learner` のメンバにし、`RuntimeVars` の型と、Learner・`DqnComponentAssembler`・DefaultDQN・Rainbow の構築の引数を消す。`per_beta` は `Learner::GetScalar` で答え、値は今 Agent が返す値と同じにする（`use_per` でないとき 0、評価の時機は前回の更新の終わりに次回分、初期値は step 0）。テストが学習の進みを読むために、`dqn::Learner` に `learn_step` を読むだけの関数を 1 つ足す（DQN 系の内部のヘッダ。基盤の公開ヘッダは変えない）。テストは構築の引数を消し、`vars.learn_step` を読む 9 行をこの関数に、`vars.per_beta` を読む 1 行を `GetScalar("per_beta")` に替える。`dqn_actor_test.cpp` 1913 行の `vars.learn_step = 1` は、更新を 1 回進めて同じ状態を作る。設計 200（jp・en）の 7 行ずつと、RFD0143 の 2 行を、Learner が持つ形に直し、RFD0143 の冒頭に改訂の行を足す | 課題の対応方針のとおり。P2（メトリクスの名前と値を変えない）。RFD0143 は未実装の RFD で、学習の進みの保存の置き場を書くので、今の形と合わせる。過去の記録（ADR 0048、実装記録）は直さない |
+| U6 | 84c03f の State の置き場 | `learn_step` と `per_beta` を `dqn::Learner` のメンバにし、`RuntimeVars` の型と、Learner・`DqnComponentAssembler`・DefaultDQN・Rainbow の構築の引数を消す。`per_beta` は `Learner::GetScalar` で答え、値は今 Agent が返す値と同じにする（`use_per` でないとき 0、評価の時機は前回の更新の終わりに次回分、初期値は step 0）。テストが学習の進みを読むために、`dqn::Learner` に `learn_step` を読むだけの関数を 1 つ足す（DQN 系の内部のヘッダ。基盤の公開ヘッダは変えない）。テストは構築の引数を消し、`vars.learn_step` を読む 8 行をこの関数に、`vars.per_beta` を読む 1 行を `GetScalar("per_beta")` に替える。`dqn_actor_test.cpp` 1913 行の `vars.learn_step = 1` は、公開の更新経路から学習を 1 回進める。既存テストの Replay・warm-up・購読の準備を調整し、既存の同期の期待値を通す。設計 200（jp・en）の 7 行ずつと、RFD0143 の 2 行を、Learner が持つ形に直し、RFD0143 の冒頭に改訂の行を足す | 課題の対応方針のとおり。P2（メトリクスの名前と値を変えない）。RFD0143 は未実装の RFD で、学習の進みの保存の置き場を書くので、今の形と合わせる。過去の記録（ADR 0048、実装記録）は直さない |
 | U7 | 6a8e46 の振り分け | `DqnComponentAssembler::GetScalar` は、`target_policy.` の接頭辞を今のまま（ロックなし）先に扱い、それ以外は共有ロックを取って `learner.GetScalar(key, index)` を呼び、値があれば返す。群の一覧と `per_beta` の分岐を消す。`GetTensor`・`GetTensorVector` の `replay` の接頭辞の判定も消し、Learner に任せる。`Learner::GetScalar` の中で群を引く順は変えない | U6 のあと（`per_beta` を Learner が答える）。P2。課題が書くとおり、DefaultDQN は今もどの群にも当たらないキーで最後に同じロックを取るので、ロックの回数の差は読み出しごとに 1 回で、性能には関わらない。ロックの範囲の見直しは 2d66d2 に残す（§1.3） |
 | U8 | 9e8834 の共通の関数 | 「行動（または継続長）ごとの値と、選んだ番号から、行動の軸で選んだ 1 本を取り出し、行動の軸を除いた値を返す」関数を `dqn_math` に 1 つ置き、§3.6 の 13 か所が使う。行動の軸より後ろの軸（分位点など）の有無は値から導く（分布の有無の判定を値の軸の数にそろえる）。どの出力の鍵を読むか（`q` か `q_dist` か）の選び方は今のまま設定から決める。形の検査（`ANET_ASSERT_SHAPE`）は共通の関数に置く。NaN の検査（`ANET_ASSERT_NAN`）は、今ある経路（`GatherActionQuantiles`）でだけ当て、ほかの 12 か所には足さない | 課題の対応方針のとおり。NaN の検査を 13 か所へ広げると、Debug の実行で、今は止まらない経路（診断の値に NaN を含みうるもの）が止まりうる（P13）。課題の方針の「検査を共通の関数に移す」から、NaN の検査だけを外した |
-| U9 | de8cfd の共通の関数と範囲 | 「`DQNActionInfo` の aux と、ヒントの設定（Munchausen の値、TBO、分解の有無、外的の bootstrap）から `ActorQHintValues` を作る」関数を 1 つ置き、Actor と step 診断が使う。外的の bootstrap への変換もこの関数に入れ、2 か所の写しを消す。step 診断が分解のとき呼ぶ 2 回のうち、1 回目（合わせた Q の `q_sa`・`state_value` を列に出すためだけ）は、入力を作る関数が合わせた Q の値を別の出力として 1 回の計算で返す形にして、`MakeActorQHint` の呼び出しを 1 回にする。合わせた値は、今の 1 回目の結果の該当の列と同じ値にし、テストで確かめる。`ActorQHintConfig` の分割（fa1be2）は範囲に入れず、今の `ActorQHintConfig` を受ける。c3b5ef（n 先のヒントを待つ手順の写し）は範囲に入れない | 課題の対応方針のとおり。P10（Replay の初期優先度と同じ入力、列の数は変えない）。fa1be2 は設定の構造体を分ける別の判断（§1.3）。分解のときの 2 回目の結果の Q_sa の列は外的の Head の値で、合わせた Q の値ではない（dqn_assembler.cpp 163〜170 行）。合わせた値を同じに作るのに Munchausen・TBO の扱いを `MakeActorQHint` の外へ写すことになるなら、写しを増やすので、2 回の呼び出しを残し、入力の組み立てだけをまとめる（その理由を実装計画に書く） |
-| U10 | d74c3f の関数と、decomposed でないときの扱い | `LearnerConfig` に「内的の成分が使う割引率の設定（`ProfiledValueConfig`）を返す」関数を 1 つ置く。decomposed かつ `discount_mode` が `separate` なら `learner.intrinsic.gamma`、それ以外（decomposed でない、または `shared`）なら `learner.gamma` を返す。6 か所はこの関数を呼び、予定の有無は、返した設定が定数かどうかで判定する。decomposed の分岐の中にある呼び出しは、分岐をそのまま残す | default_dqn_agent.cpp 558 行の今の式と同じ選び方で、ほかの 5 か所の今の結果も変えない（§3.10 のとおり、decomposed でないとき内的の割引率を読む読み手が無い）。decomposed でないとき外的の割引率を返す形にすると、Ignored と知らせた `learner.intrinsic.gamma`（default_dqn_agent.hpp 322 行）が効く道が無くなる |
+| U9 | de8cfd の共通の関数と範囲 | 「行動の補助出力と、Munchausen の値、TBO、価値分解の有無、外的の bootstrap 設定から、ヒントの入力値を組み立てる」関数を 1 つ置き、Actor と step 診断が使う。外的の bootstrap への変換もこの関数に入れ、2 か所の写しを消す。step 診断が分解のとき呼ぶ 2 回のうち、1 回目（合わせた Q の `q_sa`・`state_value` を列に出すためだけ）は、入力を作る関数が合わせた Q の値を別の出力として 1 回の計算で返す形にして、`MakeActorQHint` の呼び出しを 1 回にする。合わせた値は、今の 1 回目の結果の該当の列と同じ値にし、テストで確かめる。ヒント設定の構成を変える fa1be2 は範囲に入れない。c3b5ef（n 先のヒントを待つ手順の写し）は範囲に入れない | 課題の対応方針のとおり。P10（Replay の初期優先度と同じ入力、列の数は変えない）。fa1be2 は設定の構造体を分ける別の判断（§1.3）。分解のときの 2 回目の結果の Q_sa の列は外的の Head の値で、合わせた Q の値ではない（dqn_assembler.cpp 163〜170 行）。合わせた値を同じに作るのに Munchausen・TBO の扱いを `MakeActorQHint` の外へ写すことになるなら、写しを増やすので、2 回の呼び出しを残し、入力の組み立てだけをまとめる（その理由を実装計画に書く） |
+| U10 | d74c3f の関数と、decomposed でないときの扱い | `LearnerConfig` に「内的の成分が使う割引率の定数または予定を選ぶ」関数を 1 つ置く。decomposed かつ `discount_mode` が `separate` なら `learner.intrinsic.gamma`、それ以外（decomposed でない、または `shared`）なら `learner.gamma` を返す。6 か所はこの関数を呼び、予定の有無は、返した設定が定数かどうかで判定する。decomposed の分岐の中にある呼び出しは、分岐をそのまま残す | default_dqn_agent.cpp 558 行の今の式と同じ選び方で、ほかの 5 か所の今の結果も変えない（§3.10 のとおり、decomposed でないとき内的の割引率を読む読み手が無い）。decomposed でないとき外的の割引率を返す形にすると、Ignored と知らせた `learner.intrinsic.gamma`（default_dqn_agent.hpp 322 行）が効く道が無くなる |
 | U11 | 5ebf2f の並びの形 | 学習の群と行動選択の群に、`LearnerScheduleMetric` と同じ形の名前付きの番号（`ValueDecompositionMetric`・`ValueSelectionMetric`）を置き、キーを `MakeDiagnosticMetricKeys` で、値を `StackDiagnosticValues` で作り、読み出しを `ReadDiagnosticScalar` に寄せる。行動選択の群は lane × 指標なので、列を並べる版を `StackDiagnosticValues` の隣に 1 つ足す（lane・平均・session の 3 本のキーは、同じ番号から作る）。step 診断の `scalar(3)`・`scalar(4)`・`scalar(5)` は `LearnerScheduleMetric` の名前で指す。キーの名前、NaN になる条件、`$agent`・`$action_info`・`$actor` のどこから読めるかは変えない | P9（並びの食い違いをビルドで止める）。課題の対応方針の 2 案（列ごとの版を足すか、`MakeDiagnosticValues` で列を並べるか）のうち、行動選択の群の 3 本のキーを同じ番号で作れる前者を置いた。どちらでも値は変わらない |
 | U12 | 9f1801 の共通の関数 | 「一様に B 件を引いて device へ移し、件数を確かめ、観測（`obs`）だけを Perception に通して返す。揃わなければ空を返す」関数を、`dqn::Learner` の中だけで使う関数として 1 つ置き、4 群が呼ぶ。次の観測（`next_obs`）は通さない。等間隔の τ は `MakeTauMidpointPositions` に寄せる。probe ごとの乱数と、引く順は変えない | P11。標準の Forwarder の部品 4 種（FrameStack・Normalize・DropKeys・SetSpec）は、Sample 用の forward で乱数を引かず統計を更新しないので、次の観測を通さなくても値は変わらない（課題の対応方針）。アプリが足した部品が forward で乱数を引く構成だけは列が変わるが、出荷設定にその部品は無い |
 | U13 | e43866 の特性テスト | RFD0200 の実装のあとの口で書く。`frame_stack.count` を 2 以上にした DefaultDQNAgent で `GetTensorDictFunction("policy-net.forward")` に 1 枚の観測を渡し、(1) 止まらずに forward が通ること、(2) Network へ渡る入力の形（stack の対象のキーは長さ `count` の stack の軸を持ち、対象外のキーは元の形）が `keys.mode` の `all` と `listed` の 2 通りで期待どおりであること、(3) stack の各位置が同じ値であること、を確かめる。入力の見方（capture、Network の入力の spec、同じ値の入力で直接 forward した出力との一致など）は実装で選ぶ | P12。課題の最後の追記（RFD0200 のあとは新しい口で書く）のとおり。既存の 593 行のテストの設定（`MakeNativeStackConfigData`、`keys.listed.names`）を使える |
@@ -165,7 +167,7 @@ DQN 系（`src/algo/dqn`）に、方針まで課題に書かれた小さい直�
 
 ### 5.1 学習の設定の値域（U1・U2）
 
-当て方: キーごとに独立に 1 行で扱う。どのキーも、構築時に設定を読んだ直後に検証する。設定ファイルの値が空、数として読めない、整数のキーに小数、float のキーに NaN・inf のときは、今ある設定の読み取りが表の検証より先に止める（[config.cpp](../../src/core/base/src/config.cpp) の `ParseNumericConfigValue`、61〜86 行。本書は変えない）。表の「有限」の検証は、設定ファイルを通らずに値を組む構成（テストなど）にも同じ線を引くために置く。
+当て方: キーごとに独立に 1 行で扱う。設定の読み取り後に検証する。設定型で直接渡された値も、共通 Learner の構築時に検証する。設定ファイルの値が空、数として読めない、整数のキーに小数、float のキーに NaN・inf のときは、今ある設定の読み取りが表の検証より先に止める（[config.cpp](../../src/core/base/src/config.cpp) の `ParseNumericConfigValue`、61〜86 行。本書は変えない）。表の「有限」の検証は、設定ファイルを通らずに値を組む構成（テストなど）にも同じ線を引くために置く。
 
 | キー | 型 | 受け付ける値 | 外れたとき | 使われないときも検証するか |
 |---|---|---|---|---|
@@ -173,18 +175,18 @@ DQN 系（`src/algo/dqn`）に、方針まで課題に書かれた小さい直�
 | `learner.td_clip_value` | float | 有限で 0 より大きい | 同上 | する（`use_td_clip = false` でも） |
 | `learner.update_interval` | int | 1 以上 | `...; expected integer >= 1.` で止める | する（`replay_ratio` が正でも） |
 | `learner.quantile_huber_kappa` | float | 有限で 0 より大きい | `...; expected finite value > 0.` で止める | する（`quantile_mode` によらない） |
-| `learner.per_alpha` | float | 有限で 0 以上（0 は今の WARN を出して続ける） | `...; expected finite value >= 0.` で止める | する（`use_per = false` でも） |
+| `learner.per_alpha` | float | 有限で 0 以上（0 の既存 WARN は PER 有効かつ初期優先度 `actor_approx` の場合に出す） | `...; expected finite value >= 0.` で止める | する（`use_per = false` でも） |
 | `learner.replay_ratio` | float | 有限で 0 でない。正は RR のモード、負は間隔のモード | `...; expected finite value > 0, or < 0 to use update_interval.` で止める | — |
 | `learner.replay_batch_size` | int | 1 以上 | `...; expected integer >= 1.` で止める | する |
 
-端の値: float は NaN・+inf・−inf・0・負を外れとし、整数は 0・負を外れとする。期待の文の言い回しは、今ある `ValidateRange` の呼び出し（`"finite value >= 0"`、`"integer >= 1"` など）にそろえる。RainbowAgent が読まないキーは型の既定の値（範囲の中）のままなので、エラー文に出ない（P2）。
+境界の例は表のとおり。正の float を要求する 3 キーでは、非有限値・0・負を拒否する。`per_alpha` では非有限値・負を拒否し、0 は受理する。PER が有効で初期優先度が `actor_approx` の場合は既存 WARN を出す。`replay_ratio` では非有限値・0 を拒否し、正と負を受理する。整数の 2 キーは 0・負を拒否し、1 を受理する。期待の文の言い回しは、今ある `ValidateRange` の呼び出し（`"finite value >= 0"`、`"integer >= 1"` など）にそろえる。RainbowAgent が読まないキーは型の既定の値（範囲の中）のままなので、エラー文に出ない（P2）。
 
 ### 5.2 診断値の未成立（U3・U4）
 
 | 指標 | NaN になる条件（今） | NaN になる条件（本書のあと） |
 |---|---|---|
 | 方策の `uqe_tau` | Thompson、または spatial の EpsilonGreedy | UQE を使わない方策、または Thompson |
-| `iqn_policy_margin_mc_ratio` | IQN+UQE 以外、または risk の本数が 2 未満 | IQN+UQE 以外、risk の問い合わせが点、または risk の本数が 2 未満 |
+| `iqn_policy_margin_mc_ratio` | IQN の UQE・Thompson の経路以外、または risk の本数が 2 未満 | IQN の UQE・Thompson の経路以外、行動を決める問い合わせが点、または risk の本数が 2 未満。非 spatial Thompson の行動選択用の全範囲は、2 本以上なら成立 |
 
 NaN の点は記録されない（P7）。
 
@@ -196,7 +198,8 @@ NaN の点は記録されない（P7）。
 
 ### 6.2 変えないもの（本当の制約か）
 
-- 設定キー、メトリクスの名前、checkpoint の形式、ログと WARN・ERROR の文言・順・回数（新しく止める範囲外の値の ERROR を除く）、乱数の消費の順、Agent が記録する設定（P2）。本当の制約ではないが、挙動を変えない直しの線として守る。わざと変えるのは §1.2 の 3 つだけ。
+- 設定キー、メトリクスの名前、checkpoint の形式、ログと WARN・ERROR の文言・順・回数（新たに拒否する設定値の ERROR と、不正な指標キーで重複していた fatal の削除を除く）、乱数の消費の順、Agent が記録する設定（P2）。本当の制約ではないが、挙動を変えない直しの線として守る。わざと変えるものは §1.2 の 4 つ。
+- probe で使う標準 Forwarder の Sample 経路では乱数と統計を変えない。独自部品が次の観測の forward で状態を更新する構成は、この等価性の対象外とする（U12）。
 - 基盤（`src/core/base`）の公開ヘッダ。本書の型と関数はどれも `src/algo/dqn/src` の内部のヘッダに置く。本当の制約ではない。基盤の口を変える理由が無い。
 - Evaluation Trace の列と Actor Q ヒントの列の数と値（P10）。本当の制約ではない（ADR 0075 を改める判断で変えられる）。本書は写しをまとめるだけで、列を変える理由が無い。
 - 出荷設定（`apps/runner/config`）。本当の制約ではない。範囲外の値を書く行が無い（P8）ので、直す行が無い。
@@ -238,27 +241,28 @@ NaN の点は記録されない（P7）。
 ### 6.5 ほかの RFD・課題との順序
 
 - 本書は、RFD0205（文書）と RFD0206（基盤とアプリ）のあとに実装する前提で書いた。前後比較（§7 の A13）と速さの比べ（A14）の基準の実行体は、本書の変更を入れる直前の作業ツリー（RFD0206 の変更を含む）から作る。RFD0206 の変更が比較の差に混ざらないようにするためである。RFD0205 は設計 200（jp・en）の別の行（checkpoint の説明）を直すので、本書の U4・U6 の行と同じファイルを触る。順に入れれば重ならない。
-- 同じファイルを触る、まだ実装していない RFD（`docs/memo` を、本書が触るファイル名と `RuntimeVars`・`ActorQHint`・`ComponentGammas` で引き、指す課題の状態が解決でないもの）: [RFD0107](0107_noisy_gain_lane_ladder_10rfd.md)、[RFD0134](0134_network_lock_audit_10rfd.md)、[RFD0136](0136_best_checkpoint_10rfd.md)、[RFD0142](0142_agent_prev_action_obs_10rfd.md)、[RFD0143](0143_serialize_10rfd.md)、[RFD0169](0169_outside_core_extension_layout_10rfd.md)、[RFD0171](0171_replay_eviction_sample_count_10rfd.md)、[RFD0173](0173_intrinsic_reward_novelty_10rfd.md)、[RFD0201](0201_top_episode_memory_sil_lower_bound_10rfd.md)、[RFD0191](0191_rnd_raw_error_and_recent_learning_10rfd.md)（課題 1 件が対応中）。どれも 2026-11-27 の作業ツリーに未コミットの変更を持たない。本書を先に入れる。あとの RFD は本書のあとのコードに対して書く。RFD0143 の `RuntimeVars` の記述は、本書が直す（U6）。RFD0201 が学習の指標を足すときは、U11 の名前付きの番号に足す。RFD0134 のロックの範囲の見直しは、U7 の形（`target_policy.` の接頭辞はロックなし、それ以外は 1 回の共有ロック）から始める。これらの RFD が本書の途中で入ることは想定しない。入るときは、本書の課題 1 件ずつの切れ目で入れ、A13 の基準の実行体を作り直す。
+- 同じファイルを触る、まだ実装していない RFD（`docs/memo` を、本書が触るファイル名と `RuntimeVars`・`ActorQHint`・`ComponentGammas` で引き、指す課題の状態が解決でないもの）: [RFD0107](0107_noisy_gain_lane_ladder_10rfd.md)、[RFD0134](0134_network_lock_audit_10rfd.md)、[RFD0136](0136_best_checkpoint_10rfd.md)、[RFD0142](0142_agent_prev_action_obs_10rfd.md)、[RFD0143](0143_serialize_10rfd.md)、[RFD0169](0169_outside_core_extension_layout_10rfd.md)、[RFD0171](0171_replay_eviction_sample_count_10rfd.md)、[RFD0173](0173_intrinsic_reward_novelty_10rfd.md)、[RFD0201](0201_top_episode_memory_sil_lower_bound_10rfd.md)、[RFD0191](0191_rnd_raw_error_and_recent_learning_10rfd.md)（課題 1 件が対応中）。どれも 2026-11-27 の作業ツリーに未コミットの変更を持たない。本書を先に入れる。あとの RFD は本書のあとのコードに対して書く。RFD0143 の `RuntimeVars` の記述は、本書が直す（U6）。RFD0201 が学習の指標を足すときは、U11 の名前付きの番号に足す。RFD0134 のロックの範囲の見直しは、U7 の形（Assembler は `target_policy.` の接頭辞をロックなしで扱い、それ以外を 1 回の共有ロックで Learner に委ねる。Assembler が値を持たず DefaultDQN へ戻る場合、reward scaler・Perception を調べる既存のロックは別に取る）から始める。これらの RFD が本書の途中で入ることは想定しない。入るときは、本書の課題 1 件ずつの切れ目で入れ、A13 の基準の実行体を作り直す。
 - ワークツリーのブランチ `feature/20261125-ppo` は `src/algo/dqn` を触らない（`git diff --stat main...feature/20261125-ppo -- src/algo/dqn`、2026-11-27）。
 
 ## 7. 受入
 
 | 番号 | 確かめること | 確かめ方 |
 |---|---|---|
-| A1 | ビルドとテスト | Debug の全ビルドが通る。DQN と core のテストの実行体の既定のスイートが、既知の失敗（RFD0093 の attention のテスト）を除いて通る。§3 が名指す既存のテスト（課題の対応方針が挙げるもの）は、期待値を変えずに通る。テストの直しは、U6 の構築の引数と学習の進みの読み方、U13 で足すものに限る |
-| A2 | 学習の設定の値域（U1・U2） | §5.1 の 7 つのキーのそれぞれについて、外れの端の値（float は NaN・+inf・0・負、整数は 0・負）を書いた DefaultDQN の構築が、完全キーと値を含む文で止まるテストがある。RainbowAgent が読むキー（`grad_clip_tau`・`td_clip_value`・`update_interval`・`replay_batch_size`・`per_alpha`）も同じに止まる。`use_grad_clip = false` で `grad_clip_tau = 0`、`replay_ratio` が正で `update_interval = 0` のときも止まる。`per_alpha = 0` は止まらずに今の WARN を出す |
+| A1 | ビルドとテスト | Debug の全ビルドが通る。`anet-algo-dqn-test` と `anet-core-base-test` の既定スイートが通る。失敗を例外とできるのは、変更前の同じケース・順・seed でも再現し、ケース名、原因、結果を記録したときだけ。§3 が名指す既存のテスト（課題の対応方針が挙げるもの）は、期待値を変えずに通る。既存テストの期待値は U4 の点の UQE に追加する NaN の確認を除いて維持する。U6 では構築の引数と学習の進みの読み方を移行し、新規の確認は A2〜A6、A11、A15 の挙動を対象に置く |
+| A2 | 学習の設定の値域（U1・U2） | §5.1 の有効・無効の境界をキーごとに確認する。DefaultDQN の 7 キーと RainbowAgent の 6 キー（DefaultDQN から `replay_ratio` を除く）で、構築時に不正な有限値が完全キー・指定値・期待範囲付きで拒否される。設定層は NaN・±inf を拒否し、共通検証にも非有限値を直接渡して確認する。`use_grad_clip = false` や `use_td_clip = false` のときの 0、`replay_ratio` が正で `update_interval = 0` のときも拒否する。`per_alpha = 0` は受理し、PER 有効かつ `actor_approx` では既存 WARN を 1 回出す。`replay_ratio` は負・正を受理し、両方の更新方式を選べる |
 | A3 | `uqe_tau`（U3） | Greedy、spatial なしの EpsilonGreedy、spatial ありの EpsilonGreedy の `GetScalar("uqe_tau")` が NaN であるテストが通る。UQE の方策の値は今のテスト（dqn_actor_test.cpp 1804 行）のまま通る |
-| A4 | 点の UQE の比（U4） | 点で K=3・全範囲の問い合わせ無しの節で、`iqn_policy_margin_mc_ratio` が NaN である確認が通る。tail mean で K が 2 以上の今のテストは、期待値を変えずに通る。設計 200 §9.1（jp・en）の NaN の条件の行に「点」の語が入り、030（jp・en）の該当の行に、点の UQE では出ないことが書かれている |
+| A4 | 点の UQE の比（U4） | 点で K=3・全範囲の問い合わせ無しの節で、`iqn_policy_margin_mc_ratio` が NaN である確認が通る。tail mean で K が 2 以上の今のテストは、期待値を変えずに通る。非 spatial Thompson の行動選択用の全範囲は K が 2 以上で有限のまま、点に可視化用の全範囲を併用する場合は NaN になることも確認する。設計 200 §9.1（jp・en）の NaN の条件の行に「点」の語が入り、030（jp・en）の該当の行に、点の UQE では出ないことが書かれている |
 | A5 | fatal の重複（U5） | `action_full_q_margin.[1x]` と `action_full_q_margin.[x]` の鍵で、例外が 1 回だけ出て、捕まえたログの fatal の行が 1 行だけであるテストが通る。文言は今の `DQNActionInfo: invalid action index in scalar key: <鍵>` のまま |
-| A6 | `RuntimeVars` の削除（U6） | `git grep -n RuntimeVars -- src docs/design` が 0 行。`git grep -n RuntimeVars -- docs/memo/0143_serialize_10rfd.md` が 0 行で、RFD0143 の冒頭に 2026-11-27 の改訂の行がある。`per_beta` の値は A13 の比較で確かめる。加えて、DefaultDQN の `GetScalar("per_beta")` が、`use_per` のとき最初の更新の前に β の予定の step 0 の値を、`use_per` でないとき 0 を返すテストが通る |
-| A7 | 振り分け（U7） | dqn_assembler.cpp の `GetScalar` の本体を `kLearnerScheduleMetricKeys`・`kValueDecompositionMetricKeys`・`"per_beta"`・`kPlasticityProbePrefix`・`kNoisyPrefix` で引いて 0 行。`GetTensor`・`GetTensorVector` の本体を `ReplayBuffer::kKeyPrefix` で引いて 0 行。値は A13 で確かめる |
+| A6 | `RuntimeVars` の削除（U6） | `git grep -n RuntimeVars -- src docs/design` が 0 行。`git grep -n RuntimeVars -- docs/memo/0143_serialize_10rfd.md` が 0 行で、RFD0143 の冒頭に実際の改訂日を付した行がある。`per_beta` の値は A13 の比較で確かめる。加えて、DefaultDQN の `GetScalar("per_beta")` が、`use_per` のとき最初の更新の前に β の予定の step 0 の値を、`use_per` でないとき 0 を返すテストが通る |
+| A7 | 振り分け（U7） | `rg -n -e kLearnerScheduleMetricKeys -e kValueDecompositionMetricKeys -e '"per_beta"' -e kPlasticityProbePrefix -e kNoisyPrefix -e ReplayBuffer::kKeyPrefix src/algo/dqn/src/dqn_assembler.cpp` で、`DqnComponentAssembler::GetScalar`・`GetTensor`・`GetTensorVector` の定義の開始から閉じ括弧までに一致する行が 0。ほかの関数の一致は別に確認する。値は A13 で確かめる |
 | A8 | 選んだ行動の取り出し（U8） | 正規表現 `1, 1 ?\}\)\.expand\(` で dqn_learner.cpp と dqn_network_model.cpp を引いて 0 行（今は 9 行）。§3.6 の 13 か所が共通の関数を呼ぶ（実装計画に、か所ごとの呼び出しの行を記録する） |
 | A9 | probe の抽選（U12） | `SampleUniqueUniform(` で dqn_learner.cpp を引いて 1 行（今は 4 行）。Noisy と policy churn の等間隔の τ が `MakeTauMidpointPositions` を呼ぶ（`CaptureNoisyDiagnostics` と `CapturePolicyChurnProbe` の本体を `+ 0.5f` で引いて 0 行） |
-| A10 | 診断の並び（U11） | `scalar\([0-9]\)` で dqn_assembler.cpp を引いて 0 行。`kValueDecompositionMetricKeys` の定義が `MakeDiagnosticMetricKeys` で作られている。破壊の確かめ: 学習の群と行動選択の群のそれぞれで、名前付きの番号の隣り合う 2 つの対応を入れ替えるとビルドが止まり、戻すとビルドが通ることを実装計画に記録する（RFD0128 の検証資材の README の「速さと破壊検査」と同じやり方） |
-| A11 | ヒントの入力（U9） | `kBootstrapExtrinsic` で default_dqn_agent.cpp と dqn_assembler.cpp を引いて 0 行（変換は共通の関数の中だけ）。dqn_concrete_test.cpp の 3512・3598・3634 行、dqn_actor_test.cpp の 1395・1624 行、dqn_munchausen_test.cpp の 289・342 行のテストが、期待値を変えずに通る。分解のとき step 診断の `MakeActorQHint` の呼び出しが 1 回であること（U9 で 2 回を残したときは、その理由が実装計画にあること） |
+| A10 | 診断の並び（U11） | `scalar\([0-9]\)` で dqn_assembler.cpp を引いて 0 行。`kValueDecompositionMetricKeys` の定義が `MakeDiagnosticMetricKeys` で作られている。破壊の確かめ: 学習の群と行動選択の群のそれぞれで、列挙型の定義を保ち、キー表または値の組み立ての隣り合う 2 項目を、それぞれ名前と値を結びつけたまま入れ替えるとビルドが止まる。並びを戻すとビルドが通ることを実装計画に記録する（RFD0128 の検証資材の README の「速さと破壊検査」と同じやり方） |
+| A11 | ヒントの入力（U9） | `kBootstrapExtrinsic` で default_dqn_agent.cpp と dqn_assembler.cpp を引いて 0 行。外的の bootstrap への変換は、dqn_actor の共通関数に置く。dqn_concrete_test.cpp の 3512・3598・3634 行、dqn_actor_test.cpp の 1395・1624 行、dqn_munchausen_test.cpp の 289・342 行のテストが、期待値を変えずに通る。`dqn_intrinsic_test.cpp` の分解 step 診断を通す既存テストに、合成 Q と Head ごとの値、Replay の初期優先度との一致の確認を足す。分解のとき step 診断の `MakeActorQHint` の呼び出しが 1 回であること（U9 で 2 回を残したときは、その理由が実装計画にあること） |
 | A12 | 内的の割引率（U10） | 表の下の検索「割引率の選び方」の結果が、定義、default_dqn_agent.hpp の検証 3 行、新しい関数の中だけである。値は A13 の分解の 2 組で確かめる |
-| A13 | 前後比較 | 基準は §6.5 の実行体（Debug）。組は、P3 の 34 構成に、次の 3 組を足した 37 構成。(a)(b) LunarLander の `run.@rnd` に `DefaultDQNAgent.intrinsic.value_mode = decomposed` と、分解に要るキー（構築のエラーが名指すもの）を足し、`learner.intrinsic.discount_mode` を `shared` にした組と、`separate`（`learner.intrinsic.gamma` に定数でない予定）にした組。(c) DropMerge の `run.@iqn32_actor_approx` の backend を決定的なものに替えた組。条件は P3 の短縮条件（seed 1、8 lane、8,704 experience、決定的 backend、FP32）。比べるのは全 scalar の点（時刻と資源の 3 つの接頭辞を除く）、設定の記録の全行、Agent の json の設定の記録、WARN/ERROR の文言と順。合格は、次の 2 つを除いて全部一致すること。(i) キー `uqe_tau` を UQE でない方策から読む tag（`32_agent_base/04_uqe_tau`・`04_uqe_tau_target`）の点が後側で消え、消えた点の前側の値がすべて 0 である。(ii) IQN の点の UQE で全範囲の問い合わせが無い構成の、`iqn_policy_margin_mc_ratio` を読む tag の点が後側で消える。消えた点の数を構成ごとに実装計画に記録する。検証資材の入力が RFD0191 より前の設定キーで動かないときは、入力の設定キーの名前だけを今の名前に直し、直した対応を実装計画に記録する（値は変えない） |
-| A14 | 速さ | P4 の手順（Release、Atari qbert、IQN、128 lane、batch 256、捨て Run のあと新旧を交互に 3 巡以上）で、変更後の更新 1 回あたりの実時間の中央値が、基準の最大値以下 |
+| A13 | 前後比較 | 基準は §6.5 の実行体（Debug）。組は、P3 の 34 構成に、次の 3 組を足した 37 構成。(a)(b) LunarLander の `run.@rnd` に `DefaultDQNAgent.intrinsic.value_mode = decomposed` と `skip.enabled = false` を指定し、`learner.intrinsic.discount_mode` を `shared` にした組と、`separate`（`learner.intrinsic.gamma` の linear、0.9 から 0.99、100 step）にした組。Actor の β は現行プロファイルの learner を使う。(c) DropMerge の `run.@iqn32_actor_approx` の後ろに短縮プロファイルを置いて、backend を決定的にし、`DefaultDQNAgent.learner.use_amp = false` で上書きした組。PER の初期優先度が `actor_approx` になることを確認する。条件は P3 の短縮条件（seed 1、8 lane、8,704 experience、決定的 backend、FP32）。過去の採取物と分けて `.scratch/rfd0207/validation.py` から既存の検証資材を呼び、両側で同じ 37 入力を使う。Run 名には `run_{t}_tmp_207_` を使う。比べるのは全 scalar の点（`90_perf/`、`91_resource/`、`92_resource/` を除く）、Run の `config/` 下の設定記録を全ファイル・全行（Run 名・Run のパスは共通の表記へ正規化）、Agent の json の設定の記録、WARN/ERROR の文言と順（Run 名、Run のパス、cpp/hpp のソース位置は共通の表記に正規化）。停止・ログ欠落・scalar が空の実行は比較の失敗とする。合格は、次の 2 つを除いて全部一致すること。(i) キー `uqe_tau` を UQE でない方策から読む tag（`32_agent_base/04_uqe_tau`（`$actor uqe_tau`）・`32_agent_base/04_uqe_tau_target`（`$agent target_policy.uqe_tau`））の点が後側で消え、消えた点の前側の値がすべて 0 である。(ii) IQN の点の UQE で全範囲の問い合わせが無い構成の、`iqn_policy_margin_mc_ratio` を `$action_info` から読む `33_agent_action/21_iqn_policy_margin_mc_ratio_ema`（学習時）、`51_eval1/53_iqn_policy_margin_mc_ratio_ema` と `52_eval2/53_iqn_policy_margin_mc_ratio_ema`（評価時）の点が後側で消える。差を認めるのは、当該方策の実効設定を確認でき、前側に有限点が存在し、後側でそのタグの点がすべて消えた場合。消えた点の数を構成ごとに実装計画に記録する。検証資材の入力が RFD0191 より前の設定キーで動かないときは、入力の設定キーの名前だけを今の名前に直し、直した対応を実装計画に記録する（値は変えない）。補助学習の batch 8 は `learn.intake.batch_size`。既定の旧 `learn_predictor` に対応し 256 は `rnd.error_norm.standardize.warmup_steps`、predictor の待ちは 0 のままにする |
+| A14 | 速さ | P4 の手順（Release、Atari qbert、IQN、128 lane、batch 256、捨て Run のあと新旧を交互に 3 巡以上）で、変更後の更新 1 回あたりの実時間の中央値が、基準の最大値以下。夜間依頼の長い Run を起こさない条件を優先し、A14 の測定は朝の残件にする。着手前に Release 実行体と比較用設定を保存する。基準が作れなければ、その失敗と条件を記録し、性能差は判定不能とする |
+| A15 | 可視化の特性（U13） | DefaultDQN の `GetTensorDictFunction("policy-net.forward")` に 1 枚を渡し、実際に Network へ渡した 2 キーの shape と全値を比較する。`all` は両方を積み、`listed` は指定した 1 キーを積む。stack の位置ごとに渡した 1 枚と同じ値になる |
 
 検索「割引率の選び方」（A12。正規表現、テストを除く `src/`）:
 
@@ -280,10 +284,10 @@ git grep -nE "kDiscount(Separate|Shared)" -- src ":!*_test.cpp"
 | [issue-20261125-6a8e46](../management/issues/issue-20261125-6a8e46.md) | Agent の scalar の振り分けが Learner の群の一覧を写す | 321_agent_core | dqn_assembler.cpp 391〜435 行、dqn_learner.cpp 276〜319・851〜865 行 | U7 | A1・A7・A13 |
 | [issue-20261125-9e8834](../management/issues/issue-20261125-9e8834.md) | 選んだ行動の値を取り出す式が 13 か所に写されている | 321_agent_core | §3.6 の 13 か所 | U8 | A1・A8・A13・A14 |
 | [issue-20261125-9f1801](../management/issues/issue-20261125-9f1801.md) | probe の 4 群が抽選の手順を写す | 321_agent_core | dqn_learner.cpp 650〜653・689〜693・726〜730・760〜764・1046〜1056 行 | U12 | A1・A9・A13 |
-| [issue-20261125-5ebf2f](../management/issues/issue-20261125-5ebf2f.md) | 価値の分解の診断 2 群と step 診断の scalar(3) が、並びの食い違いでビルドが止まる形に載っていない | 321_agent_core | dqn_math.hpp 273〜275 行、dqn_learner.cpp 2860〜2863 行、dqn_actor.cpp 37〜44・355・360〜376・1729〜1734 行、dqn_assembler.cpp 117・134 行 | U11 | A1・A10・A13 |
+| [issue-20261125-5ebf2f](../management/issues/issue-20261125-5ebf2f.md) | 価値の分解の診断 2 群と step 診断の scalar(3) が、並びの食い違いでビルドが止まる形に載っていない | 321_agent_core | dqn_math.hpp 273〜275 行、dqn_learner.cpp 2860〜2863 行、dqn_actor.cpp 37〜44・355・360〜376・1729〜1734 行、dqn_assembler.cpp 117・134 行 | U11 | A1・A10・A13・A14 |
 | [issue-20261125-de8cfd](../management/issues/issue-20261125-de8cfd.md) | Actor Q ヒントの入力の組み立てが Actor と step 診断の 2 か所にある | 321_agent_core | dqn_actor.cpp 1584〜1602 行、dqn_assembler.cpp 127〜148・163・167 行、default_dqn_agent.cpp 938 行 | U9 | A1・A11・A13 |
-| [issue-20261123-d74c3f](../management/issues/issue-20261123-d74c3f.md) | 内的の成分の割引率の選び方が DQN 系の 6 か所に写されている | 324_dqn、321_agent_core | default_dqn_agent.cpp 558・939 行、dqn_assembler.cpp 126・181〜182 行、dqn_learner.cpp 993・2631 行 | U10 | A1・A12・A13 |
-| [issue-20261123-e43866](../management/issues/issue-20261123-e43866.md) | stack を有効にした GetTensorDictFunction の複製の経路を通すテストが無い | 324_dqn | default_dqn_agent.cpp 579〜583・846 行、dqn_concrete_test.cpp 327〜341・593 行 | U13 | A1 |
+| [issue-20261123-d74c3f](../management/issues/issue-20261123-d74c3f.md) | 内的の成分の割引率の選び方が DQN 系の 6 か所に写されている | 324_dqn、321_agent_core | default_dqn_agent.cpp 558・939 行、dqn_assembler.cpp 126・181〜182 行、dqn_learner.cpp 993・2631 行 | U10 | A1・A12・A13・A14 |
+| [issue-20261123-e43866](../management/issues/issue-20261123-e43866.md) | stack を有効にした GetTensorDictFunction の複製の経路を通すテストが無い | 324_dqn | default_dqn_agent.cpp 579〜583・846 行、dqn_concrete_test.cpp 327〜341・593 行 | U13 | A1・A15 |
 
 ## 9. グリルの材料
 

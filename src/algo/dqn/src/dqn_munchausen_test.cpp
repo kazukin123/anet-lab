@@ -425,7 +425,6 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         auto online = std::make_shared<std::vector<SoftForward>>();
         auto target = std::make_shared<std::vector<SoftForward>>();
         SoftOracleModel model(kind, tbo, device, online, target);
-        RuntimeVars vars;
         ActionPolicyConfig policy_config;
         policy_config.quantile_mode = kind;
         policy_config.policy_type = repeat == 0 ? "Greedy" : "EpsilonGreedy";
@@ -448,7 +447,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         policy->UpdateSchedule(StepCounts{ .exp_step = 50 });
         const auto spec = SoftEnvSpec();
         const auto update = [&]<typename ConcreteLearner>() {
-            ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
+            ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, spec,
                 device, 67010, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67011);
             online->clear();
             target->clear();
@@ -486,7 +485,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         const auto next = as_distribution(mode == "target" ? target->at(0).values.narrow(0, 2, 2) : target->at(0).values);
         torch::Tensor hard_actions;
         if (kind == "qr" && risk_mode == 1 && scenario == 2) {
-            SoftHardSelector selector(config, model, vars, BatchEnvSpec{ 2, 2 }, spec,
+            SoftHardSelector selector(config, model, BatchEnvSpec{ 2, 2 }, spec,
                 device, 67010, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67011);
             hard_actions = selector.SelectTargetActions(SoftSamples(device).next_state.next_obs, selector.MakeTargetEvaluation(false));
         }
@@ -656,13 +655,12 @@ TEST_CASE("Munchausen target capture exposes only next state rows", "[dqn][munch
     config.update_interval = 1;
     config.replay_ratio = -1;
     config.final_feature_branch_key = "feature";
-    RuntimeVars vars;
     ActionPolicyConfig policy_config;
     policy_config.quantile_mode = kind;
     auto policy = std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
     const auto spec = SoftEnvSpec();
     const auto update = [&]<typename ConcreteLearner>() {
-        ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
+        ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, spec,
             device, 67030, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67031);
         learner.ConfigureScalarMetricSubscriptions({
             ScalarMetricSubscription{ .source_key = "plasticity_feature_norm", .event = EventType::LEARN,
@@ -716,7 +714,6 @@ TEST_CASE("Replay fit TD and quantile losses match independent fixed-distributio
     auto online = std::make_shared<std::vector<SoftForward>>();
     auto target = std::make_shared<std::vector<SoftForward>>();
     SoftOracleModel model(kind, false, torch::kCPU, online, target);
-    RuntimeVars vars;
     LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.quantile_mode = kind;
     config.num_quantiles = 3;
@@ -740,7 +737,7 @@ TEST_CASE("Replay fit TD and quantile losses match independent fixed-distributio
     auto policy = std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
     std::shared_ptr<const anet::rl::BatchUpdateResult> measured;
     const auto run = [&]<typename ConcreteLearner>() {
-        ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
+        ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
             torch::kCPU, 73041, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 73042);
         std::vector<ScalarMetricSubscription> subscriptions;
         for (const auto* key : kReplayFitMetricKeys) subscriptions.push_back(ScalarMetricSubscription{
@@ -810,7 +807,6 @@ TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distribu
         auto online = std::make_shared<std::vector<SoftForward>>();
         auto target = std::make_shared<std::vector<SoftForward>>();
         SoftOracleModel model(kind, tbo, torch::kCPU, online, target, true);
-        RuntimeVars vars;
         LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.quantile_mode = kind;
         config.num_quantiles = 3;
@@ -846,7 +842,7 @@ TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distribu
         std::vector<torch::Tensor> observed;
         const auto keep = [&](const torch::Tensor& value) { observed.push_back(value.detach().clone()); };
         const auto run = [&]<typename ConcreteLearner>() {
-            ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
+            ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
                 torch::kCPU, 73012, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 73013);
             std::vector<ScalarMetricSubscription> subscriptions;
             if (enabled) for (const auto* key : kReplayFitMetricKeys) subscriptions.push_back(ScalarMetricSubscription{
@@ -954,7 +950,6 @@ TEST_CASE("DQN target evaluation preserves the RFD0073 pre-change baseline", "[d
     auto online = std::make_shared<std::vector<SoftForward>>();
     auto target = std::make_shared<std::vector<SoftForward>>();
     SoftOracleModel model(kind, tbo, device, online, target);
-    RuntimeVars vars;
     ActionPolicyConfig policy_config;
     policy_config.quantile_mode = kind;
     policy_config.epsilon.value = 0.0f;
@@ -974,7 +969,7 @@ TEST_CASE("DQN target evaluation preserves the RFD0073 pre-change baseline", "[d
         ? std::shared_ptr<ActionPolicy>(std::make_shared<UQEActionPolicy>(policy_config))
         : std::shared_ptr<ActionPolicy>(std::make_shared<EpsilonGreedyActionPolicy>(policy_config));
     const auto run = [&]<typename ConcreteLearner>() {
-        ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
+        ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
             device, 73001, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 73002);
         // PER更新の対象slotを公開収集経路から用意し、実在する第1世代keyを使用する。
         const auto initial = SoftSamples(device);
@@ -1050,12 +1045,11 @@ TEST_CASE("RFD0125 Bellman target preserves returns, discounts, and terminal bon
     auto online = std::make_shared<std::vector<SoftForward>>();
     auto target = std::make_shared<std::vector<SoftForward>>();
     SoftOracleModel model(kind, tbo, torch::kCPU, online, target);
-    RuntimeVars vars;
     ActionPolicyConfig policy_config;
     policy_config.quantile_mode = kind;
     const auto policy = std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
     const auto spec = SoftEnvSpec();
-    BellmanTargetReader learner(config, model, vars,
+    BellmanTargetReader learner(config, model,
         BatchEnvSpec{ .num_envs = kBatchSize, .num_threads = 2 }, spec,
         torch::kCPU, 12501, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 12502);
     auto samples = SoftSamples(torch::kCPU);

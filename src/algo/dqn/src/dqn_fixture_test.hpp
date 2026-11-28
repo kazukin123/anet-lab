@@ -476,7 +476,6 @@ public:
     TestLearner(
         const dqn::LearnerConfig& config,
         dqn::NetworkModel& model,
-        dqn::RuntimeVars& vars,
         const rl::BatchEnvSpec& batch_env_spec,
         const rl::EnvSpec& env_spec,
         const dqn::LearnerForwardResources& forward_resources,
@@ -484,7 +483,6 @@ public:
         : dqn::Learner(
             config,
             model,
-            vars,
             batch_env_spec,
             env_spec,
             torch::Device(torch::kCPU),
@@ -1143,7 +1141,6 @@ public:
     CapturingLearner(
         const dqn::LearnerConfig& config,
         dqn::NetworkModel& model,
-        dqn::RuntimeVars& vars,
         const rl::BatchEnvSpec& batch_env_spec,
         const rl::EnvSpec& env_spec,
         anet::seed_t replay_seed,
@@ -1151,7 +1148,6 @@ public:
         : dqn::Learner(
             config,
             model,
-            vars,
             batch_env_spec,
             env_spec,
             torch::Device(torch::kCPU),
@@ -1237,16 +1233,15 @@ std::vector<DeterminismTraceEntry> RunLearnerDeterminismTrial(
 
     auto config = MakeDeterminismLearnerConfig();
     TestNetworkModel model;
-    dqn::RuntimeVars vars;
     auto env_spec = MakeLearnerEnvSpec();
     rl::BatchEnvSpec batch_env_spec{ kNumEnv, 1 };
-    CapturingLearner learner(config, model, vars, batch_env_spec, env_spec, replay_seed, jitter);
+    CapturingLearner learner(config, model, batch_env_spec, env_spec, replay_seed, jitter);
 
     for (int64_t step = 0; step < num_steps; ++step) {
         rl::StepCounts counts;
         counts.train_step = step;
         counts.exp_step = step * kNumEnv;
-        counts.learn_step = vars.learn_step;
+        counts.learn_step = learner.GetLearnStep();
         learner.UpdateFromBatch(counts, MakeDeterminismExperience(step, kNumEnv));
     }
 
@@ -1440,11 +1435,9 @@ public:
         anet::seed_t replay_seed,
         std::shared_ptr<DeterminismJitterSchedule> jitter)
         : model_(std::make_shared<TestNetworkModel>())
-        , vars_(std::make_shared<dqn::RuntimeVars>())
         , learner_(std::make_shared<CapturingLearner>(
             config,
             *model_,
-            *vars_,
             batch_env_spec,
             env_spec,
             replay_seed,
@@ -1476,7 +1469,6 @@ public:
 
 private:
     std::shared_ptr<TestNetworkModel> model_;
-    std::shared_ptr<dqn::RuntimeVars> vars_;
     std::shared_ptr<CapturingLearner> learner_;
 };
 
@@ -1849,7 +1841,7 @@ dqn::LearnerConfig MakeNoisyOptimizerLearnerConfig(const anet::ConfigData& data)
     config.replay_capacity = 8;
     config.update_warmup_steps = 0;
     config.update_interval = 1;
-    config.replay_ratio = 0;
+    config.replay_ratio = -1.0f;
     config.gamma.value = 0.0f;
     config.use_n_step = false;
     config.use_per = false;

@@ -1,6 +1,7 @@
 # Run Serialization（Run 全体 Save / Load）暫定 RFD
 
 > 2026-11-17 番号を 930 から 143 へ振り直した（PRD131）。
+> 2026-11-28 改訂（[RFD0207](0207_dqn_small_fixes_and_refactors_10rfd.md)）。DQN の学習進行 State の所有元を Learner に揃えた。
 > 状態: 暫定メモ。Run 全体の Save / Load を再設計するため、現行 checkpoint の事実、Adam/AdamW で判明した問題、将来 contract の要求を記録する。
 > 起点: `auto_load_file` で長期 Run をサイクル継続した際、Run 側で変更した `learner.alpha` が optimizer load によって実効値へ反映されていなかった件。
 > 切り出し: Optimizer group の retune だけを [091_checkpoint_load_optimizer_options_10prd.md](done/0091_checkpoint_load_optimizer_options_10rfd.md) で先行する。
@@ -15,7 +16,7 @@
 一方、少なくとも次の State は同じ checkpoint から復元されない。
 
 - ReplayBuffer の内容、priority、sample RNG、prefetch 状態
-- `RuntimeVars`、update credit、warmup latch、PER beta などの学習進行 State
+- DQN Learner が持つ学習進行 State（`learn_step`、update credit、ウォームアップの開始通知済みかつ終了通知待ちの状態、PER の `per_beta`）
 - RewardScaler、ObservationNormalizer の統計
 - Run の `StepCounts` と schedule の進行位置
 - Env の episode、物理、lane、RNG State
@@ -65,7 +66,7 @@ Save 対象、Load source、Load policy は State group ごとに定義可能と
 | Step / schedule | `train_step`、`exp_step`、episode count、schedule origin/進行位置 | epsilon、tau、PER beta、将来の LR/Batch/RR schedule |
 | Agent model | online/policy Network、target Network、model version | optimizer、Actor snapshot |
 | Optimizer | optimizer 種別、moment、step、param group、options | model parameter identity、現在 Config |
-| Agent runtime | `RuntimeVars`、update credit、warmup latch、scaler、normalizer | Step、Replay、Network |
+| Agent runtime | DQN Learner が持つ学習進行 State（`learn_step`、update credit、ウォームアップの開始通知済みかつ終了通知待ちの状態、PER の `per_beta`）、scaler、normalizer | Step、Replay、Network |
 | Actor / Eval | private snapshot、sync age、Actor/Eval RNG、必要な進行 State | source model version、Step |
 | Replay | Experience、sampleable state、generation、PER priority、sample RNG | Agent/Env schema、N-step contract |
 | Env | lane ごとの episode、物理状態、現在 Observation、Env RNG | Runner state、Step、Agent observation schema |

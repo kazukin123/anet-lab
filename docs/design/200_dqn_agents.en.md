@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:119bb14b92b25756e00b9e57f26007600583df7c date:2026-11-27 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:9c10f7138623e7554b9942ca099db9f8fd8b62a8 date:2026-11-28 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -290,7 +290,6 @@ For QR and IQN, the priority written back to PER is the absolute difference betw
 | `RainbowAgent` | Second Agent used to check responsibility boundaries in shared DQN components; not used for Runs |
 | `DqnComponentAssembler` | Shares Head, Policy, Actor, and Learner construction and value routing without accepting concrete Agent config types |
 | `DiagnosticDemandTable` | Holds subscription parsing, intervals, gates, and requests for one fixed-metric group |
-| `RuntimeVars` | Mutable DQN-learning State such as `learn_step` and PER beta |
 | `NetworkModel` | Resource combining online/target Networks, target updates, and save/load |
 | `DQNActionInfo` | ActionInfo carrying Actions, Q auxiliaries, Replay initial-priority hints, evaluated γ/Munchausen values, and snapshot diagnostics |
 | `SpatialLadderSchedule` | Owns time-varying endpoints and spacing, retaining lane Tensors and statistics |
@@ -332,11 +331,13 @@ class LifelongNoveltyEstimator
 class DqnComponentAssembler
 class NetworkHeadFactory
 class DiagnosticDemandTable
-class RuntimeVars
 class DqnNetworkModel
 class ActionPolicy
 class DqnActor
-class DqnLearner
+class DqnLearner {
+    step_t learn_step_
+    float current_per_beta_
+}
 class TDLearner
 class QuantileLearnerBase
 class QRLearner
@@ -357,8 +358,6 @@ DqnComponentAssembler ..> DqnLearner : 生成
 DqnLearner *-- DiagnosticDemandTable
 DefaultDQNAgent *-- IntrinsicRewardCoordinator
 IntrinsicRewardCoordinator *-- LifelongNoveltyEstimator
-DefaultDQNAgent *-- RuntimeVars
-RainbowAgent *-- RuntimeVars
 DefaultDQNAgent *-- DqnNetworkModel
 RainbowAgent *-- DqnNetworkModel
 DefaultDQNAgent *-- ActionPolicy : target用
@@ -632,9 +631,9 @@ Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` 
 
 ### 8.1 Resources and State
 
-- The outer Agent owns the lifetimes of `RuntimeVars`, `NetworkModel`, Policies, the inner Learner, scalers, and `IntrinsicRewardCoordinator`. The inner Learner constructs and owns five probe RNGs from the Agent's base seed and purpose names, retaining them across subscription reconfiguration.
+- The outer Agent owns the lifetimes of `NetworkModel`, Policies, the inner Learner, scalers, and `IntrinsicRewardCoordinator`. The inner Learner constructs and owns five probe RNGs from the Agent's base seed and purpose names, retaining them across subscription reconfiguration.
 - The Coordinator owns the estimator, beta schedule and latest value, auxiliary-learning credit/count/lane-selection RNG, and diagnostics. Trace retains the Coordinator for the Agent's lifetime and preserves the existing locking boundaries for copying or directly reading the estimator.
-- The inner Learner references the outer `NetworkModel` and `RuntimeVars` and directly owns the Optimizer and ReplayBuffer.
+- The inner Learner references the outer `NetworkModel`. It owns the Optimizer, ReplayBuffer, learning progress `learn_step`, and PER `per_beta`.
 - A shared Actor references the Agent-owned Network; a clone Actor owns a private Network. Neither references the Learner itself.
 - Epsilon and the time-varying UQE tau are State updated and owned by ActionPolicy; update credit, the warmup latch, and per-update policy churn requests/probes/Q are owned by the inner Learner; snapshot interval and last sync step are owned by the clone Actor. IQN tau placement mode is configuration, while each forward's taus are temporary inputs generated from a Policy- or Learner-owned RNG. Policy churn's fixed midpoint taus consume no randomness and are shared across up to three forwards in the same update.
 - The outer Agent's shared mutex serializes Learner updates, shared Actor forwards, and clone/sync copies.
@@ -659,7 +658,7 @@ The current DefaultDQN checkpoint does not save or restore:
 
 - ReplayBuffer contents, generations, priorities, normal sample RNG, or prefetch state
 - Plasticity/policy churn probe RNGs and policy churn measurement State during an update
-- Learning progress State such as `RuntimeVars`, update credit, warmup latch, and PER beta
+- Learning progress State in the Learner, including `learn_step`, update credit, the state in which warm-up start has been reported and completion is pending, and PER `per_beta`
 - Q-input ObservationNormalizer statistics (dynamic extrinsic/intrinsic RewardScalers and RND statistics are saved)
 - Run StepCounts and metric series
 - Actor-private snapshots, synchronization interval runtime, last sync step, or Actor RNGs
@@ -697,7 +696,7 @@ s[b,a] = std_k(risk_quantiles[b,a,k]) / sqrt(K)
 ratio[b] = (uqe[b,a1] - uqe[b,a2]) / (sqrt(s[b,a1]^2 + s[b,a2]^2) + 1e-6)
 ```
 
-`iqn_uqe_full_q_argmax_disagreement` is the argmax disagreement rate between UQE and full Q; `action_full_q_margin.[i]` is `mean_b(full_q[b,i] - max_{a != i}(full_q[b,a]))`. Without a full query, full-dependent values are `NaN`; outside IQN+UQE or when `K < 2`, the margin ratio is `NaN`. An invalid action index fails fast with its valid range. Diagnostics are passed to ActionInfo as one detached packed Tensor, materialized on CPU only once across multiple key accesses. No diagnostic forward or tau generation is added.
+`iqn_uqe_full_q_argmax_disagreement` is the argmax disagreement rate between UQE and full Q; `action_full_q_margin.[i]` is `mean_b(full_q[b,i] - max_{a != i}(full_q[b,a]))`. Without a full query for visualization, full-dependent values are `NaN`. The margin ratio is defined for IQN UQE and Thompson policies when action selection uses `K >= 2` quantiles from a tail or from the full interval used by non-spatial Thompson. A point query for action selection gives `NaN` even with a separate full query for visualization. An invalid action index fails fast with its valid range. Diagnostics are passed to ActionInfo as one detached packed Tensor, materialized on CPU only once across multiple key accesses. No diagnostic forward or tau generation is added.
 
 On the Learner side, with current quantiles `z[b,i]`, target quantiles `y[b,j]`, `delta=y-z`, and counts `N,M`, use:
 
@@ -739,7 +738,7 @@ Current snapshot metrics are registered in `metrics.scalar.@full` in [metrics_sc
 - Validate action count, Observation shape, and sample tensor shape/dtype/device at Agent, Actor, and Learner boundaries.
 - `actor_approx` hints must be `float32[B,5]`; schema violations fail fast. All columns are checked for finite values. Nonfinite values fail fast in Debug builds and fall back to max initialization in `NDEBUG` builds.
 - Unknown Policies, invalid PER modes, nonfinite or out-of-range configuration, and incompatible checkpoints do not allow processing to continue.
-- DefaultDQN fails fast during construction for unknown `quantile_mode`, invalid QR quantile counts, invalid IQN tau counts/placement modes/Huber κ, and nonfinite or out-of-range tau lower bounds used by IQN+UQE/spatial Thompson.
+- DefaultDQN rejects unknown `quantile_mode`, invalid QR quantile counts, invalid IQN tau counts or tau placement modes, and nonfinite or out-of-range tau lower bounds used by IQN+UQE/spatial Thompson at construction. DefaultDQN and Rainbow validate that `learner.quantile_huber_kappa` is finite and positive at construction, regardless of `quantile_mode`.
 - Rainbow requires `num_quantiles>1` when `use_qr=true`; it does not reinterpret invalid counts as ordinary Q.
 - Normalize validates `running.post_process_type` at Perception construction and accepts values 0 through 3.
 - `model.soft_update_tau` validates finiteness and `[0, 1]` for every active value regardless of configuration. If online or target contains SN and soft updates are configured (`model.hard_update_interval<=0`), every active endpoint is capped at 0.1, except a root constant equal to 1. Hard updates do not use τ for updates, but the profile declaration itself is still validated.

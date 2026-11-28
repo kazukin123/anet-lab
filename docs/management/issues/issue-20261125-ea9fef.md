@@ -1,7 +1,7 @@
 ---
 id: issue-20261125-ea9fef
 title: メトリクスの鍵の行動の番号が不正なとき、ParseActionScalarIndex が自分の投げたエラーを捕まえて、同じ fatal を 2 回出す
-status: 未着手
+status: 解決
 raised: 2026-11-25
 phase: 監査
 scope: src/algo/dqn/src/dqn_actor.cpp の ParseActionScalarIndex
@@ -10,8 +10,8 @@ area:
   - 321_agent_core
 type: 不具合
 domain: 学習基盤
-ai_judge: 未確認
-ai_judged:
+ai_judge: 残件無し
+ai_judged: 2026-11-28
 docs: []
 rfd: "[[0207_dqn_small_fixes_and_refactors_10rfd]]"
 priority: 中
@@ -22,8 +22,8 @@ urgency: 3
 risk: 1
 size: 1
 wsjf: 6
-resolved:
-resolution:
+resolved: 2026-11-28
+resolution: 対応済み
 memo:
 tags: []
 ---
@@ -49,3 +49,10 @@ tags: []
 - 不正な番号で例外が 1 回だけ出ることのテストを足す。
 
 ## 対応内容
+
+- 2026-11-28 行動番号の変換と読み残しの判定を分けた。`[1x]` と `[x]` で同じ診断を 1 回ずつ捕捉するテストが通過した。 [RFD0207 実装メモ](../../memo/0207_dqn_small_fixes_and_refactors_20impl.md)
+
+
+- 2026-11-28 不正な番号 `[1x]`、`[x]` の各テストで例外と fatal がそれぞれ 1 回だった。重点テストの再実行も通過した。 [検証結果](../../memo/0207_dqn_small_fixes_and_refactors_20impl.md#検証結果)
+$1
+- 2026-11-28 状態を `対応中` から `解決` へ変更。コミットの準備で解決の候補を選んだ。AI 判定は「残件無し」。不正な行動番号で例外と fatal が各 1 回になることを確認した。

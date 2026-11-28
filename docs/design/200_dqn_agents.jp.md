@@ -289,7 +289,6 @@ QR・IQNでPERに書き戻す優先度は、currentの分位点の平均とtarge
 | `RainbowAgent` | DQN 系の共通部品の責務分担を確かめる2つ目の Agent。Run では使わない |
 | `DqnComponentAssembler` | 具象 Agent の設定型を受け取らず、Head・方策・Actor・Learner の生成と値の振り分けを共通化する |
 | `DiagnosticDemandTable` | 固定指標の群の購読解析・間隔・gate・要求を持つ |
-| `RuntimeVars` | `learn_step`、PER betaなどDQN学習中に変化するState |
 | `NetworkModel` | online/target Network、target更新、保存・読込をまとめるResource |
 | `DQNActionInfo` | Action、Q補助情報、Replay初期priority hint、評価済みγ・Munchausen値、snapshot診断を運ぶActionInfo |
 | `SpatialLadderSchedule` | 両端の時間の値と並べ方を所有し、laneのTensorと統計を保持する |
@@ -330,11 +329,13 @@ class LifelongNoveltyEstimator
 class DqnComponentAssembler
 class NetworkHeadFactory
 class DiagnosticDemandTable
-class RuntimeVars
 class DqnNetworkModel
 class ActionPolicy
 class DqnActor
-class DqnLearner
+class DqnLearner {
+    step_t learn_step_
+    float current_per_beta_
+}
 class TDLearner
 class QuantileLearnerBase
 class QRLearner
@@ -355,8 +356,6 @@ DqnComponentAssembler ..> DqnLearner : 生成
 DqnLearner *-- DiagnosticDemandTable
 DefaultDQNAgent *-- IntrinsicRewardCoordinator
 IntrinsicRewardCoordinator *-- LifelongNoveltyEstimator
-DefaultDQNAgent *-- RuntimeVars
-RainbowAgent *-- RuntimeVars
 DefaultDQNAgent *-- DqnNetworkModel
 RainbowAgent *-- DqnNetworkModel
 DefaultDQNAgent *-- ActionPolicy : target用
@@ -628,9 +627,9 @@ Atari の `nz_learning` は既存の μ 初期化・AMP を継承する。`nz_re
 
 ### 8.1 ResourceとState
 
-- 外側Agentが`RuntimeVars`、`NetworkModel`、Policy、inner Learner、scaler類、`IntrinsicRewardCoordinator`のlifetimeを所有する。 内側 Learner は、Agent の基の seed と用途ごとの名前から5種類の probe RNG を構築して所有し、購読の再設定でも保持する。
+- 外側Agentが`NetworkModel`、Policy、inner Learner、scaler類、`IntrinsicRewardCoordinator`のlifetimeを所有する。inner Learnerは、Agentの基のseedと用途ごとの名前から5種類のprobe RNGを構築して所有し、購読の再設定でも保持する。
 - Coordinatorは推定器、βの予定と直近値、補助学習のcredit・累計回数・lane抽選の乱数、診断値を所有する。TraceはAgentと同じ寿命でCoordinatorを参照し、推定器の写しを作るときと直接読むときの既存のロック境界を保つ。
-- inner Learnerは外側の`NetworkModel`と`RuntimeVars`を参照し、OptimizerとReplayBufferを直接所有する。
+- inner Learnerは外側の`NetworkModel`を参照し、OptimizerとReplayBuffer、学習の進みを表す`learn_step`とPERの`per_beta`を所有する。
 - shared ActorはAgent所有Networkを参照し、clone Actorはprivate Networkを所有する。どちらもLearnerそのものは参照しない。
 - epsilonとUQEのτの時間の値はActionPolicy、update creditとwarmup latch、policy churnのupdate単位request/probe/Qはinner Learner、snapshot intervalとlast sync stepはclone Actorが更新・所有するStateである。IQNのtau配置方式は設定であり、各forwardのtausはPolicyまたはLearnerが所有するRNGから生成する一時入力である。policy churnのfixed midpoint tausは乱数を使わず、同じupdateの最大3 forwardで共有する。
 - outer Agentの共有mutexはLearner更新、shared Actor forward、clone/sync copyの境界を直列化する。
@@ -655,7 +654,7 @@ skip 無効の checkpoint は従来の header と2 Network・optimizer の形式
 
 - ReplayBufferの内容、generation、priority、通常sample RNG、prefetch状態
 - plasticity/policy churn probe RNGと、update途中のpolicy churn測定State
-- `RuntimeVars`、update credit、warmup latch、PER betaなどの学習進行State
+- Learnerの`learn_step`、update credit、ウォームアップの開始通知済みかつ終了通知待ちの状態、PERの`per_beta`などの学習進行State
 - Q入力用ObservationNormalizerの統計（外的・内的の動的RewardScalerとRND専用統計は保存する）
 - RunのStepCountsとmetric系列
 - Actor-private snapshot、同期周期runtime、last sync step、Actor RNG
@@ -693,7 +692,7 @@ s[b,a] = std_k(risk_quantiles[b,a,k]) / sqrt(K)
 ratio[b] = (uqe[b,a1] - uqe[b,a2]) / (sqrt(s[b,a1]^2 + s[b,a2]^2) + 1e-6)
 ```
 
-`iqn_uqe_full_q_argmax_disagreement`はUQEとfull Qのargmax不一致率、`action_full_q_margin.[i]`は`mean_b(full_q[b,i] - max_{a != i}(full_q[b,a]))`である。full queryがない場合はfull依存値を`NaN`、IQN+UQE以外または`K < 2`ではmargin ratioを`NaN`とする。不正なaction indexは有効範囲を含めてfail-fastする。診断値は1本のdetached packed TensorとしてActionInfoへ渡し、複数keyの取得ではCPU materializeを1回だけ行う。診断用forwardやtau生成は追加しない。
+`iqn_uqe_full_q_argmax_disagreement`はUQEとfull Qのargmax不一致率、`action_full_q_margin.[i]`は`mean_b(full_q[b,i] - max_{a != i}(full_q[b,a]))`である。可視化用のfull queryがない場合、full依存値は`NaN`になる。margin ratioが成立するのは、IQNのUQE・Thompsonで行動選択に使ったtail、または非spatial Thompsonの行動選択用の全範囲から、`K >= 2`本を得た場合である。行動を決める問い合わせが点の場合は、可視化用のfull queryを併用しても`NaN`になる。不正なaction indexは有効範囲を含めてfail-fastする。診断値は1本のdetached packed TensorとしてActionInfoへ渡し、複数keyの取得ではCPU materializeを1回だけ行う。診断用forwardやtau生成は追加しない。
 
 Learner側では`z[b,i]`をcurrent quantile、`y[b,j]`をtarget quantile、`delta=y-z`、本数を`N,M`として次を使う。
 
@@ -735,7 +734,7 @@ Learnerの`upper_tail_priority_spearman`は、経験actionのcurrent quantileか
 - Action数、Observation shape、sample tensorのshape・dtype・deviceをAgent、Actor、Learner境界で検証する。
 - `actor_approx`のhintは`float32[B,5]`を要求し、schema違反はfail-fastする。全列をfinite検証し、nonfiniteはDebug buildでfail-fastし、`NDEBUG` buildではmax初期化へfallbackする。
 - 未知Policy、無効なPER mode、非finiteまたは範囲外設定、互換性のないcheckpointは処理を継続しない。
-- DefaultDQNは未知`quantile_mode`、QRのquantile数不正、IQNのtau数・配置方式・Huber κ不正、IQN+UQE/spatial Thompsonで使用するtau下限の非finite・範囲外を構築時にfail-fastする。
+- DefaultDQNは未知`quantile_mode`、QRのquantile数不正、IQNのtau数・配置方式の不正、IQN+UQE/spatial Thompsonで使うtau下限の非有限値・範囲外を構築時に拒否する。DefaultDQNとRainbowは、`quantile_mode` にかかわらず、`learner.quantile_huber_kappa` が有限かつ正であることを構築時に検証する。
 - Rainbowは`use_qr=true`のとき`num_quantiles>1`を要求し、不正な件数を通常Qへ読み替えない。
 - Normalizeの `running.post_process_type` は0〜3を要求する。Perceptionの構築時に検証する。
 - `model.soft_update_tau`は構成によらず全active値の有限性と`[0, 1]`を検証する。online/targetのどちらかにSNがあり、soft update構成（`model.hard_update_interval<=0`）の場合は、rootがconstantで値が1の例外を除き、全active端点の上限を0.1とする。hard updateではτを更新に使用しないが、profile宣言そのものは検証する。
