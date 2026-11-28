@@ -89,7 +89,7 @@ LunarLander（IQN＋Munchausen、J=4、2M、3 seed）: 評価 policy 報酬の R
 - 補助タスクが表現をどう形づくるかの理論（Lyle et al., AISTATS 2021、[PMLR v130](https://proceedings.mlr.press/v130/lyle21a.html)）。
 - 行動の繰り返しの上で successor representation を作る形（t-SR、[arXiv 2209.12331](https://arxiv.org/abs/2209.12331)）。
 - frame skip を、ブートストラップの量と課題の地平を調整するものとして分析した報告（[arXiv 2102.03718](https://arxiv.org/abs/2102.03718)）。
-- TempoRL の論文は重み共有を「少ない重みで学べる」構成として述べ、skip を補助の loss としては位置づけていない（[論文解説](../../../reports/biedenkapp2021_temporl_paper_2026-10-03.md) 3.3）。
+- TempoRL の論文は重み共有を「少ない重みで学べる」構成として述べ、skip を補助の loss としては位置づけていない（[論文解説](../../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md) 3.3）。
 
 ## 3. ゴール・非ゴール・仮説と成功の測り方
 
@@ -392,5 +392,5 @@ g の表:
 - [PRD098 TempoRL 対応](../0098_temporl_skip_policy_10rfd.md)、[PRD103 TempoRL 第二弾](0103_temporl_reference_alignment_10rfd.md)、[999 TempoRL の後続](../0183_temporl_skip_followups_10rfd.md)、[PRD101 探索と学習のスケジュール](0101_exploration_schedule_profiled_value_10rfd.md)（ProfiledValue の記法）
 - [ADR 0038](../../adr/0038-actor-config-catalog-without-runmode.md)、[ADR 0040](../../adr/0040-config-selection-final-value-and-run-profile-tier.md)、[ADR 0062](../../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)、[ADR 0063](../../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)、[ADR 0064](../../adr/0064-profiledvalue-bare-scalar-reads-as-value-field.md)
 - [200 DQN 系列（設計文書）](../../design/200_dqn_agents.jp.md)、[150 ReplayBuffer（設計文書）](../../design/150_replay_buffer.jp.md)、[行動の時間尺度（wiki）](../../wiki/concepts/methods/temporal_abstraction.md)、[324 DQN 系列（wiki）](../../wiki/concepts/framework/324_dqn.md)、[318 強化学習 共通基盤（wiki）](../../wiki/concepts/framework/318_rl_core.md)
-- [TempoRL 論文解説](../../../reports/biedenkapp2021_temporl_paper_2026-10-03.md)、[2026-10-28 LunarLander の実験記録](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)
+- [TempoRL 論文解説](../../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md)、[2026-10-28 LunarLander の実験記録](../../experiments/default-dqn/lunarlander/2026-10-28_temporl-split-kmax-epsilon.md)
 - [PRD103 の検証資材](../../../src/core/base/testdata/rfd0103/README.md)、[12 の bat の評価専用 Run の形](../../../apps/12_batch_run.bat)

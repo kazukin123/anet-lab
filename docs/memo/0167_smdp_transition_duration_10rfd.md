@@ -81,7 +81,7 @@ DropMerge で起きている問題は次のとおり。
 
 ## 8. 参照
 
-- [Tallec et al., 2019] Corentin Tallec, Léonard Blier, Yann Ollivier. "Making Deep Q-learning Methods Robust to Time Discretization." ICML 2019. https://arxiv.org/abs/1901.09732（詳細解説: `reports/tallec2019_time_discretization_paper_2026-10-03.md`）
+- [Tallec et al., 2019] Corentin Tallec, Léonard Blier, Yann Ollivier. "Making Deep Q-learning Methods Robust to Time Discretization." ICML 2019. https://arxiv.org/abs/1901.09732（詳細解説: `reports/paper/tallec2019_time_discretization_paper_2026-10-03.md`）
 - [White, 2017] Martha White. "Unifying Task Specification in Reinforcement Learning." ICML 2017. https://arxiv.org/abs/1609.01995（詳細解説: `reports/white2017_unifying_task_specification_paper_2026-10-03.md`）
 - [Pitis, 2019] Silviu Pitis. "Rethinking the Discount Factor in Reinforcement Learning: A Decision Theoretic Approach." AAAI 2019. https://arxiv.org/abs/1902.02893
 - [Bradtke & Duff, 1995] Steven J. Bradtke, Michael O. Duff. "Reinforcement Learning Methods for Continuous-Time Markov Decision Problems." NIPS 7 (1994 年の会議、1995 年刊行)。URL 未確認

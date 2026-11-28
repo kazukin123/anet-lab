@@ -62,8 +62,8 @@
 | [Atari 探索索引](../experiments/default-dqn/atari/README.md) | 4,384 | 1,180 | 4 |
 | [qbert の TempoRL 50M](../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md) | 11,861 | 2,040 | 4 |
 | [実時間優先の Atari-5](../experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md) | 31,459 | 3,885 | 11 |
-| [LLM に渡す探索情報](../../reports/llm_rl_exploration_information_2026-11-07.md) | 10,747 | 2,258 | 5 |
-| [内的報酬による探索の手法](../../reports/intrinsic_reward_landscape_survey_2026-11-18.md) | 40,119 | 4,461 | 8 |
+| [LLM に渡す探索情報](../../reports/survey/llm_rl_exploration_information_2026-11-07.md) | 10,747 | 2,258 | 5 |
+| [内的報酬による探索の手法](../../reports/survey/intrinsic_reward_landscape_survey_2026-11-18.md) | 40,119 | 4,461 | 8 |
 
 概念は重複を除くと 19 ページ。新設は[訪問回数と擬似カウント](../wiki/concepts/methods/pseudo_counts.md)と[訪問済み状態へ戻る探索](../wiki/concepts/methods/return_and_explore.md)。5 本を直接引く「分かっていること」の本文は既存分を含め 64 件（要旨の行を除く）。横断的知見 6 件は、各行が異なる原本を 2 本以上直接引き、比較条件を持つことを照合した。この照合は、ステージ末に Claude Code が行う比較内容の独立判定とは別に数える。
 

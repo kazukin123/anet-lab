@@ -46,7 +46,7 @@ class WikiSupportTest(unittest.TestCase):
         root = self.fixture()
         path = 'docs/adr/0001-default-dqn-tbo-scope.md'
         blob = self.material(root, path, (REPO/path).read_text(encoding='utf-8'))
-        self.material(root, 'docs/wiki/summary/adr/' + Path(path).name, '## 元の材料\n\nblob:' + blob)
+        self.material(root, 'docs/wiki/summary/adr/' + Path(path).stem + '_summary.md', '## 元の材料\n\nblob:' + blob)
         data = self.run_helper(root)
         self.assertIn(path, [row['path'] for row in data['pending']])
         with (root/'docs/wiki/log.md').open('a', encoding='utf-8') as log:
@@ -101,23 +101,23 @@ class WikiSupportTest(unittest.TestCase):
     def test_blob_state_ignores_fix_and_treats_done_moves_as_pending(self):
         root = self.fixture()
         a=self.material(root,'docs/experiments/changed_probe.md','# changed')
-        b=self.material(root,'reports/moved_probe.md','# moved')
+        b=self.material(root,'reports/survey/moved_probe.md','# moved')
         c=self.material(root,'docs/memo/done/0998_probe_10rfd.md','# done')
-        d=self.material(root,'reports/already_probe.md','# already')
-        for summary, blob in [('experiments/changed_probe.md', a), ('reports/moved_probe.md', b),
-                              ('rfd/0998_probe_10rfd.md', c), ('reports/already_probe.md', d)]:
+        d=self.material(root,'reports/survey/already_probe.md','# already')
+        for summary, blob in [('experiments/changed_probe_summary.md', a), ('reports/survey/moved_probe_summary.md', b),
+                              ('rfd/0998_probe_10rfd_summary.md', c), ('reports/survey/already_probe_summary.md', d)]:
             self.material(root, 'docs/wiki/summary/' + summary, '## 元の材料\n\nblob:' + blob)
         with (root/'docs/wiki/log.md').open('a',encoding='utf-8') as log:
             log.write('2026-10-22 ingest docs/experiments/changed_probe.md blob:'+'0'*40+' → なし\n')
             log.write('2026-10-22 fix docs/experiments/changed_probe.md blob:'+a+' → なし\n')
-            log.write('2026-10-22 ingest reports/old_probe.md blob:'+b+' → なし\n')
+            log.write('2026-10-22 ingest reports/survey/old_probe.md blob:'+b+' → なし\n')
             log.write('2026-10-22 ingest docs/memo/0998_probe_10rfd.md blob:'+c+' → なし\n')
-            log.write('2026-10-22 writeback reports/already_probe.md blob:'+d+' → なし\n')
+            log.write('2026-10-22 writeback reports/survey/already_probe.md blob:'+d+' → なし\n')
         data=self.run_helper(root)
         self.assertEqual([r['path'] for r in data['pending']],
                          ['docs/experiments/changed_probe.md','docs/memo/done/0998_probe_10rfd.md'])
         self.assertEqual(data['pending'][0]['state'],'更新あり')
-        self.assertEqual([r['path'] for r in data['moved']],['reports/moved_probe.md'])
+        self.assertEqual([r['path'] for r in data['moved']],['reports/survey/moved_probe.md'])
 
     def test_map_regeneration_includes_untracked_group_without_touching_prose(self):
         root=self.fixture()
@@ -145,7 +145,7 @@ class WikiSupportTest(unittest.TestCase):
     def test_only_unannotated_source_links_make_housekeeping_eligible(self):
         root=self.fixture()
         blob=self.material(root,'docs/memo/done/0097_probe_link_10rfd.md','# source')
-        self.material(root, 'docs/wiki/summary/rfd/0097_probe_link_10rfd.md', '## 元の材料\n\nblob:' + blob)
+        self.material(root, 'docs/wiki/summary/rfd/0097_probe_link_10rfd_summary.md', '## 元の材料\n\nblob:' + blob)
         with (root/'docs/wiki/log.md').open('a',encoding='utf-8') as log:
             log.write('2026-10-22 ingest docs/memo/done/0097_probe_link_10rfd.md blob:'+blob+' → なし\n')
         page=root/'docs/wiki/concepts/apps/110_runner_app.md'
@@ -545,12 +545,15 @@ class WikiSupportTest(unittest.TestCase):
                 self.assertEqual(result.returncode,2)
                 self.assertIn('--pending-subject と --pending-files',result.stderr)
 
-    def test_only_reports_index_is_excluded_from_materials(self):
+    def test_index_files_are_excluded_from_materials(self):
         root=self.fixture()
         self.material(root,'reports/INDEX.md','# derived index')
-        self.material(root,'docs/experiments/INDEX.md','# experiment observations')
+        for folder in ('survey', 'paper', 'notes'):
+            self.material(root,f'reports/{folder}/INDEX.md','# derived index')
+        self.material(root,'docs/experiments/example/INDEX.md','# experiment index')
+        self.material(root,'docs/experiments/example/README.md','# experiment observations')
         data=self.run_helper(root)
-        self.assertEqual([row['path'] for row in data['pending']],['docs/experiments/INDEX.md'])
+        self.assertEqual([row['path'] for row in data['pending']],['docs/experiments/example/README.md'])
 
 
 if __name__ == '__main__':

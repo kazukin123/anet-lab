@@ -7,7 +7,7 @@ aliases:
   - 範囲統計
   - Run比較
 description: MetricsマスタをRunごとのSQLiteキャッシュへ取り込み、range queryとブラウザ描画を通して長いRunを比較する。
-updated: 2026-11-26
+updated: 2026-11-28
 ---
 # Metrics Viewer
 
@@ -37,6 +37,7 @@ updated: 2026-11-26
 - 2026-10-12: キャッシュ再構築の入力とSQLをまとめ、全workspaceの検査・背景取り込みと表示workspaceの寿命を分けた（出典: [RFD0090](../../../memo/done/0090_metricsviewer_cache_rebuild_10rfd.md)、題・§2・§4.1〜§4.4）。
 - 2026-11-02: タグセットは追跡する作業用ファイルと jar 同梱の初期値に分け、初期値は作業用が無いときだけ写す（出典: [ADR 0067](../../../adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md)、本文）。
 - 2026-11-08: 名前を付けて保存したtagの集合（タグセット）をサーバー側の作業用ファイルに保存してworkspaceとブラウザをまたいで共有し、Tagsの下の1行と開閉する一覧で呼び出し（選択全体の置き換え）・Save・Revert・Save As・名前変更・削除・Deselectを行い、選択中のタグセットをlocalStorageに保つ機能と、jarに同梱した初期値を作業用ファイルが無いときだけ写す仕組みを足した。作業用ファイルの既定はworkspaces-dirの直下で、gitで追跡しリリースの梱包からは除く（出典: [RFD0111](../../../memo/0111_metrics_viewer_tag_sets_10rfd.md)、題・§2・D1・D2・D5・D13〜D16）。
+- 2026-11-09: 保存 LOD の集約数を実装に合わせて日英の設計文書で統一し、旧 ADR から後発の判断を引けるようにした。（出典: [RFD0188](../../../memo/0188_metrics_viewer_lod_documentation_consistency_10rfd.md)、§2・§3 D1〜D4）
 - 2026-11-19: Metrics Viewerのソース（Mavenのプロジェクト一式）をsrc/apps/metrics-viewerへ移し、jarの出力先をapps/metrics-viewer/bin/metrics-viewer.jar、Mavenの中間物をout/の下、ログの出力先をトップのdata/の下にした（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§4.1 D11・D17・D20・§5.2）。
 - 2026-11-22: Runを比べる作業に要る機能として、メインエリアのタブ（Graphs・Config）、選んだRunの設定を並べて違う行を見分ける設定表、Run一覧・tag一覧・設定キーの文字の絞り込み、グラフのtag名から出すtagの情報パネル（全期間と表示中の範囲の統計表）を足し、PlotlyをWebJarで同梱した（出典: [RFD0196](../../../memo/0196_metrics_viewer_run_comparison_10rfd.md)、題・§2・D1〜D9）。
 - 2026-11-22: 設定表はRunフォルダの`config/config_data.txt`を、UTF-8として読めないバイト列と`$include`を失敗とするほかはC++の`Properties::Load`と同じ行の規則で読む（出典: [ADR 0089](../../../adr/0089-run-config-table-reads-config-data-txt-by-framework-reader-rules.md)、本文）。
@@ -44,6 +45,8 @@ updated: 2026-11-26
 - 2026-11-23: 文書の呼び名をRFDに改めるのに合わせ、テストが使う一時フォルダと検証の出力先の名前の旧い呼び名（`prdNNN`）をRFDの4桁の番号（`rfdNNNN`）へ改めた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§5.2・§6 D1・D9）。
 
 ## 選ばなかった形
+
+- 設計160の処理フローにも保存 LOD の集約数を明記する形 — 不採用。2 か所に同じ値を持つと片方の改訂で食い違うため。（出典: [RFD0188](../../../memo/0188_metrics_viewer_lod_documentation_consistency_10rfd.md)、§3 D2）
 
 - 任意factor設定・旧DB変換・新しい永続ストア — 不採用: 比較粒度の障害解消に不要で、マスタから再構築する既存の境界で足りる（出典: [RFD0089](../../../memo/done/0089_metricsviewer_comparison_resolution_10rfd.md)、複雑性監査）。
 - 全Runを常にrawで保持する形 — 不採用: マスタ全点を保持せずに正確な区間集約ができる（出典: [RFD0089](../../../memo/done/0089_metricsviewer_comparison_resolution_10rfd.md)、複雑性監査）。
@@ -77,6 +80,8 @@ updated: 2026-11-26
 - Run 色を workspace の永続属性として保存する — 不採用: 選択する組ごとの色の見分けやすさを解決できず、削除や移動をした Run の色管理も要る（出典: [ADR 0041](../../../adr/0041-run-color-is-comparison-role-not-run-identity.md)、Considered Options）。
 
 ## 変えるときの条件
+
+- 設計160では LOD の集約数を §2.2 にまとめる。§7.2 では完成した bucket だけを保存する契約を説明し、集約数の仕組みは設計210を引く。（出典: [RFD0188](../../../memo/0188_metrics_viewer_lod_documentation_consistency_10rfd.md)、§3 D2・§6）
 
 一般の条件は[リファクタリング観点](../../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../../reports/stats/trend.md)の「テスト充足」を見る。
 

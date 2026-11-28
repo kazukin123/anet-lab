@@ -30,7 +30,7 @@ updated: 2026-11-26
 
 ### 外の事例
 
-- 調査が BTR の公開 CSV から計算した BattleZone の値は、max（評価 200 回）151,877、max（評価 10 回）145,903、最後の 10 回の平均 135,470 で、論文の Table A2 は 168,340 である（出典: [few_seed_comparison_reporting_survey_2026-11-04.md](../../../../reports/few_seed_comparison_reporting_survey_2026-11-04.md)、4.3）。
+- 調査が BTR の公開 CSV から計算した BattleZone の値は、max（評価 200 回）151,877、max（評価 10 回）145,903、最後の 10 回の平均 135,470 で、論文の Table A2 は 168,340 である（出典: [few_seed_comparison_reporting_survey_2026-11-04.md](../../../../reports/survey/few_seed_comparison_reporting_survey_2026-11-04.md)、4.3）。
 
 ## 横断的知見
 

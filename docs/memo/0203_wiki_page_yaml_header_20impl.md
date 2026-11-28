@@ -45,7 +45,7 @@
 ## ステージ 1 の実装と検証
 
 - `headers` と `scan` の実装、公開 CLI からの検証を追加した。初回はコマンド未登録で失敗し、実装後に書き込みを確認した。続けて、独自欄と本文の保持、入力エラーでの書き込み前の停止、警告と点検の起動条件、更新日、本文の書式と出典、主要な概念のリンクを検証した。
-- 2026-11-27、`.scratch/rfd0203/pilot_headers.py` で作業ツリーの隔離コピー 475 枚を処理し、全ページの本文が同じバイト列であることと、2 回目の出力が 0 件であることを確認した。`--apply` で [ADR 0098 のサマリ](../wiki/summary/adr/0098-concept-pages-are-split-by-the-question-they-answer-and-kinds-live-in-folders.md) と [開発プロセス・開発ツール・テスト基盤（311）](../wiki/concepts/framework/311_dev_tools.md) の 2 枚へ反映した。実データの `scan` では YAML ヘッダ未導入の 473 枚だけが警告に挙がった。
+- 2026-11-27、`.scratch/rfd0203/pilot_headers.py` で作業ツリーの隔離コピー 475 枚を処理し、全ページの本文が同じバイト列であることと、2 回目の出力が 0 件であることを確認した。`--apply` で [ADR 0098 のサマリ](../wiki/summary/adr/0098-concept-pages-are-split-by-the-question-they-answer-and-kinds-live-in-folders_summary.md) と [開発プロセス・開発ツール・テスト基盤（311）](../wiki/concepts/framework/311_dev_tools.md) の 2 枚へ反映した。実データの `scan` では YAML ヘッダ未導入の 473 枚だけが警告に挙がった。
 - 初回レビュー前の検証は `rfd0114/issues_test.py` が 34 件、`rfd0202/wiki_test.py` が 20 件成功。RFD0095 の標準起動は、Windows 上でテストが環境を復元した際に空の `GIT_CONFIG_VALUE_0` が消え、後続の `git read-tree` が終了値 128 になった。テストのプロセスだけ `GIT_CONFIG_COUNT=0` を指定した再実行は 20 件成功した。
 - 独立レビュー初回は計画が OK、実装は 2 件の差し戻し。目録行のリンク境界を基準に項目を抽出し、複数行の明示キーと独自欄が参照する YAML アンカーの定義を残すよう修正した。アンカー付きの古い値は YAML のマージ値の中に置き、現在の題名の値が優先される形にした。通常のプロパティは増えない。差し戻し前の再現と、修正後の CLI の検証を追加した。初回原文は `.scratch/rfd0203/review-20261127-1901.md`。
 - 再レビューでは、旧アンカーが独自欄のアンカーを参照する場合と、既存のマージ欄と併用する場合を追加で指摘された。依存する値を解決した YAML ノードから旧アンカーを作り、既存のマージと 1 つにまとめるよう修正した。元の独自欄、解析した値、再生成結果の一致を CLI テストで確認した。再レビュー原文は `.scratch/rfd0203/review-20261127-1907.md`。

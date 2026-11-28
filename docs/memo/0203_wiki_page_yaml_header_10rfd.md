@@ -1,6 +1,7 @@
 # RFD0203: wiki のページに YAML ヘッダを付け、Obsidian で一覧にする RFD
 
 > 2026-11-26 起票（グリル）。
+> 2026-11-28 [RFD0208](0208_work_notes_harness_kind_summary_names_10rfd.md) の実装に伴い、サマリの改名で U1（名前だけのリンクの重複）を解消し、報告のサマリでは `material` のパスと `material_kind` の値を更新した。
 > 起点: [issue-20261126-4c7b4e](../management/issues/issue-20261126-4c7b4e.md)。2026-11-26、[RFD0202](0202_wiki_accumulate_and_lookup_10rfd.md) の実装の途中で、開発者が、サマリのページを人が確かめる一覧がどこかで作られるかを尋ねた。開発者は、Obsidian で一覧を見られるようにしたいと述べた（§12）。グリルで、範囲をサマリのページから wiki のページ全部に広げた。
 > 課題: [issue-20261126-4c7b4e](../management/issues/issue-20261126-4c7b4e.md)（この RFD の仕事）。
 
@@ -46,7 +47,7 @@ wiki のページ（サマリのページ 410 本、概念のページ 51 枚）
 
 | 番号 | 種類 | 内容 | 出典 | 確かめ |
 |---|---|---|---|---|
-| P1 | 事実 | サマリのページは `# 題名` と「元の材料」「要点」「内容」「主要な概念」の見出しだけで、YAML ヘッダは無い。2026-11-26 の時点で 410 本 | [wiki の規約](../wiki/README.md) の「置き場と書式」、[サマリの例](../wiki/summary/adr/0001-default-dqn-tbo-scope.md)、§5.1 | 済み |
+| P1 | 事実 | サマリのページは `# 題名` と「元の材料」「要点」「内容」「主要な概念」の見出しだけで、YAML ヘッダは無い。2026-11-26 の時点で 410 本 | [wiki の規約](../wiki/README.md) の「置き場と書式」、[サマリの例](../wiki/summary/adr/0001-default-dqn-tbo-scope_summary.md)、§5.1 | 済み |
 | P2 | 既存部品の働き | 道具の `scan` は、サマリの「元の材料」の節だけから blob を 1 つ読み、今の材料と違えば取り込み漏れに挙げる。サマリの長さの警告（8,000 文字）は、ファイル全体の文字数で数える | [wiki_support.py](../../reports/tools/wiki_support.py) の `read_summary_blob`（68〜73 行）、`scan`（195〜200 行）、`check_page_format`（268〜270 行） | 済み |
 | P3 | 過去の判断 | サマリのページは目録に載せない | [RFD0202](0202_wiki_accumulate_and_lookup_10rfd.md) §8.11 | 済み |
 | P4 | 事実 | Obsidian の保管庫はリポジトリの根（`.obsidian/` が根にあり、追跡しない）。`*.base` は追跡しない。手元の `docs/wiki/wiki.base` の「Summary」の表は、ファイル名とフォルダの 2 列だけ | [.gitignore](../../.gitignore) の 83〜84 行、手元の `docs/wiki/wiki.base`（2026-11-26 に読んだ） | 済み |

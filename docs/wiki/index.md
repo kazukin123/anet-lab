@@ -57,6 +57,10 @@
 - [勾配ノイズとbatch](concepts/phenomena/gradient_noise_batch.md) — GNSと有効batchの対応はoptimizer・曲率・抽出方法・予算に依存する。DropMergeでは臨界batchが学習とともに増えたが、batch増加の最終target評価の差は学習側の差より小さかった。 （別名: GNS, gradient noise scale, Bnoise, batch size）
 - [可塑性指標と成績](concepts/phenomena/plasticity.md) — 同じ勾配 step 付近での摩耗は replay ratio が違っても似ていたが、その間に入る新規データ量と成績の推移は異なった。崩壊時に重みが膨らんだのは feature 側だった。 （別名: plasticity, srank, dormant, dead ratio, SN）
 
+## ハーネス
+
+- [スキルが選ばれる条件](concepts/harness/skill_invocation.md) — anet の起動記録では、作業規約や別スキルの手順を起点に動く例が多かった。（別名: スキルの起動, skill invocation）
+
 ## アプリケーション
 
 - [Metrics Viewer](concepts/apps/120_metrics_viewer.md) — MetricsマスタをRunごとのSQLiteキャッシュへ取り込み、range queryとブラウザ描画を通して長いRunを比較する。（別名: 120_metrics_viewer, 設定表, 範囲統計, Run比較）。

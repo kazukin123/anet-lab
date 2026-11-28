@@ -2,7 +2,7 @@
 
 > 状態: 正式 PRD。2026-09-01 のグリルで未決事項 0 件、文書契約上は実装着手可能。
 > 本書は実装着手を意味しない。実装は別の明示依頼と実装計画で行う。
-> 起点: 2026-08-31 の BTR 公開実装の読解（[調査記録](../../../reports/btr_code_reading_2026-08-31.md)）。
+> 起点: 2026-08-31 の BTR 公開実装の読解（[調査記録](../../../reports/survey/btr_code_reading_2026-08-31.md)）。
 > 関連: [ADR 0033](../../adr/0033-policy-churn-fixed-probe-and-target-lag.md)、
 > [PRD 062](0062_plasticity_metrics_10rfd.md)、
 > [PRD 063](0063_plasticity_weight_norm_10rfd.md)、

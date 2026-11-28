@@ -1,0 +1,46 @@
+---
+title: GridMaze の迷路 seed の指定と自動採番
+page_kind: サマリ
+material: "[[docs/memo/done/0102_gridmaze_seed_mode_10rfd.md|0102_gridmaze_seed_mode_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/gridmaze.md|GridMaze]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/framework/312_util.md|312 ユーティリティ]]"
+  - "[[docs/wiki/concepts/framework/316_config.md|316 設定管理]]"
+updated: 2026-11-28
+---
+# GridMaze の迷路 seed の指定と自動採番
+
+## 元の材料
+
+[GridMaze の迷路seedを指定値またはエピソード・プロセス単位で選ぶ PRD](../../../memo/done/0102_gridmaze_seed_mode_10rfd.md) blob:fc527c79b40727674d9da3b3827eed025e4de11b
+
+## 要点
+
+- seed を指定するとその値で盤面を固定する。0と符号なし64ビットの最大値も有効である。
+- seed 未指定なら `seed_mode` で採番単位を選ぶ。既定の `process` は同一プロセスの GridMaze 全個体で入力 seed を共有する。
+- `episode` は Reset ごとに入力 seed を採番する。盤面と乱数器は常に個体が持つ。
+- 解ける迷路のセルと乱数順、引き直し後に公開した採用 seed での再現を保つ。
+- 設定が空・範囲外・不正なら構築に失敗する。seed を指定していても未知のモードはエラーになる。
+
+## 内容
+
+### 問題と優先順
+
+学習・評価・GUIの迷路を一度の起動でそろえながら、画面に出た seed 一つで盤面を再現できるようにする。設定読み取りで値の有無を区別し、未指定を特定の整数や浮動小数点で表さない。
+
+### 生成・ログ・移行
+
+共有するのは自動採番した入力 seed だけで、迷路の設定が異なれば採用される盤面も異なりうる。プロセス単位の採番を最初に使ったときに一度だけ通知する。共通の seed の既定値を取り除き、利用者の明示指定は固定条件として保持する。
+
+### 互換性を確認する試験
+
+同時に構築した8個体、全個体破棄後の再構築、独立したプロセス、50回の Reset で採番の寿命と復元を確かめる。自動採番の偶然の重複は不合格としない。旧固定条件との短い Run では時間・資源以外の scalar をタグ・step・値で照合する。
+
+## 主要な概念
+
+- [GridMaze](../../concepts/subjects/gridmaze.md)
+- [Env 個別実装](../../concepts/framework/322_env_individual.md)
+- [ユーティリティ](../../concepts/framework/312_util.md)
+- [設定管理](../../concepts/framework/316_config.md)

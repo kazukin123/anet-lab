@@ -87,7 +87,7 @@ updated: 2026-11-28
 - 2026-11-23: 変更ごとの文書の呼び名をPRDからRFDに改め、番号を0埋めの4桁にする（RFD0195。出典: [ADR 0093](../../../adr/0093-document-term-rfd-and-four-digit-numbers.md)）。
 - 2026-11-23: 観測の加工の部品の新しい機能グループ`forwarder`を、定点統計とトピック別まとめの分類（categories.json）の314へ足した（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D45・§7.8）。
 - 2026-11-23: 会話が要約された直後に、SessionStart（起動の理由がcompact）のhookでClaude CodeとCodexの両方に読み直しの文を差し込み、続けている工程のskillを今いる段から最後まで、作業記録と、続行中のまとめページの進行状況・案と論点の一覧の節を読み直させ、新しい会話で続けるときも同じ読み方をまとめページのskillに書き、AGENTS.mdにも読み直しの決まりを1行置く案を、グリルで決めた（出典: [RFD0198](../../../memo/0198_reread_after_compaction_10rfd.md)、§1.2・§6 D1・D2・D4〜D7・D9）。
-- 2026-11-28: 作業の中で分かったこと（道具の振る舞いや費用の実測、作業の進め方の効き目）を書く正本として作業ノート（`reports/notes/`）を置き、`reports/` の下を記録を作った流れで `survey/`・`paper/`・`notes/` に分けて直下には索引だけを置き、wiki に分野で分ける種類「ハーネス」を足し、311 の範囲にハーネスのファイルを足し、サマリの名前に `_summary` を足して課題の rfd 欄のリンクが RFD の 1 つだけに当たるようにする案を、グリルで決めた（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§1.2・§6.1 D1〜D9）。
+- 2026-11-28 — 作業ノートとハーネスの知見を記録する規約を整備し、サマリに `_summary` を付けて課題の RFD リンクを一意にした。（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§1.2・§8）
 - 2026-11-28: `reports/` の下は、記録を作った流れ（survey スキル、paper-details スキル、作業ノート）でフォルダに分け、直下には索引だけを置く（出典: [ADR 0099](../../../adr/0099-reports-are-split-into-folders-by-the-flow-that-made-them.md)）。
 - 2026-11-28: wiki の知見のページに、分野で分ける種類「ハーネス」を足し、主語に AI のエージェント、ハーネスのファイル、`src/` と `apps/` が組み込むか起動するもののほかのソフトウェアが入る知見を置く（出典: [ADR 0100](../../../adr/0100-wiki-adds-a-harness-kind-split-by-domain.md)）。
 
@@ -287,11 +287,80 @@ updated: 2026-11-28
 
 点検が作り直す。手で直さない。
 
+- [commit_cue.py](../../../../.agents/hooks/commit_cue.py) / [commit_cue_test.py](../../../../.agents/hooks/commit_cue_test.py)
+- [search_guard.py](../../../../.agents/hooks/search_guard.py) / [search_guard_test.py](../../../../.agents/hooks/search_guard_test.py)
+- [README.md](../../../../.agents/skills/README.md)
+- [SKILL.md](../../../../.agents/skills/anet-archify-atlas/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-archify-atlas/agents/openai.yaml)
+- [atlas-contract.md](../../../../.agents/skills/anet-archify-atlas/references/atlas-contract.md)
+- [SKILL.md](../../../../.agents/skills/anet-audit/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-audit/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-create-issue/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-create-issue/agents/openai.yaml)
+- [ADR-FORMAT.md](../../../../.agents/skills/anet-create-rfd/ADR-FORMAT.md)
+- [CONTEXT-FORMAT.md](../../../../.agents/skills/anet-create-rfd/CONTEXT-FORMAT.md)
+- [OTHER-MODEL.md](../../../../.agents/skills/anet-create-rfd/OTHER-MODEL.md)
+- [SKILL.md](../../../../.agents/skills/anet-create-rfd/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-create-rfd/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-harness-map/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-harness-map/agents/openai.yaml)
+- [harness-map-contract.md](../../../../.agents/skills/anet-harness-map/references/harness-map-contract.md)
+- [SKILL.md](../../../../.agents/skills/anet-housekeeping/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-housekeeping/agents/openai.yaml)
+- [RFD-IMPLEMENTATION.md](../../../../.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md)
+- [SKILL.md](../../../../.agents/skills/anet-impl-rfd/SKILL.md)
+- [SKILL.md](../../../../.agents/skills/anet-improve/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-improve/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-ingest-wiki/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-ingest-wiki/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-lint-wiki/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-lint-wiki/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-list-issues/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-list-issues/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-merge-branch/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-merge-branch/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-prepare-commit/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-prepare-commit/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-query-wiki/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-query-wiki/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-review/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-review/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-stats/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-stats/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-summary-page/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-summary-page/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-survey-queue/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-survey-queue/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-translate-docs/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-translate-docs/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/anet-update-issue/SKILL.md)
+- [openai.yaml](../../../../.agents/skills/anet-update-issue/agents/openai.yaml)
+- [SKILL.md](../../../../.agents/skills/grill-me/SKILL.md)
+- [SKILL.md](../../../../.agents/skills/handoff/SKILL.md)
+- [DEEPENING.md](../../../../.agents/skills/improve-codebase-architecture/DEEPENING.md)
+- [HTML-REPORT.md](../../../../.agents/skills/improve-codebase-architecture/HTML-REPORT.md)
+- [INTERFACE-DESIGN.md](../../../../.agents/skills/improve-codebase-architecture/INTERFACE-DESIGN.md)
+- [LANGUAGE.md](../../../../.agents/skills/improve-codebase-architecture/LANGUAGE.md)
+- [SKILL.md](../../../../.agents/skills/improve-codebase-architecture/SKILL.md)
+- [SKILL.md](../../../../.agents/skills/karpathy-guidelines/SKILL.md)
+- [SKILL.md](../../../../.agents/skills/tdd/SKILL.md)
+- [deep-modules.md](../../../../.agents/skills/tdd/deep-modules.md)
+- [interface-design.md](../../../../.agents/skills/tdd/interface-design.md)
+- [mocking.md](../../../../.agents/skills/tdd/mocking.md)
+- [refactoring.md](../../../../.agents/skills/tdd/refactoring.md)
+- [tests.md](../../../../.agents/skills/tdd/tests.md)
+- [anet-other-model.md](../../../../.claude/agents/anet-other-model.md)
+- [anet-review-agent.md](../../../../.claude/agents/anet-review-agent.md)
+- [settings.json](../../../../.claude/settings.json)
+- [anet-review-agent.toml](../../../../.codex/agents/anet-review-agent.toml)
+- [hooks.json](../../../../.codex/hooks.json)
 - [push_review.py](../../../../.github/scripts/push_review.py)
 - [gemini_ai_review.yml](../../../../.github/workflows/gemini_ai_review.yml)
 - [pages.yml](../../../../.github/workflows/pages.yml)
 - [release.yml](../../../../.github/workflows/release.yml)
 - [windows-ci.yml](../../../../.github/workflows/windows-ci.yml)
+- [AGENTS.md](../../../../AGENTS.md)
+- [CLAUDE.md](../../../../CLAUDE.md)
 - [.gitignore](../../../../apps/tools/.gitignore)
 - [atari5.py](../../../../apps/tools/atari5.py) / [atari5_test.py](../../../../apps/tools/atari5_test.py)
 - [batchrun_fatal_error_handling_test.ps1](../../../../apps/tools/batchrun_fatal_error_handling_test.ps1)
@@ -313,6 +382,23 @@ updated: 2026-11-28
 - [tb_bridge.py](../../../../apps/tools/tb_bridge.py) / [tb_bridge_test.py](../../../../apps/tools/tb_bridge_test.py)
 - [reload.lua](../../../../apps/tools/vlc/lua/extensions/reload.lua)
 - [watch_log.ps1](../../../../apps/tools/watch_log.ps1)
+- [README.md](../../../agents/README.md)
+- [harness_map_architecture.html](../../../agents/harness_map_architecture.html)
+- [harness_map_architecture.archify.json](../../../agents/harness_map_architecture.archify.json)
+- [harness_map_workflow.html](../../../agents/harness_map_workflow.html)
+- [harness_map_workflow.archify.json](../../../agents/harness_map_workflow.archify.json)
+- [numbering.md](../../../process/numbering.md)
+- [protocol.md](../../../process/protocol.md)
+- [registry.md](../../../process/registry.md)
+- [newid.js](../../../process/scripts/newid.js)
+- [README.md](../../../process/summary-page/README.md)
+- [exp.md](../../../process/summary-page/exp.md)
+- [general.md](../../../process/summary-page/general.md)
+- [grill.md](../../../process/summary-page/grill.md)
+- [template.html](../../../process/summary-page/template.html)
+- [impl.md](../../../quality/impl.md)
+- [refactor.md](../../../quality/refactor.md)
+- [rfd.md](../../../quality/rfd.md)
 - [categories.json](../../../../reports/tools/categories.json)
 - [chat_utterances.py](../../../../reports/tools/chat_utterances.py)
 - [requirements.txt](../../../../reports/tools/requirements.txt)
@@ -345,6 +431,7 @@ updated: 2026-11-28
 - [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md) — RFD0202: wiki に知見を積み上げ、引けるようにする（資料ごとのサマリ、問いで分けた概念のページ、横断的知見と見立て、会話からの書き込み）RFD
 - [RFD0203](../../../memo/0203_wiki_page_yaml_header_10rfd.md) — RFD0203: wiki のページに YAML ヘッダを付け、Obsidian で一覧にする RFD
 - [RFD0204](../../../memo/0204_branch_merge_conflict_assist_10rfd.md) — RFD0204: ブランチを main へ取り込むときの衝突を、両側の内容と文脈を読んで解く支援の RFD
+- [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md) — RFD0208: 作業の中で分かったことを残す（reports を作った流れで分けた置き場、wiki の種類「ハーネス」、サマリの名前）RFD
 
 ## 課題
 
@@ -355,8 +442,6 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261125-a19ab8](../../../management/issues/issue-20261125-a19ab8.md) | 対応中 | 2.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | AI の応答が今の決まりと成果物に沿う案に寄り、根本策や既存から外れる別案を、本筋と分けて示す場所が無い |
 | [issue-20261119-25e4d0](../../../management/issues/issue-20261119-25e4d0.md) | 調査中 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0198](../../../memo/0198_reread_after_compaction_10rfd.md) | 未確認 | 会話が要約されたあと、続ける工程の手順を読み直さずに進めてしまう（読み直しを促す仕掛けが無い） |
-| [issue-20261127-01b29b](../../../management/issues/issue-20261127-01b29b.md) | 調査中 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 不具合 | [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md) | 未確認 | 課題の rfd 欄の名前だけのリンクが、RFD とそのサマリのページの 2 つに当たる |
-| [issue-20261127-f42cd7](../../../management/issues/issue-20261127-f42cd7.md) | 調査中 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md) | 未確認 | wiki の材料の正本に当たらない有用な知見（ハーネスの工夫、道具の振る舞いの実測、作業中に調べた一般の事例など）が残らない |
 | [issue-20261125-822a3e](../../../management/issues/issue-20261125-822a3e.md) | 対応中 | 1.6（引継ぎ） | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md) | 残件有り | wiki に知見が積み上がりにくく、引きにくい（質疑の答えを残す経路、題材をまたぐ知見、サーベイと公開実装の事例、「今の結論」と目録の長さ） |
 | [issue-20261123-2cda10](../../../management/issues/issue-20261123-2cda10.md) | 調査中 | 1.5 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | レビューの出し方（2 モデルのクロスレビューを使うか、Claude 側を API とサブスクのどちらで動かすか、どのモデルを使うか）を切り替える設定が無く、そのたびに個人の CLAUDE.md・AGENTS.md・スキル・スクリプトの文面を書き換えている |
 | [issue-20261104-52ffba](../../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた RFD の「実装済み」の時機ほか） |
@@ -386,5 +471,5 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261103-b13ed2](../../../management/issues/issue-20261103-b13ed2.md) | 未着手 | 0.8 | — | コード | RFD | 311_dev_tools | 開発 | 機能改善 | [RFD0185](../../../memo/0185_release_packaging_cmake_10rfd.md) | 残件有り | リリース物の組み立てを CMake（install・CPack・ワークフロー preset）へ移し、手元でも同じコマンドで作れるようにする |
 | [issue-20261126-4c7b4e](../../../management/issues/issue-20261126-4c7b4e.md) | 対応中 | 1.6 | [issue-20261125-822a3e](../../../management/issues/issue-20261125-822a3e.md) | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0203](../../../memo/0203_wiki_page_yaml_header_10rfd.md) | 残件有り | サマリのページに YAML ヘッダが無く、Obsidian で題名や材料の日付を列にした一覧を作れない |
 
-着手できる 31 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
+着手できる 29 / 待ち 1 / 保留 0 / 次版 0 / 解決 0
 <!-- issues:end -->

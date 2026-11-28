@@ -49,8 +49,8 @@ Breakout の可塑性 probe は interval 100 で throughput が約 2.1% 下が�
 
 ### 外の事例
 
-- BYOL-Explore の Atari は学習 TPUv2 4 個、actor CPU 400 個、推論 TPUv2 4 個。E3B は逆行列の rank-1 更新で特徴次元の二乗時間となり、比較で 1.5〜2 倍遅かった。AMA は RTX 2080Ti の Space Invaders で約 12 時間、RND・ICM の追加実時間はこの調査では未確認（出典: [内的報酬の手法の全体像](../../../../reports/intrinsic_reward_landscape_survey_2026-11-18.md)、§2.1・4.3・7）。
-- BTR のハードウェア表で H100 が RTX 4090 より遅かった比較には環境の供給側の律速が関わる。別のベクトル環境実装で learner が律速なら同じ順位を想定できない。（出典: [Survey: Atari の実時間効率フロンティア](../../../../reports/atari_walltime_frontier_survey_2026-09-09.md)、11. 批判・懸念・11.3 ハード世代差が補正されていない）。
+- BYOL-Explore の Atari は学習 TPUv2 4 個、actor CPU 400 個、推論 TPUv2 4 個。E3B は逆行列の rank-1 更新で特徴次元の二乗時間となり、比較で 1.5〜2 倍遅かった。AMA は RTX 2080Ti の Space Invaders で約 12 時間、RND・ICM の追加実時間はこの調査では未確認（出典: [内的報酬の手法の全体像](../../../../reports/survey/intrinsic_reward_landscape_survey_2026-11-18.md)、§2.1・4.3・7）。
+- BTR のハードウェア表で H100 が RTX 4090 より遅かった比較には環境の供給側の律速が関わる。別のベクトル環境実装で learner が律速なら同じ順位を想定できない。（出典: [Survey: Atari の実時間効率フロンティア](../../../../reports/survey/atari_walltime_frontier_survey_2026-09-09.md)、11. 批判・懸念・11.3 ハード世代差が補正されていない）。
 
 ## 横断的知見
 

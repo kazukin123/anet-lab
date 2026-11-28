@@ -1,0 +1,26 @@
+---
+title: 変更ごとの文書の呼び名を PRD から RFD に改め、番号を 0 埋めの 4 桁にする
+page_kind: サマリ
+material: "[[docs/adr/0093-document-term-rfd-and-four-digit-numbers.md|0093-document-term-rfd-and-four-digit-numbers]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-28
+---
+# 変更ごとの文書の呼び名を PRD から RFD に改め、番号を 0 埋めの 4 桁にする
+
+## 元の材料
+
+[ADR 0093](../../../adr/0093-document-term-rfd-and-four-digit-numbers.md) blob:280000ad225bb6bc84e91ccfffee3f0b0ca87b39
+
+## 要点
+
+- 変更ごとの指示と判断の記録は PRD から RFD と呼び替える。
+- 番号はゼロ埋めの4桁で表す。
+- 下書きを起点に議論し、判断理由を残す流れに合う名称を選んだ。
+- 実装指示も含むことは用語集の定義で補う。
+- 過去のコミット件名を改変せず、道具が旧 PRD 表記と番号の値を同じ文書に対応付ける。
+
+## 主要な概念
+
+- [開発プロセス・開発ツール・テスト基盤（311）](../../concepts/framework/311_dev_tools.md)

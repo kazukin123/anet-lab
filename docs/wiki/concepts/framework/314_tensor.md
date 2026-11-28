@@ -116,7 +116,7 @@ updated: 2026-11-27
 
 ## 外の事例
 
-- TorchRL の TensorDict は先頭の batch shape を共有する tensor を格納し、batch 軸の indexing と reshape を全要素へ一括して適用する（出典: [Survey: TorchRL の設計と現状 ― Transforms、実装の参考、実験結果の比較元](../../../../reports/torchrl_survey_2026-11-20.md)、2. 設計の全体像「2.2 TensorDict と TensorDictModule」）。
+- TorchRL の TensorDict は先頭の batch shape を共有する tensor を格納し、batch 軸の indexing と reshape を全要素へ一括して適用する（出典: [Survey: TorchRL の設計と現状 ― Transforms、実装の参考、実験結果の比較元](../../../../reports/survey/torchrl_survey_2026-11-20.md)、2. 設計の全体像「2.2 TensorDict と TensorDictModule」）。
 
 ## 関係
 

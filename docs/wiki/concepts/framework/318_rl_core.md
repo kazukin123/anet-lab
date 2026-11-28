@@ -9,7 +9,7 @@ aliases:
   - ForcedActions
   - MakeActionOptions
 description: ReplayBufferのExperience、N-step、PER、stack履歴、転送とprefetchの共通契約を引く。RunnerとObserverの実行・通知の所在もまとめる。
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 # 318 強化学習 共通基盤
 
@@ -104,8 +104,11 @@ updated: 2026-11-27
 - 2026-11-23: 強制行動を`MakeActionOptions`の欄（`ForcedActions`）でActorへ渡す形にし、行動の引数を持つ`EvalRunner::DoStep`と、あとから差し替えるWithActionを消し、Runnerの「強制したか」の記録をlaneの印から作るようにした。Runnerに強制行動を渡す口は1つになり、負数が「強制なし」を表す決まりは無くなった（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.2 D7〜D10・D12・D15・D16）。
 - 2026-11-24: 重ねる枚数とキーの設定はAgent全体に置き、Sampleの束のspecはReplayBufferが答える（出典: [ADR 0095](../../../adr/0095-frame-stack-setting-is-agent-wide-and-replay-buffer-answers-sample-spec.md)、本文）。
 - 2026-11-25: ReplayBufferが、Sampleで返すobsとnext_obsのspecを答える口（`GetSampleObsSpecs`）を、通常とプリフェッチの両方に足した。Sample用のForwarderはこのspecを受けて作る（出典: [RFD0200](../../../memo/0200_forwarder_public_interface_rework_10rfd.md)、§5.2 D14・§6.9）。
+- 2026-11-28 — ReplayBuffer の `n_step` の値域と、先読みの結果を処理する際の例外後の状態を修正した。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§1.2・§6）
 
 ## 選ばなかった形
+
+- 先読み worker の例外をデストラクタが最初に受け取る場合も同時に直す形 — 範囲外。呼び出し元へ例外を返せない場合の扱いには別の判断が要る。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§1.3）
 
 - SampleIndicesをcallerに置いた内部plan/fetch分離 — 不採用: callerの待ちとReplayBuffer内部seamを増やす（出典: [RFD0014](../../../memo/done/0014_async_loader_prefetch_10rfd.md)、確定した設計判断）。
 - Observerの周期判定をAgent内部のtriggerへ戻す形 — 不採用: roundより細かなevalは既存通知境界では実現できない（出典: [RFD0053](../../../memo/done/0053_interval_gate_perf_ema_10rfd.md)、5. スコープ外）。
@@ -179,6 +182,8 @@ updated: 2026-11-27
 
 ## 変えるときの条件
 
+- Replay の構築で不正な `n_step` を拒否し、正常な設定の抽選分布を保つ。先読みの例外を受け取った後、残る操作が再処理される場合の順序と状態を確認する。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§4・§7）
+
 一般の条件は[リファクタリング観点](../../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../../reports/stats/trend.md)の「テスト充足」を見る。
 
 - PushとExtractのstorage shared/exclusive lockによる排他を維持する（出典: [RFD0014](../../../memo/done/0014_async_loader_prefetch_10rfd.md)、1.2 ReplayBuffer）。
@@ -213,11 +218,11 @@ updated: 2026-11-27
 
 ## 外の事例
 
-- TorchRL v0.15.0 の ReplayBuffer は sample で Transform の順変換、add/extend で逆変換を適用する。保存時と取得時の表現を変えられる（出典: [Survey: TorchRL の設計と現状 ― Transforms、実装の参考、実験結果の比較元](../../../../reports/torchrl_survey_2026-11-20.md)、3. Transforms「3.5 Replay に付けた Transform が働く時点」）。
-- Acme の n-step の adder は、報酬・環境の割引・追加の割引を同じ木の形にそろえて葉ごとに n-step の収益と割引の積を作り（成分ごとの割引率を表せる）、エピソードの終わりでは残りの短い遷移を書き出して、窓を次のエピソードへ延ばさない（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.2）。
-- Acme の系列の adder は、エピソードの終わりの扱いを 4 つ（WRITE、CONTINUE、ZERO_PAD、TRUNCATE）から選び、CONTINUE は最後の系列を次のエピソードの最初の step まで続けて書く。既定は ZERO_PAD で、Acme の R2D2 は TRUNCATE を指定する。CONTINUE を使う Acme の agent は確かめていない（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.3）。
-- deep_rl_zoo（個人の公開の再実装）の系列の切り出しは、エピソードの境をまたぐかを引数で選べ、既定はまたぐ。IMPALA の agent はまたぎ、R2D2・NGU・Agent57 の agent はまたがない。またがないとき、系列の長さに足りずに終わったエピソードは、同じエピソードの前の系列の末尾で埋め、前の系列が無ければ書き出さない（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.3）。
-- Dopamine の Replay は、n-step の和を窓の中の最初の終端で止め（その step までの報酬だけを割り引いて足す）、終端の印なしにエピソードが終わる窓を抽選の対象から外す（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.2）。
+- TorchRL v0.15.0 の ReplayBuffer は sample で Transform の順変換、add/extend で逆変換を適用する。保存時と取得時の表現を変えられる（出典: [Survey: TorchRL の設計と現状 ― Transforms、実装の参考、実験結果の比較元](../../../../reports/survey/torchrl_survey_2026-11-20.md)、3. Transforms「3.5 Replay に付けた Transform が働く時点」）。
+- Acme の n-step の adder は、報酬・環境の割引・追加の割引を同じ木の形にそろえて葉ごとに n-step の収益と割引の積を作り（成分ごとの割引率を表せる）、エピソードの終わりでは残りの短い遷移を書き出して、窓を次のエピソードへ延ばさない（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/survey/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.2）。
+- Acme の系列の adder は、エピソードの終わりの扱いを 4 つ（WRITE、CONTINUE、ZERO_PAD、TRUNCATE）から選び、CONTINUE は最後の系列を次のエピソードの最初の step まで続けて書く。既定は ZERO_PAD で、Acme の R2D2 は TRUNCATE を指定する。CONTINUE を使う Acme の agent は確かめていない（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/survey/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.3）。
+- deep_rl_zoo（個人の公開の再実装）の系列の切り出しは、エピソードの境をまたぐかを引数で選べ、既定はまたぐ。IMPALA の agent はまたぎ、R2D2・NGU・Agent57 の agent はまたがない。またがないとき、系列の長さに足りずに終わったエピソードは、同じエピソードの前の系列の末尾で埋め、前の系列が無ければ書き出さない（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/survey/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.3）。
+- Dopamine の Replay は、n-step の和を窓の中の最初の終端で止め（その step までの報酬だけを割り引いて足す）、終端の印なしにエピソードが終わる窓を抽選の対象から外す（出典: [value_decomposition_head_nstep_survey_2026-11-27.md](../../../../reports/survey/value_decomposition_head_nstep_survey_2026-11-27.md)、§3.2）。
 
 ## 関係
 

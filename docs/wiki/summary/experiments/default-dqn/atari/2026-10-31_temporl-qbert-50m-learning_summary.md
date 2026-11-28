@@ -1,0 +1,55 @@
+---
+title: qbert で TempoRL を学習した 50M Run の比較
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md|default-dqn/atari/2026-10-31_temporl-qbert-50m-learning]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+updated: 2026-11-28
+---
+# qbert で TempoRL を学習した 50M Run の比較
+
+## 元の材料
+
+[qbert で TempoRL を学習した 50M Run の比較](../../../../../experiments/default-dqn/atari/2026-10-31_temporl-qbert-50m-learning.md) blob:1da7e5203283452843132538969d7b4e94302dde
+
+## 要点
+
+- 学習を完走したスキップなし 2 本と TempoRL 8 本を、同じ評価時点で比較した。ほかに 9.2M と 45.37M で停止した別条件がある。
+- 35.55〜45.65M の Greedy 評価の平均は TempoRL が 24,201〜29,066 点、スキップなしの 2 seed が 40,999・30,415 点だった。
+- ε=0.01 の 40〜50M の評価は全条件で 23,641〜26,879 点。Greedy と学習側の面突破で見えた差は、この評価では分かれなかった。
+- 学習時の 8 面突破率が初めて 50% を超えたのはスキップなしが 32.5〜35M。TempoRL では補助学習のみが 47.5〜50M に超えた。
+- 分割は Q 側の勾配クリップ率をスキップなしに近づけた。閾値を 30 にした合算は眠ったユニットの率が最小だったが、得点は回復しなかった。
+- ViT 合算は比較窓の途中で停止した。揃えられる Greedy 評価は 2 回分である。
+
+## 内容
+
+### 現時点のまとめ・目的と比較条件
+
+qbert、RR4、64 env、Replay 1M、IQN、NoisyNet の構成に J=10 の TempoRL を加えた。合算とスキップなしは各 2 seed、残る変種は各 1 seed。ビルドが条件間で異なり、合算の seed 2 は別 GPU を使った。Greedy は ε=0・ノイズなし・τ 固定で 100 ゲーム、約 5.05M ごと。full は学習したスキップ長を選び、single は毎 step 行動を選ぶ。補助学習のみは学習・評価とも single である。
+
+### 評価
+
+終盤の合算 2 本の Greedy 平均は 27,058・26,523 点。変種間の幅は約 4,900 点で、スキップなしの 2 seed の差 10,584 点より小さかった。同じ時点の Clip30 の single は 27,732 点、full は 24,201 点。序盤の ε=0.01 評価では合算・重み 0.3・分割・ノイズ切りがスキップなしを上回った。終盤の Greedy の順位を、序盤の ε=0.01 の順位からは読めない。
+
+### 学習側・学習の進み
+
+学習側の突破を「29,000 点以上かつ round_clear ≥ 8」として 2.5M の窓で集計した。45〜50M の突破率は、スキップなし 62〜87%、補助学習のみ 46〜51%、Clip30 は 19〜31%。分割は勾配ノルムもスキップなしと同じ帯だった。クリップ閾値 30 の合算では Q のクリップ率は 10〜15M の 36.4% から 40〜45M の 16.6% に下がった。眠った率は終盤の Clip30 が 5.27%、補助学習のみが 19.42% だった。
+
+### 学習を続ける条件に当てた結果
+
+合算は序盤の評価条件を満たし 2 seed を完走した。遮断・重み変更・Clip30・分割は、学習側の突破の遅れを戻せなかった。補助学習に使える連続区間はあったが、補助学習のみ・ノイズ切りとも所定の時期までに突破率の条件を満たさなかった。エピソード終了だけを教材にする条件は 9.2M で停止し、分割との組み合わせは実行しなかった。
+
+### ViT の合算
+
+評価再開時、10月29日の実行体が設定の Evaluation Trace の列を認識できず、45.37M で停止した。終了時の重みはない。35.55・40.6M の Greedy 平均は full 25,440、single 30,006 で、single は同じ 2 回のスキップなし 2 本の間に入った。
+
+## 主要な概念
+
+- [行動の時間尺度](../../../../concepts/methods/temporal_abstraction.md)
+- [Qbert](../../../../concepts/subjects/qbert.md)
+- [評価と比較の条件](../../../../concepts/measurement/evaluation.md)
+- [可塑性指標と成績](../../../../concepts/phenomena/plasticity.md)

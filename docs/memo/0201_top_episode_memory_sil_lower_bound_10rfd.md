@@ -54,10 +54,10 @@ Montezuma's Revenge の n-step 10 の構成では、学習側にまれに出る�
 
 ### 2.5 文献の事例
 
-- **SIL**（Oh ら 2018）: エピソードが終わったあとに計算した割引収益が価値の推定を上回る組だけに損失を掛け、上回った分を Replay の優先度にする。A2C に足して、難探索 7 ゲーム中 6 で最良（Montezuma's Revenge 2,500）だった。Venture では正の報酬を一度も得ず、序盤に活用しすぎて準最適に留まるゲームもあった。SIL と同じ優先度の PER を ACER に付けた版は A2C より悪く、著者は IS の項が原因と推測した（出典: [PER の弱点のサーベイ](../../reports/per_priority_weaknesses_survey_2026-11-18.md)、§5.2）。
+- **SIL**（Oh ら 2018）: エピソードが終わったあとに計算した割引収益が価値の推定を上回る組だけに損失を掛け、上回った分を Replay の優先度にする。A2C に足して、難探索 7 ゲーム中 6 で最良（Montezuma's Revenge 2,500）だった。Venture では正の報酬を一度も得ず、序盤に活用しすぎて準最適に留まるゲームもあった。SIL と同じ優先度の PER を ACER に付けた版は A2C より悪く、著者は IS の項が原因と推測した（出典: [PER の弱点のサーベイ](../../reports/survey/per_priority_weaknesses_survey_2026-11-18.md)、§5.2）。
 - **EMDQN**（Lin ら 2018）: エピソード記憶を学習の監督に使い、DQN の 1/5 の相互作用で高い性能に達したと要旨で主張する。本文は未読（出典: 同、§5.2）。
 - **PSER・EBU**: 収益を手前の遷移へ流す手法で、PSER は Montezuma's Revenge でほぼ 0%、EBU も DQN 比でほぼ 0 だった（出典: 同、§5.1）。どちらも、まれなエピソードを持ち続ける仕組みではない。
-- **DTSIL**（Guo ら 2020）: 記憶した軌跡をなぞる方策を学ぶ。Atari の結果は状態の表し方に RAM の位置を使う（出典: [内的報酬の手法の全体像のサーベイ](../../reports/intrinsic_reward_landscape_survey_2026-11-18.md)、§5.3 の表の DTSIL の行）。
+- **DTSIL**（Guo ら 2020）: 記憶した軌跡をなぞる方策を学ぶ。Atari の結果は状態の表し方に RAM の位置を使う（出典: [内的報酬の手法の全体像のサーベイ](../../reports/survey/intrinsic_reward_landscape_survey_2026-11-18.md)、§5.3 の表の DTSIL の行）。
 - SIL を Q 学習へ広げた手法（Tang 2020 の下限 Q 学習、He ら 2017 の Optimality Tightening）は、手元のサーベイに無い。記憶による。
 
 ## 3. ゴールと非ゴール
@@ -302,6 +302,6 @@ seed の数は、単体テストでは 1（固定）である。学習の結果�
 ## 15. 参照
 
 - [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)
-- [PER の優先度の弱点と代替のサーベイ](../../reports/per_priority_weaknesses_survey_2026-11-18.md)
-- [内的報酬の手法の全体像のサーベイ](../../reports/intrinsic_reward_landscape_survey_2026-11-18.md)
+- [PER の優先度の弱点と代替のサーベイ](../../reports/survey/per_priority_weaknesses_survey_2026-11-18.md)
+- [内的報酬の手法の全体像のサーベイ](../../reports/survey/intrinsic_reward_landscape_survey_2026-11-18.md)
 - [Montezuma's Revenge（wiki）](../wiki/concepts/subjects/montezuma_revenge.md)

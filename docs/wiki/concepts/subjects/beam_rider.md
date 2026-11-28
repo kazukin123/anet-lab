@@ -35,7 +35,7 @@ RAM の 0x80 でセクターの進行を追える。ボス撃破後のボーナ�
 - RAM 0xD3 は魚雷の残り（セクターの開始で 3）で、魚雷の行動のフレームだけ 1 減り、死亡では減らなかった。（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「beam_rider と freeway の RAM」）
 - ボスを倒すと残機の数だけボーナス（セクター 2 は 120 点、3 は 130 点）が 1 回ずつ入り、そのたびに残機の 0x85 が 1 減って最後に戻った。ALE の `lives()` も 3 → 1 → 3 と動くので、episodic_life を有効にしたプロファイルではボスを倒すたびに残機を失った扱いになる。（出典: [0082_atari_ram_progress_metrics_10rfd.md](../../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、Context「beam_rider と freeway の RAM」）
 - 既定設定の RAM 定義は、1 = `sector_clear`（0x80 inc_count）、2 = `boss_kill`（0x94 reach_count:141）、4 = `torpedo_fired`（0xD3 dec_count）である。ボスは魚雷 1 発で倒れるので 3 は置かない。（出典: [220_atari_env.jp.md](../../../design/220_atari_env.jp.md)、§4.9 RAM メトリクス。[0082_atari_ram_progress_metrics_10rfd.md](../../../memo/done/0082_atari_ram_progress_metrics_10rfd.md)、D21・Context「beam_rider と freeway の RAM」）
-- 調査の計算では、スキップなし 2 本の変動係数は約 80% で、Machado らの DQN 5 試行の表から計算した Beam Rider の 6% より大きい。BTR の公開 CSV の BeamRider（1 系列と推定）は、151M フレーム以降も 100 エピソードの平均が 1 回ごとに 39,440〜138,102 の幅で動き、max（評価 200 回）は最後の 10 回の平均の 1.54 倍、評価 10 回の max との比は取り始めによって 1.00〜1.85 倍だった。2 本では、分布が二峰か連続かを区別できない（出典: [少数 seed での比較と報告のサーベイ](../../../../reports/few_seed_comparison_reporting_survey_2026-11-04.md)、1. 結論・3.4・4.3）。
+- 調査の計算では、スキップなし 2 本の変動係数は約 80% で、Machado らの DQN 5 試行の表から計算した Beam Rider の 6% より大きい。BTR の公開 CSV の BeamRider（1 系列と推定）は、151M フレーム以降も 100 エピソードの平均が 1 回ごとに 39,440〜138,102 の幅で動き、max（評価 200 回）は最後の 10 回の平均の 1.54 倍、評価 10 回の max との比は取り始めによって 1.00〜1.85 倍だった。2 本では、分布が二峰か連続かを区別できない（出典: [少数 seed での比較と報告のサーベイ](../../../../reports/survey/few_seed_comparison_reporting_survey_2026-11-04.md)、1. 結論・3.4・4.3）。
 
 ### 外の事例
 

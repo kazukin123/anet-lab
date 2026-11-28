@@ -26,18 +26,18 @@ TD 誤差で遷移を選ぶと、予測できない誤差にも抽出が偏る�
 
 ### 外の事例
 
-- 確認した BTR の `max_prio` は一度観測した最大値を維持する。大きな TD 誤差を持つ遷移がバッファから消えた後も、新規遷移がその優先度を継承する（出典: [Code Reading: BTR 公開実装](../../../../reports/btr_code_reading_2026-08-31.md)、3. 新規に判明した点「3.1 PER 初期優先度は「単調非減少の過去最高水位」」）。
-- 公開実装のコードコメントでは重要度重みの指数に β の代わりに α を使うことが意図しない実装だと記されていた。論文本文の説明だけで再実装するとこの点が一致しない（出典: [Survey: BTR (Beyond The Rainbow)](../../../../reports/btr_hyperparams_survey_2026-08-26.md)、11. 批判・懸念）。
-- ReLo の7×7格子では一様乱数の報酬を置いた状態への遷移に PER の抽出が集中し、序盤に本来のゴールを学べなかった。予測できない TD 誤差の大きさと追加学習の価値が一致しない例である（出典: [Survey: PER の優先度の弱点と代替](../../../../reports/per_priority_weaknesses_survey_2026-11-18.md)、2. TD 誤差の優先度の弱点「2.1 確率的な報酬と張り付き」）。
-- 優先抽出と重要度重みの組み合わせは目的損失の形にも影響する。LAP は特定の損失の下で、優先抽出した期待勾配が別の損失による一様抽出と一致する条件を示した（出典: [Survey: PER の優先度の弱点と代替](../../../../reports/per_priority_weaknesses_survey_2026-11-18.md)、2. TD 誤差の優先度の弱点「2.3 損失の形との等価性」）。
-- 割引率の違う複数の Q を補助として学ぶ多地平の補助タスク（Fedus ら）を PER と組むと、10 ゲーム中 4 ゲーム（Pong、Venture、Gravitar、Zaxxon）で成績が下がった。著者は全 Head の TD 誤差を平均して優先度にしたためと説明し、最大の γ で優先度を付ける案を予備の結果として付録 E に置く（出典: [skip_auxiliary_task_noise_survey_2026-11-27.md](../../../../reports/skip_auxiliary_task_noise_survey_2026-11-27.md)、§1.2）。
-- de Bruin ら（JMLR 2018、DDPG）は、TD 誤差で引くと状態空間の全体で近似の精度がそろうので、学習と同じ開始の分布で試すなら望ましくないが、広い状態へ汎化させたいなら重要度の補正を掛けないほうがよいかもしれないと書く（出典: [novelty_bonus_long_horizon_reach_survey_2026-11-27.md](../../../../reports/novelty_bonus_long_horizon_reach_survey_2026-11-27.md)、§5.2）。
-- Fu ら（2019、arXiv v1）の Q 学習の単体試験（格子の世界などを含む表形式の 8 領域、2 層の ReLU の NN、正解の Q と比べ、標本の不足は切り離す）では、状態・行動の一様な重み、Replay の重み（学習中のすべての方策の平均）、TD 誤差の重みが、どの NN の大きさでも最も高い収益になり、方策自身の分布（on-policy）は常によいわけではなかった。重みの分布のエントロピーが高いほど収益が高い傾向で、原典は状態の被覆を最大にする探索の動機になると書く（出典: [novelty_bonus_long_horizon_reach_survey_2026-11-27.md](../../../../reports/novelty_bonus_long_horizon_reach_survey_2026-11-27.md)、§5.3）。
-- PER の原典は、優先抽出は経験の分布を制御なしに変え、方策と状態の分布が固定でも推定が収束する解を変えるとし、重要度の重みは β = 1 で非一様な抽出を打ち消すと書く。偏りのない更新が要るのは学習の終わりの収束の近くとして、β を学習の終わりに 1 へ届くよう線形に上げる（出典: [rnd_predictor_data_munchausen_survey_2026-11-27.md](../../../../reports/rnd_predictor_data_munchausen_survey_2026-11-27.md)、§4.4）。
+- 確認した BTR の `max_prio` は一度観測した最大値を維持する。大きな TD 誤差を持つ遷移がバッファから消えた後も、新規遷移がその優先度を継承する（出典: [Code Reading: BTR 公開実装](../../../../reports/survey/btr_code_reading_2026-08-31.md)、3. 新規に判明した点「3.1 PER 初期優先度は「単調非減少の過去最高水位」」）。
+- 公開実装のコードコメントでは重要度重みの指数に β の代わりに α を使うことが意図しない実装だと記されていた。論文本文の説明だけで再実装するとこの点が一致しない（出典: [Survey: BTR (Beyond The Rainbow)](../../../../reports/survey/btr_hyperparams_survey_2026-08-26.md)、11. 批判・懸念）。
+- ReLo の7×7格子では一様乱数の報酬を置いた状態への遷移に PER の抽出が集中し、序盤に本来のゴールを学べなかった。予測できない TD 誤差の大きさと追加学習の価値が一致しない例である（出典: [Survey: PER の優先度の弱点と代替](../../../../reports/survey/per_priority_weaknesses_survey_2026-11-18.md)、2. TD 誤差の優先度の弱点「2.1 確率的な報酬と張り付き」）。
+- 優先抽出と重要度重みの組み合わせは目的損失の形にも影響する。LAP は特定の損失の下で、優先抽出した期待勾配が別の損失による一様抽出と一致する条件を示した（出典: [Survey: PER の優先度の弱点と代替](../../../../reports/survey/per_priority_weaknesses_survey_2026-11-18.md)、2. TD 誤差の優先度の弱点「2.3 損失の形との等価性」）。
+- 割引率の違う複数の Q を補助として学ぶ多地平の補助タスク（Fedus ら）を PER と組むと、10 ゲーム中 4 ゲーム（Pong、Venture、Gravitar、Zaxxon）で成績が下がった。著者は全 Head の TD 誤差を平均して優先度にしたためと説明し、最大の γ で優先度を付ける案を予備の結果として付録 E に置く（出典: [skip_auxiliary_task_noise_survey_2026-11-27.md](../../../../reports/survey/skip_auxiliary_task_noise_survey_2026-11-27.md)、§1.2）。
+- de Bruin ら（JMLR 2018、DDPG）は、TD 誤差で引くと状態空間の全体で近似の精度がそろうので、学習と同じ開始の分布で試すなら望ましくないが、広い状態へ汎化させたいなら重要度の補正を掛けないほうがよいかもしれないと書く（出典: [novelty_bonus_long_horizon_reach_survey_2026-11-27.md](../../../../reports/survey/novelty_bonus_long_horizon_reach_survey_2026-11-27.md)、§5.2）。
+- Fu ら（2019、arXiv v1）の Q 学習の単体試験（格子の世界などを含む表形式の 8 領域、2 層の ReLU の NN、正解の Q と比べ、標本の不足は切り離す）では、状態・行動の一様な重み、Replay の重み（学習中のすべての方策の平均）、TD 誤差の重みが、どの NN の大きさでも最も高い収益になり、方策自身の分布（on-policy）は常によいわけではなかった。重みの分布のエントロピーが高いほど収益が高い傾向で、原典は状態の被覆を最大にする探索の動機になると書く（出典: [novelty_bonus_long_horizon_reach_survey_2026-11-27.md](../../../../reports/survey/novelty_bonus_long_horizon_reach_survey_2026-11-27.md)、§5.3）。
+- PER の原典は、優先抽出は経験の分布を制御なしに変え、方策と状態の分布が固定でも推定が収束する解を変えるとし、重要度の重みは β = 1 で非一様な抽出を打ち消すと書く。偏りのない更新が要るのは学習の終わりの収束の近くとして、β を学習の終わりに 1 へ届くよう線形に上げる（出典: [rnd_predictor_data_munchausen_survey_2026-11-27.md](../../../../reports/survey/rnd_predictor_data_munchausen_survey_2026-11-27.md)、§4.4）。
 
 ## 横断的知見
 
-- 補完: BTR の調査報告は重要度重みの指数に α が使われる点を指摘し、後続のコード読解は β が受け取られても実行中に0へ戻る箇所を特定した。論文上の β を変えるだけで実装の抽出・補正が追従するとはいえない。条件の違い: 前者は論文記載と公開コードの差、後者は固定した版の PER 更新処理を直接確認した（出典: [btr_hyperparams_survey](../../../../reports/btr_hyperparams_survey_2026-08-26.md)、11. 批判・懸念。[btr_code_reading](../../../../reports/btr_code_reading_2026-08-31.md)、3. 新規に判明した点「3.2 `beta` は死にコード」）。
+- 補完: BTR の調査報告は重要度重みの指数に α が使われる点を指摘し、後続のコード読解は β が受け取られても実行中に0へ戻る箇所を特定した。論文上の β を変えるだけで実装の抽出・補正が追従するとはいえない。条件の違い: 前者は論文記載と公開コードの差、後者は固定した版の PER 更新処理を直接確認した（出典: [btr_hyperparams_survey](../../../../reports/survey/btr_hyperparams_survey_2026-08-26.md)、11. 批判・懸念。[btr_code_reading](../../../../reports/survey/btr_code_reading_2026-08-31.md)、3. 新規に判明した点「3.2 `beta` は死にコード」）。
 
 ## 見立て
 

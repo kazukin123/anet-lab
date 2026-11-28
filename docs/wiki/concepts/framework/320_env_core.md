@@ -68,8 +68,8 @@ updated: 2026-11-26
 
 ## 外の事例
 
-- IGE の公開 BabyAI-Text 実装は同じ seed で reset し、保存した行動を再実行してから新規探索のカウンタを 0 に戻す。復帰に使う env.step はこのカウンタに含まれない。2026-11-07 確認の固定コミット bcb4052 には Atari と BabyAI 画像版の入口が無い（出典: [探索を補助する LLM に何を渡すか](../../../../reports/llm_rl_exploration_information_2026-11-07.md)、§5、公開実装のコードを調べた報告）。
-- TorchRL の TransformedEnv は入力の逆変換、元の Env の step、出力の順変換を順に実行する。Compose は逆変換を逆順に適用し、入出力のキーを対応付ける（出典: [Survey: TorchRL の設計と現状 ― Transforms、実装の参考、実験結果の比較元](../../../../reports/torchrl_survey_2026-11-20.md)、3. Transforms「3.2 spec の変換とメソッドの使い分け」）。
+- IGE の公開 BabyAI-Text 実装は同じ seed で reset し、保存した行動を再実行してから新規探索のカウンタを 0 に戻す。復帰に使う env.step はこのカウンタに含まれない。2026-11-07 確認の固定コミット bcb4052 には Atari と BabyAI 画像版の入口が無い（出典: [探索を補助する LLM に何を渡すか](../../../../reports/survey/llm_rl_exploration_information_2026-11-07.md)、§5、公開実装のコードを調べた報告）。
+- TorchRL の TransformedEnv は入力の逆変換、元の Env の step、出力の順変換を順に実行する。Compose は逆変換を逆順に適用し、入出力のキーを対応付ける（出典: [Survey: TorchRL の設計と現状 ― Transforms、実装の参考、実験結果の比較元](../../../../reports/survey/torchrl_survey_2026-11-20.md)、3. Transforms「3.2 spec の変換とメソッドの使い分け」）。
 
 ## 関係
 

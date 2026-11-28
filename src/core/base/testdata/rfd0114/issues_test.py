@@ -437,7 +437,7 @@ class IssueViewsTest(unittest.TestCase):
         rfd = 'docs/memo/0115_probe_10rfd.md'
         self.write(rfd,'# probe\n')
         blob = self.git('hash-object','--',rfd).strip()
-        self.write('docs/wiki/summary/rfd/' + Path(rfd).name, '## 元の材料\n\nblob:' + blob)
+        self.write('docs/wiki/summary/rfd/' + Path(rfd).stem + '_summary.md', '## 元の材料\n\nblob:' + blob)
         log = self.root/'docs/wiki/log.md'
         log.write_text(log.read_text(encoding='utf-8')+f'2026-11-03 ingest {rfd} blob:{blob} → なし\n',encoding='utf-8')
         self.issue(rfd=self.link('0115_probe_10rfd'))
@@ -459,7 +459,7 @@ class IssueViewsTest(unittest.TestCase):
         rfd = 'docs/memo/0115_probe_10rfd.md'
         self.write(rfd,'# probe\n')
         blob = self.git('hash-object','--',rfd).strip()
-        self.write('docs/wiki/summary/rfd/' + Path(rfd).name, '## 元の材料\n\nblob:' + blob)
+        self.write('docs/wiki/summary/rfd/' + Path(rfd).stem + '_summary.md', '## 元の材料\n\nblob:' + blob)
         log = self.root/'docs/wiki/log.md'
         log.write_text(log.read_text(encoding='utf-8')+f'2026-11-03 ingest {rfd} blob:{blob} → なし\n',encoding='utf-8')
         link = self.link('0115_probe_10rfd')

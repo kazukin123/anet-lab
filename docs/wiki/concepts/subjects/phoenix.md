@@ -29,8 +29,8 @@ updated: 2026-11-27
 
 ### 外の事例
 
-- 調査が BTR の公開 CSV から計算した Phoenix の値は、max（評価 200 回）367,284、max（評価 10 回）303,923、最後の 10 回の平均 287,479 である。評価 10 回の取り始めをずらすと、評価 200 回の max との比は 1.00〜1.55（中央値 1.19）だった（出典: [few_seed_comparison_reporting_survey_2026-11-04.md](../../../../reports/few_seed_comparison_reporting_survey_2026-11-04.md)、4.3）。
-- BTR の Phoenix の表では、Munchausen を外すと action gap が小さくなった → 詳しくは [Munchausen RL](../methods/munchausen.md)（出典: [btr_hyperparams_survey_2026-08-26.md](../../../../reports/btr_hyperparams_survey_2026-08-26.md)、9.2 Table 2 (Phoenix)）。
+- 調査が BTR の公開 CSV から計算した Phoenix の値は、max（評価 200 回）367,284、max（評価 10 回）303,923、最後の 10 回の平均 287,479 である。評価 10 回の取り始めをずらすと、評価 200 回の max との比は 1.00〜1.55（中央値 1.19）だった（出典: [few_seed_comparison_reporting_survey_2026-11-04.md](../../../../reports/survey/few_seed_comparison_reporting_survey_2026-11-04.md)、4.3）。
+- BTR の Phoenix の表では、Munchausen を外すと action gap が小さくなった → 詳しくは [Munchausen RL](../methods/munchausen.md)（出典: [btr_hyperparams_survey_2026-08-26.md](../../../../reports/survey/btr_hyperparams_survey_2026-08-26.md)、9.2 Table 2 (Phoenix)）。
 
 ## 横断的知見
 

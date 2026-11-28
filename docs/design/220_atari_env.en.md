@@ -19,7 +19,7 @@ See ADR 0025 (external-reference builds and licensing) and ADR 0026 (Single seam
 
 ### 1.3 Scope
 
-AtariEnv / AtariEnvFactory / AtariView / preprocessing functions, ALE v0.12.0 configuration-key contracts, and build gating. Section 3 gives the established ALE build configuration; `reports/atari_env_survey_2026-08-13.md` covers experimental protocol background.
+AtariEnv / AtariEnvFactory / AtariView / preprocessing functions, ALE v0.12.0 configuration-key contracts, and build gating. Section 3 gives the established ALE build configuration; `reports/survey/atari_env_survey_2026-08-13.md` covers experimental protocol background.
 
 ## 2. Overview
 
@@ -347,7 +347,7 @@ When changing RAM definition numbers or reducers, check the ROM-independent and 
 - [Environments](120_environments.en.md) — Common Env contract and extension checklist (§8)
 - ADR 0025 / ADR 0026 — Adoption decisions
 - `docs/memo/0051_atari_ale_env_10rfd.md` — Implementation plan (PH1 scope and acceptance criteria)
-- `reports/atari_env_survey_2026-08-13.md` — ALE survey (protocols and benchmark trends)
+- `reports/survey/atari_env_survey_2026-08-13.md` — ALE survey (protocols and benchmark trends)
 - `CONTEXT.md` — Terminology (sticky actions / flavor / raw score / protocol preset)
 
 Transition observations, RGB, and aux are created before the auxiliary NOOP after life loss. If the NOOP ends the game, the Step result's finalized game values include its score and frames, but the returned reward/next_state/RGB/lives are not replaced. AtariView displays the result's rgb_frame, avoiding a shift to the screen after automatic Reset. Results are independent of later Steps and Resets, and the env carries no completion values forward. See [RFD0097 validation](../../src/core/base/testdata/rfd0097/README.md) for Asterix RAM acceptance conditions and public-API tests.

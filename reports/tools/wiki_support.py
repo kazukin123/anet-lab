@@ -30,8 +30,9 @@ def application_paths(key):
     return {'110_runner_app': ('src/apps/runner/', 'apps/runner/'),
             '120_metrics_viewer': ('src/apps/metrics-viewer/', 'apps/metrics-viewer/')}[key]
 
-# 材料の集合はRFD0095の契約どおりに限定する。英訳と派生ビューは含めない。
-MATERIAL_GLOBS = ('docs/experiments/**/*.md', 'reports/*.md',
+REPORT_KINDS = {'survey': 'サーベイ', 'paper': '論文解説', 'notes': '作業ノート'}
+# 英訳と派生ビューは材料に含めない。
+MATERIAL_GLOBS = ('docs/experiments/**/*.md', *(f'reports/{kind}/*.md' for kind in REPORT_KINDS),
                   'docs/memo/**/*_10rfd.md', 'docs/design/*.jp.md', 'docs/adr/*.md')
 
 
@@ -43,32 +44,45 @@ def git(root, *args):
 
 
 def material_paths(root):
-    # 集合は作業ツリーを含む。reports直下でも索引は正本の材料にしない。
+    # 集合は作業ツリーを含む。索引は正本の材料にしない。
     root = Path(root)
     return sorted({p.relative_to(root).as_posix() for pattern in MATERIAL_GLOBS
-                   for p in root.glob(pattern) if p.is_file() and p.relative_to(root).as_posix() != 'reports/INDEX.md'})
+                   for p in root.glob(pattern) if p.is_file() and p.name != 'INDEX.md'})
+
+
+def misplaced_report_warnings(root):
+    reports = root / 'reports'
+    misplaced = [p for p in reports.glob('*.md') if p.is_file() and p.name != 'INDEX.md']
+    for folder in REPORT_KINDS:
+        directory = reports / folder
+        misplaced.extend(p for p in directory.rglob('*.md') if p.is_file() and p.parent != directory)
+    return [dict(page=p.relative_to(root).as_posix(), rule='`reports/` の置き場に当たらない Markdown')
+            for p in sorted(misplaced)]
 
 
 SUMMARY_DIR = Path('docs/wiki/summary')
 CONCEPTS_DIR = Path('docs/wiki/concepts')
-KNOWLEDGE_FOLDERS = ('subjects', 'methods', 'measurement', 'phenomena')
+KNOWLEDGE_FOLDERS = ('subjects', 'methods', 'measurement', 'phenomena', 'harness')
 MAP_FOLDERS = ('apps', 'framework')
 KNOWLEDGE_HEADINGS = ('今の結論', '分かっていること', '横断的知見', '見立て', '分かっていないこと', '撤回・更新', '関連')
-SUMMARY_KINDS = {'experiments': '実験記録', 'reports': '報告', 'rfd': 'RFD', 'design': '設計文書', 'adr': 'ADR'}
-CONCEPT_KINDS = {'subjects': '題材', 'methods': '手法', 'measurement': '測り方', 'phenomena': '現象',
+SUMMARY_KINDS = {'experiments': '実験記録', 'rfd': 'RFD', 'design': '設計文書', 'adr': 'ADR',
+                 **{f'reports/{folder}': kind for folder, kind in REPORT_KINDS.items()}}
+CONCEPT_KINDS = {'subjects': '題材', 'methods': '手法', 'measurement': '測り方', 'phenomena': '現象', 'harness': 'ハーネス',
                  'apps': 'アプリケーション', 'framework': 'フレームワーク'}
 HEADER_KEYS = {'title', 'page_kind', 'material', 'material_kind', 'concepts', 'aliases', 'description', 'updated'}
 YAML_MERGE_TAG = 'tag:yaml.org,2002:merge'
 
 
 def get_summary_path(material):
-    # 実験記録は階層を保ち、保管場所が変わる RFD はファイル名で引く。
+    # 実験記録と報告は階層を保ち、保管場所が変わる RFD はファイル名で引く。
     path = Path(material)
+    name = f'{path.stem}_summary.md'
     if path.parts[:2] == ('docs', 'experiments'):
-        return SUMMARY_DIR / 'experiments' / path.relative_to('docs/experiments')
-    group = {'reports': 'reports', 'memo': 'rfd', 'design': 'design', 'adr': 'adr'}
-    kind = path.parts[1] if path.parts[0] == 'docs' else 'reports'
-    return SUMMARY_DIR / group[kind] / path.name
+        return SUMMARY_DIR / path.relative_to('docs').with_name(name)
+    if path.parts[0] == 'reports':
+        return SUMMARY_DIR / path.with_name(name)
+    group = {'memo': 'rfd', 'design': 'design', 'adr': 'adr'}
+    return SUMMARY_DIR / group[path.parts[1]] / name
 
 
 def read_summary_blob(path):
@@ -380,7 +394,9 @@ def page_headers(root, materials, index, log):
                 titles[page] = title[1].strip()
             custom = custom_header_entries(old_header)
             base, kinds = (SUMMARY_DIR, SUMMARY_KINDS) if page in summaries else (CONCEPTS_DIR, CONCEPT_KINDS)
-            folder = page.relative_to(root / base).parts[0]
+            folders = page.relative_to(root / base).parent.parts
+            depth = 2 if page in summaries and folders[:1] == ('reports',) else 1
+            folder = '/'.join(folders[:depth])
             if page not in titles:
                 raise ValueError('missing title')
             if folder not in kinds:
@@ -512,6 +528,7 @@ def scan(root):
     expected = {root / get_summary_path(path) for path in materials}
     warnings = [dict(page=p.relative_to(root).as_posix(), rule='材料の無いサマリ')
                 for p in sorted((root / SUMMARY_DIR).rglob('*.md')) if p not in expected]
+    warnings.extend(misplaced_report_warnings(root))
     warnings.extend(find_incoming_link_warnings(root))
     for path in materials:
         blob = git(root, 'hash-object', '--', path).strip()

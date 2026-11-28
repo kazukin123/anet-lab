@@ -89,7 +89,7 @@ LLM-Wiki は、RAG のように質問のたびに元の資料を読み直すの�
 - campaign 文書は先頭に「現時点のまとめ」を置き、覆ったときは過去のブロックを消さずに `superseded`・`invalidated` を追記する（[docs/experiments/README.md](../../experiments/README.md) の「campaign 文書の基本形」）。
 - kung_fu_master（以下 KFM）の知見の散らばり:
   - 実験記録: [2026-09-21](../../experiments/default-dqn/atari/2026-09-21_realtime-profile-atari5.md)、[2026-09-23](../../experiments/default-dqn/atari/2026-09-23_realtime-profile-100m.md)、Atari の README（3 か所、どれも 9 月まで）。
-  - サーベイ: `reports/INDEX.md` で、[報酬スケールと割引率](../../../reports/reward_scale_discount_survey_2026-09-23.md)と [LLM の事前知識](../../../reports/llm_prior_knowledge_rl_survey_2026-10-18.md)の 2 本が KFM を関連に挙げている。
+  - サーベイ: `reports/INDEX.md` で、[報酬スケールと割引率](../../../reports/survey/reward_scale_discount_survey_2026-09-23.md)と [LLM の事前知識](../../../reports/survey/llm_prior_knowledge_rl_survey_2026-10-18.md)の 2 本が KFM を関連に挙げている。
   - PRD: 10 本（081、082、094 と、999 の 7 本）が KFM に触れている。
   - 10 月の分析（ボス行きが定着しない件、2026-10-14〜17 の 30〜50M の Run、UQE の Run での lane 別のボス命中率など）は実験記録に無く、[094 の §2](0094_evalpanel_step_history_10rfd.md) と [999_intrinsic_reward_novelty の §2](../0173_intrinsic_reward_novelty_10rfd.md)（2.2・2.3・2.6）にだけある。
   - Claude Code の memory（ユーザーごとの私的な領域）では 16 本が KFM に触れている。

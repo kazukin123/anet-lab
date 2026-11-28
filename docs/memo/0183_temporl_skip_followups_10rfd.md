@@ -36,7 +36,7 @@ RFD0098 で入れたスキップ（選んだ行動を続ける長さの学習）
 
 ### 2.2 論文と後続の手法について分かっていること
 
-- TempoRL の論文の 3 構成（連結・文脈化・重み共有）は、どれも行動をスキップ側の入力に取る。重み共有は、行動出力の argmax をスキップ出力の入力にする（[論文解説](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md) 3.3）。全行動分を出して行動で絞る形（anet の分離型）は論文に無い。
+- TempoRL の論文の 3 構成（連結・文脈化・重み共有）は、どれも行動をスキップ側の入力に取る。重み共有は、行動出力の argmax をスキップ出力の入力にする（[論文解説](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md) 3.3）。全行動分を出して行動で絞る形（anet の分離型）は論文に無い。
 - 論文は構成どうしを MountainCar と LunarLander で比べ、重み共有は MountainCar で最良、LunarLander で最悪だった。Atari では重み共有だけを使い、構成どうしは比べていない（論文解説 4.2.2・4.2.3）。Atari の実装は double DQN（同 4.2.3）。
 - 論文解説の範囲では、判断の少なさは「方策を学びやすい」ことと解釈のしやすさの利点として述べられている（論文解説 4.1・5）。
 - UTE（AAAI 2024、Learning Uncertainty-Aware Temporally-Extended Actions）と Lazy-MDP（AAMAS 2022）は、壁打ちで挙がった手法で、**原文を確かめていない**。本書の (U) と (I) は、壁打ちで説明された考え方（スキップ価値のアンサンブルの平均と標準偏差で j を選ぶ。行動を変える価値の差が閾値を超えたときだけ切り替える）を、RFD0098 の構造に合わせて置き直したものである。原文と食い違えば本書を直す（§9 の 1）。
@@ -304,6 +304,6 @@ Run は GridMaze-01 にある。
 ## 11. 参照
 
 - [RFD0098 TempoRL 対応](0098_temporl_skip_policy_10rfd.md)、[RFD0098 実装メモ](0098_temporl_skip_policy_20impl.md)、[RFD0098 の検証資材](../../src/core/base/testdata/rfd0098/README.md)
-- [TempoRL 論文解説](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md)
+- [TempoRL 論文解説](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md)
 - [Atari の baseline（lane 数）](../experiments/default-dqn/atari/2026-08-17_baseline.md)、[Atari の lane 窓](../experiments/default-dqn/atari/2026-09-15_replay-lane-window.md)
 - [行動の時間尺度（wiki）](../wiki/concepts/methods/temporal_abstraction.md)

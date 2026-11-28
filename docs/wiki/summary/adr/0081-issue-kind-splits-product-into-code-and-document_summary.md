@@ -1,0 +1,26 @@
+---
+title: 課題の kind は成果物をコードと文書に分け、実装の課題か文書の課題かを kind で表す
+page_kind: サマリ
+material: "[[docs/adr/0081-issue-kind-splits-product-into-code-and-document.md|0081-issue-kind-splits-product-into-code-and-document]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/framework/311_dev_tools.md|開発プロセス・開発ツール・テスト基盤（311）]]"
+updated: 2026-11-28
+---
+# 課題の kind は成果物をコードと文書に分け、実装の課題か文書の課題かを kind で表す
+
+## 元の材料
+
+[ADR 0081](../../../adr/0081-issue-kind-splits-product-into-code-and-document.md) blob:e47c0d1700467419efb0638d64d98c14a0d0de2b
+
+## 要点
+
+- 同じ対象領域でも実装が必要な課題と文書だけで済む課題を一覧で区別する。
+- kind の旧値「成果物」を「コード」と「文書」に分ける。
+- 分類はハーネス、文書、コードの順に判定する。
+- 設計と実物が異なり直す側をまだ決められないときは、仕様の正本である設計を踏まえてコード扱いにする。
+- 仕事の種類を表す type への追加や、別の欄の新設は行わない。
+
+## 主要な概念
+
+- [開発プロセス・開発ツール・テスト基盤（311）](../../concepts/framework/311_dev_tools.md)

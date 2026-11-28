@@ -10,7 +10,7 @@
 > 2026-10-15 3 回目のグリル（2 回目の追加グリル）: 機構は増減しない。推定の分解能（§2.4）、B・RR の違う腕の比べ方と scale が NaN になりがちなときの読み方（§7.4）、`05_ratio_adam` の用途を明確にし、費用が目標を超えたときに $k$ を下げるかは報告を読んだ開発者が決めることにした（§5 の 10）。裁定は §9.1 の A16〜A20、監査は §10.3。
 > 初回の判断理由は [ADR 0054](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md)。追加グリル後の現行の決定は §9.1、監査は §10.2・§10.3 に記録し、初回の決定表と監査は §9.2・§10.1 に履歴として保持する。実装時の文書同期は §11。
 > 起点: DropMerge のフィードバック実験で、「長期 Run の後半にバッチ（B）や RR を上げると停滞を抜けられる」という経験則の機序を、成績ではなく測った量で確かめたくなった。2026-10-14 の分岐（§3 の最後）では、B を上げて 1 回の更新のノイズを下げた腕が効き、取りこぼしを減らす腕や更新を増やす腕は小さかった。この「ノイズ」を直接測る指標が無い。
-> 関連: [done/062_plasticity_metrics_10prd.md](0062_plasticity_metrics_10rfd.md)（actual / probe のチャネルと購読の型を借りる）、[093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md)（同じ時期に起票した診断。群の番号 48 を使う予定）、[091_checkpoint_load_optimizer_options_10prd.md](0091_checkpoint_load_optimizer_options_10rfd.md)（継続の Run で学習率を変えられるようにする）、[999_metric_targeted_hyperparam_control_10prd.md](../0152_metric_targeted_hyperparam_control_10rfd.md)（測った値でハイパラを動かす構想）、[ADR 0031](../../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR 0033](../../adr/0033-policy-churn-fixed-probe-and-target-lag.md)、[実験記録 2026-07-27](../../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)、[サーベイ 2026-10-15](../../../reports/gradient_noise_observation_and_control_survey_2026-10-15.md)（観測と対処の一般事例。§7 の考察を本 PRD に反映した）。
+> 関連: [done/062_plasticity_metrics_10prd.md](0062_plasticity_metrics_10rfd.md)（actual / probe のチャネルと購読の型を借りる）、[093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md)（同じ時期に起票した診断。群の番号 48 を使う予定）、[091_checkpoint_load_optimizer_options_10prd.md](0091_checkpoint_load_optimizer_options_10rfd.md)（継続の Run で学習率を変えられるようにする）、[999_metric_targeted_hyperparam_control_10prd.md](../0152_metric_targeted_hyperparam_control_10rfd.md)（測った値でハイパラを動かす構想）、[ADR 0031](../../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR 0033](../../adr/0033-policy-churn-fixed-probe-and-target-lag.md)、[実験記録 2026-07-27](../../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md)、[サーベイ 2026-10-15](../../../reports/survey/gradient_noise_observation_and_control_survey_2026-10-15.md)（観測と対処の一般事例。§7 の考察を本 PRD に反映した）。
 > 行番号は 2026-10-15 時点の作業ツリー。実装時は近傍のシンボル名で再検索する。
 
 ## 1. 目的と問題
@@ -427,7 +427,7 @@ BF16 本線・非干渉・15 指標の一式完成というゴールアンカー
 - 計算部と `Optimize` の配線、全体・feature / readout の 15 指標と購読をそろえる。次に合成問題・成立条件・異なる間隔と同時発火・決定論環境での非干渉を検証し、本線 smoke、実時間・追加メモリの比較、文書同期までを一式で完了させる（§7・§11）。作業は順に進めても、全体だけを先行完成とはしない。
 - attention エントロピー（[093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md)）とは独立に作れる。
 - 計測を足すだけで、checkpoint の形は変えない（[930](../0143_serialize_10rfd.md) には関わらない。EMA の状態は保存せず、引き継ぎでは未初期化から始める）。
-- 因果を評価するキャンペーンは §7.4 と [サーベイ §7.5](../../../reports/gradient_noise_observation_and_control_survey_2026-10-15.md) の A〜E を踏まえ、別の実験記録で設計する。本 PRD の計測機能の受入には含めない。
+- 因果を評価するキャンペーンは §7.4 と [サーベイ §7.5](../../../reports/survey/gradient_noise_observation_and_control_survey_2026-10-15.md) の A〜E を踏まえ、別の実験記録で設計する。本 PRD の計測機能の受入には含めない。
 
 ## 13. 参照
 
@@ -438,6 +438,6 @@ BF16 本線・非干渉・15 指標の一式完成というゴールアンカー
 - Merrill ら 2025「Critical Batch Size Revisited」（NeurIPS 2025）: Adam の LLM で noise scale が臨界バッチを数桁過小推定した例と、分岐学習による検証。
 - [PyTorch 2.11 BatchNorm2d](https://docs.pytorch.org/docs/2.11/generated/torch.nn.BatchNorm2d.html): batch 統計によるサンプル間の結合。損失を分割しても独立サンプルのノイズとは限らないことの根拠。版は使用中の LibTorch 2.11.0 に合わせる。
 - [PyTorch 2.11 Reproducibility](https://docs.pytorch.org/docs/2.11/notes/randomness.html): 同じ seed だけでは実行環境・backend・非決定論演算をまたぐ完全な再現を保証できないこと。非干渉は決定的な同一環境で検証する。
-- [サーベイ 2026-10-15](../../../reports/gradient_noise_observation_and_control_survey_2026-10-15.md): 上記の整理と、本 PRD への考察（§7）。
+- [サーベイ 2026-10-15](../../../reports/survey/gradient_noise_observation_and_control_survey_2026-10-15.md): 上記の整理と、本 PRD への考察（§7）。
 - [実験記録 2026-07-27](../../experiments/default-dqn/dropmerge/2026-07-27_longrun-batch-replay.md): 長期 Run での B512/RR2 と B256/RR1 の比較（成熟した checkpoint から B512/RR2 が +13%）。
 - [CONTEXT.md](../../../CONTEXT.md) の「購読ヒント」「部分 forward」「ノイズ probe」「weight norm 分割（feature/readout）」「勾配ノイズスケール」。

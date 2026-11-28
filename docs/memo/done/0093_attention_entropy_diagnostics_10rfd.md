@@ -4,7 +4,7 @@
 > 2026-10-16 追加グリル: 観測の解釈を層平均の集中度の推移に限定し、測定を更新前へ統一。capture は層ごとの正規化済み FP32 scalar Tensor へ縮小。PRD072 の固定入力・golden は保持し、長期 Run の分析を機能完了条件から分離した。0.8 は比較・閾値に使わない論文の背景説明として残す。§8・§9 は追加裁定を反映した現行の決定と監査結果。
 > 2026-10-16 グリル（初回）: 暫定の既定をすべて裁定に置き換えた（§8）。取り出し口は capture の一般化（[ADR 0055](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)）、設定キーは `final_feature_branch_key` へ改名、`attention_entropy_min` は cut、公開は `$update_result`・interval 503、層番号は 0 始まり。TraceCallback の統合は [999_nn_trace_capture_unification_10prd.md](../0170_nn_trace_capture_unification_10rfd.md) へ先送り。
 > 2026-10-10 起票（暫定）。
-> 起点: TQL(Dong et al. 2026、ICML 2026)の論文解説 [reports/dong2026_tql_paper_2026-10-05.md](../../../reports/dong2026_tql_paper_2026-10-05.md)。Transformer の価値関数を大きくすると、層の attention が少数のトークンへ偏り（エントロピーの崩壊）、成績が下がるという報告。
+> 起点: TQL(Dong et al. 2026、ICML 2026)の論文解説 [reports/dong2026_tql_paper_2026-10-05.md](../../../reports/paper/dong2026_tql_paper_2026-10-05.md)。Transformer の価値関数を大きくすると、層の attention が少数のトークンへ偏り（エントロピーの崩壊）、成績が下がるという報告。
 > 関連: [done/062_plasticity_metrics_10prd.md](0062_plasticity_metrics_10rfd.md)（可塑性メトリクス。測り方の型を借りる）、[done/012_sdpa_attention_10prd.md](0012_sdpa_attention_10rfd.md)（self-attention の SDPA 化）、[084_noisynet_10prd.md](0084_noisynet_10rfd.md)、[092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md)（公開の形の先例）、[ADR 0031](../../adr/0031-plasticity-metrics-out-of-band-partial-forward.md)、[ADR 0004](../../adr/0004-sdpa-attention-via-aten.md)、[ADR 0051](../../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)、[ADR 0055](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md)。
 
 ## 1. 目的と問題
@@ -238,6 +238,6 @@ anet では Transformer を含むネットが本線と常設の構成に入っ�
 
 ## 12. 参照
 
-- [reports/dong2026_tql_paper_2026-10-05.md](../../../reports/dong2026_tql_paper_2026-10-05.md) の 4.2 節（測り方と誘導）、5.2 節（崩壊と成績の相関）、5.5 節（層ごとの温度の効果）、付録 C.2（head 平均）、キューの論点への答え。
+- [reports/dong2026_tql_paper_2026-10-05.md](../../../reports/paper/dong2026_tql_paper_2026-10-05.md) の 4.2 節（測り方と誘導）、5.2 節（崩壊と成績の相関）、5.5 節（層ごとの温度の効果）、付録 C.2（head 平均）、キューの論点への答え。
 - Zhai et al., "Stabilizing Transformer Training by Preventing Attention Entropy Collapse", ICML 2023（head ごとの attention エントロピーの追跡）。<https://proceedings.mlr.press/v202/zhai23a.html>
 - [CONTEXT.md](../../../CONTEXT.md) の「部分 forward」「probe」「購読ヒント」「capture」「final feature branch」「attention エントロピー」「層平均」。

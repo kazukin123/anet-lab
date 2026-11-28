@@ -42,13 +42,72 @@ class WikiScanTest(unittest.TestCase):
                                          cwd=self.root, env=self.env, encoding="utf-8")
         return json.loads(result)
 
+    def test_scan_recognizes_work_note_and_its_summary(self):
+        material = "reports/notes/probe.md"
+        summary = "docs/wiki/summary/reports/notes/probe_summary.md"
+        self.write(material, "# 作業ノート: 試用\n")
+        self.write("reports/notes/INDEX.md", "# 索引\n")
+        blob = self.git("hash-object", "--", material)
+        self.write(summary, f"# 試用\n\n## 元の材料\n\nblob:{blob}\n")
+        self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
+                   f"2026-11-28 ingest {material} blob:{blob} → {summary}\n")
+
+        self.headers()
+
+        header = yaml.safe_load((self.root / summary).read_text(encoding="utf-8").split("---", 2)[1])
+        self.assertEqual(header["material"], f"[[{material}|probe]]")
+        self.assertEqual(header["material_kind"], "作業ノート")
+        result = self.scan()
+        self.assertEqual(result["pending"], [])
+        self.assertEqual(result["warnings"], [])
+
+    def test_scan_warns_about_misplaced_reports_without_enabling_lint(self):
+        material = "reports/survey/probe.md"
+        summary = "docs/wiki/summary/reports/survey/probe_summary.md"
+        self.write(material, "# サーベイ\n")
+        self.write("reports/probe.md", "# 直下\n")
+        self.write("reports/survey/sub/probe.md", "# 下のフォルダ\n")
+        self.write("reports/INDEX.md", "# 索引\n")
+        self.write("reports/notes/INDEX.md", "# 索引\n")
+        self.write("reports/housekeeping/probe.md", "# 作業資材\n")
+        blob = self.git("hash-object", "--", material)
+        self.write(summary, f"# サーベイ\n\n## 元の材料\n\nblob:{blob}\n")
+        self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
+                   f"2026-11-28 ingest {material} blob:{blob} → {summary}\n")
+        self.headers()
+
+        result = self.scan()
+
+        self.assertEqual(
+            result["warnings"],
+            [{"page": path, "rule": "`reports/` の置き場に当たらない Markdown"}
+             for path in ["reports/probe.md", "reports/survey/sub/probe.md"]],
+        )
+        self.assertFalse(result["eligible"])
+
+    def test_headers_and_scan_accept_harness_knowledge_page(self):
+        concept = "docs/wiki/concepts/harness/probe.md"
+        self.write(concept, "# 試用\n\n## 今の結論\n\n## 分かっていること\n"
+                   "\n### anet の知見\n\n### 外の事例\n\n## 横断的知見\n"
+                   "\n## 見立て\n\n## 分かっていないこと\n\n## 撤回・更新\n\n## 関連\n")
+        self.write("docs/wiki/index.md", "## ハーネス\n\n- [試用](concepts/harness/probe.md) — 試用の記録。\n")
+
+        self.headers()
+
+        header = yaml.safe_load((self.root / concept).read_text(encoding="utf-8").split("---", 2)[1])
+        self.assertEqual(header["page_kind"], "ハーネス")
+        result = self.scan()
+        self.assertIn(concept, result["changed_pages"])
+        self.assertEqual(result["unindexed"], [])
+        self.assertEqual(result["warnings"], [])
+
     def test_headers_writes_summary_and_concept_properties(self):
         # 材料・本文・目録・作業の記録から、二種類のページのヘッダを作る。
-        summary = "docs/wiki/summary/reports/probe.md"
+        summary = "docs/wiki/summary/reports/survey/probe_summary.md"
         concept = "docs/wiki/concepts/methods/probe.md"
-        summary_body = "# サマリの題名\n\n## 主要な概念\n\n- [本文での呼び名](../../concepts/methods/probe.md)\n"
+        summary_body = "# サマリの題名\n\n## 主要な概念\n\n- [本文での呼び名](../../../concepts/methods/probe.md)\n"
         concept_body = "# ページの題名\n"
-        self.write("reports/probe.md", "# 原本\n")
+        self.write("reports/survey/probe.md", "# 原本\n")
         self.write(summary, summary_body)
         self.write(concept, concept_body)
         self.write("docs/wiki/index.md", "- [目録の題名 — 計測](concepts/methods/probe.md) — 説明 （別名: 別名 A, 別名 B）。\n")
@@ -59,7 +118,7 @@ class WikiScanTest(unittest.TestCase):
 
         self.assertEqual((self.root / summary).read_text(encoding="utf-8"),
                          "---\ntitle: サマリの題名\npage_kind: サマリ\n"
-                         'material: "[[reports/probe.md|probe]]"\nmaterial_kind: 報告\n'
+                         'material: "[[reports/survey/probe.md|probe]]"\nmaterial_kind: サーベイ\n'
                          'concepts:\n  - "[[docs/wiki/concepts/methods/probe.md|ページの題名]]"\n'
                          "updated: 2026-11-27\n---\n" + summary_body)
         self.assertEqual((self.root / concept).read_text(encoding="utf-8"),
@@ -92,7 +151,7 @@ class WikiScanTest(unittest.TestCase):
         good = "docs/wiki/concepts/methods/first.md"
         bad = "docs/wiki/concepts/methods/probe.md"
         misplaced = "docs/wiki/summary/unknown/probe.md"
-        summary = "docs/wiki/summary/rfd/0200_probe_10rfd.md"
+        summary = "docs/wiki/summary/rfd/0200_probe_10rfd_summary.md"
         index = "docs/wiki/index.md"
         log = "docs/wiki/log.md"
         duplicate_entry = "- [p — q](concepts/methods/probe.md) — description\n"
@@ -213,7 +272,7 @@ class WikiScanTest(unittest.TestCase):
         for filename, (_, reason) in errors.items():
             self.assertIn(reason, warnings[filename])
 
-        summary = "docs/wiki/summary/rfd/0200_probe_10rfd.md"
+        summary = "docs/wiki/summary/rfd/0200_probe_10rfd_summary.md"
         self.write(summary, "# Page\n")
         self.write("docs/memo/0200_probe_10rfd.md", "# First material\n")
         self.write("docs/memo/done/0200_probe_10rfd.md", "# Second material\n")
@@ -229,7 +288,7 @@ class WikiScanTest(unittest.TestCase):
             with self.subTest(header=header):
                 self.write(page, "---\n" + header + "---\n" + body)
                 self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
-                           f"2026-11-26 ingest reports/a.md → {page}（最初の記録）\n"
+                           f"2026-11-26 ingest reports/survey/a.md → {page}（最初の記録）\n"
                            f"2026-11-27 query rfd → docs/wiki/index.md、{page}（追記）\n"
                            f"2026-11-28 fix {page} → なし\n")
                 warnings = [w for w in self.scan()["warnings"]
@@ -247,8 +306,8 @@ class WikiScanTest(unittest.TestCase):
 
     def test_scan_ignores_yaml_when_checking_body_length_format_and_sources(self):
         # 本文の警告や blob はヘッダを入れる前と同じ結果を返す。
-        material = "reports/probe.md"
-        summary = "docs/wiki/summary/reports/probe.md"
+        material = "reports/survey/probe.md"
+        summary = "docs/wiki/summary/reports/survey/probe_summary.md"
         concept = "docs/wiki/concepts/methods/probe.md"
         self.write(material, "# Original\n")
         blob = self.git("hash-object", "--", material)
@@ -272,17 +331,17 @@ class WikiScanTest(unittest.TestCase):
                          [w for w in before["warnings"] if w["rule"] != "YAML ヘッダ"])
 
     def test_scan_reports_links_from_summary_that_do_not_point_to_concept_pages(self):
-        summary = "docs/wiki/summary/reports/probe.md"
+        summary = "docs/wiki/summary/reports/survey/probe_summary.md"
         concept = "docs/wiki/concepts/methods/concept.md"
-        missing = "../../concepts/methods/missing.md"
-        not_concept = "../../../wiki/index.md"
+        missing = "../../../concepts/methods/missing.md"
+        not_concept = "../../../index.md"
         external = "https://example.org/not-a-concept"
         self.write(concept, "# Concept\n")
         self.write(summary, "# Summary\n\n## 主要な概念\n\n"
-                   "- [ok](../../concepts/methods/concept.md#section)\n"
+                   "- [ok](../../../concepts/methods/concept.md#section)\n"
                    f"- [missing]({missing})\n- [index]({not_concept})\n"
                    f"- [external]({external})\n"
-                   "\n## Other\n\n- [outside section](../../concepts/missing.md)\n")
+                   "\n## Other\n\n- [outside section](../../../concepts/missing.md)\n")
 
         self.headers()
         header = (self.root / summary).read_text(encoding="utf-8").split("\n---\n", 1)[0]
@@ -295,14 +354,14 @@ class WikiScanTest(unittest.TestCase):
 
     def test_recorded_material_still_needs_its_summary(self):
         # 作業の記録だけそろった状態から、サマリができるまでを通す。
-        material = "reports/probe.md"
+        material = "reports/survey/probe.md"
         self.write(material, "# probe\n")
         blob = self.git("hash-object", "--", material)
         self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
                    f"2026-11-26 writeback {material} blob:{blob} → なし\n")
         self.assertEqual([row["path"] for row in self.scan()["pending"]], [material])
-        self.write("docs/wiki/summary/reports/probe.md",
-                   f"## 元の材料\n\n[probe](../../../../reports/probe.md) blob:{blob}\n")
+        self.write("docs/wiki/summary/reports/survey/probe_summary.md",
+                   f"## 元の材料\n\n[probe](../../../../../reports/survey/probe.md) blob:{blob}\n")
         self.assertEqual(self.scan()["pending"], [])
 
 
@@ -315,7 +374,7 @@ class WikiScanTest(unittest.TestCase):
         new = self.git("hash-object", "--", material)
         self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
                    f"2026-11-26 writeback {material} blob:{new} → なし\n")
-        summary = "docs/wiki/summary/rfd/0200_probe_10rfd.md"
+        summary = "docs/wiki/summary/rfd/0200_probe_10rfd_summary.md"
         for stored in (old, "", "bogus", new + "0"):
             with self.subTest(stored=stored):
                 self.write(summary, f"## 元の材料\n\nblob:{stored}\n\n## 内容\n\nblob:{new}\n")
@@ -325,7 +384,7 @@ class WikiScanTest(unittest.TestCase):
 
 
     def test_orphan_summary_warns_without_enabling_lint(self):
-        summary = "docs/wiki/summary/experiments/a/probe.md"
+        summary = "docs/wiki/summary/experiments/a/probe_summary.md"
         self.write(summary, "# probe\n")
         result = self.scan()
         self.assertFalse(result["eligible"])
@@ -360,7 +419,7 @@ class WikiScanTest(unittest.TestCase):
                    "\n## 見立て\n\n- 仮説。状態: 保留\n")
         self.write("docs/wiki/index.md", "- [probe](concepts/subjects/probe.md) — "
                    + "字" * 201 + " （別名: test）\n")
-        self.write("docs/wiki/summary/adr/large.md", "字" * 8001)
+        self.write("docs/wiki/summary/adr/large_summary.md", "字" * 8001)
         result = self.scan()
         self.assertIn(page, result["changed_pages"])
         rules = {w["rule"] for w in result["warnings"]}
@@ -394,7 +453,7 @@ class WikiScanTest(unittest.TestCase):
 
 
     def test_query_leaves_checkpoint_and_pending_unchanged(self):
-        self.write("reports/probe.md", "# probe\n")
+        self.write("reports/survey/probe.md", "# probe\n")
         before = self.scan()
         log = self.root / "docs/wiki/log.md"
         with log.open("a", encoding="utf-8") as out:
@@ -411,25 +470,25 @@ class WikiScanTest(unittest.TestCase):
         self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
                    f"2026-11-26 ingest docs/experiments/old/name.md blob:{blob} → なし\n")
         self.assertEqual([r["path"] for r in self.scan()["pending"]], [material])
-        self.write("docs/wiki/summary/experiments/new/name.md", f"## 元の材料\n\nblob:{blob}\n")
+        self.write("docs/wiki/summary/experiments/new/name_summary.md", f"## 元の材料\n\nblob:{blob}\n")
         result = self.scan()
         self.assertEqual(result["pending"], [])
         self.assertEqual([r["path"] for r in result["moved"]], [material])
 
 
     def test_modified_original_precedes_new_material(self):
-        self.write("reports/a.md", "new")
-        self.write("reports/z.md", "old")
-        old = self.git("hash-object", "--", "reports/z.md")
+        self.write("reports/survey/a.md", "new")
+        self.write("reports/survey/z.md", "old")
+        old = self.git("hash-object", "--", "reports/survey/z.md")
         self.write("docs/wiki/log.md", f"2026-11-26 start rev:{self.start}\n"
-                   f"2026-11-26 ingest reports/z.md blob:{old} → z\n")
-        self.write("reports/z.md", "corrected")
+                   f"2026-11-26 ingest reports/survey/z.md blob:{old} → z\n")
+        self.write("reports/survey/z.md", "corrected")
         for summary in ("", f"## 元の材料\n\nblob:{old}\n"):
             if summary:
-                self.write("docs/wiki/summary/reports/z.md", summary)
+                self.write("docs/wiki/summary/reports/survey/z_summary.md", summary)
             first = self.scan()["pending"][:1]
             self.assertEqual([(row["path"], row["state"]) for row in first],
-                             [("reports/z.md", "更新あり")])
+                             [("reports/survey/z.md", "更新あり")])
 
 
     def test_incoming_wiki_link_with_title(self):
@@ -440,13 +499,13 @@ class WikiScanTest(unittest.TestCase):
 
 
     def test_cross_source_claim_requires_distinct_originals(self):
-        self.write("reports/a.md", "# a\n")
-        self.write("reports/b.md", "# b\n")
+        self.write("reports/survey/a.md", "# a\n")
+        self.write("reports/survey/b.md", "# b\n")
         page = "docs/wiki/concepts/methods/probe.md"
         for other, warned in (("./a.md#two", True), ("b.md", False)):
             self.write(page, "## 横断的知見\n\n- 共通点（出典: "
-                       "[一](../../../../reports/a.md#one)、"
-                       f"[二](../../../../reports/{other})）\n")
+                       "[一](../../../../reports/survey/a.md#one)、"
+                       f"[二](../../../../reports/survey/{other})）\n")
             self.assertEqual(any(w["rule"] == "横断的知見の出典"
                                  for w in self.scan()["warnings"]), warned)
 

@@ -37,7 +37,7 @@ Windows 11 x64とNVIDIA CUDAを主な実行環境とする、個人の学習・�
 日本語ドキュメントの入口は[docs/design/README.jp.md](docs/design/README.jp.md)です。
 フレームワーク全体像、ユーザーガイド、開発環境、機能カテゴリ別・具象Agent別の設計ガイドを参照できます。
 全体像を先につかむには、[概要紹介スライド（PDF）](docs/anet_overview_ja.pdf)と[アーキテクチャ図](docs/archify/README.md)を見てください。
-実験で分かったこと（題材・手法・測り方・現象ごとの知見）と、実装の部分ごとの成立の経緯は、[wikiの目録](docs/wiki/index.md)から引けます。
+実験の知見（題材・手法・測り方・現象）、ハーネスの知見、実装の部分ごとの成立の経緯は、[wikiの目録](docs/wiki/index.md)から引けます。
 
 ### 構成と使い方
 
@@ -64,7 +64,7 @@ Windows 11 x64とNVIDIA CUDAを主な実行環境とする、個人の学習・�
 |---|---|
 | [docs/experiments/](docs/experiments/README.md) | 実験記録。Env別の一覧は[DefaultDQNAgent](docs/experiments/default-dqn/README.md)と[ImageClsAgent](docs/experiments/image-cls/README.md) |
 | [docs/wiki/](docs/wiki/index.md) | 実験記録・RFD・設計文書などを資料ごとのサマリと、知見の問い・コードの区分ごとに束ねたまとめ（正本は各出典） |
-| [reports/](reports/INDEX.md) | 論文や公開実装のサーベイ、論文解説の索引 |
+| [reports/](reports/INDEX.md) | サーベイ、論文解説の索引と[作業ノート](reports/notes/INDEX.md) |
 | [reports/stats/](reports/stats/summary.md) | コード、テスト、RFD、Runなどの統計 |
 
 現行動作の最終的な根拠はコード、設定、テストとします。

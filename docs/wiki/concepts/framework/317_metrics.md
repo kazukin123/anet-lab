@@ -9,7 +9,7 @@ aliases:
   - SweepedHeatMap
   - wxImage
 description: eventからscalar、trace、画像、動画、GraphVizとartifactへ変換し、値の取得と保存の境界をまとめる。
-updated: 2026-11-26
+updated: 2026-11-28
 ---
 # 317 可視化・メトリクス
 
@@ -41,8 +41,12 @@ updated: 2026-11-26
 - 2026-11-19: 可視化・メトリクスのファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
 - 2026-11-20: VideoLoggerが、構築時と違う大きさの画像を動画に書かず、tagごとにRunで1回だけWARNを出して続けるようにした（出典: [RFD0192](../../../memo/0192_concurrency_and_boundary_defect_fixes_10rfd.md)、§5 D8）。
 - 2026-11-21: video_codecのエラーが`app.metrics_logger.video_codec`の完全キーを示すよう、MetricsLoggerの設定の型が完全キーの記録を運ぶようにし、hiddenの設定検査と設計文書の指標名を出荷定義の名前に合わせた（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§5 D1・D11）。
+- 2026-11-28 — Observer の記録フローと trace の座標を設計文書に追記した。（出典: [RFD0205](../../../memo/0205_design_doc_and_glossary_alignment_10rfd.md)、§1.2）
+- 2026-11-28 — 数値属性を読み切り、値が不正なメトリクス設定を構築時に拒否するようにした。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§5.2）
 
 ## 選ばなかった形
+
+- graph 宣言の字句解析を scalar・trace と共通化する形 — 範囲外。受け付ける語が変わりうるため、数の読み取りの修正から分けた。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§1.3）
 
 - HeatMap派生の描画処理の統合と、画像処理全体の確保・入力検証の一括変更 — 範囲外: 画像の4経路の不具合修正とは別の関心。再開条件: 描画の重複整理、または別の具体的な不具合を修正対象に選んだとき（出典: [RFD0115](../../../memo/0115_heatmap_image_ownership_and_dropmerge_noop_penalty_10rfd.md)、§1.3）。
 - step traceをtraceチャネルへ記録する配線 — 範囲外: 鏡写しインスタンスを購読先にする配線と同じ関心である（出典: [RFD0094](../../../memo/done/0094_evalpanel_step_history_10rfd.md)、§6）。
@@ -67,6 +71,8 @@ updated: 2026-11-26
 - 個体の識別子を scalar の step の小数部分へ埋め込む — 不採用: 整数の step、範囲指定、LOD の集約と同じ軸で扱えなくなる（出典: [ADR 0037](../../../adr/0037-metrics-trace-channel-and-session-end-event.md)、Considered Options）。
 
 ## 変えるときの条件
+
+- 数値属性を読むときは値の全体を変換し、空値、余分な文字、型の範囲外を構築時に検出する。失敗時に設定キー、宣言、属性名、値を示す。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§5.2・§7）
 
 一般の条件は[リファクタリング観点](../../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../../reports/stats/trend.md)の「テスト充足」を見る。
 

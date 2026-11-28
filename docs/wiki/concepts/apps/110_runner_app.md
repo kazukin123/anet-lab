@@ -12,7 +12,7 @@ aliases:
   - gdiScaling
   - PerMonitorV2
 description: RunnerFrame・TrainPanel・EvalPanel・QValuePanelを通してRunの起動、学習とGUI、専用評価の接続をまとめる
-updated: 2026-11-26
+updated: 2026-11-28
 ---
 # RunnerApp（110）
 
@@ -65,6 +65,8 @@ updated: 2026-11-26
 - 2026-11-21: RunnerAppの設定の読み口から作った動画の記録で、codecのエラーが利用者の書く完全キー`app.metrics_logger.video_codec`を示すようにした（出典: [RFD0194](../../../memo/0194_config_key_full_names_in_messages_10rfd.md)、§1.2のeeb2c3の行・§7のA3）。
 - 2026-11-23: 文書の呼び名をRFDに改めるのに合わせ、Runnerのテストのタグを`[prdNNN…]`から`[rfdNNNN…]`へ改めた（出典: [RFD0195](../../../memo/0195_document_term_rfd_and_4digit_numbers_10rfd.md)、§5.2・§6 D1・D9）。
 - 2026-11-23: EvalPanelとQValuePanelの手動の行動を、`MakeActionOptions`の欄（`ForcedActions`）に入れてEvalRunnerへ渡す形にした。範囲外の入力は、これまでどおりステータスバーに出して何もしない（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§1.4・§6.2 D8・D16・§7.8）。
+
+- 2026-11-28 — QValuePanel の `hist_bins` を構築時に検証し、Runner が予約 Env 名を RunManager に渡すようにした。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§5.1・§5.3）
 
 ## 選ばなかった形
 
@@ -151,6 +153,8 @@ updated: 2026-11-26
 - 終了待ちの期限を評価スロットごとに設ける — 不採用: 複数スロットの合計待ち時間に上限が効かず、定期評価の設定と Run の終了方針も混ざる（出典: [ADR 0045](../../../adr/0045-eval-session-drain-on-exit-wait-or-discard.md)、Considered Options）。
 
 ## 変えるときの条件
+
+- 固定名 `train`、設定された評価タグ、アプリが予約した Env 名を最初の BatchEnv の構築前にまとめて照合する。（出典: [RFD0206](../../../memo/0206_core_and_app_small_fixes_10rfd.md)、§5.3・§7）
 
 一般の条件は[リファクタリング観点](../../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../../reports/stats/trend.md)の「テスト充足」を見る。
 

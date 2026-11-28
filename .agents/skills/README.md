@@ -17,7 +17,7 @@
 | anet-query-wiki | anet の問いを wiki と正本で調べ、見立てや調べた答えを同じ応答で記録する | `$anet-query-wiki`、`/anet-query-wiki` | 該当する正本、`docs/wiki/` |
 | anet-audit | 観点 1 つ×範囲 1 つで定点監査し、指摘を issue へ記録する。既存課題は AI の判定を更新し、本文へは追記だけを行う（足す節は anet-create-issue の「起票のあとの追記」） | `$anet-audit lens=refactor scope=318_rl_core` | `docs/management/issues/`、INDEX、wiki の課題区画 |
 | anet-translate-docs | `docs/design/*.jp.md` を 1 本ずつ英訳して `.en.md` を隣に置く。訳元の blob hash を 1 行目に持つ | `/anet-translate-docs 010_framework_overview.jp.md` | `docs/design/*.en.md`、`reports/translate/glossary.json` |
-| anet-survey-queue | `reports/INDEX.md` のキューからサーベイを 1 件回し、済みへ移す。`survey` か `paper-details` スキルが必要 | `/anet-survey-queue` | `reports/*.md`、`reports/INDEX.md` |
+| anet-survey-queue | `reports/INDEX.md` のキューからサーベイを 1 件回し、済みへ移す。`survey` か `paper-details` スキルが必要 | `/anet-survey-queue` | `reports/survey/*.md`、`reports/paper/*.md`、`reports/INDEX.md` |
 | anet-archify-atlas | Archify スキルで 5 図の architecture atlas を生成する。明示起動のみ | `$anet-archify-atlas` | `docs/archify/` |
 | anet-harness-map | AI ハーネス(指示・規約・設計文書・skill・memory・CI)の動線マップを再生成する。公開版は `docs/agents/`(README + Archify 2 図)、個人版は `.scratch/harness-map/`。Archify スキルが必要。明示起動と anet-housekeeping の変更検知から | `$anet-harness-map` | `docs/agents/`、`.scratch/harness-map/` |
 | anet-prepare-commit | 会話と Git 差分からコミット文案と対象ファイル一覧を整理し、`コミット対象` と `コミット対象(一部)` の対象の hunk をステージするかをボタン 1 つで聞く。コミットが対応した課題に AI が済んだと判定したものがあれば、先に解決にするかを聞き、選ばれた課題を解決にする。選ばれたときだけ `git add` と部分 stage（`git apply --cached` と `reports/tools/stage_issue_memos.py --stage`）。commit も push もしない | `/anet-prepare-commit`、`$anet-prepare-commit`、作業の終わりの提案で「コミットの準備をする」を選ぶ | 報告。選ばれたときは `docs/management/issues/`、INDEX、wiki の課題区画、Git index |

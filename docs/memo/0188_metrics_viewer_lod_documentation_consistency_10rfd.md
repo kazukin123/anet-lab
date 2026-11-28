@@ -54,7 +54,7 @@
 
 - `LOD_FACTOR` を 16 に戻して文書に合わせる案 — 退ける。ADR 0052 が測定に基づいて 4 を選んだ。実装と ADR が正であり、本当の制約である。
 - LOD の集約の仕方・保存形式・schema を変える案 — 範囲外。本件は説明の整合だけを扱う。制約ではなく別の関心であり、変えるなら別の RFD で扱う。
-- 過去の記録の「16」を直す案 — 退ける。対象は done/041・042 の RFD と実装計画、done/089・095・110 の記録、frozen/929、ADR 0015・0052 の本文、`reports/metrics_viewer_resolution_investigation_2026-10-10.md`、wiki の作業の記録（`docs/wiki/log.md`）の既存の行、issue（`docs/management/issues`）の既存の記述である（D5・D7 が足す行は含まない）。[AGENTS.md](../../AGENTS.md) §クリーンブレーク方針は、過去の ADR・履歴資料を当時の記録として残すと定めており、本当の制約である。
+- 過去の記録の「16」を直す案 — 退ける。対象は done/041・042 の RFD と実装計画、done/089・095・110 の記録、frozen/929、ADR 0015・0052 の本文、`reports/notes/metrics_viewer_resolution_investigation_2026-10-10.md`、wiki の作業の記録（`docs/wiki/log.md`）の既存の行、issue（`docs/management/issues`）の既存の記述である（D5・D7 が足す行は含まない）。[AGENTS.md](../../AGENTS.md) §クリーンブレーク方針は、過去の ADR・履歴資料を当時の記録として残すと定めており、本当の制約である。
 - 設計160 jp の 393 行のほかの行を直す案 — 退ける。§2.2 はすでに正しく、ほかの行は LOD の集約数を書いていない。制約ではなく、直す対象が無い（工程末の「この場で直す」で直した 379 行は本 RFD の案ではない。冒頭の改訂行）。
 - RFD0110 の pin 実装を変える案 — 範囲外。食い違いは pin 対応の前からあり、関係しない。制約ではなく別の関心である。
 
