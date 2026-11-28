@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:57c61b8f0a630d76118920795939e3621897313f date:2026-11-25 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:67330909040c8603eb2215dc6864ca9fcdcf0d23 date:2026-11-28 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -151,6 +151,8 @@ net.branch.[merged].bind_concat_dim = -1
 | Embedding | `CosineEmbedding`, `HybridSpatialEmbedder`, `SpatialEmbedder`, `SpatialPositionalEmbedding2D` |
 | Layer | `Linear`, `Conv1d`, `Conv2d`, `ResBlock`, `CNBlock`, `TransformerEncoder` |
 | Token | `ClsAppend`, `ClsExtract` |
+
+Max pooling specified by output size (PyTorch's `AdaptiveMaxPool2d`) is unregistered. Atari's `AtariPool6` uses `MaxPool2d` (kernel size 2, stride 2, padding 1) in its place.
 
 This table follows actual `InitNN()` registrations, not Config comments.
 

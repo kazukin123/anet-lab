@@ -17,6 +17,7 @@
 | [issue-20261123-abb245](issue-20261123-abb245.md) | 未着手 | 5.0 | — | ハーネス | 監査 | — | 開発 | 機能改善 | — | 未確認 | docs/StampFly.md（約 100 KB）が 2026-08-23 から 3 か月、Git に追跡されないまま作業ツリーで書き足されている |
 | [issue-20261125-8eff2e](issue-20261125-8eff2e.md) | 未着手 | 5.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | DQN の Learner が、forward のあとに「価値の分解なら合わせた Q を作る」処理を 6 か所に条件つきで書き、同じ目的の DqnForwardExecutor と 2 つの道になっている |
 | [issue-20261125-fa1be2](issue-20261125-fa1be2.md) | 未着手 | 5.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | リファクタリング | — | 未確認 | ActorQHintConfig が、ヒントではなく行動の選択（価値の分解・β・TBO）と診断の割引率を決めていて、名前と役割が合わない |
+| [issue-20261128-f0f3b8](issue-20261128-f0f3b8.md) | 未着手 | 4.3 | — | コード | 監査 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | Optuna の複数 seed の途中失敗を trial の状態と集計結果まで確かめるテストが無い |
 | [issue-20261123-6b991d](issue-20261123-6b991d.md) | 未着手 | 4.0 | — | 文書 | 監査 | 311_dev_tools, 321_agent_core | 開発 | 調査 | — | 残件有り | 状態が中身と合わない課題が 3 件ある（対応中なのに実装計画も最近の作業も無い 23d185・52ffba、RFD が着手しないと書くのに未着手の 6f6c73） |
 | [issue-20261125-fe014b](issue-20261125-fe014b.md) | 未着手 | 4.0 | — | コード | 監査 | 321_agent_core | 学習基盤 | 不具合 | — | 未確認 | 価値の分解の行動選択の診断（extrinsic_q_gap など）が、IQN の UQE では平均の Q ではなく risk の τ（全分布の問い合わせがあれば risk と全範囲を混ぜた τ）の平均で作られる |
 | [issue-20261123-b73a41](issue-20261123-b73a41.md) | 未着手 | 3.7 | — | ハーネス | 監査 | — | 開発 | 機能改善 | — | 未確認 | 実験記録の本文に名前の出る学習 Run のうち、実効 config が複製されていないものがある（KFM の RND 誤差の記録で 13 本、LunarLander の TempoRL の記録で 12 本ほか） |
@@ -34,6 +35,7 @@
 | [issue-20261111-c5c9a7](issue-20261111-c5c9a7.md) | 未着手 | 3.3 | — | コード | 監査 | 315_nn | 基盤 | リファクタリング | — | 残件有り | spectral norm の式（行列化・実効の分母・無効の判定・単位化）が 3〜5 か所ずつ写され、無効の数を返す口も 2 つある |
 | [issue-20261123-c455b5](issue-20261123-c455b5.md) | 未着手 | 3.3 | — | コード | 実装 | 311_dev_tools, 110_runner_app | 開発 | 不具合 | — | 残件有り | 既定のスイートの batchrun_fatal_error_handling_test が、前の Run の重みを読む段を持つキューを既定にした bat で、重みが無い段を失敗に数えて落ちる |
 | [issue-20261125-16374e](issue-20261125-16374e.md) | 未着手 | 3.3 | — | コード | 監査 | 321_agent_core, 318_rl_core | 学習基盤 | 不具合 | — | 未確認 | checkpoint の読み込みが parameter の device と形を今の Network と突き合わせず、CUDA で保存したものを agent.device=cpu で読むと Network が CUDA に載ったままになる（最初の forward で落ちる見込み） |
+| [issue-20261128-c7d223](issue-20261128-c7d223.md) | 未着手 | 3.3 | — | コード | 監査 | 311_dev_tools | 開発 | リファクタリング | — | 未確認 | BTR の結果を Run 形式へ変換するときの評価時点と出力形式を通しで確かめるテストが無い |
 | [issue-20261103-3e1cf6](issue-20261103-3e1cf6.md) | 未着手 | 3.0 | — | コード | RFD | 322_env_individual | Env | 機能追加 | [RFD0085](../../memo/0085_dropmerge_eval_score_axes_10rfd.md) | 残件有り | DropMerge の評価スコア（本家互換スコアほか複数の軸） |
 | [issue-20261103-c8fb06](issue-20261103-c8fb06.md) | 未着手 | 3.0 | — | コード | RFD | 312_util, 110_runner_app | 基盤 | 機能改善 | [RFD0071](../../memo/0071_uncaught_fatal_visibility_10rfd.md) | 残件有り | RFD0071: 捕まらない fatal の可視化（worker catch・set_terminate・エラーログ write-through） |
 | [issue-20261111-006d9a](issue-20261111-006d9a.md) | 未着手 | 3.0 | — | コード | 監査 | 320_env_core | 学習基盤 | リファクタリング | — | 残件有り | env.cpp で lane 1 本分の Reset・Step の結果を書き込む処理が 4 か所に写され、GetAuxDataList も 3 つあり、数え方と範囲の外の扱いが食い違っている |
@@ -97,12 +99,12 @@
 | [issue-20261111-90fa5c](issue-20261111-90fa5c.md) | 未着手 | 2.0 | — | コード | 監査 | 110_runner_app | UI | リファクタリング | — | 残件有り | QValuePanel の ComputeQValueHeatMap が 218 行で値の変換・範囲の更新・投票・色の正規化を並べ、データの受け渡しにスレッド越し用の部品と保護の無いメンバが混ざっている |
 | [issue-20261112-983afe](issue-20261112-983afe.md) | 未着手 | 2.0 | — | コード | その他 | 324_dqn, 318_rl_core, 322_env_individual | アルゴリズム | 機能追加 | — | 残件有り | KFMの学習がボスへ行き着くかが偶然に頼る（1階の廊下の位置が観測に無く、Qも内的報酬も左へ進む向きを持てない） |
 | [issue-20261114-9468cb](issue-20261114-9468cb.md) | 未着手 | 2.0 | — | コード | 実装 | 324_dqn, 110_runner_app | 学習基盤 | 性能改善 | — | 残件有り | Evaluation Traceを開いている間のActor同期で、RNDの推定器の写しが1回約170 msかかる |
-| [issue-20261119-25e4d0](issue-20261119-25e4d0.md) | 未着手 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | 会話が要約されたあと、続ける工程の手順を読み直さずに進めてしまう（読み直しを促す仕掛けが無い） |
+| [issue-20261119-25e4d0](issue-20261119-25e4d0.md) | 未着手 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 会話が要約されたあと、続ける工程の手順を読み直さずに進めてしまう（読み直しを促す仕掛けが無い） |
 | [issue-20261123-22d9bf](issue-20261123-22d9bf.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 110_runner_app, 322_env_individual | 学習基盤 | リファクタリング | — | 未確認 | TrainEvent の action_info が experience.action と同じ実体を重ねて持ち、読む側（Observer・パネル・View）が 2 通りに分かれている |
 | [issue-20261123-68723d](issue-20261123-68723d.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 324_dqn | 学習基盤 | リファクタリング | — | 残件有り | 共通の Replay が Actor の info をすべて slot ごとに保存し、抽選のたびに切り出して学習 device へ送るが、本番で読む箇所が無い（入るのは step の旗にも保存する TempoRL の decision だけ） |
 | [issue-20261123-c7c3ae](issue-20261123-c7c3ae.md) | 未着手 | 2.0 | — | 文書 | 実装 | — | 開発 | 不整合 | — | 残件有り | RFD0195 で名前だけを置き換えた既存の 118 行に、AGENTS.md の避ける語（既定葉・腕・旗・地図など）が残る |
 | [issue-20261123-cbe34a](issue-20261123-cbe34a.md) | 未着手 | 2.0 | — | コード | 監査 | 318_rl_core, 317_metrics, 110_runner_app | 学習基盤 | 不整合 | — | 残件有り | 共通の Runner が 1 フレームごとに MetricsLogger を flush し（学習スレッドでは毎 step）、設計 140 とアプリが書く「境界でだけ flush」と食い違う |
-| [issue-20261127-692b3e](issue-20261127-692b3e.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | RFD・ADR の採番が、ほかのワークツリーと main に無いブランチの番号を見ないので、並行の作業で同じ番号が重なる |
+| [issue-20261127-692b3e](issue-20261127-692b3e.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | RFD・ADR の採番が、ほかのワークツリーと main に無いブランチの番号を見ないので、並行の作業で同じ番号が重なる |
 | [issue-20261103-58696c](issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0112](../../memo/0112_claude_memory_tidy_10rfd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
 | [issue-20261123-98baff](issue-20261123-98baff.md) | 未着手 | 1.8 | — | 文書 | 実装 | 311_dev_tools | 開発 | 不整合 | — | 残件有り | docs のリンク切れが実装の前から 258 件あり、memo README のリンク切れ検査が空にならないので、新しく切れたリンクを見分けられない |
 | [issue-20261124-11428b](issue-20261124-11428b.md) | 未着手 | 1.8 | — | コード | RFD | 324_dqn, 318_rl_core | アルゴリズム | 機能追加 | [RFD0201](../../memo/0201_top_episode_memory_sil_lower_bound_10rfd.md) | 未確認 | まれに出た上位のエピソードを Replay と別に持ち続け、外的の Q を実際の収益で下から引き上げる仕組み（上位エピソードの記憶と SIL の下限損失）を DQN 系に足す |
@@ -115,7 +117,7 @@
 | [issue-20261114-fbcbca](issue-20261114-fbcbca.md) | 未着手 | 1.6 | — | ハーネス | ハーネス保守 | — | 開発 | 機能改善 | — | 残件有り | ADR へのたどり方を改善する（wiki への取り込み遅れと漏れ、入口の方針、サブエージェントの経路） |
 | [issue-20261115-3e5b77](issue-20261115-3e5b77.md) | 未着手 | 1.6 | — | 文書 | その他 | 311_dev_tools | 開発 | リファクタリング | — | 残件有り | 設計160（アプリケーションとツール）に開発環境の道具の記述が混ざっているので、開発環境の文書へ分けて整える |
 | [issue-20261103-75b8da](issue-20261103-75b8da.md) | 未着手 | 1.5 | — | コード | RFD | 321_agent_core, 318_rl_core | アルゴリズム | 機能改善 | [RFD0168](../../memo/0168_nstep_target_correction_10rfd.md) | 残件有り | n-step の目標値の補正（窓の途中の Munchausen の項・方策オフの補正） |
-| [issue-20261123-2cda10](issue-20261123-2cda10.md) | 未着手 | 1.5 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | レビューの出し方（2 モデルのクロスレビューを使うか、Claude 側を API とサブスクのどちらで動かすか、どのモデルを使うか）を切り替える設定が無く、そのたびに個人の CLAUDE.md・AGENTS.md・スキル・スクリプトの文面を書き換えている |
+| [issue-20261123-2cda10](issue-20261123-2cda10.md) | 未着手 | 1.5 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | — | 判定不能 | レビューの出し方（2 モデルのクロスレビューを使うか、Claude 側を API とサブスクのどちらで動かすか、どのモデルを使うか）を切り替える設定が無く、そのたびに個人の CLAUDE.md・AGENTS.md・スキル・スクリプトの文面を書き換えている |
 | [issue-20261103-e29c92](issue-20261103-e29c92.md) | 未着手 | 1.4 | — | コード | 監査 | 321_agent_core, 320_env_core, 319_gui, 315_nn | 基盤 | リファクタリング | — | 残件有り | 名前→factoryのRepositoryと自動登録マクロを4か所で別々に実装し、重複登録の扱いが食い違う |
 | [issue-20261103-df24e5](issue-20261103-df24e5.md) | 未着手 | 1.4 | — | コード | 監査 | 312_util | 基盤 | 不具合 | — | 残件有り | AnetExceptionのstack_trace()がwxStackWalkerに頼っていて、Runnerのプロセスでは空になる |
 | [issue-20261103-182ca1](issue-20261103-182ca1.md) | 未着手 | 1.4 | — | コード | RFD | 318_rl_core, 324_dqn, 315_nn, 320_env_core | 学習基盤 | 性能改善 | [RFD0180](../../memo/0180_core_perf_candidates_202607_10rfd.md) | 残件有り | 2026-07 のコアの詳細レビューで挙がった性能の改善候補 5 件 |
@@ -129,7 +131,7 @@
 | [issue-20261112-4efa57](issue-20261112-4efa57.md) | 未着手 | 1.4 | — | コード | RFD | 321_agent_core | 学習基盤 | リファクタリング | — | 残件有り | replay fitの診断（EvaluateReplayFit）が学習の更新の前半を別に書き、分布の表し方での分岐を持っている |
 | [issue-20261115-c89660](issue-20261115-c89660.md) | 未着手 | 1.4 | — | コード | その他 | 110_runner_app, 321_agent_core, 318_rl_core | UI | 機能追加 | — | 残件有り | Runner の Conv2dPanel と metrics.image の conv2d に、RND の target と predictor の畳み込みの出力が出ない |
 | [issue-20261123-eac719](issue-20261123-eac719.md) | 未着手 | 1.4 | — | コード | 監査 | 318_rl_core, 317_metrics | 学習基盤 | リファクタリング | — | 残件有り | 画像の Observer 4 種は observers（318）にあり、それを作って Notifier へ付けるのは image（317）の ImageProviderFactory で、observers と image が互いを読んでいる |
-| [issue-20261124-707776](issue-20261124-707776.md) | 未着手 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | リファクタリング | [RFD0199](../../memo/0199_agents_md_split_by_situation_10rfd.md) | 未確認 | AGENTS.md の全文を毎回読み、ビルド・Run・コミットメッセージなど状況ごとの決まりまで読み込む |
+| [issue-20261124-707776](issue-20261124-707776.md) | 未着手 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | リファクタリング | [RFD0199](../../memo/0199_agents_md_split_by_situation_10rfd.md) | 残件有り | AGENTS.md の全文を毎回読み、ビルド・Run・コミットメッセージなど状況ごとの決まりまで読み込む |
 | [issue-20261103-71c4f4](issue-20261103-71c4f4.md) | 未着手 | 1.3 | — | コード | RFD | 315_nn, 317_metrics, 321_agent_core | 学習基盤 | 機能追加 | [RFD0135](../../memo/0135_nn_block_metrics_10rfd.md) | 残件有り | NN ブロック別 勾配メトリクス — 背景・目的・基本方針（暫定） |
 | [issue-20261103-b4e5c9](issue-20261103-b4e5c9.md) | 未着手 | 1.3（引継ぎ） | — | コード | RFD | 316_config, 110_runner_app | 基盤 | リファクタリング | [RFD0155](../../memo/0155_config_root_ownership_alignment_10rfd.md) | 残件有り | 設定 root の所有整合(`train.` / `app.run_name` 等の階層ずれ棚卸し) |
 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | 未着手 | 1.3 | — | コード | RFD | 110_runner_app, 318_rl_core, 322_env_individual | UI | 機能追加 | [RFD0159](../../memo/0159_input_mapping_joystick_10rfd.md) | 残件有り | 操作入力の Joystick 対応と操作マッピングの設定化（EvalPanel） |
@@ -152,7 +154,7 @@
 | [issue-20261116-cc5942](issue-20261116-cc5942.md) | 未着手 | 1.1 | — | コード | その他 | 318_rl_core, 321_agent_core, 314_tensor, 324_dqn | 学習基盤 | 性能改善 | — | 残件有り | 同じデータを何度もdevice間で転送している箇所を洗い出して減らす（Replayのobsとnext_obsの重なるフレーム、RNDの採点とActorが別々に送る観測など） |
 | [issue-20261103-6f6c73](issue-20261103-6f6c73.md) | 未着手 | 1.0 | — | コード | RFD | 321_agent_core | アルゴリズム | 機能追加 | [RFD0183](../../memo/0183_temporl_skip_followups_10rfd.md) | 残件有り | TempoRL の後続（長い j の不確かさ・閉ループの割り込み・全 k の一括学習） |
 | [issue-20261103-c16aab](issue-20261103-c16aab.md) | 未着手 | 1.0 | — | コード | RFD | 320_env_core, 322_env_individual, 312_util, 120_metrics_viewer, 311_dev_tools | UI | 機能追加 | [RFD0154](../../memo/0154_scalar_threshold_rate_10rfd.md) | 残件有り | スカラー閾値越え率の汎用化（Observation 層 / Viewer 層） |
-| [issue-20261105-f4b870](issue-20261105-f4b870.md) | 未着手 | 1.0 | — | コード | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 残件有り | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
+| [issue-20261105-f4b870](issue-20261105-f4b870.md) | 未着手 | 1.0 | — | コード | その他 | 311_dev_tools, 315_nn | アルゴリズム | 調査 | — | 判定不能 | LLM が NN の重みを直接読み書きする試み（Weight-Space Programming）を anet で試す |
 | [issue-20261111-d1d12b](issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 残件有り | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
 | [issue-20261119-cb9a0f](issue-20261119-cb9a0f.md) | 未着手 | 1.0 | — | コード | その他 | 324_dqn, 321_agent_core | アルゴリズム | 機能追加 | — | 残件有り | RNDの観測の正規化に、学習の前に一様乱数の行動で統計を作る前段（Burdaら）が無い |
 | [issue-20261122-4b9e2d](issue-20261122-4b9e2d.md) | 未着手 | 1.0 | — | コード | RFD | 315_nn | 基盤 | 不整合 | — | 残件有り | NN の入口が、離散の Grid の入力で、stack 軸とクラスの次元を、定義に書かれないままチャネルへ畳む |
@@ -190,7 +192,7 @@
 | [issue-20261103-578986](issue-20261103-578986.md) | 未着手 | 0.6 | [issue-20261103-b68e49](issue-20261103-b68e49.md) | コード | RFD | 318_rl_core, 319_gui, 110_runner_app | 学習基盤 | 機能追加 | [RFD0160](../../memo/0160_input_target_train_forced_action_10rfd.md) | 残件有り | 操作入力の入力先切替と Train 側の強制行動（学習への反映） |
 | [issue-20261103-5a783c](issue-20261103-5a783c.md) | 未着手 | 0.6 | [issue-20261103-124da5](issue-20261103-124da5.md), [issue-20261103-75b8da](issue-20261103-75b8da.md) | コード | RFD | 321_agent_core, 322_env_individual | アルゴリズム | 機能追加 | [RFD0162](../../memo/0162_decision_aligned_nstep_10rfd.md) | 残件有り | 次の判断まで遡る n-step（判断単位の可変長 n-step） |
 
-着手できる 175 / 待ち 10 / 保留 0 / 次版 0 / 解決 0
+着手できる 177 / 待ち 10 / 保留 0 / 次版 0 / 解決 0
 
 ## 解決待ち
 

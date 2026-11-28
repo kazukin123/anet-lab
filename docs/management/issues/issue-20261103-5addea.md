@@ -23,7 +23,7 @@ area:
 type: リファクタリング
 domain: 開発
 ai_judge: 残件有り
-ai_judged: 2026-11-25
+ai_judged: 2026-11-28
 docs: []
 rfd: "[[0079_cpp_internal_linkage_convention_10rfd]]"
 priority: 低
