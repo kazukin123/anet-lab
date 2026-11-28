@@ -4,7 +4,7 @@ title %~nx0
 cd /d "%~dp0runner"
 for %%I in ("%~dp0..\data\workspaces") do SET "DATA_WORKSPACES=%%~fI"
 
-SET "QUEUE=mz_rfd0191"
+SET "QUEUE=mz_n10c"
 if not "%~1"=="" SET "QUEUE=%~1"
 if /I "%QUEUE%"=="ll_rnd" goto :skipwait
 
@@ -363,9 +363,14 @@ goto :summary
 :mz_seed2
 :mz_n10
 :mz_rfd0191
-copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab12.exe" >nul
+SET "MZSRC=bin\%BUILD%\AnetRLRunner.exe"
+goto :mz_copy
+:mz_n10c
+SET "MZSRC=bin\%BUILD%\AnetRLRunner_ab11.exe"
+:mz_copy
+copy /Y "%MZSRC%" "bin\%BUILD%\AnetRLRunner_ab12.exe" >nul
 if errorlevel 1 goto :no_exe
-for %%F in ("bin\%BUILD%\AnetRLRunner.exe") do echo %DATE% %TIME% EXE %%~fF built %%~tF
+for %%F in ("%MZSRC%") do echo %DATE% %TIME% EXE %%~fF built %%~tF
 call :use_ws AtariRnd-01 Atari.txt
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
 SET "RR4=run.@hard500>run.@rr4>run.@munch"
@@ -409,12 +414,15 @@ SET "N10=DefaultDQNAgent.learner.n_step=10"
 SET "REUSE4=DefaultDQNAgent.intrinsic.learn.mode=rollout DefaultDQNAgent.intrinsic.learn.rollout.length=128 DefaultDQNAgent.intrinsic.learn.rollout.epochs=4 DefaultDQNAgent.intrinsic.learn.rollout.ratio=4 DefaultDQNAgent.intrinsic.learn.rollout.batch_size=128"
 SET "LR3E4=DefaultDQNAgent.intrinsic.rnd.learning_rate=3e-4"
 SET "BURDA=DefaultDQNAgent.intrinsic.rnd.error_norm.mode=none DefaultDQNAgent.intrinsic.rnd.error_norm.none.warmup_steps=200000 DefaultDQNAgent.intrinsic.use_done_mask=false DefaultDQNAgent.intrinsic.reward_scaler.use_dynamic_scaling=true DefaultDQNAgent.intrinsic.reward_scaler.dynamic_mode=return_std DefaultDQNAgent.intrinsic.beta=0.5"
+SET "SEMA=DefaultDQNAgent.intrinsic.rnd.error_norm.standardize.average_mode=ema"
+SET "STK=DefaultDQNAgent.perception.block.[stack].count=4 DefaultDQNAgent.perception.block.[stack].keys.mode=all"
 SET "ROLL1K=DefaultDQNAgent.intrinsic.learn.mode=rollout DefaultDQNAgent.intrinsic.learn.rollout.length=128 DefaultDQNAgent.intrinsic.learn.rollout.epochs=4 DefaultDQNAgent.intrinsic.learn.rollout.ratio=1.0 DefaultDQNAgent.intrinsic.learn.rollout.batch_size=1024"
 if /I "%QUEUE%"=="mz_rr4" goto :mz_rr4_stages
 if /I "%QUEUE%"=="mz_g99dec" goto :mz_g99dec_stages
 if /I "%QUEUE%"=="mz_seed2" goto :mz_seed2_stages
 if /I "%QUEUE%"=="mz_n10" goto :mz_n10_stages
 if /I "%QUEUE%"=="mz_rfd0191" goto :mz_rfd0191_stages
+if /I "%QUEUE%"=="mz_n10c" goto :mz_n10c_stages
 
 SET "RUN_EXIT_CODE=0"
 call :wait_disk
@@ -584,6 +592,20 @@ call :wait_disk
 echo === 55. montezuma_revenge 30m seed 2: same as 50 (both 48 and 49) ===
 call :find_done mz_n10_burdarl_s2
 if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %BURDA% %ROLL1K% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_burdarl_s2"
+goto :summary
+
+:mz_n10c_stages
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 59. montezuma_revenge 30m seed 2: same as 56 (RND error statistics are an EMA) ===
+call :find_done mz_n10_sema_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %SEMA% %STK% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_sema_s2"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 55. montezuma_revenge 30m seed 2: same as 50 (both 48 and 49) ===
+call :find_done mz_n10_burdarl_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %BURDA% %ROLL1K% %STK% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_burdarl_s2"
 goto :summary
 
 :ram_short

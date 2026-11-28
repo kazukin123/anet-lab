@@ -10,6 +10,7 @@
 #include <thread>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <torch/cuda.h>
+#include <wx/cmdline.h>
 #include <wx/evtloop.h>
 #include <wx/textctrl.h>
 #include <wx/weakref.h>
@@ -19,7 +20,12 @@
 #include "anet/algo/dqn.hpp"
 #include "anet/algo/imagecls.hpp"
 #include "anet/metrics_logger.hpp"
+#include "anet/test/util.hpp"
+#include "anet/env/CartPole.hpp"
+#include "anet/env/DropMerge.hpp"
+#include "anet/env/GridMaze.hpp"
 #include "anet/env/ImageCls.hpp"
+#include "anet/env/LunarLander.hpp"
 #ifdef ANET_HAS_ATARI
 #include "anet/env/Atari.hpp"
 #endif
@@ -638,6 +644,95 @@ TEST_CASE("RunnerApp requests training nn_trace only for active Conv2d recording
     wxGetApp().PauseTraining();
     CHECK(correct->load());
     notifier->Detach(observer);
+}
+
+TEST_CASE("Shipped DefaultDQN configurations handle the Perception stack axis", "[.][shipped_config][rfd0161]")
+{
+    const auto repo = std::filesystem::current_path();
+    const auto config_dir = repo / "apps/runner/config";
+    std::ifstream manifest_file(repo / "src/core/base/testdata/rfd0072/manifest.json");
+    REQUIRE(manifest_file.good());
+    const auto manifest = anet::json::parse(manifest_file);
+    const auto output_dir = repo / "out/test-tmp/rfd0161-shipped-config";
+    std::filesystem::create_directories(output_dir);
+
+    anet::rl::algo::InitDqn();
+    anet::rl::env::InitCartPole();
+    anet::rl::env::InitDropMerge();
+    anet::rl::env::InitGridMaze();
+    anet::rl::env::InitLunarLander();
+#ifdef ANET_HAS_ATARI
+    anet::rl::env::InitAtari();
+#endif
+    constexpr wxCmdLineEntryDesc description[] = {
+        {wxCMD_LINE_PARAM, nullptr, nullptr, "key=value", wxCMD_LINE_VAL_STRING,
+            wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE},
+        {wxCMD_LINE_NONE},
+    };
+    int dqn_cases = 0;
+    for (const auto& input : manifest.at("inputs")) {
+        const auto id = input.at("id").get<std::string>();
+        const auto env_name = input.at("env").get<std::string>();
+        CAPTURE(id, env_name);
+#ifndef ANET_HAS_ATARI
+        if (env_name == "Atari") continue;
+#endif
+        const auto config_path = output_dir / (id + ".txt");
+        {
+            std::ofstream file(config_path);
+            REQUIRE(file.good());
+            file << "$include <" << (config_dir / "_main.txt").generic_string() << ">\n"
+                << "$include <" << (config_dir / (env_name + ".txt")).generic_string() << ">\n";
+            // 固定在庫から廃止された Run 名は、現行カタログの同じ Agent・Env・NN で組む。
+            if (id == "atari-5") {
+                file << "run.@nature_dqn : AtariEnv.$ = @classic > E1\n"
+                    << "run.@nature_dqn : DefaultDQNAgent.$ = @baseline > A1 > @bf16 > @nature > A2 > A3\n"
+                    << "run.@nature_dqn : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariNature\n"
+                    << "run.@nature_dqn : DefaultDQNAgent.net.body.output.[skip_context] = main_feature\n";
+            } else if (id == "atari-6") {
+                file << "run.@classic_iqn_impala_x2 : AtariEnv.$ = @classic > E1\n"
+                    << "run.@classic_iqn_impala_x2 : DefaultDQNAgent.$ = @baseline > @iqn > A1 > @bf16 > A2 > A3\n"
+                    << "run.@classic_iqn_impala_x2 : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@AtariImpalaX2\n";
+            }
+        }
+        wxCmdLineParser command_line(description, wxString::FromUTF8(input.at("cli").get<std::string>()));
+        REQUIRE(command_line.Parse(false) == 0);
+        auto data = anet::ConfigManager(config_path, &command_line).GetConfigData();
+        if (data.Get("agent.class_id") != "DefaultDQNAgent") continue;
+        ++dqn_cases;
+
+        // Network の構成はそのままに、構築に必要な Env と未使用の Replay の量を抑える。
+        data.Set("DefaultDQNAgent.learner.replay_capacity", "8192");
+        anet::MetricsLogger::Reset();
+        anet::MetricsLogger::Init(std::make_unique<anet::JsonlBackend>(),
+            anet::MetricsLoggerConfig{.runs_dir = output_dir.string(), .run_name_tmpl = id}, output_dir);
+        struct MetricsReset {
+            ~MetricsReset() { anet::MetricsLogger::Reset(); }
+        } metrics_reset;
+        anet::test::LogCaptureGuard logs;
+        anet::log::ResetNotifications();
+        anet::rl::InitRL(anet::rl::BackendConfig(data), data);
+        anet::rl::BatchEnvBuilder env_factory(anet::rl::BatchEnvBuilderConfig(data), data);
+        auto env = env_factory.CreateBatchEnv("rfd0161", 161);
+        REQUIRE(env);
+        anet::rl::DefaultAgentFactory agent_factory(
+            anet::rl::DefaultAgentFactoryConfig(data), env->GetSpec(), env->GetBatchSpec(), data, 161);
+        std::shared_ptr<anet::rl::Agent> agent;
+        REQUIRE_NOTHROW(agent = agent_factory.CreateAgent(std::make_shared<anet::rl::Notifier>()));
+        REQUIRE(agent);
+        env->Shutdown();
+        logs.Flush();
+        for (const auto& record : logs.Records()) {
+            if (record.level != wxLOG_Warning) continue;
+            INFO(record.message);
+            CHECK(record.message.find("does not declare handling the stack axis") == std::string::npos);
+        }
+    }
+#ifdef ANET_HAS_ATARI
+    CHECK(dqn_cases == 13);
+#else
+    CHECK(dqn_cases == 7);
+#endif
 }
 
 TEST_CASE("GPU nn_trace allocation is recorded through the evaluation Runner", "[.][rfd0170_memory]")

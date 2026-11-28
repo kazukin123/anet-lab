@@ -65,7 +65,7 @@ core/anet-core/bin/Debug/anet-core-test.exe '[shipped_config]' *> .scratch/prd11
 
 ## 自己点検
 
-実装品質確認観点の全項目を走査した。公開APIは計画どおりbool結果へ変更し、設定値域・非整数・無効時未読はpublicなConfigで確認する。Tensorは先頭軸がlaneで、同じindexを各fieldへ適用し、既存RNDのfeaturesは[B,F]検証を維持する。新しい所有状態はfacadeに閉じ、GetScalarは既存atomic経由、呼び順とロック範囲は維持した。旧名から新名は、`rnd.train_fraction`廃止→facadeの`intrinsic.learn_ratio`・`intrinsic.learn_batch_size`、`intrinsic.train`→`intrinsic.learn`。Estimate/Learnへの改名は21implの変更を引き継ぐ。
+実装レビュー観点の全項目を走査した。公開APIは計画どおりbool結果へ変更し、設定値域・非整数・無効時未読はpublicなConfigで確認する。Tensorは先頭軸がlaneで、同じindexを各fieldへ適用し、既存RNDのfeaturesは[B,F]検証を維持する。新しい所有状態はfacadeに閉じ、GetScalarは既存atomic経由、呼び順とロック範囲は維持した。旧名から新名は、`rnd.train_fraction`廃止→facadeの`intrinsic.learn_ratio`・`intrinsic.learn_batch_size`、`intrinsic.train`→`intrinsic.learn`。Estimate/Learnへの改名は21implの変更を引き継ぐ。
 
 現用コード・設定・設計文書・CONTEXT・wikiの実装の地図に旧キー・旧seed・pending_errors・旧Multiplier呼出しは0件。履歴資料は保持した。共有プロセスの非依存、ヘッダのusing namespace、production dynamic_cast、TODO表記も違反0。BOM15ファイル保持、新規1ファイル、UTF-8/LF・Markdownリンクとfence・diff空白・翻訳元hashは検査成功。文字列検査の候補は設定キーと設定キー用の葉名で、定数化除外条件に該当する。
 

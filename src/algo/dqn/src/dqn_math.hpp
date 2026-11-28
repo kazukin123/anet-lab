@@ -102,6 +102,13 @@ namespace anet::rl::dqn {
         return torch::stack(ordered);
     }
 
+    template<size_t Count, size_t... Indices, class... Values>
+    torch::Tensor StackDiagnosticColumns(Values&&... values)
+    {
+        const auto ordered = MakeDiagnosticValues<Count, Indices...>(std::forward<Values>(values)...);
+        return torch::stack(ordered, 1);
+    }
+
     // 先にキーを解析し、未知キーでは遅延転送や診断の計算を始めない。
     template<class Index, class Read>
     std::optional<float> ReadDiagnosticScalar(std::optional<Index> metric, Read&& read)
@@ -134,6 +141,8 @@ namespace anet::rl::dqn {
         { .index = MunchausenMetric::NextEntropy, .key = "munchausen_next_entropy" },
         { .index = MunchausenMetric::SoftGap, .key = "munchausen_soft_gap" },
     }});
+
+    torch::Tensor GatherSelectedActionValues(const torch::Tensor& values, const torch::Tensor& choices);
 
     torch::Tensor MakeRiskBiasedScore(float tau, const torch::Tensor& q_quantiles, bool use_tail_mean);
 
@@ -222,13 +231,6 @@ namespace anet::rl::dqn {
 
     const float MET_EMA_DECAY_ACT = 0.0005f;  // 平滑化係数(メトリクス用)action_ema用
 
-    /// ランタイム変数
-    struct anet::rl::dqn::RuntimeVars {
-        float uqe_tau = 0.9f;   // 互換性のために残す
-        anet::rl::step_t learn_step = 0;
-        float per_beta = 0.0f;  ///< PER用beta
-    };
-
     struct DiagnosticActionEvaluation {
         int64_t num_taus;
     };
@@ -250,7 +252,7 @@ namespace anet::rl::dqn {
             std::optional<float> beta = std::nullopt, bool use_tbo = false, float epsilon = 0.01f)
             : forward_(forward), beta_(beta), use_tbo_(use_tbo), epsilon_(epsilon) {}
         anet::TensorDict Forward(const anet::TensorDict& input, const anet::nn::NetworkForwardCallInfo& info,
-            anet::nn::NetworkForwardCapture* capture = nullptr) const;
+            anet::ForwardCapture* capture = nullptr) const;
     private:
         anet::nn::NetworkForwardExecutor& forward_; ///< 同期呼び出しの間、ActorまたはLearner所有の実行器を借りる。
         std::optional<float> beta_;
@@ -270,9 +272,24 @@ namespace anet::rl::dqn {
 
     inline constexpr char kStepIntrinsicStateValueKey[] = "intrinsic_state_value";
 
-    inline constexpr std::array<const char*, 9> kValueDecompositionMetricKeys{
-    "extrinsic_loss", "intrinsic_loss", "extrinsic_q_sa_mean", "intrinsic_q_sa_mean",
-    "extrinsic_head_grad_norm", "intrinsic_head_grad_norm", "extrinsic_grad_norm", "intrinsic_grad_norm", "intrinsic_q_share"};
+    struct ValueDecompositionMetric {
+        enum : size_t {
+            ExtrinsicLoss, IntrinsicLoss, ExtrinsicQSaMean, IntrinsicQSaMean,
+            ExtrinsicHeadGradNorm, IntrinsicHeadGradNorm, ExtrinsicGradNorm, IntrinsicGradNorm, IntrinsicQShare, Count
+        };
+    };
+
+    inline constexpr auto kValueDecompositionMetricKeys = MakeDiagnosticMetricKeys<ValueDecompositionMetric::Count>({{
+        {.index = ValueDecompositionMetric::ExtrinsicLoss, .key = "extrinsic_loss"},
+        {.index = ValueDecompositionMetric::IntrinsicLoss, .key = "intrinsic_loss"},
+        {.index = ValueDecompositionMetric::ExtrinsicQSaMean, .key = "extrinsic_q_sa_mean"},
+        {.index = ValueDecompositionMetric::IntrinsicQSaMean, .key = "intrinsic_q_sa_mean"},
+        {.index = ValueDecompositionMetric::ExtrinsicHeadGradNorm, .key = "extrinsic_head_grad_norm"},
+        {.index = ValueDecompositionMetric::IntrinsicHeadGradNorm, .key = "intrinsic_head_grad_norm"},
+        {.index = ValueDecompositionMetric::ExtrinsicGradNorm, .key = "extrinsic_grad_norm"},
+        {.index = ValueDecompositionMetric::IntrinsicGradNorm, .key = "intrinsic_grad_norm"},
+        {.index = ValueDecompositionMetric::IntrinsicQShare, .key = "intrinsic_q_share"},
+    }});
 
     inline constexpr char kExtrinsicActionScores[] = "extrinsic_action_scores";
 

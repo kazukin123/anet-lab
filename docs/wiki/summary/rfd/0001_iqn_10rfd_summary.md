@@ -1,0 +1,65 @@
+---
+title: IQN 対応改修（quantile_mode 導入・bind `*` 演算子・IQNHead/IQNLearner）
+page_kind: サマリ
+material: "[[docs/memo/done/0001_iqn_10rfd.md|0001_iqn_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+  - "[[docs/wiki/concepts/methods/tau_sampling.md|τ配置とIQN比較]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+updated: 2026-11-28
+---
+# IQN 対応改修（quantile_mode 導入・bind `*` 演算子・IQNHead/IQNLearner）
+
+## 元の材料
+
+[IQN 対応改修（quantile_mode 導入・bind `*` 演算子・IQNHead/IQNLearner）](../../../memo/done/0001_iqn_10rfd.md) blob:5a1404d11c429ba274ad135b6f13bf2b0fd0e356
+
+## 要点
+
+- DefaultDQNAgent の分位学習で固定分位の QR と、forward ごとに評価点を選ぶ IQN を切り替える。
+- τ は Agent が NN 入力に加え、cos 基底で埋め込んだ特徴と状態の特徴を branch DAG の要素積で融合する。
+- Head は最後の射影を担い、V と A に分岐する Dueling 構成も扱う。
+- 方策の既定は学習時にランダム32点、評価・ターゲットで固定32点。損失の current と target は独立にランダム64点を選ぶ。
+- IQN の Huber 損失は current 側で和、target 側で平均を取る。既存の QR 損失と Rainbow の設定体系を保つ。
+
+## 内容
+
+### Context（背景・目的）
+
+方針は「専用ネットワーククラスを作らない」こと。既存の branch DAG 設定（`bind`）へ要素積演算子 `*` を追加し、taus ブランチ・fusion ブランチを設定で構成する。Head は最終射影（Linear）だけを受け持つ（ADR 0018）。
+
+### 前提事実
+
+`bind` パース: `ReadBranchConfig`（nn_impl.cpp）は `,` split のフラットな `bind_keys` と `(raw)` サフィクスを解釈する。
+実行: `NetworkBranch::Execute`（nn_impl.cpp）は bind_keys の tensor を集め `inputs.size()==1 ? inputs[0] : torch::cat(inputs, 1)` 固定。
+Rainbow は `use_qr=true && num_quantiles<=1` のときローカル `is_distributional=false` へ縮退して scalar Head/Learner を選ぶ（rainbow_agent.cpp。DefaultDQN の ANET_SYSTEM_ERROR とは異なり WARN+縮退）。
+`raw_keys` は NetworkBodyBuilder が全 branch 分を `all_raw_keys` へ集約し preprocessor で一括適用する key-global セマンティクス（branch/factor 単位ではない）。
+QValuePanel は通常`aux_data["q_quantiles"]`を読み、任意の`full_q_quantiles`があればそちらを優先する。
+
+### 設計方針
+
+target policyのtau ruleとfull query既定の代入位置は `use_optimistic_target` 分岐の後・target系READ_CONFIGの直前とする。train policyのコピー後もtargetはfixed×32・full query disabledへ戻し、targetへの明示設定だけを優先する。
+`quantile_mode==iqn && learner.quantile_huber_kappa <= 0`（IQN loss は Huber/κ を含むため。QR は既存挙動のまま検証追加しない）。
+`quantile_mode==iqn` かつ policy_type が UQE/ThompsonSampling の policy について、`uqe_tau_start` / `uqe_tau_end` が有限かつ [0,1] 内でなければエラー（QR 経路は既存の index clamp 挙動を維持し検証を追加しない。IQN は範囲外 τ がそのまま cos 埋め込みへ流れるため）。
+積の項 → feature-last elementwise product: batch 次元を dim 0、feature 次元を最終次元とみなす。rank が異なる場合、低 rank 側に batch 直後（dim 1）へ singleton 次元を挿入して rank を揃え、batch 次元以外は通常の broadcast 規則で乗算する。左結合で順次適用。
+項が複数のとき、項評価結果を `bind_concat_dim`（branch 単位の設定キー `net.branch.[name].bind_concat_dim`、int、デフォルト 1）で `torch::cat`。shape から concat 次元を推測しない。積の項も cat 対象として同列に扱う。
+
+### 非対象（Out of Scope）
+
+RainbowAgent の IQN 対応・quantile_mode 化（機械的コンパイル追従のみ）。
+risk-sensitive な tau 歪み（CVaR 制御等）・tail policy 概念（持たせない）。
+
+### 検証
+
+Debug ビルド（VsDevCmd 経由の PowerShell-safe コマンド）+ `anet-core-test` 全緑。
+
+### 後続
+
+probe / TensorDictFunction 経路への taus 自動補完（fixed）。
+
+## 主要な概念
+
+- [324 Agent個別実装 DQN系列](../../concepts/framework/324_dqn.md)
+- [τ配置とIQN比較](../../concepts/methods/tau_sampling.md)
+- [315 ニューラルネットワーク](../../concepts/framework/315_nn.md)

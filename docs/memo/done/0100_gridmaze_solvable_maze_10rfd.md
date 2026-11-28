@@ -170,4 +170,4 @@ GridMazeEnv は seed から各セルを壁 20%・穴 10% で独立に引くだ�
 - [GridMaze.txt](../../../apps/runner/config/GridMaze.txt)（env の既定）
 - [AGENTS.md](../../../AGENTS.md) §Fail-Fast 原則・§設定値の扱い・§クリーンブレーク方針
 - [PRD098](../0098_temporl_skip_policy_10rfd.md) §7「段 1 の途中経過」・§9 の 2
-- [120_environments.jp.md](../../design/120_environments.jp.md)（GridMaze の行）、wiki [322 Env 個別実装](../../wiki/categories/322_env_individual.md)
+- [120_environments.jp.md](../../design/120_environments.jp.md)（GridMaze の行）、wiki [322 Env 個別実装](../../wiki/concepts/framework/322_env_individual.md)

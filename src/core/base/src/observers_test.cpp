@@ -202,11 +202,6 @@ public:
     {
     }
 
-    std::shared_ptr<rl::BatchActionInfo> WithAction(torch::Tensor action) const override
-    {
-        return std::make_shared<TestActionInfo>(std::move(action), info_, aux_, score_);
-    }
-
 
     std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override
     {
@@ -2075,4 +2070,84 @@ TEST_CASE("Base ActionInfo exposes lane actions without scalar aggregation", "[r
     const std::string key = GENERATE("action.[0x]", "action.[x]", "action.[-1]", "action.[0",
         "action.[2147483648]", "action.[]", "action.[0]junk", "action.[2]");
     CHECK_THROWS_WITH(continuous.GetScalar(key, 0), Catch::Matchers::ContainsSubstring("expected=action.[integer dimension]"));
+}
+
+TEST_CASE("ObserverFactory reads entire numeric scalar and graph attributes", "[rfd0206][metric_numbers]")
+{
+    static constexpr char kIntervalAttribute[] = "interval";
+    static constexpr char kEpisodeIntervalAttribute[] = "episode_interval";
+    static constexpr char kStepIntervalAttribute[] = "step_interval";
+    static constexpr char kEpsIntervalAttribute[] = "eps_interval";
+    static constexpr char kEmaAlphaAttribute[] = "ema_alpha";
+    static constexpr char kClipAttribute[] = "clip";
+
+    SECTION("scalar")
+    {
+        constexpr char kConfigKey[] = "metrics.scalar.[test]";
+        const auto input = GENERATE(Catch::Generators::table<std::string, std::string, std::string>({
+            {kIntervalAttribute, "1O0", "integer"}, {kIntervalAttribute, "2.5", "integer"},
+            {kIntervalAttribute, "99999999999", "integer"}, {kEmaAlphaAttribute, "0.1x", "number"},
+            {kClipAttribute, "abc", "number"}, {kIntervalAttribute, "", "integer"},
+            {kIntervalAttribute, "1:2", "integer"}, {kIntervalAttribute, ":1", "integer"}}));
+        const auto& [attribute, value, expected] = input;
+        CAPTURE(attribute, value);
+        const auto definition = "reward $env " + attribute + ":" + value;
+        anet::ConfigData config;
+        config.Set(kConfigKey, definition);
+        CHECK_THROWS_WITH(rl::ObserverFactory(config), Catch::Matchers::ContainsSubstring(kConfigKey)
+            && Catch::Matchers::ContainsSubstring("config_value=" + definition)
+            && Catch::Matchers::ContainsSubstring("attr_key=" + attribute + " attr_val=" + value + " expected=" + expected));
+    }
+
+    SECTION("graph")
+    {
+        constexpr char kConfigKey[] = "metrics.graph.[test]";
+        const auto input = GENERATE(Catch::Generators::table<std::string, std::string>({
+            {kIntervalAttribute, "1O0"}, {kEpisodeIntervalAttribute, "x"}, {kIntervalAttribute, ""},
+            {kEpisodeIntervalAttribute, "1:2"}, {kIntervalAttribute, ":1"}}));
+        const auto& [attribute, value] = input;
+        CAPTURE(attribute, value);
+        const auto definition = "key:network " + attribute + ":" + value;
+        anet::ConfigData config;
+        config.Set(kConfigKey, definition);
+        CHECK_THROWS_WITH(rl::ObserverFactory(config), Catch::Matchers::ContainsSubstring(kConfigKey)
+            && Catch::Matchers::ContainsSubstring("config_value=" + definition)
+            && Catch::Matchers::ContainsSubstring("attr_key=" + attribute + " attr_val=" + value + " expected=integer"));
+    }
+
+    SECTION("complete numeric values")
+    {
+        anet::ConfigData config;
+        const std::string scalar_prefix = std::string("reward $env ") + kIntervalAttribute;
+        const std::string alpha_attribute = std::string(" ") + kEmaAlphaAttribute;
+        const std::string clip_attribute = std::string(" ") + kClipAttribute + ":1";
+        config.Set("metrics.scalar.[test]", scalar_prefix + ":100" + alpha_attribute + ":0.01" + clip_attribute);
+        config.Set("metrics.scalar.[signed]", scalar_prefix + "\t:+100" + alpha_attribute + ":1e-2" + clip_attribute);
+        config.Set("metrics.graph.[test]", std::string("key:network ") + kStepIntervalAttribute
+            + "\t:+100 " + kEpsIntervalAttribute + ":10");
+        rl::ObserverFactory factory(config);
+        const auto definitions = factory.GetScalarMetricDefs();
+        REQUIRE(definitions.size() == 2);
+        for (const auto& definition : definitions) {
+            CHECK(definition.interval == 100);
+            CHECK(definition.ema_alpha == Catch::Approx(0.01));
+            REQUIRE(definition.clip.has_value());
+            CHECK(*definition.clip == Catch::Approx(1.0));
+        }
+    }
+}
+
+TEST_CASE("BatchActionInfo reuses the implicit CUDA device", "[rfd0206][action_device]")
+{
+    if (!torch::cuda::is_available()) SKIP("CUDA is unavailable");
+
+    const auto actions = torch::tensor({1, 2}, torch::kInt64);
+    const rl::BatchActionInfo info(actions);
+    const torch::Device cuda(torch::kCUDA);
+    const torch::Device cuda0(torch::kCUDA, 0);
+    const auto first = info.GetAction(cuda);
+    CHECK(first.device() == cuda0);
+    CHECK(torch::equal(first.cpu(), actions));
+    CHECK(torch::equal(info.GetAction(cuda), first));
+    CHECK(torch::equal(info.GetAction(cuda0), first));
 }

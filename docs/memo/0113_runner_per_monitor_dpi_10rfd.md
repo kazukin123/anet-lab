@@ -199,7 +199,7 @@ Conv2d・HeatMap の Panel に渡す初期の大きさは DIP に直すが、開
 2. GL の余白は、`GetContentScaleFactor` を掛けた値を整数に丸めて使う（理由: GL の描画はもともと実際の画素で計算している。§2 の 5）。
 3. 線の太さは `FromDIP` の値と 1 の大きい方にする（理由: 細い線が消えないようにする）。
 4. Logs の字下げを測る時機は §5.4 の 3 のとおりとする（理由: 測った幅が変わりうるのは DPI の変更だけである（ログ欄のフォントは固定）。仮の幅は、測れる状態（記録が入った、欄が広がった）になった時点で置き換える。測れたあとは追記ごとに測らない。追記は頻繁な経路である）。
-5. 計測の範囲の名前は `ClassName::OnPaint`（`ANET_PROFILE_FUNC`）にする（理由: [実装 品質確認観点](../quality/impl.md)「計測」の名前の形）。
+5. 計測の範囲の名前は `ClassName::OnPaint`（`ANET_PROFILE_FUNC`）にする（理由: [実装 レビュー観点](../quality/impl.md)「計測」の名前の形）。
 6. 既存のテストの固定の寸法は、PMv2 で落ちたものだけを `FromDIP` で直す（理由: 100% では値が変わらないので、落ちないテストを触る理由が無い）。
 7. 受入 1 のテストのタグは `[dpi_awareness]` とし、既定のスイートに入れる（理由: RunnerApp を起動せず、窓 1 つで確かめられる）。受入 3 のテストのタグは `[dpi_layout]` とし、RunnerApp を起動する別の process で、明示したときだけ走らせる（理由: 既存の `[rfd0110_*]` と同じく RunnerApp を起動するため）。
 
@@ -278,5 +278,5 @@ Conv2d・HeatMap の Panel に渡す初期の大きさは DIP に直すが、開
 
 - [0186_runner_theme_switch](0186_runner_theme_switch_10rfd.md)、[RFD0110](done/0110_runner_main_pane_dynamic_centre_10rfd.md)
 - [160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.5・§7.1・§8
-- [RunnerApp（wiki）](../wiki/apps/110_runner_app.md)
+- [RunnerApp（wiki）](../wiki/concepts/apps/110_runner_app.md)
 - [Improving the high-DPI experience in GDI based Desktop Apps](https://blogs.windows.com/windowsdeveloper/2017/05/19/improving-high-dpi-experience-gdi-based-desktop-apps/)、[High DPI Desktop Application Development on Windows](https://learn.microsoft.com/ja-jp/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows)、[wxWidgets の High DPI overview](https://docs.wxpython.org/high_dpi_overview.html)

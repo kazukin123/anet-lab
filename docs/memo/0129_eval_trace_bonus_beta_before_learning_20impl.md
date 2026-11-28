@@ -29,7 +29,7 @@ PRD129 を実装する。RND が有効な Agent は構築時に exp step 0 の �
 - Debug 全体ビルド、`anet-core-test.exe "[prd129]"`、`anet-core-test.exe "[prd127]"`、内的報酬の関連テストを実行する。標準出力と標準エラーを同じログへ保存し、応答は終了値と件数のみ。非同期 session を長めに待つ。
 - Montezuma の `run_20261113-113201_mz_tg_r123_s1_c50m` の `agent_close.anet` を、評価専用で train 自動開始あり・なしの 2 通りで開く。それぞれ最初の行と選んだ 3 行の rnd_bonus が、0.01 × clamp(rnd_norm, 0, 4) と表示の 4 桁で一致することを確認する。専用の使い捨て Run だけを操作する。
 - PRD §7 の旧文言検索、BOM / LF / diff check、日英の見出し・表・コードブロック・リンクと内容対応を確認する。
-- 品質確認観点の全項目を適用判定して自己点検し、計画と実装を独立レビューへ出す。指摘は修正して同じレビューへ出し直す。
+- レビュー観点の全項目を適用判定して自己点検し、計画と実装を独立レビューへ出す。指摘は修正して同じレビューへ出し直す。
 
 実行するビルドの形:
 
@@ -83,12 +83,12 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 | 定数への変更後の PRD129 | 上と同じ | `.scratch/prd129/prd129-r4-test.log`、exit 0、5 cases / 134 assertions |
 | 関連回帰 | `& core/anet-core/bin/Debug/anet-core-test.exe '[prd129],[prd127],[prd116],[prd123]'` | `.scratch/prd129/intrinsic-regression-r3-test.log`、exit 0、60 cases / 4,954 assertions |
 | 文書・BOM・LF・移行 | `& .venv/Scripts/python.exe .scratch/prd129/verify_changes.py` | `.scratch/prd129/verify-changes-r2.log`、exit 0 |
-| 重複リテラル | 品質確認観点 72 の追加行の候補抽出 | `.scratch/prd129/duplicate-literals.log`。設定キーは例外。clipped は既存定数へ変更 |
-| 共有する契約 | 品質確認観点 4 の 2 検索を protocol とレビューエージェント定義へ実行 | ともに 0 件 |
+| 重複リテラル | レビュー観点 72 の追加行の候補抽出 | `.scratch/prd129/duplicate-literals.log`。設定キーは例外。clipped は既存定数へ変更 |
+| 共有する契約 | レビュー観点 4 の 2 検索を protocol とレビューエージェント定義へ実行 | ともに 0 件 |
 
 ## 自己点検
 
-- 実装品質確認観点の全項目を適用判定した。計画の前提・TDD の順・PRD §7 の入力と回数・受入 1〜6 を、コードと検証結果へ照合した。起動時のボーナス、予定進行、13 キーの 3 回の不変性、checkpoint の真偽両経路、2 通りの GUI を確認した。
+- 実装レビュー観点の全項目を適用判定した。計画の前提・TDD の順・PRD §7 の入力と回数・受入 1〜6 を、コードと検証結果へ照合した。起動時のボーナス、予定進行、13 キーの 3 回の不変性、checkpoint の真偽両経路、2 通りの GUI を確認した。
 - 本体は構築時の β の設定と既存の入口での評価位置の変更だけ。公開 API・設定・保存形式・失敗・ログ・乱数の消費・所有・借用・namespace・include を変えていない。汎用層と UI の変更、互換コード、追加の同期転送はない。それらだけを対象とする項目は対象外。
 - コメントは日本語、変えたテストには `[prd129]` を付け、既存 `[prd127]` を保持。NaN を 0 で偽装せず、新しい契約で倍率 1 のときだけ実際のボーナスが 0 となることを確認した。
 - 日英 3 対の変更箇所の内容・構造・リンクと翻訳元、既存 BOM / LF、旧文言の移行と過去記録の保持を確認した。PRD 本文・CONTEXT・ADR・出荷設定は変更しない。課題の対応内容も追記した。
@@ -109,7 +109,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 純粋な型の配置の整理なので、新しい挙動の RED は作らない。すでに通った公開経路のテストを維持し、Debug 全体ビルドのあと、既存 2 テストの名前と `[prd129]` を合わせた 7 cases を確認する。`RemoveCheckpoint` が 0 件、共通型の使用が 5 箇所になったこと、BOM / LF / diff check を確認する。
 - ビルド・テストの stdout / stderr は `.scratch/prd129/selected-cleanup-build.log` と `selected-cleanup-test.log` に保存し、session で待つ。自己点検後、同じレビュー担当へ追加差分を出す。
 - 結果: Debug 全体ビルドと上記の 7 cases / 356 assertions がともに exit 0。`verify-selected-cleanup.log` も exit 0。`RemoveCheckpoint` は 0 件、`IntrinsicCheckpointCleanup` は宣言 1・destructor 1・使用 5 箇所。既存のテスト名・タグ・断定と checkpoint のファイル名・lifetime は変えていない。
-- 追加分も実装品質確認観点の全項目を適用判定し、局所的な型の利用への変更、指示付き初期化、BOM / LF / diff check を確認した。新しい挙動・API・設定・補助型・ログ・失敗はない。設計・ガイドへの追加追随は不要。同じ内容の既存課題は無いので、課題記録の新設や別件への追記はしない。
+- 追加分も実装レビュー観点の全項目を適用判定し、局所的な型の利用への変更、指示付き初期化、BOM / LF / diff check を確認した。新しい挙動・API・設定・補助型・ログ・失敗はない。設計・ガイドへの追加追随は不要。同じ内容の既存課題は無いので、課題記録の新設や別件への追記はしない。
 - 追加対応のレビュー（通算 3 往復目）も計画・実装とも OK、差し戻し 0 件。原文は `.scratch/prd129/review-20261114-0046.md`。保存・削除の時機、ファイル名、名前・タグ・断定の維持と、ビルド・7 cases の成功記録を確認された。新たな範囲外の検出・開発者への確認事項はない。
 
 ## 決まらなかったこと

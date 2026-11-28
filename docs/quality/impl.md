@@ -1,4 +1,4 @@
-# 実装 品質確認観点
+# 実装 レビュー観点
 
 実装計画と実装を書く前の参照、レビュー、実装した側の自己点検に使う規約と観点。
 
@@ -46,7 +46,7 @@ RFD に沿わない変更は、`impl` として、入力元を「なし」と書
 | 3 | TODO の形式 | 変更ファイルのうち `*.cpp` と `*.hpp` | `\bTODO\b`（大文字小文字を区別する） | 0 件 | 本書「コメントと TODO」の規約 |
 | 4 | 共有する契約の非依存 | `docs/process/protocol.md` と `.claude/agents/anet-review-agent.md`（変更ファイルに無くても検索する。課題の仕組みのファイルは対象外） | `rg -n -P -i 'anet(?!-[a-z0-9-]+)'` と `rg -n 'RFD'`。`anet-` で始まる skill・エージェント・アダプタの名前と作業用パスを前者のパターンで除く | どちらも 0 件 | [ADR 0049](../adr/0049-process-contract-kept-project-neutral-anet-specifics-in-registry-and-viewpoints.md) 先頭の注記 |
 | 5 | 実装計画の名前と場所 | `impl-plan` として渡された実装計画のファイル名。`impl-plan` を渡されたときだけ | `^\d{4}_.+_2[0-9]impl\.md$` | 一致する。同じディレクトリに、名前の `_2[0-9]impl.md` を `_10rfd.md` に置き換えた RFD がある | [RFD-IMPLEMENTATION.md](../../.agents/skills/anet-impl-rfd/RFD-IMPLEMENTATION.md) §実装計画ファイル解決 |
-| 71 | 改名の旧名 | 現用の範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki のトピック別まとめ `docs/wiki/apps/` と `docs/wiki/categories/`）。過去の記録（`docs/experiments/`、`docs/adr/`、`docs/memo/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し（`src/core/base/testdata/` の `run_*.txt` など））は除く。名前を変えた実装だけ | 実装計画か依頼に書いた旧 → 新の一覧の旧名のそれぞれを、固定文字列で（設定キーは `learner.alpha` のような完全なキーで） | 名前を変えた実装には旧 → 新の一覧があり、旧名がどれも 0 件 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針、本書「名前」の規約 |
+| 71 | 改名の旧名 | 現用の範囲（コード、テスト、設定、bat、`docs/design/` の jp と en、`CONTEXT.md`、wiki のトピック別まとめ `docs/wiki/concepts/apps/` と `docs/wiki/concepts/framework/`）。過去の記録（`docs/experiments/`、`docs/adr/`、`docs/memo/`、`CHANGELOG.md`、wiki の知見のページ、Run の出力とその写し（`src/core/base/testdata/` の `run_*.txt` など））は除く。名前を変えた実装だけ | 実装計画か依頼に書いた旧 → 新の一覧の旧名のそれぞれを、固定文字列で（設定キーは `learner.alpha` のような完全なキーで） | 名前を変えた実装には旧 → 新の一覧があり、旧名がどれも 0 件 | [AGENTS.md](../../AGENTS.md) §クリーンブレーク方針、本書「名前」の規約 |
 | 76 | 直訳の語の不在 | 変更ファイルの差分の追加行（項番 6 で得た差分）。コード・コメント・設計文書・実装計画を含む | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルールの表で、「検索」が「する」の行の避ける語のそれぞれを、固定文字列で | 0 件。外部からの引用と外部の固有名の中は数えない | [AGENTS.md](../../AGENTS.md) §AI エージェントの応答言語ルール |
 
 ### スクリプトによる検査
@@ -274,7 +274,7 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 - wxWidgets の親子所有、`wxLog::SetActiveTarget` の target 移譲、`wxProcess` の終了通知と delete の規約、C API のハンドル（`FILE*`）は、その API の所有規約に従う。コメントは不要。
 - `dynamic_cast` はテストコード内に限定し、production code では使用しない。型ごとの分岐が必要な場合は、仮想関数、明示的な interface、既存 API の拡張、または型情報を持つデータ構造で表現する。`dynamic_cast` を避けるために取り出し口（`GetXxxSource`・`AsXxx` など）を足す前に、基底の型がその interface を持つべきかを見る。
 - UI スレッド（GUI のイベントとタイマー）から、学習スレッドが更新の間ずっと持つロックを取らない。学習側の可変状態は、学習スレッドで作った写しか、atomic に公開した値を通して読む。
-- クラス名は、作る側・結果・読み口などの役割を、接尾辞（Provider・Builder・Reader・Result など）で示す。既存のコードで使われている動詞（Create・Capture・On など）は、既存と同じ意味で使う。
+- クラス名は、作る側・結果・読み口などの役割を、接尾辞（Provider・Builder・Reader・Result など）で示す。接尾辞は、今の使われ方に合わせる。設定から組み立てる役は Builder（`NetworkBuilder`・`BatchEnvBuilder`）、種類ごとに差し替えて、指定に従って作るだけの役は Factory（`NetworkHeadFactory`・`AgentFactory`）、自分の見せ方を求めに応じて渡す口は Provider（`GraphVizProvider`・`ImageProvider`）とする。接尾辞を選ぶ前に、その接尾辞が公開ヘッダで今どの役の型に付いているかを検索して確かめる。既存のコードで使われている動詞（Create・Capture・On など）は、既存と同じ意味で使う。
 - 関数（メンバ関数・自由関数・ファイルの中の static 関数）の名前は、動詞で始める（`MakeIntrinsicHeadFeatures`）。
   - 値を返す関数も、組み立てる・計算する・読み出すことを動詞で示す（`Make…`・`Compute…`・`Get…`）。引数なしで状態を読むだけの関数も `Get` で始める（`GetCapacity()`）。
   - 真偽を返す関数は、問いの形にする（`Is…`・`Has…`・`Can…`・`Should…`・`Needs…`）。
@@ -306,7 +306,7 @@ C++ コードは Google C++ スタイルガイドを前提とします。
 | 56 | 汎用層の名前 | 足した・変えた共通のヘッダと汎用機構の型・関数・分岐・検証が、特定の Agent・Env・アルゴリズムの名前（鍵、欄、モード）を持たない。個別の実装の値は、その実装が宣言して提供している | [AGENTS.md](../../AGENTS.md) §汎用機構と利用側の責任境界 |
 | 57 | UI スレッドのロック | UI スレッドから、学習スレッドが更新の間ずっと持つロックを取っていない。学習側の可変状態は、学習スレッドで作った写しか、atomic に公開した値を通して読んでいる | 本節の規約 |
 | 58 | interface の取り出し口 | `dynamic_cast` を避けるために取り出し口（`GetXxxSource`・`AsXxx` など）を足した場合、基底の型に interface を持たせない理由が実装計画にある | 本節の規約 |
-| 59 | クラス名と動詞 | 足したクラス名に、役割を表す接尾辞がある。既存の動詞を使う場合、同じ意味で使っている既存の箇所が実装計画に示されている | 本節の規約 |
+| 59 | クラス名と動詞 | 足したクラス名に、役割を表す接尾辞がある。接尾辞が、規約の使い分け（Builder・Factory・Provider）と、今の使われ方に合っている。既存の動詞を使う場合、同じ意味で使っている既存の箇所が実装計画に示されている | 本節の規約 |
 | 60 | 補助クラスの配置 | 外で使わない補助のクラスが、持ち主のクラスの内側（private な入れ子）か、.cpp の無名名前空間にあり、公開ヘッダの名前空間で宣言されていない | 本節の規約 |
 | 63 | include の順 | 新しく書いた `.cpp`・`.hpp` の include が、所在の節の順（自身のヘッダ → 標準 → ミドルウェア → anet 系。anet 系の中は基礎のヘッダが先。テストは先頭が `anet/test/catch.hpp`）に並んでいる。既存のファイルに足した include は、その順の該当する位置にある | 本節の規約 |
 | 64 | 設定キーの読み取り | 足した・変えた設定の読み取りで、固定キーを `ANET_READ_CONFIG` で読み、メンバのパスが設定キーと一致している。`ReadConfig` へ文字列のキーを直接渡す箇所は、所在の節がいう例外に当たる | 本節の規約 |
@@ -498,8 +498,9 @@ env 別ファイル（`Atari.txt` など）の値・本数・群やキーの列�
 
 ### skill
 
-適用: `.agents/skills/` か `.claude/skills/` の配下を変えた実装。
+適用: `.agents/skills/` か `.claude/skills/` の配下を変えた実装。項番 85 は、そのうち、同じ形で何本も増える Markdown ファイルの種類を新しく起こし、skill が書き出すようにした実装（今ある種類の形を改めるだけの実装は含まない）。
 
 | 項番 | 確認観点 | 確認内容 | 規約の所在 |
 | --- | --- | --- | --- |
 | 53 | 一覧の更新 | skill を足した、または用途・起動・出力先を変えた場合、skills README の表が、両方のコピーで更新されている | [skills README](../../.agents/skills/README.md) §追加と更新の手順 |
+| 85 | 新しい種類の Markdown の YAML ヘッダ | RFD がそのファイルに YAML ヘッダを付けるかを決めていれば、YAML ヘッダの有無と欄が RFD の決定どおりである。決めていなければ（RFD が無い、RFD がそのファイルの形を決めていない、RFD が形を決めたが YAML ヘッダに触れていない）、付けるかを決めていて、付けるなら skill の雛形か手順に YAML ヘッダと持たせる欄があり、本文と重なる値があればどちらを正とするかが skill か実装計画か依頼にある。付けないなら、理由が実装計画か依頼にある。付けるときは、どちらの場合も、YAML ヘッダの書き方が規約のとおりである | [RFD レビュー観点](rfd.md) §設計の形の規約 |

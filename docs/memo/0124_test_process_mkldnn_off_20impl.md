@@ -66,7 +66,7 @@ git grep -n "OMP_NUM_THREADS" -- core/anet-core/testdata/prd116/README.md
 - テストのソースは `core/anet-core/CMakeLists.txt` の 18 行の GLOB で集まり、ファイルを足さないので CMake は変えない。
 - MKLDNN を有効に戻すテストや、`userEnabledMkldnn` を読むテストは無い。
 - `EnsureNNInitialized` と `PrepareNativeStackNetworkTest` の名前と呼び出しは変えない。
-- 内部リンケージの書き方は、[実装 品質確認観点](../quality/impl.md) の「C++ コード」の規約に従う。
+- 内部リンケージの書き方は、[実装 レビュー観点](../quality/impl.md) の「C++ コード」の規約に従う。
 - PRD 範囲外: Debug 版の Runner を CPU で回したときの同じ assert（PRD124 §7。工程末の候補で開発者が見送った）。
 
 ## 経過
@@ -81,8 +81,8 @@ git grep -n "OMP_NUM_THREADS" -- core/anet-core/testdata/prd116/README.md
 - 2026-11-11: 基準を取ったあとに、ユーザーのコミット（PRD124 の文書、PRD122 の実装、課題の一覧の道具）が HEAD に入った。基準のとき（`status-before.txt`）、PRD122 の C++ のファイルは index にだけ変更があり、作業ツリーとの差は無かった。PRD122 の C++ のファイルの更新時刻はどれも基準のビルド（03:55）より前（最も新しいもので 03:24）で、基準のあとに書き換えられていない。今は `git diff HEAD --stat -- core apps` で C++ のファイルに差があるのは本実装の 4 ファイルだけである。このため、基準のときと今とで、本実装のほかの C++ のコードは同じと判断し、基準を取り直さずに使った。
 - 2026-11-11: 仕上げ。全体の Debug ビルド（`cmake --build --preset x64-Debug`）は終了コード 0。既定の集合を同じ seed でバックグラウンド実行し、完了の通知を待った。返したのは `exit=0 seconds=532` の 1 行。出力は `.scratch/prd124/` の `after.xml`、`after-console.log`、`after-stdout.log`（約 3.5 MB）。`after-console.log` の末尾で、900 本（899 通過・1 スキップ）、175,432 assertions がすべて通過。テストケースの名前で直す前と比べ、直す前に通っていたテストで通らなくなったものは 0、増えたのは見張りのテスト 1 本、スキップは両方とも `PRD070 reports every explicit CUDA key before NN initialization` だけ（A7）。
 - 2026-11-11: A5 `git grep -n "setUserEnabledMkldnn" -- core apps` は main_test.cpp の 43 行だけ。A6 `git grep -n "OMP_NUM_THREADS" -- core/anet-core/testdata/prd116/README.md` は 0 件。
-- 2026-11-11: 機械検査（実装 品質確認観点の項番 3・7・62・72・76）はどれも期待値どおり。項番 1・2 は対象のファイルが無い（ヘッダと production のコードを変えていない）。
-- 2026-11-11: 自己点検。実装 品質確認観点の全項目を適用範囲に従って通した。直したもの: なし。計画に無いものとして、`EnsureNNInitialized` と `PrepareNativeStackNetworkTest` に「main が切るのでここでは切らない」旨の 1 行のコメントを置いた（切る行を消した場所で、切り替えを書き戻さないための目印。項番 16 の範囲内と判断）。項番 35（グローバル状態）: 自前の可変な変数は足していない。libtorch のプロセス全体の状態を書き換える場所を、テストの中の 2 か所から main の 1 か所へ移した（PRD124 §2.2）。課題 fa2f69 の対応内容に今回の行を書いた（項番 74）。
+- 2026-11-11: 機械検査（実装 レビュー観点の項番 3・7・62・72・76）はどれも期待値どおり。項番 1・2 は対象のファイルが無い（ヘッダと production のコードを変えていない）。
+- 2026-11-11: 自己点検。実装 レビュー観点の全項目を適用範囲に従って通した。直したもの: なし。計画に無いものとして、`EnsureNNInitialized` と `PrepareNativeStackNetworkTest` に「main が切るのでここでは切らない」旨の 1 行のコメントを置いた（切る行を消した場所で、切り替えを書き戻さないための目印。項番 16 の範囲内と判断）。項番 35（グローバル状態）: 自前の可変な変数は足していない。libtorch のプロセス全体の状態を書き換える場所を、テストの中の 2 か所から main の 1 か所へ移した（PRD124 §2.2）。課題 fa2f69 の対応内容に今回の行を書いた（項番 74）。
 - 2026-11-11: レビュー 1 往復目（`anet-review-agent`、成果物 `impl-plan` と `impl`、観点 `docs/quality/impl.md`）: `impl-plan` は OK、`impl` は差し戻し 1 件（項番 48。既定の集合の実行の標準出力・標準エラーの保存先、返した要約、完了の待ち方が記録に無い）。「検証」と「経過」に書き足した。原文は `.scratch/prd124/review-20261111-0437-impl.md`。
 - 2026-11-11: レビュー 2 往復目: どちらも OK。原文は `.scratch/prd124/review-20261111-0450-impl.md`。再確認ポイント: 81 行の更新時刻の根拠はレビューでは確かめていない（A7 の結論はこれに依らない）。概要が D8 と run_performance.py（触らないもの）を書いていないが、主な変更の表が範囲を閉じていて実装も触れていない。
 - 2026-11-11: 課題 fa2f69 の AI の判定を「残件無し」（2026-11-11）にし、`reports/tools/wiki_support.py maps` を回した（A8）。状態は対応中のまま。解決はコミットの準備で持ちかける。

@@ -1,0 +1,4 @@
+interface:
+  display_name: "ANET Wiki Query"
+  short_description: "会話の問いに wiki と正本を引いて答え、見立てや調べた結果を記録する"
+  default_prompt: "$anet-query-wiki を使って、今の会話の問いを出典と照合して答えてください。"

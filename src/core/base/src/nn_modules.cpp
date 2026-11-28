@@ -862,6 +862,8 @@ public:
         ANET_PROFILE_FUNC();
         return x.permute(dims_);
     }
+
+    bool HandlesStackAxis() const override { return true; }
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
     {
         return forward(input);
@@ -894,6 +896,8 @@ public:
         shape.insert(shape.end(), dims_.begin(), dims_.end());
         return x.reshape(shape);
     }
+
+    bool HandlesStackAxis() const override { return true; }
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
     {
         return forward(input);
@@ -912,6 +916,7 @@ private:
 /// Flatten Module
 class FlattenModule : public NetworkModule {
 public:
+    bool HandlesStackAxis() const override { return true; }
     torch::Tensor forward(torch::Tensor x)
     {
         ANET_PROFILE_FUNC();
@@ -975,15 +980,14 @@ class StackMergeModule : public NetworkModule {
 public:
     StackMergeModule() {}
 
+    bool HandlesStackAxis() const override { return true; }
+
     torch::Tensor forward(torch::Tensor x)
     {
-        // 入力が5次元 [B, S, C, H, W] なら [B, S*C, H, W] に変換
-        if (x.dim() == 5) {
-            return x.view({ x.size(0), x.size(1) * x.size(2), x.size(3), x.size(4) }).contiguous();
+        if (x.dim() != 5) {
+            ANET_SYSTEM_ERROR("StackMerge got shape=" << x.sizes() << "; expected [B, S, C, H, W].");
         }
-
-        // 4次元ならそのまま通す
-        return x.contiguous();
+        return x.reshape({ x.size(0), x.size(1) * x.size(2), x.size(3), x.size(4) }).contiguous();
     }
 
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
@@ -1120,6 +1124,25 @@ public:
     }
 private:
     torch::nn::SiLU impl_{ nullptr };
+};
+
+// --- Tanh Module ---
+// 出力を (-1, 1) に収める活性化。方策勾配の MLP（PPO の参照実装など）が隠れ層に使う。
+class TanhModule : public NetworkModule {
+public:
+    TanhModule()
+    {
+        impl_ = register_module("tanh", torch::nn::Tanh());
+    }
+
+    bool IsConv2dVisualizable() const override { return true; }
+
+    torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
+    {
+        return impl_->forward(input);
+    }
+private:
+    torch::nn::Tanh impl_{ nullptr };
 };
 
 // --- Mish Module ---
@@ -2193,6 +2216,7 @@ public:
         ANET_CHECK(config_.num_classes > 0);
     }
 
+    bool HandlesStackAxis() const override { return true; }
     bool IsConv2dVisualizable() const override { return true; }
 
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
@@ -2318,6 +2342,7 @@ public:
         ANET_CHECK(config_.grid_height > 0);
     }
 
+    bool HandlesStackAxis() const override { return true; }
     bool IsConv2dVisualizable() const override { return true; }
 
     torch::Tensor Forward(torch::Tensor input, const anet::nn::NetworkForwardContext& context) override
@@ -3300,6 +3325,13 @@ public:
     }
 };
 
+class TanhModuleFactory final : public NetworkModuleFactory {
+public:
+    std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& ctx) const override {
+        return std::make_shared<TanhModule>();
+    }
+};
+
 class MishModuleFactory final : public NetworkModuleFactory {
 public:
     std::shared_ptr<NetworkModule> CreateModule(const anet::ConfigData& config_data, const ModuleContext& ctx) const override {
@@ -3344,6 +3376,7 @@ void anet::nn::InitNN()
         repo.Register("GELU", std::make_shared<GELUModuleFactory>());
         repo.Register("SiLU", std::make_shared<SiLUModuleFactory>());
         repo.Register("Mish", std::make_shared<MishModuleFactory>());
+        repo.Register("Tanh", std::make_shared<TanhModuleFactory>());
         repo.Register("LeakyReLU", std::make_shared<LeakyReLUModuleFactory>());
 
         // 正規化・Pooling登録

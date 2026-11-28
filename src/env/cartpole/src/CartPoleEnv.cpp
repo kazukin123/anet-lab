@@ -52,7 +52,8 @@ anet::rl::EnvSpec CartPoleEnv::GetSpec() const
         .num_classes = 0,   // 連続値
         .labels = { "x", "x_dot", "theta", "theta_dot" },
         .min_values = { -limit_x, -limit_x_dot, -limit_theta, -limit_theta_dot },
-        .max_values = { limit_x,  limit_x_dot,  limit_theta,  limit_theta_dot }
+        .max_values = { limit_x,  limit_x_dot,  limit_theta,  limit_theta_dot },
+        .scale = anet::ValueScale::Unscaled,
     };
 
     // StateSpec

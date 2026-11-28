@@ -391,6 +391,43 @@ private:
 
 } // namespace
 
+TEST_CASE("TensorSpec serializes scale and stack axis", "[forwarder]")
+{
+    const anet::TensorSpec spec{ .shape = { 3 } };
+    const auto json = spec.ToJson();
+    REQUIRE(json.contains(anet::TensorSpec::kScaleField));
+    CHECK(json.at(anet::TensorSpec::kScaleField) == "Scaled");
+    REQUIRE(json.contains(anet::TensorSpec::kStackAxisField));
+    CHECK(json.at(anet::TensorSpec::kStackAxisField) == false);
+
+    const anet::TensorSpec stacked_spec{
+        .shape = { 4, 3 },
+        .scale = anet::ValueScale::Unscaled,
+        .has_stack_axis = true,
+    };
+    const auto stacked_json = stacked_spec.ToJson();
+    CHECK(stacked_json.at(anet::TensorSpec::kScaleField) == "Unscaled");
+    CHECK(stacked_json.at(anet::TensorSpec::kStackAxisField) == true);
+}
+
+TEST_CASE("StateSpec rejects integral or discrete unscaled observations", "[forwarder]")
+{
+    rl::StateSpec state;
+    auto& spec = state.obs_spec[rl::ObsKeys::kVector];
+    spec.shape = { 2 };
+    spec.scale = anet::ValueScale::Unscaled;
+    CHECK_NOTHROW(state.AssertSanity());
+
+    SECTION("Integral dtype") {
+        spec.dtype = torch::kInt64;
+        CHECK_THROWS_WITH(state.AssertSanity(), Catch::Matchers::ContainsSubstring("Unscaled"));
+    }
+    SECTION("Discrete key") {
+        spec.num_classes = 2;
+        CHECK_THROWS_WITH(state.AssertSanity(), Catch::Matchers::ContainsSubstring("Unscaled"));
+    }
+}
+
 TEST_CASE("BatchEnvSpec serializes episode scope", "[env][episode_scope]")
 {
     CHECK(rl::BatchEnvSpec{ .num_envs = 2, .num_threads = 1 }.ToJson()["episode_scope"] == "per_lane");

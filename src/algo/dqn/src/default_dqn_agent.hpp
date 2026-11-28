@@ -39,12 +39,12 @@ namespace anet::rl::dqn {
         static constexpr bool kDefaultIntrinsicUseDoneMask = true;
         std::map<std::string, anet::ConfigData> nn_forward;
         NetworkModelConfig model;
-        StuckerConfig stucker;
+        ConfigData perception_config;
+        FrameStackConfig frame_stack;
         std::map<std::string, DQNActorConfig> actor;
         ActionPolicyConfig target_policy;
         LearnerConfig learner;
         RewardScalerConfig reward_scaler;
-        ObservationNormalizerConfig obs_norm;
         struct {
             bool enabled = false;
             std::string value_mode = kValueModeCombined;
@@ -109,7 +109,10 @@ namespace anet::rl::dqn {
             ReadTargetPolicy(config_data);
             ReadLearner(config_data);
             ReadRewardScaler(config_data);
-            ReadObservationNormalizer(config_data);
+            perception_config = MakeReadScope(config_data, "perception");
+            ANET_READ_CONFIG(config_data, frame_stack.count);
+            ANET_READ_CONFIG(config_data, frame_stack.keys.mode);
+            ANET_READ_CONFIG(config_data, frame_stack.keys.listed.names);
             ReadHeadSelection(config_data);
             ReadSkip(config_data);
             ReadValueDecomposition(config_data, actor_read_scopes);
@@ -121,6 +124,7 @@ namespace anet::rl::dqn {
             learner.full_keys = GetFullKeys().Extract("learner");
             learner.full_keys.CopyFieldFrom("quantile_mode", GetFullKeys(), "quantile_mode");
             learner.full_keys.CopyFieldFrom("num_quantiles", GetFullKeys(), "qr.num_quantiles");
+            learner.ValidateTrainingValues();
         }
     private:
         // 元の接頭辞と記録先を明示し、opaque な値の型と受け取る部品のキー形式を保つ。
@@ -372,10 +376,6 @@ namespace anet::rl::dqn {
             ANET_READ_CONFIG(config_data, nn_viz.float_precision);
             anet::nn::ValidateNetworkGraphVizConfig(nn_viz, "DefaultDQNAgent.nn_viz");
 
-            ANET_READ_CONFIG(config_data, stucker.use_stacker);
-            ANET_READ_CONFIG(config_data, stucker.stack_count);
-            ANET_READ_CONFIG(config_data, stucker.stack_keys);
-
             ANET_READ_CONFIG(config_data, model.soft_update_tau);
             ANET_READ_CONFIG(config_data, model.hard_update_interval);
 
@@ -565,25 +565,6 @@ namespace anet::rl::dqn {
                     << GetFullKey("learner.use_tbo") << " is enabled together with " << GetFullKey("reward_scaler.use_dynamic_scaling")
                     << " or " << GetFullKey("reward_scaler.use_auto_post_scale") << "; targets may be double-compressed.";
             }
-        }
-
-        void ReadObservationNormalizer(const ConfigData& config_data)
-        {
-            ANET_READ_CONFIG(config_data, obs_norm.pass_through);
-            ANET_READ_CONFIG(config_data, obs_norm.use_clipping);
-            ANET_READ_CONFIG(config_data, obs_norm.clip_range);
-            ANET_READ_CONFIG(config_data, obs_norm.use_dynamic_scaling);
-            ANET_READ_CONFIG(config_data, obs_norm.use_centering);
-            ANET_READ_CONFIG(config_data, obs_norm.epsilon);
-            ANET_READ_CONFIG(config_data, obs_norm.constant_mean);
-            ANET_READ_CONFIG(config_data, obs_norm.constant_std);
-            ANET_READ_CONFIG(config_data, obs_norm.use_robust_update);
-            ANET_READ_CONFIG(config_data, obs_norm.robust_warmup_count);
-            ANET_READ_CONFIG(config_data, obs_norm.robust_std_threshold);
-            ANET_READ_CONFIG(config_data, obs_norm.post_process_type);
-            ANET_READ_CONFIG(config_data, obs_norm.post_process_threshold);
-            obs_norm.full_keys = GetFullKeys().Extract("obs_norm");
-            ValidateObservationNormalizerConfig(obs_norm);
         }
 
         void ReadHeadSelection(const ConfigData& config_data)
@@ -822,9 +803,6 @@ namespace anet::rl::dqn {
                 ValidateActionPolicy(entry.skip_policy);
             }
 
-            ValidateRange(quantile_mode != ActionPolicyConfig::kQuantileModeIqn || (std::isfinite(learner.quantile_huber_kappa) && learner.quantile_huber_kappa > 0.0f),
-                GetFullKey("learner.quantile_huber_kappa"), learner.quantile_huber_kappa,
-                "finite value > 0 when " + GetFullKey("quantile_mode") + "=" + ActionPolicyConfig::kQuantileModeIqn);
         }
 
         void ValidateForwardReference(
@@ -875,12 +853,10 @@ namespace anet::rl::dqn {
     public:
         int64_t Save(anet::OutputArchive& archive) const override;
     private:
-        std::unique_ptr<FrameStacker> CreateFrameStacker(const ActorRequest& request) const;
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const BatchExperience& expriences);
     private:
         std::shared_ptr<anet::nn::NetworkHeadFactory> SelectHeadFactory() const;
-        anet::TensorSpecMap MakeNetworkInputSpec(const EnvSpec& env_spec) const;
-        void RecordNetworkStructure() const;
+        void RecordNetworkStructure(const anet::SpecForwarder& visualization) const;
         void InitializeLearner(const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec,
             anet::seed_t replay_seed, anet::seed_t learner_seed);
         void LoadNetwork(const std::string& filename);
@@ -892,9 +868,11 @@ namespace anet::rl::dqn {
         };
         DefaultDQNAgentConfig config_;
         std::map<std::string, std::shared_ptr<const anet::nn::NetworkForwardConfig>> forward_configs_; ///< Agent 所有の実行設定 Resource
-        std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
-        std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm_ = nullptr;
+        std::unique_ptr<anet::ForwarderBuilder> perception_;
+        ReplayFrameStack replay_frame_stack_;
+        std::shared_ptr<anet::SpecForwarder> frame_intake_;
+        std::shared_ptr<anet::SpecForwarder> visualization_perception_;
         std::unique_ptr<anet::rl::RewardScaler> reward_scaler_ = nullptr;
         std::unique_ptr<IntrinsicRewardCoordinator, IntrinsicRewardCoordinatorDeleter> intrinsic_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;    ///< 学習時ターゲット用ポリシー

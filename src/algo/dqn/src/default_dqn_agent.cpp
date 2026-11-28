@@ -32,6 +32,10 @@
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
 
+constexpr char kPerceptionSeed[] = "perception";
+constexpr char kPerceptionStructureTag[] = "perception.structure";
+constexpr char kPerceptionDetailTag[] = "perception.detail";
+
 // Agent全体の保存形式。第1版の識別子は既存primary checkpointのため保持する。
 constexpr char kCheckpointFormatV1[] = "DefaultDQNAgent";
 constexpr char kCheckpointFormatV2[] = "DefaultDQNAgent-2";
@@ -56,6 +60,50 @@ constexpr char kNetworkDetailSuffix[] = ".net.detail";
 constexpr const char* kSkipStructureTag = "skip.net.structure";
 constexpr const char* kSkipDetailTag = "skip.net.detail";
 constexpr const char* kSkipNetworkSeed = "skip_network";
+
+static ReplayFrameStack ResolveReplayFrameStack(const DefaultDQNAgentConfig& config, const anet::TensorSpecMap& frame_specs)
+{
+    const auto& stack = config.frame_stack;
+    if (stack.count < 1) {
+        ANET_SYSTEM_ERROR("Invalid " << config.GetFullKey("frame_stack.count") << "=" << stack.count << "; expected >= 1.");
+    }
+    // 入力の Frame spec に対して、重ねる対象を確定する。
+    ReplayFrameStack resolved{ .count = stack.count };
+    if (stack.keys.mode == FrameStackConfig::kAllKeys) {
+        for (const auto& [key, spec] : frame_specs) resolved.keys.push_back(key);
+        std::ranges::sort(resolved.keys);
+    } else if (stack.keys.mode == FrameStackConfig::kListedKeys) {
+        const auto field = config.GetFullKey("frame_stack.keys.listed.names");
+        if (stack.keys.listed.names.empty()) {
+            ANET_SYSTEM_ERROR("Invalid " << field << "=[]; expected at least one Frame key.");
+        }
+        for (const auto& key : stack.keys.listed.names) {
+            if (!frame_specs.contains(key)) {
+                ANET_SYSTEM_ERROR("Invalid " << field << " key='" << key << "'; expected a key in the Frame spec.");
+            }
+        }
+        resolved.keys = stack.keys.listed.names;
+    } else {
+        ANET_SYSTEM_ERROR("Invalid " << config.GetFullKey("frame_stack.keys.mode") << "='" << stack.keys.mode
+            << "'; expected " << FrameStackConfig::kAllKeys << " or " << FrameStackConfig::kListedKeys << ".");
+    }
+    // Actor が入力に足す開始の印と、本来の観測キーの衝突を拒む。
+    if (frame_specs.contains(kPerceptionStartKey)) {
+        ANET_SYSTEM_ERROR("Frame key='" << kPerceptionStartKey << "' conflicts with the reserved start key for "
+            << anet::rl::kForwardKindPerceptionFromSequence << ".");
+    }
+    return resolved;
+}
+
+static std::shared_ptr<anet::SpecForwarder> BuildActorPerception(const anet::ForwarderBuilder& builder,
+    const anet::TensorSpecMap& frame_specs, const ReplayFrameStack& stack, int row_count, anet::seed_t seed)
+{
+    auto input_specs = frame_specs;
+    input_specs.emplace(kPerceptionStartKey, anet::TensorSpec{ .dtype = torch::kBool });
+    const auto request = anet::rl::MakePerceptionFromSequenceRequest(row_count, seed, kPerceptionStartKey,
+        stack.count, stack.keys);
+    return CompletePerception(builder.BuildForwarder(request, input_specs), stack.keys, kPerceptionStartKey);
+}
 
 namespace {
     // 読み出し順はエポックごとに作る。分散時は、ためる側と学ぶ側の領域を交代で使う。
@@ -501,14 +549,10 @@ DefaultDQNAgent::DefaultDQNAgent(
     auto replay_seed = seed_maker.MakeNamedSeed("replaybuffer");
     auto learner_seed = seed_maker.MakeNamedSeed("learner");
     auto network_seed = seed_maker.MakeNamedSeed("network");
-    // RuntimeVars生成
-    this->vars_ = std::make_unique<RuntimeVars>();
-
     const bool is_distributional = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
 
     // 無効時も既知の診断キーを保つ。可変の State は Coordinator に集める。
-    const auto& intrinsic_gamma = config_.learner.intrinsic.decomposed && config_.learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate
-        ? config_.learner.intrinsic.gamma : config_.learner.gamma;
+    const auto& intrinsic_gamma = config_.learner.GetIntrinsicGammaConfig();
     const float initial_intrinsic_gamma = anet::ProfiledValue<float>(intrinsic_gamma).Evaluate(0);
     intrinsic_.reset(new IntrinsicRewardCoordinator(config_.intrinsic, config_.learner.enabled,
         batch_env_spec, env_spec, device_, seed_maker, config_.GetConfigPrefix() + ".intrinsic.rnd",
@@ -520,9 +564,24 @@ DefaultDQNAgent::DefaultDQNAgent(
     this->reward_scaler_ = reward_scaler_factory.CreateRewardScaler(anet::ProfiledValue<float>(gamma).Evaluate(0), batch_env_spec.num_envs,
         GetInitialProfiledValueKey(gamma));
 
-    // ObservationNormalizer生成
-    anet::rl::ObservationNormalizerFactory obs_norm_factory(config_.obs_norm);
-    this->obs_norm_ = obs_norm_factory.CreateObservationNormalizer(env_spec.state_spec);
+    // Frame の spec と重ね方を、ReplayBuffer と Forwarder の依頼へ渡す。
+    const auto frame_env_spec = env_spec;
+    const auto& frame_specs = frame_env_spec.state_spec.obs_spec;
+    replay_frame_stack_ = ResolveReplayFrameStack(config_, frame_specs);
+    perception_ = std::make_unique<anet::ForwarderBuilder>(
+        config_.perception_config, config_.GetConfigPrefix() + ".perception",
+        seed_maker.MakeNamedSeed(kPerceptionSeed));
+    // 取り込みの形と dtype を確認し、可視化の出力 spec を NN の基準にする。
+    frame_intake_ = perception_->BuildForwarder(MakeFrameWithStatsUpdateRequest(), frame_specs);
+    RequirePerceptionSpecs(frame_specs, frame_intake_->GetOutputSpecs(), kForwardKindFrameWithStatsUpdate);
+    const auto raw_visualization = perception_->BuildForwarder(
+        MakePerceptionFromFrameRequest(replay_frame_stack_.count, replay_frame_stack_.keys), frame_specs);
+    visualization_perception_ = CompletePerception(raw_visualization, replay_frame_stack_.keys);
+    // Actor が同じ spec を返すか、履歴を動かす前に照合する。
+    const auto probe_actor = BuildActorPerception(*perception_, frame_specs, replay_frame_stack_, 1,
+        seed_maker.MakeNamedSeed(kPerceptionSeed));
+    RequirePerceptionSpecs(visualization_perception_->GetOutputSpecs(), probe_actor->GetOutputSpecs(),
+        kForwardKindPerceptionFromSequence);
 
 
     // ------------------------------------------------------------
@@ -536,7 +595,17 @@ DefaultDQNAgent::DefaultDQNAgent(
         forward_configs_.emplace(key, std::make_shared<const anet::nn::NetworkForwardConfig>(
             config_.MakeForwardConfigKey(key), data));
     }
-    auto network_obs_spec = MakeNetworkInputSpec(env_spec);
+    auto network_obs_spec = visualization_perception_->GetOutputSpecs();
+    // IQN の taus は Perception に含めず、Network の入力 spec に足す。
+    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
+        anet::TensorSpec tau_spec;
+        tau_spec.type = anet::SpaceType::Vector;
+        tau_spec.shape = { config_.learner.iqn.current_taus.num_taus };
+        tau_spec.dtype = torch::kFloat32;
+        tau_spec.num_classes = 0;
+        network_obs_spec[anet::rl::dqn::kKey_Taus] = tau_spec;
+    }
+
 
     // NetworkModel生成
     std::optional<SkipNetworkDefinition> skip_definition;
@@ -555,8 +624,6 @@ DefaultDQNAgent::DefaultDQNAgent(
         is_distributional, network_seed, skip_definition ? &*skip_definition : nullptr
     );
 
-    RecordNetworkStructure();
-
     // target用のランダム探索は全有効端点で禁止する。
     if (config_.target_policy.policy_type == "EpsilonGreedy") {
         auto epsilon = config_.target_policy.epsilon;
@@ -567,7 +634,8 @@ DefaultDQNAgent::DefaultDQNAgent(
     // ActionPolicy生成
     this->target_policy_ = DqnComponentAssembler::CreateActionPolicy(config_.target_policy, config_.quantile_mode, false, num_envs_, device_);
 
-    InitializeLearner(batch_env_spec, env_spec, replay_seed, learner_seed);
+    InitializeLearner(batch_env_spec, frame_env_spec, replay_seed, learner_seed);
+    RecordNetworkStructure(*raw_visualization);
 
     // load
     if (!config_.auto_load_file.empty()) {
@@ -588,44 +656,15 @@ std::shared_ptr<anet::nn::NetworkHeadFactory> DefaultDQNAgent::SelectHeadFactory
         head.input_mode == DefaultDQNAgentConfig::kHeadInputDedicated, head.use_dueling, config_.GetFullKey("intrinsic.value.head.input_mode"));
 }
 
-anet::TensorSpecMap DefaultDQNAgent::MakeNetworkInputSpec(const EnvSpec& env_spec) const
+void DefaultDQNAgent::RecordNetworkStructure(const anet::SpecForwarder& visualization) const
 {
-    // オリジナルのStateSpecをコピー
-    auto network_obs_spec = env_spec.state_spec.obs_spec;
-
-    // Stackerが有効な場合、NN入力specへ実データと同じstack軸を追加
-    if (config_.stucker.use_stacker && config_.stucker.stack_count > 1) {
-        for (auto& kv : network_obs_spec) {
-
-            // このKeyがStack対象として設定されているかチェック
-            bool is_stacked_target = true;
-            if (!config_.stucker.stack_keys.empty()) {
-                auto it = std::find(config_.stucker.stack_keys.begin(), config_.stucker.stack_keys.end(), kv.first);
-                is_stacked_target = (it != config_.stucker.stack_keys.end());
-            }
-
-            // Stack対象のKeyのみ、batch直後にstack軸が来るshapeへ変換
-            if (is_stacked_target) {
-                kv.second.shape.insert(kv.second.shape.begin(), config_.stucker.stack_count);
-            }
-        }
+    auto structure = visualization.MakeGraphViz(false);
+    auto detail = visualization.MakeGraphViz(true);
+    if (!structure || !detail) {
+        ANET_SYSTEM_ERROR(kForwardKindPerceptionFromFrame << ": expected both perception diagrams.");
     }
-
-    // tausはObservationではなくAgentが注入するNN入力なので、Stacker調整後にspecを追加する。
-    if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
-        anet::TensorSpec tau_spec;
-        tau_spec.type = anet::SpaceType::Vector;
-        tau_spec.shape = { config_.learner.iqn.current_taus.num_taus };
-        tau_spec.dtype = torch::kFloat32;
-        tau_spec.num_classes = 0;
-        network_obs_spec[anet::rl::dqn::kKey_Taus] = tau_spec;
-    }
-
-    return network_obs_spec;
-}
-
-void DefaultDQNAgent::RecordNetworkStructure() const
-{
+    anet::MetricsLogger::Instance()->Log(kPerceptionStructureTag, *structure);
+    anet::MetricsLogger::Instance()->Log(kPerceptionDetailTag, *detail);
     // Network グラフ可視化
     {
         const auto& net = *model_->GetOnlineNetwork();
@@ -664,12 +703,18 @@ void DefaultDQNAgent::InitializeLearner(const BatchEnvSpec& batch_env_spec, cons
             MakeNetworkForwardConfigKey("noisy_probe"), data);
     }
 
+    // Learner は Replay の Sample spec で組み立て、可視化と同じ出力か照合する。
+    const LearnerPerceptionSetup perception_setup{
+        .builder = *perception_,
+        .expected_specs = visualization_perception_->GetOutputSpecs(),
+    };
     learner_ = DqnComponentAssembler::CreateLearner(config_.quantile_mode, config_.qr.num_quantiles, config_.learner,
-        *model_, *vars_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_,
-        obs_norm_, LearnerForwardResources{
+        *model_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_,
+        &perception_setup, LearnerForwardResources{
             .current = *forward_configs_.at(config_.learner.current.nn_forward_key),
             .target = *forward_configs_.at(config_.learner.target.nn_forward_key)},
-        config_.stucker, learner_seed, noisy_probe_config, munchausen_info.str());
+        replay_frame_stack_,
+        learner_seed, noisy_probe_config, munchausen_info.str());
 }
 
 int64_t DefaultDQNAgent::Save(anet::OutputArchive& archive) const
@@ -802,70 +847,30 @@ std::optional<anet::TensorDictFunction> DefaultDQNAgent::GetTensorDictFunction(c
 
     auto self = shared_from_this();
     auto network_fn = *fn;
-    bool use_stacker = config_.stucker.use_stacker;
-    int stack_count = config_.stucker.stack_count;
+    auto perception = visualization_perception_;
 
-    // ロックと前処理（正規化等）をラップした関数を作成
-    anet::TensorDictFunction norm_fn = [self, network_fn, use_stacker, stack_count](const anet::TensorDict& obs) {
-
-        // 排他制御（他スレッドでのパラメータ更新と競合しないように）
-        std::shared_lock<std::shared_mutex> lock(*(self->mutex_));
+    return [self, network_fn, perception](const anet::TensorDict& obs) {
+        // 学習中の Network と統計の更新から読み出しを保護する。
+        std::shared_lock<std::shared_mutex> lock(*self->mutex_);
         torch::NoGradGuard grad_guard;
-
-        anet::TensorDict proc_obs;
-        anet::TensorDict device_obs = obs.To(self->device_);
-
-        for (const auto& kv : device_obs) {
-            auto k = kv.first;
-            auto t = kv.second;
-
-            bool is_stacked_target = true;
-            if (!self->config_.stucker.stack_keys.empty()) {
-                auto it = std::find(self->config_.stucker.stack_keys.begin(), self->config_.stucker.stack_keys.end(), k);
-                is_stacked_target = (it != self->config_.stucker.stack_keys.end());
-            }
-
-            // 状態スイープは実フレーム履歴を持たない合成1フレーム入力なので、
-            // stacker 有効時は同じフレームを stack 全域へ複製して通常の network 入力形状に合わせる。
-            if (use_stacker && is_stacked_target) {
-                // (B, C, H, W) -> (B, 1, C, H, W)
-                t = t.unsqueeze(1);
-                auto sizes = t.sizes().vec();
-                sizes[1] = stack_count;
-                // .expand はメモリを余分に確保せずポインタだけ増やすので高速
-                t = t.expand(sizes);
-            }
-            proc_obs.Set(k, t);
-        }
-
-        // Agentが持っているObservationNormalizerを通す
-        auto obs_norm = self->obs_norm_->Normalize(proc_obs);
-
-        // ネットワーク(policy_net or target_net)から抽出して返す
-        auto output = network_fn(obs_norm);
+        auto output = network_fn(perception->Forward(obs.To(self->device_)));
         if (self->config_.learner.intrinsic.decomposed)
             DecomposedValueCombiner::Combine(output, self->intrinsic_->Beta(), self->config_.learner.use_tbo, self->config_.learner.tbo_epsilon);
         return output;
-        };
-
-    return norm_fn;
+    };
 }
 
 std::optional<float> DefaultDQNAgent::GetScalar(const std::string& key, int64_t index) const
 {
     if (key.starts_with(kIntrinsicPrefix)) return intrinsic_->GetScalar(key);
     if (const auto value = DqnComponentAssembler::GetScalar(
-        key, index, *learner_, *vars_, *target_policy_, *mutex_)) return value;
+        key, index, *learner_, *target_policy_, *mutex_)) return value;
     if (key.find(RewardScaler::kKeyPrefix) == 0) {
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return reward_scaler_->GetScalar(key);
     }
-    if (key.find(ObservationNormalizer::kKeyPrefix) == 0) {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return obs_norm_->GetScalar(key);
-    }
-
-    return std::nullopt;
+    std::shared_lock<std::shared_mutex> lock(*mutex_);
+    return perception_->GetScalar(key);
 }
 
 void DefaultDQNAgent::ConfigureScalarMetricSubscriptions(
@@ -882,29 +887,13 @@ std::optional<torch::Tensor> DefaultDQNAgent::GetTensor(const std::string& key, 
         std::shared_lock<std::shared_mutex> lock(*mutex_);
         return reward_scaler_->GetTensor(key);
     }
-    if (key.find(ObservationNormalizer::kKeyPrefix) == 0) {
-        std::shared_lock<std::shared_mutex> lock(*mutex_);
-        return obs_norm_->GetTensor(key);
-    }
-
-    return std::nullopt;
+    std::shared_lock<std::shared_mutex> lock(*mutex_);
+    return perception_->GetTensor(key);
 }
 
 std::optional<std::vector<torch::Tensor>> DefaultDQNAgent::GetTensorVector(const std::string& key, int64_t index) const
 {
     return DqnComponentAssembler::GetTensorVector(key, *learner_, *mutex_);
-}
-
-std::unique_ptr<anet::rl::FrameStacker> DefaultDQNAgent::CreateFrameStacker(const ActorRequest& request) const
-{
-    // laneごとの履歴をActorが専有し、推論device上でstackする。
-    if (config_.stucker.use_stacker) {
-        std::optional<std::vector<std::string>> keys;
-        if (!config_.stucker.stack_keys.empty()) keys = config_.stucker.stack_keys;
-        return std::make_unique<DictFrameStacker>(config_.stucker.stack_count,
-            request.batch_env_spec.num_envs, request.device, keys);
-    }
-    return nullptr;
 }
 
 std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest& request) const
@@ -942,10 +931,14 @@ std::shared_ptr<anet::rl::Actor> DefaultDQNAgent::CreateActor(const ActorRequest
         .decomposed = config_.learner.intrinsic.decomposed,
         .beta = config_.learner.intrinsic.decomposed && cfg.intrinsic.action_beta_mode == DQNActorConfig::kActionBetaFixed
             ? anet::ProfiledValueConfig<float>{.value = cfg.intrinsic.action_beta.value(), .min_value = 0.0f} : config_.intrinsic.beta,
-        .extrinsic_bootstrap = config_.learner.intrinsic.extrinsic_bootstrap_mode == LearnerConfig::kBootstrapExtrinsic,
-        .intrinsic_gamma = config_.learner.intrinsic.discount_mode == LearnerConfig::kDiscountSeparate ? config_.learner.intrinsic.gamma : config_.learner.gamma};
+        .extrinsic_bootstrap_mode = config_.learner.intrinsic.extrinsic_bootstrap_mode,
+        .intrinsic_gamma = config_.learner.GetIntrinsicGammaConfig()};
+    const anet::SeedMaker seed_maker(request.seed);
+    auto perception = BuildActorPerception(*perception_, env_spec_.state_spec.obs_spec, replay_frame_stack_,
+        request.batch_env_spec.num_envs,
+        seed_maker.MakeNamedSeed(kPerceptionSeed));
     return DqnComponentAssembler::CreateActor(cfg, config_.learner, request, *model_, mutex_, policy,
-        *forward_configs_.at(cfg.nn_forward_key), obs_norm_, CreateFrameStacker(request),
+        *forward_configs_.at(cfg.nn_forward_key), std::move(perception),
         true, hint_config, cfg.clone_model ? cfg.sync_interval : std::nullopt, std::move(skip));
 }
 
@@ -1128,18 +1121,15 @@ DefaultDQNAgent::UpdateFromBatch(const StepCounts& counts, const anet::rl::Batch
             intrinsic_->Learn(batch_exp);
         }
 
-        // Normalize observations 統計更新
-        this->obs_norm_->NormalizeAndUpdateStats(batch_exp.state.obs);
-        this->obs_norm_->NormalizeAndUpdateStats(batch_exp.next_state.obs); // 二重計上になるがエピソード終端（着地/墜落）の状態も統計に反映させる
-
-        // BatchExperience生成
-        // ReplayBufferには「生の観測」を渡す。 報酬だけはスケール済みを使う
-        BatchExperience exp {
+        // 現在と次の観測を順に通し、統計に終端の観測も反映する。
+        BatchExperience exp{
             batch_exp.state,
             batch_exp.action,
             scaled_rewards,
             batch_exp.next_state
         };
+        exp.state.obs = frame_intake_->Forward(exp.state.obs);
+        exp.next_state.obs = frame_intake_->Forward(exp.next_state.obs);
 
         // Update実行
         auto result = this->learner_->UpdateFromBatch(counts, exp, intrinsic_->Beta());

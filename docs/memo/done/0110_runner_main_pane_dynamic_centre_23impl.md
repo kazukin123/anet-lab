@@ -50,7 +50,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 - shipped_configを別processで確認する。製品Runnerは人の承認なしに起動・終了しない。Debugで必要な確認を済ませ、Releaseへの追加buildの可否は実行中のRunnerを妨げない条件で判断し、行った場合は記録する。
 - 現用5文書の受入9の旧記述を空白違いも含めて検索し0件にする。LF・既存BOM・差分空白・追加productionコード・共有契約・index不変を点検する。
-- 全品質確認観点の自己点検後、独立an-reviewへ本計画と今回の改訂を依頼し、指摘を直して同じレビュアーへ再提出する。原文・結果・未実施の理由を本書へ記録する。
+- 全レビュー観点の自己点検後、独立an-reviewへ本計画と今回の改訂を依頼し、指摘を直して同じレビュアーへ再提出する。原文・結果・未実施の理由を本書へ記録する。
 
 ## 前提
 
@@ -81,7 +81,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 ## 自己点検
 
-実装品質確認観点の全73項目を適用範囲に従って走査した。実装判断の未決はなし。初回レビューで見つかった別件の起票候補1件は「レビュー」に記録する。
+実装レビュー観点の全73項目を適用範囲に従って走査した。実装判断の未決はなし。初回レビューで見つかった別件の起票候補1件は「レビュー」に記録する。
 
 - 1〜8・62・71・72: 追加productionにdynamic_cast・TODO・header using namespaceなし、共有契約の非依存語0、23implの名前と対PRDを確認。初回レビュー時はLF9ファイル・既存BOM6・改訂8ファイル、共通GUI修正追加後はLF10ファイル・既存BOM7・改訂9ファイル。保護8ファイルをhashで照合。重複識別子リテラル検査は出力0。改名・skill変更なしの項目は対象外。HEADと空のstaged差分を保持。
 - 9〜22: D15/D16と受入2o〜r・8・9に対応。既存の任意幅保持の断定だけを改訂し、位置4値は保持。幅の別stash・公開API・新設定・互換コードを足していない。過去の20〜22impl、起票側のPRD・用語・ADR・wikiは保持。人の受入を自動検証で代用していない。
@@ -102,7 +102,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 追加修正後のDebug全体・GUI targetとRelease RunnerはVsDevCmd経由で再build成功。製品Runnerの起動・終了なし。`width-shipped-final/`は更新後core実行体で14case・終了0（119.48秒）。coreとGUIの既定suite、およびGUI全30processを新規の結果へ採取し、完了後に最終比較と再レビューを行う。
 - 最終結果: `.venv/Scripts/python.exe -X utf8 -B core/anet-core/testdata/prd110/run_validation.py gui --output .scratch/prd110/width-gui-reviewed`は30process / 30caseが全終了0。28caseに早期closeと実Trace captionの2caseを追加した。実行体SHA256は全30processと既定GUIで`fc5c51ac48387c12849a9688e6fbe858bd54f5cfea25bb6a9ffb813bc7dcd1c5`に一致。
 - 最終既定suite: `.scratch/prd110/width_after_suites.py core .scratch/prd110/width-after-review-suites`と`gui`で採取し、同scriptの`compare`が成功。core1069case・失敗0・終了0（626.62秒）、GUIは変更前と同じLogs indent1件・終了42（22.27秒）。`width-after-review-suites/suites.json`で前後失敗集合一致。coreのSHA256は`f4da81adadf9355c170479452ec6bbe42dfde9b14b21bc8a33fc30e81af73fd8`で最終shipped_configの実行体と一致する。
-- 再自己点検: 実Traceでの全体更新0回と早期close GREENを含め、品質確認観点の全73項目を再走査。`.scratch/prd110/width-mechanical-review2.json`で改訂9ファイル・LF10・既存BOM7・保護8・旧表現18種類0件・index不変を確認。追加productionは共通GUIの許可済みnative closeの6行とcaption再描画への限定だけで、公開API・設定・新イベント・timerは追加していない。独立レビューは同じレビュアーへ再提出する。
+- 再自己点検: 実Traceでの全体更新0回と早期close GREENを含め、レビュー観点の全73項目を再走査。`.scratch/prd110/width-mechanical-review2.json`で改訂9ファイル・LF10・既存BOM7・保護8・旧表現18種類0件・index不変を確認。追加productionは共通GUIの許可済みnative closeの6行とcaption再描画への限定だけで、公開API・設定・新イベント・timerは追加していない。独立レビューは同じレビュアーへ再提出する。
 - 再レビュー2往復目は計画・実装ともOK、修正要求0件。原文は`.scratch/prd110/review-20261101-2252.md`。Traceの連続行移動で全体更新をしないこと、早期closeの解放が許可済みnative closeだけに作用すること、最終検証と実機受入未実施の区別が再確認された。根拠がなく見送った修正要求はなし。
 - 再レビューの範囲外に出た共通GUIの既存dynamic_cast3箇所は、同じ会話のpin改訂レビュー`.scratch/prd110/review-20261101-1609.md`ですでに「既知の3箇所」と報告済み。追加修正前の原本にも同じ3箇所があり、増加なし。既報のため新しい起票候補には重複追加しない。
 

@@ -45,7 +45,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 - `[shipped_config]`も別processで確認する。不正値の製品Runner起動は設定を変更しない今回では繰り返さず、20implの保存結果を参照する。製品Runnerは人の承認なしに起動・終了しない。当初はDebugだけを対象としたが、Runnerが未起動と確認できたため、下記の追加Release buildも実施した。RelWithDebInfoは更新しない。
 - 現用5文書で受入9の禁止文字列を空白を除いて検索し0件を保つ。改訂で追加されたドラッグについての旧記述も除去する。既存BOM・LF、diff --check、共有契約、旧名と追加コード、index不変を確認する。
-- 全品質確認観点で自己点検後、独立したan-reviewへ本計画と今回の変更を依頼し、直せる不足は直して同じレビュアーへ再提出する。原文・結果・未実施と理由を本書へ記録する。
+- 全レビュー観点で自己点検後、独立したan-reviewへ本計画と今回の変更を依頼し、直せる不足は直して同じレビュアーへ再提出する。原文・結果・未実施と理由を本書へ記録する。
 
 ## 前提
 
@@ -78,7 +78,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 ## 自己点検
 
-- 実装品質確認観点の全項目を適用範囲ごとに走査した。変更は既存の機能グループ内の8ファイルと新規22impl。設定・公開API・ヘッダ・新しいclass・互換層・改名は追加していない。20impl・21impl、PRD・ADR0066・CONTEXT・wiki、LunarLanderView等の別作業は保持した。
+- 実装レビュー観点の全項目を適用範囲ごとに走査した。変更は既存の機能グループ内の8ファイルと新規22impl。設定・公開API・ヘッダ・新しいclass・互換層・改名は追加していない。20impl・21impl、PRD・ADR0066・CONTEXT・wiki、LunarLanderView等の別作業は保持した。
 - 基底のpin処理はイベントとpaneの情報だけで判断し、Train/Evalの名前を持たない。SetManagedWindow後のBindでwxより先に受け取り、拒否時には何も変更せず、許可・非pinはSkipする。拒否は意図された操作制限なのでエラーやWARNを足さない。CanHidePaneと最大化中のIsPaneOpenの既存契約を利用する。
 - pinの表示は既存5Hzの2paneのフラグ確認・宣言へ比較を1個ずつ加えるだけで、配置の往復や割り当て・ロックは増やさない。変更時だけ既存のCallAfterを使い、昇格の先回り・独自mouse経路・新timer・別の占有者stateは足していない。
 - 基底lambdaのthisは所有するframe自身、paneはイベント処理の間だけの借用で、借用メンバやSet/Clearは増やしていない。Agent・GetScalar・計測・device転送の変更はない。コメントは日本語、新しい実行ログはない。

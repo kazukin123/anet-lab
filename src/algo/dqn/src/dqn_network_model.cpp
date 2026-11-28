@@ -194,14 +194,14 @@ void NetworkModel::ValidateSpectralNormSoftUpdateConfig() const
 
 anet::TensorDict NetworkModel::ForwardOnlineWithTrain(
     const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward,
-    const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
+    const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture) const
 {
     anet::TrainingModeGuard guard(*online_net_, true);
     return forward.Forward(obs, info, capture);
 }
 
 anet::TensorDict NetworkModel::ForwardOnlineUpTo(
-    const anet::TensorDict& obs, const std::string& branch_key, anet::nn::NetworkForwardCapture* capture) const
+    const anet::TensorDict& obs, const std::string& branch_key, anet::ForwardCapture* capture) const
 {
     torch::NoGradGuard no_grad;
     anet::TrainingModeGuard guard(*online_net_, false);
@@ -329,18 +329,14 @@ anet::TensorDict anet::rl::dqn::ReadSkipValues(const anet::TensorDict& output, c
     ANET_PROFILE_FUNC();
     const bool distributed = output.Contains(SkipHeadFactory::kKeyQDist);
     auto values = output.At(distributed ? SkipHeadFactory::kKeyQDist : SkipHeadFactory::kKeyQ);
-    const auto batch = actions.size(0);
     // 分離型の [B,A,J(,K)] は返す行動で絞り、包含型と同じ [B,J(,K)] に揃える。
     if (config.network_mode == SkipNetworkMode::ActionOut) {
-        const auto index = distributed
-            ? actions.view({batch, 1, 1, 1}).expand({batch, 1, config.max_length, values.size(-1)})
-            : actions.view({batch, 1, 1}).expand({batch, 1, config.max_length});
-        values = values.gather(1, index).squeeze(1);
+        ANET_ASSERT_SHAPE(values, {actions.size(0), -1, config.max_length}, {actions.size(0), -1, config.max_length, -1});
+        values = GatherSelectedActionValues(values, actions);
     }
     if (config.head.use_dueling) {
         const auto base = primary.At(distributed ? "q_dist" : "q").detach();
-        const auto index = distributed ? actions.view({batch, 1, 1}).expand({batch, 1, base.size(-1)}) : actions.view({batch, 1});
-        const auto selected = base.gather(1, index).squeeze(1);
+        const auto selected = GatherSelectedActionValues(base, actions);
         values = selected.unsqueeze(1) + values - values.narrow(1, 0, 1);
     }
     anet::TensorDict result;

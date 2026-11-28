@@ -14,6 +14,7 @@ project(anet-env-cartpole)
 # ---------------------------------------------------------------------
 
 file(GLOB_RECURSE ANET_PRIVATE_SOURCES "src/*.cpp" "src/*.hpp")
+list(FILTER ANET_PRIVATE_SOURCES EXCLUDE REGEX "_test\\.cpp$")
 
 
 # ---------------------------------------------------------------------
@@ -45,6 +46,11 @@ target_link_libraries(anet-env-cartpole PRIVATE
     anet-wx
     anet-core-base
 )
+
+add_executable(anet-env-cartpole-test src/CartPoleEnv_test.cpp)
+target_link_libraries(anet-env-cartpole-test PRIVATE anet-env-cartpole anet-core-base anet-core-testing)
+add_test(NAME anet-env-cartpole-test COMMAND anet-env-cartpole-test)
+anet_set_test_runtime(anet-env-cartpole-test)
 
 
 # ---------------------------------------------------------------------

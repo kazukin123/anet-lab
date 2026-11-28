@@ -1,0 +1,40 @@
+---
+title: EmaFilter バイアス補正ウォームアップ
+page_kind: サマリ
+material: "[[docs/memo/done/0045_ema_debias_warmup_10rfd.md|0045_ema_debias_warmup_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+  - "[[docs/wiki/concepts/framework/312_util.md|312 ユーティリティ]]"
+  - "[[docs/wiki/concepts/measurement/metrics_resolution.md|Metrics Viewerの表示粒度]]"
+updated: 2026-11-28
+---
+# EmaFilter バイアス補正ウォームアップ
+
+## 元の材料
+
+[EmaFilter バイアス補正ウォームアップ](../../../memo/done/0045_ema_debias_warmup_10rfd.md) blob:a83c71837cc27a78adb4304ff26801bf623ee97d
+
+## 要点
+
+- 従来の EMA は最初の観測の影響が長く残り、平滑化係数が小さいほど序盤の曲線が偏った。
+- 初期値を0とし、現在までの重みの総和で補正した EMA を返す。
+- 一定期間値を欠損させる方式を避け、異なるタグの比較に使う最初の点も出力する。
+- EmaFilter の公開経路を通る各利用先で、同じ補正契約を使う。
+- 定数列や初期の値を既知の計算と照合し、ウォームアップ中と十分な観測後を確認する。
+
+## 内容
+
+### 最初の観測に掛かる重み
+
+従来の EMA は最初の値から開始するため、平滑化係数 α が0.01なら数百ステップにわたって最初の値が効いていた。序盤を出力から外す方法では、異なる指標で時系列の対応が欠ける。そこで初回から補正した値を出力する。
+
+### 補正の計算
+
+値の累積を `v = (1−α) × v + α × x`、観測済みの重み和を `w = (1−α) × w + α` で更新し、両方を0から始めて `v / w` を返す。初回は観測値そのもの、2回目は二つの観測に新しさに応じた重みが掛かり、時間がたつと通常の EMA に近づく。累積の途中で α を変えた場合もその時々の重みを保持でき、極小の α で1に近い数同士を引く必要がない。
+
+## 主要な概念
+
+- [317 可視化・メトリクス](../../concepts/framework/317_metrics.md)
+- [312 ユーティリティ](../../concepts/framework/312_util.md)
+- [Metrics Viewerの表示粒度](../../concepts/measurement/metrics_resolution.md)

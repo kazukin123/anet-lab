@@ -1,5 +1,7 @@
 # AtariEnv は SingleDiscreteEnv として登録し、前処理は env 内自前・frame stack は既存 stucker/RB に委ねる
 
+> 2026-11-23 注記（[ADR 0086](0086-perception-stack-target-keys-always-carry-stack-axis.md)）。DefaultDQN の Actor と Replay sample の frame stack は、Perception の FrameStack の定義を使う。AtariEnv の出力と ReplayBuffer の保存は単フレームである。[Perception の現行契約](../design/135_forwarder_and_perception.jp.md#3-defaultdqn-の観測加工)
+
 ALE を anet-lab へ接続する seam には、SingleDiscreteEnvFactory（1 instance = 1 `ale::ALEInterface`、core が N lane へ vectorize）と、ALE v0.11 で導入された内蔵ベクトル化環境 AtariVectorEnv の batch-native 接続（BatchEnvFactory）の二択がある。AtariVectorEnv は標準前処理（skip/max-pool/resize/stack）と autoreset を内蔵し EnvPool 系の高スループットを謳うが、フレームワーク側には既に ThreadPoolDiscreteEnv（lane 並列 + auto-reset）と stucker/ReplayBuffer の frame stack 両輪（Actor=DictFrameStacker、RB=stack_count。DropMerge 実運用実績、境界契約は PRD 050 で確定済み）が存在する。
 
 **AtariEnv は SingleDiscreteEnvFactory で登録する。並列化・auto-reset は既存 wrapper、frame stack は既存 stucker/RB に委ね、env は「1 ALE の駆動と前処理（自前 skip ループ → grayscale 2 フレーム max-pool → area resize）で単フレーム uint8 `[1,S,S]` を出す」ことだけを責務とする**ことを決定する。sticky actions は ALE 内部（`repeat_action_probability`）に残す——自前 skip ループでも act() 単位 = エミュレータフレーム単位の判定となり、原義（Machado et al. 2018）と同一の意味論が保たれる。ALE 側の `frame_skip` は 1 固定（max-pool に中間フレームが必要）、`max_num_frames_per_episode` は 0 固定（truncation は env 自前カウントで done と厳密区別）。

@@ -137,7 +137,7 @@ namespace anet::rl {
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
         std::optional<torch::Tensor> GetTensor(const std::string& key, int64_t index = -1) const override;
     private:
-        void ValidateInput(const torch::Tensor& obs) const;
+        void ValidateInput(const torch::Tensor& obs, bool allow_stack_axis = false) const;
         std::pair<torch::Tensor, float> normalizeInternal(const torch::Tensor& obs, bool measure_clip_ratio) const;
     private:
         // 設定情報

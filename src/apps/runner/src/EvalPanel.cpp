@@ -208,7 +208,7 @@ void EvalPanel::DoStep()
 void EvalPanel::DoStep(int64_t action)
 {
     // 範囲外入力では、Live復帰やモデル同期も行わず表示履歴を維持する。
-    if (action >= 0 && action_spec_.is_discrete && action >= action_spec_.GetNumActions()) {
+    if (action_spec_.is_discrete && (action < 0 || action >= action_spec_.GetNumActions())) {
         wxGetApp().GetMainFrame()->SetStatusText(wxString::Format(
             "Action %lld is unavailable; valid range: 0-%d.",
             static_cast<long long>(action), action_spec_.GetNumActions() - 1), 0);
@@ -216,12 +216,14 @@ void EvalPanel::DoStep(int64_t action)
     }
     if (before_live_action_) before_live_action_();
 	SyncBeforeManualStep();
-	runner_->DoStep(action, runner_->GetCounts(), GetMakeActionOptions());
+    auto options = GetMakeActionOptions();
+    options.forced_actions = anet::rl::ForcedActions::ByLane(0, action);
+	runner_->DoStep(runner_->GetCounts(), options);
 	SyncAfterStep(runner_->GetCounts());
 	view_->CaptureViewData();
 	Refresh();
     // 実行できた強制行動だけを、Traceの行動列と同じ表示名で知らせる。
-    if (action >= 0 && action_spec_.is_discrete) {
+    if (action_spec_.is_discrete) {
         constexpr const char* kActionInfoTarget = "$action_info";
         constexpr const char* kActionKey = "action";
         const anet::rl::StepTraceColumnSpec column{.target=kActionInfoTarget, .key=kActionKey, .display="value_name"};

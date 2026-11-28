@@ -1,0 +1,46 @@
+---
+title: TempoRL の長いスキップの不確かさと割り込み候補
+page_kind: サマリ
+material: "[[docs/memo/0183_temporl_skip_followups_10rfd.md|0183_temporl_skip_followups_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/methods/temporal_abstraction.md|行動の時間尺度]]"
+  - "[[docs/wiki/concepts/subjects/gridmaze.md|GridMaze]]"
+  - "[[docs/wiki/concepts/subjects/qbert.md|Qbert]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-28
+---
+# TempoRL の長いスキップの不確かさと割り込み候補
+
+## 元の材料
+
+[RFD0183　TempoRL の長いスキップの不確かさと割り込み候補](../../../memo/0183_temporl_skip_followups_10rfd.md) blob:0de905fd99064dd06ec75e074ddbbabb08419f80
+
+## 要点
+
+- 長いスキップが学べない理由を、価値推定の不確かさ、固定した行動が途中で不適切になる場合、異なる長さの学習例が不足する場合に分けた。
+- 起草時の三候補は、複数の予測のばらつきでスキップの選択を補正する案、状況が変わった時点で行動固定に割り込む案、短いスキップもまとめて学習する案だった。
+- GridMaze 5×5 の比較では、スキップの選択を UQE から ε-greedy に替えた条件がゴールに到達した。各条件1 seed の結果をもとに、次に作る候補を割り込みだけに絞った。
+- その後、Qbert の合算方式の変種8本は Greedy 評価でスキップ無効を上回れず、割り込みの着手も保留になった。
+- 別ゲームで合算方式がスキップ無効を Greedy 評価で上回り、行動を固定している間の状況変化による損失が Evaluation Trace で確認できれば再開する。
+
+## 内容
+
+### 背景と比較した弱点
+
+長さを最初に選ぶだけでは、長く続けた場合の価値の推定誤差と、一度選んだ行動が途中で適切でなくなった場合とを区別しにくい。実装はスキップ中も毎 step で推論していた。推論自体を省いて速度を上げる仕事は別件にした。
+
+### 三つの候補と暫定の実装案
+
+不確かさを使う案では skip Head を複数にして長さ別の Q の平均と標準偏差を求める。割り込み案では、固定中の行動を続けるかを途中で判断する。複数の長さを一括学習する案では、同じ観測列から短いスキップの学習例も作る。Head の初期化や診断値など、原本の実装契約に書いた細部は、候補を作る場合の暫定案だった。
+
+### 初期比較と着手を保留した時期
+
+GridMaze の同一設定で、UQE を使う対照は評価が最後までゴールに届かず、ε-greedy は約305kで到達した。これを受け、不確かさと一括学習を作らず、割り込みを次の候補に残した。続く Qbert では Greedy 評価で合算方式が無効条件に届かなかったため、割り込みの実装に進まず、別ゲームの成績と Trace を再開の条件にした。
+
+## 主要な概念
+
+- [行動の時間尺度](../../concepts/methods/temporal_abstraction.md)
+- [GridMaze](../../concepts/subjects/gridmaze.md)
+- [Qbert](../../concepts/subjects/qbert.md)
+- [324 Agent個別実装 DQN系列](../../concepts/framework/324_dqn.md)

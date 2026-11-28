@@ -335,15 +335,15 @@ TEST_CASE("DropMergeEnv appends the selected previous action trio", "[dropmerge]
     CHECK(vector_spec.max_values[6] == Catch::Approx(1.0));
 
     const auto reset = env->Reset();
-    CHECK(spec.state_spec.ValidateObservation(reset->state.obs, /*is_batched=*/false));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(reset->state.obs, /*is_batched=*/false));
     RequireFlatApprox(VectorObs(reset->state).slice(/*dim=*/0, 4, 7), { 0.0f, 0.0f, 0.0f });
 
     const auto noop = env->Step(0);
-    CHECK(spec.state_spec.ValidateObservation(noop->next_state.obs, /*is_batched=*/false));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(noop->next_state.obs, /*is_batched=*/false));
     RequireFlatApprox(VectorObs(noop->next_state).slice(/*dim=*/0, 4, 7), { 1.0f, 1.0f, 0.0f });
 
     const auto drop = env->Step(1);
-    CHECK(spec.state_spec.ValidateObservation(drop->next_state.obs, /*is_batched=*/false));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(drop->next_state.obs, /*is_batched=*/false));
     RequireFlatApprox(VectorObs(drop->next_state).slice(/*dim=*/0, 4, 7), { 1.0f, 0.0f, -0.75f });
 }
 
@@ -367,14 +367,14 @@ TEST_CASE("DropMergeEnv appends the previous action trio after the timeout ratio
     CHECK(vector_spec.labels[7] == "prev_drop_x");
 
     const auto reset = env->Reset();
-    CHECK(spec.state_spec.ValidateObservation(
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(
         reset->state.obs, /*is_batched=*/false));
     RequireFlatApprox(
         VectorObs(reset->state).slice(/*dim=*/0, 5, 8),
         { 0.0f, 0.0f, 0.0f });
 
     const auto drop = env->Step(1);
-    CHECK(spec.state_spec.ValidateObservation(
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(
         drop->next_state.obs, /*is_batched=*/false));
     RequireFlatApprox(
         VectorObs(drop->next_state).slice(/*dim=*/0, 5, 8),
@@ -436,25 +436,25 @@ TEST_CASE("DropMergeEnv draws the selected DROP column marker", "[dropmerge][pre
 
     const int marker_class = anet::rl::env::drop_merge::kFruitTypeCount + 1;
     const auto reset = env->Reset();
-    CHECK(spec.state_spec.ValidateObservation(reset->state.obs, /*is_batched=*/false));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(reset->state.obs, /*is_batched=*/false));
     CHECK(GridObs(reset->state).eq(marker_class).sum().item<int64_t>() == 0);
 
     // 2 分割の DROP 命令列 1 を、4 列 grid の対応する top-row 列 3 へ写像する。
     const auto drop = env->Step(2);
-    CHECK(spec.state_spec.ValidateObservation(drop->next_state.obs, /*is_batched=*/false));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(drop->next_state.obs, /*is_batched=*/false));
     CHECK(GridObs(drop->next_state).index({ 0, 3, 3 }).item<int>() == marker_class);
     CHECK(GridObs(drop->next_state).eq(marker_class).sum().item<int64_t>() == 1);
 
     const auto noop = env->Step(0);
-    CHECK(spec.state_spec.ValidateObservation(noop->next_state.obs, /*is_batched=*/false));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(noop->next_state.obs, /*is_batched=*/false));
     CHECK(GridObs(noop->next_state).eq(marker_class).sum().item<int64_t>() == 0);
 
     const auto reset_again = env->Reset();
-    CHECK(spec.state_spec.ValidateObservation(reset_again->state.obs, /*is_batched=*/false));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(reset_again->state.obs, /*is_batched=*/false));
     CHECK(GridObs(reset_again->state).eq(marker_class).sum().item<int64_t>() == 0);
 }
 
-TEST_CASE("DropMergeEnv previous action observations preserve the default state contract", "[dropmerge][prev_action][compat]")
+TEST_CASE("DropMergeEnv previous action observations preserve the default state contract", "[dropmerge][prev_action][compat][forwarder]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::rl::env::drop_merge::DropMergeEnvConfig default_config;
@@ -474,6 +474,8 @@ TEST_CASE("DropMergeEnv previous action observations preserve the default state 
 
     const auto default_spec = default_env->GetSpec();
     const auto enabled_spec = enabled_env->GetSpec();
+    CHECK(default_spec.state_spec.obs_spec.at(kVectorKey).scale == anet::ValueScale::Scaled);
+    CHECK(default_spec.state_spec.obs_spec.at(kGridKey).scale == anet::ValueScale::Scaled);
     CHECK(default_spec.state_spec.obs_spec.at(kVectorKey).shape == std::vector<int64_t>{ 4 });
     CHECK(enabled_spec.state_spec.obs_spec.at(kVectorKey).shape == std::vector<int64_t>{ 7 });
     CHECK(default_spec.state_spec.obs_spec.at(kGridKey).shape ==
@@ -493,9 +495,9 @@ TEST_CASE("DropMergeEnv previous action observations preserve the default state 
     for (const int64_t action : { 2, 0, 3 }) {
         const auto default_step = default_env->Step(action);
         const auto enabled_step = enabled_env->Step(action);
-        CHECK(default_spec.state_spec.ValidateObservation(
+        CHECK_NOTHROW(default_spec.state_spec.AssertObservation(
             default_step->next_state.obs, /*is_batched=*/false));
-        CHECK(enabled_spec.state_spec.ValidateObservation(
+        CHECK_NOTHROW(enabled_spec.state_spec.AssertObservation(
             enabled_step->next_state.obs, /*is_batched=*/false));
         CHECK(torch::equal(
             VectorObs(default_step->next_state),
@@ -552,7 +554,7 @@ TEST_CASE("DropMergeEnv previous action observations work through batch env pref
         CHECK(spec.state_spec.obs_spec.at(kVectorKey).shape ==
             std::vector<int64_t>{ 7 });
         const auto reset = env.Reset();
-        CHECK(spec.state_spec.ValidateObservation(
+        CHECK_NOTHROW(spec.state_spec.AssertObservation(
             reset->state.obs, /*is_batched=*/true));
         CHECK(reset->state.obs.At(kVectorKey).sizes().vec() ==
             std::vector<int64_t>{ 1, 7 });
@@ -562,7 +564,7 @@ TEST_CASE("DropMergeEnv previous action observations work through batch env pref
                 { 2 },
                 torch::TensorOptions().dtype(torch::kInt64)));
         const auto step = env.Step(action_info);
-        CHECK(spec.state_spec.ValidateObservation(
+        CHECK_NOTHROW(spec.state_spec.AssertObservation(
             step->next_state.obs, /*is_batched=*/true));
         RequireFlatApprox(
             step->next_state.obs.At(kVectorKey)[0].slice(
@@ -753,7 +755,7 @@ TEST_CASE("DropMergeEnv observes DROP commands rejected while busy", "[dropmerge
 
     const auto terminal = env->Step(4);
     REQUIRE(terminal->next_state.truncated);
-    CHECK(spec.state_spec.ValidateObservation(
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(
         terminal->next_state.obs, /*is_batched=*/false));
     RequireFlatApprox(
         VectorObs(terminal->next_state).slice(/*dim=*/0, 4, 7),

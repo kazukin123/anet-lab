@@ -6,6 +6,8 @@
 #include "anet/algo/muzero.hpp"
 #include "muzero_proto_agent.hpp"
 
+constexpr char kTargetPolicyKey[] = "target_policy";
+
 TEST_CASE("MuZero initialization keeps its first Agent factory registrations", "[init][idempotent]")
 {
     anet::rl::algo::InitMuZero();
@@ -54,7 +56,7 @@ namespace {
     };
 }
 
-TEST_CASE("MuZero Actor catalog owns temperature and exploration noise", "[rfd0061][muzero][actor_catalog][rfd0170][muzero]")
+TEST_CASE("MuZero Actor catalog owns temperature and exploration noise", "[rfd0061][muzero][actor_catalog][rfd0170][forced_action]")
 {
     ScopedNoopMetricsLogger metrics_logger;
     anet::test::RegisterStandardNetworkModules();
@@ -124,4 +126,12 @@ TEST_CASE("MuZero Actor catalog owns temperature and exploration noise", "[rfd00
     eval->MakeAction(counts, state);
     CHECK(*eval->GetScalar("tau") == Catch::Approx(0.0f));
     CHECK(*quiet->GetScalar("tau") == Catch::Approx(1.0f));
+
+    const auto value = 1 - quiet_result->GetAction()[0].item<int64_t>();
+    auto forced_actor = create("quiet");
+    const auto forced = forced_actor->MakeAction(counts, state, {.forced_actions = rl::ForcedActions::ByLane(0, value)});
+    const auto expected = quiet_result->GetAction().clone();
+    expected[0].fill_(value);
+    CHECK(torch::equal(forced->GetAction(), expected));
+    CHECK(torch::equal(forced->GetInfo().At(kTargetPolicyKey), quiet_result->GetInfo().At(kTargetPolicyKey)));
 }

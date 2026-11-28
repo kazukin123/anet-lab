@@ -105,13 +105,13 @@ namespace anet::nn {
         static NetworkForwardContext GetDefault();
     public:
         NetworkForwardContext(NetworkForwardState* state, const NetworkForwardCallInfo& info,
-            NetworkForwardCapture* capture = nullptr)
+            ForwardCapture* capture = nullptr)
             : state_(state), info_(info), capture_(capture) {}
 
         bool HasCapture() const { return capture_ != nullptr; }
-        NetworkForwardCapture* GetCapture() const { return capture_; }
+        ForwardCapture* GetCapture() const { return capture_; }
         std::string_view GetCaptureBranch() const { return capture_branch_; }
-        NetworkForwardContext WithCapture(NetworkForwardCapture* capture) const;
+        NetworkForwardContext WithCapture(ForwardCapture* capture) const;
         NetworkForwardContext WithCaptureBranch(std::string_view branch) const;
         NetworkForwardContext WithCaptureBlock(std::string_view block) const;
         bool WantsCapture(std::string_view key) const;
@@ -124,7 +124,7 @@ namespace anet::nn {
     private:
         NetworkForwardState* const state_;
         const NetworkForwardCallInfo& info_;
-        NetworkForwardCapture* capture_ = nullptr; ///< 呼び出し側所有。同期Forward中だけ借用する。
+        ForwardCapture* capture_ = nullptr; ///< 呼び出し側所有。同期Forward中だけ借用する。
         std::string_view capture_branch_;
         std::string_view capture_block_;
         std::string MakeCaptureKey(std::string_view key) const;
@@ -186,6 +186,7 @@ namespace anet::nn {
             return nullptr;
         }
         virtual bool IsConv2dVisualizable() const { return false; }
+        virtual bool HandlesStackAxis() const { return false; }
         virtual anet::ConfigData GetCurrentConfigData() const { return {}; }
         virtual void ValidateForwardReuse(const NetworkForwardConfig& source, const NetworkForwardConfig& requested) const {}
         virtual std::vector<SpectralNormEntry> GetSpectralNormEntries() const { return {}; }
@@ -324,6 +325,29 @@ namespace anet::nn {
         int64_t out_features_;
         std::string output_key_;
         WeightInitConfig init_config_;
+    };
+
+
+    // ===========================================================================
+    // CompositeHead
+    // ===========================================================================
+
+    /// 1 つの Head にまとめる、中の Head の指定。
+    struct CompositeHeadEntry {
+        std::string name;        ///< 中の Head の名前。parameter の名前は head.<name>.… になる。
+        std::string feature_key; ///< Body の出力のうち、この Head が受け取るキー。
+        std::shared_ptr<NetworkHeadFactory> factory; ///< 受け取った値を features として読む Head の factory。
+    };
+
+    /// 複数の Head を 1 つの Network に並べる。
+    /// 中の Head は、指定したキーの値を features として受け取り、出力は 1 つの TensorDict にまとまる。
+    /// 2 つの指定を同じ branch のキーに向ければ Body を共有し、別の branch のキーに向ければ Body が別になる。
+    class CompositeHeadFactory final : public NetworkHeadFactory {
+    public:
+        explicit CompositeHeadFactory(std::vector<CompositeHeadEntry> entries);
+        std::shared_ptr<NetworkHead> CreateHead(const anet::TensorDict& dummy_features) const override;
+    private:
+        std::vector<CompositeHeadEntry> entries_;
     };
 
 

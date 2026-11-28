@@ -21,7 +21,6 @@
 
 static constexpr anet::seed_t kTestAgentSeed = 6000;
 constexpr char kActionQValuesAuxKey[] = "q_values";
-constexpr char kMunchausenTermsAuxKey[] = "munchausen_terms";
 
 using namespace anet;
 using namespace anet::rl;
@@ -270,7 +269,7 @@ TEST_CASE("Munchausen Actor uses exactly one existing score forward", "[dqn][mun
     // 共通configにmodeが含まれても、同じscoreとseedから作るActor hintは変わらない。
     for (const std::string mode : { "target", "online", "online_reuse" }) {
         CAPTURE(mode);
-        anet::rl::dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 67021, std::make_shared<std::shared_mutex>(), network, network, anet::nn::NetworkForwardConfig::GetDefault(),
+        anet::rl::dqn::Actor actor(policy, nullptr, torch::kCPU, 67021, std::make_shared<std::shared_mutex>(), network, network, anet::nn::NetworkForwardConfig::GetDefault(),
             true, std::nullopt, false, ActorQHintConfig{
                 .munchausen = MunchausenConfig{ .enabled = enabled, .log_policy_mode = mode, .entropy_tau = {.value = 0.7f} },
                 .use_tbo = tbo, .tbo_epsilon = 0.001f });
@@ -287,53 +286,61 @@ TEST_CASE("Munchausen Actor uses exactly one existing score forward", "[dqn][mun
     }
 }
 
-TEST_CASE("DQN forced actions keep the caller device while updating CUDA hints", "[dqn][forced_action][device]")
+TEST_CASE("DQN Actor calculates the forced lane hint after choosing the action", "[dqn][forced_action]")
 {
-    if (!torch::cuda::is_available()) { SKIP("CUDA is unavailable"); }
-    const bool with_hint = GENERATE(false, true);
-    CAPTURE(with_hint);
-    const torch::Device device(torch::kCUDA, 0);
-    const auto selected = torch::tensor({1}, torch::kInt64).to(device);
-    const auto forced = torch::tensor({0}, torch::kInt64);
-    const AuxData aux{
-        {kActionQValuesAuxKey, torch::tensor({{1.0f, 4.0f}}).to(device)},
-        {kMunchausenTermsAuxKey, torch::tensor({{-0.7f, -0.2f}}).to(device)},
+    const bool cuda = GENERATE(false, true);
+    if (cuda && !torch::cuda::is_available()) { SKIP("CUDA is unavailable"); }
+    const torch::Device device(cuda ? torch::kCUDA : torch::kCPU);
+    CAPTURE(device);
+    auto records = std::make_shared<std::vector<SoftForward>>();
+    auto network = MakeSoftOracleNetwork("none", 1.0f, false, records, device);
+    ActionPolicyConfig policy_config;
+    policy_config.epsilon.value = 1.0f;
+    policy_config.use_amp = cuda;
+    policy_config.use_amp_bf16 = cuda;
+    const auto make_actor = [&] {
+        return std::make_unique<anet::rl::dqn::Actor>(
+            std::make_shared<EpsilonGreedyActionPolicy>(policy_config), nullptr, device, 67021,
+            std::make_shared<std::shared_mutex>(), network, network, anet::nn::NetworkForwardConfig::GetDefault(),
+            true, std::nullopt, false, ActorQHintConfig{
+                .munchausen = MunchausenConfig{.enabled = true, .entropy_tau = {.value = 0.7f}}});
     };
-    const auto hint = with_hint
-        ? std::optional{ReplayInitialPriorityHint(torch::tensor({{4.0f, 5.0f, -0.2f, 0.0f, 0.0f}}).to(device))}
-        : std::nullopt;
-    const DQNActionInfo original(selected, {}, aux, hint);
+    auto baseline_actor = make_actor();
+    auto forced_actor = make_actor();
+    const auto flags = torch::zeros({2}, torch::kBool);
+    const BatchState state(SoftSamples(device).obs, flags, flags, flags);
+    const auto baseline = baseline_actor->MakeAction(StepCounts{}, state);
+    const auto forced_value = 1 - baseline->GetAction()[0].item<int64_t>();
+    const auto expected_actions = baseline->GetAction().clone();
+    expected_actions[0].fill_(forced_value);
+    const auto forced_actions = cuda
+        ? ForcedActions::ByMask(torch::tensor({true, false}, torch::kBool), torch::tensor({forced_value, int64_t{-1}}, torch::kInt64))
+        : ForcedActions::ByLane(0, forced_value);
 
-    const auto from_cpu = original.WithAction(forced);
-    CHECK(from_cpu->GetAction().device().is_cpu());
-    CHECK(torch::equal(from_cpu->GetAction(), forced));
-    const auto cpu_hint = from_cpu->GetReplayInitialPriorityHint();
-    REQUIRE(cpu_hint.has_value() == with_hint);
-    if (with_hint) {
-        const auto from_cuda = original.WithAction(forced.to(device));
-        const auto cuda_hint = from_cuda->GetReplayInitialPriorityHint();
-        REQUIRE(cuda_hint.has_value());
-        CHECK(cpu_hint->GetPayload().device() == device);
-        CHECK(torch::equal(cpu_hint->GetPayload(), cuda_hint->GetPayload()));
-    }
+    const auto result = forced_actor->MakeAction(StepCounts{}, state,
+        {.forced_actions = forced_actions});
+    REQUIRE(torch::equal(result->GetAction(), expected_actions));
+    REQUIRE(result->GetReplayInitialPriorityHint());
+    REQUIRE(baseline->GetReplayInitialPriorityHint());
+    const auto expected = DecodeActorQHint(baseline->GetReplayInitialPriorityHint()->GetPayload());
+    const auto actual = DecodeActorQHint(result->GetReplayInitialPriorityHint()->GetPayload());
+    const auto& q = baseline->GetAuxData().at(kActionQValuesAuxKey);
+    CHECK(torch::equal(result->GetAuxData().at(kActionQValuesAuxKey), q));
+    CHECK(result->GetAction().device() == q.device());
+    CHECK(actual.actor_q_sa.device() == q.device());
+    CHECK(torch::equal(actual.actor_q_sa, q.gather(1, expected_actions.unsqueeze(1)).squeeze(1)));
+    CHECK(torch::equal(actual.actor_state_value, expected.actor_state_value));
+    CHECK(actual.actor_q_sa[1].item<float>() == expected.actor_q_sa[1].item<float>());
+    CHECK(actual.munchausen_term[1].item<float>() == expected.munchausen_term[1].item<float>());
+    const auto log_policy = OracleLogPolicy({q[0][0].item<float>(), q[0][1].item<float>()}, 0.7);
+    const auto bonus = 0.9 * std::clamp(log_policy[forced_value], -1.0, 0.0);
+    CHECK(actual.munchausen_term[0].item<float>() == Catch::Approx(bonus));
+    CHECK(torch::equal(forced_actor->MakeAction(StepCounts{}, state)->GetAction(),
+        baseline_actor->MakeAction(StepCounts{}, state)->GetAction()));
 }
 
 TEST_CASE("Five-column Actor hints carry the selected start bonus into initial priorities", "[dqn][munchausen][hint]")
 {
-    // 行動差し替え後のhintを公開推定器へ渡し、transport全体の列契約を検証する。
-    AuxData aux;
-    aux[kActionQValuesAuxKey] = torch::tensor({ { 1.0f, 4.0f } });
-    aux[kMunchausenTermsAuxKey] = torch::tensor({ { -0.7f, -0.2f } });
-    DQNActionInfo action(torch::tensor({ 1 }, torch::kInt64), {}, aux,
-        ReplayInitialPriorityHint(torch::tensor({ { 4.0f, 5.0f, -0.2f, 0.0f, 0.0f } })));
-    const auto replaced = action.WithAction(torch::tensor({ 0 }, torch::kInt64));
-    REQUIRE(replaced->GetReplayInitialPriorityHint().has_value());
-    CHECK(torch::equal(replaced->GetReplayInitialPriorityHint()->GetPayload(), torch::tensor({ { 1.0f, 5.0f, -0.7f, 0.0f, 0.0f } })));
-    aux.erase(kMunchausenTermsAuxKey);
-    DQNActionInfo missing(torch::tensor({ 1 }, torch::kInt64), {}, aux,
-        ReplayInitialPriorityHint(torch::tensor({ { 4.0f, 5.0f, -0.2f, 0.0f, 0.0f } })));
-    CHECK_THROWS(missing.WithAction(torch::tensor({ 0 }, torch::kInt64)));
-
     for (const bool tbo : { false, true }) {
         LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.use_tbo = tbo;
@@ -418,7 +425,6 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         auto online = std::make_shared<std::vector<SoftForward>>();
         auto target = std::make_shared<std::vector<SoftForward>>();
         SoftOracleModel model(kind, tbo, device, online, target);
-        RuntimeVars vars;
         ActionPolicyConfig policy_config;
         policy_config.quantile_mode = kind;
         policy_config.policy_type = repeat == 0 ? "Greedy" : "EpsilonGreedy";
@@ -441,7 +447,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         policy->UpdateSchedule(StepCounts{ .exp_step = 50 });
         const auto spec = SoftEnvSpec();
         const auto update = [&]<typename ConcreteLearner>() {
-            ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
+            ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, spec,
                 device, 67010, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67011);
             online->clear();
             target->clear();
@@ -479,7 +485,7 @@ TEST_CASE("Munchausen learners mix the full target distribution in every log pol
         const auto next = as_distribution(mode == "target" ? target->at(0).values.narrow(0, 2, 2) : target->at(0).values);
         torch::Tensor hard_actions;
         if (kind == "qr" && risk_mode == 1 && scenario == 2) {
-            SoftHardSelector selector(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
+            SoftHardSelector selector(config, model, BatchEnvSpec{ 2, 2 }, spec,
                 device, 67010, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67011);
             hard_actions = selector.SelectTargetActions(SoftSamples(device).next_state.next_obs, selector.MakeTargetEvaluation(false));
         }
@@ -649,13 +655,12 @@ TEST_CASE("Munchausen target capture exposes only next state rows", "[dqn][munch
     config.update_interval = 1;
     config.replay_ratio = -1;
     config.final_feature_branch_key = "feature";
-    RuntimeVars vars;
     ActionPolicyConfig policy_config;
     policy_config.quantile_mode = kind;
     auto policy = std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
     const auto spec = SoftEnvSpec();
     const auto update = [&]<typename ConcreteLearner>() {
-        ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, spec,
+        ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, spec,
             device, 67030, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 67031);
         learner.ConfigureScalarMetricSubscriptions({
             ScalarMetricSubscription{ .source_key = "plasticity_feature_norm", .event = EventType::LEARN,
@@ -709,7 +714,6 @@ TEST_CASE("Replay fit TD and quantile losses match independent fixed-distributio
     auto online = std::make_shared<std::vector<SoftForward>>();
     auto target = std::make_shared<std::vector<SoftForward>>();
     SoftOracleModel model(kind, false, torch::kCPU, online, target);
-    RuntimeVars vars;
     LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.quantile_mode = kind;
     config.num_quantiles = 3;
@@ -733,7 +737,7 @@ TEST_CASE("Replay fit TD and quantile losses match independent fixed-distributio
     auto policy = std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
     std::shared_ptr<const anet::rl::BatchUpdateResult> measured;
     const auto run = [&]<typename ConcreteLearner>() {
-        ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
+        ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
             torch::kCPU, 73041, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 73042);
         std::vector<ScalarMetricSubscription> subscriptions;
         for (const auto* key : kReplayFitMetricKeys) subscriptions.push_back(ScalarMetricSubscription{
@@ -803,7 +807,6 @@ TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distribu
         auto online = std::make_shared<std::vector<SoftForward>>();
         auto target = std::make_shared<std::vector<SoftForward>>();
         SoftOracleModel model(kind, tbo, torch::kCPU, online, target, true);
-        RuntimeVars vars;
         LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.quantile_mode = kind;
         config.num_quantiles = 3;
@@ -839,7 +842,7 @@ TEST_CASE("Replay fit preserves stochastic training and uses fixed eval distribu
         std::vector<torch::Tensor> observed;
         const auto keep = [&](const torch::Tensor& value) { observed.push_back(value.detach().clone()); };
         const auto run = [&]<typename ConcreteLearner>() {
-            ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
+            ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
                 torch::kCPU, 73012, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 73013);
             std::vector<ScalarMetricSubscription> subscriptions;
             if (enabled) for (const auto* key : kReplayFitMetricKeys) subscriptions.push_back(ScalarMetricSubscription{
@@ -947,7 +950,6 @@ TEST_CASE("DQN target evaluation preserves the RFD0073 pre-change baseline", "[d
     auto online = std::make_shared<std::vector<SoftForward>>();
     auto target = std::make_shared<std::vector<SoftForward>>();
     SoftOracleModel model(kind, tbo, device, online, target);
-    RuntimeVars vars;
     ActionPolicyConfig policy_config;
     policy_config.quantile_mode = kind;
     policy_config.epsilon.value = 0.0f;
@@ -967,7 +969,7 @@ TEST_CASE("DQN target evaluation preserves the RFD0073 pre-change baseline", "[d
         ? std::shared_ptr<ActionPolicy>(std::make_shared<UQEActionPolicy>(policy_config))
         : std::shared_ptr<ActionPolicy>(std::make_shared<EpsilonGreedyActionPolicy>(policy_config));
     const auto run = [&]<typename ConcreteLearner>() {
-        ConcreteLearner learner(config, model, vars, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
+        ConcreteLearner learner(config, model, nullptr, BatchEnvSpec{ 2, 2 }, SoftEnvSpec(),
             device, 73001, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 73002);
         // PER更新の対象slotを公開収集経路から用意し、実在する第1世代keyを使用する。
         const auto initial = SoftSamples(device);
@@ -1043,12 +1045,11 @@ TEST_CASE("RFD0125 Bellman target preserves returns, discounts, and terminal bon
     auto online = std::make_shared<std::vector<SoftForward>>();
     auto target = std::make_shared<std::vector<SoftForward>>();
     SoftOracleModel model(kind, tbo, torch::kCPU, online, target);
-    RuntimeVars vars;
     ActionPolicyConfig policy_config;
     policy_config.quantile_mode = kind;
     const auto policy = std::make_shared<EpsilonGreedyActionPolicy>(policy_config);
     const auto spec = SoftEnvSpec();
-    BellmanTargetReader learner(config, model, vars, nullptr,
+    BellmanTargetReader learner(config, model,
         BatchEnvSpec{ .num_envs = kBatchSize, .num_threads = 2 }, spec,
         torch::kCPU, 12501, kTestAgentSeed, policy, LearnerForwardResources{}, std::nullopt, 12502);
     auto samples = SoftSamples(torch::kCPU);

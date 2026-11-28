@@ -27,7 +27,7 @@
 - 基準コミット: `dc41e4cba7ffbfc7eddf8b2aa7800a125d2a8ef5`。着手時の staged PRD・wiki・課題と、その他の無関係な変更を保持する。
 - ビルドは `AGENTS.md` の MSVC 初期化経由とし、Debug 全体と関連テストを実行する。通常ログも `.scratch/prd123/` に保存し、終了コード・集計を返す。
 - `[prd123]` → `[prd116],[scaler],[shipped_config]`、設定の既定葉・解決値の前後比較、3 構成の scalar checksum と定義、旧 checkpoint 読込、差分・改行・BOM・リンクを確認する。
-- 全品質確認観点を適用範囲で自己点検し、独立した `anet-review-agent` のレビューを受け、直せる指摘を直して同じ agent へ再依頼する。
+- 全レビュー観点を適用範囲で自己点検し、独立した `anet-review-agent` のレビューを受け、直せる指摘を直して同じ agent へ再依頼する。
 
 ## 前提
 
@@ -126,7 +126,7 @@ RND 無効の一致は GridMaze 26,946点、LunarLander 24,399点、Atari 23,185
 - 1往復目: Codexは計画・実装ともOK、Claudeは計画OK・実装差し戻し1件。Claudeの指摘は、boolの既定値を初期値と通知の判定・文言で重ねて直書きしていたこと。原文は `.scratch/prd123/review-20261111-0919.md` と `review-20261111-0919-claude.md`。Claude費用は約1.8768 USD。
 - 修正: `RndNoveltyEstimatorConfig::kDefaultErrorNormUseCentering` と `DefaultDQNAgentConfig::kDefaultIntrinsicUseDoneMask` を設け、初期値・通知で共有した。done mask の通知は指定値と既定値をJSONのbool表記で組み立て、従来の英文を保つ。公開ヘッダの追加はこの既定値定数だけで、設定・状態・アルゴリズムの契約は変えない。
 - 確認: 変更3ファイルのLF・BOM・禁止構文・重複リテラルと差分空白は成功（`.scratch/prd123/cc-fix-static.log`）。重複文字列の候補2件は設定キーで、定数化の例外に当たる。前掲と同じMSVC初期化経由のDebug全体ビルドが終了0、`core/anet-core/bin/Debug/anet-core-test.exe "[prd123],[prd116],[scaler],[shipped_config]"` は60ケース・4,804断定すべて成功した。通常stdout/stderrは `.scratch/prd123/cc-fix-debug-build.log` と `cc-fix-tests.log` へ保存した。
-- 修正後RunnerのSHA256: `7aa4a240a4fc84bad4ead21069f1bb6aabbe436bf622bb3929bd05e1d739224c`。今回変更した既定値と通知の検証は上の関連テストで確認した。品質確認観点の全項目を適用範囲で再点検し、変更起因の不足は無い。新たな所有・同期転送・契約・設定キー・アルゴリズムを足していない。
+- 修正後RunnerのSHA256: `7aa4a240a4fc84bad4ead21069f1bb6aabbe436bf622bb3929bd05e1d739224c`。今回変更した既定値と通知の検証は上の関連テストで確認した。レビュー観点の全項目を適用範囲で再点検し、変更起因の不足は無い。新たな所有・同期転送・契約・設定キー・アルゴリズムを足していない。
 - 既存の100k件比較6条件は `after-r1` 実行体の結果として保持する。今回の変更は同じtrueを表す定数への置換と同文の通知の組み立てで、統計・採点・学習・保存・設定値を変えていない。今回の修正後の確認と、先に行った比較結果を区別して記録する。
 - 2往復目: Codex・Claudeとも計画・実装がOK。Claudeの既定値共有1件は両モデルが解消を確認した。原文は `.scratch/prd123/review-20261111-0932.md` と `review-20261111-0932-claude.md`、依頼は `request-20261111-0932.md`。Claudeは前回セッションの続きで、再レビューのSDK費用表示は3.22078 USD（初回表示1.8768054 USD）。
 - 再確認ポイント: Claudeは道具の制約で検査スクリプトを実行せず、Codexと親の確認記録を根拠とした。計画の見出しの形式、feedback比較に足した使われないモード値、偽Learnerを実Learnerの公開TD平均で代えた点は、前回の説明・検証から許容する判定を維持した。長い比較を繰り返していない扱いも、両モデルが今回の変更範囲と記録を確認した。範囲外の検出・開発者確認事項・根拠なく見送った指摘は無し。

@@ -1,4 +1,4 @@
-<!-- translated-from: 030_user_guide_analysis.jp.md blob:83909d78a5e5a8450059cc33a4912a6ad843c48d date:2026-11-23 progress:done -->
+<!-- translated-from: 030_user_guide_analysis.jp.md blob:2ea50974f718df22675fd14159227b17d557aeb3 date:2026-11-28 progress:done -->
 # Run Analysis User Guide
 
 > Primary perspective: workflow (artifact inspection, visualization, comparison, and interpretation)
@@ -173,7 +173,7 @@ Do not conclude that one configuration is faster or better from a single long Ru
 
 For IQN exploration, use the `resolution` command in §6.7 to check that `metrics.scalar.@iqn_search_p0` was selected. In the resolved `config/config_data.txt`, check the tau placement modes and counts (`K/N/M`) for the Policy and Learner. Before choosing a configuration, assess DropMerge Double Suika counts and achievement rates, rewards, PER health, and throughput separately over the same `exp_step` window alongside the diagnostics.
 
-- `iqn_policy_margin_mc_ratio` normalizes the gap between the top two UQE actions by the finite risk-quantile sample scale. With `random`, interpret it as Monte Carlo mean stability; with `fixed` or `stratified`, as a proxy for integration resolution rather than random variation between forwards.
+- `iqn_policy_margin_mc_ratio` normalizes the gap between the top two UQE actions by the finite risk-quantile sample scale. With `random`, interpret it as Monte Carlo mean stability; with `fixed` or `stratified`, as a proxy for integration resolution rather than random variation between forwards. Point UQE produces no points for this metric.
 - Read `iqn_current_mc_scale` and `iqn_target_mc_scale` separately for `N` and `M`. `iqn_priority_mc_ratio` measures the size of the current mean-TD priority signal relative to the finite-tau scales on both sides.
 - `iqn_first_pair_abs_td` and `iqn_first_cancellation_ratio` cover only rows receiving their first Learner priority update. When `per_sample_initial_count=0`, `iqn_first_*` is `NaN`; do not interpret this as improvement or deterioration to zero.
 - With TBO enabled, Learner diagnostics are in h-space, matching current priorities, rather than real space. Do not directly compare absolute values between TBO-enabled and disabled Runs.

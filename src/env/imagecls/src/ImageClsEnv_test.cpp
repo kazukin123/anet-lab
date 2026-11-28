@@ -304,6 +304,7 @@ TEST_CASE("ImageDatasetManager registers a catalog atomically and shares a Datas
 
 TEST_CASE("ImageDatasetManager keeps manifest construction failures sticky", "[image_cls_env][dataset_manager]")
 {
+    EnsureWxImageSupport();
     TinyImageClsDataset dataset;
     auto config = dataset.MakeDatasetConfig();
     config.classes_txt_path = config.classes_txt_path.parent_path() / "missing-classes.txt";

@@ -55,9 +55,9 @@ namespace anet::rl::dqn {
 
         /// 訓練モードを一時的に有効にし、復元して返す。
         anet::TensorDict ForwardOnlineWithTrain(const anet::TensorDict& obs, anet::nn::NetworkForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info,
-            anet::nn::NetworkForwardCapture* capture = nullptr) const;
+            anet::ForwardCapture* capture = nullptr) const;
         anet::TensorDict ForwardOnlineUpTo(const anet::TensorDict& obs, const std::string& branch_key,
-            anet::nn::NetworkForwardCapture* capture = nullptr) const;
+            anet::ForwardCapture* capture = nullptr) const;
 
         // Network取得
         std::shared_ptr<anet::nn::Network> GetOnlineNetwork() { return online_net_; }

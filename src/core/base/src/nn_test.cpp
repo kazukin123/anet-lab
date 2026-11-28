@@ -28,6 +28,11 @@
 #include <type_traits>
 #include <vector>
 
+constexpr char kObservationKey[] = "obs";
+constexpr char kFeaturesOutput[] = "features";
+constexpr char kStackMergeType[] = "StackMerge";
+constexpr char kLinearType[] = "Linear";
+
 constexpr char kRfd0170TraceFeature[] = "feature";
 
 namespace {
@@ -1997,7 +2002,7 @@ TEST_CASE("Network forward trace captures branch-prefixed visual layers", "[nn][
     auto network = MakeTraceTestNetwork();
     auto input_tensor = torch::arange(8, torch::kFloat32).view({ 2, 1, 2, 2 });
     anet::TensorDict input{ { "obs", input_tensor } };
-    anet::nn::NetworkForwardCapture capture({std::string(anet::nn::kNnTracePrefix)});
+    anet::ForwardCapture capture({std::string(anet::nn::kNnTracePrefix)});
     auto out = network->Forward(input, &capture);
     anet::TensorDict trace;
     for (const auto& [key, value] : capture.GetAll(anet::nn::kNnTracePrefix)) {
@@ -3603,10 +3608,10 @@ TEST_CASE("Network branch capture returns the actual forward feature without cha
 
     anet::TensorDict input;
     input.Set("obs", torch::tensor({ { 1.0f, 2.0f }, { 3.0f, 4.0f } }));
-    anet::nn::NetworkForwardCapture expected_capture({std::string(anet::nn::kNnTracePrefix)});
+    anet::ForwardCapture expected_capture({std::string(anet::nn::kNnTracePrefix)});
     const auto expected = network->Forward(input, &expected_capture);
     const auto expected_trace = expected_capture.GetAll(anet::nn::kNnTracePrefix);
-    anet::nn::NetworkForwardCapture capture({kRfd0170TraceFeature, std::string(anet::nn::kNnTracePrefix)});
+    anet::ForwardCapture capture({kRfd0170TraceFeature, std::string(anet::nn::kNnTracePrefix)});
     const auto actual = network->Forward(input, &capture);
     const auto actual_trace = capture.GetAll(anet::nn::kNnTracePrefix);
 
@@ -5278,7 +5283,7 @@ TEST_CASE("Default execution bypasses concrete preparation", "[nn][noisynet][sim
 
 TEST_CASE("Forward capture enforces requested unique keys and preserves write order", "[nn][capture][rfd0093]")
 {
-    anet::nn::NetworkForwardCapture capture({ "X/", "branch" });
+    anet::ForwardCapture capture({ "X/", "branch" });
     const auto value = torch::ones({ 2 });
     CHECK(capture.Wants("X/z"));
     CHECK_FALSE(capture.Wants("X"));
@@ -5303,6 +5308,85 @@ TEST_CASE("Forward capture enforces requested unique keys and preserves write or
     CHECK(capture.Unfulfilled().size() == 2);
 }
 
+TEST_CASE("StackMerge requires batch, stack, channel, height and width", "[nn][perception]")
+{
+    EnsureNNInitialized();
+    const auto module = anet::nn::NetworkModuleRepository::Instance().GetFactory(kStackMergeType)
+        ->CreateModule(anet::ConfigData{}, anet::nn::ModuleContext{});
+    const auto context = anet::nn::NetworkForwardContext::GetDefault();
+    const auto input = torch::arange(48, torch::kFloat32).reshape({ 2, 2, 3, 2, 2 });
+    CHECK(torch::equal(module->Forward(input, context), input.reshape({ 2, 6, 2, 2 })));
+    CHECK_THROWS_WITH(module->Forward(input.reshape({ 2, 6, 2, 2 }), context),
+        Catch::Matchers::ContainsSubstring(kStackMergeType));
+}
+
+TEST_CASE("Discrete grid boundary uses the declared stack axis", "[nn][perception]")
+{
+    constexpr char kGrid[] = "grid";
+    const anet::TensorSpec frame_spec{
+        .type = anet::SpaceType::Grid, .shape = { 1, 2, 2 }, .dtype = torch::kInt64, .num_classes = 3,
+    };
+    auto stack_spec = frame_spec;
+    stack_spec.shape.insert(stack_spec.shape.begin(), 1);
+    stack_spec.has_stack_axis = true;
+    const anet::nn::NetworkBoundaryPreprocessor frame({{ kGrid, frame_spec }}, {});
+    const anet::nn::NetworkBoundaryPreprocessor stack({{ kGrid, stack_spec }}, {});
+    const auto value = torch::arange(4, torch::kInt64).remainder(3).reshape({ 1, 1, 2, 2 });
+    const anet::TensorDict raw_frame{ { kGrid, value } };
+    const anet::TensorDict raw_stack{ { kGrid, value.unsqueeze(1) } };
+    CHECK(torch::equal(frame.Format(raw_frame).At(kGrid), stack.Format(raw_stack).At(kGrid)));
+    CHECK_THROWS(frame.Format(raw_stack));
+    CHECK_THROWS(stack.Format(raw_frame));
+}
+
+TEST_CASE("Stacked branch diagnoses an undeclared first module and still constructs the Network", "[nn][perception]")
+{
+    EnsureNNInitialized();
+    const bool handles_stack = GENERATE(false, true);
+    anet::ConfigData data;
+    data.Set("net.block.[Linear].type", kLinearType);
+    data.Set("net.block.[Linear].linear.out_features", 2);
+    data.Set("net.block.[Flatten].type", "Flatten");
+    data.Set("net.branch.[feature].bind", kObservationKey);
+    data.Set("net.branch.[feature].structure", handles_stack ? "Flatten > Linear" : "Linear > Flatten");
+    data.Set("net.body.output.[features]", kRfd0170TraceFeature);
+    const anet::TensorSpec spec{ .shape = { 1, 2 }, .has_stack_axis = true };
+    anet::test::LogCaptureGuard logs;
+    const auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
+        anet::TensorSpecMap{ { kObservationKey, spec } }, nullptr, 0, torch::kCPU);
+    REQUIRE(network);
+    logs.Flush();
+    const auto warnings = std::ranges::count_if(logs.Records(), [](const auto& record) {
+        return record.level == wxLOG_Warning && record.message.find("stack axis") != std::string::npos
+            && record.message.find(kRfd0170TraceFeature) != std::string::npos && record.message.find(kLinearType) != std::string::npos;
+    });
+    CHECK(warnings == (handles_stack ? 0 : 1));
+}
+
+TEST_CASE("Network preserves output and capture through the Forwarder interface", "[nn][forwarder]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData data;
+    data.Set("net.branch.[feature].bind", kObservationKey);
+    data.Set("net.branch.[feature].structure", "");
+    data.Set("net.body.output.[features]", kRfd0170TraceFeature);
+    const anet::TensorSpec spec{ .type = anet::SpaceType::Vector, .shape = { 2 }, .dtype = torch::kFloat32 };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
+        anet::TensorSpecMap{ { kObservationKey, spec } }, nullptr, 0, torch::kCPU);
+    const anet::TensorDict input{ { kObservationKey, torch::ones({ 2, 2 }) } };
+    const auto forward = [&input](anet::Forwarder& forwarder, anet::ForwardCapture* capture = nullptr) {
+        return forwarder.Forward(input, capture);
+    };
+
+    const auto expected = network->Forward(input);
+    CHECK(torch::equal(forward(*network).At(kFeaturesOutput), expected.At(kFeaturesOutput)));
+    anet::ForwardCapture expected_capture({ kRfd0170TraceFeature });
+    anet::ForwardCapture actual_capture({ kRfd0170TraceFeature });
+    network->Forward(input, &expected_capture);
+    CHECK(torch::equal(forward(*network, &actual_capture).At(kFeaturesOutput), expected.At(kFeaturesOutput)));
+    CHECK(torch::equal(actual_capture.Get(kRfd0170TraceFeature), expected_capture.Get(kRfd0170TraceFeature)));
+}
+
 TEST_CASE("Network partial and prepared forwards reset capture and reject unmet requests", "[nn][capture][rfd0093]")
 {
     EnsureNNInitialized();
@@ -5314,7 +5398,7 @@ TEST_CASE("Network partial and prepared forwards reset capture and reject unmet 
     auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(data),
         anet::TensorSpecMap{ { "obs", spec } }, nullptr, 0, torch::kCPU);
     anet::TensorDict input{ { "obs", torch::ones({ 2, 2 }, torch::TensorOptions().requires_grad(true)) } };
-    anet::nn::NetworkForwardCapture capture({ "feature" });
+    anet::ForwardCapture capture({ kRfd0170TraceFeature });
     network->ForwardUpTo(input, "feature", &capture);
     CHECK_FALSE(capture.Get("feature").requires_grad());
     input.Set("obs", torch::zeros({ 2, 2 }));
@@ -5324,7 +5408,7 @@ TEST_CASE("Network partial and prepared forwards reset capture and reject unmet 
     executor->Forward(input, info, &capture);
     CHECK(torch::equal(capture.Get("feature"), input.At("obs")));
     for (const auto& request : { "missing", "TransformerEncoder/attention_entropy/" }) {
-        anet::nn::NetworkForwardCapture missing({ request });
+        anet::ForwardCapture missing({ request });
         CHECK_THROWS_WITH(network->Forward(input, &missing), Catch::Matchers::ContainsSubstring(request));
         CHECK_THROWS_WITH(network->Forward(input, &missing), Catch::Matchers::ContainsSubstring("reached_branch='feature'"));
         CHECK_THROWS_WITH(network->ForwardUpTo(input, "feature", &missing), Catch::Matchers::ContainsSubstring("reached_branch='feature'"));
@@ -5372,7 +5456,7 @@ TEST_CASE("Transformer entropy matches independent per-head MHA probabilities", 
     std::map<std::string, torch::Tensor> buffers;
     for (const auto& item : module->named_buffers()) buffers.emplace(item.key(), item.value().clone());
     const auto key = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey);
-    anet::nn::NetworkForwardCapture capture({ key });
+    anet::ForwardCapture capture({ key });
     const auto context = anet::nn::NetworkForwardContext::GetDefault().WithCapture(&capture);
     torch::Tensor actual_output, ordinary_output;
     {
@@ -5435,7 +5519,7 @@ TEST_CASE("Repeated Transformer captures have stable positions and execution-ord
     network->eval();
     anet::TensorDict input{ { "obs", torch::randn({ 2, 3, 4 }).requires_grad_(true) } };
     const auto prefix = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey) + "/";
-    anet::nn::NetworkForwardCapture capture({ prefix, "feature" });
+    anet::ForwardCapture capture({ prefix, kRfd0170TraceFeature });
     const auto ordinary = network->Forward(input);
     const auto partial = network->ForwardUpTo(input, "feature", &capture);
     const auto entries = capture.GetAll(prefix);
@@ -5660,7 +5744,7 @@ TEST_CASE("nn_trace capture respects exact and prefix requests", "[rfd0170][nn][
         std::string("nn_trace/feature/01_Conv2d_0"), std::string("nn_trace/feature/"), std::string("nn_trace/"));
     auto network = MakeTraceTestNetwork();
     const anet::TensorDict input{{"obs", torch::arange(8, torch::kFloat32).reshape({2, 1, 2, 2})}};
-    anet::nn::NetworkForwardCapture capture({request});
+    anet::ForwardCapture capture({request});
     const auto actual = network->Forward(input, &capture);
     const auto entries = capture.GetAll(anet::nn::kNnTracePrefix);
     CHECK(entries.size() == (request.ends_with('/') ? 2 : 1));
@@ -5669,8 +5753,171 @@ TEST_CASE("nn_trace capture respects exact and prefix requests", "[rfd0170][nn][
         CHECK(value.sizes().vec() == std::vector<int64_t>{2, 1, 2, 2});
     }
     // branch の診断だけを要求したときは nn_trace を混ぜず、同じ出力を返す。
-    anet::nn::NetworkForwardCapture branch({kRfd0170TraceFeature});
+    anet::ForwardCapture branch({kRfd0170TraceFeature});
     const auto without_trace = network->Forward(input, &branch);
     CHECK(branch.GetAll(anet::nn::kNnTracePrefix).empty());
     CHECK(torch::equal(actual.At(kRfd0170TraceFeature), without_trace.At(kRfd0170TraceFeature)));
+}
+
+
+// ===========================================================================
+// CompositeHeadFactory と Tanh（RFD0209）
+// ===========================================================================
+
+// 合成の Head のテストで使う名前。Network の入力、branch、Body の出力のキー、Head の出力のキー。
+constexpr char kLeftInput[] = "left_input";
+constexpr char kRightInput[] = "right_input";
+constexpr char kSingleInput[] = "input";
+constexpr char kSingleBody[] = "body";
+constexpr char kLeftFeature[] = "left_feature";
+constexpr char kRightFeature[] = "right_feature";
+constexpr char kLogitsOutput[] = "logits";
+constexpr char kValueOutput[] = "value";
+constexpr char kSameOutput[] = "same";
+constexpr char kEntryName[] = "a";
+constexpr char kEntryFeature[] = "f";
+constexpr char kTanhType[] = "Tanh";
+constexpr int64_t kLeftInputSize = 4;
+constexpr int64_t kRightInputSize = 2;
+constexpr int64_t kLeftOutputSize = 3;
+
+static std::shared_ptr<anet::nn::CompositeHeadFactory> MakeTwoPartHeadFactory(
+    const std::string& first_output, const std::string& second_output)
+{
+    const anet::nn::WeightInitConfig init_config{ .mode = "xavier" };
+    return std::make_shared<anet::nn::CompositeHeadFactory>(std::vector<anet::nn::CompositeHeadEntry>{
+        { .name = "left", .feature_key = kLeftFeature,
+          .factory = std::make_shared<anet::nn::LinearHeadFactory>(kLeftOutputSize, first_output, init_config) },
+        { .name = "right", .feature_key = kRightFeature,
+          .factory = std::make_shared<anet::nn::LinearHeadFactory>(1, second_output, init_config) } });
+}
+
+TEST_CASE("CompositeHeadFactory merges the outputs of named heads fed by their own feature keys",
+    "[nn][head][composite_head][rfd0209]")
+{
+    EnsureNNInitialized();
+    const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
+    if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
+
+    // 2 つの入力を、そのまま 2 つの branch として Head へ渡す。Head ごとに、受け取るキーの値だけが届く。
+    anet::ConfigData config_data;
+    config_data.Set("net.branch.[left_body].bind", kLeftInput);
+    config_data.Set("net.branch.[left_body].structure", "");
+    config_data.Set("net.branch.[right_body].bind", kRightInput);
+    config_data.Set("net.branch.[right_body].structure", "");
+    config_data.Set("net.body.output.[left_feature]", "left_body");
+    config_data.Set("net.body.output.[right_feature]", "right_body");
+    anet::TensorSpecMap input_specs;
+    input_specs[kLeftInput] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector, .shape = { kLeftInputSize }, .dtype = torch::kFloat32 };
+    input_specs[kRightInput] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector, .shape = { kRightInputSize }, .dtype = torch::kFloat32 };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(config_data), input_specs,
+        MakeTwoPartHeadFactory(kLogitsOutput, kValueOutput), 0, device);
+
+    // 出力は 1 つにまとまり、形は中の Head ごとに決まる。Body の出力が CUDA にあっても、中の Head が同じ device で作られる。
+    constexpr int64_t kRows = 5;
+    anet::TensorDict input{ { kLeftInput, torch::rand({ kRows, kLeftInputSize }).to(device) },
+        { kRightInput, torch::rand({ kRows, kRightInputSize }).to(device) } };
+    const auto output = network->Forward(input);
+    REQUIRE(output.Contains(kLogitsOutput));
+    REQUIRE(output.Contains(kValueOutput));
+    CHECK(output.At(kLogitsOutput).sizes() == torch::IntArrayRef({ kRows, kLeftOutputSize }));
+    CHECK(output.At(kValueOutput).sizes() == torch::IntArrayRef({ kRows, 1 }));
+
+    // 片方の入力だけを変えると、その入力を受け取る Head の出力だけが変わる。
+    anet::TensorDict changed = input;
+    changed.Set(kRightInput, input.At(kRightInput) + 1.0f);
+    const auto changed_output = network->Forward(changed);
+    CHECK(torch::equal(output.At(kLogitsOutput), changed_output.At(kLogitsOutput)));
+    CHECK_FALSE(torch::equal(output.At(kValueOutput), changed_output.At(kValueOutput)));
+
+    // 中の Head は名前つきで登録され、parameter の名前で分けられる。
+    const auto parameters = network->named_parameters(true);
+    CHECK(HasKey(parameters, "head.left.linear.weight"));
+    CHECK(HasKey(parameters, "head.right.linear.weight"));
+
+    // 図の情報には、中の Head の出力が並ぶ。
+    auto head = MakeTwoPartHeadFactory(kLogitsOutput, kValueOutput)->CreateHead(anet::TensorDict{
+        { kLeftFeature, torch::ones({ 1, kLeftInputSize }) }, { kRightFeature, torch::ones({ 1, kRightInputSize }) } });
+    const auto graph_info = head->GetGraphVizInfo();
+    CHECK(graph_info.type == "CompositeHead");
+    REQUIRE(graph_info.outputs.size() == 2);
+    CHECK(graph_info.outputs[0].name == kLogitsOutput);
+    CHECK(graph_info.outputs[1].name == kValueOutput);
+}
+
+TEST_CASE("CompositeHeadFactory shares one body between heads when their feature keys name the same branch",
+    "[nn][head][composite_head][rfd0209]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Linear].type", kLinearType);
+    config_data.Set("net.block.[Linear].linear.out_features", 6);
+    config_data.Set("net.branch.[body].bind", kSingleInput);
+    config_data.Set("net.branch.[body].structure", kLinearType);
+    config_data.Set("net.body.output.[left_feature]", kSingleBody);
+    config_data.Set("net.body.output.[right_feature]", kSingleBody);
+    anet::TensorSpecMap input_specs;
+    input_specs[kSingleInput] = anet::TensorSpec{
+        .type = anet::SpaceType::Vector, .shape = { kLeftInputSize }, .dtype = torch::kFloat32 };
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(config_data), input_specs,
+        MakeTwoPartHeadFactory(kLogitsOutput, kValueOutput), 0, torch::Device(torch::kCPU));
+
+    // 片方の Head の出力だけから勾配を作っても、共有の Body の parameter に勾配が届く。
+    const auto output = network->Forward(anet::TensorDict{ { kSingleInput, torch::rand({ 3, kLeftInputSize }) } });
+    output.At(kValueOutput).sum().backward();
+    int64_t body_parameters_with_grad = 0;
+    for (const auto& item : network->named_parameters(true)) {
+        if (item.key().starts_with("body.") && item.value().grad().defined()) ++body_parameters_with_grad;
+    }
+    CHECK(body_parameters_with_grad > 0);
+}
+
+TEST_CASE("CompositeHeadFactory rejects invalid entries, missing feature keys and duplicate outputs",
+    "[nn][head][composite_head][rfd0209]")
+{
+    EnsureNNInitialized();
+    const auto linear = std::make_shared<anet::nn::LinearHeadFactory>(2, "out", anet::nn::WeightInitConfig{});
+    using Entries = std::vector<anet::nn::CompositeHeadEntry>;
+
+    // 組の一覧だけで決まる条件は、factory を作るときに止まる。
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(Entries{}));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(
+        Entries{ { .name = "", .feature_key = kEntryFeature, .factory = linear } }));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(
+        Entries{ { .name = "a.b", .feature_key = kEntryFeature, .factory = linear } }));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(Entries{ { .name = kEntryName, .feature_key = "", .factory = linear } }));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(
+        Entries{ { .name = kEntryName, .feature_key = kEntryFeature, .factory = nullptr } }));
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(Entries{
+        { .name = kEntryName, .feature_key = kEntryFeature, .factory = linear },
+        { .name = kEntryName, .feature_key = "g", .factory = linear } }));
+
+    // Body の出力に無いキーと、出力のキーの重複は、Head を作るときに止まる。
+    const anet::TensorDict features{ { kLeftFeature, torch::ones({ 1, kLeftInputSize }) },
+        { kRightFeature, torch::ones({ 1, kRightInputSize }) } };
+    CHECK_THROWS(anet::nn::CompositeHeadFactory(
+        Entries{ { .name = kEntryName, .feature_key = "missing", .factory = linear } }).CreateHead(features));
+    CHECK_THROWS(MakeTwoPartHeadFactory(kSameOutput, kSameOutput)->CreateHead(features));
+    CHECK_NOTHROW(MakeTwoPartHeadFactory(kLogitsOutput, kValueOutput)->CreateHead(features));
+}
+
+TEST_CASE("Tanh module applies the hyperbolic tangent in a configured network", "[nn][tanh][rfd0209]")
+{
+    EnsureNNInitialized();
+    anet::ConfigData config_data;
+    config_data.Set("net.block.[Tanh].type", kTanhType);
+    config_data.Set("net.branch.[body].bind", kSingleInput);
+    config_data.Set("net.branch.[body].structure", kTanhType);
+    config_data.Set("net.body.output.[features]", kSingleBody);
+    anet::TensorSpecMap input_specs;
+    input_specs[kSingleInput] = anet::TensorSpec{ .type = anet::SpaceType::Vector, .shape = { 3 }, .dtype = torch::kFloat32 };
+    // Head を付けない Network は、Body の出力をそのまま返す。
+    auto network = anet::nn::NetworkBuilder::BuildNetwork(anet::nn::NetworkConfig(config_data), input_specs,
+        nullptr, 0, torch::Device(torch::kCPU));
+
+    const auto input = torch::tensor({ { -2.0f, 0.0f, 0.5f }, { 3.0f, -0.1f, 10.0f } });
+    const auto output = network->Forward(anet::TensorDict{ { kSingleInput, input } });
+    CHECK(torch::allclose(output.At(anet::nn::kKey_DefaultOutput), input.tanh()));
 }

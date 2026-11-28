@@ -21,7 +21,7 @@ description: Audit one lens and one scope of anet-lab, record findings as one is
 | drift | 設計文書 1xx・2xx、CONTEXT.md とコードの不一致。範囲の ADR は (a) 決定と実装の不一致 (b) 後発 ADR で改訂済みなのに現役に見える (c) 設計文書から参照されていない(入口なし) の 3 点を見る。設定キーの 3 集合差(コードが読むキー、設定ファイルのキー、文書のキー) | 文書 1 本を読み、対応コードと突き合わせる | 文書 stale / 未文書 / 死にキー / 用語ずれ / ADR ずれ / ADR 入口なし |
 | test-gap | 未テストの prod ファイルに対する特性テストの提案 | `reports/stats/trend.md` の「テスト負債」を入力に、LOC × churn 順、年代 pre 優先 | test-gap |
 | backlog | issue の status と AI の判定のずれ（未着手なのに残件無し、など）、`docs/*.txt` の散在メモ | 本文とコードで確認する | 前提崩れ / 実装済み / 重複 |
-| process | 未コミット差分の規模と滞留、RFD の課題の status から導いた RFD の WIP、docs 同時更新率、AGENTS.md 規約の遵守(抜き取り) | `reports/stats/summary.md` と `trend.md` | WIP / 滞留 / 規約 |
+| process | 追跡しているファイルの未コミット差分の規模と滞留、RFD の課題の status から導いた RFD の WIP、docs 同時更新率、AGENTS.md 規約の遵守(抜き取り) | `reports/stats/summary.md` と `trend.md` | WIP / 滞留 / 規約 |
 
 ガードレール(観点ファイルの運用ルールを引き継ぐ):
 
@@ -30,6 +30,7 @@ description: Audit one lens and one scope of anet-lab, record findings as one is
 - ADR と矛盾する提案は出さない。ADR が意図と記録している形は候補にしない。当時の前提が今は崩れていると判断した場合だけ、ADR 再訪の候補として ADR 番号と前提が崩れた根拠を書く。
 - hot path(Sample、Push、Learn、per-step 経路)や RNG 呼び出し順に触る提案は、対処方針に perf-neutral 確認と同 seed 再現性チェックを含める。
 - refactor・architecture では、トピック別まとめの経緯の ADR・RFD が意図した形と「不採用」の形を候補にしない。前提が崩れた根拠がある場合だけ、出典と根拠を添えて再訪の候補にする。「先送り」「範囲外」は再開条件が揃った根拠を添えれば候補にしてよい。候補の対処方針にはトピック別まとめの「変えるときの条件」を引く。
+- 未追跡のファイル（`git status` の `??`）は、どの観点でも指摘にしない。開発者が、存在を公開しないなどの理由で、わざと追跡していないことがあり、リポジトリは公開なので、課題に書くとそのファイルの存在が公開されるためである。パスとファイル名は、課題にも完了報告にも書かない。完了報告で触れるときは件数だけにする。housekeeping が完了報告の要旨を追跡される記録に写すためである。
 - wiki の書く部分は編集しない。食い違いは報告する。`wiki_support.py maps` による課題区画の再生成だけは派生一覧として扱う。
 - ホットスポット補正: `reports/stats/stats.json` の `flow.churn90` で上位のファイルは `urgency` を 1 段上げ、今後触る予定の無い場所は 1 段下げる。上げ下げの幅と、上げ下げする前の値は `anet-create-issue` の「anet での当てはめ」による。補正したときは、そのことと理由を課題の背景に書く。
 

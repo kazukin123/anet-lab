@@ -61,6 +61,24 @@ TEST_CASE("QValuePanel accepts only positive integer smoothing radii", "[q_value
     }
 }
 
+TEST_CASE("QValuePanel accepts only positive histogram bin counts", "[rfd0206][qvalue_hist_bins]")
+{
+    constexpr char kBinsKey[] = "QValuePanel.hist_bins";
+    const int bins = GENERATE(-1, 0, 1, 510);
+    CAPTURE(bins);
+    anet::ConfigData config;
+    config.Set(kBinsKey, std::to_string(bins));
+    wxFrame frame(nullptr, wxID_ANY, "QValuePanel histogram");
+    const auto construct = [&] { new QValuePanel(&frame, config); };
+
+    if (bins < 1) {
+        CHECK_THROWS_WITH(construct(), Catch::Matchers::ContainsSubstring(
+            std::string(kBinsKey) + "=" + std::to_string(bins) + " must be an integer >= 1."));
+    } else {
+        CHECK_NOTHROW(construct());
+    }
+}
+
 TEST_CASE("Q heat map rejects an even number of smoothing weights", "[q_value_smooth]")
 {
     const auto input = UnitQValueData({2.0f, 2.0f, 2.0f, 2.0f});

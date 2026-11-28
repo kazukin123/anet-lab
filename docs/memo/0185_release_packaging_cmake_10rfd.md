@@ -267,4 +267,4 @@ G3 と D12 の列挙を、今のステップに当てるとこうなる。
 - [RFD0043 リリースパッケージング](done/0043_release_packaging_10rfd.md)、[999 CI/CD 改善](0156_cicd_improvement_10rfd.md)
 - [ADR 0017](../adr/0017-release-zip-mirrors-repo-layout.md)、[ADR 0020](../adr/0020-release-archives-carry-project-license.md)、[ADR 0025](../adr/0025-ale-external-build-reference-and-license.md)
 - [040 開発環境構築ガイド](../design/040_development_environment.jp.md) §3・§4.2・§6
-- [311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)
+- [311 開発ツール（wiki）](../wiki/concepts/framework/311_dev_tools.md)

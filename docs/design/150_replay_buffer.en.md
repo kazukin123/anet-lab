@@ -1,4 +1,4 @@
-<!-- translated-from: 150_replay_buffer.jp.md blob:715df8679ad9724ca94f6c23c8bbcb972771934e date:2026-11-23 progress:done -->
+<!-- translated-from: 150_replay_buffer.jp.md blob:a2fbc6126741c084b63107a392f4be418379a07f date:2026-11-27 progress:done -->
 # ReplayBuffer
 
 > Primary perspective: function (ReplayBuffer, with stages from Experience storage to sampling and transfer in chronological order)
@@ -68,11 +68,13 @@ Prefetch retains the snapshot taken at sampling and finalizes returns with γ at
 
 Frame stacking is used in two places:
 
-- Actor-side `DictFrameStacker` stacks recent Observations per lane for action selection, refilling lanes receiving `episode_start` with their initial frame.
+- DefaultDQN's action-selection Forwarder uses `DictFrameStacker` to stack recent Frames per lane, refilling the history of lanes receiving `episode_start` with the current Frame.
 - ReplayBuffer stores Push-time `BatchState::episode_start` beside the Observation as the history start for each real slot. Truncation dummy slots are never history starts.
 - Sample extraction uses time `t` as the latest slot for `obs` and `t + actual_n_steps` for `next_obs`, scanning backward within the stack width. Frames before the first stored history start are padded by copying that start frame. If none is found, the entire stack width is used; `stack_count == 1` performs no scan. Terminals and N-step metadata readiness are not stack boundaries.
 
 History lost through ring overwrite is not an episode boundary and is not padded; `ValidIndexManager` excludes affected transitions from sampleable ranges. A true terminal's `next_obs` value remains outside the learning contract, but is reconstructed deterministically by the same history-start rule.
+
+DefaultDQN determines the number of frames and the keys from `frame_stack.*` directly under the Agent and passes them to ReplayBuffer and each Forwarder request. ReplayBuffer reports the specs of `obs` and `next_obs` through `GetSampleObsSpecs`. With one frame, it returns `[B, *frame_shape]` without the axis, and the length-1 axis of the target keys is added after Sample. With multiple frames, ReplayBuffer's stack axis is used. The next observations of TempoRL windows use the same shape. See [Forwarder and Perception](135_forwarder_and_perception.en.md#3-defaultdqn-observation-processing).
 
 ### 2.4 PER
 
@@ -272,7 +274,7 @@ Before any future starts, `Push` delegates synchronously to the inner buffer. Du
 |---|---|
 | Replay capacity | Requested total capacity across lanes, rounded down to a multiple of lane count |
 | `reward_component_count` / `needs_return_recompute` | Component count (default 1) and that many bool flags. Components whose flag is true have their returns rebuilt by `FinalizeReturns` with the γ at sampling/consumption time. A configuration whose length differs from the component count is an ERROR. If any flag is true, step-reward snapshots are retained |
-| `n_step` | Future horizon of target returns |
+| `n_step` | Future horizon of target returns. Must be at least 1. Values below 1 fail at ReplayBuffer construction |
 | Sampler type | Uniform or prioritized |
 | `per_alpha` | Strength of priority influence on sampling probability |
 | `per_initial_priority` | Initial priority of new transitions |

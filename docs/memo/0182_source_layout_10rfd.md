@@ -146,7 +146,7 @@
 | D9 | 内的報酬（RND）は基盤に残す | 公開の口にも実装にも DQN の名前が無い（§2.2）。DefaultDQN と組み合わせるテストは DQN のテストへ移す（D12） |
 | D10 | RFD0169 を本書に統合する。規約 4 つ（§5.6）、拡張点の表、用語、自己登録マクロの削除を本書が行う | RFD0169 が先送りした 2 件（Agent の外部登録口、Head の部品の公開）は、D6・D7 で本書が行う。残る規約と表は本書の結果そのもので、2 本に分けると同じ段落と同じ表を 2 回書くことになる |
 | D11 | アプリのソースは `src/apps/runner`・`src/apps/metrics-viewer` へ移す。`apps/` には bin・config・道具・bat だけを残す。実行体の出力先（`apps/runner/bin/<構成>`）と bat の作業ディレクトリ（`apps/runner`）は変えない | D2 の規則どおり。`apps` のままだと、規則が「ライブラリのソースは `src`、アプリはソースも実行時の配置も `apps`」の 2 つになる |
-| D12 | テストの参照範囲と依存の向きを、次の 4 つにする。(1) 単体テストは対象のライブラリの中に置き、そのライブラリの内部まで読める。(2) ほかのライブラリは、公開ヘッダとテスト用の口だけを通して使う。(3) テストは、上位や兄弟のライブラリに依存しない。(4) 組み合わせを確かめるテストは D14 による。データのファイル（出荷設定、検証資材）は、この範囲の対象にしない。どのライブラリのテストも、リポジトリの根からのパスで読んでよい | 基盤が外に見せる面を絞る D6 を、テストが素通りしないようにする。ほかのライブラリの `src/` を相対パスで読む箇所が無くなり、同じリポジトリにあることに頼らない。[実装 品質確認観点](../quality/impl.md)の項番 46（テストは内部の構造を直接確かめない）とも合う |
+| D12 | テストの参照範囲と依存の向きを、次の 4 つにする。(1) 単体テストは対象のライブラリの中に置き、そのライブラリの内部まで読める。(2) ほかのライブラリは、公開ヘッダとテスト用の口だけを通して使う。(3) テストは、上位や兄弟のライブラリに依存しない。(4) 組み合わせを確かめるテストは D14 による。データのファイル（出荷設定、検証資材）は、この範囲の対象にしない。どのライブラリのテストも、リポジトリの根からのパスで読んでよい | 基盤が外に見せる面を絞る D6 を、テストが素通りしないようにする。ほかのライブラリの `src/` を相対パスで読む箇所が無くなり、同じリポジトリにあることに頼らない。[実装 レビュー観点](../quality/impl.md)の項番 46（テストは内部の構造を直接確かめない）とも合う |
 | D13 | テスト用の口は、基盤の `include/anet/test/` に置き、名前空間は `anet::test` にする。補助の実装は基盤の `src/test/` に置き、基盤とは別のターゲット（テスト用のライブラリ）に入れる。ヘッダの先頭にガードを置き、テスト用のライブラリにリンクした側だけが読めるようにする。中身は、組み立ての補助と、読むだけの口に限る。製品の処理は置かない。テスト用の口は、要るライブラリだけが持つ | 補助の実装が基盤のフォルダの中にあるので、ほかのフォルダの `src/` を読む箇所が残らない。ガードで、製品のコードが読もうとするとコンパイルが止まる。今のテスト用のヘッダがすでに `anet::test` である（§2.3）。D12 に依存 |
 | D14 | 組み合わせを確かめるテストは、相手のライブラリが主題でないなら、テスト用の口に置く代役の Agent を使い、主題のライブラリのテストに置く。組み合わせそのものが主題なら、`src/apps/` の下の専用のアプリに置く。このアプリは、最初のケースが出たときに作る | テストを主題のそばに置けて、兄弟のライブラリに依存しない。今あるのは GridMaze の 1 ケースで、主題は Env の seed である（§2.3）。代役の Agent はテストにすでに 8 個あり、Agent は設定の名前で選ばれる。D12・D13 に依存 |
 | D15 | DQN の共通部品は、役割で 5 つに分ける。学習、行動、Network、組み立て、共通の計算である。`Learner` は学習のファイルに丸ごと入る。ヘッダとテストも同じ単位で分ける。関数の本体は変えない | 起点（2026-11-17）の「過度に分割せず」に沿う選択である。部品の単位（12 ファイル）と型ごと（40 以上）は退けた（§4.3）。D1 に依存 |
@@ -492,7 +492,7 @@ DefaultDQN と Rainbow の検査（固定文字列。テストのファイルは
 
 ## 10. 参照
 
-- [AGENTS.md](../../AGENTS.md)、[CONTEXT.md](../../CONTEXT.md)、[実装 品質確認観点](../quality/impl.md)
+- [AGENTS.md](../../AGENTS.md)、[CONTEXT.md](../../CONTEXT.md)、[実装 レビュー観点](../quality/impl.md)
 - [010 フレームワーク概要](../design/010_framework_overview.jp.md)、[040 開発環境](../design/040_development_environment.jp.md)、[200 DQN 系 Agent](../design/200_dqn_agents.jp.md)
 - [ADR 0017](../adr/0017-release-zip-mirrors-repo-layout.md)、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)、[ADR 0067](../adr/0067-tag-sets-split-tracked-working-file-and-bundled-initial-copied-only-when-absent.md)、[ADR 0078](../adr/0078-top-level-layout-separates-build-inputs-runtime-layout-and-runtime-data.md)、[ADR 0079](../adr/0079-agents-live-in-per-family-libraries-outside-core-and-head-authoring-parts-are-public.md)、[ADR 0080](../adr/0080-tests-read-own-library-internals-and-reach-other-libraries-through-public-headers-and-test-support.md)
 - [RFD0169](0169_outside_core_extension_layout_10rfd.md)、[RFD0181](0181_config_file_layout_10rfd.md)、[RFD0185](0185_release_packaging_cmake_10rfd.md)、[RFD0125](0125_dqn_learner_update_skeleton_10rfd.md)、[RFD0128](0128_dqn_agent_refactor_bundle_10rfd.md)

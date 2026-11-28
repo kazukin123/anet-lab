@@ -225,7 +225,7 @@ RND が有効な Run は、primary の構造図と同じ時機に `dot/` へ次�
 | CPU・GPU・CUDA・FP32 | CPU は汎用の演算装置、GPU は多数の演算を並列に処理する装置。CUDA は NVIDIA GPU を利用する実行基盤、FP32 は32ビット浮動小数点数。 |
 | libtorch | PyTorch の C++ 向けライブラリ。ANET は tensor 計算、Network の学習や保存に使う。PyTorch はこれらの計算を提供する機械学習基盤。 |
 | GridMaze・LunarLander・Atari・Kung-Fu Master | GridMaze は格子状の迷路、LunarLander は着陸制御の環境。Atari はゲーム機とそのゲーム群を指し、Kung-Fu Master は今回の検証に使ったゲーム名。 |
-| checkpoint | 学習を再開するために保存したモデルや学習状態。単なる重みの保存より広い。 |
+| checkpoint | 新しい Run に引き継ぐために保存したモデルや学習状態。単なる重みの保存より広い。 |
 | NaN・nullopt | NaN は「この値は現在成立していない」を表す浮動小数点値。`nullopt` は、問い合わせた指標自体が提供されないことを表す。 |
 | Run・メトリクス | Run は1つの実験実行、メトリクスは実行中に記録する指標。 |
 | ProfiledValue・exp_step | ProfiledValue は定数や時間変化として指定できる設定値。`exp_step` は学習用に集めた経験数を表すカウンタで、今回 β の評価に使う。 |
@@ -266,7 +266,7 @@ RND の教師は、初期化時にランダムに重みを作り、その後は�
 
 #### 「一生」と「1エピソード」は、何を忘れるかが違う
 
-今回の「一生の新しさ」は、**1つの estimator が続いている間の学習履歴**を指す。エピソードが終わっても predictor や累積統計をリセットしない。同じ Agent の全 lane が1つの estimator を共有し、どこかの lane で学んだことが他の lane の新しさにも影響する。checkpoint から再開した場合は、その履歴を引き継ぐ。
+今回の「一生の新しさ」は、**1つの estimator が続いている間の学習履歴**を指す。エピソードが終わっても predictor や累積統計をリセットしない。同じ Agent の全 lane が1つの estimator を共有し、どこかの lane で学んだことが他の lane の新しさにも影響する。checkpoint を読み込んだ場合は、その履歴を引き継ぐ。
 
 一方、エピソード内の新しさなら、次の試行が始まったときに「この試行ではまだ訪れていない」を再び評価できる。慣れた通路を通らないと別の未知領域へ到達できない場面では、この違いが重要になる。
 
@@ -350,6 +350,8 @@ $$
 
 RND無効時とlearner停止による休止中も、既知キーは`NaN`を返す。未知キーだけを`nullopt`で表す。有効時の `learn_count` は0から始まり、学習しないintakeでも直近lossを保持する。初回採点前の採点値や未学習のlossはNaNになる。NaNは意図された未成立値であり、計算結果の異常な非有限誤差とは区別する。後者は採点時と補助学習時に検出して処理を止める。Nがbatch size以上でintake上限が制約しなければ、warm-up後の `learn_count / exp_step` の増分比は `learn.intake.ratio / learn.intake.batch_size` になる。
 
+`34_agent_plasticity` の可塑性の指標は、DQN の online の Network（`learner.final_feature_branch_key` の branch）を測る。RND の target と predictor は測らない。
+
 ### 9.5 計算する場所と費用
 
 名前付きseedは、RNDのtarget・predictorとCoordinatorのlane抽選で分ける。現在の通常の重み初期化はCPUの既定乱数生成器を使うため、構築中だけその状態を退避してseedを指定し、終了時に復元する。CPUで構築したモデルを必要なdeviceへ移す。
@@ -382,7 +384,7 @@ RFD0130 の機能検証と性能測定の手順は [検証資材](../../src/core
 | --- | --- |
 | Debug ビルド・関連テスト | 全体ビルド、50 tests /4,371 assertions成功。CNNのCPUテストはOMP_NUM_THREADS=1 |
 | 固定教師と predictor | 同一入力100回更新後の target 重み・出力の固定と、predictor の学習を確認 |
-| 統計・入力・保存再開 | variance_feedbackのN=1手計算3step、N=2逐次更新、カテゴリIDの保持（単独/連続値との混合、int64/uint8/float）、stateの採点と学習、負ボーナスの比率、両モードのCPU/CUDA入力、保存継続とモード不一致拒否を確認 |
+| 統計・入力・保存と引き継ぎ | variance_feedbackのN=1手計算3step、N=2逐次更新、カテゴリIDの保持（単独/連続値との混合、int64/uint8/float）、stateの採点と学習、負ボーナスの比率、両モードのCPU/CUDA入力、保存継続とモード不一致拒否を確認 |
 | 出荷設定 | Atariの両Networkのパラメータ数と約33.2MBのcheckpoint増分、Conv1d/2dの寸法、Taigaの8 件が一致 |
 | Runの設定解決 | 保存済みMontezuma基準Runと全キー比較。rainbowからtaigaへの差はRND設定18 件と診断13 件だけ。noop_max=0、Nature構造、Munchausen指標の不在を確認 |
 | 無効時の同一性 | GridMaze・LunarLander・Atari・DropMergeの105,682点と指標定義が変更前と一致 |
@@ -401,11 +403,11 @@ RFD0130 の機能検証と性能測定の手順は [検証資材](../../src/core
 
 run.@rnd_taigaもTaigaらの完全な再現ではない。QはC51でなくIQN、CNNはSAMEでなくVALID paddingであり、Qの埋め込み・初期値・PER・統計を数える単位・ALEの版も異なる。補助学習時には更新後の統計で入力を正規化し直す。残る差の一覧は [23implの表](../memo/0116_rnd_lifelong_novelty_23impl.md#本家との残る差) にある。
 
-### 9.7 保存と再開
+### 9.7 保存と引き継ぎ
 
 RND は target、predictor、optimizer、観測と誤差の統計、target 出力の統計、採点観測数を保存する。whiten の EMA は `RndNoveltyEstimator-4`、whiten の累積・none・variance_feedback は `RndNoveltyEstimator-3` を使う。書式の識別子と統計のモードは読込時に確認する。
 
-誤差の式と待ちは再開時の設定に従う。標準化の累積で保存した checkpoint は none で読める。rollout の観測と学習途中の位置は保存しないため、再開時は空の置き場からため直す。補助学習の未消費 credit、抽選の乱数の状態、成功回数、内的報酬スケーラの状態は復元する。学習率・重み減衰・Adam の epsilon は再開時の設定を適用する。
+誤差の式と待ちは引き継ぎ先の設定に従う。標準化の累積で保存した checkpoint は none で読める。rollout の観測と学習途中の位置は保存しないため、引き継ぎ先では空の置き場からため直す。補助学習の未消費 credit、抽選の乱数の状態、成功回数、内的報酬スケーラの状態は復元する。学習率・重み減衰・Adam の epsilon は引き継ぎ先の設定を適用する。
 
 RND を含む Agent checkpoint には `;intrinsic` の識別子を使い、読込側の RND の有無が一致することを確認する。スケーラと価値分解の書式は [価値の分解](214_value_decomposition.jp.md) を参照する。
 

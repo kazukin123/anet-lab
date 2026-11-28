@@ -37,7 +37,7 @@
 2. Debug全体とAnetRLRunner-gui-testをビルドし、追加テストとTrainer/Trace/GUIの関連回帰を実行する。
 3. core/anet-core/testdata/prd105/へ専用検証資材を追加する。PRD098段0の4環境、seed1、8lane、batch16、warmup256、replay ratio1、8,704experience、評価停止、FP32、決定論的backendを引き継ぎ、時間・資源の90_perf/91_resource/92_resource以外の全scalar点を完全比較する。過去のドライバ・記録を変更しない。
 4. qbert/LunarLanderでPRD§7の操作確認を実施する。qbertのverboseダンプがログ欄へ出るまでの実時間を記録する。並べ替え/保持/文字列化/転送の主要境界を計測する。
-5. 実装品質確認観点の全項目を自己点検し、独立したan-reviewへ今回の差分と本計画を依頼する。差し戻しは修正して同じレビューエージェントへ再依頼する。
+5. 実装レビュー観点の全項目を自己点検し、独立したan-reviewへ今回の差分と本計画を依頼する。差し戻しは修正して同じレビューエージェントへ再依頼する。
 
 頻繁な経路の見積もり: forcedはCPUのlane数分の更新。通知保持はTensorとshared_ptr等の参照コピーのみで転送・文字列化を足さない。既定順の挿入は先頭へ追加し、任意順はmax_rows内の比較と移動（既定1000行）。百分位窓は並べ替えで再投入しない。ダンプ時の同期転送は明示ダブルクリック時のみで毎step/tickには足さない。Atari1000行の追加保持はPRD見積もり約108MB、既存snapshotと合わせ約240〜410MB。実測は上記4で記録する。
 

@@ -72,7 +72,7 @@
 | `metrics.step_trace.[<tag>].scope` | `$eval.[<name>]`（宣言済みの評価 session） | なし（宣言するときは必須） | 行を残す評価 session |
 | `metrics.step_trace.[<tag>].columns.[<n>]` | Evaluation Trace の列と同じ書き方（`<target> <key> [label:<名前>] [display:<表示>]`。`<n>` は 1 以上の整数） | なし（1 つ以上必須） | 1 列 |
 
-- `<tag>` の長さは検証しない。書き方の決まりとして、[実装 品質確認観点](../quality/impl.md) の「設定ファイル」の metrics の tag の文字数（群名と `/` を含めて 40 文字以内。`metrics.scalar.[tag]` を対象にした決まりで、Viewer の一覧で見切れないため）を、step trace の tag にも当てる。
+- `<tag>` の長さは検証しない。書き方の決まりとして、[実装 レビュー観点](../quality/impl.md) の「設定ファイル」の metrics の tag の文字数（群名と `/` を含めて 40 文字以内。`metrics.scalar.[tag]` を対象にした決まりで、Viewer の一覧で見切れないため）を、step trace の tag にも当てる。
 - `<tag>` は、同じ名前の scalar とは別系列（`(type, tag)` で区別。RFD0069 D13）。同じ名前の trace の定義（1 行 DSL）とは重ねられない。どちらも `type` が `trace` になるためで、評価 session が発火するかどうかによらず、構築時にエラーにする。
 - `scope` が `$train`、宣言されていない評価 session、または無い場合は、構築時にキーと値を示して止める。
 - 列の検証は Evaluation Trace の列と同じ（番号の重複、target が 1 つ、key が 1 つ、ラベルの書式）。違反は構築時に止める。加えて、step trace では列のラベルどうしの重複（ラベルを省いて key がラベルになる場合を含む）と、ラベルが `reward`・`done`・`truncated` と重なることを、構築時にエラーにする（`data` の中で値が上書きされるのを防ぐ）。`display:` は記録には効かない（画面の表示用）ので、書かれていれば検証して使わず、その列について WARN を 1 回出す（§9 の 6）。
@@ -214,4 +214,4 @@ run.@stepdiag : metrics.step_trace.[53_evalg/step].columns.[320] = $agent_step s
 - [RFD0069 trace チャネル](done/0069_metrics_trace_channel_10rfd.md)、[RFD0094 Evaluation Trace](done/0094_evalpanel_step_history_10rfd.md)、[RFD0081 EvalPanel のゲームを trace へ出す](0081_evalpanel_episode_trace_10rfd.md)、[RFD0106](done/0106_temporl_skip_forward_noise_key_10rfd.md)
 - [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md)、[ADR 0047](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md)、[ADR 0057](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md)、[ADR 0058](../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md)
 - [140 可観測性（設計文書）](../design/140_observability.jp.md)
-- [317 可視化・メトリクス（wiki）](../wiki/categories/317_metrics.md)、[110 RunnerApp（wiki）](../wiki/apps/110_runner_app.md)
+- [317 可視化・メトリクス（wiki）](../wiki/concepts/framework/317_metrics.md)、[110 RunnerApp（wiki）](../wiki/concepts/apps/110_runner_app.md)

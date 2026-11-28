@@ -21,7 +21,7 @@ PRD100に従い解けるseedの盤面を保持し、解けない候補だけ派�
 - PRD098段0相当のGridMaze短縮Run: run seed1、8 lane、8704 experience、CPU、FP32、決定論backend、skip無効、既定迷路seed。変更前後の全scalarをtag/step/値で正規化し完全一致を確認する。時間・資源の90_perf/、91_resource/、92_resource/だけ除外し、Noisy指標を含める。checksumと点数、tagを記録する。
 - ログは別プロセスで検証する。既定seedの通知0件、seed2で学習256 laneと評価用Envを作る短いRunの通知1件。専用テストで反復・並行生成と自動seedを確認する。
 - MSVC初期化はAGENTS.mdのVsDevCmd経由。Debug全体ビルド、core/envs/gridmaze1/bin/Debug/GridMazeEnv-test.exe "[gridmaze]" を実行する。
-- 専用の再実行資材はcore/anet-core/testdata/prd100/に置き、Env設計のテスト章から参照する。品質確認観点を全項目自己点検し、独立an-reviewに計画と実装を依頼する。改訂PRDは別のprdレビューへ出す。原文・差分・検証ログを.scratch/prd100へ保存し、修正と再レビューを行う。
+- 専用の再実行資材はcore/anet-core/testdata/prd100/に置き、Env設計のテスト章から参照する。レビュー観点を全項目自己点検し、独立an-reviewに計画と実装を依頼する。改訂PRDは別のprdレビューへ出す。原文・差分・検証ログを.scratch/prd100へ保存し、修正と再レビューを行う。
 
 ## 前提
 - ユーザー判断が必要なブロッカー0。共有ログ状態の限定例外と、固定開始・ランダムゴール一致時の引き直しは明示回答済み。
@@ -72,7 +72,7 @@ Run検証は .venv/Scripts/python.exe core/anet-core/testdata/prd100/run_validat
 GUIの実画面を操作する目視確認は未実施。seed表示の1行はコード照合、最大uint64 seedの設定文字列読込・復元テスト、独立レビューで確認する。盤面描画方法は変更していない。性能ベンチと長時間学習はPRDの範囲外であり実行していない。
 
 ## 自己点検
-実装品質確認観点を全項目、適用範囲に従って点検した。C++の共有状態はD8とユーザー回答による限定例外。private APIだけを追加し、公開ヘッダ、設定、Agent/Runnerの契約、旧Run artifactは変更していない。TDDの失敗・成功、境界、自動seed、上限、ログ、checksumを上記へ記録した。未決なし。実装計画と実装の独立レビューは1往復目で両方OK。
+実装レビュー観点を全項目、適用範囲に従って点検した。C++の共有状態はD8とユーザー回答による限定例外。private APIだけを追加し、公開ヘッダ、設定、Agent/Runnerの契約、旧Run artifactは変更していない。TDDの失敗・成功、境界、自動seed、上限、ログ、checksumを上記へ記録した。未決なし。実装計画と実装の独立レビューは1往復目で両方OK。
 
 ## 完了報告
 

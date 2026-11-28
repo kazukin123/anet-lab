@@ -56,6 +56,11 @@ TEST_CASE("Pane open state survives temporary maximize hiding", "[gui][rfd0094][
     CHECK_FALSE(anet::rl::gui::IsPaneOpen(wxAuiPaneInfo(), true));
 }
 
+constexpr char kLeftActionLabel[] = "left";
+constexpr char kRightActionLabel[] = "right";
+constexpr char kForcedActionsKey[] = "forced";
+constexpr char kEvalActorKey[] = "eval";
+
 constexpr char kRfd0170TraceInput[] = "nn_trace/main/00_Input";
 
 namespace {
@@ -113,6 +118,11 @@ rl::EnvSpec MakeEnvSpec()
     spec.action_spec.value_labels = { "noop" };
     spec.reward_range = { -1.0f, 1.0f };
     return spec;
+}
+
+rl::MakeActionOptions ForceFirstLane(int64_t action, bool nn_trace = false)
+{
+    return {.nn_trace = nn_trace, .forced_actions = rl::ForcedActions::ByLane(0, action)};
 }
 
 class ThrowingRunner final : public rl::Runner {
@@ -210,6 +220,7 @@ public:
     mutable int spec_read_count = 0;
     int reset_count = 0;
     std::vector<int64_t> actions;
+    torch::Tensor last_actions;
     rl::BatchEnvSpec GetBatchSpec() const override { return batch_spec_; }
     torch::Device GetDevice() const override { return device_; }
 
@@ -221,6 +232,7 @@ public:
 
     std::shared_ptr<const rl::BatchStepResult> Step(std::shared_ptr<rl::BatchActionInfo> action_info) override
     {
+        last_actions = action_info->GetAction().clone();
         actions.push_back(action_info->GetAction()[0].item<int64_t>());
         return std::make_shared<TestStepResult>(batch_spec_.num_envs);
     }
@@ -236,8 +248,9 @@ private:
 
 class TestActor final : public rl::Actor {
 public:
-    explicit TestActor(int64_t num_envs)
+    explicit TestActor(int64_t num_envs, int64_t num_actions)
         : num_envs_(num_envs)
+        , num_actions_(num_actions)
     {
     }
 
@@ -250,8 +263,10 @@ public:
             1, num_envs_ * 3 + 1, torch::TensorOptions().dtype(torch::kFloat32)).reshape({ num_envs_, 3 });
         rl::AuxData aux;
         if (options.nn_trace) aux[kRfd0170TraceInput] = torch::ones({1, 1});
+        auto actions = torch::zeros({ num_envs_ }, torch::kInt64);
+        if (options.forced_actions) actions = options.forced_actions->Apply(actions, num_actions_);
         return std::make_shared<rl::BatchActionInfo>(
-            torch::zeros({ num_envs_ }, torch::kInt64),
+            std::move(actions),
             anet::TensorDict{},
             std::move(aux),
             rl::ReplayInitialPriorityHint(std::move(payload)));
@@ -265,6 +280,7 @@ public:
 
 private:
     int64_t num_envs_ = 1;
+    int64_t num_actions_;
     int sync_count_ = 0;
     mutable rl::StepCounts last_counts_;
     mutable std::vector<float> observed_states_;
@@ -287,7 +303,10 @@ public:
     void Sample(rl::ExperienceSamples&, int64_t, float, std::span<const float> gammas) const override {}
     bool SampleUniqueUniform(
         rl::ExperienceSamples&, int64_t, anet::RandomGenerator&, std::span<const float>) const override { return false; }
+    const anet::TensorSpecMap& GetSampleObsSpecs() const override { return sample_obs_specs; }
     int64_t Size() const override { return 0; }
+
+    anet::TensorSpecMap sample_obs_specs;
     rl::ReplayPriorityUpdateResult UpdatePriorities(
         const std::vector<int64_t>&, const std::vector<float>&) override
     {
@@ -369,7 +388,7 @@ public:
         const auto& batch_env_spec = request.batch_env_spec;
         last_actor_key_ = request.actor_key;
         requests_.push_back(request);
-        last_actor_ = std::make_shared<TestActor>(batch_env_spec.num_envs);
+        last_actor_ = std::make_shared<TestActor>(batch_env_spec.num_envs, request.env_spec.action_spec.GetNumActions());
         return last_actor_;
     }
 
@@ -994,16 +1013,16 @@ TEST_CASE("EvalRunner rejects unavailable forced actions before side effects", "
     notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent&) {
         ++notifications;
     }));
-    if (already_started) runner->DoStep(0);
+    if (already_started) runner->DoStep(ForceFirstLane(0));
 
     // 初回も継続中も、拒否だけではReset・Actor・Step・通知・時計を動かさない。
     const auto before = runner->GetCounts();
     const int spec_reads = env->spec_read_count;
     const int steps = already_started ? 1 : 0;
-    CHECK_THROWS_WITH(runner->DoStep(4),
-        Catch::Matchers::ContainsSubstring("EvalRunner 'manual-eval' forced action=4 is out of range. expected=[0, 3]."));
-    CHECK_THROWS_WITH(runner->DoStep(9, {}),
-        Catch::Matchers::ContainsSubstring("EvalRunner 'manual-eval' forced action=9 is out of range. expected=[0, 3]."));
+    CHECK_THROWS_WITH(runner->DoStep(ForceFirstLane(4)),
+        Catch::Matchers::ContainsSubstring("lane=0 action=4 expected lane=[0, 0] action=[0, 3]"));
+    CHECK_THROWS_WITH(runner->DoStep({}, ForceFirstLane(9)),
+        Catch::Matchers::ContainsSubstring("lane=0 action=9 expected lane=[0, 0] action=[0, 3]"));
     CHECK(env->reset_count == steps);
     CHECK(env->actions.size() == steps);
     CHECK(agent->GetLastActor()->GetObservedStates().size() == steps);
@@ -1014,14 +1033,15 @@ TEST_CASE("EvalRunner rejects unavailable forced actions before side effects", "
     CHECK(env->spec_read_count == spec_reads);
 
     // 拒否後にも有効な操作を続けられる。
-    runner->DoStep(3);
+    runner->DoStep(ForceFirstLane(3));
     CHECK(env->actions.back() == 3);
     CHECK(notifications == steps + 1);
 }
 
 TEST_CASE("EvalRunner accepts action boundaries and actor selection", "[trainer][eval_runner][manual_action]")
 {
-    const int64_t action = GENERATE(0, 3, -1, -2);
+    const int64_t action = GENERATE(0, 3);
+    const bool force = GENERATE(false, true);
     auto env = std::make_shared<TestBatchEnv>("manual-env", 1, torch::Device(torch::kCPU));
     env->spec.action_spec.value_labels = { "Up", "Left", "Down", "Right" };
     auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
@@ -1032,14 +1052,14 @@ TEST_CASE("EvalRunner accepts action boundaries and actor selection", "[trainer]
     const int spec_reads = env->spec_read_count;
     int notifications = 0;
     notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
-        CHECK(event.action_info->GetAction()[0].item<int64_t>() == (action >= 0 ? action : 0));
+        CHECK(event.action_info->GetAction()[0].item<int64_t>() == (force ? action : 0));
         ++notifications;
     }));
 
-    runner->DoStep(action);
+    runner->DoStep(force ? ForceFirstLane(action) : rl::MakeActionOptions{});
     CHECK(env->reset_count == 1);
     REQUIRE(env->actions.size() == 1);
-    CHECK(env->actions[0] == (action >= 0 ? action : 0));
+    CHECK(env->actions[0] == (force ? action : 0));
     CHECK(agent->GetLastActor()->GetObservedStates().size() == 1);
     CHECK(notifications == 1);
     CHECK(runner->GetCounts().train_step == 1);
@@ -1095,7 +1115,7 @@ TEST_CASE("RunManager validates train runner types before constructing Env", "[t
     }
 }
 
-TEST_CASE("RunManager rejects reserved configured Eval names before constructing Env", "[env_name][run_manager]")
+TEST_CASE("RunManager rejects reserved configured Eval names before constructing Env", "[env_name][run_manager][rfd0206][reserved_names]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     SECTION("train") {
@@ -1109,14 +1129,23 @@ TEST_CASE("RunManager rejects reserved configured Eval names before constructing
         CHECK(factory_state->creation_count == 0);
     }
 
-    SECTION("EvalPanel") {
+    SECTION("no app reservation") {
+        auto factory_state = RegisterRunManagerNameTestFactories();
+        auto config = MakeRunManagerNameTestConfig();
+        config.Set("run.eval.[EvalPanel].run_mode", "eval1");
+
+        CHECK_NOTHROW(std::make_shared<rl::RunManager>(config));
+        CHECK(factory_state->creation_count == 1);
+    }
+
+    SECTION("explicit app reservation") {
         auto factory_state = RegisterRunManagerNameTestFactories();
         auto config = MakeRunManagerNameTestConfig();
         config.Set("run.eval.[EvalPanel].run_mode", "eval1");
 
         CHECK_THROWS_WITH(
-            std::make_shared<rl::RunManager>(config),
-            Catch::Matchers::ContainsSubstring("Duplicate Env name 'EvalPanel' within Run"));
+            std::make_shared<rl::RunManager>(config, std::vector<std::string>{"EvalPanel"}),
+            Catch::Matchers::ContainsSubstring("Duplicate Env name 'EvalPanel' within Run: existing_owner='EvalPanel'"));
         CHECK(factory_state->creation_count == 0);
     }
 }
@@ -1912,6 +1941,29 @@ TEST_CASE("EvalRunner publishes a transition reward as a step trace", "[trainer]
     CHECK(rows[0]->step == 1);
 }
 
+TEST_CASE("EvalRunner executes and reports a forced action for only the selected lane", "[trainer][forced_action]")
+{
+    const bool by_mask = GENERATE(false, true);
+    auto env = std::make_shared<TestBatchEnv>("forced-lane", 2, torch::Device(torch::kCPU));
+    env->spec.action_spec.value_labels = {kLeftActionLabel, kRightActionLabel};
+    auto agent = std::make_shared<TestAgent>(torch::Device(torch::kCPU));
+    auto notifier = std::make_shared<rl::Notifier>();
+    const rl::ActorRequest request{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+        .device = torch::kCPU, .seed = 123, .actor_key = kEvalActorKey};
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, request);
+
+    rl::MakeActionOptions options;
+    options.forced_actions = by_mask
+        ? rl::ForcedActions::ByMask(torch::tensor({true, false}, torch::kBool), torch::tensor({1, -1}, torch::kInt64))
+        : rl::ForcedActions::ByLane(0, 1);
+    runner->DoStep(rl::StepCounts{}, options);
+
+    REQUIRE(env->last_actions.sizes() == torch::IntArrayRef{2});
+    CHECK(torch::equal(env->last_actions, torch::tensor({1, 0}, torch::kInt64)));
+    CHECK(runner->GetScalar(kForcedActionsKey, 0) == 1.0f);
+    CHECK(runner->GetScalar(kForcedActionsKey, 1) == 0.0f);
+}
+
 TEST_CASE("Forced Eval step publishes its flag through the transition notification", "[trainer][rfd0105][forced_trace]")
 {
     // 実Runnerから同期通知で読む列までを、一つの強制stepで通す。
@@ -1932,7 +1984,7 @@ TEST_CASE("Forced Eval step publishes its flag through the transition notificati
     CHECK(runner->GetScalar("forced", 0) == 0.0f);
     CHECK_FALSE(runner->GetScalar("forced").has_value());
     CHECK_THROWS_WITH(runner->GetScalar("forced", 1), Catch::Matchers::ContainsSubstring("lane=1"));
-    runner->DoStep(0);
+    runner->DoStep(ForceFirstLane(0));
     REQUIRE(rows.size() == 1);
     REQUIRE(rows.front()->values.size() == 1);
     CHECK(rows.front()->values.front() == 1.0f);
@@ -1942,6 +1994,45 @@ TEST_CASE("Forced Eval step publishes its flag through the transition notificati
     CHECK(rows.back()->values.front() == 0.0f);
     CHECK(runner->GetScalar("forced", 0) == 0.0f);
     CHECK(rows.front()->values.front() == 1.0f);
+}
+
+TEST_CASE("EvalRunner rejects invalid forced actions before resetting the Env", "[trainer][forced_action]")
+{
+    auto env = std::make_shared<TestBatchEnv>("invalid-force", 2, torch::kCPU);
+    env->spec.action_spec.value_labels = {kLeftActionLabel, kRightActionLabel};
+    SECTION("continuous action space") {
+        env->spec.action_spec.is_discrete = false;
+        env->spec.action_spec.dims.resize(1);
+        auto agent = std::make_shared<TestAgent>(torch::kCPU);
+        auto runner = std::make_shared<rl::EvalRunner>(env, agent, std::make_shared<rl::Notifier>(),
+            rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+                .device = torch::kCPU, .seed = 123, .actor_key = kEvalActorKey});
+        CHECK_THROWS_WITH(runner->DoStep(rl::MakeActionOptions{.forced_actions = rl::ForcedActions::ByLane(0, 1)}),
+            Catch::Matchers::ContainsSubstring("requires a discrete action space"));
+        CHECK(env->reset_count == 0);
+    }
+    SECTION("invalid lane, action or mask") {
+        auto agent = std::make_shared<TestAgent>(torch::kCPU);
+        auto runner = std::make_shared<rl::EvalRunner>(env, agent, std::make_shared<rl::Notifier>(),
+            rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(),
+                .device = torch::kCPU, .seed = 123, .actor_key = kEvalActorKey});
+        const auto reject = [&](rl::ForcedActions actions, const char* message) {
+            CHECK_THROWS_WITH(runner->DoStep(rl::MakeActionOptions{.forced_actions = std::move(actions)}),
+                Catch::Matchers::ContainsSubstring(message));
+        };
+        reject(rl::ForcedActions::ByLane(2, 1), "lane=2 action=1");
+        reject(rl::ForcedActions::ByLane(0, -1), "lane=0 action=-1");
+        const auto mask = torch::tensor({false, true}, torch::kBool);
+        const auto actions = torch::tensor({0, 1}, torch::kInt64);
+        reject(rl::ForcedActions::ByMask(mask, torch::tensor({0, 2}, torch::kInt64)), "lane=1 action=2");
+        reject(rl::ForcedActions::ByMask(mask.slice(0, 0, 1), actions), "expected bool mask and int64 actions");
+        reject(rl::ForcedActions::ByMask(mask.to(torch::kInt64), actions), "expected bool mask and int64 actions");
+        reject(rl::ForcedActions::ByMask(mask, actions.to(torch::kFloat32)), "expected bool mask and int64 actions");
+        reject(rl::ForcedActions::ByMask(torch::Tensor(), actions), "expected bool mask and int64 actions");
+        CHECK(env->reset_count == 0);
+        CHECK(agent->GetLastActor()->GetObservedStates().empty());
+        CHECK(env->actions.empty());
+    }
 }
 
 TEST_CASE("Forced flag is EvalRunner lane data and is unknown to TrainRunner", "[trainer][rfd0105][forced_scope]")
@@ -1992,8 +2083,8 @@ TEST_CASE("Step trace reads one transition across Runner counters and terminal r
     notifier->Attach(std::make_shared<rl::FunctionTrainObserver>([&](const rl::TrainEvent& event) {
         builder.OnTrain(event);
     }));
-    runner->DoStep(0);
-    runner->DoStep(0);
+    runner->DoStep(ForceFirstLane(0));
+    runner->DoStep(ForceFirstLane(0));
     REQUIRE(rows.size() == 2);
     for (int i = 0; i < 2; ++i) {
         CHECK(rows[i]->values[0] == (terminal ? 1.0f : 0.0f));
@@ -2094,9 +2185,9 @@ TEST_CASE("Runner forwards per-step nn_trace to every action and notification", 
     for (int i = 0; i < 3; ++i) runner->DoStep();
     CHECK_FALSE(trace.back());
     if (const auto eval = std::dynamic_pointer_cast<rl::EvalRunner>(runner)) {
-        eval->DoStep(0, {}, {.nn_trace = true});
+        eval->DoStep({}, ForceFirstLane(0, true));
         CHECK(trace.back());
-        eval->DoStep(0, {});
+        eval->DoStep({}, ForceFirstLane(0));
         CHECK_FALSE(trace.back());
     }
     runner->Shutdown();

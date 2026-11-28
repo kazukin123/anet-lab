@@ -67,11 +67,13 @@ prefetchは抽選時のsnapshotを保持し、consumerの`Sample`が返す時点
 
 frame stackingには2つの利用箇所がある。
 
-- Actor側の`DictFrameStacker`は、行動選択用にlaneごとの直近Observationをstackし、`episode_start`を受けたlaneを初期frameで埋め直す。
+- DefaultDQN の行動選択用 Forwarder は、`DictFrameStacker` で lane ごとの直近の Frame を重ね、`episode_start` を受けた lane の履歴を今の Frame で埋め直す。
 - ReplayBufferはPush時の`BatchState::episode_start`を実slotの履歴開始としてObservationと同時に保存する。truncation用dummy slotは履歴開始にしない。
 - sample extractorは`obs`では時刻`t`、`next_obs`では`t + actual_n_steps`を最新slotとして、stack幅内を新しいslotから古いslotへ走査する。最初に見つかった保存済み履歴開始より前を、その開始frameのcopyでpaddingする。履歴開始がなければstack幅全体を使い、`stack_count == 1`では走査しない。terminalやN-step metadataの確定状態はstack境界に使わない。
 
 ring上書きで失われた履歴はepisode境界ではないためpaddingせず、`ValidIndexManager`が該当transitionをsampleable rangeから除外する。true terminalの`next_obs`値は学習contract上の保証対象外だが、同じ履歴開始規則から決定的に復元される。
+
+DefaultDQN は Agent 直下の `frame_stack.*` から枚数とキーを決め、ReplayBuffer と各 Forwarder の依頼に渡す。ReplayBuffer は `GetSampleObsSpecs` で `obs` と `next_obs` の spec を答える。1枚では軸なしの `[B, *frame_shape]` を返し、対象キーの長さ1の軸は Sample の後に揃える。複数枚では ReplayBuffer の stack 軸を使う。TempoRL の窓の次観測も同じ形を使う。[Forwarder と Perception](135_forwarder_and_perception.jp.md#64-sample)を参照。
 
 ### 2.4 PER
 
@@ -89,6 +91,7 @@ uniform samplerでもPERの既知scalarキーは公開し、PER無効時の値�
 | `RainbowAgent` | inner `dqn::Learner`が使用する |
 | `MuZeroAgent` | 使用しない。試作実装固有の`MuZeroReplayBuffer`を持つ |
 | `ImageClsAgent` | 使用しない。Env/datasetからbatchを直接学習する |
+| `PPOAgent` | 使用しない。今の方策で集めた経験を`LaneTimeTensorStore`にため、1回の更新で使い切る |
 
 共通interfaceを利用するかどうかは具象Agentが決める。`ReplayBuffer`を全Learnerの必須componentとして扱わない。
 
@@ -111,7 +114,7 @@ uniform samplerでもPERの既知scalarキーは公開し、PER無効時の値�
 | `DeviceTransfer` | CPU sampleを同期転送、またはpinned sourceからCUDA copy streamへ転送する |
 | `EventRecycler` | CUDAEventと転送元payloadのlifetimeを完了まで保持・再利用する |
 | `DictFrameStacker` | ReplayBufferとは独立に、Actor側でkey別の直近Observationをstackする |
-| `LaneTimeTensorStore` | lane 一式の tensor を時間順に保持し、lane と時間を指定して読む。[RND の rollout 補助学習](212_rnd_lifelong_novelty.jp.md#5-predictor-の補助学習)に使う。 |
+| `LaneTimeTensorStore` | lane 一式の tensor を時間順に保持し、lane と時間を指定して読む。たまっている範囲の全体は、`GetAll` で時刻 × lane の形のまま、複製せずに読める。[RND の rollout 補助学習](212_rnd_lifelong_novelty.jp.md#5-predictor-の補助学習)と、[PPO 系の rollout](230_ppo_agents.jp.md#61-蓄積)に使う。 |
 
 ## 4. コードマップ
 
@@ -271,7 +274,7 @@ futureを起動する前の`Push`はinnerへ同期委譲する。prefetch中の`
 |---|---|
 | replay capacity | 全laneを合わせた要求容量。実容量はlane数の倍数へ切り下げる |
 | `reward_component_count` / `needs_return_recompute` | 成分数（既定1）と、その数のboolフラグ。真の成分は`FinalizeReturns`で抽選・消費時のγから収益を作り直す。長さが成分数と違う構成はERROR。いずれかが真ならstep報酬snapshotを保持する |
-| `n_step` | target returnの将来長 |
+| `n_step` | target return の将来長。1 以上。0 以下は ReplayBuffer の構築時に拒否する |
 | sampler type | uniformまたはprioritized |
 | `per_alpha` | priorityをsample確率へ反映する強さ |
 | `per_initial_priority` | 新規transitionの初期priority |

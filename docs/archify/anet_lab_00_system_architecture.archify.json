@@ -6,7 +6,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/kazukin123/anet-lab",
-      "revision": "0f4fd0f9718bddfd0e8f0ea5a9248920b0da209b"
+      "revision": "9310b087270668127f996cbb04eb959fc756f1de"
     }
   },
   "components": [
@@ -89,12 +89,12 @@
       "sources": [
         {
           "path": "src/core/base/src/trainer.cpp",
-          "line": 936,
+          "line": 924,
           "label": "RunManager::RunManager"
         },
         {
           "path": "src/core/base/include/anet/trainer.hpp",
-          "line": 253,
+          "line": 252,
           "label": "class RunManager"
         }
       ]
@@ -121,8 +121,8 @@
         },
         {
           "path": "src/core/base/include/anet/nn.hpp",
-          "line": 397,
-          "label": "NetworkBuilder"
+          "line": 185,
+          "label": "Network（Forwarder を実装）"
         },
         {
           "path": "CMakeLists.txt",
@@ -148,7 +148,7 @@
       "sources": [
         {
           "path": "src/core/base/include/anet/rl.hpp",
-          "line": 1187,
+          "line": 1213,
           "label": "class Notifier"
         },
         {
@@ -175,17 +175,17 @@
       "sources": [
         {
           "path": "src/core/base/src/trainer.cpp",
-          "line": 531,
+          "line": 519,
           "label": "SerialTrainRunner::DoStep"
         },
         {
           "path": "src/core/base/src/trainer.cpp",
-          "line": 672,
+          "line": 660,
           "label": "PipelineTrainRunner::DoStep"
         },
         {
           "path": "src/core/base/src/trainer.cpp",
-          "line": 1317,
+          "line": 1305,
           "label": "RunnerThread::ProcessStep"
         }
       ]
@@ -194,7 +194,7 @@
       "id": "agent",
       "type": "backend",
       "label": "Agent",
-      "sublabel": "Actor と Learner を作る",
+      "sublabel": "Actor・Learner・Perception",
       "tag": "anet-algo-dqn ほか",
       "pos": [
         1120,
@@ -206,19 +206,19 @@
       ],
       "sources": [
         {
-          "path": "src/algo/dqn/src/dqn.cpp",
-          "line": 7,
-          "label": "InitDqn"
-        },
-        {
           "path": "src/algo/dqn/src/dqn_actor.cpp",
-          "line": 1523,
+          "line": 1489,
           "label": "dqn::Actor::MakeAction"
         },
         {
           "path": "src/algo/dqn/src/default_dqn_agent.cpp",
-          "line": 1107,
+          "line": 1104,
           "label": "DefaultDQNAgent::UpdateFromBatch"
+        },
+        {
+          "path": "src/core/base/include/anet/forwarder.hpp",
+          "line": 66,
+          "label": "class ForwarderBuilder"
         }
       ]
     },
@@ -303,7 +303,7 @@
         },
         {
           "path": "src/algo/dqn/src/dqn_learner.cpp",
-          "line": 898,
+          "line": 975,
           "label": "Learner::SetupReplayBuffer"
         }
       ]
@@ -492,10 +492,10 @@
     },
     {
       "dot": "violet",
-      "title": "thread と device の境界",
+      "title": "thread・device・観測の加工",
       "items": [
-        "TrainThread が行動・Step・学習・通知を順に呼ぶ。Pipeline では学習だけ LearnThread へ移る",
-        "Notifier は通知中の Attach・Detach を許す。Env と ReplayBuffer は CPU、Actor と Learner が device へ移す"
+        "TrainThread が行動・Step・学習・通知を順に呼ぶ。Pipeline では学習だけ LearnThread へ移る。Env と ReplayBuffer は CPU",
+        "観測の加工は設定の並び 1 つで定め、DefaultDQN が用途ごとの Forwarder を作って Frame から Perception を得る"
       ]
     },
     {

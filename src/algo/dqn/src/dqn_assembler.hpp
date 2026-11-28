@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <utility>
 #include "anet/random.hpp"
-#include "anet/stacker.hpp"
+#include "anet/forwarder.hpp"
 #include "anet/schedule.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/nn.hpp"
@@ -33,6 +33,8 @@ namespace anet::rl::dqn {
     public:
         /// Agentのstep診断で要求・完了を対応付ける鍵。
         static constexpr char kStepApproxPriorityKey[] = "approx_priority";
+        static constexpr char kStepQSaKey[] = "q_sa";
+        static constexpr char kStepStateValueKey[] = "state_value";
 
         static std::shared_ptr<anet::nn::NetworkHeadFactory> CreateHeadFactory(
             const std::string& quantile_mode, bool dueling, int64_t num_actions, int num_quantiles,
@@ -43,13 +45,13 @@ namespace anet::rl::dqn {
             bool spatial, int64_t num_envs, const torch::Device& device);
         static std::shared_ptr<Learner> CreateLearner(
             const std::string& quantile_mode, int num_quantiles, const LearnerConfig& config,
-            NetworkModel& model, RuntimeVars& vars,
+            NetworkModel& model,
             const BatchEnvSpec& batch, const EnvSpec& env, const torch::Device& device,
             anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
-            std::shared_ptr<ObservationNormalizer> normalizer = nullptr,
+            const LearnerPerceptionSetup* perception_setup = nullptr,
             const LearnerForwardResources& forwards = {},
-            std::optional<StuckerConfig> stacker = std::nullopt,
+            std::optional<ReplayFrameStack> frame_stack = std::nullopt,
             std::optional<anet::seed_t> learner_seed = std::nullopt,
             std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe = nullptr,
             const std::string& log_suffix = "");
@@ -58,13 +60,12 @@ namespace anet::rl::dqn {
             const ActorRequest& request, NetworkModel& model,
             const std::shared_ptr<std::shared_mutex>& mutex, std::shared_ptr<ActionPolicy> policy,
             const anet::nn::NetworkForwardConfig& forward = anet::nn::NetworkForwardConfig::GetDefault(),
-            std::shared_ptr<ObservationNormalizer> normalizer = nullptr,
-            std::unique_ptr<FrameStacker> stacker = nullptr,
+            std::shared_ptr<anet::Forwarder> perception = nullptr,
             bool emit_snapshot_metrics = false, ActorQHintConfig hint = {},
             std::optional<anet::ProfiledValueConfig<step_t>> sync_interval = std::nullopt,
             std::optional<SkipActorResources> skip = std::nullopt);
         static std::optional<float> GetScalar(const std::string& key, int64_t index,
-            const Learner& learner, const RuntimeVars& vars, const ActionPolicy& target_policy,
+            const Learner& learner, const ActionPolicy& target_policy,
             std::shared_mutex& mutex);
         static std::optional<torch::Tensor> GetTensor(
             const std::string& key, const Learner& learner, std::shared_mutex& mutex);

@@ -4,7 +4,7 @@ title %~nx0
 cd /d "%~dp0runner"
 for %%I in ("%~dp0..\data\workspaces") do SET "DATA_WORKSPACES=%%~fI"
 
-SET "QUEUE=mz_b512"
+SET "QUEUE=mz_n10b"
 if not "%~1"=="" SET "QUEUE=%~1"
 if /I "%QUEUE%"=="ll_rnd" goto :skipwait
 
@@ -360,9 +360,15 @@ goto :summary
 :mz_b512
 :mz_rr4
 :mz_g99
-copy /Y "bin\%BUILD%\AnetRLRunner.exe" "bin\%BUILD%\AnetRLRunner_ab11.exe" >nul
+:mz_lrpl
+SET "MZSRC=bin\%BUILD%\AnetRLRunner.exe"
+goto :mz_copy
+:mz_n10b
+SET "MZSRC=bin\%BUILD%\AnetRLRunner_ab12.exe"
+:mz_copy
+copy /Y "%MZSRC%" "bin\%BUILD%\AnetRLRunner_ab11.exe" >nul
 if errorlevel 1 goto :no_exe
-for %%F in ("bin\%BUILD%\AnetRLRunner.exe") do echo %DATE% %TIME% EXE %%~fF built %%~tF
+for %%F in ("%MZSRC%") do echo %DATE% %TIME% EXE %%~fF built %%~tF
 call :use_ws AtariRnd-01 Atari.txt
 SET "A5=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base"
 SET "RR4=run.@hard500>run.@rr4>run.@munch"
@@ -399,8 +405,22 @@ SET "PL3R4=metrics.scalar.[34_agent_plasticity/43_probe_feature_norm]=$agent pla
 SET "PL4R4=metrics.scalar.[34_agent_plasticity/44_probe_srank]=$agent plasticity_probe_srank @learn $learn_step interval:2500"
 SET "PL5R4=metrics.scalar.[34_agent_plasticity/45_probe_srank_ratio]=$agent plasticity_probe_srank_ratio @learn $learn_step interval:2500"
 SET "TGQ8B=DefaultDQNAgent.learner.replay_ratio=8 DefaultDQNAgent.learner.replay_batch_size=512 DefaultDQNAgent.model.hard_update_interval=125 DefaultDQNAgent.learner.per_alpha=0.5 DefaultDQNAgent.learner.per_beta.start=0.5 DefaultDQNAgent.learner.per_beta.end=0.5"
+SET "G99ONLY=DefaultDQNAgent.learner.intrinsic.discount_mode=separate DefaultDQNAgent.learner.intrinsic.gamma=0.99"
+SET "EVCHK=DefaultDQNAgent.learner.enabled=false app.save_agent_on_close=false run.train.num_envs=1 DefaultDQNAgent.actor.[train].policy.spatial.enabled=false run.eval.[greedy].eval_batch_size=16 run.eval.[greedy].eval_episodes=64 run.eval_schedule.[greedy].interval=10 run.eval_schedule.[greedy].warmup_count=0 run.eval_schedule.[eval].interval=0 run.eval_schedule.[greedy_single].interval=0 run.eval_schedule.[eval_target].interval=0 app.batchrun.exp_exit_step=12"
+SET "EV18K=run.eval.[greedy].env.max_episode_frames=18000"
+SET "AB0=DefaultDQNAgent.actor.[greedy].intrinsic.action_beta_mode=fixed DefaultDQNAgent.actor.[greedy].intrinsic.action_beta=0"
+SET "LR25=DefaultDQNAgent.intrinsic.learn.intake.ratio=0.25 DefaultDQNAgent.intrinsic.learn.intake.batch_size=128"
+SET "PL01=DefaultDQNAgent.learner.intrinsic.priority_lambda=0.1"
+SET "N10=DefaultDQNAgent.learner.n_step=10"
+SET "N20=DefaultDQNAgent.learner.n_step=20"
+SET "G999=DefaultDQNAgent.learner.gamma=0.999"
+SET "SEMA=DefaultDQNAgent.intrinsic.rnd.error_norm.standardize.average_mode=ema"
+SET "BURDA=DefaultDQNAgent.intrinsic.rnd.error_norm.mode=none DefaultDQNAgent.intrinsic.rnd.error_norm.none.warmup_steps=200000 DefaultDQNAgent.intrinsic.use_done_mask=false DefaultDQNAgent.intrinsic.reward_scaler.use_dynamic_scaling=true DefaultDQNAgent.intrinsic.reward_scaler.dynamic_mode=return_std DefaultDQNAgent.intrinsic.beta=0.5"
+SET "ROLL1K=DefaultDQNAgent.intrinsic.learn.mode=rollout DefaultDQNAgent.intrinsic.learn.rollout.length=128 DefaultDQNAgent.intrinsic.learn.rollout.epochs=4 DefaultDQNAgent.intrinsic.learn.rollout.ratio=1.0 DefaultDQNAgent.intrinsic.learn.rollout.batch_size=1024"
 if /I "%QUEUE%"=="mz_rr4" goto :mz_rr4_stages
 if /I "%QUEUE%"=="mz_b512" goto :mz_b512_stages
+if /I "%QUEUE%"=="mz_lrpl" goto :mz_lrpl_stages
+if /I "%QUEUE%"=="mz_n10b" goto :mz_n10b_stages
 
 SET "RUN_EXIT_CODE=0"
 call :wait_disk
@@ -450,6 +470,73 @@ call :wait_disk
 echo === 37. montezuma_revenge 30m seed 1: same as mz_tg_r121_vd_s1 (no separate intrinsic discount, intrinsic value cut at game over) but replay ratio 4 as in stage 34 ===
 call :find_done mz_tg_vd_rr4_s1
 if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_tg_vd_rr4_s1"
+goto :summary
+
+:mz_lrpl_stages
+REM 2026-11-20 night: queued behind stage 39 (12 bat). First the Greedy of g99ne weights with the intrinsic beta at 0
+REM (action_beta fixed 0) against beta 1 on the same weights, then two RR4 arms on the G99NE recipe of stage 34 (seed 1).
+SET "RUN_EXIT_CODE=0"
+echo === ev only: Greedy of the final weights of mz_tg_g99ne_rr4_s2 (stage 35) with the intrinsic beta at 0, 64 games capped at 18,000 frames (beta 1 is mz_rr4s2_ev18k) ===
+call :find_done mz_rr4s2_ev18k_b0
+if not defined DONE_DIR call :find_ckpt "run_*_mz_tg_g99ne_rr4_s2"
+if not defined DONE_DIR if defined CKPT call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" %EVCHK% %EV18K% %AB0% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_rr4s2_ev18k_b0"
+
+SET "RUN_EXIT_CODE=0"
+echo === ev only: Greedy of the final weights of mz_tg_r121_g99ne_s1 (RR8 merge) with the intrinsic beta at 0, 64 games capped at 18,000 frames (beta 1 is mz_r8s1_ev18k) ===
+call :find_done mz_r8s1_ev18k_b0
+if not defined DONE_DIR call :find_ckpt "run_*_mz_tg_r121_g99ne_s1"
+if not defined DONE_DIR if defined CKPT call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" %EVCHK% %EV18K% %AB0% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_r8s1_ev18k_b0"
+
+SET "RUN_EXIT_CODE=0"
+echo === ev only: Greedy of the final weights of mz_tg_g99_rr4_s1 (stage 38), 64 games capped at 18,000 frames ===
+call :find_done mz_g99r4s1_ev18k
+if not defined DONE_DIR call :find_ckpt "run_*_mz_tg_g99_rr4_s1"
+if not defined DONE_DIR if defined CKPT call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99ONLY% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" %EVCHK% %EV18K% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_g99r4s1_ev18k"
+
+SET "RUN_EXIT_CODE=0"
+echo === ev only: Greedy of the final weights of mz_tg_g99_rr4_s1 (stage 38) with the intrinsic beta at 0, 64 games capped at 18,000 frames ===
+call :find_done mz_g99r4s1_ev18k_b0
+if not defined DONE_DIR call :find_ckpt "run_*_mz_tg_g99_rr4_s1"
+if not defined DONE_DIR if defined CKPT call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99ONLY% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" %EVCHK% %EV18K% %AB0% "DefaultDQNAgent.auto_load_file=%CKPT%" "app.run_name=run_{t}_mz_g99r4s1_ev18k_b0"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 40. montezuma_revenge 30m seed 1: same as mz_tg_g99ne_rr4_s1 (stage 34) but the RND predictor learns on 25%% of the experience (intrinsic.learn.intake.ratio 0.25: one batch of 128 every 4 exp steps instead of every step), so novelty fades about 4 times slower ===
+call :find_done mz_g99ne_lr25_rr4_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %LR25% %TGEV4% %NMDD% %R123% %VD% %G99NE% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_g99ne_lr25_rr4_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 41. montezuma_revenge 30m seed 1: same as mz_tg_g99ne_rr4_s1 (stage 34) but the PER priority leans to the extrinsic TD error (learner.intrinsic.priority_lambda 0.1: abs(delta_ext) + 0.1 abs(delta_int) instead of 1) ===
+call :find_done mz_g99ne_pl01_rr4_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %PL01% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_g99ne_pl01_rr4_s1"
+goto :summary
+
+:mz_n10b_stages
+SET "STK=DefaultDQNAgent.perception.block.[stack].count=4 DefaultDQNAgent.perception.block.[stack].keys.mode=all"
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 56. montezuma_revenge 30m seed 1: same as 44 (mz_g99ne_n10_rr4_s1) but the RND error statistics are an EMA (error_norm.standardize.average_mode ema) ===
+call :find_done mz_n10_sema_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %SEMA% %STK% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_sema_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 57. montezuma_revenge 30m seed 1: same as 44 but the extrinsic discount is 0.999 (learner.gamma) ===
+call :find_done mz_n10_g999_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %G999% %STK% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_g999_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 58. montezuma_revenge 30m seed 1: same as 44 but n-step 20 ===
+call :find_done mz_n10_n20_s1
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N20% %STK% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_n20_s1"
+
+SET "RUN_EXIT_CODE=0"
+call :wait_disk
+echo === 55. montezuma_revenge 30m seed 2: same as 50 (both 48 and 49), moved here from the 12 bat ===
+call :find_done mz_n10_burdarl_s2
+if not defined DONE_DIR call :run_exe "%TGCH%" %MZT2% %K32% %ALNINIT% %TGQ4% %TGRND% %TGEV4% %NMDD% %R123% %VD% %G99NE% %N10% %BURDA% %ROLL1K% %STK% "%VDMET%" "%VDG1%" "%VDG2%" "%VDG3%" "%VDG4%" "%PL1R4%" "%PL2R4%" "%PL3R4%" "%PL4R4%" "%PL5R4%" app.batchrun.exp_exit_step=30000000 "app.run_name=run_{t}_mz_n10_burdarl_s2"
 goto :summary
 
 :ram_short

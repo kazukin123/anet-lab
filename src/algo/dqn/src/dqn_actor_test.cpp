@@ -1,5 +1,6 @@
 #include "anet/test/catch.hpp"
 #include "anet/test/nn.hpp"
+#include "dqn_assembler.hpp"
 #include "dqn_fixture_test.hpp"
 
 #include <algorithm>
@@ -7,7 +8,45 @@
 #include <limits>
 #include <torch/cuda.h>
 
-TEST_CASE("Skip Actor retains an action and resets duration on episode start", "[dqn][rfd0098]")
+constexpr char kIqnPolicyMarginMcRatio[] = "iqn_policy_margin_mc_ratio";
+
+TEST_CASE("DQN action scalar rejects a malformed index with one fatal log", "[dqn][rfd0207][action_index]")
+{
+    const std::string suffix = GENERATE("1x", "x");
+    const auto key = "action_full_q_margin.[" + suffix + "]";
+    const auto message = "DQNActionInfo: invalid action index in scalar key: " + key;
+    const dqn::DQNActionInfo action_info(torch::tensor({0}, torch::kInt64));
+    anet::test::LogCaptureGuard logs;
+
+    CHECK_THROWS_WITH(action_info.GetScalar(key), Catch::Matchers::ContainsSubstring(message));
+    logs.Flush();
+    // LOG::fatal は wx の捕捉先には Message として届く。
+    const auto& records = logs.Records();
+    CHECK(std::count_if(records.begin(), records.end(), [&](const auto& record) {
+        return record.level == wxLOG_Message && record.message.starts_with("Exception:")
+            && record.message.find(message) != std::string::npos;
+    }) == 1);
+}
+
+TEST_CASE("DQN policies without UQE report an undefined tau", "[dqn][rfd0207][unused_uqe_tau]")
+{
+    const auto [policy_type, spatial] = GENERATE(Catch::Generators::table<std::string, bool>({
+        {dqn::kActionPolicyTypeStr_Greedy, false},
+        {dqn::kActionPolicyTypeStr_EpsilonGreedy, false},
+        {dqn::kActionPolicyTypeStr_EpsilonGreedy, true},
+    }));
+    dqn::ActionPolicyConfig config;
+    config.policy_type = policy_type;
+    config.spatial.enabled = spatial;
+    const auto policy = dqn::DqnComponentAssembler::CreateActionPolicy(
+        config, dqn::ActionPolicyConfig::kQuantileModeNone, spatial, 32, torch::kCPU);
+    policy->UpdateSchedule({});
+    const auto tau = policy->GetScalar(dqn::ActionPolicy::kUqeTauMetricKey);
+    REQUIRE(tau);
+    CHECK(std::isnan(*tau));
+}
+
+TEST_CASE("Skip Actor retains an action and resets its duration on a new decision", "[dqn][rfd0098][forced_action]")
 {
     anet::test::RegisterStandardNetworkModules();
     torch::NoGradGuard no_grad;
@@ -35,29 +74,40 @@ TEST_CASE("Skip Actor retains an action and resets duration on episode start", "
     skip_config.max_length = 3;
     const auto actor_primary = cloned ? primary->Clone() : primary;
     const auto actor_skip = cloned ? skip->Clone() : skip;
-    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
+    dqn::Actor actor(policy, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
         actor_primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), true, std::nullopt, false, {},
         dqn::SkipActorResources{.config = skip_config, .policy = policy, .network = actor_skip, .source = skip,
             .forward_config = std::make_shared<const anet::nn::NetworkForwardConfig>(anet::nn::NetworkForwardConfig::GetDefault())});
     const auto flags = torch::zeros({1}, torch::kBool);
     rl::BatchState state(anet::TensorDict{{kVectorKey, torch::ones({1, 2})}}, flags, flags, flags);
     auto first = actor.MakeAction({}, state);
-    CHECK(first->GetInfo().At("decision").item<bool>());
+    CHECK(first->GetInfo().At(rl::BatchActionInfo::kKeyDecision).item<bool>());
     CHECK(first->GetAction().item<int64_t>() == 0);
     CHECK(first->GetAuxData().at("skip_length").item<int64_t>() == 3);
     // primaryの提案を反転させても継続行動0を返し、hintは上書き後のactionから取る。
     primary->named_parameters()["head.linear.bias"].copy_(torch::tensor({1.0f, 4.0f}));
     skip->named_parameters()["head.linear.bias"].copy_(torch::tensor({2.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f}));
     const auto continuing = actor.MakeAction({}, state);
-    CHECK_FALSE(continuing->GetInfo().At("decision").item<bool>());
+    CHECK_FALSE(continuing->GetInfo().At(rl::BatchActionInfo::kKeyDecision).item<bool>());
     CHECK(continuing->GetAction().item<int64_t>() == 0);
     REQUIRE(continuing->GetReplayInitialPriorityHint());
     CHECK(dqn::DecodeActorQHint(continuing->GetReplayInitialPriorityHint()->GetPayload()).actor_q_sa.item<float>() == (cloned ? 3.0f : 1.0f));
+
+    const auto forced = actor.MakeAction({}, state, {.forced_actions = rl::ForcedActions::ByLane(0, 1)});
+    CHECK(forced->GetAction().item<int64_t>() == 1);
+    CHECK(forced->GetInfo().At(rl::BatchActionInfo::kKeyDecision).item<bool>());
+    CHECK(forced->GetAuxData().at("skip_length").item<int64_t>() == 1);
+    CHECK(actor.GetScalar("skip_session_decision_rate").value() == Catch::Approx(2.0 / 3.0));
+    CHECK(actor.GetScalar("skip_session_length_mean") == 2.0f);
+    const auto after_forced = actor.MakeAction({}, state);
+    CHECK(after_forced->GetInfo().At(rl::BatchActionInfo::kKeyDecision).item<bool>());
+    CHECK(after_forced->GetAction().item<int64_t>() == (cloned ? 0 : 1));
+
     // Syncはprimaryとskipを同時に更新する。episode境界では両方の新しい値で判断する。
     actor.Sync();
     state.episode_start = torch::ones({1}, torch::kBool);
     const auto reset = actor.MakeAction({}, state);
-    CHECK(reset->GetInfo().At("decision").item<bool>());
+    CHECK(reset->GetInfo().At(rl::BatchActionInfo::kKeyDecision).item<bool>());
     CHECK(reset->GetAction().item<int64_t>() == 1);
     CHECK(reset->GetAuxData().at("skip_length").item<int64_t>() == 1);
 }
@@ -83,7 +133,7 @@ TEST_CASE("Skip Actor session statistics count decision lanes and reset on Sync"
     if (enabled) resources = dqn::SkipActorResources{.config = {.enabled = true, .max_length = 3},
         .policy = policy, .network = skip, .source = skip,
         .forward_config = std::make_shared<const anet::nn::NetworkForwardConfig>(anet::nn::NetworkForwardConfig::GetDefault())};
-    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
+    dqn::Actor actor(policy, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
         primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {}, resources);
     for (const auto* key : {"skip_session_decision_rate", "skip_session_length_mean", "skip_session_length_rate.[1]"}) {
         const auto value = actor.GetScalar(key);
@@ -162,7 +212,7 @@ TEST_CASE("Dedicated IQN skip policy queries its own mean or risk range in one s
     if (kind == "EpsilonGreedy") dedicated = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dedicated_config, spatial, 2);
     else if (kind == "UQE") dedicated = std::make_shared<dqn::UQEActionPolicy>(dedicated_config, spatial, 2);
     else dedicated = std::make_shared<dqn::ThompsonSamplingActionPolicy>(dedicated_config, spatial, 2);
-    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
+    dqn::Actor actor(policy, nullptr, torch::kCPU, 98, std::make_shared<std::shared_mutex>(),
         primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
         dqn::SkipActorResources{.config = {.enabled = true, .max_length = 2, .network_mode = dqn::SkipNetworkMode::ActionIn},
         .policy = dedicated, .network = skip, .source = skip,
@@ -202,7 +252,7 @@ TEST_CASE("Skip forward samples only its execution config with fixed observation
     execution.Set("noisy.hold", "call");
     execution.Set("noisy.share", "batch");
     const auto policy = std::make_shared<FixedSkipInputPolicy>(torch::ones({2, 2}));
-    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 106, std::make_shared<std::shared_mutex>(), primary, primary,
+    dqn::Actor actor(policy, nullptr, torch::kCPU, 106, std::make_shared<std::shared_mutex>(), primary, primary,
         anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
         dqn::SkipActorResources{.config = {.enabled = true, .max_length = 3}, .policy = policy, .network = skip, .source = skip,
             .forward_config = std::make_shared<const anet::nn::NetworkForwardConfig>("fixed_skip", execution), .max_length_mode = "single"});
@@ -306,7 +356,7 @@ TEST_CASE("Variable Actor preserves a held action when its scheduled limit drops
     dqn::ActionPolicyConfig policy_config;
     policy_config.epsilon.value = policy_config.epsilon.start = policy_config.epsilon.end = 0;
     const auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(policy_config);
-    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 104, std::make_shared<std::shared_mutex>(),
+    dqn::Actor actor(policy, nullptr, torch::kCPU, 104, std::make_shared<std::shared_mutex>(),
         primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
         dqn::SkipActorResources{.config = {.enabled = true, .max_length = 3}, .policy = policy,
             .network = skip, .source = skip,
@@ -323,7 +373,7 @@ TEST_CASE("Variable Actor preserves a held action when its scheduled limit drops
     CHECK(*actor.GetScalar("skip_max_length") == 1.0f);
     CHECK(torch::equal(second->GetAction(), torch::tensor({0, 1}, torch::kLong)));
     CHECK(torch::equal(second->GetAuxData().at("skip_length"), torch::tensor({3, 1}, torch::kLong)));
-    CHECK(torch::equal(second->GetInfo().At("decision"), torch::tensor({false, true})));
+    CHECK(torch::equal(second->GetInfo().At(rl::BatchActionInfo::kKeyDecision), torch::tensor({false, true})));
     state.episode_start = flags;
     const auto third = actor.MakeAction({.exp_step = 2}, state);
     CHECK(third->GetAction()[0].item<int>() == 0);
@@ -350,7 +400,7 @@ TEST_CASE("Variable IQN skip selection keeps full auxiliary values for each poli
     if (kind == "EpsilonGreedy") policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(config, false, 2);
     else if (kind == "UQE") policy = std::make_shared<dqn::UQEActionPolicy>(config, false, 2);
     else policy = std::make_shared<dqn::ThompsonSamplingActionPolicy>(config, false, 2);
-    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 104, std::make_shared<std::shared_mutex>(),
+    dqn::Actor actor(policy, nullptr, torch::kCPU, 104, std::make_shared<std::shared_mutex>(),
         primary, primary, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, false, {},
         dqn::SkipActorResources{.config = {.enabled = true, .max_length = 2, .network_mode = dqn::SkipNetworkMode::ActionIn},
             .policy = policy, .network = skip, .source = skip,
@@ -432,7 +482,7 @@ TEST_CASE("Actor sync leaves cloned network in eval mode", "[dqn][actor]")
     auto src_network = MakeLinearNetwork();
     auto clone_network = MakeLinearNetwork();
     auto mutex = std::make_shared<std::shared_mutex>();
-    dqn::Actor actor(nullptr, nullptr, nullptr, torch::kCPU, std::nullopt, mutex, clone_network, src_network, anet::nn::NetworkForwardConfig::GetDefault());
+    dqn::Actor actor(nullptr, nullptr, torch::kCPU, std::nullopt, mutex, clone_network, src_network, anet::nn::NetworkForwardConfig::GetDefault());
 
     src_network->eval();
     clone_network->train();
@@ -460,7 +510,7 @@ TEST_CASE("DQN Actor keeps a Train network snapshot until the sync interval", "[
     anet::ProfiledValueConfig<rl::step_t> sync_interval;
     sync_interval.value = 2;
     dqn::Actor actor(
-        policy, nullptr, nullptr, torch::kCPU, 123, mutex, snapshot_network, src_network, anet::nn::NetworkForwardConfig::GetDefault(), false, sync_interval, true);
+        policy, nullptr, torch::kCPU, 123, mutex, snapshot_network, src_network, anet::nn::NetworkForwardConfig::GetDefault(), false, sync_interval, true);
 
     {
         torch::NoGradGuard no_grad;
@@ -472,11 +522,11 @@ TEST_CASE("DQN Actor keeps a Train network snapshot until the sync interval", "[
         flags,
         flags,
         flags);
-    auto make_action = [&](rl::step_t train_step) {
+    auto make_action = [&](rl::step_t train_step, const rl::MakeActionOptions& options = {}) {
         rl::StepCounts step;
         step.train_step = train_step;
         step.exp_step = train_step;
-        return actor.MakeAction(step, state);
+        return actor.MakeAction(step, state, options);
     };
 
     const auto action0 = make_action(0);
@@ -499,7 +549,7 @@ TEST_CASE("DQN Actor keeps a Train network snapshot until the sync interval", "[
 
     const auto moved = std::dynamic_pointer_cast<dqn::DQNActionInfo>(metrics2->To(torch::kCPU));
     const auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(
-        metrics2->WithAction(torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kInt64))));
+        make_action(2, {.forced_actions = rl::ForcedActions::ByLane(0, 0)}));
     REQUIRE(moved != nullptr);
     REQUIRE(replaced != nullptr);
     CHECK(moved->GetScalar("train_actor_snapshot_interval") == 2.0f);
@@ -520,7 +570,7 @@ TEST_CASE("DQN Actor forced Sync resets snapshot age without a duplicate copy", 
     anet::ProfiledValueConfig<rl::step_t> sync_interval;
     sync_interval.value = 5;
     dqn::Actor actor(
-        policy, nullptr, nullptr, torch::kCPU, 123, mutex, snapshot_network, src_network, anet::nn::NetworkForwardConfig::GetDefault(), false, sync_interval, true);
+        policy, nullptr, torch::kCPU, 123, mutex, snapshot_network, src_network, anet::nn::NetworkForwardConfig::GetDefault(), false, sync_interval, true);
 
     {
         torch::NoGradGuard no_grad;
@@ -562,7 +612,7 @@ TEST_CASE("DQN Actor applies snapshot interval shortening and extension at actio
         auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
         auto mutex = std::make_shared<std::shared_mutex>();
         dqn::Actor actor(
-            policy, nullptr, nullptr, torch::kCPU, 123, mutex, snapshot_network, src_network, anet::nn::NetworkForwardConfig::GetDefault(), false, sync_interval, true);
+            policy, nullptr, torch::kCPU, 123, mutex, snapshot_network, src_network, anet::nn::NetworkForwardConfig::GetDefault(), false, sync_interval, true);
         {
             torch::NoGradGuard no_grad;
             src_network->parameters()[0].fill_(2.0f);
@@ -618,7 +668,7 @@ TEST_CASE("DQN Actor exposes NaN snapshot metrics when periodic sync is disabled
     auto network = MakeLinearNetwork();
     auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
     auto mutex = std::make_shared<std::shared_mutex>();
-    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 123, mutex, network, network, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, true);
+    dqn::Actor actor(policy, nullptr, torch::kCPU, 123, mutex, network, network, anet::nn::NetworkForwardConfig::GetDefault(), false, std::nullopt, true);
     auto flags = torch::zeros({ 1 }, torch::TensorOptions().dtype(torch::kBool));
     rl::BatchState state(
         anet::TensorDict{ { kVectorKey, torch::tensor({ { 1.0f, 2.0f } }) } },
@@ -740,10 +790,9 @@ TEST_CASE("QR policy exposes quantile tail diagnostics through action info", "[d
     CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
         == Catch::Approx(0.0f));
 
-    // action差し替え後は上下幅だけを最終actionから再集約し、global診断は維持する。
-    auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action_info->WithAction(torch::ones(
-        { 2 }, torch::TensorOptions().dtype(torch::kInt64))));
-    REQUIRE(replaced != nullptr);
+    // 別の最終行動を選んだ場合は上下幅がその行動を参照し、global 診断は同じ値を返す。
+    auto replaced = std::make_shared<dqn::DQNActionInfo>(
+        torch::ones({2}, torch::kInt64), action_info->GetInfo(), action_info->GetAuxData());
     CHECK(*replaced->GetScalar("policy_upper_truncated_std") == Catch::Approx(std::sqrt(2.0f)));
     CHECK(*replaced->GetScalar("policy_lower_truncated_std") == Catch::Approx(std::sqrt(2.0f)));
     CHECK(*replaced->GetScalar("lower_risk_full_q_argmax_disagreement") == Catch::Approx(0.5f));
@@ -823,9 +872,8 @@ TEST_CASE("QR selected crossing depth follows the final action per lane", "[dqn]
     CHECK(*action_info->GetScalar("policy_selected_crossing_depth_p90_ratio")
         == Catch::Approx(0.25f));
 
-    auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(action_info->WithAction(torch::ones(
-        { 2 }, torch::TensorOptions().dtype(torch::kInt64))));
-    REQUIRE(replaced != nullptr);
+    auto replaced = std::make_shared<dqn::DQNActionInfo>(
+        torch::ones({2}, torch::kInt64), action_info->GetInfo(), action_info->GetAuxData());
     CHECK(*replaced->GetScalar("policy_selected_crossing_depth_p90_ratio")
         == Catch::Approx(0.5f));
 }
@@ -958,6 +1006,9 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
         CHECK(torch::allclose(
             action_info->GetAuxData().at("q_values"),
             action_info->GetAuxData().at("uqe_values")));
+        const auto margin = action_info->GetScalar(kIqnPolicyMarginMcRatio);
+        REQUIRE(margin);
+        CHECK(std::isnan(*margin));
     }
 
     SECTION("non spatial Thompson sampling scores the full interval")
@@ -966,9 +1017,13 @@ TEST_CASE("IQN action policies inject their tau rules without mutating observati
         config.quantile_mode = "iqn";
         config.tau_rule.num_taus = 2;
         config.tau_rule.sample_mode = "fixed";
+        config.uqe.use_tail_mean = false;
         auto expected = torch::tensor({ 0.25f, 0.75f }).repeat({ 2, 1 });
 
-        run_policy(std::make_shared<dqn::ThompsonSamplingActionPolicy>(config), expected);
+        const auto info = run_policy(std::make_shared<dqn::ThompsonSamplingActionPolicy>(config), expected);
+        const auto margin = info->GetScalar(kIqnPolicyMarginMcRatio);
+        REQUIRE(margin);
+        CHECK(std::isfinite(*margin));
     }
 
     SECTION("spatial UQE and Thompson sampling use per-env lower bounds")
@@ -1192,7 +1247,7 @@ TEST_CASE("DQN Actor emits a packed priority hint without another forward", "[dq
         auto network = MakeAutocastProbeNetwork(probe_state, torch::kCPU);
         auto policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
         auto mutex = std::make_shared<std::shared_mutex>();
-        dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 123, mutex, network, network, anet::nn::NetworkForwardConfig::GetDefault(), emit_hint);
+        dqn::Actor actor(policy, nullptr, torch::kCPU, 123, mutex, network, network, anet::nn::NetworkForwardConfig::GetDefault(), emit_hint);
 
         auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
         auto episode_start = torch::tensor({ true, false }, torch::TensorOptions().dtype(torch::kBool));
@@ -1230,7 +1285,7 @@ TEST_CASE("DQN Actor snapshot synchronization performs one forward per action", 
     anet::ProfiledValueConfig<rl::step_t> sync_interval;
     sync_interval.value = 1;
     dqn::Actor actor(
-        policy, nullptr, nullptr, torch::kCPU, 123, mutex, snapshot_network, source_network, anet::nn::NetworkForwardConfig::GetDefault(), false, sync_interval, true);
+        policy, nullptr, torch::kCPU, 123, mutex, snapshot_network, source_network, anet::nn::NetworkForwardConfig::GetDefault(), false, sync_interval, true);
 
     auto flags = torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kBool));
     rl::BatchState state(MakeAutocastProbePolicyInput(torch::kCPU), flags, flags, flags);
@@ -1296,7 +1351,8 @@ TEST_CASE("DQNActionInfo exposes action UQE scalar metrics", "[dqn][action_polic
     CHECK(std::isnan(*non_uqe.GetScalar("iqn_uqe_full_q_argmax_disagreement")));
     CHECK(std::isnan(*non_uqe.GetScalar("action_full_q_margin.[0]")));
 
-    auto replaced = win_info.WithAction(torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
+    auto replaced = std::make_shared<dqn::DQNActionInfo>(
+        torch::tensor({2, 1}, torch::kInt64), win_info.GetInfo(), win_info.GetAuxData());
     CHECK(torch::equal(replaced->GetAction(), torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64))));
     auto scalar_target = dynamic_cast<const anet::Module*>(replaced.get());
     REQUIRE(scalar_target != nullptr);
@@ -1368,7 +1424,8 @@ TEST_CASE("DQNActionInfo exposes episode-start action margin scalar metrics", "[
     REQUIRE(non_uqe_margin.has_value());
     CHECK(std::isnan(*non_uqe_margin));
 
-    auto replaced = info.WithAction(torch::tensor({ 2, 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)));
+    auto replaced = std::make_shared<dqn::DQNActionInfo>(
+        torch::tensor({2, 1, 0}, torch::kInt64), info.GetInfo(), info.GetAuxData());
     auto replaced_scalar_target = dynamic_cast<const anet::Module*>(replaced.get());
     REQUIRE(replaced_scalar_target != nullptr);
     auto replaced_q_margin = replaced_scalar_target->GetScalar("episode_start_action_q_margin.[0]");
@@ -1431,8 +1488,8 @@ TEST_CASE("Decomposed Actor hints reuse policy selection and exclude full querie
     dqn::ActorQHintConfig hint;
     hint.decomposed = true;
     hint.beta.value = 0.5f;
-    hint.extrinsic_bootstrap = true;
-    dqn::Actor actor(policy, nullptr, nullptr, torch::kCPU, 121, std::make_shared<std::shared_mutex>(), network, network,
+    hint.extrinsic_bootstrap_mode = dqn::LearnerConfig::kBootstrapExtrinsic;
+    dqn::Actor actor(policy, nullptr, torch::kCPU, 121, std::make_shared<std::shared_mutex>(), network, network,
         anet::nn::NetworkForwardConfig::GetDefault(), true, std::nullopt, false, hint);
     const auto flags = torch::zeros({1}, torch::kBool);
     const auto info = actor.MakeAction({}, rl::BatchState(observations, flags, flags, ~flags));
@@ -1441,7 +1498,8 @@ TEST_CASE("Decomposed Actor hints reuse policy selection and exclude full querie
     CHECK(values.actor_q_sa.item<float>() == Catch::Approx(iqn ? 2 : 4));
     CHECK(values.actor_state_value.item<float>() == Catch::Approx(iqn ? 2 : 4));
     CHECK(values.intrinsic_q_sa.item<float>() == Catch::Approx(iqn ? 4 : 0));
-    const auto replaced = info->WithAction(torch::tensor({0}, torch::kInt64));
+    const auto replaced = actor.MakeAction({}, rl::BatchState(observations, flags, flags, ~flags),
+        {.forced_actions = rl::ForcedActions::ByLane(0, 0)});
     const auto replacement = dqn::DecodeActorQHint(replaced->GetReplayInitialPriorityHint()->GetPayload());
     CHECK(replacement.actor_q_sa.item<float>() == Catch::Approx(iqn ? 1 : 4));
     CHECK(replacement.intrinsic_q_sa.item<float>() == Catch::Approx(iqn ? 3 : 0));
@@ -1498,8 +1556,7 @@ TEST_CASE("Extrinsic bootstrap preserves UQE risk selection in learning and diag
     policy_config.uqe.tau.value = tail ? 0.5f : 0;
     policy_config.uqe.use_tail_mean = tail;
     auto policy = std::make_shared<dqn::UQEActionPolicy>(policy_config);
-    dqn::RuntimeVars vars;
-    dqn::QRLearner learner(config, model, vars, nullptr, {2, 1}, env, torch::kCPU, 121, kTestAgentSeed, policy, {});
+    dqn::QRLearner learner(config, model, nullptr, {2, 1}, env, torch::kCPU, 121, kTestAgentSeed, policy, {});
     auto experience = MakeDeterminismExperience(0, 2);
     experience.reward = torch::zeros({2, 2});
     experience.next_state.done.zero_();
@@ -1602,29 +1659,19 @@ TEST_CASE("Actor Q hint names invalid intrinsic tensors and their actual metadat
         && Catch::Matchers::ContainsSubstring("expected_device=cpu"));
 }
 
-TEST_CASE("DQNActionInfo regathers Actor Q hint after action replacement", "[dqn][per][actor_initial]")
+TEST_CASE("Actor Q hints gather the selected action and cache the CPU payload", "[dqn][per][actor_initial]")
 {
     auto q_values = torch::tensor({
         { 1.0f, 5.0f, 2.0f },
         { 7.0f, 3.0f, 4.0f },
     });
-    rl::AuxData aux;
-    aux["q_values"] = q_values;
-    aux["munchausen_terms"] = torch::zeros_like(q_values);
-    auto packed = torch::tensor({ { 5.0f, 5.0f, 0.0f, 0.0f, 0.0f }, { 7.0f, 7.0f, 0.0f, 0.0f, 0.0f } });
-    dqn::DQNActionInfo info(
-        torch::tensor({ 1, 0 }, torch::TensorOptions().dtype(torch::kInt64)),
-        {},
-        aux,
-        rl::ReplayInitialPriorityHint(packed));
-
-    auto replaced = info.WithAction(torch::tensor({ 2, 1 }, torch::TensorOptions().dtype(torch::kInt64)));
-    REQUIRE(replaced->GetReplayInitialPriorityHint().has_value());
+    const auto selected = torch::tensor({2, 1}, torch::kInt64);
+    const rl::ReplayInitialPriorityHint final_hint(dqn::MakeActorQHint(q_values, selected, {}));
     CHECK(torch::equal(
-        replaced->GetReplayInitialPriorityHint()->GetPayload(),
+        final_hint.GetPayload(),
         torch::tensor({ { 2.0f, 5.0f, 0.0f, 0.0f, 0.0f }, { 3.0f, 7.0f, 0.0f, 0.0f, 0.0f } })));
-    const auto& first_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
-    const auto& second_cpu = replaced->GetReplayInitialPriorityHint()->GetPayloadCpu();
+    const auto& first_cpu = final_hint.GetPayloadCpu();
+    const auto& second_cpu = final_hint.GetPayloadCpu();
     CHECK(first_cpu.unsafeGetTensorImpl() == second_cpu.unsafeGetTensorImpl());
 }
 
@@ -1907,8 +1954,6 @@ TEST_CASE("DQN policy churn observes target after hard synchronization", "[dqn][
         }));
         model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
     }
-    dqn::RuntimeVars vars;
-    vars.learn_step = 1;
     dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.replay_batch_size = 1;
     config.update_warmup_steps = 0;
@@ -1917,14 +1962,18 @@ TEST_CASE("DQN policy churn observes target after hard synchronization", "[dqn][
     config.use_per = false;
     auto env_spec = MakeLearnerEnvSpec();
     env_spec.action_spec.value_labels = { "a0", "a1" };
-    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
-    learner.UseSgd(1.0f);
+    TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     learner.EnablePolicyChurnOptimizerUpdate();
     auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
     replay_buffer->SetSizeValues({ 1 });
     replay_buffer->unique_sample_enabled = true;
     replay_buffer->vector_value = 1.0f;
     learner.UseReplayBuffer(replay_buffer);
+    // 診断を購読する前に、重みを変えずに通常の更新経路を 1 回通す。
+    learner.UseSgd(0.0f);
+    REQUIRE(learner.UpdateFromBatch({}, {}).size() == 1);
+    REQUIRE(learner.GetLearnStep() == 1);
+    learner.UseSgd(1.0f);
     learner.ConfigureScalarMetricSubscriptions({
         rl::ScalarMetricSubscription{
             .source_key = "policy_churn_target_policy_disagreement",
@@ -1963,7 +2012,7 @@ TEST_CASE("DQN policy churn observes target after hard synchronization", "[dqn][
 
 TEST_CASE("DQN policy churn keeps unavailable known keys distinct from unknown keys", "[dqn][policy_churn][gate]")
 {
-    const auto make_learner = [](TestNetworkModel& model, dqn::RuntimeVars& vars) {
+    const auto make_learner = [](TestNetworkModel& model) {
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.replay_batch_size = 1;
         config.update_warmup_steps = 0;
@@ -1973,13 +2022,12 @@ TEST_CASE("DQN policy churn keeps unavailable known keys distinct from unknown k
         auto env_spec = MakeLearnerEnvSpec();
         env_spec.action_spec.value_labels = { "a0", "a1" };
         return std::make_unique<TestLearner>(
-            config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+            config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     };
 
     SECTION("age-only on soft target performs no probe sampling") {
         TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
-        dqn::RuntimeVars vars;
-        auto learner = make_learner(model, vars);
+        auto learner = make_learner(model);
         learner->UseSgd(0.0f);
         learner->EnablePolicyChurnOptimizerUpdate();
         auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
@@ -2001,8 +2049,7 @@ TEST_CASE("DQN policy churn keeps unavailable known keys distinct from unknown k
 
     SECTION("incomplete probe publishes NaN and unknown key remains nullopt") {
         TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
-        dqn::RuntimeVars vars;
-        auto learner = make_learner(model, vars);
+        auto learner = make_learner(model);
         learner->UseSgd(0.0f);
         learner->EnablePolicyChurnOptimizerUpdate();
         auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
@@ -2037,7 +2084,6 @@ TEST_CASE("DQN policy churn uses post-soft-update target values", "[dqn][policy_
         }));
         model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
     }
-    dqn::RuntimeVars vars;
     dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.replay_batch_size = 1;
     config.update_warmup_steps = 0;
@@ -2046,7 +2092,7 @@ TEST_CASE("DQN policy churn uses post-soft-update target values", "[dqn][policy_
     config.use_per = false;
     auto env_spec = MakeLearnerEnvSpec();
     env_spec.action_spec.value_labels = { "a0", "a1" };
-    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+    TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     learner.UseSgd(1.0f);
     learner.EnablePolicyChurnOptimizerUpdate();
     auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
@@ -2102,11 +2148,10 @@ TEST_CASE("DQN policy churn warns once for a single hard-target phase", "[dqn][p
             /*distributional=*/false,
             /*n_actions=*/2,
             dqn::NetworkModelConfig{ .hard_update_interval = 503 });
-        dqn::RuntimeVars vars;
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
         auto env_spec = MakeLearnerEnvSpec();
         env_spec.action_spec.value_labels = { "a0", "a1" };
-        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+        TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
         anet::test::LogCaptureGuard logs;
         learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
         learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
@@ -2131,11 +2176,10 @@ TEST_CASE("DQN policy churn warns once for a single hard-target phase", "[dqn][p
             /*distributional=*/false,
             /*n_actions=*/2,
             dqn::NetworkModelConfig{ .hard_update_interval = 500 });
-        dqn::RuntimeVars vars;
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
         auto env_spec = MakeLearnerEnvSpec();
         env_spec.action_spec.value_labels = { "a0", "a1" };
-        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+        TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
         anet::test::LogCaptureGuard logs;
         learner.ConfigureScalarMetricSubscriptions({ make_subscription(503) });
         logs.Flush();
@@ -2158,7 +2202,6 @@ TEST_CASE("DQN policy churn disables outer BF16 autocast for probe forwards", "[
         }));
         model.GetOnlineNetwork()->CopyTo(*model.GetTargetNetwork());
     }
-    dqn::RuntimeVars vars;
     dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
     config.use_amp = true;
     config.use_amp_bf16 = true;
@@ -2170,7 +2213,7 @@ TEST_CASE("DQN policy churn disables outer BF16 autocast for probe forwards", "[
     config.use_per = false;
     auto env_spec = MakeLearnerEnvSpec();
     env_spec.action_spec.value_labels = { "a0", "a1" };
-    TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+    TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
     learner.UseSgd(0.001f);
     learner.EnablePolicyChurnOptimizerUpdate();
     auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
@@ -2205,7 +2248,6 @@ TEST_CASE("DQN policy churn follows subscription cadence and stays inactive with
 {
     const auto run_case = [](std::optional<int> interval) {
         TestNetworkModel model(/*distributional=*/false, /*n_actions=*/2);
-        dqn::RuntimeVars vars;
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.replay_batch_size = 1;
         config.update_warmup_steps = 0;
@@ -2214,7 +2256,7 @@ TEST_CASE("DQN policy churn follows subscription cadence and stays inactive with
         config.use_per = false;
         auto env_spec = MakeLearnerEnvSpec();
         env_spec.action_spec.value_labels = { "a0", "a1" };
-        TestLearner learner(config, model, vars, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
+        TestLearner learner(config, model, rl::BatchEnvSpec{ 1, 1 }, env_spec, dqn::LearnerForwardResources{});
         learner.UseSgd(0.0f);
         learner.EnablePolicyChurnOptimizerUpdate();
         auto replay_buffer = std::make_shared<RecordingReplayBuffer>();
@@ -2731,14 +2773,17 @@ TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "
     dqn::ActionPolicyConfig policy_config;
     policy_config.policy_type = dqn::kActionPolicyTypeStr_Greedy;
     policy_config.tau_rule.num_taus = quantiles;
-    auto policy = dqn::DqnComponentAssembler::CreateActionPolicy(policy_config, mode, false, 2, torch::kCPU);
     dqn::ActorQHintConfig hint;
     hint.use_tbo = tbo;
     hint.decomposed = true;
     hint.beta.value = zero_beta ? 0.0f : 0.01f;
-    auto actor = std::make_shared<dqn::Actor>(policy, nullptr, nullptr, torch::kCPU, 121,
-        std::make_shared<std::shared_mutex>(), network, network, anet::nn::NetworkForwardConfig::GetDefault(),
-        true, std::nullopt, false, hint);
+    const auto make_actor = [&] {
+        auto policy = dqn::DqnComponentAssembler::CreateActionPolicy(policy_config, mode, false, 2, torch::kCPU);
+        return std::make_shared<dqn::Actor>(policy, nullptr, torch::kCPU, 121,
+            std::make_shared<std::shared_mutex>(), network, network, anet::nn::NetworkForwardConfig::GetDefault(),
+            true, std::nullopt, false, hint);
+    };
+    const auto actor = make_actor();
     const auto flags = torch::zeros({2}, torch::kBool);
     const auto info = actor->MakeAction({}, rl::BatchState(observations, flags, flags, ~flags));
     REQUIRE(info->GetReplayInitialPriorityHint());
@@ -2747,7 +2792,8 @@ TEST_CASE("Decomposed Actor reports the intrinsic effect on action selection", "
     if (zero_beta) CHECK(torch::equal(info->GetAction(), external.argmax(1)));
     CHECK(torch::allclose(values.actor_q_sa, observations.At(external_key).gather(1, selected).squeeze(1), 1e-5, 1e-6));
     CHECK(torch::allclose(values.intrinsic_q_sa, observations.At(internal_key).gather(1, selected).squeeze(1), 1e-5, 1e-6));
-    const auto replaced = std::dynamic_pointer_cast<dqn::DQNActionInfo>(info->WithAction(torch::zeros({2}, torch::kInt64)));
+    const auto replaced = make_actor()->MakeAction({}, rl::BatchState(observations, flags, flags, ~flags),
+        {.forced_actions = rl::ForcedActions::ByMask(torch::ones({2}, torch::kBool), torch::zeros({2}, torch::kInt64))});
     const auto replaced_values = dqn::DecodeActorQHint(replaced->GetReplayInitialPriorityHint()->GetPayload());
     CHECK(torch::allclose(replaced_values.actor_q_sa, observations.At(external_key).select(1, 0), 1e-5, 1e-6));
     CHECK(torch::allclose(replaced_values.intrinsic_q_sa, observations.At(internal_key).select(1, 0), 1e-5, 1e-6));

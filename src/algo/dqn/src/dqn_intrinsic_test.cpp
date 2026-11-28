@@ -16,12 +16,16 @@
 #include "anet/intrinsic.hpp"
 #include "anet/test/intrinsic.hpp"
 #include "default_dqn_agent.hpp"
+#include "dqn_assembler.hpp"
 #include "dqn_learner.hpp"
 #include "anet/metrics.hpp"
 #include "anet/metrics_logger.hpp"
 #include "anet/observers.hpp"
 #include "anet/test/util.hpp"
 
+
+constexpr char kFlattenBlock[] = "Flatten";
+constexpr char kMainBranch[] = "main";
 
 constexpr char kTraceActionLabel[] = "a0";
 constexpr char kTraceActorKey[] = "trace";
@@ -170,8 +174,8 @@ static anet::ConfigData IntrinsicAgentData(bool enabled)
     data.Set("DefaultDQNAgent.learner.target.nn_forward_key", "test");
     data.Set("DefaultDQNAgent.quantile_mode", "none");
     data.Set("DefaultDQNAgent.head.use_dueling", false);
-    data.Set("DefaultDQNAgent.stucker.use_stacker", false);
-    data.Set("DefaultDQNAgent.obs_norm.pass_through", true);
+
+
     data.Set("DefaultDQNAgent.learner.replay_capacity", 16);
     data.Set("DefaultDQNAgent.learner.replay_batch_size", 2);
     data.Set("DefaultDQNAgent.learner.use_fused_optimizer", false);
@@ -185,6 +189,15 @@ static anet::ConfigData IntrinsicAgentData(bool enabled)
     return data;
 }
 
+static anet::nn::NetworkConfig MakeIntrinsicNetworkConfig()
+{
+    anet::nn::NetworkConfig net;
+    net.block_configs[kFlattenBlock].type = kFlattenBlock;
+    net.branches[kMainBranch] = {.name = kMainBranch, .bind_terms = {{kObservation}}, .structure_str = kFlattenBlock};
+    net.output_keys["features"] = kMainBranch;
+    return net;
+}
+
 static std::shared_ptr<anet::rl::dqn::DefaultDQNAgent> MakeIntrinsicAgent(const anet::ConfigData& data, int num_envs = 2,
     torch::Device device = torch::kCPU)
 {
@@ -193,10 +206,9 @@ static std::shared_ptr<anet::rl::dqn::DefaultDQNAgent> MakeIntrinsicAgent(const 
     spec.action_spec.is_discrete = true;
     spec.action_spec.value_labels = {"a0"};
     spec.reward_range = {-1000.0f, 1000.0f};
-    anet::nn::NetworkConfig net;
-    net.output_keys["features"] = kObservation;
+    auto net = MakeIntrinsicNetworkConfig();
     if (data.Get("DefaultDQNAgent.skip.enabled", "false") == "true")
-        net.output_keys[kSkipContext] = kObservation;
+        net.output_keys[kSkipContext] = kMainBranch;
     return std::make_shared<anet::rl::dqn::DefaultDQNAgent>(
         anet::rl::dqn::DefaultDQNAgentConfig(data), net,
         anet::rl::BatchEnvSpec{.num_envs = num_envs, .num_threads = 1}, spec, device, 123);
@@ -1401,8 +1413,7 @@ TEST_CASE("Decomposed Agent selects fixed-zero and learner beta per Actor", "[rf
     spec.action_spec.is_discrete = true;
     spec.action_spec.value_labels = {"a0", "a1"};
     spec.reward_range = {-1000.0f, 1000.0f};
-    anet::nn::NetworkConfig net;
-    net.output_keys["features"] = kObservation;
+    const auto net = MakeIntrinsicNetworkConfig();
     auto agent = std::make_shared<anet::rl::dqn::DefaultDQNAgent>(anet::rl::dqn::DefaultDQNAgentConfig(data),
         net, anet::rl::BatchEnvSpec{2, 1}, spec, torch::kCPU, 123);
     const auto angles = torch::arange(64, torch::kFloat32) * (6.283185307f / 64);
@@ -1436,7 +1447,9 @@ TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[r
     data.Set("DefaultDQNAgent.learner.update_warmup_steps", 0);
     data.Set("DefaultDQNAgent.learner.update_interval", 1);
     data.Set("DefaultDQNAgent.learner.use_n_step", false);
-    data.Set("DefaultDQNAgent.learner.use_per", false);
+    const bool actor_priority = GENERATE(false, true);
+    data.Set("DefaultDQNAgent.learner.use_per", actor_priority);
+    if (actor_priority) data.Set("DefaultDQNAgent.learner.per_initial_priority_mode", "actor_approx");
     data.Set("DefaultDQNAgent.learner.replay_fit.probe.batch_size", 1);
     data.Set("DefaultDQNAgent.learner.policy_churn.probe.batch_size", 1);
     data.Set("DefaultDQNAgent.learner.noisy_probe.probe.batch_size", 1);
@@ -1482,11 +1495,26 @@ TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[r
     auto experience = IntrinsicExperience(2.0f, false, false, true);
     experience.action = actor->MakeAction({}, experience.state);
     const auto row = trace->Observe(experience);
-    for (const auto* key : {kRfd0121ExtrinsicQSa, kRfd0121IntrinsicQSa, kRfd0121ExtrinsicStateValue, kRfd0121IntrinsicStateValue}) {
-        const auto value = row.current->GetScalar(key, 0);
-        CAPTURE(key);
+    const auto& aux = experience.action->GetAuxData();
+    const auto actions = experience.action->GetAction();
+    const auto check_column = [&](const char* key, int64_t lane, float expected) {
+        CAPTURE(key, lane);
+        const auto value = row.current->GetScalar(key, lane);
         REQUIRE(value);
-        CHECK(std::isfinite(*value));
+        CHECK(*value == Catch::Approx(expected));
+    };
+    for (int64_t lane = 0; lane < actions.size(0); ++lane) {
+        const auto index = actions[lane].item<int64_t>();
+        const auto combined = aux.at(anet::rl::dqn::DQNActionInfo::kActionQValuesAuxKey)[lane];
+        const auto external = aux.at(anet::rl::dqn::kExtrinsicQValues)[lane];
+        const auto internal = aux.at(anet::rl::dqn::kIntrinsicQValues)[lane];
+        const auto greedy = combined.argmax().item<int64_t>();
+        check_column(anet::rl::dqn::DqnComponentAssembler::kStepQSaKey, lane, combined[index].item<float>());
+        check_column(anet::rl::dqn::DqnComponentAssembler::kStepStateValueKey, lane, combined[greedy].item<float>());
+        check_column(kRfd0121ExtrinsicQSa, lane, external[index].item<float>());
+        check_column(kRfd0121IntrinsicQSa, lane, internal[index].item<float>());
+        check_column(kRfd0121ExtrinsicStateValue, lane, external[greedy].item<float>());
+        check_column(kRfd0121IntrinsicStateValue, lane, internal[greedy].item<float>());
     }
     auto next = IntrinsicExperience(3.0f, false, false, false);
     next.action = actor->MakeAction({.exp_step = 2}, next.state);
@@ -1495,6 +1523,54 @@ TEST_CASE("DQN decomposed values learn both heads through Actor and Replay", "[r
     for (const auto& completed : following.completed) {
         REQUIRE(completed.values->GetScalar(kRfd0121ApproxPriority, 0));
         CHECK(std::isfinite(*completed.values->GetScalar(kRfd0121ApproxPriority, 0)));
+    }
+    if (actor_priority) {
+        const auto config = anet::rl::dqn::DefaultDQNAgentConfig(data).learner;
+        constexpr float kExtraReward = 0.25f;
+        const auto scale = [](const torch::Tensor& rewards) {
+            return torch::stack({rewards, torch::full_like(rewards, kExtraReward)}, 1);
+        };
+        // 同じイベントと固定の2成分報酬を、診断と実際の Replay へ流す。
+        auto priority_trace = anet::rl::dqn::CreateStepDiagnosticsProvider(config, actions.size(0), scale, true);
+        REQUIRE(priority_trace->Observe(experience).completed.empty());
+        const auto completion = priority_trace->Observe(next);
+        REQUIRE(completion.completed.size() == static_cast<size_t>(actions.size(0)));
+
+        constexpr int64_t kReplayCapacity = 8;
+        const anet::rl::ReplayBufferConfig replay_config{
+            .capacity = kReplayCapacity,
+            .sampler_type = anet::rl::ReplaySamplerType::PRIORITIZED,
+            .reward_component_count = 2,
+            .needs_return_recompute = {false, false},
+            .per_alpha = 1.0f, // Replay の読み出しを α による変換なしの値にする。
+            .per_initial_priority_mode = anet::rl::ReplayInitialPriorityMode::ACTOR_APPROX,
+        };
+        anet::rl::EnvSpec replay_spec;
+        replay_spec.state_spec.obs_spec = RndTestSpec();
+        replay_spec.action_spec.is_discrete = true;
+        replay_spec.action_spec.value_labels = {kTraceActionLabel};
+        auto replay = anet::rl::CreateReplayBuffer(replay_config, replay_spec, actions.size(0),
+            torch::kCPU, false, 123, anet::rl::dqn::CreateInitialPriorityEstimator(config));
+        using anet::rl::dqn::LearnerScheduleMetric;
+        const std::string gamma_key(anet::rl::dqn::kLearnerScheduleMetricKeys[LearnerScheduleMetric::Gamma]);
+        const std::array gammas{next.action->GetScalar(gamma_key).value(),
+            next.action->GetScalar(anet::rl::dqn::DQNActionInfo::kIntrinsicGamma).value()};
+        for (auto batch : {experience, next}) {
+            batch.reward = scale(batch.reward);
+            replay->Push(batch, gammas);
+        }
+        REQUIRE(replay->GetScalar(anet::rl::ReplayBuffer::PER_ACTOR_COMPLETION_SUCCESS_COUNT) == 2.0f);
+        const int64_t capacity_per_env = kReplayCapacity / actions.size(0);
+        for (const auto& completed : completion.completed) {
+            CAPTURE(completed.lane);
+            REQUIRE(completed.steps_back == 1);
+            const int64_t first_slot = completed.lane * capacity_per_env;
+            const auto stored = replay->GetTensor(anet::rl::ReplayBuffer::PER_VALUES, first_slot);
+            REQUIRE(stored);
+            const auto traced = completed.values->GetScalar(kRfd0121ApproxPriority, 0);
+            REQUIRE(traced);
+            CHECK(*traced == Catch::Approx(stored->item<float>()));
+        }
     }
     for (const auto* key : {kRfd0121ExtrinsicLoss, kRfd0121IntrinsicLoss, kRfd0121ExtrinsicQSaMean, kRfd0121IntrinsicQSaMean,
         kRfd0121ExtrinsicHeadGradNorm, kRfd0121IntrinsicHeadGradNorm, kRfd0121IntrinsicQShare}) {
@@ -1661,8 +1737,7 @@ TEST_CASE("Intrinsic diagnostics wait only for an un-cloned requested estimator"
     spec.action_spec.is_discrete = true;
     spec.action_spec.value_labels = {kTraceActionLabel};
     spec.reward_range = {-1000.0f, 1000.0f};
-    anet::nn::NetworkConfig network;
-    network.output_keys[anet::nn::kKey_DefaultOutput] = kObservation;
+    const auto network = MakeIntrinsicNetworkConfig();
     auto agent = std::make_shared<LockableAgent>(anet::rl::dqn::DefaultDQNAgentConfig(data), network,
         anet::rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1}, spec, torch::kCPU, 123);
     auto actor = MakeIntrinsicTraceActor(agent);

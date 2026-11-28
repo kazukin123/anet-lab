@@ -1,4 +1,4 @@
-<!-- translated-from: 100_runtime_and_configuration.jp.md blob:69ae36e95d73dd713ab09665a4327ed8011e2e08 date:2026-11-23 progress:done -->
+<!-- translated-from: 100_runtime_and_configuration.jp.md blob:6c1dc9f466692e79ca9709adf19884f7effbf537 date:2026-11-28 progress:done -->
 # Runtime Infrastructure and Configuration
 
 > Primary perspective: function (runtime infrastructure and configuration, with internal processing stages in chronological order)
@@ -50,7 +50,7 @@ Ordinary prefixes appearing as sources in input selection declarations are retai
 
 **`$` supplies the base; partial selections and explicit assignments override it.** Since `A2 > A3` merges each source's completed values as differences, epsilon.end absent from A3 remains from A2. Even a deeply nested partial selection in A2 does not override the same key supplied by A3. Reassigning the same input key retains later-wins behavior: `Env.$ = A3` after `Env.$ = A2` selects only A3.
 
-The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` elsewhere**. The canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB); see Section 3.6 of the [Run Execution Guide](020_user_guide_run.en.md) for explanations and examples.
+The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` elsewhere**. The canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Review Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB); see Section 3.6 of the [Run Execution Guide](020_user_guide_run.en.md) for explanations and examples.
 
 Write defaults at the same location with `?=` and intentional explicit assignments with `=`. Do not add a defaults profile at the beginning of the chain. `?=` is prohibited in Run profiles, CLI assignments, and selection declarations `.$`. After adding configuration, use `check_default_leaves.py` to check for `=` remaining in shared bases/defaults and `?=` mixed into Env-specific explicit assignments. Update the checker's classification reasons when changing a setting's role.
 
@@ -204,8 +204,8 @@ sequenceDiagram
     CM-->>App: ConfigData + resolution JSON
     App->>App: MetricsLogger初期化 / config text・resolution metadata保存
     App->>App: backend / repository初期化
-    App->>RM: RunManager(config)
-    RM->>RM: train / configured Eval tag / EvalPanelのnameとeval scheduleを一括検証
+    App->>RM: RunManager(config, reserved_env_names)
+    RM->>RM: Validate train, configured Eval tags, app-reserved Env names, and eval schedules together
     RM->>EB: Train BatchEnvを生成
     EB-->>RM: EnvSpec / BatchEnvSpec
     RM->>AF: Agentを生成
@@ -216,7 +216,7 @@ sequenceDiagram
     RM-->>App: 実行可能なRun
 ```
 
-Type conversion, EnvSpec, device, class ID, Env-name collisions, and Config inconsistencies detected during construction fail before RunnerThread starts. The fixed name `train`, every configured Eval tag, and reserved name `EvalPanel` are validated together before constructing the first BatchEnv. Type-conversion failure follows the contract in [Configuration Resolution](#21-configuration-resolution).
+Type conversion, EnvSpec, device, class ID, Env-name collisions, and Config inconsistencies detected during construction fail before RunnerThread starts. Before constructing the first BatchEnv, RunManager validates the fixed name `train`, every configured Eval tag, and any names reserved by the application. Runner supplies `EvalPanel` as a reserved name. Type-conversion failure follows the contract in [Configuration Resolution](#21-configuration-resolution).
 
 `run.eval.[tag]` defines configured Eval; a definition alone creates nothing. Eval Env, Actor, Observer, and background worker are created only when `interval>0` in `run.eval_schedule.[tag]` periodically drives the same-named definition. Defined tags without schedules or with `interval=0` are dormant: only tag-name/schema validation and reservation occur. Metrics referencing dormant tags report INFO once per tag per Run and skip; references to undeclared tags and schedules targeting undefined tags are errors. For active configured Eval, `RunManager` wraps Env in `EvalSessionEnv`, treating parallel lane count `eval_batch_size` independently from adopted episode count `eval_episodes`. ImageCls requires the standard pair `ImageClsEnv.train.*` and `ImageClsEnv.eval.*`; untagged Eval uses standard Eval configuration, while configured Eval uses a `run.eval.[tag].env.eval.*` overlay.
 
@@ -390,7 +390,7 @@ Configuration DTOs support `std::optional<T>` for native `ConfigData` value type
 - [RFD0094 validation resources](../../src/core/base/testdata/rfd0094/README.md): columns, timing, diagnostics, playback, snapshots, and numerical equivalence across five configurations.
 
 - [config_test.cpp](../../src/core/base/src/config_test.cpp): conversion fail-fast, missing-key defaults, structured configuration, includes, selections, two-phase CLI handling, value references, and golden equivalence with old AutoMerge
-- [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): checks of the shipped configuration (`[shipped_config]`): common-layer defaults, resolution of every Actor reference, and the Atari protocol presets and per-group RAM metric alignment. What a test that reads the shipped configuration may pin is defined in the Tests rules of [Implementation Quality Viewpoints](../quality/impl.md#%E3%83%86%E3%82%B9%E3%83%88)
+- [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): checks of the shipped configuration (`[shipped_config]`): common-layer defaults, resolution of every Actor reference, and the Atari protocol presets and per-group RAM metric alignment. What a test that reads the shipped configuration may pin is defined in the Tests rules of [Implementation Review Viewpoints](../quality/impl.md#%E3%83%86%E3%82%B9%E3%83%88)
 - [metrics_logger_test.cpp](../../src/core/base/src/metrics_logger_test.cpp): file/Metrics master output boundaries for config text and JSON resolution metadata
 - [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp): delegation of Train clone policy to Agent, prohibition of implicit Pipeline synchronization, and Eval Actor/Agent device consistency
 - [episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp): Runner episode-end notifications and forced actions in Eval

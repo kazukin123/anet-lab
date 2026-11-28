@@ -1,0 +1,7 @@
+interface:
+  display_name: "ANET Merge Branch"
+  short_description: "main を取り込むときの衝突を調べ、承認を受けてブランチのワークツリーで解く"
+  default_prompt: "$anet-merge-branch を使って、指定したブランチを main に取り込む前に衝突を調べてください。"
+
+policy:
+  allow_implicit_invocation: false

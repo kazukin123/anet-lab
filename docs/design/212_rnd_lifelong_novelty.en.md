@@ -1,4 +1,4 @@
-<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:9e4a1c9925db528beb06adf7dd2fc8ea829fdb67 date:2026-11-23 progress:done -->
+<!-- translated-from: 212_rnd_lifelong_novelty.jp.md blob:15e0599a079bdcf962f39332f82a0349422f4304 date:2026-11-27 progress:done -->
 # Novelty Estimation and Intrinsic Reward with RND
 
 RND trains a predictor to reproduce the output of a fixed Network. It gives intrinsic reward to observations with large prediction error, providing a cue for exploring rarely experienced states even before the environment yields any points. This document covers RND in DefaultDQNAgent.
@@ -226,7 +226,7 @@ Runs with RND enabled record the following files in `dot/` at the same time as t
 | CPU / GPU / CUDA / FP32 | CPUs perform general computation; GPUs process many operations in parallel. CUDA is the NVIDIA GPU execution platform; FP32 is 32-bit floating point. |
 | libtorch | PyTorch's C++ library. ANET uses it for tensor computation, Network training, and persistence. PyTorch provides these machine-learning operations. |
 | GridMaze / LunarLander / Atari / Kung-Fu Master | GridMaze is a grid maze; LunarLander is a landing-control environment. Atari denotes the console and its games; Kung-Fu Master is the game used in this validation. |
-| Checkpoint | Saved models and learning state for resuming training, beyond weights alone. |
+| Checkpoint | Saved models and learning state, beyond weights alone, for transfer to a new Run. |
 | NaN / nullopt | NaN represents a value that is currently unavailable. `nullopt` means the requested metric itself is not provided. |
 | Run / metrics | A Run is one experiment execution; metrics are measurements recorded during it. |
 | ProfiledValue / exp_step | ProfiledValue specifies a constant or time-varying setting. `exp_step` counts experience collected for learning and is used here to evaluate β. |
@@ -351,6 +351,8 @@ Example interpretations:
 
 Known keys return `NaN` when RND is disabled or suspended because the learner is disabled. Only unknown keys return `nullopt`. When enabled, `learn_count` starts at 0, and intakes without learning retain the latest loss. Scores before first scoring and losses before learning are NaN. This intentional unavailability differs from abnormally nonfinite computed errors, which stop processing when detected during scoring or learning. With N at least batch size and no intake-cap constraint, the post-warm-up incremental ratio of `learn_count / exp_step` is `learn.intake.ratio / learn.intake.batch_size`.
 
+The plasticity metrics under `34_agent_plasticity` measure the DQN online Network branch selected by `learner.final_feature_branch_key`. The RND target and predictor are outside this measurement.
+
 ### 9.5 Computation Placement and Cost
 
 RND target, predictor, and Coordinator lane sampling use separate named seeds. Ordinary weight initialization currently uses the default CPU generator, so construction temporarily saves its state, seeds it, and restores the state afterward. Models are constructed on CPU and moved to the required device.
@@ -383,7 +385,7 @@ Validation of the 2026-11-07 changes that added the public-implementation form a
 | --- | --- |
 | Debug build and related tests | Full build; 50 tests / 4,371 assertions passed. CNN CPU tests used OMP_NUM_THREADS=1 |
 | Fixed teacher and predictor | Confirmed unchanged target weights/outputs and predictor learning after 100 updates on identical input |
-| Statistics, inputs, and save/resume | Confirmed three hand-calculated variance_feedback steps with N=1, sequential updates with N=2, preservation of categorical IDs (alone and mixed with continuous values; int64/uint8/float), scoring and learning with state, negative-bonus ratios, CPU/CUDA inputs for both modes, and continued saving plus rejection of mode mismatches |
+| Statistics, inputs, and checkpoint save/restore | Confirmed three hand-calculated variance_feedback steps with N=1, sequential updates with N=2, preservation of categorical IDs (alone and mixed with continuous values; int64/uint8/float), scoring and learning with state, negative-bonus ratios, CPU/CUDA inputs for both modes, and checkpoint restoration plus rejection of mode mismatches |
 | Shipped configuration | Parameter counts of both Atari Networks, the approximately 33.2 MB checkpoint increase, Conv1d/2d dimensions, and the eight Taiga keys matched |
 | Run configuration resolution | Full-key comparison with a saved Montezuma baseline Run. The only differences from rainbow to taiga were 18 RND-setting keys and 13 diagnostic keys. Confirmed noop_max=0, the Nature structure, and the absence of Munchausen metrics |
 | Disabled-mode equivalence | 105,682 points and metric definitions matched the previous implementation across GridMaze, LunarLander, Atari, and DropMerge |
@@ -402,11 +404,11 @@ Motivation to revisit familiar paths, episodic novelty, and families of policies
 
 run.@rnd_taiga is not a complete reproduction of Taiga et al. either. Q uses IQN rather than C51, the CNN uses VALID rather than SAME padding, and Q embeddings, initialization, PER, the units used to count statistics, and the ALE version also differ. During auxiliary learning, inputs are renormalized with the updated statistics. The list of remaining differences is in the [23impl table](../memo/0116_rnd_lifelong_novelty_23impl.md#%E6%9C%AC%E5%AE%B6%E3%81%A8%E3%81%AE%E6%AE%8B%E3%82%8B%E5%B7%AE).
 
-### 9.7 Saving and Resuming
+### 9.7 Saving and Checkpoint Restoration
 
 RND saves the target, predictor, optimizer, observation and error statistics, target-output statistics, and scored-observation count. whiten EMA uses `RndNoveltyEstimator-4`; whiten cumulative, none, and variance_feedback use `RndNoveltyEstimator-3`. The format identifier and statistics mode are checked on load.
 
-The error formula and warm-ups follow the settings at resume. A checkpoint saved with cumulative standardization can be read with none. Rollout observations and the position within learning are not saved, so on resume accumulation restarts from an empty store. Unconsumed auxiliary-learning credit, sampling RNG state, success count, and intrinsic reward scaler state are restored. The learning rate, weight decay, and Adam epsilon from the settings at resume are applied.
+The error formula and warm-ups follow the settings in the new Run. A checkpoint saved with cumulative standardization can be read with none. Rollout observations and the position within learning are not saved, so the new Run accumulates observations from an empty store. Unconsumed auxiliary-learning credit, sampling RNG state, success count, and intrinsic reward scaler state are restored. The learning rate, weight decay, and Adam epsilon from the settings in the new Run are applied.
 
 Agent checkpoints containing RND use the `;intrinsic` identifier, and loading checks that the reader's RND enablement matches. See [Value decomposition](214_value_decomposition.en.md) for the scaler and value-decomposition formats.
 

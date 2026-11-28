@@ -254,21 +254,18 @@ void EvalRunner::Sync(const StepCounts& source_counts)
     source_counts_ = source_counts;
 }
 
-StepCounts EvalRunner::DoStep(int64_t action, const StepCounts& event_counts, const MakeActionOptions& options)
+StepCounts EvalRunner::DoStep(const StepCounts& event_counts, const MakeActionOptions& options)
 {
-    DoStepInternal(action, event_counts, true, options);
+    DoStepInternal(event_counts, true, options);
     return step_counts_;
 }
 
 std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
-    int64_t action, const StepCounts& event_counts, bool notify_episode_end, const MakeActionOptions& options)
+    const StepCounts& event_counts, bool notify_episode_end, const MakeActionOptions& options)
 {
     ANET_PROFILE_FUNC();
     // 強制行動の不正値は、Reset・Actor実行・環境更新より前に拒否する。
-    if (action >= 0 && action_spec_.is_discrete && action >= action_spec_.GetNumActions()) {
-        ANET_SYSTEM_ERROR("EvalRunner '" << name_ << "' forced action=" << action
-            << " is out of range. expected=[0, " << action_spec_.GetNumActions() - 1 << "].");
-    }
+    if (options.forced_actions) options.forced_actions->Validate(action_spec_, last_forced_.size());
     torch::NoGradGuard grad_guard;
 
     if (!env_initialized_) {
@@ -285,16 +282,7 @@ std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
     ANET_LOG_DEBUG("step=" << train_step << " state=" << state_.ToString());
 
     // 行動選択
-    auto action_info_raw = actor_->MakeAction(source_counts_, state_, options);
-    ANET_LOG_DEBUG("step=" << train_step << " action_info_raw=" << action_info_raw->ToString());
-
-    // action_infoを生成
-    std::shared_ptr<anet::rl::BatchActionInfo> action_info = action_info_raw;
-    if (action >= 0) {
-        action_info = action_info_raw->WithAction(torch::tensor(
-            { action },
-            torch::TensorOptions().dtype(torch::kInt64))); // 指定のactionがあれば強制
-    }
+    const auto action_info = actor_->MakeAction(source_counts_, state_, options);
 
     // 環境ステップ実行
     auto result = env_->Step(action_info);    // next_state, reward, done, truncated
@@ -311,7 +299,12 @@ std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
     ANET_ASSERT_DEVICE(result->continue_state.truncated, torch::kCPU);
 
     // 同じ遷移の強制の有無と報酬を、読み手へ通知する前に確定する。
-    std::fill(last_forced_.begin(), last_forced_.end(), action >= 0);
+    if (options.forced_actions) {
+        const auto mask = options.forced_actions->MakeMask(last_forced_.size(), torch::kCPU).contiguous();
+        std::copy_n(mask.const_data_ptr<bool>(), last_forced_.size(), last_forced_.begin());
+    } else {
+        std::fill(last_forced_.begin(), last_forced_.end(), false);
+    }
     UpdateMetrics(result);
 
     // カウント更新
@@ -336,19 +329,14 @@ std::shared_ptr<const BatchStepResult> EvalRunner::DoStepInternal(
     return result;
 }
 
-StepCounts EvalRunner::DoStep(int64_t action)
-{
-    return DoStep(action, step_counts_);
-}
-
 StepCounts EvalRunner::DoStep(const StepCounts& event_counts)
 {
-    return DoStep(-1, event_counts);
+    return DoStep(event_counts, {});
 }
 
 StepCounts EvalRunner::DoStep(const MakeActionOptions& options)
 {
-    return DoStep(-1, step_counts_, options);
+    return DoStep(step_counts_, options);
 }
 
 void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop)
@@ -372,7 +360,7 @@ void EvalRunner::RunSession(const StepCounts& event_counts, std::stop_token stop
     // 通常の完了通知を抑制し、採用 episode の確定値が有効な Step 直後にだけ通知する。
     size_t completed = 0;
     while (!stop.stop_requested() && !session_env_->GetSessionResult().has_value()) {
-        const auto step = DoStepInternal(-1, event_counts, false, {});
+        const auto step = DoStepInternal(event_counts, false, {});
         for (const int64_t group : session_env_->LastAdoptedGroups()) {
             const int env_index = session_env_->GetBatchSpec().episode_scope == EpisodeScope::PER_LANE
                 ? static_cast<int>(group) : -1;
@@ -548,7 +536,9 @@ StepCounts SerialTrainRunner::DoStep(const MakeActionOptions& options)
         env_initialized_ = true;
         ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
         ANET_ASSERT_DEVICE_CPU_MSG(state_.obs, "Initial state");
-        ANET_ASSERT(env_spec.state_spec.ValidateObservation(state_.obs));
+#if ANET_ENABLE_ASSERT
+        env_spec.state_spec.AssertObservation(state_.obs);
+#endif
 
         // 時間計測開始
         start_time_ = std::chrono::high_resolution_clock::now();
@@ -689,7 +679,9 @@ StepCounts PipelineTrainRunner::DoStep(const MakeActionOptions& options)
         env_initialized_ = true;
         //ANET_LOG_DEBUG("env_->Reset() done. state=" << state_.ToString());
         ANET_ASSERT_DEVICE_CPU_MSG(state_.obs, "Initial state");
-        ANET_ASSERT(env_spec.state_spec.ValidateObservation(state_.obs));
+#if ANET_ENABLE_ASSERT
+        env_spec.state_spec.AssertObservation(state_.obs);
+#endif
 
         // 時間計測開始
         start_time_ = std::chrono::high_resolution_clock::now();
@@ -933,7 +925,7 @@ private:
 private:
 };
 
-RunManager::RunManager(const ConfigData& source_config_data)
+RunManager::RunManager(const ConfigData& source_config_data, std::vector<std::string> reserved_env_names)
 {
     // 部品を複製しても通知は Run ごとに数え、次の Run では記録を持ち越さない。
     LOG::ResetNotifications();
@@ -968,7 +960,9 @@ RunManager::RunManager(const ConfigData& source_config_data)
         }
     };
     validate_planned_name("train", "main Train");
-    validate_planned_name("EvalPanel", "EvalPanel");
+    for (const auto& name : reserved_env_names) {
+        validate_planned_name(name, name);
+    }
     for (const auto& [tag, eval_config] : eval_configs) {
         (void)eval_config;
         validate_planned_name(tag, "configured Eval tag '" + tag + "'");

@@ -25,7 +25,7 @@
 
 ## 検証
 
-- 出典リンクは PRD 品質確認観点4と同じ存在検査を行い、主張ごとの出典と節構成を確認する。
+- 出典リンクは PRD レビュー観点4と同じ存在検査を行い、主張ごとの出典と節構成を確認する。
 - 一時検証スクリプトで、一覧の全ファイル・分類・テスト集約・PRD番号集合を生成元と比較する。公開できない値と秘密の値は検出時に値を表示せず場所だけ報告する。
 - `git diff --no-index -- .agents/skills .claude/skills` で全体一致を確認する。
 - Archify の showcase validate / deliver を実行し、9 artifact checks・composition errors/warnings 0を確認する。画像を確認できない場合は visual review skipped と記録する。
@@ -65,7 +65,7 @@ KFMに触れるmemoryのうち、PRD082・094・内的報酬／LLM ActorのPRD�
 - 2026-10-18: wiki独立検査507件のうち、複数PRD番号を持つscopeのPRD062取りこぼし1件を検出し、一覧と経緯・取り込みログを補正した。
 
 - 2026-10-18: wiki・計画の独立検査512件すべて成功（`.scratch/prd095/verification.json`、実行: `.venv/Scripts/python.exe -X utf8 -B .scratch/prd095/verify.py`）。リンク・節構成・項目別出典・公開できない値・ファイル集合／分類／テスト集約・PRD集合・相互リンク・ログblob・skill全体一致を確認した。
-- 自己点検: 実装品質確認観点の文書／skillに適用する項目を確認した。コード・設定・所有権・GetScalar・計測・TDD・Debug buildは変更がないため対象外。既存の共有プロセス契約・用語集・ADR・カテゴリ定義は変更していない。
+- 自己点検: 実装レビュー観点の文書／skillに適用する項目を確認した。コード・設定・所有権・GetScalar・計測・TDD・Debug buildは変更がないため対象外。既存の共有プロセス契約・用語集・ADR・カテゴリ定義は変更していない。
 - 動線マップ候補4図のArchify deliverは、9項目のartifact検査とcomposition error/warning 0で成功した。公開版／個人版のarchitectureは4画面サイズの表示検査も成功した。workflowは既存レンダラーの固定6レーンによる縦スクロールを検出したため、表示の扱いをユーザーへ確認中。合格と偽らず、公開先の既存5ファイルはまだ保持している。
 - skill共通の約束とhousekeepingの了承確認が矛盾しないよう、READMEでも実行前の了承と了承後の各作業を区別した。
 

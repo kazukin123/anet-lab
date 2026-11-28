@@ -28,20 +28,36 @@ namespace LOG = anet::log;
 
 constexpr const char* kActionQQuantilesAuxKey = "q_quantiles";
 
-constexpr const char* kActionQValuesAuxKey = "q_values";
-
 static constexpr char kValueSelectionDiagnostics[] = "value_selection_diagnostics";
 
-static constexpr size_t kValueSelectionMetricCount = 4;
+namespace {
 
-static constexpr std::array<const char*, kValueSelectionMetricCount> kValueSelectionLaneKeys{
-    "extrinsic_q_argmax_disagreement", "extrinsic_q_regret", "extrinsic_q_gap", "intrinsic_q_gap"};
+    struct ValueSelectionMetric {
+        enum : size_t { ExtrinsicArgmaxDisagreement, ExtrinsicRegret, ExtrinsicGap, IntrinsicGap, Count };
+    };
 
-static constexpr std::array<const char*, kValueSelectionMetricCount> kValueSelectionMeanKeys{
-    "extrinsic_q_argmax_disagreement_rate", "extrinsic_q_regret_mean", "extrinsic_q_gap_mean", "intrinsic_q_gap_mean"};
+} // namespace
 
-static constexpr std::array<const char*, kValueSelectionMetricCount> kValueSelectionSessionKeys{
-    "extrinsic_q_session_argmax_disagreement_rate", "extrinsic_q_session_regret_mean", "extrinsic_q_session_gap_mean", "intrinsic_q_session_gap_mean"};
+static constexpr auto kValueSelectionLaneKeys = MakeDiagnosticMetricKeys<ValueSelectionMetric::Count>({{
+    {.index = ValueSelectionMetric::ExtrinsicArgmaxDisagreement, .key = "extrinsic_q_argmax_disagreement"},
+    {.index = ValueSelectionMetric::ExtrinsicRegret, .key = "extrinsic_q_regret"},
+    {.index = ValueSelectionMetric::ExtrinsicGap, .key = "extrinsic_q_gap"},
+    {.index = ValueSelectionMetric::IntrinsicGap, .key = "intrinsic_q_gap"},
+}});
+
+static constexpr auto kValueSelectionMeanKeys = MakeDiagnosticMetricKeys<ValueSelectionMetric::Count>({{
+    {.index = ValueSelectionMetric::ExtrinsicArgmaxDisagreement, .key = "extrinsic_q_argmax_disagreement_rate"},
+    {.index = ValueSelectionMetric::ExtrinsicRegret, .key = "extrinsic_q_regret_mean"},
+    {.index = ValueSelectionMetric::ExtrinsicGap, .key = "extrinsic_q_gap_mean"},
+    {.index = ValueSelectionMetric::IntrinsicGap, .key = "intrinsic_q_gap_mean"},
+}});
+
+static constexpr auto kValueSelectionSessionKeys = MakeDiagnosticMetricKeys<ValueSelectionMetric::Count>({{
+    {.index = ValueSelectionMetric::ExtrinsicArgmaxDisagreement, .key = "extrinsic_q_session_argmax_disagreement_rate"},
+    {.index = ValueSelectionMetric::ExtrinsicRegret, .key = "extrinsic_q_session_regret_mean"},
+    {.index = ValueSelectionMetric::ExtrinsicGap, .key = "extrinsic_q_session_gap_mean"},
+    {.index = ValueSelectionMetric::IntrinsicGap, .key = "intrinsic_q_session_gap_mean"},
+}});
 
 constexpr const char* kSkipForwardSeed = "skip_network_forward";
 
@@ -61,7 +77,7 @@ torch::Tensor anet::rl::dqn::PackActorQHint(
     const torch::Tensor& actor_q_sa, const torch::Tensor& actor_state_value, const torch::Tensor& munchausen_term,
     const torch::Tensor& intrinsic_q_sa, const torch::Tensor& intrinsic_state_value)
 {
-    // ActorとWithActionが同じ列順でpackできるよう、DQN payloadの構築を一元化する。
+    // Replay が各列を読み出せるよう、行動の Q 値、状態価値、Munchausen 項、内発報酬の Q 値と状態価値の順で格納する。
     if (!actor_q_sa.defined() || !actor_state_value.defined() || !munchausen_term.defined()) {
         ANET_SYSTEM_ERROR("PackActorQHint requires defined tensors.");
     }
@@ -89,7 +105,22 @@ torch::Tensor anet::rl::dqn::PackActorQHint(
         .to(torch::kFloat32).contiguous();
 }
 
-ActorQHintData anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
+ActorQHintValues anet::rl::dqn::ResolveActorQHintValues(
+    const AuxData& aux, const ActorQHintConfig& config, float munchausen_alpha, float munchausen_entropy_tau)
+{
+    ActorQHintValues values{.munchausen = config.munchausen.Resolve(munchausen_alpha, munchausen_entropy_tau),
+        .use_tbo = config.use_tbo, .tbo_epsilon = config.tbo_epsilon};
+    if (config.decomposed) {
+        values.extrinsic_q = aux.at(kExtrinsicQValues);
+        values.intrinsic_q = aux.at(kIntrinsicQValues);
+        values.extrinsic_scores = aux.at(kExtrinsicActionScores);
+        values.combined_scores = aux.at(kCombinedActionScores);
+        values.extrinsic_bootstrap = config.extrinsic_bootstrap_mode == LearnerConfig::kBootstrapExtrinsic;
+    }
+    return values;
+}
+
+torch::Tensor anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
     const torch::Tensor& action, const ActorQHintValues& config)
 {
     ANET_PROFILE_FUNC();
@@ -108,7 +139,7 @@ ActorQHintData anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
             return config.use_tbo ? TransformH(value, config.tbo_epsilon) : value;
         };
         const auto gather = [&](const torch::Tensor& value, const torch::Tensor& indices) {
-            return value.gather(1, indices.unsqueeze(1)).squeeze(1);
+            return GatherSelectedActionValues(value, indices);
         };
         const auto external_real = real(config.extrinsic_q);
         const auto internal_real = real(config.intrinsic_q);
@@ -126,10 +157,10 @@ ActorQHintData anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
             external_value = gather(external_real, external_scores.argmax(1));
             internal_value = gather(internal_real, combined_real.argmax(1));
         }
-        return {.payload = PackActorQHint(gather(config.extrinsic_q, action), transformed(external_value),
-            gather(terms, action), gather(config.intrinsic_q, action), transformed(internal_value)), .munchausen_terms = terms};
+        return PackActorQHint(gather(config.extrinsic_q, action), transformed(external_value),
+            gather(terms, action), gather(config.intrinsic_q, action), transformed(internal_value));
     }
-    auto q_sa = q_values.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
+    auto q_sa = GatherSelectedActionValues(q_values, action.to(torch::kInt64));
     auto state_value = std::get<0>(q_values.max(1));
     auto terms = torch::zeros_like(q_values);
     if (config.munchausen.enabled) {
@@ -141,10 +172,9 @@ ActorQHintData anet::rl::dqn::MakeActorQHint(const torch::Tensor& q_values,
         state_value = config.use_tbo ? TransformH(soft_value, config.tbo_epsilon) : soft_value;
         terms = munchausen.alpha * scaled_log.clamp(munchausen.clip_value_min, 0.0f);
     }
-    // OFFも第3列ゼロの同じschemaを運び、WithAction用の全行動bonusを保持する。
-    const auto bonus = terms.gather(1, action.to(torch::kInt64).unsqueeze(1)).squeeze(1);
-    return { .payload = PackActorQHint(q_sa, state_value, bonus, torch::zeros_like(q_sa), torch::zeros_like(q_sa)),
-        .munchausen_terms = terms };
+    // Munchausen が無効のときも第 3 列を 0 として運ぶ。
+    const auto bonus = GatherSelectedActionValues(terms, action.to(torch::kInt64));
+    return PackActorQHint(q_sa, state_value, bonus, torch::zeros_like(q_sa), torch::zeros_like(q_sa));
 }
 
 ActorQHintBatch anet::rl::dqn::DecodeActorQHint(const torch::Tensor& payload)
@@ -180,49 +210,17 @@ std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::To(torch::Device devic
     return result;
 }
 
-std::shared_ptr<anet::rl::BatchActionInfo> DQNActionInfo::WithAction(torch::Tensor action) const
+void DQNActionInfo::ApplyForcedActions(const anet::rl::ForcedActions& forced_actions)
 {
-    ANET_PROFILE_FUNC();
-    auto hint = replay_initial_priority_hint_;
-    if (hint.has_value()) {
-        // 行動Qとbonusを同じ実行行動へ揃え、行動に依存しないstate valueは維持する。
-        const auto it = aux_.find("q_values");
-        if (it == aux_.end() || !it->second.defined()) {
-            ANET_SYSTEM_ERROR(
-                "DQNActionInfo::WithAction requires aux[q_values] when an Actor Q hint is present.");
-        }
-        const auto external = aux_.find(kExtrinsicQValues);
-        const auto& q_values = external == aux_.end() ? it->second : external->second;
-        const auto term_it = aux_.find("munchausen_terms");
-        if (term_it == aux_.end() || !term_it->second.defined()) {
-            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires aux[munchausen_terms] when an Actor Q hint is present.");
-        }
-        const auto& terms = term_it->second;
-        if (terms.sizes() != q_values.sizes() || terms.device() != q_values.device()) {
-            ANET_SYSTEM_ERROR("DQNActionInfo::WithAction requires matching q_values/munchausen_terms shape and device. q_values="
-                << q_values.sizes() << " on " << q_values.device() << " terms=" << terms.sizes() << " on " << terms.device());
-        }
-        // ヒントの計算だけで Q と同じ device の行動を使い、返す行動は呼び出し側の device に置く。
-        const auto action_index = action.to(q_values.device(), torch::kInt64).unsqueeze(1);
-        auto q_sa = q_values.gather(1, action_index).squeeze(1).to(torch::kFloat32);
-        const auto decoded = DecodeActorQHint(hint->GetPayload());
-        const auto bonus = terms.gather(1, action_index).squeeze(1);
-        auto intrinsic_q_sa = decoded.intrinsic_q_sa;
-        if (const auto intrinsic = aux_.find(kIntrinsicQValues); intrinsic != aux_.end()) {
-            intrinsic_q_sa = intrinsic->second.gather(1, action_index).squeeze(1);
-        }
-        auto packed = PackActorQHint(q_sa, decoded.actor_state_value, bonus, intrinsic_q_sa, decoded.intrinsic_state_value);
-        hint = ReplayInitialPriorityHint(std::move(packed));
+    auto actions = forced_actions.Apply(GetAction(), aux_.at(kActionQValuesAuxKey).size(1));
+    const auto device = actions.device();
+    if (device.is_cpu()) {
+        action_cpu_ = std::move(actions);
+        gpu_.reset();
+    } else {
+        action_cpu_ = torch::Tensor();
+        gpu_.emplace(device, std::move(actions));
     }
-    auto result = std::make_shared<DQNActionInfo>(std::move(action), info_, aux_, std::move(hint));
-    result->train_actor_snapshot_metrics_ = train_actor_snapshot_metrics_;
-    result->effective_gamma = effective_gamma;
-    result->effective_intrinsic_gamma = effective_intrinsic_gamma;
-    result->risk_num_taus = risk_num_taus;
-    result->selection_taus = selection_taus;
-    result->munchausen_alpha = munchausen_alpha;
-    result->munchausen_entropy_tau = munchausen_entropy_tau;
-    return result;
 }
 
 static void AttachQuantileTailPolicyDiagnostics(
@@ -283,13 +281,13 @@ static int64_t ParseActionScalarIndex(const std::string& key, const char* prefix
     }
 
     int64_t action_index = -1;
+    size_t parsed_len = 0;
     try {
-        size_t parsed_len = 0;
         action_index = std::stoll(index_text, &parsed_len);
-        if (parsed_len != index_text.size()) {
-            ANET_SYSTEM_ERROR("DQNActionInfo: invalid action index in scalar key: " << key);
-        }
-    } catch (const std::exception&) {
+    } catch (const std::logic_error&) {
+        parsed_len = 0;
+    }
+    if (parsed_len != index_text.size()) {
         ANET_SYSTEM_ERROR("DQNActionInfo: invalid action index in scalar key: " << key);
     }
     if (action_index < 0) {
@@ -385,28 +383,31 @@ static torch::Tensor MakeValueSelectionDiagnostics(const anet::TensorDict& outpu
         external_gap = external_top.select(1, 0) - external_top.select(1, 1);
         internal_gap = internal_top.select(1, 0) - internal_top.select(1, 1);
     }
-    return torch::stack({disagreement, regret, external_gap, internal_gap}, 1);
+    return StackDiagnosticColumns<ValueSelectionMetric::Count,
+        ValueSelectionMetric::ExtrinsicArgmaxDisagreement, ValueSelectionMetric::ExtrinsicRegret,
+        ValueSelectionMetric::ExtrinsicGap, ValueSelectionMetric::IntrinsicGap>(
+        disagreement, regret, external_gap, internal_gap);
 }
 
 std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t index) const
 {
-    for (size_t metric = 0; metric < kValueSelectionMetricCount; ++metric) {
-        const bool lane = key == kValueSelectionLaneKeys[metric];
-        if (!lane && key != kValueSelectionMeanKeys[metric]) continue;
+    const auto lane_metric = ParseDiagnosticMetric(key, kValueSelectionLaneKeys);
+    const auto selection_metric = lane_metric ? lane_metric : ParseDiagnosticMetric(key, kValueSelectionMeanKeys);
+    if (const auto value = ReadDiagnosticScalar(selection_metric, [&](size_t metric) -> std::optional<float> {
         const auto& aux = GetAuxData();
         const auto found = aux.find(kValueSelectionDiagnostics);
-        if (found == aux.end()) return std::numeric_limits<float>::quiet_NaN();
+        if (found == aux.end()) return std::nullopt;
         const auto& values = found->second;
-        if (values.dim() != 2 || values.size(1) != kValueSelectionMetricCount)
+        if (values.dim() != 2 || values.size(1) != ValueSelectionMetric::Count)
             ANET_SYSTEM_ERROR("Invalid " << kValueSelectionDiagnostics << " shape=" << values.sizes()
-                << "; expected [lanes," << kValueSelectionMetricCount << "].");
-        if (lane && (index < 0 || index >= values.size(0)))
+                << "; expected [lanes," << ValueSelectionMetric::Count << "].");
+        if (lane_metric && (index < 0 || index >= values.size(0)))
             ANET_SYSTEM_ERROR("Invalid value selection diagnostic lane: key=" << key << " lane=" << index
                 << "; expected [0," << values.size(0) << ").");
         if (!value_selection_diagnostics_cpu_.defined()) value_selection_diagnostics_cpu_ = values.to(torch::kCPU);
         const auto column = value_selection_diagnostics_cpu_.select(1, static_cast<int64_t>(metric));
-        return lane ? column[index].item<float>() : column.mean().item<float>();
-    }
+        return lane_metric ? column[index].item<float>() : column.mean().item<float>();
+    })) return value;
     if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::Gamma]) return effective_gamma;
     if (key == kIntrinsicGamma) return effective_intrinsic_gamma;
     if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::MunchausenAlpha]) return munchausen_alpha;
@@ -570,7 +571,7 @@ std::optional<float> DQNActionInfo::GetScalar(const std::string& key, int64_t in
     if (episode_start_key.has_value()) {
         // 指定された価値表現を取得し、非UQE Policyだけは未対応値としてNaNを返す。
         const bool is_uqe = episode_start_key->value_kind == EpisodeStartActionMarginValueKind::kUqe;
-        const char* values_key = is_uqe ? "uqe_values" : "q_values";
+        const char* values_key = is_uqe ? "uqe_values" : DQNActionInfo::kActionQValuesAuxKey;
         const auto values_it = aux_.find(values_key);
         if (values_it == aux_.end() || !values_it->second.defined()) {
             if (is_uqe) {
@@ -703,14 +704,14 @@ anet::rl::dqn::ActionPolicy::ActionPolicy(
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForAction(
-    const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
+    const anet::TensorDict& obs, const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture) const
 {
     return forward.Forward(obs, info, capture);
 }
 
 anet::TensorDict anet::rl::dqn::ActionPolicy::ForwardForActionWithTaus(
     const anet::TensorDict& obs, const torch::Tensor& taus,
-    const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    const DqnForwardExecutor& forward, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     const torch::Tensor& additional_taus) const
 {
     // 追加方策のqueryも同じforwardへ含め、両Networkが全く同じtausを参照できるようにする。
@@ -824,7 +825,7 @@ torch::Tensor anet::rl::dqn::ActionPolicy::GetSpatialEpsilonTensor(int64_t num_e
 
 torch::Tensor anet::rl::dqn::ActionPolicy::GetSpatialTauTensor(int64_t num_envs, const torch::Device& device) const
 {
-    return PrepareSpatialTensorForAction(spatial_tau_tensor_, spatial_num_envs_, num_envs, device, "uqe_tau");
+    return PrepareSpatialTensorForAction(spatial_tau_tensor_, spatial_num_envs_, num_envs, device, kUqeTauMetricKey);
 }
 
 torch::Tensor anet::rl::dqn::ActionPolicy::MakeEpsilonGreedyAction(const torch::Tensor& greedy_action, float epsilon, int64_t num_envs, int64_t n_actions, std::shared_ptr<anet::RandomGenerator> rnd) const
@@ -882,7 +883,7 @@ std::shared_ptr<DQNActionInfo> anet::rl::dqn::ActionPolicy::MakeActionInfo(const
     auto max_pair = q_values.max(1);
     auto max_q = std::get<0>(max_pair).detach();
     aux["max_q"] = max_q;
-    aux["q_values"] = q_values;
+    aux[DQNActionInfo::kActionQValuesAuxKey] = q_values;
     aux["q_quantiles"] = q_quantiles;
     aux["raw_actions"] = action_values;
 
@@ -909,10 +910,10 @@ void anet::rl::dqn::ActionPolicy::UpdateEpsilon(step_t step, bool is_uqe)
 std::optional<float> anet::rl::dqn::ActionPolicy::GetScalar(const std::string& key, int64_t index) const
 {
     constexpr float kNaN = std::numeric_limits<float>::quiet_NaN();
-    constexpr const char* kMetricKeys[] = {"epsilon", "uqe_tau", "uqe_epsilon", "epsilon_lane_min", "epsilon_lane_max", "uqe_epsilon_lane_min", "uqe_epsilon_lane_max", "uqe_tau_lane_min", "uqe_tau_lane_max"};
+    constexpr const char* kMetricKeys[] = {"epsilon", kUqeTauMetricKey, "uqe_epsilon", "epsilon_lane_min", "epsilon_lane_max", "uqe_epsilon_lane_min", "uqe_epsilon_lane_max", "uqe_tau_lane_min", "uqe_tau_lane_max"};
     const auto* epsilon = uses_uqe_ ? uqe_epsilon_ladder_.get() : epsilon_ladder_.get();
     if (key == kMetricKeys[0]) return current_epsilon_;
-    if (key == kMetricKeys[1]) return thompson_ ? kNaN : current_uqe_tau_;
+    if (key == kMetricKeys[1]) return uses_uqe_ && !thompson_ ? current_uqe_tau_ : kNaN;
     if (key == kMetricKeys[2]) return uses_uqe_ ? current_epsilon_ : kNaN;
     if (key == kMetricKeys[3]) return epsilon ? epsilon->Min() : current_epsilon_;
     if (key == kMetricKeys[4]) return epsilon ? epsilon->Max() : current_epsilon_;
@@ -940,7 +941,7 @@ void anet::rl::dqn::EpsilonGreedyActionPolicy::UpdateSchedule(const StepCounts& 
 }
 
 std::shared_ptr<DQNActionInfo> EpsilonGreedyActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     ANET_PROFILE_FUNC();
@@ -1109,7 +1110,7 @@ torch::Tensor UQEActionPolicy::MakeVectorizedUQEValues(const torch::Tensor& tau_
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, const torch::Tensor& tau_tensor, const anet::TensorDict& obs,
-    bool greedy_only, const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    bool greedy_only, const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     bool iqn_use_full_range, const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     ANET_PROFILE_FUNC();
@@ -1261,7 +1262,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
         const auto float_options = q_values.options().dtype(torch::kFloat32);
         const float nan = std::numeric_limits<float>::quiet_NaN();
         torch::Tensor margin_ratio = torch::full({}, nan, float_options);
-        if (risk_num_taus >= 2) {
+        if (risk_num_taus >= 2 && (config_.uqe.use_tail_mean || iqn_use_full_range)) {
             const auto risk_quantiles_float = q_quantiles.detach().to(torch::kFloat32);
             const auto uqe_values_float = uqe_values.detach().to(torch::kFloat32);
             const auto top2 = uqe_values_float.topk(/*k=*/2, /*dim=*/1);
@@ -1301,7 +1302,7 @@ std::shared_ptr<DQNActionInfo> UQEActionPolicy::MakeUQEActionInfo(float tau, con
 }
 
 std::shared_ptr<DQNActionInfo> UQEActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     if (IsSpatialExplorationEnabled()) {
@@ -1326,7 +1327,7 @@ void anet::rl::dqn::ThompsonSamplingActionPolicy::UpdateSchedule(const StepCount
 }
 
 std::shared_ptr<DQNActionInfo> ThompsonSamplingActionPolicy::SelectAction(const anet::TensorDict& obs, bool greedy_only,
-    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture,
+    const DqnForwardExecutor& forward, std::shared_ptr<anet::RandomGenerator> rnd, const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture,
     const DiagnosticActionEvaluation* evaluation, const torch::Tensor& additional_taus) const
 {
     if (evaluation) ANET_SYSTEM_ERROR("Replay fit requires a deterministic target policy; ThompsonSampling is unsupported.");
@@ -1420,8 +1421,7 @@ torch::Tensor UQEActionPolicy::SelectFromValues(const torch::Tensor& q, const to
 }
 
 Actor::Actor(std::shared_ptr<ActionPolicy> policy,
-    std::shared_ptr<anet::rl::ObservationNormalizer> obs_norm,
-    std::unique_ptr<FrameStacker> stacker,
+    std::shared_ptr<anet::Forwarder> perception,
     torch::Device device,
     std::optional<seed_t> seed,
     std::shared_ptr<std::shared_mutex> mutex,
@@ -1432,8 +1432,8 @@ Actor::Actor(std::shared_ptr<ActionPolicy> policy,
     std::optional<anet::ProfiledValueConfig<step_t>> snapshot_sync_interval,
     bool emit_snapshot_metrics,
     ActorQHintConfig actor_q_hint_config, std::optional<SkipActorResources> skip)
-    : RandomHolder(seed), policy_(std::move(policy)), obs_norm_(std::move(obs_norm))
-    , stacker_(std::move(stacker)), device_(device), mutex_(std::move(mutex))
+    : RandomHolder(seed), policy_(std::move(policy)), perception_(std::move(perception))
+    , device_(device), mutex_(std::move(mutex))
     , network_(std::move(network)), src_network_(std::move(src_network))
     , emit_actor_q_hint_(emit_actor_q_hint)
     , actor_q_hint_config_(actor_q_hint_config)
@@ -1533,29 +1533,26 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     // action forwardより前にTrain Actor network snapshotを必要な場合だけ同期する。
     UpdateSnapshot(step);
 
-    // frame stackとdevice転送（stacker無しならdevice転送のみ）を正規化前に行う。
-    auto obs = stacker_ ? stacker_->Stack(state.obs, state.episode_start) : state.obs.To(device_);
-    ANET_LOG_DEBUG("obs=" << obs.ToDefString());
-    //ANET_LOG_DEBUG("obs=" << obs.ToString());
-
-    // Observation正規化
-    auto norm_obs = obs;
-    if (obs_norm_ != nullptr) {
-        norm_obs = obs_norm_->Normalize(obs);
+    // Actor は観測を device へ移し、CPU 上の開始の印を履歴の処理に渡す。
+    auto perception = state.obs.To(device_, /*non_blocking=*/static_cast<bool>(perception_));
+    if (perception_) {
+        perception.Set(kPerceptionStartKey, state.episode_start);
+        perception = perception_->Forward(perception);
+        if (perception.Contains(kPerceptionStartKey)) {
+            ANET_SYSTEM_ERROR("Actor Perception output contains the start key '" << kPerceptionStartKey
+                << "'; expected the Forwarder to remove it before action selection.");
+        }
     }
-    //norm_obs = norm_obs.to(torch::kCPU);
-    ANET_LOG_DEBUG("norm_obs=" << norm_obs.ToDefString());
-    //ANET_LOG_DEBUG("norm_obs=" << norm_obs.ToString());
 
     // 行動選択の時計を進め、同じ選択内の全forwardへ不透明な実行情報を渡す。
     const anet::nn::NetworkForwardCallInfo forward_info({
         .clock = ++forward_clock_, .episode_start = state.episode_start});
 
     // 行動選択
-    std::optional<anet::nn::NetworkForwardCapture> capture;
+    std::optional<anet::ForwardCapture> capture;
     if (options.nn_trace) capture.emplace(std::vector<std::string>{std::string(anet::nn::kNnTracePrefix)});
     const auto additional_taus = skip_ && !skip_->shared_policy
-        ? skip_->policy->MakeValueQueryTaus(norm_obs.Size(0), device_, *skip_random_) : torch::Tensor();
+        ? skip_->policy->MakeValueQueryTaus(perception.Size(0), device_, *skip_random_) : torch::Tensor();
     const auto dedicated_tau_count = additional_taus.defined() ? additional_taus.size(1) : 0;
     // skip 中も両網を全 lane で forward する（高速化は非ゴール）。Runner へ返す行動だけを継続値にする。
     std::shared_ptr<DQNActionInfo> act_info;
@@ -1565,24 +1562,27 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
         actor_q_hint_config_.use_tbo, actor_q_hint_config_.tbo_epsilon);
     if (network_ != src_network_) {
         // Clone済み: 自分専用のネットワークなので排他不要
-        act_info = policy_->SelectAction(norm_obs, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
+        act_info = policy_->SelectAction(perception, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
         // 行動 forward の直後に取り出し、skip 側の forward へ持ち越さない。
         if (capture) {
             anet::rl::AppendNnTraceAux(act_info->GetAuxData(), *capture);
             capture.reset();
         }
-        if (skip_) act_info = ApplySkip(std::move(act_info), norm_obs, state.episode_start, forward_info, dedicated_tau_count);
+        if (skip_) act_info = ApplySkip(std::move(act_info), perception, state.episode_start, forward_info, dedicated_tau_count,
+            options.forced_actions);
     } else {
         // Clone無し（直列モード）: Learnerの更新と競合しないようSharedLock
         std::shared_lock<std::shared_mutex> lock(*mutex_);
-        act_info = policy_->SelectAction(norm_obs, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
+        act_info = policy_->SelectAction(perception, false, action_forward, rnd_, forward_info, capture ? &*capture : nullptr, nullptr, additional_taus);
         // 行動 forward の直後に取り出し、skip 側の forward へ持ち越さない。
         if (capture) {
             anet::rl::AppendNnTraceAux(act_info->GetAuxData(), *capture);
             capture.reset();
         }
-        if (skip_) act_info = ApplySkip(std::move(act_info), norm_obs, state.episode_start, forward_info, dedicated_tau_count);
+        if (skip_) act_info = ApplySkip(std::move(act_info), perception, state.episode_start, forward_info, dedicated_tau_count,
+            options.forced_actions);
     }
+    if (!skip_ && options.forced_actions) act_info->ApplyForcedActions(*options.forced_actions);
     if (actor_q_hint_config_.decomposed) {
         // IQNの追加full queryを、行動のrisk領域と初期優先度の近似へ混ぜない。
         const auto component = [&](const std::string& q_key, const std::string& dist_key) {
@@ -1597,7 +1597,7 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
         act_info->GetAuxData()[kExtrinsicQValues] = external_q;
         act_info->GetAuxData()[kIntrinsicQValues] = internal_q;
         act_info->GetAuxData()[kExtrinsicActionScores] = policy_->MakeActionScores(external_q, external_dist, true, act_info->selection_taus);
-        act_info->GetAuxData()[kCombinedActionScores] = policy_->MakeActionScores(act_info->GetAuxData().at(kActionQValuesAuxKey),
+        act_info->GetAuxData()[kCombinedActionScores] = policy_->MakeActionScores(act_info->GetAuxData().at(DQNActionInfo::kActionQValuesAuxKey),
             act_info->GetAuxData().at(kActionQQuantilesAuxKey), true, act_info->selection_taus);
         auto diagnostics = MakeValueSelectionDiagnostics(act_info->forward_output,
             action_beta, actor_q_hint_config_.use_tbo, actor_q_hint_config_.tbo_epsilon);
@@ -1619,31 +1619,20 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
     if (emit_actor_q_hint_) {
         ANET_PROFILE_SCOPE(actor_q_hint);
         
-        const auto q_it = act_info->GetAuxData().find("q_values");
+        const auto q_it = act_info->GetAuxData().find(DQNActionInfo::kActionQValuesAuxKey);
         if (q_it == act_info->GetAuxData().end() || !q_it->second.defined()) {
             ANET_SYSTEM_ERROR("actor_approx requires ActionPolicy aux[q_values].");
         }
         const auto& q_values = q_it->second;
-        auto hint = MakeActorQHint(q_values, act_info->GetAction(), ActorQHintValues{
-            .munchausen = actor_q_hint_config_.munchausen.Resolve(
-                act_info->munchausen_alpha, act_info->munchausen_entropy_tau),
-            .use_tbo = actor_q_hint_config_.use_tbo, .tbo_epsilon = actor_q_hint_config_.tbo_epsilon,
-            .extrinsic_q = actor_q_hint_config_.decomposed ? act_info->GetAuxData().at(kExtrinsicQValues) : torch::Tensor(),
-            .intrinsic_q = actor_q_hint_config_.decomposed ? act_info->GetAuxData().at(kIntrinsicQValues) : torch::Tensor(),
-            .extrinsic_scores = actor_q_hint_config_.decomposed ? act_info->GetAuxData().at(kExtrinsicActionScores) : torch::Tensor(),
-            .combined_scores = actor_q_hint_config_.decomposed ? act_info->GetAuxData().at(kCombinedActionScores) : torch::Tensor(),
-            .extrinsic_bootstrap = actor_q_hint_config_.extrinsic_bootstrap});
-        act_info->GetAuxData()["munchausen_terms"] = hint.munchausen_terms;
-        act_info->SetReplayInitialPriorityHint(ReplayInitialPriorityHint(std::move(hint.payload)));
+        const auto hint_values = ResolveActorQHintValues(act_info->GetAuxData(), actor_q_hint_config_,
+            act_info->munchausen_alpha, act_info->munchausen_entropy_tau);
+        auto hint = MakeActorQHint(q_values, act_info->GetAction(), hint_values);
+        act_info->SetReplayInitialPriorityHint(ReplayInitialPriorityHint(std::move(hint)));
     }
 
     // AuxData の詰め込み
     // 現在actionがepisode開始直後かを、device転送せず診断用auxへ保持する。
     act_info->GetAuxData()["episode_start"] = state.episode_start;
-    act_info->GetAuxData()["raw_obs"] = anet::rl::ToUnifiedObservation(obs);
-    if (obs_norm_ != nullptr) {
-        act_info->GetAuxData()["norm_obs"] = anet::rl::ToUnifiedObservation(norm_obs);
-    }
 
     // DefaultDQNでは無効時もNaN、周期snapshot有効時は同期後の現在値を公開する。
     if (emit_snapshot_metrics_) {
@@ -1660,7 +1649,8 @@ std::shared_ptr<anet::rl::BatchActionInfo> Actor::MakeAction(const StepCounts& s
 
 std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> proposal,
     const anet::TensorDict& obs, const torch::Tensor& episode_start,
-    const anet::nn::NetworkForwardCallInfo& info, int64_t dedicated_tau_count) const
+    const anet::nn::NetworkForwardCallInfo& info, int64_t dedicated_tau_count,
+    const std::optional<anet::rl::ForcedActions>& forced_actions) const
 {
     ANET_PROFILE_FUNC();
 
@@ -1680,10 +1670,10 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
     }
 
     // episode 開始時と残り 0 の lane だけ、新しい行動と j を判断する。
-    const auto decision = single ? torch::ones_like(proposed_actions, torch::kBool)
+    auto decision = single ? torch::ones_like(proposed_actions, torch::kBool)
         : episode_start.to(proposed_actions.device()).logical_or(skip_remaining_.eq(0));
     // 継続中の lane は今回の提案を捨て、前に選んだ行動で上書きする。
-    const auto actions = single ? proposed_actions : torch::where(decision, proposed_actions, skip_actions_);
+    auto actions = single ? proposed_actions : torch::where(decision, proposed_actions, skip_actions_);
 
     // SKIPネットワークでforward
     const auto input = MakeSkipInput(obs, proposal->forward_output, actions, true);
@@ -1708,8 +1698,15 @@ std::shared_ptr<DQNActionInfo> Actor::ApplySkip(std::shared_ptr<DQNActionInfo> p
     const auto selection_q = skip_max_length_ ? q.narrow(1, 0, skip_max_length_->Value()) : q;
     const auto selection_distribution = skip_max_length_ && distribution.defined()
         ? distribution.narrow(1, 0, skip_max_length_->Value()) : distribution;
-    const auto lengths = single ? torch::ones_like(proposed_actions)
+    auto lengths = single ? torch::ones_like(proposed_actions)
         : skip_->policy->SelectFromValues(selection_q, selection_distribution, skip_random_) + 1;
+    if (forced_actions) {
+        // 方策の抽選後に反映し、強制した step を長さ 1 の新しい判断として扱う。
+        actions = forced_actions->Apply(actions, proposal->GetAuxData().at(DQNActionInfo::kActionQValuesAuxKey).size(1));
+        const auto forced_lanes = forced_actions->MakeMask(actions.size(0), actions.device());
+        decision = decision.logical_or(forced_lanes);
+        lengths = torch::where(forced_lanes, torch::ones_like(lengths), lengths);
+    }
     // 判断 lane だけ j を更新し、今回の 1 step を引いてから返す情報を組み立てる。
     if (!single) {
         skip_lengths_ = torch::where(decision, lengths, skip_lengths_);
@@ -1757,12 +1754,12 @@ void Actor::ResetSessionDiagnostics() const
 
 std::optional<float> Actor::GetScalar(const std::string& key, int64_t index) const
 {
-    for (size_t metric = 0; metric < kValueSelectionMetricCount; ++metric) {
-        if (key != kValueSelectionSessionKeys[metric]) continue;
-        if (value_selection_session_lane_steps_ == 0) return std::numeric_limits<float>::quiet_NaN();
-        if (!value_selection_session_cpu_.defined()) value_selection_session_cpu_ = value_selection_session_sums_.to(torch::kCPU);
-        return value_selection_session_cpu_[static_cast<int64_t>(metric)].item<float>() / value_selection_session_lane_steps_;
-    }
+    if (const auto value = ReadDiagnosticScalar(ParseDiagnosticMetric(key, kValueSelectionSessionKeys),
+        [&](size_t metric) -> std::optional<float> {
+            if (value_selection_session_lane_steps_ == 0) return std::nullopt;
+            if (!value_selection_session_cpu_.defined()) value_selection_session_cpu_ = value_selection_session_sums_.to(torch::kCPU);
+            return value_selection_session_cpu_[static_cast<int64_t>(metric)].item<float>() / value_selection_session_lane_steps_;
+        })) return value;
     if (key == kSkipMaxLength) {
         return skip_max_length_ ? static_cast<float>(skip_max_length_->Value())
             : std::numeric_limits<float>::quiet_NaN();

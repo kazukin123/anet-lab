@@ -178,7 +178,7 @@ $benchmarkLabel='final-'+(Get-Date -Format yyyyMMdd-HHmmss); & ./.venv/Scripts/p
 - 追加した診断テストは修正前に29 assertion失敗（`cc-r1-red.xml`）。最初の修正後確認で新fixtureのskip.max_length未指定により5 assertion失敗（`cc-r1-green.xml`）、その後の関連まとめでskip.net未指定により5 assertion失敗（`cc-r1-related.xml`）。両方を有効なskip構成へそろえて、追加テスト112 assertion・失敗/ERROR 0を確認した（`cc-r1-final-focus.xml`）。失敗した実行の記録も保持する。
 - 最終のDebug・Releaseビルドは終了値0（`cc-r1-fixture-debug-build.log`・`cc-r1-fixture-release-build.log`）。両ストリームをログへ保存し、末尾だけを返した。
 - 修正後の関連まとめは27,240 assertion・失敗/ERROR 0・skip 0、149.623秒、終了値0（`cc-r1-final-related.xml`）。filterは`[prd121],[actor_initial_priority],[action_policy],[step_diagnostics],[shipped_config],[prd127],[prd129],[dqn][munchausen]`。通常ログは`cc-r1-final-related.log`へ分けて保存し、末尾だけを返した。
-- impl/prdの品質確認観点を適用範囲に従って全項目点検した。50対象の既存45ファイルでBOM保持、新規5ファイル、LF、禁止パターン、日英8組の構造・翻訳元blob、PRDの状態行・番号一意性・リンクの検査は成功（`cc-r1-checks.json`）。
+- impl/prdのレビュー観点を適用範囲に従って全項目点検した。50対象の既存45ファイルでBOM保持、新規5ファイル、LF、禁止パターン、日英8組の構造・翻訳元blob、PRDの状態行・番号一意性・リンクの検査は成功（`cc-r1-checks.json`）。
 - 今回の変更は構築時の検査/診断、同値の定数参照、文書に限り、学習・Replay・スケーラの数値計算と実行回数は変えていない。既存の174,438点一致・17構成比較・checkpoint読込みの証跡を保持し、性能6 Runの記録と実行体hashも保持する。性能再測定はしていない。
 - 再レビューでは前の49対象を保持し、承認されたPRD改訂を足した50対象を同じ担当/Claude sessionへ渡す。再レビュー結果は本節末尾へ追記する。EvalPanelの2 lane以上の人手確認は未実施のままである。
 
@@ -217,7 +217,7 @@ Claudeは初回から同じsession `e2ebfe8c-4750-4dfc-9e7f-f50f6eaf4086`を再�
 - 検証: 追加テスト `[prd121-review-pack]` は修正前に6条件すべて失敗（`followup-red.xml`）。修正後の `[prd121-review-pack],[hint]` は5 case・79 assertionが失敗/ERROR/skip 0（`followup-hint.xml`）。Meta deviceのtensorを使い、GPUへの転送なしでdevice不一致を確認した。
 - 全体ビルドは `cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Debug'` と、同じコマンドのpresetを `x64-Release` に変えたものが両方成功した。標準出力・標準エラーは `.scratch/prd121/followup-debug-build.log` と `followup-release-build.log` に保存し、画面には末尾だけを返した。
 - 関連テストは `core/anet-core/bin/Debug/anet-core-test.exe '[prd121],[hint],[actor_initial_priority],[action_policy],[step_diagnostics],[prd127],[prd129],[dqn][munchausen],[nn][init],[scaler]' --reporter junit --out .scratch/prd121/followup-regression.xml` で実行し、24,856 assertionが失敗/ERROR/skip 0、142.353秒。通常ログと標準エラーは `.scratch/prd121/followup-regression.log` に保存し、画面には末尾とJUnitの集計だけを返した。ビルド・テストはセッションの完了通知を待ち、途中は進捗だけを確認した。
-- 自己点検: 実装品質確認観点の全項目を適用判定し、対象項目を確認した。変更範囲・定数の所有者と利用箇所・診断の実値・INFOの分類・追加テストの外部挙動を照合し、BOM保持・LF・重複文字列・禁止された表記・`git diff --check` の機械検査も成功した。設定・保存形式・演算・UI契約の変更は無い。
+- 自己点検: 実装レビュー観点の全項目を適用判定し、対象項目を確認した。変更範囲・定数の所有者と利用箇所・診断の実値・INFOの分類・追加テストの外部挙動を照合し、BOM保持・LF・重複文字列・禁止された表記・`git diff --check` の機械検査も成功した。設定・保存形式・演算・UI契約の変更は無い。
 
 ## 完了報告
 
@@ -317,7 +317,7 @@ Claudeは初回から同じsession `e2ebfe8c-4750-4dfc-9e7f-f50f6eaf4086`を再�
 - 構築時フラグ長のREDは15項目中、空配列を受け入れていた3項目の失敗を再現した（`rb-naming-red.xml`）。修正後はフラグ長とγの所有の17項目がDebug・Releaseとも失敗/ERROR/skip 0（`rb-naming-focused.xml`、`rb-naming-release-focused.xml`）。後者はworkerを止めた間に呼び出し元の配列を書き換え、先読みと遅延Pushが投入時のγを使うことを確かめた。
 - 全体ビルドは`VsDevCmd.bat -arch=x64 -host_arch=x64`を`cmd /s /c`内で`call`した後、`cmake --build --preset x64-Debug --parallel 4`と`cmake --build --preset x64-Release --parallel 4`が成功した。最終ログは`.scratch/prd121/rb-naming-debug-build-r3.log`と`rb-naming-release-build-r2.log`。初回Debugビルドは、テスト呼び出しの配列化がRB以外の`RollingMaxPool::Push`の5箇所まで及びC2664で失敗した（`rb-naming-debug-build.log`）。その5箇所を元へ戻し、`AtariEnv_test.cpp`は変更対象から外した。型に伴うγの診断文とテスト補助メソッド名も最終ビルドへ反映した。
 - 最終Debug実行体で`anet-core-test.exe '[prd121],[replay_buffer]' --reporter junit --out .scratch/prd121/rb-naming-debug-related.xml`は150ケース・32,890 assertion、失敗/ERROR/skip 0、59.546秒。フィルタを指定しないcore既定スイートは1,256ケース・194,589 assertion、失敗/ERROR 0、skip 1、651.141秒（`rb-naming-debug-core-suite.xml`）。skipは`PRD070 reports every explicit CUDA key before NN initialization`の`CUDA is available`で、この環境では対象外。両検証で実行前後のバイナリSHA256が`194c08a6f42881b4b92445e3c03c4627aa894839a073f8c9178af06424ba7a82`から変わらないことを確認した。コマンド・集計は`rb-naming-debug-results.json`、通常ログと標準エラーは対応する`.log`へ保存し、画面には段階の開始と集計だけを返した。検証時間を性能測定値としては扱わない。
-- 自己点検では実装品質確認観点の全項目を適用判定し、対象項目を確認した。旧識別子は本ファイルの経過記録だけ、機械検査7（LF）・62（BOM保持）・76（追加行の避ける語）と`git diff --check`は成功。検査スクリプトは`.scratch/prd121/check_rb_naming.py`。非同期の所有・単一/複数成分・定数/scheduleの既存数値テストと不正フラグ長の新規テストを照合した。追加の性能測定は行っていない。
+- 自己点検では実装レビュー観点の全項目を適用判定し、対象項目を確認した。旧識別子は本ファイルの経過記録だけ、機械検査7（LF）・62（BOM保持）・76（追加行の避ける語）と`git diff --check`は成功。検査スクリプトは`.scratch/prd121/check_rb_naming.py`。非同期の所有・単一/複数成分・定数/scheduleの既存数値テストと不正フラグ長の新規テストを照合した。追加の性能測定は行っていない。
 
 - 2026-11-15 追加修正（RBのγ引数・名前・用語）を開始。γ引数を`std::span<const float>`にそろえ、workerへ渡す2境界では所有するvectorへコピーする。`RewardDiscounts`を`ComponentGammas`、再計算フラグを`needs_return_recompute`、追加の成分だけの並びを`extra_component_*`へ改名し、真偽値も問いの形へそろえる。成分ごとのフラグを常に明示し、長さ不一致は構築時に拒否する。演算順・定数γ／scheduleγの収益・抽選結果は維持する。PRD・ADR・過去の経過記録は書き換えず、現行の日英設計文書と呼び出し側を移行する。公開ヘッダ`rl.hpp`・`replay_buffer.hpp`も対象。Debug／Releaseビルド、`[prd121],[replay_buffer]`とcore既定スイート、旧名検索・行末・BOM・避ける語の検査で確認する。
 

@@ -209,3 +209,5 @@
 ["src/core/base/src/intrinsic_rnd.cpp","call",["error_norm.none.warmup_steps"]]
 ["src/core/base/src/intrinsic_rnd.cpp","call",["error_norm.standardize.warmup_steps"]]
 ["src/core/base/src/intrinsic_rnd.cpp","error",["mode"]]
+["src/core/base/src/nn_head.cpp","error",["index"]]
+["src/core/base/src/nn_head.cpp","error",["key"]]

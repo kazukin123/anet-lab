@@ -16,7 +16,7 @@ LunarLander の DefaultDQNAgent 系 Run に関する探索索引です。
 
 ## 知見のまとめ
 
-- [wikiの知見](../../../wiki/subjects/lunarlander.md)から題材・機構と正本をたどる。
+- [wikiの知見](../../../wiki/concepts/subjects/lunarlander.md)から題材・機構と正本をたどる。
 
 ## 独自の分析
 

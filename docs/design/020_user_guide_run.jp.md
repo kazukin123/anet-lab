@@ -176,7 +176,7 @@ backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmar
 
 #### 3.4.2 プロファイル`@name`
 
-プロファイルは`Owner.@name : key = v`で定義する。境界は`:`で区切り、`.`で続けない(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（プロファイル境界）)。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う。
+プロファイルは`Owner.@name : key = v`で定義する。境界は`:`で区切り、`.`で続けない(正本は[実装 レビュー観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（プロファイル境界）)。`:`は`.`と同じ意味で、プロファイルの境界にだけ使う。
 
 - 定義しただけでは値に出ない。チェーンや部分選択で選ばれた分だけ最終値に入る。
 - 短い`@name`は、書いた場所(定義元)の名前空間で解決する。`Env.$ = @a`は`Env.@a`、`Env.@a : $ = @b`は`Env.@b`を指す。`Other.$ = Env.@a`のように別の場所から使っても、`@a`の中の`@b`は`Env.@b`のままである。
@@ -301,7 +301,7 @@ X.key ?= v              既定キー。X.$ に負ける
 | workspaceの`config/_main.txt` | 有効にする`<Env>.txt`の`$include` | - |
 | bat、CLI | `run.$`の選択と設定キーの上書き | `=` |
 
-運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な設定キーだけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする(正本は[実装 レビュー観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）)。「将来上書きするかもしれない」だけでは`?=`にしない。既存の実効値を保つために`?=`が必要な設定キーだけ、理由を添えてデフォルト設定へまとめる。ブロックの見出しやコメントの書き方は自由である(`DropMerge.txt`は`# --- DropMergeEnv デフォルト設定`、`LunarLander.txt`は見出し無し)。この運用は編集と監査の規約であり、resolverがファイル名や位置で扱いを変えることはない。設定を追加・変更したら静的検査で、共通ファイルやデフォルト設定に残った`=`と、環境別の個別指定に紛れた`?=`を確認する。
 
 ```bash
 .\.venv\Scripts\python.exe src/core/base/testdata/rfd0072/check_default_leaves.py
@@ -531,7 +531,7 @@ WindowのCloseまたは`File > Exit`でRunを停止する。終了処理はTrain
 
 close時の`agent_close.anet`保存に失敗した場合も同じ表示方針で通知し、その後のlog shutdownとGUI cleanupを続行してwindowを閉じる。この場合、`agent_close.anet`は有効なcheckpointとは限らない。AgentがSaveを実装していない場合は0 byteのfileが残り、対象path付きのWARNが出る。保存できたcheckpointもAgent、Network、archive contractが一致することを確認してから引き継ぎに使う。
 
-checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`のaliasである`R.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。引き継ぎ後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DefaultDQNではoptimizerの学習率などは新しいRunの設定が効き、checkpointと違う値はログにINFOが出る。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
+checkpointから引き継ぐ場合は、新しいRunの互換設定にAgent固有の`auto_load_file`を指定する。現行例は`DefaultDQNAgent.auto_load_file`への上書きを指定する`A3.auto_load_file`、または`ImageClsAgent.auto_load_file`である。Network構成やarchive contractが異なるcheckpointは読み込めない。保存対象はAgentごとに異なり、現行DQN系ではReplayBufferの内容やsampling状態を復元しない。引き継ぎ後は新しいRun directoryとstep系列を持つため、旧Runの`metrics.jsonl`へ追記する操作ではない。DefaultDQNではoptimizerの学習率などは新しいRunの設定が効き、checkpointと違う値はログにINFOが出る。DQN系の保存対象は[DQN系Agent](200_dqn_agents.jp.md)を参照する。
 
 `run.eval_schedule.[tag].offset`（既定 0）で、評価の発火列を learn step 単位でずらす。`warmup_count`（既定 1）で、先頭から評価を走らせない発火の回数を指定する。どちらも 0 以上の整数にする。学習直後の評価が必要な評価専用 Run では、組むタグごとに `warmup_count = 0` を書く。継承した offset が不要なら `offset = 0` も書く。
 
@@ -647,7 +647,7 @@ workspaceが`dm_long`、`app.run_name=run_{t}`の場合、成果物は`data/work
 ## 9. 関連文書
 
 - [CONTEXT.md](../../CONTEXT.md)(設定用語の正本)
-- [実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）(演算子の運用規約)
+- [実装 レビュー観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）(演算子の運用規約)
 - [分析ユーザーガイド](030_user_guide_analysis.jp.md)
 - [開発環境](040_development_environment.jp.md)
 - [実行基盤と設定](100_runtime_and_configuration.jp.md)

@@ -10,4 +10,4 @@ ImageCls（Food-101）の ImageClsAgent の Run に関する探索索引です�
 
 ## 知見のまとめ
 
-- [wikiの知見](../../../wiki/subjects/imagecls.md)から題材・機構と正本をたどる。
+- [wikiの知見](../../../wiki/concepts/subjects/imagecls.md)から題材・機構と正本をたどる。

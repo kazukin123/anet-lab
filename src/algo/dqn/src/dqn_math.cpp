@@ -11,6 +11,7 @@
 #include <set>
 #include <utility>
 #include <unordered_set>
+#include <c10/util/SmallVector.h>
 #include "anet/log.hpp"
 #include "anet/profile.hpp"
 #include "anet/tensor_check.hpp"
@@ -25,6 +26,25 @@
 
 using namespace anet::rl::dqn;
 namespace LOG = anet::log;
+
+torch::Tensor anet::rl::dqn::GatherSelectedActionValues(
+    const torch::Tensor& values, const torch::Tensor& choices)
+{
+    const int64_t batch = values.size(0);
+    ANET_ASSERT_SHAPE(choices, {batch});
+    ANET_ASSERT_SHAPE(values, {batch, -1}, {batch, -1, -1}, {batch, -1, -1, -1});
+    if (values.dim() == 2) {
+        return values.gather(1, choices.unsqueeze(1)).squeeze(1);
+    }
+
+    // 各行の番号を行動軸の後ろへ広げ、選んだ行動の軸だけを除く。
+    c10::SmallVector<int64_t, 4> view_shape(values.dim(), 1);
+    view_shape[0] = batch;
+    c10::SmallVector<int64_t, 4> index_shape(values.sizes().begin(), values.sizes().end());
+    index_shape[1] = 1;
+    const auto indices = choices.view(view_shape).expand(index_shape);
+    return values.gather(1, indices).squeeze(1);
+}
 
 std::array<float, 3> anet::rl::dqn::MeasureNoisyQProbe(
     const torch::Tensor& mean_q, int num_draws, const std::function<torch::Tensor(int)>& draw)
@@ -510,7 +530,7 @@ void DecomposedValueCombiner::Combine(anet::TensorDict& output, float beta, bool
 }
 
 anet::TensorDict DqnForwardExecutor::Forward(const anet::TensorDict& input,
-    const anet::nn::NetworkForwardCallInfo& info, anet::nn::NetworkForwardCapture* capture) const
+    const anet::nn::NetworkForwardCallInfo& info, anet::ForwardCapture* capture) const
 {
     auto output = forward_.Forward(input, info, capture);
     if (beta_) DecomposedValueCombiner::Combine(output, *beta_, use_tbo_, epsilon_);

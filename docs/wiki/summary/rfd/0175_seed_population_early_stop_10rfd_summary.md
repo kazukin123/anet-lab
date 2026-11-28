@@ -1,0 +1,58 @@
+---
+title: 多数の seed を比較するための条件付き打ち切り案
+page_kind: サマリ
+material: "[[docs/memo/0175_seed_population_early_stop_10rfd.md|0175_seed_population_early_stop_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/subjects/kung_fu_master.md|kung_fu_master（KFM）]]"
+  - "[[docs/wiki/concepts/framework/317_metrics.md|317 可視化・メトリクス]]"
+updated: 2026-11-28
+---
+# 多数の seed を比較するための条件付き打ち切り案
+
+## 元の材料
+
+[RFD0175　多数の seed を比較するための条件付き打ち切り案](../../../memo/0175_seed_population_early_stop_10rfd.md) blob:022342717be76f0450a36604a7e8da435d0c1a4c
+
+## 要点
+
+- 多数の seed を条件付きで打ち切る方法は暫定案である。固定長で走らせた結果から、後から伸びる条件を誤って打ち切らないかを調べる。
+- 長い Run を多数の seed で試し、途中までの成績を使って計算予算を配分することを検討する。
+- 決めた経験数で、購読中のスカラーの直近区間平均を閾値と比べる。
+- 条件を満たさない Run は正常終了し、満たす Run は元の予算まで続ける。
+- Kung-Fu Master の追加調査では、ボスへの挑戦の頻度だけで将来の成功を判断できず、命中と撃破の関係も見る必要があった。
+- 後から伸びる seed を早く切る可能性を含め、打ち切り条件を固定長の実行結果と照合する。
+
+## 内容
+
+### 目的と問題
+
+Run の途中の決めた時点で、指標の条件を確かめ、満たさなければ Run を正常に終える仕組み（条件付きの打ち切り）を足す。多数の seed に最後までの予算を与えて並べ、早い時点で火が付かなかった Run は止め、付いた Run はそのまま最後まで続ける。replay を含めて途切れずに続くので、チェックポイントからの再開の問題（replay が戻らない）を避けられる。
+
+### 背景
+
+報酬クリップを外す、ライフで区切る、ε を下げる、UQE にする、などの設定では、1 本ずつの Run でボス行きに入らなかった（2026-10-14〜18）。1 本ずつでは seed の当たり外れと区別できない。
+
+### 起草時点の現状
+
+bat は、前の Run の終了コードとフォルダを見て次へ進む（`:run_exe` と `:find_ckpt`）。打ち切りで終えた Run も、終了コード 0 なら成功として数えられる。
+
+### 提案の骨子
+
+設定で、打ち切りの規則を 1 つ以上書く。規則は「どの exp step で」「どの指標（購読しているスカラーの tag）の」「直近何点の平均が」「閾値に対してどうなら続けるか」を持つ。
+
+### User Stories
+
+研究者として、多数の seed を並べ、早い時点で目的の振る舞いが出なかった Run を自動で止め、出た Run だけを最後まで回したい。
+研究者として、止まった Run と最後まで回った Run を、フォルダとログだけで見分けたい。
+
+### 候補を採る場合の成功の測り方と受入の目安
+
+KFM で、既定の実時間優先・最後までの予算 50M・10M で規則を評価、を 16 seed 回し、火が付いた Run だけが 50M まで回る。全体の時間が、全部を最後まで回す場合のおおむね 3 分の 1 になる。
+
+## 主要な概念
+
+- [評価と比較の条件](../../concepts/measurement/evaluation.md)
+- [kung_fu_master（KFM）](../../concepts/subjects/kung_fu_master.md)
+- [317 可視化・メトリクス](../../concepts/framework/317_metrics.md)

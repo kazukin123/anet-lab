@@ -1,0 +1,86 @@
+---
+title: "TQL: Scaling Q-Functions with Transformers by Preventing Attention Collapse — 詳細解説"
+page_kind: サマリ
+material: "[[reports/paper/dong2026_tql_paper_2026-10-05.md|dong2026_tql_paper_2026-10-05]]"
+material_kind: 論文解説
+concepts:
+  - "[[docs/wiki/concepts/methods/action_query_attention.md|Action queryとattentionの証拠]]"
+  - "[[docs/wiki/concepts/framework/315_nn.md|315 ニューラルネットワーク]]"
+  - "[[docs/wiki/concepts/phenomena/plasticity.md|可塑性指標と成績]]"
+  - "[[docs/wiki/concepts/framework/324_dqn.md|324 Agent個別実装 DQN系列]]"
+updated: 2026-11-28
+---
+# TQL: Scaling Q-Functions with Transformers by Preventing Attention Collapse — 詳細解説
+
+## 元の材料
+
+[TQL: Scaling Q-Functions with Transformers by Preventing Attention Collapse — 詳細解説](../../../../../reports/paper/dong2026_tql_paper_2026-10-05.md) blob:63baba033b56481ee623754d371fd6c548e588e6
+
+## 要点
+
+- そこで本論文は、Transformer が価値関数で素直にスケールしない理由を調べ、構造の変更を最小限にとどめた一般的な枠組みとして TQL を提案する [p.1, Section 1]。分析の結果、容量を増やすと attention の重みが一握りのトークンに集中して残りを無視する「attention の崩壊」が起き、大きなモデルが価値のブートストラップの最中に適切な attention パターンを学びにくくなると特定した [p.1–2, Section 1]。対処として、層ごとに attention スコアのエントロピーを目標値へ向けて調整し、全入力トークンに attention を分散させる。これにより大きなモデルが容量を有用な信号の当てはめに使えるようになる、と述べる [p.2, Section 1]。
+- 貢献は、モデル容量を増やしても安定で効果的な価値関数の学習を可能にするため、attention エントロピーを誘導する枠組みを示したことであり、評価は OGBench [Park et al. (2024/10)] の難しい連続制御タスクでのオフライン RL として行う [p.2, Section 1]。
+- $\bar H$: 目標エントロピー（ハイパーパラメータ）。式 (3) では 1 つの値として書かれるが、実験では層ごとに、[VALUE] トークンとそれ以外のトークンで別々の値を使う [p.21, Table 3]。
+- エントロピーの崩壊は、滑らかでない価値の地形とタスク性能の低下の両方と強く相関しており、価値関数の学習という設定では、attention の仕組みが手を加えないままでは規模の拡大に適切に一般化できないことを示唆する、と論文は結論する [p.7, Section 5.2]。5 環境すべてのエントロピーと可視化は付録 A.1・A.2 にあり、同じ傾向を示す [p.7, Section 5.2]。
+- A.1 では、TQL なしの Transformer の attention エントロピーを 5 環境すべてで示す（Figure 7 [p.13, Figure 7]）。どの環境でもモデルが大きくなるほどエントロピーが下がる一貫した傾向があり、規模を上げた先の最大のモデルでは 0 に近い値まで崩壊する [p.13, Section A.1]。論文はさらに、このエントロピーの推移が Figure 4 [p.7, Figure 4] のスケーリングの挙動をよく予測するとし、その例として、Figure 7 で崩壊が最も軽い puzzle-3x3 と puzzle-4x4 では TQL なしの Transformer も規模に対してわずかに正のスケーリングを示すことを挙げる [p.13, Section A.1]。論文は、エントロピーが保たれることと規模に応じた伸びとのこの強い相関が、attention の崩壊は規模を上げたときの性能の主要なボトルネックの 1 つだという仮説を補強すると見る [p.13, Section A.1]。
+
+## 内容
+
+### 1. はじめに（Introduction）
+
+言語処理 [OpenAI (2024/10)]、画像 [Siméoni et al. (2025/08)]、ロボティクス [Physical Intelligence (2025/04)] [Gemini Robotics Team (2025/10)] ではモデルの容量を増やすと性能が大きく伸びてきた。一方 RL では、ネットワークを大きくしてもデータ分布をより良く捉えられるようにはならず、かえって学習を不安定にして性能を落とすことが多い、というのが論文の出発点である [p.1, Section 1]。近年は方策ネットワークを大きくする研究が進んでいるが、本論文は価値関数のほうを大きくすることに焦点を当てる。方策は最終的に価値関数から導かれるので価値関数の容量を増やせば RL の性能に効くはずなのに、実際には大きな価値関数を使うとかえって性能が悪くなることが多く、どうすれば効果的に大きくできるかは未解決の問題だとする [p.1, Section 1]。教師あり学習では Transformer が多くの領域でよくスケールすることが示されているので、論文は、RL の価値学習で Transformer の効果的なスケールを妨げているものは何か、を問う [p.1, Section 1]。
+
+Figure 1 [p.2, Figure 1] は導入の要約図である。左は critic の規模（0.4M、1M、7M、26M パラメータ）ごとの、最小規模に対する相対的な改善率を 25 タスクと seed で平均したもので、TQL は 1M で +18%、7M で +29%、26M で +43% と印字されている。比較対象は既存手法の floq、FQL、PAC と、TQL と同じ構造から attention エントロピーの正則化とモダリティ埋め込みを外した Transformer のベースライン（TQL なしの Transformer）で、キャプションは、既存手法は追加の容量を有効に使えず性能が下がると述べる [p.2, Figure 1] [p.7, Section 5.3]。右は TQL あり・なしの attention エントロピーの学習中の推移（25 タスクの平均）で、TQL なしの曲線が「Attention Collapse」、TQL の曲線が「Stable Attention」と注記されている。
+
+### 2. 関連研究（Related Work）
+
+RL のパラメータのスケーリングは教師あり学習より難しい。既存の手法として、可塑性維持の周期リセット [Nauman et al. (2024/05)] [Schwarzer et al. (2023/05)]、正規化 [Lee et al. (2024/10)]、混合エキスパートや多段のスキップ接続といった特定の構造 [Obando-Ceron et al. (2024/02)] [Castanyer et al. (2025/06)]、価値関数の学習に回帰ではなくカテゴリカルな損失を使う方法 [Farebrother et al. (2024/03)]、自己教師ありの contrastive RL の設定で改善を示した actor と critic の深さのスケーリング [Wang et al. (2025/03)] が挙がる [p.2–3, Section 2]。これらは特定のスケーリング上の課題には対処するものの、しばしば制約が強く、特定の設定や構造の変更を要する。そのため、事前学習済みモデルの場合のように適用できない場面がある、とする [p.3, Section 2]。そこで本論文は、RL の価値関数の学習で Transformer をスケールさせる、単純で一般的な方法の設計に焦点を当てる [p.3, Section 2]。
+
+### 3. 準備（Preliminaries）
+
+MDP は状態空間 $\mathcal{S}$、行動空間 $\mathcal{A}$、初期状態分布 $\rho(s)$、報酬関数 $r: \mathcal{S}\times\mathcal{A}\to\mathbb{R}$、割引率 $\gamma\in[0,1]$、状態 $s$ で行動 $a$ を取ったときに次状態 $s'$ へ移る遷移確率 $T(s'\mid s,a)$ の組で定義され、RL の目的は割引付き報酬和の期待値を最大にする方策を学ぶことである [p.3, Section 3]。本論文が扱うオフライン RL は、事前に集めた遷移 $(s,a,r,s')$ の固定データセット $\mathcal{D}$ だけから、環境と相互作用せずにリターンを最大化する方策を学ぶ設定である [p.3, Section 3]。
+
+### 4. Transformer Q-Learning
+
+この設計の利点として、self-attention で状態トークンと行動トークンの間の複雑な依存関係を学べ、しかも単純さを保てることを挙げる [p.4, Section 4.1]。ただし 5.2 節で示すとおり、この標準的な設計のパラメータを単に増やすと学習が不安定になり、性能はむしろ予測可能な形で下がる。Figure 3 の例では平均成功率が 46% から 6% まで落ちる [p.4, Section 4.1]。
+
+[VALUE] トークン専用の温度: 全トークンから情報を集めて最終的な Q 値を作る [VALUE] トークンの attention エントロピーは、別の温度 $\alpha^\ell_{[\mathrm{VALUE}]}$ で制御する。[VALUE] トークンは他と異なるエントロピーのパターンを持ちうるからである。
+
+### 5. 実験（Experiments）
+
+実験は 4 つの問いに答えるよう構成されている [p.5, Section 5]。
+
+値は各タスクの成功率（%）である。キャプションは 3 seed の平均と書き、太字は各タスクで最良の結果の 95% 以内に入った手法を示す [p.6, Table 1]。± は標準偏差である [p.18, Section C.1]。
+
+1 つの温度で全層を同じ目標に導くのは難しいので、層ごと・トークンごとの調整も安定した学習に重要である。
+
+### 6. 議論と限界（Discussion and Limitations）
+
+限界として、実装の複雑さの面では損失項が 1 つと目標エントロピーのハイパーパラメータが 1 つ増え、その分の複雑さと調整の手間がかかることを挙げる。ただし、実験では同じハイパーパラメータの組がうまく働いたこと（C.3 節）、そして他の学習安定化の工夫と違ってアーキテクチャの変更を必要としないため、事前学習済みの骨格を高価な再学習なしに使えることを併記している [p.8–9, Section 6]。なお参照先の C.3 節では、BC 係数と目標エントロピーを環境ごとに決め、目標エントロピーは 2 番目に大きいモデルで調整した値を同じ環境の全規模で使い回し、critic の学習率は最大のモデルの設定だけ別に調整している [p.19–20, Section C.3] [p.21, Table 3]。全環境に共通の 1 組を使ったわけではない。
+
+### 付録 A. スケーリングの全分析（Full Scaling Analysis）
+
+A.2 では、26M の TQL と、エントロピー調整なしで学習した TQL なしの Transformer を、5 環境の成功軌跡からランダムに取った同じ状態・行動の組で比べる [p.13, Section A.2]。TQL なしでは attention が極端に疎になって少数のトークンに強く集中し、この崩壊によって Q 値の地形は非常に不連続で不規則になる（Figure 8 [p.14, Figure 8]）。TQL の学習目的はこの問題を和らげ、attention がより広く分布する結果、Q 値の地形は TQL なしよりかなり滑らかで一貫したものになる（Figure 9 [p.15, Figure 9]）[p.13, Section A.2]。
+
+### 付録 B. 追加実験（Additional Experiments）
+
+QK Norm [Dehghani et al. (2023/02)]: クエリとキーの射影の後に LayerNorm を入れる。
+
+### 付録 C. 実験の詳細（Experimental Details）
+
+スケーリング実験の規模: 層数 $L = 2$ で、隠れ次元 $d_{\mathrm{model}}$ を 128、256、512、1024 と変える。特に断りの無い限り、隠れ次元 1024 の最大モデルの最終性能を報告する [p.19, Section C.2]。
+
+### キューの論点への答え
+
+離散行動: 評価タスクの行動は連続値で、行動の各次元を連続値のトークンとして入れている [p.18, Section C.2]。離散行動のタスクでの実験は無い。方策の取り出しは、どの価値ベースの方式にも原理的に適用できると述べるが [p.5, Section 4.3]、試したのは FQL の方式だけである。
+
+### 本解説で省略した内容
+
+図・表・アルゴリズムの転載: 番号と掲載ページで参照し、内容を言葉で説明した。Table 1 は全タスク平均の行と、一部の手法のドメイン平均だけを本文に書き、タスク別の 25 行は省いた。Table 2 は議論に使う値だけを書いた。Table 3 は TQL の目標エントロピーと BC 係数だけを書き、ベースラインのハイパーパラメータは省いた。
+
+## 主要な概念
+
+- [Action queryとattentionの証拠](../../../concepts/methods/action_query_attention.md)
+- [315 ニューラルネットワーク](../../../concepts/framework/315_nn.md)
+- [可塑性指標と成績](../../../concepts/phenomena/plasticity.md)
+- [324 Agent個別実装 DQN系列](../../../concepts/framework/324_dqn.md)

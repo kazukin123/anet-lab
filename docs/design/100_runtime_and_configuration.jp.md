@@ -49,7 +49,7 @@ GUI操作は[Run実行ガイド](020_user_guide_run.jp.md)、EventとObserverは
 
 **`$`はベース、部分指定と個別指定はそれより強い指定**である。`A2 > A3`は各選択元の完成した値を差分合成するため、A3にないepsilon.endはA2から残る。A2の深い部分指定も、A3が持つ同名キーより強くしない。同じ入力キーそのものを再指定した場合は従来の後勝ちであり、`Env.$ = A2`の後の`Env.$ = A3`ではA3だけを選ぶ。
 
-運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は[実装 品質確認観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
+運用は、**共通ファイルのベース定義は`?=`、環境別ファイルはデフォルト設定だけ`?=`、それ以外は原則`=`**とする。規約の正本は[実装 レビュー観点](../quality/impl.md#設定ファイル)「設定ファイル」の規約（代入演算子）、人向けの説明と例は[Run実行ガイド](020_user_guide_run.jp.md)§3.6である。
 
 既定値は同じ位置に`?=`で書き、意図した個別指定は`=`で書く。既定値用プロファイルをチェーン先頭へ追加しない。Runプロファイル内・CLI・選択宣言`.$`には`?=`を書けない。設定を追加したら`check_default_leaves.py`で、共通ベース・デフォルト設定に残った`=`と環境別の個別指定に紛れた`?=`を確認する。用途を変える場合は検査器の分類理由も更新する。
 
@@ -70,7 +70,7 @@ app.run_name = run_{t}_dm_iqn-k32-n32-m32
 
 内部では必要な定義の有効化とキー集合を確定し、具体的なowner・term順に値の供給元を決め、個別指定を優先して依存を評価する。循環・深さ検証は値のキャッシュと分離し、宣言順やキャッシュで深さ10の判定を変えない。契約と具体例は[RFD0072](../memo/done/0072_config_selection_final_value_10rfd.md)、判断理由は[ADR0042](../adr/0042-config-inheritance-as-differential-base.md)を参照する。
 
-DefaultDQN / ImageCls / Rainbowの各Agent Factoryは、`GetTargetAgentClassId() + ".net"`を最終NNツリーの読込prefixとして`NetworkConfig`へ渡す。branch・body・outputは`DefaultDQNAgent.net.*`、`ImageClsAgent.net.*`、`RainbowAgent.net.*`のようにAgent所有のサブツリーから読み、ブロックカタログ`net.block.[*]`と`net.config_profile`はグローバル共有定義としてagent-local定義へmergeする。DefaultDQN Factoryは両Config構築後かつNetworkModel構築前に、`DefaultDQNAgent.quantile_mode=iqn`ならいずれかのbranch bindが`taus`を直接含み、`qr` / `none`なら含まないことをfail-fast検証する。MuZeroの実最終ツリー`net.rep` / `net.dyn` / `net.pred`は保留中の別構造であり、RFD0059 Phase 1aではrootに維持する。
+DefaultDQN / ImageCls / Rainbow / PPOの各Agent Factoryは、`GetTargetAgentClassId() + ".net"`を最終NNツリーの読込prefixとして`NetworkConfig`へ渡す。branch・body・outputは`DefaultDQNAgent.net.*`、`ImageClsAgent.net.*`、`RainbowAgent.net.*`、`PPOAgent.net.*`のようにAgent所有のサブツリーから読み、ブロックカタログ`net.block.[*]`と`net.config_profile`はグローバル共有定義としてagent-local定義へmergeする。DefaultDQN Factoryは両Config構築後かつNetworkModel構築前に、`DefaultDQNAgent.quantile_mode=iqn`ならいずれかのbranch bindが`taus`を直接含み、`qr` / `none`なら含まないことをfail-fast検証する。MuZeroの実最終ツリー`net.rep` / `net.dyn` / `net.pred`は保留中の別構造であり、RFD0059 Phase 1aではrootに維持する。
 
 `--config`明示時は手順2のworkspace解決・注入・後読みを省略する完全自己記述モードである。`--config`、`--workspace`、`--select-workspace`は相互排他である。
 
@@ -204,8 +204,8 @@ sequenceDiagram
     CM-->>App: ConfigData + resolution JSON
     App->>App: MetricsLogger初期化 / config text・resolution metadata保存
     App->>App: backend / repository初期化
-    App->>RM: RunManager(config)
-    RM->>RM: train / configured Eval tag / EvalPanelのnameとeval scheduleを一括検証
+    App->>RM: RunManager(config, reserved_env_names)
+    RM->>RM: train・configured Eval tag・アプリが渡す予約 Env 名と eval schedule を一括検証
     RM->>EB: Train BatchEnvを生成
     EB-->>RM: EnvSpec / BatchEnvSpec
     RM->>AF: Agentを生成
@@ -216,7 +216,7 @@ sequenceDiagram
     RM-->>App: 実行可能なRun
 ```
 
-構築中に型変換、EnvSpec、device、class ID、Env name衝突、または各`Config`の不整合を検出した場合は、RunnerThread開始前に失敗する。固定名`train`、全configured Eval tag、予約名`EvalPanel`は最初のBatchEnv構築前に一括検証する。型変換失敗時の契約は[設定の解決](#21-設定の解決)のとおりである。
+構築中に型変換、EnvSpec、device、class ID、Env name衝突、または各`Config`の不整合を検出した場合は、RunnerThread開始前に失敗する。固定名 `train`、全 configured Eval tag、アプリが渡す予約名は最初の BatchEnv 構築前に一括検証する。Runner は `EvalPanel` を予約名として渡す。型変換失敗時の契約は[設定の解決](#21-設定の解決)のとおりである。
 
 `run.eval.[tag]`はconfigured Evalの定義であり、定義だけでは何も生成しない。`run.eval_schedule.[tag]`の`interval>0`が同名の定義を定期駆動するときだけEval Env、Actor、Observer、background workerを生成する。定義済みでscheduleが無いか`interval=0`のtagはdormantとなり、tag名とschemaの検証・予約だけを行う。dormant tagを参照するmetricsはtagごとRunに1回INFOでskipし、未宣言tag参照と未定義tagを指すscheduleはerrorとする。activeなconfigured Evalでは`RunManager`がEnvを`EvalSessionEnv`で包み、`eval_batch_size`を並列lane数、`eval_episodes`を採用episode本数として独立に扱う。ImageClsは`ImageClsEnv.train.*`と`ImageClsEnv.eval.*`を標準の組として必須化し、tagなしEvalは標準Eval設定、configured Evalは`run.eval.[tag].env.eval.*`のoverlayを使用する。
 
@@ -390,7 +390,7 @@ sequenceDiagram
 - [RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
 - [config_test.cpp](../../src/core/base/src/config_test.cpp): 型変換fail-fast、キー欠落時の既定値、structured config、include、selection、CLI 2相、値参照、旧AutoMergeとのgolden同値性
-- [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): 出荷設定の検査`[shipped_config]`（共通層の既定、全Actor参照の解決、Atariのプロトコルプリセットと群ごとのRAM指標の揃い）。本番設定を読むテストが固定してよいものの線引きは[実装 品質確認観点](../quality/impl.md#テスト)「テスト」の規約
+- [config_baseline_test.cpp](../../src/core/base/src/config_baseline_test.cpp): 出荷設定の検査`[shipped_config]`（共通層の既定、全Actor参照の解決、Atariのプロトコルプリセットと群ごとのRAM指標の揃い）。本番設定を読むテストが固定してよいものの線引きは[実装 レビュー観点](../quality/impl.md#テスト)「テスト」の規約
 - [metrics_logger_test.cpp](../../src/core/base/src/metrics_logger_test.cpp): config textとJSON resolution metadataのfile / Metrics master出力境界
 - [trainer_test.cpp](../../src/core/base/src/trainer_test.cpp): Train clone方針のAgent委譲、Pipelineの暗黙同期禁止、Eval ActorとAgentのdevice整合性
 - [episode_end_test.cpp](../../src/core/base/src/episode_end_test.cpp): Runnerのepisode終端通知とEval強制行動

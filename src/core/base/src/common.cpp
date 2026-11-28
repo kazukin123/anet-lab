@@ -20,12 +20,14 @@ anet::json TensorSpec::ToJson() const
 {
     anet::json j;
     j["type"] = SpaceTypeToString(type);
-    j["shape"] = shape;
-    j["dtype"] = std::string(c10::toString(dtype)); /// @todo LibTorchの型名変換を利用
+    j[TensorSpec::kShapeField] = shape;
+    j[TensorSpec::kDtypeField] = std::string(c10::toString(dtype)); /// @todo LibTorchの型名変換を利用
     j["num_classes"] = num_classes;
     j["labels"] = labels;
     j["min_values"] = min_values;
     j["max_values"] = max_values;
+    j[TensorSpec::kScaleField] = scale == ValueScale::Scaled ? "Scaled" : "Unscaled";
+    j[TensorSpec::kStackAxisField] = has_stack_axis;
     return j;
 }
 

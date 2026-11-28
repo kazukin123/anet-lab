@@ -6,7 +6,6 @@
 namespace anet::rl::dqn {
 
         class Actor;
-        struct RuntimeVars;         ///< Agent内部変数
         class NetworkModel;              ///< NN
         class ActionPolicy;         ///< 行動選択アルゴリズム
         class Learner;              ///< 学習アルゴリズム
@@ -193,11 +192,25 @@ namespace anet::rl::dqn {
             ConfigFullKeyTable full_keys;
         };
 
-        struct StuckerConfig {
-            bool use_stacker = false;
-            int stack_count = 4;
-			std::vector<std::string> stack_keys; // obs内のどのキーをスタックするか。空なら全てスタック
+        struct ReplayFrameStack {
+            int count = 1;
+            std::vector<std::string> keys; ///< 空の一覧は全キーを重ねる。
         };
+
+        struct FrameStackConfig {
+            static constexpr char kAllKeys[] = "all";
+            static constexpr char kListedKeys[] = "listed";
+
+            int count = 1;
+            struct {
+                std::string mode = kAllKeys;
+                struct {
+                    std::vector<std::string> names;
+                } listed;
+            } keys;
+        };
+
+        inline constexpr char kPerceptionStartKey[] = "episode_start";
 
         struct MunchausenValues {
             static constexpr char kLogPolicyTarget[] = "target";
@@ -240,6 +253,10 @@ namespace anet::rl::dqn {
             static constexpr const char* kFeatureGradientStop = "stop";
             static constexpr const char* kFeatureGradientMerge = "merge";
             static constexpr const char* kFeatureGradientSplit = "split";
+
+            void ValidateTrainingValues() const;
+            const anet::ProfiledValueConfig<float>& GetIntrinsicGammaConfig() const;
+
             struct {
                 bool decomposed = false; ///< Agent が価値の構成から解決する。
                 std::string discount_mode = kDiscountShared;

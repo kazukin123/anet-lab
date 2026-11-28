@@ -1,5 +1,6 @@
 #include "anet/test/catch.hpp"
 
+#include "anet/forwarder.hpp"
 #include "anet/replay_buffer.hpp"
 #include "anet/transfer.hpp"
 #include "anet/test/util.hpp"
@@ -584,6 +585,10 @@ public:
         return result;
     }
 
+    const anet::TensorSpecMap& GetSampleObsSpecs() const override { return sample_obs_specs; }
+
+    anet::TensorSpecMap sample_obs_specs;
+
     int64_t Size() const override
     {
         return size_value;
@@ -1056,6 +1061,85 @@ TEST_CASE("Replay windows retain episode boundaries through ring wrap and transf
     }
 }
 
+TEST_CASE("Perception round trips actor observations through replay and decision windows", "[replay_buffer][perception]")
+{
+    const int stack_count = GENERATE(1, 4);
+    const auto env = MakeEnvSpec(true);
+    const std::vector<std::string> stack_keys{ kVectorKey };
+    const std::string start_key = "test_start";
+    anet::ConfigData data;
+    data.Set("perception.structure", "stack");
+    data.Set("perception.block.[stack].type", "FrameStack");
+    const anet::ForwarderBuilder builder(data, "perception", 161);
+    auto replay_config = MakeConfig(32, 4, 0.5f, stack_count, rl::ReplaySamplerType::UNIFORM);
+    replay_config.stack_keys = stack_keys;
+    replay_config.window_rule = rl::CreateDecisionWindowRule(3);
+    CHECK(replay_config.stack_count == stack_count);
+    CHECK(replay_config.stack_keys == std::vector<std::string>{kVectorKey});
+    const auto replay = MakeBuffer(replay_config, 1, true);
+    const auto& frame_specs = env.state_spec.obs_spec;
+    auto sequence_specs = frame_specs;
+    sequence_specs.emplace(start_key, anet::TensorSpec{ .dtype = torch::kBool });
+    const auto actor = builder.BuildForwarder(rl::MakePerceptionFromSequenceRequest(1, 161, start_key, stack_count, stack_keys), sequence_specs);
+    const auto store = builder.BuildForwarder(rl::MakeFrameWithStatsUpdateRequest(), frame_specs);
+    const auto recover = builder.BuildForwarder(rl::MakePerceptionFromStackRequest(stack_count, stack_keys), replay.rb->GetSampleObsSpecs());
+    const auto act = [&](anet::TensorDict frame, const torch::Tensor& starts) {
+        frame.Set(start_key, starts);
+        return actor->Forward(frame).At(kVectorKey).squeeze(0).clone();
+    };
+    std::vector<torch::Tensor> actor_vectors;
+    torch::Tensor truncated_vector;
+    constexpr int kTruncation = 2;
+    constexpr int kTerminal = 6;
+    const std::array gammas{replay_config.gamma};
+    for (int step = 0; step < 16; ++step) {
+        const bool episode_start = step == 0 || step == kTruncation + 1 || step == kTerminal + 1;
+        const bool truncated = step == kTruncation;
+        anet::TensorDict info;
+        info.Set(rl::BatchActionInfo::kKeyDecision, BoolTensor({episode_start}));
+        auto experience = MakeBatch({float(step)}, {truncated ? -1.0f : float(step + 1)}, {1.0f},
+            {step == kTerminal}, {truncated}, {episode_start}, true, info);
+        actor_vectors.push_back(act(experience.state.obs, experience.state.episode_start));
+        if (truncated) {
+            truncated_vector = act(experience.next_state.obs, BoolTensor({false}));
+        }
+        experience.state.obs = store->Forward(experience.state.obs);
+        experience.next_state.obs = store->Forward(experience.next_state.obs);
+        replay.rb->Push(experience, gammas);
+    }
+
+    anet::RandomGenerator random(161);
+    rl::ExperienceSamples samples;
+    REQUIRE(replay.rb->SampleUniqueUniform(samples, replay.rb->Size(), random, gammas));
+    const auto current = recover->Forward(samples.obs);
+    const auto next = recover->Forward(samples.next_state.next_obs);
+    const auto window = recover->Forward(samples.window.next_obs);
+    bool saw_first = false;
+    bool saw_truncation = false;
+    bool saw_short_terminal = false;
+    bool saw_truncated_window = false;
+    for (int64_t row = 0; row < current.At(kVectorKey).size(0); ++row) {
+        const int start = current.At(kMaskKey)[row][0].item<int>();
+        const int n = samples.n_steps[row].item<int>();
+        const int length = samples.window.lengths[row].item<int>();
+        CAPTURE(stack_count, row, start, n, length);
+        saw_first |= start == 0;
+        CHECK(torch::equal(current.At(kVectorKey)[row], actor_vectors.at(start)));
+        const bool truncated = samples.next_state.truncated[row].item<bool>();
+        const bool window_truncated = samples.window.truncated[row].item<bool>();
+        saw_truncation |= truncated;
+        saw_short_terminal |= n < replay_config.n_step && samples.next_state.terminals[row].item<bool>();
+        saw_truncated_window |= window_truncated;
+        CHECK(torch::equal(next.At(kVectorKey)[row], truncated ? truncated_vector : actor_vectors.at(start + n)));
+        CHECK(torch::equal(window.At(kVectorKey)[row],
+            window_truncated ? truncated_vector : actor_vectors.at(start + length)));
+    }
+    CHECK(saw_first);
+    CHECK(saw_truncation);
+    CHECK(saw_short_terminal);
+    CHECK(saw_truncated_window);
+}
+
 TEST_CASE("Replay decision windows preserve margins and sample lengths uniformly", "[replay_buffer][rfd0098]")
 {
     auto config = MakeConfig(32, 1, 0.5f, 1, rl::ReplaySamplerType::UNIFORM);
@@ -1100,7 +1184,8 @@ TEST_CASE("Replay rejects action changes inside a decision window", "[replay_buf
         auto batch = MakeBatch({float(step)}, {float(step + 1)}, {1.0f}, {false}, {false}, {step == 0}, false,
             anet::TensorDict{{"decision", torch::tensor({step == 0}, torch::kBool)}});
         const auto action = continuous ? torch::full({1, 1}, float(step % 2)) : torch::tensor({step % 2}, torch::kInt64);
-        batch.action = batch.action->WithAction(action);
+        batch.action = std::make_shared<rl::BatchActionInfo>(
+            action, batch.action->GetInfo(), batch.action->GetAuxData(), batch.action->GetReplayInitialPriorityHint());
         buffer->Push(batch, std::array{config.gamma});
     }
     rl::ExperienceSamples sample;
@@ -1123,7 +1208,9 @@ TEST_CASE("Auxiliary windows preserve remaining runs terminals stacks and ring w
         auto batch = MakeBatch({float(t)}, {truncated ? -float(t + 1) : float(t + 1)},
             {float(t + 1)}, {done}, {truncated}, {episode_start}, false,
             anet::TensorDict{{"decision", torch::ones({1}, torch::kBool)}});
-        batch.action = batch.action->WithAction(torch::tensor({(t / 6) % 2}, torch::kLong));
+        batch.action = std::make_shared<rl::BatchActionInfo>(
+            torch::tensor({(t / 6) % 2}, torch::kLong), batch.action->GetInfo(), batch.action->GetAuxData(),
+            batch.action->GetReplayInitialPriorityHint());
         buffer.rb->Push(batch, std::array{config.gamma});
         episode_start = done || truncated;
     }
@@ -3200,6 +3287,57 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
     RequireShape(samples.actions, { 4 });
 }
 
+TEST_CASE("ReplayBuffer rejects a nonpositive n_step during construction", "[rfd0206][replay_n_step]")
+{
+    const int n_step = GENERATE(-1, 0, 1);
+    CAPTURE(n_step);
+    auto config = MakeConfig(16, n_step, 0.99f, 1, rl::ReplaySamplerType::UNIFORM);
+    constexpr char kFullKey[] = "DefaultDQNAgent.learner.n_step";
+    config.full_keys.Set("n_step", kFullKey);
+    const auto make_replay = [&] {
+        return rl::CreateReplayBuffer(config, MakeEnvSpec(), 1, torch::kCPU, false, 1);
+    };
+
+    if (n_step > 0) {
+        CHECK(make_replay() != nullptr);
+    } else {
+        CHECK_THROWS_WITH(make_replay(), Catch::Matchers::ContainsSubstring(kFullKey)
+            && Catch::Matchers::ContainsSubstring("value=" + std::to_string(n_step))
+            && Catch::Matchers::ContainsSubstring(">= 1"));
+    }
+}
+
+TEST_CASE("PrefetchingReplayBuffer consumes a failed delayed Push once", "[rfd0206][prefetch_push]")
+{
+    const bool prune_on_sample = GENERATE(false, true);
+    CAPTURE(prune_on_sample);
+    auto buffer = MakeBuffer(MakeConfig(16, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 1, false, 777);
+    for (int64_t time = 0; time < 5; ++time) {
+        PushTime(buffer, time, {}, {}, BoolValues(1, time == 0));
+    }
+    rl::PrefetchingReplayBuffer replay(buffer.rb, torch::kCPU);
+    rl::ExperienceSamples samples;
+    const std::array gammas{buffer.config.gamma};
+    replay.Sample(samples, 1, 0.0f, gammas);
+    replay.Push(rl::BatchExperience{}, {});
+
+    const auto wait_for_push = [&] { replay.UpdatePriorities({}, {}); };
+    const auto prune_push = [&] {
+        // 2 回目の Sample は、失敗した Push の後ろに投入された先読みを待つ。
+        replay.Sample(samples, 1, 0.0f, gammas);
+        replay.Sample(samples, 1, 0.0f, gammas);
+    };
+
+    if (prune_on_sample) {
+        CHECK_THROWS_WITH(prune_push(), Catch::Matchers::ContainsSubstring("Replay Push gammas count=0"));
+    } else {
+        CHECK_THROWS_WITH(wait_for_push(), Catch::Matchers::ContainsSubstring("Replay Push gammas count=0"));
+    }
+    CHECK_NOTHROW(replay.Size());
+    CHECK_NOTHROW(wait_for_push());
+    CHECK_NOTHROW(replay.Sample(samples, 1, 0.0f, gammas));
+}
+
 TEST_CASE("PrefetchingReplayBuffer samples deterministically on CPU", "[replay_buffer][prefetch]")
 {
     auto MakePrefetchingBuffer = [] {
@@ -4052,6 +4190,29 @@ TEST_CASE("ReplayBuffer frame stacking does not cross done boundaries per env", 
     RequireSampleMeta(env1, IndexOf(buffer, 1, 2), RewardValue(1, 2), false, 1);
     RequireFlatApprox(env1.obs.At(kVectorKey)[0], { StateValue(1, 0), StateValue(1, 1), StateValue(1, 2) });
     RequireFlatApprox(env1.next_state.next_obs.At(kVectorKey)[0], { StateValue(1, 1), StateValue(1, 2), StateValue(1, 3) });
+}
+
+TEST_CASE("ReplayBuffer reports the specs of sampled observations", "[replay_buffer][perception]")
+{
+    const int count = GENERATE(1, 4);
+    auto config = MakeConfig(20, 1, 0.99f, count);
+    config.stack_keys = { kVectorKey };
+    auto buffer = MakeBuffer(config, 1, true);
+    for (int64_t step = 0; step <= count; ++step) {
+        PushTime(buffer, step, {}, {}, BoolValues(1, step == 0), {}, true);
+    }
+
+    auto samples = SampleOnlyIndex(buffer, IndexOf(buffer, 0, count - 1));
+    const auto& specs = buffer.rb->GetSampleObsSpecs();
+    REQUIRE(specs.size() == samples.obs.size());
+    CHECK(specs.at(kVectorKey).has_stack_axis == (count > 1));
+    CHECK_FALSE(specs.at(kMaskKey).has_stack_axis);
+    if (count > 1) CHECK(specs.at(kVectorKey).shape.front() == count);
+    for (const auto& [key, tensor] : samples.obs) {
+        CAPTURE(key);
+        CHECK(specs.at(key).shape == tensor.sizes().slice(1).vec());
+        CHECK(specs.at(key).dtype == tensor.scalar_type());
+    }
 }
 
 TEST_CASE("ReplayBuffer stack_keys leaves non-stacked observations at latest frame", "[replay_buffer][frame_stack][stack_keys]")

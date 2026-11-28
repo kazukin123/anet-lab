@@ -5,7 +5,7 @@ DefaultDQNAgent 系の探索記録です。ReplayBuffer、PER、batch、replay r
 
 ## 知見のまとめ
 
-- [wikiの知見](../../wiki/subjects/atari.md)から題材・機構と正本をたどる。
+- [wikiの知見](../../wiki/concepts/subjects/atari.md)から題材・機構と正本をたどる。
 
 ## Env 別記録
 

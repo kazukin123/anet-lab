@@ -12,7 +12,7 @@ anet-lab は libtorch を基盤とした強化学習実験プロジェクトで�
 _Avoid_: Q Agent, value agent
 
 **Train Actor network snapshot**:
-`DefaultDQNAgent`のTrain Actorがaction forwardに使用する、Learner online networkから複製されたparameterとbufferの時点コピー。snapshot間で固定されるのはnetworkだけで、ActionPolicy、ObservationNormalizer、RNGは含まない。定期同期の周期は Actor 設定 `actor.[train].sync_interval` が持ち、宣言されたときだけ定期 snapshot を行う。
+`clone_model` が真の `DefaultDQNAgent` の Train Actor が行動選択に使う、Learner の online network の parameter と buffer の時点コピーで、ActionPolicy・ObservationNormalizer・乱数状態は含まない。`actor.[train].sync_interval` を宣言すると定期的に取り直す。
 _Avoid_: policy snapshot, frozen policy, 方策固定
 
 **価値ストリーム**:
@@ -31,8 +31,8 @@ _Avoid_: 価値ストリームの分離（Dueling の語と紛れる）, Q の�
 学習側の Agent が、全 lane ぶんの経験を 1 回受け取ること。Replay へ入れる前の受け取りで、lane の数だけ exp step が進む。
 _Avoid_: 取り込み（wiki の取り込みと紛れる）
 
-**rollout（補助学習）**:
-補助学習で、学ぶ前にためる、続いた intake のまとまり。長さは intake の数で数える。
+**rollout**:
+学ぶ前にためる、続いた intake のまとまり。長さは intake の数で数える。
 _Avoid_: エピソード（Env の区切りと紛れる）, 軌跡
 
 **Bellmanターゲット**:
@@ -40,7 +40,7 @@ _Avoid_: エピソード（Env の区切りと紛れる）, 軌跡
 _Avoid_: target Q, TD target
 
 **target return**:
-実報酬の N-step 割引和。ReplayBuffer に保持される値で、bootstrap 価値は含まない（学習時に次状態のブートストラップ価値が加算されて Bellmanターゲットになる）。
+実報酬の N-step 割引和で、bootstrap 価値は含まない。γ が定数の成分では ReplayBuffer へ投入時に保存した値を使い、γ が schedule の成分では抽選時に保存済みの 1 step ごとの報酬から求める。
 _Avoid_: n-step reward, stored return
 
 **報酬の成分**:
@@ -90,6 +90,12 @@ _Avoid_: 観測キー扱い, tau テンソル（曖昧）
 **tau配置方式**:
 taus の並べ方の区分（random / fixed / stratified / systematic / antithetic）。被覆を強める軸と範囲中点対称を強める軸を持ち、`fixed`は指定範囲をK個の等幅区間に分けた中点へ固定配置してRNGを消費しない。UQE の τ の時間の値（`uqe.tau` の schedule）とは別概念。
 _Avoid_: sampling mode, tau schedule（減衰スケジュールと混同）
+
+### 方策ベースの学習
+
+**PPO系エージェント**:
+方策を表す Network を、方策勾配で直接学ぶ Agent 群。rollout の経験だけで更新する PPOAgent と、同じ部品を分け合う派生手法を指す。
+_Avoid_: policy agent, actor-critic agent（Actor は行動選択の部品の名前で、紛れる）
 
 ### スキップ（TempoRL）
 
@@ -437,12 +443,31 @@ _Avoid_: lane group（lane分割一般と混同）, eval batch, worker group
 一つのepisode groupが開始から完了までに得たrewardの総和。`PER_LANE`では当該laneの総和、`SHARED`では全lane・全stepの総和になる。評価session内の複数returnにはmean / max / min / stdを適用できる。
 _Avoid_: TotalReward, eps_total_reward, episode reward（step rewardとの区別が曖昧）
 
+**train step**:
+TrainRunner の反復回数。
+
+**exp step**:
+Env から得た遷移の数。
+
+**update step**:
+Learner に Experience を渡した更新処理の回数。
+
+**learn step**:
+Learner が実行した学習更新の回数。
+
+**agent step**:
+行動選択で得た行動を受け、1 lane の Env が 1 回進む単位で、Atari では設定に応じて複数のエミュレータフレームを含む。N lane すべてが遷移する BatchEnv では、各 lane が 1 agent step 進むと exp step は N 進む。
+_Avoid_: `$agent_step`（Evaluation Trace の列で値を読む target）
+
+**lane**:
+BatchEnv 内で一つの Env に相当する単位。
+
 **エピソード長**（episode length）:
 一つのepisode groupが開始から完了までに要したEnvの`Step()`回数。`PER_LANE`では当該laneのstep数、`SHARED`ではbatch全体の`Step()`回数でlane数は掛けない——episode returnが全lane・全stepの総和なのとは意図的に非対称で、長さは量ではなく時間だから`num_envs`を変えても値の意味が変わらないようにする。全envで`$runner`から`mean./max./min./std.episode_steps`として取れる。単位はagent stepで、frameskip前のエミュレータフレームの数ではない。
 _Avoid_: episode_len（GridMazeの旧env固有キー）, game_len（Atari固有。episodic_life下ではepisode境界が別）, game_frames（エミュレータフレームの数）, エピソードステップ数
 
 **評価セッション**（evaluation session）:
-eval scheduleの1回の発火で行う評価の単位。一つのnetwork snapshotを使い、全episode groupを新しいepisodeの開始状態に揃えてから、採用episode N本（`eval_episodes`）を完走させ、その集約を`@session_end` 1点として記録する。採用episodeの完了はそれぞれ`@episode_end`としても発火し、個体単位のtraceはそちらに乗る。lane数（`eval_batch_size`）は並列度であって本数ではない。
+eval schedule の 1 回の発火で、全 episode group を開始状態に揃えて採用 episode N 本（`eval_episodes`）を完走させる評価の単位で、`clone_model` が真なら一つの network snapshot を使い、偽なら学習中の network を共有する。`eval_batch_size` は並列度を表し、`@session_end` は N 本の集約を記録する通知、`@episode_end` は各採用 episode の完了と個体値の trace を記録する通知である。
 _Avoid_: 評価エピソード（1本と誤読させる）, eval 1回（何本かが伝わらない）, eval batch
 
 **採用エピソード**（adopted episode）:
@@ -516,11 +541,11 @@ _Avoid_: プロジェクト, プロファイル（`@` 側の語。ワークス�
 _Avoid_: workspace設定ファイル（あいまい）, プロファイルconfig
 
 **Agent checkpoint**:
-Agent が `Save` で書く archive（Run 終了時の `agent_close.anet` など）。DefaultDQN では header、保存時の Config 文字列、online/target Network、optimizer を含み、Run 全体（Replay、step、RNG）は含まない。
+Agent が `Save` で書く archive（Run 終了時の `agent_close.anet` など）で、DefaultDQN では header、保存時の Config 文字列、online/target Network、optimizer と、構成に応じて RND 本体、補助学習の credit・抽選の乱数状態・累計成功回数、内的・外的報酬スケーラを含む。Replay、Run の step、Actor と Replay の乱数状態は含まない。
 _Avoid_: snapshot（Train Actor network snapshot と紛れる）, セーブデータ, モデルファイル
 
 **checkpoint 引き継ぎ**:
-新しい Run の Agent 構築中に Agent checkpoint の Network と optimizer を読み込む操作（`auto_load_file`）。旧 Run の再開ではなく、Replay・step・RNG は新しい Run のもの。
+新しい Run の Agent 構築中に `auto_load_file` で Agent checkpoint を読み込み、Network・optimizer と、構成に応じて RND 本体・補助学習・報酬スケーラの状態を引き継ぐ操作。Replay、Run の step、Actor と Replay の乱数状態は新しい Run のものを使う。
 _Avoid_: 再開, 継続（Run 全体を同じ進行位置から続ける操作と紛れる）
 
 ### Metrics基盤
@@ -583,7 +608,7 @@ _Avoid_: metrics設定（設定ファイル側と混同）, スキーマ（レ�
 
 **trace**（トレース）:
 統計（scalar）とは別に、1件の個体（laneのエピソード完了など）を1レコードとして識別子付きで記帳するメトリクスチャネル。固定属性と個別値の集合を持ち、集約しない。系列はチャネルとtagの組で識別するため、同じtagのscalarとは別系列である。NNの途中の出力を可視化へ流すnn_traceとは別概念。
-_Avoid_: activationトレース（nn_trace側の呼び名）, record（config dump等のjson行と区別できない）, journal（144のEpisode Journalはforensic側の別概念）, ログ
+_Avoid_: activationトレース（nn_trace側の呼び名）, record（config dump等のjson行と区別できない）, journal（RFD0144 の Episode Journalはforensic側の別概念）, ログ
 
 **速報値／確定値**:
 Step の結果から読む env の値の、読むイベントで決まる意味。`@train` で読むとその step の途中の値（速報値）、`@episode_end` で読むとそのエピソードの終わりの値（確定値）になる。
@@ -632,15 +657,23 @@ Agent が、Observation と自分の持つ関連情報（直前の行動など�
 _Avoid_: percept（生の入力の側を指す語）, agent state, state input, 特徴（Network の Body の出力）
 
 **Forwarder**:
-`TensorDict` を受けて `TensorDict` を返す変換で、lane ごとの履歴のような、用途ごとの状態は持たない（重みや統計のような、どの用途にも共通の値は持つ）。Network と、観測を加工する部品（重ねる、正規化する、キーを落とす）がこれに当たる。
+`TensorDict` を受けて `TensorDict` を返す変換。Network と、Forwarder の並びが依頼に合わせて作ったものがこれに当たり、後者は、その使い道の状態（行ごとの履歴など）を持てる。
 _Avoid_: Transform（NN の Transformer と紛れる）, パイプライン（`PipelineTrainRunner` と紛れる）, preprocessor（Network の入口の整形と紛れる）, wrapper（Env 側の語）
 
-**Forwarder の並び**（ForwarderChain）:
-設定に書いた順に Forwarder をつないだもの。Perception を作る並びは、その使い道の 1 つ。
+**Forwarder の並び**（ForwarderBuilder）:
+設定に書いた順に Forwarder の部品を並べた定義で、依頼に合った Forwarder を作る（自分は Forwarder ではない）。Perception を作る並びは、その使い道の 1 つ。
 _Avoid_: 観測パイプライン, stage chain, レイヤ（NN の層と紛れる）
 
-**Forward の依頼**（ForwardRequest）:
-Forwarder の並びに頼む変換の種類。何を渡して何が欲しいかで区別し、統計を更新しつつ Frame を作る、重ねた束から Perception を作る、1 枚の Frame から Perception を作る、の 3 つがある。
+**Forwarder の部品**（ForwarderModule）:
+Forwarder の並びの 1 つぶんの定義で、依頼に合った Forwarder を作る。重ねる、正規化する、キーを落とす、spec の宣言を変える、の 4 種類が標準である。
+_Avoid_: ステージ, フィルタ
+
+**Forwarder の依頼**（ForwarderRequest）:
+Forwarder の並びに、Forwarder を作ってもらうときに渡すもの。Forward の種類と、付帯の情報を持つ。
+_Avoid_: Forward の依頼（Forward そのものへの依頼と読める）
+
+**Forward の種類**（ForwardKind）:
+依頼で作る Forwarder が行う変換の種類の名前。何を渡して何が欲しいかで名付け、統計を更新しつつ Frame を作る、重ねた束から Perception を作る、1 枚の Frame から Perception を作る、1 枚の Frame と行ごとの履歴から Perception を作る、の 4 つがある。
 _Avoid_: 場面, Scene（呼ぶ側の状況の名前）, モード, フェーズ, 経路
 
 **stack 軸**:
@@ -768,7 +801,7 @@ _Avoid_: ノイズスケール（NoisyNet の ε・ノイズ probe と紛れる�
 _Avoid_: テストユーティリティ, テストサポート
 
 **Agent の系統**:
-共通部品を分け合う Agent の実装の括り。DQN 系、MuZero 系など。
+共通部品を分け合う Agent の実装の括り。DQN 系、PPO 系、MuZero 系など。
 _Avoid_: ファミリー
 
 ### 開発の工程

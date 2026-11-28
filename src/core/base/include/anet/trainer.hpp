@@ -134,15 +134,14 @@ namespace anet::rl {
         std::optional<float> GetScalar(const std::string& key, int64_t index = -1) const override;
 
         //RunnerStatus Initialize(const ConfigData& config_data);
-        StepCounts DoStep(int64_t action);
-        StepCounts DoStep(int64_t action, const StepCounts& event_counts, const MakeActionOptions& options = {});
         StepCounts DoStep(const StepCounts& event_counts);
+        StepCounts DoStep(const StepCounts& event_counts, const MakeActionOptions& options);
         StepCounts DoStep(const MakeActionOptions& options = {}) override;
         void RunSession(const StepCounts& event_counts, std::stop_token stop = {});
 
     private:
         std::shared_ptr<const BatchStepResult> DoStepInternal(
-            int64_t action, const StepCounts& event_counts, bool notify_episode_end, const MakeActionOptions& options);
+            const StepCounts& event_counts, bool notify_episode_end, const MakeActionOptions& options);
         const ActionSpec action_spec_;
         std::vector<bool> last_forced_;
         std::shared_ptr<EvalSessionEnv> session_env_;
@@ -252,8 +251,8 @@ namespace anet::rl {
 
     class RunManager {
     public:
-        //RunManager(const ConfigData& config_data, const std::string& config_prefix = "train");
-        RunManager(const ConfigData& config_data);
+        /// アプリが後で作る評価 Runner の Env name も、初期構築前の重複検証に含める。
+        RunManager(const ConfigData& config_data, std::vector<std::string> reserved_env_names = {});
         ~RunManager();
 
         std::shared_ptr<EvalRunner> CreateEvalRunner(

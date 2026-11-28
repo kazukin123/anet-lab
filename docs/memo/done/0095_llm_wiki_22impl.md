@@ -69,23 +69,23 @@ M/Rは今回の照合番号であり会話IDではない。本文・理由・未
 
 | 照合番号 | 確認した主張と条件 | 正本の節 | wiki |
 |---|---|---|---|
-| M038 | R452と同じ条件、追加forward・追加抽選なし。 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) 7.2 targetとonline_reuse | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [315_nn.md](../../wiki/categories/315_nn.md) |
-| R346 | spectralは非退化初期化必須、zero-initはspectral_cap。 | [065_nn_spectral_norm_10prd.md](0065_nn_spectral_norm_10rfd.md) 決定事項 D12・D13 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [315_nn.md](../../wiki/categories/315_nn.md) |
-| R347 | trainingかつGradMode有効のみu/v更新。構築dummyはNoGrad。 | [065_nn_spectral_norm_10prd.md](0065_nn_spectral_norm_10rfd.md) u/vの保持とσの再計算・決定事項D5 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [315_nn.md](../../wiki/categories/315_nn.md) |
-| R372 | SHAREDのevent laneは-1、PER_LANEはlane index。 | [069_metrics_trace_channel_10prd.md](0069_metrics_trace_channel_10rfd.md) 4.2 行の形・F5 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [120_metrics_viewer.md](../../wiki/apps/120_metrics_viewer.md) |
-| R373 | 通常JSONを使いdataの順序は保証せず、取得順・keysの順序だけ保持。 | [069_metrics_trace_channel_10prd.md](0069_metrics_trace_channel_10rfd.md) 4.3 宣言（設定 DSL）・決定D7 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [120_metrics_viewer.md](../../wiki/apps/120_metrics_viewer.md) |
-| R380 | 履歴保護・dummyを除くsampleable集合を母集団にする。 | [073_replay_fit_metrics_10prd.md](0073_replay_fit_metrics_10rfd.md) 3.1 抽選履歴群 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [321_agent_core.md](../../wiki/categories/321_agent_core.md) |
-| R403 | Push時episode_startを履歴開始として保存し、stack境界をそこから復元。 | [078_replay_frame_history_integrity_10prd.md](0078_replay_frame_history_integrity_10rfd.md) 6.2 モジュールの責務 | [318_rl_core.md](../../wiki/categories/318_rl_core.md) / [321_agent_core.md](../../wiki/categories/321_agent_core.md) |
-| R404 | 全laneを書込み前に検証。初回true、以降は直前doneまたはtruncatedと一致。 | [078_replay_frame_history_integrity_10prd.md](0078_replay_frame_history_integrity_10rfd.md) 6.2 モジュールの責務・7.3 | [318_rl_core.md](../../wiki/categories/318_rl_core.md) / [321_agent_core.md](../../wiki/categories/321_agent_core.md) |
-| R415 | agent/env/evalのdevice文字列、auto/cpu/cuda/cuda:N。 | [070_device_spec_auto_10prd.md](0070_device_spec_auto_10rfd.md) 確定したD1・D2 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [312_util.md](../../wiki/categories/312_util.md) |
-| R416 | is_availableだけでauto解決、CUDA時はcurrent device。 | [070_device_spec_auto_10prd.md](0070_device_spec_auto_10rfd.md) 確定したD4・D7 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [312_util.md](../../wiki/categories/312_util.md) |
-| R452 | 同じ方式なら再利用、Noisy部品の方式差は初期化エラー、非Noisyは休眠。元の精度・tau・epsilonを継承。 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) 7.2 targetとonline_reuse | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [315_nn.md](../../wiki/categories/315_nn.md) |
-| R529 | 更新前onlineを専用probeでeval/NoGrad部分forwardし、測定時だけQ/KからFP32再計算。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 4. 決定した設計 1・2 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [315_nn.md](../../wiki/categories/315_nn.md) |
-| R530 | 層平均正規化entropy、1一様/0集中。個別headや因果を断定しない。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 4. 決定した設計 2・6. 受入基準 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [315_nn.md](../../wiki/categories/315_nn.md) |
-| R534 | head/query/sample平均をln(n)で正規化、個別head・因果の判断不可。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 4. 決定した設計 2・決定事項D7 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [315_nn.md](../../wiki/categories/315_nn.md) |
-| R535 | 購読時だけ診断し、SDPA不変、未測定・件数不足はNaN。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 3. ゴール・4. 決定した設計・6. 受入基準2 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [315_nn.md](../../wiki/categories/315_nn.md) |
-| R536 | forward入口で結果をReset、要求保持、module keyにbranch/block実行位置。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 4. 決定した設計 3 | [110_runner_app.md](../../wiki/apps/110_runner_app.md) / [315_nn.md](../../wiki/categories/315_nn.md) |
-| R556 | 遷移結果はStepの結果で運ぶ。EpisodeEndEventも持ち、envは現在状態、env_stepは遷移結果。 | [0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) 冒頭の決定・Consequences | [evaluation.md](../../wiki/mechanisms/evaluation.md) |
+| M038 | R452と同じ条件、追加forward・追加抽選なし。 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) 7.2 targetとonline_reuse | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [315_nn.md](../../wiki/concepts/framework/315_nn.md) |
+| R346 | spectralは非退化初期化必須、zero-initはspectral_cap。 | [065_nn_spectral_norm_10prd.md](0065_nn_spectral_norm_10rfd.md) 決定事項 D12・D13 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [315_nn.md](../../wiki/concepts/framework/315_nn.md) |
+| R347 | trainingかつGradMode有効のみu/v更新。構築dummyはNoGrad。 | [065_nn_spectral_norm_10prd.md](0065_nn_spectral_norm_10rfd.md) u/vの保持とσの再計算・決定事項D5 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [315_nn.md](../../wiki/concepts/framework/315_nn.md) |
+| R372 | SHAREDのevent laneは-1、PER_LANEはlane index。 | [069_metrics_trace_channel_10prd.md](0069_metrics_trace_channel_10rfd.md) 4.2 行の形・F5 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [120_metrics_viewer.md](../../wiki/concepts/apps/120_metrics_viewer.md) |
+| R373 | 通常JSONを使いdataの順序は保証せず、取得順・keysの順序だけ保持。 | [069_metrics_trace_channel_10prd.md](0069_metrics_trace_channel_10rfd.md) 4.3 宣言（設定 DSL）・決定D7 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [120_metrics_viewer.md](../../wiki/concepts/apps/120_metrics_viewer.md) |
+| R380 | 履歴保護・dummyを除くsampleable集合を母集団にする。 | [073_replay_fit_metrics_10prd.md](0073_replay_fit_metrics_10rfd.md) 3.1 抽選履歴群 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [321_agent_core.md](../../wiki/concepts/framework/321_agent_core.md) |
+| R403 | Push時episode_startを履歴開始として保存し、stack境界をそこから復元。 | [078_replay_frame_history_integrity_10prd.md](0078_replay_frame_history_integrity_10rfd.md) 6.2 モジュールの責務 | [318_rl_core.md](../../wiki/concepts/framework/318_rl_core.md) / [321_agent_core.md](../../wiki/concepts/framework/321_agent_core.md) |
+| R404 | 全laneを書込み前に検証。初回true、以降は直前doneまたはtruncatedと一致。 | [078_replay_frame_history_integrity_10prd.md](0078_replay_frame_history_integrity_10rfd.md) 6.2 モジュールの責務・7.3 | [318_rl_core.md](../../wiki/concepts/framework/318_rl_core.md) / [321_agent_core.md](../../wiki/concepts/framework/321_agent_core.md) |
+| R415 | agent/env/evalのdevice文字列、auto/cpu/cuda/cuda:N。 | [070_device_spec_auto_10prd.md](0070_device_spec_auto_10rfd.md) 確定したD1・D2 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [312_util.md](../../wiki/concepts/framework/312_util.md) |
+| R416 | is_availableだけでauto解決、CUDA時はcurrent device。 | [070_device_spec_auto_10prd.md](0070_device_spec_auto_10rfd.md) 確定したD4・D7 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [312_util.md](../../wiki/concepts/framework/312_util.md) |
+| R452 | 同じ方式なら再利用、Noisy部品の方式差は初期化エラー、非Noisyは休眠。元の精度・tau・epsilonを継承。 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) 7.2 targetとonline_reuse | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [315_nn.md](../../wiki/concepts/framework/315_nn.md) |
+| R529 | 更新前onlineを専用probeでeval/NoGrad部分forwardし、測定時だけQ/KからFP32再計算。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 4. 決定した設計 1・2 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [315_nn.md](../../wiki/concepts/framework/315_nn.md) |
+| R530 | 層平均正規化entropy、1一様/0集中。個別headや因果を断定しない。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 4. 決定した設計 2・6. 受入基準 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [315_nn.md](../../wiki/concepts/framework/315_nn.md) |
+| R534 | head/query/sample平均をln(n)で正規化、個別head・因果の判断不可。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 4. 決定した設計 2・決定事項D7 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [315_nn.md](../../wiki/concepts/framework/315_nn.md) |
+| R535 | 購読時だけ診断し、SDPA不変、未測定・件数不足はNaN。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 3. ゴール・4. 決定した設計・6. 受入基準2 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [315_nn.md](../../wiki/concepts/framework/315_nn.md) |
+| R536 | forward入口で結果をReset、要求保持、module keyにbranch/block実行位置。 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) 4. 決定した設計 3 | [110_runner_app.md](../../wiki/concepts/apps/110_runner_app.md) / [315_nn.md](../../wiki/concepts/framework/315_nn.md) |
+| R556 | 遷移結果はStepの結果で運ぶ。EpisodeEndEventも持ち、envは現在状態、env_stepは遷移結果。 | [0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) 冒頭の決定・Consequences | [evaluation.md](../../wiki/concepts/measurement/evaluation.md) |
 
 ### 移さなかった知見
 
@@ -208,7 +208,7 @@ wiki_test.py 8テスト、registry_test.py 6テストは成功した。
 - 地図の機械2節は再生成後に冪等（2回目の更新0件）、PRD番号の未解決は0件。registry validateは27レコード・問題0件。
 - 記述なしの集計: 概要の一部に設計文書未記述が残るのは既存311。選ばなかった形は7ページ（312・313・316・317・319・320・325）、変更時の個別条件は3ページ（313・319・325）。一般のガードレールとテスト充足へのリンクは全16ページに置く。
 - レビュー前の中間照合ではmemoryの65ファイルのSHA256が全件一致し、変更0件だった。ファイル名とhashをソートしてJSON化した集約SHA256も前後一致: `4e2e8847fcf401ef12345e9a21fae3838dcf1727ba3b4eca138dd73380eabf44`。ファイル内容・個人のパスは公開資料へ写していない。レビュー待機後にも最終時点で再照合する。
-- 実装品質確認観点は全項目を適用範囲で自己点検した。Pythonの変更はscanの材料限定の除去のみ、テストは公開CLI経由。設定・C++ API・runtime・所有権・計測の変更は無く該当観点は対象外。docs/designの正本は変えず、160 §7.4が正本として指すwiki規約を更新した。skillの用途・出力先は変わらず一覧の更新は不要。
+- 実装レビュー観点は全項目を適用範囲で自己点検した。Pythonの変更はscanの材料限定の除去のみ、テストは公開CLI経由。設定・C++ API・runtime・所有権・計測の変更は無く該当観点は対象外。docs/designの正本は変えず、160 §7.4が正本として指すwiki規約を更新した。skillの用途・出力先は変わらず一覧の更新は不要。
 - 変更ファイル57本のLF/BOM・skill同期・正本PRD095/CONTEXT/categoriesの保持など79項目は成功。外部更新26ファイルには別作業が削除した作業資材も含むため、存在を強制する検査は適用せず、変化として記録し、その状態を戻さない。
 - レビュー1往復目: 残量31%を確認して独立an-reviewへ依頼した。計画と本文以外の実装を対象とし、wikiの本文・目録・ログはD4に従って書いた側で確かめる。依頼・差分は作業用review-request-1.md / diff-review-1。
 
@@ -282,7 +282,7 @@ wiki_test.py 8テスト、registry_test.py 6テストは成功した。
 ### 検証とレビューの扱い
 
 - 実行: `reports/tools/wiki_support.py scan`、`reports/tools/wiki_support.py maps`を2回、`reports/tools/registry.py validate`。いずれもrepoの.venvを使用。実行結果は作業用stage3-fixのJSON・ログへ保存する。
-- 自己点検: 出典、相対リンク、全ページの節と目録・孤立、結論の指示語、未解決の根拠、privacy、LF/BOM、設計2か所だけの差分、保護対象のhash、経緯98組と取り込み8 PRDのblobを確認する。実装品質確認観点全62項目を適用範囲で通し、コード・設定・所有権等の未変更部分は対象外とした。
+- 自己点検: 出典、相対リンク、全ページの節と目録・孤立、結論の指示語、未解決の根拠、privacy、LF/BOM、設計2か所だけの差分、保護対象のhash、経緯98組と取り込み8 PRDのblobを確認する。実装レビュー観点全62項目を適用範囲で通し、コード・設定・所有権等の未変更部分は対象外とした。
 - サブエージェントは使っていない。ユーザーの直接指示を優先し、独立レビューへの依頼は行わず、この担当による自己レビューと差し戻し相当の修正を実施した。前回のレビューOKを今回の修正版に対する独立OKとして流用しない。
 - 今回のコード・runtimeの変更は無く、ビルドとコードテストは再実行しない。wikiの機械検査と出典・条件の自己点検で今回の文書修正を検証する。
 
@@ -302,7 +302,7 @@ wiki_test.py 8テスト、registry_test.py 6テストは成功した。
 - 裁定は3語だけで書き、元の語は変更一覧に残す。先送り・範囲外で出典に再開条件がある場合は、その条件を追記する。出典が条件を持たない範囲外に、こちらの判断で新しい条件を作らない。
 - 規約の該当文はPRDから同じ文を写し、PRD095を材料とする最新blobのfix行をlogへ追記する。
 - 全項目の3語始まり、元の形・理由・出典の保持、再開条件の転記、相対リンク・目録・公開できない値、LF/BOM・保護対象hashとscanを確認する。コードは変えないためビルドとコードテストは対象外。
-- 地図の本文はPRDのD4どおり書く側で確認する。更新した計画と規約は実装品質確認観点で独立レビューし、指摘を修正して結果を追記する。今回の修正を、前回の4件に対する独立レビューの遡及承認とは扱わない。
+- 地図の本文はPRDのD4どおり書く側で確認する。更新した計画と規約は実装レビュー観点で独立レビューし、指摘を修正して結果を追記する。今回の修正を、前回の4件に対する独立レビューの遡及承認とは扱わない。
 
 ### 裁定語の照合結果と変更一覧
 
@@ -314,84 +314,84 @@ wiki_test.py 8テスト、registry_test.py 6テストは成功した。
 
 | ページ | 項目 | 元の語 | 当てはめた語 | 根拠にした出典の節 |
 | --- | --- | --- | --- | --- |
-| [120_metrics_viewer](../../wiki/apps/120_metrics_viewer.md) | 未選択Runの背景取り込みを廃止し、選択時だけ取り込む形 | 範囲外 | 不採用 | [064_metricsviewer_idle_ingest_io_10prd.md](0064_metricsviewer_idle_ingest_io_10rfd.md) 0.3 Non-goals |
-| [120_metrics_viewer](../../wiki/apps/120_metrics_viewer.md) | WatchServiceなどのfilesystem通知によるevent駆動化 | 範囲外 | 不採用 | [064_metricsviewer_idle_ingest_io_10prd.md](0064_metricsviewer_idle_ingest_io_10rfd.md) 0.3 Non-goals |
-| [311_dev_tools](../../wiki/categories/311_dev_tools.md) | inspect_runによるcacheの生成・更新・修復・migration・削除 | 範囲外 | 不採用 | [054_inspect_run_10prd.md](0054_inspect_run_10rfd.md) §10 |
-| [311_dev_tools](../../wiki/categories/311_dev_tools.md) | inspect_runによるmetricの意味解釈・採否判断・Run ranking | 範囲外 | 不採用 | [054_inspect_run_10prd.md](0054_inspect_run_10rfd.md) §10・§11 |
-| [311_dev_tools](../../wiki/categories/311_dev_tools.md) | inspect_runのraw全点の無制限出力・plot画像生成・interactive viewer | 範囲外 | 不採用 | [054_inspect_run_10prd.md](0054_inspect_run_10rfd.md) §10 |
-| [314_tensor](../../wiki/categories/314_tensor.md) | 低解像度動画をNVENC用にpaddingする形 | 範囲外 | 先送り | [025_videolog_codec_auto_ffmpeg_guard_10prd.md](0025_videolog_codec_auto_ffmpeg_guard_10rfd.md) ゴール / 非ゴール |
-| [314_tensor](../../wiki/categories/314_tensor.md) | ObservationPipelineクラスと専用ファイル・テストの追加 | cut（後続PRDへ） | 範囲外 | [083_action_context_retire_10prd.md](0083_action_context_retire_10rfd.md) 複雑さ監査 |
-| [315_nn](../../wiki/categories/315_nn.md) | 独立した公開NoisyLinearブロック型 | 採用しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.1 |
-| [315_nn](../../wiki/categories/315_nn.md) | AMPの実行設定への集約とノイズ込み重みのSN | 対象外 | 範囲外 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §8.1・§8.2・§14.2 |
-| [315_nn](../../wiki/categories/315_nn.md) | Noisyの有無フラグ・機能登録・実行条件の汎用比較と独立実行基盤 | 導入しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.2・§14.2 |
-| [315_nn](../../wiki/categories/315_nn.md) | PPO/SAC・複数損失・別optimizer向けの拡張口 | defer | 先送り | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §8 5・§10.2 |
-| [315_nn](../../wiki/categories/315_nn.md) | head単位統計とattention entropy最小値 | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5・§7 |
-| [315_nn](../../wiki/categories/315_nn.md) | TraceCallbackのcaptureへの統合 | 先送り | 範囲外 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5・§7 |
-| [315_nn](../../wiki/categories/315_nn.md) | TQLのattention entropy正則化 | 先送り | 範囲外 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §7 1 |
-| [315_nn](../../wiki/categories/315_nn.md) | moduleのbufferにεを置きreset_noiseで引き直す形 | 棄却 | 不採用 | [0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md](../../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md) Considered Options |
-| [315_nn](../../wiki/categories/315_nn.md) | 毎forwardでの設定解釈と内容別キャッシュ | 削除 | 不採用 | [0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md](../../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md) Considered Options |
-| [315_nn](../../wiki/categories/315_nn.md) | ForwardUpToへのattention専用受け皿とNetwork専用診断メソッド | 棄却 | 不採用 | [0055-forward-capture-request-keyed-carries-module-diagnostics.md](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) Considered Options |
-| [315_nn](../../wiki/categories/315_nn.md) | NN実行Stateのスロットへ診断値を書く形 | 棄却 | 不採用 | [0055-forward-capture-request-keyed-carries-module-diagnostics.md](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) Considered Options |
-| [315_nn](../../wiki/categories/315_nn.md) | 別型の汎用診断captureを足して既存BranchCaptureも残す形 | 棄却 | 不採用 | [0055-forward-capture-request-keyed-carries-module-diagnostics.md](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) Considered Options |
-| [315_nn](../../wiki/categories/315_nn.md) | ReplayBufferから別に一様抽出する勾配ノイズprobe | 棄却 | 不採用 | [0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md) Considered Options |
-| [315_nn](../../wiki/categories/315_nn.md) | BatchNormの専用検出・禁止 | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
-| [315_nn](../../wiki/categories/315_nn.md) | attention entropy専用のfeatureキー | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
-| [315_nn](../../wiki/categories/315_nn.md) | 構築時dummy forwardで層数を数える追加API | 作らない | 不採用 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
-| [316_config](../../wiki/categories/316_config.md) | PRD072固定入力・goldenの再採取 | cut | 不採用 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §9 複雑さ監査 |
-| [317_metrics](../../wiki/categories/317_metrics.md) | step traceをtraceチャネルへ記録する配線 | PRD081へ移す | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
-| [317_metrics](../../wiki/categories/317_metrics.md) | Event/Observerの型の統一 | 別PRD | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
-| [317_metrics](../../wiki/categories/317_metrics.md) | metricsのtrace定義tagをEvaluation Traceの列として参照する形 | 却下 | 不採用 | [0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) Considered Options |
-| [318_rl_core](../../wiki/categories/318_rl_core.md) | Observerの周期判定をAgent内部のtriggerへ戻す形 | 範囲外 | 不採用 | [053_interval_gate_perf_ema_10prd.md](0053_interval_gate_perf_ema_10rfd.md) 5. スコープ外 |
-| [318_rl_core](../../wiki/categories/318_rl_core.md) | step traceをtraceチャネルへ記録する配線 | PRD081へ移す | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
-| [318_rl_core](../../wiki/categories/318_rl_core.md) | Event/Observerの型の統一 | 別PRD | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
-| [318_rl_core](../../wiki/categories/318_rl_core.md) | episode開始通知とViewの開始表示 | 先送り | 範囲外 | [097_env_auto_reset_after_notification_10prd.md](0097_env_auto_reset_after_notification_10rfd.md) §5 |
-| [318_rl_core](../../wiki/categories/318_rl_core.md) | Actor設定キーでeval_panelだけにhintを生成させる形 | 採らない | 不採用 | [0058-approx-priority-column-computed-by-agent-step-diagnostics.md](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md) 本文 |
-| [318_rl_core](../../wiki/categories/318_rl_core.md) | 全targetを許し値の時点差は文書だけで説明する形 | 却下 | 不採用 | [0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) Considered Options |
-| [318_rl_core](../../wiki/categories/318_rl_core.md) | 速報値と確定値を別の鍵名に分ける形 | 却下 | 不採用 | [0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) Considered Options |
-| [319_gui](../../wiki/categories/319_gui.md) | step traceをtraceチャネルへ記録する配線 | PRD081へ移す | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
-| [319_gui](../../wiki/categories/319_gui.md) | episode開始通知とViewの開始表示 | 先送り | 範囲外 | [097_env_auto_reset_after_notification_10prd.md](0097_env_auto_reset_after_notification_10rfd.md) §5 |
-| [319_gui](../../wiki/categories/319_gui.md) | metricsのtrace定義tagをEvaluation Traceの列として参照する形 | 却下 | 不採用 | [0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) Considered Options |
-| [319_gui](../../wiki/categories/319_gui.md) | 全targetを許し値の時点差は文書だけで説明する形 | 却下 | 不採用 | [0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) Considered Options |
-| [320_env_core](../../wiki/categories/320_env_core.md) | episode開始通知とViewの開始表示 | 先送り | 範囲外 | [097_env_auto_reset_after_notification_10prd.md](0097_env_auto_reset_after_notification_10rfd.md) §5 |
-| [320_env_core](../../wiki/categories/320_env_core.md) | 速報値と確定値を別の鍵名に分ける形 | 却下 | 不採用 | [0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) Considered Options |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | ImageClsのTrain Actorにも遅延snapshotを適用する形 | 範囲外 | 不採用 | [036_train_actor_periodic_snapshot_10prd.md](0036_train_actor_periodic_snapshot_10rfd.md) 対象範囲 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | ObservationPipelineクラスと専用ファイル・テストの追加 | cut（後続PRDへ） | 範囲外 | [083_action_context_retire_10prd.md](0083_action_context_retire_10rfd.md) 複雑さ監査 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | 独立した公開NoisyLinearブロック型 | 採用しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.1 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | AMPの実行設定への集約とノイズ込み重みのSN | 対象外 | 範囲外 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §8.1・§8.2・§14.2 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | Noisyの有無フラグ・機能登録・実行条件の汎用比較と独立実行基盤 | 導入しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.2・§14.2 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | PPO/SAC・複数損失・別optimizer向けの拡張口 | defer | 先送り | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §8 5・§10.2 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | 購読間隔ごとの別EMA | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | head単位統計とattention entropy最小値 | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5・§7 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | TQLのattention entropy正則化 | 先送り | 範囲外 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §7 1 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | moduleのbufferにεを置きreset_noiseで引き直す形 | 棄却 | 不採用 | [0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md](../../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md) Considered Options |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | ReplayBufferから別に一様抽出する勾配ノイズprobe | 棄却 | 不採用 | [0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md) Considered Options |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | BatchNormの専用検出・禁止 | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | 未成立理由ごとの追加状態指標 | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | attention entropy専用のfeatureキー | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | 構築時dummy forwardで層数を数える追加API | 作らない | 不採用 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
-| [321_agent_core](../../wiki/categories/321_agent_core.md) | Actor設定キーでeval_panelだけにhintを生成させる形 | 採らない | 不採用 | [0058-approx-priority-column-computed-by-agent-step-diagnostics.md](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md) 本文 |
-| [322_env_individual](../../wiki/categories/322_env_individual.md) | episode開始通知とViewの開始表示 | 先送り | 範囲外 | [097_env_auto_reset_after_notification_10prd.md](0097_env_auto_reset_after_notification_10rfd.md) §5 |
-| [322_env_individual](../../wiki/categories/322_env_individual.md) | 速報値と確定値を別の鍵名に分ける形 | 却下 | 不採用 | [0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) Considered Options |
-| [322_env_individual](../../wiki/categories/322_env_individual.md) | ゲーム別RAM番地・畳み方をコードの固定表に持つ形 | 却下 | 不採用 | [0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) Considered Options |
-| [322_env_individual](../../wiki/categories/322_env_individual.md) | RAM番地またはラベルをmetricsキーへ直接出す形 | 却下 | 不採用 | [0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) Considered Options |
-| [322_env_individual](../../wiki/categories/322_env_individual.md) | frame skip窓のあとだけRAMを観測する形 | 却下 | 不採用 | [0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) Considered Options |
-| [324_dqn](../../wiki/categories/324_dqn.md) | ImageClsのTrain Actorにも遅延snapshotを適用する形 | 範囲外 | 不採用 | [036_train_actor_periodic_snapshot_10prd.md](0036_train_actor_periodic_snapshot_10rfd.md) 対象範囲 |
-| [324_dqn](../../wiki/categories/324_dqn.md) | ObservationPipelineクラスと専用ファイル・テストの追加 | cut（後続PRDへ） | 範囲外 | [083_action_context_retire_10prd.md](0083_action_context_retire_10rfd.md) 複雑さ監査 |
-| [324_dqn](../../wiki/categories/324_dqn.md) | 独立した公開NoisyLinearブロック型 | 採用しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.1 |
-| [324_dqn](../../wiki/categories/324_dqn.md) | AMPの実行設定への集約とノイズ込み重みのSN | 対象外 | 範囲外 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §8.1・§8.2・§14.2 |
-| [324_dqn](../../wiki/categories/324_dqn.md) | 購読間隔ごとの別EMA | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
-| [324_dqn](../../wiki/categories/324_dqn.md) | head単位統計とattention entropy最小値 | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5・§7 |
-| [324_dqn](../../wiki/categories/324_dqn.md) | TQLのattention entropy正則化 | 先送り | 範囲外 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §7 1 |
-| [324_dqn](../../wiki/categories/324_dqn.md) | ReplayBufferから別に一様抽出する勾配ノイズprobe | 棄却 | 不採用 | [0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md) Considered Options |
-| [324_dqn](../../wiki/categories/324_dqn.md) | 未成立理由ごとの追加状態指標 | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
-| [324_dqn](../../wiki/categories/324_dqn.md) | attention entropy専用のfeatureキー | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
-| [324_dqn](../../wiki/categories/324_dqn.md) | Actor設定キーでeval_panelだけにhintを生成させる形 | 採らない | 不採用 | [0058-approx-priority-column-computed-by-agent-step-diagnostics.md](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md) 本文 |
+| [120_metrics_viewer](../../wiki/concepts/apps/120_metrics_viewer.md) | 未選択Runの背景取り込みを廃止し、選択時だけ取り込む形 | 範囲外 | 不採用 | [064_metricsviewer_idle_ingest_io_10prd.md](0064_metricsviewer_idle_ingest_io_10rfd.md) 0.3 Non-goals |
+| [120_metrics_viewer](../../wiki/concepts/apps/120_metrics_viewer.md) | WatchServiceなどのfilesystem通知によるevent駆動化 | 範囲外 | 不採用 | [064_metricsviewer_idle_ingest_io_10prd.md](0064_metricsviewer_idle_ingest_io_10rfd.md) 0.3 Non-goals |
+| [311_dev_tools](../../wiki/concepts/framework/311_dev_tools.md) | inspect_runによるcacheの生成・更新・修復・migration・削除 | 範囲外 | 不採用 | [054_inspect_run_10prd.md](0054_inspect_run_10rfd.md) §10 |
+| [311_dev_tools](../../wiki/concepts/framework/311_dev_tools.md) | inspect_runによるmetricの意味解釈・採否判断・Run ranking | 範囲外 | 不採用 | [054_inspect_run_10prd.md](0054_inspect_run_10rfd.md) §10・§11 |
+| [311_dev_tools](../../wiki/concepts/framework/311_dev_tools.md) | inspect_runのraw全点の無制限出力・plot画像生成・interactive viewer | 範囲外 | 不採用 | [054_inspect_run_10prd.md](0054_inspect_run_10rfd.md) §10 |
+| [314_tensor](../../wiki/concepts/framework/314_tensor.md) | 低解像度動画をNVENC用にpaddingする形 | 範囲外 | 先送り | [025_videolog_codec_auto_ffmpeg_guard_10prd.md](0025_videolog_codec_auto_ffmpeg_guard_10rfd.md) ゴール / 非ゴール |
+| [314_tensor](../../wiki/concepts/framework/314_tensor.md) | ObservationPipelineクラスと専用ファイル・テストの追加 | cut（後続PRDへ） | 範囲外 | [083_action_context_retire_10prd.md](0083_action_context_retire_10rfd.md) 複雑さ監査 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | 独立した公開NoisyLinearブロック型 | 採用しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.1 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | AMPの実行設定への集約とノイズ込み重みのSN | 対象外 | 範囲外 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §8.1・§8.2・§14.2 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | Noisyの有無フラグ・機能登録・実行条件の汎用比較と独立実行基盤 | 導入しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.2・§14.2 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | PPO/SAC・複数損失・別optimizer向けの拡張口 | defer | 先送り | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §8 5・§10.2 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | head単位統計とattention entropy最小値 | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5・§7 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | TraceCallbackのcaptureへの統合 | 先送り | 範囲外 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5・§7 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | TQLのattention entropy正則化 | 先送り | 範囲外 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §7 1 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | moduleのbufferにεを置きreset_noiseで引き直す形 | 棄却 | 不採用 | [0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md](../../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md) Considered Options |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | 毎forwardでの設定解釈と内容別キャッシュ | 削除 | 不採用 | [0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md](../../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md) Considered Options |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | ForwardUpToへのattention専用受け皿とNetwork専用診断メソッド | 棄却 | 不採用 | [0055-forward-capture-request-keyed-carries-module-diagnostics.md](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) Considered Options |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | NN実行Stateのスロットへ診断値を書く形 | 棄却 | 不採用 | [0055-forward-capture-request-keyed-carries-module-diagnostics.md](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) Considered Options |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | 別型の汎用診断captureを足して既存BranchCaptureも残す形 | 棄却 | 不採用 | [0055-forward-capture-request-keyed-carries-module-diagnostics.md](../../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) Considered Options |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | ReplayBufferから別に一様抽出する勾配ノイズprobe | 棄却 | 不採用 | [0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md) Considered Options |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | BatchNormの専用検出・禁止 | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | attention entropy専用のfeatureキー | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
+| [315_nn](../../wiki/concepts/framework/315_nn.md) | 構築時dummy forwardで層数を数える追加API | 作らない | 不採用 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
+| [316_config](../../wiki/concepts/framework/316_config.md) | PRD072固定入力・goldenの再採取 | cut | 不採用 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §9 複雑さ監査 |
+| [317_metrics](../../wiki/concepts/framework/317_metrics.md) | step traceをtraceチャネルへ記録する配線 | PRD081へ移す | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
+| [317_metrics](../../wiki/concepts/framework/317_metrics.md) | Event/Observerの型の統一 | 別PRD | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
+| [317_metrics](../../wiki/concepts/framework/317_metrics.md) | metricsのtrace定義tagをEvaluation Traceの列として参照する形 | 却下 | 不採用 | [0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) Considered Options |
+| [318_rl_core](../../wiki/concepts/framework/318_rl_core.md) | Observerの周期判定をAgent内部のtriggerへ戻す形 | 範囲外 | 不採用 | [053_interval_gate_perf_ema_10prd.md](0053_interval_gate_perf_ema_10rfd.md) 5. スコープ外 |
+| [318_rl_core](../../wiki/concepts/framework/318_rl_core.md) | step traceをtraceチャネルへ記録する配線 | PRD081へ移す | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
+| [318_rl_core](../../wiki/concepts/framework/318_rl_core.md) | Event/Observerの型の統一 | 別PRD | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
+| [318_rl_core](../../wiki/concepts/framework/318_rl_core.md) | episode開始通知とViewの開始表示 | 先送り | 範囲外 | [097_env_auto_reset_after_notification_10prd.md](0097_env_auto_reset_after_notification_10rfd.md) §5 |
+| [318_rl_core](../../wiki/concepts/framework/318_rl_core.md) | Actor設定キーでeval_panelだけにhintを生成させる形 | 採らない | 不採用 | [0058-approx-priority-column-computed-by-agent-step-diagnostics.md](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md) 本文 |
+| [318_rl_core](../../wiki/concepts/framework/318_rl_core.md) | 全targetを許し値の時点差は文書だけで説明する形 | 却下 | 不採用 | [0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) Considered Options |
+| [318_rl_core](../../wiki/concepts/framework/318_rl_core.md) | 速報値と確定値を別の鍵名に分ける形 | 却下 | 不採用 | [0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) Considered Options |
+| [319_gui](../../wiki/concepts/framework/319_gui.md) | step traceをtraceチャネルへ記録する配線 | PRD081へ移す | 範囲外 | [094_evalpanel_step_history_10prd.md](0094_evalpanel_step_history_10rfd.md) §6 |
+| [319_gui](../../wiki/concepts/framework/319_gui.md) | episode開始通知とViewの開始表示 | 先送り | 範囲外 | [097_env_auto_reset_after_notification_10prd.md](0097_env_auto_reset_after_notification_10rfd.md) §5 |
+| [319_gui](../../wiki/concepts/framework/319_gui.md) | metricsのtrace定義tagをEvaluation Traceの列として参照する形 | 却下 | 不採用 | [0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) Considered Options |
+| [319_gui](../../wiki/concepts/framework/319_gui.md) | 全targetを許し値の時点差は文書だけで説明する形 | 却下 | 不採用 | [0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md](../../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) Considered Options |
+| [320_env_core](../../wiki/concepts/framework/320_env_core.md) | episode開始通知とViewの開始表示 | 先送り | 範囲外 | [097_env_auto_reset_after_notification_10prd.md](0097_env_auto_reset_after_notification_10rfd.md) §5 |
+| [320_env_core](../../wiki/concepts/framework/320_env_core.md) | 速報値と確定値を別の鍵名に分ける形 | 却下 | 不採用 | [0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) Considered Options |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | ImageClsのTrain Actorにも遅延snapshotを適用する形 | 範囲外 | 不採用 | [036_train_actor_periodic_snapshot_10prd.md](0036_train_actor_periodic_snapshot_10rfd.md) 対象範囲 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | ObservationPipelineクラスと専用ファイル・テストの追加 | cut（後続PRDへ） | 範囲外 | [083_action_context_retire_10prd.md](0083_action_context_retire_10rfd.md) 複雑さ監査 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | 独立した公開NoisyLinearブロック型 | 採用しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.1 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | AMPの実行設定への集約とノイズ込み重みのSN | 対象外 | 範囲外 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §8.1・§8.2・§14.2 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | Noisyの有無フラグ・機能登録・実行条件の汎用比較と独立実行基盤 | 導入しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.2・§14.2 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | PPO/SAC・複数損失・別optimizer向けの拡張口 | defer | 先送り | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §8 5・§10.2 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | 購読間隔ごとの別EMA | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | head単位統計とattention entropy最小値 | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5・§7 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | TQLのattention entropy正則化 | 先送り | 範囲外 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §7 1 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | moduleのbufferにεを置きreset_noiseで引き直す形 | 棄却 | 不採用 | [0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md](../../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md) Considered Options |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | ReplayBufferから別に一様抽出する勾配ノイズprobe | 棄却 | 不採用 | [0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md) Considered Options |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | BatchNormの専用検出・禁止 | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | 未成立理由ごとの追加状態指標 | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | attention entropy専用のfeatureキー | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | 構築時dummy forwardで層数を数える追加API | 作らない | 不採用 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
+| [321_agent_core](../../wiki/concepts/framework/321_agent_core.md) | Actor設定キーでeval_panelだけにhintを生成させる形 | 採らない | 不採用 | [0058-approx-priority-column-computed-by-agent-step-diagnostics.md](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md) 本文 |
+| [322_env_individual](../../wiki/concepts/framework/322_env_individual.md) | episode開始通知とViewの開始表示 | 先送り | 範囲外 | [097_env_auto_reset_after_notification_10prd.md](0097_env_auto_reset_after_notification_10rfd.md) §5 |
+| [322_env_individual](../../wiki/concepts/framework/322_env_individual.md) | 速報値と確定値を別の鍵名に分ける形 | 却下 | 不採用 | [0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md](../../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) Considered Options |
+| [322_env_individual](../../wiki/concepts/framework/322_env_individual.md) | ゲーム別RAM番地・畳み方をコードの固定表に持つ形 | 却下 | 不採用 | [0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) Considered Options |
+| [322_env_individual](../../wiki/concepts/framework/322_env_individual.md) | RAM番地またはラベルをmetricsキーへ直接出す形 | 却下 | 不採用 | [0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) Considered Options |
+| [322_env_individual](../../wiki/concepts/framework/322_env_individual.md) | frame skip窓のあとだけRAMを観測する形 | 却下 | 不採用 | [0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md](../../adr/0046-atari-ram-metrics-bound-per-game-to-numbered-keys.md) Considered Options |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | ImageClsのTrain Actorにも遅延snapshotを適用する形 | 範囲外 | 不採用 | [036_train_actor_periodic_snapshot_10prd.md](0036_train_actor_periodic_snapshot_10rfd.md) 対象範囲 |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | ObservationPipelineクラスと専用ファイル・テストの追加 | cut（後続PRDへ） | 範囲外 | [083_action_context_retire_10prd.md](0083_action_context_retire_10rfd.md) 複雑さ監査 |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | 独立した公開NoisyLinearブロック型 | 採用しない | 不採用 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §4.1 |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | AMPの実行設定への集約とノイズ込み重みのSN | 対象外 | 範囲外 | [084_noisynet_10prd.md](0084_noisynet_10rfd.md) §8.1・§8.2・§14.2 |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | 購読間隔ごとの別EMA | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | head単位統計とattention entropy最小値 | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5・§7 |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | TQLのattention entropy正則化 | 先送り | 範囲外 | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §7 1 |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | ReplayBufferから別に一様抽出する勾配ノイズprobe | 棄却 | 不採用 | [0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md](../../adr/0054-gradient-noise-scale-in-band-microbatch-split-includes-bf16.md) Considered Options |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | 未成立理由ごとの追加状態指標 | cut | 不採用 | [092_gradient_noise_scale_10prd.md](0092_gradient_noise_scale_10rfd.md) §10.2 |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | attention entropy専用のfeatureキー | 作らない | 先送り | [093_attention_entropy_diagnostics_10prd.md](0093_attention_entropy_diagnostics_10rfd.md) §5 |
+| [324_dqn](../../wiki/concepts/framework/324_dqn.md) | Actor設定キーでeval_panelだけにhintを生成させる形 | 採らない | 不採用 | [0058-approx-priority-column-computed-by-agent-step-diagnostics.md](../../adr/0058-approx-priority-column-computed-by-agent-step-diagnostics.md) 本文 |
 
 ### 追加修正の自己点検・検証
 
 - `.venv/Scripts/python.exe .scratch/prd095/stage3-verdict/validate-verdicts.py`: 546項目成功、失敗0。全16地図97項目の裁定、元の形・理由・出典の保持、再開条件4件、各節・出典リンク・目録・公開できない値、改行/BOM、追記のみのlog、保護対象と無関係ファイルのhashを確認した。
 - `git diff --check --`（今回の15ファイル）: 終了値0。READMEの裁定規則はPRD §4.6の該当ブロックと完全一致。PRD・ADR・CONTEXT・categories・正本の材料への変更0。
-- 実装品質確認観点の全62項目を適用範囲に従って自己点検した。計画、PRD適合、現用規約と全地図の移行、履歴保持、検証と報告を確認。コード・設定・runtime・skillの変更は無いため、それら固有の観点、Debugビルドとコードテストは対象外。文書修正のためTDDも対象外。
+- 実装レビュー観点の全62項目を適用範囲に従って自己点検した。計画、PRD適合、現用規約と全地図の移行、履歴保持、検証と報告を確認。コード・設定・runtime・skillの変更は無いため、それら固有の観点、Debugビルドとコードテストは対象外。文書修正のためTDDも対象外。
 - 新規の未決、判断待ち、未実施の必要検証は無し。scanの最終結果と独立レビュー結果は、完了後にこの節へ追記する。
 
 - `.venv/Scripts/python.exe reports/tools/wiki_support.py scan`: 終了値0、未取り込み0・リンク切れ0・目録漏れ0（stage3-verdict/scan-final.json）。`eligible: false`は完了可否ではなくlint候補条件であり、未取り込み等の件数とは別である。

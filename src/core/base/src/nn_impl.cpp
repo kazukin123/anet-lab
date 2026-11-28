@@ -20,6 +20,7 @@
 #include <ATen/ops/_foreach_lerp.h>
 #include "anet/profile.hpp"
 #include "anet/log.hpp"
+#include "anet/str_util.hpp"
 #include "anet/tensor_util.hpp"
 #include "anet/nn_util.hpp"
 #include "anet/util.hpp"
@@ -27,69 +28,7 @@
 
 using namespace anet::nn;
 
-// 完全一致と末尾スラッシュの接頭辞は、同じ要求判定を共有する。
-static bool MatchesCaptureRequest(std::string_view request, std::string_view key)
-{
-    return request.ends_with('/') ? key.starts_with(request) : key == request;
-}
-
-NetworkForwardCapture::NetworkForwardCapture(std::vector<std::string> requests)
-    : requests_(std::move(requests)) {}
-
-bool NetworkForwardCapture::Wants(std::string_view key) const
-{
-    return std::ranges::any_of(requests_, [key](const auto& request) { return MatchesCaptureRequest(request, key); });
-}
-
-bool NetworkForwardCapture::WantsAny(std::string_view prefix) const
-{
-    return std::any_of(requests_.begin(), requests_.end(), [prefix](const auto& request) {
-        return std::string_view(request).starts_with(prefix)
-            || (request.ends_with('/') && prefix.starts_with(request));
-    });
-}
-
-void NetworkForwardCapture::Add(std::string_view key, torch::Tensor value)
-{
-    // 要求外と二重書込みを発生点で検出し、上書きで不整合を隠さない。
-    if (!Wants(key)) ANET_SYSTEM_ERROR("NetworkForwardCapture: unrequested key='" << key << "'.");
-    if (std::ranges::any_of(entries_, [key](const auto& entry) { return entry.first == key; })) {
-        ANET_SYSTEM_ERROR("NetworkForwardCapture: duplicate key='" << key << "'; expected one Tensor per key.");
-    }
-    entries_.emplace_back(std::string(key), std::move(value));
-}
-
-torch::Tensor NetworkForwardCapture::Get(std::string_view key) const
-{
-    for (const auto& [name, value] : entries_) if (name == key) return value;
-    return {};
-}
-
-std::vector<NetworkForwardCapture::Entry> NetworkForwardCapture::GetAll(std::string_view prefix) const
-{
-    // 順序は実行順のままとし、mapの辞書順へ並べ替えない。
-    std::vector<Entry> result;
-    for (const auto& entry : entries_) if (entry.first.starts_with(prefix)) result.push_back(entry);
-    return result;
-}
-
-std::vector<std::string> NetworkForwardCapture::Unfulfilled() const
-{
-    std::vector<std::string> result;
-    for (const auto& request : requests_) {
-        if (!std::ranges::any_of(entries_, [&](const auto& entry) { return MatchesCaptureRequest(request, entry.first); })) {
-            result.push_back(request);
-        }
-    }
-    return result;
-}
-
-void NetworkForwardCapture::Reset()
-{
-    entries_.clear();
-}
-
-NetworkForwardContext NetworkForwardContext::WithCapture(NetworkForwardCapture* capture) const
+NetworkForwardContext NetworkForwardContext::WithCapture(ForwardCapture* capture) const
 {
     auto context = *this;
     context.capture_ = capture;
@@ -132,7 +71,7 @@ void NetworkForwardContext::AddCapture(std::string_view key, torch::Tensor value
     capture_->Add(MakeCaptureKey(key), std::move(value));
 }
 
-static void ValidateForwardCapture(const NetworkForwardCapture& capture,
+static void ValidateForwardCapture(const anet::ForwardCapture& capture,
     const std::vector<std::string>& branches, std::string_view reached)
 {
     const auto missing = capture.Unfulfilled();
@@ -547,40 +486,6 @@ static std::string Trim(const std::string& s)
     auto end = s.end();
     do { end--; } while (std::distance(start, end) > 0 && std::isspace(*end));
     return std::string(start, end + 1);
-}
-
-// パイプライン文字列の分割 (カッコ内のスペースは無視する)
-static std::vector<std::string> SplitPipelineString(const std::string& s)
-{
-    std::string normalized = s;
-    // '>' をスペースに置換
-    std::replace(normalized.begin(), normalized.end(), '>', ' ');
-
-    std::vector<std::string> tokens;
-    std::string current_token;
-    int paren_depth = 0;
-
-    for (char c : normalized) {
-        if (c == '(') {
-            paren_depth++;
-        } else if (c == ')') {
-            if (paren_depth > 0) paren_depth--;
-        }
-
-        if (std::isspace(c) && paren_depth == 0) {
-            if (!current_token.empty()) {
-                tokens.push_back(current_token);
-                current_token.clear();
-            }
-        } else {
-            current_token += c;
-        }
-    }
-    if (!current_token.empty()) {
-        tokens.push_back(current_token);
-    }
-
-    return tokens;
 }
 
 // 文字列から整数への変換
@@ -1101,8 +1006,7 @@ anet::json NetworkConfig::ToJson() const
     std::regex re_rep(R"(\(\*(\d+)\))");
 
     for (const auto& [b_name, b_cfg] : branches) {
-        // nn_impl.cpp上部で定義されている SplitPipelineString と Trim を利用
-        auto tokens = SplitPipelineString(b_cfg.structure_str);
+        auto tokens = anet::SplitPipelineString(b_cfg.structure_str);
 
         for (const auto& token_raw : tokens) {
             std::string current_token = token_raw;
@@ -1265,24 +1169,25 @@ anet::TensorDict NetworkBoundaryPreprocessor::Format(const anet::TensorDict& raw
             // Shapeの補正: PyTorchのone_hotは末尾に次元(クラス数)を足すので余計なサイズ1次元を補正
 
             if (spec.type == anet::SpaceType::Grid) {
-                // 入力が [B, S, 1, H, W] -> one_hot -> [B, S, 1, H, W, C] (6次元: FrameStackあり)
-                if (new_dim == 6 && t.size(2) == 1) {
-                    t = t.squeeze(2); // [B, S, H, W, C] にする
-                    new_dim = 5;
+                if (tensor.dim() != static_cast<int64_t>(spec.shape.size()) + 1 ||
+                    tensor.sizes().slice(1) != torch::IntArrayRef(spec.shape)) {
+                    ANET_SYSTEM_ERROR("Discrete Grid input key='" << key << "' has shape=" << tensor.sizes()
+                        << "; expected a batch axis and declared shape=" << torch::IntArrayRef(spec.shape)
+                        << " (stack_axis=" << spec.has_stack_axis << ").");
                 }
-                // 入力が [B, 1, H, W] -> one_hot -> [B, 1, H, W, C] (5次元: FrameStackなし)
-                else if (new_dim == 5 && t.size(1) == 1) {
-                    t = t.squeeze(1); // [B, H, W, C] にする
-                    new_dim = 4;
+                // spec の宣言から stack 軸を決め、one-hot 後はクラスと stack を channel にまとめる。
+                const int64_t rank = spec.has_stack_axis ? 5 : 4;
+                const int64_t channel_axis = spec.has_stack_axis ? 2 : 1;
+                if (t.dim() == rank + 1 && t.size(channel_axis) == 1) t = t.squeeze(channel_axis);
+                if (t.dim() != rank) {
+                    ANET_SYSTEM_ERROR("Discrete Grid input key='" << key << "' has shape=" << tensor.sizes()
+                        << "; expected batch, " << (spec.has_stack_axis ? "stack, " : "")
+                        << "an optional singleton channel, height and width.");
                 }
-
-                // この時点で t は必ず [B, S, H, W, C] (5次元) または [B, H, W, C] (4次元) になる
-                if (new_dim == 5) {
-                    // FrameStackあり: CとSをまとめてConv2dに食わせるため [B, S*C, H, W] (4次元) に平坦化する
-                    t = t.permute({ 0, 1, 4, 2, 3 }); // -> [B, S, C, H, W]
+                if (spec.has_stack_axis) {
+                    t = t.permute({ 0, 1, 4, 2, 3 });
                     t = t.reshape({ t.size(0), t.size(1) * t.size(2), t.size(3), t.size(4) });
-                } else if (new_dim == 4) {
-                    // FrameStackなし: そのまま並び替え -> [B, C, H, W] (4次元)
+                } else {
                     t = t.permute({ 0, 3, 1, 2 });
                 }
             } else if (spec.type == anet::SpaceType::Vector) {
@@ -1611,7 +1516,7 @@ static ConfigProfileExpansionPlan MakeConfigProfileExpansionPlan(
     ConfigProfileExpansionPlan plan;
     if (structure_str.empty()) return plan;
 
-    auto tokens = SplitPipelineString(structure_str);
+    auto tokens = anet::SplitPipelineString(structure_str);
     std::regex re_rep(R"(\(\*(\d+)\))");
 
     size_t instance_seq = 0;
@@ -1784,11 +1689,23 @@ std::shared_ptr<NetworkBody> NetworkBodyBuilder::Build(
 
     // 依存関係（エッジ）の構築
     for (const auto& [b_name, b_cfg] : config.branches) {
+        const auto& blocks = all_branches.at(b_name)->GetNetworkStruct()->GetBlocks();
         for (const auto& term : b_cfg.bind_terms) {
             for (const auto& bind_key : term) {
-                if (input_specs.find(bind_key) != input_specs.end()) {
+                if (const auto input = input_specs.find(bind_key); input != input_specs.end()) {
                     // Envからの入力（依存なし）
                     bound_input_keys.insert(bind_key);
+                    const auto& spec = input->second;
+                    const bool folds_stack_axis = spec.type == SpaceType::Grid && spec.IsDiscrete()
+                        && std::ranges::find(all_raw_keys, bind_key) == all_raw_keys.end();
+                    if (spec.has_stack_axis && !folds_stack_axis && !blocks.empty()
+                        && !blocks.front()->GetModule()->HandlesStackAxis()) {
+                        const auto& module_name = blocks.front()->GetName();
+                        LOG::warn_once(config.config_prefix + "/" + b_name + "/" + bind_key)
+                            << "Network branch='" << b_name << "' first module='" << module_name
+                            << "' does not declare handling the stack axis of input key='" << bind_key
+                            << "' shape=" << torch::IntArrayRef(spec.shape) << ".";
+                    }
                     continue;
                 } else if (all_branches.find(bind_key) != all_branches.end()) {
                     // 他のブランチからの入力（依存あり）
@@ -1897,13 +1814,13 @@ static anet::TensorDict RunForward(
 
 anet::TensorDict Network::Forward(
     const anet::TensorDict& input,
-    NetworkForwardCapture* capture)
+    ForwardCapture* capture)
 {
     ANET_PROFILE_FUNC();
     return RunForward(*body_, input, NetworkForwardContext::GetDefault().WithCapture(capture), nullptr, head_.get());
 }
 
-anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key, NetworkForwardCapture* capture)
+anet::TensorDict Network::ForwardUpTo(const anet::TensorDict& input, const std::string& branch_key, ForwardCapture* capture)
 {
     return body_->ForwardUpTo(input, NetworkForwardContext::GetDefault().WithCapture(capture), branch_key);
 }
@@ -1984,7 +1901,7 @@ NetworkForwardExecutor::~NetworkForwardExecutor() = default;
 
 anet::TensorDict NetworkForwardExecutor::Forward(
     const anet::TensorDict& input, const NetworkForwardCallInfo& info,
-    NetworkForwardCapture* capture)
+    ForwardCapture* capture)
 {
     ANET_PROFILE_FUNC();
     const auto context = impl_->MakeContext(info).WithCapture(capture);

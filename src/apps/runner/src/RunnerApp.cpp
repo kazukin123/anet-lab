@@ -28,6 +28,7 @@
 #include "anet/algo/dqn.hpp"
 #include "anet/algo/muzero.hpp"
 #include "anet/algo/imagecls.hpp"
+#include "anet/algo/ppo.hpp"
 #ifdef ANET_HAS_ATARI
 #include "anet/env/Atari.hpp"
 #endif
@@ -404,6 +405,7 @@ bool RunnerApp::OnInit()
     anet::rl::algo::InitDqn();
     anet::rl::algo::InitMuZero();
     anet::rl::algo::InitImageCls();
+    anet::rl::algo::InitPpo();
 #ifdef ANET_HAS_ATARI
     anet::rl::env::InitAtari();
 #endif
@@ -442,7 +444,8 @@ bool RunnerApp::OnInit()
         try {
             anet::ProfileThreadName thread_name(kRunInitThreadName);
             ANET_PROFILE_SCOPE_FULL(construction, "RunnerApp::ConstructRunManager");
-            constructed_run_manager_ = std::make_shared<anet::rl::RunManager>(config_data);
+            constructed_run_manager_ = std::make_shared<anet::rl::RunManager>(
+                config_data, std::vector<std::string>{RunnerFrame::kEvalPanelRunnerName});
         } catch (...) {
             StoreCurrentException();
             run_construction_failed_ = true;

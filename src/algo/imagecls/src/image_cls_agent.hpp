@@ -55,10 +55,11 @@ namespace anet::rl::img_cls {
 
         anet::nn::NetworkGraphVizConfig nn_viz;
 
-        ImageClsAgentConfig(const anet::ConfigData& config_data = anet::EmptyConfigData, const std::string& config_prefix = "")
-            : anet::Config(config_data, "ImageClsAgent", config_prefix)
+        explicit ImageClsAgentConfig(const anet::ConfigData& config_data = anet::EmptyConfigData)
+            : anet::Config(config_data, "ImageClsAgent")
         {
             learning_rate.value = 1e-3;
+            learning_rate.min_value = 0.0;
             ANET_READ_CONFIG(config_data, learning_rate);
             ANET_READ_CONFIG(config_data, weight_decay);
             ANET_READ_CONFIG(config_data, use_fused_optimizer);
@@ -76,12 +77,7 @@ namespace anet::rl::img_cls {
 
             ANET_READ_CONFIG(config_data, bf16.enabled);
             ANET_READ_CONFIG(config_data, bf16.learner);
-            auto items = config_data.MakeSubConfigData(MakeDefaultConfigKey("actor"));
-            if (!GetOverridePrefix().empty()) {
-                for (const auto& [key, sub] : config_data.MakeSubConfigData(MakeOverrideConfigKey("actor"))) {
-                    items.try_emplace(key, sub);
-                }
-            }
+            const auto items = config_data.MakeSubConfigData(MakeDefaultConfigKey("actor"));
             for (const auto& [key, sub] : items) {
                 auto& entry = actor[key];
                 const auto prefix = "actor.[" + key + "]";
@@ -106,6 +102,18 @@ namespace anet::rl::img_cls {
     private:
         void Validate() const
         {
+            if (!std::isfinite(grad_clip_max_norm) || grad_clip_max_norm <= 0.0) {
+                ANET_SYSTEM_ERROR("Invalid config " << GetFullKey("grad_clip_max_norm") << "=" << grad_clip_max_norm
+                    << ". Expected a finite value > 0.");
+            }
+            if (!std::isfinite(label_smoothing) || label_smoothing < 0.0 || label_smoothing > 1.0) {
+                ANET_SYSTEM_ERROR("Invalid config " << GetFullKey("label_smoothing") << "=" << label_smoothing
+                    << ". Expected a finite value in [0, 1].");
+            }
+            if (!std::isfinite(weight_decay) || weight_decay < 0.0) {
+                ANET_SYSTEM_ERROR("Invalid config " << GetFullKey("weight_decay") << "=" << weight_decay
+                    << ". Expected a finite value >= 0.");
+            }
             ValidateNonNegative(GetFullKey("mixup.mixup_alpha"), mixup.mixup_alpha);
             ValidateNonNegative(GetFullKey("mixup.cutmix_alpha"), mixup.cutmix_alpha);
             ValidateUnitInterval(GetFullKey("mixup.prob"), mixup.prob);

@@ -57,7 +57,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 ## 経過
 
-- 2026-10-29: 対象確認、現行コード・関連設計・ADR0048/0051・用語と検証資材の照合を実施。実装品質確認観点の実装計画と編集種類別の規約を確認。計画を保存。
+- 2026-10-29: 対象確認、現行コード・関連設計・ADR0048/0051・用語と検証資材の照合を実施。実装レビュー観点の実装計画と編集種類別の規約を確認。計画を保存。
 - baseline は141ファイルを保存。manifest の基準は着手前HEADと一致し、test実行体は19:33:35のもの。7構成の before を開始。
 - tracer RED: Debugビルド後、`anet-core-test.exe '[prd106-forward]' --out .scratch/prd106/tracer-red.log` が1 case / 3 assertions中、skip値の変化を期待する1 assertionで失敗（Q値は一致）。設定搬送とskip executorへの適用を実装。
 - tracer GREEN: 同じフィルタで `.scratch/prd106/tracer-green.log` に3 assertions / 1 case成功。mode REDは2 assertionsで例外なしの失敗を確認し、列挙検証後の `[prd106]` は `.scratch/prd106/mode-green.log` に成功。
@@ -98,7 +98,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 受入4: 設定8入力の全キー比較でunexpected=0、`verify_dump.py` もexit0。現行設定のGridMaze 512 experience（exit0）と完了したAtari Gの実効dumpで全Actorのshared・skipキーなしを確認。Atariはgreedyも含む。
 - 受入5・G3: 評価・集計・記録は完了。2checkpointともノイズ4条件とτ5条件を各400ゲームで計算した。Gをビルド間で混ぜず、全36 Runの53_evalg/episode各200件（計7200件）・実効設定・checkpointを照合。集中面は分割6・合算5。h・k・k'は両checkpointとも「決めきれない」。分母の区間はすべて正で、比から除いた回は0%。`analysis/final-2329.json` のpendingとadditional_seed2はすべて空。実験記録とwiki4ページ・目録・取り込みログへの反映も完了し、独立レビューで最終確認する。
 - G4: ステージ0の数値提示後のユーザー判断待ちになる。学習は開始していない。
-- ビルド: Debug全体とRelease Runner成功。レビュー1の修正後のtest targetも成功。最終の自己点検は、実装品質確認観点の全項目を適用範囲別に再確認した。productionは前回以降変更なし。追加・更新文書の出典、相対リンク、公開できない値、LF、Git差分を確認。独立レビューは2往復で計画・実装ともOK。
+- ビルド: Debug全体とRelease Runner成功。レビュー1の修正後のtest targetも成功。最終の自己点検は、実装レビュー観点の全項目を適用範囲別に再確認した。productionは前回以降変更なし。追加・更新文書の出典、相対リンク、公開できない値、LF、Git差分を確認。独立レビューは2往復で計画・実装ともOK。
 
 ### ステージ0の最終値
 

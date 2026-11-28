@@ -18,7 +18,7 @@
 
 ### 1.3 記載範囲
 
-AtariEnv / AtariEnvFactory / AtariView / 前処理関数群、ALE v0.12.0 の設定キー契約、ビルド gating。ALE 自体のビルド手順の確定値は §3、実験プロトコルの背景は `reports/atari_env_survey_2026-08-13.md`。
+AtariEnv / AtariEnvFactory / AtariView / 前処理関数群、ALE v0.12.0 の設定キー契約、ビルド gating。ALE 自体のビルド手順の確定値は §3、実験プロトコルの背景は `reports/survey/atari_env_survey_2026-08-13.md`。
 
 ## 2. 全体像
 
@@ -30,7 +30,7 @@ BatchEnvBuilder (env.class_id = AtariEnv)
             └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → selected resize → uint8 [1,S,S]
 ```
 
-- frame stack は出さない。Actor 側 stucker と ReplayBuffer 側 stack_count の既存両輪が担う。
+- Env は1枚ずつ返す。DefaultDQN の `frame_stack.*` で枚数と対象キーを指定する。行動選択用 Forwarder の `FrameStack` は Actor の履歴を重ね、ReplayBuffer は同じ枚数とキーで Sample を再構成する。 [Forwarder と Perception](135_forwarder_and_perception.jp.md)
 - RB には単フレーム uint8 が保存され、stack はサンプル時に展開される（ADR 0026）。
 - 責務分担: **AtariEnv = 1 ALE の駆動と標準前処理**。並列・stack・Step内の終端lane自動リセット・seed 配布はフレームワーク既存機構。
 
@@ -346,7 +346,7 @@ RAM 定義の番号や畳み方を変更するときは [RFD0082 検証手順](.
 - [環境](120_environments.jp.md) — Env 共通 contract と追加チェックリスト（§8）
 - ADR 0025 / ADR 0026 — 導入判断
 - `docs/memo/0051_atari_ale_env_10rfd.md` — 実装計画（PH1 スコープ・受入基準）
-- `reports/atari_env_survey_2026-08-13.md` — ALE サーベイ（プロトコル・ベンチマーク動向）
+- `reports/survey/atari_env_survey_2026-08-13.md` — ALE サーベイ（プロトコル・ベンチマーク動向）
 - `CONTEXT.md` — 用語（sticky actions / flavor / 生スコア / プロトコルプリセット）
 
 遷移の観測・RGB・auxは残機喪失時の補助NOOPより前に作る。NOOPでゲームが終わったとき、Step結果のゲーム確定値にはNOOPの得点とframeを含めるが、返すreward/next_state/RGB/livesは置き換えない。AtariViewは結果のrgb_frameを表示するため、自動Reset後の画面へずれない。結果は後続StepやResetから独立し、envへ完了値を持ち越さない。受入AsterixのRAM条件と公開API試験は[RFD0097検証手順](../../src/core/base/testdata/rfd0097/README.md)を参照する。

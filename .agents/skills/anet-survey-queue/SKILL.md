@@ -1,6 +1,6 @@
 ---
 name: anet-survey-queue
-description: Run the next item in anet-lab's survey queue (reports/INDEX.md) with the survey or paper-details skill, save the report under reports/, and move the item to the done list. Every queued item is runnable. Use when the user invokes $anet-survey-queue or /anet-survey-queue, optionally with a topic, or from anet-housekeeping when the queue is not empty.
+description: Run the next item in anet-lab's survey queue (reports/INDEX.md) with the survey or paper-details skill, save the output under reports/survey/ or reports/paper/, and move the item to the done list. Every queued item is runnable. Use when the user invokes $anet-survey-queue or /anet-survey-queue, optionally with a topic, or from anet-housekeeping when the queue is not empty.
 ---
 
 # ANET Survey Queue
@@ -24,8 +24,8 @@ description: Run the next item in anet-lab's survey queue (reports/INDEX.md) wit
    ERROR: anet-survey-queue requires the "survey" (or "paper-details") skill, but it is unavailable. No artifacts were created.
    ```
 
-3. そのスキルの契約(`documenting-with-sources`、`writing-quotation` を含む)に従って調査し、`reports/<slug>_survey_<YYYY-MM-DD>.md`(paper は `reports/<slug>_paper_<YYYY-MM-DD>.md`)に書く。既存 reports の様式(`# Survey: ...`、Date、Scope、Table of Contents)に揃える。論点メモに書かれた問いに必ず答える。
-4. `reports/INDEX.md` を更新する。キューから行を消し、済みに 日付 | ファイル | テーマ | 関連 を追加する。
+3. そのスキルの契約(`documenting-with-sources`、`writing-quotation` を含む)に従って調査し、`reports/survey/<slug>_survey_<YYYY-MM-DD>.md`(paper は `reports/paper/<slug>_paper_<YYYY-MM-DD>.md`)に書く。既存サーベイの様式(`# Survey: ...`、Date、Scope、Table of Contents)に揃える。論点メモに書かれた問いに必ず答える。
+4. `reports/INDEX.md` を更新する。キューから行を消し、済みに 日付 | ファイル | テーマ | 関連 を追加する。ファイルは索引からの相対パスでリンクする。
 5. 完了報告: テーマ、出力パス、主要な結論 3 行、関連 RFD へ反映すべき点(あれば。RFD 自体は変えない)。
 
 ## 禁止

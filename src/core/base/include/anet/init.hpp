@@ -11,6 +11,8 @@
 namespace anet::rl {
 
     namespace detail {
+        void InitForwarderModules();
+
         /// 初期化関数のローカル static に失敗を保存し、部分的な登録を再試行しない。
         template <typename Registration>
         std::exception_ptr CaptureRegistrationFailure(Registration&& register_factories) noexcept

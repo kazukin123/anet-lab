@@ -1,0 +1,44 @@
+---
+title: ReplayBuffer の t=0 FrameStack で未初期化 grid を読む問題
+page_kind: サマリ
+material: "[[docs/memo/done/0007_rb-grid-corruption_10rfd.md|0007_rb-grid-corruption_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/314_tensor.md|314 テンソル処理]]"
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+updated: 2026-11-28
+---
+# ReplayBuffer の t=0 FrameStack で未初期化 grid を読む問題
+
+## 元の材料
+
+[ReplayBuffer の t=0 FrameStack で未初期化 grid を読む問題](../../../memo/done/0007_rb-grid-corruption_10rfd.md) blob:646bf9dc733ed0590c8cb916654ead0b836cd697
+
+## 要点
+
+- 学習時の CUDA エラーは PER の CPU 同期で見えたが、調査では ReplayBuffer の grid 履歴に原因を絞った。
+- エピソード先頭のフレームを積む処理が、未初期化の grid を読み得た。
+- CUDA の同期位置を固定して、最初に不正値を扱う経路を区別した。
+- 修正の焦点は、先頭の足りないフレームを構成する際の読み出し境界である。
+- 短い履歴とエピソード境界を小さい ReplayBuffer で再現し、サンプルに不正値が入らないことを確かめる。
+
+## 内容
+
+### 同期箇所と読み出し元
+
+PER の indices を CPU に戻す呼び出しを調べた時点では、すでに非同期の CUDA エラーが発生していた。起動を同期して観測すると、最初のフレームを積む際の grid 履歴に問題を絞れた。
+
+### リングの先頭で起きること
+
+時刻0で過去3フレームを要求すると、論理位置 −3〜−1 は容量2,048のリングの物理位置2,045〜2,047に折り返す。そこには観測が一度も書かれていない。保存重みの読み込みで行動や抽選の分布が変われば、境界の問題が表れるタイミングも変わり得る。
+
+### 回帰の確かめ方
+
+最初の短い履歴を使って公開のサンプリング経路から stack の中身を確認する。grid の値だけを監視する試験とエピソード境界を挟む試験を分ければ、異常値がどこから入り込んだかを切り分けられる。
+
+## 主要な概念
+
+- [318 強化学習 共通基盤](../../concepts/framework/318_rl_core.md)
+- [314 テンソル処理](../../concepts/framework/314_tensor.md)
+- [DropMerge](../../concepts/subjects/dropmerge.md)

@@ -146,7 +146,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 2026-11-16: 「130 段取り整理だけ」の指示で計画を作成。PRD の確定事項と受入、scaler と intrinsic_rnd の経路、既存のテストと採取器、CONTEXT、関連文書を照合した。ユーザー判断が必要なブロッカーは 0。
 - 計画保存時の変更の対象は本計画と、計画保存に伴う課題の工程記録である。既存の未コミット変更は保持する。
 - build・テスト・Run・性能測定は未実施。段取り整理だけという依頼範囲による。上表は実装時に満たす確認であり、達成済みの結果ではない。
-- 自己点検: 実装品質確認観点の全項目を適用範囲に従って点検。計画の前提、公開の確認面、テスト順、PRD 受入 1〜15 の対応、未実施の検証を確認した。実装だけに適用する項目は、今回は実装していないため対象外。
+- 自己点検: 実装レビュー観点の全項目を適用範囲に従って点検。計画の前提、公開の確認面、テスト順、PRD 受入 1〜15 の対応、未実施の検証を確認した。実装だけに適用する項目は、今回は実装していないため対象外。
 - 計画レビュー 1 往復目: ビルドコマンドの記載不足 1 件で差し戻し。AGENTS.md の MSVC 初期化経由の Debug・Release コマンドを検証の節へ追記した。コマンドの実行は行っていない。
 - 計画レビュー 2 往復目: OK。追加したコマンド、PRD 受入 1〜15 の対応、ステージ間の比較基準を確認した。原文は `.scratch/prd130/review-20261116-0137.md` と `.scratch/prd130/review-20261116-0138.md`。
 - 計画保存に伴い、課題 f9790d・0ddffa を調査中から対応中に変更し、備考へ段取り整理だけであることを記録した。`reports/tools/wiki_support.py maps` は成功し、課題一覧と 321_agent_core・324_dqn の課題の区画を更新した。実装の完了判定は書いていない。
@@ -173,7 +173,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 変更前の累積・EMA・variance_feedback の 100k 終了 checkpoint を、変更後がそれぞれ同じ凍結設定で読み、続きの 100k を終了値 0 で完走した。入力 checkpoint のパス、設定ハッシュと変更前との一致、実行体ハッシュ、終了時 checkpoint を確認した。`acceptance-cuda/stage1/load-cumulative-ema-feedback-summary.json` の errors は空。17 本すべての Run ログに ERROR/FATAL の行は無い。継続値の同一性は受入条件に含まない。
 - 最終確認: 保存済み stage1 の Debug・Release Runner は現用 Runner と SHA256 が一致する。稼働中の評価 Run（PID 53272、起動 2026-11-16 00:53:35）は操作せず、そのまま稼働している。性能測定・PAUSE 操作・ステージ 2 は行っていない。
 - 機能検証の到達点: PRD §7 の 4〜10 は確認済み。1〜3 の性能受入と、その後のステージ 1 の受入確定・比較基準の保存、ステージ 2、英語版の追随は残る。今回の指示範囲である機能検証までで停止する。課題 f9790d の判定を残件有り（2026-11-16）とし、状態は対応中のままにした。課題 0ddffa の方式の整理は未実装。
-- 自己点検: 実装品質確認観点の全項目を適用範囲に従って通し、機能の合格と未実施の性能受入を区別した。既存の読み取り不変性の断定は維持し、対象の差分の空白、文字コードと改行、試作識別子の参照先を確認した。新規の起票候補・追加の開発者判断は無い。wiki の派生区画の再生成は成功（INDEX・321_agent_core・324_dqn、unresolved_prds は空）。
+- 自己点検: 実装レビュー観点の全項目を適用範囲に従って通し、機能の合格と未実施の性能受入を区別した。既存の読み取り不変性の断定は維持し、対象の差分の空白、文字コードと改行、試作識別子の参照先を確認した。新規の起票候補・追加の開発者判断は無い。wiki の派生区画の再生成は成功（INDEX・321_agent_core・324_dqn、unresolved_prds は空）。
 - 最終レビュー: 計画・ステージ 1 の実装と機能検証はともに OK。比較・CUDA 反復・3 方式の checkpoint 継続と、残件の記録を追確認し、不足・修正要求・範囲外の検出・開発者への確認事項は無い。原文は `.scratch/prd130/review-20261116-0347.md`。性能受入の直前で停止し、評価 Run の PAUSE 完了の明示的な返事を受けてから後続へ進む。
 - 性能受入の続行（2026-11-16）: 開発者の「PAUSEしました」の返事を受けた。PID 53272 は保持し、2 秒間の CPU 時間の増加が 0 であることを確認した。保存済み before/stage1 の Release Runner と変更前の設定を使い、主・副の off/on 3 巡、GridMaze の before/stage1 3 巡、別 Run の Tracy を順に採る。測定・標準出力・標準エラー・実効設定は `.scratch/prd130/performance-20261116-0612/` へ保存し、画面には進捗と成否・比・受入結果だけを返す。他の Runner・build・test を重ねない。
 - 性能の採取器を `core/anet-core/testdata/prd130/run_performance.py` へ移した。stage0 の主の構成と Tracy の集計を移し、PRD116 の時計・設定の組み立て・保存を再利用した。試作の群と切り替え・通知の検査は持ち込まない。測定専用の設定コピーから可塑性メトリクスの 57 定義を除き、実効設定と Notifier のログでも不在を確認する。休止済み PID だけを共存させ、測定中の CPU 時間の増加が 1 秒を超えた採取は受入へ使わない。Tracy は別の port 18086 で測定用 Runner に接続し、休止中の利用者の Runner への接続を避ける。
@@ -191,11 +191,11 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 性能受入 1〜3 と既確認の機能受入 4〜10 が揃った。Debug・Release・core テスト・設定・本体ソースを `acceptance-cuda/stage1-accepted/package/` へ保存し、`acceptance.json` から機能検証 stage1 と性能結果へ案内した。機能検証で使った stage1 と新しい Debug・Release Runner のハッシュはともに一致する。最後の Python 再試験は性能 4 tests・機能採取器 6 tests とも成功。本体 C++ を変えていないため、既定 core suite と build は前の成功結果を使う。
 - 工程の残り: ステージ 1 の性能課題 f9790d は事象の解消と受入を確認し、判定を残件無し（状態は対応中のまま）とする。ステージ 2 の課題 0ddffa は残件有りで、方式の整理・受入 11〜15 は未実施。英語版設計文書の追随も未完了。PRD 全体を完了とは扱わない。
 - 性能結果の最終レビューは、実測・trace・保存基準には不足なし、計画と README の冒頭に残っていた機能検証時点の範囲の記述で差し戻し。現行の概要・検証・前提と README 冒頭を機能・性能受入 1〜10 の完了へ揃え、過去の経過行は保持した。監査表は着手前の結果と明示し、比較基準の保存先も実際の所在へ揃えた。原文は `.scratch/prd130/review-20261116-0647.md`。
-- 修正後の再レビューは計画・実装とも OK。ステージ 1 の機能・性能受入 1〜10、比較基準と未完了範囲の記録を確認し、追加の不足・修正要求・範囲外の検出・起票候補・開発者への確認事項は無い。原文は `.scratch/prd130/review-20261116-0648.md`。実装品質確認観点の全項目を適用範囲に従って自己点検し、対象差分の空白・UTF-8/LF・試作識別子の参照先・不要な pyc の不在も確認した。今回の作業はここで停止する。ステージ 2 と英語版追随、コミットの準備は実施していない。
+- 修正後の再レビューは計画・実装とも OK。ステージ 1 の機能・性能受入 1〜10、比較基準と未完了範囲の記録を確認し、追加の不足・修正要求・範囲外の検出・起票候補・開発者への確認事項は無い。原文は `.scratch/prd130/review-20261116-0648.md`。実装レビュー観点の全項目を適用範囲に従って自己点検し、対象差分の空白・UTF-8/LF・試作識別子の参照先・不要な pyc の不在も確認した。今回の作業はここで停止する。ステージ 2 と英語版追随、コミットの準備は実施していない。
 
 ### ステージ 2 の経過
 
-- 2026-11-16: 「性能比較前まで実行」の指示を受けて再開。ステージ 1 の受入済み実行体を保持し、同じ 100k checkpoint の基準側の続きの採取を開始した。性能比較は行わない。C++ の品質確認観点の指定 8 節と所有権ガイド、TDD・karpathy の手順、Runner ガイドの指定 3 節を確認した。
+- 2026-11-16: 「性能比較前まで実行」の指示を受けて再開。ステージ 1 の受入済み実行体を保持し、同じ 100k checkpoint の基準側の続きの採取を開始した。性能比較は行わない。C++ のレビュー観点の指定 8 節と所有権ガイド、TDD・karpathy の手順、Runner ガイドの指定 3 節を確認した。
 - 最初に、混合 byte・float・離散値の辞書の Clone・Save/Load とその後の採点・Learn・読むだけの採点・診断の同一性を、CPU/CUDA と累積/EMA/feedback/collect_errors で固定した。整理前の Debug 全ビルドと `[prd130],[prd127]` は 3,752 assertions、失敗 0、skip 0（`stage2-characterization.xml`）。
 - 累積と EMA の誤差統計を分け、保存順・計算順と旧計測名を維持した。Debug 全ビルドと `[prd130],[prd116],[prd123],[prd127]` は 6,284 assertions、失敗 0、skip 0（`stage2-error-split.xml`）。
 - checkpoint 継続の比較入口 `compare-load` を加えた。記録された `load_` の Run を読み、target_feature_var を除かず一致を求める回帰テストの RED→GREEN を確認し、採取器の Python 7 tests が成功した。
@@ -232,7 +232,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 最終の既定 suite の実行は `core/anet-core/bin/Debug/anet-core-test.exe --rng-seed 459223024 --reporter junit --out .scratch/prd130/acceptance/stage2-default-r2.xml`。標準出力・標準エラーは `acceptance/stage2-default-r2.log` に保存した。初回の履歴ファイルの置換例外と単独再試験は、上の経過のとおり別記録で保持し、成功した再試験と混ぜていない。
 
-今回増えた公開 API はなく、ステージ 1 の `UpdateStats` 以外の契約変更もない。実装品質確認観点の全 83 項目を適用範囲に従って自己点検した。UTF-8・LF・既存 BOM・対象差分の空白、保存ソースと Runner の同一性、旧フィールドと試作の参照先、文字列の重複を確認した。重複候補 3 件はテストの設定キーで、許される直書きである。判定に使う記録は `acceptance/stage2-source-check.json`・`stage2-literal-candidates.log`・`stage2-translation-check.json` にある。
+今回増えた公開 API はなく、ステージ 1 の `UpdateStats` 以外の契約変更もない。実装レビュー観点の全 83 項目を適用範囲に従って自己点検した。UTF-8・LF・既存 BOM・対象差分の空白、保存ソースと Runner の同一性、旧フィールドと試作の参照先、文字列の重複を確認した。重複候補 3 件はテストの設定キーで、許される直書きである。判定に使う記録は `acceptance/stage2-source-check.json`・`stage2-literal-candidates.log`・`stage2-translation-check.json` にある。
 
 機能検証終了時点では、ステージ 2 の実装・機能検証と文書の追随までが到達点で、PRD 全体の受入完了とはしていなかった。課題 0ddffa は性能比較 13 を残すため残件有り、f9790d のステージ 1 の確認済み結果は維持した。この時点でも新規の起票候補と開発者判断待ちはなかった。
 
@@ -280,7 +280,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 測定終了を確認した直後に評価 Run を再開できることを開発者へ通知した。評価 Run の PAUSE・再開・終了の操作は行っていない。C++ の本体と受入済み Debug・Release 実行体は変更していない。初回の workspace 履歴ファイル置換例外の原因は未特定だが、同 seed の全 suite 再試験の成功と区別して記録している。未実施の必須検証・開発者判断待ち・新規起票候補はなし。
 
-実装品質確認観点の全 83 項目を適用範囲に従って自己点検した。CPU 履歴版の 16 tests・実 API 検証、全 36 本の証拠照合、最終のソース・実行体同一性と UTF-8/LF・空白の検査、日英の文書対応とリンクの検査はすべて成功（`stage2-performance-tests-r4.log`・`stage2-performance-native-cpu-check.log`・`stage2-performance-evidence-check.log`・`stage2-final-source-check.log`・`stage2-final-translation-check.log`）。課題 0ddffa を残件無しとし、状態は対応中を維持した。派生一覧の再生成も成功し、変更は INDEX と 321_agent_core の該当区画、未解決 PRD 参照は 0（`stage2-final-maps.log`）。受入済みビルド以降に C++ は変えていないため、全ビルド・既定 suite の成功記録を再利用する。最終の結果と記録を独立レビューへ出す。
+実装レビュー観点の全 83 項目を適用範囲に従って自己点検した。CPU 履歴版の 16 tests・実 API 検証、全 36 本の証拠照合、最終のソース・実行体同一性と UTF-8/LF・空白の検査、日英の文書対応とリンクの検査はすべて成功（`stage2-performance-tests-r4.log`・`stage2-performance-native-cpu-check.log`・`stage2-performance-evidence-check.log`・`stage2-final-source-check.log`・`stage2-final-translation-check.log`）。課題 0ddffa を残件無しとし、状態は対応中を維持した。派生一覧の再生成も成功し、変更は INDEX と 321_agent_core の該当区画、未解決 PRD 参照は 0（`stage2-final-maps.log`）。受入済みビルド以降に C++ は変えていないため、全ビルド・既定 suite の成功記録を再利用する。最終の結果と記録を独立レビューへ出す。
 
 結果の追確認では、全 36 本の原記録・休止検査・受入結果に不足はなかったが、計画と README の冒頭の現行到達点に性能未完了の表記が残っていたため差し戻し（`.scratch/prd130/review-20261116-1054.md`）。概要・検証冒頭・前提・README の今回の範囲を完了へ揃え、過去の機能検証終了時点はその時点だと明記した。全体の同種表記も検索し、品質観点の該当項目と空白・文字コードを再点検した。コード・測定値は変えていない。
 
@@ -295,5 +295,5 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 3 件の修正を終えた。`WhitenStatistics` の private 関数群の生成・上書き・固有処理の切れ目に空行を置き、追加した 3 つの型の前方宣言を `ComputePredictionErrors` の前へ移した。有限な誤差を更新前に検査して統計・重み・moment を保護する意図と、predictor が慣れるまで誤差統計を空に保つ意図を移動先へ戻した。212 日英 §5.1 は主・副・Taiga の性能受入完了へ揃え、同じ段落周辺の別途測定の表記も解消した。英語版の翻訳元 blob を現在の日本語版に合わせた。既存の残件の意味、数式、条件、データメンバ、ログや計測名は変えていない。
 - 検証は MSVC 初期化経由の `cmake --build --preset x64-Debug` と `x64-Release` の全ビルドが成功（`acceptance/cc-r2-debug-build.log`・`cc-r2-release-build.log`）。修正後の Debug で `anet-core-test.exe "[prd130],[scaler],[prd116],[prd123],[prd127],[shipped_config]" --reporter junit --out .scratch/prd130/acceptance/cc-r2-related.xml` を実行し、通常ログは `cc-r2-related.log` へ保存した。9,886 assertions、失敗・例外・skip 0 で成功。
 - `.scratch/prd130/check_cc_r2.py` は固定 package と修正前スナップショットを照合し、cpp のコード行はコメントと空行以外で同一、hpp は指定した 3 つの前方宣言の移動以外で同一、ほかの保存ソースは完全同一と確認した。19 ファイルの UTF-8/LF と既存 BOM、対象の空白も検査した（`acceptance/cc-r2-source-check.json`・`cc-r2-source-check-final.log`）。日英の構造・コード・表・未訳・リンク・翻訳元情報の検査も成功（`cc-r2-translation-check.json`）。計算に関する挙動を変えない修正なので、受入済みの 100k 比較・checkpoint 継続・全既定 suite・性能測定の記録はそのまま参照し、再実行していない。固定した実行体は変更しておらず、再ビルド後の現用実行体のハッシュは別欄で保存した。
-- 実装品質確認観点の全 83 項目を今回の差分へ適用して自己点検した。今回の変更には新たな挙動・公開 API・設定・所有状態を足していないため、TDD の追加テストは対象外とし、既存の関連テストで確認した。翻訳用語の追加と新しい drift 候補はない。前回の共通依頼から変えた 7 ファイルだけを、新しい差分と検証記録で両モデルの続きへ出す。
+- 実装レビュー観点の全 83 項目を今回の差分へ適用して自己点検した。今回の変更には新たな挙動・公開 API・設定・所有状態を足していないため、TDD の追加テストは対象外とし、既存の関連テストで確認した。翻訳用語の追加と新しい drift 候補はない。前回の共通依頼から変えた 7 ファイルだけを、新しい差分と検証記録で両モデルの続きへ出す。
 - 同じ共通依頼 `.scratch/prd130/request-20261116-1241.md` で両モデルへ続けて依頼し、2 往復目は Codex・Claude とも計画・実装が OK。前回の 3 件は解消し、追加の修正要求・範囲外の検出・開発者への確認事項はない。原文は `.scratch/prd130/review-20261116-1245.md`・`review-20261116-1241-claude.md`。両者とも今回の検査スクリプトを再実行せず、読み取り比較と保存記録を使った。Claude はビルドログと関連 XML を直接読まず、依頼の検証記録を根拠にしていることも原文へ残している。Claude の SDK 表示費用は今回の結果で USD 8.851619（前回の表示は USD 4.8760974）。セッション継続での表示値として記録し、増分や合計へ読み替えていない。修正と両モデル再レビューをここで完了する。

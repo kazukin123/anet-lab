@@ -58,7 +58,7 @@ Double DQNは行動をonline側、価値をtarget側で評価する。無効時�
 
 `discount_mode=shared`は外的の割引率を使う。`separate`は明示した内的の割引率を使い、scheduleも選べる。定数の成分はPush時の収益を保存し、scheduleの成分だけ抽選後に保存したstep報酬から収益を作り直す。
 
-`terminal_mode=episodic`では、内的もdoneでbootstrapを切る。`non_episodic`では、終端後の最初の観測から内的だけbootstrapする。doneとtruncatedが同時に真なら両方とも切る。truncatedだけなら両方ともbootstrapする。TBOは完成した実空間の目標値へ適用する。
+`terminal_mode=episodic`では、内的もdoneでbootstrapを切る。`non_episodic`では、終端後の最初の観測から内的だけbootstrapする。doneとtruncatedが同時に真なら両方とも切る。truncatedだけなら両方ともbootstrapする。`non_episodic`でもn-stepの和は終端で閉じ、終端のあとのエピソードの報酬は`R_int`に入らない。TBOは完成した実空間の目標値へ適用する。
 
 ### 3.2 Munchausen
 

@@ -49,7 +49,7 @@
       "id": "actor",
       "type": "backend",
       "label": "Actor",
-      "sublabel": "device で forward",
+      "sublabel": "Perception → forward",
       "stage": 2,
       "row": 0,
       "tag": "推論"
@@ -58,7 +58,7 @@
       "id": "replay",
       "type": "database",
       "label": "ReplayBuffer",
-      "sublabel": "CPU で保管",
+      "sublabel": "Frame を CPU で保管",
       "stage": 2,
       "row": 2,
       "tag": "N-step・PER"
@@ -76,7 +76,7 @@
       "id": "learner",
       "type": "backend",
       "label": "Learner",
-      "sublabel": "loss・optimizer",
+      "sublabel": "Perception → loss",
       "stage": 3,
       "row": 2,
       "tag": "device"
@@ -242,22 +242,22 @@
       "title": "正本と導出物",
       "items": [
         "metrics.jsonl（.gz）と config/ が正本。Viewer が Run フォルダに置く metrics_cache.db は作り直せる cache",
-        "画像は images/、動画は videos/*.mkv。範囲の統計は cache の scalars から引く"
+        "画像は images/、動画は videos/*.mkv、NN と Perception の図は dot/。範囲の統計は cache の scalars から引く"
       ]
     },
     {
       "dot": "violet",
-      "title": "device と process の境界",
+      "title": "device・process・観測の加工",
       "items": [
-        "Env の State・Experience と ReplayBuffer は CPU。Actor と Learner が device へ移す",
-        "Viewer・bridge・inspect_run は別 process でファイルを読む"
+        "Env の State・Experience と ReplayBuffer は CPU。Actor と Learner が device へ移し、Viewer・bridge・inspect_run は別 process でファイルを読む",
+        "取り込みは統計を更新して Frame をそのまま渡し、Actor は lane の履歴、Learner は Sample の束から Perception を作る"
       ]
     },
     {
       "dot": "cyan",
       "title": "根拠",
       "items": [
-        "書き手: metrics_logger.hpp の LogScalar・LogTrace、RunnerApp の Log(\"config_data\")",
+        "書き手: metrics_logger.hpp の LogScalar・LogTrace、RunnerApp の Log(\"config_data\")。観測: forwarder.hpp の ForwarderBuilder",
         "読み手: MetricsIngestor.java、RunConfigService.java、apps/tools/metrics_source.py"
       ]
     }

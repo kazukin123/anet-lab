@@ -34,12 +34,17 @@ struct QValuePanel::Config : public anet::Config {
 
     Config(const anet::ConfigData& config_data) : anet::Config("QValuePanel")
     {
+        constexpr int kMinHistBins = 1;
         constexpr int kMinSmoothRadius = 1;
         ANET_READ_CONFIG(config_data, row_height);
         ANET_READ_CONFIG(config_data, hist_bins);
         ANET_READ_CONFIG(config_data, hist_range_k);
         ANET_READ_CONFIG(config_data, use_hist_smooth);
         ANET_READ_CONFIG(config_data, smooth_radius);
+        if (hist_bins < kMinHistBins) {
+            ANET_SYSTEM_ERROR(GetFullKey("hist_bins") << "=" << hist_bins
+                << " must be an integer >= " << kMinHistBins << ".");
+        }
         if (smooth_radius < kMinSmoothRadius) {
             ANET_SYSTEM_ERROR(GetConfigPrefix() << ".smooth_radius=" << smooth_radius
                 << " must be an integer >= " << kMinSmoothRadius << ".");
@@ -972,7 +977,7 @@ void QValuePanel::OnGridActionClick(wxGridEvent& event)
     if (action_handler_) {
         action_handler_(action);
     } else {
-        runner_->DoStep(action);
+        runner_->DoStep(anet::rl::MakeActionOptions{.forced_actions = anet::rl::ForcedActions::ByLane(0, action)});
     }
     grid_->ClearSelection();
 }

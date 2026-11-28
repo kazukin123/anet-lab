@@ -18,7 +18,7 @@
 ### 1.3 記載範囲
 
 現行のAgent共通interface、`AgentBase`、factory、repository、登録済みAgentを扱う。
-DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、ReplayBuffer内部は[ReplayBuffer](150_replay_buffer.jp.md)、Network内部は[ニューラルネットワーク](130_neural_networks.jp.md)を参照する。
+DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、PPO系の構成と学習方式は[PPO系Agent](230_ppo_agents.jp.md)、方策ベースのAgentが使う共通部品は[方策ベースの学習の共通部品](115_on_policy_learning.jp.md)、ReplayBuffer内部は[ReplayBuffer](150_replay_buffer.jp.md)、Network内部は[ニューラルネットワーク](130_neural_networks.jp.md)を参照する。
 将来設計や未実装案は規範仕様に含めない。
 
 ## 2. 基本概念と外部contract
@@ -40,7 +40,11 @@ DQN固有の構成と学習方式は[DQN系Agent](200_dqn_agents.jp.md)、Replay
 
 `run.train.actor`は既定`train`、`run.eval.[tag].actor`は既定タグ名で、`<Agent>.actor.[key]`を参照する。EvalPanelは参照する評価タグの指定を使う。Actor用seedは`actor/<Runner名>`から派生し、各Actorが独立した乱数・方策状態を持つ。RunModeはEnvの用途選択だけに残る。
 
+強制行動はその回の `MakeActionOptions::forced_actions` で渡す。`ForcedActions::ByLane(lane, action)` は 1 lane を指定し、`ByMask(mask, actions)` は lane 数と同じ長さの bool と int64 のテンソルで指定する。印が真の lane にだけ行動が適用される。Eval Runner は Reset の前に指定を検査し、遷移の `forced` を lane ごとに記録する。Actor が返した行動を Env が実行する。
+
 ActorはModuleでもあり、`Runner::GetActor()`とmetricsの`$actor`からepsilon・温度などを参照できる。方策スケジュールは`MakeAction`の学習側countsで進む。EvalRunnerは`Sync(source_counts)`で学習側countsを保持し、評価イベント自体のcountsは別に数える。
+
+DefaultDQN は Env と同じ単フレーム spec で経験を受け入れ、ReplayBuffer を構築する。行動選択、経験の受入れ、Sample、可視化で同じ Builder を使い、それぞれの入力 spec を渡して Forwarder を作る。Sample の入力 spec は ReplayBuffer が返す。[Forwarder と Perception](135_forwarder_and_perception.jp.md#6-処理フロー)を参照。
 
 ### 2.3 StateとResource
 
@@ -60,6 +64,7 @@ Agent系の所有権は次の原則に従う。
 |---|---|---|
 | `DefaultDQNAgent` | 設定可能なDQN系Agent | [DQN系Agent](200_dqn_agents.jp.md) |
 | `RainbowAgent` | DQN 系の共通部品の責務分担を確かめる2つ目の Agent。Run では使わない | [DQN系Agent](200_dqn_agents.jp.md) |
+| `PPOAgent` | 方策を直接学ぶPPO系のAgent（離散行動）。rolloutをためて学ぶ | [PPO系Agent](230_ppo_agents.jp.md) |
 | `MuZeroAgent` | MuZeroの試作実装 | 現行コードを参照 |
 | `ImageClsAgent` | 共通Run/Agent contract上で画像分類を学習する実装 | 現行コードを参照 |
 
@@ -86,6 +91,8 @@ Runner が系統の公開初期化関数を呼んで登録し、`AgentRepository
 | 共通contract | [rl.hpp](../../src/core/base/include/anet/rl.hpp) |
 | Agent基盤・repository・factory | [agent.hpp](../../src/core/base/include/anet/agent.hpp)、[agent.cpp](../../src/core/base/src/agent.cpp) |
 | DQN系 | [DQN系Agent](200_dqn_agents.jp.md) |
+| PPO系 | [PPO系Agent](230_ppo_agents.jp.md) |
+| 方策ベースの共通部品（行動の分布、advantageの推定） | [distribution.hpp](../../src/core/base/include/anet/distribution.hpp)、[advantage.hpp](../../src/core/base/include/anet/advantage.hpp)。[方策ベースの学習の共通部品](115_on_policy_learning.jp.md) |
 | ImageCls | [image_cls_agent.hpp](../../src/algo/imagecls/src/image_cls_agent.hpp)、[image_cls_agent.cpp](../../src/algo/imagecls/src/image_cls_agent.cpp) |
 | MuZero試作 | [muzero_proto_agent.hpp](../../src/algo/muzero/src/muzero_proto_agent.hpp)、[muzero_proto_agent.cpp](../../src/algo/muzero/src/muzero_proto_agent.cpp) |
 | 初期登録 | [init.cpp](../../src/core/base/src/init.cpp) |
@@ -157,7 +164,7 @@ Actor内部のObservation加工、Network forward、Policy、snapshot同期は�
 
 DefaultDQNのskip網は `skip.network_mode=action_out|action_in` で構成を選ぶ。action_inはaction入力のbindを必須とし、action_outはそのbindを禁止する。有効時だけskip網を構築し、無効時は設定値だけを検証する。IQNの既定入力はprimaryの融合済み特徴で、skip側のtaus bindは必須にしない。Jはenvが既定を持ち、実装既定は未指定（0）。明示1は許し、明示0以下は無効時も拒否する。
 
-DefaultDQNのskip有効時は、Actorがlane別に継続行動・選択した長さ・残り回数を所有する。`episode_start`で継続を解除し、infoの`decision`で新しい判断を示す。RunnerのstepやEnvのframe skipは変えず、primaryのforwardも毎step行う。primary／skipのcloneと同期は同じAgentのロック内で行う。強制行動`WithAction`は実行行動とQヒントを差し替えるが、Actorの継続状態を更新しない。
+DefaultDQNのskip有効時は、Actorがlane別に継続行動・選択した長さ・残り回数を所有する。`episode_start`で継続を解除し、infoの`decision`で新しい判断を示す。RunnerのstepやEnvのframe skipは変えず、primaryのforwardも毎step行う。primary／skipのcloneと同期は同じAgentのロック内で行う。強制行動は `MakeActionOptions::forced_actions` で lane ごとに渡す。Actor は方策の選択を終えてから強制を反映し、その行動を Runner が実行する。TempoRL では強制した step を長さ 1 の判断として記録し、その lane は次の step で判断し直す。
 
 DefaultDQNのActorごとの `skip.max_length_mode` はfull・single・variableを選ぶ。full/variableは継続状態をActorが所有し、singleは毎step判断して方策の提案をそのまま使う。variableの整数ProfiledValueはMakeActionの学習側exp_stepで進める（評価側は直近Syncのcounts）。skip NetworkのforwardとJ本のauxはどのモードも維持する。幅と補助学習用の窓の組み合わせはAgentがカタログ全体に対して検証し、Runnerの用途を推測しない。具体的な契約は[DQN系列](200_dqn_agents.jp.md)のskip方策、確認手順は[RFD0104検証資材](../../src/core/base/testdata/rfd0104/README.md)を参照する。
 
@@ -181,7 +188,7 @@ sequenceDiagram
     end
 ```
 
-`LearnEvent`を生成するのはLearnerではなく、更新結果を受け取ったRunnerである。LearnerがReplayBufferを使うか、1回の呼出しで何回更新するかは具象実装が決める。
+`LearnEvent`を生成するのはLearnerではなく、更新結果を受け取ったRunnerである。LearnerがReplayBufferを使うか、1回の呼出しで何回更新するかは具象実装が決める。PPO系のLearnerは、経験をrolloutにためる間は空の結果を返し、rolloutが埋まった呼出しで、複数回の更新の結果をまとめて返す。
 
 ## 7. 設定・lifetime・エラー・性能特性
 
@@ -243,7 +250,9 @@ Agentを追加・変更する場合は、少なくとも次を確認する。
 - [可観測性](140_observability.jp.md)
 - [ReplayBuffer](150_replay_buffer.jp.md)
 - [アプリケーションとツール](160_applications_and_tools.jp.md)
+- [方策ベースの学習の共通部品](115_on_policy_learning.jp.md)
 - [DQN系Agent](200_dqn_agents.jp.md)
+- [PPO系Agent](230_ppo_agents.jp.md)
 - [Agent実装の所有権ガイドライン](../ownership_guideline.md)
 - [用語集](../../CONTEXT.md)
 - [ADR一覧](../adr/)

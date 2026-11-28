@@ -1,4 +1,4 @@
-<!-- translated-from: 020_user_guide_run.jp.md blob:f2d68e061b9048e6029ec7ad56a934f99a48dfcb date:2026-11-23 progress:done -->
+<!-- translated-from: 020_user_guide_run.jp.md blob:8053c2121bb1deeaaf03c5ba0e87126f355b4d02 date:2026-11-27 progress:done -->
 # Run Execution User Guide
 
 > Primary perspective: workflow (configuration, startup, operation, shutdown, and artifact inspection)
@@ -177,7 +177,7 @@ backend.$ = backend.@non-deterministic             # ベースが cudnn_benchmar
 
 #### 3.4.2 Profiles `@name`
 
-Define a profile with `Owner.@name : key = v`. Separate the boundary with `:` and do not continue it with `.` (the canonical rule is Configuration File Profile Boundaries in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). `:` means the same as `.` and is used only at a profile boundary.
+Define a profile with `Owner.@name : key = v`. Separate the boundary with `:` and do not continue it with `.` (the canonical rule is Configuration File Profile Boundaries in the Configuration Files rules of [Implementation Review Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). `:` means the same as `.` and is used only at a profile boundary.
 
 - A definition alone does not contribute values. Only the portion selected by a chain or partial selection enters the final values.
 - Short `@name` resolves in the namespace where it is written (the definition site). `Env.$ = @a` refers to `Env.@a`, and `Env.@a : $ = @b` refers to `Env.@b`. Even when used elsewhere as `Other.$ = Env.@a`, the `@b` inside `@a` still refers to `Env.@b`.
@@ -302,7 +302,7 @@ X.key ?= v              既定キー。X.$ に負ける
 | Workspace `config/_main.txt` | `$include` directives for the `<Env>.txt` files to enable | - |
 | bat, CLI | `run.$` selection and configuration key overrides | `=` |
 
-The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). Do not use `?=` merely because a value might be overridden later. Group only the configuration keys that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
+The convention is **`?=` for base definitions in shared files; in Env-specific files, `?=` only for defaults and generally `=` everywhere else** (the canonical rule is Configuration File Assignment Operators in the Configuration Files rules of [Implementation Review Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)). Do not use `?=` merely because a value might be overridden later. Group only the configuration keys that require `?=` to preserve existing effective values into defaults, with reasons. Block headings and comment styles are unrestricted (`DropMerge.txt` has a DropMergeEnv default-settings heading; `LunarLander.txt` has none). This is an editing and auditing convention; the resolver does not change behavior by file name or location. After adding or changing configuration, run the static check for `=` remaining in shared/default settings and `?=` mixed into Env-specific explicit assignments.
 
 ```bash
 .\.venv\Scripts\python.exe src/core/base/testdata/rfd0072/check_default_leaves.py
@@ -532,7 +532,7 @@ On a manual Close or `File > Exit`, if background evaluation that must be waited
 
 If saving `agent_close.anet` on close fails, the same notification policy applies, and log shutdown and GUI cleanup continue until the window closes. In that case, `agent_close.anet` may not be a valid checkpoint. If the Agent does not implement Save, a zero-byte file remains and a WARN includes the target path. Even successfully saved checkpoints should be loaded into a new Run only after checking that Agent, Network, and archive contracts match.
 
-To load a checkpoint into a new Run, specify the Agent-specific `auto_load_file` in a compatible configuration for a new Run. Current examples are `R.auto_load_file`, an alias for `DefaultDQNAgent.auto_load_file`, and `ImageClsAgent.auto_load_file`. Checkpoints with different Network structures or archive contracts cannot be loaded. Saved contents vary by Agent; current DQN Agents do not restore ReplayBuffer contents or sampling state. Loading creates a new Run directory and step series; it does not append to the old Run's `metrics.jsonl`. For DefaultDQN, optimizer settings such as the learning rate come from the new Run configuration, and values that differ from the checkpoint produce INFO logs. See [DQN Agents](200_dqn_agents.en.md) for what DQN saves.
+To load a checkpoint into a new Run, specify the Agent-specific `auto_load_file` in a compatible configuration for a new Run. Current examples are `A3.auto_load_file`, an override for `DefaultDQNAgent.auto_load_file`, and `ImageClsAgent.auto_load_file`. Checkpoints with different Network structures or archive contracts cannot be loaded. Saved contents vary by Agent; current DQN Agents do not restore ReplayBuffer contents or sampling state. Loading creates a new Run directory and step series; it does not append to the old Run's `metrics.jsonl`. For DefaultDQN, optimizer settings such as the learning rate come from the new Run configuration, and values that differ from the checkpoint produce INFO logs. See [DQN Agents](200_dqn_agents.en.md) for what DQN saves.
 
 Use `run.eval_schedule.[tag].offset` (default 0) to shift evaluation firings in learn steps. Set `warmup_count` (default 1) to the number of initial firings that should not run evaluations. Both must be non-negative integers. For evaluation-only Runs that need an immediate evaluation, set `warmup_count = 0` for each scheduled tag. Also set `offset = 0` when an inherited offset is unwanted.
 
@@ -648,7 +648,7 @@ For comparison or reproduction, treat `config/config_data.txt` in the Run direct
 ## 9. Related Documents
 
 - [CONTEXT.md](../../CONTEXT.md) (canonical configuration terminology)
-- [Implementation Quality Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB), Configuration Files rules (Configuration File Assignment Operators) (operator usage rules)
+- [Implementation Review Viewpoints](../quality/impl.md#%E8%A8%AD%E5%AE%9A%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB), Configuration Files rules (Configuration File Assignment Operators) (operator usage rules)
 - [Analysis User Guide](030_user_guide_analysis.en.md)
 - [Development Environment](040_development_environment.en.md)
 - [Runtime Infrastructure and Configuration](100_runtime_and_configuration.en.md)

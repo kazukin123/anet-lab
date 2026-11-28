@@ -280,9 +280,9 @@ A2.learner.grad_clip_tau = 5
 
 #E1.game_over_grace_step = 60 # 5
 
-#A2.stucker.stack_count = 4
+#A2.frame_stack.count = 4
 
-#A2.stucker.stack_count = 1    #4
+#A2.frame_stack.count = 1    #4
 
 #A2.learner.use_grad_clip = false
 
@@ -324,7 +324,7 @@ A2.learner.grad_clip_tau = 5
 
 #A2.learner.replay_ratio = 4.0
 
-#A2.stucker.use_stacker = false
+#A2.frame_stack.count = 1
 
 #E1.action_mode = direct      # move move_fast direct direct_noop
 #E1.action_mode = direct_noop # move move_fast direct direct_noop
@@ -382,8 +382,8 @@ A2.learner.grad_clip_tau = 5
 
 #E1.use_dropper_x_grid = false  # true
 
-#A2.stucker.stack_count = 1    #4
-#A2.stucker.stack_count = 12    #4
+#A2.frame_stack.count = 1    #4
+#A2.frame_stack.count = 12    #4
 
 #A2.learner.replay_capacity = 500,000
 
@@ -620,6 +620,7 @@ run.@qr51_control : DropMergeEnv.$ = DropMergeEnv.@baseline > DropMergeEnv.@G584
 run.@qr51_control : DefaultDQNAgent.$ = @baseline > @qr > @fast > A1 > @bf16 > A2 > A3
 run.@qr51_control : DefaultDQNAgent.net.branch.[vector_feature].structure = Embed5846_v2
 run.@qr51_control : DefaultDQNAgent.net.branch.[main_feature].$ = net.branch.@SuikaImpala2_ViT128
+run.@qr51_control : DefaultDQNAgent.net.body.output.[skip_context] = main_feature
 run.@qr51_control : DefaultDQNAgent.qr.num_quantiles = 51
 run.@qr51_control : A2.learner.per_alpha = 0.2
 run.@qr51_control : A2.learner.per_initial_priority_mode = fixed
@@ -722,8 +723,7 @@ A1.learner.iqn.current_taus.num_taus = 32
 A1.learner.iqn.target_taus.sample_mode = random
 A1.learner.iqn.target_taus.num_taus = 32
 
-A1.stucker.use_stacker = true
-A1.stucker.stack_count = 4
+A1.frame_stack.count = 4
 
 A1.use_optimistic_target = true         # Q値にactor.[train].policy（UQE）を反映させるならtrue
 
@@ -1521,11 +1521,11 @@ metrics.image.interval = 0   # 出力全無効
 #metrics.image.[43_agent_img/02_hm_visit_03_maxq].$     = image.phm.@visit-maxq
 
 #metrics.image.[44_agent_img/52_per_thg_prio].$         = image.thg.@per-prio
-#image.thg.@per-prio.histgram.probe.value.key = replaybuffer.per.distribution
-#image.thg.@per-prio.histgram.frame_interval = 200 # 10
-#image.thg.@per-prio.interval = 100
-#image.thg.@per-prio.interval = 500
-#image.thg.@per-prio.interval = 1000
+#image.thg.@per-prio : histgram.probe.value.key = replaybuffer.per.distribution
+#image.thg.@per-prio : histgram.frame_interval = 200 # 10
+#image.thg.@per-prio : interval = 100
+#image.thg.@per-prio : interval = 500
+#image.thg.@per-prio : interval = 1000
 
 #metrics.image.[45_agent_img/05_shm_01_qma01].$   = image.shm.@qmax > image.shm.@s01
 #metrics.image.[45_agent_img/05_shm_01_qma02].$   = image.shm.@qmax > image.shm.@s02
