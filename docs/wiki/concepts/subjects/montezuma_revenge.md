@@ -41,7 +41,7 @@ aliases:
   - lr3e4
   - RFD0191
 description: サンプル効率優先＋RND（β 0.1）の 30M、1 seed では、ε=0.01 の評価は 14.21M から鍵と扉で 400 点を繰り返した。Greedy の主評価は 20.4M まで全ゲーム 0 点。同じ重みの別評価では 20.4M に 16 ゲーム中 1 ゲームが 400 点だった。この Run には RND なしの対照がない。
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 # Montezuma's Revenge
 
@@ -167,6 +167,12 @@ updated: 2026-11-27
   - 条件の違い: vd は割引率を共有し、内的の価値もゲームオーバーで切る形の 1 本（seed 1）で、30M の重みの評価だけで見た。開発者が見たのは n-step 10 の Run の EvalPanel（2026-11-22）で、骸骨のそばで内的報酬が高く、梯子を降りると下がる様子は記録に無い。同じ節の、外的の Q の行動間の差が小さいという見立てとは分けていない。
   - 確かめ方: n-step 10 の 2 本（n10・n10_s2）の重みを Evaluation Trace つきの Greedy で再生し、部屋 2 で骸骨のそばにいる step と梯子を降りた step で、外的と内的の V と内的報酬を並べる。骸骨のそばで内的の V だけが高く、外的の V は梯子の側で高ければ読みと合う（評価だけの新しい Run が要る）。
   - 出どころ: 開発者の発言（2026-11-22）
+- 学習側では、膠着して 27,000 step の打ち切りで終わるゲームが構成によっては多く、まれに出る上位のゲームも打ち切りで終わったり lane 窓（16,384 遷移）より長くなったりするのではないか。ε の大きい lane では膠着しにくいのではないか。 状態: 未検証
+  - 支える事実: (1) rnd_b001（β 0.01・Munchausen 有効）の学習側では、16〜28M の 2M 窓ごとに、終わったゲームの 74〜89% が打ち切りだった。b001 は 16〜30M に 4〜11%、b001_s2 は 24〜30M に 2〜4% だった（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ 8）。 (2) b001_s2 の Greedy は、10.2〜29.2M の 320 ゲームのうち打ち切りでないのが 4 本で、命が残っていた（出典: [Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、現時点のまとめ 10）。 (3) この群の Replay は lane 1 本あたり 16,384 遷移の窓で、学習の打ち切りは 108,000 フレーム（27,000 step）である（出典: [0201_top_episode_memory_sil_lower_bound_10rfd.md](../../../memo/0201_top_episode_memory_sil_lower_bound_10rfd.md)、§2.3・§9 の U5、[Montezuma's Revenge の RND（Taiga ら寄せ）の記録](../../../experiments/default-dqn/atari/2026-11-08_montezuma-rnd-taiga-aligned.md)、目的と比較条件）。
+  - 合わない事実: (1) n-step 10 の 44・45 の学習側のゲームは、24〜30M にゲームオーバーで終わった割合が 98%・100% で、1 ゲームの長さの平均は 2,229・1,077 step だった（出典: [0201_top_episode_memory_sil_lower_bound_10rfd.md](../../../memo/0201_top_episode_memory_sil_lower_bound_10rfd.md)、§2.3）。
+  - 条件の違い: 打ち切りの多かった rnd_b001 は Munchausen 有効で、n-step 10 の Run（Munchausen 無効・Double DQN 有効）と構成が違う。Greedy は ε を使わず、学習側の lane は ε が lane ごとに違う。部屋 23 のゲームの終わり方と長さ、lane ごとの打ち切りの割合は数えていない。
+  - 確かめ方: n-step 10 の 9 本（44〜52）の `metrics_cache.db` の学習側のゲームの行から、12M 以降のゲームを、終わり方（終端・打ち切り）、長さ、lane で数え、部屋 23 に入ったゲームについても同じに数える（今ある Run の集計で済む）。
+  - 出どころ: 開発者の発言（2026-11-28）
 
 ## 分かっていないこと
 
