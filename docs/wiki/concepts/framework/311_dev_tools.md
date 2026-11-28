@@ -28,7 +28,7 @@ aliases:
   - hook
   - compact_cue
 description: 開発・検証、分析ツール、探索harnessとCIの関係を引く
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 # 開発プロセス・開発ツール・テスト基盤（311）
 
@@ -87,6 +87,9 @@ updated: 2026-11-27
 - 2026-11-23: 変更ごとの文書の呼び名をPRDからRFDに改め、番号を0埋めの4桁にする（RFD0195。出典: [ADR 0093](../../../adr/0093-document-term-rfd-and-four-digit-numbers.md)）。
 - 2026-11-23: 観測の加工の部品の新しい機能グループ`forwarder`を、定点統計とトピック別まとめの分類（categories.json）の314へ足した（出典: [RFD0161](../../../memo/0161_observation_pipeline_10rfd.md)、§6.3 D45・§7.8）。
 - 2026-11-23: 会話が要約された直後に、SessionStart（起動の理由がcompact）のhookでClaude CodeとCodexの両方に読み直しの文を差し込み、続けている工程のskillを今いる段から最後まで、作業記録と、続行中のまとめページの進行状況・案と論点の一覧の節を読み直させ、新しい会話で続けるときも同じ読み方をまとめページのskillに書き、AGENTS.mdにも読み直しの決まりを1行置く案を、グリルで決めた（出典: [RFD0198](../../../memo/0198_reread_after_compaction_10rfd.md)、§1.2・§6 D1・D2・D4〜D7・D9）。
+- 2026-11-28: 作業の中で分かったこと（道具の振る舞いや費用の実測、作業の進め方の効き目）を書く正本として作業ノート（`reports/notes/`）を置き、`reports/` の下を記録を作った流れで `survey/`・`paper/`・`notes/` に分けて直下には索引だけを置き、wiki に分野で分ける種類「ハーネス」を足し、311 の範囲にハーネスのファイルを足し、サマリの名前に `_summary` を足して課題の rfd 欄のリンクが RFD の 1 つだけに当たるようにする案を、グリルで決めた（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§1.2・§6.1 D1〜D9）。
+- 2026-11-28: `reports/` の下は、記録を作った流れ（survey スキル、paper-details スキル、作業ノート）でフォルダに分け、直下には索引だけを置く（出典: [ADR 0099](../../../adr/0099-reports-are-split-into-folders-by-the-flow-that-made-them.md)）。
+- 2026-11-28: wiki の知見のページに、分野で分ける種類「ハーネス」を足し、主語に AI のエージェント、ハーネスのファイル、`src/` と `apps/` が組み込むか起動するもののほかのソフトウェアが入る知見を置く（出典: [ADR 0100](../../../adr/0100-wiki-adds-a-harness-kind-split-by-domain.md)）。
 
 ## 選ばなかった形
 
@@ -208,6 +211,19 @@ updated: 2026-11-27
 - wikiの節・種類・基準（横断的知見と見立ての節、知見の4種とフォルダ、サマリ、漏れなく載せる基準、「今の結論」の長さ）のどれかを戻す形 — 不採用: 問いの指標が増えなかった原因は何を起点に書くかで、戻す理由になる事実が出ていない（出典: [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md)、§6 D21・§13）。
 - 過去の質問に答えるとき、その質問をした会話のAIの答えを手がかりとして読む形 — 不採用: 過去の答えの誤りを、手がかりごと引き継ぐおそれがある（出典: [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md)、§6.2 S39・§13）。
 - wikiの点検の見立てに、過去の問いの型を当てる形 — 先送り: 効くかを試していない。再開条件: ステージ4の最初の点検の前の試しで、型を当てた見立てのほうが、指標に選ばれなかった問いに多く当たったとき（出典: [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md)、§7 U23）。
+- 作業の中で分かったことの正本を、`docs/` の下の新しい置き場にする形 — 不採用: `docs/` の下は GitHub Pages で配信する公開文書である（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D1・§13）。
+- 作業の中で分かったことを `reports/` 直下に混ぜ、ファイル名か索引の見出しで分ける形 — 不採用: 流れの違う記録が混ざり、何の記録か分からなくなる（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D1・§13）。
+- `reports/` の下を、出どころ（外から得たか、中で分かったか）で分け、外から得たものを全部 `survey/` に置く形 — 不採用: `survey/` は survey スキルの出力の置き場にする（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D1・D3・D4・§13）。
+- 作業の中で調べた外の事例を、RFD づくりでは RFD の本文だけに書く形 — 不採用: 書く先が RFD づくりの中と外で分かれ、トピック別まとめの「外の事例」に入らない（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D3・§13）。
+- survey と paper-details の出力を `reports/` 直下に書かせ、取り込みの前に AI が移す形 — 不採用: 移す判断が取り込みに混ざり、作った skill をファイルから決められないものがある（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D5・§13）。
+- 汎用の skill の出力先の決まりを、skill の側で直す形 — 範囲外: このリポジトリの外にある（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§1.3・§13）。
+- ハーネスの知見を今の 4 種で分け、目録に「ハーネス」の小見出しを置く形 — 不採用: 開発者の選択（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D6・§13）。
+- ハーネスの知見を 311 のトピック別まとめだけに載せる形 — 不採用: 効き目と実測を書く節が無い（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D6・§13）。
+- 311 の範囲を広げない形、`.claude/skills/` の写しも範囲に入れる形 — 不採用: 前者は開発者の選択、後者はページが長くなるだけ（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D7・§6.2 S13・§13）。
+- 課題の rfd 欄を、保管庫の根からのパス、または RFD0203 と同じパス＋拡張子＋表示名にする形 — 不採用: Obsidian で選び直すと名前だけが書かれる見込みで、決まりと違う形が混ざる（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D8・§13）。
+- 課題の rfd 欄を今のままにし、前提だけを書き直す形 — 不採用: 文書に無い選び方に頼り続ける（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D8・§13）。
+- 移動でリンクのパスだけが変わった材料を、新しい記録の種別で取り込み済みにする形 — 不採用: 開発者の選択（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D9・§13）。
+- 今の `reports/` 直下の報告を直下に残し、これから作るものだけをフォルダに分ける形 — 不採用: 「直下に報告を置かない」と食い違う（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D1・D9・§13）。
 - Optuna の storage を全 workspace 共通のデータベースにする — 不採用: Run 群・設定を移動したときに対応する探索履歴だけが外に残る（出典: [ADR 0021](../../../adr/0021-run-classification-by-workspace-folder.md)、Considered Options）。
 - MLflow の DB を利用者全体で共有する — 不採用: workspace を退避または削除しても DB の分類データが残り、Run 群と一緒に扱えない（出典: [ADR 0022](../../../adr/0022-mlflow-database-lives-with-workspace-runs.md)、Considered Options）。
 - メトリクスの座標系を解析ツールが設定とイベント名から再導出する — 不採用: Runner の C++ 側の規則を Python 側に重ねて持ち、実行時に決まったカウンターとずれうる（出典: [ADR 0029](../../../adr/0029-analysis-metadata-emitted-by-runner.md)、Considered Options）。
@@ -249,6 +265,8 @@ updated: 2026-11-27
 - エージェントのhookは、入力が読めないなどで失敗したら何も出さず、要約と作業を止めない（出典: [RFD0198](../../../memo/0198_reread_after_compaction_10rfd.md)、§6 D3）。
 - 要約のあとの読み直しの文と、まとめページのskillの新しい会話での読み方は、同じ要点（進行状況と案と論点の一覧の節だけを読む、ページは写し、食い違えば正本で確かめる）を持つ。どちらかを変えるときは両方を直し、hookのテストで要点の語を確かめる（出典: [RFD0198](../../../memo/0198_reread_after_compaction_10rfd.md)、§6 D8）。
 - 要約のあとの読み直しの文と、AGENTS.mdの読み直しの決まりの1行は、同じ要点（skillを今いる段から最後まで、作業記録、まとめページは手がかり）を持つ。どちらかを変えるときは両方を直す（出典: [RFD0198](../../../memo/0198_reread_after_compaction_10rfd.md)、§6 D9）。
+- 報告やサマリを移す・改名するときは、今使っている文書の旧いパスはリンクの丸括弧の外も直し、過去の記録（保管場所の RFD と実装記録、実験記録）は丸括弧の中だけを直し、wiki の作業の記録の過去の行は直さない。旧い置き場や旧い名前を読み替える仕組みは足さない（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§6.1 D18・§9.6）。
+- 報告を移すときは、移す前の中身の旧いパスを新しいパスに置き換え、移す前後の中身から Markdown のリンクの丸括弧の中身を取り除いて比べ、ほかが変わっていないことを確かめる（出典: [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md)、§10 A2）。
 - メトリクス原本だけを渡したときにも、記録した系列の座標系を解析できることを保つ。定義のない過去の Run とは区別する（出典: [ADR 0029](../../../adr/0029-analysis-metadata-emitted-by-runner.md)、Consequences）。
 - 課題と RFD の対応を移すときは、その RFD で直す課題だけを `rfd` に結び、関係するだけの RFD は `docs` に残す。範囲外に改訂した仕事を `rfd` に残すと、次版や見送りになった課題が実装済みの判定を妨げる（出典: [RFD0120](../../../memo/0120_issue_work_type_and_rfd_link_10rfd.md)、§4 D2・D11、§5.2）。
 
@@ -337,6 +355,8 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | [issue-20261125-a19ab8](../../../management/issues/issue-20261125-a19ab8.md) | 対応中 | 2.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | AI の応答が今の決まりと成果物に沿う案に寄り、根本策や既存から外れる別案を、本筋と分けて示す場所が無い |
 | [issue-20261119-25e4d0](../../../management/issues/issue-20261119-25e4d0.md) | 調査中 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0198](../../../memo/0198_reread_after_compaction_10rfd.md) | 未確認 | 会話が要約されたあと、続ける工程の手順を読み直さずに進めてしまう（読み直しを促す仕掛けが無い） |
+| [issue-20261127-01b29b](../../../management/issues/issue-20261127-01b29b.md) | 調査中 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 不具合 | [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md) | 未確認 | 課題の rfd 欄の名前だけのリンクが、RFD とそのサマリのページの 2 つに当たる |
+| [issue-20261127-f42cd7](../../../management/issues/issue-20261127-f42cd7.md) | 調査中 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | [RFD0208](../../../memo/0208_work_notes_harness_kind_summary_names_10rfd.md) | 未確認 | wiki の材料の正本に当たらない有用な知見（ハーネスの工夫、道具の振る舞いの実測、作業中に調べた一般の事例など）が残らない |
 | [issue-20261125-822a3e](../../../management/issues/issue-20261125-822a3e.md) | 対応中 | 1.6（引継ぎ） | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | [RFD0202](../../../memo/0202_wiki_accumulate_and_lookup_10rfd.md) | 残件有り | wiki に知見が積み上がりにくく、引きにくい（質疑の答えを残す経路、題材をまたぐ知見、サーベイと公開実装の事例、「今の結論」と目録の長さ） |
 | [issue-20261123-2cda10](../../../management/issues/issue-20261123-2cda10.md) | 調査中 | 1.5 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | レビューの出し方（2 モデルのクロスレビューを使うか、Claude 側を API とサブスクのどちらで動かすか、どのモデルを使うか）を切り替える設定が無く、そのたびに個人の CLAUDE.md・AGENTS.md・スキル・スクリプトの文面を書き換えている |
 | [issue-20261104-52ffba](../../../management/issues/issue-20261104-52ffba.md) | 対応中 | 1.4 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | 課題の仕組みに残る改善点をまとめて管理する（段階に分けた RFD の「実装済み」の時機ほか） |
@@ -347,9 +367,7 @@ issueの道具（`wiki_support.py maps`）が作り直す。手で直さない�
 | [issue-20261123-c455b5](../../../management/issues/issue-20261123-c455b5.md) | 未着手 | 3.3 | — | コード | 実装 | 311_dev_tools, 110_runner_app | 開発 | 不具合 | — | 残件有り | 既定のスイートの batchrun_fatal_error_handling_test が、前の Run の重みを読む段を持つキューを既定にした bat で、重みが無い段を失敗に数えて落ちる |
 | [issue-20261111-3986b7](../../../management/issues/issue-20261111-3986b7.md) | 未着手 | 3.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能改善 | — | 残件有り | テストを回す範囲・回数と、テストの控え・ログの置き場の決まりが無く、実装の時間と .scratch が膨らむ |
 | [issue-20261103-5addea](../../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
-| [issue-20261127-01b29b](../../../management/issues/issue-20261127-01b29b.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 不具合 | — | 未確認 | 課題の rfd 欄の名前だけのリンクが、RFD とそのサマリのページの 2 つに当たる |
 | [issue-20261127-692b3e](../../../management/issues/issue-20261127-692b3e.md) | 未着手 | 2.0 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能改善 | — | 未確認 | RFD・ADR の採番が、ほかのワークツリーと main に無いブランチの番号を見ないので、並行の作業で同じ番号が重なる |
-| [issue-20261127-f42cd7](../../../management/issues/issue-20261127-f42cd7.md) | 未着手 | 2.0 | — | ハーネス | ハーネス保守 | 311_dev_tools | 開発 | 機能追加 | — | 未確認 | wiki の材料の正本に当たらない有用な知見（ハーネスの工夫、道具の振る舞いの実測、作業中に調べた一般の事例など）が残らない |
 | [issue-20261103-58696c](../../../management/issues/issue-20261103-58696c.md) | 未着手 | 1.9 | — | ハーネス | RFD | 311_dev_tools | 開発 | 機能追加 | [RFD0112](../../../memo/0112_claude_memory_tidy_10rfd.md) | 残件有り | Claude Code の memory の定期整備（`anet-tidy-memory` と housekeeping の候補 `memory-tidy`） |
 | [issue-20261123-98baff](../../../management/issues/issue-20261123-98baff.md) | 未着手 | 1.8 | — | 文書 | 実装 | 311_dev_tools | 開発 | 不整合 | — | 残件有り | docs のリンク切れが実装の前から 258 件あり、memo README のリンク切れ検査が空にならないので、新しく切れたリンクを見分けられない |
 | [issue-20261119-9afcf4](../../../management/issues/issue-20261119-9afcf4.md) | 未着手 | 1.7 | — | コード | RFD | 311_dev_tools, 321_agent_core | 開発 | リファクタリング | — | 残件有り | テストごとに書かれている代役の Agent 8 個を、基盤のテスト用の口の代役へ寄せる |
