@@ -15,7 +15,7 @@ static torch::Tensor MakeFlagColumn(std::initializer_list<int> values)
     return torch::tensor(std::vector<int>(values)).to(torch::kBool).unsqueeze(1);
 }
 
-TEST_CASE("GAE matches a hand-computed three step example", "[advantage][rfd0202]")
+TEST_CASE("GAE matches a hand-computed three step example", "[advantage][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -37,7 +37,7 @@ TEST_CASE("GAE matches a hand-computed three step example", "[advantage][rfd0202
     CHECK(torch::allclose(result.value_targets.cpu(), MakeColumn({ 2.59375f, 4.375f, 5.5f }), 1e-6, 1e-6));
 }
 
-TEST_CASE("GAE drops the next value at termination and cuts the trace at an episode end", "[advantage][rfd0202]")
+TEST_CASE("GAE drops the next value at termination and cuts the trace at an episode end", "[advantage][rfd0209]")
 {
     const auto rewards = MakeColumn({ 1.0f, 1.0f, 1.0f });
     const auto values = MakeColumn({ 0.0f, 0.0f, 0.0f });
@@ -67,7 +67,7 @@ TEST_CASE("GAE drops the next value at termination and cuts the trace at an epis
 }
 
 TEST_CASE("GAE reduces to the one step TD error and to the discounted sum at the ends of lambda",
-    "[advantage][rfd0202]")
+    "[advantage][rfd0209]")
 {
     const auto rewards = MakeColumn({ 1.0f, 2.0f, 4.0f });
     const auto values = MakeColumn({ 0.5f, 1.0f, 2.0f });
@@ -89,7 +89,7 @@ TEST_CASE("GAE reduces to the one step TD error and to the discounted sum at the
     CHECK(torch::allclose(sum.value_targets, MakeColumn({ first, middle, last }), 1e-5, 1e-5));
 }
 
-TEST_CASE("GAE rejects mismatched shapes, wrong types and out-of-range coefficients", "[advantage][rfd0202]")
+TEST_CASE("GAE rejects mismatched shapes, wrong types and out-of-range coefficients", "[advantage][rfd0209]")
 {
     const auto rewards = torch::zeros({ 3, 2 });
     const auto values = torch::zeros({ 3, 2 });

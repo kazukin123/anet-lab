@@ -10,7 +10,7 @@ constexpr char kAdvantagesName[] = "advantages";
 constexpr char kValueTargetsName[] = "value_targets";
 
 TEST_CASE("PPO clipped policy loss matches hand-computed values and stops gradients outside the clip range",
-    "[ppo][ppo_math][rfd0202]")
+    "[ppo][ppo_math][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -45,7 +45,7 @@ TEST_CASE("PPO clipped policy loss matches hand-computed values and stops gradie
     }
 }
 
-TEST_CASE("PPO value loss matches hand-computed values with and without clipping", "[ppo][ppo_math][rfd0202]")
+TEST_CASE("PPO value loss matches hand-computed values with and without clipping", "[ppo][ppo_math][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -83,7 +83,7 @@ TEST_CASE("PPO value loss matches hand-computed values with and without clipping
     }
 }
 
-TEST_CASE("PPO approximate KL is zero for an unchanged policy and positive otherwise", "[ppo][ppo_math][rfd0202]")
+TEST_CASE("PPO approximate KL is zero for an unchanged policy and positive otherwise", "[ppo][ppo_math][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -100,7 +100,7 @@ TEST_CASE("PPO approximate KL is zero for an unchanged policy and positive other
     CHECK(kl > 0.0f);
 }
 
-TEST_CASE("PPO advantage normalization yields zero mean and unit standard deviation", "[ppo][ppo_math][rfd0202]")
+TEST_CASE("PPO advantage normalization yields zero mean and unit standard deviation", "[ppo][ppo_math][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -117,7 +117,7 @@ TEST_CASE("PPO advantage normalization yields zero mean and unit standard deviat
 }
 
 TEST_CASE("PPO explained variance is 1 for exact values, 0 for a constant and NaN for constant targets",
-    "[ppo][ppo_math][rfd0202]")
+    "[ppo][ppo_math][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -133,7 +133,7 @@ TEST_CASE("PPO explained variance is 1 for exact values, 0 for a constant and Na
     CHECK(std::isnan(ComputeExplainedVariance(targets, torch::ones({ 4 }).to(device)).item<float>()));
 }
 
-TEST_CASE("PPO loss functions reject inputs whose shapes would broadcast", "[ppo][ppo_math][rfd0202]")
+TEST_CASE("PPO loss functions reject inputs whose shapes would broadcast", "[ppo][ppo_math][rfd0209]")
 {
     // [件数] と [件数, 1] を混ぜると、差が [件数, 件数] に広がって、誤った損失になる。形の違いは、計算の前に止める。
     const auto rows = torch::zeros({ 3 });

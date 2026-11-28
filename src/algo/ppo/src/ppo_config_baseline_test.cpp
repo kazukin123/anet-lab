@@ -15,7 +15,7 @@
 using namespace anet::rl::ppo;
 using namespace anet::rl::ppo::test;
 
-constexpr char kOutputDirectory[] = "out/test-tmp/rfd0202-shipped-config";
+constexpr char kOutputDirectory[] = "out/test-tmp/rfd0209-shipped-config";
 constexpr char kShippedConfigDirectory[] = "apps/runner/config";
 constexpr char kUpdateResultTarget[] = "update_result";
 constexpr size_t kMaxTagLength = 40;
@@ -48,7 +48,7 @@ static bool IsUpdateResultKey(const std::string& key)
     return false;
 }
 
-TEST_CASE("Shipped agent.txt declares the RFD0202 defaults of PPOAgent", "[ppo][shipped_config][config][rfd0202]")
+TEST_CASE("Shipped agent.txt declares the RFD0209 defaults of PPOAgent", "[ppo][shipped_config][config][rfd0209]")
 {
     // env の設定を含めない共通の設定で、agent.txt の PPOAgent.@baseline だけを確かめる。
     const auto data = LoadShippedConfig("main_only", "", "");
@@ -68,7 +68,7 @@ TEST_CASE("Shipped agent.txt declares the RFD0202 defaults of PPOAgent", "[ppo][
         CHECK(data.Has(key));
     }
 
-    // RFD0202 §7.4 の表の、出荷の既定。
+    // RFD0209 §7.4 の表の、出荷の既定。
     const PPOAgentConfig config(data);
     CHECK(config.rollout.length == 128);
     CHECK(config.learner.epochs == 4);
@@ -112,7 +112,7 @@ TEST_CASE("Shipped agent.txt declares the RFD0202 defaults of PPOAgent", "[ppo][
 }
 
 TEST_CASE("Shipped metrics.scalar.@ppo reads only keys the PPO update result knows, and covers all of them",
-    "[ppo][shipped_config][config][rfd0202]")
+    "[ppo][shipped_config][config][rfd0209]")
 {
     // プロファイルだけを選び、env の設定が足す行（行動ごとの鍵）は含めない。
     const auto data = LoadShippedConfig("metrics_ppo", "", "metrics.scalar.$ = metrics.scalar.@ppo\n");
@@ -132,7 +132,7 @@ TEST_CASE("Shipped metrics.scalar.@ppo reads only keys the PPO update result kno
         update_result_keys.insert(def.source_key);
     }
 
-    // RFD0202 §7.5 の表の鍵は、このプロファイル 1 つでそろう。
+    // RFD0209 §7.5 の表の鍵は、このプロファイル 1 つでそろう。
     for (const auto* key : UpdateResult::GetMinibatchStatKeys()) {
         INFO("key=" << key);
         CHECK(update_result_keys.contains(key));

@@ -15,12 +15,12 @@
 using namespace anet::rl::ppo;
 using namespace anet::rl::ppo::test;
 
-constexpr char kCheckpointDirectory[] = "out/test-tmp/rfd0202";
+constexpr char kCheckpointDirectory[] = "out/test-tmp/rfd0209";
 constexpr char kOtherCheckpointFormat[] = "OtherAgent-1";
 constexpr char kPolicyLagKey[] = "policy_lag";
 constexpr char kMissingCheckpointName[] = "no_such_checkpoint.bin";
 
-TEST_CASE("PPO agent collects a rollout and returns one update result per optimizer step", "[ppo][rfd0202]")
+TEST_CASE("PPO agent collects a rollout and returns one update result per optimizer step", "[ppo][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -69,7 +69,7 @@ static std::filesystem::path MakeCheckpointPath(const std::string& name)
     return directory / name;
 }
 
-TEST_CASE("PPO agent restores the network and the optimizer from a saved checkpoint", "[ppo][ppo_save][rfd0202]")
+TEST_CASE("PPO agent restores the network and the optimizer from a saved checkpoint", "[ppo][ppo_save][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -126,7 +126,7 @@ TEST_CASE("PPO agent restores the network and the optimizer from a saved checkpo
         1e-5, 1e-6));
 }
 
-TEST_CASE("PPO agent rejects a missing checkpoint and a checkpoint of another format", "[ppo][ppo_save][rfd0202]")
+TEST_CASE("PPO agent rejects a missing checkpoint and a checkpoint of another format", "[ppo][ppo_save][rfd0209]")
 {
     const auto env_spec = MakeEnvSpec(4, 2);
     const auto device = torch::Device(torch::kCPU);
@@ -158,7 +158,7 @@ TEST_CASE("PPO agent rejects a missing checkpoint and a checkpoint of another fo
     }
 }
 
-TEST_CASE("PPO agent trains through the Serial and Pipeline Train Runners", "[ppo][ppo_runner][rfd0202]")
+TEST_CASE("PPO agent trains through the Serial and Pipeline Train Runners", "[ppo][ppo_runner][rfd0209]")
 {
     // 製品の Train Runner に、行動選択・Env の step・経験の受け渡し・LearnEvent の通知を任せる。
     const bool use_pipeline = GENERATE(false, true);
@@ -267,7 +267,7 @@ static float ComputeMeanReturn(const std::vector<float>& rollout_returns, size_t
     return sum / static_cast<float>(count);
 }
 
-TEST_CASE("PPO agent improves the episode return on a small corridor task", "[ppo][ppo_learning][rfd0202]")
+TEST_CASE("PPO agent improves the episode return on a small corridor task", "[ppo][ppo_learning][rfd0209]")
 {
     // 40 個の rollout（約 1 万遷移）で、学習の終わりの return が、学習の初めより高いことを確かめる。
     constexpr size_t kRolloutCount = 40;

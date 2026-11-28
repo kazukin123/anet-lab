@@ -28,7 +28,7 @@ static anet::ConfigData MakeDistinctPolicyConfigData()
 }
 
 TEST_CASE("PPO Actor reports the log probability of the executed action, the value and the network input",
-    "[ppo][ppo_actor][rfd0202]")
+    "[ppo][ppo_actor][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -72,7 +72,7 @@ TEST_CASE("PPO Actor reports the log probability of the executed action, the val
 }
 
 TEST_CASE("PPO Actor samples with the policy probabilities and the greedy Actor selects the most probable action",
-    "[ppo][ppo_actor][rfd0202]")
+    "[ppo][ppo_actor][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -109,7 +109,7 @@ TEST_CASE("PPO Actor samples with the policy probabilities and the greedy Actor 
     }
 }
 
-TEST_CASE("PPO Actor with a cloned network follows the Learner only after Sync", "[ppo][ppo_actor][rfd0202]")
+TEST_CASE("PPO Actor with a cloned network follows the Learner only after Sync", "[ppo][ppo_actor][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -147,7 +147,7 @@ TEST_CASE("PPO Actor with a cloned network follows the Learner only after Sync",
     CHECK(read_version(*eval_actor, state) == 1);
 }
 
-TEST_CASE("PPO agent rejects an undefined Actor key", "[ppo][ppo_actor][rfd0202]")
+TEST_CASE("PPO agent rejects an undefined Actor key", "[ppo][ppo_actor][rfd0209]")
 {
     auto rig = MakeRig(MakeConfigData(), MakeEnvSpec(kObsSize, kActionCount), 2, torch::Device(torch::kCPU));
     // 設定のカタログに無いキーは、定義済みのキーを添えて止まる。

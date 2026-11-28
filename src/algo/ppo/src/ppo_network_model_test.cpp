@@ -38,7 +38,7 @@ static std::shared_ptr<NetworkModel> MakeModel(const anet::ConfigData& data, con
 }
 
 TEST_CASE("PPO network shares or separates the policy and value bodies by the branch configuration alone",
-    "[ppo][ppo_network][rfd0202]")
+    "[ppo][ppo_network][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -67,7 +67,7 @@ TEST_CASE("PPO network shares or separates the policy and value bodies by the br
 }
 
 TEST_CASE("PPO network with separate bodies can feed the value Head from an observation the policy does not read",
-    "[ppo][ppo_network][rfd0202]")
+    "[ppo][ppo_network][rfd0209]")
 {
     // 方策は vector、価値は critic の観測だけを読む（Actor と Critic の入力を分ける構成）。
     auto data = MakeConfigData(/*shared_body=*/false);
@@ -87,7 +87,7 @@ TEST_CASE("PPO network with separate bodies can feed the value Head from an obse
     CHECK_FALSE(torch::allclose(first.At(NetworkModel::kValueKey), second.At(NetworkModel::kValueKey)));
 }
 
-TEST_CASE("PPO network input adds a stack axis of length 1 to every observation key", "[ppo][ppo_network][rfd0202]")
+TEST_CASE("PPO network input adds a stack axis of length 1 to every observation key", "[ppo][ppo_network][rfd0209]")
 {
     // spec は先頭に長さ 1 の stack 軸を持ち、値は batch 軸の次に同じ軸を持つ。
     const auto specs = NetworkModel::MakeInputSpecs(MakeObsSpecs(/*with_critic_obs=*/true));
@@ -102,7 +102,7 @@ TEST_CASE("PPO network input adds a stack axis of length 1 to every observation 
 }
 
 TEST_CASE("PPO network rejects configurations whose Heads cannot produce logits and a value per row",
-    "[ppo][ppo_network][rfd0202]")
+    "[ppo][ppo_network][rfd0209]")
 {
     SECTION("a body that keeps the stack axis")
     {
@@ -127,7 +127,7 @@ TEST_CASE("PPO network rejects configurations whose Heads cannot produce logits 
     }
 }
 
-TEST_CASE("PPO network model counts policy versions and clones keep the weights", "[ppo][ppo_network][rfd0202]")
+TEST_CASE("PPO network model counts policy versions and clones keep the weights", "[ppo][ppo_network][rfd0209]")
 {
     const auto model = MakeModel(MakeConfigData(), MakeObsSpecs());
     CHECK(model->GetPolicyVersion() == 0);

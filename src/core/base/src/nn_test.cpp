@@ -5761,7 +5761,7 @@ TEST_CASE("nn_trace capture respects exact and prefix requests", "[rfd0170][nn][
 
 
 // ===========================================================================
-// CompositeHeadFactory と Tanh（RFD0202）
+// CompositeHeadFactory と Tanh（RFD0209）
 // ===========================================================================
 
 // 合成の Head のテストで使う名前。Network の入力、branch、Body の出力のキー、Head の出力のキー。
@@ -5793,7 +5793,7 @@ static std::shared_ptr<anet::nn::CompositeHeadFactory> MakeTwoPartHeadFactory(
 }
 
 TEST_CASE("CompositeHeadFactory merges the outputs of named heads fed by their own feature keys",
-    "[nn][head][composite_head][rfd0202]")
+    "[nn][head][composite_head][rfd0209]")
 {
     EnsureNNInitialized();
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
@@ -5848,7 +5848,7 @@ TEST_CASE("CompositeHeadFactory merges the outputs of named heads fed by their o
 }
 
 TEST_CASE("CompositeHeadFactory shares one body between heads when their feature keys name the same branch",
-    "[nn][head][composite_head][rfd0202]")
+    "[nn][head][composite_head][rfd0209]")
 {
     EnsureNNInitialized();
     anet::ConfigData config_data;
@@ -5875,7 +5875,7 @@ TEST_CASE("CompositeHeadFactory shares one body between heads when their feature
 }
 
 TEST_CASE("CompositeHeadFactory rejects invalid entries, missing feature keys and duplicate outputs",
-    "[nn][head][composite_head][rfd0202]")
+    "[nn][head][composite_head][rfd0209]")
 {
     EnsureNNInitialized();
     const auto linear = std::make_shared<anet::nn::LinearHeadFactory>(2, "out", anet::nn::WeightInitConfig{});
@@ -5903,7 +5903,7 @@ TEST_CASE("CompositeHeadFactory rejects invalid entries, missing feature keys an
     CHECK_NOTHROW(MakeTwoPartHeadFactory(kLogitsOutput, kValueOutput)->CreateHead(features));
 }
 
-TEST_CASE("Tanh module applies the hyperbolic tangent in a configured network", "[nn][tanh][rfd0202]")
+TEST_CASE("Tanh module applies the hyperbolic tangent in a configured network", "[nn][tanh][rfd0209]")
 {
     EnsureNNInitialized();
     anet::ConfigData config_data;

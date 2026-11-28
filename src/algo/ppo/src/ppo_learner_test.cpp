@@ -74,7 +74,7 @@ static anet::rl::BatchUpdateResultList FillRollout(Rig& rig, int rollout_length,
 }
 
 TEST_CASE("PPO Learner returns one result per optimizer step when a rollout is full, and nothing before",
-    "[ppo][ppo_learner][rfd0202]")
+    "[ppo][ppo_learner][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -106,7 +106,7 @@ TEST_CASE("PPO Learner returns one result per optimizer step when a rollout is f
     }
 }
 
-TEST_CASE("PPO Learner rejects experiences that were not selected by a PPO Actor", "[ppo][ppo_learner][rfd0202]")
+TEST_CASE("PPO Learner rejects experiences that were not selected by a PPO Actor", "[ppo][ppo_learner][rfd0209]")
 {
     constexpr int kLaneCount = 2;
     auto rig = MakeRig(MakeLearnerConfigData(2, 1, 1), MakeEnvSpec(kObsSize, kActionCount), kLaneCount,
@@ -129,7 +129,7 @@ TEST_CASE("PPO Learner rejects experiences that were not selected by a PPO Actor
 }
 
 TEST_CASE("PPO Learner bootstraps truncated steps from the pre-reset observation unless configured as terminal",
-    "[ppo][ppo_learner][rfd0202]")
+    "[ppo][ppo_learner][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -194,7 +194,7 @@ TEST_CASE("PPO Learner bootstraps truncated steps from the pre-reset observation
 }
 
 TEST_CASE("PPO Learner stops when a rollout holds actions from a policy two or more updates old",
-    "[ppo][ppo_learner][rfd0202]")
+    "[ppo][ppo_learner][rfd0209]")
 {
     // Network の写しを持ち、写し直されない Actor を、学習の行動選択に混ぜる。
     constexpr int kRolloutLength = 2;
@@ -226,7 +226,7 @@ TEST_CASE("PPO Learner stops when a rollout holds actions from a policy two or m
         && Catch::Matchers::ContainsSubstring("shares the Learner network"));
 }
 
-TEST_CASE("PPO Learner rejects Actor values that live on another device", "[ppo][ppo_learner][rfd0202]")
+TEST_CASE("PPO Learner rejects Actor values that live on another device", "[ppo][ppo_learner][rfd0209]")
 {
     if (!torch::cuda::is_available()) SKIP("CUDA is unavailable");
 
@@ -242,7 +242,7 @@ TEST_CASE("PPO Learner rejects Actor values that live on another device", "[ppo]
 }
 
 TEST_CASE("PPO Learner reads its time-dependent values at the experience step of the full rollout",
-    "[ppo][ppo_learner][rfd0202]")
+    "[ppo][ppo_learner][rfd0209]")
 {
     // 学習率を、exp step 100 で 0.01 から 0 へ線形に下げる。比の clip の幅と entropy の係数は定数にする。
     constexpr int kLaneCount = 2;
@@ -267,7 +267,7 @@ TEST_CASE("PPO Learner reads its time-dependent values at the experience step of
 }
 
 TEST_CASE("PPO Learner stops the remaining epochs when the approximate KL exceeds the threshold",
-    "[ppo][ppo_learner][rfd0202]")
+    "[ppo][ppo_learner][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -302,7 +302,7 @@ TEST_CASE("PPO Learner stops the remaining epochs when the approximate KL exceed
 }
 
 TEST_CASE("PPO Learner statistics show whether gradient clipping and value clipping are in use",
-    "[ppo][ppo_learner][rfd0202]")
+    "[ppo][ppo_learner][rfd0209]")
 {
     constexpr int kRolloutLength = 2;
     constexpr int kLaneCount = 2;
@@ -342,7 +342,7 @@ TEST_CASE("PPO Learner statistics show whether gradient clipping and value clipp
     }
 }
 
-TEST_CASE("PPO update result answers every documented metric key and nothing else", "[ppo][ppo_learner][rfd0202]")
+TEST_CASE("PPO update result answers every documented metric key and nothing else", "[ppo][ppo_learner][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -435,7 +435,7 @@ TEST_CASE("PPO update result answers every documented metric key and nothing els
 }
 
 TEST_CASE("PPO update result reports no shared gradient norm when the bodies are separate",
-    "[ppo][ppo_learner][rfd0202]")
+    "[ppo][ppo_learner][rfd0209]")
 {
     constexpr int kRolloutLength = 2;
     constexpr int kLaneCount = 2;

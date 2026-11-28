@@ -32,7 +32,7 @@ TEST_CASE("Lane-time tensor store preserves stored observations by lane and time
     CHECK(store.GetTimeCount() == 1);
 }
 
-TEST_CASE("Lane-time tensor store returns the stored range without copying", "[rfd0202][tensor_store]")
+TEST_CASE("Lane-time tensor store returns the stored range without copying", "[rfd0209][tensor_store]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");

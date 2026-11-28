@@ -9,9 +9,9 @@ using namespace anet::rl::ppo::test;
 
 constexpr char kFalseValue[] = "false";
 
-TEST_CASE("PPO config reads its defaults and overrides from the PPOAgent prefix", "[ppo][ppo_config][rfd0202]")
+TEST_CASE("PPO config reads its defaults and overrides from the PPOAgent prefix", "[ppo][ppo_config][rfd0209]")
 {
-    // 何も書かない設定では、RFD0202 §7.4 の実装の既定になる（CleanRL の ppo.py と同じ値）。
+    // 何も書かない設定では、RFD0209 §7.4 の実装の既定になる（CleanRL の ppo.py と同じ値）。
     const PPOAgentConfig defaults{ anet::ConfigData() };
     CHECK(defaults.rollout.length == 128);
     CHECK(defaults.learner.epochs == 4);
@@ -54,7 +54,7 @@ TEST_CASE("PPO config reads its defaults and overrides from the PPOAgent prefix"
 }
 
 TEST_CASE("PPO config rejects out-of-range values with the full key and the given value",
-    "[ppo][ppo_config][rfd0202]")
+    "[ppo][ppo_config][rfd0209]")
 {
     // 設定キー、指定する値、メッセージに入るはずの「完全キー=値」。
     struct Case {
@@ -82,7 +82,7 @@ TEST_CASE("PPO config rejects out-of-range values with the full key and the give
     CHECK_THROWS_WITH(PPOAgentConfig(data), Catch::Matchers::ContainsSubstring(test_case.expected));
 }
 
-TEST_CASE("PPO config validates the keys of an unused mode as well", "[ppo][ppo_config][rfd0202]")
+TEST_CASE("PPO config validates the keys of an unused mode as well", "[ppo][ppo_config][rfd0209]")
 {
     // clip や KL の判定を使わない設定でも、その幅や閾値の値域は検証する。
     // モードを切り替えるだけで動くようにし、切り替えたあとで別のキーの誤りが出ないようにするためである。
@@ -108,7 +108,7 @@ TEST_CASE("PPO config validates the keys of an unused mode as well", "[ppo][ppo_
 }
 
 TEST_CASE("PPO config rejects time-dependent values outside their bounds and unread Actor keys",
-    "[ppo][ppo_config][rfd0202]")
+    "[ppo][ppo_config][rfd0209]")
 {
     SECTION("negative learning rate")
     {
@@ -146,7 +146,7 @@ TEST_CASE("PPO config rejects time-dependent values outside their bounds and unr
     }
 }
 
-TEST_CASE("PPO config checks the rollout size against the lane count", "[ppo][ppo_config][rfd0202]")
+TEST_CASE("PPO config checks the rollout size against the lane count", "[ppo][ppo_config][rfd0209]")
 {
     auto data = MakeConfigData();
     data.Set("PPOAgent.rollout.length", 3);
@@ -183,7 +183,7 @@ TEST_CASE("PPO config checks the rollout size against the lane count", "[ppo][pp
     }
 }
 
-TEST_CASE("PPO agent requires a discrete action space with at least two actions", "[ppo][ppo_config][rfd0202]")
+TEST_CASE("PPO agent requires a discrete action space with at least two actions", "[ppo][ppo_config][rfd0209]")
 {
     const auto data = MakeConfigData();
     const auto device = torch::Device(torch::kCPU);

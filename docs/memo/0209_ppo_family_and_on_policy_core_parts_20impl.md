@@ -2,7 +2,7 @@
 
 ## 概要
 
-[RFD0202](0202_ppo_family_and_on_policy_core_parts_10rfd.md) に従い、方策ベースの Agent の系統「PPO 系」（`src/algo/ppo`、`anet-algo-ppo`）と、離散行動の `PPOAgent` を足す。あわせて、PPO が使う共通部品を core（`src/core/base`）に足す。DQN 系（`src/algo/dqn/`）と、Runner・Observer・`rl.hpp` の今ある口は変えない。
+[RFD0209](0209_ppo_family_and_on_policy_core_parts_10rfd.md) に従い、方策ベースの Agent の系統「PPO 系」（`src/algo/ppo`、`anet-algo-ppo`）と、離散行動の `PPOAgent` を足す。あわせて、PPO が使う共通部品を core（`src/core/base`）に足す。DQN 系（`src/algo/dqn/`）と、Runner・Observer・`rl.hpp` の今ある口は変えない。
 
 RFD は暫定の起票で、確定事項の節を持たない。実装は、RFD の実装契約（§7）、移行対象（§8）、受入（§9）と、未決表（§12）の暫定の既定に従う。既定値は CleanRL の `ppo.py` の既定（RFD §2.7）である。
 
@@ -36,7 +36,7 @@ RFD は暫定の起票で、確定事項の節を持たない。実装は、RFD 
 - `apps/runner/config/agent.txt`（`PPOAgent.@baseline` と Actor カタログ）、`nn.txt`（`Tanh` と PPO の MLP の block）、`metrics_scalar.txt`（`metrics.scalar.@ppo`）、`CartPole_ppo.txt`（新設）。
 - `docs/design/115_on_policy_learning.jp.md`・`230_ppo_agents.jp.md`（新設）、`README.jp.md`・`010`・`011`・`100`・`110`・`130`・`150`（追随）。英語版は作らず、直さない。
 - `CONTEXT.md`（「rollout」を広げ、「PPO系エージェント」を足す）、`reports/tools/categories.json`（326 の行、321・318 の `match`）。
-- `docs/wiki/`: `categories/326_ppo.md`（新設）、`314_tensor`・`315_nn`・`318_rl_core`・`321_agent_core` の「成立の経緯」と「概要・責務」、目録、`log.md`。機械的な節は `reports/tools/wiki_support.py maps` で作り直した（`apps/110_runner_app.md` のファイルの一覧、`docs/management/issues/INDEX.md` の「課題を持たない RFD」に RFD0202 の行。`311_dev_tools.md` の課題の表の 1 行は、今回と関係のない、基準コミットの時点の遅れを道具が直したものである）。
+- `docs/wiki/`: `categories/326_ppo.md`（新設）、`314_tensor`・`315_nn`・`318_rl_core`・`321_agent_core` の「成立の経緯」と「概要・責務」、目録、`log.md`。機械的な節は `reports/tools/wiki_support.py maps` で作り直した（`apps/110_runner_app.md` のファイルの一覧、`docs/management/issues/INDEX.md` の「課題を持たない RFD」に RFD0209 の行。`311_dev_tools.md` の課題の表の 1 行は、今回と関係のない、基準コミットの時点の遅れを道具が直したものである）。
 
 ## テスト
 
@@ -91,8 +91,8 @@ git diff --stat 9310b087 -- src/algo/dqn
 cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake --build --preset x64-Release --target AnetRLRunner --parallel 5'
 ```
 
-- 最初の全ビルドは、セッションから切り離して起動し、出力と終了値をファイル（`.scratch/rfd0202/build/`）に書かせる。メイン機で開発者の Run が走っているので、優先度を下げ、並列を 5 に絞る。
-- テストの出力は `.scratch/rfd0202/test/` に保存し、応答には要約と終了値だけを返す。
+- 最初の全ビルドは、セッションから切り離して起動し、出力と終了値をファイル（`.scratch/rfd0209/build/`）に書かせる。メイン機で開発者の Run が走っているので、優先度を下げ、並列を 5 に絞る。
+- テストの出力は `.scratch/rfd0209/test/` に保存し、応答には要約と終了値だけを返す。
 - 基準コミット（`9310b087`）の既定スイートを、変更の前のビルドで 1 回走らせ、既に落ちるテストの名前を「経過」に書く（A15 の除く対象）。
 - 設定ファイルの検査: `check_default_leaves.py` と `[shipped_config]`。
 - ライブラリの依存: `src/core/base/testdata/rfd0182/check_stage3_dependencies.py`（README の手順）。
@@ -124,20 +124,20 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 
 ## 経過
 
-- 2026-11-25: RFD0202 を暫定で起票した。実装の入口で RFD のレビューを受けた。1 往復目は差し戻し（8 件。評価の間隔と ADR 0028、行動ごとの鍵の受入、KL でやめた rollout の件数、AMP の差し込み位置、勾配の clip の上限の名前、「方策の世代」の言い換え、学習率の既定と時間の値を読む step と KL の閾値の根拠、材料の使い先）。どれも開発者の判断は要らず、直して出し直した。あわせて、活性化の module `Tanh`（core に無いことをコードで確かめた）と、移行対象の漏れ（依存の検査の系統の一覧、設定キーの診断の期待一覧、110 のコードマップ）を RFD に足した。2 往復目で OK。原文は `.scratch/rfd0202/review-20261125-1506-rfd.md`・`review-20261125-1514-rfd.md`。
+- 2026-11-25: RFD0209 を暫定で起票した。実装の入口で RFD のレビューを受けた。1 往復目は差し戻し（8 件。評価の間隔と ADR 0028、行動ごとの鍵の受入、KL でやめた rollout の件数、AMP の差し込み位置、勾配の clip の上限の名前、「方策の世代」の言い換え、学習率の既定と時間の値を読む step と KL の閾値の根拠、材料の使い先）。どれも開発者の判断は要らず、直して出し直した。あわせて、活性化の module `Tanh`（core に無いことをコードで確かめた）と、移行対象の漏れ（依存の検査の系統の一覧、設定キーの診断の期待一覧、110 のコードマップ）を RFD に足した。2 往復目で OK。原文は `.scratch/rfd0209/review-20261125-1506-rfd.md`・`review-20261125-1514-rfd.md`。
 - 2026-11-25: 2 往復目の再確認ポイントのうち、文言の明確化だけを RFD に反映した（§6.6 の等間隔の条件、冒頭の改訂行、U20 の言い回し、§7.1 の float32 の正規化）。RFD の実装のあとのレビューで、あわせて確かめる。
 - 2026-11-25: 未決事項の監査。開発者の判断が要るブロッカーは 0 件。
-- 2026-11-25: 基準コミット（`9310b087`）の Debug の全ビルドと既定スイートを、変更の前に実行した。10 本のテスト実行体のうち、`anet-core-base-test` の 1 件（`Logger prefixes an info message exactly once`。`log_test.cpp:163`）だけが落ち、1 件が飛ばされた（`init_test.cpp:222`）。この 1 件は、A15 の「基準コミットで既に落ちるテスト」として除く。結果は `.scratch/rfd0202/test/baseline/summary.txt`。
+- 2026-11-25: 基準コミット（`9310b087`）の Debug の全ビルドと既定スイートを、変更の前に実行した。10 本のテスト実行体のうち、`anet-core-base-test` の 1 件（`Logger prefixes an info message exactly once`。`log_test.cpp:163`）だけが落ち、1 件が飛ばされた（`init_test.cpp:222`）。この 1 件は、A15 の「基準コミットで既に落ちるテスト」として除く。結果は `.scratch/rfd0209/test/baseline/summary.txt`。
 - 2026-11-25: TDD の進め方。ビルドが重い（PPO 系のテスト実行体の作り直しに数分、core を変えると全体の再リンク）ので、行ごとに RED → GREEN を 1 回ずつは回さず、次のまとまりで進めた。
-  - 行 1（経路の全体）: テストと配線だけを置いてビルドし、RED を確かめた（`ppo.cpp(4): fatal error C1083: Cannot open include file: 'ppo_agent.hpp'`。`.scratch/rfd0202/build/red1.log`）。本体を置いて GREEN にした。
+  - 行 1（経路の全体）: テストと配線だけを置いてビルドし、RED を確かめた（`ppo.cpp(4): fatal error C1083: Cannot open include file: 'ppo_agent.hpp'`。`.scratch/rfd0209/build/red1.log`）。本体を置いて GREEN にした。
   - 行 2〜6（core）: テストと実装を同じビルドに入れた。RED は確かめていない。
-  - 行 7〜17: テストを先に全部書き、1 回のビルドで走らせた。35 件のうち 11 件が落ちた（`.scratch/rfd0202/test/green3/ppo.log`）。10 件は下の CUDA の不具合で、実装の欠けを示す RED になった。1 件はテストの側の誤り（連続行動の仕様に次元を書いていなかった）だった。直して全部通した。
+  - 行 7〜17: テストを先に全部書き、1 回のビルドで走らせた。35 件のうち 11 件が落ちた（`.scratch/rfd0209/test/green3/ppo.log`）。10 件は下の CUDA の不具合で、実装の欠けを示す RED になった。1 件はテストの側の誤り（連続行動の仕様に次元を書いていなかった）だった。直して全部通した。
   - 行 18・19: 実装のあとにテストを足した。RED は確かめていない。
 - 2026-11-25: テストで見つけて直した不具合。
   - `CompositeHeadFactory::CreateHead` が、出力のキーの重なりを確かめる仮の forward を、CUDA の仮の特徴量と、CPU にある作ったばかりの中の Head で行って止まった。CPU のテストだけでは通る。中の Head を、仮の forward の前に特徴量の device へ移すようにし、`[composite_head]` のテストを CUDA でも走らせるようにした。
   - テストの設定で、時間の値の定数を `…learning_rate.value` に書いていた。定数は設定キーそのもの（`…learning_rate`）に書く。テストを直した。
   - テストの補助に、何も書かない MetricsLogger が無く、Agent の構築で落ちた（DQN 系・ImageCls のテストと同じ補助を足した）。
-- 2026-11-25: 設定キーを示す診断の監査（`audit_config_messages.py --expected …`）。基準コミットの時点で、期待一覧と 19 件の差がある（終了値 1。`forwarder.cpp`・`tensor_store.cpp`・`default_dqn_agent.cpp` ほか。今回の変更とは関係が無い）。今回の変更で増えたのは `src/core/base/src/nn_head.cpp` の 2 件（名前 `index` と `key`）である。どちらも設定キーではない（`index` は factory へ渡した組の番号、`key` は Head の出力の TensorDict のキー）ので、RFD0194 §8.7 の「直したあとに拾われてよいもの」に当たる名前として、期待一覧の末尾に 2 行を足した。足したあとの差は、基準コミットと同じ 19 件である（`.scratch/rfd0202/test/audit_base.txt` と `audit_now.txt` が一致）。PPO 系（`src/algo/ppo`）・`distribution.cpp`・`advantage.cpp` の診断は、1 件も拾われていない。
+- 2026-11-25: 設定キーを示す診断の監査（`audit_config_messages.py --expected …`）。基準コミットの時点で、期待一覧と 19 件の差がある（終了値 1。`forwarder.cpp`・`tensor_store.cpp`・`default_dqn_agent.cpp` ほか。今回の変更とは関係が無い）。今回の変更で増えたのは `src/core/base/src/nn_head.cpp` の 2 件（名前 `index` と `key`）である。どちらも設定キーではない（`index` は factory へ渡した組の番号、`key` は Head の出力の TensorDict のキー）ので、RFD0194 §8.7 の「直したあとに拾われてよいもの」に当たる名前として、期待一覧の末尾に 2 行を足した。足したあとの差は、基準コミットと同じ 19 件である（`.scratch/rfd0209/test/audit_base.txt` と `audit_now.txt` が一致）。PPO 系（`src/algo/ppo`）・`distribution.cpp`・`advantage.cpp` の診断は、1 件も拾われていない。
 - 2026-11-25: 設定の既定の検査（`check_default_leaves.py`）。はじめは `CartPole_ppo.txt` の Network の配線 6 行が「分類できない個別指定」として出た。検査が持つ env の設定ファイルの一覧（`rfd0072/migrate.py` の `ENV_FILES`）に `CartPole_ppo.txt` が無いためで、一覧に足して解いた（RFD §8 に足した）。残る 4 件（`apps/tools/metrics_viewer.py` の `app.title` ほか）は、今回変えていないファイルの指摘で、基準コミットでも出る。検査器の回帰テスト（`check_default_leaves_test.py`）は 16 件が通った。
 - 2026-11-25: ライブラリの依存の検査。Debug の構成に `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` と `--graphviz` を付けて出し直し、`check_stage3_dependencies.py` を実行して、違反 0 件（系統の一覧に `anet-algo-ppo` を足した版）。
 - 2026-11-25: 作業の誤りと戻し。依存の検査の構成を出すスクリプトを `printf` で書いたら、パスの `\` が崩れ、Visual Studio の環境が無いまま `cmake --preset x64-Debug` が走って途中で失敗した。ビルドの定義（`build.ninja`）は変わっていなかった。スクリプトを書き直して構成をやり直し、そのあとの Debug の全ビルドが通ることを確かめた。
@@ -145,7 +145,7 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
 - 2026-11-25: クラス一覧と機能グループは RFD §7.7・§7.8 のとおりで、変えていない。RFD に無いファイルは、テスト（`ppo_fixture_test`・`ppo_config_baseline_test`）だけである。
 - 2026-11-25: 自己点検（`impl.md` の全項目）で直したこと。クラスの宣言の並び（`LearnerConfig`・`PPOAgentConfig`・`UpdateResult::RolloutStatistics` を、型 → 定数 → 関数 → データメンバの順にした）、宣言が 3 個以下のところの空行（`Actor`・テストの `CorridorEnv`）、2 か所で使う値の定数化（value の損失の係数、印の閾値、テストの鍵と名前）、テストの集成体の指示付き初期化、経験の形の検査（lane 数が違う経験を、器に入れる前に止める）。機械検査（項番 1・2・3・62・71・76）は 0 件・OK。項番 72 の候補のうち、core の `nn_test.cpp` に足したテストの TensorDict キー（`"logits"`・`"value"` ほか）は、この時点では、同じファイルの既存のテストの書き方に合わせて直書きのままにした（実装のレビューの指摘を受けて、あとで定数にした）。
 - 2026-11-25: 足した INFO と、Fail-Fast の表の対応。`ppo_agent.cpp` の INFO 3 つ（構築時の設定の記録、`auto_load_file` の読込の通知、保存の完了の通知）は、表の「上記以外（知らせる必要があれば INFO）」の行に当たる。DQN 系・ImageCls の Agent が、同じ時機に同じ形の INFO を出している。構築と読込は Run ごとに 1 回、保存は操作ごとである。WARN は足していない。
-- 2026-11-25: 実装のレビュー（1 往復目）。判定は差し戻し（実装計画 1 件、実装 15 件）。原文は `.scratch/rfd0202/review-20261125-1747-impl.md`。どれも開発者の判断は要らず、次のとおり直した。
+- 2026-11-25: 実装のレビュー（1 往復目）。判定は差し戻し（実装計画 1 件、実装 15 件）。原文は `.scratch/rfd0209/review-20261125-1747-impl.md`。どれも開発者の判断は要らず、次のとおり直した。
   - 計画 1・実装 14: 検証の記録の時点。直しを全部入れたあとで、監査・設定の既定の検査・固定 17 入力の比較（`rfd0072/prepare.py compare`）を実行し直し、「検証の結果」を書き直した。
   - 実装 1（定数化）: `nn_test.cpp` に足したテストの TensorDict キー・入力名・出力のキーと、`ppo_agent_test.cpp` の無いファイルの名前を、名前つきの定数にした。
   - 実装 2（指示付き初期化）: `MakeActionOptions`（テストの補助 `MakeForcedActionOptions` にまとめた）、`MetricsLoggerConfig`、`WeightInitConfig`、`Learner::Minibatch` を、指示付き初期化にした。
@@ -161,17 +161,17 @@ cmd /s /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7
   - 実装 13: 設計文書 150 §2.5 の表と、100 の Agent Factory の列挙に `PPOAgent` を足した。
   - 実装 15: 測っていない速さの比較（設計文書 230 §11、`CartPole_ppo.txt` のコメント）を、見込みと分かる文にした。
   - 範囲外の検出 2 件（`nn_head.cpp` の `LinearHead` の文面、`agent.cpp` の `clone_model` の文面が、設定を相対の名前で名指す）は、今回の変更の前からある文面で、直していない。起票の候補に足した。
-- 2026-11-25: 実装のあとの RFD のレビュー（3 往復目）。判定は差し戻し（1 件。用語集の「rollout」の定義が 3 文になった）。定義を 2 文にした。あわせて、レビューが「判定に迷った点」に挙げた、RFD の列挙に無い検査 3 つ（浮動小数でない logits、受け取るキーが空・factory が無い組、別の種類の device にある Actor の値）を RFD に足し、§8 の用語集の項目の表記を題に合わせた。原文は `.scratch/rfd0202/review-20261125-1728-rfd.md`。
+- 2026-11-25: 実装のあとの RFD のレビュー（3 往復目）。判定は差し戻し（1 件。用語集の「rollout」の定義が 3 文になった）。定義を 2 文にした。あわせて、レビューが「判定に迷った点」に挙げた、RFD の列挙に無い検査 3 つ（浮動小数でない logits、受け取るキーが空・factory が無い組、別の種類の device にある Actor の値）を RFD に足し、§8 の用語集の項目の表記を題に合わせた。原文は `.scratch/rfd0209/review-20261125-1728-rfd.md`。
 - 2026-11-25: レビューを待つ間に、Runner を通すテスト（`[ppo_runner]`）を足した。Pipeline の Runner の 1 step の流れ（`PipelineTrainRunner::DoStep`）を読み直すと、行動選択は、前の学習の完了を待ったあと・次の学習の投入の前に走る。rollout を埋めた経験の更新は、次の step の Env の step と並んで走るので、その step の行動だけが更新の前の方策で選ばれ、次の rollout の最初の経験になる。方策の古さは、2 つ目からの rollout でちょうど 1 step ぶんになる。
-- 2026-11-25: 実装のあとの RFD のレビュー（4 往復目）。判定は OK。原文は `.scratch/rfd0202/review-20261125-1825-rfd.md`。
-- 2026-11-25: 実装のレビュー（2 往復目）。実装計画は OK、実装は差し戻し（1 件）。原文は `.scratch/rfd0202/review-20261125-1831-impl.md`。
+- 2026-11-25: 実装のあとの RFD のレビュー（4 往復目）。判定は OK。原文は `.scratch/rfd0209/review-20261125-1825-rfd.md`。
+- 2026-11-25: 実装のレビュー（2 往復目）。実装計画は OK、実装は差し戻し（1 件）。原文は `.scratch/rfd0209/review-20261125-1831-impl.md`。
   - 実装 1（項番 41）: 統計の読み戻しの計測範囲を `std::call_once` に渡すラムダの中に置いていて、計測名が `クラス名::関数名.段` の形にならなかった。読み戻しを、名前を持つ関数（`UpdateResult::RolloutStatistics::ReadBackDeviceValues`）に分け、`ANET_PROFILE_FUNC` で計測する形にした。
-- 2026-11-25: 実装のレビュー（3 往復目）。実装計画・実装とも OK。原文は `.scratch/rfd0202/review-20261125-1850-impl.md`。
+- 2026-11-25: 実装のレビュー（3 往復目）。実装計画・実装とも OK。原文は `.scratch/rfd0209/review-20261125-1850-impl.md`。
 - 2026-11-25: 完了報告のあと、開発者から「試運転起動」の指示を受けた。CartPole の試運転を、段取りの表のとおりに流した（19:22〜19:24。seed 3 つ）。その前に、設定の一覧を確かめる短い試しを 1 本、あとに、EvalPanel を自動で動かす短い試しを 2 本流した。結果は「CartPole の試運転の結果」に書いた。この追記は、レビューを受けていない。
 
 ## 検証の結果
 
-2026-11-25 に、実装のレビューの直しを入れた状態で実行した。製品のコードの最後の変更（実装のレビューの 2 往復目の直し。PPO 系の `ppo_learner.hpp`・`.cpp` だけ）は 18:31 である。そのあとに、Debug の全ビルド（18:32〜18:35）、PPO 系のテスト（hidden の 2 つを含む。18:36〜18:40）、Release の Runner（18:40〜18:43）、静的な検査の 4 つ（18:43〜18:46）を実行した。既定スイートのうち PPO 系のほかの 10 本は、その前（1 往復目の直しのあと。17:59〜18:10）の実行である。この 10 本の実行体は、18:31 の変更（PPO 系のライブラリの中だけ）を含まず、作り直されていない。ログは `.scratch/rfd0202/build/` と、`.scratch/rfd0202/test/final4/`（18:31 のあとの実行）・`test/final3/`（その前の実行）にある。
+2026-11-25 に、実装のレビューの直しを入れた状態で実行した。製品のコードの最後の変更（実装のレビューの 2 往復目の直し。PPO 系の `ppo_learner.hpp`・`.cpp` だけ）は 18:31 である。そのあとに、Debug の全ビルド（18:32〜18:35）、PPO 系のテスト（hidden の 2 つを含む。18:36〜18:40）、Release の Runner（18:40〜18:43）、静的な検査の 4 つ（18:43〜18:46）を実行した。既定スイートのうち PPO 系のほかの 10 本は、その前（1 往復目の直しのあと。17:59〜18:10）の実行である。この 10 本の実行体は、18:31 の変更（PPO 系のライブラリの中だけ）を含まず、作り直されていない。ログは `.scratch/rfd0209/build/` と、`.scratch/rfd0209/test/final4/`（18:31 のあとの実行）・`test/final3/`（その前の実行）にある。
 
 | 確かめたこと | 結果 | 記録 |
 |---|---|---|
@@ -232,7 +232,7 @@ A13（CartPole の Run）は、完了報告のあとに開発者の指示を受�
 | 実行体 | このワークツリーの Release（`apps/runner/bin/Release/AnetRLRunner.exe`。コミットしていない変更から作ったもの） |
 | device | `agent.device=cpu`・`run.eval_device=cpu`（小さな MLP と lane 8 では CPU のほうが速い見込み。メイン機の GPU は、走行中の Run が使っている） |
 | 並列 | 3 本を順に 1 本ずつ |
-| 置き場 | `app.runs_dir` をこのワークツリーの `.scratch/rfd0202/runs` にする（Git が追跡しない） |
+| 置き場 | `app.runs_dir` をこのワークツリーの `.scratch/rfd0209/runs` にする（Git が追跡しない） |
 | Run 名 | `run_{t}_tmp_ppo_cp_s1`・`_s2`・`_s3`（`tmp` を含み、40 文字以内） |
 | 起動 | スクラッチに、`_main.txt` と `CartPole_ppo.txt` を `$include` する設定を書き、`--config` で渡す（workspace の履歴を触らない）。`app.$=app.batchrun` を CLI で渡して、予算で終わらせる |
 | 見る指標 | `21_eval/21_ep_steps_greedy`（500 に届くか。exp step 400,000 から 500,000 の評価の点の 8 割以上が 500 か）、`21_eval/22_ep_steps_sample`、`78_agent_ppo/11_approx_kl`・`15_ratio_clip_fraction`・`31_explained_variance`、`79_agent_policy/02_entropy_ratio`、`78_agent_ppo/20_first_ratio_deviation`・`79_agent_policy/34_policy_lag`（どちらも 0 のはず）、`90_perf/12_exp_step_per_sec` |
@@ -240,7 +240,7 @@ A13（CartPole の Run）は、完了報告のあとに開発者の指示を受�
 
 ## CartPole の試運転の結果（A13。2026-11-25）
 
-段取りの表のとおりに流した。実行体はこのワークツリーの Release（18:42 にできた `apps/runner/bin/Release/AnetRLRunner.exe`）、設定はスクラッチの `.scratch/rfd0202/trial/ppo_cp_trial.txt`（`_main.txt` と `CartPole_ppo.txt` を読み、`app.runs_dir` を `.scratch/rfd0202/runs` にする）を `--config` で渡した。CLI では `app.$=app.batchrun`・`agent.device=cpu`・`run.eval_device=cpu`・`run.seed`・`app.run_name` だけを渡した。3 本を順に 1 本ずつ流し、どれも終了値 0 で、1 本あたり 33〜35 秒だった。メイン機では、12 bat の Run（GPU を使う）が並んで走っていた。
+段取りの表のとおりに流した。実行体はこのワークツリーの Release（18:42 にできた `apps/runner/bin/Release/AnetRLRunner.exe`）、設定はスクラッチの `.scratch/rfd0209/trial/ppo_cp_trial.txt`（`_main.txt` と `CartPole_ppo.txt` を読み、`app.runs_dir` を `.scratch/rfd0209/runs` にする）を `--config` で渡した。CLI では `app.$=app.batchrun`・`agent.device=cpu`・`run.eval_device=cpu`・`run.seed`・`app.run_name` だけを渡した。3 本を順に 1 本ずつ流し、どれも終了値 0 で、1 本あたり 33〜35 秒だった。メイン機では、12 bat の Run（GPU を使う）が並んで走っていた。
 
 設定の一覧（`config/config_data.txt`）と `json/` で確かめたこと: `agent.device = cpu`（`effective_device` も cpu）、`run.train.runner_type = serial`、`run.train.num_envs = 8`、`CartPoleEnv.limit_step = 500`、`app.exp_exit_step = 500,000`。学習率は、exp step 1,016 の最初の更新で 2.4949e-4（2.5e-4 × (1 − 1,016 / 500,000)）、最後の更新で 1.48e-7 で、線形に下がっている。
 
@@ -278,22 +278,22 @@ A13（CartPole の Run）は、完了報告のあとに開発者の指示を受�
 
 seed 1 では、勾配のノルムが 8〜38（clip の上限は 0.5）で、その大半が価値の側（8〜38）、方策の側は 0.05〜0.25 だった。価値の損失は 8.6〜92、価値の教師の平均は終わりで 75 である。報酬の正規化は入れていない（RFD の NG5）。
 
-短い試し（どれも終了値 0、WARN 0 件。`.scratch/rfd0202/runs` に残っている）:
+短い試し（どれも終了値 0、WARN 0 件。`.scratch/rfd0209/runs` に残っている）:
 
 | Run 名 | 中身 |
 |---|---|
 | `run_20261125-192120_tmp_smoke_ppo_cp` | 3 本の前に流した。exp step 12,000、6 秒。設定の一覧、評価 2 回、終了時の保存を確かめた |
 | `run_20261125-192430_tmp_smoke_ppo_panel` | exp step 200,000、`app.eval_panel.auto_start=true`、14 秒 |
-| `run_20261125-192529_tmp_smoke_ppo_shot` | exp step 400,000、`app.eval_panel.auto_start=true`。Runner のウィンドウを 2 回撮った（`.scratch/rfd0202/trial/runner_window_1.png`・`_2.png`）。Train View に CartPole の絵と状態の値、ツールバーに exp と train の step の数、Logs に進みの行が出ていた |
+| `run_20261125-192529_tmp_smoke_ppo_shot` | exp step 400,000、`app.eval_panel.auto_start=true`。Runner のウィンドウを 2 回撮った（`.scratch/rfd0209/trial/runner_window_1.png`・`_2.png`）。Train View に CartPole の絵と状態の値、ツールバーに exp と train の step の数、Logs に進みの行が出ていた |
 
-Run フォルダは 6 つで、どれも名前に `tmp` を含む（`.scratch/rfd0202/runs`、計 16 MB）。消すのは開発者である。起動の記録（`launch.log`）と集計のスクリプト（`summarize_trial.py`・`greedy_curve.py`・`read_run.py`）は `.scratch/rfd0202/trial/` にある。
+Run フォルダは 6 つで、どれも名前に `tmp` を含む（`.scratch/rfd0209/runs`、計 16 MB）。消すのは開発者である。起動の記録（`launch.log`）と集計のスクリプト（`summarize_trial.py`・`greedy_curve.py`・`read_run.py`）は `.scratch/rfd0209/trial/` にある。
 
 ## 未決と、起票の候補
 
 - RFD の未決表（U1〜U30）は、暫定の既定のまま実装した。再グリルで見直す。
-- RFD の課題（`rfd` でこの RFD を指す課題）は起票していない。課題の一覧（`docs/management/issues/INDEX.md`）の「どの課題の rfd からも指されない RFD」に、RFD0202 の行が出ている。
+- RFD の課題（`rfd` でこの RFD を指す課題）は起票していない。課題の一覧（`docs/management/issues/INDEX.md`）の「どの課題の rfd からも指されない RFD」に、RFD0209 の行が出ている。
 - 起票の候補（今回は起票していない）:
-  - RFD0202 の仕事の課題（PPO 系と方策ベースの共通部品。再グリルが残る）。
+  - RFD0209 の仕事の課題（PPO 系と方策ベースの共通部品。再グリルが残る）。
   - `anet-core-base-test` の、背景スレッドのログが紛れ込んで実行順しだいで落ちるテスト（上の注）。
   - `anet-env-imagecls-test` の、実行順しだいで wxWidgets のメッセージボックスが出て止まる問題（上の注）。既にある課題 [issue-20261123-9a0e78](../management/issues/issue-20261123-9a0e78.md)（imagecls の Env のテストが画像の口を初期化せず、乱数の並びで先に回ると止まる）と同じ事象で、今回の seed（3387089429）とメッセージの文面を追記する候補である。
   - 設定キーを示す診断の監査の期待一覧が、基準コミットの時点で 19 件ずれている。
@@ -305,7 +305,7 @@ Run フォルダは 6 つで、どれも名前に `tmp` を含む（`.scratch/rf
 
 実施内容:
 
-- RFD0202（暫定の起票）に従って、core の共通部品（行動の分布、GAE、Head の合成、活性化の `Tanh`、ためた経験の全体の読み出し）と、PPO 系（`src/algo/ppo`。離散行動の `PPOAgent`）を実装した。Runner への配線、出荷の設定（`PPOAgent.@baseline`、`metrics.scalar.@ppo`、`CartPole_ppo.txt`）、設計文書（115・230 の新設と 7 本の追随）、用語集、機能カテゴリ、wiki を同じ変更に入れた。
+- RFD0209（暫定の起票）に従って、core の共通部品（行動の分布、GAE、Head の合成、活性化の `Tanh`、ためた経験の全体の読み出し）と、PPO 系（`src/algo/ppo`。離散行動の `PPOAgent`）を実装した。Runner への配線、出荷の設定（`PPOAgent.@baseline`、`metrics.scalar.@ppo`、`CartPole_ppo.txt`）、設計文書（115・230 の新設と 7 本の追随）、用語集、機能カテゴリ、wiki を同じ変更に入れた。
 - 検証は「検証の結果」のとおりである。Debug の全ビルド、Release の Runner、既定スイート、PPO 系のテスト（CPU と CUDA）、hidden の学習テスト（seed 3 つとも最適値）が通った。CartPole の Run（A13）は、完了報告のあとに開発者の指示を受けて流し、3 seed とも基準を満たした（「CartPole の試運転の結果」）。
 
 変更ファイル:
@@ -328,7 +328,7 @@ Run フォルダは 6 つで、どれも名前に `tmp` を含む（`.scratch/rf
 
 判断してほしいこと:
 
-- RFD0202 の未決表（U1〜U30）の暫定の既定を、再グリルでいつ見直すか。
+- RFD0209 の未決表（U1〜U30）の暫定の既定を、再グリルでいつ見直すか。
 - コミットの対象名（scope）に `PPO` を足すか（未決表の U18）。
 
 次にできること:
@@ -337,7 +337,7 @@ Run フォルダは 6 つで、どれも名前に `tmp` を含む（`.scratch/rf
 
 | # | 区分 | 内容 | 根拠 |
 |---|---|---|---|
-| 1 | 新規 | RFD0202 の仕事の課題（PPO 系と方策ベースの共通部品。再グリルが残る） | RFD に結び付いた課題が無く、課題の一覧に「どの課題からも指されない RFD」として出ている。質問していない（課題の起票は今回の指示の外） |
+| 1 | 新規 | RFD0209 の仕事の課題（PPO 系と方策ベースの共通部品。再グリルが残る） | RFD に結び付いた課題が無く、課題の一覧に「どの課題からも指されない RFD」として出ている。質問していない（課題の起票は今回の指示の外） |
 | 2 | 新規 | `anet-core-base-test` が、別のテストの背景スレッドのログの紛れ込みで、実行順しだいで 1 件落ちる | 基準コミットを含む 5 回の実行のうち 3 回で、別々のテストが落ちた。質問していない（検証で見つかった） |
 | 3 | 既存 issue-20261123-9a0e78 へ追記 | `anet-env-imagecls-test` が、実行順しだいで wxWidgets のメッセージボックスを出して止まる（seed 3387089429、`No image handler for type 15 defined.`） | 同じ事象の課題が既にある。今回の seed と文面を足す。質問していない |
 | 4 | 新規 | 設定キーを示す診断の監査の期待一覧が、基準コミットの時点で 19 件ずれている | 監査の終了値が、変更の前から 1 である。質問していない |

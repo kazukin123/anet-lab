@@ -5,7 +5,7 @@
 #include "anet/distribution.hpp"
 
 TEST_CASE("Categorical distribution matches hand-computed probabilities, log probabilities and entropy",
-    "[distribution][rfd0202]")
+    "[distribution][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -37,7 +37,7 @@ TEST_CASE("Categorical distribution matches hand-computed probabilities, log pro
 }
 
 TEST_CASE("Categorical distribution keeps entropy finite when an action has zero probability",
-    "[distribution][rfd0202]")
+    "[distribution][rfd0209]")
 {
     // logits が −∞ の行動は確率 0 になり、entropy の項は 0 として数える。
     const auto negative_infinity = -std::numeric_limits<float>::infinity();
@@ -46,7 +46,7 @@ TEST_CASE("Categorical distribution keeps entropy finite when an action has zero
 }
 
 TEST_CASE("Categorical distribution samples actions with frequencies that follow the probabilities",
-    "[distribution][rfd0202]")
+    "[distribution][rfd0209]")
 {
     const auto device = GENERATE(torch::Device(torch::kCPU), torch::Device(torch::kCUDA, 0));
     if (device.is_cuda() && !torch::cuda::is_available()) SKIP("CUDA is unavailable");
@@ -68,7 +68,7 @@ TEST_CASE("Categorical distribution samples actions with frequencies that follow
     CHECK(torch::equal(actions.cpu(), distribution.Sample(repeated.GetTorchGenerator(device)).cpu()));
 }
 
-TEST_CASE("Categorical distribution keeps gradients through log probabilities and entropy", "[distribution][rfd0202]")
+TEST_CASE("Categorical distribution keeps gradients through log probabilities and entropy", "[distribution][rfd0209]")
 {
     auto logits = torch::tensor({ { 0.1f, -0.2f, 0.3f } }).requires_grad_(true);
     const anet::rl::CategoricalDistribution distribution(logits);
@@ -79,7 +79,7 @@ TEST_CASE("Categorical distribution keeps gradients through log probabilities an
     CHECK(logits.grad().abs().sum().item<float>() > 0.0f);
 }
 
-TEST_CASE("Categorical distribution rejects invalid logits and actions", "[distribution][rfd0202]")
+TEST_CASE("Categorical distribution rejects invalid logits and actions", "[distribution][rfd0209]")
 {
     // logits は [行, 行動数] の浮動小数で、行動数は 2 以上。
     CHECK_THROWS(anet::rl::CategoricalDistribution(torch::Tensor()));
