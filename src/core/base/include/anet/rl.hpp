@@ -226,7 +226,7 @@ namespace anet::rl {
         void AssertSanity() const;
 
         /// 観測データ(TensorDict)が仕様(存在, Dtype, Shape, Range)を全て満たしているか一括検証する。
-        bool ValidateObservation(const anet::TensorDict& obs, bool is_batched = true) const;
+        void AssertObservation(const anet::TensorDict& obs, bool is_batched = true) const;
 
         anet::json ToJson() const;
         std::string ToString() const;

@@ -191,5 +191,5 @@ Debug ビルドを通し、既定のテストの集合を回す。直したあ�
 ## 10. 参照
 
 - 規約: [AGENTS.md](../../AGENTS.md) の §基本方針と §クリーンブレーク方針、[実装 レビュー観点](../quality/impl.md) の「テスト」、[RFD レビュー観点](../quality/rfd.md)。
-- 地図: [311 開発ツール・テスト基盤](../wiki/categories/311_dev_tools.md)、[315 ニューラルネットワーク](../wiki/categories/315_nn.md)、[321 Agent 共通基盤](../wiki/categories/321_agent_core.md)。
+- 地図: [311 開発ツール・テスト基盤](../wiki/concepts/framework/311_dev_tools.md)、[315 ニューラルネットワーク](../wiki/concepts/framework/315_nn.md)、[321 Agent 共通基盤](../wiki/concepts/framework/321_agent_core.md)。
 - 課題の記録: [anet-update-issue](../../.agents/skills/anet-update-issue/SKILL.md)。

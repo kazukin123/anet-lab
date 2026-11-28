@@ -1,4 +1,4 @@
-<!-- translated-from: 220_atari_env.jp.md blob:8164e4afe4229447696d07e93c5c16ec5c054e30 date:2026-11-23 progress:done -->
+<!-- translated-from: 220_atari_env.jp.md blob:d5722d2d3d448ec82ed29771206f6365a0033d2b date:2026-11-25 progress:done -->
 # Atari Env (ALE Integration)
 
 > Primary perspective: concrete implementation specification (AtariEnv, including external ALE contracts, configuration keys, and View)
@@ -19,7 +19,7 @@ See ADR 0025 (external-reference builds and licensing) and ADR 0026 (Single seam
 
 ### 1.3 Scope
 
-AtariEnv / AtariEnvFactory / AtariView / preprocessing functions, ALE v0.12.0 configuration-key contracts, and build gating. Section 3 gives the established ALE build configuration; `reports/atari_env_survey_2026-08-13.md` covers experimental protocol background.
+AtariEnv / AtariEnvFactory / AtariView / preprocessing functions, ALE v0.12.0 configuration-key contracts, and build gating. Section 3 gives the established ALE build configuration; `reports/survey/atari_env_survey_2026-08-13.md` covers experimental protocol background.
 
 ## 2. Overview
 
@@ -31,7 +31,7 @@ BatchEnvBuilder (env.class_id = AtariEnv)
             └─ 前処理: 自前 skip ループ → grayscale 2フレーム max-pool → selected resize → uint8 [1,S,S]
 ```
 
-- Does not produce frame stacks. The existing Actor-side stacker and ReplayBuffer-side stack_count jointly handle stacking.
+- Env returns one frame at a time. DefaultDQN's `frame_stack.*` specifies the number of frames and the target keys. `FrameStack` in the action-selection Forwarder stacks the Actor's history, and ReplayBuffer reconstructs samples with the same number of frames and keys. [Forwarder and Perception](135_forwarder_and_perception.en.md)
 - RB stores individual uint8 frames; stacks are expanded during sampling (ADR 0026).
 - Responsibility: **AtariEnv drives one ALE instance and performs standard preprocessing**. Existing framework mechanisms handle parallelism, stacking, automatic reset of terminal lanes inside Step, and seed distribution.
 
@@ -347,7 +347,7 @@ When changing RAM definition numbers or reducers, check the ROM-independent and 
 - [Environments](120_environments.en.md) — Common Env contract and extension checklist (§8)
 - ADR 0025 / ADR 0026 — Adoption decisions
 - `docs/memo/0051_atari_ale_env_10rfd.md` — Implementation plan (PH1 scope and acceptance criteria)
-- `reports/atari_env_survey_2026-08-13.md` — ALE survey (protocols and benchmark trends)
+- `reports/survey/atari_env_survey_2026-08-13.md` — ALE survey (protocols and benchmark trends)
 - `CONTEXT.md` — Terminology (sticky actions / flavor / raw score / protocol preset)
 
 Transition observations, RGB, and aux are created before the auxiliary NOOP after life loss. If the NOOP ends the game, the Step result's finalized game values include its score and frames, but the returned reward/next_state/RGB/lives are not replaced. AtariView displays the result's rgb_frame, avoiding a shift to the screen after automatic Reset. Results are independent of later Steps and Resets, and the env carries no completion values forward. See [RFD0097 validation](../../src/core/base/testdata/rfd0097/README.md) for Asterix RAM acceptance conditions and public-API tests.

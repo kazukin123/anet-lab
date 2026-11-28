@@ -632,10 +632,6 @@ ImageClsAgent::ImageClsAgent(
         LOG::info() << "ImageClsAgent auto-load file=" << config_.auto_load_file;
         LoadNetwork(config_.auto_load_file);
     }
-
-    // ログ記録
-    anet::MetricsLogger::Instance()->Log(config);
-    LOG::info() << "ImageClsAgent initialized. config=" << config_.ToString();
 }
 
 int64_t ImageClsAgent::Save(anet::OutputArchive& archive) const

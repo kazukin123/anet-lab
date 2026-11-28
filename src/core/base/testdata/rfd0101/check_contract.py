@@ -13,7 +13,7 @@ def main():
     # D13の履歴・en・CHANGELOGは対象外。C++のDTOメンバ.valueはキー記法と区別する。
     paths = []
     for root in ("src/core/base/include", "src/core/base/src", "src/core/base/testdata/rfd0072", "src/core/base/testdata/rfd0101",
-                 "apps/runner/config", "src/apps/runner/src", "src/env", "docs/wiki/categories", "docs/wiki/apps"):
+                 "apps/runner/config", "src/apps/runner/src", "src/env", "docs/wiki/concepts/framework", "docs/wiki/concepts/apps"):
         paths.extend(p for p in (REPO / root).rglob("*")
                      if p.is_file() and p.suffix in (".hpp", ".cpp", ".py", ".json", ".md", ".txt"))
     paths.extend((REPO / "apps").glob("*.bat"))

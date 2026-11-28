@@ -58,6 +58,6 @@ DropMerge で起きている問題は次のとおり。
 
 ## 8. 参照
 
-- [Biedenkapp et al., 2021] André Biedenkapp, Raghu Rajan, Frank Hutter, Marius Lindauer. "TempoRL: Learning When to Act." ICML 2021. https://arxiv.org/abs/2106.05262（続けた区間をまとめた遷移の目標値。詳細解説: `reports/biedenkapp2021_temporl_paper_2026-10-03.md`）
+- [Biedenkapp et al., 2021] André Biedenkapp, Raghu Rajan, Frank Hutter, Marius Lindauer. "TempoRL: Learning When to Act." ICML 2021. https://arxiv.org/abs/2106.05262（続けた区間をまとめた遷移の目標値。詳細解説: `reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md`）
 - [Sutton et al., 1999] Richard S. Sutton, Doina Precup, Satinder Singh. "Between MDPs and semi-MDPs: A Framework for Temporal Abstraction in Reinforcement Learning." Artificial Intelligence 112. https://people.cs.umass.edu/~barto/courses/cs687/Sutton-Precup-Singh-AIJ99.pdf
 - [Tallec et al., 2019] Corentin Tallec, Léonard Blier, Yann Ollivier. "Making Deep Q-learning Methods Robust to Time Discretization." ICML 2019. https://arxiv.org/abs/1901.09732

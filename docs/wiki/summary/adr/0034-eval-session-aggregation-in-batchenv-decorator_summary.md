@@ -1,0 +1,44 @@
+---
+title: 評価セッションの N 本集約は BatchEnv デコレータと開始時動的グラントで行う
+page_kind: サマリ
+material: "[[docs/adr/0034-eval-session-aggregation-in-batchenv-decorator.md|0034-eval-session-aggregation-in-batchenv-decorator]]"
+material_kind: ADR
+concepts:
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+  - "[[docs/wiki/concepts/framework/320_env_core.md|320 Env 共通基盤]]"
+  - "[[docs/wiki/concepts/framework/318_rl_core.md|318 強化学習 共通基盤]]"
+updated: 2026-11-28
+---
+# 評価セッションの N 本集約は BatchEnv デコレータと開始時動的グラントで行う
+
+## 元の材料
+
+[ADR 0034](../../../adr/0034-eval-session-aggregation-in-batchenv-decorator.md) blob:419502c8258980d8c69d9c637221d81d646a3eec
+
+## 要点
+
+- 評価する N エピソードの採用権は、開始時にグループへ動的に割り当てる。
+- 完了順に先着 N 本を選ぶ方式では短いエピソードが優先される。
+- BatchEnv のデコレーターが採用分を集約し、余剰グループを停止させずに処理する。
+- auto-reset 後の新鮮な状態を利用し、不要な再 Reset による乱数消費を避ける。
+- 後の ADR 0060 で自動リセットを維持し、採用値は終了した Step の結果から取り出すと整理した。
+
+## 内容
+
+### 採用するエピソード
+
+早く終了したものだけを選ぶと短いエピソードに偏る。結果を見る前に開始権を配れば、固定した方策・同じ分布の独立したグループのもとで、長さに依存した先着順の偏りを避けられる。
+
+### 並列度と集約
+
+グループ数より N が小さいと、一部のグループは進行しても集計には寄与しない。共有 episode の ImageCls では多数の lane 全体で1グループと数え、1 window の accuracy を扱う。
+
+### 新たな開始状態
+
+完了時の continue_state を次回の新鮮な入力として使い、二度の Reset で乱数列を進めない。収集する値の出所は後に Step の結果となったが、完了順と開始権を分ける規則は維持する。
+
+## 主要な概念
+
+- [評価と比較の条件](../../concepts/measurement/evaluation.md)
+- [320 Env 共通基盤](../../concepts/framework/320_env_core.md)
+- [318 強化学習 共通基盤](../../concepts/framework/318_rl_core.md)

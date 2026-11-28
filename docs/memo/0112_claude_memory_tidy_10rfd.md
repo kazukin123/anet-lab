@@ -2,7 +2,7 @@
 
 > 2026-11-02 起票（暫定。質疑を省き、既定を置いて、決めることを §9 に残した。番号はユーザーの指示で連番）。数値と行番号は起票時点のもので、実装時は取り直す。
 > 起点: 2026-10-31〜11-02 の会話。LLM-Wiki（[PRD095](done/0095_llm_wiki_10rfd.md)）の目的と実績を整理したところ、Claude Code の memory に結果の数値と古い状態の記述が溜まり直していると分かった。ユーザーの望みは「memory の整合チェックとお掃除を、wiki の保守とは別に定期的に回す。まず Claude Code、そのあと Codex 側の対応を検討する」。
-> 関連: [PRD095](done/0095_llm_wiki_10rfd.md)（§4.5 の memory の移し替え、D2・D38）、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)、[anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)、[skills README](../../.agents/skills/README.md)、[wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)。
+> 関連: [PRD095](done/0095_llm_wiki_10rfd.md)（§4.5 の memory の移し替え、D2・D38）、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)、[anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)、[skills README](../../.agents/skills/README.md)、[wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/concepts/framework/311_dev_tools.md)。
 
 ## 1. 目的と問題
 
@@ -326,5 +326,5 @@ skill の引数は `full` だけである。ほかの語が付いたときは、
 
 - [RFD0095 LLM-Wiki](done/0095_llm_wiki_10rfd.md)、[段階 3 の記録](done/0095_llm_wiki_22impl.md)、[ADR 0056](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md)
 - [anet-housekeeping](../../.agents/skills/anet-housekeeping/SKILL.md)、[anet-improve](../../.agents/skills/anet-improve/SKILL.md)、[anet-lint-wiki](../../.agents/skills/anet-lint-wiki/SKILL.md)、[skills README](../../.agents/skills/README.md)
-- [wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/categories/311_dev_tools.md)、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md)、[RFD0095 の検証資材](../../src/core/base/testdata/rfd0095/README.md)
+- [wiki の規約](../wiki/README.md)、[311 開発ツール（wiki）](../wiki/concepts/framework/311_dev_tools.md)、[160 アプリケーションとツール](../design/160_applications_and_tools.jp.md)、[RFD0095 の検証資材](../../src/core/base/testdata/rfd0095/README.md)
 - [How Claude remembers your project](https://code.claude.com/docs/en/memory)、[Claude Code power user tips](https://support.claude.com/en/articles/14554000-claude-code-power-user-tips)、[Dreams](https://platform.claude.com/docs/en/managed-agents/dreams)、[LangMem Background Quickstart](https://langchain-ai.github.io/langmem/background_quickstart)

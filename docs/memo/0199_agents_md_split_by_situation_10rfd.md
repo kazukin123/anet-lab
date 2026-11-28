@@ -211,4 +211,4 @@ AGENTS.md のパスを読むコードは、hook の文言 2 件（`.agents/hooks
 - [ADR 0061](../adr/0061-detail-rules-live-in-quality-viewpoints-and-agents-md-leads-to-them-by-reading-table.md)
 - [AGENTS.md](../../AGENTS.md)
 - [動線マップ](../agents/README.md)
-- [311 開発ツール](../wiki/categories/311_dev_tools.md)
+- [311 開発ツール](../wiki/concepts/framework/311_dev_tools.md)

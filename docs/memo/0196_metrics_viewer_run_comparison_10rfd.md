@@ -378,7 +378,7 @@ browser の部品をどのファイルに置くか（`metrics-viewer.js` に足�
 - [160](../design/160_applications_and_tools.jp.md): §2.2 の `PlotlyController` の行の `TagStats`、§6 の CDN の記述、§8 の Viewer の UI 変更のテストの行。
 - 英訳（`210`・`030`・`160` の `*.en.md`）は実装で直さず、`anet-translate-docs` で作り直す（D28）。
 - 用語集（[CONTEXT.md](../../CONTEXT.md) の「範囲統計」の追加と「query channel」の定義の直し）、[ADR 0089](../adr/0089-run-config-table-reads-config-data-txt-by-framework-reader-rules.md)、[ADR 0090](../adr/0090-query-channel-is-per-tab-and-query-kind.md)、[ADR 0023](../adr/0023-server-enforced-query-supersede-per-channel.md) の先頭の注記は、本書の起草で書いた。
-- wiki の [Metrics Viewer の表示粒度](../wiki/mechanisms/metrics_resolution.md)（24 行が ADR 0023 の題を引く）は、本書の wiki への書き戻しで、ADR 0090 で単位を改めたことを足す。
+- wiki の [Metrics Viewer の表示粒度](../wiki/concepts/measurement/metrics_resolution.md)（24 行が ADR 0023 の題を引く）は、本書の wiki への書き戻しで、ADR 0090 で単位を改めたことを足す。
 
 **ライセンス。** `licenses/` には足さない。WebJar は Maven の依存なので、`THIRD-PARTY.txt` に載る（P12・P21）。
 

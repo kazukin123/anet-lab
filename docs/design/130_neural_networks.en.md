@@ -1,4 +1,4 @@
-<!-- translated-from: 130_neural_networks.jp.md blob:d57e2165ce56a47958eed22009670795303ee26b date:2026-11-23 progress:done -->
+<!-- translated-from: 130_neural_networks.jp.md blob:67330909040c8603eb2215dc6864ca9fcdcf0d23 date:2026-11-28 progress:done -->
 # Neural Networks
 
 > Primary perspective: function (Networks and modules, with internal processing stages in chronological order)
@@ -39,9 +39,11 @@ At the Network Body entrance, `NetworkBoundaryPreprocessor`:
 
 ### 2.2 Frame-Stack Input Axis Contract
 
-The producer of each observation declares its value scale and stack-axis attribute. DefaultDQN's Perception passes `[S, *frame_shape]` and `has_stack_axis=true` to the Network for each key selected by FrameStack. Dummy inputs, Actor inputs, Replay samples, and visualization use `[B, S, *frame_shape]` for these keys, including when `S=1`. Other keys keep their Frame shape. See [Forwarder and Perception (Japanese)](135_forwarder_and_perception.jp.md#2-観測の-spec).
+The producer of each observation declares the scale and stack-axis attributes of its spec. See [Forwarder and Perception](135_forwarder_and_perception.en.md#2-observation-specs).
 
-Network configurations explicitly select how each branch handles the stack axis. Construction warns once and names the branch, module, key, and shape if the branch's first module does not declare support for the stack axis it receives. `Flatten`, `StackMerge`, `Permute`, `Reshape`, and both DropMerge embedders declare support. `StackMerge` requires five dimensions.
+`DefaultDQNAgent` uses the output specs of the visualization Forwarder as the Network input and checks the action-selection and Sample specs against them at construction. Stacked keys have a leading stack axis even when the count is one, and `stack_axis` is true. Construction-time dummy inputs, Actor, and Learner use `[B, S, *original_shape]` with a batch axis added.
+
+Network configurations explicitly select the following modules for their intended use rather than implicitly restoring a stack axis.
 
 | Input and use | Module structure | Network shape |
 |---|---|---|
@@ -51,7 +53,9 @@ Network configurations explicitly select how each branch handles the stack axis.
 
 `Reshape` is available for general shape transformations but is not required to restore the stack-axis contract.
 
-For discrete Grids, `NetworkBoundaryPreprocessor` uses `has_stack_axis` to determine whether to merge stack and class into channels during one-hot conversion. Stacked discrete Grids reach automatic-format branches as `[B,S*C,H,W]`. Continuous Grids and Grids with automatic formatting disabled retain `[B,S,C,H,W]` at branch inputs.
+`StackMerge` accepts `[B, S, C, H, W]`. `NetworkBoundaryPreprocessor`, which formats discrete Grids, reads `stack_axis` from the spec and merges one-hot classes and the stack into channels. Branches on this path receive `[B, S*C, H, W]`. Continuous Grids and Grids with formatting disabled retain the stack axis.
+
+If an input with a stack axis reaches a branch whose first module does not declare that it handles the axis, construction emits a WARN with the branch, module, key, and shape. `Flatten`, `StackMerge`, `Permute`, `Reshape`, and the two DropMerge Embedders handle the stack axis.
 
 ### 2.3 Body and Head
 
@@ -147,6 +151,8 @@ net.branch.[merged].bind_concat_dim = -1
 | Embedding | `CosineEmbedding`, `HybridSpatialEmbedder`, `SpatialEmbedder`, `SpatialPositionalEmbedding2D` |
 | Layer | `Linear`, `Conv1d`, `Conv2d`, `ResBlock`, `CNBlock`, `TransformerEncoder` |
 | Token | `ClsAppend`, `ClsExtract` |
+
+Max pooling specified by output size (PyTorch's `AdaptiveMaxPool2d`) is unregistered. Atari's `AtariPool6` uses `MaxPool2d` (kernel size 2, stride 2, padding 1) in its place.
 
 This table follows actual `InitNN()` registrations, not Config comments.
 
@@ -341,7 +347,7 @@ u/v are named buffers initialized using the dedicated RNG, followed by 15 power 
 
 `Network` implements `Forwarder` from `anet/forwarder.hpp`. Calling its common `Forward` method with a `TensorDict` and an optional `ForwardCapture` produces the same output and capture as calling `Network::Forward` directly. The caller supplies the input spec at Network construction.
 
-`Network::Forward`, `NetworkForwardExecutor::Forward`, and `Network::ForwardUpTo` accept an optional `ForwardCapture`. Callers request exact keys or prefixes ending in `/` and use `Wants`, `WantsAny`, `Add`, `Get`, `GetAll`, `Unfulfilled`, and `Reset`. Each key holds one Tensor. Writing an unrequested key or calling `Add` a second time for the same key fails fast. `Get` returns the exact-key value or an undefined Tensor if unwritten. `GetAll` returns matching prefix keys and Tensors in write order. Prefix `X/` matches only descendants.
+`Network::Forward`, `NetworkForwardExecutor::Forward`, and `Network::ForwardUpTo` accept an optional `ForwardCapture`. Callers request exact keys or prefixes ending in `/` and use `Wants`, `WantsAny`, `Add`, `Get`, `GetAll`, `Unfulfilled`, and `Reset`. Each key holds one Tensor. Writing an unrequested key or calling `Add` a second time for the same key fails fast. `Get` returns the exact-key value or an undefined Tensor if unwritten. `GetAll` returns matching prefix keys and Tensors in write order. Prefix `X/` does not match `X` itself.
 
 There are three writers. After each branch executes, Body detaches and writes the output if its branch name was requested. Modules check requests for base keys through `NetworkForwardContext` and write diagnostics. `NetworkStruct` supplies `<branch>/<block instance name>`, appended after a module's base key, so even repetitions such as `(*2)` do not collide. Instance names use the same `<definition name>_<sequence number>` form as checkpoints, rather than nn_trace drawing indices. Direct module calls have no location suffix. Branch names containing `/` are rejected at construction.
 

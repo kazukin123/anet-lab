@@ -550,7 +550,7 @@ void RunnerFrame::Initialize(std::shared_ptr<anet::rl::RunManager> run_manager)
     // EvalPanel初期化
     const auto& eval_config_tag = eval_panel_->GetConfig().eval_config_tag;
     eval_runner_ = run_manager->CreateEvalRunner(
-        "EvalPanel", eval_config_tag);
+        kEvalPanelRunnerName, eval_config_tag);
     eval_panel_->Initialize(run_manager, eval_runner_);
 
     // QValuePanel初期化

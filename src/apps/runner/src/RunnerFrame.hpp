@@ -23,6 +23,7 @@
 class RunnerFrame final : public anet::rl::gui::AuiLayoutFrame {
 public:
     enum class MainView { Train, Eval, Both };
+    static constexpr char kEvalPanelRunnerName[] = "EvalPanel";
 
     RunnerFrame(const wxString& title, const TrainPanelConfig& train_panel_config,
         const EvalPanelConfig& eval_panel_config, MainView main_view);

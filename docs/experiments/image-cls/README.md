@@ -5,7 +5,7 @@ ImageClsAgent 系の探索記録です。Body の構成、LR の制御、Mixup/C
 
 ## 知見のまとめ
 
-- [wikiの知見](../../wiki/subjects/imagecls.md)から題材・機構と正本をたどる。
+- [wikiの知見](../../wiki/concepts/subjects/imagecls.md)から題材・機構と正本をたどる。
 
 ## Env 別記録
 

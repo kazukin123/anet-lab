@@ -224,4 +224,4 @@ VERBOSE で、英語で出す。色は `#RRGGBB`、外観はその時点の wx �
 - [RFD0094 Evaluation Trace](done/0094_evalpanel_step_history_10rfd.md)、[RFD0055 Runner ツールバー](done/0055_runner_toolbar_10rfd.md)
 - [160 アプリケーションとツール](../design/160_applications_and_tools.jp.md) §2.1・§3.4・§3.5・§7.1・§8
 - [040 開発環境構築ガイド](../design/040_development_environment.jp.md) §3.4
-- [RunnerApp（wiki）](../wiki/apps/110_runner_app.md)
+- [RunnerApp（wiki）](../wiki/concepts/apps/110_runner_app.md)

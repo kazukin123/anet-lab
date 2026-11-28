@@ -1,3 +1,5 @@
+@echo off
+title %~nx0
 REM rmdir /s /q build
 mkdir build
 cd build

@@ -1,4 +1,4 @@
 interface:
   display_name: "ANET Wiki Ingest"
-  short_description: "正本を読んで知見とトピック別まとめを更新し、出典・目録・取り込み記録を揃える"
+  short_description: "資料ごとのサマリを書き、主張と横断的知見を概念のページへ取り込む"
   default_prompt: "$anet-ingest-wiki を使って、wikiの規約に従い取り込みを行ってください。"

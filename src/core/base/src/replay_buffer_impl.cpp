@@ -2336,18 +2336,19 @@ void PrefetchingReplayBuffer::State::EnqueueDelayedPushLocked(BatchExperience ba
 void PrefetchingReplayBuffer::State::PruneCompletedPushesLocked()
 {
     while (!push_futures.empty()) {
-        auto& front = push_futures.front();
-        if (front.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-        front.get();
+        if (push_futures.front().wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        auto push = std::move(push_futures.front());
         push_futures.pop_front();
+        push.get();
     }
 }
 
 void PrefetchingReplayBuffer::State::WaitForQueuedPushesLocked()
 {
     while (!push_futures.empty()) {
-        push_futures.front().get();
+        auto push = std::move(push_futures.front());
         push_futures.pop_front();
+        push.get();
     }
 }
 
@@ -2525,6 +2526,10 @@ std::shared_ptr<ReplayBuffer> anet::rl::CreateReplayBuffer(
     torch::Device storage_device, bool pin_memory, std::optional<uint64_t> seed,
     std::unique_ptr<InitialPriorityEstimator> initial_priority_estimator)
 {
+    if (config.n_step < 1) {
+        ANET_SYSTEM_ERROR("Invalid " << config.full_keys.GetFullKey("n_step") << ": value=" << config.n_step
+            << " expected >= 1");
+    }
     // capacity の割り切れ補正
     int64_t capacity_per_env = config.capacity / num_envs;
     const int64_t actual_capacity = capacity_per_env * num_envs;

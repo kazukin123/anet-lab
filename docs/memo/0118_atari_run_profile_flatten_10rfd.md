@@ -105,7 +105,7 @@ bat・テスト・文書のどれにも名前が出ないものは 17 個ある:
 - [実装 レビュー観点](../quality/impl.md) の「設定ファイル」の規約: 選択宣言・Run プロファイル・CLI は常に `=`（153 行）。機能の有効化は葉 1 つで済むようにし、機能ごとの変種のために `@` プロファイルを作らない（174 行）。
 - [RFD0181](0181_config_file_layout_10rfd.md) §7: `run.@` は `<Env>.txt` の所有。「env ファイルの中身（Run プロファイルの整理）」を別のグリルへ送った。
 - [020 §3.6](../design/020_user_guide_run.jp.md) の表: `<Env>.txt` にチェーン・プロファイル・上書き層・Run プロファイルを書き、bat・CLI が `run.$` の選択と葉の上書きを持つ。137 行の例は `run.$=run.@v5_iqn_impala_x2>run.@a5>run.@a5_apex>run.@va_base`。
-- [316 設定管理のトピック別まとめ](../wiki/categories/316_config.md) の「変えるときの条件」: 設定ファイルを分けたり移したりするときは、env の解決済み設定（全キーと文字列値）の前後一致と `check_default_leaves.py` の errors=0 を確かめる（出典は RFD0181 §6）。
+- [316 設定管理のトピック別まとめ](../wiki/concepts/framework/316_config.md) の「変えるときの条件」: 設定ファイルを分けたり移したりするときは、env の解決済み設定（全キーと文字列値）の前後一致と `check_default_leaves.py` の errors=0 を確かめる（出典は RFD0181 §6）。
 
 ### 2.7 プロファイルの名前を参照するもの
 
@@ -330,7 +330,7 @@ Run 名の既定 `app.run_name = run_{t}_atari_${E1.game}`（今は `run.@a5_ape
 | 12 | learn step で数える値 | 本流ごとに、その本流の RR に合わせた値を書き、exp step をコメントで添える。bat で RR を変える Run は、評価の間隔と target の同期も bat で書く（今と同じ） | 単位の直しは RFD0096・RFD0148 の関心（§7） | 別の関心 |
 | 13 | 既定の `run.$` | `run.@realtime > run.@to_100m` | 今の既定（実時間優先 100M）と同じ構成 | 選択 |
 | 14 | 切り替えの時機 | 13 の bat が Atari のキューを流していないときに、`Atari.txt`・13 の bat・テストを同じ変更で切り替える。11 の bat は、写し（`rnd_explore.txt`）を読むステージを旧い名前のまま残し、今の設定を読むステージを足すときに新しい名前で書く。サブ機の作業ツリーの更新は人が行う | 今の `Atari.txt` を読む bat の後続のステージは、その時点の `Atari.txt` を読む。写しを読む bat は影響を受けない（§2.7）。消えた名前を読むと起動時に止まる。サブ機が読む `Atari.txt` の所在は ④（実装計画で確かめる） | 選択と④ |
-| 15 | 過去の RFD の検証資材と固定入力 | `core/anet-core/testdata/rfd0072`（固定入力）と、`rfd0084`・`rfd0094`・`rfd0097`・`rfd0099`・`rfd0102`・`rfd0106`（検証資材）は直さない。[316 のトピック別まとめ](../wiki/categories/316_config.md)の「変えるときの条件」が再実行を求める `rfd0103`・`rfd0104` だけを新しい名前へ直す | rfd0072 は manifest の固定 commit を読む。ほかの資材は、その RFD の実装を確かめ終えた記録。直さない資材を今の設定で流すと、消えた名前で起動時に止まる。rfd0103・rfd0104 の各資材が今の `Atari.txt` を読むかは ④（実装計画で確かめる） | 選択と④ |
+| 15 | 過去の RFD の検証資材と固定入力 | `core/anet-core/testdata/rfd0072`（固定入力）と、`rfd0084`・`rfd0094`・`rfd0097`・`rfd0099`・`rfd0102`・`rfd0106`（検証資材）は直さない。[316 のトピック別まとめ](../wiki/concepts/framework/316_config.md)の「変えるときの条件」が再実行を求める `rfd0103`・`rfd0104` だけを新しい名前へ直す | rfd0072 は manifest の固定 commit を読む。ほかの資材は、その RFD の実装を確かめ終えた記録。直さない資材を今の設定で流すと、消えた名前で起動時に止まる。rfd0103・rfd0104 の各資材が今の `Atari.txt` を読むかは ④（実装計画で確かめる） | 選択と④ |
 | 16 | 今の状態として名前を書いた文書 | 020（jp・en）と、`docs/memo` 直下の RFD のうち索引の issue の AI の判定が実装済みでないもの（2026-11-08 時点で 117・172・181・158・161）、wiki の breakout を直す。ADR・実験記録・done と実装済みの RFD（098）・issue の本文・wiki のログは直さない | クリーンブレーク方針（[AGENTS.md](../../AGENTS.md)）。ADR は書き換えない。実装前の RFD は、実装のときに今の状態として読まれる | 選択 |
 | 17 | ほかの env へ広げるか | 本 RFD では扱わない。Atari の形を確かめてから別の RFD で判断する | 起点の会話の方針（§3.2） | 後で決める |
 | 18 | 規約にするか | 020 の Atari の説明に書き、[実装 レビュー観点](../quality/impl.md) の「設定ファイル」の規約には #17 の判断のあとで足す | 規約にすると全 env に当たる。#17 に依存 | 選択 |
@@ -353,4 +353,4 @@ Run 名の既定 `app.run_name = run_{t}_atari_${E1.game}`（今は `run.@a5_ape
 - 設計文書: [020](../design/020_user_guide_run.jp.md) §3.6・§3.7
 - RFD: [RFD0181](0181_config_file_layout_10rfd.md)、[RFD0096](0096_metrics_step_axis_interval_10rfd.md)、[RFD0148](0148_target_update_step_axis_10rfd.md)、[RFD0059](done/0059_config_concept_tree_alignment_10rfd.md)、[RFD0072](done/0072_config_selection_final_value_10rfd.md)
 - ADR: [0040](../adr/0040-config-selection-final-value-and-run-profile-tier.md)、[0042](../adr/0042-config-inheritance-as-differential-base.md)
-- トピック別まとめ: [316 設定管理](../wiki/categories/316_config.md)、[322 個別 env](../wiki/categories/322_env_individual.md)
+- トピック別まとめ: [316 設定管理](../wiki/concepts/framework/316_config.md)、[322 個別 env](../wiki/concepts/framework/322_env_individual.md)

@@ -1,0 +1,56 @@
+---
+title: DropMerge NoLegal 裁定の blocked-persistence 化
+page_kind: サマリ
+material: "[[docs/memo/done/0039_dropmerge_nolegal_adjudication_10rfd.md|0039_dropmerge_nolegal_adjudication_10rfd]]"
+material_kind: RFD
+concepts:
+  - "[[docs/wiki/concepts/subjects/dropmerge.md|DropMerge]]"
+  - "[[docs/wiki/concepts/framework/322_env_individual.md|322 Env個別実装]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-28
+---
+# DropMerge NoLegal 裁定の blocked-persistence 化
+
+## 元の材料
+
+[DropMerge NoLegal 裁定の blocked-persistence 化](../../../memo/done/0039_dropmerge_nolegal_adjudication_10rfd.md) blob:e7745bcf00223a7a49ba9f73b850769f4c264a35
+
+## 要点
+
+- DropMerge の NoLegalDrop 判定で、盤面全体の静止を待つ条件を見直す。
+- 置ける場所がない状態が物理フレームをまたいで続いたかどうかを使い、一時的な詰まりと終局を区別する。
+- 調査した Run で解消した詰まりは最長29物理フレームで、持続時間には幅があった。
+- 終局理由を正しく表すことを目的とし、成績や実行速度の改善を成功条件に置かない。
+- 従来の NoDropTimeout と新しい裁定で、どの条件が終端を決めたかを比較する。
+
+## 内容
+
+### 再精査で変わった問題設定
+
+盤面全体の速度を判定すると、果物が回転しているだけのときにも置ける場所がないことを認めない場合がある。ただし、100M Run の学習計測267,111点では詰み候補の NoDropTimeout が一度も記録されず、評価の19件もすべて候補外だった。原本は、頻度や速度の改善から終端裁定の意味へ目的を改めた。
+
+### 計測と裁定
+
+詰まりが解けた事例は最長29物理フレームだった。このため10フレーム続いた時点で終端にする初期案では、後から置ける盤面を打ち切る。状態の持続は物理フレーム単位で測り、エージェントが NOOP を選んだ局面と組み合わせて裁定する。
+
+### どの時点で測るか
+
+candidate は「現在の fruit を置ける列が一つもない」という瞬間の判定で、盤面全体の静止とは異なる。行動前に candidate だったかを記録すれば、置けない状態で DROP を命令した場合も数えられる。置ける列がないことは、実際の落下位置に加わるノイズを含めて判定する。
+
+継続時間のカウンタは物理フレームを単位とする。RL の1 step が常に同じ物理時間を表すとは限らないので、NoDropTimeout の RL step 数とは別に扱う。詰まりがいったん解消すればカウンタは切れ、落とせる局面を挟んだ二つの詰まりを合算しない。
+
+### 観測と変更を分ける
+
+最初の計測では従来の終端裁定を変えず、ふさがりが続いた長さ、詰み候補での DROP、NoDropTimeout との重なりを記録する。終了時にも候補の有無を読み取れば、終端の直前だけ判定が変わる場合を確かめられる。
+
+持続条件を使う裁定にも、すでに盤面が静止した場合の従来の受理経路を残す。物理処理を早送りして結論を出す仕組みは持たず、通常の step を進めて得たフレームで判定する。罰の額を変えただけで性能が向上したと判断しないよう、終了理由と報酬の違いを分けて比較する。
+
+### 回帰と比較
+
+終局の候補に入った回数、候補から抜けたときの持続時間、終了理由を先に測る。合法な列があるのに置かなかった NOOP は従来の NoDropTimeout に残し、詰みと区別する。
+
+## 主要な概念
+
+- [DropMerge](../../concepts/subjects/dropmerge.md)
+- [322 Env個別実装](../../concepts/framework/322_env_individual.md)
+- [評価と比較の条件](../../concepts/measurement/evaluation.md)

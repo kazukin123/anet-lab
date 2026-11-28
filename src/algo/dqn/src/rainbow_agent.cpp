@@ -45,9 +45,6 @@ RainbowAgent::RainbowAgent(
     auto network_seed = seed_maker.MakeNamedSeed("network");
     //auto action_policy_seed = seed_maker.MakeNamedSeed("action_policy");
 
-    // RuntimeVars生成
-    this->vars_ = std::make_unique<RuntimeVars>();
-
     const bool is_distributional = config_.use_qr;
 
     // ------------------------------------------------------------
@@ -77,7 +74,7 @@ RainbowAgent::RainbowAgent(
 
     learner_ = DqnComponentAssembler::CreateLearner(
         is_distributional ? ActionPolicyConfig::kQuantileModeQr : ActionPolicyConfig::kQuantileModeNone,
-        config_.num_quantiles, config_.learner, *model_, *vars_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_);
+        config_.num_quantiles, config_.learner, *model_, batch_env_spec, env_spec, device_, replay_seed, GetSeed(), target_policy_);
 }
 
 std::optional<anet::TensorDictFunction> RainbowAgent::GetTensorDictFunction(const std::string& key)
@@ -100,7 +97,7 @@ std::optional<anet::TensorDictFunction> RainbowAgent::GetTensorDictFunction(cons
 
 std::optional<float> RainbowAgent::GetScalar(const std::string& key, int64_t index) const
 {
-    return DqnComponentAssembler::GetScalar(key, index, *learner_, *vars_, *target_policy_, *mutex_);
+    return DqnComponentAssembler::GetScalar(key, index, *learner_, *target_policy_, *mutex_);
 }
 
 std::optional<torch::Tensor> RainbowAgent::GetTensor(const std::string& key, int64_t index) const

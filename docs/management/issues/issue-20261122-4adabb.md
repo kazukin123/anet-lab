@@ -1,7 +1,7 @@
 ---
 id: issue-20261122-4adabb
 title: RFD0072 の既定葉検査が移転前の core を探索して停止する
-status: 未着手
+status: 解決
 raised: 2026-11-22
 phase: 実装
 scope: RFD0072 の既定葉検査による現行リポジトリの設定とソースの静的検査
@@ -11,12 +11,12 @@ area:
   - 316_config
 type: 不具合
 domain: 開発
-ai_judge: 残件有り
-ai_judged: 2026-11-23
+ai_judge: 残件無し
+ai_judged: 2026-11-28
 docs:
   - docs/memo/done/0072_config_selection_final_value_10rfd.md
   - docs/memo/0191_rnd_raw_error_and_recent_learning_20impl.md
-rfd:
+rfd: "[[0206_core_and_app_small_fixes_10rfd]]"
 priority: 中
 depends: []
 parent:
@@ -25,8 +25,8 @@ urgency: 3
 risk: 2
 size: 2
 wsjf: 4
-resolved:
-resolution:
+resolved: 2026-11-28
+resolution: 対応済み
 memo:
 tags: []
 ---
@@ -54,3 +54,7 @@ PRD191 の設定移行を検証中に、既定葉の `?=` と `=` の使い分�
 探索先を現行の配置に合わせる。リポジトリのルートで標準の実行手順を通し、`apps` と `src` が検査されて集計が出ることを確かめる。
 
 ## 対応内容
+
+- 2026-11-27 探索先は 125075dc で現在の配置へ対応済み。標準検査が apps と src を検査し、4 行を報告して終了値 1。検査のテスト 16 件が通った。 [RFD0206 実装メモ](../../memo/0206_core_and_app_small_fixes_20impl.md)
+$1
+- 2026-11-28 状態を `対応中` から `解決` へ変更。コミットの準備で解決の候補を選んだ。AI 判定は「残件無し」。現行の配置で既定キー検査が動作し、検査のテスト 16 件が通ることを確認した。

@@ -7,14 +7,14 @@
     "viewBox": [1300, 830],
     "repository": {
       "url": "https://github.com/kazukin123/anet-lab",
-      "revision": "0f4fd0f9718bddfd0e8f0ea5a9248920b0da209b"
+      "revision": "9310b087270668127f996cbb04eb959fc756f1de"
     }
   },
   "components": [
     {
       "id": "entry_rules", "type": "frontend", "label": "入口", "sublabel": "CLAUDE.md / AGENTS.md",
       "pos": [50, 300], "size": [180, 72],
-      "sources": [{ "path": "CLAUDE.md", "line": 4 }, { "path": "AGENTS.md", "line": 61, "label": "作業ごとに読むもの" }]
+      "sources": [{ "path": "CLAUDE.md", "line": 4 }, { "path": "AGENTS.md", "line": 45, "label": "作業ごとに読むもの" }]
     },
     {
       "id": "domain_rules", "type": "security", "label": "規約", "sublabel": "レビュー観点・プロセス契約",
@@ -24,17 +24,17 @@
     {
       "id": "design_docs", "type": "backend", "label": "領域の設計文書", "sublabel": "docs/design 1xx・2xx",
       "pos": [550, 300], "size": [180, 72],
-      "sources": [{ "path": "docs/design/README.jp.md", "line": 27 }, { "path": "AGENTS.md", "line": 437 }, { "path": "docs/design/011_source_layout.jp.md", "label": "ソース配置とライブラリの境界" }]
+      "sources": [{ "path": "docs/design/README.jp.md", "line": 27 }, { "path": "AGENTS.md", "line": 152 }, { "path": "docs/design/011_source_layout.jp.md", "label": "ソース配置とライブラリの境界" }]
     },
     {
       "id": "test_chapters", "type": "backend", "label": "テスト章", "sublabel": "テストと拡張時の確認事項",
       "pos": [800, 300], "size": [180, 72],
-      "sources": [{ "path": "AGENTS.md", "line": 311 }, { "path": "docs/design/100_runtime_and_configuration.jp.md", "line": 385 }]
+      "sources": [{ "path": "AGENTS.md", "line": 584 }, { "path": "docs/design/100_runtime_and_configuration.jp.md", "line": 385 }]
     },
     {
       "id": "test_materials", "type": "database", "label": "検証資材", "sublabel": "testdata README",
       "pos": [1050, 300], "size": [180, 72],
-      "sources": [{ "path": "src/core/base/testdata/rfd0072/README.md" }, { "path": "AGENTS.md", "line": 311 }]
+      "sources": [{ "path": "src/core/base/testdata/rfd0072/README.md" }, { "path": "AGENTS.md", "line": 584 }]
     },
     {
       "id": "project_skills", "type": "backend", "label": "skill", "sublabel": "実体コピー 2 系統",
@@ -47,19 +47,19 @@
       "sources": [{ "path": "docs/memo/README.md", "line": 5 }, { "path": "docs/management/issues/README.md", "line": 3 }, { "path": ".agents/skills/anet-create-rfd/SKILL.md" }]
     },
     {
-      "id": "wiki_summary", "type": "database", "label": "wiki", "sublabel": "トピック別まとめ",
+      "id": "wiki_summary", "type": "database", "label": "wiki とサーベイ", "sublabel": "トピック別まとめ・索引",
       "pos": [800, 90], "size": [180, 72],
-      "sources": [{ "path": "AGENTS.md", "line": 135 }, { "path": "docs/wiki/README.md" }]
+      "sources": [{ "path": "AGENTS.md", "line": 501 }, { "path": "docs/wiki/README.md" }, { "path": "reports/INDEX.md", "line": 3, "label": "サーベイの索引" }]
     },
     {
       "id": "user_guides", "type": "frontend", "label": "ユーザーガイド", "sublabel": "0xx の Run 起動と分析",
       "pos": [300, 510], "size": [180, 72],
-      "sources": [{ "path": "AGENTS.md", "line": 72 }, { "path": "AGENTS.md", "line": 664 }]
+      "sources": [{ "path": "AGENTS.md", "line": 56 }, { "path": "AGENTS.md", "line": 731 }]
     },
     {
       "id": "terms_decisions", "type": "database", "label": "用語と判断理由", "sublabel": "CONTEXT.md / ADR",
       "pos": [550, 510], "size": [180, 72],
-      "sources": [{ "path": "AGENTS.md", "line": 102 }, { "path": "AGENTS.md", "line": 140 }, { "path": "CONTEXT.md" }]
+      "sources": [{ "path": "AGENTS.md", "line": 468 }, { "path": "AGENTS.md", "line": 506 }, { "path": "CONTEXT.md" }]
     },
     {
       "id": "ci_workflows", "type": "messagebus", "label": "CI", "sublabel": "build・test・Pages",
@@ -104,7 +104,7 @@
       "dot": "cyan",
       "title": "主経路",
       "items": [
-        "入口の「作業ごとに読むもの」からレビュー観点の節へ進み、領域の設計文書を読む。",
+        "AGENTS.md（4 群）の読む表からレビュー観点の節へ進み、設計文書を読む。",
         "検証は設計文書のテスト章から src/core/base/testdata の README へたどる。"
       ]
     },
@@ -121,7 +121,7 @@
       "title": "ユーザー環境",
       "items": [
         "同名 skill の shadow は両エージェントで起こりうる。",
-        "global の CLAUDE.md と memory の層は Claude Code だけが持つ。"
+        "global CLAUDE.md は Claude Code だけが読む。memory はエージェントごと。"
       ]
     }
   ]

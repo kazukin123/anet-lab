@@ -21,7 +21,7 @@
 
 ## 1. 目的と問題
 
-行動と一緒に「その行動を何 step 続けるか」も選ぶ TempoRL（Biedenkapp et al. 2021）を、DefaultDQN で設定により有効にできるようにする。論文は、行動を選ぶ Q（behaviour Q）と、選んだ行動を条件に続ける長さを選ぶ Q（スキップ価値、skip Q）を分け、続けた区間の経験（1 回の区間から j(j+1)/2 本の sub-skip）でスキップ価値を学ぶ構成で、素の Q 学習より少ない判断で同じ方策に達し、グリッドワールドでは最大で 1 桁速く学ぶと報告している（[論文解説 §3.2](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md#32-いつ意思決定するかの学習learning-when-to-make-decisions)、[同 4.2.3](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md#423-atari-環境atari-environments)）。
+行動と一緒に「その行動を何 step 続けるか」も選ぶ TempoRL（Biedenkapp et al. 2021）を、DefaultDQN で設定により有効にできるようにする。論文は、行動を選ぶ Q（behaviour Q）と、選んだ行動を条件に続ける長さを選ぶ Q（スキップ価値、skip Q）を分け、続けた区間の経験（1 回の区間から j(j+1)/2 本の sub-skip）でスキップ価値を学ぶ構成で、素の Q 学習より少ない判断で同じ方策に達し、グリッドワールドでは最大で 1 桁速く学ぶと報告している（[論文解説 §3.2](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md#32-いつ意思決定するかの学習learning-when-to-make-decisions)、[同 4.2.3](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md#423-atari-環境atari-environments)）。
 
 DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続ける長さを選ぶ仕組みは無く、続けた区間の経験は 1 step ずつの遷移としてしか使われない。[086](0086_dropmerge_macro_actions_10rfd.md) の「繰り返し回数の離散化」は、(行動, 回数) の組を平らな行動の一覧として Agent に見せる。Agent の改修が要らない代わりに、行動の数が回数の候補の数だけ増え、続けた区間の途中の遷移は学習に使われない。
 
@@ -72,7 +72,7 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 - Atari の BTR 基準（[run_20260927-035604_a5_qbert_btr50m_eps005_end0](../experiments/default-dqn/atari/config/run_20260927-035604_a5_qbert_btr50m_eps005_end0.txt)）: frame_skip 4、sticky 0.25、n_step 3、γ 0.997、IQN K=8、PER（max 初期化）、Munchausen、hard update 500、128 lane、ε 0.05→0 と spatial、NoisyNet 無し。
 - LunarLander（[LunarLander.txt](../../apps/runner/config/LunarLander.txt)）: n_step 5、γ 0.99、IQN、Munchausen、UQE。暫定版が基準に挙げた `run_20260612-015116` はリポジトリに無い（§6 の 25）。
 - GridMaze（[GridMaze.txt](../../apps/runner/config/GridMaze.txt)、[GridMazeEnv.hpp:26-31](../../src/env/gridmaze/src/GridMazeEnv.hpp)）: 5×5 の固定迷路、行動は上下左右の 4 つ（NOOP 無し）、goal +1・hole −1・壁 −0.1・step −0.01・上限 100 step、n_step 3、γ 0.995、QR、UQE。
-- 論文の最大スキップ長 J: 表形式 7、MountainCar 10、LunarLander 4（連結構成で最良。改善は小さい）、Atari 10（qbert は最初の 1M step は遅れ、その後に追い越す）（[論文解説 4.2.2](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md#422-特徴量ベースの環境における-dqnfeaturized-environments--dqn)、[4.2.3](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md#423-atari-環境atari-environments)、[付録 E](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md#付録-e-最大スキップ長の影響influence-of-the-maximum-skip-length)）。論文の 3 構成（連結・文脈化・重み共有）はどれも行動を入力に取る（[§3.3](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md#33-深層強化学習でいつ意思決定するかの学習learning-when-to-make-decisions-in-deep-rl)）。スキップの目標値の終点の価値は行動価値で測る（[付録 B](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md#付録-b-実装の詳細implementation-details)）。分布型・PER との組み合わせは論文に無い。
+- 論文の最大スキップ長 J: 表形式 7、MountainCar 10、LunarLander 4（連結構成で最良。改善は小さい）、Atari 10（qbert は最初の 1M step は遅れ、その後に追い越す）（[論文解説 4.2.2](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md#422-特徴量ベースの環境における-dqnfeaturized-environments--dqn)、[4.2.3](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md#423-atari-環境atari-environments)、[付録 E](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md#付録-e-最大スキップ長の影響influence-of-the-maximum-skip-length)）。論文の 3 構成（連結・文脈化・重み共有）はどれも行動を入力に取る（[§3.3](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md#33-深層強化学習でいつ意思決定するかの学習learning-when-to-make-decisions-in-deep-rl)）。スキップの目標値の終点の価値は行動価値で測る（[付録 B](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md#付録-b-実装の詳細implementation-details)）。分布型・PER との組み合わせは論文に無い。
 
 ## 3. ゴール・非ゴール・成功の測り方
 
@@ -138,7 +138,7 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 
 - k_max は、起点 t から次の判断の旗の手前まで（判断で決めた区間の中）の長さで、上限 J、終わり方が done か truncated の遷移を含めたらそこで止まる。すなわち k_max = max { k ≤ J : t+1..t+k−1 に判断の旗が無く、t..t+k−2 の終わり方がすべて「なし」}。区間の中の action は同じ判断で決めた行動なので一致する（抽出はこれを検査し、違えば `ANET_SYSTEM_ERROR`）。k_max は判断の時点で決まるので、次の判断で同じ行動を選び直すかに依存しない。
 - サンプルごとに、k を 1..k_max から一様に 1 つ引く（D13）。乱数は replay の sampler の RNG を使う。
-- 判断の中で選んだ j が探索（ε や Noisy）によるものかは区別しない。スキップ価値の定義は「a を k step 続けたあと行動価値に従う」で、判断で決めた区間の中の遷移の分布は j を選んだ理由によらない（[論文解説 式 (4)](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md#32-いつ意思決定するかの学習learning-when-to-make-decisions)）。Atari の sticky actions で保存した行動と実行した行動が違うのは、今の 1 step の学習と同じく Env の確率性として扱う（[CONTEXT.md](../../CONTEXT.md) の「sticky actions」）。
+- 判断の中で選んだ j が探索（ε や Noisy）によるものかは区別しない。スキップ価値の定義は「a を k step 続けたあと行動価値に従う」で、判断で決めた区間の中の遷移の分布は j を選んだ理由によらない（[論文解説 式 (4)](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md#32-いつ意思決定するかの学習learning-when-to-make-decisions)）。Atari の sticky actions で保存した行動と実行した行動が違うのは、今の 1 step の学習と同じく Env の確率性として扱う（[CONTEXT.md](../../CONTEXT.md) の「sticky actions」）。
 - Sample の出力は、今の欄に加えて、窓の欄として「k」「窓の割引報酬」「窓の終端の終わり方（done なら bootstrap 無し）」「k 先の観測」を持つ。欄の名前は窓（window）で、スキップの名を共通層に持ち込まない。窓の規則が渡されていなければ窓の欄は空（§5.1）。
 
 ### 5.3 NetworkModel と skip Network
@@ -178,7 +178,7 @@ DQN 系の Agent は今、Env の 1 step ごとに 1 つの行動を選ぶ。続
 - Actor が使う skip Network は、行動に使う primary と同じ側（online の Actor は online の skip、target の Actor は target の skip。D3）。複製と同期は §5.3。
 - 判断（残り 0 の lane）: 選んだ行動 a を条件にスキップ長 j を選び、a を j step 続ける状態にする（残り j−1）。判断でない lane（残り > 0）: 方策が選んだ行動を捨て、続けている行動で上書きし、残りを 1 減らす。
 - スキップ長の選択: skip Network を 1 回 forward し（分離型は a で絞る、包含型は a を入力にする）、選んだ行動のスキップ長ごとの値から j を選ぶ。選ぶ規則は D9（既定は行動の方策と同じ規則・同じ現在値で、乱数は独立。`actor.[key].skip.policy` があればそれ）。判断でない lane の分も同じ forward に含まれるが使わない。
-- 判断の順は論文の Algorithm 1 と同じ: a を選び、次に a を条件に j を選ぶ（[論文解説 付録 B](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md#付録-b-実装の詳細implementation-details)）。
+- 判断の順は論文の Algorithm 1 と同じ: a を選び、次に a を条件に j を選ぶ（[論文解説 付録 B](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md#付録-b-実装の詳細implementation-details)）。
 - `BatchActionInfo` の info に `decision`（判断した lane か。replay が 1 step の記録の判断の旗として保存する）を足し、aux に `skip_decision`、`skip_length`（その lane の今のスキップ長 j。判断でない lane は続けている skip の j）、`skip_q_values`（選んだ行動のスキップ長ごとの値。分布型は平均）を足す。`q_values` などの既存の aux は forward の値のまま。
 - Actor Q ヒント（actor_approx）は、実行した行動（上書き後）で q_sa と bonus を取り直す（`WithAction` の再 gather と同じ）。
 - 強制行動（WithAction）は Actor の状態を変えない（D10）。
@@ -420,9 +420,9 @@ Evaluation Trace の列は `$action_info skip_decision`、`$action_info skip_len
 
 ## 11. 参照
 
-- [Biedenkapp et al., 2021] André Biedenkapp, Raghu Rajan, Frank Hutter, Marius Lindauer. "TempoRL: Learning When to Act." ICML 2021. https://arxiv.org/abs/2106.05262（詳細解説: [biedenkapp2021_temporl_paper_2026-10-03.md](../../reports/biedenkapp2021_temporl_paper_2026-10-03.md)）
-- [Sharma et al., 2017] Sahil Sharma, Aravind S. Lakshminarayanan, Balaraman Ravindran. "Learning to Repeat: Fine Grained Action Repetition for Deep Reinforcement Learning." ICLR 2017. https://arxiv.org/abs/1702.06054（詳細解説: [sharma2017_figar_paper_2026-10-03.md](../../reports/sharma2017_figar_paper_2026-10-03.md)）
+- [Biedenkapp et al., 2021] André Biedenkapp, Raghu Rajan, Frank Hutter, Marius Lindauer. "TempoRL: Learning When to Act." ICML 2021. https://arxiv.org/abs/2106.05262（詳細解説: [biedenkapp2021_temporl_paper_2026-10-03.md](../../reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md)）
+- [Sharma et al., 2017] Sahil Sharma, Aravind S. Lakshminarayanan, Balaraman Ravindran. "Learning to Repeat: Fine Grained Action Repetition for Deep Reinforcement Learning." ICLR 2017. https://arxiv.org/abs/1702.06054（詳細解説: [sharma2017_figar_paper_2026-10-03.md](../../reports/paper/sharma2017_figar_paper_2026-10-03.md)）
 - [Vieillard et al., 2020] Nino Vieillard, Olivier Pietquin, Matthieu Geist. "Munchausen Reinforcement Learning." NeurIPS 2020. https://arxiv.org/abs/2007.14430（n-step での bonus の積み方は [RFD0067](done/0067_MunchausenRL_10rfd.md) D3）
 - 設計文書: [130 ニューラルネットワーク](../design/130_neural_networks.jp.md)、[150 ReplayBuffer](../design/150_replay_buffer.jp.md)、[200 DQN 系 Agent](../design/200_dqn_agents.jp.md)、[110 Agent と学習](../design/110_agents_and_learning.jp.md)。
 - ADR: [0011](../adr/0011-generation-aware-replay-item-key.md)、[0018](../adr/0018-iqn-via-bind-product-dag.md)、[0024](../adr/0024-replay-sampleable-range-excludes-overwritten-stack-history.md)、[0035](../adr/0035-munchausen-target-learner-local-real-space.md)、[0044](../adr/0044-replay-frame-history-start-from-episode-start-at-push.md)、[0048](../adr/0048-noisynet-epsilon-in-caller-execution-state-and-nn-forward-key.md)、[0051](../adr/0051-nn-forward-prepares-concrete-calls-and-purpose-owned-execution.md)、[0053](../adr/0053-checkpoint-load-applies-current-config-to-optimizer-options.md)、[0062](../adr/0062-networkmodel-holds-auxiliary-network-fed-by-primary-outputs-with-target-used-only-for-acting.md)、[0063](../adr/0063-replay-slot-keeps-per-step-reward-and-end-and-samples-variable-windows.md)。
-- wiki: [行動の時間尺度](../wiki/mechanisms/temporal_abstraction.md)。
+- wiki: [行動の時間尺度](../wiki/concepts/methods/temporal_abstraction.md)。

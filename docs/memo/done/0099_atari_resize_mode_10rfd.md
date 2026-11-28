@@ -2,7 +2,7 @@
 
 > 2026-10-23 起票（暫定。質疑を省いて起草）。
 > 2026-10-23 再グリル・改訂: 方式名、面積平均と偶数丸め、対応解像度1〜160、評価個別上書き、画像ごとの一致率、速度低下2%以内を確定。OpenCVの丸めの説明と84以外の画素数の説明を訂正し、事前調査の報告値と今回確認した事実を分けた。
-> 関連: [ADR 0026](../../adr/0026-atari-env-single-seam-own-preprocessing.md)、[ADR 0025](../../adr/0025-ale-external-build-reference-and-license.md)、[PRD088](../0088_nn_adaptive_max_pool_10rfd.md)、[BTRコード読解](../../../reports/btr_code_reading_2026-08-31.md)、[Qbert比較記録](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)。
+> 関連: [ADR 0026](../../adr/0026-atari-env-single-seam-own-preprocessing.md)、[ADR 0025](../../adr/0025-ale-external-build-reference-and-license.md)、[PRD088](../0088_nn_adaptive_max_pool_10rfd.md)、[BTRコード読解](../../../reports/survey/btr_code_reading_2026-08-31.md)、[Qbert比較記録](../../experiments/default-dqn/atari/2026-09-27_btr-gap-qbert-bz.md)。
 
 ## 1. 目的と問題
 

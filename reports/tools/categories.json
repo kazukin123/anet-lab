@@ -44,7 +44,7 @@
     {"key": "312_util", "label": "312 ユーティリティ", "topic": 8, "match": ["/(util|str_util|json_util|app_util|app_util_impl|exception|log|thread|random|schedule|init|common|diag)\\.(cpp|hpp)$"]},
     {"key": "110_runner_app", "label": "110 RunnerApp", "topic": 4, "test_target": false, "match": ["^src/apps/runner/src/"]},
     {"key": "120_metrics_viewer", "label": "120 MetricsViewer", "topic": 5, "match": ["^src/apps/metrics-viewer/", "^apps/metrics-viewer/"]},
-    {"key": "311_dev_tools", "label": "311 開発プロセス/開発ツール/テスト基盤", "topic": 7, "match": ["^apps/tools/", "^reports/tools/", "^\\.github/"]}
+    {"key": "311_dev_tools", "label": "311 開発プロセス/開発ツール/テスト基盤", "topic": 7, "match": ["^apps/tools/", "^reports/tools/", "^\\.github/", "^AGENTS\\.md$", "^CLAUDE\\.md$", "^\\.agents/", "^\\.codex/", "^\\.claude/agents/", "^\\.claude/settings\\.json$", "^docs/process/", "^docs/quality/", "^docs/agents/"]}
   ],
   "test_infra": ["main_test.cpp", "catch_test.cpp", "catch_test.hpp", "test_util.hpp", "test_util_test.cpp"],
   "topics": {

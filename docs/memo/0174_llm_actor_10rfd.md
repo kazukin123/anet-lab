@@ -7,7 +7,7 @@
 > 2026-10-18 改訂: 同日に実施済みだったサーベイの結果を §3 に反映し、DQN ハイブリッドに段階 B0（LLM が ε 探索の行動分布を決める）を追加した（§4、§8 の 15〜17、§9、§10）。
 > 2026-10-23 改訂: §2 の KFM の seed 3 の Run 名を今のフォルダ名に直した（`…_atari_kung_fu_master_…` から `…_atari_kfm_…` への改名。値は変えていない）。
 > 起点: Atari kung_fu_master（以下 KFM）でボス討伐が定着しない件の分析（§2）。人間がボスを倒せる理由のうち、強化学習だけでは持ち込めないのが事前知識（このゲームの目的、表示の意味、戦い方の型）だと整理した。
-> 関連: [173_intrinsic_reward_novelty_10prd.md](0173_intrinsic_reward_novelty_10rfd.md)（同じ起点の対 PRD。内的な動機の側）、[160_input_target_train_forced_action_10prd.md](0160_input_target_train_forced_action_10rfd.md)（Train 側の強制行動。人間デモ Actor の最初の一歩）、[159_input_mapping_joystick_10prd.md](0159_input_mapping_joystick_10rfd.md)、[161_observation_pipeline_10prd.md](0161_observation_pipeline_10rfd.md)（強制行動を `MakeAction` の入力にする）、[171_replay_eviction_sample_count_10prd.md](0171_replay_eviction_sample_count_10rfd.md)、[done/067_MunchausenRL_10prd.md](done/0067_MunchausenRL_10rfd.md)、[LLM の事前知識で RL の探索と報酬を補助する手法のサーベイ](../../reports/llm_prior_knowledge_rl_survey_2026-10-18.md)（2026-10-18）、[CONTEXT.md](../../CONTEXT.md) の「Actor 設定」「Actor キー」「生スコア」。
+> 関連: [173_intrinsic_reward_novelty_10prd.md](0173_intrinsic_reward_novelty_10rfd.md)（同じ起点の対 PRD。内的な動機の側）、[160_input_target_train_forced_action_10prd.md](0160_input_target_train_forced_action_10rfd.md)（Train 側の強制行動。人間デモ Actor の最初の一歩）、[159_input_mapping_joystick_10prd.md](0159_input_mapping_joystick_10rfd.md)、[161_observation_pipeline_10prd.md](0161_observation_pipeline_10rfd.md)（強制行動を `MakeAction` の入力にする）、[171_replay_eviction_sample_count_10prd.md](0171_replay_eviction_sample_count_10rfd.md)、[done/067_MunchausenRL_10prd.md](done/0067_MunchausenRL_10rfd.md)、[LLM の事前知識で RL の探索と報酬を補助する手法のサーベイ](../../reports/survey/llm_prior_knowledge_rl_survey_2026-10-18.md)（2026-10-18）、[CONTEXT.md](../../CONTEXT.md) の「Actor 設定」「Actor キー」「生スコア」。
 
 ## 1. 目的と問題
 
@@ -74,7 +74,7 @@ LLM（画像を読めるもの）がゲームの常識で行動を選ぶ Actor �
 - replay は 1 つの FIFO で、デモを消さずに残す別枠は無い。PER では、押し出された遷移は戻せない。
 - Munchausen の log π 項は、方策が選ばない行動（デモの行動）を罰する向きに働く。ただし clip −1 で、1 step あたり −0.027（α 0.9 × τ 0.03）が下限。
 - ε-greedy のランダムな行動は、全行動から一様に選ぶ（[dqn_based_agent.cpp](../../src/core/base/src/dqn_based_agent.cpp) の `MakeEpsilonGreedyAction`）。spatial exploration では lane ごとに ε が決まっている。
-- サーベイ（[LLM の事前知識で RL の探索と報酬を補助する手法](../../reports/llm_prior_knowledge_rl_survey_2026-10-18.md)、2026-10-18）の要点:
+- サーベイ（[LLM の事前知識で RL の探索と報酬を補助する手法](../../reports/survey/llm_prior_knowledge_rl_survey_2026-10-18.md)、2026-10-18）の要点:
   - Atari での正の実証はあるが、ゲーム・報酬・観測の条件付きである。KFM のボス攻略や qbert の 8 面到達を直接改善した実証は見つからなかった（同 §9）。
   - step ごとに大きなモデルを呼ばないための実証済みの設計は、オフラインでの蒸留、応答のキャッシュ、エピソード単位の更新、生成したコードへの移行の 4 つ（同 §4・§9）。
   - LLM-Explorer は、次のエピソード群で試す行動の分布を LLM が作り、ε 探索の一様分布をそれに置き換える。呼び出しはエピソード単位で、Qbert 500k step を GPT-4o mini で約 1.3 ドル・約 10 時間と報告している（同 §1・§3.3・§4。金額は論文当時の値）。
@@ -182,7 +182,7 @@ LLM（画像を読めるもの）がゲームの常識で行動を選ぶ Actor �
 
 ## 10. 依存と順序
 
-1. サーベイ（[LLM の事前知識で RL の探索と報酬を補助する手法のサーベイ](../../reports/llm_prior_knowledge_rl_survey_2026-10-18.md)）は実施済み。グリルの前に §3 の要点を読む。
+1. サーベイ（[LLM の事前知識で RL の探索と報酬を補助する手法のサーベイ](../../reports/survey/llm_prior_knowledge_rl_survey_2026-10-18.md)）は実施済み。グリルの前に §3 の要点を読む。
 2. パターン A と段階 B0 は独立に進められる。B0 は呼び出しが最も少なく、Agent の改修も ε のランダム行動の分布だけなので、最初の一歩の候補になる。その後に段階 B1 → 段階 B2。A・B0・B1 に実装上の依存は無い。B2 は Train 側の強制行動の入力（観測パイプライン RFD → [0160_input_target_train_forced_action](0160_input_target_train_forced_action_10rfd.md)）に依存する。
 3. デモの別枠は、人間のプレイを学習に使う路線と共有する。どちらが先に作っても、もう一方はそれを使う。
 

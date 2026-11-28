@@ -3287,6 +3287,57 @@ TEST_CASE("ReplayBuffer samples while push and priority update run concurrently"
     RequireShape(samples.actions, { 4 });
 }
 
+TEST_CASE("ReplayBuffer rejects a nonpositive n_step during construction", "[rfd0206][replay_n_step]")
+{
+    const int n_step = GENERATE(-1, 0, 1);
+    CAPTURE(n_step);
+    auto config = MakeConfig(16, n_step, 0.99f, 1, rl::ReplaySamplerType::UNIFORM);
+    constexpr char kFullKey[] = "DefaultDQNAgent.learner.n_step";
+    config.full_keys.Set("n_step", kFullKey);
+    const auto make_replay = [&] {
+        return rl::CreateReplayBuffer(config, MakeEnvSpec(), 1, torch::kCPU, false, 1);
+    };
+
+    if (n_step > 0) {
+        CHECK(make_replay() != nullptr);
+    } else {
+        CHECK_THROWS_WITH(make_replay(), Catch::Matchers::ContainsSubstring(kFullKey)
+            && Catch::Matchers::ContainsSubstring("value=" + std::to_string(n_step))
+            && Catch::Matchers::ContainsSubstring(">= 1"));
+    }
+}
+
+TEST_CASE("PrefetchingReplayBuffer consumes a failed delayed Push once", "[rfd0206][prefetch_push]")
+{
+    const bool prune_on_sample = GENERATE(false, true);
+    CAPTURE(prune_on_sample);
+    auto buffer = MakeBuffer(MakeConfig(16, 1, 0.99f, 1, rl::ReplaySamplerType::PRIORITIZED), 1, false, 777);
+    for (int64_t time = 0; time < 5; ++time) {
+        PushTime(buffer, time, {}, {}, BoolValues(1, time == 0));
+    }
+    rl::PrefetchingReplayBuffer replay(buffer.rb, torch::kCPU);
+    rl::ExperienceSamples samples;
+    const std::array gammas{buffer.config.gamma};
+    replay.Sample(samples, 1, 0.0f, gammas);
+    replay.Push(rl::BatchExperience{}, {});
+
+    const auto wait_for_push = [&] { replay.UpdatePriorities({}, {}); };
+    const auto prune_push = [&] {
+        // 2 回目の Sample は、失敗した Push の後ろに投入された先読みを待つ。
+        replay.Sample(samples, 1, 0.0f, gammas);
+        replay.Sample(samples, 1, 0.0f, gammas);
+    };
+
+    if (prune_on_sample) {
+        CHECK_THROWS_WITH(prune_push(), Catch::Matchers::ContainsSubstring("Replay Push gammas count=0"));
+    } else {
+        CHECK_THROWS_WITH(wait_for_push(), Catch::Matchers::ContainsSubstring("Replay Push gammas count=0"));
+    }
+    CHECK_NOTHROW(replay.Size());
+    CHECK_NOTHROW(wait_for_push());
+    CHECK_NOTHROW(replay.Sample(samples, 1, 0.0f, gammas));
+}
+
 TEST_CASE("PrefetchingReplayBuffer samples deterministically on CPU", "[replay_buffer][prefetch]")
 {
     auto MakePrefetchingBuffer = [] {

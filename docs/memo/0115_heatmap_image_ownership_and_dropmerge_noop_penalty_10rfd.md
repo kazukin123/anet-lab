@@ -50,7 +50,7 @@
 
 画像の生成・所有は可視化層、行動モードの意味と報酬はDropMergeEnvが担う。[可観測性](../design/140_observability.jp.md) §2・§3、[環境](../design/120_environments.jp.md) §2.2・§4.2に従う。両者をつなぐ新しい汎用部品は必要ない。
 
-[可視化・メトリクスの地図](../wiki/categories/317_metrics.md) と [Env個別実装の地図](../wiki/categories/322_env_individual.md) にある不採用案を本件で採り直すものはない。画像の出力内容と、EnvからAgent・Runnerへ結果を渡す既存の境界を保つ。
+[可視化・メトリクスの地図](../wiki/concepts/framework/317_metrics.md) と [Env個別実装の地図](../wiki/concepts/framework/322_env_individual.md) にある不採用案を本件で採り直すものはない。画像の出力内容と、EnvからAgent・Runnerへ結果を渡す既存の境界を保つ。
 
 ## 3. 確定事項
 

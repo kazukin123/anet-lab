@@ -1,0 +1,49 @@
+---
+title: NoisyNet の導入確認（QR） 探索履歴
+page_kind: サマリ
+material: "[[docs/experiments/default-dqn/lunarlander/2026-10-06_noisynet.md|default-dqn/lunarlander/2026-10-06_noisynet]]"
+material_kind: 実験記録
+concepts:
+  - "[[docs/wiki/concepts/methods/noisynet.md|NoisyNetの観測]]"
+  - "[[docs/wiki/concepts/subjects/lunarlander.md|LunarLander]]"
+  - "[[docs/wiki/concepts/measurement/evaluation.md|評価と比較の条件]]"
+updated: 2026-11-28
+---
+# NoisyNet の導入確認（QR） 探索履歴
+
+## 元の材料
+
+[NoisyNet の導入確認（QR） 探索履歴](../../../../../experiments/default-dqn/lunarlander/2026-10-06_noisynet.md) blob:8ea1238d64d8605344ff3a0dda074a211d44d737
+
+## 要点
+
+- 9 Run とも学習は壊れなかった。 すべて 2M exp step まで完走し、loss・Q・grad に非有限値は無かった。
+- 成績の差は seed の幅の中だった。
+- T180 到達は OFF 2/3、上乗せ 2/3、置き換え 1/3。
+- ε のランダム行動を外して NoisyNet だけにしても、ホバリングからの離脱は遅れなかった。
+- σ は学習とともに縮み、0 には張り付かなかった。
+- ノイズが行動を変える度合いは、学習開始時に大きく、終盤には小さくなった。
+
+## 内容
+
+### この文書の読み方
+
+数値は Run の Metrics マスタから `inspect_run.py` で取得した。
+
+### 群
+
+NoisyNet は LunarLander.txt の Run プロファイル `run.@noisy` で有効にした。main feature の `Linear128` は IQN の fusion と共用のブロックなので掛けていない。
+
+3 群とも metrics は `@munchausen` と `@noisy` を含む同じ構成にした。
+
+### 探索ブロック 01: NoisyNet の上乗せと ε の置き換え（matched 3-seed）
+
+9 Run とも終了コード 0 で 2M exp step（learn step 62,200）まで進み、`agent_close.anet` を保存した。ログのエラーは 0 件だった。
+
+readout の weight norm（σ を含まない）の最終値は、NoisyNet の群で 34.8〜40.3、OFF で 33.8〜36.3 だった。3 seed では差と判定しない。
+
+## 主要な概念
+
+- [NoisyNetの観測](../../../../concepts/methods/noisynet.md)
+- [LunarLander](../../../../concepts/subjects/lunarlander.md)
+- [評価と比較の条件](../../../../concepts/measurement/evaluation.md)

@@ -53,6 +53,7 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 | 設計文書・ユーザーガイドを書く・直す | [実装 レビュー観点](docs/quality/impl.md)の「検証と報告」 |
 | `AGENTS.md`・レビュー観点・プロセス契約とレジストリ・エージェント定義(`.claude/agents/`・`.codex/agents/`)を書く・直す、直し方の案を出す | [実装 レビュー観点](docs/quality/impl.md)の「検証と報告」と、直すレビュー観点のファイルの「位置づけ」。プロセス契約とレビューエージェントの定義を直す案では、[レジストリ](docs/process/registry.md)の「読み替え表」の前文 |
 | skill を書く・直す | [実装 レビュー観点](docs/quality/impl.md)の「skill」と、[skills README](.agents/skills/README.md) |
+| ブランチを取り込む・マージの衝突を解く | [anet-merge-branch](.agents/skills/anet-merge-branch/SKILL.md) の「区画ごとに解く」の表 |
 | Runner を起動する（smoke・Run を流す、bat を書く・直す） | [Run実行ユーザーガイド](docs/design/020_user_guide_run.jp.md)の「最初に確認する設定」「確認方法とよくあるエラー」「標準起動」 |
 
 - 先に読むものは、書く前か起動する前に読み、読んだ節の名前を応答に 1 行で示す。直し方の案を出すときは、案を示す応答の前に読み、その応答に 1 行を置く。
@@ -80,7 +81,7 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 | leaf key（設定） | 葉キー | 設定キー | する |
 | leaf（設定の末端） | 葉 | 設定キー、数えるときは件 | しない（「言葉」と紛れる） |
 | Observer（`Notifier` に付けて通知を受ける部品） | 観測者 | Observer（訳さずにそのまま書く） | する |
-| map（wiki の `apps/`・`categories/` のページ） | 地図、実装の地図 | トピック別まとめ（個別は「324_dqn のトピック別まとめ」。設計文書の「コードマップ」節とは別） | する |
+| map（wiki の `concepts/apps/`・`concepts/framework/` のページ） | 地図、実装の地図 | トピック別まとめ（個別は「324_dqn のトピック別まとめ」。設計文書の「コードマップ」節とは別） | する |
 | flag（真偽や状態を示す値。判断・終端・要求など） | 旗 | フラグ（「判断のフラグ」「終端のフラグ」） | する |
 
 `<proposed_plan>` を出す場合も、本文と見出しは日本語にしてください。
@@ -160,6 +161,7 @@ anet-lab は libtorch を基盤とした C++20 の強化学習実験プロジェ
 
 編集中:
 
+- survey と paper-details の出力は、それぞれ `reports/survey/` と `reports/paper/` に書く。
 - 要求された目的に直接関係する変更だけを行う。
 - 既存の命名・責務分割・依存方向を壊さない。
 - 迷った場合は、局所変更を優先し、設計変更は明示的に説明する。
@@ -231,7 +233,7 @@ LLM がコードを書く際に起こしやすい失敗を減らすための行�
 
 Git staging（`git add`）、commit、push は人間が実施する。
 AI エージェントは `git add`、`git commit`、`git push` を実行せず、必要に応じて対象ファイル、commit message 案、検証結果を提示して人間の操作を支援する。
-例外は、`anet-prepare-commit` の中でユーザーが「ステージする」を選んだときの `git add` と部分 stage（`git apply --cached` と、課題の管理外のメモを載せる `reports/tools/stage_issue_memos.py --stage`）だけである。commit と push に例外は無い。
+例外は、`anet-prepare-commit` の中でユーザーが「ステージする」を選んだときの `git add` と部分 stage（`git apply --cached` と、課題の管理外のメモを載せる `reports/tools/stage_issue_memos.py --stage`）、および `anet-merge-branch` の中で開発者が計画を承認したあとに行う `git merge --no-commit --no-ff`、開発者が中止を選んだときの `git merge --abort`、解いたファイルの `git add` である。commit と push に例外は無い。
 
 commit message は Conventional Commits 形式を適用し、Topic Issue 番号を併記する。次の書き方は AI エージェントが出す案の決まりで、人間が手で書く commit message を縛らない。
 
@@ -500,8 +502,20 @@ RFD の工程では、`anet-create-rfd` が起草で ADR を書き、`anet-impl-
 
 - RFD を起こす・グリルする前、ある機構の知見を別の Env へ持ち込む前、Run 分析の結論を出す前に、[wiki の目録](docs/wiki/index.md)を題材の語（別名を含む）で引き、関係するページを読む。
 - 既存の契約・構造を変える提案の前に、触る部分のアプリケーション・機能カテゴリのページ（トピック別まとめ）を引き、成立の経緯から該当の RFD と ADR をたどる。
-- ページと出典（または新しい結果）の食い違いに気づいたら、出典を正としてその場で直し、`docs/wiki/log.md` に `fix` の行を足す。RFD づくりでは起草でまとめて直す。Plan Mode では編集せず、是正事項を計画へ残す。
-- wiki だけにある知見を作らない。新しい知見は先に正本へ書く。書式・出典・確かめ方は [wiki の規約](docs/wiki/README.md)に従う。
+- anet の実験・実装・過去の判断・外の事例について調べないと答えられない質問に答える前は、`anet-query-wiki` の手順で wiki と出典を引く。
+- 会話で開発者の見立てや調べた答えが出たら、skill や工程を作る作業中の会話も含め、その応答の中で `anet-query-wiki` の手順に従って書く。
+- ページと出典（または新しい結果）の食い違いに気づいたら、出典を正としてその場で直し、`docs/wiki/log.md` に `fix` の行を足す。そのあとにリポジトリの .venv で `reports/tools/wiki_support.py headers` を実行する。RFD づくりでは起草でまとめて直す。Plan Mode では編集せず、是正事項を計画へ残す。
+- 確かめた主張は先に正本に書く。新しい数を出さずに複数の出典を並べた横断的知見、未検証の見立て、開発者の疑問は、それぞれの節に直接書く。書式・出典・確かめ方は [wiki の規約](docs/wiki/README.md)に従う。
+
+## 発言の記録の基準
+
+開発者の発言を、このリポジトリの Git の無視指定に当たらないファイル（新しく作るものを含む）に書くときは、次の順に判断する。
+
+1. 残さないと断られたもの、公開できない値、ほかのリポジトリ・勤務先・仕事の話、私生活・体調・予定・感情の話、分析・判断・設計の材料にならない発言は記録から外す。公開できない値は [wiki の規約](docs/wiki/README.md) の走査項目に従う。
+2. 過去の会話・memory から拾う発言、実在の人・組織・他プロジェクトへの評価や内情、開発者以外の発言、どの区分か迷うものは、要旨と書く先を一覧で示し、開発者に一度で確認する。
+3. 今の会話で出た anet の実験・実装・設計・進め方についての見立て、仮説、疑問、判断、指示、要望と、すでに正本にある発言の転記は、そのまま記録できる。要旨に言い換えて日付を添え、確定した決定と区別する。
+
+手元だけの置き場（memory、`.scratch/`、非公開ページ）では、残さないと断られたものと公開できない値を除く。
 
 ## 用語(CONTEXT.md)を引く条件
 

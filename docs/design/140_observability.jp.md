@@ -32,7 +32,7 @@
 | `ObserverFactory` | `metrics.scalar.*`、`metrics.trace.*`、`metrics.graph.*`などのConfigDataからObserverを組み立てるfactory |
 | `MetricsLog*Observer` | event内の指定sourceからscalarを取得し、step選択、interval、EMA、clipを適用するObserver |
 | `EpisodeEvalObserver` | Learn eventを契機にconfigured Eval sessionを同期またはbackgroundで駆動し、worker例外を呼出側へ再送出するObserver |
-| Image/Graph Observer | ProbeやNN出力からHeatMap、TimeHistogram、Conv2d、GraphVizを生成するObserver。Conv2dは要求したstepだけ作られるnn_traceを読む |
+| Image/Graph Observer | ProbeやNN出力からHeatMap、TimeHistogram、Conv2d、GraphVizを生成するObserver。Conv2dは要求したstepだけ作られるnn_traceを読む。画像 Observer は `ImageProviderFactory` が生成し、`ImageProviderManager` が登録する。 |
 | `MetricsLogger` | Run名とRun directoryを所有し、scalar、JSON、画像、動画、DOTを共通形式で保存するsingleton |
 | `IBackend` / `JsonlBackend` | metric recordの永続化境界。現行backendは`metrics.jsonl`へ追記する |
 | `anet::log::Logger` | 構築時に確定したprefixを先頭へ書き込んだ`WxLogStream`を生成する軽量logger |
@@ -48,6 +48,10 @@
 |---|---|
 | event、Observer interface、Notifier | [rl.hpp](../../src/core/base/include/anet/rl.hpp)、[rl.cpp](../../src/core/base/src/rl.cpp) |
 | 具象Observer、Config parser | [observers.hpp](../../src/core/base/include/anet/observers.hpp)、[observers.cpp](../../src/core/base/src/observers.cpp) |
+| メトリクスの値読出しと StepTrace | [metrics.hpp](../../src/core/base/include/anet/metrics.hpp)、[metrics.cpp](../../src/core/base/src/metrics.cpp) |
+| 画像プロバイダ | [image.hpp](../../src/core/base/include/anet/image.hpp)、[image.cpp](../../src/core/base/src/image.cpp) |
+| HeatMap とヒストグラム | [heat_map.hpp](../../src/core/base/include/anet/heat_map.hpp)、[heat_map.cpp](../../src/core/base/src/heat_map.cpp) |
+| Trace 再生（`gui::TracePlayer`） | [gui.hpp](../../src/core/base/include/anet/gui.hpp)、[gui.cpp](../../src/core/base/src/gui.cpp) |
 | MetricsLogger contract | [metrics_logger.hpp](../../src/core/base/include/anet/metrics_logger.hpp) |
 | JSONL、画像、動画、DOT出力 | [metrics_logger.cpp](../../src/core/base/src/metrics_logger.cpp) |
 | text logging | [log.hpp](../../src/core/base/include/anet/log.hpp) |
@@ -72,12 +76,21 @@ class Notifier {
 class TrainObserver
 class LearnObserver
 class EpisodeEndObserver
+class SessionEndObserver
 class ObserverFactory
 class MetricsLogObserverBase
 class MetricsLogTrainObserver
 class MetricsLogLearnObserver
 class MetricsLogEpisodeEndObserver
-class ImageObserver
+class MetricsLogSessionEndObserver
+class MetricsLogTraceObserver
+class ImageProviderFactory
+class ImageProviderManager
+class HeatMapVectorObserver
+class MultiPairHeatMapObserver
+class Conv2dVisualizationObserver
+class TimeHistogramObserver
+class SweepedHeatMapObserver
 class GraphVizObserver
 class MetricsLogger {
   +LogScalar(tag, step, value)
@@ -92,19 +105,35 @@ Runner --> Notifier : eventを通知
 Notifier o-- TrainObserver
 Notifier o-- LearnObserver
 Notifier o-- EpisodeEndObserver
+Notifier o-- SessionEndObserver
 ObserverFactory ..> TrainObserver : Configから生成
 ObserverFactory ..> LearnObserver : Configから生成
 ObserverFactory ..> EpisodeEndObserver : Configから生成
+ObserverFactory ..> SessionEndObserver : Configから生成
 MetricsLogObserverBase <|-- MetricsLogTrainObserver
 MetricsLogObserverBase <|-- MetricsLogLearnObserver
 MetricsLogObserverBase <|-- MetricsLogEpisodeEndObserver
+MetricsLogObserverBase <|-- MetricsLogSessionEndObserver
 TrainObserver <|.. MetricsLogTrainObserver
 LearnObserver <|.. MetricsLogLearnObserver
 EpisodeEndObserver <|.. MetricsLogEpisodeEndObserver
-TrainObserver <|.. ImageObserver
+SessionEndObserver <|.. MetricsLogSessionEndObserver
+EpisodeEndObserver <|.. MetricsLogTraceObserver
+ImageProviderManager *-- ImageProviderFactory
+ImageProviderManager --> Notifier
+ImageProviderFactory ..> HeatMapVectorObserver
+ImageProviderFactory ..> MultiPairHeatMapObserver
+ImageProviderFactory ..> Conv2dVisualizationObserver
+ImageProviderFactory ..> TimeHistogramObserver
+ImageProviderFactory ..> SweepedHeatMapObserver
+TrainObserver <|.. HeatMapVectorObserver
+TrainObserver <|.. MultiPairHeatMapObserver
+TrainObserver <|.. Conv2dVisualizationObserver
+LearnObserver <|.. TimeHistogramObserver
+LearnObserver <|.. SweepedHeatMapObserver
 TrainObserver <|.. GraphVizObserver
 MetricsLogObserverBase --> MetricsLogger
-ImageObserver --> MetricsLogger
+MetricsLogTraceObserver --> MetricsLogger
 GraphVizObserver --> MetricsLogger
 MetricsLogger *-- IBackend
 IBackend <|.. JsonlBackend
@@ -116,30 +145,38 @@ ObserverはRunner本体のdomain stateを所有せず、eventまたは明示さ�
 
 ## 5. 処理フロー
 
-### 5.1 scalar metricの記録
+### 5.1 scalar と trace の記録
 
 ```mermaid
 sequenceDiagram
     participant R as Train/Eval Runner
     participant N as Notifier
-    participant O as MetricsLog Observer
+    participant O as MetricsLog Observer (scalar / trace)
     participant S as Agent/Runner/Env/Experience/Result
     participant M as MetricsLogger
     participant J as JsonlBackend
     participant F as metrics.jsonl
 
-    R->>N: Notify(Train/Learn/EpisodeEnd event)
+    R->>N: Notify(Train/Learn/EpisodeEnd/SessionEnd event)
     loop 登録順の対応Observer
-        N->>O: OnTrain / OnLearn / OnEpisodeEnd
-        O->>O: runner scopeとstep軸を確認
-        O->>S: GetScalarまたはevent fieldを取得
-        S-->>O: optional scalar
-        opt 値があり記録対象
-            O->>O: EMAを更新
-            O->>O: interval・finite値を確認し、clipを適用
-            O->>M: LogScalar(tag, step, value)
+        N->>O: OnTrain / OnLearn / OnEpisodeEnd / OnSessionEnd
+        alt EpisodeEndを受けるMetricsLogTraceObserver
+            O->>S: 指定laneの個体値を取得
+            S-->>O: trace data
+            O->>M: LogTrace(tag, step, lane, data)
             M->>J: WriteJsonl(record)
-            J->>F: 1 JSON recordを追記
+            J->>F: trace行を追記
+        else scalar Observer（SessionEndを含む）
+            O->>O: runner scopeとstep軸を確認
+            O->>S: GetScalarまたはevent fieldを取得
+            S-->>O: optional scalar
+            opt 値があり記録対象
+                O->>O: EMAを更新
+                O->>O: interval・finite値を確認し、clipを適用
+                O->>M: LogScalar(tag, step, value)
+                M->>J: WriteJsonl(record)
+                J->>F: scalar行を追記
+            end
         end
     end
 ```
@@ -261,7 +298,7 @@ metrics.scalar.[tag] = key [$step_axis] [@event] [$target] [$runner_scope] [$ema
 
 step軸を省略した場合、`@train`は`train_step`、`@learn`、`@episode_end`、`@session_end`は`exp_step`を使う。scalar JSON recordは`type`、`tag`、`step`、`value`だけを持ち、軸名を保存しない。このため設定変更時は同じtagへ別step軸を流用しない。
 
-### 6.x step座標系
+### 6.1 step座標系
 
 `StepCounts`はRunnerごとのメンバであり、軸名はグローバルに一意な座標を指さない。**stepの同一性は「どのRunnerのcounterか」と「どの軸か」の組で決まる。** 本書ではこの組を[step座標系](../../CONTEXT.md)と呼ぶ。
 
@@ -304,11 +341,11 @@ IQN診断ではdevice同期をmetric keyごとに発生させない。Policy診�
 
 QR / IQNの分位tail診断も同じ同期境界を使う。Policy側5 scalarはper-action上下幅、detached full quantile alias、globalなdisagreement / crossingを共有する。最初の参照時だけ最終actionをgatherし、positive crossing深度のlane別nearest-rank p90をdevice上で選んで、全5値を1本のCPU cacheへまとめる。行動生成時と cache の再参照時には percentile sort を行わない。Learner側のsample単位upper-tail幅はPER有効時だけ既存priority readbackへ同梱し、CPU上でclip後raw priorityとのSpearman相関へ集約する。PER無効時は追加packも追加waitも作らず`NaN`を返す。tail入力はfloat32へdetachし、loss、priority、action、sampling、RNGへ接続しない。
 
-現行parserは`interval`、`ema_alpha`、`clip`を`stoi`/`stof`で変換する。`ema_alpha`は変換後に`EmaFilter`がfiniteかつ`0 < ema_alpha <= 1`を検証する。`interval`はObserver構築時に1以上を検証し、0以下はfail-fastする。`clip`は範囲やfinite性を検証しないため、負の`clip`は指定しない。数値文字列の変換失敗は構築中の例外になる。
+scalar は `interval`・`ema_alpha`・`clip`、graph は `interval`・`step_interval`・`episode_interval`・`eps_interval` を数値属性として読む。最初のコロンの後ろ全体を変換し、空値、末尾の余分な文字、変換先の型の範囲外は、設定キー・宣言・属性名・属性の値を示して構築時に拒否する。符号や小数の指数表記も、値の全体を読み切れれば受け付ける。scalar の `interval` は 1 以上、`ema_alpha` は有限な `0 < ema_alpha <= 1` を検証する。`clip` には非負の値を指定する。
 
 scalar・trace・graphは`metrics.<channel>.[tag] = 宣言`の1値を読むカタログであり、`[tag]`の下にフィールドは置けない。tag内の`.[01]`などの添字は保持する。画像は`metrics.image.[tag].type`や`conv2d.*`などのフィールドを持ち、項目ごとの読み口が受け付けないフィールドは構築時に拒否する。画像の形式によらず既知フィールドを型付きで読み、共通の`metrics.image.*`の既定値は画像項目が0件でも読む。項目の検査はほかの読み口の既読状態から独立させ、実際の読み取り結果は元の完全なキーへ届ける。
 
-### 6.x trace チャネル
+### 6.2 trace チャネル
 
 ```text
 metrics.trace.[51_eval1/episode] = $eval.[eval1] @episode_end $env_step game_score game_len game_frames hns57
@@ -322,7 +359,7 @@ trace は統計を集約せず、完了した採用 episode を1行で保存す�
 {"type":"trace","tag":"51_eval1/episode","step":456,"lane":3,"data":{"game_score":422,"game_len":1242,"game_frames":4968,"hns57":31.2}}
 ```
 
-系列は `(type, tag)` で区別し、scalar と trace の同名 tag を許可する。`lane` はイベントの `env_index`（PER_LANE は lane、SHARED は -1）。`step` は scalar と同じ整数座標で、同一 step・同一 lane に複数 episode が並ぶことも許容する。`timestamp`を持ち、top-level `value` は持たず、`data` のキー順は保証しない。未知キーの `nullopt` は tag/key/lane/target 付きで fail-fast、NaN / ±Inf はキーを残して `null` とする。
+系列は `(type, tag)` で区別し、scalar と trace の同名 tag を許可する。`lane` はイベントの `env_index`（PER_LANE は lane、SHARED は -1）。`step` は scalar と同じ整数座標で、同一 step・同一 lane に複数 episode が並ぶことも許容する。行の固定属性は `tag`・`step`・`lane` で、時刻や top-level `value` は持たない。`data` のキー順は保証しない。未知キーの `nullopt` は tag/key/lane/target 付きで fail-fast、NaN / ±Inf はキーを残して `null` とする。
 
 `EvalSessionEnv::LastAdoptedGroups()` は直前 Step で完了した採用 group のみを返し、EvalRunner は Step 直後・次の Step より前に通知する。SHARED の group 0 は通知時に -1 へ変換する。確定値はevent.step_resultからlane指定で読むため、個体値列をdecoratorに蓄積しない。セッション末尾の return 集約と SessionEnd は一度だけ行う。train も同じ trace observer を使う。
 
@@ -332,7 +369,7 @@ attach 済み定義だけを `metrics.scalar.defs` / `metrics.trace.defs` に分
 
 Metrics Viewer は trace を既存の `json_lines` に保持し、scalar と混ぜない。読み取りは `inspect_run.py trace-csv` が担い、行をそのまま CSV へ落とす（[030 §6.9](030_user_guide_analysis.jp.md#69-traceの個体行をcsvで取り出す)）。分位点・閾値越え率などの集約、Metrics Viewer 上の可視化、追加イベント、`episode_id`、`model_version` は本機能の範囲外。決定の背景は [ADR 0037](../adr/0037-metrics-trace-channel-and-session-end-event.md) を参照する。
 
-### 6.1 Evaluation Traceの列と読み取り
+### 6.3 Evaluation Traceの列と読み取り
 
 `MetricValueContext`・`MetricValueReader`と`StepTraceColumnSpec`・`StepTrace`・`StepTraceBuilder`は共通のmetrics機能群（include/anet/metrics.hpp・src/metrics.cpp）に置く。`MetricValueReader`はtarget・鍵・laneと通知の借用から値を取得する。DSLの共通字句分類はsrc/metrics_impl.hppで内部宣言し、metrics.cppで実装する。metricsはobserversやguiをincludeしない。scalarの探索・集約・EMAとtraceの未知キー診断はそれぞれのObserverが持つ。`RunManager::MetricsWiring`が購読先を結び付け、`StepTraceBuilder`は鏡写しEvalRunnerの`TrainEvent`からlaneごとの`StepTrace`を生成する。列はmetrics定義とは独立した`app.eval_trace_panel.columns.[番号]`で選ぶ。番号は1以上で飛び番を許し、昇順に表示する。`StepTrace.step`はcounts.exp_stepと同じstep_tの座標である。
 
@@ -357,6 +394,28 @@ Agentは`CreateStepDiagnosticsProvider`で`AgentStepDiagnosticsProvider`を生�
 DQNの具体的な提供元と鍵の認識はDQN実装内に閉じる。DQNのstep診断部品はActorと共有したQヒント生成、replayと共有したn-stepの組立て、既存の初期優先度推定器を使う。既存の3キーのQ計算はPERの有無によらず、追加のQ forwardやRNG消費を行わない。reward scalerは統計とclip率を更新せずに現在の変換を適用する。RunningStdRewardScalerはScaleで算出済みのstdとReset・Load時のstdをatomicへ公開し、診断は可変Tensor統計を参照せず、この値だけを読む。動的な外的・内的報酬スケーラは統計をcheckpointへ保存する。打ち切りの窓は優先度を未成立にする。非終端ではbootstrapのQが得られてから元の行へ値を埋め、終端では短い窓を確定する。non_episodicの終端の初期優先度の内的の見積もりもbootstrapなしである。
 
 生成器は行追加と遅延列確定を別々に知らせる。GUIの保持上限を超えた行の画像を保持し続けない。列解析・時点・診断・再生の公開経路と数値等価性は[RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md)で確かめる。
+
+### 6.4 遷移値のtarget `env_step`
+
+`$env_step`は`TrainEvent.step_result`または`EpisodeEndEvent.step_result`を読む。scalarのtrainは全lane、episode_endはdoneまたはtruncatedのlaneだけを昇順に読み、既存のmean/std/min/maxでNaNを除外して集約する。同じStepで複数のEpisodeEnd通知があっても、scalar読出しとEMA更新は1回だけである。SHAREDではlane=-1のbatch値を1回読む。traceは通知ごとのenv_indexだけを読み、1完了groupにつき1行を記録する。
+
+`$env_step`はtrain/episode_end専用。結果を持たないlearn/session_endの宣言は構築時に拒否する。未知・非スカラーキーは最初の読出しでtag/key/lane付きfail-fast、既知未成立はNaN。組込みreward/done/truncatedと、具象結果が答える派生・引数つきキーを同じtargetで読む。`$env`は現在envの状態、session_endではEvalSessionEnvが採用結果から蓄積した集約値を読む。
+
+完了統計をtrainからepisode_endへ移す設定は、tag・EMAと明示したstep軸を維持する。定義レコードのtargetは`env_step`。inspect_runは設定導出も認識し、Java Metrics Viewerは定義JSONをtarget値に制限を置かず保存する。Atariのlivesはtrainの全lane速報値、ゲーム統計はepisode_endの確定値として設定する。
+
+### 6.5 TempoRL の scalar と Trace
+
+variableのActor上限は `$actor skip_max_length @learn $exp_step` で取得し、群の設定キーで `50_agent_skip/07_max_length` に出す。既定のmetrics連鎖には加えない。full/single/skip無効では既知キーのNaNとして扱う。singleでは判断率と長さ平均は1となり、Traceのskip_q.[j]は引き続き1..Jを参照する。窓の規則の比較には既存の13_sample_k_mean・14_kmax_mean・11_lossを使う。[RFD0104検証資材](../../src/core/base/testdata/rfd0104/README.md)を参照する。
+
+DefaultDQN の skip 指標は `50_agent_skip` 群を使う。metrics_scalar.txtの `metrics.scalar.@skip` を選ぶと、Actor の decision_rate・判断laneの平均長・長さ別割合・選択長とj=1のQ差、および Learner の loss・平均絶対TD・k平均・k_max平均・clip前の勾配normを記録する。長さ別割合は `skip_length_rate.[j]` を1始まりで指定し、宣言したJを超える添字は fail-fast する。
+
+scalar tag内にも添字を含められる。たとえば設定key `metrics.scalar.[50_agent_skip/03_skip_length_rate.[01]]` のtagは、内側の閉じ括弧を保持した `50_agent_skip/03_skip_length_rate.[01]` になる。tagの添字は2桁、source keyの添字は`[1]`のままである。
+
+Actor 指標の `skip_length_mean`・`skip_length_rate.[j]`・`skip_q_gap` は判断laneだけを集計し、判断がないstepではNaNとなる。skip無効の場合も既知キーはNaNを返す。payloadはdevice上で集約し、初回の読出しでCPUへまとめて転送する。Learnerの7指標も結果オブジェクトが値を保持し、初回参照時に転送する。追加の`17_skip_primary_grad_norm`と`18_skip_primary_clip_ratio`はsplitのprimaryに入るskip勾配のclip前normと閾値超過のフラグで、split以外はNaNになる。`19_skip_primary_clip_ratio_ema`は18のフラグの既定係数のEMAで、split以外は出力されない。
+
+評価は`skip_session_decision_rate`・`skip_session_length_mean`・`skip_session_length_rate.[j]`を`$eval.[greedy] $actor @session_end`で読む。ActorがSync間の判断回数・選択長・lane step数を保持し、判断率・平均・長さ別割合を返す。tagは`21_greedy_decision_rate`、`22_greedy_length_mean`、`23_greedy_length_rate.[01]`～で、`runner=train`の学習側座標に並ぶ。複数lane・途中終了のあるsessionでは判断回数の近似指標である。GridMaze/LunarLander/DropMergeのgreedy報酬は`21_eval/09_greedy_reward`、EMA・episode steps・最大stepsは`10`～`12`。Atariのsession名も`greedy`で、既存の`53_evalg`群・評価条件は維持する。数値例・短縮Run・metrics定義の確認は[RFD0103検証資材](../../src/core/base/testdata/rfd0103/README.md)を参照する。
+
+Evaluation Trace は `$action_info skip_decision` と `$action_info skip_length` で指定laneを読む。長さは継続中も最初に選んだjを示す。各envの `run.@skip` がこの2列を宣言する。追加の `skip_q.[j]` は指定laneの長さjのQ値を読み、jは1..J、範囲外はエラー、skip無効はNaNである。Q列は既定には足さず、envかCLIで `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1` のように指定する。初回のskip診断読取りでQ値も同じcacheへ転送するため、列ごとの同期は増えない。性能と4環境の等価性、学習確認の手順は [RFD0098検証資材](../../src/core/base/testdata/rfd0098/README.md) を参照する。
 
 ## 7. 出力とlifetime
 
@@ -425,20 +484,6 @@ TimeHeatMapのScale描画、Histgram、SweepedHeatMapは、wxImage自身が確�
 
 - nn_trace の受入は [RFD0170 の検証資材](../../src/core/base/testdata/rfd0170/README.md)を参照する。
 
-### TempoRL の scalar と Trace
-
-variableのActor上限は `$actor skip_max_length @learn $exp_step` で取得し、群の設定キーで `50_agent_skip/07_max_length` に出す。既定のmetrics連鎖には加えない。full/single/skip無効では既知キーのNaNとして扱う。singleでは判断率と長さ平均は1となり、Traceのskip_q.[j]は引き続き1..Jを参照する。窓の規則の比較には既存の13_sample_k_mean・14_kmax_mean・11_lossを使う。[RFD0104検証資材](../../src/core/base/testdata/rfd0104/README.md)を参照する。
-
-DefaultDQN の skip 指標は `50_agent_skip` 群を使う。metrics_scalar.txtの `metrics.scalar.@skip` を選ぶと、Actor の decision_rate・判断laneの平均長・長さ別割合・選択長とj=1のQ差、および Learner の loss・平均絶対TD・k平均・k_max平均・clip前の勾配normを記録する。長さ別割合は `skip_length_rate.[j]` を1始まりで指定し、宣言したJを超える添字は fail-fast する。
-
-scalar tag内にも添字を含められる。たとえば設定key `metrics.scalar.[50_agent_skip/03_skip_length_rate.[01]]` のtagは、内側の閉じ括弧を保持した `50_agent_skip/03_skip_length_rate.[01]` になる。tagの添字は2桁、source keyの添字は`[1]`のままである。
-
-Actor 指標の `skip_length_mean`・`skip_length_rate.[j]`・`skip_q_gap` は判断laneだけを集計し、判断がないstepではNaNとなる。skip無効の場合も既知キーはNaNを返す。payloadはdevice上で集約し、初回の読出しでCPUへまとめて転送する。Learnerの7指標も結果オブジェクトが値を保持し、初回参照時に転送する。追加の`17_skip_primary_grad_norm`と`18_skip_primary_clip_ratio`はsplitのprimaryに入るskip勾配のclip前normと閾値超過のフラグで、split以外はNaNになる。`19_skip_primary_clip_ratio_ema`は18のフラグの既定係数のEMAで、split以外は出力されない。
-
-評価は`skip_session_decision_rate`・`skip_session_length_mean`・`skip_session_length_rate.[j]`を`$eval.[greedy] $actor @session_end`で読む。ActorがSync間の判断回数・選択長・lane step数を保持し、判断率・平均・長さ別割合を返す。tagは`21_greedy_decision_rate`、`22_greedy_length_mean`、`23_greedy_length_rate.[01]`～で、`runner=train`の学習側座標に並ぶ。複数lane・途中終了のあるsessionでは判断回数の近似指標である。GridMaze/LunarLander/DropMergeのgreedy報酬は`21_eval/09_greedy_reward`、EMA・episode steps・最大stepsは`10`～`12`。Atariのsession名も`greedy`で、既存の`53_evalg`群・評価条件は維持する。数値例・短縮Run・metrics定義の確認は[RFD0103検証資材](../../src/core/base/testdata/rfd0103/README.md)を参照する。
-
-Evaluation Trace は `$action_info skip_decision` と `$action_info skip_length` で指定laneを読む。長さは継続中も最初に選んだjを示す。各envの `run.@skip` がこの2列を宣言する。追加の `skip_q.[j]` は指定laneの長さjのQ値を読み、jは1..J、範囲外はエラー、skip無効はNaNである。Q列は既定には足さず、envかCLIで `app.eval_trace_panel.columns.[420] = $action_info skip_q.[1] label:q1` のように指定する。初回のskip診断読取りでQ値も同じcacheへ転送するため、列ごとの同期は増えない。性能と4環境の等価性、学習確認の手順は [RFD0098検証資材](../../src/core/base/testdata/rfd0098/README.md) を参照する。
-
 - [RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。
 
 Observerまたは出力形式を変更する場合は次を確認する。
@@ -466,10 +511,17 @@ eval schedule の発火列・設定移行・短い Run の確認手順は [RFD01
 - [DQN系Agent](200_dqn_agents.jp.md)
 - [DropMerge Optuna利用ガイド](optuna.md)
 
-### 遷移値のtarget `env_step`
 
-`$env_step`は`TrainEvent.step_result`または`EpisodeEndEvent.step_result`を読む。scalarのtrainは全lane、episode_endはdoneまたはtruncatedのlaneだけを昇順に読み、既存のmean/std/min/maxでNaNを除外して集約する。同じStepで複数のEpisodeEnd通知があっても、scalar読出しとEMA更新は1回だけである。SHAREDではlane=-1のbatch値を1回読む。traceは通知ごとのenv_indexだけを読み、1完了groupにつき1行を記録する。
+### ADR
 
-`$env_step`はtrain/episode_end専用。結果を持たないlearn/session_endの宣言は構築時に拒否する。未知・非スカラーキーは最初の読出しでtag/key/lane付きfail-fast、既知未成立はNaN。組込みreward/done/truncatedと、具象結果が答える派生・引数つきキーを同じtargetで読む。`$env`は現在envの状態、session_endではEvalSessionEnvが採用結果から蓄積した集約値を読む。
-
-完了統計をtrainからepisode_endへ移す設定は、tag・EMAと明示したstep軸を維持する。定義レコードのtargetは`env_step`。inspect_runは設定導出も認識し、Java Metrics Viewerは定義JSONをtarget値に制限を置かず保存する。Atariのlivesはtrainの全lane速報値、ゲーム統計はepisode_endの確定値として設定する。
+- [ADR 0028 interval の bucket-crossing](../adr/0028-interval-fires-on-bucket-crossing.md) — §6.1
+- [ADR 0029 Runner が出す解析用メタデータ](../adr/0029-analysis-metadata-emitted-by-runner.md) — §6.1
+- [ADR 0034 評価セッションの集約](../adr/0034-eval-session-aggregation-in-batchenv-decorator.md) — §6.2
+- [ADR 0037 trace チャネルと SessionEndEvent](../adr/0037-metrics-trace-channel-and-session-end-event.md) — §6.2
+- [ADR 0043 SHARED のエピソード長](../adr/0043-episode-steps-shared-scope-is-step-count.md) — §5.1
+- [ADR 0047 鏡写し Eval の trace 購読と行の時刻](../adr/0047-mirror-eval-instance-subscribes-dormant-trace-and-trace-rows-carry-timestamp.md) — §6.2（trace 行の時刻は未実装）
+- [ADR 0055 鍵要求型の forward capture](../adr/0055-forward-capture-request-keyed-carries-module-diagnostics.md) — §5.4
+- [ADR 0060 Step の結果と遷移値を読むイベント](../adr/0060-transition-results-travel-in-step-result-and-event-decides-provisional-or-final.md) — §6.4
+- [ADR 0070 eval schedule の warm-up と offset](../adr/0070-eval-schedule-skips-warmup-fires-by-default-and-shifts-with-offset.md) — §6.1
+- [ADR 0071 WARN と読まれない設定キー](../adr/0071-warn-means-user-must-fix-and-unread-config-leaves-are-detected.md) — §6
+- [ADR 0072 呼び出しごとの行動選択への入力](../adr/0072-make-action-inputs-are-passed-per-call-through-runner-step-not-registered.md) — §5.4

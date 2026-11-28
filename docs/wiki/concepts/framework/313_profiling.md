@@ -1,0 +1,65 @@
+---
+title: 313 プロファイリング
+page_kind: フレームワーク
+aliases:
+  - 313_profiling
+description: ProfileRangeとmacroで関数・処理phaseをCPU/GPU profilerへ安定名で記録する。
+updated:
+---
+# 313 プロファイリング
+
+[anet-lab](../../../../README.md) › [wiki の目録](../../index.md) › [フレームワーク](../../index.md#フレームワーク)
+
+## 概要・責務
+
+- ProfileRangeとmacroで関数・処理phaseをCPU/GPU profilerへ安定名で記録する。（出典: [可観測性](../../../design/140_observability.jp.md)、§2・§3）。
+
+## 成立の経緯
+
+- 2026-11-19: プロファイリングのファイルを基盤のライブラリ（`src/core/base`、ターゲット`anet-core-base`）へ移した（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§4.1 D3・D4）。
+
+## 選ばなかった形
+
+記述なし。
+
+## 変えるときの条件
+
+一般の条件は[リファクタリング観点](../../../quality/refactor.md)の「ガードレール」、テストの充足は[定点統計](../../../../reports/stats/trend.md)の「テスト充足」を見る。
+
+- ファイルの置き場やライブラリを移すときは、着手前に保存した実行体と、RFD0128 §6.4の前後比較の組（seed 1本、決定的なbackend）で、全scalarの点、設定の記録、ログのWARNとERRORの行の一致を確かめ、テストのケースの数を前後でそろえる（出典: [RFD0182](../../../memo/0182_source_layout_10rfd.md)、§4.1 D24・§6 C3・S3-6）。
+
+## 外の事例
+
+記述なし
+
+## 関係
+
+- 設計: [可観測性](../../../design/140_observability.jp.md)、§2・§3。
+- ユーザーガイド: [Run実行ガイド](../../../design/020_user_guide_run.jp.md)。
+- 含まれるアプリケーション: なし。
+
+## ファイル
+
+点検が作り直す。手で直さない。
+
+- [profile.hpp](../../../../src/core/base/include/anet/profile.hpp)
+- [profile.cpp](../../../../src/core/base/src/profile.cpp) / [profile_test.cpp](../../../../src/core/base/src/profile_test.cpp)
+
+## RFD の一覧
+
+点検が作り直す。手で直さない。
+
+- [RFD0182](../../../memo/0182_source_layout_10rfd.md) — ソース配置の見直し（置き場の規則、Agent の系統ごとのライブラリ、DQN のファイル分割、テストの参照範囲）RFD
+
+## 課題
+
+issueの道具（`wiki_support.py maps`）が作り直す。手で直さない。
+
+<!-- issues:begin -->
+| ID | 状態 | WSJF | 待ち | 対象 | 工程 | 領域 | 分類 | 種類 | RFD | AIの判定 | 課題 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| [issue-20261103-5addea](../../../management/issues/issue-20261103-5addea.md) | 未着手 | 2.2 | — | コード | RFD | 311_dev_tools, 318_rl_core, 315_nn, 312_util, 317_metrics, 321_agent_core, 319_gui, 316_config, 322_env_individual, 324_dqn, 110_runner_app, 325_muzero, 313_profiling | 開発 | リファクタリング | [RFD0079](../../../memo/0079_cpp_internal_linkage_convention_10rfd.md) | 残件有り | RFD0079: .cpp の内部リンケージと namespace インデント規約 |
+| [issue-20261111-d1d12b](../../../management/issues/issue-20261111-d1d12b.md) | 未着手 | 1.0 | — | コード | 監査 | 321_agent_core, 315_nn, 318_rl_core, 317_metrics, 316_config, 312_util, 313_profiling, 314_tensor, 322_env_individual, 110_runner_app | 学習基盤 | リファクタリング | — | 残件有り | 今は起こさないリファクタリング候補 16 群を暫定で 1 件にまとめた（手を付けるときに群ごとに分けて起票し直す） |
+
+着手できる 2 / 待ち 0 / 保留 0 / 次版 0 / 解決 0
+<!-- issues:end -->

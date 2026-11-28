@@ -14,7 +14,7 @@
 
 Munchausen RLは、Bellmanターゲットの報酬側へエージェント自身のscaled log-policyを加え、次状態のhard argmax bootstrapをsoft価値へ置き換える。NeurIPS論文はM-DQNを1-step、M-IQNを3-stepで評価しているため、本PRDでは論文の1-step式とanet-labのN-step target returnを一括して同一視しない。補遺の分位点ごとの方策混合を根拠にしつつ、bonusのN-step上の帰属はBTR互換の拡張として明示する。
 
-本PRDの起点は、`gamma=0.997` がaction gapを犠牲にして地平を延ばしているという[baseline探索ブロック19](../../experiments/default-dqn/atari/2026-08-17_baseline.md)と、補償器であるMunchausenが未実装だと整理した[可塑性保護screening](../../experiments/default-dqn/atari/2026-08-30_protection-screening.md)である。[BTR survey Table 2](../../../reports/btr_hyperparams_survey_2026-08-26.md)にはMunchausen除去時のAction GapとPolicy Churnの差が記録されている。一方、[Atari実験README](../../experiments/default-dqn/atari/README.md)は定常 `q_gap` を成績の予測子として採用しないと裁定しているため、本PRDもaction gapやscoreを合否ゲートにしない。
+本PRDの起点は、`gamma=0.997` がaction gapを犠牲にして地平を延ばしているという[baseline探索ブロック19](../../experiments/default-dqn/atari/2026-08-17_baseline.md)と、補償器であるMunchausenが未実装だと整理した[可塑性保護screening](../../experiments/default-dqn/atari/2026-08-30_protection-screening.md)である。[BTR survey Table 2](../../../reports/survey/btr_hyperparams_survey_2026-08-26.md)にはMunchausen除去時のAction GapとPolicy Churnの差が記録されている。一方、[Atari実験README](../../experiments/default-dqn/atari/README.md)は定常 `q_gap` を成績の予測子として採用しないと裁定しているため、本PRDもaction gapやscoreを合否ゲートにしない。
 
 本PRDの目的は、Munchausen RLをDQNBasedの3 Learnerに共通する既定OFFの契約として実装可能な状態へ確定することである。対象は `TDLearner`、`QRLearner`、`IQNLearner` と、近似Actor初期優先度を成立させるActor Qヒントである。性能改善やスコア改善の証明ではなく、数理・設定・transport・診断・検証の契約を固定する。
 

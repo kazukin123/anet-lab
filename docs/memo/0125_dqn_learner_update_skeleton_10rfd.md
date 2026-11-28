@@ -113,7 +113,7 @@ target の式は 4 か所にある。
 ### 2.5 規約と過去の判断
 
 - 挙動を変えない直しでは、hot path の速さが変わらないことを Run のブレ幅で確かめる。乱数の呼び出し順に触るなら、同 seed の再現性を確かめる。テストの無い箇所は、特性テストを先に足す（[リファクタリング観点](../quality/refactor.md) の「ガードレール」）。「挙動を変えない」には、ログの文言を含める（同「運用ルール」）。
-- 学習器を変えるときは、乱数の派生と消費の順を変えず、同 seed・決定的モードの短い Run のメトリクスを、実装の前に保存した実行体と比べる。checkpoint のバイト列は比べない（[地図 321](../wiki/categories/321_agent_core.md) の「変えるときの条件」）。
+- 学習器を変えるときは、乱数の派生と消費の順を変えず、同 seed・決定的モードの短い Run のメトリクスを、実装の前に保存した実行体と比べる。checkpoint のバイト列は比べない（[地図 321](../wiki/concepts/framework/321_agent_core.md) の「変えるときの条件」）。
 - 短い Run の前後比較は、RFD0122 が同じファイルで行った。変更前の実行体と設定を保存し、4 環境を seed 1・決定的モードで流して、時間と資源の tag を除く全 scalar の点を比べる（[RFD0122 の検証資材](../../src/core/base/testdata/rfd0122/README.md)）。
 - もとからある死にコードは、消さずに報告する（[AGENTS.md](../../AGENTS.md) の「LLM コーディング規律」）。
 
@@ -448,7 +448,7 @@ target の式の関数は、次の形で計算する（D11）。4 か所の今�
 ## 10. 参照
 
 - [リファクタリング観点](../quality/refactor.md)（ガードレール、運用ルール）
-- [地図 321 Agent 共通基盤](../wiki/categories/321_agent_core.md)（変えるときの条件）
+- [地図 321 Agent 共通基盤](../wiki/concepts/framework/321_agent_core.md)（変えるときの条件）
 - [ADR 0035](../adr/0035-munchausen-target-learner-local-real-space.md)（Munchausen の target の決まり）
 - [設計文書 200 DQN 系 Agent](../design/200_dqn_agents.jp.md)（責務の表）
 - [RFD0122 の検証資材](../../src/core/base/testdata/rfd0122/README.md)、[RFD0103 の検証資材](../../src/core/base/testdata/rfd0103/README.md)、[RFD0098 の検証資材](../../src/core/base/testdata/rfd0098/README.md)

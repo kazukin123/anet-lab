@@ -76,6 +76,6 @@ DropMerge のアクションモードを拡張し、設定しだいで次の 2 �
 
 ## 8. 参照
 
-- [Sharma et al., 2017] Sahil Sharma, Aravind S. Lakshminarayanan, Balaraman Ravindran. "Learning to Repeat: Fine Grained Action Repetition for Deep Reinforcement Learning." ICLR 2017. https://arxiv.org/abs/1702.06054（詳細解説: `reports/sharma2017_figar_paper_2026-10-03.md`）
-- [Biedenkapp et al., 2021] André Biedenkapp, Raghu Rajan, Frank Hutter, Marius Lindauer. "TempoRL: Learning When to Act." ICML 2021. https://arxiv.org/abs/2106.05262（詳細解説: `reports/biedenkapp2021_temporl_paper_2026-10-03.md`）
+- [Sharma et al., 2017] Sahil Sharma, Aravind S. Lakshminarayanan, Balaraman Ravindran. "Learning to Repeat: Fine Grained Action Repetition for Deep Reinforcement Learning." ICLR 2017. https://arxiv.org/abs/1702.06054（詳細解説: `reports/paper/sharma2017_figar_paper_2026-10-03.md`）
+- [Biedenkapp et al., 2021] André Biedenkapp, Raghu Rajan, Frank Hutter, Marius Lindauer. "TempoRL: Learning When to Act." ICML 2021. https://arxiv.org/abs/2106.05262（詳細解説: `reports/paper/biedenkapp2021_temporl_paper_2026-10-03.md`）
 - [Pardo et al., 2018] Fabio Pardo, Arash Tavakoli, Vitaly Levdik, Petar Kormushev. "Time Limits in Reinforcement Learning." ICML 2018. https://proceedings.mlr.press/v80/pardo18a.html

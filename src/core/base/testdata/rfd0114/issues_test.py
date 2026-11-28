@@ -32,7 +32,7 @@ class IssueViewsTest(unittest.TestCase):
         head = self.git('rev-parse','HEAD').strip()
         self.write('docs/wiki/index.md','# wiki\n')
         self.write('docs/wiki/log.md','2026-11-03 start rev:'+head+'\n')
-        self.page('categories/311_dev_tools')
+        self.page('framework/311_dev_tools')
 
     def git(self,*args):
         return subprocess.check_output(['git',*args],cwd=self.root,env=self.env,encoding='utf-8')
@@ -44,7 +44,7 @@ class IssueViewsTest(unittest.TestCase):
         return target
 
     def page(self,key):
-        return self.write('docs/wiki/'+key+'.md','# map\n\n## 概要・責務\nKEEP PROSE\n\n## ファイル\nold\n\n## RFD の一覧\nold\n\n## 課題\n<!-- issues:begin -->\nold\n<!-- issues:end -->\nKEEP TAIL\n')
+        return self.write('docs/wiki/concepts/'+key+'.md','# map\n\n## 概要・責務\nKEEP PROSE\n\n## ファイル\nold\n\n## RFD の一覧\nold\n\n## 課題\n<!-- issues:begin -->\nold\n<!-- issues:end -->\nKEEP TAIL\n')
 
     @staticmethod
     def link(name):
@@ -72,7 +72,7 @@ class IssueViewsTest(unittest.TestCase):
         self.cli()
         # 2つの一覧への掲載と、トピック別まとめの区画外の本文の保持を確かめる。
         index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
-        page = (self.root/'docs/wiki/categories/311_dev_tools.md').read_text(encoding='utf-8')
+        page = (self.root/'docs/wiki/concepts/framework/311_dev_tools.md').read_text(encoding='utf-8')
         self.assertIn(issue_id,index)
         self.assertIn(issue_id,page)
         self.assertIn('KEEP PROSE',page)
@@ -95,7 +95,7 @@ class IssueViewsTest(unittest.TestCase):
         self.issue('000001',value=13,urgency=13,risk=13,size=3,wsjf=13.0,ai_judge='残件無し',ai_judged='2026-11-05')
         self.issue('000002',value=1,urgency=1,risk=1,size=3,wsjf=1.0,ai_judge='残件無し',ai_judged='2026-11-07')
         self.cli()
-        outputs = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md']
+        outputs = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/concepts/framework/311_dev_tools.md']
         rows = lambda path: [line for line in path.read_text(encoding='utf-8').splitlines() if line.startswith('| [issue-')]
         before = {path:rows(path) for path in outputs}
         added = self.issue('000003',value=5,urgency=5,risk=5,size=3,wsjf=5.0,ai_judge='残件無し',ai_judged='2026-11-06')
@@ -198,7 +198,7 @@ class IssueViewsTest(unittest.TestCase):
         self.cli()
         # 道具は止まらず、どちらの値も一覧とトピック別まとめに出さない。
         index = (self.root/'docs/management/issues/INDEX.md').read_text(encoding='utf-8')
-        page = (self.root/'docs/wiki/categories/311_dev_tools.md').read_text(encoding='utf-8')
+        page = (self.root/'docs/wiki/concepts/framework/311_dev_tools.md').read_text(encoding='utf-8')
         for output in (index,page):
             self.assertIn(text_memo,output)
             self.assertIn(list_memo,output)
@@ -234,7 +234,7 @@ class IssueViewsTest(unittest.TestCase):
 
     def outputs(self):
         # 失敗の前後で比べる派生出力の中身を集める。
-        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md',self.root/'docs/wiki/log.md']
+        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/concepts/framework/311_dev_tools.md',self.root/'docs/wiki/log.md']
         return {path:path.read_bytes() for path in paths}
 
     def assert_rejected(self,field,**changes):
@@ -365,7 +365,7 @@ class IssueViewsTest(unittest.TestCase):
         # 正常な生成結果を保存し、不正入力を渡す前の状態を固定する。
         self.issue()
         self.cli()
-        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md',self.root/'docs/wiki/log.md']
+        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/concepts/framework/311_dev_tools.md',self.root/'docs/wiki/log.md']
         before = {path:path.read_bytes() for path in paths}
         # 追加欄を1つずつ壊し、拒否理由と全出力の不変を確かめる。
         for field,value in [('type','unknown'),('domain','unknown'),('domain',None),('domain',''),('ai_judge','unknown'),('ai_judge',None),('ai_judge',''),('area',['unknown']),('docs',['docs/missing.md'])]:
@@ -381,7 +381,7 @@ class IssueViewsTest(unittest.TestCase):
         # 正常な生成結果を保存し、判定と日付の組み合わせだけを壊す。
         self.issue()
         self.cli()
-        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md',self.root/'docs/wiki/log.md']
+        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/concepts/framework/311_dev_tools.md',self.root/'docs/wiki/log.md']
         before = {path:path.read_bytes() for path in paths}
         # 未確認に日付がある組と、判定に日付が無い組を、どちらも拒否する。
         for judge,judged in (('未確認','2026-11-09'),('残件有り',None),('残件無し',''),('判定不能',None)):
@@ -413,7 +413,7 @@ class IssueViewsTest(unittest.TestCase):
         from datetime import date
         self.issue(raised=date(2026,11,3))
         self.cli()
-        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md',self.root/'docs/wiki/log.md']
+        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/concepts/framework/311_dev_tools.md',self.root/'docs/wiki/log.md']
         before = {path:path.read_bytes() for path in paths}
         # 3つの日付欄へ、整数・週日付・実在しない日付をそれぞれ渡す。
         for field in ('raised','resolved','ai_judged'):
@@ -437,6 +437,7 @@ class IssueViewsTest(unittest.TestCase):
         rfd = 'docs/memo/0115_probe_10rfd.md'
         self.write(rfd,'# probe\n')
         blob = self.git('hash-object','--',rfd).strip()
+        self.write('docs/wiki/summary/rfd/' + Path(rfd).stem + '_summary.md', '## 元の材料\n\nblob:' + blob)
         log = self.root/'docs/wiki/log.md'
         log.write_text(log.read_text(encoding='utf-8')+f'2026-11-03 ingest {rfd} blob:{blob} → なし\n',encoding='utf-8')
         self.issue(rfd=self.link('0115_probe_10rfd'))
@@ -458,6 +459,7 @@ class IssueViewsTest(unittest.TestCase):
         rfd = 'docs/memo/0115_probe_10rfd.md'
         self.write(rfd,'# probe\n')
         blob = self.git('hash-object','--',rfd).strip()
+        self.write('docs/wiki/summary/rfd/' + Path(rfd).stem + '_summary.md', '## 元の材料\n\nblob:' + blob)
         log = self.root/'docs/wiki/log.md'
         log.write_text(log.read_text(encoding='utf-8')+f'2026-11-03 ingest {rfd} blob:{blob} → なし\n',encoding='utf-8')
         link = self.link('0115_probe_10rfd')
@@ -490,7 +492,7 @@ class IssueViewsTest(unittest.TestCase):
         # 正常な出力を保存し、YAMLが日付型へ変換する前の入力を直接作る。
         self.issue()
         self.cli()
-        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md',self.root/'docs/wiki/log.md']
+        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/concepts/framework/311_dev_tools.md',self.root/'docs/wiki/log.md']
         before = {path:path.read_bytes() for path in paths}
         for field in ('raised','resolved','ai_judged'):
             with self.subTest(field=field):
@@ -579,7 +581,7 @@ class IssueViewsTest(unittest.TestCase):
 
     def test_multi_area_issue_does_not_expand_application_scope(self):
         # 2つの機能カテゴリとアプリ自身の課題を同時に置く。
-        metric = self.page('categories/317_metrics')
+        metric = self.page('framework/317_metrics')
         app = self.page('apps/110_runner_app')
         multi = self.issue(area=['311_dev_tools','317_metrics'])
         own = self.issue('000002',area=['110_runner_app'])
@@ -604,9 +606,9 @@ class IssueViewsTest(unittest.TestCase):
         # 先に正常な出力を作り、あとで読むトピック別まとめの目印だけを壊す。
         self.issue()
         self.cli()
-        page = self.page('categories/317_metrics')
+        page = self.page('framework/317_metrics')
         page.write_text(page.read_text(encoding='utf-8').replace('<!-- issues:end -->','<!-- broken -->'),encoding='utf-8')
-        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md',page]
+        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/concepts/framework/311_dev_tools.md',page]
         before = {path:path.read_bytes() for path in paths}
         # 後続ページで失敗しても、INDEXと先行ページへ書き戻していない。
         self.assertIn('317_metrics.md',self.cli(success=False))
@@ -616,7 +618,7 @@ class IssueViewsTest(unittest.TestCase):
         # 正常な生成後の内容と更新時刻を保存する。
         self.issue()
         self.cli()
-        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/categories/311_dev_tools.md']
+        paths = [self.root/'docs/management/issues/INDEX.md',self.root/'docs/wiki/concepts/framework/311_dev_tools.md']
         before = {path:(path.read_bytes(),path.stat().st_mtime_ns) for path in paths}
         # 同じ入力で作り直しても、更新の報告もファイルの書き込みも無い。
         self.assertEqual(self.cli()['updated'],[])
@@ -630,7 +632,7 @@ class IssueViewsTest(unittest.TestCase):
         path.unlink()
         self.cli()
         # 生成したファイル一覧に、存在しない退役資材を載せない。
-        page = (self.root/'docs/wiki/categories/311_dev_tools.md').read_text(encoding='utf-8')
+        page = (self.root/'docs/wiki/concepts/framework/311_dev_tools.md').read_text(encoding='utf-8')
         self.assertNotIn('retired.py',page)
 
     def test_cycle_and_missing_dependency_are_reported_without_losing_rows(self):

@@ -124,6 +124,7 @@ namespace anet::rl::dqn {
             learner.full_keys = GetFullKeys().Extract("learner");
             learner.full_keys.CopyFieldFrom("quantile_mode", GetFullKeys(), "quantile_mode");
             learner.full_keys.CopyFieldFrom("num_quantiles", GetFullKeys(), "qr.num_quantiles");
+            learner.ValidateTrainingValues();
         }
     private:
         // 元の接頭辞と記録先を明示し、opaque な値の型と受け取る部品のキー形式を保つ。
@@ -802,9 +803,6 @@ namespace anet::rl::dqn {
                 ValidateActionPolicy(entry.skip_policy);
             }
 
-            ValidateRange(quantile_mode != ActionPolicyConfig::kQuantileModeIqn || (std::isfinite(learner.quantile_huber_kappa) && learner.quantile_huber_kappa > 0.0f),
-                GetFullKey("learner.quantile_huber_kappa"), learner.quantile_huber_kappa,
-                "finite value > 0 when " + GetFullKey("quantile_mode") + "=" + ActionPolicyConfig::kQuantileModeIqn);
         }
 
         void ValidateForwardReference(
@@ -870,7 +868,6 @@ namespace anet::rl::dqn {
         };
         DefaultDQNAgentConfig config_;
         std::map<std::string, std::shared_ptr<const anet::nn::NetworkForwardConfig>> forward_configs_; ///< Agent 所有の実行設定 Resource
-        std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
         std::unique_ptr<anet::ForwarderBuilder> perception_;
         ReplayFrameStack replay_frame_stack_;

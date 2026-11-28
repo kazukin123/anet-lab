@@ -575,10 +575,10 @@ TEST_CASE("AtariEnv exposes Pong spec and reset observation through the public E
 
     const auto reset = env->Reset();
     CHECK(reset->state.episode_start);
-    CHECK(spec.state_spec.ValidateObservation(reset->state.obs, false));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(reset->state.obs, false));
 
     const auto step = env->Step(0);
-    CHECK(spec.state_spec.ValidateObservation(step->next_state.obs, false));
+    CHECK_NOTHROW(spec.state_spec.AssertObservation(step->next_state.obs, false));
     const auto aux = step->GetAuxData();
     REQUIRE(aux.contains("game_score"));
     REQUIRE(aux.contains("game_len"));
@@ -1439,8 +1439,8 @@ TEST_CASE("AtariEnv keeps vectorized and thread-pool batch semantics", "[atari][
 
     const auto vectorized_reset = vectorized.Reset();
     const auto threaded_reset = threaded.Reset();
-    CHECK(vectorized.GetSpec().state_spec.ValidateObservation(vectorized_reset->state.obs, true));
-    CHECK(threaded.GetSpec().state_spec.ValidateObservation(threaded_reset->state.obs, true));
+    CHECK_NOTHROW(vectorized.GetSpec().state_spec.AssertObservation(vectorized_reset->state.obs, true));
+    CHECK_NOTHROW(threaded.GetSpec().state_spec.AssertObservation(threaded_reset->state.obs, true));
 
     auto actions = std::make_shared<anet::rl::BatchActionInfo>(
         torch::zeros({ 2 }, torch::TensorOptions().dtype(torch::kInt64)));
@@ -1492,7 +1492,7 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
         const auto full_spec = full->GetSpec();
         CHECK(full_spec.action_spec.value_labels.size() == 18);
         CHECK(full_spec.action_spec.value_labels[1] == "FIRE");
-        CHECK(full_spec.state_spec.ValidateObservation(full->Reset()->state.obs, false));
+        CHECK_NOTHROW(full_spec.state_spec.AssertObservation(full->Reset()->state.obs, false));
     }
 
     const auto skipped = factory.CreateSingleEnv(
@@ -1506,7 +1506,7 @@ TEST_CASE("AtariEnv evaluates episodic life only after the full skip window", "[
     const auto skipped_spec = skipped->GetSpec();
     CHECK(skipped_spec.action_spec.value_labels.size() == 4);
     CHECK(skipped_spec.action_spec.value_labels[1] == "FIRE");
-    CHECK(skipped_spec.state_spec.ValidateObservation(skipped_reset->state.obs, false));
+    CHECK_NOTHROW(skipped_spec.state_spec.AssertObservation(skipped_reset->state.obs, false));
 
     bool observed_life_loss = false;
     for (int window = 0; window < 5000 && !observed_life_loss; ++window) {
@@ -1751,7 +1751,7 @@ TEST_CASE("Atari factory reports the default resize mode with its Reset observat
     anet::rl::env::AtariEnvFactory factory;
     const auto env = factory.CreateSingleEnv(data, torch::Device(torch::kCPU), "rfd0099-default", 123);
     const auto reset = env->Reset();
-    CHECK(env->GetSpec().state_spec.ValidateObservation(reset->state.obs, false));
+    CHECK_NOTHROW(env->GetSpec().state_spec.AssertObservation(reset->state.obs, false));
     const auto effective = env->GetConfigData();
     REQUIRE(effective.has_value());
     REQUIRE(effective->Has("AtariEnv.resize_mode"));

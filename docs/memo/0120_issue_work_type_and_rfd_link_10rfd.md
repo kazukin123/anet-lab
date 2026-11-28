@@ -344,4 +344,4 @@ skill は `.agents/skills` を直し、`.claude/skills` へ写す（2 つの写�
 - [RFD0114](0114_findings_intake_and_fix_rfd_10rfd.md)（D10、§6）
 - [anet-create-issue](../../.agents/skills/anet-create-issue/SKILL.md)、[anet-update-issue](../../.agents/skills/anet-update-issue/SKILL.md)、[anet-create-rfd](../../.agents/skills/anet-create-rfd/SKILL.md)
 - [wiki_support.py](../../reports/tools/wiki_support.py)、[stats.py](../../reports/tools/stats.py)
-- [課題の一覧](../management/issues/INDEX.md)、[wiki の 311 開発ツール](../wiki/categories/311_dev_tools.md)
+- [課題の一覧](../management/issues/INDEX.md)、[wiki の 311 開発ツール](../wiki/concepts/framework/311_dev_tools.md)

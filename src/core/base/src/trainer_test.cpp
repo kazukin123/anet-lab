@@ -1115,7 +1115,7 @@ TEST_CASE("RunManager validates train runner types before constructing Env", "[t
     }
 }
 
-TEST_CASE("RunManager rejects reserved configured Eval names before constructing Env", "[env_name][run_manager]")
+TEST_CASE("RunManager rejects reserved configured Eval names before constructing Env", "[env_name][run_manager][rfd0206][reserved_names]")
 {
     ScopedRunManagerMetricsLogger metrics_logger;
     SECTION("train") {
@@ -1129,14 +1129,23 @@ TEST_CASE("RunManager rejects reserved configured Eval names before constructing
         CHECK(factory_state->creation_count == 0);
     }
 
-    SECTION("EvalPanel") {
+    SECTION("no app reservation") {
+        auto factory_state = RegisterRunManagerNameTestFactories();
+        auto config = MakeRunManagerNameTestConfig();
+        config.Set("run.eval.[EvalPanel].run_mode", "eval1");
+
+        CHECK_NOTHROW(std::make_shared<rl::RunManager>(config));
+        CHECK(factory_state->creation_count == 1);
+    }
+
+    SECTION("explicit app reservation") {
         auto factory_state = RegisterRunManagerNameTestFactories();
         auto config = MakeRunManagerNameTestConfig();
         config.Set("run.eval.[EvalPanel].run_mode", "eval1");
 
         CHECK_THROWS_WITH(
-            std::make_shared<rl::RunManager>(config),
-            Catch::Matchers::ContainsSubstring("Duplicate Env name 'EvalPanel' within Run"));
+            std::make_shared<rl::RunManager>(config, std::vector<std::string>{"EvalPanel"}),
+            Catch::Matchers::ContainsSubstring("Duplicate Env name 'EvalPanel' within Run: existing_owner='EvalPanel'"));
         CHECK(factory_state->creation_count == 0);
     }
 }

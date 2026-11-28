@@ -141,7 +141,7 @@ RR1 / V/A ReLU 基準で 3 点を測った。
 
 0.2097（最低スコア）→ 0.2262（最高）→ 0.3030（同着最高）で**成績と逆行する**。target が新しくなるほど online 自身の churn（0.0104 → 0.0192）を受け継ぐためと考えられる。診断には使えるが制御目標にならない。
 
-### 5.3 文献調査からの制約（[survey](../../reports/target_network_update_rate_survey_2026-09-03.md) 参照）
+### 5.3 文献調査からの制約（[survey](../../reports/survey/target_network_update_rate_survey_2026-09-03.md) 参照）
 
 **(a) 単位を明示する必要がある。** 文献では frames / agent steps / parameter updates / gradient steps が混在し、原典 DQN では論文の表と公式実装が 4 倍食い違う。**制御値のメトリクス出力（Q5）には単位を併記すること。**
 
@@ -155,7 +155,7 @@ RR1 / V/A ReLU 基準で 3 点を測った。
 
 ## 6. `probe_*` 群を制御対象から外す根拠（2026-09-03）
 
-可塑性指標が成績を予測しないことは、本キャンペーンで 6 例が確定している（SN 腕 / VA+pool6 / fuse2304 / hard125 / btrstruct / LeakyReLU）。文献側も同方向で、可塑性喪失は単一の測定量に帰着できないとされ、dormant neuron が駆動因か症状かは未決とされている（[survey](../../reports/target_network_update_rate_survey_2026-09-03.md) §5）。**条件 ① を満たさないので目標値を置けない。**
+可塑性指標が成績を予測しないことは、本キャンペーンで 6 例が確定している（SN 腕 / VA+pool6 / fuse2304 / hard125 / btrstruct / LeakyReLU）。文献側も同方向で、可塑性喪失は単一の測定量に帰着できないとされ、dormant neuron が駆動因か症状かは未決とされている（[survey](../../reports/survey/target_network_update_rate_survey_2026-09-03.md) §5）。**条件 ① を満たさないので目標値を置けない。**
 
 ## 未決
 

@@ -5,14 +5,13 @@ TEST_CASE("TBO transform is monotonic and invertible on representative values", 
 {
     auto env_spec = MakeLearnerEnvSpec();
     TestNetworkModel model;
-    dqn::RuntimeVars vars;
     rl::BatchEnvSpec batch_env_spec{ 1, 1 };
 
     for (float epsilon : { 1.0e-2f, 1.0e-3f }) {
         INFO(epsilon);
         dqn::LearnerConfig config = WithDefaultLearnerForwardConfig();
         config.tbo_epsilon = epsilon;
-        TestLearner learner(config, model, vars, batch_env_spec, env_spec, dqn::LearnerForwardResources{});
+        TestLearner learner(config, model, batch_env_spec, env_spec, dqn::LearnerForwardResources{});
 
         auto values = torch::tensor({ -1000.0f, -10.0f, -1.0f, 0.0f, 1.0f, 10.0f, 1000.0f });
         auto transformed = learner.TransformH(values);
@@ -243,13 +242,11 @@ TEST_CASE("DQN initial priority estimator matches scalar learner TD priority", "
 
         auto env_spec = MakeLearnerEnvSpec();
         TestNetworkModel model;
-        dqn::RuntimeVars vars;
         rl::BatchEnvSpec batch_env_spec{ 1, 1 };
         auto target_policy = std::make_shared<dqn::EpsilonGreedyActionPolicy>(dqn::ActionPolicyConfig{});
         dqn::TDLearner learner(
             config,
             model,
-            vars,
             nullptr,
             batch_env_spec,
             env_spec,

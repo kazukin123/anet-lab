@@ -185,12 +185,11 @@ void StateSpec::AssertSanity() const
     }
 }
 
-bool StateSpec::ValidateObservation(const anet::TensorDict & obs, bool is_batched) const
+void StateSpec::AssertObservation(const anet::TensorDict& obs, bool is_batched) const
 {
     if (obs.empty() && !obs_spec.empty()) {
         ANET_SYSTEM_ERROR(
-            "ValidateObservation failed: TensorDict is empty but obs_spec is not.");
-        return false;
+            "AssertObservation failed: TensorDict is empty but obs_spec is not.");
     }
 
     for (const auto& kv : obs_spec) {
@@ -200,8 +199,7 @@ bool StateSpec::ValidateObservation(const anet::TensorDict & obs, bool is_batche
         // キーの存在チェック
         if (!obs.Contains(key)) {
             ANET_SYSTEM_ERROR(
-                "ValidateObservation failed: Missing key in TensorDict: " << key);
-            return false;
+                "AssertObservation failed: Missing key in TensorDict: " << key);
         }
 
         const auto& tensor = obs.At(key);
@@ -209,27 +207,24 @@ bool StateSpec::ValidateObservation(const anet::TensorDict & obs, bool is_batche
         // Dtypeのチェック
         if (tensor.dtype() != spec.dtype) {
             ANET_SYSTEM_ERROR(
-                "ValidateObservation failed: Dtype mismatch for key: " << key
+                "AssertObservation failed: Dtype mismatch for key: " << key
                 << " | Expected: " << spec.dtype << ", Actual: " << tensor.dtype());
-            return false;
         }
 
         // 次元数とShapeのチェック
         int64_t expected_dims = spec.shape.size() + (is_batched ? 1 : 0);
         if (tensor.dim() != expected_dims) {
             ANET_SYSTEM_ERROR(
-                "ValidateObservation failed: Dimension mismatch for key: " << key
+                "AssertObservation failed: Dimension mismatch for key: " << key
                 << " | Expected dims: " << expected_dims << ", Actual: " << tensor.dim());
-            return false;
         }
 
         for (size_t i = 0; i < spec.shape.size(); ++i) {
             int64_t tensor_dim_idx = is_batched ? (static_cast<int64_t>(i) + 1) : static_cast<int64_t>(i);
             if (tensor.size(tensor_dim_idx) != spec.shape[i]) {
                 ANET_SYSTEM_ERROR(
-                    "ValidateObservation failed: Shape mismatch at dim " << i
+                    "AssertObservation failed: Shape mismatch at dim " << i
                     << " for key: " << key << " | Expected: " << spec.shape[i] << ", Actual: " << tensor.size(tensor_dim_idx));
-                return false;
             }
         }
 
@@ -244,14 +239,12 @@ bool StateSpec::ValidateObservation(const anet::TensorDict & obs, bool is_batche
             const float eps = 1e-4f;
             if (t_min < spec_min - eps || t_max > spec_max + eps) {
                 ANET_SYSTEM_ERROR(
-                    "ValidateObservation failed: Values out of range for key: " << key
+                    "AssertObservation failed: Values out of range for key: " << key
                     << " | Spec Range: [" << spec_min << ", " << spec_max
                     << "], Actual Range: [" << t_min << ", " << t_max << "]");
-                return false;
             }
         }
     }
-    return true;
 }
 
 anet::json StateSpec::ToJson() const
@@ -557,7 +550,7 @@ torch::Tensor BatchActionInfo::GetAction(torch::Device device) const
     if (!gpu_) {
         if (!action_cpu_.defined())
             ANET_SYSTEM_ERROR("BatchActionInfo: no tensor available to create GPU action");
-        gpu_ = std::make_pair(device, action_cpu_.to(req_dev));
+        gpu_ = std::make_pair(req_dev, action_cpu_.to(req_dev));
         return gpu_->second;
     }
     if (gpu_->first != req_dev) {

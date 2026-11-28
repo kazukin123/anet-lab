@@ -138,7 +138,7 @@ a と b は本 RFD が直す。c と d は直さない（§2 の NG2）。
 | P8 | 既存部品の働き | TempoRL の skip は Actor の中で行動を上書きし、lane ごとの継続状態を持つ。強制はそのあと差し替わるので、skip の状態は強制を知らない | [dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 1571・1581 行、[0098_temporl_skip_policy_10rfd.md](0098_temporl_skip_policy_10rfd.md) §9 | 済み |
 | P9 | 既存部品の働き | Actor Q ヒント（5 列）は `WithAction` が強制行動で作り直す。そのためだけに Actor は `munchausen_terms` を aux に載せている | [dqn_actor.cpp](../../src/algo/dqn/src/dqn_actor.cpp) 183・1633 行 | 済み |
 | P10 | 過去の判断 | RFD0083 は `ObservationPipeline` クラスを作らず、「要件がそろう後続の RFD で入れる」とした | [0083_action_context_retire_10rfd.md](done/0083_action_context_retire_10rfd.md) の複雑さの監査 | 済み |
-| P11 | 守る線 | 重ねる → 転送 → 正規化の並びと、乱数の消費順を変えない。等価性は同 seed の metrics checksum で確かめる | [321_agent_core.md](../wiki/categories/321_agent_core.md) の「変えるときの条件」 | 済み |
+| P11 | 守る線 | 重ねる → 転送 → 正規化の並びと、乱数の消費順を変えない。等価性は同 seed の metrics checksum で確かめる | [321_agent_core.md](../wiki/concepts/framework/321_agent_core.md) の「変えるときの条件」 | 済み |
 | P12 | 事実 | 待っている RFD はすべて暫定。単位 A は 142・159・160・174・183、単位 B は 142・173（173 は、Q の入力に直前の行動・直前の報酬・方策番号を足す案を持ち、その置き場に単位 B を使う） | §1.5 | 済み |
 | P13 | 過去の判断 | RND は自前の観測の正規化を持ち、RFD0130 は「観測の加工を 1 か所にまとめる話は RFD0161 の題材」と送った | [0130_rnd_estimate_statistics_perf_10rfd.md](0130_rnd_estimate_statistics_perf_10rfd.md) の D3 | 済み |
 | P14 | 事実 | DQN のファイル名は `dqn_based_*` から `dqn_*` に変わった | コミット `e72bab34`（`git log` で 2026-11-20 に確認） | 済み |

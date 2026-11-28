@@ -184,7 +184,7 @@ Run B: 0 - 70M exp_step
 
 IQN探索では、§6.7の`resolution`で`metrics.scalar.@iqn_search_p0`の選択を確認する。解決済み`config/config_data.txt`で、Policy/Learnerそれぞれのtau配置方式・本数`K/N/M`を確認する。診断値だけで採用を決めず、DropMergeのDouble Suika生成数・達成率、報酬、PER健全性、throughputを同じmatched `exp_step` windowで分けて読む。
 
-- `iqn_policy_margin_mc_ratio`はUQE上位2行動のgapをrisk quantileの有限本数scaleで正規化する。`random`ではMonte Carlo平均の安定度、`fixed`および`stratified`ではforward間の乱数分散ではなく積分解像度のproxyとして扱う。
+- `iqn_policy_margin_mc_ratio`はUQE上位2行動のgapをrisk quantileの有限本数scaleで正規化する。`random`ではMonte Carlo平均の安定度、`fixed`および`stratified`ではforward間の乱数分散ではなく積分解像度のproxyとして扱う。点のUQEを使う構成では、この指標の点は出ない。
 - `iqn_current_mc_scale`と`iqn_target_mc_scale`は`N`と`M`を分けて読む。`iqn_priority_mc_ratio`は現行の平均TD priority信号が両側の有限tau scaleに対してどの程度大きいかを表す。
 - `iqn_first_pair_abs_td`と`iqn_first_cancellation_ratio`は初回Learner priority更新行だけを対象とする。`per_sample_initial_count=0`の区間では`iqn_first_*`が`NaN`になるため、0への改善・悪化とは解釈しない。
 - TBO有効時のLearner診断は実空間ではなく、現行priorityと同じh空間の値である。TBO有効/無効Runの絶対値を直接比較しない。

@@ -45,7 +45,7 @@
 | Head の射影の分離 | 別の関心で、[RFD0165](0165_nn_head_projection_separation_10rfd.md) が持つ | 制約ではない | RFD0165 の実装 |
 | ソースの配置（ファイルの分け方）を変えること | 配置は別の課題が扱う（[リファクタリング観点](../quality/refactor.md) の「候補にしないもの」、[RFD0182](0182_source_layout_10rfd.md)） | 制約ではない | RFD0182 の実装 |
 | RFD0165・RFD0161 が入るのを待ってから始めること | どちらも未実装の暫定 RFD で、待つと RFD0121 の待ちが延びる | 制約ではない（順序の選択） | — |
-| ImageClsAgent が持つ同じ形の診断の要求を、共通の型に載せること | 題材の 5 件の範囲の外で、前後比較の組が ImageCls を通らない（D22） | 制約ではない | ImageCls に診断の群を足すとき。課題にはせず、再開の条件を wiki の [321 Agent 共通基盤](../wiki/categories/321_agent_core.md) の「選ばなかった形」に残した（2026-11-13 に開発者が見送りを選んだ） |
+| ImageClsAgent が持つ同じ形の診断の要求を、共通の型に載せること | 題材の 5 件の範囲の外で、前後比較の組が ImageCls を通らない（D22） | 制約ではない | ImageCls に診断の群を足すとき。課題にはせず、再開の条件を wiki の [321 Agent 共通基盤](../wiki/concepts/framework/321_agent_core.md) の「選ばなかった形」に残した（2026-11-13 に開発者が見送りを選んだ） |
 
 ### 1.4 足す部品とゴールへの寄与
 
@@ -142,7 +142,7 @@
 
 - 挙動を変えない直しでは、hot path の速さが変わらないことを Run のブレ幅で確かめる。乱数の呼び出し順に触るなら、同 seed の再現性を確かめる。テストの無い箇所は、特性テストを先に足す（[リファクタリング観点](../quality/refactor.md) の「ガードレール」）。
 - 「挙動を変えない」には、ログの文言と WARN の出る回数を含める。変わる直しは、変わることを書く（同「運用ルール」）。
-- 学習器や Agent を変えるときは、乱数の派生と消費の順を変えず、同 seed・決定的モードの短い Run のメトリクスを、実装の前に保存した実行体と比べる（[324 DQN](../wiki/categories/324_dqn.md) の「変えるときの条件」）。
+- 学習器や Agent を変えるときは、乱数の派生と消費の順を変えず、同 seed・決定的モードの短い Run のメトリクスを、実装の前に保存した実行体と比べる（[324 DQN](../wiki/concepts/framework/324_dqn.md) の「変えるときの条件」）。
 - 短い Run の前後比較は、RFD0122 と RFD0125 が同じファイルで行った。変更前の実行体と設定を保存し、seed 1・決定的モードで流して、時間と資源の tag を除く全 scalar の点を比べる（[RFD0125 の検証資材](../../src/core/base/testdata/rfd0125/README.md)）。
 - ある型の設定の値域や整合のように、汎用の部品の局所的な情報だけで正誤が決まる検証は、個別の実装に書かず、その型の共通処理として置いて利用側から呼ぶ。前例は `WeightInitConfig` の `ValidateWeightInitConfig`（[AGENTS.md](../../AGENTS.md) の「汎用機構と利用側の責任境界」）。
 - 汎用層の型・関数・分岐・検証は、特定の Agent の名前を持たない（同）。
@@ -346,7 +346,7 @@
   - [150_replay_buffer.jp.md](../design/150_replay_buffer.jp.md)（`ForEachTensor` を名指す箇所）。
   - [212_rnd_lifelong_novelty.jp.md](../design/212_rnd_lifelong_novelty.jp.md)（用語の表の facade の行（53 行目）を、内的報酬のクラスに合わせる。§3.8 ほか、`DefaultDQNAgent::UpdateFromBatch` を facade として名指す箇所）。
   - [100_runtime_and_configuration.jp.md](../design/100_runtime_and_configuration.jp.md) は、RainbowAgent の名前を挙げるだけなので変えない。
-- **wiki**: [324 DQN](../wiki/categories/324_dqn.md)・[321 Agent 共通基盤](../wiki/categories/321_agent_core.md)・[318 強化学習 共通基盤](../wiki/categories/318_rl_core.md) の「選ばなかった形」「変えるときの条件」へ、本書の §5.1 と §6.1・§6.2 から書き戻す（RFD づくりで行う）。
+- **wiki**: [324 DQN](../wiki/concepts/framework/324_dqn.md)・[321 Agent 共通基盤](../wiki/concepts/framework/321_agent_core.md)・[318 強化学習 共通基盤](../wiki/concepts/framework/318_rl_core.md) の「選ばなかった形」「変えるときの条件」へ、本書の §5.1 と §6.1・§6.2 から書き戻す（RFD づくりで行う）。
 - **検証資材**: `core/anet-core/testdata/rfd0128/README.md` を新設する（実装前の実行体と設定の保存、§6.4 の組、前後比較と速さの手順）。RFD0125 の検証の道具を呼んで使い、200 の「テストと拡張時の確認事項」の章から参照する。`rfd0084`・`rfd0092`・`rfd0093`・`rfd0116`・`rfd0125`・`rfd0127` の資材は、過去の検証の記録なので変えない（rfd0116 の README は内的報酬のメンバを名指していない）。
 - **互換層**: 作らない。旧い置き場の検証の関数への転送や別名も置かない。過去の Run・ADR・実験記録は書き換えない。
 

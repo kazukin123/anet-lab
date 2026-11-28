@@ -189,15 +189,15 @@ static float CalculateSpearmanCorrelation(const torch::Tensor& lhs_cpu, const to
         covariance / std::sqrt(lhs_square_sum * rhs_square_sum), -1.0, 1.0));
 }
 
-Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars,
+Learner::Learner(const LearnerConfig& config, NetworkModel& model,
     const BatchEnvSpec batch_env_spec, const EnvSpec& env_spec, torch::Device device, anet::seed_t replay_seed, anet::seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : RandomHolder(target_seed), config_(config), learning_rate_(config.learning_rate), weight_decay_(config.weight_decay), per_beta_(config.per_beta), soft_update_tau_(model.GetSoftUpdateTauConfig()), gamma_(config.gamma), intrinsic_gamma_(config.intrinsic.gamma),
+    : RandomHolder(target_seed), config_(config), learning_rate_(config.learning_rate), weight_decay_(config.weight_decay), per_beta_(config.per_beta), soft_update_tau_(model.GetSoftUpdateTauConfig()), gamma_(config.gamma), intrinsic_gamma_(config.GetIntrinsicGammaConfig()),
       munchausen_alpha_(config.munchausen.alpha), munchausen_entropy_tau_(config.munchausen.entropy_tau),
       munchausen_values_(config.munchausen.Resolve(munchausen_alpha_.Value(), munchausen_entropy_tau_.Value())),
-      has_optimizer_schedule_(config.learning_rate.type != kConstantScheduleType || config.weight_decay.type != kConstantScheduleType), frame_stack_(frame_stack), model_(model), vars_(vars)
+      has_optimizer_schedule_(config.learning_rate.type != kConstantScheduleType || config.weight_decay.type != kConstantScheduleType), frame_stack_(frame_stack), model_(model)
     , num_envs_(batch_env_spec.num_envs)
     , n_actions_(env_spec.action_spec.GetNumActions())//, state_dim_(env_spec.state_spec.CalcFlattenDim())
     , device_(std::move(device))
@@ -210,6 +210,7 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
     , noisy_probe_config_(std::move(noisy_probe_config))
 {
     // 名前付き参照と受け取ったResourceの対応を、NNの準備や資源確保より前に確認する。
+    config_.ValidateTrainingValues();
     config_.grad_noise.Validate(config_.full_keys, "grad_noise.");
     const auto validate_resource = [&](const std::string& purpose, const std::string& key,
         const anet::nn::NetworkForwardConfig& resource) {
@@ -275,18 +276,19 @@ Learner::Learner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& 
 
 std::optional<float> Learner::GetScalar(const std::string& key, int64_t index) const
 {
-    for (size_t metric = 0; metric < kValueDecompositionMetricKeys.size(); ++metric) {
-        if (key != kValueDecompositionMetricKeys[metric]) continue;
-        if (!decomposition_metrics_.defined()) return std::numeric_limits<float>::quiet_NaN();
-        if (!decomposition_metrics_cpu_.defined()) decomposition_metrics_cpu_ = decomposition_metrics_.to(torch::kCPU);
-        return decomposition_metrics_cpu_.data_ptr<float>()[metric];
-    }
+    if (const auto value = ReadDiagnosticScalar(ParseDiagnosticMetric(key, kValueDecompositionMetricKeys),
+        [&](size_t metric) -> std::optional<float> {
+            if (!decomposition_metrics_.defined()) return std::nullopt;
+            if (!decomposition_metrics_cpu_.defined()) decomposition_metrics_cpu_ = decomposition_metrics_.to(torch::kCPU);
+            return decomposition_metrics_cpu_.data_ptr<float>()[metric];
+        })) return value;
     if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::LearningRate]) return learning_rate_.Value();
     if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::WeightDecay]) return weight_decay_.Value();
     if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::SoftUpdateTau]) return soft_update_tau_.Value();
     if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::Gamma]) return gamma_.Value();
     if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::MunchausenAlpha]) return munchausen_alpha_.Value();
     if (key == kLearnerScheduleMetricKeys[LearnerScheduleMetric::MunchausenEntropyTau]) return munchausen_entropy_tau_.Value();
+    if (key == kPerBetaMetricKey) return current_per_beta_;
     if (const auto value = ReadDiagnosticScalar(ParseNoisyMetric(key),
         [&](size_t metric) -> std::optional<float> { return noisy_.values[metric]; })) return value;
     if (key.starts_with(kPlasticityProbePrefix)) {
@@ -515,7 +517,7 @@ std::optional<ReplayFitMetrics> Learner::CaptureReplayFit(const ExperienceSample
 {
     // 未購読では測定用配列やpackを作らず、cadence判定へも入らない。
     if (replay_fit_demand_.empty()) return std::nullopt;
-    const auto request = replay_fit_demand_.MakeRequest(vars_.learn_step);
+    const auto request = replay_fit_demand_.MakeRequest(learn_step_);
     if (!std::ranges::any_of(request, [](bool value) { return value; })) return std::nullopt;
     ANET_PROFILE_SCOPE(replay_fit);
     ReplayFitMetrics values;
@@ -590,18 +592,14 @@ std::pair<float, float> Learner::EvaluateReplayFit(const ExperienceSamples& inpu
     if (config_.intrinsic.decomposed) DecomposedValueCombiner::Combine(current, intrinsic_beta_, config_.use_tbo, config_.tbo_epsilon);
     const bool distributional = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
     const auto all = current.At(distributional ? "q_dist" : "q");
-    const auto selected = distributional
-        ? all.gather(1, batch.actions.view({ size, 1, 1 }).expand({ size, 1, all.size(2) })).squeeze(1)
-        : all.gather(1, batch.actions.unsqueeze(1)).squeeze(1);
+    const auto selected = GatherSelectedActionValues(all, batch.actions);
     ANET_PROFILE_SCOPE_NEXT(error);
     ElementError error;
     if (config_.intrinsic.decomposed) {
         const CurrentForwardResult state{.input = current_input, .output = current, .all_values = all};
         const auto targets = MakeDecomposedTargets(batch, normalized.obs, normalized.next_obs, state, evaluation);
         const auto gather = [&](const std::string& key) {
-            const auto& values = current.At(key);
-            return distributional ? values.gather(1, batch.actions.view({size, 1, 1}).expand({size, 1, values.size(2)})).squeeze(1)
-                : values.gather(1, batch.actions.unsqueeze(1)).squeeze(1);
+            return GatherSelectedActionValues(current.At(key), batch.actions);
         };
         if (loss && config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) taus = taus.unsqueeze(2);
         const auto external = ComputeElementError(gather(distributional ? DecomposedHeadFactory::kExtrinsicQDistOutputKey : DecomposedHeadFactory::kExtrinsicQOutputKey),
@@ -629,7 +627,7 @@ void Learner::CaptureNoisyDiagnostics()
 {
     // 各更新で失効させ、購読 cadence が発火した項目だけを成立させる。
     noisy_.values.fill(std::numeric_limits<float>::quiet_NaN());
-    const auto request = noisy_.demand.MakeRequest(vars_.learn_step);
+    const auto request = noisy_.demand.MakeRequest(learn_step_);
     if (std::ranges::any_of(std::span(request).first(NoisyMetric::QAbsDiff), [](bool value) { return value; })) {
         ANET_PROFILE_SCOPE(statistics);
         const auto stats = model_.GetOnlineNetwork()->ComputeNoisyParameterStatistics(config_.final_feature_branch_key).cpu();
@@ -645,15 +643,12 @@ void Learner::CaptureNoisyDiagnostics()
     if (!noisy_.sample_forward) {
         ANET_SYSTEM_ERROR("Noisy probe Resource is unavailable for subscribed metrics.");
     }
-    ExperienceSamples cpu_samples;
-    // 学習/PER の抽選を流用せず、一様非復元で B 状態が揃ったときだけ測る。
-    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, config_.noisy_probe.probe.batch_size, noisy_probe_random_, ComponentGammas())) return;
-    const auto samples = cpu_samples.To(device_);
-    ValidateDeviceSamples(samples, config_.noisy_probe.probe.batch_size);
-    auto input = MakeSamplePerception(samples).obs;
+    auto observation = SampleProbeObservation(config_.noisy_probe.probe.batch_size, noisy_probe_random_);
+    if (!observation) return;
+    auto& input = *observation;
     if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
-        const auto midpoint = (torch::arange(config_.noisy_probe.iqn.num_taus,
-            torch::TensorOptions().dtype(torch::kFloat32).device(device_)) + 0.5f) / config_.noisy_probe.iqn.num_taus;
+        const auto midpoint = MakeTauMidpointPositions(config_.noisy_probe.iqn.num_taus,
+            torch::TensorOptions().dtype(torch::kFloat32).device(device_));
         input.Set(anet::rl::dqn::kKey_Taus, midpoint.unsqueeze(0)
             .expand({config_.noisy_probe.probe.batch_size, config_.noisy_probe.iqn.num_taus}));
     }
@@ -679,23 +674,19 @@ void Learner::CaptureNoisyDiagnostics()
 torch::Tensor Learner::CaptureAttentionEntropy()
 {
     bool due = false;
-    for (auto& entry : attention_.demand) if (entry.gate.ShouldFire(vars_.learn_step)) due = true;
+    for (auto& entry : attention_.demand) if (entry.gate.ShouldFire(learn_step_)) due = true;
     if (!due) return {};
     ANET_PROFILE_FUNC();
 
     // 専用の非復元抽選と既存の正規化適用だけを使い、学習側の状態へ触れない。
     torch::NoGradGuard no_grad;
-    ExperienceSamples cpu_samples;
-    const bool sampled = replay_buffer_->SampleUniqueUniform(cpu_samples, config_.attention_entropy.probe.batch_size, attention_entropy_probe_random_, ComponentGammas());
-    if (!sampled) return {};
-    const auto samples = cpu_samples.To(device_);
-    ValidateDeviceSamples(samples, config_.attention_entropy.probe.batch_size);
-    const auto normalized = MakeSamplePerception(samples);
+    const auto observation = SampleProbeObservation(config_.attention_entropy.probe.batch_size, attention_entropy_probe_random_);
+    if (!observation) return {};
     const auto dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast amp(device_, config_.use_amp, dtype);
     const auto prefix = std::string(anet::nn::kTransformerEncoderAttentionEntropyCaptureKey) + "/";
     anet::ForwardCapture capture({ prefix });
-    model_.ForwardOnlineUpTo(normalized.obs, config_.final_feature_branch_key, &capture);
+    model_.ForwardOnlineUpTo(*observation, config_.final_feature_branch_key, &capture);
 
     // サイズは同期せず調べ、全moduleの層を実行順に連結して一度だけCPUへ転送する。
     std::vector<torch::Tensor> values;
@@ -722,15 +713,11 @@ void Learner::CapturePlasticityProbe()
 {
     ANET_PROFILE_SCOPE(plasticity_probe);
 
-    ExperienceSamples cpu_samples;
-    if (!replay_buffer_->SampleUniqueUniform(
-        cpu_samples, config_.plasticity.probe.batch_size, plasticity_probe_random_, ComponentGammas())) return;
-    auto samples = cpu_samples.To(device_);
-    ValidateDeviceSamples(samples, config_.plasticity.probe.batch_size);
-    const auto norm_samples = MakeSamplePerception(samples);
+    const auto observation = SampleProbeObservation(config_.plasticity.probe.batch_size, plasticity_probe_random_);
+    if (!observation) return;
     const torch::ScalarType amp_dtype = config_.use_amp_bf16 ? torch::kBFloat16 : torch::kHalf;
     anet::Autocast amp_guard(device_, config_.use_amp, amp_dtype);
-    const auto state = model_.ForwardOnlineUpTo(norm_samples.obs, config_.final_feature_branch_key);
+    const auto state = model_.ForwardOnlineUpTo(*observation, config_.final_feature_branch_key);
     plasticity_.probe_features = state.At(config_.final_feature_branch_key).detach();
     if (plasticity_.probe_features.dim() != 2) {
         ANET_SYSTEM_ERROR("Plasticity probe feature must be rank-2 (N, D). feature_key='"
@@ -747,7 +734,7 @@ void Learner::PreparePolicyChurnRequest()
     policy_churn_.fixed_taus = torch::Tensor();
     policy_churn_.online_before = torch::Tensor();
     policy_churn_.online_after = torch::Tensor();
-    policy_churn_.request = policy_churn_.demand.MakeRequest(vars_.learn_step);
+    policy_churn_.request = policy_churn_.demand.MakeRequest(learn_step_);
 }
 
 void Learner::CapturePolicyChurnProbe()
@@ -755,19 +742,14 @@ void Learner::CapturePolicyChurnProbe()
     if (!policy_churn_.AnyQRequest()) return;
     ANET_PROFILE_SCOPE_FULL(sample, "Learner::PolicyChurn.sample");
 
-    // 完全な一様非復元 batch を取得できる場合だけ、同一 update の比較入力を確定する。
-    ExperienceSamples cpu_samples;
-    if (!replay_buffer_->SampleUniqueUniform(
-        cpu_samples, config_.policy_churn.probe.batch_size, policy_churn_probe_random_, ComponentGammas())) return;
-    auto samples = cpu_samples.To(device_);
-    ValidateDeviceSamples(samples, config_.policy_churn.probe.batch_size);
-    policy_churn_.probe_obs = MakeSamplePerception(samples).obs;
+    auto observation = SampleProbeObservation(config_.policy_churn.probe.batch_size, policy_churn_probe_random_);
+    if (!observation) return;
+    policy_churn_.probe_obs = std::move(*observation);
 
     if (config_.quantile_mode == ActionPolicyConfig::kQuantileModeIqn) {
         const auto options = torch::TensorOptions().dtype(torch::kFloat32).device(device_);
-        const auto midpoint = torch::arange(config_.policy_churn.iqn.num_taus, options) + 0.5f;
-        policy_churn_.fixed_taus = midpoint.div(static_cast<float>(config_.policy_churn.iqn.num_taus))
-            .unsqueeze(0)
+        const auto midpoint = MakeTauMidpointPositions(config_.policy_churn.iqn.num_taus, options);
+        policy_churn_.fixed_taus = midpoint.unsqueeze(0)
             .expand({ config_.policy_churn.probe.batch_size, config_.policy_churn.iqn.num_taus });
     }
 }
@@ -843,7 +825,7 @@ void Learner::FinalizePolicyChurn(BatchUpdateResult& result)
     }
 
     if (policy_churn_.request[PolicyChurnMetric::TargetSyncAge] && model_.GetHardUpdateInterval() > 0) {
-        values[PolicyChurnMetric::TargetSyncAge] = static_cast<float>(vars_.learn_step % model_.GetHardUpdateInterval());
+        values[PolicyChurnMetric::TargetSyncAge] = static_cast<float>(learn_step_ % model_.GetHardUpdateInterval());
     }
     result.policy_churn_metrics = std::move(values);
 }
@@ -990,7 +972,7 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
     if (config_.intrinsic.decomposed) {
         rep_config.reward_component_count = 2;
         rep_config.needs_return_recompute = {config_.gamma.type != kConstantScheduleType,
-            config_.intrinsic.discount_mode == LearnerConfig::kDiscountShared ? config_.gamma.type != kConstantScheduleType : config_.intrinsic.gamma.type != kConstantScheduleType};
+            config_.GetIntrinsicGammaConfig().type != kConstantScheduleType};
     }
     rep_config.n_step = config_.use_n_step ? config_.n_step : 1;
     if (model_.GetSkipOnlineNetwork()) {
@@ -1013,7 +995,7 @@ void Learner::SetupReplayBuffer(const BatchEnvSpec batch_env_spec, const EnvSpec
         rep_config.per_alpha = config_.per_alpha;
         rep_config.per_initial_priority = config_.per_initial_priority;
         rep_config.per_initial_priority_mode = initial_priority_mode;
-        vars_.per_beta = per_beta_.Evaluate(0);
+        current_per_beta_ = per_beta_.Evaluate(0);
     } else {
         rep_config.sampler_type = ReplaySamplerType::UNIFORM;
     }
@@ -1053,6 +1035,17 @@ SamplePerception Learner::MakeSamplePerception(const anet::rl::ExperienceSamples
         next_obs = sample_perception_->Forward(next_obs);
     }
     return { obs, next_obs };
+}
+
+std::optional<anet::TensorDict> Learner::SampleProbeObservation(int batch_size, anet::RandomGenerator& random) const
+{
+    // 学習/PER とは別の一様非復元抽選を使い、必要な件数が揃った場合だけ測る。
+    ExperienceSamples cpu_samples;
+    if (!replay_buffer_->SampleUniqueUniform(cpu_samples, batch_size, random, ComponentGammas())) return std::nullopt;
+    const auto samples = cpu_samples.To(device_);
+    ValidateDeviceSamples(samples, batch_size);
+    // probe は今の観測だけを読む。次の観測の Perception は学習経路に残す。
+    return sample_perception_ ? sample_perception_->Forward(samples.obs) : samples.obs;
 }
 
 std::optional<GradientNoiseMetrics> Learner::CaptureGradientNoise(const torch::Tensor& weighted_element_loss)
@@ -1669,7 +1662,7 @@ void Learner::UpdatePerBeta(step_t step)
 {
     ANET_PROFILE_FUNC();
 
-    if (config_.use_per) vars_.per_beta = per_beta_.Evaluate(step);
+    if (config_.use_per) current_per_beta_ = per_beta_.Evaluate(step);
 }
 
 bool Learner::CanUpdate(step_t exp_step)
@@ -1788,7 +1781,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         //const int S = state_dim_;
 
         // Sample
-        float current_beta = config_.use_per ? vars_.per_beta : 0.0f;
+        float current_beta = config_.use_per ? current_per_beta_ : 0.0f;
         ExperienceSamples samples;
         replay_buffer_->Sample(samples, B, current_beta, ComponentGammas());
         ExperienceSamples dev_samples = samples.To(device_);
@@ -1808,13 +1801,13 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
         // 現在の learn_step に対応する actual/probe 測定要求を準備
         if (!grad_noise_.demand.empty()) {
-            grad_noise_.request = grad_noise_.demand.MakeRequest(vars_.learn_step);
+            grad_noise_.request = grad_noise_.demand.MakeRequest(learn_step_);
         }
         PreparePolicyChurnRequest();
         CapturePolicyChurnProbe();
-        plasticity_.online_request = plasticity_.online.MakeRequest(vars_.learn_step);
-        plasticity_.target_request = plasticity_.target.MakeRequest(vars_.learn_step);
-        const auto probe_request = plasticity_.probe.MakeRequest(vars_.learn_step);
+        plasticity_.online_request = plasticity_.online.MakeRequest(learn_step_);
+        plasticity_.target_request = plasticity_.target.MakeRequest(learn_step_);
+        const auto probe_request = plasticity_.probe.MakeRequest(learn_step_);
         plasticity_.online_capture.Reset();
         plasticity_.target_capture.Reset();
         plasticity_.target_capture_batch_size.reset();
@@ -1829,7 +1822,7 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
 
         // このupdateが適用される直前のonline parameterを、購読cadenceでのみ集計する。
         if (plasticity_.weight_norm_enabled
-            && vars_.learn_step % plasticity_.weight_norm_interval == 0) {
+            && learn_step_ % plasticity_.weight_norm_interval == 0) {
             ANET_PROFILE_SCOPE(plasticity_weight_norm);
             const auto norms = model_.GetOnlineNetwork()->ComputeParameterNormSplit(
                 config_.final_feature_branch_key);
@@ -1861,13 +1854,13 @@ Learner::UpdateFromBatch(const anet::rl::StepCounts& counts, const anet::rl::Bat
         if (!noisy_.demand.empty()) result->noisy_metrics = noisy_.values;
 
         // 更新後処理
-        UpdateTargetNetwork(vars_.learn_step);
+        UpdateTargetNetwork(learn_step_);
         FinalizePolicyChurn(*result);
         result_list.push_back(result);
         UpdatePerBeta(counts.exp_step);
 
         // カウント系更新
-        vars_.learn_step++;
+        learn_step_++;
         update_credit_ -= 1.0f;
     }
 
@@ -2165,12 +2158,12 @@ MunchausenForwardResult Learner::ForwardMunchausenValues(
     return MunchausenForwardResult{ .current_values = current_values, .next_values = next_values };
 }
 
-QuantileLearnerBase::QuantileLearnerBase(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars,
+QuantileLearnerBase::QuantileLearnerBase(const LearnerConfig& config, NetworkModel& model,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : Learner(config, model, vars, batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+    : Learner(config, model, batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
         std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
 }
@@ -2216,16 +2209,10 @@ CurrentForwardResult QuantileLearnerBase::ForwardCurrentQuantiles(const Experien
 
 torch::Tensor QuantileLearnerBase::GatherActionQuantiles(const torch::Tensor& quantiles, const torch::Tensor& actions) const
 {
-    const int64_t B = actions.size(0);
-    const int64_t N = quantiles.size(2);
+    ANET_ASSERT_SHAPE(quantiles, {actions.size(0), -1, -1});
+    ANET_ASSERT_NAN(actions);
 
-    // actions(B)をquantile次元にbroadcastし、Z(s, a)だけを取り出す
-    torch::Tensor idx_actions = actions.view({ B, 1, 1 }).expand({ B, 1, N });
-    ANET_ASSERT_SHAPE(idx_actions, { B, 1, N });
-    ANET_ASSERT_NAN(idx_actions);
-
-    auto selected = quantiles.gather(1, idx_actions).squeeze(1);
-    ANET_ASSERT_SHAPE(selected, { B, N });
+    auto selected = GatherSelectedActionValues(quantiles, actions);
     ANET_ASSERT_NAN(selected);
     return selected;
 }
@@ -2395,12 +2382,12 @@ IqnLossResult QuantileLearnerBase::ComputeIqnQuantileHuberLoss(
     };
 }
 
-TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, const LearnerPerceptionSetup* perception_setup,
+TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, const LearnerPerceptionSetup* perception_setup,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : Learner(config, model, vars, batch_env_spec, env_spec, device, replay_seed, agent_seed,
+    : Learner(config, model, batch_env_spec, env_spec, device, replay_seed, agent_seed,
         std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed, perception_setup);
@@ -2410,7 +2397,7 @@ TDLearner::TDLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVa
 anet::nn::NetworkForwardCallInfo Learner::MakeCurrentForwardInfo() const
 {
     // 実更新の learn_step をそのまま使い、再 forward でも用途と時計を変えない。
-    return anet::nn::NetworkForwardCallInfo({.clock = vars_.learn_step});
+    return anet::nn::NetworkForwardCallInfo({.clock = learn_step_});
 }
 
 anet::ForwardCapture* Learner::OnlineBranchCapture()
@@ -2439,7 +2426,7 @@ TargetEvaluation Learner::MakeTargetEvaluation(bool diagnostic)
     };
     return TargetEvaluation{
         .diagnostic = diagnostic,
-        .info = anet::nn::NetworkForwardCallInfo({.clock = diagnostic ? 0 : vars_.learn_step}),
+        .info = anet::nn::NetworkForwardCallInfo({.clock = diagnostic ? 0 : learn_step_}),
         .forwards = diagnostic ? &diagnostic_forwards_ : &target_forwards_,
         .target_capture = diagnostic ? nullptr : TargetBranchCapture(),
         .current_taus = [make](int64_t batch) { return make(batch, true); },
@@ -2496,9 +2483,7 @@ SkipLearningResult Learner::ComputeSkipLoss(const ExperienceSamples& samples, co
     const auto all = values.At(distributed ? "q_dist" : "q");
     // 実際に抽選した窓長 k の Q だけを窓の target に回帰する。
     const auto lengths = samples.window.lengths.to(torch::kInt64) - 1;
-    const auto batch = lengths.size(0);
-    const auto index = distributed ? lengths.view({batch, 1, 1}).expand({batch, 1, all.size(-1)}) : lengths.view({batch, 1});
-    const auto selected = all.gather(1, index).squeeze(1);
+    const auto selected = GatherSelectedActionValues(all, lengths);
     const auto error = ComputeElementError(selected, target, taus, {});
     auto weighted = config_.use_per ? error.loss * samples.is_weights : error.loss;
     if (config_.skip.sample_weight == LearnerConfig::kSampleWeightKmax) {
@@ -2525,7 +2510,7 @@ ElementError Learner::ComputeElementError(const torch::Tensor& current,
     if (!request.loss) return result;
     ANET_PROFILE_SCOPE(element_loss);
     // clipは損失にのみ適用し、観測TDとPERの符号付き残差を保持する。
-    const auto residual = config_.use_td_clip && config_.td_clip_value > 0.0f
+    const auto residual = config_.use_td_clip
         ? result.td.clamp(-config_.td_clip_value, config_.td_clip_value) : result.td;
     result.loss = torch::nn::functional::smooth_l1_loss(residual, torch::zeros_like(residual),
         torch::nn::functional::SmoothL1LossFuncOptions().reduction(torch::kNone));
@@ -2609,8 +2594,7 @@ std::pair<torch::Tensor, torch::Tensor> Learner::MakeTarget(
         auto next_q_target = next_q_out.At("q"); // (B, A)
         ANET_ASSERT_SHAPE(next_q_target, { B, A });
 
-        torch::Tensor next_actions_b = next_actions.view({ B, 1 }); // (B,1)
-        max_next_q = next_q_target.gather(1, next_actions_b).squeeze(1);
+        max_next_q = GatherSelectedActionValues(next_q_target, next_actions);
     }
     ANET_ASSERT_SHAPE(max_next_q, { B });
     ANET_ASSERT_DTYPE(max_next_q, torch::kFloat32);
@@ -2628,7 +2612,7 @@ std::pair<torch::Tensor, torch::Tensor> Learner::MakeTarget(
 std::vector<float> Learner::ComponentGammas() const
 {
     if (!config_.intrinsic.decomposed) return {gamma_.Value()};
-    return {gamma_.Value(), config_.intrinsic.discount_mode == LearnerConfig::kDiscountShared ? gamma_.Value() : intrinsic_gamma_.Value()};
+    return {gamma_.Value(), intrinsic_gamma_.Value()};
 }
 
 anet::rl::BatchUpdateResultList Learner::UpdateFromBatch(const StepCounts& counts, const BatchExperience& experiences, float beta)
@@ -2653,8 +2637,7 @@ LearningTargets Learner::MakeDecomposedTargets(const ExperienceSamples& samples,
     };
     const auto mean = [&](const torch::Tensor& value) { return quantiles ? value.mean(2) : value; };
     const auto gather = [&](const torch::Tensor& value, const torch::Tensor& action) {
-        const auto index = quantiles ? action.view({batch, 1, 1}).expand({batch, 1, value.size(2)}) : action.view({batch, 1});
-        return value.gather(1, index).squeeze(1);
+        return GatherSelectedActionValues(value, action);
     };
     torch::Tensor external_bootstrap, internal_bootstrap, bonus, diagnostics;
     if (config_.munchausen.enabled) {
@@ -2784,9 +2767,7 @@ Learner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
         upper_tail_std = current.upper_tail_std;
         if (config_.intrinsic.decomposed) {
             const auto gather = [&](const torch::Tensor& values) {
-                const auto indices = values.dim() == 3
-                    ? samples.actions.view({B, 1, 1}).expand({B, 1, values.size(2)}) : samples.actions.view({B, 1});
-                return values.gather(1, indices).squeeze(1);
+                return GatherSelectedActionValues(values, samples.actions);
             };
             const bool distribution = config_.quantile_mode != ActionPolicyConfig::kQuantileModeNone;
             current.action_values = gather(current.output.At(distribution ? DecomposedHeadFactory::kExtrinsicQDistOutputKey : DecomposedHeadFactory::kExtrinsicQOutputKey));
@@ -2857,10 +2838,16 @@ Learner::UpdateFromSamples(const anet::rl::ExperienceSamples& samples)
     if (config_.intrinsic.decomposed) {
         // 更新後の診断の読出しへ、device上の値をひとまとめで渡す。
         const auto nan = torch::full({}, std::numeric_limits<float>::quiet_NaN(), head_values.options());
-        decomposition_metrics_ = torch::stack({extrinsic_loss.detach(), intrinsic_loss.detach(), head_values[0], head_values[1],
+        decomposition_metrics_ = StackDiagnosticValues<ValueDecompositionMetric::Count,
+            ValueDecompositionMetric::ExtrinsicLoss, ValueDecompositionMetric::IntrinsicLoss,
+            ValueDecompositionMetric::ExtrinsicQSaMean, ValueDecompositionMetric::IntrinsicQSaMean,
+            ValueDecompositionMetric::ExtrinsicHeadGradNorm, ValueDecompositionMetric::IntrinsicHeadGradNorm,
+            ValueDecompositionMetric::ExtrinsicGradNorm, ValueDecompositionMetric::IntrinsicGradNorm,
+            ValueDecompositionMetric::IntrinsicQShare>(
+            extrinsic_loss.detach(), intrinsic_loss.detach(), head_values[0], head_values[1],
             opt_result.extrinsic_head_grad_norm, opt_result.intrinsic_head_grad_norm,
             intrinsic_optimizer_ ? opt_result.grad_norm_tensor : nan,
-            intrinsic_optimizer_ ? opt_result.intrinsic_grad_norm : nan, head_values[2]});
+            intrinsic_optimizer_ ? opt_result.intrinsic_grad_norm : nan, head_values[2]);
         decomposition_metrics_cpu_ = torch::Tensor();
     }
     ANET_PROFILE_SCOPE_NEXT(update_per);
@@ -2880,10 +2867,8 @@ CurrentForwardResult Learner::ForwardCurrent(const ExperienceSamples& samples,
     if (config_.intrinsic.decomposed) DecomposedValueCombiner::Combine(output, intrinsic_beta_, config_.use_tbo, config_.tbo_epsilon);
     const auto q_all = output.At(HeadFactoryBase::kQOutputKey);
     ANET_ASSERT_SHAPE(q_all, { B, A });
-    const auto idx_actions = samples.actions.view({ B, 1 });
-    ANET_ASSERT_SHAPE(idx_actions, { B, 1 });
-    ANET_ASSERT_DTYPE(idx_actions, torch::kInt64);
-    const auto q_sa = q_all.gather(1, idx_actions).squeeze(1);
+    ANET_ASSERT_DTYPE(samples.actions, torch::kInt64);
+    const auto q_sa = GatherSelectedActionValues(q_all, samples.actions);
     ANET_ASSERT_SHAPE(q_sa, { B });
     ANET_ASSERT_DTYPE(q_sa, torch::kFloat32);
 
@@ -2913,12 +2898,12 @@ torch::Tensor Learner::MakeUpdateDiagnostics(const ExperienceSamples&,
     return {};
 }
 
-QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, const LearnerPerceptionSetup* perception_setup,
+QRLearner::QRLearner(const LearnerConfig& config, NetworkModel& model, const LearnerPerceptionSetup* perception_setup,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : QuantileLearnerBase(config, model, vars, batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+    : QuantileLearnerBase(config, model, batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
         std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed, perception_setup);
@@ -2938,12 +2923,12 @@ ElementError QRLearner::ComputeElementError(const torch::Tensor& current,
     return QuantileLearnerBase::ComputeElementError(current, target, tau_i_, request, current_mean);
 }
 
-IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, RuntimeVars& vars, const LearnerPerceptionSetup* perception_setup,
+IQNLearner::IQNLearner(const LearnerConfig& config, NetworkModel& model, const LearnerPerceptionSetup* perception_setup,
     const BatchEnvSpec& batch_env_spec, const EnvSpec& env_spec, torch::Device device, seed_t replay_seed, seed_t agent_seed,
     std::shared_ptr<ActionPolicy> target_policy, const LearnerForwardResources& forward_resources,
     std::optional<ReplayFrameStack> frame_stack, std::optional<anet::seed_t> target_seed,
     std::shared_ptr<const anet::nn::NetworkForwardConfig> noisy_probe_config)
-    : QuantileLearnerBase(config, model, vars, batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
+    : QuantileLearnerBase(config, model, batch_env_spec, env_spec, std::move(device), replay_seed, agent_seed,
         std::move(target_policy), forward_resources, frame_stack, target_seed, std::move(noisy_probe_config))
 {
     SetupReplayBuffer(batch_env_spec, env_spec, replay_seed, perception_setup);

@@ -86,6 +86,7 @@ namespace anet::rl::dqn {
             model.full_keys = GetFullKeys().Extract("model");
             learner.full_keys = GetFullKeys().Extract("learner");
             learner.full_keys.CopyFieldFrom("num_quantiles", GetFullKeys(), "num_quantiles");
+            learner.ValidateTrainingValues();
         }
 
         void ValidatePolicyConfig() const
@@ -129,7 +130,6 @@ namespace anet::rl::dqn {
     private:
         BatchUpdateResultList UpdateFromBatch(const StepCounts& step, const anet::rl::BatchExperience& experience) override;
         RainbowAgentConfig config_;
-        std::unique_ptr<anet::rl::dqn::RuntimeVars> vars_;
         std::unique_ptr<anet::rl::dqn::NetworkModel> model_;
         std::shared_ptr<anet::rl::dqn::ActionPolicy> target_policy_;
         std::shared_ptr<anet::rl::dqn::Learner> learner_;

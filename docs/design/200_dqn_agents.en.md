@@ -1,4 +1,4 @@
-<!-- translated-from: 200_dqn_agents.jp.md blob:62ca0b388e4dc2406f08b640af6c8980bc9680c5 date:2026-11-23 progress:done -->
+<!-- translated-from: 200_dqn_agents.jp.md blob:9c10f7138623e7554b9942ca099db9f8fd8b62a8 date:2026-11-28 progress:done -->
 # DQN Agents
 
 > Primary perspective: concrete functionality (DefaultDQN and Rainbow, with action selection, learning, and synchronization in chronological order)
@@ -243,9 +243,9 @@ For DefaultDQN IQN, each Policy generates taus according to `tau_rule` (`num_tau
 
 IQN+UQE supports optional `full_distribution_query`, disabled by default. When enabled, risk taus and full `[0,1]` taus are concatenated for one forward. `q_values`/`uqe_values`/`q_quantiles` represent risk outputs; `full_q_values`/`full_q_quantiles` represent full outputs. The Head's mean `q` over the combined set is not used. Point-UQE risk queries collapse to one equivalent α. Non-IQN modes retain the enabled setting dormant and ignore it, so changing quantile mode requires no simultaneous change. With IQN enabled, choosing a non-UQE Policy while full queries remain enabled is a configuration error.
 
-The DefaultDQN Actor uses its own Perception executor to prepare observations before invoking Policy and adding auxiliary information. The Rainbow Actor transfers observations to its device before calling Policy. Policy uses Network and RNG for Action selection.
+The DefaultDQN Actor moves observations to its device, adds `episode_start` on CPU, and passes them to the action-selection Forwarder. It uses the resulting Perception to invoke Policy and add auxiliary information. The Rainbow Actor transfers observations to its device before calling Policy. Policy does not depend on Learner and uses Network and RNG for Action selection.
 
-DefaultDQN uses the Perception output spec for its Network. FrameStack adds `[S, *frame_shape]` for selected keys, including when `count=1`. Dummy forward, Actor, Replay samples, and visualization share that stack axis. Experience storage uses the Env's single-frame spec. See [Forwarder and Perception (Japanese)](135_forwarder_and_perception.jp.md) and [Neural Networks](130_neural_networks.en.md#22-frame-stack-input-axis-contract).
+DefaultDQN passes the output specs of the visualization Perception to the Network and checks the action-selection and Sample output specs against them at construction. Stacked observations become `[S, *frame_shape]`, including when `frame_stack.count=1`, and dummy forward, Actor, Replay samples, and visualization use the same stack axis. Storage uses the same single-frame specs as the Env. See [observation processing paths and configuration](135_forwarder_and_perception.en.md#3-defaultdqn-observation-processing) and [axis handling in NN modules](130_neural_networks.en.md#22-frame-stack-input-axis-contract).
 
 ProfiledValue root constants use a bare value such as `epsilon = 0.05`; `type` defaults to `constant`. With a nonconstant effective type, the bare value is retained in `value` but is not used for evaluation or typed dumps. A bare value alone cannot switch the type to constant: specify both `epsilon.type = constant` and the intended bare value. Phase constants use `phase.[name].value`.
 
@@ -269,13 +269,17 @@ When PER is enabled and the initial priority mode is `actor_approx`, every Actor
 
 Shared ReplayBuffer transports opaque rows; only DQN's `InitialPriorityEstimator` validates and decodes `K = 5`. After N-step finalization, it adds the starting hint's bonus once to finalized returns and estimates pre-Learner raw priority using the bootstrap hint's state value and discount. True terminals retain the bonus and omit only bootstrap. With TBO, state values are converted back to real space for composition, then the completed target is transformed to h-space.
 
-Ordinary Q/QR hints use existing mean Q. IQN+UQE hints use the same risk-biased action score as action selection: upper-tail mean with `uqe.use_tail_mean=true`, or `Zτ` otherwise. Full queries do not substitute the full-distribution mean into Actor Q hints. Munchausen ON softens the existing scores without another forward. Actor applies any forced action from `MakeActionOptions` before gathering action Q and the Munchausen bonus for the final action. `ActorQHintConfig` contains shared `MunchausenConfig` as `munchausen`, plus TBO settings. `munchausen.enabled` controls only Munchausen computation; `emit_actor_q_hint` controls hint output as a whole. Shared `log_policy_mode` is Learner-only and ignored by Actor. Rainbow uses the same five-column transport with Munchausen OFF.
+Ordinary Q/QR hints use existing mean Q. IQN+UQE hints use the same risk-biased action score as action selection: upper-tail mean with `uqe.use_tail_mean=true`, or `Zτ` otherwise. Full queries do not substitute the full-distribution mean into Actor Q hints. Munchausen ON adds no forward; it approximates by softening the existing scores. With forced actions too, Actor finalizes the action before placing that action's Q and bonus in the hint. `ActorQHintConfig` contains shared `MunchausenConfig` as `munchausen`, plus TBO settings. `munchausen.enabled` controls only Munchausen computation; `emit_actor_q_hint` controls hint output as a whole. Shared `log_policy_mode` is Learner-only and ignored by Actor. Rainbow uses the same five-column transport with Munchausen OFF.
 
 Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `munchausen.entropy_tau`, and `model.soft_update_tau` are evaluated from `exp_step` at the start of `UpdateFromBatch`, including during warmup. They update lr in all optimizer groups and decay in ordinary groups; σ groups retain fixed `noisy_weight_decay`. Soft updates receive the current τ. Only `per_beta` starts with its step-0 value and is evaluated at the end of each update for the next sampling request. Sampling-request order, including prefetch, is unchanged.
 
-`MunchausenConfig` declares time-varying values and `MunchausenValues` holds their evaluated values. Actor evaluates γ, α, and entropy_tau at its own `exp_step`, retains them in `DQNActionInfo`, and carries them through `To`. It applies forced actions on the policy output's device. Step diagnostics obtain these values through existing `GetScalar` calls to compute current hints, returns, and bootstrap discounts. Scheduled γ also retains reward sequences pending completion and matches the γ at bootstrapping.
+`MunchausenConfig` declares time-varying values; `MunchausenValues` holds evaluated values. Actor also evaluates γ, α, and entropy_tau at its own `exp_step`, retaining them in `DQNActionInfo`; `To` carries them forward. Forced actions are applied on the same device as the policy output. Step diagnostics obtain these values through existing `GetScalar` calls to compute current hints, returns, and bootstrap discounts. Scheduled γ also retains reward sequences pending completion and matches the γ at bootstrapping.
 
 `$agent` exposes `learning_rate`, `weight_decay`, `soft_update_tau`, `gamma`, `munchausen_alpha`, and `munchausen_entropy_tau`. Checkpoint optimizer-option comparison/override, RewardScaler initialization, and initial-horizon logging use step-0 values. ProfiledValue bounds validate endpoints. Soft updates with spectral normalization allow a constant 1, while all scheduled endpoints must remain in [0,0.1].
+
+The internal `dqn::Learner` sets `needs_return_recompute` for each component when it constructs the shared ReplayBuffer, based on whether that component's discount is constant or scheduled. At sampling time, it reconstructs returns from the stored per-step rewards for scheduled components. Constant components use the returns stored at Push.
+
+For QR and IQN, the priority written back to PER is the absolute difference between the mean current and target quantiles plus `per_eps`. It does not average the absolute errors of individual quantile pairs.
 
 ## 3. Component Definitions
 
@@ -286,7 +290,6 @@ Learning-side `learning_rate`, `weight_decay`, `gamma`, `munchausen.alpha`, `mun
 | `RainbowAgent` | Second Agent used to check responsibility boundaries in shared DQN components; not used for Runs |
 | `DqnComponentAssembler` | Shares Head, Policy, Actor, and Learner construction and value routing without accepting concrete Agent config types |
 | `DiagnosticDemandTable` | Holds subscription parsing, intervals, gates, and requests for one fixed-metric group |
-| `RuntimeVars` | Mutable DQN-learning State such as `learn_step` and PER beta |
 | `NetworkModel` | Resource combining online/target Networks, target updates, and save/load |
 | `DQNActionInfo` | ActionInfo carrying Actions, Q auxiliaries, Replay initial-priority hints, evaluated γ/Munchausen values, and snapshot diagnostics |
 | `SpatialLadderSchedule` | Owns time-varying endpoints and spacing, retaining lane Tensors and statistics |
@@ -328,11 +331,13 @@ class LifelongNoveltyEstimator
 class DqnComponentAssembler
 class NetworkHeadFactory
 class DiagnosticDemandTable
-class RuntimeVars
 class DqnNetworkModel
 class ActionPolicy
 class DqnActor
-class DqnLearner
+class DqnLearner {
+    step_t learn_step_
+    float current_per_beta_
+}
 class TDLearner
 class QuantileLearnerBase
 class QRLearner
@@ -353,8 +358,6 @@ DqnComponentAssembler ..> DqnLearner : 生成
 DqnLearner *-- DiagnosticDemandTable
 DefaultDQNAgent *-- IntrinsicRewardCoordinator
 IntrinsicRewardCoordinator *-- LifelongNoveltyEstimator
-DefaultDQNAgent *-- RuntimeVars
-RainbowAgent *-- RuntimeVars
 DefaultDQNAgent *-- DqnNetworkModel
 RainbowAgent *-- DqnNetworkModel
 DefaultDQNAgent *-- ActionPolicy : target用
@@ -385,12 +388,15 @@ sequenceDiagram
     participant R as Runner
     participant G as DQN Agent
     participant A as DQN Actor
-    participant S as Perception executor
+    participant S as 行動選択用Forwarder
     participant P as ActionPolicy
     participant N as Actor Network
 
     R->>G: CreateActor(actor_request)
     G->>G: カタログ項目のpolicyからPolicyを作り、source Networkを選ぶ
+    opt DefaultDQN
+        G->>G: 行数と開始の印を含むspecでForwarderを作成
+    end
     opt modelを複製
         G->>N: sourceからcloneを作成
     end
@@ -398,10 +404,11 @@ sequenceDiagram
     R->>A: MakeAction(step_counts, batch_state)
     A->>A: DefaultDQN Train snapshotを判定
     alt DefaultDQN
-        A->>S: Forward(obs, episode_start)
-        S-->>A: Network input
+        A->>A: 観測をdevice転送し、CPUのepisode_startを鍵として追加
+        A->>S: Forward(input)
+        S-->>A: Network入力
     else Rainbow
-        A->>A: Transfer observations to device
+        A->>A: 観測をdevice転送
     end
     A->>P: SelectAction(observation, Network, RNG)
     opt DefaultDQN IQN
@@ -474,7 +481,7 @@ sequenceDiagram
 
 DefaultDQN scales Rewards and updates ObservationNormalizer statistics in the outer Agent, then passes raw Observations and scaled Rewards inward. Rainbow has no such preprocessing and delegates directly to the same inner Learner contract.
 
-`learner.enabled=false` stops learning for evaluation-only Runs. It defaults to `true`. For tags requiring an immediate evaluation, set `run.eval_schedule.[tag].warmup_count = 0` and reset any unwanted inherited offset to 0. With learning disabled, the Agent skips ReplayBuffer creation, Push, Sample, learner forward and backward, and optimizer steps. It constructs the optimizer for checkpoint payload compatibility. It returns one `BatchUpdateResult` whose diagnostic keys are all unavailable (`NaN`), allowing `EpisodeEvalObserver::OnLearn` to run on each train step. Reward scaling, Perception statistics updates, and ActionPolicy schedules remain active. To skip updates to observation statistics, omit Normalize or set `perception.block.[norm].mode` to `none` or `constant`. A Run that evaluates initial weights without `auto_load_file` emits one warning.
+`learner.enabled=false` is for evaluation-only Runs with learning completely stopped. `learner.enabled` defaults to `true`. For tags requiring an immediate evaluation, set `run.eval_schedule.[tag].warmup_count = 0` and also `offset = 0` when the inherited offset is unwanted (the default suppresses the first firing). With `learner.enabled=false`, no ReplayBuffer is constructed, and Push, Sample, forward, backward, and optimizer step are never called. Optimizer remains constructed for checkpoint payload compatibility. It returns one `BatchUpdateResult` whose diagnostic keys are all unavailable (`NaN`). This is because LEARN events do not fire for empty `update_results`, and evaluation is driven by `EpisodeEvalObserver::OnLearn`. This makes one train step equal one learn step, allowing `eval_schedule` `interval` to serve directly as a train-step period. Reward scaling, Perception statistics updates, and ActionPolicy schedules still operate. Configurations that do not update observation statistics omit Normalize or use `perception.block.[norm].mode=none` or `constant`. `learner.enabled=false` without `auto_load_file` evaluates initial weights, so it warns once.
 
 ### 6.3 Munchausen RL
 
@@ -624,9 +631,9 @@ Atari `nz_learning` inherits existing μ initialization and AMP. `nz_reference` 
 
 ### 8.1 Resources and State
 
-- The outer Agent owns the lifetimes of `RuntimeVars`, `NetworkModel`, Policies, the inner Learner, scalers, and `IntrinsicRewardCoordinator`. The inner Learner constructs and owns five probe RNGs from the Agent's base seed and purpose names, retaining them across subscription reconfiguration.
+- The outer Agent owns the lifetimes of `NetworkModel`, Policies, the inner Learner, scalers, and `IntrinsicRewardCoordinator`. The inner Learner constructs and owns five probe RNGs from the Agent's base seed and purpose names, retaining them across subscription reconfiguration.
 - The Coordinator owns the estimator, beta schedule and latest value, auxiliary-learning credit/count/lane-selection RNG, and diagnostics. Trace retains the Coordinator for the Agent's lifetime and preserves the existing locking boundaries for copying or directly reading the estimator.
-- The inner Learner references the outer `NetworkModel` and `RuntimeVars` and directly owns the Optimizer and ReplayBuffer.
+- The inner Learner references the outer `NetworkModel`. It owns the Optimizer, ReplayBuffer, learning progress `learn_step`, and PER `per_beta`.
 - A shared Actor references the Agent-owned Network; a clone Actor owns a private Network. Neither references the Learner itself.
 - Epsilon and the time-varying UQE tau are State updated and owned by ActionPolicy; update credit, the warmup latch, and per-update policy churn requests/probes/Q are owned by the inner Learner; snapshot interval and last sync step are owned by the clone Actor. IQN tau placement mode is configuration, while each forward's taus are temporary inputs generated from a Policy- or Learner-owned RNG. Policy churn's fixed midpoint taus consume no randomness and are shared across up to three forwards in the same update.
 - The outer Agent's shared mutex serializes Learner updates, shared Actor forwards, and clone/sync copies.
@@ -637,7 +644,7 @@ Decomposition or a dynamic extrinsic/intrinsic reward scaler uses version 3 (`De
 
 The version-1/version-2 descriptions below use `intrinsic.enabled=false` as their baseline. Enabled mode also saves and restores the additional section described next.
 
-Intrinsic-enabled DefaultDQN appends `;intrinsic` to the Agent identifier. After the RND identifier and statistics mode, it saves the fixed target, predictor, AdamW state, observation and error statistics, target-output statistics, and scored-observation count. It then saves auxiliary-learning credit, selection RNG state, and success count. Rollout contents and the in-progress learning position are empty on resume. A checkpoint saved with cumulative statistics can be read with the formula that does not divide. See [RND saving and resuming](212_rnd_lifelong_novelty.en.md#97-saving-and-resuming) for the detailed format.
+Intrinsic-enabled DefaultDQN appends `;intrinsic` to the Agent identifier. After the RND identifier and statistics mode, it saves the fixed target, predictor, AdamW state, observation and error statistics, target-output statistics, and scored-observation count. It then saves auxiliary-learning credit, selection RNG state, and success count. The new Run starts with an empty rollout and does not restore the position within auxiliary learning. A checkpoint saved with cumulative statistics can be read with the formula that does not divide. See [RND saving and checkpoint restoration](212_rnd_lifelong_novelty.en.md#97-saving-and-checkpoint-restoration) for the detailed format.
 
 The `split` optimizer adds `primary_skip` to the ordinary four roles, saving the additional optimizer's moments and step. Loading a four-role checkpoint into split initializes the added state and warns once; loading five roles into stop/merge is rejected. After restoration, the additional optimizer also receives current lr, eps, and betas, retaining zero weight decay. Stop/merge save formats are unchanged.
 
@@ -651,12 +658,12 @@ The current DefaultDQN checkpoint does not save or restore:
 
 - ReplayBuffer contents, generations, priorities, normal sample RNG, or prefetch state
 - Plasticity/policy churn probe RNGs and policy churn measurement State during an update
-- Learning progress State such as `RuntimeVars`, update credit, warmup latch, and PER beta
+- Learning progress State in the Learner, including `learn_step`, update credit, the state in which warm-up start has been reported and completion is pending, and PER `per_beta`
 - Q-input ObservationNormalizer statistics (dynamic extrinsic/intrinsic RewardScalers and RND statistics are saved)
 - Run StepCounts and metric series
 - Actor-private snapshots, synchronization interval runtime, last sync step, or Actor RNGs
 
-Checkpoint loading therefore transfers the Networks and Optimizer into a new Run rather than fully resuming the old Run. The Config string is read from the archive and logged, but does not replace the current Agent Config. Optimizer moments and step are transferred from the checkpoint, while all options (lr, weight_decay, eps, betas, and amsgrad) for each parameter group are replaced with values built from the current configuration. Each differing option is reported once per Run at INFO with its group, corresponding configuration key, saved value, and configured value; betas and amsgrad have no configuration key, so that field is omitted. Each group also logs the applied lr, weight_decay, and eps at INFO level. Identical settings produce no difference notification. The same rule applies with learner.enabled=false. Network composition and the Optimizer payload must be compatible.
+Checkpoint loading transfers the Networks and Optimizer into a new Run, along with RND, auxiliary-learning state, and the intrinsic and extrinsic reward scalers when configured. The Config string is read from the archive and logged, but does not replace the current Agent Config. Optimizer moments and step are transferred from the checkpoint, while all options (lr, weight_decay, eps, betas, and amsgrad) for each parameter group are replaced with values built from the current configuration. Each differing option is reported once per Run at INFO with its group, corresponding configuration key, saved value, and configured value; betas and amsgrad have no configuration key, so that field is omitted. Each group also logs the applied lr, weight_decay, and eps at INFO level. Identical settings produce no difference notification. The same rule applies with learner.enabled=false. Network composition and the Optimizer payload must be compatible.
 
 `RainbowAgent` currently does not override `Save()` / `Load()` and uses the base Agent's no-op. Do not assume it has the same checkpoint support as DefaultDQN.
 
@@ -689,7 +696,7 @@ s[b,a] = std_k(risk_quantiles[b,a,k]) / sqrt(K)
 ratio[b] = (uqe[b,a1] - uqe[b,a2]) / (sqrt(s[b,a1]^2 + s[b,a2]^2) + 1e-6)
 ```
 
-`iqn_uqe_full_q_argmax_disagreement` is the argmax disagreement rate between UQE and full Q; `action_full_q_margin.[i]` is `mean_b(full_q[b,i] - max_{a != i}(full_q[b,a]))`. Without a full query, full-dependent values are `NaN`; outside IQN+UQE or when `K < 2`, the margin ratio is `NaN`. An invalid action index fails fast with its valid range. Diagnostics are passed to ActionInfo as one detached packed Tensor, materialized on CPU only once across multiple key accesses. No diagnostic forward or tau generation is added.
+`iqn_uqe_full_q_argmax_disagreement` is the argmax disagreement rate between UQE and full Q; `action_full_q_margin.[i]` is `mean_b(full_q[b,i] - max_{a != i}(full_q[b,a]))`. Without a full query for visualization, full-dependent values are `NaN`. The margin ratio is defined for IQN UQE and Thompson policies when action selection uses `K >= 2` quantiles from a tail or from the full interval used by non-spatial Thompson. A point query for action selection gives `NaN` even with a separate full query for visualization. An invalid action index fails fast with its valid range. Diagnostics are passed to ActionInfo as one detached packed Tensor, materialized on CPU only once across multiple key accesses. No diagnostic forward or tau generation is added.
 
 On the Learner side, with current quantiles `z[b,i]`, target quantiles `y[b,j]`, `delta=y-z`, and counts `N,M`, use:
 
@@ -711,7 +718,7 @@ upper_std = sqrt(mean_{i=K-h..K-1}((z[i] - median)^2))
 lower_std = sqrt(mean_{i=0..h-1}((median - z[i])^2))
 ```
 
-Policy metrics `policy_upper_truncated_std` and `policy_lower_truncated_std` average the final executed action's widths across the batch. `lower_risk_full_q_argmax_disagreement` is the argmax disagreement rate between `mean(z)` and `mean(z)-lower_std`. `quantile_crossing_ratio` is the fraction of adjacent taus with `z[i] > z[i+1]` across all batches and actions. For the final executed action, `policy_selected_crossing_depth_p90_ratio` normalizes `d[i]=max(z[i]-z[i+1],0)` by that action's range, computes nearest-rank p90 over positive crossings per lane, and averages across the batch. A lane without crossings or with zero range contributes `0`. QR uses existing `q_quantiles` and IQN uses fixed `full_q_quantiles`. The five values retain per-action widths, a detached full-quantile alias, and global diagnostics in a shared payload. The first scalar access gathers the action returned by Actor, sorts percentiles, and materializes one Tensor on CPU.
+Policy metrics `policy_upper_truncated_std` and `policy_lower_truncated_std` average the final executed action's widths across the batch. `lower_risk_full_q_argmax_disagreement` is the argmax disagreement rate between `mean(z)` and `mean(z)-lower_std`. `quantile_crossing_ratio` is the fraction of adjacent taus with `z[i] > z[i+1]` across all batches and actions. For the final executed action, `policy_selected_crossing_depth_p90_ratio` normalizes `d[i]=max(z[i]-z[i+1],0)` by that action's range, computes nearest-rank p90 over positive crossings per lane, and averages across the batch. A lane without crossings or with zero range contributes `0`. QR uses existing `q_quantiles`; IQN uses only fixed `full_q_quantiles`. The five values retain per-action widths, a detached full-quantile alias, and global diagnostics in a shared payload. The first scalar access gathers the final action and materializes one Tensor on CPU. Percentile sorting also occurs only at this first access. With forced actions too, this access uses the action finalized by Actor.
 
 Learner metric `upper_tail_priority_spearman` is the average-rank Spearman correlation between per-sample `upper_std` from current quantiles for the experienced action and raw PER priority after clipping but before `per_alpha`. QR uses quantile index order; IQN also applies the ascending `current_taus` permutation to the quantiles. Tail values are appended to the existing priority readback only with PER enabled, preserving the pack prefix, clip counts, Replay update order, and absence of new wait boundaries. It is `NaN` when PER is disabled, batch size is below 2, either rank sequence is constant, or `K < 2`. Policy values are also `NaN` when the required full distribution is absent or `K < 2`. Crossing-depth p90 is dimensionless after range normalization, but with TBO it is calculated in h-space like other tail diagnostics, without inverse transformation to real space. All values use float32 and are detached from the training graph.
 
@@ -731,12 +738,12 @@ Current snapshot metrics are registered in `metrics.scalar.@full` in [metrics_sc
 - Validate action count, Observation shape, and sample tensor shape/dtype/device at Agent, Actor, and Learner boundaries.
 - `actor_approx` hints must be `float32[B,5]`; schema violations fail fast. All columns are checked for finite values. Nonfinite values fail fast in Debug builds and fall back to max initialization in `NDEBUG` builds.
 - Unknown Policies, invalid PER modes, nonfinite or out-of-range configuration, and incompatible checkpoints do not allow processing to continue.
-- DefaultDQN fails fast during construction for unknown `quantile_mode`, invalid QR quantile counts, invalid IQN tau counts/placement modes/Huber κ, and nonfinite or out-of-range tau lower bounds used by IQN+UQE/spatial Thompson.
+- DefaultDQN rejects unknown `quantile_mode`, invalid QR quantile counts, invalid IQN tau counts or tau placement modes, and nonfinite or out-of-range tau lower bounds used by IQN+UQE/spatial Thompson at construction. DefaultDQN and Rainbow validate that `learner.quantile_huber_kappa` is finite and positive at construction, regardless of `quantile_mode`.
 - Rainbow requires `num_quantiles>1` when `use_qr=true`; it does not reinterpret invalid counts as ordinary Q.
 - Normalize validates `running.post_process_type` at Perception construction and accepts values 0 through 3.
 - `model.soft_update_tau` validates finiteness and `[0, 1]` for every active value regardless of configuration. If online or target contains SN and soft updates are configured (`model.hard_update_interval<=0`), every active endpoint is capped at 0.1, except a root constant equal to 1. Hard updates do not use τ for updates, but the profile declaration itself is still validated.
 
-Actor normalization runs outside the Agent mutex. `DefaultDQNAgent::UpdateFromBatch` updates Normalize statistics inside its unique lock. Shipped Runner configurations use `perception.block.[norm].mode=none`, which performs no statistics updates.
+Known issue: Actor normalization runs outside the Agent mutex, while Normalize statistics are updated inside the unique lock of `DefaultDQNAgent::UpdateFromBatch`. The current shipped configuration uses `perception.block.[norm].mode=none` and does not update statistics.
 
 ### 9.4 Plasticity Metrics
 

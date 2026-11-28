@@ -10,4 +10,4 @@ GridMaze の DefaultDQNAgent 系 Run に関する探索索引です。TempoRL �
 
 ## 知見のまとめ
 
-- [wikiの知見](../../../wiki/mechanisms/temporal_abstraction.md)から機構と正本をたどる。
+- [wikiの知見](../../../wiki/concepts/methods/temporal_abstraction.md)から機構と正本をたどる。

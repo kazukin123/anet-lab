@@ -148,14 +148,32 @@ public:
     void Flush() override {}
 };
 
+class ConfigRecordBackend final : public anet::IBackend {
+public:
+    void Open(const std::filesystem::path&, const std::string&) override {}
+    void Flush() override {}
+    void WriteJsonl(const anet::json& record) override
+    {
+        constexpr char kTypeField[] = "type";
+        constexpr char kTagField[] = "tag";
+        constexpr char kJsonType[] = "json";
+        constexpr char kConfigRecordTag[] = "ImageClsAgent";
+        if (record.value(kTypeField, "") == kJsonType && record.value(kTagField, "") == kConfigRecordTag) {
+            ++config_count;
+        }
+    }
+public:
+    int config_count = 0;
+};
+
 class ScopedNoopMetricsLogger final {
 public:
-    ScopedNoopMetricsLogger()
+    explicit ScopedNoopMetricsLogger(std::unique_ptr<anet::IBackend> backend = std::make_unique<NoopMetricsBackend>())
     {
         anet::MetricsLogger::Reset();
         anet::MetricsLoggerConfig logger_config;
         logger_config.run_name_tmpl = "image_cls_agent_lr_test";
-        anet::MetricsLogger::Init(std::make_unique<NoopMetricsBackend>(), logger_config, "out/test-tmp");
+        anet::MetricsLogger::Init(std::move(backend), logger_config, "out/test-tmp");
     }
 
     ~ScopedNoopMetricsLogger()
@@ -928,6 +946,91 @@ TEST_CASE("ImageClsAgentFactory reads its class-owned net tree", "[image_cls][co
         123);
 
     REQUIRE(agent != nullptr);
+}
+
+
+static anet::ConfigData MakeImageClsConstructionTestConfigData()
+{
+    constexpr char kFlattenName[] = "Flatten";
+    constexpr char kMainFeatureName[] = "main_feature";
+    auto data = MakeImageClsSerializeTestConfigData();
+    data.Set(std::string("net.block.[") + kFlattenName + "].type", kFlattenName);
+    const std::string branch = std::string("ImageClsAgent.net.branch.[") + kMainFeatureName + "]";
+    data.Set(branch + ".bind", anet::rl::ObsKeys::kGrid);
+    data.Set(branch + ".structure", kFlattenName);
+    data.Set("ImageClsAgent.net.body.output.[features]", kMainFeatureName);
+    return data;
+}
+
+
+TEST_CASE("ImageCls Agent validates numerical training settings on construction", "[rfd0206][image_config]")
+{
+    EnsureImageClsNnInitialized();
+    ScopedNoopMetricsLogger metrics_logger;
+    auto data = MakeImageClsConstructionTestConfigData();
+    anet::rl::img_cls::ImageClsAgentFactory factory;
+    const auto construct = [&] {
+        return factory.CreateAgent(MakeImageClsEnvSpec(), anet::rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1},
+            torch::Device(torch::kCPU), data, nullptr, 123);
+    };
+
+    SECTION("invalid values")
+    {
+        const auto input = GENERATE(Catch::Generators::table<std::string, std::string>({
+            {"grad_clip_max_norm", "nan"}, {"grad_clip_max_norm", "inf"},
+            {"grad_clip_max_norm", "0"}, {"grad_clip_max_norm", "-1"},
+            {"label_smoothing", "nan"}, {"label_smoothing", "inf"}, {"label_smoothing", "-0.1"},
+            {"label_smoothing", "1.1"}, {"weight_decay", "nan"}, {"weight_decay", "inf"},
+            {"weight_decay", "-1"}, {"learning_rate", "-0.001"},
+            {"learning_rate.start", "-0.001"}}));
+        const auto& [field, value] = input;
+        const std::string key = "ImageClsAgent." + field;
+        CAPTURE(key, value);
+        if (field == "learning_rate.start") {
+            data.Set("ImageClsAgent.learning_rate.type", "linear");
+            data.Set("ImageClsAgent.learning_rate.end", "0.001");
+            data.Set("ImageClsAgent.learning_rate.steps", "10");
+        }
+        data.Set(key, value);
+        CHECK_THROWS_WITH(construct(), Catch::Matchers::ContainsSubstring(key));
+    }
+
+    SECTION("valid boundaries")
+    {
+        const std::string value = GENERATE("0", "1");
+        data.Set("ImageClsAgent.label_smoothing", value);
+        data.Set("ImageClsAgent.weight_decay", "0");
+        data.Set("ImageClsAgent.learning_rate.type", "linear");
+        data.Set("ImageClsAgent.learning_rate.start", "0");
+        data.Set("ImageClsAgent.learning_rate.end", "0.001");
+        data.Set("ImageClsAgent.learning_rate.steps", "10");
+        CHECK(construct() != nullptr);
+    }
+}
+
+
+TEST_CASE("ImageCls Agent records its configuration once", "[rfd0206][image_logging]")
+{
+    EnsureImageClsNnInitialized();
+    auto backend = std::make_unique<ConfigRecordBackend>();
+    const auto* recorder = backend.get();
+    ScopedNoopMetricsLogger metrics_logger(std::move(backend));
+    anet::test::LogCaptureGuard logs;
+    auto data = MakeImageClsConstructionTestConfigData();
+    anet::rl::img_cls::ImageClsAgentFactory factory;
+    const auto agent = factory.CreateAgent(MakeImageClsEnvSpec(), anet::rl::BatchEnvSpec{.num_envs = 2, .num_threads = 1},
+        torch::Device(torch::kCPU), data, nullptr, 123);
+    REQUIRE(agent != nullptr);
+
+    logs.Flush();
+    const auto& records = logs.Records();
+    const auto matching = std::count_if(records.begin(), records.end(), [](const auto& record) {
+        return record.level == wxLOG_Message && (record.message.starts_with("ImageClsAgent config=")
+            || record.message.starts_with("ImageClsAgent initialized. config="));
+    });
+    CHECK(matching == 1);
+    CHECK(anet::test::HasRecordContaining(records, wxLOG_Message, {"ImageClsAgent config="}));
+    CHECK(recorder->config_count == 1);
 }
 
 TEST_CASE("ImageCls actor and learner gate BF16 autocast around forward", "[image_cls][bf16]")

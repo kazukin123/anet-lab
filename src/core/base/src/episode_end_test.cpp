@@ -664,13 +664,15 @@ TEST_CASE("EpisodeEvalObserver shifts the sequence and counts observed firings w
 
 TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event", "[episode_end][eval_session][runner]")
 {
+    static constexpr char kEvalTag[] = "session_end_order";
+    const auto log_prefix = std::string("run.eval.[") + kEvalTag + "]: ";
     const bool background = GENERATE(false, true);
     anet::test::LogCaptureGuard logs(wxLOG_Info);
     auto notifier = std::make_shared<rl::Notifier>();
     auto agent = std::make_shared<TestAgent>();
     auto inner = std::make_shared<SessionRunnerEnv>();
     auto env = std::make_shared<rl::EvalSessionEnv>(inner, 3, std::vector<std::string>{ "mean.score" });
-    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, "eval1");
+    auto runner = std::make_shared<rl::EvalRunner>(env, agent, notifier, rl::ActorRequest{.batch_env_spec = env->GetBatchSpec(), .env_spec = env->GetSpec(), .device = agent->GetDevice(), .seed = 123, .actor_key = "eval"}, kEvalTag);
     auto observer = std::make_shared<CountingEpisodeEndObserver>();
     notifier->Attach(observer);
 
@@ -732,7 +734,7 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
     CHECK(runner->GetScalar("min.episode_steps") == Catch::Approx(1.0f));
     CHECK(runner->GetScalar("std.episode_steps") == Catch::Approx(0.0f));
 
-    // worker 完了後に flush し、開始・終了の件数と train 側座標を突き合わせる。
+    // worker 完了後に flush し、この Runner の開始・終了の件数と train 側座標を突き合わせる。
     logs.Flush();
     int starts = 0;
     int ends = 0;
@@ -744,13 +746,13 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
     const auto& records = logs.Records();
     for (size_t i = 0; i < records.size(); ++i) {
         const auto& record = records[i];
-        if (record.message.find("run.eval.[eval1]: waiting for previous session") != std::string::npos) {
+        if (record.message.find(log_prefix + "waiting for previous session") != std::string::npos) {
             ++wait_begins;
             wait_begin_index = i;
             CHECK(record.level == wxLOG_Message);
             CHECK(record.message.find("learn_step=2 exp_step=789") != std::string::npos);
         }
-        if (record.message.find("run.eval.[eval1]: waited for previous session") != std::string::npos) {
+        if (record.message.find(log_prefix + "waited for previous session") != std::string::npos) {
             ++waits;
             waited_index = i;
             CHECK(record.level == wxLOG_Message);
@@ -759,7 +761,7 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
             REQUIRE(std::regex_search(record.message, match, std::regex(R"(elapsed=([0-9]+\.[0-9]{2})s)")));
             CHECK(std::stod(match[1].str()) >= 0.03);
         }
-        if (record.message.find("run.eval.[eval1]: session start") != std::string::npos) {
+        if (record.message.find(log_prefix + "session start") != std::string::npos) {
             ++starts;
             last_start_index = i;
             // 開始行は発火時点で出すので、background では前セッションの終了行を追い越す。
@@ -771,7 +773,7 @@ TEST_CASE("EvalRunner RunSession emits adopted episodes then one session event",
             CHECK(record.level == wxLOG_Info);
             CHECK(record.message.find(starts == 1 ? "learn_step=1 exp_step=456" : "learn_step=2 exp_step=789") != std::string::npos);
         }
-        if (record.message.find("run.eval.[eval1]: session end") != std::string::npos) {
+        if (record.message.find(log_prefix + "session end") != std::string::npos) {
             ++ends;
             CHECK(ends <= starts);
             CHECK(record.level == wxLOG_Info);

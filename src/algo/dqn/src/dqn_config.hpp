@@ -6,7 +6,6 @@
 namespace anet::rl::dqn {
 
         class Actor;
-        struct RuntimeVars;         ///< Agent内部変数
         class NetworkModel;              ///< NN
         class ActionPolicy;         ///< 行動選択アルゴリズム
         class Learner;              ///< 学習アルゴリズム
@@ -254,6 +253,10 @@ namespace anet::rl::dqn {
             static constexpr const char* kFeatureGradientStop = "stop";
             static constexpr const char* kFeatureGradientMerge = "merge";
             static constexpr const char* kFeatureGradientSplit = "split";
+
+            void ValidateTrainingValues() const;
+            const anet::ProfiledValueConfig<float>& GetIntrinsicGammaConfig() const;
+
             struct {
                 bool decomposed = false; ///< Agent が価値の構成から解決する。
                 std::string discount_mode = kDiscountShared;

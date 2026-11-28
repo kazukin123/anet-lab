@@ -32,7 +32,7 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | `anet::rl::gui::Panel` | Env固有Viewなどの共通panel。構築時に明示styleにも`wxFULL_REPAINT_ON_RESIZE`を加え、停止中もresize後の画面全体を描き直す。Viewごとの指定は不要。別windowであるwxGLCanvasは各canvas側で設定する。`wxEVT_CHAR_HOOK`を`EVT_FORWARDED_KEY`へ転送し、`Skip`で標準のキー処理を続けながら`StopPropagation`で親への伝播を止める。Panelより上でキーを受ける部品は`EVT_FORWARDED_KEY`を使う。 |
 | `TrainPanel` | Train eventからEnv固有Viewを更新し、GUI timerで断面を描画する |
 | `EvalPanel` | 専用`EvalRunner`をtimerまたは強制行動で駆動し、clone modelの同期を管理する |
-| `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする。ヒストグラムの平滑化半径 `QValuePanel.smooth_radius` は1以上の整数で、コードの既定は4。平滑化を無効にする設定でも、起動時に半径を検証する |
+| `QValuePanel` | Eval ActorのAction候補を可視化し、選択Actionを`EvalPanel`へ渡す。`full_q_quantiles`があれば優先し、なければ`q_quantiles`、`q_values`へfallbackする。ヒストグラムの平滑化半径 `QValuePanel.smooth_radius` は1以上の整数で、コードの既定は4。平滑化を無効にする設定でも、起動時に半径を検証する。ヒストグラムのビン数 `QValuePanel.hist_bins` は 1 以上の整数として構築時に検証する |
 | `LogPanel` | wxLogの画面表示とlevel filterを提供する。WARN以上とVERBOSEの色分け、薄い時刻、未確認のWARN/ERRORの件数、Auto-scroll・Wrap・Indent・全体コピー・クリア・検索の操作帯を持つ |
 | `DefaultViewFactory` | Env class IDからTrain/Eval用Viewを生成する |
 | `ImageProviderManager` | configで定義された画像Provider/Observerを生成・登録する |
@@ -80,6 +80,11 @@ Metrics Viewerの内部仕様（cache schema、設定一覧、HTTP API、依存�
 | Train View | [TrainPanel.hpp](../../src/apps/runner/src/TrainPanel.hpp)、[TrainPanel.cpp](../../src/apps/runner/src/TrainPanel.cpp) |
 | Eval View、model同期 | [EvalPanel.hpp](../../src/apps/runner/src/EvalPanel.hpp)、[EvalPanel.cpp](../../src/apps/runner/src/EvalPanel.cpp) |
 | Q値・ログ・補助pane | [QValuePanel.cpp](../../src/apps/runner/src/QValuePanel.cpp)、[LogPanel.cpp](../../src/apps/runner/src/LogPanel.cpp) |
+| EvalTracePanel | [EvalTracePanel.hpp](../../src/apps/runner/src/EvalTracePanel.hpp)、[EvalTracePanel.cpp](../../src/apps/runner/src/EvalTracePanel.cpp) |
+| HeatMapPanel | [HeatMapPanel.hpp](../../src/apps/runner/src/HeatMapPanel.hpp)、[HeatMapPanel.cpp](../../src/apps/runner/src/HeatMapPanel.cpp) |
+| Conv2dPanel | [Conv2dPanel.hpp](../../src/apps/runner/src/Conv2dPanel.hpp)、[Conv2dPanel.cpp](../../src/apps/runner/src/Conv2dPanel.cpp) |
+| ErrorDialog | [ErrorDialog.hpp](../../src/apps/runner/src/ErrorDialog.hpp)、[ErrorDialog.cpp](../../src/apps/runner/src/ErrorDialog.cpp) |
+| Trace 再生と列の表示（`gui::TracePlayer` など） | [gui.hpp](../../src/core/base/include/anet/gui.hpp)、[gui.cpp](../../src/core/base/src/gui.cpp) |
 | runtime接続 | [trainer.hpp](../../src/core/base/include/anet/trainer.hpp)、[trainer.cpp](../../src/core/base/src/trainer.cpp) |
 | default config | [apps/runner/config](../../apps/runner/config) |
 
@@ -216,14 +221,14 @@ flowchart LR
   subgraph OP["Optuna harness / Dashboard"]
     OH[OptunaHarnessRuntime]
     PM[RunnerProcessManager]
-    DB[(optuna.db)]
+    ODB[(optuna.db)]
     AS[(artifact store)]
     OD[Optuna Dashboard]
 
     OH --> PM
-    OH --> DB
+    OH --> ODB
     OH --> AS
-    DB --> OD
+    ODB --> OD
     AS --> OD
   end
 
@@ -260,7 +265,7 @@ sequenceDiagram
     A->>F: GUI paneを生成・表示
     A->>I: 設定のコピーで構築を開始
     A-->>OS: OnInitからtrue（イベントループ開始）
-    I->>R: RunManager(ConfigData)
+    I->>R: RunManager(ConfigData, reserved_env_names)
     R-->>I: Agent、Train Runner、configured Eval
     I-->>A: 完了を通知
     A->>I: join、結果を一度だけ受領
@@ -275,7 +280,7 @@ GUIはmain thread、Train Runnerは`RunnerThread`で動く。TrainPanelはTrain 
 
 RunnerFrameのRun制御 / Step表示 / Run操作 / Panel表示toolbarはwxAUI paneとして上端に配置し、Reset LayoutでRow 0へ回収する。layerは補助列（20）より外側の30とし、Q-Valuesや補助列の上まで全幅に並べる。wxは窓の縁へドラッグしたtoolbarをlayer 10へ置くため、そのときはReset Layoutで30へ戻す。gripperは`AddPane()`が有効化する`wxAuiToolBar`内蔵の標準描画だけを使う。Reset Layoutで`ToolbarPane()`を再適用した後はpane側を`Gripper(false)`に戻し、内蔵gripperと重複させない。buttonの背景・hover・checked色はwxWidgets標準art/system colourへ委ねる。Train toggle直後とexp/train間は標準separatorで区切り、step数は選択・コピー可能なread-only text controlへ分ける。操作状態は200ms周期の`wxUpdateUIEvent`で実状態から再構成するため、shortcut、自動pause、menu、paneのcloseを別経路として扱っても表示が収束する。status snapshot更新はRunnerFrame自身のupdate eventへBindし、Train toggle toolのenable/check更新から分離する。Step、SPS、経過時間はTrainer threadのTrain observer callback内で1つのsnapshotにまとめ、強制更新間隔0のrequest-driven `UIDataStore`を介してmain threadへ渡す。main threadから`TrainRunner`の可変count、EMA、開始時刻を直接読まない。observerのdetachではNotifierが保持する`RunnerScopedTrainObserver` wrapper自体を保持・指定する。
 
-補助launcherは第1引数、`GetAppDataDir()/last_workspace.txt`、`_default`の順でworkspaceを解決し、選択済み`runs/`だけをDOT/MP4/TensorBoard/MLflowへ渡す。既存workspace rootと`runs/`だけを解決条件とし、`config/_main.txt`は要求しない。launcherはworkspaceや`runs/`を生成しない。MLflow DBはADR 0022の限定例外として`<workspace>/runs/mlflow.db`に置く。
+補助launcherは第1引数、`GetAppDataDir()/last_workspace.txt`、`_default`の順でworkspaceを解決し、選択済み`runs/`だけをDOT/MP4/TensorBoard/MLflowへ渡す。既存workspace rootと`runs/`だけを解決条件とし、`config/_main.txt`は要求しない。launcherはworkspaceや`runs/`を生成しない。MLflow DBは[ADR 0022](../adr/0022-mlflow-database-lives-with-workspace-runs.md)の限定例外として`<workspace>/runs/mlflow.db`に置く。
 
 RunManagerの構築中はメインのイベントループで描画とログの書き出しを続ける。構築だけを`RunInitThread`へ移し、DefaultViewFactory、Trainer observer、ImageProviderManager、FrameのInitialize、Notifier一覧、学習スレッドの生成・開始はメインスレッドに残す。`IsRunInitialized()`はこの後半まで正常に完了した場合だけtrueとなる。起動の開始と完了をINFOに記録し、完了の`elapsed_sec`は構築開始直前からの実時間を小数点以下2桁で表す。status barのfield 0は構築開始時に`Initializing run...`とし、後半の完了時に`app.train_auto_start`に応じて`Training started`または`Run initialized`、構築後にRUNNINGでなければ`Run initialization failed`へ置き換える。この更新は完了通知を受けた経路だけで行い、強制Closeや`OnExit`での受領ではframeへ触れない。構築の取消や同期起動へ戻す切替は設けない。
 
@@ -379,7 +384,7 @@ sequenceDiagram
 - 初期化中（構築スレッド開始から結果受領まで）の拒否可能なCloseは一度だけ記憶して拒否し、構築後に初期化の後半と学習開始を省いて閉じる。RUNNINGなら学習前のAgentを保存できる。RUNNINGでなければ`Failed to initialize RunManager.`を出し、終了要求がなければウィンドウを残す。HeatMapは初期化までUpdate UIとhandlerで抑止する。
 - 初期化中の`Close(true)`は構築を待ってから既存のclose手順へ進む。構築失敗はその場で既存reporterへ渡し、保存せず閉じ、終了コード1とする。OS終了の問い合わせはRunnerAppの`OnQueryEndSession`でFrameの通常Closeと区別して受け、初期化中は同じ待機経路へ通して拒否しない。初期化後はwxの既定処理に委ねる。
 - OS終了確定の通知はwxの既定処理を保ち、Closeの道を足さない。wxWidgets 3.3.3では`CallOnExit()`がFrameと子パネルをCloseなしで削除してから`OnExit()`を呼び、その戻り値で`exit()`する。`OnExit()`は残る構築スレッドを待ってから出力を片付ける。未処理の構築失敗は表示・保存を省いて戻り値1へ反映する。LogPanelが先に削除された場合、ログチェーンのUI参照を切り離してファイル側だけへ排出する。通常完了通知、拒否できないClose、OnExit以外では構築を待たない。
-- Train panelのFPSは描画頻度だけを制御し、0またはTrain Viewの非表示中は描画timerを停止しても学習は継続する。表示状態と選択FPSは初期化前も保持し、再表示時は現在選択されているFPSで再開する。observerは表示切替で外さない。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。menuの選択肢はTrainが0 (Off)・0.1・0.5・1・5・10・15・30・60、Evalが0.1・0.5・1・5・10・15・30・60・120で、timer周期は1000/FPS msとする。実行時のFPS選択はconfig dumpへ書き戻さない。
+- Train panelのFPSは描画頻度だけを制御し、0またはTrain Viewの非表示中は描画timerを停止しても学習は継続する。表示状態と選択FPSは初期化前も保持し、再表示時は現在選択されているFPSで再開する。observerは表示切替で外さない。Eval panelのFPSはEvalRunnerを進めるGUI timer周期であり、Evalの実行速度そのものも変える。menuの選択肢はTrainが`Config`（設定の値）・0 (Off)・0.1・0.5・1・5・10・15・30・60、Evalが`Config`・0.1・0.5・1・5・10・15・30・60・120で、timer周期は1000/FPS msとする。実行時のFPS選択はconfig dumpへ書き戻さない。
 - 起動時とReset Layoutの主paneは`app.main_view`（`train`・`eval`・`both`、既定`train`）で決まる。昇格した主paneの元のdock位置をFrameが1組保持し、隠れていた占有者がCentre情報を保ってdockedで再表示されると復元する。Resetで位置の記憶を消す。主paneを隠す・floatできるのは相方が開いてdockedのときだけで、両方dockedなら両方をfloatできる。CentreのpaneはwxAUIがcaptionドラッグを始めないためcaptionのpinボタンで、側面のpaneはドラッグでもpinでも外せる。主paneのpinはFloatable・✕と同じ値で描き、UPDATE_UIの宣言が追いつく前のpin押下も基底の判定で止める。pin後の昇格も既存200ms UPDATE_UIで行う。Logs・Q-Values・Evaluation Trace・HeatMap・Conv2dもpinを持ち、toolbar paneは対象外。側面へdockしたpaneはそこに留まり、最後の主paneはpinも✕も無く動かせない。最大化中の開閉判定には一時非表示を除いた開閉状態を使う。menu・toolbarとEvalのStep・再開でpaneを開閉するときと、Reset Layoutでは、wxがdock付きの追加やdockへのdropで行うのと同じく先に最大化を解き、最大化したpaneの横に別のpaneを並べない。最大化paneの✕とpinはwxのrestore経路に任せる。floatしたpaneをdockへ落とすとwxはrestoreのイベントを出さずに最大化を解くので、既存200ms UPDATE_UIで解けたことを拾ってポリシーを当て直す。幅のLoadLayout往復は最大化中に行わない。
 - 両主paneが表示中でdockedで、一方がCentre、相方だけがLeft/Rightのdockにあるときは、その列以外の表示中の縦dockをclient幅から差し引いた主領域の幅を等分する。方向・layer・rowでdockを特定し、layer・rowの値自体は横の等分を制限しない。相方だけがTop/Bottomのdockにあり、表示中のLeft/Rightのdockのlayerがすべてその帯より大きいときは、Centreのpane.rectの高さとその帯の実dock_sizeの和を等分する。同じdockにLogsや補助paneが同居する列・帯と、左右の列と同じか内側のlayerを含むCentreより広い帯は対象外。横の最小幅200+200と補助列→Q-Values列の縮小順を保ち、縦の高さが200+200に足りないときは最小高でclampしてLogs・toolbarや左右の列を縮めない。既存の遷移とresizeに加え、200msのUPDATE_UIで主paneの置き場（方向・layer・row・位置・float・表示）が変わったときだけ当てる。起動・Resetの比較値は現在の置き場で、dock_sizeは比較しない。サッシで変えた幅・高さは次の遷移か置き場の変化まで保つ。表示中でdockedのCentreの主paneだけcaptionの末尾に半角スペースと`[Centre]`を付け、既存のTrace注記も保持する。float・側面・非表示の主paneと、ほかのpaneにはこの印を付けない。
 - Centreの印だけの変化はTrace注記と同じくcaptionの再描画と浮動frameのタイトル更新に留め、通常のTrace行移動ではAUI全体を組み直さない。許可済みの浮動paneのcloseでは、wxがframe参照を消す前にwindowを旧sizerから外し、遅延破棄前の再表示でも二重登録を防ぐ。メニューhideとVetoにはこの解放を行わない。
@@ -408,9 +413,13 @@ sequenceDiagram
 
 ### 7.4 wikiと課題の保守
 
-- wikiは外の正本を束ね、書く部分の意味はエージェントが判断する。材料・取り込み・記録は[wikiの規約](../wiki/README.md)に従う。
+- `wiki_support.py headers` は、サマリと概念のページの YAML ヘッダを本文、フォルダ、目録、作業の記録から再生成する。すべての入力を検証してから変わるページだけに書き、手動で追加した欄を残す。ページと作業の記録を書いたあとに実行する。
+- `scan` は YAML ヘッダの欠落・不一致・入力不備と、サマリの「主要な概念」のうち実在する概念のページを指さないリンクを `warnings` に出す。警告は点検の起動条件に含めない。サマリの長さは本文で数える。`reports/` の置き場に外れた Markdown も警告する。
+- wikiは外の正本を束ね、書く部分の意味はエージェントが判断する。材料・取り込み・記録は[wikiの規約](../wiki/README.md)に従う。 サーベイ・論文解説・作業ノートをそれぞれ `reports/survey/`・`reports/paper/`・`reports/notes/` から読む。資料ごとのサマリはファイル名に `_summary` を付け、要約時の blob を記録する。概念のページは元の資料を直接引く。
 - 課題の正本はdocs/management/issues/の単票。解決・次版の状態と監理の項目は人が決め、それ以外の状態はグリルの開始や実装計画の保存などの工程の出来事に合わせてAIが書く。AIの判定は別の欄で持ち、判定が済みを示す課題の解決はコミットの準備で持ちかける。課題は種類（機能追加・機能改善・性能改善・リファクタリング・不具合・不整合・調査）と分類（domain）を持ち、rfd欄でその課題を直すRFDを1本だけ指す（課題とRFDはN:1）。parent・depends・rfdはObsidianのリンクで書く。新しいRFDは直下に保持し、rfdでそれを指す課題を1件以上伴う。
-- reports/tools/wiki_support.pyのscanは読み取りだけで材料・blob・リンクと実装済みのRFDの取り込み漏れを返す。RFDの実装済みは、そのRFDを指す課題の判定と状態から導き（解決の課題は済みとして数え、次版・対応しない・不要になったの課題が残るRFDは実装済みにしない）、取り込み済みかはパスとblobで突き合わせる。mapsはINDEX（表のあとの解決待ち・再開候補・課題の無いRFD・対応内容のある未着手の課題を含む）、トピック別まとめのファイル・RFD一覧と課題の目印の間を作り直す。全入力と目印の検証が済むまで出力せず、区画外とwikiログは保つ。RFD一覧はファイルに触れたコミットの件名から作るので、コミットの準備は予定のコミットの件名と対象ファイル（`--pending-subject`・`--pending-files`）を渡し、そのコミットの行を同じコミットに入れる。
+- reports/tools/wiki_support.pyのscanは読み取りだけで材料・blob・リンクと実装済みのRFDの取り込み漏れを返す。サマリがない場合や「元の材料」の blob が現在と合わない場合も pending に含める。原本が消えたサマリ、書式の不備、外から wiki へ入るリンク切れは warnings に挙げ、警告だけでは点検を開始しない。RFDの実装済みは、そのRFDを指す課題の判定と状態から導き（解決の課題は済みとして数え、次版・対応しない・不要になったの課題が残るRFDは実装済みにしない）、取り込み済みかはパスとblobで突き合わせる。mapsはINDEX（表のあとの解決待ち・再開候補・課題の無いRFD・対応内容のある未着手の課題を含む）、トピック別まとめのファイル・RFD一覧と課題の目印の間を作り直す。全入力と目印の検証が済むまで出力せず、区画外とwikiログは保つ。RFD一覧はファイルに触れたコミットの件名から作るので、コミットの準備は予定のコミットの件名と対象ファイル（`--pending-subject`・`--pending-files`）を渡し、そのコミットの行を同じコミットに入れる。
+- `maps` は、RFD の振り直しの行にコミットの名指しがある場合、そのコミットの旧い番号を振り直した RFD に当てる。マージ中は `HEAD` と `MERGE_HEAD` の両側の履歴を読み、マージのコミット前に一覧を作り直せる。書式は [memo の採番](../memo/README.md#採番)、衝突を解く手順は [RFD0204](../memo/0204_branch_merge_conflict_assist_10rfd.md) を参照する。
+- reports/tools/chat_utterances.pyは、会話の記録（Claude CodeとCodexの`*.jsonl`）から、開発者の発言の行だけを、語か期間（日本時間の日付で、両端の日を含む）で引く。読み取りだけで、発言ごとに日付・会話の識別子・次の発言までにAIが道具を使った回数を添え、最後に、どちらの形にも当たらず飛ばしたファイルと壊れた行の数を出す。道具の結果、環境が差し込んだ行、通知、サブエージェントの会話は返さない。質問欄への返答と、人の操作でない起動の会話（Codex の`source`が`exec`の会話、Claude Code の`entrypoint`が`sdk-`で始まる行）も返さない。見立てを作る・育てるときの手がかりと、会話からwikiを引く手順が呼ばれた割合の確かめに使う。残さないと断りのある会話を外す判定と、Plan Modeの会話かどうかの判定は、読む側が行う。
 - reports/tools/stage_issue_memos.pyは、課題の管理外のメモ（priority・memo・tags）の変更だけを、indexの中身を土台に欄の単位でindexへ載せる。作業ツリーとほかの欄・本文は変えないので、Obsidianでの手入れを、同じファイルにあるAIの作業の変更と分けてコミットできる。読めない課題が1件でもあれば何も載せない。テストはreports/tools/stage_issue_memos_test.py。
 - .agents/hooks/commit_cue.pyは、Claude Code（.claude/settings.json）とCodex（.codex/hooks.json）のUserPromptSubmitのhookで、前の発言のあとに入ったコミットをAIへ知らせる。commitは人がAIの知らないところで行うので、AIの覚えている「未コミット」を古いまま言わせないためである。セッションごとに前に見たHEADを.git/anet-commit-cue/に覚え、新しいコミットがあったときだけ、件名を新しい順に3件まで出す。初めての発言、変化なし、resetで戻ったとき、失敗したときは何も出さない。Codexは、人が`/hooks`で信頼してから動く。テストは.agents/hooks/commit_cue_test.py。
 - .agents/hooks/search_guard.pyは、Claude Code（.claude/settings.json）とCodex（.codex/hooks.json）のPreToolUseのhookで、ディスク全体（`/`・`C:\`・ホームなど）を起点にした再帰の検索を、実行の前に止める。ツールの打ち切りや停止のあとも検索のプロセスが残り、端末全体が重くなったためである。コマンドをパイプや`;`で区切り、引用符の中は区切らずに、grep -r・rg・find・Get-ChildItem -Recurseなどの起点の引数を見る。読めないときや失敗したときは通す。Codexは、人が`/hooks`で信頼してから動く。テストは.agents/hooks/search_guard_test.py。
@@ -430,6 +439,7 @@ sequenceDiagram
 - [RFD0105検証資材](../../src/core/base/testdata/rfd0105/README.md): Traceモードの転送矢印、forcedの通知時点、並べ替えと再生順、ダンプの書式と実画面での表示時間、4環境の数値等価性。
 
 - [RFD0095検証資材](../../src/core/base/testdata/rfd0095/README.md): トピック別まとめ・blob・リンクの読み取りと、取り込み・点検・housekeepingの試走を確認する。
+- [RFD0202・RFD0203 検証資材](../../src/core/base/testdata/rfd0202/README.md) でサマリの鮮度、内外のリンク、概念の配置と点検条件、YAML ヘッダの生成と警告を確かめる。会話の記録を引く道具は、2 つの環境の記録の見本で、返る発言、期間の端の日、飛ばした数、引数のエラーを確かめる。
 
 - [RFD0094検証資材](../../src/core/base/testdata/rfd0094/README.md): 列、時点、診断、再生、snapshot、5構成の数値等価性。表示・操作の変更では実wxWidgetの`AnetRLRunner-gui-test`で幅・配色・toggle・赤枠を確認し、UI処理の計測と実Runの速度を区別する。
 
@@ -451,3 +461,17 @@ sequenceDiagram
 - [DQN系Agent](200_dqn_agents.jp.md)
 - [Metrics Viewer](210_metrics_viewer.jp.md)
 - [DropMerge Optuna利用ガイド](optuna.md)
+
+### ADR
+
+- [ADR 0016 RunnerFrame の dock サイズの保存と復元](../adr/0016-runnerframe-aui-layout-roundtrip.md) — §7.1
+- [ADR 0021 workspace フォルダによる Run の分類](../adr/0021-run-classification-by-workspace-folder.md) — §5.1
+- [ADR 0022 workspace ごとの MLflow DB](../adr/0022-mlflow-database-lives-with-workspace-runs.md) — §5.1
+- [ADR 0045 Run 終了時の背景評価の完走とキャンセル](../adr/0045-eval-session-drain-on-exit-wait-or-discard.md) — §7.1
+- [ADR 0056 wiki の要約と実験記録の正本](../adr/0056-wiki-is-derived-summary-and-readme-keeps-original-analysis.md) — §7.4
+- [ADR 0057 Evaluation Trace の列と読み取り時点](../adr/0057-eval-trace-columns-declared-apart-from-metrics-and-read-at-transition-time.md) — §3.4
+- [ADR 0066 主 pane による Centre の占有](../adr/0066-main-panes-occupy-centre-dynamically-and-no-flow-empties-centre.md) — §7.1
+- [ADR 0068 課題が持つ作業の状態と順序](../adr/0068-work-state-and-order-live-in-issues-prd-stays-an-instruction-document.md) — §7.4
+- [ADR 0069 課題と RFD の対応と実装済みの判定](../adr/0069-issues-point-to-prds-n-to-1-and-prd-completion-is-derived.md) — §7.4
+- [ADR 0081 課題の kind による成果物の区分](../adr/0081-issue-kind-splits-product-into-code-and-document.md) — §7.4
+- [ADR 0082 進行中の通知と Notifier の Detach](../adr/0082-notifier-detach-does-not-wait-for-in-flight-notifications.md) — §5.1・§8

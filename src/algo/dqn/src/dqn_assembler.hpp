@@ -33,6 +33,8 @@ namespace anet::rl::dqn {
     public:
         /// Agentのstep診断で要求・完了を対応付ける鍵。
         static constexpr char kStepApproxPriorityKey[] = "approx_priority";
+        static constexpr char kStepQSaKey[] = "q_sa";
+        static constexpr char kStepStateValueKey[] = "state_value";
 
         static std::shared_ptr<anet::nn::NetworkHeadFactory> CreateHeadFactory(
             const std::string& quantile_mode, bool dueling, int64_t num_actions, int num_quantiles,
@@ -43,7 +45,7 @@ namespace anet::rl::dqn {
             bool spatial, int64_t num_envs, const torch::Device& device);
         static std::shared_ptr<Learner> CreateLearner(
             const std::string& quantile_mode, int num_quantiles, const LearnerConfig& config,
-            NetworkModel& model, RuntimeVars& vars,
+            NetworkModel& model,
             const BatchEnvSpec& batch, const EnvSpec& env, const torch::Device& device,
             anet::seed_t replay_seed, anet::seed_t agent_seed,
             std::shared_ptr<ActionPolicy> target_policy,
@@ -63,7 +65,7 @@ namespace anet::rl::dqn {
             std::optional<anet::ProfiledValueConfig<step_t>> sync_interval = std::nullopt,
             std::optional<SkipActorResources> skip = std::nullopt);
         static std::optional<float> GetScalar(const std::string& key, int64_t index,
-            const Learner& learner, const RuntimeVars& vars, const ActionPolicy& target_policy,
+            const Learner& learner, const ActionPolicy& target_policy,
             std::shared_mutex& mutex);
         static std::optional<torch::Tensor> GetTensor(
             const std::string& key, const Learner& learner, std::shared_mutex& mutex);
